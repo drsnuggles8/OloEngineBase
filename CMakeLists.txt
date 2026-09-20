@@ -618,6 +618,18 @@ include(cmake/ProcStatReport.cmake)
 # the include above: it works through add_compile_options().
 include(cmake/SplitDwarf.cmake)
 
+# Drop variable/type DWARF so the linker loads less of it — the other half of the same
+# attack as SplitDwarf above, and the lever docs/agent-rules/build-memory-per-tu.md named
+# but left unpriced. Measured to remove 93% of the linker-visible debug info against split
+# DWARF's 66%, and unlike split DWARF it keeps inlined frames. OFF by default until the
+# build-memory.yml cell gives it a number. Same placement rule as its two siblings.
+include(cmake/MinimalDebugInfo.cmake)
+
+# Take upstream ASan's own -O1 recommendation on the sanitizer jobs. OFF by default and
+# deliberately so: it aims at compile memory, which #1305 showed is not the ceiling, and it
+# changes what the suites exercise. Same placement rule again.
+include(cmake/SanitizerOptimize.cmake)
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS ON)

@@ -223,8 +223,9 @@ The three levers #1305 listed, checked rather than assumed:
 | lever | verdict |
 |---|---|
 | ThinLTO instead of full LTO | **Cannot help the sanitizer jobs.** `cmake/CommonProperties.cmake` sets `INTERPROCEDURAL_OPTIMIZATION_RELEASE`/`_DIST` only, and every sanitizer job is `CMAKE_BUILD_TYPE=Debug`. No LTO is enabled there to convert. |
-| `-gsplit-dwarf` (**not** `--gdb-index`) | **Priced: −2.47 GiB on the link, −22%.** Both cells from one run on olo-ci, Debug + ASan, 1783 compiles each: heaviest `ld.lld` link **11.23 → 8.75 GiB**, heaviest compile **8.18 → 8.18** (unchanged), median/p95 compile unchanged, total compile wall −4.2 min. Headroom over one link against the 14 GiB unit cap goes 2.77 → 5.25 GiB. ccache caches and restores the `.dwo` correctly. **The cost:** inlined frames stop symbolizing — measured with a control per variable, `-gsplit-dwarf` alone resolves, `-ffile-prefix-map=/olo` alone resolves, together they are **lost**; function names and file:line survive. `OLO_SPLIT_DWARF` is therefore **OFF by default**: since #1313 the link is bounded and 11.23 GiB already fits, so the saving is margin rather than a fix, and margin is worth less than a readable stack. The version worth having is free — make the `.dwo` resolvable (`-fdebug-compilation-dir`, or a `.dwp` beside the executable) and you keep both; neither is verified yet. `--gdb-index` is deliberately not paired: lld builds that index by reading the debug info this flag exists to skip. |
-| `-g1` on sanitizer CI only | Keeps line tables and function names — what ASan needs to symbolise — and drops variable/type DWARF. Price it on the TUs the ranking names, not on the tree average: the peak is set by a handful. |
+| `-gsplit-dwarf` (**not** `--gdb-index`) | **Priced: −2.47 GiB on the link, −22%.** Both cells from one run on olo-ci, Debug + ASan, 1783 compiles each: heaviest `ld.lld` link **11.23 → 8.75 GiB**, heaviest compile **8.18 → 8.18** (unchanged), median/p95 compile unchanged, total compile wall −4.2 min. Headroom over one link against the 14 GiB unit cap goes 2.77 → 5.25 GiB. ccache caches and restores the `.dwo` correctly. **The cost:** inlined frames stop symbolizing — measured with a control per variable, `-gsplit-dwarf` alone resolves, `-ffile-prefix-map=/olo` alone resolves, together they are **lost**; function names and file:line survive. `OLO_SPLIT_DWARF` is therefore **OFF by default**: since #1313 the link is bounded and 11.23 GiB already fits, so the saving is margin rather than a fix, and margin is worth less than a readable stack. **The version worth having is now verified (2026-09-20):** re-probing on an *executable* rather than a `.o` — the difference that left it open — a `llvm-dwp`-packaged `.dwp` beside the binary **restores the inlined frames in full** with `-ffile-prefix-map` still in effect. Note `.dwp` and **not** `-fdebug-compilation-dir`: pointing `DW_AT_comp_dir` at a real absolute path re-introduces the tree-specific paths `-ffile-prefix-map` exists to remove and ends cross-slot ccache sharing, while the `.dwp` resolves relative to the executable. Whether to build that plumbing is a separate question — `-g1` above removes more debug info, keeps the frames, and needs no side-car at all. `--gdb-index` is deliberately not paired: lld builds that index by reading the debug info this flag exists to skip. |
+| `-g1` on sanitizer CI only | **Implemented as `OLO_MINIMAL_DEBUG_INFO` (`cmake/MinimalDebugInfo.cmake`), OFF, with a `Debug + ASan + -g1` cell.** Keeps line tables and function names — what a sanitizer report prints — and drops variable/type DWARF. On one header-heavy C++23 TU at the CI compile line it leaves **7%** of the linker-visible `.debug*` bytes in the object, against `-gsplit-dwarf`'s **34%** and `-g` baseline 100%; and unlike split DWARF it **keeps inlined frames** (probed on an executable, `-ffile-prefix-map=/olo` in effect). So it attacks strictly more of the same quantity at no symbolization cost and with no side-car file. **One synthetic TU is not the tree** — the cell decides the default. Do not combine it with `OLO_SPLIT_DWARF`: the pair removes 1% more and re-loses the frames, and the module warns. |
+| `-O1` on sanitizer CI only | **Implemented as `OLO_SANITIZER_OPTIMIZE` (`cmake/SanitizerOptimize.cmake`), OFF, with a `Debug + ASan + -O1` cell.** Upstream ASan recommends `-O1`+, and every sanitizer job here is `-O0` (CMake's `Debug` is `-g` with no `-O`, and this repo never sets `CMAKE_CXX_FLAGS_DEBUG` for a GNU/Clang frontend). Expect little on the ceiling: it is aimed at compiles, and the median compile is 0.32 GiB against an 11.17 GiB link. It also changes what the jobs test — inlining moves frames and ASan's scope markers, and `-O1` can prove a UBSan check unreachable and delete it — so read the cell's **suite result** beside its numbers, and adopt per job rather than per tree. |
 
 ### Appendix: the committed per-TU figures were wrong when written, and three methods now agree
 
@@ -245,6 +246,14 @@ and it lands at the same 1.11x, so the residual is the parallel-build environmen
 than a systematic error in either method. **Census for ranking, the isolated recipe for one
 TU's absolute figure.** Treat every number in those comments as void until re-measured.
 
+**Corollary, because it is the intuition everyone arrives with: line count does not predict
+memory.** `RenderGraphTest.cpp` is the longest test TU in the tree (13.2k lines, 252 test
+cases) and ranks **#34** at 1,053 MB; `VulkanPassSuiteTest.cpp` is second longest and is not
+in the top 15 either. The TUs that set the ranking are the registry and serializer ones —
+`McpFieldRegistry.cpp` (#1 in every cell), `Scene.cpp` (#3), `ComponentFieldRegistry.cpp`
+(#5). Splitting a long test file is a reasonable thing to do for review or build parallelism
+and it is **not** a memory lever; propose it against the published ranking or not at all.
+
 ## History
 
 - **#759** (2026-08) — wired the instrumentation API; found compilation, not linking, sets
@@ -254,3 +263,8 @@ TU's absolute figure.** Treat every number in those comments as void until re-me
   job pool, populated from the same time-based ranking.
 - **#1305** — this file. Added per-invocation peak RSS for compiles and links, and the
   weekly artifact that keeps it from decaying again.
+- **2026-09-20** — implemented the two remaining levers this file had only listed, as
+  measured-by-default options: `OLO_MINIMAL_DEBUG_INFO` (`-g1`) and `OLO_SANITIZER_OPTIMIZE`
+  (`-O1`), each with its own `build-memory.yml` cell and a guard that fails the cell if its
+  flag never reached a compile line. Closed `cmake/SplitDwarf.cmake`'s open question: the
+  `.dwp` route restores inlined frames on an executable.

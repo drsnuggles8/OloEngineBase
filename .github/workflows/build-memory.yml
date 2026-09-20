@@ -116,13 +116,31 @@ jobs:
       # so the workflow silently stops guarding anything. Building the matrix with
       # fromJSON is the supported way, because `strategy` can read the github context.
       #
-      # The third cell PRICES A LEVER rather than tracking drift: `-gsplit-dwarf` keeps
-      # debug info out of the objects so the linker never loads it, which is the most
-      # direct attack on the 11.17 GiB link #1313 is about. It is OFF in every real build
-      # (it costs inlined frames in sanitizer stacks while -ffile-prefix-map is in effect —
-      # cmake/SplitDwarf.cmake has the measurement), so this cell exists purely to answer
-      # "what would it buy?" with a number. Compare its link peak against `debug-asan` from
-      # the same run; both publish their full build configuration alongside the ranking.
+      # THREE CELLS PRICE A LEVER rather than tracking drift. Each is OFF in every real
+      # build and exists purely to answer "what would it buy?" with a number; compare each
+      # against `debug-asan` from the SAME run, which is why they are cells here rather than
+      # separate runs. All three publish their full build configuration beside the ranking.
+      #
+      #   split DWARF  `-gsplit-dwarf` moves debug info to .dwo side-cars the linker never
+      #                reads — the most direct attack on the 11.17 GiB link of #1313.
+      #                Already priced at -2.47 GiB (-22%); this cell keeps it from decaying.
+      #                cmake/SplitDwarf.cmake has the symbolization trade in full.
+      #   -g1          cmake/MinimalDebugInfo.cmake. Same target, larger bite: measured to
+      #                leave 7% of the linker-visible debug info in the object against split
+      #                DWARF's 34%, and unlike split DWARF it keeps inlined frames. UNPRICED
+      #                on the real tree — this cell is what decides whether it becomes the
+      #                default, and a synthetic TU's ratio does not transfer to a peak.
+      #   -O1          cmake/SanitizerOptimize.cmake. Upstream ASan's own recommendation,
+      #                aimed at compile memory and wall-clock rather than the link. Expect
+      #                little on the ceiling — #1305 put the median compile at 0.32 GiB —
+      #                and read its suite result, not just its timings: -O1 can optimize
+      #                away UBSan checks that -O0 kept.
+      #
+      # THE COST OF THESE CELLS IS WALL-CLOCK ON THE BOX. `max-parallel: 1` and up to 180
+      # min each means the weekly run now serialises five cold builds where it serialised
+      # three. Nothing waits on this workflow, and a PR still runs one cell, so the price
+      # is weekly occupancy rather than anyone's critical path — but it is not free, and a
+      # sixth lever cell should replace one of these rather than be added beside them.
       #
       # The cells: `debug-asan` is the configuration the sanitizer `--parallel 2` pins and
       # the 14 GiB unit cap were derived from — Debug, ASan, full -g, no split DWARF — and
@@ -134,8 +152,8 @@ jobs:
       # the weekly run's job, not a PR's.
       matrix:
         include: ${{ github.event_name == 'pull_request'
-          && fromJSON('[{"label":"Debug + ASan","slug":"debug-asan","cmake-args":"-DOLO_ENABLE_ASAN=ON"}]')
-          || fromJSON('[{"label":"Debug + ASan","slug":"debug-asan","cmake-args":"-DOLO_ENABLE_ASAN=ON"},{"label":"Debug","slug":"debug","cmake-args":""},{"label":"Debug + ASan + split DWARF","slug":"debug-asan-split-dwarf","cmake-args":"-DOLO_ENABLE_ASAN=ON -DOLO_SPLIT_DWARF=ON"}]') }}
+          && fromJSON('[{"label":"Debug + ASan","slug":"debug-asan","cmake-args":"-DOLO_ENABLE_ASAN=ON","verify-flag":""}]')
+          || fromJSON('[{"label":"Debug + ASan","slug":"debug-asan","cmake-args":"-DOLO_ENABLE_ASAN=ON","verify-flag":""},{"label":"Debug","slug":"debug","cmake-args":"","verify-flag":""},{"label":"Debug + ASan + split DWARF","slug":"debug-asan-split-dwarf","cmake-args":"-DOLO_ENABLE_ASAN=ON -DOLO_SPLIT_DWARF=ON","verify-flag":"-gsplit-dwarf"},{"label":"Debug + ASan + -g1","slug":"debug-asan-g1","cmake-args":"-DOLO_ENABLE_ASAN=ON -DOLO_MINIMAL_DEBUG_INFO=ON","verify-flag":"-g1"},{"label":"Debug + ASan + -O1","slug":"debug-asan-o1","cmake-args":"-DOLO_ENABLE_ASAN=ON -DOLO_SANITIZER_OPTIMIZE=ON","verify-flag":"-O1"}]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -221,6 +239,24 @@ jobs:
             exit 1
           fi
           echo "OK: compiles and links are instrumented, with a relative records path."
+
+          # A LEVER CELL MUST PROVE ITS LEVER REACHED THE COMPILE LINE. Without this a
+          # mistyped option, a renamed CMake variable or a module that returned early
+          # produces a build identical to `debug-asan` and publishes it as the lever's
+          # price — the same silent-decay shape the instrumentation check above guards,
+          # except the number it invents is "this lever buys nothing", which is the
+          # answer most likely to be believed and least likely to be re-checked.
+          VERIFY_FLAG='${{ matrix.verify-flag }}'
+          if [ -n "$VERIFY_FLAG" ]; then
+            LEVER=$(grep -rl -- "$VERIFY_FLAG" build --include=flags.make | wc -l)
+            echo "flags.make files carrying $VERIFY_FLAG: $LEVER"
+            if [ "$LEVER" -eq 0 ]; then
+              echo "::error::Cell '${{ matrix.label }}' asked for $VERIFY_FLAG but no compile line carries it."
+              echo "Its ranking would be indistinguishable from the debug-asan baseline."
+              exit 1
+            fi
+            echo "OK: $VERIFY_FLAG reached the compile lines."
+          fi
 
       - name: Save vcpkg binary cache
         if: always()
