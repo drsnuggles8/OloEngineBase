@@ -11,6 +11,97 @@
 #include "MemoryCeiling.h"
 #include "TestOptions.h"
 #include "TestTempDir.h"
+#include "TestXmlOutputPath.h"
+
+#ifdef _WIN32
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
+
+namespace
+{
+    [[nodiscard]] int CurrentProcessId()
+    {
+#ifdef _WIN32
+        return ::_getpid();
+#else
+        return static_cast<int>(::getpid());
+#endif
+    }
+
+    // The gtest filter as it will be AFTER InitGoogleTest, read early because the
+    // output filename has to be fixed before that call. A `--gtest_filter=` on the
+    // command line wins over the GTEST_FILTER environment variable that gtest has
+    // already folded into the flag, which is gtest's own precedence.
+    [[nodiscard]] std::string EffectiveFilter(int argc, char** argv)
+    {
+        constexpr std::string_view kPrefix = "--gtest_filter=";
+        for (int i = 1; i < argc; ++i)
+        {
+            const std::string_view arg = argv[i];
+            if (arg.starts_with(kPrefix))
+                return std::string(arg.substr(kPrefix.size()));
+        }
+        return GTEST_FLAG_GET(filter);
+    }
+
+    // Index of the last `--gtest_output=` in argv, or -1. Last, because that is
+    // the one gtest keeps when a flag is repeated.
+    [[nodiscard]] int LastOutputArgIndex(int argc, char** argv)
+    {
+        constexpr std::string_view kPrefix = "--gtest_output=";
+        int found = -1;
+        for (int i = 1; i < argc; ++i)
+        {
+            if (std::string_view(argv[i]).starts_with(kPrefix))
+                found = i;
+        }
+        return found;
+    }
+
+    // Issue #1372. Give this process its own report filename when the requested
+    // path is a DIRECTORY, because gtest would otherwise choose one by probing
+    // the filesystem — a check-then-create race that makes two parallel
+    // processes write the same file. See TestXmlOutputPath.h.
+    //
+    // MUST run before InitGoogleTest: that is where gtest resolves the path and
+    // constructs the XML listener, and nothing afterwards can change it.
+    //
+    // The correction is written back to WHICHEVER source gtest will actually
+    // read. Setting the flag alone would be silently undone by a
+    // `--gtest_output=` on the command line, since InitGoogleTest parses argv
+    // after this and the command line wins — so when the directory came from
+    // argv, the argv slot is what gets rewritten. No caller in this repository
+    // passes a directory on the command line today; this is here so that one
+    // doing so later does not quietly reopen the race.
+    void MakeGTestOutputUniqueToThisProcess(int argc, char** argv)
+    {
+        constexpr std::string_view kPrefix = "--gtest_output=";
+        const int argIndex = LastOutputArgIndex(argc, argv);
+        const std::string requested = (argIndex >= 0)
+                                          ? std::string(std::string_view(argv[argIndex]).substr(kPrefix.size()))
+                                          : GTEST_FLAG_GET(output);
+
+        const char* const shardIndex = std::getenv("GTEST_SHARD_INDEX");
+        const std::string unique = OloEngine::Tests::UniqueGTestOutputSpec(
+            requested, EffectiveFilter(argc, argv), shardIndex != nullptr ? shardIndex : "", CurrentProcessId());
+        if (unique.empty())
+            return; // Not a directory, or nothing requested: leave it exactly as it was.
+
+        if (argIndex >= 0)
+        {
+            // Static so the buffer outlives InitGoogleTest's read of argv.
+            static std::string rewrittenArg;
+            rewrittenArg = std::string(kPrefix) + unique;
+            argv[argIndex] = rewrittenArg.data();
+        }
+        else
+        {
+            GTEST_FLAG_SET(output, unique);
+        }
+    }
+} // namespace
 
 int main(int argc, char** argv)
 {
@@ -72,6 +163,9 @@ int main(int argc, char** argv)
     {
         GTEST_FLAG_SET(filter, "BenchmarkCapture.*");
     }
+
+    // Issue #1372: one report file per process, before gtest resolves the name.
+    MakeGTestOutputUniqueToThisProcess(argc, argv);
 
     ::testing::InitGoogleTest(&argc, argv);
     OloEngine::Tests::TestFailureCapture::RegisterFailureListener();

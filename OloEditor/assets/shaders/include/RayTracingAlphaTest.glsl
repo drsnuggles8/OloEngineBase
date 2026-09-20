@@ -111,6 +111,37 @@ vec2 oloRayTracingHitUV(GPUSceneGeometry geometry, uint primitiveIndex, vec2 bar
     return uv0 * b0 + uv1 * barycentrics.x + uv2 * barycentrics.y;
 }
 
+// Interpolate the hit triangle's OBJECT-space shading normal, the same way and
+// from the same stream as the UV above. Unnormalised: the caller pushes it
+// through include/RayHitNormalTransform.glsl's inverse-transpose and normalises
+// the world-space result once (#1326).
+vec3 oloRayTracingHitObjectNormal(GPUSceneGeometry geometry, uint primitiveIndex, vec2 barycentrics)
+{
+    OloRtIndexStream indices = OloRtIndexStream(geometry.IndexAddress);
+    OloRtVertexUVStream vertices = OloRtVertexUVStream(geometry.VertexAddress);
+
+    const uint indexBase = geometry.FirstIndex + primitiveIndex * 3u;
+    const int i0 = int(indices.Indices[indexBase + 0u]) + geometry.BaseVertex;
+    const int i1 = int(indices.Indices[indexBase + 1u]) + geometry.BaseVertex;
+    const int i2 = int(indices.Indices[indexBase + 2u]) + geometry.BaseVertex;
+
+    const uint stride = OLO_RT_VERTEX_STRIDE / 4u;
+    const uint normalOffset = OLO_RT_VERTEX_NORMAL_OFFSET / 4u;
+
+    const vec3 n0 = vec3(vertices.Floats[uint(i0) * stride + normalOffset + 0u],
+                         vertices.Floats[uint(i0) * stride + normalOffset + 1u],
+                         vertices.Floats[uint(i0) * stride + normalOffset + 2u]);
+    const vec3 n1 = vec3(vertices.Floats[uint(i1) * stride + normalOffset + 0u],
+                         vertices.Floats[uint(i1) * stride + normalOffset + 1u],
+                         vertices.Floats[uint(i1) * stride + normalOffset + 2u]);
+    const vec3 n2 = vec3(vertices.Floats[uint(i2) * stride + normalOffset + 0u],
+                         vertices.Floats[uint(i2) * stride + normalOffset + 1u],
+                         vertices.Floats[uint(i2) * stride + normalOffset + 2u]);
+
+    const float b0 = 1.0 - barycentrics.x - barycentrics.y;
+    return n0 * b0 + n1 * barycentrics.x + n2 * barycentrics.y;
+}
+
 // True when this material needs a candidate confirmed at all. Opaque and
 // blended materials do not: opaque is committed by the hardware, and a blended
 // surface is not an occluder for the effects this substrate serves.

@@ -39,6 +39,12 @@ add_executable(OloEngine-Tests
 		# The suite's own `--olo-*` flags. Parsed in main() before gtest sees
 		# argv; replaced twelve environment variables read from 26 sites.
 		TestOptions.cpp
+		# One report filename per test process. gtest picks its own when
+		# GTEST_OUTPUT names a directory, with a check-then-create probe that
+		# races under `ctest --parallel` and splices two suites into one file
+		# (issue #1372). Rewritten in main() before InitGoogleTest resolves it.
+		TestXmlOutputPath.cpp
+		TestXmlOutputPathTest.cpp
 		MemoryCeiling.cpp
 		MemoryCeilingTest.cpp
 		# Per-process, per-case scratch paths. Every test that writes a file goes
@@ -462,6 +468,7 @@ add_executable(OloEngine-Tests
 		# structures and traces real rays; same SKIP ladder + zero-validation
 		# bar as every other Vulkan tenant.
 		Rendering/RayTracing/DeformedSurfaceCacheTest.cpp
+		Rendering/RayTracing/RayHitNormalTransformTest.cpp
 		Rendering/RayTracing/RayTracingSceneTest.cpp
 		Rendering/RayTracing/VegetationPolicyTest.cpp
 		Rendering/RayTracing/RayTracingDeviceTest.cpp

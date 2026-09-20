@@ -121,6 +121,12 @@ float OloRtSampleAlpha(uint materialIndex, vec2 uv)
 #define OLO_RT_SAMPLE_ALPHA(materialIndex, uv) OloRtSampleAlpha(materialIndex, uv)
 #include "RayTracingAlphaTest.glsl"
 
+// The object -> world normal algebra, the instance handedness sign and the
+// finite-checked normalise, shared with RayTracedReflection.glsl and
+// compute/RayTracingProbe.comp (#1326). Pure algebra: no bindings, no
+// GPUScene dependency, so its position in this ordering is free.
+#include "RayHitNormalTransform.glsl"
+
 // A candidate (non-opaque) intersection the ray query reports: solid when the
 // GPU Scene cannot describe it (the same unshadeable-is-opaque rule as the
 // committed path) or when the alpha test confirms it. Only masked instances are
@@ -194,7 +200,10 @@ struct OloRtHit
     bool Hit;
     float Distance;
     vec3 Position;
-    vec3 GeometricNormal; // winding orientation, UNFLIPPED — the emitter face test needs it
+    // Winding orientation, corrected for a mirrored instance basis (#1326) and
+    // otherwise UNFLIPPED — not turned toward the ray, because the emitter face
+    // test needs to know which side it actually hit.
+    vec3 GeometricNormal;
     vec3 ShadingNormal;   // interpolated, snapped to the geometric side
     vec3 Albedo;
     float Metallic;
@@ -235,8 +244,10 @@ bool OloRtUnshadeableHit(vec3 origin, vec3 direction, float t, inout OloRtHit hi
 // object-to-world matrix — the same source RayTracedReflection.glsl's
 // HitWorldNormal uses, for the same reason: the ray is already in the space the
 // TLAS was built in, and deriving the basis from a second source is how a
-// transpose bug gets in.
+// transpose bug gets in. The ray query's world-to-object matrix comes in
+// alongside it, because the NORMALS need the other one.
 void OloRtFetchTriangle(GPUSceneGeometry geometry, uint primitiveIndex, mat4x3 objectToWorld,
+                        mat4x3 worldToObject,
                         out vec3 p0, out vec3 p1, out vec3 p2, out vec3 n0, out vec3 n1, out vec3 n2,
                         out vec2 uv0, out vec2 uv1, out vec2 uv2)
 {
@@ -267,14 +278,20 @@ void OloRtFetchTriangle(GPUSceneGeometry geometry, uint primitiveIndex, mat4x3 o
     p1 = objectToWorld * vec4(lp1, 1.0);
     p2 = objectToWorld * vec4(lp2, 1.0);
 
-    // The 3x3 applied directly rather than as an inverse transpose: exact for
-    // rigid and uniformly-scaled instances, which is the only class the CPU
-    // reference accepts (ReferenceScene::AddInstance rejects the rest), and a
-    // skewed shading normal under non-uniform scale elsewhere.
-    const mat3 basis = mat3(objectToWorld[0], objectToWorld[1], objectToWorld[2]);
-    n0 = basis * ln0;
-    n1 = basis * ln1;
-    n2 = basis * ln2;
+    // Normals by the INVERSE TRANSPOSE — include/RayHitNormalTransform.glsl owns
+    // the algebra and why no inverse is computed (#1326). Unnormalised on
+    // purpose: the transform is linear, so the caller interpolates these three
+    // and normalises once. Positions above use objectToWorld; normals use
+    // worldToObject. They are different matrices for a reason, and this is the
+    // only function that holds both.
+    //
+    // The CPU reference (ReferenceScene::AddInstance) still accepts only rigid +
+    // uniform-scale instances, where the two forms agree, so this widens the GPU
+    // path beyond the class the reference can be compared on rather than
+    // diverging from it within that class.
+    n0 = oloRtObjectNormalToWorld(ln0, worldToObject);
+    n1 = oloRtObjectNormalToWorld(ln1, worldToObject);
+    n2 = oloRtObjectNormalToWorld(ln2, worldToObject);
 }
 
 // Closest hit along the ray, resolved through the GPU Scene records. A hit on a
@@ -341,22 +358,37 @@ bool OloRtTraceClosestGeometry(vec3 origin, vec3 direction, float tMax, out OloR
     const uint primitiveIndex = uint(rayQueryGetIntersectionPrimitiveIndexEXT(rayQuery, true));
     hit.Identity = uvec4(instanceSlot, instance.GeometryIndex, primitiveIndex, instance.MaterialIndex);
     const mat4x3 objectToWorld = rayQueryGetIntersectionObjectToWorldEXT(rayQuery, true);
+    const mat4x3 worldToObject = rayQueryGetIntersectionWorldToObjectEXT(rayQuery, true);
 
     vec3 p0, p1, p2, n0, n1, n2;
     vec2 uv0, uv1, uv2;
-    OloRtFetchTriangle(geometry, primitiveIndex, objectToWorld, p0, p1, p2, n0, n1, n2, uv0, uv1, uv2);
+    OloRtFetchTriangle(geometry, primitiveIndex, objectToWorld, worldToObject,
+                       p0, p1, p2, n0, n1, n2, uv0, uv1, uv2);
 
     // The geometric normal from the WORLD-space winding, so it is exact under
     // any affine instance transform; the CPU derives it from the same cross
     // product on the same three vertices.
-    const vec3 windingCross = cross(p1 - p0, p2 - p0);
+    //
+    // Times the instance's winding sign (#1326). cross(M a, M b) =
+    // det(M) * M^-T cross(a, b), so a MIRRORED instance's winding cross comes
+    // out pointing inward while the inverse-transpose shading normal above
+    // still points outward. Left uncorrected, the snap below would discard
+    // every corrected shading normal on a mirrored instance and replace it with
+    // an inward one, and OloReSTIRSampleVisible would offset its shadow rays
+    // straight into the surface. The sign undoes exactly the det(M) factor and
+    // nothing else, which is why the non-mirrored case is bit-identical.
+    const vec3 windingCross = cross(p1 - p0, p2 - p0) * oloRtInstanceWindingSign(objectToWorld);
     const float windingLen = length(windingCross);
     vec3 geometricNormal = (windingLen > 1e-12) ? (windingCross / windingLen) : vec3(0.0, 1.0, 0.0);
 
+    // A singular instance transform surfaces HERE, as an Inf or NaN out of the
+    // inverse-transpose product: the documented finite substitute is the
+    // geometric normal, which comes from positions and survives it.
     const float b0 = 1.0 - barycentrics.x - barycentrics.y;
-    vec3 shadingNormal = n0 * b0 + n1 * barycentrics.x + n2 * barycentrics.y;
-    const float shadingLen = length(shadingNormal);
-    shadingNormal = (shadingLen > 1e-6) ? (shadingNormal / shadingLen) : geometricNormal;
+    const vec3 interpolatedNormal = n0 * b0 + n1 * barycentrics.x + n2 * barycentrics.y;
+    vec3 shadingNormal;
+    if (!oloRtNormalizeHitNormal(interpolatedNormal, shadingNormal))
+        shadingNormal = geometricNormal;
     // Snapped to the geometric side, like ReferenceScene::Intersect: an
     // interpolated normal facing away from its own triangle is a mesh bug the
     // integrator must not turn into a NaN.
