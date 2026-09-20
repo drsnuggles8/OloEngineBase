@@ -1296,12 +1296,18 @@ jobs:
     # the shard-coverage proof below counts ctest ENTRIES rather than readable
     # reports, so it could not see it either. Fixed in the test binary
     # (OloEngine/tests/TestXmlOutputPath.h); this is what makes a recurrence loud.
+    #
+    # `--require-reports` because the reporter below -- the only other thing that
+    # would notice an empty upload -- is SKIPPED on fork PRs, and a guard that
+    # passes when it checked nothing is this repository's dominant failure
+    # archetype rather than an edge case.
     - name: Assert every shard report is readable
       if: always()
       run: >
         python3 scripts/verify_test_reports.py
         --dir test_results
         --label "ASan (Windows)"
+        --require-reports
 
     - name: Test report
       # Fork PRs can't write checks (job-level `checks: write` is downgraded
@@ -3064,6 +3070,7 @@ jobs:
         python3 scripts/verify_test_reports.py
         --dir test_results
         --label "ASan + LSan (Linux)"
+        --require-reports
 
     - name: Test report
       # Fork PRs can't write checks (job-level `checks: write` is downgraded to
@@ -3320,6 +3327,7 @@ jobs:
         python3 scripts/verify_test_reports.py
         --dir test_results
         --label "UBSan (Linux)"
+        --require-reports
 
     - name: Test report
       # Fork PRs can't write checks (job-level `checks: write` is downgraded to
@@ -3585,6 +3593,7 @@ jobs:
         python3 scripts/verify_test_reports.py
         --dir test_results
         --label "TSan (Linux)"
+        --require-reports
 
     - name: Test report
       # Fork PRs can't write checks (job-level `checks: write` is downgraded to

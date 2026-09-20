@@ -69,14 +69,16 @@ def main() -> int:
     parser.add_argument(
         "--require-reports",
         action="store_true",
-        help="also fail when no report file was found at all (off by default: the caller's "
-        "reporter already distinguishes an empty upload from a broken one)",
+        help="also fail when no report file was found at all. The sanitizer jobs all pass it: "
+        "their dorny/test-reporter step, which would otherwise catch an empty upload, is SKIPPED "
+        "on fork PRs, leaving this script as the only thing looking at the reports there",
     )
     args = parser.parse_args()
 
     if not args.dir.is_dir():
-        # Not an error on its own: the download step is allowed to fail softly, and
-        # the caller's own reporter is what decides whether an empty set is fatal.
+        # Silent-by-default only for a caller that has its own empty-set check;
+        # every caller in this repository passes --require-reports, because a run
+        # that verified nothing must not be able to look like a run that passed.
         print(f"{args.label}: no report directory at '{args.dir}' -- nothing to verify.")
         return 1 if args.require_reports else 0
 
