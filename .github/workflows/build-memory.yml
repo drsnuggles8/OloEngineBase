@@ -248,7 +248,16 @@ jobs:
           # answer most likely to be believed and least likely to be re-checked.
           VERIFY_FLAG='${{ matrix.verify-flag }}'
           if [ -n "$VERIFY_FLAG" ]; then
-            LEVER=$(grep -rl -- "$VERIFY_FLAG" build --include=flags.make | wc -l)
+            # `--include` MUST precede `-e`, and the pattern MUST be introduced by `-e`
+            # rather than by `--`. Every lever flag starts with a dash, so the pattern needs
+            # protecting; but `--` ends option parsing, which demotes a trailing
+            # `--include=flags.make` to a FILENAME. GNU grep 3.11 then prints
+            # "No such file or directory", exits 0 anyway, and searches the WHOLE build tree
+            # unfiltered — so the guard would pass on any incidental match (a CMakeCache
+            # entry, a depfile, a log) instead of proving the flag reached a compile line.
+            # `-O1` is the cell most exposed to that. `-e` protects the pattern without
+            # ending option parsing.
+            LEVER=$(grep -rl --include=flags.make -e "$VERIFY_FLAG" build | wc -l)
             echo "flags.make files carrying $VERIFY_FLAG: $LEVER"
             if [ "$LEVER" -eq 0 ]; then
               echo "::error::Cell '${{ matrix.label }}' asked for $VERIFY_FLAG but no compile line carries it."
