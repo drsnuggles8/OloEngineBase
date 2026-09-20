@@ -269,8 +269,17 @@ namespace OloEngine
             return false;
         }
 
-        // Create a new memory block
-        auto* newBlock = new MemoryBlock();
+        // Create a new memory block. nothrow here too: a throwing descriptor
+        // allocation would leak the storage above AND bypass the bool contract
+        // by unwinding out of the renderer's hot path.
+        auto* newBlock = new (std::nothrow) MemoryBlock();
+        if (!newBlock)
+        {
+            FreeBlockStorage(data);
+            OLO_CORE_ERROR("ThreadLocalCache::AddBlock: failed to allocate the descriptor for a {0}-byte block", blockSize);
+            return false;
+        }
+
         newBlock->Size = blockSize;
         newBlock->Offset = 0;
         newBlock->Data = data;

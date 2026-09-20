@@ -40,21 +40,34 @@ Reachability was narrow — every engine path allocates at `COMMAND_ALIGNMENT ==
 `new u8[]` already satisfy the request — but the allocator is generic and the templates advertise a
 payload-alignment contract, so the defect was in the contract rather than in any current caller.
 
-## The validation is cheap; the log call next to it is not
+## What the validation costs, and how the benchmark lied twice
 
-Adding the checks above to `Allocate` cost **+2.25 ns/allocation (+30%)** on the 16-byte hot path,
-measured in Release against master's binary. None of that was the arithmetic. It was the four
-`OLO_CORE_ERROR` calls: master's `Allocate` had no error paths at all, and a formatted log inlined
-into a small hot function costs registers and code size on the path that never takes it.
+Final measured cost of the checks above on the 16-byte hot path, interleaved in Release against
+master's binary: **+1.54 ns/allocation, 4.19 → 5.72 ns (+37%)**. At 2000 commands/frame that is
+~3.1 µs, about 0.02% of a 16.7 ms budget. Worth stating plainly rather than as a percentage alone,
+because 37% and 0.02% describe the same change.
 
-**Put each rejection's report in an `OLO_NOINLINE` helper and mark the branch `[[unlikely]]`.** With
-the reports out of line the same checks measured **+0.12 ns (+1.6%)**, inside master's own
-run-to-run spread — so the validation is effectively free and only its reporting was ever expensive.
+Getting to that number took three attempts, and the two wrong ones are the lesson:
 
-Measure this interleaved, alternating the two binaries round by round. The first A/B here ran
-A-then-B and produced a bimodal fixed arm (reps 1–10 ≈ 11.9 ns, reps 11–15 ≈ 9.2 ns) that would have
-supported almost any conclusion. Copy the two `.exe`s side by side **inside the build output
-directory** — they need their sibling DLLs, and a copy in a scratch directory exits with code 53.
+1. **A-then-B is not a measurement.** The first run produced a bimodal arm (reps 1–10 ≈ 11.9 ns,
+   reps 11–15 ≈ 9.2 ns) — machine drift, not signal. Alternate the two binaries round by round.
+   Copy both `.exe`s **inside the build output directory**: they need their sibling DLLs, and a copy
+   in a scratch directory exits with code 53.
+2. **GoogleTest assertions inside the timed loop hide the thing you are measuring.** `ASSERT_NE` and
+   an alignment `ASSERT_EQ` per iteration added ~3.4 ns of comparison machinery to *both* arms. That
+   inflated the denominator *and* gave the added branches somewhere to hide in the out-of-order
+   window: the same change measured **+0.12 ns (+1.6%)** with the asserts in, and **+1.54 ns (+37%)**
+   with them out. Record results into a vector inside the loop and assert after the clock stops.
+
+One real optimization did come out of it. Inlining four formatted `OLO_CORE_ERROR` calls into
+`Allocate` — which previously had *no* error paths — costs registers and code size on the path that
+never takes them. **Put each rejection's report in an `OLO_NOINLINE` helper and mark the branch
+`[[unlikely]]`.** That was worth roughly 0.7 ns on its own.
+
+If the remaining cost ever matters, the lever is the caller: `CommandAllocator` always passes a
+compile-time-constant `COMMAND_ALIGNMENT`, so a templated entry point over the alignment would fold
+the power-of-two and maximum checks away entirely. Not done here — it adds API surface — but it is
+where to look.
 
 ## The testing corollary
 

@@ -22,7 +22,10 @@ using namespace OloEngine; // NOLINT(google-build-using-namespace) — test file
 
 namespace
 {
-    using AllocBenchClock = std::chrono::high_resolution_clock;
+    // steady_clock, not high_resolution_clock: the latter is an alias of
+    // system_clock in libstdc++, so a wall-clock adjustment mid-run would
+    // change the measured duration on Linux CI.
+    using AllocBenchClock = std::chrono::steady_clock;
 
     /// Whether --olo-bench-assert was passed.
     bool AllocatorBenchAssertEnabled()
@@ -720,17 +723,20 @@ TEST(ThreadLocalCache, MixedSizeAndAlignmentStressKeepsEveryInvariant)
 {
     // Long deterministic sequence across many rollovers and several Reset
     // cycles. Seeded, so a failure here is reproducible.
+    // Direct transforms over rng(), not std::uniform_int_distribution: the
+    // distributions are not specified to produce the same sequence across
+    // standard libraries, so the same seed would pick different inputs on
+    // Linux CI than here and "reproducible" would be a claim about one box.
+    // See docs/agent-rules/std-distributions-are-not-portable.md.
     ThreadLocalCache cache(1024);
     std::mt19937 rng(1328);
-    std::uniform_int_distribution<u32> sizeDist(1, 600);
-    std::uniform_int_distribution<u32> alignExpDist(0, 8); // 1 .. 256
 
     for (int cycle = 0; cycle < 4; ++cycle)
     {
         for (int i = 0; i < 2000; ++i)
         {
-            sizet const size = sizeDist(rng);
-            sizet const alignment = sizet(1) << alignExpDist(rng);
+            sizet const size = 1 + (rng() % 600);            // 1 .. 600
+            sizet const alignment = sizet(1) << (rng() % 9); // 1 .. 256
 
             void* p = cache.Allocate(size, alignment);
             ASSERT_NE(p, nullptr) << "cycle " << cycle << ", iteration " << i << ", size " << size << ", alignment " << alignment;
@@ -860,7 +866,15 @@ TEST(CommandAllocator, HotPathCostAndAllocationsPerFrameDoNotRegress)
     constexpr sizet kCommandBytes = 16; // the normal 16-byte command path
 
     CommandAllocator allocator;
-    sizet firstFrameTotal = 0;
+
+    // Nothing inside the timed region may run GoogleTest's comparison
+    // machinery: at 2000 x 50 allocations its cost lands in ns/allocation and
+    // the printed figure stops being about the allocator. Record per frame,
+    // assert afterwards.
+    std::vector<sizet> allocationCounts(kFrames, 0);
+    std::vector<sizet> byteTotals(kFrames, 0);
+    sizet nullResults = 0;
+    sizet misalignedResults = 0;
 
     auto const start = AllocBenchClock::now();
     for (sizet frame = 0; frame < kFrames; ++frame)
@@ -869,22 +883,22 @@ TEST(CommandAllocator, HotPathCostAndAllocationsPerFrameDoNotRegress)
         for (sizet i = 0; i < kCommandsPerFrame; ++i)
         {
             void* p = allocator.AllocateCommandMemory(kCommandBytes);
-            ASSERT_NE(p, nullptr) << "frame " << frame << ", command " << i;
-            ASSERT_EQ(reinterpret_cast<std::uintptr_t>(p) % CommandAllocator::COMMAND_ALIGNMENT, 0u);
+            nullResults += (p == nullptr) ? 1 : 0;
+            misalignedResults += (reinterpret_cast<std::uintptr_t>(p) % CommandAllocator::COMMAND_ALIGNMENT) != 0 ? 1 : 0;
         }
-
-        ASSERT_EQ(allocator.GetAllocationCount(), kCommandsPerFrame) << "frame " << frame << " did not allocate exactly once per command";
-        if (frame == 0)
-        {
-            firstFrameTotal = allocator.GetTotalAllocated();
-            EXPECT_EQ(firstFrameTotal, kCommandsPerFrame * kCommandBytes) << "the 16-byte path must cost exactly 16 bytes per command";
-        }
-        else
-        {
-            ASSERT_EQ(allocator.GetTotalAllocated(), firstFrameTotal) << "frame " << frame << " allocated a different number of bytes";
-        }
+        allocationCounts[frame] = allocator.GetAllocationCount();
+        byteTotals[frame] = allocator.GetTotalAllocated();
     }
     auto const elapsedNs = std::chrono::duration_cast<std::chrono::nanoseconds>(AllocBenchClock::now() - start).count();
+
+    ASSERT_EQ(nullResults, 0u) << nullResults << " allocations returned null";
+    ASSERT_EQ(misalignedResults, 0u) << misalignedResults << " allocations were not " << CommandAllocator::COMMAND_ALIGNMENT << "-byte aligned";
+    for (sizet frame = 0; frame < kFrames; ++frame)
+    {
+        ASSERT_EQ(allocationCounts[frame], kCommandsPerFrame) << "frame " << frame << " did not allocate exactly once per command";
+        ASSERT_EQ(byteTotals[frame], kCommandsPerFrame * kCommandBytes)
+            << "frame " << frame << " did not cost exactly " << kCommandBytes << " bytes per command";
+    }
 
     double const nsPerAllocation = static_cast<double>(elapsedNs) / static_cast<double>(kFrames * kCommandsPerFrame);
     std::cout << "[ BENCH    ] CommandAllocator 16-byte path: " << nsPerAllocation << " ns/allocation over " << (kFrames * kCommandsPerFrame)
