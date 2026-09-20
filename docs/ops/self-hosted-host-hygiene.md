@@ -69,8 +69,25 @@ is scheduled when nothing else runs.
 
 ## 3. The runners share one host, one GPU and 31 GiB
 
-`olo-gpu-amd`, `olo-ci-1` and `olo-ci-2` all run as `gh-runner-olo`, which is in `video` and
-`render`, so all three can open `/dev/dri/renderD128`. Labels, not hardware, keep CI off the
+> **`olo-gpu-amd` is being retired (from 2026-09-20); the target is TWO slots, not three.**
+> It holds no capability the CI runners lack — the sentence below is why — so it was purely
+> a scheduling reservation, and one the memory budget could not afford: three units capped
+> at `MemoryMax=14G` each inside ONE `MemoryMax=19G` account slice let the box dispatch
+> three heavy jobs into a budget sized for two.
+>
+> **Two of the three steps are done.** `gpu-conformance-amd.yml` requests `olo-ci`, so
+> nothing schedules onto it. **The box still has three dispatch slots until its registration
+> is removed**, which is root-only and is
+> [§7 Retiring a runner](self-hosted-gpu-runner.md#7-retiring-a-runner). Do not quote the
+> two-slot figure until `gh api .../actions/runners` stops listing `olo-gpu-amd`.
+>
+> **Do not re-register a third runner on this account.** The slice is the constraint, and it
+> is per-account: adding a runner adds a dispatch slot without adding any memory, which is
+> exactly the state that OOM-killed the conformance nightly every night from 2026-09-06.
+
+
+`olo-ci-1` and `olo-ci-2` run as `gh-runner-olo`, which is in `video` and
+`render`, so both can open `/dev/dri/renderD128`. Labels, not hardware, keep CI off the
 GPU: a CI job that passes `--olo-gl-backend=none` (the sanitizer jobs) touches it never; one
 that passes `--olo-gl-backend=egl` (the GPU jobs) shares it with whatever else is running.
 Memory is the other shared budget: an instrumented compile is ~3 GB per translation unit and
