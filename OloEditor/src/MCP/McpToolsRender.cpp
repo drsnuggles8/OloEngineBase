@@ -1708,11 +1708,16 @@ namespace OloEngine::MCP
                                     // changes nothing while it changes every
                                     // skin pixel, which is the exact lie this
                                     // count exists to prevent.
+                                    // #1368 appended version 6, which diffuses by
+                                    // an isotropic gather rather than the
+                                    // separable pair — a different kernel, but
+                                    // the same toggle turns it off.
                                     if (model == SkinEvaluationModel::ScreenSpaceDiffusion ||
                                         model == SkinEvaluationModel::ThicknessTransmission ||
                                         model == SkinEvaluationModel::LayeredSpecular ||
                                         model == SkinEvaluationModel::OralSurface ||
-                                        model == SkinEvaluationModel::OcularSurface)
+                                        model == SkinEvaluationModel::OcularSurface ||
+                                        model == SkinEvaluationModel::IsotropicGather)
                                         ++diffusing;
                                 }
                                 if (assigned == 0u)

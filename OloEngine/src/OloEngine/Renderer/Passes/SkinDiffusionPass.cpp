@@ -151,7 +151,15 @@ namespace OloEngine
             // and it uploads a ZERO support radius — which the shader reads as
             // "this slot does not diffuse" and skips before it fetches anything.
             const bool active = !kernel.IsIdentity() && kernel.SupportRadiusMM > 0.0f;
-            m_GPUData.SlotParams[index] = glm::vec4(active ? kernel.SupportRadiusMM : 0.0f, radiusScale, 0.0f, 0.0f);
+            // z: the version-6 gather flag. w: THIS SLOT'S tap count, which is
+            // per slot and not per pass because the two kernel forms have
+            // different budgets — a gather is 25 taps in one pass, the separable
+            // Medium tier is 17 along each axis — and both can be on screen at
+            // once. PassParams.x stays as the separable tier's count so a slot
+            // that does not set w still reads the value it always did.
+            m_GPUData.SlotParams[index] =
+                glm::vec4(active ? kernel.SupportRadiusMM : 0.0f, radiusScale,
+                          kernel.IsGather ? 1.0f : 0.0f, static_cast<f32>(kernel.TapCount));
             if (active)
                 ++m_ActiveProfileCount;
 

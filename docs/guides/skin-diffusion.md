@@ -188,6 +188,20 @@ This is screen-space real-time diffusion, not a claim of volumetric transport.
   irradiance — is smooth at that scale.
 - **No transmission.** Light through an ear lit from behind is not this feature; it is what
   `ThicknessScale` is being carried for.
+- **At transport version 1, the profile runs narrow above a diffuse albedo of ~0.7, and the support
+  holds 97% of the real transport at the default's red channel, not 99.5%.** Everything in this
+  bullet describes version 1; **version 6 (`IsotropicGather`) fixes both** — see below. Both were
+  measured against a Monte Carlo
+  searchlight walk (#1255) and both were deliberately left (#1361). Widening the support needs
+  1.80x the radius at a fixed 17 taps — a uniformly coarser kernel, with the unblurred centre tap
+  going from 0.143 to 0.217 of the profile — and moves a bright feature's halo by 0.004 of that
+  feature's energy against the 0.056 error it was meant to fix. A support radius carries no energy;
+  the tap weights do, and they come from the same narrow fit. Repairing the fit does not help
+  either: the pass is **separable**, and replacing the fit and the tap budget with the walk's own
+  profile (600 entries a side, full support) misplaces **0.079** of a small bright feature's energy
+  where the shipped kernel misplaces **0.056**. One term measured alone exceeds the total of all of
+  them, so the separable projection is the dominant error and neither lever touches it. The
+  measurements are `SkinDiffusionReference` in `NonlocalTransportReferenceTest.cpp`.
 
 ## If it looks like it is doing nothing, check the SUBJECT'S SCALE first
 

@@ -287,6 +287,7 @@ namespace OloEngine::Tests
 
             m_DiffusingProfile = MakeProfile("DiffusionProbe", SkinEvaluationModel::ScreenSpaceDiffusion);
             m_LegacyProfile = MakeProfile("LegacyProbe", SkinEvaluationModel::DiffuseSpecularSplit);
+            m_GatherProfile = MakeProfile("GatherProbe", SkinEvaluationModel::IsotropicGather);
 
             Entity camera = GetScene().CreateEntity("Camera");
             camera.GetComponent<TransformComponent>().Translation = { 0.0f, 0.0f, 4.0f };
@@ -492,6 +493,7 @@ namespace OloEngine::Tests
 
         AssetHandle m_DiffusingProfile{};
         AssetHandle m_LegacyProfile{};
+        AssetHandle m_GatherProfile{};
         Entity m_Sphere{};
         Ref<EditorAssetManager> m_AssetManager;
         fs::path m_ProjectDir;
@@ -615,4 +617,136 @@ namespace OloEngine::Tests
             << "a version-0 profile was diffused by the renderer switch; see "
             << VisualOutputPath("SkinDiffusion_GL_Deferred_VersionZero").string();
     }
+
+    // =========================================================================
+    // VERSION 6 — the isotropic gather (#1368).
+    // =========================================================================
+
+    void ExpectGatherOnPath(SkinDiffusionScene& fixture, RenderingPath path, const char* pathName);
+
+    TEST_F(SkinDiffusionScene, TheGatherDiffusesAndIsNotTheSeparablePassOnDeferred)
+    {
+        // THE ONE ASSERTION A CPU TEST CANNOT MAKE. SkinDiffusionReference
+        // measures the gather's tap table against a Monte Carlo walk and finds
+        // it 3x closer than the separable pair — but a tap table is not a frame,
+        // and every one of those numbers would be unchanged if the SHADER never
+        // took its gather branch and quietly blurred along one axis instead.
+        //
+        // So this renders a version-6 profile and a version-1 profile through
+        // the real pipeline and asserts three things: the gather DIFFUSES, it
+        // does NOT smear the specular highlight, and its frame DIFFERS from
+        // version 1's. The third is the one that fails if
+        // u_SkinDiffusionSlots[slot].z never reaches the shader, or if the
+        // vertical pass stops being an identity over the disc.
+        const auto& material = m_Sphere.GetComponent<MaterialComponent>().m_Material;
+        (void)material;
+
+        Capture off;
+        ASSERT_TRUE(CaptureFrame(RenderingPath::Deferred, false, "SkinDiffusionOff_GL_Deferred_Gather", off));
+
+        Capture separable;
+        ASSERT_TRUE(CaptureFrame(RenderingPath::Deferred, true, "SkinDiffusion_GL_Deferred_Separable", separable));
+
+        m_Sphere.GetComponent<MaterialComponent>().m_Material.SetSkinProfileHandle(m_GatherProfile);
+        Capture gather;
+        ASSERT_TRUE(CaptureFrame(RenderingPath::Deferred, true, "SkinDiffusion_GL_Deferred_Gather", gather));
+        m_Sphere.GetComponent<MaterialComponent>().m_Material.SetSkinProfileHandle(m_DiffusingProfile);
+
+        const f32 terminatorCx = FindTerminatorX(off);
+        const BoxStats offTerm = MeasureBox(off, terminatorCx, kBoxCy, kBoxHalfW, kBoxHalfH);
+        const BoxStats sepTerm = MeasureBox(separable, terminatorCx, kBoxCy, kBoxHalfW, kBoxHalfH);
+        const BoxStats gatherTerm = MeasureBox(gather, terminatorCx, kBoxCy, kBoxHalfW, kBoxHalfH);
+
+        ASSERT_GT(offTerm.MaxGradient, 0.02f) << "no terminator in the control frame";
+
+        // CLAIM 1 — the gather diffuses at all.
+        EXPECT_LT(gatherTerm.MaxGradient, offTerm.MaxGradient * 0.92f)
+            << "the version-6 gather did not soften the terminator (" << offTerm.MaxGradient << " -> "
+            << gatherTerm.MaxGradient << "); see "
+            << VisualOutputPath("SkinDiffusion_GL_Deferred_Gather").string();
+
+        // CLAIM 2 — it is warm, like the separable pass, because the colour
+        // response lives in the per-channel weights and those are shared
+        // machinery between the two forms.
+        // The SHADOWED side is at larger x: the key travels in +x
+        // (Direction 0.94, -0.12, -0.32), so the lit limb is the low-x one. The
+        // same placement ExpectDiffusionOnPath uses, and for the same reason —
+        // sampling the lit side instead measures the light, not the bleed.
+        const f32 shadowedCx = std::min(terminatorCx + kShadowedOffset, 0.78f);
+        const BoxStats offShadow = MeasureBox(off, shadowedCx, kBoxCy, kBoxHalfW, kBoxHalfH);
+        const BoxStats gatherShadow = MeasureBox(gather, shadowedCx, kBoxCy, kBoxHalfW, kBoxHalfH);
+        EXPECT_GT(gatherShadow.MeanRedFraction, offShadow.MeanRedFraction + 0.002f)
+            << "no warm bleed past the terminator under the gather ("
+            << offShadow.MeanRedFraction << " -> " << gatherShadow.MeanRedFraction << ")";
+
+        // CLAIM 3 — THE HIGHLIGHT SURVIVES. The disc is isotropic, so unlike the
+        // separable pair it reaches diagonally; a gather that leaked into the
+        // composite would show here first.
+        EXPECT_NEAR(PeakLuma(gather), PeakLuma(off), 0.05f)
+            << "the frame's peak moved under the gather — the highlight is being spread";
+
+        // CLAIM 4 — IT IS A DIFFERENT KERNEL, and this is the claim the CPU
+        // side cannot make. A version-6 frame that matched version 1 to the
+        // pixel would mean the shader never took the branch.
+        //
+        // 2/255 PER CHANNEL, because the captures are 8-bit: a threshold in
+        // floating point would have counted quantisation as a difference and
+        // passed no matter what the shader did.
+        ASSERT_EQ(separable.Width, gather.Width);
+        ASSERT_EQ(separable.Height, gather.Height);
+        sizet differing = 0;
+        const sizet count = static_cast<sizet>(gather.Width) * static_cast<sizet>(gather.Height);
+        for (u32 y = 0; y < gather.Height; ++y)
+        {
+            for (u32 x = 0; x < gather.Width; ++x)
+            {
+                const sizet idx = gather.Index(x, y);
+                i32 worst = 0;
+                for (u32 c = 0; c < 3u; ++c)
+                {
+                    worst = std::max(worst, std::abs(static_cast<i32>(separable.Pixels[idx + c]) -
+                                                     static_cast<i32>(gather.Pixels[idx + c])));
+                }
+                if (worst > 2)
+                    ++differing;
+            }
+        }
+        EXPECT_GT(differing, count / 200u)
+            << "the version-6 frame differs from the version-1 frame in only " << differing << " of " << count
+            << " pixels — the shader's gather branch is probably not firing at all; see "
+            << VisualOutputPath("SkinDiffusion_GL_Deferred_Gather").string();
+    }
+
+    TEST_F(SkinDiffusionScene, TheGatherDiffusesOnForwardAndForwardPlusToo)
+    {
+        // THE PATH MATRIX. The gather lives in a fullscreen pass that runs after
+        // all three raster paths hand off, so it SHOULD be path-independent —
+        // and "should be" is exactly the claim that has been wrong before here.
+        // Both forward paths get the same terminator assertion the deferred one
+        // above gets.
+        for (const auto& [path, name] : { std::pair{ RenderingPath::Forward, "Forward" },
+                                          std::pair{ RenderingPath::ForwardPlus, "ForwardPlus" } })
+        {
+            Capture off;
+            ASSERT_TRUE(CaptureFrame(path, false, (std::string("SkinDiffusionOff_GL_") + name + "_Gather").c_str(),
+                                     off))
+                << name;
+
+            m_Sphere.GetComponent<MaterialComponent>().m_Material.SetSkinProfileHandle(m_GatherProfile);
+            Capture gather;
+            const bool ok = CaptureFrame(path, true, (std::string("SkinDiffusion_GL_") + name + "_Gather").c_str(),
+                                         gather);
+            m_Sphere.GetComponent<MaterialComponent>().m_Material.SetSkinProfileHandle(m_DiffusingProfile);
+            ASSERT_TRUE(ok) << name;
+
+            const f32 cx = FindTerminatorX(off);
+            const BoxStats offTerm = MeasureBox(off, cx, kBoxCy, kBoxHalfW, kBoxHalfH);
+            const BoxStats onTerm = MeasureBox(gather, cx, kBoxCy, kBoxHalfW, kBoxHalfH);
+            ASSERT_GT(offTerm.MaxGradient, 0.02f) << name << ": no terminator in the control frame";
+            EXPECT_LT(onTerm.MaxGradient, offTerm.MaxGradient * 0.92f)
+                << name << ": the gather did not soften the terminator (" << offTerm.MaxGradient << " -> "
+                << onTerm.MaxGradient << ")";
+        }
+    }
+
 } // namespace OloEngine::Tests

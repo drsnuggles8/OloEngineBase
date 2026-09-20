@@ -234,7 +234,8 @@ bool oloSkinEvaluatesOralSurface(int materialKind, int evaluationModel)
     // against each other rather than merely written to match.
     return materialKind == OLO_MATERIAL_KIND_SKIN &&
            (evaluationModel == OLO_SKIN_MODEL_ORAL_SURFACE ||
-            evaluationModel == OLO_SKIN_MODEL_OCULAR_SURFACE);
+            evaluationModel == OLO_SKIN_MODEL_OCULAR_SURFACE ||
+            evaluationModel == OLO_SKIN_MODEL_ISOTROPIC_GATHER);
 }
 
 #endif // SKIN_ORAL_SURFACE_GLSL

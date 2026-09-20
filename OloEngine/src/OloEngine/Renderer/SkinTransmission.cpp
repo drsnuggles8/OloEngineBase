@@ -152,10 +152,15 @@ namespace OloEngine
         // plus the layered specular" — so testing only for version 2 here would
         // make a head stop transmitting through its ears the moment its author
         // turned the specular lobes on.
+        //
+        // VERSION 6 IS ON THIS LIST TOO (#1368). It is "everything version 5
+        // does, with the diffusion evaluated by an isotropic gather against a
+        // refitted profile", so the transmitted lobe is inherited unchanged.
         if (parameters.EvaluationModel != SkinEvaluationModel::ThicknessTransmission &&
             parameters.EvaluationModel != SkinEvaluationModel::LayeredSpecular &&
             parameters.EvaluationModel != SkinEvaluationModel::OralSurface &&
-            parameters.EvaluationModel != SkinEvaluationModel::OcularSurface)
+            parameters.EvaluationModel != SkinEvaluationModel::OcularSurface &&
+            parameters.EvaluationModel != SkinEvaluationModel::IsotropicGather)
             return glm::vec3(0.0f);
 
         // The inputs a caller could hand in non-finite. The lanes below are
@@ -238,7 +243,8 @@ namespace OloEngine
             ((parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission) ||
              (parameters.EvaluationModel == SkinEvaluationModel::LayeredSpecular) ||
              (parameters.EvaluationModel == SkinEvaluationModel::OralSurface) ||
-             (parameters.EvaluationModel == SkinEvaluationModel::OcularSurface))
+             (parameters.EvaluationModel == SkinEvaluationModel::OcularSurface) ||
+             (parameters.EvaluationModel == SkinEvaluationModel::IsotropicGather))
                 ? SkinTransmittance(thicknessMM, parameters) * clampedAlbedo * strength
                 : glm::vec3(0.0f);
 

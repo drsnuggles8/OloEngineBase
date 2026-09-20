@@ -111,9 +111,14 @@ layout(std140, binding = 14) uniform SkinDiffusionParams {
     // w = depth rejection scale, as a multiple of the kernel's world support
     vec4 u_SkinDiffusionProjection;
     // Per slot: x = support radius MILLIMETRES (0 disables the slot),
-    // y = radius scale, zw reserved
+    // y = radius scale, z = 1 when this slot is a version-6 ISOTROPIC GATHER
+    // and 0 when it is the separable pair, w = this slot's tap count
     vec4 u_SkinDiffusionSlots[OLO_SKIN_DIFFUSION_MAX_SLOTS];
-    // Per slot, per tap: x = normalised offset in [-1, 1], yzw = channel weights
+    // Per slot, per tap. Separable: x = normalised offset in [-1, 1].
+    // Gather (#1368): x = normalised RADIUS in [0, 1], and the tap's ANGLE is
+    // i * OLO_SKIN_GATHER_GOLDEN_ANGLE rather than a stored value — which is
+    // what lets a 2D kernel travel through this same one-float-per-tap table.
+    // yzw are the per-channel weights in both forms.
     vec4 u_SkinDiffusionTaps[OLO_SKIN_DIFFUSION_MAX_SLOTS * OLO_SKIN_DIFFUSION_MAX_TAPS];
 };
 
@@ -124,6 +129,11 @@ layout(std140, binding = 14) uniform SkinDiffusionParams {
 // Mirrors kMaxSkinDiffusionRadiusPixels / kMinSkinDiffusionRadiusPixels.
 #define OLO_SKIN_MAX_RADIUS_PIXELS 64.0
 #define OLO_SKIN_MIN_RADIUS_PIXELS 0.5
+// Mirrors kSkinGatherGoldenAngle in Renderer/SkinDiffusion.h. A Vogel spiral
+// rather than rings: taps on a ring share a radius and land as a visible circle
+// around a small highlight, and the golden angle is the irrational step that
+// leaves no two taps aligned at any count.
+#define OLO_SKIN_GATHER_GOLDEN_ANGLE 2.39996322972865332
 
 // [0,1] device-Z to positive view-space distance, in world units. The same
 // expression, from the same two projection coefficients, as GTAO.comp's
@@ -185,13 +195,38 @@ void main()
     vec2 axis = verticalPass ? vec2(0.0, 1.0) : vec2(1.0, 0.0);
     vec2 stepUV = axis * texelSize * radiusPixels;
 
+    // VERSION 6 (#1368): this slot is an isotropic disc, evaluated ONCE.
+    //
+    // IT REUSES THE TWO-PASS PLUMBING RATHER THAN REPLACING IT, because the two
+    // forms have to coexist: a version-1 head and a version-6 head can be on
+    // screen in the same frame, and the pass is fullscreen. So the HORIZONTAL
+    // pass does the whole 2D gather, and the VERTICAL pass — which still has to
+    // run, to produce the `blurred - original` the additive blend wants —
+    // becomes an identity over it. Nothing about the pass, the targets or the
+    // blend changes; only what this shader does with the table.
+    bool isGather = u_SkinDiffusionSlots[slot].z > 0.5;
+    if (isGather && verticalPass)
+    {
+        // The horizontal pass already holds the gathered result. Hand back the
+        // same difference the separable path's vertical pass produces.
+        vec3 originG = texture(u_SkinDiffuseOrigin, v_TexCoord).rgb;
+        o_Result = vec4(centre.rgb - originG, 0.0);
+        return;
+    }
+
     // THE BILATERAL THRESHOLD IS IN WORLD UNITS AND SCALES WITH THE KERNEL. A
     // tap two scattering radii deeper than the centre is on another surface,
     // whatever the camera is doing; a threshold fixed in metres would mean
     // something different on a close-up and at conversational distance.
     float depthThreshold = supportMM * OLO_SKIN_MM_TO_WORLD * u_SkinDiffusionProjection.w;
 
-    int tapCount = int(u_SkinDiffusionPass.x + 0.5);
+    // PER SLOT, not per pass: the two kernel forms have different budgets and
+    // both can be on screen at once. Falls back to the pass-wide separable tier
+    // count if a slot uploaded none, so an older upload path still works.
+    int tapCount = int(u_SkinDiffusionSlots[slot].w + 0.5);
+    if (tapCount <= 0)
+        tapCount = int(u_SkinDiffusionPass.x + 0.5);
+    tapCount = clamp(tapCount, 0, OLO_SKIN_DIFFUSION_MAX_TAPS);
     int tapBase = slot * OLO_SKIN_DIFFUSION_MAX_TAPS;
 
     vec3 accum = vec3(0.0);
@@ -202,11 +237,29 @@ void main()
     // where it was. Renormalising instead would make a silhouette brighten.
     vec3 rejected = vec3(0.0);
 
+    // The disc's step is the SAME screen-space radius the separable axis uses,
+    // applied in both dimensions — so a gather slot and a separable slot at the
+    // same support cover the same footprint and the projection maths, the clamp
+    // and the minimum radius above are shared rather than duplicated.
+    vec2 discUV = texelSize * radiusPixels;
+
     for (int i = 0; i < tapCount; ++i)
     {
         vec4 tap = u_SkinDiffusionTaps[tapBase + i];
         vec3 weight = tap.yzw;
-        vec2 uv = v_TexCoord + stepUV * tap.x;
+        vec2 uv;
+        if (isGather)
+        {
+            // Radius from the table, angle from the index. `tap.x` is already
+            // normalised to the support, so this is the same [0,1] the separable
+            // path scales by.
+            float ang = float(i) * OLO_SKIN_GATHER_GOLDEN_ANGLE;
+            uv = v_TexCoord + discUV * (tap.x * vec2(cos(ang), sin(ang)));
+        }
+        else
+        {
+            uv = v_TexCoord + stepUV * tap.x;
+        }
 
         // SCREEN EDGES. A tap off the target has no data at all, and clamping to
         // the border would smear the edge texel across the whole kernel — which
