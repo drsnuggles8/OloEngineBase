@@ -322,7 +322,8 @@ vec2 oloSkinLobeFor(int materialKind, int evaluationModel, vec4 skinSpecularLane
     // 255 on a sclera: far too little to notice, far too much to be nothing.
     if (evaluationModel != OLO_SKIN_MODEL_LAYERED_SPECULAR &&
         evaluationModel != OLO_SKIN_MODEL_ORAL_SURFACE &&
-        evaluationModel != OLO_SKIN_MODEL_OCULAR_SURFACE)
+        evaluationModel != OLO_SKIN_MODEL_OCULAR_SURFACE &&
+        evaluationModel != OLO_SKIN_MODEL_ISOTROPIC_GATHER)
         return vec2(0.0, 1.0);
     return skinSpecularLane.xy;
 }

@@ -3,6 +3,6 @@ NOT A BENCHMARK: this box also hosts CI runners for another repo, so the
 absolute figures move. The RELATIVE column is the measurement — the two arms
 are captured back to back under identical conditions.
 
-Forward       refracting   4.499 ms   painted   3.983 ms   ocular-off   3.482 ms   (refraction costs +29.2% over ocular-off)
-ForwardPlus   refracting   3.576 ms   painted   3.604 ms   ocular-off   3.585 ms   (refraction costs -0.2% over ocular-off)
-Deferred      refracting   3.907 ms   painted   4.187 ms   ocular-off   4.196 ms   (refraction costs -6.9% over ocular-off)
+Forward       refracting   2.325 ms   painted   2.336 ms   ocular-off   2.356 ms   (refraction costs -1.3% over ocular-off)
+ForwardPlus   refracting   2.427 ms   painted   2.345 ms   ocular-off   2.334 ms   (refraction costs +4.0% over ocular-off)
+Deferred      refracting   2.742 ms   painted   2.711 ms   ocular-off   2.694 ms   (refraction costs +1.8% over ocular-off)

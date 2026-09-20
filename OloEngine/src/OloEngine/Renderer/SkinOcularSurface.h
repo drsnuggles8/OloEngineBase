@@ -553,7 +553,7 @@ namespace OloEngine
     // these fields.
     [[nodiscard]] constexpr bool SkinEvaluatesOcularSurface(SkinEvaluationModel model) noexcept
     {
-        return model == SkinEvaluationModel::OcularSurface;
+        return model == SkinEvaluationModel::OcularSurface || model == SkinEvaluationModel::IsotropicGather;
     }
 
 } // namespace OloEngine

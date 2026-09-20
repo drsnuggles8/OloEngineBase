@@ -855,6 +855,52 @@ namespace OloEngine::Tests
         /// right in one region and wrong in another cannot average out.
         constexpr std::array<f64, 7> kHaloRadiiMM = { 2.0, 3.0, 5.0, 8.0, 12.0, 18.0, 25.0 };
 
+        /// Energy of the same bright disc, blurred by a version-6 GATHER, lying
+        /// inside radius `r`. The disc's response is a set of weighted POINTS,
+        /// each at its tap's radius from the origin, so this is one sum rather
+        /// than the separable form's double sum.
+        ///
+        /// THE ANGLE DOES NOT APPEAR, and that is a real limit of this metric
+        /// rather than an oversight: a rotation moves every tap to the same
+        /// radius, so a radial measure cannot see angular sampling quality at
+        /// all. What it cannot see is what a rendered frame is for — a disc that
+        /// aliased into rings would score identically here. The golden-angle
+        /// placement is the defence, and SkinDiffusionGatherEvidenceTest is
+        /// where it is looked at.
+        [[nodiscard]] f64 GatherFeatureEnergy(const SkinDiffusionKernel& kernel, f64 rho, f64 r)
+        {
+            f64 total = 0.0;
+            for (u32 i = 0; i < kernel.TapCount; ++i)
+            {
+                const f64 dist = static_cast<f64>(kernel.Taps[i].x) * static_cast<f64>(kernel.SupportRadiusMM);
+                total += static_cast<f64>(kernel.Taps[i].y) * DiscOverlapFraction(dist, rho, r);
+            }
+            return total;
+        }
+
+        [[nodiscard]] f64 WorstGatherHaloError(const SkinDiffusionKernel& kernel,
+                                               const Ref::SearchlightProfile& walk)
+        {
+            f64 worst = 0.0;
+            for (const f64 r : kHaloRadiiMM)
+            {
+                worst = std::max(worst, std::abs(GatherFeatureEnergy(kernel, kFeatureRadiusMM, r) -
+                                                 TransportFeatureEnergy(walk, kFeatureRadiusMM, r)));
+            }
+            return worst;
+        }
+
+        /// A version-6 profile at one authored albedo.
+        [[nodiscard]] SkinProfileParameters MakeGatherProfile(f32 albedo)
+        {
+            SkinProfileParameters parameters;
+            parameters.EvaluationModel = SkinEvaluationModel::IsotropicGather;
+            parameters.ScatterColor = glm::vec3(albedo);
+            parameters.ScatterRadiusMM = glm::vec3(kUnitRadiusMM);
+            (void)parameters.Sanitize();
+            return parameters;
+        }
+
         /// The largest disagreement between a separable kernel's halo and the
         /// walk's, over kHaloRadiiMM. A fraction of the feature's own energy, so
         /// 0.05 means "5% of the highlight's light is in the wrong place".
@@ -1101,6 +1147,235 @@ namespace OloEngine::Tests
         // different quantity, and putting them in one inequality would be a
         // units error dressed up as a finding.)
         EXPECT_GT(exactError, 0.05) << "exact-transport halo error " << exactError;
+    }
+
+    TEST(SkinDiffusionReference, TheIsotropicGatherAndTheRefitOnlyPayOffTOGETHER)
+    {
+        // #1368's WHOLE FINDING, and the reason version 6 changes two things at
+        // once rather than shipping them as two versions.
+        //
+        // #1361 measured two errors in the version-1 pass and found that
+        // repairing either ALONE is not worth doing. This asserts that directly,
+        // as a four-way comparison at the default ScatterColor's red channel:
+        //
+        //   version 1  separable projection + narrow Burley fit   (what shipped)
+        //   gather only            isotropic disc + narrow fit
+        //   refit only         separable projection + refitted profile
+        //   version 6              isotropic disc + refitted profile
+        //
+        // The two single-lever arms must BOTH be worse than version 1, and
+        // version 6 must be better than all three. That is not a tidy result
+        // anyone chose — it is what makes the coupling real, and if a future
+        // change makes either lever pay off alone then version 6's reason for
+        // bundling them has gone and this test should fail.
+        constexpr f32 kAuthored = 0.85f;
+        const Ref::SearchlightProfile& walk = WalkForAuthoredAlbedo(kAuthored);
+        ASSERT_LT(walk.Overflow, 0.05) << "overflow " << walk.Overflow;
+
+        // --- version 1: what ships today -------------------------------------
+        const SkinDiffusionKernel shipped =
+            BuildSkinDiffusionKernel(MakeProfile(kAuthored), SkinDiffusionQuality::Medium);
+        ASSERT_FALSE(shipped.IsIdentity());
+        ASSERT_FALSE(shipped.IsGather);
+        const f64 versionOne = WorstHaloError(ProductionKernel(shipped), walk);
+
+        // --- version 6: both halves ------------------------------------------
+        const SkinDiffusionKernel gather =
+            BuildSkinDiffusionKernel(MakeGatherProfile(kAuthored), SkinDiffusionQuality::Medium);
+        ASSERT_FALSE(gather.IsIdentity());
+        ASSERT_TRUE(gather.IsGather) << "version 6 must build a disc, not a separable pair";
+        const f64 versionSix = WorstGatherHaloError(gather, walk);
+
+        // --- gather only: the disc, but on the UNCORRECTED profile ------------
+        // Built by hand because the two halves are one version by design and the
+        // production builder will not hand out a half of it. That is the point:
+        // this arm exists to show the combination nobody can author is worse.
+        SkinDiffusionKernel gatherOnly = gather;
+        {
+            const SkinProfileParameters v1 = MakeProfile(kAuthored);
+            const f64 dNarrow = static_cast<f64>(SkinBurleyScalingMM(v1).x);
+            const f64 support =
+                static_cast<f64>(SkinBurleyRadiusForFraction(kSkinDiffusionSupportFraction,
+                                                             static_cast<f32>(dNarrow)));
+            gatherOnly.SupportRadiusMM = static_cast<f32>(support);
+            const f64 inside = static_cast<f64>(SkinBurleyCdf(static_cast<f32>(support),
+                                                              static_cast<f32>(dNarrow)));
+            f64 total = 0.0;
+            std::vector<f64> radii;
+            for (u32 i = 0; i < gatherOnly.TapCount; ++i)
+            {
+                const f64 u = (static_cast<f64>(i) + 0.5) / static_cast<f64>(gatherOnly.TapCount);
+                radii.push_back(static_cast<f64>(
+                    SkinBurleyRadiusForFraction(static_cast<f32>(u * inside), static_cast<f32>(dNarrow))));
+            }
+            for (u32 i = 0; i < gatherOnly.TapCount; ++i)
+            {
+                const f64 lo = (i == 0u) ? 0.0 : (0.5 * (radii[i - 1u] + radii[i]));
+                const f64 hi = (i + 1u == gatherOnly.TapCount) ? support : (0.5 * (radii[i] + radii[i + 1u]));
+                const f64 wgt = std::max(static_cast<f64>(SkinBurleyCdf(static_cast<f32>(hi),
+                                                                        static_cast<f32>(dNarrow))) -
+                                             static_cast<f64>(SkinBurleyCdf(static_cast<f32>(lo),
+                                                                            static_cast<f32>(dNarrow))),
+                                         0.0);
+                gatherOnly.Taps[i] = glm::vec4(static_cast<f32>(radii[i] / support), static_cast<f32>(wgt),
+                                               static_cast<f32>(wgt), static_cast<f32>(wgt));
+                total += wgt;
+            }
+            for (u32 i = 0; i < gatherOnly.TapCount; ++i)
+            {
+                gatherOnly.Taps[i].y = static_cast<f32>(static_cast<f64>(gatherOnly.Taps[i].y) / total);
+            }
+        }
+        const f64 gatherOnlyError = WorstGatherHaloError(gatherOnly, walk);
+
+        // --- refit only: version 6's CORRECTION, but still SEPARABLE ---------
+        //
+        // WHAT THIS ARM IS, EXACTLY, because the distinction decides what the
+        // assertion below is allowed to claim. It applies version 6's SCALING
+        // CORRECTION through the separable pass, leaving the mixture weight and
+        // rate ratio at Burley's — the generalised strip fraction a full refit
+        // would need does not exist, because nothing in production wants one.
+        //
+        // So it does NOT say "no separable refit could help". #1361 measured
+        // that separately and the answer was "barely": the best scale a
+        // separable kernel can take at this albedo is about 1.05, worth 0.006.
+        // What this arm says is the sharper thing — version 6's correction is
+        // fitted TO the disc, and putting it through the separable pass is a
+        // regression rather than a partial win. That is what coupled means.
+        SkinDiffusionKernel refitOnly = gather;
+        {
+            // Re-run the separable construction against the version-6 scaling by
+            // asking the production builder for a version-5 profile whose
+            // authored radius already carries the correction. Same d, same
+            // support, separable taps.
+            SkinProfileParameters shifted = MakeProfile(kAuthored);
+            shifted.ScatterRadiusMM =
+                glm::vec3(kUnitRadiusMM * SkinGatherScalingCorrection(kAuthored));
+            (void)shifted.Sanitize();
+            refitOnly = BuildSkinDiffusionKernel(shifted, SkinDiffusionQuality::Medium);
+            ASSERT_FALSE(refitOnly.IsGather);
+        }
+        const f64 refitOnlyError = WorstHaloError(ProductionKernel(refitOnly), walk);
+
+        GTEST_LOG_(INFO) << "#1368 coupling @ authored 0.85: version 1 " << versionOne << ", gather only "
+                         << gatherOnlyError << ", refit only " << refitOnlyError << ", version 6 " << versionSix;
+
+        // THE COUPLING. Both single levers are worse than doing nothing.
+        EXPECT_GT(gatherOnlyError, versionOne)
+            << "the isotropic disc on the UNCORRECTED profile came out better than version 1 (" << gatherOnlyError
+            << " vs " << versionOne << ") — the two errors no longer cancel, and version 6's reason for "
+            << "bundling the gather with the refit needs restating";
+        EXPECT_GT(refitOnlyError, versionOne)
+            << "version 6's scaling correction through the SEPARABLE pass came out better than version 1 ("
+            << refitOnlyError << " vs " << versionOne
+            << ") — the correction is supposed to be fitted to the disc and to be a regression without it";
+
+        // AND THE PAIR IS WORTH HAVING. A factor rather than a threshold: the
+        // claim is "materially better", and a margin that a reseeded walk could
+        // cross would be asserting this machine's noise.
+        EXPECT_LT(versionSix, versionOne / 2.0)
+            << "version 6 " << versionSix << " against version 1 " << versionOne
+            << " — the pair was measured at 3-4x and is asserted at 2x";
+    }
+
+    TEST(SkinDiffusionReference, TheGatherImprovesEveryAlbedoAndNeverDamagesTheAccurateBand)
+    {
+        // THE BAND SWEEP. #1368's first draft claimed the refit would leave
+        // 0.35-0.70 untouched, which is wrong: the mixture weight and rate ratio
+        // changed the profile's SHAPE everywhere, so the scaling correction
+        // compensates everywhere and no albedo renders identically.
+        //
+        // The criterion that actually matters is therefore not "unchanged" but
+        // "not damaged" — and the measurement is stronger than that: every
+        // albedo in the band improves. Asserted as a sweep rather than at the
+        // default alone, because a correction fitted at one albedo that made
+        // another worse would be a bad trade hidden behind a good headline.
+        for (const f32 authored : { 0.35f, 0.45f, 0.55f, 0.70f, 0.85f, 0.95f })
+        {
+            const Ref::SearchlightProfile& walk = WalkForAuthoredAlbedo(authored);
+
+            const SkinDiffusionKernel v1 =
+                BuildSkinDiffusionKernel(MakeProfile(authored), SkinDiffusionQuality::Medium);
+            const SkinDiffusionKernel v6 =
+                BuildSkinDiffusionKernel(MakeGatherProfile(authored), SkinDiffusionQuality::Medium);
+            ASSERT_FALSE(v1.IsIdentity());
+            ASSERT_TRUE(v6.IsGather);
+
+            const f64 before = WorstHaloError(ProductionKernel(v1), walk);
+            const f64 after = WorstGatherHaloError(v6, walk);
+
+            GTEST_LOG_(INFO) << "#1368 band @ authored " << authored << ": version 1 " << before
+                             << " -> version 6 " << after << " (" << (before / std::max(after, 1.0e-9)) << "x)";
+
+            EXPECT_LT(after, before) << "authored " << authored << ": version 6 " << after
+                                     << " is no better than version 1 " << before;
+        }
+    }
+
+    TEST(SkinDiffusionReference, TheGatherKernelIsAWellFormedDisc)
+    {
+        // The structural properties the halo numbers above would not notice, and
+        // which a wrong disc could satisfy the metric while breaking.
+        const SkinDiffusionKernel kernel =
+            BuildSkinDiffusionKernel(MakeGatherProfile(0.85f), SkinDiffusionQuality::Medium);
+        ASSERT_TRUE(kernel.IsGather);
+        ASSERT_EQ(kernel.TapCount, kSkinGatherTapCount);
+        EXPECT_GT(kernel.SupportRadiusMM, 0.0f);
+
+        glm::dvec3 sums(0.0);
+        f64 previousRadius = -1.0;
+        for (u32 i = 0; i < kernel.TapCount; ++i)
+        {
+            const glm::vec4& tap = kernel.Taps[i];
+            // RADII, NOT SIGNED OFFSETS: a disc has no negative side, and a
+            // separable table's [-1, 1] read as radii would fold half the disc
+            // through the origin.
+            EXPECT_GE(tap.x, 0.0f) << "tap " << i;
+            EXPECT_LE(tap.x, 1.0f) << "tap " << i;
+            EXPECT_GT(static_cast<f64>(tap.x), previousRadius) << "tap " << i << " is not outside its predecessor";
+            previousRadius = static_cast<f64>(tap.x);
+
+            EXPECT_GE(tap.y, 0.0f);
+            EXPECT_GE(tap.z, 0.0f);
+            EXPECT_GE(tap.w, 0.0f);
+            sums += glm::dvec3(tap.y, tap.z, tap.w);
+        }
+
+        // Unit mass per channel, by construction rather than by a shader divide
+        // — the same property the separable table has and for the same reason.
+        EXPECT_NEAR(sums.x, 1.0, 1.0e-4);
+        EXPECT_NEAR(sums.y, 1.0, 1.0e-4);
+        EXPECT_NEAR(sums.z, 1.0, 1.0e-4);
+
+        // BLUE IS TIGHTER THAN RED, which is the colour response the whole
+        // feature exists for and is carried entirely by the weights over a
+        // SHARED set of radii.
+        //
+        // ON A CHROMATIC PROFILE, and the first version of this test got that
+        // wrong in a way worth leaving a note about: every other case in this
+        // file authors ScatterColor as vec3(albedo), where all three channels
+        // are the SAME medium and red and blue weights are equal to the bit.
+        // The assertion below passed vacuously as an equality until it was run.
+        // So this one arm uses the real default instead.
+        SkinProfileParameters chromatic;
+        chromatic.EvaluationModel = SkinEvaluationModel::IsotropicGather;
+        chromatic.ScatterColor = glm::vec3(0.85f, 0.55f, 0.45f);
+        chromatic.ScatterRadiusMM = glm::vec3(1.55f, 0.8f, 0.55f);
+        (void)chromatic.Sanitize();
+        const SkinDiffusionKernel colourKernel =
+            BuildSkinDiffusionKernel(chromatic, SkinDiffusionQuality::Medium);
+        ASSERT_TRUE(colourKernel.IsGather);
+
+        f64 redOuter = 0.0;
+        f64 blueOuter = 0.0;
+        for (u32 i = colourKernel.TapCount / 2u; i < colourKernel.TapCount; ++i)
+        {
+            redOuter += static_cast<f64>(colourKernel.Taps[i].y);
+            blueOuter += static_cast<f64>(colourKernel.Taps[i].w);
+        }
+        EXPECT_GT(redOuter, blueOuter)
+            << "on the default profile the outer half of the disc carries red " << redOuter << " and blue "
+            << blueOuter << " — red must reach further, which is what makes skin read as skin";
     }
 
     // =========================================================================

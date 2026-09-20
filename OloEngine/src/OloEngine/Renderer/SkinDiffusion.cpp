@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/SkinDiffusion.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 
 namespace OloEngine
@@ -126,15 +127,115 @@ namespace OloEngine
         return std::isfinite(strip) ? std::clamp(strip, 0.0f, 1.0f) : 0.0f;
     }
 
+    // -------------------------------------------------------------------------
+    // The version-6 transport (#1368)
+    // -------------------------------------------------------------------------
+
+    f32 SkinGatherScalingCorrection(f32 albedo) noexcept
+    {
+        // Fitted against the searchlight walk on the halo of a bright small
+        // feature — the metric #1361 settled on, and deliberately NOT on a
+        // terminator, which is dominated by tap discretisation and would have
+        // chosen a different curve.
+        //
+        // Quadratic in (albedo - 0.55), flat below it. Monotone and C0 by
+        // construction: each CHANNEL carries its own albedo, so a correction
+        // with a jump would sit between red and green and read as a colour
+        // shift rather than as a width change.
+        const f32 a = std::clamp(albedo, 0.0f, 1.0f);
+        const f32 x = std::max(0.0f, a - 0.55f);
+        return 1.05f + (0.3333f * x) + (2.222f * x * x);
+    }
+
+    f32 SkinTransportMixtureWeight(SkinEvaluationModel model) noexcept
+    {
+        return SkinEvaluatesIsotropicGather(model) ? kSkinGatherMixtureWeight : 0.25f;
+    }
+
+    f32 SkinTransportRateRatio(SkinEvaluationModel model) noexcept
+    {
+        return SkinEvaluatesIsotropicGather(model) ? kSkinGatherRateRatio : 3.0f;
+    }
+
+    f32 SkinTransportScalingCorrection(SkinEvaluationModel model, f32 albedo) noexcept
+    {
+        return SkinEvaluatesIsotropicGather(model) ? SkinGatherScalingCorrection(albedo) : 1.0f;
+    }
+
+    f32 SkinTransportCdf(f32 r, f32 d, f32 w, f32 ratio) noexcept
+    {
+        if (!std::isfinite(r) || !std::isfinite(d) || !std::isfinite(w) || !std::isfinite(ratio))
+            return 0.0f;
+        if (d <= 0.0f || r <= 0.0f || ratio <= 0.0f)
+            return 0.0f;
+
+        const f32 mix = std::clamp(w, 0.0f, 1.0f);
+        const f32 cdf = 1.0f - (mix * std::exp(-r / d)) - ((1.0f - mix) * std::exp(-r / (ratio * d)));
+        return std::clamp(cdf, 0.0f, 1.0f);
+    }
+
+    f32 SkinTransportProfile(f32 r, f32 d, f32 w, f32 ratio) noexcept
+    {
+        if (!std::isfinite(r) || !std::isfinite(d) || !std::isfinite(w) || !std::isfinite(ratio))
+            return 0.0f;
+        if (d <= 0.0f || r <= 0.0f || ratio <= 0.0f)
+            return 0.0f;
+
+        // The radial density whose integral over the plane is the CDF above.
+        // d/dr CDF = (w/d) e^{-r/d} + ((1-w)/(ratio d)) e^{-r/(ratio d)}, and a
+        // radial density per unit AREA divides that by 2 pi r.
+        const f32 mix = std::clamp(w, 0.0f, 1.0f);
+        const f32 dcdf = ((mix / d) * std::exp(-r / d)) +
+                         (((1.0f - mix) / (ratio * d)) * std::exp(-r / (ratio * d)));
+        constexpr f32 kTwoPi = 2.0f * 3.14159265358979323846f;
+        return dcdf / (kTwoPi * r);
+    }
+
+    f32 SkinTransportRadiusForFraction(f32 fraction, f32 d, f32 w, f32 ratio) noexcept
+    {
+        if (!std::isfinite(d) || d <= 0.0f || !std::isfinite(fraction) || fraction <= 0.0f)
+            return 0.0f;
+        if (!std::isfinite(ratio) || ratio <= 0.0f)
+            return 0.0f;
+
+        const f32 target = std::min(fraction, 0.9999f);
+        // The bracket scales with the SLOWEST exponential, which is `ratio * d`
+        // rather than 3d once the ratio is authorable. Keeping the same
+        // multiple of the slow rate keeps the order of magnitude of headroom
+        // the Burley bracket had.
+        f32 low = 0.0f;
+        f32 high = (kCdfInversionUpperBoundInD / 3.0f) * ratio * d;
+        for (i32 i = 0; i < kCdfInversionIterations; ++i)
+        {
+            const f32 mid = 0.5f * (low + high);
+            if (SkinTransportCdf(mid, d, w, ratio) < target)
+                low = mid;
+            else
+                high = mid;
+        }
+        return 0.5f * (low + high);
+    }
+
+    glm::vec3 SkinTransportScalingMM(const SkinProfileParameters& parameters) noexcept
+    {
+        const glm::vec3 burley = SkinBurleyScalingMM(parameters);
+        const SkinEvaluationModel model = parameters.EvaluationModel;
+        return glm::vec3(burley.x * SkinTransportScalingCorrection(model, parameters.ScatterColor.x),
+                         burley.y * SkinTransportScalingCorrection(model, parameters.ScatterColor.y),
+                         burley.z * SkinTransportScalingCorrection(model, parameters.ScatterColor.z));
+    }
+
     f32 SkinDiffusionSupportRadiusMM(const SkinProfileParameters& parameters) noexcept
     {
-        const glm::vec3 d = SkinBurleyScalingMM(parameters);
+        const glm::vec3 d = SkinTransportScalingMM(parameters);
+        const f32 w = SkinTransportMixtureWeight(parameters.EvaluationModel);
+        const f32 ratio = SkinTransportRateRatio(parameters.EvaluationModel);
         // The WIDEST channel, because the tap offsets are shared: a support
         // sized to the average would truncate red's tail, which is precisely the
         // part of the profile that makes skin read as skin.
-        const f32 r = std::max({ SkinBurleyRadiusForFraction(kSkinDiffusionSupportFraction, d.x),
-                                 SkinBurleyRadiusForFraction(kSkinDiffusionSupportFraction, d.y),
-                                 SkinBurleyRadiusForFraction(kSkinDiffusionSupportFraction, d.z) });
+        const f32 r = std::max({ SkinTransportRadiusForFraction(kSkinDiffusionSupportFraction, d.x, w, ratio),
+                                 SkinTransportRadiusForFraction(kSkinDiffusionSupportFraction, d.y, w, ratio),
+                                 SkinTransportRadiusForFraction(kSkinDiffusionSupportFraction, d.z, w, ratio) });
         return std::isfinite(r) ? std::max(r, 0.0f) : 0.0f;
     }
 
@@ -151,6 +252,105 @@ namespace OloEngine
     {
         return TapCount <= 1;
     }
+
+    namespace
+    {
+        // THE VERSION-6 DISC. Radii are IMPORTANCE-SAMPLED on the widest
+        // channel's profile: tap i sits at the radius holding (i + 0.5)/N of
+        // that channel's energy inside the support, so the taps crowd where the
+        // energy is without anyone choosing a spacing curve. The separable path
+        // squares a uniform index for the same purpose and has to justify the
+        // square; this needs no such constant because the profile supplies it.
+        //
+        // THE ANGLE IS NOT STORED. Tap i sits at angle i * the golden angle, and
+        // the shader recomputes it from the loop counter — which is what lets a
+        // 2D kernel travel through the same one-float-per-tap upload the
+        // separable kernel uses. See kSkinGatherGoldenAngle.
+        //
+        // WEIGHTS ARE PER CHANNEL OVER A SHARED SET OF RADII, exactly as in the
+        // separable path and for exactly the same reason: three sets of offsets
+        // would be three times the fetches, and blue's weights simply fall to
+        // zero long before the outer taps.
+        [[nodiscard]] SkinDiffusionKernel BuildSkinGatherKernel(const SkinProfileParameters& parameters,
+                                                                f32 supportRadiusMM)
+        {
+            const glm::vec3 d = SkinTransportScalingMM(parameters);
+            if (!std::isfinite(d.x) || !std::isfinite(d.y) || !std::isfinite(d.z))
+                return SkinDiffusionKernel::Identity();
+            if (!(d.x > 0.0f) || !(d.y > 0.0f) || !(d.z > 0.0f))
+                return SkinDiffusionKernel::Identity();
+
+            const f32 w = SkinTransportMixtureWeight(parameters.EvaluationModel);
+            const f32 ratio = SkinTransportRateRatio(parameters.EvaluationModel);
+            const f32 widest = std::max({ d.x, d.y, d.z });
+
+            const u32 tapCount = kSkinGatherTapCount;
+
+            SkinDiffusionKernel kernel{};
+            kernel.SupportRadiusMM = supportRadiusMM;
+            kernel.TapCount = tapCount;
+            kernel.IsGather = true;
+
+            // The energy of the widest channel that lies inside the support —
+            // the fraction the importance sampling is spread across. Sampling
+            // the full [0,1] instead would push the outermost tap to the
+            // profile's infinite tail and off the support entirely.
+            const f32 inside = SkinTransportCdf(supportRadiusMM, widest, w, ratio);
+            if (!(inside > 0.0f))
+                return SkinDiffusionKernel::Identity();
+
+            std::array<f32, kMaxSkinDiffusionTaps> radii{};
+            for (u32 i = 0; i < tapCount; ++i)
+            {
+                const f32 u = (static_cast<f32>(i) + 0.5f) / static_cast<f32>(tapCount);
+                radii[i] = SkinTransportRadiusForFraction(u * inside, widest, w, ratio);
+            }
+
+            glm::vec3 totals(0.0f);
+            for (u32 i = 0; i < tapCount; ++i)
+            {
+                // Each tap owns the annulus running halfway to each neighbour,
+                // so the taps partition the support with no gap and no overlap.
+                // The outermost reaches the support; the tail past it is folded
+                // in by the normalisation below rather than dropped.
+                const f32 lo = (i == 0u) ? 0.0f : (0.5f * (radii[i - 1u] + radii[i]));
+                const f32 hi = (i + 1u == tapCount) ? supportRadiusMM : (0.5f * (radii[i] + radii[i + 1u]));
+
+                const auto share = [&](f32 dChannel) -> f32
+                {
+                    if (!(hi > lo))
+                        return 0.0f;
+                    return std::max(SkinTransportCdf(hi, dChannel, w, ratio) -
+                                        SkinTransportCdf(lo, dChannel, w, ratio),
+                                    0.0f);
+                };
+
+                const glm::vec3 weight(share(d.x), share(d.y), share(d.z));
+                kernel.Taps[static_cast<sizet>(i)] =
+                    glm::vec4(std::clamp(radii[i] / std::max(supportRadiusMM, 1.0e-6f), 0.0f, 1.0f), weight);
+                totals += weight;
+            }
+
+            for (u32 i = 0; i < tapCount; ++i)
+            {
+                glm::vec4& tap = kernel.Taps[i];
+                tap.y = (totals.x > 0.0f) ? (tap.y / totals.x) : 0.0f;
+                tap.z = (totals.y > 0.0f) ? (tap.z / totals.y) : 0.0f;
+                tap.w = (totals.z > 0.0f) ? (tap.w / totals.z) : 0.0f;
+            }
+
+            // A channel whose energy never reached the table would blur to
+            // black; put it on the innermost tap, which is what "this channel
+            // does not scatter" means for a disc.
+            for (i32 c = 0; c < 3; ++c)
+            {
+                if (!(totals[c] > 0.0f))
+                    kernel.Taps[0][c + 1] = 1.0f;
+            }
+
+            return kernel;
+        }
+    } // namespace
 
     SkinDiffusionKernel BuildSkinDiffusionKernel(const SkinProfileParameters& parameters,
                                                  SkinDiffusionQuality quality)
@@ -196,7 +396,8 @@ namespace OloEngine
             parameters.EvaluationModel != SkinEvaluationModel::ThicknessTransmission &&
             parameters.EvaluationModel != SkinEvaluationModel::LayeredSpecular &&
             parameters.EvaluationModel != SkinEvaluationModel::OralSurface &&
-            parameters.EvaluationModel != SkinEvaluationModel::OcularSurface)
+            parameters.EvaluationModel != SkinEvaluationModel::OcularSurface &&
+            parameters.EvaluationModel != SkinEvaluationModel::IsotropicGather)
             return SkinDiffusionKernel::Identity();
 
         const f32 supportRadiusMM = SkinDiffusionSupportRadiusMM(parameters);
@@ -206,6 +407,19 @@ namespace OloEngine
         const glm::vec3 d = SkinBurleyScalingMM(parameters);
         if (!std::isfinite(d.x) || !std::isfinite(d.y) || !std::isfinite(d.z))
             return SkinDiffusionKernel::Identity();
+
+        // THE VERSION-6 BRANCH (#1368): an isotropic disc in ONE pass, instead of
+        // a line-spread kernel along each of two axes.
+        //
+        // The two are not alternatives at the same accuracy. A separable pair
+        // reproduces a straight EDGE exactly and a POINT not at all, because the
+        // outer product of two line-spread functions is not the radial profile
+        // (TheSeparableKernelIsNotTheTwoDimensionalProfile measures the gap). A
+        // disc reproduces the point and costs FEWER fetches here — 25 in one
+        // pass against 17 in each of two. What it needs in exchange is a profile
+        // that is actually right, which is the other half of the version.
+        if (SkinEvaluatesIsotropicGather(parameters.EvaluationModel))
+            return BuildSkinGatherKernel(parameters, supportRadiusMM);
 
         const u32 tapCount = GetSkinDiffusionTapCount(
             IsValidSkinDiffusionQuality(static_cast<i32>(quality)) ? quality : SkinDiffusionQuality::Medium);

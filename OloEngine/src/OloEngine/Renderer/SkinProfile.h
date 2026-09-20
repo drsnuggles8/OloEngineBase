@@ -159,6 +159,48 @@ namespace OloEngine
         // SkinOcularSurfaceEvidenceTest captures.
         OcularSurface = 5,
 
+        // What #1368 ships: everything version 5 does, but the diffusion of
+        // version 1 is evaluated with an ISOTROPIC GATHER instead of two
+        // separable passes, against a REFITTED transport profile.
+        //
+        // THE TWO CHANGES ARE ONE VERSION BECAUSE THEY ARE COUPLED, and that
+        // coupling is the measured finding #1368 exists for. #1255 found two
+        // errors in the version-1 pass — the Burley searchlight fit running
+        // narrow above a diffuse albedo of 0.7, and a support radius sized to
+        // the fit rather than to the transport — and #1361 measured what
+        // repairing each was worth. Separately: nothing. Repairing only the
+        // projection leaves the fit's error exposed and lands FURTHER from
+        // transport than version 1 does; repairing only the fit leaves the
+        // separable projection exposed and does the same. The two errors have
+        // opposite signs and partially cancel in version 1, so either one alone
+        // is a regression and the pair together is a 3-4x improvement.
+        //
+        // Shipping them as two versions would therefore have shipped a version
+        // nobody should author against. They are one.
+        //
+        // WHAT CHANGES, precisely:
+        //   * the kernel becomes a 32-tap golden-angle disc evaluated in ONE
+        //     pass, rather than 17 taps along each of two axes. It is not a
+        //     cost increase: 32 fetches against 34.
+        //   * the profile becomes a generalised two-exponential whose mixture
+        //     weight, rate ratio and scaling correction are
+        //     kSkinGatherMixtureWeight, kSkinGatherRateRatio and
+        //     SkinGatherScalingCorrection in Renderer/SkinDiffusion.h. Burley's
+        //     (0.25, 3, 1) is the version-1 special case.
+        //
+        // A VERSION, NOT A RENDERER SETTING, for the sixth time and for a
+        // sharper reason than the five before it: this one changes the SHAPE of
+        // a profile that authors have already tuned against. A head authored at
+        // version 1 keeps the exact pixels it was signed off with, and moving it
+        // to 6 is a deliberate act with a visible result — which is the whole of
+        // docs/adr/0024-material-kind-is-not-the-closure-version.md.
+        //
+        // IT IS NOT NEUTRAL ON ARRIVAL, unlike versions 3, 4 and 5. There is no
+        // field to author: moving a profile here changes its look immediately,
+        // by design, because the change IS the correction. That makes it the
+        // first version whose evidence test cannot be a neutral-identity A/B.
+        IsotropicGather = 6,
+
         Count
     };
 
@@ -180,6 +222,8 @@ namespace OloEngine
                 return "OralSurface";
             case SkinEvaluationModel::OcularSurface:
                 return "OcularSurface";
+            case SkinEvaluationModel::IsotropicGather:
+                return "IsotropicGather";
             case SkinEvaluationModel::Count:
                 break;
         }

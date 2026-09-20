@@ -237,6 +237,97 @@ namespace OloEngine
     // same number.
     [[nodiscard]] f32 SkinBurleyStripFraction(f32 a, f32 d) noexcept;
 
+    // -------------------------------------------------------------------------
+    // The version-6 refit (#1368)
+    // -------------------------------------------------------------------------
+    //
+    // WHY THERE IS A SECOND PROFILE AT ALL. Burley's searchlight fit runs narrow
+    // above a diffuse albedo of about 0.7 — 35% at the q90 radius at the default
+    // ScatterColor's red channel, measured against a Monte Carlo walk in #1255.
+    // #1361 established that correcting it is only worth doing TOGETHER with
+    // replacing the separable projection, because the two errors have opposite
+    // signs and partly cancel. Version 6 does both; this is the profile half.
+    //
+    // THE FORM IS THE SAME TWO EXPONENTIALS, with the two constants Burley fixed
+    // at 0.25 and 3 opened up, plus an albedo-dependent scaling correction:
+    //
+    //   CDF(r) = 1 - w e^{-r/d} - (1 - w) e^{-r/(ratio*d)}
+    //
+    // Burley is exactly (w = 0.25, ratio = 3, correction = 1), so version 1 is
+    // the special case rather than a different code path. The three numbers were
+    // fitted against the same walk on the metric #1361 settled on — the halo of
+    // a bright small feature against dark skin — and NOT on a terminator, which
+    // is dominated by tap discretisation and would have chosen differently.
+    inline constexpr f32 kSkinGatherMixtureWeight = 0.5f;
+    inline constexpr f32 kSkinGatherRateRatio = 4.0f;
+
+    // The scaling correction, multiplying `d`. Unitless, >= 1, smooth and
+    // MONOTONE in albedo — which is load-bearing rather than tidy: each channel
+    // carries its own albedo, so a correction with a kink would put a
+    // discontinuity between red and green and read as a colour shift.
+    //
+    // Fitted: 1.05 across the band the fit already handles, rising through 1.15
+    // at 0.70 and 1.35 at 0.85 to about 1.54 at 0.95. It is not 1 at low albedo
+    // because the mixture weight and rate ratio above changed the profile's
+    // shape everywhere, so the scale compensates everywhere.
+    [[nodiscard]] f32 SkinGatherScalingCorrection(f32 albedo) noexcept;
+
+    // True for the versions that evaluate the isotropic gather rather than the
+    // separable pair. An explicit list for the reason SkinDiffusion.cpp's
+    // diffusing-version list is one.
+    [[nodiscard]] inline constexpr bool SkinEvaluatesIsotropicGather(SkinEvaluationModel model) noexcept
+    {
+        return model == SkinEvaluationModel::IsotropicGather;
+    }
+
+    // The mixture weight, rate ratio and scaling correction this model uses.
+    // Together they are the whole difference between the two profiles, so a
+    // caller never branches on the version itself.
+    [[nodiscard]] f32 SkinTransportMixtureWeight(SkinEvaluationModel model) noexcept;
+    [[nodiscard]] f32 SkinTransportRateRatio(SkinEvaluationModel model) noexcept;
+    [[nodiscard]] f32 SkinTransportScalingCorrection(SkinEvaluationModel model, f32 albedo) noexcept;
+
+    // The generalised forms. `w` is the mixture weight and `ratio` the rate
+    // ratio; passing (0.25, 3) reproduces the Burley functions above exactly,
+    // which SkinDiffusionTest asserts rather than assumes.
+    [[nodiscard]] f32 SkinTransportCdf(f32 r, f32 d, f32 w, f32 ratio) noexcept;
+    [[nodiscard]] f32 SkinTransportProfile(f32 r, f32 d, f32 w, f32 ratio) noexcept;
+    [[nodiscard]] f32 SkinTransportRadiusForFraction(f32 fraction, f32 d, f32 w, f32 ratio) noexcept;
+
+    // The per-channel scaling `d`, MILLIMETRES, for a profile, INCLUDING the
+    // version's scaling correction. Version 1-5 profiles get SkinBurleyScalingMM
+    // unchanged.
+    [[nodiscard]] glm::vec3 SkinTransportScalingMM(const SkinProfileParameters& parameters) noexcept;
+
+    // The golden angle, radians — the angular step of the version-6 disc.
+    //
+    // THE ANGLE IS DERIVED FROM THE TAP INDEX AND IS NOT IN THE TABLE, which is
+    // what lets a 2D kernel ship through the SAME vec4-per-tap upload the
+    // separable one uses: x is the tap's normalised RADIUS and yzw are its
+    // per-channel weights, exactly as before. A table carrying (x, y) offsets
+    // plus three weights would have needed five floats and a second array.
+    //
+    // A Vogel spiral is used rather than rings because rings alias: every tap on
+    // a ring shares a radius, so a ring lands as a visible circle around a small
+    // highlight. The golden angle is the standard irrational choice that leaves
+    // no two taps aligned at any count.
+    inline constexpr f32 kSkinGatherGoldenAngle = 2.39996322972865332f;
+
+    // Taps in the version-6 disc, and it is CHEAPER than the separable tier it
+    // replaces: 25 fetches in ONE pass against the Medium tier's 2 x 17 = 34 in
+    // two. A disc has to cover two dimensions with one budget, so the count is
+    // higher per pass and lower in total.
+    //
+    // 25 RATHER THAN 32 because 32 buys nothing and would cost a UBO resize.
+    // Measured on the halo metric at the fitted correction, 25 against 32:
+    // 0.0075/0.0095 at an authored 0.35, 0.0136/0.0160 at 0.55, 0.0158/0.0122
+    // at 0.85 — inside the fit's own noise, in both directions. The table is
+    // sized to kMaxSkinDiffusionTaps and a wider disc would mean resizing a
+    // uniform block, which is a shader recompile mid-session.
+    inline constexpr u32 kSkinGatherTapCount = kMaxSkinDiffusionTaps;
+    static_assert(kSkinGatherTapCount <= kMaxSkinDiffusionTaps,
+                  "the gather disc must fit the uploaded tap table");
+
     // The radius, MILLIMETRES, that the kernel's outermost tap must reach for
     // this profile: the widest channel's kSkinDiffusionSupportFraction support.
     // This is the one number that becomes a screen-space pixel radius, so it is
@@ -266,6 +357,14 @@ namespace OloEngine
         // The radius the offsets are expressed in, MILLIMETRES.
         f32 SupportRadiusMM = 0.0f;
         u32 TapCount = 0;
+        // Version 6 (#1368): the taps are a golden-angle DISC evaluated in one
+        // pass, and `Taps[i].x` is a normalised RADIUS in [0, 1] rather than a
+        // signed offset along an axis. The angle is i * kSkinGatherGoldenAngle,
+        // derived rather than stored, so the upload is unchanged.
+        //
+        // It reaches the shader as a per-slot lane, not a shader variant: the
+        // separable and gather profiles can be on screen in the same frame.
+        bool IsGather = false;
         // x = normalised offset in [-1, 1]; yzw = per-channel weight, each
         // channel summing to exactly 1 across TapCount entries so the kernel is
         // energy-preserving by construction rather than by a normalising divide

@@ -403,7 +403,9 @@ OloSkinOcular oloSkinOcularApply(vec3 albedo, vec3 N, vec3 V, vec3 axis,
 // way was correspondingly larger.
 bool oloSkinEvaluatesOcularSurface(int materialKind, int evaluationModel)
 {
-    return materialKind == OLO_MATERIAL_KIND_SKIN && evaluationModel == OLO_SKIN_MODEL_OCULAR_SURFACE;
+    return materialKind == OLO_MATERIAL_KIND_SKIN &&
+           (evaluationModel == OLO_SKIN_MODEL_OCULAR_SURFACE ||
+            evaluationModel == OLO_SKIN_MODEL_ISOTROPIC_GATHER);
 }
 
 #endif // SKIN_OCULAR_SURFACE_GLSL

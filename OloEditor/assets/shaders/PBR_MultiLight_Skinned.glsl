@@ -611,7 +611,8 @@ void main()
                               ((u_SkinEvaluationModel == OLO_SKIN_MODEL_THICKNESS_TRANSMISSION) ||
                                (u_SkinEvaluationModel == OLO_SKIN_MODEL_LAYERED_SPECULAR) ||
                                (u_SkinEvaluationModel == OLO_SKIN_MODEL_ORAL_SURFACE) ||
-                               (u_SkinEvaluationModel == OLO_SKIN_MODEL_OCULAR_SURFACE));
+                               (u_SkinEvaluationModel == OLO_SKIN_MODEL_OCULAR_SURFACE) ||
+                               (u_SkinEvaluationModel == OLO_SKIN_MODEL_ISOTROPIC_GATHER));
     float skinThicknessMM = 0.0;
     if (isSkinTransmitting)
     {

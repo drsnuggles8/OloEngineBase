@@ -253,7 +253,8 @@ namespace OloEngine
     // trap SkinDiffusion.cpp and SkinTransmission.cpp have each recorded.
     [[nodiscard]] constexpr bool SkinEvaluatesOralSurface(SkinEvaluationModel model) noexcept
     {
-        return model == SkinEvaluationModel::OralSurface || model == SkinEvaluationModel::OcularSurface;
+        return model == SkinEvaluationModel::OralSurface || model == SkinEvaluationModel::OcularSurface ||
+               model == SkinEvaluationModel::IsotropicGather;
     }
 
 } // namespace OloEngine

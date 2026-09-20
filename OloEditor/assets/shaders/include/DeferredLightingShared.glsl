@@ -416,7 +416,8 @@ vec3 ComputeDeferredLitSplit(
     bool isSkinTransmitting = ((skinEvaluationModel == OLO_SKIN_MODEL_THICKNESS_TRANSMISSION) ||
                                (skinEvaluationModel == OLO_SKIN_MODEL_LAYERED_SPECULAR) ||
                                (skinEvaluationModel == OLO_SKIN_MODEL_ORAL_SURFACE) ||
-                               (skinEvaluationModel == OLO_SKIN_MODEL_OCULAR_SURFACE)) &&
+                               (skinEvaluationModel == OLO_SKIN_MODEL_OCULAR_SURFACE) ||
+                               (skinEvaluationModel == OLO_SKIN_MODEL_ISOTROPIC_GATHER)) &&
                               (skinThicknessMM > 0.0);
 
     vec3 V = normalize(u_CameraPosition - worldPos);

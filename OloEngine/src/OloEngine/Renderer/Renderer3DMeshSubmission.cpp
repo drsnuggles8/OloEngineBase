@@ -621,7 +621,8 @@ namespace OloEngine
                 if (profile.Parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission ||
                     profile.Parameters.EvaluationModel == SkinEvaluationModel::LayeredSpecular ||
                     profile.Parameters.EvaluationModel == SkinEvaluationModel::OralSurface ||
-                    profile.Parameters.EvaluationModel == SkinEvaluationModel::OcularSurface)
+                    profile.Parameters.EvaluationModel == SkinEvaluationModel::OcularSurface ||
+                    profile.Parameters.EvaluationModel == SkinEvaluationModel::IsotropicGather)
                 {
                     data.skinTransmitScatter = SkinTransmissionScatterLane(profile.Parameters);
                     data.skinTransmitScaling = SkinTransmissionScalingLane(profile.Parameters);
@@ -2634,7 +2635,8 @@ namespace OloEngine
                             if (profile.Parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission ||
                                 profile.Parameters.EvaluationModel == SkinEvaluationModel::LayeredSpecular ||
                                 profile.Parameters.EvaluationModel == SkinEvaluationModel::OralSurface ||
-                                profile.Parameters.EvaluationModel == SkinEvaluationModel::OcularSurface)
+                                profile.Parameters.EvaluationModel == SkinEvaluationModel::OcularSurface ||
+                                profile.Parameters.EvaluationModel == SkinEvaluationModel::IsotropicGather)
                             {
                                 Renderer3D::GetSkinProfileTable().ReportTransmissionFallback(
                                     SkinTransmissionFallbackReason::DeferredThicknessLaneUnavailable,
@@ -2721,7 +2723,8 @@ namespace OloEngine
                             if (profile.Parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission ||
                                 profile.Parameters.EvaluationModel == SkinEvaluationModel::LayeredSpecular ||
                                 profile.Parameters.EvaluationModel == SkinEvaluationModel::OralSurface ||
-                                profile.Parameters.EvaluationModel == SkinEvaluationModel::OcularSurface)
+                                profile.Parameters.EvaluationModel == SkinEvaluationModel::OcularSurface ||
+                                profile.Parameters.EvaluationModel == SkinEvaluationModel::IsotropicGather)
                             {
                                 Renderer3D::GetSkinProfileTable().ReportTransmissionFallback(
                                     SkinTransmissionFallbackReason::DeferredThicknessLaneUnavailable,

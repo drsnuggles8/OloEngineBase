@@ -114,6 +114,21 @@
 // Renderer/SkinOcularSurface.h.
 #define OLO_SKIN_MODEL_OCULAR_SURFACE 5
 
+// Version 6 (issue #1368): everything version 5 does, but the version-1
+// diffusion is evaluated by an ISOTROPIC GATHER -- a 25-tap golden-angle disc in
+// one pass -- against a REFITTED two-exponential profile.
+//
+// THE TWO CHANGES ARE ONE VERSION BECAUSE THEY ARE COUPLED. #1361 measured that
+// repairing either alone lands FURTHER from transport than version 1 does: the
+// separable projection and the narrow fit have opposite signs and partly cancel.
+// Together they are a 3-4x improvement on the halo of a bright small feature.
+//
+// NOTHING IN THIS FILE BRANCHES ON IT. The gather lives entirely in
+// SkinDiffusion.glsl, which consumes a tap table whose meaning the CPU decides;
+// every term here is inherited from version 5 unchanged, which is why version 6
+// simply joins each list below.
+#define OLO_SKIN_MODEL_ISOTROPIC_GATHER 6
+
 // "This pixel names no skin profile." The all-ones pattern of the lane's
 // three-bit slot field, matching kSkinProfileSlotNone in Renderer/SkinProfile.h.
 #define OLO_SKIN_PROFILE_SLOT_NONE 7
@@ -2395,7 +2410,8 @@ OloSurfaceLighting oloApplySkinProfile(OloSurfaceLighting lighting, int material
         evaluationModel != OLO_SKIN_MODEL_THICKNESS_TRANSMISSION &&
         evaluationModel != OLO_SKIN_MODEL_LAYERED_SPECULAR &&
         evaluationModel != OLO_SKIN_MODEL_ORAL_SURFACE &&
-        evaluationModel != OLO_SKIN_MODEL_OCULAR_SURFACE)
+        evaluationModel != OLO_SKIN_MODEL_OCULAR_SURFACE &&
+        evaluationModel != OLO_SKIN_MODEL_ISOTROPIC_GATHER)
         return lighting;
     return OloSurfaceLighting(lighting.Diffuse, lighting.Specular * specularTint);
 }
@@ -2492,7 +2508,8 @@ vec4 oloSkinDiffusionOutput(OloSurfaceLighting lighting, int materialKind, int e
         evaluationModel != OLO_SKIN_MODEL_THICKNESS_TRANSMISSION &&
         evaluationModel != OLO_SKIN_MODEL_LAYERED_SPECULAR &&
         evaluationModel != OLO_SKIN_MODEL_ORAL_SURFACE &&
-        evaluationModel != OLO_SKIN_MODEL_OCULAR_SURFACE)
+        evaluationModel != OLO_SKIN_MODEL_OCULAR_SURFACE &&
+        evaluationModel != OLO_SKIN_MODEL_ISOTROPIC_GATHER)
         return vec4(0.0);
     if (skinProfileSlot < 0 || skinProfileSlot >= OLO_SKIN_PROFILE_SLOT_NONE)
         return vec4(0.0);
