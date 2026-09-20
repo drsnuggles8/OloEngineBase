@@ -618,11 +618,7 @@ namespace OloEngine
                 // click, which reads as "the new feature broke transmission".
                 // The same trap #1242 documented one version earlier, in
                 // oloSkinDiffusionOutput.
-                if (profile.Parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission ||
-                    profile.Parameters.EvaluationModel == SkinEvaluationModel::LayeredSpecular ||
-                    profile.Parameters.EvaluationModel == SkinEvaluationModel::OralSurface ||
-                    profile.Parameters.EvaluationModel == SkinEvaluationModel::OcularSurface ||
-                    profile.Parameters.EvaluationModel == SkinEvaluationModel::IsotropicGather)
+                if (SkinEvaluatesThicknessTransmission(profile.Parameters.EvaluationModel))
                 {
                     data.skinTransmitScatter = SkinTransmissionScatterLane(profile.Parameters);
                     data.skinTransmitScaling = SkinTransmissionScalingLane(profile.Parameters);
@@ -2632,11 +2628,7 @@ namespace OloEngine
                             // stop being counted the moment an author moved a
                             // head forward, and this diagnostic exists precisely
                             // because the failure is otherwise invisible.
-                            if (profile.Parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission ||
-                                profile.Parameters.EvaluationModel == SkinEvaluationModel::LayeredSpecular ||
-                                profile.Parameters.EvaluationModel == SkinEvaluationModel::OralSurface ||
-                                profile.Parameters.EvaluationModel == SkinEvaluationModel::OcularSurface ||
-                                profile.Parameters.EvaluationModel == SkinEvaluationModel::IsotropicGather)
+                            if (SkinEvaluatesThicknessTransmission(profile.Parameters.EvaluationModel))
                             {
                                 Renderer3D::GetSkinProfileTable().ReportTransmissionFallback(
                                     SkinTransmissionFallbackReason::DeferredThicknessLaneUnavailable,
@@ -2720,11 +2712,7 @@ namespace OloEngine
                             // stop being counted the moment an author moved a
                             // head forward, and this diagnostic exists precisely
                             // because the failure is otherwise invisible.
-                            if (profile.Parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission ||
-                                profile.Parameters.EvaluationModel == SkinEvaluationModel::LayeredSpecular ||
-                                profile.Parameters.EvaluationModel == SkinEvaluationModel::OralSurface ||
-                                profile.Parameters.EvaluationModel == SkinEvaluationModel::OcularSurface ||
-                                profile.Parameters.EvaluationModel == SkinEvaluationModel::IsotropicGather)
+                            if (SkinEvaluatesThicknessTransmission(profile.Parameters.EvaluationModel))
                             {
                                 Renderer3D::GetSkinProfileTable().ReportTransmissionFallback(
                                     SkinTransmissionFallbackReason::DeferredThicknessLaneUnavailable,

@@ -147,20 +147,15 @@ namespace OloEngine
         // profile authored against an older transport must not acquire this term
         // because a renderer setting was switched on. A version this function has
         // no arm for transmits NOTHING rather than guessing.
-        // BOTH TRANSMITTING VERSIONS (issue #1243 appended the second). The
-        // versions are CUMULATIVE — version 3 is "everything version 2 does,
-        // plus the layered specular" — so testing only for version 2 here would
-        // make a head stop transmitting through its ears the moment its author
-        // turned the specular lobes on.
-        //
-        // VERSION 6 IS ON THIS LIST TOO (#1368). It is "everything version 5
-        // does, with the diffusion evaluated by an isotropic gather against a
-        // refitted profile", so the transmitted lobe is inherited unchanged.
-        if (parameters.EvaluationModel != SkinEvaluationModel::ThicknessTransmission &&
-            parameters.EvaluationModel != SkinEvaluationModel::LayeredSpecular &&
-            parameters.EvaluationModel != SkinEvaluationModel::OralSurface &&
-            parameters.EvaluationModel != SkinEvaluationModel::OcularSurface &&
-            parameters.EvaluationModel != SkinEvaluationModel::IsotropicGather)
+        // WHICH VERSIONS THOSE ARE is SkinEvaluatesThicknessTransmission's
+        // list (SkinTransmission.h) and not this function's. The versions are
+        // CUMULATIVE — version 3 is "everything version 2 does, plus the
+        // layered specular", version 6 is "everything version 5 does, with the
+        // diffusion evaluated by an isotropic gather" — so every version from 2
+        // up transmits, and a copy of that list that falls one version behind
+        // stops a head transmitting through its ears for no reason its author
+        // can see.
+        if (!SkinEvaluatesThicknessTransmission(parameters.EvaluationModel))
             return glm::vec3(0.0f);
 
         // The inputs a caller could hand in non-finite. The lanes below are
@@ -239,14 +234,9 @@ namespace OloEngine
         // at most 1, so the term is at most transmittance * albedo * strength.
         const f32 strength = std::clamp(parameters.Transmission.Strength, kMinSkinTransmissionStrength,
                                         kMaxSkinTransmissionStrength);
-        const glm::vec3 transmittedBound =
-            ((parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission) ||
-             (parameters.EvaluationModel == SkinEvaluationModel::LayeredSpecular) ||
-             (parameters.EvaluationModel == SkinEvaluationModel::OralSurface) ||
-             (parameters.EvaluationModel == SkinEvaluationModel::OcularSurface) ||
-             (parameters.EvaluationModel == SkinEvaluationModel::IsotropicGather))
-                ? SkinTransmittance(thicknessMM, parameters) * clampedAlbedo * strength
-                : glm::vec3(0.0f);
+        const glm::vec3 transmittedBound = SkinEvaluatesThicknessTransmission(parameters.EvaluationModel)
+                                               ? SkinTransmittance(thicknessMM, parameters) * clampedAlbedo * strength
+                                               : glm::vec3(0.0f);
 
         // THE MAX, NOT THE SUM, and premise 1 is what licenses it: the two terms
         // are driven by saturate(+dot(N, L)) and saturate(-dot(N, L)), which are

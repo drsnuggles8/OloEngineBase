@@ -467,6 +467,85 @@ namespace OloEngine::Tests
         }
     }
 
+    TEST(SkinTransmission, EveryTransportVersionIsClassifiedAndTheClassificationIsWhatRuns)
+    {
+        // The transmission half of the guard SkinDiffusionTest's
+        // EveryTransportVersionIsClassifiedAndTheClassificationIsWhatRuns
+        // explains: SkinEvaluatesThicknessTransmission is checked against what
+        // the evaluator and the energy bound actually DO, for every enumerator
+        // that exists, iterated rather than named. It is a separate list from
+        // the diffusion one and a SHORTER one — version 1 diffuses and does not
+        // transmit — so the two cannot cover for each other.
+        //
+        // OlderTransportVersionsDoNotTransmit above names versions 0 and 1;
+        // this says the same thing about versions nobody has written yet.
+        for (i32 raw = 0; raw < kSkinEvaluationModelCount; ++raw)
+        {
+            const auto model = static_cast<SkinEvaluationModel>(raw);
+            SkinProfileParameters profile{};
+            profile.EvaluationModel = model;
+            profile.Transmission.Strength = 1.0f;
+            ASSERT_TRUE(profile.Sanitize()) << "version " << raw << " (" << ToString(model) << ")";
+
+            const bool claims = SkinEvaluatesThicknessTransmission(model);
+
+            // THE TERM. A backlit configuration, so a transmitting version has
+            // something to return and a non-transmitting one returning zero is
+            // a decision rather than a geometry accident.
+            const glm::vec3 term = EvaluateSkinTransmission(kNormalTowardViewer, kViewTowardViewer, kLightBehind,
+                                                            glm::vec3(10.0f), glm::vec3(1.0f), 1.0f, 2.0f, profile);
+            const bool transmits = glm::any(glm::greaterThan(term, glm::vec3(0.0f)));
+            EXPECT_EQ(claims, transmits)
+                << "version " << raw << " (" << ToString(model)
+                << "): SkinEvaluatesThicknessTransmission says " << claims << " but the evaluator returned ("
+                << term.x << ", " << term.y << ", " << term.z
+                << ") — one of the two lists is a version behind the other";
+
+            // THE ENERGY BOUND, WHICH IS A SECOND LIST AND WAS ALWAYS A SECOND
+            // EDIT — but it cannot be checked by comparing it against the
+            // classification, and that is worth stating rather than quietly not
+            // doing. The bound is max(diffuse, transmitted), the diffuse half is
+            // `albedo`, and the transmitted half is
+            // `transmittance * albedo * strength` with transmittance and
+            // strength both at most 1. So the transmitted half can never win the
+            // max, and the version branch inside SkinTransmissionEnergyBound
+            // changes no number this engine computes. It is defensive against
+            // kMaxSkinTransmissionStrength ever rising above 1, not live.
+            //
+            // WHAT IS CHECKABLE IS THE CONTRACT THE BOUND EXISTS FOR, and it is
+            // the stronger test anyway: the evaluated term must not exceed it,
+            // for EVERY version. A version the evaluator transmits for and the
+            // bound does not would break this the moment the strength ceiling
+            // moved, which is exactly the latent form of the same list error.
+            const glm::vec3 bound = SkinTransmissionEnergyBound(2.0f, glm::vec3(1.0f), profile);
+            const glm::vec3 lit = EvaluateSkinTransmission(kNormalTowardViewer, kViewTowardViewer, kLightBehind,
+                                                           glm::vec3(1.0f), glm::vec3(1.0f), 1.0f, 2.0f, profile);
+            EXPECT_TRUE(glm::all(glm::lessThanEqual(lit, bound + glm::vec3(1.0e-5f))))
+                << "version " << raw << " (" << ToString(model) << "): term (" << lit.x << ", " << lit.y << ", "
+                << lit.z << ") exceeds its own energy bound (" << bound.x << ", " << bound.y << ", " << bound.z
+                << ")";
+        }
+
+        // NOT VACUOUS, AND COUNTED. Versions 0 and 1 do not transmit and every
+        // version from 2 up does, so the count is fixed by the enum's size. A
+        // version appended without being classified moves it.
+        EXPECT_FALSE(SkinEvaluatesThicknessTransmission(SkinEvaluationModel::DiffuseSpecularSplit));
+        EXPECT_FALSE(SkinEvaluatesThicknessTransmission(SkinEvaluationModel::ScreenSpaceDiffusion));
+        EXPECT_TRUE(SkinEvaluatesThicknessTransmission(SkinEvaluationModel::ThicknessTransmission));
+        EXPECT_TRUE(SkinEvaluatesThicknessTransmission(SkinEvaluationModel::IsotropicGather));
+
+        i32 transmitting = 0;
+        for (i32 raw = 0; raw < kSkinEvaluationModelCount; ++raw)
+        {
+            if (SkinEvaluatesThicknessTransmission(static_cast<SkinEvaluationModel>(raw)))
+                ++transmitting;
+        }
+        EXPECT_EQ(transmitting, kSkinEvaluationModelCount - 2)
+            << "every transport version but 0 and 1 transmits; " << transmitting << " of "
+            << kSkinEvaluationModelCount << " do. If a genuinely non-transmitting version was just appended, "
+            << "this expectation is the thing to change — deliberately, in the same commit.";
+    }
+
     TEST(SkinTransmission, ZeroStrengthDisablesTheTermEvenAtVersionTwo)
     {
         SkinProfileParameters profile = TransmittingProfile();

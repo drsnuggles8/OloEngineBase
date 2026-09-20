@@ -73,6 +73,7 @@
 // For SkinProfileTable::GetAssignedSlotCount, which is how the skindiffusion
 // toggle can say "nothing in this scene uses a skin profile" rather than leave
 // that to be rediscovered (issue #1241).
+#include "OloEngine/Renderer/SkinDiffusion.h"
 #include "OloEngine/Renderer/SkinProfileTable.h"
 #include "OloEngine/Renderer/Passes/GpuPathTracerPass.h"
 #include "OloEngine/Renderer/Passes/ReSTIRDIPass.h"
@@ -1712,12 +1713,7 @@ namespace OloEngine::MCP
                                     // an isotropic gather rather than the
                                     // separable pair — a different kernel, but
                                     // the same toggle turns it off.
-                                    if (model == SkinEvaluationModel::ScreenSpaceDiffusion ||
-                                        model == SkinEvaluationModel::ThicknessTransmission ||
-                                        model == SkinEvaluationModel::LayeredSpecular ||
-                                        model == SkinEvaluationModel::OralSurface ||
-                                        model == SkinEvaluationModel::OcularSurface ||
-                                        model == SkinEvaluationModel::IsotropicGather)
+                                    if (SkinEvaluatesScreenSpaceDiffusion(model))
                                         ++diffusing;
                                 }
                                 if (assigned == 0u)

@@ -124,6 +124,27 @@ namespace OloEngine
     inline constexpr f32 kSkinThicknessMissing = 0.0f;
 
     // -------------------------------------------------------------------------
+    // Which versions transmit
+    // -------------------------------------------------------------------------
+
+    // True for the transport versions that carry the thin-region transmission
+    // term version 2 introduced. Version 1 diffuses but does not transmit, so
+    // this is a SHORTER list than SkinEvaluatesScreenSpaceDiffusion's and the
+    // two are not interchangeable.
+    //
+    // ONE LIST, FOR THE REASON THAT FUNCTION GIVES. The versions are cumulative
+    // and the test is an explicit list rather than a `>=`, deliberately; what
+    // was not deliberate was having five copies of it — the term itself, its
+    // energy bound, two submission diagnostics and the inspector readout — of
+    // which #1368 updated four.
+    [[nodiscard]] inline constexpr bool SkinEvaluatesThicknessTransmission(SkinEvaluationModel model) noexcept
+    {
+        return model == SkinEvaluationModel::ThicknessTransmission ||
+               model == SkinEvaluationModel::LayeredSpecular || model == SkinEvaluationModel::OralSurface ||
+               model == SkinEvaluationModel::OcularSurface || model == SkinEvaluationModel::IsotropicGather;
+    }
+
+    // -------------------------------------------------------------------------
     // Transmittance
     // -------------------------------------------------------------------------
 

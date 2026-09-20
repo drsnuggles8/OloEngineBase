@@ -260,6 +260,71 @@ TEST(SkinDiffusionTest, BlueIsConcentratedNearerTheCentreThanRed)
     EXPECT_GT(outer.x, 0.005f) << "red carries no energy at all past half the support — the support is mis-sized";
 }
 
+TEST(SkinDiffusionTest, EveryTransportVersionIsClassifiedAndTheClassificationIsWhatRuns)
+{
+    // THE GUARD FOR THE FAILURE THAT HAS NOW HAPPENED THREE TIMES (#1242,
+    // #1243, #1368): a version is appended to SkinEvaluationModel, the GLSL
+    // lists are found by grepping the shaders, and a CPU list is left one
+    // version behind. It is silent — no build error, no test failure — and the
+    // symptom is a head that quietly stops scattering, or an editor readout
+    // that tells its author the profile is "authored at transport version 0"
+    // while it diffuses on screen.
+    //
+    // WHAT MAKES THIS A GUARD RATHER THAN A RESTATEMENT is that it does not
+    // check the predicate against a second copy of the same list. It checks the
+    // predicate against WHAT THE ENGINE ACTUALLY DOES — the kernel the builder
+    // returns — for every enumerator that exists, found by iterating to
+    // kSkinEvaluationModelCount rather than by naming them. Append a version
+    // and this test covers it without being edited; forget to put it on the
+    // list and the arms below disagree.
+    //
+    // The transmission half is pinned the same way in SkinTransmissionTest.
+    for (i32 raw = 0; raw < kSkinEvaluationModelCount; ++raw)
+    {
+        const auto model = static_cast<SkinEvaluationModel>(raw);
+        SkinProfileParameters parameters = ReferenceHead();
+        parameters.EvaluationModel = model;
+        ASSERT_TRUE(parameters.Sanitize()) << "version " << raw << " (" << ToString(model) << ")";
+
+        const bool claims = SkinEvaluatesScreenSpaceDiffusion(model);
+        const SkinDiffusionKernel kernel = BuildSkinDiffusionKernel(parameters, SkinDiffusionQuality::Medium);
+
+        EXPECT_EQ(claims, !kernel.IsIdentity())
+            << "version " << raw << " (" << ToString(model) << "): SkinEvaluatesScreenSpaceDiffusion says "
+            << claims << " but BuildSkinDiffusionKernel returns "
+            << (kernel.IsIdentity() ? "the identity" : "a real kernel")
+            << " — one of the two lists is a version behind the other";
+    }
+
+    // AND THE CLASSIFICATION IS NOT VACUOUSLY TRUE. A predicate that returned
+    // `true` for everything would pass the loop above only if the builder also
+    // diffused everything, which it must not: version 0 is the one that shades
+    // exactly as it did before diffusion existed, and that is ADR 0024's rule
+    // rather than a detail. Both ends of the range are named explicitly, so a
+    // predicate that collapsed to a constant fails here whichever constant it
+    // collapsed to.
+    EXPECT_FALSE(SkinEvaluatesScreenSpaceDiffusion(SkinEvaluationModel::DiffuseSpecularSplit));
+    EXPECT_TRUE(SkinEvaluatesScreenSpaceDiffusion(SkinEvaluationModel::ScreenSpaceDiffusion));
+    EXPECT_TRUE(SkinEvaluatesScreenSpaceDiffusion(SkinEvaluationModel::IsotropicGather));
+
+    // COUNTED, NOT MERELY SAMPLED. The engine's position is that every version
+    // from 1 up diffuses, so the count of diffusing versions is exactly one
+    // less than the number of versions. A version appended without being added
+    // to the list moves this number and fails here even if its kernel happens
+    // to be the identity for an unrelated reason — which is the case the loop
+    // above cannot separate.
+    i32 diffusing = 0;
+    for (i32 raw = 0; raw < kSkinEvaluationModelCount; ++raw)
+    {
+        if (SkinEvaluatesScreenSpaceDiffusion(static_cast<SkinEvaluationModel>(raw)))
+            ++diffusing;
+    }
+    EXPECT_EQ(diffusing, kSkinEvaluationModelCount - 1)
+        << "every transport version but 0 diffuses; " << diffusing << " of " << kSkinEvaluationModelCount
+        << " do. If a genuinely non-diffusing version was just appended, this expectation is the thing "
+        << "to change — deliberately, in the same commit.";
+}
+
 TEST(SkinDiffusionTest, VersionZeroProfileBuildsTheIdentityKernel)
 {
     // ADR 0024's rule, on the CPU side: turning the renderer's diffusion on must
