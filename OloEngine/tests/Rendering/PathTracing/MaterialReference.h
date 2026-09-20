@@ -864,20 +864,24 @@ namespace OloEngine::Tests::MaterialReference
     // =========================================================================
     //
     // THE QUESTION IS AN EXPECTATION OF AN EXPONENTIAL, AND THE PRODUCTION
-    // ANSWER IS AN EXPONENTIAL OF AN EXPECTATION. GroomCoatShadow computes
-    // tau = E[crossings] over a jittered ray bundle and returns exp(-kappa tau).
-    // The transmittance a fragment footprint actually receives is the MEAN of
-    // the per-ray transmittances, E[exp(-kappa N)]. Jensen's inequality makes
-    // the second at least the first, with equality only when N has no variance,
-    // so the shipped form is a LOWER BOUND on transmittance — it over-darkens,
-    // by an amount that grows with the disorder of the coat. That is a
-    // statement about a model rather than a bug in an implementation, and it is
-    // exactly what an independent reference is for.
+    // ANSWER USED TO BE AN EXPONENTIAL OF AN EXPECTATION. GroomCoatShadow
+    // computes tau = E[crossings] over a jittered ray bundle, and the
+    // transmittance a fragment footprint actually receives is the MEAN of the
+    // per-ray transmittances, E[exp(-kappa N)]. It returned exp(-kappa tau),
+    // which Jensen's inequality puts at or below that with equality only when N
+    // has no variance — a LOWER BOUND that over-darkened by an amount growing
+    // with the coat's disorder.
+    //
+    // THIS REFERENCE FOUND THAT (#1255) AND #1360 ACTED ON IT: the shipped form
+    // is now the Poisson closed form below. The reference did not change — what
+    // changed is which of the two estimators it reports the production model
+    // matches, which is the point of keeping an independent one.
     //
     // CONVENTION: lengths are in the segment set's own units (metres, for a
     // coat built by BuildCoatSegments from a scene-space groom). `kappa` is the
-    // dimensionless per-crossing extinction the production model authors: 1.0
-    // means one expected crossing attenuates to 1/e.
+    // dimensionless per-crossing extinction the production model authors, and it
+    // describes ONE FIBRE: 1.0 means a single crossing passes 1/e of the light
+    // through it.
     //
     // WHAT IS INDEPENDENT. Two things, checking different halves. The Monte
     // Carlo walk below counts crossings through a medium this file GENERATES,
@@ -940,7 +944,11 @@ namespace OloEngine::Tests::MaterialReference
         f64 CrossingVariance = 0.0;
         /// E[exp(-kappa N)] — the transmittance the footprint actually gets.
         f64 MeanTransmittance = 0.0;
-        /// exp(-kappa E[N]) — what the production model returns.
+        /// exp(-kappa E[N]) — the RETIRED production form, kept because the
+        /// inequality against MeanTransmittance is what motivated replacing it
+        /// and stays true whether or not it ships. What the production model
+        /// returns today is the Poisson closed form: PoissonMediumTransmittance,
+        /// or GroomCoatShadow::CoatTransmittance itself.
         f64 ExponentialOfMean = 0.0;
     };
 

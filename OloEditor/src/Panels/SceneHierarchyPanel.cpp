@@ -9203,8 +9203,8 @@ namespace OloEngine
             ImGui::DragFloat("Fibre opacity", &component.m_Kappa, 0.01f, 0.0f, 16.0f, "%.3f");
             if (ImGui::IsItemHovered())
             {
-                ImGui::SetTooltip("How opaque one fibre is to direct light. Dimensionless: 1.0 means one\n"
-                                  "expected fibre crossing attenuates to 1/e.\n\n"
+                ImGui::SetTooltip("How opaque one fibre is to direct light. Dimensionless: 1.0 means a\n"
+                                  "single fibre crossing passes 1/e of the light through it.\n\n"
                                   "This is NOT the pigment. The fibre material already absorbs light inside\n"
                                   "each strand; this is the geometric occlusion between strands, and keeping\n"
                                   "them apart is what stops a coloured coat being darkened twice.");

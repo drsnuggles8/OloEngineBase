@@ -390,9 +390,12 @@ void oloGroomAccumulate(inout OloGroomFibreLobes total, OloGroomFibreLobes add, 
 // The lit fibre response at this fragment.
 //
 // COAT SELF-SHADOWING (#1248) MULTIPLIES THE INCOMING RADIANCE, and nothing
-// else. Each light's radiance is attenuated by exp(-kappa * tau), where tau is
-// the expected number of fibre crossings between this fragment and that light,
-// marched through the coat-shadow volume. The BCSDF below is untouched.
+// else. Each light's radiance is attenuated by exp(-tau * (1 - exp(-kappa))),
+// where tau is the expected number of fibre crossings between this fragment and
+// that light, marched through the coat-shadow volume. That is the MEAN of the
+// per-ray transmittances over the footprint, not the transmittance of the mean
+// crossing count — see oloGroomCoatTransmittance and issue #1360. The BCSDF
+// below is untouched.
 //
 // THAT IS WHERE THE DOUBLE-COUNT BOUNDARY LIVES. #1247's per-fibre
 // attenuations already absorb light INSIDE one fibre, so the coat term must be

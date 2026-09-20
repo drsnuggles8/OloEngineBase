@@ -12,7 +12,10 @@
 //     tau(x, L) = the EXPECTED NUMBER OF FIBRE CROSSINGS along the ray from x
 //                 towards the light,
 //
-// from which the coat transmittance is exp(-kappa * tau). Everything in this
+// from which the coat transmittance is exp(-tau * (1 - exp(-kappa))) — the
+// MEAN of the per-ray transmittances over the footprint rather than the
+// transmittance of the mean crossing count, see CoatTransmittance and issue
+// #1360. Everything in this
 // header exists to compute that number, to approximate it cheaply enough for a
 // fragment shader, and to MEASURE how far each approximation is from the truth.
 //
@@ -235,8 +238,27 @@ namespace OloEngine
                                                         const glm::vec3& direction,
                                                         const ReferenceSettings& settings);
 
-        // Transmittance from an optical depth: exp(-kappa * tau), clamped into
-        // [0,1] and finite for every input.
+        // Transmittance from an optical depth: exp(-tau * (1 - exp(-kappa))),
+        // clamped into [0,1] and finite for every input.
+        //
+        // THE MEAN OF THE TRANSMITTANCES, NOT THE TRANSMITTANCE OF THE MEAN
+        // (issue #1360). `tau` is E[N] — the expected number of fibre crossings
+        // over the fragment's footprint — and what the footprint receives is
+        // E[exp(-kappa N)]. Jensen's inequality puts the naive exp(-kappa * tau)
+        // strictly below it, so that form OVER-DARKENS, by an amount set by the
+        // coat's disorder rather than by any authored value. Modelling N as
+        // Poisson gives the exact mean in closed form as that distribution's
+        // probability generating function at exp(-kappa), which is the
+        // expression above. The residual on a perfectly ORDERED coat, where N
+        // has no variance and exp(-kappa * tau) was already right, is a slight
+        // over-brightening measured by
+        // CoatTransportReference.TheGapClosesOnAnOrderedCoat.
+        //
+        // One consequence is worth stating because it is a behaviour change, not
+        // a rounding one: transmittance now floors at exp(-tau) as kappa grows,
+        // because a coat of perfectly opaque fibres still passes light through
+        // wherever the footprint happened to cross nothing, and for a Poisson N
+        // that is exactly P(N = 0) = exp(-tau).
         //
         // A NON-FINITE tau or kappa reads FULLY LIT, including +infinity. That
         // is deliberate rather than a missed `exp(-inf) == 0`: the march cannot
@@ -247,8 +269,11 @@ namespace OloEngine
         // silhouette. A merely large tau is a real measurement and does reach
         // zero, so the rule costs nothing where it matters.
         //
-        // `kappa` is the per-crossing extinction and is DIMENSIONLESS: 1.0 means
-        // one expected crossing attenuates to 1/e. It is an authored coat
+        // `kappa` is the per-crossing extinction and is DIMENSIONLESS: it
+        // describes ONE FIBRE, so 1.0 means a single crossing passes 1/e of the
+        // light through it. (Before #1360 it described the aggregate — one
+        // EXPECTED crossing attenuating to 1/e — which is the same number only
+        // when the crossing count is deterministic.) It is an authored coat
         // property (how opaque one fibre is to direct light), deliberately
         // separate from the pigment, which already attenuates INSIDE the fibre
         // in #1247's model. See the double-count boundary in the file header.

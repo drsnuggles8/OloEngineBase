@@ -176,7 +176,7 @@ Entities:
       DebugMode: 0
       Enabled: true
     GroomCoatShadowComponent:
-      Kappa: 1
+      Kappa: 4
       Resolution: 64
       StepVoxels: 3
       MaxLodSteps: 3
@@ -237,7 +237,7 @@ Entities:
       DebugMode: 0
       Enabled: true
     GroomCoatShadowComponent:
-      Kappa: 1
+      Kappa: 4
       Resolution: 64
       StepVoxels: 3
       MaxLodSteps: 3
@@ -298,7 +298,7 @@ Entities:
       DebugMode: 0
       Enabled: true
     GroomCoatShadowComponent:
-      Kappa: 1
+      Kappa: 4
       Resolution: 64
       StepVoxels: 3
       MaxLodSteps: 3

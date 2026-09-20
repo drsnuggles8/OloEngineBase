@@ -157,6 +157,14 @@ namespace OloEngine
         /// DIMENSIONLESS and deliberately not the pigment — the pigment already
         /// attenuates inside each fibre in #1247's model, and applying it twice
         /// is the double-count the issue's scope note forbids.
+        ///
+        /// 1.0 HERE IS NOT THE AUTHORED DEFAULT, which is 4.0 since #1360. This
+        /// is a request struct: every real request carries the value
+        /// MakeGroomCoatKappa returned from the component, and this initialiser
+        /// only decides what a default-constructed request means. It is left at
+        /// the neutral 1.0 rather than tracking the component, because a request
+        /// nobody filled in should not silently claim a coat four times as
+        /// opaque as the one it never read.
         f32 CoatKappa = 1.0f;
 
         /// The coat volume's resolution policy. The resolution actually used is

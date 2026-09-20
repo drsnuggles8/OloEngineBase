@@ -552,6 +552,7 @@ add_executable(OloEngine-Tests
 		# on the CPU, so a drift between the two makes every stochastic number a
 		# description of a pattern that is not on screen.
 		Rendering/PropertyTests/GroomStrandGpuParityTest.cpp
+		Rendering/PropertyTests/GroomCoatTransmittanceParityTest.cpp
 		Rendering/PropertyTests/GroomFibreGpuParityTest.cpp
 		# #1255: the shipped shaders' linear AOVs against the independent
 		# material references, and the keeper for the leaf lobe's C++

@@ -3448,9 +3448,13 @@ namespace OloEngine
             // the live-write registries, NOT this archive, so the bounds have
             // to be restated here or a corrupt save is the one route that
             // bypasses every one of them.
+            // The fallback comes from a default-constructed component rather
+            // than a literal: #1360 moved that default 1.0 -> 4.0, and this
+            // restatement of it would otherwise have kept handing corrupt saves
+            // the value the renderer stopped using.
             if (!std::isfinite(c.m_Kappa) || c.m_Kappa < 0.0f)
             {
-                c.m_Kappa = 1.0f;
+                c.m_Kappa = GroomCoatShadowComponent{}.m_Kappa;
             }
             c.m_Kappa = std::min(c.m_Kappa, 16.0f);
 
