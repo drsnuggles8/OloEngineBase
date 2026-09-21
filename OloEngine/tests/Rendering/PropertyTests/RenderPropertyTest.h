@@ -125,6 +125,14 @@ namespace OloEngine::Tests
     // Sized to width * height * 4 floats (GL converts 16F → 32F internally).
     void ReadbackRgbaFloat(u32 textureId, u32 width, u32 height, std::vector<f32>& out);
 
+    // Reads a single-channel INTEGER texture (FramebufferTextureFormat::
+    // RED_INTEGER / GL_R32I) back as signed ints -- the G-Buffer's picking
+    // entity-ID attachment. Deliberately separate from the float readbacks:
+    // asking GL for GL_RGBA/GL_FLOAT on an integer attachment is undefined,
+    // and an ID that came back through a float conversion would be exactly the
+    // kind of invented value an entity-ID test exists to catch.
+    void ReadbackRedInteger(u32 textureId, u32 width, u32 height, std::vector<i32>& out);
+
     // Basic statistics for validation. Tuples are per-channel.
     struct FloatStats
     {

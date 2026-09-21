@@ -94,6 +94,7 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/Passes/OITPrepareRenderPass.h"
 #include "OloEngine/Renderer/Passes/OITResolveRenderPass.h"
 #include "OloEngine/Renderer/Passes/OverdrawRenderPass.h"
+#include "OloEngine/Renderer/Passes/GBufferDebugPass.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Passes/PrecipitationRenderPass.h"
 #include "OloEngine/Renderer/Passes/SSAORenderPass.h"
@@ -9608,18 +9609,26 @@ TEST_F(VulkanPassSuite, OcclusionQueriesCountSamplesAndGateConditionalRendering)
 // wants CommandDispatch::UploadMaterialForDirectDraw. Documented, not faked.
 //
 // What this tenant DOES run is the rest of SceneRenderPass::Execute, unmodified
-// and in the real graph, on the Deferred path with DebugChannel 3:
+// and in the real graph, on the Deferred path with DebugChannel 3, plus the
+// node that now owns the debug extraction:
 //   * the deferred resource preparation — a real 6-attachment GBuffer created
 //     by the pass itself at the Init spec's size;
 //   * BOTH clears the pass owes (the scene FB's, which exists so a Forward ->
 //     Deferred switch cannot leave stale entity-ID / normal attachments, and
 //     the G-Buffer's);
-//   * BlitGBufferDebug(3) — the RMA channel, which is a REAL fullscreen draw
-//     (DebugGBuffer_RMA.glsl, whose V3 pull branch is this batch's sibling
-//     change) narrowed onto attachment 0 by SetFramebufferDrawAttachments,
-//     followed by RestoreAllFramebufferDrawAttachments and a depth
-//     BlitFramebuffer from the G-Buffer;
-//   * the pass's shader/VAO unbind hygiene (BindShaderProgram(NullResource)).
+//   * GBufferDebugPass's RMA channel (issue #1329) — a REAL fullscreen draw
+//     (DebugGBuffer_RMA.glsl) narrowed onto attachment 0 by
+//     SetFramebufferDrawAttachments, followed by
+//     RestoreAllFramebufferDrawAttachments and a depth BlitFramebuffer from
+//     the G-Buffer;
+//   * that pass's shader/VAO unbind hygiene (BindShaderProgram(NullResource)).
+//
+// THE SECOND NODE IS THE POINT, not scaffolding. The extraction used to be a
+// tail of SceneRenderPass::Execute, where it ran before the late G-Buffer
+// writers the scheduler had not reached yet (issue #1329). Driving it as its
+// own graph node here is what keeps this floor honest about where the draw
+// comes from on Vulkan — and it is the only Vulkan coverage the moved pass has,
+// since the headless evidence fixtures need a real GL 4.6 context.
 //
 // The contract is arithmetic, not "it drew something": the RMA shader gathers
 // (RT1.z, RT0.a, RT1.w) = (roughness, metallic, ao), and the G-Buffer clear the
@@ -9627,7 +9636,7 @@ TEST_F(VulkanPassSuite, OcclusionQueriesCountSamplesAndGateConditionalRendering)
 // (0.1, 1.0, 1.0) exactly. A narrowing that failed to restore, a blit that hit
 // the wrong attachment, or a G-Buffer that was never cleared all move it.
 // =============================================================================
-TEST_F(VulkanPassSuite, ScenePassDeferredFloorClearsTheGBufferAndBlitsTheRmaDebugChannel)
+TEST_F(VulkanPassSuite, ScenePassDeferredFloorClearsTheGBufferAndGBufferDebugPassBlitsTheRmaChannel)
 {
     constexpr u32 kSize = 128;
     VulkanFrameArena::Get().BeginFrame(0);
@@ -9683,7 +9692,24 @@ TEST_F(VulkanPassSuite, ScenePassDeferredFloorClearsTheGBufferAndBlitsTheRmaDebu
     // the graph's production shape and a separate concern from this floor.
 
     graph.AddNode(scenePass);
-    graph.SetFinalPass("SceneRenderPass");
+
+    // The debug extraction node (issue #1329). Its G-Buffer has to be in hand
+    // before Setup runs, and ScenePass only creates it lazily inside Execute —
+    // so materialise it here, exactly as Renderer3D::ConfigureRenderGraph does
+    // before it wires the pass each frame.
+    scenePass->PrepareDeferredResources(1u);
+    ASSERT_TRUE(scenePass->GetGBuffer()) << "PrepareDeferredResources did not create a G-Buffer";
+    auto debugPass = Ref<GBufferDebugPass>::Create();
+    debugPass->Init(initSpec);
+    debugPass->SetGBuffer(scenePass->GetGBuffer());
+    debugPass->SetDebugChannel(3);
+    debugPass->SetPerSampleLighting(false);
+    graph.AddNode(debugPass);
+    // An explicit edge, because in this floor ScenePass declares no resource
+    // the debug node reads (the G-Buffer blackboard slots are deliberately
+    // unset here), so reachability has nothing else to walk.
+    graph.AddExecutionDependency("SceneRenderPass", "GBufferDebugPass");
+    graph.SetFinalPass("GBufferDebugPass");
     graph.BuildFrameGraph();
 
     SubmitFrame(
@@ -9707,6 +9733,9 @@ TEST_F(VulkanPassSuite, ScenePassDeferredFloorClearsTheGBufferAndBlitsTheRmaDebu
     EXPECT_TRUE(scenePass->GetTarget()) << "the pass early-returned before resolving its target";
     ASSERT_TRUE(scenePass->GetGBuffer()) << "the Deferred path must have created a G-Buffer";
     EXPECT_EQ(scenePass->GetGBuffer()->GetWidth(), kSize);
+    EXPECT_TRUE(debugPass->GetTarget())
+        << "GBufferDebugPass early-returned before resolving the scene framebuffer, so the RMA "
+           "gather below is measuring whatever the clear left behind";
     for (const auto& failure : graph.GetResolveFailures())
     {
         ADD_FAILURE() << "ScenePass resolve failure: pass='" << failure.PassName << "' reason='" << failure.Reason

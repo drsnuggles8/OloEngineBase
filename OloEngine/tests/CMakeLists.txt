@@ -742,6 +742,7 @@ add_executable(OloEngine-Tests
 		# the two paths' top ambient rung must stay the same rung. Headless text
 		# scans in front of the GPU parity test.
 		Rendering/PropertyTests/GBufferBakedGIContractTest.cpp
+		Rendering/PropertyTests/GBufferDebugFinalWriterEvidenceTest.cpp
 		Rendering/PropertyTests/GBufferFlagsResolveEvidenceTest.cpp
 		Rendering/PropertyTests/OITPropertyTests.cpp
 		# Strand visibility (#1246). This file IS the criterion-1 comparison:

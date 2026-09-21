@@ -130,6 +130,28 @@ namespace OloEngine
         // attachments per-sample. No-op when sampleCount == 1.
         void ResolveDepthOnly();
 
+        // Record that a pass has written the G-Buffer attachments (issue
+        // #1329). The counter is the G-Buffer's CONTENT VERSION: ScenePass
+        // lays down the opaque geometry, then virtual geometry, the deferred
+        // two-phase occlusion phase 2 and the opaque decals each overwrite
+        // parts of it. A diagnostic that extracted the attachments at version
+        // N while the frame went on to reach N+2 is describing a surface state
+        // the lighting pass never saw, and that is exactly the defect this
+        // number makes visible — nothing in the frame branches on it.
+        //
+        // `writer` must be a string LITERAL (a pass name); it is stored by
+        // pointer, not copied.
+        void MarkWritten(const char* writer) noexcept;
+
+        [[nodiscard]] u32 GetWriteVersion() const noexcept
+        {
+            return m_WriteVersion;
+        }
+        [[nodiscard]] const char* GetLastWriter() const noexcept
+        {
+            return m_LastWriter;
+        }
+
         // Renderer IDs per attachment — handy for binding as samplers in
         // DeferredLightingPass / OITResolvePass. These
         // return resolved (single-sample) IDs when MSAA is active.
@@ -166,6 +188,12 @@ namespace OloEngine
         u32 m_Width = 0;
         u32 m_Height = 0;
         u32 m_SampleCount = 1;
+        // Content version (issue #1329). Monotonic across the session rather
+        // than reset per frame, so two records captured in the same frame can
+        // be ordered against each other with one comparison and no frame
+        // bookkeeping. Starts at 0 = "nothing has written this G-Buffer yet".
+        u32 m_WriteVersion = 0;
+        const char* m_LastWriter = "";
         Ref<Framebuffer> m_Framebuffer;
         Ref<Framebuffer> m_ResolvedFramebuffer; // null when m_SampleCount == 1
 

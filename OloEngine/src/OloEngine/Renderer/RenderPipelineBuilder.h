@@ -30,6 +30,10 @@ namespace OloEngine
         RenderGraphNode* DDGIProbeUpdate = nullptr;      // #632 realtime DDGI capture/relight/blend
         RenderGraphNode* VirtualShadowMapMark = nullptr; // #702 VSM page marking (late: needs final scene depth)
         RenderGraphNode* DeferredLighting = nullptr;
+        // #1329 G-Buffer debug extraction. Registered after every late
+        // G-Buffer writer and immediately before DeferredLighting, which is
+        // the last point the G-Buffer is still the version lighting consumes.
+        RenderGraphNode* GBufferDebug = nullptr;
         RenderGraphNode* DeferredOpaqueDecal = nullptr;
         RenderGraphNode* DeferredGPUOcclusion = nullptr;
         RenderGraphNode* PlanarReflection = nullptr;

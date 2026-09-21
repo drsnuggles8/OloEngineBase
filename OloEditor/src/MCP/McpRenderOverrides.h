@@ -285,6 +285,18 @@ namespace OloEngine::MCP::RenderOverrides
         // The leaf transmission term alone (issue #1234) — the third of the
         // three separated outputs #1234's fourth criterion names.
         MaterialTransmission,
+        // The five deferred G-Buffer channels (issue #1329). Unlike everything
+        // above, these live on RendererSettings::Deferred::DebugChannel, and
+        // they are here because that is the FIRST place an agent looks for a
+        // debug view — before this they were reachable only through the
+        // editor's Renderer Settings combo, which is to say not reachable from
+        // an automated session at all, which is how a debug view that showed a
+        // pre-decal G-Buffer went unnoticed.
+        GBufferAlbedo,
+        GBufferNormal,
+        GBufferRMA,
+        GBufferEmissive,
+        GBufferVelocity,
     };
 
     struct DebugViewInfo
@@ -294,7 +306,7 @@ namespace OloEngine::MCP::RenderOverrides
         std::string_view Description;
     };
 
-    inline constexpr std::array<DebugViewInfo, 14> kDebugViews = { {
+    inline constexpr std::array<DebugViewInfo, 19> kDebugViews = { {
         { "none", DebugView::None, "Normal composite (clear all debug views)" },
         { "ssao", DebugView::SSAO, "Raw SSAO occlusion buffer" },
         { "gtao", DebugView::GTAO, "Raw GTAO occlusion buffer" },
@@ -317,6 +329,16 @@ namespace OloEngine::MCP::RenderOverrides
           "Per-pixel skin scattering mask, unitless 0..1 greyscale (Deferred path only)" },
         { "materialtransmission", DebugView::MaterialTransmission,
           "Leaf transmission term alone, linear HDR radiance Rec.709; black off foliage (Deferred path only)" },
+        { "gbufferalbedo", DebugView::GBufferAlbedo,
+          "G-Buffer RT0 base colour, extracted after every late writer (Deferred path only)" },
+        { "gbuffernormal", DebugView::GBufferNormal,
+          "G-Buffer RT1 octahedral world normal + roughness + AO (Deferred path only)" },
+        { "gbufferrma", DebugView::GBufferRMA,
+          "G-Buffer roughness / metallic / AO gathered into one RGB image (Deferred path only)" },
+        { "gbufferemissive", DebugView::GBufferEmissive,
+          "G-Buffer RT2 emissive HDR; its alpha carries the packed material flags (Deferred path only)" },
+        { "gbuffervelocity", DebugView::GBufferVelocity,
+          "G-Buffer RT3 screen-space velocity (Deferred path only)" },
     } };
 
     // The MaterialDebugView a DebugView token maps to. None for every other
@@ -350,9 +372,57 @@ namespace OloEngine::MCP::RenderOverrides
             case DebugView::VGClusterId:
             case DebugView::VGLod:
             case DebugView::VGOverdraw:
+            case DebugView::GBufferAlbedo:
+            case DebugView::GBufferNormal:
+            case DebugView::GBufferRMA:
+            case DebugView::GBufferEmissive:
+            case DebugView::GBufferVelocity:
                 break;
         }
         return MaterialDebugView::None;
+    }
+
+    // DeferredSettings::DebugChannel for a view token, 0 for every other view
+    // (issue #1329). Same rule and same reason as MaterialDebugForDebugView
+    // above: selecting any other view clears this one, so two visualisations
+    // never fight over the frame. EXHAUSTIVE, with no `default:` — a new
+    // enumerator has to be classified deliberately.
+    [[nodiscard]] inline constexpr u32 GBufferDebugChannelForDebugView(DebugView view)
+    {
+        switch (view)
+        {
+            case DebugView::GBufferAlbedo:
+                return 1u;
+            case DebugView::GBufferNormal:
+                return 2u;
+            case DebugView::GBufferRMA:
+                return 3u;
+            case DebugView::GBufferEmissive:
+                return 4u;
+            case DebugView::GBufferVelocity:
+                return 5u;
+            case DebugView::None:
+            case DebugView::SSAO:
+            case DebugView::GTAO:
+            case DebugView::SSR:
+            case DebugView::SSGI:
+            case DebugView::Overdraw:
+            case DebugView::VGClusterId:
+            case DebugView::VGLod:
+            case DebugView::VGOverdraw:
+            case DebugView::MaterialDiffuse:
+            case DebugView::MaterialSpecular:
+            case DebugView::SkinProfileId:
+            case DebugView::SkinScatteringMask:
+            case DebugView::MaterialTransmission:
+                break;
+        }
+        return 0u;
+    }
+
+    [[nodiscard]] inline constexpr bool IsGBufferChannelView(DebugView view)
+    {
+        return GBufferDebugChannelForDebugView(view) != 0u;
     }
 
     // True for the three virtualized-geometry modes, whose state lives on the
@@ -434,6 +504,14 @@ namespace OloEngine::MCP::RenderOverrides
         // Render-graph target to capture for the active view, when the view is
         // written to a buffer rather than the viewport (the vg* modes).
         std::string CaptureTarget;
+
+        // The live DeferredSettings::DebugChannel (0 = off), and the extraction
+        // provenance line for it (issue #1329): which frame produced the image
+        // in the viewport, which pass extracted it and which G-Buffer content
+        // version it read. Reported unconditionally, because "this picture is
+        // two frames old" and "this picture is live" are the same pixels.
+        u32 GBufferDebugChannel = 0;
+        std::string Capture;
     };
 
     [[nodiscard]] inline Json ToJson(const DebugViewResult& r)
@@ -446,6 +524,9 @@ namespace OloEngine::MCP::RenderOverrides
         j["ssgiDebugView"] = r.SSGIDebugView;
         j["overdrawDebugView"] = r.OverdrawDebugView;
         j["virtualGeometryDebugMode"] = r.VirtualGeometryDebugMode;
+        j["gbufferDebugChannel"] = r.GBufferDebugChannel;
+        if (!r.Capture.empty())
+            j["capture"] = r.Capture;
         j["passEnabled"] = r.PassEnabled;
         if (!r.CaptureTarget.empty())
             j["captureTarget"] = r.CaptureTarget;
