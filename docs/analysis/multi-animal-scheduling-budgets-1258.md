@@ -38,6 +38,16 @@ asked for, and it could have come out the other way: `DrawCallsAreNotTheLimitAtA
 fails above 5 %, and the correct response to that failure would be #1031's batching rather than
 more scheduling.
 
+**These are model-priced shares, so the conclusion carries its own error bar.** §4 is explicit that
+the coefficients are structural ratios rather than a wall-clock regression, which would make "2.3 %"
+on its own worth very little. What makes the conclusion usable is the MARGIN:
+`TheDrawCallConclusionSurvivesALargeErrorInItsOwnCoefficient` measures how far `PerDrawCall` would
+have to be wrong before draw calls became the largest line in the frame, and the answer is
+**20.4× — 133 units per draw instead of 6.5**. A conclusion that survives a twentyfold error in its
+own input is safe at the order-of-magnitude accuracy actually claimed; one that survived only a 1.5×
+error would not be, and that assertion fails below 10× so the distinction is checked rather than
+asserted.
+
 The share *rises* with population (1.86 → 2.33 %) because draw calls are the one cost no step
 scales, so they become a larger fraction of a herd that is otherwise being thinned. That is the
 reason they are subtracted off the top before the axis allowances are computed.
@@ -69,8 +79,8 @@ rule 1). For the herd-of-96 population:
 | | units | share |
 |---|---:|---:|
 | full rate | 73 116 | 100 % |
-| irreducible (every axis at its cap, visibility at the strand floor, plus draw calls) | 6 292 | 8.6 % |
-| **reachable by the budget** | 66 823 | **91.4 %** |
+| irreducible (every axis at its cap, visibility at the strand floor, plus draw calls) | 6 292 | 8.61 % |
+| **reachable by the budget** | 66 824 | **91.39 %** |
 
 `TheBudgetReachesTheMajorityOfTheFrameButNeverAllOfIt` fails below 50 %, which would mean the caps
 or the floors had grown to the point where scheduling could no longer be the primary lever.
@@ -87,23 +97,32 @@ or the floors had grown to the point where scheduling could no longer be the pri
 | `ShadowPerVoxel` | 0.0009 | units per coat-shadow voxel |
 | `PerDrawCall` | 6.5 | units per draw |
 
-One unit is nominally one microsecond on the calibration machine.
+**A UNIT IS A UNIT. It is not a microsecond, and this document previously said it was.** No
+per-axis wall-clock calibration was performed, so attaching a time unit to these numbers claimed a
+measurement that does not exist. What they are is a set of **structural ratios**: what one bone, one
+guide particle, one strand, one voxel and one draw cost *relative to each other* as this engine
+implements them. The budget is a number in the same arbitrary unit, which is why the tiers read
+2 000 / 4 000 / 6 000 / 12 000 rather than milliseconds.
 
-**Least confident part of this document, stated plainly.** These are *order-of-magnitude*
-coefficients chosen to reflect the relative cost of the four axes as this engine implements them;
-they are not a per-axis wall-clock regression on OLE. A Debug build cannot measure CPU scheduling
-at all, three sibling worktrees were building throughout this work and swing GPU timings by up to
-4×, and the axes do not all have an isolated benchmark to time. What the scheduler needs from them
-is the *ratios*, and the structural census above is what those ratios were sanity-checked against.
+**Least confident part of this document, stated plainly.** A Debug build cannot measure CPU
+scheduling at all, three sibling worktrees were building throughout this work and swing GPU timings
+by up to 4×, and the axes do not all have an isolated benchmark to time. So the ratios were chosen
+to reflect the implementations and sanity-checked against the structural census above — not
+regressed against a stopwatch.
 
-Two things follow, and both are already in place rather than promised:
+What follows from that, and what does not:
 
 * the model is **authorable** (`AnimalCostModel` is a value type with a sanitiser), so a project
-  that measures its own coefficients can use them;
-* the scheduler reports `AnimalSchedulerStats::EstimatedCostUnits` every frame, so drift between
-  the model and the machine is visible as a number rather than as a different picture.
+  that measures its own coefficients can substitute them and everything downstream follows;
+* every conclusion drawn from the model in this document carries a **margin** (§1), because a
+  conclusion that needed the ratios to be right to within a few per cent would not be supportable;
+* `AnimalSchedulerStats::EstimatedCostUnits` is reported every frame, but **nothing compares it to a
+  measured frame time**, so it is a budget-occupancy figure and not a drift detector. This document
+  used to claim it was the latter. Wiring that comparison — units against
+  `Scene::GetFrameTimeTail()` — is the natural way to calibrate, and is the obvious first follow-up.
 
-Re-calibrating is the obvious first follow-up, and it wants a Release build on an idle box.
+Re-calibrating wants a Release build on an idle box, which is neither of the conditions this work
+ran under.
 
 ## 5. The budget on real pixels
 

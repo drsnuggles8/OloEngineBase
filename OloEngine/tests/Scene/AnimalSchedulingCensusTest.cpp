@@ -21,14 +21,20 @@
 // timings by up to 4x. A timing assertion here would be a flake generator that
 // told nobody anything.
 //
-// The COEFFICIENTS in AnimalCostModel are the wall-clock half, measured once on
-// named hardware and recorded in
-// docs/analysis/multi-animal-scheduling-budgets-1258.md. This file asserts the
-// SHAPE of the answer those coefficients produce, which is the part a code
-// change can silently break:
+// The COEFFICIENTS in AnimalCostModel are NOT a wall-clock regression either,
+// and this file must not be read as if they were. They are structural ratios —
+// what one bone, one guide particle, one strand and one voxel cost RELATIVE to
+// each other as this engine implements them — recorded with their honest status
+// in docs/analysis/multi-animal-scheduling-budgets-1258.md section 4.
 //
-//   * draw calls are a small share at every tested distance, so scheduling is
-//     the right lever and batching (#1031) is not the missing piece here;
+// That makes the shape of the answer a claim that has to survive the model
+// being wrong, which is what TheDrawCallConclusionSurvivesALargeErrorInItsOwn-
+// Coefficient measures rather than assumes. What this file asserts:
+//
+//   * draw calls are a small share at every tested distance, AND that holds
+//     until PerDrawCall is off by more than an order of magnitude — so
+//     scheduling is the right lever and batching (#1031) is not the missing
+//     piece here;
 //   * the dominant share MOVES with distance, which is why one global quality
 //     scalar cannot be right at both ends;
 //   * the share the budget CANNOT reach is bounded and named.
@@ -368,4 +374,52 @@ TEST(AnimalSchedulingCensus, APopulationThatFitsIsNotCoarsenedAtAll)
             EXPECT_EQ(schedule.Step[a], 0u) << "an affordable population must be left exactly alone";
         }
     }
+}
+
+// -----------------------------------------------------------------------------
+// How wrong may the model be before its conclusion flips?
+// -----------------------------------------------------------------------------
+
+TEST(AnimalSchedulingCensus, TheDrawCallConclusionSurvivesALargeErrorInItsOwnCoefficient)
+{
+    // THE CENSUS IS PRICED THROUGH A MODEL, AND THE MODEL IS APPROXIMATE. §4 of
+    // the analysis document says so: the coefficients are structural ratios, not
+    // a per-axis wall-clock regression. So "draw calls are not the limit" is
+    // only worth anything if it survives the coefficient it depends on being
+    // wrong — and by how much is a number, not an opinion.
+    //
+    // This measures the MARGIN: the factor `PerDrawCall` would have to be scaled
+    // by before draw calls became the single largest line in the frame. A
+    // conclusion that survives a 20x error in its own input is robust at
+    // order-of-magnitude accuracy, which is the accuracy actually claimed. One
+    // that survived only a 1.5x error would not be, and this case would say so.
+    const std::vector<AnimalWorkItem> items = MixedDistancePopulation(96u, 90.0f);
+    const AnimalCostModel model;
+
+    std::array<f32, AnimalWorkAxisCount> axisUnits{};
+    f32 drawUnits = 0.0f;
+    for (const AnimalWorkItem& item : items)
+    {
+        drawUnits += model.PerDrawCall * static_cast<f32>(item.DrawCallCount);
+        for (sizet a = 0; a < AnimalWorkAxisCount; ++a)
+        {
+            std::array<u32, AnimalWorkAxisCount> off{ 30u, 30u, 30u, 30u };
+            off[a] = 0u;
+            const std::array<u32, AnimalWorkAxisCount> none{ 30u, 30u, 30u, 30u };
+            axisUnits[a] += EstimateAnimalCostUnits(model, item, off) - EstimateAnimalCostUnits(model, item, none);
+        }
+    }
+
+    ASSERT_GT(drawUnits, 0.0f);
+    const f32 largestAxis = *std::max_element(axisUnits.begin(), axisUnits.end());
+    const f64 margin = static_cast<f64>(largestAxis) / static_cast<f64>(drawUnits);
+
+    std::printf("\n[census] draw-call conclusion margin: PerDrawCall would have to be %.1fx larger (%.0f units "
+                "instead of %.2f) before draw calls were the largest line\n",
+                margin, static_cast<f64>(model.PerDrawCall) * margin, static_cast<f64>(model.PerDrawCall));
+
+    EXPECT_GT(margin, 10.0)
+        << "the 'draw calls are not the limit' conclusion now survives less than a 10x error in PerDrawCall. At the "
+           "order-of-magnitude accuracy the cost model actually claims, that is no longer a safe conclusion — "
+           "re-calibrate before trusting it, or the answer may be batching (#1031) after all";
 }

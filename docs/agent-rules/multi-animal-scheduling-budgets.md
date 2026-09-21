@@ -10,12 +10,15 @@ quietly breaking the picture.
 
 ## The rules
 
-1. **The budget is spent in CALIBRATED UNITS, never in a live clock reading.** A scheduler that
+1. **The budget is spent in MODEL UNITS, never in a live clock reading.** A scheduler that
    reads the clock allocates differently on a busy machine than on an idle one, so the population's
    trajectories stop reproducing and every capture downstream is noise — and reproducibility is
-   criterion 1. `AnimalCostModel`'s coefficients are measured once, on named hardware, and recorded
-   in [multi-animal-scheduling-budgets-1258.md](../analysis/multi-animal-scheduling-budgets-1258.md).
-   Drift between the model and the machine is a *counter*, not a different picture.
+   criterion 1. But `AnimalCostModel`'s coefficients are **structural ratios, not a wall-clock
+   calibration** — a unit is not a microsecond, and
+   [multi-animal-scheduling-budgets-1258.md §4](../analysis/multi-animal-scheduling-budgets-1258.md)
+   says so at length. **Any conclusion drawn from them must carry a margin**: how wrong the model
+   may be before the conclusion flips, the way §1's draw-call finding does (20.4×). A number out of
+   this model quoted without one is not evidence.
 
 2. **Four axes, four allowances — never one "animal quality" scalar.** Deformation, Simulation,
    Visibility and Shadow degrade differently and are noticed differently: thinned guides look
@@ -56,10 +59,16 @@ quietly breaking the picture.
    it: the floor stops the budget thinning a coat to nothing, it is not a minimum the asset must
    meet, and treating it as one silently refuses to LOD a deliberately sparse groom.
 
-8. **Starvation is prevented by the SERVICE ORDER, not by a check.** The per-axis starvation counter
-   is the second sort key, so an animal passed over rises until it outranks its competitors. A
-   counter that were merely reported would be a diagnostic; one that is part of the sort is a
-   mechanism. The bound is swept over 200 frames, not sampled.
+8. **Starvation is prevented by the SERVICE ORDER, and the bound is RELATIVE.** The per-axis
+   starvation counter is the second sort key, so an animal passed over rises until it outranks its
+   competitors; `StarvationFrames` then removes it from the candidate set entirely while any
+   same-role peer is still eligible. A counter that were merely reported would be a diagnostic; one
+   that is part of the sort, and then of the eligibility test, is a mechanism.
+   **An ABSOLUTE bound — "nobody is below desired for more than N frames" — is unachievable** at any
+   budget small enough to matter, because when the whole population must be coarsened there is
+   nobody to swap with; the first version of the contract test asserted it and failed at 200 frames
+   against a correct scheduler. For the same reason the rule is *dropped* for a pass in which every
+   candidate is over the bound, or the axis would stay over budget forever.
 
 9. **Role groups are exhausted in turn, never interleaved.** Every Background animal must be at its
    cap before a Featured one gives way. That is "preserve hero quality" made operational: a herd
@@ -133,7 +142,7 @@ quietly breaking the picture.
 | The hero is soft in a crowded shot | `CoarsenedByRole[Hero]` non-zero — `AnimalProtectHero` is off |
 | The frame is over budget and nothing is being cut | `BudgetExceeded` with `AnimalsCapHeld` high: the population has outgrown the caps, not the budget |
 | Distant animals are bald | `AnimalsAtVisibilityFloor` is 0 while coats vanish — the floor is not reaching `MaxStep` |
-| One animal is permanently coarse while its neighbours are sharp | `MaxStarvedFrames` at or above `StarvationFrames` |
+| One animal is permanently coarse while its neighbours are sharp | NOT `MaxStarvedFrames` — it measures PRESSURE and grows for everybody when nothing can be served. The unfairness condition is relative: a same-role peer sitting AT its desired step on that axis while this one is below it. Copy `AnimalSchedulerStarvation.NoAnimalIsPassedOverWhileAPeerSitsAtItsDesiredStep` |
 | The population flickers between quality levels | `StepChanges` staying near `AnimalsConsidered * 4` |
 | A distant animal judders | `AnimalsAtPoseStepCap` is 0 — `m_FullRateMotionMetres` is authored too low for its fastest clip |
 | Frame time improved but it feels worse | read `FrameTimeTail::Query().P99Ms`, not the mean — see rule 17 |
