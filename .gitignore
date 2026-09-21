@@ -68,6 +68,9 @@ OloEngine/vendor/*
 # Captured under whichever CWD the test ran from — OloEditor/ for the editor-
 # rooted suites, repo root for tests run via the harness's bare working dir.
 OloEditor/assets/tests/captures/
+# olo_screenshot's optional 'path' argument writes here (#607) — session
+# artefacts, never project content.
+OloEditor/assets/mcp-captures/
 /assets/tests/captures/
 
 # Opt-in high-resolution path-tracer evidence (--olo-pathtracer-evidence). Only

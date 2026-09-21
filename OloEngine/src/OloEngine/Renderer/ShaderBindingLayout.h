@@ -857,12 +857,21 @@ namespace OloEngine
         //
         // IT SHARES BINDING 65 WITH RayTracingProbe.comp's OWN BLOCK, and that
         // is the design, not an accident. #978 took the last free buffer binding
-        // in the engine (see UBO_RAY_TRACING's comment); the probe is a
-        // diagnostic that never runs inside a rendered frame, so the two blocks
-        // are never live together, and each owner rebinds its buffer before its
-        // own dispatch the way every other pass here does. The within-shader
-        // rule still holds: 65 is also TEX_VSM_PHYSICAL, and none of the three
-        // shaders declares a VSM sampler.
+        // in the engine (see UBO_RAY_TRACING's comment).
+        //
+        // WHAT MAKES THE SHARING SAFE IS THE REBIND, NOT A CLAIM ABOUT WHEN THE
+        // PROBE RUNS. This comment used to say the probe "never runs inside a
+        // rendered frame" and that the two blocks are therefore never live
+        // together. #607 falsified that: RayTracingScenePass now dispatches the
+        // probe INSIDE the frame, right after its build->read barrier, because
+        // that is the only point where the acceleration structures are known
+        // built. So the rule is simply that EVERY owner of 65 rebinds its own
+        // buffer immediately before its own dispatch — which RayTracedShadowPass,
+        // RayTracedReflectionPass and RayTracingProbe::Dispatch each do. An
+        // owner that skipped the rebind would read whichever block was written
+        // last, and that has nothing to do with frame boundaries. The
+        // within-shader rule still holds: 65 is also TEX_VSM_PHYSICAL, and none
+        // of these shaders declares a VSM sampler.
         //
         // The TLAS travels as a DEVICE ADDRESS rather than a descriptor —
         // accelerationStructureEXT(uvec2) converts one directly — which is why
