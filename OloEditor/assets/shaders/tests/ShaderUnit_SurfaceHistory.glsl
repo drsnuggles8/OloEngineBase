@@ -11,6 +11,12 @@ layout(std430, binding = 1) writeonly buffer Outputs
     vec4 u_FirstMoment;
     vec4 u_SecondMoment;
     vec4 u_Metadata;
+    // #1256: the coverage rejection bit, then the three SEPARATED reactive
+    // causes. The CPU side asserts these against EvaluateTemporalReactivity
+    // run on the same inputs rather than against hard-coded constants, so a
+    // retune of the shipping dead bands cannot make the twins drift apart
+    // while both still pass.
+    vec4 u_CoverageReactivity;
 };
 
 OloSurfaceHistoryRecord MakeRecord()
@@ -21,6 +27,8 @@ OloSurfaceHistoryRecord MakeRecord()
     record.ShadingNormal = vec3(0.0, 0.0, 1.0);
     record.Roughness = 0.4;
     record.MaterialClass = 3u;
+    record.Coverage = 1.0;
+    record.MaterialProfile = 0.0;
     record.Motion = vec2(0.0);
     record.Instance = uvec2(7u, 2u);
     record.Primitive = uvec2(11u, 4u);
@@ -42,7 +50,22 @@ OloSurfaceHistorySettings MakeSettings()
     settings.RoughnessThreshold = 0.1;
     settings.MotionThresholdPixels = 8.0;
     settings.RelativeHitDistanceThreshold = 0.1;
+    settings.CoverageRejectThreshold = 0.5;
     settings.PixelSize = vec2(1.0 / 640.0, 1.0 / 360.0);
+    return settings;
+}
+
+OloTemporalReactivitySettings MakeReactivitySettings()
+{
+    OloTemporalReactivitySettings settings;
+    settings.MotionDeadZonePixels = 1.0;
+    settings.MotionSaturationPixels = 5.0;
+    settings.MotionMaxReactivity = 0.5;
+    settings.CoverageNoiseDeadBand = 0.12;
+    settings.CoverageSaturation = 0.35;
+    settings.MaterialProfileDeadBand = 0.02;
+    settings.MaterialProfileSaturation = 0.25;
+    settings.PixelSize = vec2(1.0 / 1280.0, 1.0 / 720.0);
     return settings;
 }
 
@@ -82,4 +105,30 @@ void main()
     u_SecondMoment = firstFrame.Second;
     u_Metadata = vec4(firstFrame.HistoryLength, OloTemporalVariance(firstFrame).x,
                       float(unusedOptionalHitDistance), 0.0);
+
+    // #1256 — the coverage channel and the separated reactive causes.
+    //
+    // A 0.7 coverage collapse is past the 0.5 hard threshold and must raise
+    // the coverage bit and nothing else; the reactivity case then drives all
+    // three causes PARTIALLY, so the product that combines them is actually
+    // exercised rather than being multiplied by a zero.
+    OloSurfaceHistoryRecord coverageCurrent = MakeRecord();
+    OloSurfaceHistoryRecord coveragePrevious = MakeRecord();
+    OloSurfaceHistorySettings coverageSettings = MakeSettings();
+    coverageSettings.TestMask |= OLO_SURFACE_TEST_COVERAGE;
+    coverageCurrent.Coverage = 0.8;
+    coveragePrevious.Coverage = 0.1;
+    uint coverageMismatch =
+        OloEvaluateSurfaceHistory(coverageCurrent, coveragePrevious, vec2(0.5), true, coverageSettings);
+
+    OloSurfaceHistoryRecord reactiveCurrent = MakeRecord();
+    OloSurfaceHistoryRecord reactivePrevious = MakeRecord();
+    reactiveCurrent.Coverage = 0.85;
+    reactiveCurrent.MaterialProfile = 0.09;
+    reactiveCurrent.Motion = vec2(0.0015, 0.0);
+    OloTemporalReactivity reactivity =
+        OloEvaluateTemporalReactivity(reactiveCurrent, reactivePrevious, MakeReactivitySettings());
+
+    u_CoverageReactivity = vec4(float(coverageMismatch), reactivity.SurfaceMotion, reactivity.CoverageChange,
+                                reactivity.MaterialChange);
 }
