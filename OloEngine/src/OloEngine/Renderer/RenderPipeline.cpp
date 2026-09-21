@@ -2023,6 +2023,17 @@ namespace OloEngine
                 deferred ? data.PostProcess.MaterialDebug : MaterialDebugView::None);
         }
 
+        // Wire the G-Buffer debug extraction (#1329). Its Setup declarations
+        // deliberately do NOT depend on the channel -- only Execute does -- so
+        // flipping the channel needs no graph rebuild and cannot cull the node.
+        if (SceneCompositePasses.GBufferDebug && FrameCorePasses.Scene)
+        {
+            const bool deferred = (data.Settings.Path == RenderingPath::Deferred);
+            SceneCompositePasses.GBufferDebug->SetGBuffer(deferred ? FrameCorePasses.Scene->GetGBuffer() : nullptr);
+            SceneCompositePasses.GBufferDebug->SetDebugChannel(deferred ? data.Settings.Deferred.DebugChannel : 0);
+            SceneCompositePasses.GBufferDebug->SetPerSampleLighting(deferred && data.Settings.Deferred.PerSampleLighting);
+        }
+
         // Wire the opaque-decal graph shim: in Deferred mode it drains the
         // DecalRenderPass bucket into the G-Buffer between ScenePass and
         // DeferredLightingPass. Safe to update unconditionally — the pass
@@ -3195,6 +3206,7 @@ namespace OloEngine
             HashU64(h, RHI::HashKey(ddgiPass.GetProbeDataTextureID()));
         }
         HashPassState(h, SceneCompositePasses.DeferredLighting);
+        HashPassState(h, SceneCompositePasses.GBufferDebug);
         HashPassState(h, SceneCompositePasses.DeferredOpaqueDecal);
         HashPassState(h, SceneCompositePasses.DeferredGPUOcclusion);
         HashPassState(h, SceneCompositePasses.SSAO);
@@ -5792,6 +5804,7 @@ namespace OloEngine
         inputs.Passes.SkeletalDeform = FrameCorePasses.SkeletalDeform.Raw();
         inputs.Passes.RayTracingScene = FrameCorePasses.RayTracingScene.Raw();
         inputs.Passes.DeferredLighting = SceneCompositePasses.DeferredLighting.Raw();
+        inputs.Passes.GBufferDebug = SceneCompositePasses.GBufferDebug.Raw();
         inputs.Passes.DeferredOpaqueDecal = SceneCompositePasses.DeferredOpaqueDecal.Raw();
         inputs.Passes.DeferredGPUOcclusion = SceneCompositePasses.DeferredGPUOcclusion.Raw();
         inputs.Passes.PlanarReflection = SceneCompositePasses.PlanarReflection.Raw();
@@ -5926,6 +5939,14 @@ namespace OloEngine
         // the G-Buffer between ScenePass and DeferredLightingPass (was
         // previously a synchronous call inside SceneRenderPass::Execute,
         // now a proper graph node with declared resource edges).
+        // G-Buffer debug extraction (#1329). Runs after every late G-Buffer
+        // writer and immediately before DeferredLightingPass, which early-outs
+        // while a debug channel is selected -- so this pass's blit is what the
+        // viewport shows.
+        SceneCompositePasses.GBufferDebug = Ref<GBufferDebugPass>::Create();
+        SceneCompositePasses.GBufferDebug->SetName("GBufferDebugPass");
+        SceneCompositePasses.GBufferDebug->Init(scenePassSpec);
+
         SceneCompositePasses.DeferredOpaqueDecal = Ref<DeferredOpaqueDecalPass>::Create();
         SceneCompositePasses.DeferredOpaqueDecal->SetName("DeferredOpaqueDecalPass");
         SceneCompositePasses.DeferredOpaqueDecal->Init(scenePassSpec);

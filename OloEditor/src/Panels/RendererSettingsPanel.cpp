@@ -3,6 +3,8 @@
 #include "SettingsChangeLog.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/BackendSelection.h"
+#include "OloEngine/Renderer/Commands/FrameResourceManager.h"
+#include "OloEngine/Renderer/Debug/DebugViewProvenance.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugDraw.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugDrawTypes.h"
@@ -934,6 +936,34 @@ namespace OloEngine
                 {
                     deferred.DebugChannel = static_cast<u32>(channelIdx);
                     Renderer3D::ApplyRendererSettings();
+                }
+
+                // Capture provenance (issue #1329). The debug image in the
+                // viewport is only worth anything if the reader knows WHICH
+                // frame and WHICH version of the G-Buffer it came from: a
+                // frozen image reads exactly like a live one. GBufferDebugPass
+                // publishes this line every frame it extracts, and retires the
+                // record on every frame it does not.
+                {
+                    const u64 currentFrame = FrameResourceManager::Get().GetTotalFrameCount();
+                    const DebugViewProvenance record = DebugViewProvenanceRegistry::Get();
+                    const bool current = DebugViewProvenanceRegistry::IsCurrent(currentFrame);
+                    const ImVec4 colour = record.Valid
+                                              ? (current ? ImVec4(0.55f, 0.80f, 0.55f, 1.0f)
+                                                         : ImVec4(0.95f, 0.65f, 0.25f, 1.0f))
+                                              : ImVec4(0.60f, 0.60f, 0.60f, 1.0f);
+                    ImGui::TextColored(colour, "Capture: %s",
+                                       DebugViewProvenanceRegistry::Describe(currentFrame).c_str());
+                    if (ImGui::IsItemHovered())
+                    {
+                        ImGui::SetTooltip("Which frame produced the image in the viewport, which\n"
+                                          "pass extracted it, and which G-Buffer content version it\n"
+                                          "read. The version is bumped by every G-Buffer writer\n"
+                                          "(ScenePass, virtual geometry, deferred occlusion phase 2,\n"
+                                          "opaque decals); the extraction runs after all of them, so\n"
+                                          "a mismatch between the read version and the final one\n"
+                                          "means the image predates a late writer.");
+                    }
                 }
 
                 // --- Virtualized geometry (Nanite, issue #629) ---

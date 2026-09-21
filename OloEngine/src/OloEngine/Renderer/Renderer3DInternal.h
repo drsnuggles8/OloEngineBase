@@ -14,6 +14,7 @@
 #include "OloEngine/Renderer/Passes/DeferredOpaqueDecalPass.h"
 #include "OloEngine/Renderer/Passes/FinalRenderPass.h"
 #include "OloEngine/Renderer/Passes/FogRenderPass.h"
+#include "OloEngine/Renderer/Passes/GBufferDebugPass.h"
 #include "OloEngine/Renderer/Passes/FluidCompositePass.h"
 #include "OloEngine/Renderer/Passes/FluidIntermediatesPass.h"
 #include "OloEngine/Renderer/Passes/FoliageRenderPass.h"
@@ -156,6 +157,10 @@ namespace OloEngine
     struct Renderer3D::SceneCompositionPassSet
     {
         Ref<DeferredLightingPass> DeferredLighting;
+        // G-Buffer debug extraction (#1329). Registered after the last
+        // G-Buffer writer and immediately before DeferredLightingPass, which
+        // early-outs while a debug channel is selected.
+        Ref<GBufferDebugPass> GBufferDebug;
         Ref<DeferredOpaqueDecalPass> DeferredOpaqueDecal;
         Ref<DeferredGPUOcclusionPass> DeferredGPUOcclusion;
         Ref<PlanarReflectionRenderPass> PlanarReflection;
@@ -184,6 +189,7 @@ namespace OloEngine
         void Reset()
         {
             DeferredLighting.Reset();
+            GBufferDebug.Reset();
             DeferredOpaqueDecal.Reset();
             DeferredGPUOcclusion.Reset();
             PlanarReflection.Reset();

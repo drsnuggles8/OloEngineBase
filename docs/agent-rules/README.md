@@ -113,6 +113,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [render-graph-transient-aliasing.md](render-graph-transient-aliasing.md): `WriteNewVersion` renames a physical resource; use the poison and disable levers to find stale reads.
 - [render-pipeline-caches.md](render-pipeline-caches.md): process-wide render caches invalidate on every topology reset, not only on a fingerprint change.
 - [render-graph-setup-declaration-gates.md](render-graph-setup-declaration-gates.md): a pass whose `Setup()` declares nothing when it has no work must have that gate in the blackboard fingerprint, or it stays culled while its bucket fills.
+- [diagnostic-views-read-the-final-resource-version.md](diagnostic-views-read-the-final-resource-version.md): a debug extraction of a resource with several writers is its own graph node after the last of them, and it records which content version it read.
 - [ddgi-probe-cascades-and-sparsity.md](ddgi-probe-cascades-and-sparsity.md): the DDGI clipmap is toroidal, `%` truncates toward zero, and sparsity fails as "no GI, no error".
 - [baked-lightmap-pipeline.md](baked-lightmap-pipeline.md): the GI units ledger, UV2 as a parallel stream, and keying the seam split after the unwrap.
 - [lightmap-receiver-identity.md](lightmap-receiver-identity.md): a baked lightmap region is addressed by (entity UUID, sub-key), never by the entity alone.
@@ -393,6 +394,8 @@ The check passes for a correct implementation and for a broken one.
 | [procedural-generator-golden-coupling.md](procedural-generator-golden-coupling.md) | A red that recurs every run gets normalised and blinds the suite. |
 | [rhi-abstraction-boundary.md](rhi-abstraction-boundary.md) | A `glXxx(` grep is wrong three different ways. |
 | [volumetric-cloud-debugging.md](volumetric-cloud-debugging.md) | Capture targets show the editor camera; include-only shader edits do not hot-reload; "darker" passes for every uniform veil. |
+| [diagnostic-views-read-the-final-resource-version.md](diagnostic-views-read-the-final-resource-version.md) | The G-Buffer debug view was blitted at the end of its FIRST writer, so it showed a surface three later passes went on to change; a missing decal and a decal written after the capture are the same picture. |
+| [diagnostic-views-read-the-final-resource-version.md §2](diagnostic-views-read-the-final-resource-version.md#and-it-has-to-reach-the-screen-on-every-backend) | `glBlitFramebuffer` converts formats and `vkCmdCopyImage` does not, so the RGBA8 debug channels were a warn-once no-op on Vulkan and the viewport kept its clear — a diagnostic that renders nothing looks exactly like a renderer that drew nothing. |
 | [timed-wait-test-assertions.md](timed-wait-test-assertions.md) | `duration_cast<milliseconds>` truncates toward zero. |
 | [shared-temp-dir-test-isolation.md](shared-temp-dir-test-isolation.md) | A CI comment asserted a safety property nobody had measured. |
 | [cross-test-renderer-state.md](cross-test-renderer-state.md) | A visual test that passes 10/10 in isolation and draws nothing in the full run, with identical engine logs; two poisoners are each necessary and neither sufficient, and a reduced repro reproduces a different bug. |

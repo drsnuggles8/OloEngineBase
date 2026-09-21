@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/GBuffer.h"
+#include "OloEngine/Renderer/Debug/DebugViewProvenance.h"
 
 #include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Core/Log.h"
@@ -142,6 +143,16 @@ namespace OloEngine
 
         if (m_ResolvedFramebuffer)
             m_ResolvedFramebuffer->Resize(m_Width, m_Height);
+    }
+
+    void GBuffer::MarkWritten(const char* writer) noexcept
+    {
+        ++m_WriteVersion;
+        m_LastWriter = writer ? writer : "";
+        // Tell any published debug capture that it has been overtaken. Cheap
+        // (a mutex and an integer compare, a handful of times per frame) and
+        // it is the only place that can know: the extracting pass cannot.
+        DebugViewProvenanceRegistry::NoteGBufferWrite(m_WriteVersion, m_LastWriter);
     }
 
     void GBuffer::Resolve()

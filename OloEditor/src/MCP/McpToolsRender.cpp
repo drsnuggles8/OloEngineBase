@@ -71,6 +71,8 @@
 #include "OloEngine/Renderer/Debug/RenderGraphResourceIdentity.h"
 #include "OloEngine/Renderer/TransientPool.h"
 #include "OloEngine/Renderer/Renderer2D.h"
+#include "OloEngine/Renderer/Commands/FrameResourceManager.h"
+#include "OloEngine/Renderer/Debug/DebugViewProvenance.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 // For SkinProfileTable::GetAssignedSlotCount, which is how the skindiffusion
 // toggle can say "nothing in this scene uses a skin profile" rather than leave
@@ -1784,6 +1786,27 @@ namespace OloEngine::MCP
         RenderOverrides::DebugView ActiveDebugView(const PostProcessSettings& pp)
         {
             using RenderOverrides::DebugView;
+            // FIRST, ahead of the material views, because a selected G-Buffer
+            // channel makes DeferredLightingPass early-out — and the material
+            // views are that pass's output. With a channel set through the
+            // editor combo and a material view set through this tool, both
+            // states are live and only one of them is on screen; reporting the
+            // dead one is the staleness this tool is supposed to rule out.
+            switch (Renderer3D::GetRendererSettings().Deferred.DebugChannel)
+            {
+                case 1u:
+                    return DebugView::GBufferAlbedo;
+                case 2u:
+                    return DebugView::GBufferNormal;
+                case 3u:
+                    return DebugView::GBufferRMA;
+                case 4u:
+                    return DebugView::GBufferEmissive;
+                case 5u:
+                    return DebugView::GBufferVelocity;
+                default:
+                    break;
+            }
             if (pp.SSAODebugView)
                 return DebugView::SSAO;
             if (pp.GTAODebugView)
@@ -1840,6 +1863,12 @@ namespace OloEngine::MCP
             const auto& virtualRegistry = VirtualMeshRegistry::Get();
             r.VirtualGeometryDebugMode = VirtualDebugModeToken(virtualRegistry.GetDebugMode());
             const bool deferred = Renderer3D::GetRendererSettings().Path == RenderingPath::Deferred;
+            r.GBufferDebugChannel = Renderer3D::GetRendererSettings().Deferred.DebugChannel;
+            // The extraction record (issue #1329), reported for EVERY mode, not
+            // only the G-Buffer ones: when a caller switches away from a
+            // G-Buffer view, the line going to "no debug view extracted" is how
+            // they know the old image is gone rather than merely unrefreshed.
+            r.Capture = DebugViewProvenanceRegistry::Describe(FrameResourceManager::Get().GetTotalFrameCount());
 
             // The vg* modes render into their own target rather than the viewport,
             // so "the view is on" is only half the answer — an agent still has to
@@ -1908,6 +1937,25 @@ namespace OloEngine::MCP
                         r.Note = "The material debug views are produced by the deferred lighting pass; "
                                  "switch the rendering path to Deferred.";
                     break;
+                case DebugView::GBufferAlbedo:
+                case DebugView::GBufferNormal:
+                case DebugView::GBufferRMA:
+                case DebugView::GBufferEmissive:
+                case DebugView::GBufferVelocity:
+                    // GBufferDebugPass extracts these straight into the scene
+                    // colour target, after every late G-Buffer writer and before
+                    // DeferredLightingPass, which skips itself while a channel is
+                    // selected — so the viewport IS the view and there is nothing
+                    // extra to capture. No G-Buffer exists on the forward paths.
+                    r.PassEnabled = deferred;
+                    if (!deferred)
+                        r.Note = "The G-Buffer debug channels need the DEFERRED path (current path: " +
+                                 std::string(RenderingPathName(Renderer3D::GetRendererSettings().Path)) +
+                                 "). Switch with olo_renderer_settings_set { setting: 'renderpath', value: 'deferred' }.";
+                    else
+                        r.Note = "Read it with olo_screenshot; 'capture' says which frame and which G-Buffer "
+                                 "content version the image came from.";
+                    break;
                 case DebugView::VGClusterId:
                 case DebugView::VGLod:
                 case DebugView::VGOverdraw:
@@ -1970,6 +2018,19 @@ namespace OloEngine::MCP
                 // clears this one by the same rule the bools above follow.
                 pp.MaterialDebug = MaterialDebugForDebugView(view);
 
+                // Same one-view-at-a-time rule for the G-Buffer channels
+                // (issue #1329): the helper returns 0 for every other view, so
+                // selecting any of them clears the channel and lets
+                // DeferredLightingPass shade again.
+                auto& rendererSettings = Renderer3D::GetRendererSettings();
+                const u32 requestedChannel = GBufferDebugChannelForDebugView(view);
+                const bool channelChanged = rendererSettings.Deferred.DebugChannel != requestedChannel;
+                if (channelChanged)
+                {
+                    rendererSettings.Deferred.DebugChannel = requestedChannel;
+                    Renderer3D::ApplyRendererSettings();
+                }
+
                 VirtualDebugMode virtualMode = VirtualDebugMode::Off;
                 (void)VirtualModeForDebugView(view, virtualMode);
                 const bool virtualChanged = VirtualMeshRegistry::Get().GetDebugMode() != virtualMode;
@@ -1979,10 +2040,31 @@ namespace OloEngine::MCP
 
                 Json j = ToJson(BuildDebugViewResult(pp, view));
                 j["__virtualChanged"] = virtualChanged;
+                j["__channelChanged"] = channelChanged;
                 return j; });
 
             const bool virtualChanged = result.value("__virtualChanged", false);
             result.erase("__virtualChanged");
+            const bool channelChanged = result.value("__channelChanged", false);
+            result.erase("__channelChanged");
+
+            // A G-Buffer channel only becomes true of the frame once a frame has
+            // run with it set, and `capture` is a statement ABOUT that frame. Let
+            // one through before reporting.
+            //
+            // BOTH DIRECTIONS, which is not symmetry for its own sake: the
+            // switch-AWAY case is the one that was wrong. Reporting immediately
+            // after clearing the channel returned the record the last extraction
+            // published — "channel 1, current" — while the viewport was already
+            // back to the lit composite. That is a stale capture presented as
+            // current inside the very tool that exists to rule one out, and it
+            // was measured on a live editor before this line was here.
+            if (channelChanged && host.Context().GetFrameIndex)
+            {
+                (void)ForceFreshFrame(host, kVirtualDebugSettleFrames);
+                result = host.MarshalRead([view]() -> Json
+                                          { return ToJson(BuildDebugViewResult(Renderer3D::GetPostProcessSettings(), view)); });
+            }
 
             // A virtual-geometry mode change gates a render-graph declaration, so the
             // topology must rebuild before the "VirtualGeometryDebug" target can be
@@ -7929,9 +8011,10 @@ namespace OloEngine::MCP
             tool.Annotations = MutatingAnnotations(/*idempotent*/ false);
             tool.Description =
                 "Switch the viewport to a raw intermediate buffer for AO/reflection/GI/overdraw/virtual-geometry "
-                "debugging. 'mode' is one of none (the normal composite), ssao, gtao, ssr, ssgi, overdraw, "
-                "vgclusterid, vglod, vgoverdraw, materialdiffuse, materialspecular, skinprofileid, skinmask, "
-                "materialtransmission "
+                "/G-Buffer debugging. 'mode' is one of none (the normal composite), ssao, gtao, ssr, ssgi, "
+                "overdraw, vgclusterid, vglod, vgoverdraw, materialdiffuse, materialspecular, skinprofileid, "
+                "skinmask, materialtransmission, gbufferalbedo, gbuffernormal, gbufferrma, gbufferemissive, "
+                "gbuffervelocity "
                 "— exactly one is shown at a time; mode 'none' (or "
                 "'enabled':false) clears them all. 'overdraw' heat-maps per-pixel fragment count (how many "
                 "layers deep the frame is: black=none, blue/green/yellow/red=increasing overlap) by re-drawing "
@@ -7946,7 +8029,14 @@ namespace OloEngine::MCP
                 "as a hue (black where a pixel names no profile), or the scattering mask as unitless 0..1 "
                 "greyscale. They are produced by the deferred lighting pass, so they need the Deferred path; "
                 "'passEnabled' is false with a note saying so on the forward paths. "
-                "Returns the active mode, the *DebugView flag states, the virtual-geometry debug mode, and "
+                "The five gbuffer* modes (issue #1329) show one G-Buffer attachment as the viewport image, "
+                "extracted by GBufferDebugPass AFTER every late G-Buffer writer — virtual geometry, the "
+                "deferred two-phase occlusion cull and opaque decals — so an albedo view HAS the decals on it. "
+                "They need the Deferred path, they are read with olo_screenshot (no capture target), and the "
+                "response's 'capture' line states which frame produced the image, which pass extracted it and "
+                "which G-Buffer content version it read, so a frozen image cannot be mistaken for a live one. "
+                "Returns the active mode, the *DebugView flag states, the virtual-geometry debug mode, the "
+                "live 'gbufferDebugChannel', the 'capture' provenance line, and "
                 "'passEnabled' — whether the pass that produces the chosen buffer is actually running this "
                 "frame (with an actionable 'note' if not, e.g. enable SSAO first with olo_render_toggle_pass). "
                 "The change is EPHEMERAL: it edits the renderer's session-global settings, not the scene, so "

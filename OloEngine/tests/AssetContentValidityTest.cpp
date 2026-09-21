@@ -2091,6 +2091,38 @@ namespace OloEngine::Tests
             }
             return false;
         }
+
+        // Is this scalar a FILE PATH REFERENCE, or merely a value under a key
+        // whose name happens to end in "Path"?
+        //
+        // The key name alone is not the answer, and reading it as if it were
+        // broke CI: `FollowPathComponent` serialises `OrientToPath: true` --
+        // "orient to path", a verb phrase -- and the name-only rule demanded a
+        // file called `true` under every candidate root. That is the heuristic
+        // being wrong, not the field being misnamed; `...ToPath`, `FollowPath`
+        // and `SnapToPath` are all names a boolean is entitled to.
+        //
+        // So ask YAML what the scalar IS, through yaml-cpp's own converters
+        // rather than a hand-written token list -- a list would drift from the
+        // parser's idea of a boolean, and the two disagreeing is how this class
+        // of bug comes back. A value yaml-cpp reads as a bool or a number is
+        // not a path: no real asset reference is spelled `true`, `off` or `2.5`.
+        //
+        // The cost of being wrong here is losing the check on an asset whose
+        // whole name is a YAML boolean token or a number -- a folder called
+        // `no`, a file called `12`. That is the right way round: this test
+        // exists to catch a path that does not resolve, and a false POSITIVE
+        // stops every PR while a false negative loses one improbable case.
+        [[nodiscard]] bool ScalarIsAPathReference(const YAML::Node& scalar)
+        {
+            bool asBool = false;
+            if (YAML::convert<bool>::decode(scalar, asBool))
+                return false;
+            f64 asNumber = 0.0;
+            if (YAML::convert<f64>::decode(scalar, asNumber))
+                return false;
+            return true;
+        }
     } // namespace
 
     TEST(AssetContentValidity, AllSandboxScenePathReferencesResolve)
@@ -2122,6 +2154,10 @@ namespace OloEngine::Tests
             if (n.IsScalar())
             {
                 if (!isPathField(currentKey))
+                    return;
+                // The key NAME got us here; the VALUE decides whether this is
+                // actually a path reference. See ScalarIsAPathReference.
+                if (!ScalarIsAPathReference(n))
                     return;
                 const std::string value = n.as<std::string>();
                 if (value.empty())
@@ -2175,6 +2211,42 @@ namespace OloEngine::Tests
                 oss << "----\n"
                     << f.Path << "\n    " << f.Reason << "\n";
             FAIL() << oss.str();
+        }
+    }
+
+    // The heuristic above had no test, which is why a boolean under a key
+    // named `OrientToPath` reached CI and failed every shard. It has one now,
+    // and it is a table rather than a regression case for the one value that
+    // bit: the rule is "what YAML says the scalar is", so the table states
+    // both halves of that rule.
+    TEST(AssetContentValidity, PathReferenceHeuristicReadsTheValueNotJustTheKey)
+    {
+        const auto scalarOf = [](const char* yaml)
+        {
+            return YAML::Load(std::string("v: ") + yaml)["v"];
+        };
+
+        // NOT path references: yaml-cpp resolves each of these as a bool or a
+        // number, whatever the key is called.
+        for (const char* notAPath : { "true", "false", "True", "False", "yes", "no",
+                                      "on", "off", "0", "1", "2.5", "-3" })
+        {
+            EXPECT_FALSE(ScalarIsAPathReference(scalarOf(notAPath)))
+                << "'" << notAPath << "' was treated as a file path; a key named ...Path holding "
+                                      "this value is a flag or a count, and demanding a file by that name fails every "
+                                      "shard on content that is perfectly valid";
+        }
+
+        // Path references, including the shapes this suite relies on: a bare
+        // folder name (the Skybox cubemap directory), a relative path, a
+        // filename with an extension, and one with a hyphen or a space.
+        for (const char* aPath : { "Skybox", "Scenes/Benchmark/AnimalPopulation.olo",
+                                   "Scripts/LuaScripts/Patrol.lua", "Textures/rock-01.png",
+                                   "Models/My Model.gltf" })
+        {
+            EXPECT_TRUE(ScalarIsAPathReference(scalarOf(aPath)))
+                << "'" << aPath << "' stopped being checked; the resolve test above silently covers "
+                                   "less than it claims";
         }
     }
 

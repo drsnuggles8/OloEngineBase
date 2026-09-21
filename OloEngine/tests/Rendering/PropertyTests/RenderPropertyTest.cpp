@@ -501,6 +501,14 @@ namespace OloEngine::Tests
                             static_cast<GLsizei>(out.size() * sizeof(f32)), out.data());
     }
 
+    void ReadbackRedInteger(u32 textureId, u32 width, u32 height, std::vector<i32>& out)
+    {
+        PixelStoreDefaultsScope packScope{ PackTag{} };
+        out.resize(static_cast<std::size_t>(width) * height);
+        ::glGetTextureImage(static_cast<GLuint>(textureId), 0, GL_RED_INTEGER, GL_INT,
+                            static_cast<GLsizei>(out.size() * sizeof(i32)), out.data());
+    }
+
     FloatStats ComputeStats(const std::vector<f32>& pixels)
     {
         FloatStats stats{};
