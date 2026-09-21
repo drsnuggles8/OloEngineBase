@@ -585,6 +585,7 @@ namespace OloEngine::RayTracing
                     .IndexCount = entry.Record->IndexCount,
                     .BaseVertex = entry.Record->BaseVertex,
                     .Vegetation = (entry.Record->Flags & GPUSceneGeometryFlagVegetation) != 0u,
+                    .Groom = (entry.Record->Flags & GPUSceneGeometryFlagGroom) != 0u,
                 });
             }
         }

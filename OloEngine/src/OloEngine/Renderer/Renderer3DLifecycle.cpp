@@ -430,6 +430,11 @@ namespace OloEngine
         // byte-identical to what it was before this feature.
         s_Data.DeformedSurfaces.SetEnabled(s_Data.SceneRT.IsAvailable());
         s_Data.VegetationSurfaces.SetEnabled(s_Data.SceneRT.IsAvailable());
+        // The groom coats' ray-space proxies (#1253), armed from the same
+        // one answer. On a device without ray tracing this allocates nothing
+        // and Extract refuses every coat with NotRequested, which is what
+        // keeps the raster groom tier byte-identical to what it was.
+        s_Data.GroomSurfaces.SetEnabled(s_Data.SceneRT.IsAvailable());
         // GPU per-instance frustum culler — compute shader is lazy-loaded on
         // first cull dispatch so a stripped-down embedded build that doesn't
         // ship the compute shaders can still drive the CPU path.
@@ -813,6 +818,7 @@ namespace OloEngine
         // must not be holding a vertex buffer this frees.
         s_Data.DeformedSurfaces.Shutdown();
         s_Data.VegetationSurfaces.Shutdown();
+        s_Data.GroomSurfaces.Shutdown();
         s_Data.PathTracerEmissive.Shutdown();
         s_Data.PathTracerMaterialTextures.Shutdown();
         s_Data.RasterMaterialTextures.Shutdown();

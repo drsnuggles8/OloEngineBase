@@ -7,6 +7,7 @@
 #include "OloEngine/Audio/VoiceManager.h"
 #include "OloEngine/Debug/Profiler.h"
 #include "OloEngine/Renderer/Renderer2D.h"
+#include "OloEngine/Renderer/RayTracing/GroomProxyDiagnostics.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/RenderingPath.h"
@@ -487,6 +488,68 @@ namespace OloEngine
                                 vegetation.Dispatched, vegetation.DispatchBatches, vegetation.SnapshotsReused, vegetation.Refused);
                     if (!Renderer3D::GetRayTracingScene().IsVegetationReady())
                         ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.2f, 1.0f), "Vegetation incomplete: hybrid raster fallback");
+                    // Groom coat proxies (#1253). Criterion 4 asks for proxy
+                    // error, update time, memory and unsupported cases to be
+                    // reported; the first three are here and the fourth is the
+                    // refusal line below, which names the DOMINANT reason
+                    // rather than the last symptom.
+                    // The two live A/B levers (#1253). Every Vulkan cell of this
+                    // feature is live-only — the headless fixtures need a GL 4.6
+                    // context — so the comparison has to be doable against a
+                    // RUNNING editor rather than by rebuilding per arm.
+                    bool groomProxiesOff = RayTracing::GroomProxyDiagnostics::GetDisabled();
+                    if (ImGui::Checkbox("Disable groom RT proxies (diagnostic)", &groomProxiesOff))
+                        RayTracing::GroomProxyDiagnostics::SetDisabled(groomProxiesOff);
+                    {
+                        const auto forced = RayTracing::GroomProxyDiagnostics::GetForcedTier();
+                        i32 tierChoice = !forced.has_value()                   ? 0
+                                         : *forced == GroomProxyTier::Detailed ? 1
+                                                                               : 2;
+                        if (ImGui::Combo("Groom proxy tier (diagnostic)", &tierChoice,
+                                         "By apparent size\0Force detailed\0Force proxy\0"))
+                        {
+                            RayTracing::GroomProxyDiagnostics::SetForcedTier(
+                                tierChoice == 0   ? std::optional<GroomProxyTier>{}
+                                : tierChoice == 1 ? std::optional<GroomProxyTier>{ GroomProxyTier::Detailed }
+                                                  : std::optional<GroomProxyTier>{ GroomProxyTier::Proxy });
+                        }
+                    }
+                    const auto& grooms = Renderer3D::GetGroomSurfaceCache().GetStats();
+                    ImGui::Text("Groom proxies: %u detailed / %u proxy of %u coats (%llu triangles resident)",
+                                grooms.ByTier[static_cast<sizet>(GroomProxyTier::Detailed)],
+                                grooms.ByTier[static_cast<sizet>(GroomProxyTier::Proxy)], grooms.GroomsConsidered,
+                                static_cast<unsigned long long>(grooms.ResidentTriangles));
+                    ImGui::Text("  %.2f MB, %u rebuilt, %u reused, %u tier changes, %.2f ms",
+                                static_cast<f64>(grooms.ResidentBytes) / (1024.0 * 1024.0), grooms.Rebuilds,
+                                grooms.Reused, grooms.TierChanges,
+                                static_cast<f64>(grooms.UpdateMicroseconds) / 1000.0);
+                    // A coat still in the scene, still occluding, holding a
+                    // structure a frame or more old because the per-frame
+                    // budget was spent. Not a refusal, so it is not in the
+                    // line below — but a number that stays high means this
+                    // scene has more animated coats than the budget covers.
+                    if (grooms.RefreshDeferred > 0)
+                    {
+                        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.35f, 1.0f),
+                                           "  %u coat(s) held a stale structure: per-frame budget spent",
+                                           grooms.RefreshDeferred);
+                    }
+                    // A compensation AT the cap means that coat is thinner in
+                    // ray space than it is on screen — the one way this
+                    // representation loses coverage silently, so it is shown
+                    // next to the cap rather than clamped out of sight.
+                    if (grooms.MaxWidthCompensation > 0.0f)
+                    {
+                        ImGui::Text("  widest compensation: %.1fx of %.1fx cap",
+                                    static_cast<f64>(grooms.MaxWidthCompensation),
+                                    static_cast<f64>(grooms.WidthCompensationCap));
+                    }
+                    if (grooms.GroomsRefused > 0)
+                    {
+                        const auto reason = grooms.DominantRefusalReason();
+                        ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.2f, 1.0f), "  %u coat(s) not in the RT scene: %s",
+                                           grooms.GroomsRefused, std::string(Describe(reason)).c_str());
+                    }
                     ImGui::Text("TLAS instances: %u", rt.Resident.TlasInstances);
 
                     ImGui::Separator();

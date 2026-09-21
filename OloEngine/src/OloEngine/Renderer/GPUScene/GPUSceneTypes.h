@@ -151,6 +151,13 @@ namespace OloEngine
         // Bounded canonical vegetation groups produced before the AS build.
         // The device builder applies the separate vegetation AS-memory budget.
         GPUSceneGeometryFlagVegetation = 1u << 2,
+        // A groom's ray-space proxy (issue #1253): the coat's strands as
+        // world-space crossed ribbons, built by the CPU before the AS build.
+        // Its own flag rather than Vegetation's, because the device builder
+        // applies a SEPARATE AS-memory budget to each — a scene with both would
+        // otherwise let a forest's canopy evict an animal's coat from the
+        // ray-traced world, or the reverse, with no counter able to say which.
+        GPUSceneGeometryFlagGroom = 1u << 3,
     };
 
     // Mirrors Material's authored state one bit per knob, so the deferred
@@ -230,6 +237,12 @@ namespace OloEngine
         // Private foliage geometry buffer + draw part. Shared across spatial
         // groups of a layer, separate from imported and entity material keys.
         Foliage = 4,
+        // A groom's ray-space proxy material (issue #1253): owner is the
+        // groom entity's stable id, slot is 0. Its own source because a coat's
+        // proxy material is derived from the fibre material rather than
+        // imported or authored on the entity, and a key space it shared with
+        // either could collide with a real material on the same entity.
+        Groom = 5,
     };
 
     // Which component supplied an EntityOverride material; it is the key's

@@ -6762,6 +6762,7 @@ namespace OloEngine::MCP
                 snapshot.Deformed = Renderer3D::GetDeformedSurfaceCache().GetStats();
                 snapshot.Vegetation = Renderer3D::GetVegetationSurfaceCache().GetStats();
                 snapshot.VegetationReady = Renderer3D::GetRayTracingScene().IsVegetationReady();
+                snapshot.Grooms = Renderer3D::GetGroomSurfaceCache().GetStats();
             }
             snapshot.State.Freshness = StatsSnapshot::FreshnessModel::PreviousFrame;
             return RayTracingStats::BuildReport(snapshot);
