@@ -1743,8 +1743,38 @@ set(OLO_MESH_CACHE_TESTS
 #
 # The memory ceiling in the test binary (--olo-rss-ceiling-mb, default 6 GiB)
 # is the backstop for a case that grows past what this weighting assumes.
+#
+# THE GROOM CPU COMPARISONS BELONG HERE, and the reason is the sentence above:
+# "the ones over 10 s are all in the suites below" stopped being true of them.
+# They are pure-CPU rasterisation sweeps -- no GPU, no model load -- so nothing
+# about their shape said "heavy", and they were registered per SUITE, where the
+# whole suite shares ONE 600 s ctest entry. Measured on the ASan+LSan job of
+# issue #1329 (2026-09-21), the nine slowest ctest entries in the entire
+# 1 982-entry run were all of them:
+#
+#   GroomCoverageComparison.*        600.1 s  TIMED OUT  (one case alone: 558.9 s)
+#   GroomFibreEnergyTest.*           541.2 s  90% of the budget
+#   GroomCoverageStability.*         387.2 s  65%
+#   GroomCoatShadowComparison.*      330.3 s  55%
+#   GroomLodComparisonHumanScalp.*   248.5 s  41%
+#   GroomLodComparisonLongCoat.*     193.4 s  32%
+#   GroomLodShellTier.*              180.5 s  30%
+#   GroomLodComparisonShortCoat.*    125.8 s  21%
+#   GroomCoatShadowReference.*       121.4 s  20%
+#
+# By contrast the heaviest PER-CASE entry in the same run was 93 s against its
+# 1500 s default -- 6% -- because a per-case entry gets ctest's default timeout
+# rather than the 600 s the per-suite pass sets.
+#
+# So this was never a groom bug to be fixed one test at a time. #1252 split
+# GroomLodComparison into three suites to get under the ceiling, and three
+# entries at 21-41% is what that bought; the ceiling was still there and
+# GroomFibreEnergyTest at 90% was next. Listing the families here moves all 31
+# cases onto their own entries, each with the 1500 s default, and weights them
+# PROCESSORS 2 -- which they earn on CPU time the same way the GPU families
+# earn it on memory.
 set(OLO_HEAVY_TESTS
-	"*VisualEvidence*:*Evidence*:*VisualTest*:*GpuContract*:*GPUContract*:*Benchmark*:*PerfProbe*:*Perf.*:PathTracer*:ReSTIRDIOracle.*:ReSTIRGIOracle.*:DDGIReferenceParity*:DriftSailingTest.*:SailTest.*:CPUFluidSolver.*:FluidCouplingTest.*:GaussianSplat*:VulkanPassSuite.*:VulkanParallelRecordingDevice.*:AssetSceneLoad.*:RuntimeAssetPackTest.*:ProceduralSkyBake*:StarNestSkyBake*:ModelLoadDeterminism.*:VirtualGeometry*:OceanFFT*:LightmapBleedRoom.*:LightmapInstancedBleedRoom.*:AutoMeshLODScene.*:DeferredOccludedInstanceFieldScene.*:ModelComponentGPUSceneScene.*:GPUSceneRasterMigrationScene.*:SubmeshMaterialPathParity.*:ShaderDebugDraw*:TerrainGPUPick*:TerrainGPUQuadtree*:TwoSidedShadowCast.*:McpHeadlessAttachTest.*:SceneRenders3D.*:WorldTransformPropagation*:RenderPathDrift.*:BindlessShaderPipeline.*:GPUScene.*:GPUSceneAntiDuplicationRatchet.*:DebugLevers.*:FunctionalTestFixtureCoverage.*:FlockingViaSceneTickTest.*:ShaderUBOSizeConsistency.*:ShaderReflectionBinding.*:ShaderCrossConsistency.*")
+	"*VisualEvidence*:*Evidence*:*VisualTest*:*GpuContract*:*GPUContract*:*Benchmark*:*PerfProbe*:*Perf.*:PathTracer*:ReSTIRDIOracle.*:ReSTIRGIOracle.*:DDGIReferenceParity*:DriftSailingTest.*:SailTest.*:CPUFluidSolver.*:FluidCouplingTest.*:GaussianSplat*:VulkanPassSuite.*:VulkanParallelRecordingDevice.*:AssetSceneLoad.*:RuntimeAssetPackTest.*:ProceduralSkyBake*:StarNestSkyBake*:ModelLoadDeterminism.*:VirtualGeometry*:OceanFFT*:LightmapBleedRoom.*:LightmapInstancedBleedRoom.*:AutoMeshLODScene.*:DeferredOccludedInstanceFieldScene.*:ModelComponentGPUSceneScene.*:GPUSceneRasterMigrationScene.*:SubmeshMaterialPathParity.*:ShaderDebugDraw*:TerrainGPUPick*:TerrainGPUQuadtree*:TwoSidedShadowCast.*:McpHeadlessAttachTest.*:SceneRenders3D.*:WorldTransformPropagation*:RenderPathDrift.*:BindlessShaderPipeline.*:GPUScene.*:GPUSceneAntiDuplicationRatchet.*:DebugLevers.*:FunctionalTestFixtureCoverage.*:FlockingViaSceneTickTest.*:ShaderUBOSizeConsistency.*:ShaderReflectionBinding.*:ShaderCrossConsistency.*:GroomCoverageComparison.*:GroomCoverageStability.*:GroomFibreEnergyTest.*:GroomCoatShadowComparison.*:GroomCoatShadowReference.*:GroomLodComparison*:GroomLodShellTier.*:CoatTransportReference.*")
 
 # --olo-* flags for every ctest-launched test process (a CMake list, so
 # `-DOLO_TESTS_CTEST_ARGS=--olo-gl-backend=none` is one flag and
