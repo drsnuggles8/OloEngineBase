@@ -227,6 +227,17 @@ Entities:
           DensityLodMinFraction: 0.3
           DensityLodFadeFraction: 0.18
           DensityLodMaxScale: 2.0
+          NormalMapPath: assets/textures/leaf_normal.png
+          RoughnessMapPath: assets/textures/leaf_roughness.png
+          ThicknessMapPath: assets/textures/leaf_thickness.png
+          NormalStrength: 1
+          TransmissionStrength: 0.8
+          TransmissionColor: [0.42, 0.62, 0.18]
+          Thickness: 0.35
+          WindStiffness: 0.15
+          WindBranchWeight: 0.25
+          WindLeafWeight: 0.7
+          InteractionResponse: 1
           Enabled: true
         - Name: Wildflowers
           MeshPath: ""
@@ -275,9 +286,20 @@ Entities:
           DensityLodMinFraction: 0.35
           DensityLodFadeFraction: 0.18
           DensityLodMaxScale: 1.8
+          NormalMapPath: assets/textures/leaf_normal.png
+          RoughnessMapPath: assets/textures/leaf_roughness.png
+          ThicknessMapPath: assets/textures/leaf_thickness.png
+          NormalStrength: 1
+          TransmissionStrength: 0.9
+          TransmissionColor: [0.58, 0.55, 0.24]
+          Thickness: 0.3
+          WindStiffness: 0.1
+          WindBranchWeight: 0.2
+          WindLeafWeight: 0.85
+          InteractionResponse: 1
           Enabled: true
         - Name: Shrubs
-          MeshPath: ""
+          MeshPath: SandboxProject/Assets/Models/Vegetation/palm.obj
           AlbedoPath: assets/textures/grass.png
           Density: 1.2
           SplatmapChannel: 1
@@ -323,6 +345,20 @@ Entities:
           DensityLodMinFraction: 0.5
           DensityLodFadeFraction: 0.15
           DensityLodMaxScale: 1.5
+          UseAuthoredMesh: true
+          MeshViewDistance: 48
+          MeshFadeStartDistance: 34
+          NormalMapPath: assets/textures/leaf_normal.png
+          RoughnessMapPath: assets/textures/leaf_roughness.png
+          ThicknessMapPath: assets/textures/leaf_thickness.png
+          NormalStrength: 1
+          TransmissionStrength: 1
+          TransmissionColor: [0.36, 0.58, 0.18]
+          Thickness: 0.45
+          WindStiffness: 0.35
+          WindBranchWeight: 0.6
+          WindLeafWeight: 0.85
+          InteractionResponse: 0.6
           Enabled: true
         - Name: Leaf Litter
           MeshPath: ""
@@ -371,6 +407,10 @@ Entities:
           DensityLodMinFraction: 0.25
           DensityLodFadeFraction: 0.2
           DensityLodMaxScale: 2.0
+          WindStiffness: 0.05
+          WindBranchWeight: 0.1
+          WindLeafWeight: 1
+          InteractionResponse: 0.35
           Enabled: true
         - Name: Dune Grass
           MeshPath: ""
@@ -419,7 +459,124 @@ Entities:
           DensityLodMinFraction: 0.4
           DensityLodFadeFraction: 0.18
           DensityLodMaxScale: 1.6
+          NormalMapPath: assets/textures/leaf_normal.png
+          RoughnessMapPath: assets/textures/leaf_roughness.png
+          ThicknessMapPath: assets/textures/leaf_thickness.png
+          NormalStrength: 1
+          TransmissionStrength: 0.7
+          TransmissionColor: [0.5, 0.56, 0.22]
+          Thickness: 0.3
+          WindStiffness: 0.12
+          WindBranchWeight: 0.3
+          WindLeafWeight: 0.8
+          InteractionResponse: 0.9
           Enabled: true
+        - Name: Woodland Pines
+          MeshPath: SandboxProject/Assets/Models/Vegetation/pine.obj
+          AlbedoPath: assets/textures/grass.png
+          Density: 0.035
+          SplatmapChannel: -1
+          MinSlopeAngle: 0
+          MaxSlopeAngle: 48
+          MinScale: 0.9
+          MaxScale: 1.3
+          MinHeight: 7
+          MaxHeight: 11
+          RandomRotation: true
+          SlopeFeather: 8
+          UseAltitudeBand: false
+          MinAltitude: 0
+          MaxAltitude: 1000
+          AltitudeFeather: 0
+          UseMoisture: true
+          MinMoisture: 0
+          MaxMoisture: 0.5
+          MoistureFeather: 0.18
+          ExclusionSplatmapChannel: 2
+          ExclusionThreshold: 0.6
+          ClumpStrength: 0.6
+          ClumpScale: 34
+          ClumpFalloff: 1.1
+          ClumpScaleInfluence: 0.25
+          ClumpGroup: 1
+          GroundOffset: 0
+          SlopeSinkFactor: 0.4
+          DecorrelatedVariation: true
+          ViewDistance: 420
+          FadeStartDistance: 380
+          UseAuthoredMesh: true
+          MeshViewDistance: 70
+          MeshFadeStartDistance: 52
+          WindStrength: 0.22
+          WindSpeed: 0.9
+          WindStiffness: 0.75
+          WindBranchWeight: 0.45
+          WindLeafWeight: 0.9
+          WindDebugDisplacement: false
+          InteractionResponse: 0.15
+          BaseColor: [0.18, 0.38, 0.16]
+          Roughness: 0.75
+          AlphaCutoff: 0.3
+          NormalMapPath: assets/textures/leaf_normal.png
+          RoughnessMapPath: assets/textures/leaf_roughness.png
+          ThicknessMapPath: assets/textures/leaf_thickness.png
+          NormalStrength: 1
+          TransmissionStrength: 1.2
+          TransmissionColor: [0.36, 0.58, 0.16]
+          Thickness: 0.55
+          TransmissionDistortion: 0.35
+          TransmissionPower: 4
+          TransmissionWrap: 0.5
+          TransmissionAmbient: 0.35
+          UseImpostor: true
+          ImpostorStartDistance: 110
+          ImpostorTransitionBand: 30
+          ImpostorFramesPerAxis: 8
+          ImpostorAtlasResolution: 1024
+          ImpostorHemiOctahedral: true
+          LodTransitionSpread: 26
+          LodHysteresis: 0.07
+          LodStochasticCoverage: true
+          UseDensityLod: true
+          DensityLodStartDistance: 45
+          DensityLodEndDistance: 170
+          DensityLodMinFraction: 0.3
+          DensityLodFadeFraction: 0.18
+          DensityLodMaxScale: 2
+          Enabled: true
+  - Entity: 100000000000043
+    TagComponent:
+      Tag: Sky
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ProceduralSkyComponent:
+      SunDirection: [0.4, 0.8, 0.3]
+      Turbidity: 2.4
+      Exposure: 0.1
+      SunIntensity: 1
+      SunDiskSize: 1
+      ShowSunDisk: true
+      EnableSkybox: true
+      EnableIBL: true
+      IBLIntensity: 0.9
+      CubemapResolution: 256
+  - Entity: 100000000000042
+    TagComponent:
+      Tag: Walker
+    TransformComponent:
+      Translation: [128, 8, 196]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    FoliageInteractionComponent:
+      Radius: 3.2
+      Height: 2.2
+      Strength: 1
+      Falloff: 2
+      RecoverySeconds: 0.8
+      TrailSpacing: 1.4
+      Enabled: true
   - Entity: 100000000000041
     TagComponent:
       Tag: Directional Light
