@@ -1,17 +1,18 @@
-# The digital human: running skin, eyes and mouth on one subject
+# The digital human: the skin epic's acceptance subjects
 
-Issue #1222's acceptance, and the only place in this repo where the five skin transport versions,
-the ocular surface and the oral surfaces run **on the same subject at the same time**. Each child
-issue ships its own fixture and each of those isolates one feature on a probe built to show it;
-this page is about what the six do together, which is a different question and has its own failure
-modes.
+Issue #1222's acceptance. **Two artefacts with two different subjects**, and keeping them straight
+matters — they cover different things and it is easy to credit one with the other's results.
 
-Two artefacts:
+| | subject | transport coverage | what it is for |
+|---|---|---|---|
+| [`Assets/Scenes/DigitalHuman.olo`](../../OloEditor/SandboxProject/Assets/Scenes/DigitalHuman.olo) | a **scanned human head** (`InfiniteScanHead`, CC BY 3.0) carrying `ReferenceHead.oloskin` | **transport version 1 only** — diffusion, and nothing above it | the **live** half — the editor, the Vulkan rows, the MCP debug views |
+| [`SkinDigitalHumanEvidenceTest.cpp`](../../OloEngine/tests/Rendering/PropertyTests/SkinDigitalHumanEvidenceTest.cpp) | a **procedural multi-profile probe** (primitives), GL only | **version 5**, so the whole cumulative ladder | the **asserted** half — tones, expression, cross-talk, cost |
 
-| | what it is | what it is for |
-|---|---|---|
-| [`Assets/Scenes/DigitalHuman.olo`](../../OloEditor/SandboxProject/Assets/Scenes/DigitalHuman.olo) | a head assembled from primitives carrying **seven** registered `.oloskin` profiles | the **live** half — the editor, the Vulkan rows, the MCP debug views |
-| [`SkinDigitalHumanEvidenceTest.cpp`](../../OloEngine/tests/Rendering/PropertyTests/SkinDigitalHumanEvidenceTest.cpp) | an L8 headless fixture, GL only | the **asserted** half — tones, expression, cross-talk, cost |
+**The cumulative version-5 coverage belongs to the procedural probe, not to the scanned head.**
+`ReferenceHead.oloskin` is authored at version 1, so #1242's thin-region transmission and #1243's
+layered specular are *not enabled* on the live scene's head. Its backlight rig is there as the
+place that gap is visible — the material-transmission view is black over the head — and not as
+evidence that transmission works. That is tracked as #1394.
 
 The split is not arbitrary. The tone ladder and the expression need several authored profiles and a
 morph target, and both are things a static scene can display but cannot *check*; the Vulkan rows
@@ -22,9 +23,14 @@ Neither artefact can do the other's job.
 
 **A complete face fills the skin-profile slot table exactly.** The G-Buffer names a profile by a
 three-bit field with the all-ones pattern reserved for "no profile", so `kMaxSkinProfileSlots` is
-**7** ([`Renderer/SkinProfile.h`](../../OloEngine/src/OloEngine/Renderer/SkinProfile.h)), and
-`DigitalHuman.olo` names seven: `ReferenceHead`, `EyeIris`, `EyeTearLine`, `OralLip`, `OralTongue`,
+**7** ([`Renderer/SkinProfile.h`](../../OloEngine/src/OloEngine/Renderer/SkinProfile.h)) — and a
+face needs exactly that many: `ReferenceHead`, `EyeIris`, `EyeTearLine`, `OralLip`, `OralTongue`,
 `OralGum`, `OralEnamel`.
+
+The **headless probe** is where this is asserted (four parts, four distinct slots, four distinct
+parameter sets). `DigitalHuman.olo` no longer demonstrates it: it carries one profile, because the
+six extra primitives that had been keeping its count at seven were removed once they stopped being
+visible. Tracked as #1393.
 
 An **eighth** profile in a scene containing this head does not fail loudly. It resolves to
 `kSkinProfileSlotNone` with `SkinProfileFallbackReason::SlotBudgetFull`, logs once per handle, and
@@ -65,9 +71,11 @@ capture is comparable.
 | hard side | 0.5 | 9 | 0.8 |
 | backlight | 0.3 | 0.3 | 11 |
 
-The **ears** are why the backlight cell exists. #1242's transmission is a thin-region term, and
-they are the only thin region on the subject (1.5 mm against the cheek's 6 mm). A head with no thin
-region, backlit, is just a dark head.
+The backlight cell is currently a **negative** result and worth reading as one: #1242's
+transmission is a thin-region term, and the scanned head's profile is at version 1, so the
+material-transmission view is black over it. That is the term being disabled, not broken — #1394.
+The transmission evidence that *is* positive comes from the headless probe, whose cranium carries
+a version-5 profile and a thickness map thin at the silhouette.
 
 ## What the headless fixture actually asserts
 
@@ -112,13 +120,23 @@ enough skin to dominate the frame. Do not quote these figures as a budget.
 
 ## Limits
 
-- **The subject is a procedural stand-in, not a scanned head.** A scanned AAA head remains a genuine
-  external dependency — see [benchmark-reference-fixtures.md](benchmark-reference-fixtures.md). Every
-  claim these features support is a claim about the *material*, and a material does not know what
-  mesh it is on, so dropping a licensed head in changes the subject and nothing else.
+- **The headless subject is a procedural probe, deliberately.** Its assertions are material claims
+  measured against a per-rig repeat floor, and its measurement disc and hue histogram are
+  calibrated to a known silhouette — swapping in real head geometry broke six of ten tests when
+  tried, for reasons that had nothing to do with skin. A material does not know what mesh it is
+  on, which is what makes the probe valid; it is not a picture of a person and should not be
+  presented as one.
+- **Neither subject can demonstrate eyes or mouth.** The scan has closed eyelids and its own lips;
+  no asset in this repo has separable eye or oral geometry. An earlier revision assembled one from
+  primitives and it does not work at any level of effort — #1402 records the whole dead end. So
+  #1222's first acceptance criterion is **unmet**, and #1244's `Eyes.olo` and #1245's
+  `OralSurfaces.olo` remain where that geometry is judged.
 - **`ReferenceHead.olo` is deliberately untouched.** It is a pinned benchmark whose captures are
   golden and whose manifest is asserted; adding geometry to it would invalidate every number
   measured against it. `Eyes.olo` and `OralSurfaces.olo` each made the same call, and
   `DigitalHuman.olo` is the third scene in that additive family.
-- **The live scene does not carry the tone ladder.** Several tones need several authored profiles,
-  and the slot budget above is already spent. The ladder is measured headlessly instead.
+- **The live scene does not carry the tone ladder**, and now carries only one profile. Several
+  tones need several authored profiles; the ladder is measured on the headless probe instead. The
+  seven-slot budget finding is asserted there too (#1393) — an earlier revision kept six extra
+  primitives in the live scene purely to hold the count at seven, which demonstrated nothing once
+  they were no longer visible.

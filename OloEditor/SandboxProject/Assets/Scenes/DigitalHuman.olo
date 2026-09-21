@@ -68,9 +68,11 @@ PostProcessSettings:
   Exposure: 1
   Gamma: 2.2
   BloomEnabled: true
-  # Low threshold, modest intensity — same reasoning as Eyes.olo: the corneal
-  # catchlight is the brightest thing here by a wide margin, and a little bloom
-  # is what makes it read as wet rather than as a white dot.
+  # Low threshold, modest intensity. NOT the corneal-catchlight reasoning
+  # Eyes.olo gives — this scene has no eye geometry, the scan's lids are
+  # closed. Here the brightest thing is the specular sheen on the brow and the
+  # bridge of the nose under the key, and a little bloom keeps it from
+  # clipping to a flat white patch.
   BloomThreshold: 1.1
   BloomIntensity: 0.18
   BloomIterations: 5
@@ -83,9 +85,11 @@ PostProcessSettings:
   SSAOBias: 0.025
   SSAOIntensity: 1
   SSAOSamples: 32
-  # SSR OFF. A wet coat and a cornea are the two most reflective things in the
-  # scene, and a screen-space reflection on top of them would make "is that the
-  # coat or the SSR?" unanswerable from a capture.
+  # SSR OFF. Not for Eyes.olo's reason — there is no wet coat and no cornea
+  # here. Skin is a dielectric with a broad, low-intensity specular, and a
+  # screen-space reflection laid over it would make "is that the skin's own
+  # specular or the SSR?" unanswerable from a capture. Every claim this scene
+  # supports is about the material's own response.
   SSREnabled: false
   SSGIEnabled: false
   AutoExposureEnabled: false
@@ -94,10 +98,11 @@ FogSettings:
 WindSettings:
   Enabled: false
 Entities:
-  # -- Camera: a three-quarter head-and-shoulders, not a dead-on portrait. A
-  #    head-on view is the one pose where the corneal refraction and a painted
-  #    iris coincide by symmetry, and where a grazing-angle specular is
-  #    smallest. Both features are judged off-axis. --
+  # -- Camera: a three-quarter head-and-shoulders, not a dead-on portrait,
+  #    because a grazing-angle specular is SMALLEST head-on and the cheek and
+  #    jaw only show their curvature off-axis. (Eyes.olo gives a corneal
+  #    reason for the same choice; that one does not apply here — this scan's
+  #    lids are closed.) --
   - Entity: 1222000001000001
     TagComponent:
       Tag: Camera

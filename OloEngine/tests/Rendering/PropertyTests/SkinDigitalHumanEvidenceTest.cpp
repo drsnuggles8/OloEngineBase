@@ -1076,25 +1076,35 @@ namespace OloEngine::Tests
         // this rather than a constant, because deferred is jittery here and
         // forward is not — one constant would either flake on deferred or be
         // meaningless on forward.
-        // ASSERT, not EXPECT. A failed readback here returns an ALL-ZERO
-        // floor, and every threshold downstream is a multiple of it — so the
-        // whole battery silently degrades to "> 0" and reports its failures
-        // against a floor that was never measured. Aborting is the only honest
-        // answer; the caller's own ASSERT_* propagation stops the test.
-        [[nodiscard]] Difference MeasureRepeatFloor(RenderingPath path, u32 frames = 4)
+        // VOID WITH AN OUT-PARAMETER, and a FATAL assert, because the failure
+        // mode matters more than the ergonomics.
+        //
+        // Every threshold in this file is a multiple of this floor. If the
+        // readback fails and the floor comes back all-zero, the whole battery
+        // silently degrades to "> 0" and each downstream message reports
+        // itself "against a repeat floor of 0/255" — a floor that was never
+        // measured. The test would still fail, but every diagnostic would
+        // point at the wrong assertion.
+        //
+        // An earlier revision used ADD_FAILURE here and a `[[nodiscard]]`
+        // return, with a comment claiming the caller's own ASSERT_*
+        // propagation stopped the run. It did not: ADD_FAILURE is non-fatal
+        // and all three callers assigned the result straight into a local. So
+        // the assert is fatal now and the callers wrap it in
+        // ASSERT_NO_FATAL_FAILURE, which is what actually stops a test from a
+        // helper.
+        void MeasureRepeatFloor(RenderingPath path, u32 frames, Difference& out)
         {
+            out = Difference{};
             Capture first;
             Capture second;
-            Difference floor{};
-            if (!CaptureFrame(path, std::string(), first, MaterialDebugView::None, frames) ||
-                !CaptureFrame(path, std::string(), second, MaterialDebugView::None, frames))
-            {
-                ADD_FAILURE() << PathName(path)
-                              << ": the repeat-floor readback failed, so no threshold below this point "
-                                 "would have meant anything.";
-                return floor;
-            }
-            return Diff(first, second);
+            ASSERT_TRUE(CaptureFrame(path, std::string(), first, MaterialDebugView::None, frames))
+                << PathName(path) << ": the first repeat-floor readback failed, so no threshold below "
+                                     "this point would have meant anything.";
+            ASSERT_TRUE(CaptureFrame(path, std::string(), second, MaterialDebugView::None, frames))
+                << PathName(path) << ": the second repeat-floor readback failed, so no threshold below "
+                                     "this point would have meant anything.";
+            out = Diff(first, second);
         }
 
         Ref<EditorAssetManager> m_AssetManager;
@@ -1231,7 +1241,8 @@ namespace OloEngine::Tests
         // The band the expression gain acts on. Only this test attaches it.
         AttachPoreNormalMap();
 
-        const Difference floor = MeasureRepeatFloor(RenderingPath::Deferred);
+        Difference floor{};
+        ASSERT_NO_FATAL_FAILURE(MeasureRepeatFloor(RenderingPath::Deferred, /*frames=*/4, floor));
 
         // Four frames, not two: the morph pass writes AppliedWeights at the
         // frame boundary, so a weight set from outside needs one tick to reach
@@ -1395,7 +1406,8 @@ namespace OloEngine::Tests
                 // contributor to the repeat floor here. A floor borrowed from the
                 // shadowless Soft rig would let the HardSide and Backlight
                 // "these tones are tellable apart" checks pass on shadow noise.
-                const Difference floor = MeasureRepeatFloor(path, /*frames=*/4);
+                Difference floor{};
+                ASSERT_NO_FATAL_FAILURE(MeasureRepeatFloor(path, /*frames=*/4, floor));
 
                 std::vector<f32> meanLuma;
                 std::vector<f32> diffusionInfluence;
@@ -1550,7 +1562,8 @@ namespace OloEngine::Tests
         SetTone(1);
         SetExpression(0.65f);
 
-        const Difference floor = MeasureRepeatFloor(RenderingPath::Deferred);
+        Difference floor{};
+        ASSERT_NO_FATAL_FAILURE(MeasureRepeatFloor(RenderingPath::Deferred, /*frames=*/4, floor));
 
         std::vector<Capture> captures;
         for (const AngleSetup& angle : kAngles)
