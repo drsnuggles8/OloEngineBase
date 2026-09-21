@@ -765,7 +765,12 @@ namespace OloEngine::Tests
         // two meadows is the hill in the middle, which is neither. So the
         // terrain is bucketed into a coarse grid, the fullest bucket is chosen,
         // and the answer is the centroid of THAT bucket's plants.
-        [[nodiscard]] glm::vec3 LayerHotspotWorld(u32 layerIndex, u32& outCount) const
+        // Returns false when the layer has no plants inside the bucket grid.
+        // The first cut incremented outCount BEFORE the bounds check and
+        // returned a (0,0,0) hotspot for a layer whose records all fell
+        // outside, which DerivePath would then have accepted as a real place
+        // and run the traversal to the terrain's corner.
+        [[nodiscard]] bool LayerHotspotWorld(u32 layerIndex, u32& outCount, glm::vec3& outHotspot) const
         {
             constexpr u32 kGrid = 16u; // 16 m buckets over a 256 m terrain
             const auto& foliage = m_TerrainEntity.GetComponent<FoliageComponent>();
@@ -801,33 +806,53 @@ namespace OloEngine::Tests
                     best = i;
             }
             if (counts[best] == 0u)
-                return glm::vec3(0.0f);
-            return glm::vec3(sums[best] / static_cast<f64>(counts[best]));
+                return false;
+            outHotspot = glm::vec3(sums[best] / static_cast<f64>(counts[best]));
+            return true;
         }
 
         // Ground height near an XZ point, taken as the mean of the nearest
         // plants' own altitudes. The heightfield mirror is behind
         // TerrainData::SyncFromGPU(); the plants are already in hand and they
         // ARE on the ground, so this needs no second source of truth.
-        [[nodiscard]] f32 GroundHeightNear(const glm::vec3& worldXZ) const
+        // Returns false when no plant is near enough to answer, rather than
+        // inventing a height: a pose placed at the habitat split on a hillside
+        // is metres underground or airborne, every capture from it is wrong,
+        // and nothing downstream would say so (CLAUDE.md's companion guides
+        // call this out — a path that cannot do its job says so loudly).
+        [[nodiscard]] bool GroundHeightNear(const glm::vec3& worldXZ, f32& outHeight) const
         {
             const auto& foliage = m_TerrainEntity.GetComponent<FoliageComponent>();
             const auto& records = foliage.m_Renderer->GetInstanceRegistry().GetRecords();
             const glm::mat4 model = m_TerrainEntity.GetComponent<TransformComponent>().GetTransform();
 
-            f64 sum = 0.0;
-            u32 count = 0;
-            for (const auto& record : records)
+            // Widening rings rather than one radius: a sparse patch between two
+            // clumps is a legitimate place for the camera to stand, and 10 m is
+            // simply too tight there. Each ring is tried in turn and the first
+            // that has plants in it answers.
+            constexpr std::array<f32, 3> kRadii{ 10.0f, 25.0f, 50.0f };
+            for (const f32 radius : kRadii)
             {
-                const glm::vec3 world = glm::vec3(model * glm::vec4(record.m_Position, 1.0f));
-                const f32 dx = world.x - worldXZ.x;
-                const f32 dz = world.z - worldXZ.z;
-                if (dx * dx + dz * dz > 100.0f) // within 10 m
-                    continue;
-                sum += world.y;
-                ++count;
+                const f32 radiusSq = radius * radius;
+                f64 sum = 0.0;
+                u32 count = 0;
+                for (const auto& record : records)
+                {
+                    const glm::vec3 world = glm::vec3(model * glm::vec4(record.m_Position, 1.0f));
+                    const f32 dx = world.x - worldXZ.x;
+                    const f32 dz = world.z - worldXZ.z;
+                    if (dx * dx + dz * dz > radiusSq)
+                        continue;
+                    sum += world.y;
+                    ++count;
+                }
+                if (count > 0u)
+                {
+                    outHeight = static_cast<f32>(sum / static_cast<f64>(count));
+                    return true;
+                }
             }
-            return count == 0u ? m_HabitatSplit : static_cast<f32>(sum / static_cast<f64>(count));
+            return false;
         }
 
         // The traversal: meadow hotspot to woodland hotspot, eye at walking
@@ -837,9 +862,11 @@ namespace OloEngine::Tests
         {
             u32 meadowCount = 0;
             u32 woodlandCount = 0;
-            const glm::vec3 meadow = LayerHotspotWorld(kMeadowGrassLayer, meadowCount);
-            const glm::vec3 woodland = LayerHotspotWorld(kWoodlandTreeLayer, woodlandCount);
-            if (meadowCount == 0u || woodlandCount == 0u)
+            glm::vec3 meadow{ 0.0f };
+            glm::vec3 woodland{ 0.0f };
+            if (!LayerHotspotWorld(kMeadowGrassLayer, meadowCount, meadow))
+                return false;
+            if (!LayerHotspotWorld(kWoodlandTreeLayer, woodlandCount, woodland))
                 return false;
 
             glm::vec3 travel = woodland - meadow;
@@ -862,7 +889,10 @@ namespace OloEngine::Tests
             {
                 const f32 t = static_cast<f32>(step) / static_cast<f32>(kTraversalSteps - 1u);
                 glm::vec3 at = glm::mix(start, end, t);
-                at.y = GroundHeightNear(at) + 2.6f;
+                f32 ground = 0.0f;
+                if (!GroundHeightNear(at, ground))
+                    return false; // no plant within 50 m: this is not a traversal through vegetation
+                at.y = ground + 2.6f;
                 m_Path.push_back(CameraPose{ at, yaw, 0.04f });
             }
 
@@ -872,7 +902,10 @@ namespace OloEngine::Tests
             {
                 auto& transform = m_WalkerEntity.GetComponent<TransformComponent>();
                 glm::vec3 walkerAt = m_Path.front().Eye + forward * 6.0f;
-                walkerAt.y = GroundHeightNear(walkerAt);
+                f32 walkerGround = 0.0f;
+                if (!GroundHeightNear(walkerAt, walkerGround))
+                    return false;
+                walkerAt.y = walkerGround;
                 transform.Translation = walkerAt;
             }
 
@@ -954,7 +987,7 @@ namespace OloEngine::Tests
         }
 
         [[nodiscard]] std::vector<std::vector<u8>> CaptureBaselines(const std::vector<CameraPose>& poses, u32 width,
-                                                                   u32 height)
+                                                                    u32 height)
         {
             SetFoliageEnabled(false);
             std::vector<std::vector<u8>> baselines;
@@ -1032,12 +1065,12 @@ namespace OloEngine::Tests
         // right field set proves only that someone typed it; an entry in
         // GetActiveLayerDrawInfo carrying it proves it survived generation,
         // material loading and submission.
-        bool authoredMesh = false;      // #1233
-        bool transmission = false;      // #1234
-        bool hierarchicalWind = false;  // #1236
-        bool lodDecorrelation = false;  // #1237
-        bool impostor = false;          // #1237's far rung (#433)
-        bool speciesResponse = false;   // #1238's per-species half
+        bool authoredMesh = false;     // #1233
+        bool transmission = false;     // #1234
+        bool hierarchicalWind = false; // #1236
+        bool lodDecorrelation = false; // #1237
+        bool impostor = false;         // #1237's far rung (#433)
+        bool speciesResponse = false;  // #1238's per-species half
         u32 meshLayers = 0;
 
         for (const auto& draw : draws)
@@ -1051,7 +1084,14 @@ namespace OloEngine::Tests
                 transmission = true;
             if (glm::dot(glm::vec3(draw.WindWeights), glm::vec3(draw.WindWeights)) > 0.0f)
                 hierarchicalWind = true;
-            if (draw.LodTransition0.x > 0.0f)
+            // LodTransition1.z, NOT LodTransition0.x. The first cut read .x
+            // and passed while proving nothing: FoliageRenderer packs that lane
+            // as FoliageLod::PackFlags — the density-LOD enable bit plus the
+            // stochastic-coverage bit — and SetStability forces UseDensityLod
+            // true in BOTH arms, so it is 1.0 even with every spread at zero.
+            // The per-instance spread is LodTransition1.z (see
+            // FoliageRenderer.cpp's FoliageLodTransition1).
+            if (draw.LodTransition1.z > 0.0f)
                 lodDecorrelation = true;
             if (draw.UseImpostor && draw.ImpostorAlbedoAtlasID.IsValid())
                 impostor = true;
@@ -1082,8 +1122,12 @@ namespace OloEngine::Tests
         // #1254: the species are somewhere in particular, not everywhere.
         u32 meadowCount = 0;
         u32 woodlandCount = 0;
-        const glm::vec3 meadow = LayerHotspotWorld(kMeadowGrassLayer, meadowCount);
-        const glm::vec3 woodland = LayerHotspotWorld(kWoodlandTreeLayer, woodlandCount);
+        glm::vec3 meadow{ 0.0f };
+        glm::vec3 woodland{ 0.0f };
+        ASSERT_TRUE(LayerHotspotWorld(kMeadowGrassLayer, meadowCount, meadow))
+            << "#1254: the meadow layer placed no plant inside the terrain's bucket grid";
+        ASSERT_TRUE(LayerHotspotWorld(kWoodlandTreeLayer, woodlandCount, woodland))
+            << "#1254: the woodland layer placed no plant inside the terrain's bucket grid";
         ASSERT_GT(meadowCount, 0u);
         ASSERT_GT(woodlandCount, 0u);
         const f32 separation = glm::length(glm::vec2(woodland.x - meadow.x, woodland.z - meadow.z));
@@ -1189,7 +1233,7 @@ namespace OloEngine::Tests
             for (const u32 n : census)
                 total += n;
             EXPECT_GT(total, 0u) << "pose " << step << " of the traversal stands on bare ground — the habitat "
-                                    "bands leave a gap between the meadow and the woodland";
+                                                       "bands leave a gap between the meadow and the woodland";
         }
 
         // ── The stability measurement, per rendering path ────────────────────
@@ -1232,9 +1276,17 @@ namespace OloEngine::Tests
 
             // And the traversal must actually move the image, or "continuous"
             // would be a statement about a still.
+            // BOTH arms, not just `on`. NormalisedWorstCurvature divides by
+            // MeanStep and reports +inf when it collapses, so an `off` arm that
+            // went degenerate would hand the comparison below an infinite
+            // budget and pass it unconditionally — the assertion would still be
+            // green and would mean nothing.
             EXPECT_GT(on.MeanStep, 0.002)
                 << "the traversal barely changed the frame — the derived path is too short for the "
                    "continuity measurement to mean anything";
+            EXPECT_GT(off.MeanStep, 0.002)
+                << "the control arm's traversal barely changed the frame, so its normalised curvature is "
+                   "unbounded and the comparison below cannot fail";
 
             // The claim: the #1237 decorrelation makes the worst local
             // discontinuity no worse. Asserted A/B-relative with a 10% slack,
@@ -1378,8 +1430,29 @@ namespace OloEngine::Tests
             out.WorstCellStdDev = std::numeric_limits<f64>::infinity();
             f64 stdDevSum = 0.0;
 
-            for (u32 step = 1; step < kTraversalSteps; ++step)
+            // A THREE-POSE window, and the reason is a bug this measurement had
+            // in its first cut.
+            //
+            // MeshCoverageLod decides the hysteresis direction from
+            // `dist >= prevDist`. Evaluating the "before" state as
+            // MeshCoverageLod(distA, distA, ...) makes that comparison TRUE —
+            // the plant is treated as RECEDING — while the "after" state on an
+            // approaching camera is treated as APPROACHING. HysteresisOffset
+            // then shifts the band by +bandStart*h for one and -bandStart*h for
+            // the other, so the band slid 7.3 m for the pines and 4.8 m for the
+            // shrubs BETWEEN THE TWO CALLS, at h = 0.07. Every plant the band
+            // swept in that slide was counted as a crossing that the camera's
+            // movement never caused — and only in the `on` arm, because the
+            // `off` arm's hysteresis is zero. It inflated precisely the
+            // dispersion figure the two assertions below rest on.
+            //
+            // So each state is now evaluated with the motion that genuinely
+            // produced it: the plant's distance at A came from the pose before
+            // A, and its distance at B came from A. Costs the first step of the
+            // traversal, which is the honest price.
+            for (u32 step = 2; step < kTraversalSteps; ++step)
             {
+                const glm::vec3 eyePrev = m_Path[step - 2u].Eye;
                 const glm::vec3 eyeA = m_Path[step - 1u].Eye;
                 const glm::vec3 eyeB = m_Path[step].Eye;
                 for (const auto& band : bands)
@@ -1392,9 +1465,10 @@ namespace OloEngine::Tests
 
                         const glm::vec3 world = glm::vec3(model * glm::vec4(record.m_Position, 1.0f));
                         const f32 hash = FoliageLod::InstanceHash(record.m_Position);
+                        const f32 distPrev = glm::distance(world, eyePrev);
                         const f32 distA = glm::distance(world, eyeA);
                         const f32 distB = glm::distance(world, eyeB);
-                        const f32 before = FoliageLod::MeshCoverageLod(distA, distA, band.FadeStart,
+                        const f32 before = FoliageLod::MeshCoverageLod(distA, distPrev, band.FadeStart,
                                                                        band.ViewDistance, hash, spread, hysteresis);
                         const f32 after = FoliageLod::MeshCoverageLod(distB, distA, band.FadeStart,
                                                                       band.ViewDistance, hash, spread, hysteresis);
@@ -1427,11 +1501,20 @@ namespace OloEngine::Tests
             return out;
         };
 
-        constexpr f32 kSpread = 26.0f; // what SetStability(true) authors
-        const CellDispersion off = dispersionPerCell(0.0f, 0.0f);
-        const CellDispersion on = dispersionPerCell(kSpread, 0.07f);
+        // Read off a live layer rather than restated, for the same reason the
+        // bands above are: SetStability is the single place these numbers are
+        // authored, and a copy here would go stale silently the first time it
+        // changed — leaving this test measuring a configuration the renderer no
+        // longer has.
+        const f32 kSpread = foliage.m_Layers[bands.front().LayerIndex].LodTransitionSpread;
+        const f32 kHysteresis = foliage.m_Layers[bands.front().LayerIndex].LodHysteresis;
+        ASSERT_GT(kSpread, 0.0f) << "the fixture's layers carry no LOD transition spread — the decorrelated arm "
+                                    "would be identical to the shared-threshold one";
 
-        GTEST_LOG_(INFO) << "mesh hand-overs over " << bands.size() << " species x " << (kTraversalSteps - 1u)
+        const CellDispersion off = dispersionPerCell(0.0f, 0.0f);
+        const CellDispersion on = dispersionPerCell(kSpread, kHysteresis);
+
+        GTEST_LOG_(INFO) << "mesh hand-overs over " << bands.size() << " species x " << (kTraversalSteps - 2u)
                          << " traversal steps, of " << records.size() << " plants: shared thresholds "
                          << off.Crossings << " crossings in " << off.Cells << " measurable cells, depth spread "
                          << off.MeanCellStdDev << " m mean / " << off.WorstCellStdDev << " m tightest | "
@@ -1457,7 +1540,8 @@ namespace OloEngine::Tests
         // notice: one ring in one frame is enough to see.
         EXPECT_GT(on.WorstCellStdDev, off.WorstCellStdDev)
             << "the tightest hand-over found anywhere along the traversal is no more dispersed with "
-               "decorrelation on (" << on.WorstCellStdDev << " m against " << off.WorstCellStdDev
+               "decorrelation on ("
+            << on.WorstCellStdDev << " m against " << off.WorstCellStdDev
             << " m) — that cell is a ring";
     }
 
@@ -1601,8 +1685,19 @@ namespace OloEngine::Tests
             f64 Motion = 0.0;
         };
 
+        // Each arm REWINDS the clock to the same instant first. Advance()
+        // mutates m_MockTime, so without this the second species is measured
+        // over T+0.6 -> T+1.2 while the first saw T -> T+0.6 — two different
+        // gusts, and with two different WindSpeeds the ratio below could be
+        // decided by which phase each happened to land on rather than by the
+        // species' stiffness. The comment above says "the SAME 0.6 s"; this is
+        // what makes that true.
+        const f32 motionStartTime = m_MockTime;
         const auto motionOfLayerAlone = [&](u32 layerIndex)
         {
+            m_MockTime = motionStartTime;
+            Time::SetMockTime(m_MockTime);
+
             for (u32 i = 0; i < kLayerCount; ++i)
                 foliage.m_Layers[i].Enabled = (i == layerIndex);
             foliage.m_NeedsRebuild = true;
@@ -1701,7 +1796,12 @@ namespace OloEngine::Tests
                              << on.NormalisedWorstCurvature;
 
             EXPECT_GT(on.MinCoverage, 0.005) << cell << ": some pose has almost no flora in it";
+            EXPECT_GT(off.MinCoverage, 0.005) << cell << ": some pose of the control arm has almost no flora in it";
             EXPECT_GT(on.MeanStep, 0.002) << cell << ": the traversal barely changed the frame";
+            // As in the native cell: a degenerate control arm makes the
+            // comparison below unfailable rather than merely noisy.
+            EXPECT_GT(off.MeanStep, 0.002)
+                << cell << ": the control arm barely changed the frame, so its normalised curvature is unbounded";
             EXPECT_LE(on.NormalisedWorstCurvature, off.NormalisedWorstCurvature * 1.1)
                 << cell << ": the stability features made the worst local discontinuity worse at this setting";
         };
@@ -1717,9 +1817,12 @@ namespace OloEngine::Tests
         settings.Deferred.MSAASampleCount = wanted;
         Renderer3D::ApplyRendererSettings();
         const u32 samplesUsed = settings.Deferred.MSAASampleCount;
-        // Reported, not assumed: a device that refuses the sample count leaves
-        // the cell running at 1, and the PR's matrix would otherwise claim an
-        // MSAA row it never had.
+        // Reported, not assumed: a device whose maximum is 1 leaves the cell
+        // running at 1, and the PR's matrix would otherwise claim an MSAA row
+        // it never had. What this CANNOT see is a driver that accepts a sample
+        // count through the API and quietly resolves at one sample — no query
+        // here exposes that — so the claim is "the engine was configured for N
+        // samples", not "the silicon ran N".
         GTEST_LOG_(INFO) << "MSAA cell ran at " << samplesUsed << " samples (asked for " << wanted << ")";
         EXPECT_GT(samplesUsed, 1u) << "MSAA NOT RUN — the device refused a sample count above 1";
         measure("Msaa4", kWidth, kHeight);
