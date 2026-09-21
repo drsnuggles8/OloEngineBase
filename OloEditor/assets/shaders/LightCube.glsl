@@ -62,7 +62,7 @@ layout(location = 1) in vec4 v_ClipPosPrev;
 layout(location = 0) out vec4 FragColor;
 // Scene FB RT3 velocity — light gizmos are rigid objects so per-object
 // motion plus camera motion fully describes their screen-space trajectory.
-layout(location = 3) out vec2 o_Velocity;
+layout(location = 3) out vec4 o_Velocity;
 // Scene FB RT4: the diffuse half of a SKIN pixel's lighting, for the screen-space
 // diffusion pass (issue #1241). This surface never shades skin, so it writes the
 // "no diffusion here" code -- but it must WRITE it: an MRT output a shader leaves
@@ -77,6 +77,6 @@ void main()
 
     vec2 ndcCurr = v_ClipPosCurr.xy / v_ClipPosCurr.w;
     vec2 ndcPrev = v_ClipPosPrev.xy / v_ClipPosPrev.w;
-    o_Velocity = (ndcCurr - ndcPrev) * 0.5;
+    o_Velocity = vec4((ndcCurr - ndcPrev) * 0.5, 1.0, 0.0);
     o_SkinDiffuse = vec4(0.0); // not skin -- see the declaration above (#1241)
 }

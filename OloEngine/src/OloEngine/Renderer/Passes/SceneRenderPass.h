@@ -50,8 +50,12 @@ namespace OloEngine
             return { FramebufferTextureFormat::RGBA16F,     // [0] HDR color output
                      FramebufferTextureFormat::RED_INTEGER, // [1] entity ID
                      FramebufferTextureFormat::RG16F,       // [2] view-space normals (octahedral, SSAO input)
-                     FramebufferTextureFormat::RG16F,       // [3] screen-space velocity (forward-path TAA input;
-                                                            //     unused in Deferred, which reads G-Buffer RT3)
+                     // [3] velocity (rg) + coverage (b) + material profile (a).
+                     // Widened to RGBA16F by #1256 in lock-step with G-Buffer
+                     // RT3 so the forward and deferred paths hand the temporal
+                     // resolve the same channels; unused in Deferred, which
+                     // reads G-Buffer RT3.
+                     FramebufferTextureFormat::RGBA16F,
                      // [4] the DIFFUSION HAND-OFF (issue #1241): the diffuse half
                      // of a skin pixel's lighting in .rgb, the identity of the
                      // profile that should blur it in .a. Zero everywhere else,

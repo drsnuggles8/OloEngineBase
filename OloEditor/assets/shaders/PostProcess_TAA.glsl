@@ -65,11 +65,15 @@ void main()
 #define u_Current OLO_HEAP_TEX_2D(0)
 #define u_History OLO_HEAP_TEX_2D(1)
 #define u_Velocity OLO_HEAP_TEX_2D(2)
+#define u_PrevSurface OLO_HEAP_TEX_2D(3)
 #define u_DepthTexture OLO_HEAP_TEX_2D(19) // TEX_POSTPROCESS_DEPTH
 #else
 layout(binding = 0) uniform sampler2D u_Current;
 layout(binding = 1) uniform sampler2D u_History;
 layout(binding = 2) uniform sampler2D u_Velocity;
+// Previous frame's G-Buffer RT3 (#1256): velocity .rg, coverage .b,
+// material profile .a. Same layout as u_Velocity, one frame older.
+layout(binding = 3) uniform sampler2D u_PrevSurface;
 layout(binding = 19) uniform sampler2D u_DepthTexture;
 #endif
 
@@ -78,6 +82,9 @@ layout(binding = 19) uniform sampler2D u_DepthTexture;
 // SSGI and the cloudscape resolve instantiate the same reprojection /
 // neighbourhood-clip / feedback logic instead of each carrying a variant.
 #include "include/TemporalResolve.glsl"
+// The separated history-rejection model (#1256). TAA uses only its
+// COVERAGE and MATERIAL-PROFILE terms — see the confidence block below.
+#include "include/SurfaceHistory.glsl"
 
 layout(location = 0) in vec2 v_TexCoord;
 layout(location = 0) out vec4 o_Color;
@@ -99,6 +106,8 @@ layout(std140, binding = 32) uniform TAAParams
 #define u_Sharpness          (u_TAA_FeedbackSharpnessHasVelocity.y)
 #define u_HasVelocityTexture (int(u_TAA_FeedbackSharpnessHasVelocity.z))
 #define u_TexelSize          (u_TAA_TexelSize.xy)
+// w was pad; #1256 uses it as the has-surface-history flag.
+#define u_HasSurfaceHistory  (u_TAA_FeedbackSharpnessHasVelocity.w > 0.5)
 
 // (RGBToYCoCg / YCoCgToRGB moved to include/TemporalResolve.glsl as
 // OloRGBToYCoCg / OloYCoCgToRGB — same matrices, one copy.)
@@ -197,7 +206,63 @@ void main()
     vec2 velocityPixels = velocity / u_TexelSize;
     float effectiveFeedback = OloTemporalMotionFeedback(u_Feedback, velocityPixels, 1.0, 5.0, 0.5);
 
-    vec3 resolved = OloTemporalBlend(currentColor, clampedHistory, effectiveFeedback, 1.0);
+    // 4b) COVERAGE AND PROFILE CONFIDENCE (#1256).
+    //
+    // This used to be a hard-coded 1.0 — TAA had no history-rejection term at
+    // all. It now runs the shared separated model over G-Buffer RT3's two new
+    // channels: .b coverage, .a material profile.
+    //
+    // ONLY those two terms. The model's third cause, surface motion, is
+    // ALREADY applied above as `effectiveFeedback` via
+    // OloTemporalMotionFeedback, and applying it again here would count the
+    // same motion twice — feedback would fall as the square of the motion ramp
+    // and a pan would lose far more history than either mechanism intends.
+    // MotionMaxReactivity = 0 is how that is expressed: it zeroes the motion
+    // term in the shared evaluator rather than hand-assembling the product
+    // here, so this pass cannot drift from the model's definition of the other
+    // two.
+    float confidence = 1.0;
+    if (u_HasVelocityTexture != 0 && u_HasSurfaceHistory)
+    {
+        vec4 currentSurface = texture(u_Velocity, uv);
+        vec4 previousSurface = texture(u_PrevSurface, prevUV);
+
+        OloSurfaceHistoryRecord currentRecord;
+        currentRecord.LinearDepth = 0.0;
+        currentRecord.GeometricNormal = vec3(0.0, 0.0, 1.0);
+        currentRecord.ShadingNormal = currentRecord.GeometricNormal;
+        currentRecord.Roughness = 0.0;
+        currentRecord.MaterialClass = 0u;
+        currentRecord.Coverage = currentSurface.b;
+        currentRecord.MaterialProfile = currentSurface.a;
+        currentRecord.Motion = velocity;
+        currentRecord.Instance = uvec2(0xffffffffu, 0u);
+        currentRecord.Primitive = uvec2(0xffffffffu, 0u);
+        currentRecord.Material = uvec2(0xffffffffu, 0u);
+        currentRecord.Flags = 0u;
+        currentRecord.HitDistance = 0.0;
+        currentRecord.PrimitiveLocalIndex = 0xffffffffu;
+
+        OloSurfaceHistoryRecord previousRecord = currentRecord;
+        previousRecord.Coverage = previousSurface.b;
+        previousRecord.MaterialProfile = previousSurface.a;
+        previousRecord.Motion = previousSurface.rg;
+
+        OloTemporalReactivitySettings reactivity;
+        reactivity.MotionDeadZonePixels = 1.0;
+        reactivity.MotionSaturationPixels = 5.0;
+        reactivity.MotionMaxReactivity = 0.0; // see above — motion is already in the feedback
+        reactivity.CoverageNoiseDeadBand = 0.12;
+        reactivity.CoverageSaturation = 0.35;
+        reactivity.MaterialProfileDeadBand = 0.02;
+        reactivity.MaterialProfileSaturation = 0.25;
+        reactivity.PixelSize = u_TexelSize;
+
+        confidence = OloTemporalConfidence(
+            OloEvaluateTemporalReactivity(currentRecord, previousRecord, reactivity));
+    }
+
+    vec3 resolved = OloTemporalBlend(currentColor, clampedHistory, effectiveFeedback, confidence);
 
     // 5) Optional sharpen (unsharp mask on luma) to offset TAA blur
     if (u_Sharpness > 0.001)

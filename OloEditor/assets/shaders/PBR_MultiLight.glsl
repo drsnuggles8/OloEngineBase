@@ -490,7 +490,7 @@ layout(location = 2) out vec2 o_ViewNormal;
 // Forward-path TAA motion vector. Scene FB attachment 3 is RG16F; the
 // PostProcessRenderPass binds it as u_Velocity for TAA in Forward /
 // Forward+ (Deferred reads G-Buffer RT3 instead).
-layout(location = 3) out vec2 o_Velocity;
+layout(location = 3) out vec4 o_Velocity;
 // Scene FB RT4: the DIFFUSE half of a skin pixel's lighting, handed to the
 // screen-space diffusion pass (issue #1241). Zero on every other surface, and on
 // a skin surface whose profile is authored against transport version 0. Scene
@@ -1121,5 +1121,5 @@ void main()
     // vectors. Static meshes report (0,0) because prevWorldPos == worldPos.
     vec2 ndcCurr = v_ClipPosCurr.xy / v_ClipPosCurr.w;
     vec2 ndcPrev = v_ClipPosPrev.xy / v_ClipPosPrev.w;
-    o_Velocity = (ndcCurr - ndcPrev) * 0.5;
+    o_Velocity = vec4((ndcCurr - ndcPrev) * 0.5, 1.0, 0.0);
 }

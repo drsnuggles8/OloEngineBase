@@ -89,7 +89,7 @@ layout(location = 10) in vec3 v_RenderOrigin; // camera-relative render origin (
 layout(location = 0) out vec4 o_GBufferAlbedo;
 layout(location = 1) out vec4 o_GBufferNormal;
 layout(location = 2) out vec4 o_GBufferEmissive;
-layout(location = 3) out vec2 o_GBufferVelocity;
+layout(location = 3) out vec4 o_GBufferVelocity;
 layout(location = 4) out int  o_GBufferEntityID;
 // Baked lightmap irradiance target (G-Buffer RT5, issue #865). This shader
 // draws no lightmapped receiver, but an MRT output it never writes is
@@ -167,7 +167,7 @@ void main() {
     o_GBufferAlbedo   = vec4(0.0);
     o_GBufferNormal   = vec4(0.0);
     o_GBufferEmissive = vec4(emissive, 1.0);
-    o_GBufferVelocity = vec2(0.0);
+    o_GBufferVelocity = vec4(0.0, 0.0, 1.0, 0.0);
     o_GBufferEntityID = -1; // grid is not pickable
     o_GBufferBakedGI = vec4(0.0); // no baked lightmap on this surface (issue #865)
 

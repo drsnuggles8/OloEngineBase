@@ -438,6 +438,7 @@ namespace OloEngine
         struct TemporalHistorySlot
         {
             RGTextureHandle TAAHistory;         // Previous TAA accumulation buffer
+            RGTextureHandle TAASurfaceHistory;  // Previous G-Buffer RT3: velocity + coverage + profile (#1256)
             RGTextureHandle CloudsHistory;      // Previous cloudscape resolve buffer (half-res, issue #633)
             RGTextureHandle SSGIHistory;        // Previous resolved SSGI signal (issue #902)
             RGTextureHandle SSGISurfaceHistory; // Previous normal/roughness surface plane (#976)

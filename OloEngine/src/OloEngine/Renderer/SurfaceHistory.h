@@ -52,6 +52,14 @@ namespace OloEngine
         // MaterialClass and the Material handle, which are IDENTITIES and
         // change discretely; this one slides, and a slide is what the
         // discrete tests cannot see.
+        //
+        // NEVER PUT A PROFILE INDEX HERE. EvaluateTemporalReactivity takes
+        // |current - previous| and ramps it, which is meaningful only for a
+        // quantity whose DIFFERENCE is a magnitude. Encode a profile id and a
+        // 1 -> 2 switch reads as a small slide while 1 -> 6 reads as a large
+        // one, which is noise dressed as a signal. A profile IDENTITY change
+        // is discrete and already belongs to MaterialMismatch, which hard-
+        // rejects rather than grading.
         f32 MaterialProfile = 0.0f;
         glm::vec2 Motion{ 0.0f };
         GPUSceneHandle Instance{};

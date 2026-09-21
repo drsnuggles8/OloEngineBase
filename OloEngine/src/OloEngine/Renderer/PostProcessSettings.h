@@ -831,7 +831,9 @@ namespace OloEngine
     // GPU-side UBO layout for TAA (std140, binding 32)
     struct TAAUBOData
     {
-        // xyzw = feedback, sharpness, hasVelocityTexture (0/1), pad
+        // xyzw = feedback, sharpness, hasVelocityTexture (0/1),
+        //        hasSurfaceHistory (0/1) — the #1256 coverage/profile term is
+        //        inert without last frame's RT3 to compare against.
         glm::vec4 FeedbackSharpnessHasVelocity = glm::vec4(0.9f, 0.25f, 0.0f, 0.0f);
         // xyzw = 1/width, 1/height, pad, pad
         glm::vec4 TexelSize = glm::vec4(0.0f);

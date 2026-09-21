@@ -435,7 +435,7 @@ layout(location = 0) out vec4 o_Color;
 layout(location = 1) out int o_EntityID;
 layout(location = 2) out vec2 o_ViewNormal;
 // Forward-path TAA motion vector (matches PBR_MultiLight.glsl).
-layout(location = 3) out vec2 o_Velocity;
+layout(location = 3) out vec4 o_Velocity;
 // Scene FB RT4: the DIFFUSE half of a skin pixel's lighting, handed to the
 // screen-space diffusion pass (issue #1241). Zero on every other surface, and on
 // a skin surface whose profile is authored against transport version 0. Scene
@@ -1066,5 +1066,5 @@ void main()
     // contribute to the motion vector.
     vec2 ndcCurr = v_ClipPosCurr.xy / v_ClipPosCurr.w;
     vec2 ndcPrev = v_ClipPosPrev.xy / v_ClipPosPrev.w;
-    o_Velocity = (ndcCurr - ndcPrev) * 0.5;
+    o_Velocity = vec4((ndcCurr - ndcPrev) * 0.5, 1.0, 0.0);
 }

@@ -48,18 +48,12 @@ Keeping them apart buys attribution as well as tuning. "The coverage term fired"
 
 ## The dead band is the load-bearing part
 
-This is the trap, and it is worth stating plainly because the naive implementation is worse than
-no implementation:
-
-A stochastic coverage estimator — which is what the strand compositor is, see
-[groom-strand-visibility.md](groom-strand-visibility.md) and `Groom/GroomCoverage.h` — **moves its
-per-pixel coverage every frame by construction.** That movement is zero-mean noise, and averaging
-it away is the entire reason the temporal resolve exists.
-
-A coverage term that reacted to the raw frame-to-frame delta would therefore drop history
-**precisely where history is doing its job.** Hair would sparkle worse with the feature enabled
-than disabled. And because the mean is unaffected, a settled screenshot of both arms looks
-identical — the defect lives entirely in the frame-to-frame behaviour.
+The naive implementation is worse than no implementation. A stochastic coverage estimator — the
+strand compositor, see [groom-strand-visibility.md](groom-strand-visibility.md) — **moves its
+per-pixel coverage every frame by construction**, and averaging that away is the entire reason the
+resolve exists. A term reacting to the raw delta drops history precisely where history is doing its
+job: hair sparkles *worse* with the feature on than off, and because the mean is unaffected, a
+settled screenshot of both arms looks identical.
 
 **Size the band to the WORST CONSECUTIVE DELTA, not to the amplitude.** Two frames of a zero-mean
 `±A` jitter can differ by `2A`, so a band of `A` still admits the largest jumps — and those are
@@ -69,21 +63,13 @@ no-band control, and a `0.13` band gives **0.315**. Compute this before choosing
 shipped `CoverageNoiseDeadBand` default of `0.12` clears the `±0.06` the strand compositor shows,
 and a noisier estimator needs it raised.
 
-What separates the two cases is not the size of the delta on any one frame but whether the **mean**
-has shifted:
+What matters is not one frame's delta but whether the **mean** shifted: below the band the
+estimator is converging, above it a LOD step or a leaf turning edge-on genuinely moved it. Same
+reasoning as the sub-pixel dead zone already in `OloTemporalMotionFeedback`.
 
-- **below the dead band** — the estimator is converging. Keep accumulating.
-- **above it** — the mean genuinely moved. A LOD step thinned the layer, a leaf rotated edge-on,
-  an alpha test flipped. The history is stale.
-
-This is the same reasoning, for the same reason, as the sub-pixel dead zone already in
-`OloTemporalMotionFeedback`: a jittered pass moves ~1 px every frame by construction too, and
-without the dead zone a stationary camera reads as motion.
-
-`TemporalReconstructionSequenceTest.StochasticCoverageNoiseMustNotDriveTheReactiveTerm` pins this
-in the direction that matters — shimmer — with the no-dead-band arm as its control, and asserts
-that the control arm actually shimmers first. A test whose control does not move is broken, not
-passing.
+`TemporalReconstructionSequenceTest.StochasticCoverageNoiseMustNotDriveTheReactiveTerm` pins it in
+the direction that matters — shimmer — and asserts its no-dead-band control actually shimmers
+first. A test whose control does not move is broken, not passing.
 
 ## A graded term and a hard rejection are not two ways of saying the same thing
 
@@ -134,17 +120,10 @@ Two implementation notes that are easy to get wrong:
   every number toward zero and makes two resolutions incomparable. Same choice, same reason, as
   `GroomCoverage::CompareCoverage`.
 
-## Run it headless, under mock time
-
-A live pixel A/B cannot answer any of these questions on a moving subject: **69 % of pixels move
-between two captures of the same windy scene**, so there is no signal to measure. The six minimal
-reproductions #1256 asks for — disocclusion, camera cut, animated deformation, LOD transition,
-alpha coverage, dynamic resolution — all run headless over the shipping model, where the only
-thing changing is the thing under test.
-
-Each one carries an **in-run control arm**, because a temporal test that also passes with the
-feature disabled is not a test. The assertion is a comparison between two measurements taken in
-the same process, never against a tuned constant.
+**Run them headless, under mock time.** A live pixel A/B cannot answer any of this on a moving
+subject — **69 % of pixels move between two captures of the same windy scene** — so the six minimal
+reproductions run over the shipping model with nothing changing but the thing under test, each with
+an in-run control arm.
 
 ## Adding a field to the shared record
 
@@ -165,11 +144,40 @@ When you add one:
   run on the same inputs**, never against a hard-coded constant. Constants let a retune of the
   shipping defaults drift the two implementations apart while both still pass.
 
-## What is not wired yet
+## Where the coverage signal comes from
 
-The coverage channel is live in the model and in the GLSL twin, but **no pass supplies a real
-per-pixel coverage signal**, because there is nowhere to put one: RT3 is `RG16F` and full, and
-`GBuffer.h` requires every G-Buffer writer to write every target. Producing the AOV is a G-Buffer
-widening across both backends and all three render paths — tracked separately rather than folded
-in. Until then every production consumer passes the inert 1.0 and the coverage terms cannot fire
-on real pixels.
+G-Buffer RT3 is `RGBA16F`: `.rg` velocity, `.b` coverage, `.a` material profile. It was widened
+from `RG16F` rather than given its own attachment because **every writer had to be visited either
+way** — an unwritten MRT component is undefined, not zero — and widening costs no new attachment
+slot, texture binding or blackboard handle.
+
+The three subjects fill `.b` with their own quantity:
+
+| Subject | Coverage written | Why that quantity |
+|---|---|---|
+| Groom | the widened strand alpha | a sub-pixel strand is widened to one pixel and pays in alpha, so this IS coverage; it is also the value that moves every frame under stochastic composition |
+| Foliage, near | cutout alpha x LOD fade | a density LOD step moves it while instance, primitive, material and depth all hold still |
+| Foliage, impostor | `card.Coverage * card.DistFade` | so coverage does not jump across the impostor hand-over |
+
+Everything else writes the opaque default `vec4(velocity, 1.0, 0.0)`.
+
+**`GBufferCoverageChannelContractTest` is the forcing function.** It scans every shader for a
+velocity write that does not cover four channels, because that mistake compiles cleanly, does not
+warn, and produces whatever the previous tile left in memory — stable enough on one driver to pass
+every capture you take.
+
+## The consumer, and the double-counting trap
+
+TAA reads last frame's RT3 through a `SurfaceGeometry` history plane and feeds the coverage and
+profile terms into the `confidence` argument that used to be a hard-coded `1.0`.
+
+The plane is **extracted from the velocity target, not written by TAA** — the trick
+`RayTracedShadowPass` already uses for its own surface plane — so TAA stays a single-attachment
+pass. Making it MRT would have been the larger and riskier half of this change and it buys nothing.
+
+**TAA passes `MotionMaxReactivity = 0`, and that is load-bearing.** TAA already scales feedback by
+motion through `OloTemporalMotionFeedback`. Feeding the model's motion term into `confidence` as
+well would count the same motion twice: feedback would fall as the SQUARE of the motion ramp, and a
+camera pan would lose far more history than either mechanism intends. Zeroing the term in the
+shared evaluator says that once, where the model can see it, rather than hand-assembling the
+product of the other two in the shader where it would drift.

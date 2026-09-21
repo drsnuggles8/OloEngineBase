@@ -24,6 +24,7 @@ namespace OloEngine
         m_SelectedSceneDepthTexture = {};
         m_SelectedVelocityTexture = {};
         m_SelectedHistoryTexture = {};
+        m_SelectedSurfaceHistoryTexture = {};
 
         (void)blackboard;
         [[maybe_unused]] const auto input = RenderPipelineBuilderInternal::ReadFirstValidVersionedInputForPass(
@@ -48,6 +49,20 @@ namespace OloEngine
         {
             m_SelectedVelocityTexture = blackboard.Post.UpscaledVelocityTexture.IsValid() ? blackboard.Post.UpscaledVelocityTexture : blackboard.GBuffer.Velocity;
             [[maybe_unused]] const auto velocityRead = builder.Read(m_SelectedVelocityTexture, RGReadUsage::ShaderSample);
+
+            // Keep the exact RT3 this resolve sampled, so next frame compares
+            // against the coverage it actually blended rather than a
+            // differently-upscaled one. Declared from Setup for the reason
+            // RayTracedShadowPass documents: BuildFrameGraph clears extraction
+            // contracts before visiting nodes, so an earlier declaration is
+            // discarded on every cache miss.
+            builder.ExtractHistoryTexture(ResourceNames::TAASurfaceHistory, m_SelectedVelocityTexture);
+        }
+        if (blackboard.Temporal.TAASurfaceHistory.IsValid())
+        {
+            m_SelectedSurfaceHistoryTexture = blackboard.Temporal.TAASurfaceHistory;
+            [[maybe_unused]] const auto surfaceRead =
+                builder.Read(m_SelectedSurfaceHistoryTexture, RGReadUsage::ShaderSample);
         }
         if (blackboard.Temporal.TAAHistory.IsValid())
         {
@@ -122,6 +137,9 @@ namespace OloEngine
             velocityTextureID = context.ResolveTextureHandle(m_SelectedVelocityTexture);
         if (m_SelectedHistoryTexture.IsValid())
             historyTextureID = context.ResolveTextureHandle(m_SelectedHistoryTexture);
+        RHI::ResourceHandle surfaceHistoryTextureID{};
+        if (m_SelectedSurfaceHistoryTexture.IsValid())
+            surfaceHistoryTextureID = context.ResolveTextureHandle(m_SelectedSurfaceHistoryTexture);
         if (!m_Enabled)
         {
             m_Target = nullptr;
@@ -172,6 +190,15 @@ namespace OloEngine
         context.BindTextureOrHeapOffset(2, velocityTextureID, RHI::HeapSlotLifetime::FrameTransient);
         m_TAAShader->SetInt("u_Velocity", 2);
 
+        // Slot 3 — last frame's RT3. Falls back to THIS frame's velocity when
+        // the plane is absent (first frame, or a resize that invalidated it).
+        // The shader gates on u_HasSurfaceHistory so the fallback is never read
+        // as history; binding something valid just keeps the sampler defined.
+        const bool hasSurfaceHistory = surfaceHistoryTextureID.IsValid();
+        context.BindTextureOrHeapOffset(3, hasSurfaceHistory ? surfaceHistoryTextureID : velocityTextureID,
+                                        RHI::HeapSlotLifetime::FrameTransient);
+        m_TAAShader->SetInt("u_PrevSurface", 3);
+
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthTextureID,
                                         RHI::HeapSlotLifetime::FrameTransient);
         m_TAAShader->SetInt("u_DepthTexture", ShaderBindingLayout::TEX_POSTPROCESS_DEPTH);
@@ -181,7 +208,7 @@ namespace OloEngine
             m_Settings.TAAFeedback,
             m_Settings.TAASharpness,
             velocityTextureID.IsValid() ? 1.0f : 0.0f,
-            0.0f);
+            hasSurfaceHistory ? 1.0f : 0.0f);
         taaData.TexelSize = glm::vec4(
             1.0f / static_cast<f32>(outSpec.Width),
             1.0f / static_cast<f32>(outSpec.Height),
@@ -223,5 +250,6 @@ namespace OloEngine
         m_SelectedSceneDepthTexture = {};
         m_SelectedVelocityTexture = {};
         m_SelectedHistoryTexture = {};
+        m_SelectedSurfaceHistoryTexture = {};
     }
 } // namespace OloEngine
