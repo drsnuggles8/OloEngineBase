@@ -156,34 +156,60 @@ namespace OloEngine::Tests
                "vec4(velocity, 1.0, 0.0); a subject with real coverage writes its own value in .b.";
     }
 
-    TEST(GBufferCoverageChannelContract, TheThreeSubjectsWriteRealCoverageRatherThanTheOpaqueDefault)
+    TEST(GBufferCoverageChannelContract, EverySubjectWritesRealCoverageOnEveryPathItRendersOn)
     {
-        // The whole point of the channel. If one of these regresses to the
-        // opaque 1.0 the feature still "works" everywhere and silently stops
-        // doing anything for that subject — which is exactly the class of
-        // failure #1256 exists to prevent.
+        // The whole point of the channel, and the one contract that failed in
+        // the field rather than here.
+        //
+        // A subject that renders on BOTH paths has two shaders, and the first
+        // revision of #1256 wired only the `_GBuffer` (deferred) ones. The
+        // editor runs FORWARD by default, so every foliage pixel a user
+        // actually saw had an inert coverage lane reading a flat 1.0 — while
+        // this suite, the model tests and a headless groom evidence test were
+        // all green. It was caught by a live capture.
+        //
+        // So the pairs are listed explicitly, forward beside deferred, and the
+        // check is that each one carries ITS OWN coverage term rather than the
+        // opaque default. A subject whose two paths disagree is the failure
+        // this case exists to name.
         struct Subject
         {
             const char* File;
             const char* Expected;
+            const char* Path;
         };
         constexpr Subject kSubjects[] = {
-            { "GroomStrand.glsl", "alpha" },
-            { "Foliage_Instance_GBuffer.glsl", "clamp(alpha" },
-            { "Foliage_Impostor_GBuffer.glsl", "card.Coverage" },
+            // Groom has ONE shader serving both paths, so there is no pair.
+            { "GroomStrand.glsl", "alpha", "forward + deferred" },
+            { "Foliage_Instance.glsl", "color.a", "forward" },
+            { "Foliage_Instance_GBuffer.glsl", "alpha", "deferred" },
+            { "Foliage_Impostor.glsl", "card.Coverage", "forward" },
+            { "Foliage_Impostor_GBuffer.glsl", "card.Coverage", "deferred" },
         };
 
-        for (const auto& [file, expected] : kSubjects)
+        for (const auto& [file, expected, path] : kSubjects)
         {
             const std::string src = ReadWholeFile(ShaderRoot() / file);
             ASSERT_FALSE(src.empty()) << file << " could not be read";
 
-            std::smatch match;
-            ASSERT_TRUE(std::regex_search(src, match, kAssignment)) << file << " no longer writes velocity";
-            const std::string rhs = match[1].str();
-            EXPECT_NE(rhs.find(expected), std::string::npos)
-                << file << " writes '" << rhs << "', which does not carry its own coverage. "
-                << "Expected the '" << expected << "' term in .b.";
+            // EVERY assignment, not just the first: a shader with more than one
+            // velocity write (a branchy fragment stage) must not pass on the
+            // strength of whichever one the regex happened to reach first.
+            bool carriesCoverage = false;
+            u32 assignments = 0u;
+            for (std::sregex_iterator it{ src.begin(), src.end(), kAssignment }, last; it != last; ++it)
+            {
+                ++assignments;
+                if ((*it)[1].str().find(expected) != std::string::npos)
+                    carriesCoverage = true;
+            }
+
+            EXPECT_GT(assignments, 0u) << file << " no longer writes the velocity attachment at all";
+            EXPECT_TRUE(carriesCoverage)
+                << file << " (" << path << ") does not write its own coverage into .b — expected the '"
+                << expected << "' term. Writing the opaque 1.0 here leaves the coverage channel inert "
+                               "for this subject on this path, which looks identical to the feature working.";
         }
     }
+
 } // namespace OloEngine::Tests

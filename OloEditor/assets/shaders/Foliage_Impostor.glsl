@@ -266,6 +266,10 @@ void main()
     vec4 clipPrev = u_PrevViewProjection * vec4(v_PrevCardWorld, 1.0);
     vec2 ndcCurr = clipCurr.xy / clipCurr.w;
     vec2 ndcPrev = clipPrev.xy / clipPrev.w;
-    o_Velocity = vec4((ndcCurr - ndcPrev) * 0.5, 1.0, 0.0);
+    // .b is the card's blended atlas coverage times its distance fade
+    // (#1256) — the same quantity this program already uses as its output
+    // alpha, and the same one Foliage_Impostor_GBuffer.glsl writes.
+    o_Velocity = vec4((ndcCurr - ndcPrev) * 0.5,
+                      clamp(card.Coverage * card.DistFade, 0.0, 1.0), 0.0);
     o_SkinDiffuse = vec4(0.0); // not skin -- see the declaration above (#1241)
 }

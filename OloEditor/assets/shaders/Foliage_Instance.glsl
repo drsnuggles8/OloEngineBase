@@ -351,6 +351,11 @@ void main()
     vec4 clipPrev = u_PrevViewProjection * vec4(v_PrevWorldPos, 1.0);
     vec2 ndcCurr = clipCurr.xy / clipCurr.w;
     vec2 ndcPrev = clipPrev.xy / clipPrev.w;
-    o_Velocity = vec4((ndcCurr - ndcPrev) * 0.5, 1.0, 0.0);
+    // .b is this leaf's COVERAGE (#1256) — cutout alpha times the LOD fade,
+    // the same quantity Foliage_Instance_GBuffer.glsl writes. The FORWARD
+    // path needs it too: the editor runs forward by default, so wiring only
+    // the deferred variant left the channel reading a flat 1.0 on every
+    // foliage pixel a user actually sees.
+    o_Velocity = vec4((ndcCurr - ndcPrev) * 0.5, clamp(color.a, 0.0, 1.0), 0.0);
     o_SkinDiffuse = vec4(0.0); // not skin -- see the declaration above (#1241)
 }

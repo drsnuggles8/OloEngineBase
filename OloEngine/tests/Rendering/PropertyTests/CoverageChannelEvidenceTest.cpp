@@ -58,6 +58,7 @@
 
 #include <glad/gl.h>
 #include <gtest/gtest.h>
+#include <stb_image/stb_image_write.h>
 
 #include <algorithm>
 #include <filesystem>
@@ -224,6 +225,36 @@ namespace OloEngine::Tests
             return groom;
         }
 
+        /// Write the coverage lane out as a picture. Asserting on numbers
+        /// read back from a frame nobody looked at is how a test comes to
+        /// defend a broken image: the counts below would be just as happy with
+        /// coverage scattered over the wrong pixels as with a coat.
+        ///
+        /// Greyscale is deliberate — coverage is a scalar, and a false-colour
+        /// ramp would invent structure at the boundaries between bands.
+        static void WriteCoveragePng(const std::string& tag, const std::vector<f32>& texels)
+        {
+            std::vector<u8> image(static_cast<std::size_t>(kWidth) * kHeight * 4u, 0u);
+            for (std::size_t px = 0u; px < static_cast<std::size_t>(kWidth) * kHeight; ++px)
+            {
+                const f32 coverage = texels[(px * 4u) + 2u];
+                const u8 value = static_cast<u8>(
+                    std::clamp(coverage, 0.0f, 1.0f) * 255.0f + 0.5f);
+                image[(px * 4u) + 0u] = value;
+                image[(px * 4u) + 1u] = value;
+                image[(px * 4u) + 2u] = value;
+                image[(px * 4u) + 3u] = 255u;
+            }
+
+            const fs::path dir = fs::path("assets") / "tests" / "visual";
+            std::error_code ec;
+            fs::create_directories(dir, ec);
+            const std::string path = (dir / ("CoverageChannel_" + tag + ".png")).string();
+            const int wrote = ::stbi_write_png(path.c_str(), static_cast<int>(kWidth), static_cast<int>(kHeight),
+                                               4, image.data(), static_cast<int>(kWidth) * 4);
+            EXPECT_NE(wrote, 0) << "stbi_write_png failed for '" << path << "'";
+        }
+
         [[nodiscard]] bool ReadVelocityTarget(std::vector<f32>& out)
         {
             const auto sceneFB = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
@@ -248,6 +279,7 @@ namespace OloEngine::Tests
 
         std::vector<f32> texels;
         ASSERT_TRUE(ReadVelocityTarget(texels)) << "the scene framebuffer carries no velocity attachment";
+        WriteCoveragePng("GL_Forward_Strands", texels);
 
         u32 untouched = 0u;      // coverage == 0 — nothing drew here
         u32 fullyCovered = 0u;   // coverage == 1 — an opaque surface
