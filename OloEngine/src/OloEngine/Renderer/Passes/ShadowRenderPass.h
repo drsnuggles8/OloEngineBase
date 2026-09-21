@@ -217,6 +217,12 @@ namespace OloEngine
         // parallel region opens, because acquiring can CREATE buffers.
         void CollectGroomCasters();
 
+        // One texel of the COARSEST CSM cascade, in world metres: the largest
+        // the light-space width floor can be for any view a groom caster is
+        // tested against, and therefore the right pad for its cull bounds.
+        // Zero when no cascade matrix is usable yet.
+        [[nodiscard]] f32 WidestShadowTexelMetres() const;
+
         // Draws every groom caster of one view. Shared by the cascade region,
         // the atlas region and (through a different shader and projection
         // source) the Virtual Shadow Map route, so the three techniques cannot

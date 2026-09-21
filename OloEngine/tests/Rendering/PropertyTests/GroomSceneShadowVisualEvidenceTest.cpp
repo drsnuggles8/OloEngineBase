@@ -200,6 +200,25 @@ namespace OloEngine::Tests
         Entity m_LightEntity;
         Entity m_OccluderEntity;
 
+        // THE RENDERING PATH IS PROCESS-GLOBAL, and four cases here move it.
+        // RendererStateListener restores it before the next test runs, but it
+        // RECORDS the leak and --olo-strict-renderer-state fails on it — so a
+        // fixture that changes it owns putting it back.
+        RenderingPath m_RestorePath = RenderingPath::Forward;
+
+        void SetUp() override
+        {
+            RendererAttachedTest::SetUp();
+            m_RestorePath = Renderer3D::GetRendererSettings().Path;
+        }
+
+        void TearDown() override
+        {
+            Renderer3D::GetRendererSettings().Path = m_RestorePath;
+            Renderer3D::ApplyRendererSettings();
+            RendererAttachedTest::TearDown();
+        }
+
         void BuildScene() override
         {
             if (!Project::GetActive() || !Project::HasAssetManager())

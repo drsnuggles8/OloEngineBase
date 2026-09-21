@@ -165,6 +165,14 @@ namespace OloEngine
             m_Requests.clear();
             m_Stats.CachedBytes = m_Cache->GetBytes();
             m_Stats.CachedGrooms = m_Cache->GetEntryCount();
+            // THE CASTING HALF SURVIVES THIS PASS NOT DRAWING (#1323).
+            // ShadowRenderPass already cast these grooms earlier in the frame,
+            // so a strand pass that bails on a missing shader, framebuffer or
+            // placeholder must still publish what the shadow pass did --
+            // otherwise the panel reads "no groom asked to cast" on exactly
+            // the frames something is wrong. m_Stats.Reset() at the top of
+            // Execute is what clears it.
+            m_Stats.SceneShadow = m_Cache->GetShadowStats();
             return;
         }
 
@@ -186,6 +194,14 @@ namespace OloEngine
             m_Requests.clear();
             m_Stats.CachedBytes = m_Cache->GetBytes();
             m_Stats.CachedGrooms = m_Cache->GetEntryCount();
+            // THE CASTING HALF SURVIVES THIS PASS NOT DRAWING (#1323).
+            // ShadowRenderPass already cast these grooms earlier in the frame,
+            // so a strand pass that bails on a missing shader, framebuffer or
+            // placeholder must still publish what the shadow pass did --
+            // otherwise the panel reads "no groom asked to cast" on exactly
+            // the frames something is wrong. m_Stats.Reset() at the top of
+            // Execute is what clears it.
+            m_Stats.SceneShadow = m_Cache->GetShadowStats();
             return;
         }
 
@@ -262,15 +278,8 @@ namespace OloEngine
         // scene sits, and wrong everywhere else.
         const glm::vec3 renderOrigin = Renderer3D::GetRenderOrigin();
 
-        // Coat volumes resident across the WHOLE cache, against
-        // kMaxResidentCoatVolumes. Seeded from the cache rather than from zero:
-        // a groom that stopped being visible still holds its volume, and
-        // counting only this frame's draws let the resident set grow past the
-        // cap indefinitely while BudgetExhausted stayed at zero.
-        //
-        // AcquireCoatVolume maintains it from here — it is the only place that
-        // creates or reclaims one.
-        u32 residentCoatVolumes = m_Cache->CountResidentCoatVolumes();
+        // The coat-volume budget is the CACHE's own now; nothing is carried
+        // across grooms here. See GroomStrandCache::AcquireCoatVolume.
 
         for (const auto& request : m_Requests)
         {
@@ -346,8 +355,7 @@ namespace OloEngine
             // knows what the frame actually resolved -- the same
             // producer/transport/consumer split the composition mode uses.
             const GroomCoatShadowDecision coatDecision =
-                m_Cache->AcquireCoatVolume(request, *entry, residentCoatVolumes,
-                                           static_cast<f32>(spec.Height));
+                m_Cache->AcquireCoatVolume(request, *entry, static_cast<f32>(spec.Height));
             m_Stats.CoatShadow.Record(coatDecision);
             // From the BUILD, not from the request: the interpolation happens
             // inside BuildGroomStrandMesh, so it is the only place that knows

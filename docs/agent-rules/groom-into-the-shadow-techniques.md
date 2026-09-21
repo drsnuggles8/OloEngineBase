@@ -18,7 +18,7 @@ Read before touching `OloEngine/Groom/GroomStrandCache.{h,cpp}`,
    from before estimating the work.
 
 2. **The one-texel width floor is the whole casting mechanism, and its number is measured.** A 70 µm
-   hair against a 20 m cascade at 2048 texels is **0.0072 texels of half width** — rasterised
+   hair against a 20 m cascade at 2048 texels is **0.0036 texels of half width** — rasterised
    honestly it crosses a texel centre essentially never, so an animal's entire coat casts nothing at
    all. The floor multiplies it by **139×**. That is the same argument `groom-strand-visibility.md`
    rule 2 makes for the main pass, three orders of magnitude coarser, and

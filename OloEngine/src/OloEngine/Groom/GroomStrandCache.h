@@ -224,8 +224,14 @@ namespace OloEngine
         /// `viewportHeight` is the SHADING target's height, which is what the
         /// coat's apparent size is measured in. Only the strand pass calls this
         /// — a shadow caster needs the geometry and never the bake.
+        /// The resident-volume BUDGET IS THE CACHE'S OWN, not a counter the
+        /// caller carries. Carried, it desynced: the two refusal paths here
+        /// release a resident volume, and so do eviction and the geometry
+        /// rebuild, and none of those is on the caller's path -- so the count
+        /// read high and a later coat could be denied a slot or trigger a
+        /// pointless reclaim. See ReleaseCoatVolume.
         [[nodiscard]] GroomCoatShadowDecision AcquireCoatVolume(const GroomStrandRequest& request, Entry& entry,
-                                                                u32& residentVolumes, f32 viewportHeight);
+                                                                f32 viewportHeight);
 
         /// Coat volumes currently held across the WHOLE cache, not just the
         /// ones drawn this frame.
@@ -289,6 +295,10 @@ namespace OloEngine
         std::unordered_map<u64, Entry> m_Entries;
         GroomStrandCacheStats m_Stats;
         GroomShadowCasterStats m_ShadowStats;
+        /// Entries holding a coat volume right now. Maintained by every site
+        /// that creates or releases one, so CountResidentCoatVolumes is a read
+        /// rather than a walk and the budget cannot drift.
+        u32 m_ResidentCoatVolumes = 0;
         u64 m_BudgetBytes = 256ull * 1024ull * 1024ull;
         u64 m_Bytes = 0;
         u64 m_Tick = 0;

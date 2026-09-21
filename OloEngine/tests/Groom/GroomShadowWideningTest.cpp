@@ -71,13 +71,18 @@ namespace OloEngine::Tests
         const f32 trueHalfNdc = kHairRadiusMetres * ndcPerWorld;
         const f32 trueHalfTexels = trueHalfNdc * kCascadeResolution * 0.5f;
 
-        EXPECT_LT(trueHalfTexels, 0.01f)
+        // PINNED TO THE VALUE, not merely bounded below 0.01. The agent-rules
+        // doc quotes this number, and a one-sided bound cannot catch the doc
+        // drifting from it -- which is exactly what happened: the doc said
+        // 0.0072, which is the FULL width, because one texel is 2/resolution of
+        // NDC and not 1/resolution.
+        EXPECT_NEAR(trueHalfTexels, 0.0036f, 0.0001f)
             << "a " << (kHairRadiusMetres * 2.0e6f) << " um hair measured " << trueHalfTexels
             << " texels of half width against a " << kCascadeExtentMetres << " m cascade at " << kCascadeResolution
-            << " -- if this is no longer far below a texel, the floor is no longer the mechanism";
+            << " -- if this moved, groom-into-the-shadow-techniques.md rule 2 quotes the old value";
 
         const f32 factor = GroomShadowWideningFactor(kHairRadiusMetres, ndcPerWorld, kCascadeResolution, 1.0f);
-        EXPECT_GT(factor, 100.0f)
+        EXPECT_NEAR(factor, 139.0f, 1.0f)
             << "the one-texel floor widened the strand by " << factor
             << "x; that ratio IS the opaque-shadow over-occlusion bound, so it has to be a measured number";
     }
@@ -165,10 +170,13 @@ namespace OloEngine::Tests
         EXPECT_GT(near_, far_);
         EXPECT_NEAR(far_, near_ * 0.5f, near_ * 1.0e-5f);
 
-        // The orthographic arm is the w == 1 case of the same formula, so a
-        // cascade's scale must not vary with depth at all.
+        // The orthographic arm is the w == 1 case of the same formula, asserted
+        // against the EXPECTED scale rather than against itself: an orthographic
+        // cascade's row-0 length is 1/halfExtent, so a 20 m extent is 0.1 NDC per
+        // metre. Comparing the call to itself is a tautology that passes however
+        // wrong the formula is.
         const glm::mat4 cascade = MakeCascadeViewProjection();
-        EXPECT_FLOAT_EQ(GroomShadowNdcPerWorld(cascade, 1.0f), GroomShadowNdcPerWorld(cascade, 1.0f));
+        EXPECT_FLOAT_EQ(GroomShadowNdcPerWorld(cascade, 1.0f), 2.0f / kCascadeExtentMetres);
     }
 
     // ── 7. A degenerate clip w must not produce an infinity ─────────────

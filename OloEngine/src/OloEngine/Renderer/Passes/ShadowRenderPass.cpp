@@ -383,6 +383,18 @@ namespace OloEngine
             if (!m_GroomCasters.empty())
             {
                 casterShaders.Groom = Renderer3D::GetShaderLibrary().Get("GroomStrandDepth");
+                // READY, not merely non-null, and dropped here so ONE predicate
+                // serves the draw, the tally and the panel. OpenGLShader::Bind()
+                // returns WITHOUT issuing glUseProgram on a Failed program, so
+                // drawing the groom VAOs after it would replay them through
+                // whichever depth program the previous caster family left bound --
+                // garbage occluder depth in the cascade rather than simply casting
+                // nothing. Nulling it makes the family ABSENT, which is a state
+                // the counters report honestly. Same check the VSM route makes.
+                if (casterShaders.Groom && !casterShaders.Groom->IsReady())
+                {
+                    casterShaders.Groom = nullptr;
+                }
             }
         };
 
@@ -589,7 +601,12 @@ namespace OloEngine
         // than an upper bound, which matters because a ZERO next to a non-zero
         // GroomsCasting is what detects a family that never reached this
         // technique (virtual-geometry-into-a-second-shadow-technique.md).
-        if (m_GroomCache != nullptr && !m_GroomCasters.empty())
+        // GATED ON THE SHADER, because RenderCascadeOrFace is. A tally that
+        // counted draws the recording will not issue would make the INFO line,
+        // the panel and the "this technique drew none of it" detector all
+        // report a wired family when the shader failed to resolve -- which is
+        // the single thing these three counters exist to detect.
+        if (m_GroomCache != nullptr && !m_GroomCasters.empty() && shaders.Groom)
         {
             u32 groomDraws = 0;
             for (u32 item = 0; item < activeCount; ++item)
@@ -1069,6 +1086,34 @@ namespace OloEngine
             VirtualGeometryShadow::RenderCascade(lightVPRel, shadowViewResolution, *virtualResources);
     }
 
+    f32 ShadowRenderPass::WidestShadowTexelMetres() const
+    {
+        if (m_ShadowMap == nullptr)
+        {
+            return 0.0f;
+        }
+        const f32 resolution = static_cast<f32>(std::max(1u, m_ShadowMap->GetResolution()));
+        f32 widest = 0.0f;
+        for (u32 cascade = 0; cascade < ShadowMap::MAX_CSM_CASCADES; ++cascade)
+        {
+            const glm::mat4& lightVP = m_ShadowMap->GetCSMMatrix(cascade);
+            // Row 0 read as a row vector over world xyz. For an orthographic
+            // cascade this is 1/halfExtent, so a half width of
+            // `texels / resolution` in NDC is `texels / (resolution * lenRow0)`
+            // world metres -- the same derivation PBRCommon.glsl spells out for
+            // the depth bias. A degenerate or identity matrix (no light has
+            // requested shadows yet) gives a tiny length, which the guard drops
+            // rather than turning into an enormous pad.
+            const f32 lenRow0 = glm::length(glm::vec3(lightVP[0][0], lightVP[1][0], lightVP[2][0]));
+            if (!(lenRow0 > 1.0e-6f) || !std::isfinite(lenRow0))
+            {
+                continue;
+            }
+            widest = std::max(widest, 1.0f / (resolution * lenRow0));
+        }
+        return widest;
+    }
+
     void ShadowRenderPass::CollectGroomCasters()
     {
         OLO_PROFILE_FUNCTION();
@@ -1131,16 +1176,23 @@ namespace OloEngine
 
             // THE BUILD'S OWN BOX, not the asset's bind-pose bounds: for a
             // bound groom it is the box the coat occupies in THIS pose, and the
-            // bind-pose box does not contain a raised arm's fur. Padded by the
-            // widened half width so a cascade that only clips the silhouette's
-            // edge is not skipped — the widening happens in clip space, after
-            // this test, so an unpadded box under-states the caster by exactly
-            // the amount the floor adds.
+            // bind-pose box does not contain a raised arm's fur. It ALREADY
+            // includes each strand's own radius — BuildGroomStrandMesh expands
+            // by it — so the only thing left to pad for is the light-space
+            // WIDTH FLOOR, which is a property of the shadow map rather than of
+            // the groom and is applied in clip space after this test runs.
+            //
+            // ONE TEXEL OF THE COARSEST CASCADE, in world metres, scaled by the
+            // configured floor: the largest the widening can be for any view
+            // this caster is tested against. The previous expression multiplied
+            // `WidthScale` — a dimensionless multiplier on object-space
+            // diameters — as if it were a length, which over-padded by ~100x at
+            // the default and under-padded a groom authored in centimetres.
             if (entry->Stats.BoundsValid)
             {
                 const BoundingBox objectBounds{ entry->Stats.BoundsMin, entry->Stats.BoundsMax };
                 BoundingBox world = objectBounds.Transform(request.Transform);
-                const f32 pad = request.WidthScale * caster.objectScale * 0.5f;
+                const f32 pad = WidestShadowTexelMetres() * caster.minWidthTexels;
                 if (std::isfinite(pad) && pad > 0.0f)
                 {
                     world.Min -= glm::vec3(pad);

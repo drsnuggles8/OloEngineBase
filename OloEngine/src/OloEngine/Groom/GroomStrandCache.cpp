@@ -22,11 +22,24 @@ namespace OloEngine
         // grows with the CUBE of its resolution.
         constexpr u32 kMaxResidentCoatVolumes = 8;
 
-        // Releasing a coat volume is THREE steps that must never be separated:
-        // give the bytes back to the cache total, drop the texture, and clear
-        // the resolution that says a bake is resident.
-        void ReleaseCoatVolume(GroomStrandCache::Entry& entry, u64& cacheBytes) noexcept
+        // Releasing a coat volume is FOUR steps that must never be separated:
+        // give the bytes back to the cache total, drop the texture, clear the
+        // resolution that says a bake is resident, and give the SLOT back.
+        //
+        // The slot count joined this helper rather than staying a counter the
+        // caller carries, and that is the same lesson the byte total taught:
+        // done by hand at each release site, one site forgets. It already
+        // happened twice here — EvictToBudget subtracted only the geometry's
+        // bytes, and the two refusal paths in AcquireCoatVolume released a
+        // resident volume without giving its slot back, so the resident set
+        // read high and a later coat could be denied a slot or trigger a
+        // pointless reclaim.
+        void ReleaseCoatVolume(GroomStrandCache::Entry& entry, u64& cacheBytes, u32& residentVolumes) noexcept
         {
+            if (entry.CoatVolume != nullptr && residentVolumes > 0u)
+            {
+                --residentVolumes;
+            }
             cacheBytes -= std::min(cacheBytes, entry.CoatBytes);
             entry.CoatVolume = nullptr;
             entry.CoatResolution = 0;
@@ -172,7 +185,7 @@ namespace OloEngine
             if (!usable)
             {
                 m_Bytes -= std::min(m_Bytes, existing->second.Bytes);
-                ReleaseCoatVolume(existing->second, m_Bytes);
+                ReleaseCoatVolume(existing->second, m_Bytes, m_ResidentCoatVolumes);
                 m_Entries.erase(existing);
             }
         }
@@ -226,7 +239,7 @@ namespace OloEngine
                 return &entry;
             }
             m_Bytes -= std::min(m_Bytes, entry.Bytes);
-            ReleaseCoatVolume(entry, m_Bytes);
+            ReleaseCoatVolume(entry, m_Bytes, m_ResidentCoatVolumes);
             m_Entries.erase(entryIt);
         }
 
@@ -272,15 +285,11 @@ namespace OloEngine
 
     u32 GroomStrandCache::CountResidentCoatVolumes() const noexcept
     {
-        u32 resident = 0;
-        for (const auto& [key, entry] : m_Entries)
-        {
-            if (entry.CoatVolume)
-            {
-                ++resident;
-            }
-        }
-        return resident;
+        // THE MEMBER, not a walk. Every site that creates or releases a volume
+        // maintains it (see ReleaseCoatVolume), which is what keeps the budget
+        // from drifting when a refusal or an eviction frees one -- the bug a
+        // caller-carried counter had.
+        return m_ResidentCoatVolumes;
     }
 
     bool GroomStrandCache::ReclaimLeastRecentlyUsedCoatVolume()
@@ -308,7 +317,7 @@ namespace OloEngine
         {
             return false;
         }
-        ReleaseCoatVolume(*oldest, m_Bytes);
+        ReleaseCoatVolume(*oldest, m_Bytes, m_ResidentCoatVolumes);
         return true;
     }
 
@@ -319,7 +328,7 @@ namespace OloEngine
     // reuses it — which is most of the update policy, and is why an animated
     // light or a walking character costs zero rebuilds.
     GroomCoatShadowDecision GroomStrandCache::AcquireCoatVolume(const GroomStrandRequest& request, Entry& entry,
-                                                                u32& residentVolumes, f32 viewportHeight)
+                                                                f32 viewportHeight)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -355,7 +364,7 @@ namespace OloEngine
         // memory and build time on a draw that will render unshadowed.
         if (!GroomCoatShadowModeIsImplemented(request.CoatShadow))
         {
-            ReleaseCoatVolume(entry, m_Bytes);
+            ReleaseCoatVolume(entry, m_Bytes, m_ResidentCoatVolumes);
             inputs.ResolvedResolution = request.CoatLod.BaseResolution;
             inputs.RepresentationReady = false;
             inputs.GrantedSlot = kNoGroomCoatShadowSlot;
@@ -365,7 +374,7 @@ namespace OloEngine
         inputs.GroomIsDeformed = IsDeformed(request);
         if (inputs.GroomIsDeformed && request.CoatShadow != GroomCoatShadowTechnique::None)
         {
-            ReleaseCoatVolume(entry, m_Bytes);
+            ReleaseCoatVolume(entry, m_Bytes, m_ResidentCoatVolumes);
             inputs.ResolvedResolution = request.CoatLod.BaseResolution;
             inputs.RepresentationReady = false;
             inputs.GrantedSlot = kNoGroomCoatShadowSlot;
@@ -436,14 +445,15 @@ namespace OloEngine
         {
             inputs.GrantedSlot = 0u;
         }
-        else if (residentVolumes < kMaxResidentCoatVolumes)
+        else if (m_ResidentCoatVolumes < kMaxResidentCoatVolumes)
         {
-            inputs.GrantedSlot = residentVolumes;
+            inputs.GrantedSlot = m_ResidentCoatVolumes;
         }
         else if (ReclaimLeastRecentlyUsedCoatVolume())
         {
-            --residentVolumes;
-            inputs.GrantedSlot = residentVolumes;
+            // ReclaimLeastRecentlyUsedCoatVolume releases through
+            // ReleaseCoatVolume, which has already given the slot back.
+            inputs.GrantedSlot = m_ResidentCoatVolumes;
         }
         else
         {
@@ -529,8 +539,9 @@ namespace OloEngine
                     if (!alreadyResident)
                     {
                         // A slot has just been taken. Counted HERE, where the
-                        // texture actually came into existence.
-                        ++residentVolumes;
+                        // texture actually came into existence -- a build that
+                        // failed must not consume one.
+                        ++m_ResidentCoatVolumes;
                     }
                 }
             }
@@ -576,7 +587,7 @@ namespace OloEngine
             // the coat volume's are added to m_Bytes separately, so subtracting
             // only the geometry left the total permanently inflated by every
             // evicted coat.
-            ReleaseCoatVolume(it->second, m_Bytes);
+            ReleaseCoatVolume(it->second, m_Bytes, m_ResidentCoatVolumes);
             m_Bytes -= std::min(m_Bytes, it->second.Bytes);
             m_Entries.erase(it);
             ++m_Stats.CacheEvictions;
@@ -622,6 +633,7 @@ namespace OloEngine
     {
         m_Entries.clear();
         m_Bytes = 0;
+        m_ResidentCoatVolumes = 0;
         m_Tick = 0;
         m_Stats.Reset();
         m_ShadowStats.Reset();
