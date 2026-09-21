@@ -22,6 +22,11 @@ The model is `Renderer/SurfaceHistory.h` (`TemporalReactivity`, `EvaluateTempora
 its twin `OloEditor/assets/shaders/include/SurfaceHistory.glsl`. The measurement instruments are
 `Renderer/TemporalSequenceMetrics.h`. Both arrived with issue #1256.
 
+**Before pointing those instruments at anything, read
+[temporal-measurement-control-arms.md](temporal-measurement-control-arms.md).** It is the companion
+page on the control arms: three of them measured nothing on this subsystem, and the headline numbers
+looked excellent every time.
+
 ---
 
 ## Why one confidence number is not enough
