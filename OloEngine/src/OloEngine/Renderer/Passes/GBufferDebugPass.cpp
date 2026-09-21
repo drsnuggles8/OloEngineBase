@@ -107,7 +107,7 @@ namespace OloEngine
         // the channel-3 view gathers are a value some fragment actually wrote.
         const bool resolvedByTheLastWriter = m_GBuffer->GetSampleCount() > 1u && m_PerSampleLighting;
 
-        if (!BlitChannel(m_DebugChannel))
+        if (!BlitChannel(context, m_DebugChannel))
         {
             // Nothing was drawn, so nothing about this frame is true of the
             // viewport. Retiring the record is the whole contract: a stale
@@ -136,7 +136,7 @@ namespace OloEngine
         DebugViewProvenanceRegistry::Publish(record);
     }
 
-    bool GBufferDebugPass::BlitChannel(u32 channel)
+    bool GBufferDebugPass::BlitChannel(RGCommandContext& context, u32 channel)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -188,10 +188,10 @@ namespace OloEngine
 
             const u32 w = m_GBuffer->GetWidth();
             const u32 h = m_GBuffer->GetHeight();
-            RenderCommand::SetViewport(0, 0, w, h);
-            RenderCommand::SetDepthTest(false);
-            RenderCommand::SetDepthMask(false);
-            RenderCommand::SetBlendState(false);
+            context.SetViewport(0, 0, w, h);
+            context.SetDepthTest(false);
+            context.SetDepthMask(false);
+            context.SetBlendState(false);
 
             m_DebugRMAShader->Bind();
             // Persistent: these are the scene pass's OWN G-Buffer attachments,
@@ -206,7 +206,7 @@ namespace OloEngine
             auto va = MeshPrimitives::GetFullscreenTriangle();
             va->Bind();
             HeapBinding::FlushOffsets();
-            RenderCommand::DrawIndexed(va);
+            context.DrawIndexed(va);
 
             // Restore the scene FB's multi-attachment draw-buffer list so the
             // downstream passes (post-process, UI) find the expected slots
@@ -214,8 +214,8 @@ namespace OloEngine
             // FB spec above rather than hardcoded.
             RenderCommand::RestoreAllFramebufferDrawAttachments(dstFB, targetColorCount);
 
-            RenderCommand::SetDepthMask(true);
-            RenderCommand::SetDepthTest(true);
+            context.SetDepthMask(true);
+            context.SetDepthTest(true);
 
             // Copy depth across so selection-outline / UI still depth-test.
             const RHI::ResourceHandle srcFB = m_GBuffer->GetSamplingFramebuffer()->GetRHIHandle();

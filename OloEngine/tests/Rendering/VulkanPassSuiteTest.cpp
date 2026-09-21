@@ -9770,6 +9770,94 @@ TEST_F(VulkanPassSuite, ScenePassDeferredFloorClearsTheGBufferAndGBufferDebugPas
 }
 
 // =============================================================================
+// THE FORMAT-CONVERTING COLOUR BLIT (issue #1329).
+//
+// GL's glBlitFramebuffer CONVERTS between formats. vkCmdCopyImage reinterprets
+// bits, so the Vulkan lowering refused a format mismatch outright -- a
+// warn-once and a no-op -- and said so in its own comment, naming "deferred
+// debug channels into RGBA16F" as the case it did not cover.
+//
+// That case is not hypothetical: G-Buffer RT0 is RGBA8 and RT3 is RG16F while
+// the scene colour target is RGBA16F, so on Vulkan the albedo and velocity
+// debug views left the scene target at its clear. The viewport showed a flat
+// 85/85/85 -- the 0.1 clear through the post chain -- which reads as a
+// renderer that drew nothing rather than as a blit that was skipped.
+//
+// vkCmdBlitImage is the converting primitive, and this pins it BY VALUE rather
+// than by "something changed": an RGBA8 source cleared to a known colour has to
+// arrive in an RGBA16F destination as the same NUMBERS. Three different
+// failures land somewhere else -- a skipped blit leaves the destination clear,
+// a reinterpreting copy produces garbage from the byte pattern, and a channel
+// swap moves the three distinct values around.
+// =============================================================================
+TEST_F(VulkanPassSuite, BlitFramebufferConvertsAnRgba8ColourIntoAnRgba16FTarget)
+{
+    constexpr u32 kSize = 64;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    FramebufferSpecification srcSpec;
+    srcSpec.Width = kSize;
+    srcSpec.Height = kSize;
+    srcSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+    Ref<Framebuffer> srcFB = Framebuffer::Create(srcSpec);
+    ASSERT_TRUE(srcFB);
+
+    FramebufferSpecification dstSpec;
+    dstSpec.Width = kSize;
+    dstSpec.Height = kSize;
+    dstSpec.Attachments = { FramebufferTextureFormat::RGBA16F };
+    Ref<Framebuffer> dstFB = Framebuffer::Create(dstSpec);
+    ASSERT_TRUE(dstFB);
+
+    // Three distinct channels, none of them 0 or 1, and a destination clear
+    // that is none of them: every way this can fail produces a different
+    // number rather than a coincidence.
+    const glm::vec4 kSource{ 0.8f, 0.4f, 0.2f, 1.0f };
+    const glm::vec4 kDestinationClear{ 0.0f, 0.0f, 0.0f, 0.0f };
+
+    SubmitFrame(
+        [&]()
+        {
+            srcFB->Bind();
+            srcFB->ClearAllAttachments(kSource, -1);
+            srcFB->Unbind();
+            dstFB->Bind();
+            dstFB->ClearAllAttachments(kDestinationClear, -1);
+            dstFB->Unbind();
+
+            RenderCommand::SetFramebufferReadAttachment(srcFB->GetRHIHandle(), 0u);
+            RenderCommand::SetFramebufferDrawAttachments(dstFB->GetRHIHandle(), std::array<u32, 1>{ 0u });
+            RenderCommand::BlitFramebuffer(srcFB->GetRHIHandle(), dstFB->GetRHIHandle(),
+                                           0, 0, static_cast<i32>(kSize), static_cast<i32>(kSize),
+                                           0, 0, static_cast<i32>(kSize), static_cast<i32>(kSize),
+                                           RHI::BlitAspect::Color, RHI::Filter::Nearest);
+        });
+
+    std::vector<u8> bytes;
+    auto* vkDst = static_cast<VulkanFramebuffer*>(dstFB.Raw());
+    ASSERT_TRUE(vkDst->GetColorAttachmentImage(0)->GetData(bytes, 0));
+    ASSERT_EQ(bytes.size(), static_cast<sizet>(kSize) * kSize * 4u * sizeof(u16));
+    const auto* halves = reinterpret_cast<const u16*>(bytes.data());
+
+    // An RGBA8 clear quantises to round(v * 255) / 255 before the blit ever
+    // runs, so the tolerance covers that step and half-float rounding, and
+    // nothing else: 1/255 is 0.0039.
+    constexpr f32 kTolerance = 0.006f;
+    for (const auto& [x, y] : { std::pair<u32, u32>{ 0, 0 }, { 31, 17 }, { 63, 63 } })
+    {
+        const sizet base = (static_cast<sizet>(y) * kSize + x) * 4u;
+        const f32 r = HalfToFloat(halves[base + 0]);
+        const f32 g = HalfToFloat(halves[base + 1]);
+        const f32 b = HalfToFloat(halves[base + 2]);
+        EXPECT_NEAR(r, kSource.r, kTolerance)
+            << "the converting blit did not land the red channel at (" << x << "," << y
+            << "); 0.0 means it was skipped and the destination kept its clear";
+        EXPECT_NEAR(g, kSource.g, kTolerance) << "green at (" << x << "," << y << ")";
+        EXPECT_NEAR(b, kSource.b, kTolerance) << "blue at (" << x << "," << y << ")";
+    }
+}
+
+// =============================================================================
 // SHADOW: the layered depth path + the skinned two-stream pull
 // =============================================================================
 namespace

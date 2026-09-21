@@ -635,6 +635,10 @@ namespace OloEngine
       private:
         // Const: several facade getters are const-qualified and still must
         // count their stub hit (nothing may fall through silently).
+        // Optional format features, asked rather than assumed — see the
+        // format-converting arm of BlitFramebuffer.
+        [[nodiscard]] static bool SupportsOptimalTilingBlit(VkFormat format, bool asSource);
+
         void UnimplementedStub(const char* entryPoint, StubKind kind = StubKind::DeferredFeature) const;
         // Record one draw outcome against its shader (#1171 draw census).
         void CensusDraw(const std::string& shaderName, bool prepared) const;

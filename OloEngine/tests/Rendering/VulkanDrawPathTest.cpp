@@ -2420,7 +2420,24 @@ TEST_F(VulkanDrawPath, FramebufferBlitPreservesUnrequestedDepthStencilAspects)
     EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u);
 }
 
-TEST_F(VulkanDrawPath, FramebufferBlitRejectsUnloweredColourConversionWithoutMutation)
+// A format-converting COLOUR blit is lowered now (issue #1329): GL's
+// glBlitFramebuffer converts, and vkCmdBlitImage is the Vulkan primitive that
+// does the same. This test used to pin the refusal, because the refusal was the
+// behaviour; it now pins the two halves that remain distinct.
+//
+//   * SINGLE-SAMPLED source: converts. The destination ends up holding the
+//     SOURCE's values, not its own clear, and no PreconditionFailure is counted.
+//     The engine's deferred debug channels are exactly this shape -- G-Buffer
+//     RT0 is RGBA8, the scene colour target is RGBA16F -- and while it was
+//     refused they were a no-op on Vulkan and the viewport kept its clear.
+//   * MULTISAMPLED source: still refused, without mutating either image. A
+//     converting resolve is two operations and vkCmdBlitImage performs neither
+//     for a multisample source, so guessing would be worse than refusing.
+//
+// The destination sweep keeps RG16F alongside RGBA16F because they differ in
+// COMPONENT COUNT as well as in type, and a lowering that quietly dropped or
+// reordered components would still satisfy an RGBA16F-only test.
+TEST_F(VulkanDrawPath, FramebufferBlitConvertsSingleSampledColourAndRefusesAConvertingResolve)
 {
     ScopedVulkanRenderCommandSelection selection;
     auto& api = selection.Get();
@@ -2428,6 +2445,9 @@ TEST_F(VulkanDrawPath, FramebufferBlitRejectsUnloweredColourConversionWithoutMut
         for (const auto destinationFormat : { FramebufferTextureFormat::RG16F, FramebufferTextureFormat::RGBA16F })
         {
             SCOPED_TRACE(::testing::Message() << "samples=" << samples << " destination=" << static_cast<u32>(destinationFormat));
+            // The one axis that decides the expectation: a multisample source
+            // makes this a converting RESOLVE, which stays refused.
+            const bool convertingResolve = samples > 1u;
             FramebufferSpecification spec;
             spec.Width = spec.Height = 16;
             spec.Samples = samples;
@@ -2453,20 +2473,35 @@ TEST_F(VulkanDrawPath, FramebufferBlitRejectsUnloweredColourConversionWithoutMut
                 const auto failures = api.GetStubHitCount(VulkanRendererAPI::StubKind::PreconditionFailure);
                 api.BlitFramebuffer(source->GetRHIHandle(), destination->GetRHIHandle(),
                                     0, 0, 16, 16, 0, 0, 16, 16, RHI::BlitAspect::Color, RHI::Filter::Nearest);
-                EXPECT_EQ(api.GetStubHitCount(VulkanRendererAPI::StubKind::PreconditionFailure), failures + 1);
-                EXPECT_EQ(api.LayoutTracker().CurrentLayout(imageOf(source), range), sourceLayout);
-                EXPECT_EQ(api.LayoutTracker().CurrentLayout(imageOf(destination), range), destinationLayout);
+                EXPECT_EQ(api.GetStubHitCount(VulkanRendererAPI::StubKind::PreconditionFailure),
+                          convertingResolve ? failures + 1 : failures)
+                    << (convertingResolve ? "a converting resolve must still be refused"
+                                          : "a single-sampled converting blit must be lowered, not refused");
+                if (convertingResolve)
+                {
+                    // Refusing means refusing ENTIRELY: neither image moved.
+                    EXPECT_EQ(api.LayoutTracker().CurrentLayout(imageOf(source), range), sourceLayout);
+                    EXPECT_EQ(api.LayoutTracker().CurrentLayout(imageOf(destination), range), destinationLayout);
+                }
+                // The same-format control, in both arms: RGBA8 -> RGBA8 is a
+                // copy (or a plain resolve) and was never refused, so the count
+                // must not move here whatever the arm above did.
+                const auto afterConversion = api.GetStubHitCount(VulkanRendererAPI::StubKind::PreconditionFailure);
                 api.BlitFramebuffer(source->GetRHIHandle(), sourceProbe->GetRHIHandle(),
                                     0, 0, 16, 16, 0, 0, 16, 16, RHI::BlitAspect::Color, RHI::Filter::Nearest);
-                EXPECT_EQ(api.GetStubHitCount(VulkanRendererAPI::StubKind::PreconditionFailure), failures + 1); });
+                EXPECT_EQ(api.GetStubHitCount(VulkanRendererAPI::StubKind::PreconditionFailure), afterConversion); });
             for (const bool probe : { false, true })
             {
                 const auto& framebuffer = probe ? sourceProbe : destination;
+                // The probe always carries the source's values. The destination
+                // carries them too once the conversion is lowered, and keeps its
+                // own clear when the converting resolve was refused.
+                const bool expectSourceValues = probe || !convertingResolve;
                 std::array<f32, 4> colour{};
                 ASSERT_TRUE(api.ReadTextureSubImage(framebuffer->GetColorAttachmentHandle(0), 0, 0, 0, 0,
                                                     1, 1, 1, RHI::Format::RGBA32Float, sizeof(colour), colour.data()));
-                EXPECT_NEAR(colour[0], probe ? 0.25f : 0.8f, 1.0f / 255.0f);
-                EXPECT_NEAR(colour[1], probe ? 0.5f : 0.6f, 1.0f / 255.0f);
+                EXPECT_NEAR(colour[0], expectSourceValues ? 0.25f : 0.8f, 1.0f / 255.0f);
+                EXPECT_NEAR(colour[1], expectSourceValues ? 0.5f : 0.6f, 1.0f / 255.0f);
             }
         }
     EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u);

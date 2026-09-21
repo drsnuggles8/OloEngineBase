@@ -80,7 +80,7 @@ namespace OloEngine
         // when it produced nothing — the RMA channel's shader failing to load
         // is the one way that happens — so Execute can retire the capture
         // record instead of stamping "current" on a frame it did not draw.
-        [[nodiscard]] bool BlitChannel(u32 channel);
+        [[nodiscard]] bool BlitChannel(RGCommandContext& context, u32 channel);
 
         Ref<GBuffer> m_GBuffer;
         Ref<Framebuffer> m_Target;
