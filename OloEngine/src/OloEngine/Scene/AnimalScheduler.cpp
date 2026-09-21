@@ -287,9 +287,9 @@ namespace OloEngine
     }
 
     std::vector<AnimalSchedule> ScheduleAnimalPopulation(const AnimalBudgetPolicy& rawPolicy,
-                                                        const AnimalCostModel& rawModel,
-                                                        std::span<const AnimalScheduleSlot> slots,
-                                                        AnimalSchedulerStats* outStats)
+                                                         const AnimalCostModel& rawModel,
+                                                         std::span<const AnimalScheduleSlot> slots,
+                                                         AnimalSchedulerStats* outStats)
     {
         const AnimalBudgetPolicy policy = SanitizeAnimalBudgetPolicy(rawPolicy);
         const AnimalCostModel model = SanitizeAnimalCostModel(rawModel);
@@ -508,7 +508,8 @@ namespace OloEngine
                     progressed = false;
 
                     const bool anyUnstarved =
-                        std::ranges::any_of(order, [&](const ServiceOrder& e) { return eligible(e, true); });
+                        std::ranges::any_of(order, [&](const ServiceOrder& e)
+                                            { return eligible(e, true); });
 
                     for (const ServiceOrder& entry : order)
                     {

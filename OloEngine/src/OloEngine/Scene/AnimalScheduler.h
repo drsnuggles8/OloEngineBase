@@ -707,9 +707,9 @@ namespace OloEngine
     ///      HoldFrames consecutive frames of being asked for, refining is
     ///      immediate.
     [[nodiscard]] std::vector<AnimalSchedule> ScheduleAnimalPopulation(const AnimalBudgetPolicy& policy,
-                                                                      const AnimalCostModel& model,
-                                                                      std::span<const AnimalScheduleSlot> slots,
-                                                                      AnimalSchedulerStats* outStats);
+                                                                       const AnimalCostModel& model,
+                                                                       std::span<const AnimalScheduleSlot> slots,
+                                                                       AnimalSchedulerStats* outStats);
 
     /// What one animal costs at `steps`, in cost units. Exposed because the
     /// census test prices populations the scheduler never sees, and two copies

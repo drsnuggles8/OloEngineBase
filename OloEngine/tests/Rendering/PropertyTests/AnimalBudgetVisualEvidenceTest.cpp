@@ -716,4 +716,4 @@ namespace OloEngine::Tests
             << "a population well inside its budget was still coarsened, so the scheduler is degrading the frame "
                "whether or not there is any pressure to";
     }
-}
+} // namespace OloEngine::Tests

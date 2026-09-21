@@ -620,7 +620,8 @@ TEST(AnimalSchedulerHero, BackgroundAnimalsAreExhaustedBeforeAFeaturedOneGivesWa
     const std::vector<AnimalSchedule> schedules = run.Step();
 
     const auto featured = std::find_if(schedules.begin(), schedules.end(),
-                                       [](const AnimalSchedule& s) { return s.Role == AnimalRole::Featured; });
+                                       [](const AnimalSchedule& s)
+                                       { return s.Role == AnimalRole::Featured; });
     ASSERT_NE(featured, schedules.end());
 
     if (featured->Step[kVis] > 0u)
@@ -990,7 +991,8 @@ TEST(AnimalSchedulerStarvation, WhenEveryCandidateIsAtTheBoundTheRuleIsDroppedRa
     const std::vector<AnimalSchedule> schedules = run.Step(&stats);
 
     const bool anythingCoarsened =
-        std::ranges::any_of(schedules, [](const AnimalSchedule& s) { return s.Step[kVis] > 0u; });
+        std::ranges::any_of(schedules, [](const AnimalSchedule& s)
+                            { return s.Step[kVis] > 0u; });
     EXPECT_TRUE(anythingCoarsened)
         << "every candidate was over the starvation bound and the allocator refused to coarsen any of them, so the "
            "axis stays over budget forever";

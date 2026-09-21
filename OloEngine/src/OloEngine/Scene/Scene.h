@@ -1179,8 +1179,8 @@ namespace OloEngine
         // agent's own component, while the integrate/move half writes
         // TransformComponent and so must stay on the game thread. See
         // FlockingSystem.h for the full rationale.
-        void UpdateBoidSteering(Timestep ts);  // neighbour search + steering forces (worker-safe)
-        void UpdateBoidMovement(Timestep ts);  // integrate velocity + move entities (game thread)
+        void UpdateBoidSteering(Timestep ts); // neighbour search + steering forces (worker-safe)
+        void UpdateBoidMovement(Timestep ts); // integrate velocity + move entities (game thread)
         // Walk the reproducible animal population along its authored paths
         // (issue #1258). Registered in the gameplay scheduler as "AnimalPaths".
         void UpdateAnimalPaths(Timestep ts);

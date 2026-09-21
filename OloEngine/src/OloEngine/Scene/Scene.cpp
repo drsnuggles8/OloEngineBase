@@ -4009,7 +4009,8 @@ namespace OloEngine
             // sine per animal is not work worth paying that bill for. The
             // expensive half of this feature is the scheduling, which runs at
             // the frame boundary and not in this graph at all.
-            sched.AddSystem("AnimalPaths", [](Scene& s, Timestep ts) { s.UpdateAnimalPaths(ts); })
+            sched.AddSystem("AnimalPaths", [](Scene& s, Timestep ts)
+                            { s.UpdateAnimalPaths(ts); })
                 .ReadsWrites(kLocalTransforms);
 
             // Place the camera on its spring arm (issue #645). Registered
@@ -4858,7 +4859,8 @@ namespace OloEngine
         if (!m_AnimalScheduleRuntime.empty())
         {
             std::erase_if(m_AnimalScheduleRuntime,
-                          [&liveAnimals](const auto& entry) { return !liveAnimals.contains(entry.first); });
+                          [&liveAnimals](const auto& entry)
+                          { return !liveAnimals.contains(entry.first); });
         }
         m_AnimalScheduleRuntime.reserve(items.size());
         for (const UUID id : ids)

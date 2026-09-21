@@ -193,7 +193,6 @@ namespace OloEngine
         // regardless of what the screen asked for — the floor under sparsity.
         f32 DDGICameraSeedRadius = 12.0f;
 
-
         // --- Multi-animal scheduling budgets (issue #1258) ---
         //
         // The population arbiter that sits ABOVE every per-entity ladder. A

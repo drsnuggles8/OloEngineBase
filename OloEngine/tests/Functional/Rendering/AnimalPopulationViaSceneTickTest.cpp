@@ -493,4 +493,4 @@ namespace OloEngine::Functional
             << "every animal posed on the same frame: the deformation stagger is not spreading the population, so "
                "the frame-time tail is unchanged however good the mean looks";
     }
-}
+} // namespace OloEngine::Functional

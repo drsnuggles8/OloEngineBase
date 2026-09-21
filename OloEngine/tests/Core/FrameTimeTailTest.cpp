@@ -97,7 +97,7 @@ TEST(FrameTimeTail, TheTailSeparatesTwoDistributionsWithTheSameMean)
     EXPECT_NEAR(s.MeanMs, k.MeanMs, 0.05f) << "the case is only interesting while the means agree";
     EXPECT_NEAR(s.P50Ms, 16.0f, 1e-3f);
     EXPECT_NEAR(k.P50Ms, 8.0f, 1e-3f) << "the median of the stuttering window is its CHEAP frame — which is exactly "
-                                          "how a stutter hides from every average anybody watches";
+                                         "how a stutter hides from every average anybody watches";
 
     EXPECT_NEAR(s.P99Ms, 16.0f, 1e-3f);
     EXPECT_NEAR(k.P99Ms, 40.0f, 1e-3f) << "the 99th percentile must see the spike the mean hid";

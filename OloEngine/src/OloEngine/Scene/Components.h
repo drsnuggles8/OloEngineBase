@@ -6960,7 +6960,7 @@ namespace OloEngine
     [[nodiscard]] inline AnimalRole MakeAnimalRole(const AnimalBudgetComponent& component) noexcept
     {
         return IsValidAnimalRole(static_cast<i32>(component.m_Role)) ? static_cast<AnimalRole>(component.m_Role)
-                                                                    : AnimalRole::Background;
+                                                                     : AnimalRole::Background;
     }
 
     /// The per-animal step caps as the scheduler wants them, in axis order.
