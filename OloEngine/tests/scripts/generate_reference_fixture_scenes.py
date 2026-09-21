@@ -521,6 +521,13 @@ def foliage(layers):
             "          RandomRotation: true\n"
             f"          ViewDistance: {f(lay['view_distance'])}\n"
             f"          FadeStartDistance: {f(lay['fade_start'])}\n"
+            # Explicit since #1398 gave every layer real geometry. The
+            # default is 30 m, and 30 m of DENSE ground cover is a different
+            # workload entirely - a 9/m2 grass layer puts on the order of
+            # 25,000 tufts inside that radius - so ground cover hands over
+            # to its card far sooner than a tree does.
+            f"          MeshViewDistance: {f(lay.get('mesh_view_distance', 30))}\n"
+            f"          MeshFadeStartDistance: {f(lay.get('mesh_fade_start', 22))}\n"
             f"          WindStrength: {f(lay['wind_strength'])}\n"
             f"          WindSpeed: {f(lay['wind_speed'])}\n"
             f"          BaseColor: {vec(lay['color'])}\n"
@@ -540,9 +547,36 @@ def foliage(layers):
     return s
 
 
-GRASS_TEX = "assets/textures/grass.png"
-PINE = "SandboxProject/Assets/Models/Vegetation/pine.obj"
-PALM = "SandboxProject/Assets/Models/Vegetation/palm.obj"
+# Imported CC0 vegetation (issue #1398). Each species is a directory holding an
+# OBJ with one submesh per material, its own albedo maps and a LICENSE.md;
+# tools/vegetation-import/ rebuilds the lot from the Poly Haven sources.
+#
+#   <species>.obj           the plant, drawn inside MeshViewDistance
+#   <species>_card.png      the flat billboard beyond it, baked FROM that plant
+#
+# AlbedoPath is the CARD texture, never a source atlas. The far rung draws one
+# quad, and a scanned plant ships its albedo as a UV SHEET - pine_tree_01's is
+# needles in the lower half and pine cones in the upper - so pointing a card at
+# it puts cones on the billboard. One texture standing in for a plant it is not
+# a picture of is precisely the defect issue #1398 records.
+VEG = "SandboxProject/Assets/Models/Vegetation"
+
+
+def veg_mesh(species):
+    return f"{VEG}/{species}/{species}.obj"
+
+
+def veg_card(species):
+    return f"{VEG}/{species}/Textures/{species}_card.png"
+
+
+PINE, PINE_TEX = veg_mesh("pine"), veg_card("pine")
+BROADLEAF, BROADLEAF_TEX = veg_mesh("broadleaf"), veg_card("broadleaf")
+GRASS, GRASS_TEX = veg_mesh("grass"), veg_card("grass")
+GRASS_DRY, GRASS_DRY_TEX = veg_mesh("grass_dry"), veg_card("grass_dry")
+FERN, FERN_TEX = veg_mesh("fern"), veg_card("fern")
+SHRUB, SHRUB_TEX = veg_mesh("shrub"), veg_card("shrub")
+FLOWER, FLOWER_TEX = veg_mesh("flower"), veg_card("flower")
 
 MEADOW_TERRAIN_LAYERS = [
     {"name": "Soil", "tiling": 16, "color": (0.34, 0.28, 0.20), "roughness": 0.95},
@@ -771,7 +805,11 @@ MEADOW_NOTE = [
     "An open 192 m field of dense alpha-masked grass and flower billboards over",
     "procedural terrain, with wind on.",
     "",
-    "CURRENT LIMITATION THIS FIXTURE RECORDS: ground cover is CAMERA-FACING",
+    "Ground cover is real scanned geometry inside MeshViewDistance since #1398",
+    "(grass, dry grass and celandine, each with its own albedo), handing over to",
+    "a billboard baked from that same plant beyond it.",
+    "",
+    "CURRENT LIMITATION THIS FIXTURE RECORDS: past the hand-over it is CAMERA-FACING",
     "CARDS, not geometry. Expect the card silhouette to read at grazing angles,",
     "expect alpha-test aliasing under motion, and expect no self-shadowing",
     "within a clump. #1230 (foliage instance identity) and #1244 are measured",
@@ -782,17 +820,24 @@ MEADOW_NOTE = [
 WOODLAND_NOTE = [
     "WOODLAND vegetation fixture (issue #1239).",
     "",
-    "Dense pine/palm canopy with octahedral impostors over the same procedural",
-    "terrain as the meadow, plus a grass understory. Wind on.",
+    "Dense pine/broadleaf canopy with octahedral impostors over the same",
+    "procedural terrain as the meadow, over a fern and shrub understory. Wind on.",
     "",
     "The frame deliberately straddles the impostor cross-fade band, which is",
     "the transition a canopy fixture exists to measure: mesh in the near field,",
     "impostor cards beyond ImpostorStartDistance, and the blend between them.",
     "",
-    "CURRENT LIMITATION THIS FIXTURE RECORDS: the trees are the two low-poly",
-    "meshes generate_vegetation.py emits (a few dozen triangles each) because",
-    "that is every tree this repository owns. Canopy density, not leaf detail,",
-    "is what this capture measures honestly.",
+    "THE LIMITATION THIS FIXTURE USED TO RECORD IS GONE (issue #1398). The trees",
+    "were the two meshes generate_vegetation.py emits - 48 and 57 faces - wearing",
+    "the same grass cutout as every other species, so the capture could measure",
+    "canopy density and nothing about leaf detail. They are now imported CC0",
+    "scans: a 20.4 m pine at 25,146 triangles whose canopy is cards baked from",
+    "the scan's own needles, and a broadleaf at 9,999. Leaf detail is in scope",
+    "for this capture for the first time.",
+    "",
+    "THE PALM IS GONE ON PURPOSE. Poly Haven has no palm under CC0, and issue",
+    "#1398 is explicit that shipping a palm textured as something else is the bug",
+    "it exists to fix. The layer is a broadleaf now, named for what it draws.",
 ]
 
 
@@ -816,18 +861,22 @@ def build_meadow():
         "Meadow Terrain", (-96, 0, -96), (0, 0, 0), (1, 1, 1),
         terrain(192, 5.0, SEED, MEADOW_TERRAIN_LAYERS, TERRAIN_RULES)
         + foliage([
-            {"name": "Grass", "albedo": GRASS_TEX, "density": 9.0, "channel": 1,
+            {"name": "Grass", "mesh": GRASS, "albedo": GRASS_TEX, "density": 9.0, "channel": 1,
              "min_scale": 0.85, "max_scale": 1.7, "min_height": 0.9, "max_height": 1.9,
              "view_distance": 150, "fade_start": 120, "wind_strength": 0.55, "wind_speed": 1.8,
-             "color": (0.32, 0.48, 0.17), "max_slope": 32},
-            {"name": "TallGrass", "albedo": GRASS_TEX, "density": 3.5, "channel": 1,
+             "color": (0.32, 0.48, 0.17), "max_slope": 32,
+             "mesh_view_distance": 12, "mesh_fade_start": 9},
+            {"name": "TallGrass", "mesh": GRASS_DRY, "albedo": GRASS_DRY_TEX, "density": 3.5,
+             "channel": 1,
              "min_scale": 1.2, "max_scale": 2.2, "min_height": 1.6, "max_height": 2.8,
              "view_distance": 170, "fade_start": 135, "wind_strength": 0.7, "wind_speed": 1.4,
-             "color": (0.40, 0.50, 0.20), "max_slope": 28},
-            {"name": "Flowers", "albedo": GRASS_TEX, "density": 1.2, "channel": 3,
+             "color": (0.40, 0.50, 0.20), "max_slope": 28,
+             "mesh_view_distance": 18, "mesh_fade_start": 13},
+            {"name": "Flowers", "mesh": FLOWER, "albedo": FLOWER_TEX, "density": 1.2, "channel": 3,
              "min_scale": 0.6, "max_scale": 1.1, "min_height": 0.5, "max_height": 1.0,
              "view_distance": 90, "fade_start": 70, "wind_strength": 0.5, "wind_speed": 2.1,
-             "color": (0.78, 0.72, 0.34), "max_slope": 24},
+             "color": (0.78, 0.72, 0.34), "max_slope": 24,
+             "mesh_view_distance": 22, "mesh_fade_start": 16},
         ]),
         comment="── 192 m procedural meadow: three billboard layers, wind-driven ──",
     )
@@ -852,16 +901,23 @@ def build_woodland():
         "Woodland Terrain", (-96, 0, -96), (0, 0, 0), (1, 1, 1),
         terrain(192, 6.0, SEED + 1, WOODLAND_TERRAIN_LAYERS, WOODLAND_RULES)
         + foliage([
-            {"name": "Understory", "albedo": GRASS_TEX, "density": 4.0, "channel": 1,
+            {"name": "Understory", "mesh": FERN, "albedo": FERN_TEX, "density": 4.0, "channel": 1,
              "min_scale": 0.8, "max_scale": 1.5, "min_height": 0.8, "max_height": 1.6,
              "view_distance": 110, "fade_start": 85, "wind_strength": 0.35, "wind_speed": 1.5,
-             "color": (0.26, 0.40, 0.18), "max_slope": 32},
-            {"name": "Pines", "mesh": PINE, "albedo": GRASS_TEX, "density": 0.09, "channel": 1,
+             "color": (0.26, 0.40, 0.18), "max_slope": 32,
+             "mesh_view_distance": 16, "mesh_fade_start": 12},
+            {"name": "Shrubs", "mesh": SHRUB, "albedo": SHRUB_TEX, "density": 0.6, "channel": 1,
+             "min_scale": 0.8, "max_scale": 1.4, "min_height": 1.0, "max_height": 2.0,
+             "view_distance": 140, "fade_start": 110, "wind_strength": 0.4, "wind_speed": 1.2,
+             "color": (0.28, 0.38, 0.20), "max_slope": 30,
+             "mesh_view_distance": 30, "mesh_fade_start": 22},
+            {"name": "Pines", "mesh": PINE, "albedo": PINE_TEX, "density": 0.09, "channel": 1,
              "min_scale": 0.9, "max_scale": 1.5, "min_height": 8, "max_height": 15,
              "view_distance": 600, "fade_start": 520, "wind_strength": 0.2, "wind_speed": 0.8,
              "color": (0.19, 0.33, 0.20), "max_slope": 36,
              "impostor": True, "impostor_start": 45},
-            {"name": "Palms", "mesh": PALM, "albedo": GRASS_TEX, "density": 0.03, "channel": 0,
+            {"name": "Broadleaf", "mesh": BROADLEAF, "albedo": BROADLEAF_TEX, "density": 0.03,
+             "channel": 0,
              "min_scale": 0.9, "max_scale": 1.3, "min_height": 6, "max_height": 11,
              "view_distance": 600, "fade_start": 520, "wind_strength": 0.32, "wind_speed": 1.1,
              "color": (0.25, 0.42, 0.20), "max_slope": 26,

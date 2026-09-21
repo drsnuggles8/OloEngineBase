@@ -2,6 +2,10 @@
 // FloraTraversalEvidenceTest.cpp — epic #1224's own acceptance, on a live GL
 // context.
 //
+// Since issue #1398 every layer here draws a real imported plant. Before it,
+// five species shared two generated meshes of 48 and 57 faces and one 512x512
+// grass cutout, and this capture is the one that said so.
+//
 // Writes
 //   OloEditor/assets/tests/visual/FloraTraversal_GL_<Path>_<Angle>.png
 //   OloEditor/assets/tests/visual/FloraTraversalOff_GL_<Path>_<Angle>.png
@@ -129,9 +133,22 @@ namespace OloEngine::Tests
         // file is arranged around.
         constexpr f32 kCaptureTime = 4.0f;
 
-        constexpr const char* kPineMesh = "SandboxProject/Assets/Models/Vegetation/pine.obj";
-        constexpr const char* kPalmMesh = "SandboxProject/Assets/Models/Vegetation/palm.obj";
-        constexpr const char* kFoliageAlbedo = "assets/textures/grass.png";
+        // Imported CC0 vegetation (issue #1398). Until it landed this fixture
+        // drew five species out of TWO generated meshes (48 and 57 faces) and
+        // ONE grass cutout, which passed 17.9% of its texels at the authored
+        // cutoff — so criterion 2 could not be judged from this capture at all,
+        // and saying so is what filed #1398. Each layer now names the plant it
+        // draws, and its albedo is a billboard baked from that same plant.
+        constexpr const char* kPineMesh = "SandboxProject/Assets/Models/Vegetation/pine/pine.obj";
+        constexpr const char* kPineAlbedo = "SandboxProject/Assets/Models/Vegetation/pine/Textures/pine_card.png";
+        constexpr const char* kShrubMesh = "SandboxProject/Assets/Models/Vegetation/shrub/shrub.obj";
+        constexpr const char* kShrubAlbedo = "SandboxProject/Assets/Models/Vegetation/shrub/Textures/shrub_card.png";
+        constexpr const char* kGrassMesh = "SandboxProject/Assets/Models/Vegetation/grass/grass.obj";
+        constexpr const char* kGrassAlbedo = "SandboxProject/Assets/Models/Vegetation/grass/Textures/grass_card.png";
+        constexpr const char* kFlowerMesh = "SandboxProject/Assets/Models/Vegetation/flower/flower.obj";
+        constexpr const char* kFlowerAlbedo = "SandboxProject/Assets/Models/Vegetation/flower/Textures/flower_card.png";
+        constexpr const char* kFernMesh = "SandboxProject/Assets/Models/Vegetation/fern/fern.obj";
+        constexpr const char* kFernAlbedo = "SandboxProject/Assets/Models/Vegetation/fern/Textures/fern_card.png";
         constexpr const char* kLeafNormal = "assets/textures/leaf_normal.png";
         constexpr const char* kLeafRoughness = "assets/textures/leaf_roughness.png";
         constexpr const char* kLeafThickness = "assets/textures/leaf_thickness.png";
@@ -326,11 +343,12 @@ namespace OloEngine::Tests
             foliage.m_Enabled = true;
             foliage.m_Layers.resize(kLayerCount);
 
-            // ── 0: meadow grass. Cards, dense, clumped with the wildflowers.
+            // ── 0: meadow grass. Real blades near, card beyond (#1398).
             {
                 FoliageLayer& l = foliage.m_Layers[kMeadowGrassLayer];
                 l.Name = "Meadow Grass";
-                l.AlbedoPath = kFoliageAlbedo;
+                l.MeshPath = kGrassMesh;
+                l.AlbedoPath = kGrassAlbedo;
                 l.Density = 0.9f;
                 l.SplatmapChannel = -1;
                 l.MinSlopeAngle = 0.0f;
@@ -347,8 +365,16 @@ namespace OloEngine::Tests
                 l.DecorrelatedVariation = true;
                 l.ViewDistance = 190.0f;
                 l.FadeStartDistance = 150.0f;
-                l.UseAuthoredMesh = false; // grass stays a card at every range
-                l.WindStrength = 0.35f;    // #1236
+                // Criterion 2 is "CLOSE grass, shrubs and trees have convincing
+                // geometry". Until #1398 there was no grass mesh to give it, so
+                // this layer was a card at every range and the criterion was
+                // unanswerable from this capture. The hand-over is deliberately
+                // short: 12 m of 0.9/m2 grass is already thousands of tufts of
+                // real geometry.
+                l.UseAuthoredMesh = true;
+                l.MeshViewDistance = 12.0f;
+                l.MeshFadeStartDistance = 9.0f;
+                l.WindStrength = 0.35f; // #1236
                 l.WindSpeed = 1.6f;
                 l.WindStiffness = 0.15f;
                 l.WindBranchWeight = 0.25f;
@@ -368,7 +394,8 @@ namespace OloEngine::Tests
             {
                 FoliageLayer& l = foliage.m_Layers[kWildflowerLayer];
                 l.Name = "Wildflowers";
-                l.AlbedoPath = kFoliageAlbedo;
+                l.MeshPath = kFlowerMesh;
+                l.AlbedoPath = kFlowerAlbedo;
                 l.Density = 0.35f;
                 l.SplatmapChannel = -1;
                 l.MaxSlopeAngle = 24.0f;
@@ -401,7 +428,7 @@ namespace OloEngine::Tests
                 FoliageLayer& l = foliage.m_Layers[kWoodlandTreeLayer];
                 l.Name = "Woodland Pines";
                 l.MeshPath = kPineMesh;
-                l.AlbedoPath = kFoliageAlbedo;
+                l.AlbedoPath = kPineAlbedo;
                 l.Density = 0.035f;
                 l.SplatmapChannel = -1;
                 l.MaxSlopeAngle = 48.0f;
@@ -449,8 +476,11 @@ namespace OloEngine::Tests
             {
                 FoliageLayer& l = foliage.m_Layers[kUnderstoryLayer];
                 l.Name = "Understory Shrubs";
-                l.MeshPath = kPalmMesh;
-                l.AlbedoPath = kFoliageAlbedo;
+                // Was the 57-face palm. Poly Haven has no palm under CC0 and
+                // #1398 forbids shipping one textured as something else, so the
+                // understory is a shrub — named, and drawn, as what it is.
+                l.MeshPath = kShrubMesh;
+                l.AlbedoPath = kShrubAlbedo;
                 l.Density = 0.12f;
                 l.SplatmapChannel = -1;
                 l.MaxSlopeAngle = 42.0f;
@@ -487,7 +517,8 @@ namespace OloEngine::Tests
             {
                 FoliageLayer& l = foliage.m_Layers[kLeafLitterLayer];
                 l.Name = "Leaf Litter";
-                l.AlbedoPath = kFoliageAlbedo;
+                l.MeshPath = kFernMesh;
+                l.AlbedoPath = kFernAlbedo;
                 l.Density = 0.6f;
                 l.SplatmapChannel = -1;
                 l.MaxSlopeAngle = 38.0f;
@@ -1574,15 +1605,25 @@ namespace OloEngine::Tests
         std::vector<u8> withMesh;
         Capture(closePose, withMesh);
 
+        // Snapshot before flipping, restore from the snapshot after. Deriving
+        // the restore instead - from "has a MeshPath", which was the first fix
+        // here - silently turns ON the two layers the fixture authors as cards
+        // (Wildflowers, Leaf Litter) and every capture AFTER this arm then runs
+        // a configuration the fixture never declared, while the code claims to
+        // have put things back.
+        std::vector<bool> authoredMeshFlags;
+        authoredMeshFlags.reserve(foliage.m_Layers.size());
+        for (const auto& layer : foliage.m_Layers)
+            authoredMeshFlags.push_back(layer.UseAuthoredMesh);
+
         for (auto& layer : foliage.m_Layers)
             layer.UseAuthoredMesh = false;
         foliage.m_NeedsRebuild = true;
         std::vector<u8> cardsOnly;
         Capture(closePose, cardsOnly);
 
-        for (auto& layer : foliage.m_Layers)
-            layer.UseAuthoredMesh = (&layer == &foliage.m_Layers[kWoodlandTreeLayer]) ||
-                                    (&layer == &foliage.m_Layers[kUnderstoryLayer]);
+        for (std::size_t i = 0; i < foliage.m_Layers.size(); ++i)
+            foliage.m_Layers[i].UseAuthoredMesh = authoredMeshFlags[i];
         foliage.m_NeedsRebuild = true;
 
         WritePng("FloraCloseGeometry_GL_Deferred_Mesh.png", withMesh);

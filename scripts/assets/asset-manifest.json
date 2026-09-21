@@ -6,8 +6,8 @@
     "irreversible once committed) or carries a licence that requires the user to fetch it",
     "themselves rather than have it redistributed. Fetch with:",
     "",
-    "    scripts/Fetch-Assets.ps1                  # everything",
-    "    scripts/Fetch-Assets.ps1 -Tag nanite      # one group",
+    "    scripts/Fetch-Assets.ps1                    # everything",
+    "    scripts/Fetch-Assets.ps1 -Tag nanite        # one group",
     "    scripts/Fetch-Assets.ps1 -Name xyzrgb-dragon",
     "",
     "Every consumer (scene, test) must degrade gracefully when an asset is absent: SKIP with a",
@@ -15,7 +15,12 @@
     "user has not run, not a broken build.",
     "",
     "Fields: name, url, sha256 (of the DOWNLOADED file, before any unpacking), dest (repo-relative",
-    "path of the FINAL file), unpack (none|gzip), sizeBytes, triangles, licence, credit, tags."
+    "path of the FINAL file), unpack (none|gzip), sizeBytes, triangles, licence, credit, tags.",
+    "",
+    "An asset that is only meaningful as a SET of files - a glTF and the buffer it references -",
+    "lists them under `files` instead, each with its own url, sha256, dest and sizeBytes. Such an",
+    "asset counts as present only when every part is present, because a glTF whose .bin is missing",
+    "looks fetched and fails at load time."
   ],
   "assets": [
     {
@@ -29,7 +34,65 @@
       "triangles": 7219045,
       "licence": "Free to use; the Stanford Computer Graphics Laboratory asks that the source be acknowledged.",
       "credit": "Stanford Computer Graphics Laboratory, 3D Scanning Repository (https://graphics.stanford.edu/data/3Dscanrep/)",
-      "tags": ["nanite", "heavy", "geometry"]
+      "tags": [
+        "nanite",
+        "heavy",
+        "geometry"
+      ]
+    },
+    {
+      "name": "pine-tree-01-scan",
+      "description": "Poly Haven pine_tree_01 - the raw 17.4M-triangle conifer scan the committed pine was imported from. Fetch it only to RE-RUN or retune the import (tools/vegetation-import), or to capture a fidelity reference against the reduced plant; nothing in the engine loads it directly.",
+      "files": [
+        {
+          "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/pine_tree_01/pine_tree_01_1k.gltf",
+          "sha256": "c81e8eebbda722313f07bed37b8b9156ce520f7fa95488d83a694d02fffdb469",
+          "dest": "OloEditor/SandboxProject/Assets/Models/Vegetation/_raw/pine_tree_01/pine_tree_01_1k.gltf",
+          "sizeBytes": 30596
+        },
+        {
+          "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/8k/pine_tree_01/pine_tree_01.bin",
+          "sha256": "9955ac7e2f8fe28dc6da8e4d478593ad830f8a23d44e39a2187ef7dffac2646b",
+          "dest": "OloEditor/SandboxProject/Assets/Models/Vegetation/_raw/pine_tree_01/pine_tree_01.bin",
+          "sizeBytes": 948849556
+        }
+      ],
+      "sizeBytes": 948880152,
+      "triangles": 17182252,
+      "licence": "CC0 1.0 Universal (public domain dedication) - https://polyhaven.com/license",
+      "credit": "Rob Tuytel, Rico Cilliers / Poly Haven (https://polyhaven.com/a/pine_tree_01), CC0",
+      "tags": [
+        "vegetation",
+        "raw-scan",
+        "heavy"
+      ]
+    },
+    {
+      "name": "island-tree-01-scan",
+      "description": "Poly Haven island_tree_01 - the raw 1.6M-triangle broadleaf scan the committed broadleaf was imported from. Same use as pine-tree-01-scan: re-running the import, or a fidelity reference.",
+      "files": [
+        {
+          "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/island_tree_01/island_tree_01_1k.gltf",
+          "sha256": "78e905a40670bfabb2760601d4d9a6c17193a50d68e6271c66893eb7bd75906d",
+          "dest": "OloEditor/SandboxProject/Assets/Models/Vegetation/_raw/island_tree_01/island_tree_01_1k.gltf",
+          "sizeBytes": 8576
+        },
+        {
+          "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/8k/island_tree_01/island_tree_01.bin",
+          "sha256": "1faa817b46e24ed6fc90d3ec72188a0dc5ac75e82c89b3dd3c5fdaecf7cc005c",
+          "dest": "OloEditor/SandboxProject/Assets/Models/Vegetation/_raw/island_tree_01/island_tree_01.bin",
+          "sizeBytes": 60709812
+        }
+      ],
+      "sizeBytes": 60718388,
+      "triangles": 1599403,
+      "licence": "CC0 1.0 Universal (public domain dedication) - https://polyhaven.com/license",
+      "credit": "Rob Tuytel, Rico Cilliers / Poly Haven (https://polyhaven.com/a/island_tree_01), CC0",
+      "tags": [
+        "vegetation",
+        "raw-scan",
+        "heavy"
+      ]
     }
   ]
 }

@@ -181,8 +181,8 @@ Entities:
       Enabled: true
       Layers:
         - Name: Meadow Grass
-          MeshPath: ""
-          AlbedoPath: assets/textures/grass.png
+          MeshPath: SandboxProject/Assets/Models/Vegetation/grass/grass.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/grass/Textures/grass_card.png
           Density: 16
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -213,6 +213,8 @@ Entities:
           DecorrelatedVariation: true
           ViewDistance: 180
           FadeStartDistance: 144
+          MeshViewDistance: 12
+          MeshFadeStartDistance: 9
           WindStrength: 0.35
           WindSpeed: 1.6
           BaseColor: [0.3, 0.46, 0.16]
@@ -240,8 +242,8 @@ Entities:
           InteractionResponse: 1
           Enabled: true
         - Name: Wildflowers
-          MeshPath: ""
-          AlbedoPath: assets/textures/grass.png
+          MeshPath: SandboxProject/Assets/Models/Vegetation/flower/flower.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/flower/Textures/flower_card.png
           Density: 5
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -272,6 +274,8 @@ Entities:
           DecorrelatedVariation: true
           ViewDistance: 140
           FadeStartDistance: 112
+          MeshViewDistance: 22
+          MeshFadeStartDistance: 16
           WindStrength: 0.25
           WindSpeed: 1.2
           BaseColor: [0.66, 0.56, 0.24]
@@ -299,8 +303,8 @@ Entities:
           InteractionResponse: 1
           Enabled: true
         - Name: Shrubs
-          MeshPath: SandboxProject/Assets/Models/Vegetation/palm.obj
-          AlbedoPath: assets/textures/grass.png
+          MeshPath: SandboxProject/Assets/Models/Vegetation/shrub/shrub.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/shrub/Textures/shrub_card.png
           Density: 1.2
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -361,8 +365,8 @@ Entities:
           InteractionResponse: 0.6
           Enabled: true
         - Name: Leaf Litter
-          MeshPath: ""
-          AlbedoPath: assets/textures/grass.png
+          MeshPath: SandboxProject/Assets/Models/Vegetation/fern/fern.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/fern/Textures/fern_card.png
           Density: 9
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -393,6 +397,8 @@ Entities:
           DecorrelatedVariation: true
           ViewDistance: 90
           FadeStartDistance: 72
+          MeshViewDistance: 16
+          MeshFadeStartDistance: 12
           WindStrength: 0.05
           WindSpeed: 0.6
           BaseColor: [0.4, 0.29, 0.14]
@@ -413,8 +419,8 @@ Entities:
           InteractionResponse: 0.35
           Enabled: true
         - Name: Dune Grass
-          MeshPath: ""
-          AlbedoPath: assets/textures/grass.png
+          MeshPath: SandboxProject/Assets/Models/Vegetation/grass_dry/grass_dry.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
           Density: 2.5
           SplatmapChannel: 0
           MinSlopeAngle: 0
@@ -445,6 +451,8 @@ Entities:
           DecorrelatedVariation: true
           ViewDistance: 140
           FadeStartDistance: 112
+          MeshViewDistance: 18
+          MeshFadeStartDistance: 13
           WindStrength: 0.4
           WindSpeed: 1.4
           BaseColor: [0.62, 0.6, 0.32]
@@ -472,8 +480,8 @@ Entities:
           InteractionResponse: 0.9
           Enabled: true
         - Name: Woodland Pines
-          MeshPath: SandboxProject/Assets/Models/Vegetation/pine.obj
-          AlbedoPath: assets/textures/grass.png
+          MeshPath: SandboxProject/Assets/Models/Vegetation/pine/pine.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/pine/Textures/pine_card.png
           Density: 0.035
           SplatmapChannel: -1
           MinSlopeAngle: 0

@@ -108,12 +108,6 @@ Assets:
   - Path: SandboxProject/Assets/Models/KenneyVehicles/ship-small-sail.glb
     Origin: Kenney (kenney.nl), Pirate Kit — sail half of ship-small.glb, see KenneyVehicles/LICENSE.md
     License: CC0-1.0
-  - Path: SandboxProject/Assets/Models/Vegetation/palm.obj
-    Origin: Generated in-repo by Vegetation/generate_vegetation.py (issue #880)
-    License: BSD-4-Clause (repository license)
-  - Path: OloEditor/assets/textures/grass.png
-    Origin: In-repo editor asset; provenance not recorded
-    License: unverified (no license file in-repo)
   - Path: OloEditor/assets/textures/pbr/wall/albedo.png
     Origin: In-repo editor PBR set; provenance not recorded
     License: unverified (no license file in-repo)
@@ -127,3 +121,39 @@ Assets:
   # WaterComponent references textures by AssetHandle only and this scene
   # pins all four handles to 0 (renderer built-in fallbacks), so those files
   # are not referenced by this capture.
+  - Path: SandboxProject/Assets/Models/Vegetation/broadleaf/broadleaf.obj
+    Origin: Poly Haven asset 'island_tree_01' (https://polyhaven.com/a/island_tree_01), imported
+      and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
+    License: CC0 1.0 Universal - https://polyhaven.com/license
+  - Path: SandboxProject/Assets/Models/Vegetation/broadleaf/broadleaf.mtl
+    Origin: Poly Haven asset 'island_tree_01' (https://polyhaven.com/a/island_tree_01), imported
+      and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
+    License: CC0 1.0 Universal - https://polyhaven.com/license
+  - Path: SandboxProject/Assets/Models/Vegetation/broadleaf/Textures/broadleaf_card.png
+    Origin: Poly Haven asset 'island_tree_01' (https://polyhaven.com/a/island_tree_01), imported
+      and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
+    License: CC0 1.0 Universal - https://polyhaven.com/license
+  - Path: SandboxProject/Assets/Models/Vegetation/broadleaf/Textures/broadleaf_foliage.png
+    Origin: Poly Haven asset 'island_tree_01' (https://polyhaven.com/a/island_tree_01), imported
+      and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
+    License: CC0 1.0 Universal - https://polyhaven.com/license
+  - Path: SandboxProject/Assets/Models/Vegetation/broadleaf/Textures/broadleaf_trunk.png
+    Origin: Poly Haven asset 'island_tree_01' (https://polyhaven.com/a/island_tree_01), imported
+      and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
+    License: CC0 1.0 Universal - https://polyhaven.com/license
+  - Path: SandboxProject/Assets/Models/Vegetation/grass_dry/grass_dry.obj
+    Origin: Poly Haven asset 'grass_medium_02' (https://polyhaven.com/a/grass_medium_02), imported
+      and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
+    License: CC0 1.0 Universal - https://polyhaven.com/license
+  - Path: SandboxProject/Assets/Models/Vegetation/grass_dry/grass_dry.mtl
+    Origin: Poly Haven asset 'grass_medium_02' (https://polyhaven.com/a/grass_medium_02), imported
+      and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
+    License: CC0 1.0 Universal - https://polyhaven.com/license
+  - Path: SandboxProject/Assets/Models/Vegetation/grass_dry/Textures/grass_dry_blades.png
+    Origin: Poly Haven asset 'grass_medium_02' (https://polyhaven.com/a/grass_medium_02), imported
+      and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
+    License: CC0 1.0 Universal - https://polyhaven.com/license
+  - Path: SandboxProject/Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
+    Origin: Poly Haven asset 'grass_medium_02' (https://polyhaven.com/a/grass_medium_02), imported
+      and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
+    License: CC0 1.0 Universal - https://polyhaven.com/license

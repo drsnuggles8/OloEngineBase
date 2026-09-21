@@ -52,6 +52,20 @@ PALETTE = [
 ]
 
 
+
+# Imported CC0 vegetation (issue #1398). Before it, every layer below - grass,
+# pines and palms alike - named assets/textures/grass.png, a 512x512 photo of a
+# grass tuft passing 17.9% of its texels at the authored cutoff. AlbedoPath is
+# now the per-species BILLBOARD baked from the plant itself; the near field
+# draws the plant. See tools/vegetation-import/.
+VEG = "SandboxProject/Assets/Models/Vegetation"
+PINE = f"{VEG}/pine/pine.obj"
+PINE_TEX = f"{VEG}/pine/Textures/pine_card.png"
+BROADLEAF = f"{VEG}/broadleaf/broadleaf.obj"
+BROADLEAF_TEX = f"{VEG}/broadleaf/Textures/broadleaf_card.png"
+GRASS = f"{VEG}/grass/grass.obj"
+GRASS_TEX = f"{VEG}/grass/Textures/grass_card.png"
+
 def f(x):
     """Compact float formatting: 4 significant decimals, no trailing zeros."""
     s = f"{x:.4f}".rstrip("0").rstrip(".")
@@ -490,8 +504,8 @@ def terrain_and_foliage():
         "      Enabled: true\n"
         "      Layers:\n"
         "        - Name: Grass\n"
-        "          MeshPath: \"\"\n"
-        "          AlbedoPath: assets/textures/grass.png\n"
+        f"          MeshPath: {GRASS}\n"
+        f"          AlbedoPath: {GRASS_TEX}\n"
         "          Density: 5\n"
         "          SplatmapChannel: 1\n"
         "          MinSlopeAngle: 0\n"
@@ -503,6 +517,8 @@ def terrain_and_foliage():
         "          RandomRotation: true\n"
         "          ViewDistance: 170\n"
         "          FadeStartDistance: 135\n"
+        "          MeshViewDistance: 12\n"
+        "          MeshFadeStartDistance: 9\n"
         "          WindStrength: 0.4\n"
         "          WindSpeed: 1.6\n"
         "          BaseColor: [0.3, 0.46, 0.16]\n"
@@ -510,8 +526,8 @@ def terrain_and_foliage():
         "          AlphaCutoff: 0.5\n"
         "          Enabled: true\n"
         "        - Name: Pines\n"
-        "          MeshPath: SandboxProject/Assets/Models/Vegetation/pine.obj\n"
-        "          AlbedoPath: assets/textures/grass.png\n"
+        f"          MeshPath: {PINE}\n"
+        f"          AlbedoPath: {PINE_TEX}\n"
         "          Density: 0.02\n"
         "          SplatmapChannel: 1\n"
         "          MinSlopeAngle: 0\n"
@@ -535,9 +551,9 @@ def terrain_and_foliage():
         "          ImpostorAtlasResolution: 1024\n"
         "          ImpostorHemiOctahedral: true\n"
         "          Enabled: true\n"
-        "        - Name: Palms\n"
-        "          MeshPath: SandboxProject/Assets/Models/Vegetation/palm.obj\n"
-        "          AlbedoPath: assets/textures/grass.png\n"
+        "        - Name: Broadleaf\n"
+        f"          MeshPath: {BROADLEAF}\n"
+        f"          AlbedoPath: {BROADLEAF_TEX}\n"
         "          Density: 0.012\n"
         "          SplatmapChannel: 0\n"
         "          MinSlopeAngle: 0\n"

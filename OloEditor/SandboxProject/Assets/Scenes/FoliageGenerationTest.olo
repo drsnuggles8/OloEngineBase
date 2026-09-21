@@ -181,8 +181,8 @@ Entities:
       Enabled: true
       Layers:
         - Name: Grass
-          MeshPath: ""
-          AlbedoPath: assets/textures/grass.png
+          MeshPath: SandboxProject/Assets/Models/Vegetation/grass/grass.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/grass/Textures/grass_card.png
           Density: 6
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -194,6 +194,8 @@ Entities:
           RandomRotation: true
           ViewDistance: 180
           FadeStartDistance: 144
+          MeshViewDistance: 12
+          MeshFadeStartDistance: 9
           WindStrength: 0.35
           WindSpeed: 1.6
           BaseColor: [0.3, 0.46, 0.16]
@@ -201,8 +203,8 @@ Entities:
           AlphaCutoff: 0.5
           Enabled: true
         - Name: Wildflowers
-          MeshPath: ""
-          AlbedoPath: assets/textures/grass.png
+          MeshPath: SandboxProject/Assets/Models/Vegetation/flower/flower.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/flower/Textures/flower_card.png
           Density: 1.5
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -214,6 +216,8 @@ Entities:
           RandomRotation: true
           ViewDistance: 140
           FadeStartDistance: 112
+          MeshViewDistance: 22
+          MeshFadeStartDistance: 16
           WindStrength: 0.25
           WindSpeed: 1.2
           BaseColor: [0.66, 0.56, 0.24]
@@ -221,8 +225,8 @@ Entities:
           AlphaCutoff: 0.5
           Enabled: true
         - Name: Dune Grass
-          MeshPath: ""
-          AlbedoPath: assets/textures/grass.png
+          MeshPath: SandboxProject/Assets/Models/Vegetation/grass_dry/grass_dry.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
           Density: 1
           SplatmapChannel: 0
           MinSlopeAngle: 0
@@ -234,6 +238,8 @@ Entities:
           RandomRotation: true
           ViewDistance: 140
           FadeStartDistance: 112
+          MeshViewDistance: 18
+          MeshFadeStartDistance: 13
           WindStrength: 0.4
           WindSpeed: 1.4
           BaseColor: [0.62, 0.6, 0.32]

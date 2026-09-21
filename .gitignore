@@ -228,3 +228,7 @@ CMakeUserPresets.json
 # The templates that produce them are the reviewable, committed artefact; see
 # docs/ops/shipping.md#steamcmd-upload-automation.
 scripts/steam/generated/
+
+# Raw vegetation scans fetched by tools/vegetation-import and scripts/Fetch-Assets.ps1.
+# Hundreds of megabytes of source geometry; the IMPORTED result is what is committed.
+OloEditor/SandboxProject/Assets/Models/Vegetation/_raw/
