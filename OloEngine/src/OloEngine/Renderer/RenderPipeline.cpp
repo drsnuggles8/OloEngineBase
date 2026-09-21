@@ -3071,6 +3071,18 @@ namespace OloEngine
             HashBool(h, data.RGraph->GetTemporalHistoryRegistry().IsValid(firstMomentsToken));
             HashU32(h, secondMomentsToken.Generation);
             HashBool(h, data.RGraph->GetTemporalHistoryRegistry().IsValid(secondMomentsToken));
+            // ...TAA's surface plane (#1256), which needs BOTH halves for a
+            // reason the validity bit alone does not cover. TAA additionally
+            // carries the legacy `TAAHistoryValid` bool, hashed elsewhere, and
+            // the two are independent: an InvalidateTemporalHistories on a
+            // projection change clears the registry token while that bool stays
+            // true. Hashing only IsValid would also miss a REGENERATION — an
+            // invalidate and re-acquire between two populates leaves validity
+            // reading true both times while the plane underneath is a different
+            // one, which is what Generation is for.
+            const auto taaSurfaceToken = data.RGraph->GetTemporalHistoryRegistry().Find(kTAASurfaceHistoryKey);
+            HashU32(h, taaSurfaceToken.Generation);
+            HashBool(h, data.RGraph->GetTemporalHistoryRegistry().IsValid(taaSurfaceToken));
             // ...and the ray-traced shadow denoiser's three (issue #1056), for
             // exactly the same reason: PopulateBlackboard imports them behind
             // `Scratch.RayTracedShadowResolved.IsValid()`, and each binding's
@@ -3142,15 +3154,6 @@ namespace OloEngine
             const auto& historyRegistry = data.RGraph->GetTemporalHistoryRegistry();
             HashBool(h, historyRegistry.IsValid(historyRegistry.Find(kReSTIRDIReservoirSampleHistoryKey)));
             HashBool(h, historyRegistry.IsValid(historyRegistry.Find(kReSTIRGIReservoirSampleHistoryKey)));
-            // TAA's surface plane (#1256), for the same reason and with one
-            // extra wrinkle: TAA ALSO has the legacy `TAAHistoryValid` bool
-            // hashed above, and the two are independent. An
-            // InvalidateTemporalHistories(ProjectionChanged) — an FOV change
-            // with the viewport unchanged — clears the registry token while
-            // that bool stays true, so without this hash the fingerprint does
-            // not move, PopulateBlackboard short-circuits, and the pass keeps
-            // reading a plane the engine has already declared invalid.
-            HashBool(h, historyRegistry.IsValid(historyRegistry.Find(kTAASurfaceHistoryKey)));
         }
         // ...and the volumetric shadow volume (issue #723), for the third time
         // in a row, because the trap does not care that the PRODUCER dodged it.
