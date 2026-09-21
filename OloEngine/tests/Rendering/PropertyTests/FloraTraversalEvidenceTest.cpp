@@ -1825,7 +1825,33 @@ namespace OloEngine::Tests
         // samples", not "the silicon ran N".
         GTEST_LOG_(INFO) << "MSAA cell ran at " << samplesUsed << " samples (asked for " << wanted << ")";
         EXPECT_GT(samplesUsed, 1u) << "MSAA NOT RUN — the device refused a sample count above 1";
-        measure("Msaa4", kWidth, kHeight);
+
+        // The capture is gated on the sample count the device ACTUALLY gave.
+        //
+        // Not a tidy-up: `measure` writes FloraTraversal_GL_Deferred_Msaa4.png,
+        // and under this repo's convention the filename IS the cell (task-loop
+        // 2a). Running it at one sample puts a file called Msaa4 in the diff
+        // that was captured without MSAA — a reviewer counting files sees the
+        // cell as covered, which is worse than seeing it missing. A cell that
+        // did not run must leave a HOLE.
+        //
+        // The EXPECT above still fires, deliberately, and this is where this
+        // file parts company with the review suggestion that prompted the
+        // guard: omitting the cell silently and letting the test pass is the
+        // exact shape docs/agent-rules/vulkan-software-driver-ci.md exists to
+        // forbid — every device-gated assertion skips, gtest prints PASSED,
+        // and nothing was verified. A loud red on a device that cannot do MSAA
+        // is the correct outcome; it says the matrix has a hole in it on this
+        // machine.
+        if (samplesUsed > 1u)
+        {
+            measure("Msaa4", kWidth, kHeight);
+        }
+        else
+        {
+            GTEST_LOG_(INFO) << "Msaa4 capture SKIPPED — writing it at " << samplesUsed
+                             << " sample(s) would label a non-MSAA frame as the MSAA cell";
+        }
 
         settings.Deferred.MSAASampleCount = samplesBefore;
         Renderer3D::ApplyRendererSettings();
