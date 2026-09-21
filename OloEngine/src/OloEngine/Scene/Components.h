@@ -7045,7 +7045,14 @@ namespace OloEngine
         /// Whether the animal faces along its own velocity. Off leaves the
         /// authored rotation alone, which is what a hero being posed by hand
         /// wants.
-        bool m_OrientToPath = true;
+        ///
+        /// NOT NAMED `m_OrientToPath`, and the reason is a test rather than a
+        /// preference: AssetContentValidity treats any scene-YAML key ENDING IN
+        /// "Path" as a file reference and fails the whole suite when it does not
+        /// resolve on disk. A bool called OrientToPath serialises to exactly
+        /// that and took the asset-validity suite down on CI while building
+        /// clean locally.
+        bool m_FaceAlongMotion = true;
 
         /// False freezes the animal at its current position. The control arm
         /// for a capture that needs a still frame of a moving population.

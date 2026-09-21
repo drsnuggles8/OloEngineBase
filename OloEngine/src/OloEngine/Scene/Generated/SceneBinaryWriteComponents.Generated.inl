@@ -72,7 +72,7 @@ if (entity.HasComponent<AnimalPathComponent>())
     SceneBinIO::Write(out, comp.m_OriginZ);
     SceneBinIO::Write(out, comp.m_ElapsedSeconds);
     SceneBinIO::Write(out, comp.m_HasOrigin);
-    SceneBinIO::Write(out, comp.m_OrientToPath);
+    SceneBinIO::Write(out, comp.m_FaceAlongMotion);
     SceneBinIO::Write(out, comp.m_Enabled);
 }
 

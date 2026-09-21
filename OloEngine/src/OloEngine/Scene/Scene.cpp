@@ -4629,7 +4629,7 @@ namespace OloEngine
             const glm::vec3 offset = AnimalPathOffsetAt(path, path.m_ElapsedSeconds);
             transform.Translation = origin + offset;
 
-            if (!path.m_OrientToPath)
+            if (!path.m_FaceAlongMotion)
             {
                 continue;
             }

@@ -125,7 +125,7 @@ if (auto node = entity["AnimalPathComponent"]; node)
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ElapsedSeconds"], v))
         comp.m_ElapsedSeconds = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1000000000.0f));
     comp.m_HasOrigin = node["HasOrigin"].as<bool>(comp.m_HasOrigin);
-    comp.m_OrientToPath = node["OrientToPath"].as<bool>(comp.m_OrientToPath);
+    comp.m_FaceAlongMotion = node["FaceAlongMotion"].as<bool>(comp.m_FaceAlongMotion);
     comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
 }
 

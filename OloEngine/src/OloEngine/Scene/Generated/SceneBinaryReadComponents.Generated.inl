@@ -113,7 +113,7 @@ case 37445965u: // AnimalPathComponent
     if (!SceneBinIO::Read(reader, comp.m_ElapsedSeconds)) return false;
     comp.m_ElapsedSeconds = std::clamp(comp.m_ElapsedSeconds, static_cast<f32>(0.0f), static_cast<f32>(1000000000.0f));
     if (!SceneBinIO::Read(reader, comp.m_HasOrigin)) return false;
-    if (!SceneBinIO::Read(reader, comp.m_OrientToPath)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_FaceAlongMotion)) return false;
     if (!SceneBinIO::Read(reader, comp.m_Enabled)) return false;
     break;
 }

@@ -291,7 +291,7 @@ def animal_path(radius_x, radius_z, rate_x, rate_z, phase_x, phase_z, orient=Tru
         "      OriginZ: 0\n"
         "      ElapsedSeconds: 0\n"
         "      HasOrigin: false\n"
-        f"      OrientToPath: {'true' if orient else 'false'}\n"
+        f"      FaceAlongMotion: {'true' if orient else 'false'}\n"
         "      Enabled: true\n"
     )
 

@@ -81,7 +81,7 @@ registry.push_back(OLO_VSF_FIELD_RANGE(AnimalPathComponent, "OriginY", m_OriginY
 registry.push_back(OLO_VSF_FIELD_RANGE(AnimalPathComponent, "OriginZ", m_OriginZ, Float, OLO_VSF_BOUND(-1000000.0f), OLO_VSF_BOUND(1000000.0f)));
 registry.push_back(OLO_VSF_FIELD_RANGE(AnimalPathComponent, "ElapsedSeconds", m_ElapsedSeconds, Float, OLO_VSF_BOUND(0.0f), OLO_VSF_BOUND(1000000000.0f)));
 registry.push_back(OLO_VSF_FIELD(AnimalPathComponent, "HasOrigin", m_HasOrigin, Bool));
-registry.push_back(OLO_VSF_FIELD(AnimalPathComponent, "OrientToPath", m_OrientToPath, Bool));
+registry.push_back(OLO_VSF_FIELD(AnimalPathComponent, "FaceAlongMotion", m_FaceAlongMotion, Bool));
 registry.push_back(OLO_VSF_FIELD(AnimalPathComponent, "Enabled", m_Enabled, Bool));
 
 }

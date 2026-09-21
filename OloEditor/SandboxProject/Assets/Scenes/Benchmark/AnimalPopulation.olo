@@ -195,7 +195,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000005
     TagComponent:
@@ -255,7 +255,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000006
     TagComponent:
@@ -315,7 +315,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000007
     TagComponent:
@@ -375,7 +375,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   # ── The herd: alternating short and long coats, receding ──
   - Entity: 1258000000000008
@@ -436,7 +436,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000009
     TagComponent:
@@ -496,7 +496,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000010
     TagComponent:
@@ -556,7 +556,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000011
     TagComponent:
@@ -616,7 +616,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000012
     TagComponent:
@@ -676,7 +676,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000013
     TagComponent:
@@ -736,7 +736,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000014
     TagComponent:
@@ -796,7 +796,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000015
     TagComponent:
@@ -856,7 +856,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000016
     TagComponent:
@@ -916,7 +916,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000017
     TagComponent:
@@ -976,7 +976,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000018
     TagComponent:
@@ -1036,7 +1036,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000019
     TagComponent:
@@ -1096,7 +1096,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000020
     TagComponent:
@@ -1156,7 +1156,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000021
     TagComponent:
@@ -1216,7 +1216,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000022
     TagComponent:
@@ -1276,7 +1276,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000023
     TagComponent:
@@ -1336,7 +1336,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000024
     TagComponent:
@@ -1396,7 +1396,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000025
     TagComponent:
@@ -1456,7 +1456,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000026
     TagComponent:
@@ -1516,7 +1516,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000027
     TagComponent:
@@ -1576,7 +1576,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000028
     TagComponent:
@@ -1636,7 +1636,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000029
     TagComponent:
@@ -1696,7 +1696,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000030
     TagComponent:
@@ -1756,7 +1756,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000031
     TagComponent:
@@ -1816,7 +1816,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000032
     TagComponent:
@@ -1876,7 +1876,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000033
     TagComponent:
@@ -1936,7 +1936,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000034
     TagComponent:
@@ -1996,7 +1996,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000035
     TagComponent:
@@ -2056,7 +2056,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000036
     TagComponent:
@@ -2116,7 +2116,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000037
     TagComponent:
@@ -2176,7 +2176,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000038
     TagComponent:
@@ -2236,7 +2236,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000039
     TagComponent:
@@ -2296,7 +2296,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000040
     TagComponent:
@@ -2356,7 +2356,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000041
     TagComponent:
@@ -2416,7 +2416,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000042
     TagComponent:
@@ -2476,7 +2476,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   - Entity: 1258000000000043
     TagComponent:
@@ -2536,7 +2536,7 @@ Entities:
       OriginZ: 0
       ElapsedSeconds: 0
       HasOrigin: false
-      OrientToPath: true
+      FaceAlongMotion: true
       Enabled: true
   # ── Ground: matte earth ──
   - Entity: 1258000000000044

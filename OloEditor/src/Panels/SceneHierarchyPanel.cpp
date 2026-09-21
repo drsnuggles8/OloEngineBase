@@ -9731,11 +9731,10 @@ namespace OloEngine
                                 tail.SampleCount, tail.OverBudgetFrames, static_cast<double>(tail.BudgetMs));
                     if (ImGui::IsItemHovered())
                     {
-                        ImGui::SetTooltip("The COUNT is beside the percentiles on purpose: at a 600-frame window
-"
-                                          "p99 is six frames, so the percentile alone cannot tell one bad frame
-"
-                                          "from six -- and six is a visible stutter while one is not.");
+                        ImGui::SetTooltip("The COUNT is beside the percentiles on purpose: at a 600-frame\n"
+                                          "window p99 is six frames, so the percentile alone cannot tell one\n"
+                                          "bad frame from six -- and six is a visible stutter while one is\n"
+                                          "not.");
                     }
                 }
             } });
@@ -9747,7 +9746,7 @@ namespace OloEngine
                                "frame rate -- which is what makes a population measurable.");
 
             ImGui::Checkbox("Enabled", &component.m_Enabled);
-            ImGui::Checkbox("Orient to path", &component.m_OrientToPath);
+            ImGui::Checkbox("Orient to path", &component.m_FaceAlongMotion);
             if (ImGui::IsItemHovered())
             {
                 ImGui::SetTooltip("Yaw the animal along its own velocity, from the analytic derivative rather\n"

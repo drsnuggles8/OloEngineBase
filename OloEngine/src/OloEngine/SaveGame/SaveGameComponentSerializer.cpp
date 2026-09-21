@@ -3676,7 +3676,7 @@ namespace OloEngine
     {
         ar << c.m_RadiusX << c.m_RadiusZ << c.m_RateX << c.m_RateZ << c.m_PhaseX << c.m_PhaseZ;
         ar << c.m_OriginX << c.m_OriginY << c.m_OriginZ << c.m_ElapsedSeconds;
-        ar << c.m_HasOrigin << c.m_OrientToPath << c.m_Enabled;
+        ar << c.m_HasOrigin << c.m_FaceAlongMotion << c.m_Enabled;
 
         if (ar.IsLoading())
         {

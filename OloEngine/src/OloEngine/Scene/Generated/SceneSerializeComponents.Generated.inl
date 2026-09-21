@@ -94,7 +94,7 @@ if (entity.HasComponent<AnimalPathComponent>())
     out << YAML::Key << "OriginZ" << YAML::Value << comp.m_OriginZ;
     out << YAML::Key << "ElapsedSeconds" << YAML::Value << comp.m_ElapsedSeconds;
     out << YAML::Key << "HasOrigin" << YAML::Value << comp.m_HasOrigin;
-    out << YAML::Key << "OrientToPath" << YAML::Value << comp.m_OrientToPath;
+    out << YAML::Key << "FaceAlongMotion" << YAML::Value << comp.m_FaceAlongMotion;
     out << YAML::Key << "Enabled" << YAML::Value << comp.m_Enabled;
     out << YAML::EndMap; // AnimalPathComponent
 }
