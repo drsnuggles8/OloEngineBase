@@ -487,6 +487,11 @@ add_executable(OloEngine-Tests
 		Rendering/RayTracing/DeformedSurfaceCacheTest.cpp
 		Rendering/RayTracing/RayHitNormalTransformTest.cpp
 		Rendering/RayTracing/RayTracingSceneTest.cpp
+		# The device-free half of RayTracingProbe (#607): SubmitBatch's gate on
+		# what ever reaches the GPU. Dispatch/Poll need a Vulkan device and are
+		# covered live, but SubmitBatch needs nothing -- and it owns the BatchId 0
+		# refusal that makes GetUnavailableBatchId()'s "no batch" sentinel sound.
+		Rendering/RayTracing/RayTracingProbeSubmitTest.cpp
 		Rendering/RayTracing/VegetationPolicyTest.cpp
 		Rendering/RayTracing/RayTracingDeviceTest.cpp
 		# #1055: the GPU reference path tracer against the CPU reference on a
@@ -1219,6 +1224,21 @@ add_executable(OloEngine-Tests
 		# pixels instead of a maxWidth-resampled image). Header-only
 		# (MCP/McpCaptureRegion.h), no extra editor TU pulled in.
 		MCP/McpCaptureRegionTest.cpp
+		# The sandboxed capture directory behind olo_screenshot's optional 'path'
+		# (#607). The argument is a NAME under assets/mcp-captures/, not a path:
+		# absolute paths, '..' and drive letters are rejected rather than
+		# sanitised, which is what keeps an unauthenticated localhost diagnostics
+		# server from having an arbitrary-write primitive. Header-only
+		# (MCP/McpCapturePath.h), no extra editor TU pulled in.
+		MCP/McpCapturePathTest.cpp
+		# Request parsing and result shaping behind olo_rt_trace_ray (#607) —
+		# the editor-side half of #978's RT probe. The trace itself is Vulkan-only
+		# and pinned on a device by RayTracingDeviceTest; what is pinnable here is
+		# what a caller can observe: a malformed ray is REFUSED rather than traced
+		# (undefined behaviour at rayQueryInitializeEXT, not a miss), a miss is a
+		# first-class answer, and unavailable/pending/answered stay apart.
+		# Header-only (MCP/McpRayTraceRay.h), no extra editor TU pulled in.
+		MCP/McpRayTraceRayTest.cpp
 		# The post-process / AO / fog field table + coercion / clamp / enum-token
 		# core behind olo_postprocess_settings_get / _set (#607: the GTAO-vs-SSAO
 		# A/B that could not be driven from an agent session at all). Header-only

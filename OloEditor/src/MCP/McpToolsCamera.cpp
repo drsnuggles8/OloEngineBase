@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "MCP/McpToolsCommon.h"
+#include "MCP/McpCapturePath.h"
 #include "MCP/McpCaptureRegion.h"
 #include "MCP/McpEditorLiveness.h"
 #include "MCP/McpSchemaBuilder.h"
@@ -7,6 +8,8 @@
 #include <exception>
 #include <algorithm>
 #include <atomic>
+#include <filesystem>
+#include <fstream>
 #include <memory>
 #include <string>
 #include <vector>
@@ -140,6 +143,27 @@ namespace OloEngine::MCP
             if (const auto error = CaptureRegionArg::Parse(args, region))
                 return ToolResult::Error(*error);
 
+            // Optional write-to-disk (issue #607). Resolved and REJECTED HERE,
+            // before a single frame is rendered: the rejection rules are the
+            // security boundary, and a boundary that is only reached after the
+            // expensive work is a boundary that gets moved. The tool stays
+            // read-only w.r.t. everything except one git-ignored directory.
+            std::filesystem::path captureRelative;
+            std::filesystem::path captureAbsolute;
+            bool wantsFile = false;
+            if (args.contains("path") && !args["path"].is_null())
+            {
+                if (!args["path"].is_string())
+                    return ToolResult::Error("Invalid 'path': expected a string naming a file under " +
+                                             CapturePath::RootDisplay() + ".");
+                if (const auto error = CapturePath::Resolve(args["path"].get<std::string>(), captureRelative,
+                                                            captureAbsolute))
+                {
+                    return ToolResult::Error(*error);
+                }
+                wantsFile = true;
+            }
+
             if (!host.Context().CaptureViewportPng)
                 return ToolResult::Error("Screenshot capture is not available in this editor build.");
 
@@ -263,7 +287,7 @@ namespace OloEngine::MCP
                 // The play state is RE-SAMPLED here, in the same job as the capture,
                 // so the sceneState meta below describes the frame actually captured
                 // even if Play/Stop flipped between the early guard and this job.
-                marshaled = host.MarshalRead([&host, maxWidth, region, restorePriorPose, deliverLink]() -> Json
+                marshaled = host.MarshalRead([&host, maxWidth, region, restorePriorPose, deliverLink, wantsFile]() -> Json
                                              {
                     std::vector<u8> png = host.Context().CaptureViewportPng(maxWidth, region);
                     restorePriorPose();
@@ -293,10 +317,14 @@ namespace OloEngine::MCP
                     }
                     // Link mode hands the RAW bytes out (base64 happens lazily at
                     // resources/read); inline keeps encoding here, unchanged.
-                    if (deliverLink)
-                        j["png"] = Json::binary(std::move(png));
-                    else
+                    if (!deliverLink)
                         j["b64"] = Base64Encode(png);
+                    // The raw bytes ride along whenever the link path or the
+                    // file path needs them. Inline delivery still gets its
+                    // base64 above — the two are independent, and a 'path' must
+                    // not cost the caller the image it came for.
+                    if (deliverLink || wantsFile)
+                        j["png"] = Json::binary(std::move(png));
                     return j; });
             }
             catch (...)
@@ -331,6 +359,26 @@ namespace OloEngine::MCP
             if (marshaled.is_object() && marshaled.contains("__error"))
                 return ToolResult::Error(marshaled["__error"].get<std::string>());
 
+            // Write the file before shaping the reply, and FAIL LOUDLY if it
+            // did not land. A capture that reports a healthy frame and a path
+            // that holds no file is the worst possible outcome here: the caller
+            // opens a stale file from a previous run, or none, and believes the
+            // tool. There is no fallback to "inline only" — the caller asked
+            // for a file.
+            if (wantsFile)
+            {
+                const Json::binary_t& png = marshaled["png"].get_binary();
+                std::ofstream out(captureRelative, std::ios::binary | std::ios::trunc);
+                if (!out)
+                    return ToolResult::Error("Could not open '" + captureAbsolute.generic_string() +
+                                             "' for writing; the capture was not saved.");
+                out.write(reinterpret_cast<const char*>(png.data()), static_cast<std::streamsize>(png.size()));
+                out.close();
+                if (!out)
+                    return ToolResult::Error("Failed while writing '" + captureAbsolute.generic_string() +
+                                             "'; the capture on disk is incomplete.");
+            }
+
             ToolResult result;
             result.Content = Json::array();
             if (waitTimedOut)
@@ -359,6 +407,15 @@ namespace OloEngine::MCP
             Json meta;
             meta["sceneState"] = capturedWhilePlaying ? "play" : "edit-or-simulate";
             meta["camera"] = capturedWhilePlaying ? "runtime primary CameraComponent" : "editor camera";
+            // The RESOLVED absolute path, not the argument: the whole point of
+            // the argument is that the caller does not know where the captures
+            // root is, so echoing its own string back would tell it nothing.
+            if (wantsFile)
+            {
+                meta["path"] = captureAbsolute.generic_string();
+                meta["relativePath"] = captureRelative.generic_string();
+                meta["bytesWritten"] = marshaled.value("bytes", static_cast<u64>(0));
+            }
             if (const Json liveness = marshaled.value("liveness", Json(nullptr)); !liveness.is_null())
             {
                 meta["liveness"] = liveness;
@@ -522,7 +579,12 @@ namespace OloEngine::MCP
                 "(fetch it via resources/read) instead of inlining base64 — prefer it for high-res captures. "
                 "Pass 'region' {x,y,w,h} to capture a sub-rectangle at NATIVE resolution instead of the whole "
                 "viewport rescaled to maxWidth — required to measure anything pixel-scale (noise period, dither "
-                "pattern, aliasing) on a viewport wider than maxWidth.";
+                "pattern, aliasing) on a viewport wider than maxWidth. "
+                "Pass 'path' to ALSO write the PNG to a file under assets/mcp-captures/ and get its resolved "
+                "absolute path back — the ergonomic route for a session driving this server over raw HTTP, which "
+                "would otherwise have to base64-decode every capture before it could look at one. It is a name "
+                "under that one fixed directory, not a path: absolute paths and '..' are rejected, never "
+                "rewritten. The image still comes back inline (or as a link) exactly as it would without it.";
             tool.InputSchema = Schema::Object()
                                    .Prop("maxWidth", Schema::Int().Min(16).Max(4096).Desc("Max output width in pixels (default 1024); aspect ratio preserved."))
                                    .Prop("region", CaptureRegionArg::SchemaNode())
@@ -531,6 +593,7 @@ namespace OloEngine::MCP
                                    .Prop("settleFrames", Schema::Int().Min(1).Max(30).Desc("Frames to render at the new pose before capturing (default 2). Raise for temporal effects (TAA, fog history) to settle."))
                                    .Prop("forceFrame", Schema::Bool().Desc("Without a 'camera'/'orbit' pose, render and settle fresh frames before capturing (default false). Use right after a scene open / setting change so the image cannot be a stale frame."))
                                    .Prop("delivery", Schema::String().Enum({ "inline", "resource_link" }).Desc("How to return the PNG: 'inline' (default) embeds a base64 image block; 'resource_link' publishes an ephemeral olo://capture resource and returns a link to fetch via resources/read — for large captures."))
+                                   .Prop("path", Schema::String().Desc("Also write the PNG here, under assets/mcp-captures/ (e.g. 'before.png' or 'ssr/before.png'). Relative only: an absolute path or any '..' component is REJECTED, not sanitised. A missing '.png' extension is added. The reply's 'path' is the resolved absolute location. Independent of 'delivery' — the image still comes back in the content blocks."))
                                    .NoAdditional();
             // Describes the sceneState/camera meta sidecar (also mirrored as a text
             // block); the PNG itself stays an image content block / linked
@@ -540,6 +603,9 @@ namespace OloEngine::MCP
                                     .Prop("camera", Schema::String().Enum({ "runtime primary CameraComponent", "editor camera" }).Desc("Which camera produced the frame."))
                                     .Prop("region", Schema::Object().Desc("The requested sub-rect {x, y, w, h} plus 'nativeResolution' (whether it was no wider than maxWidth, so never downscaled); present only when 'region' was given."))
                                     .Prop("resourceUri", Schema::String().Desc("Present only with delivery:'resource_link' — the olo://capture/... resource holding the PNG (resources/read returns it as base64 blob contents)."))
+                                    .Prop("path", Schema::String().Desc("Present only when 'path' was given — the RESOLVED absolute file the PNG was written to, under assets/mcp-captures/."))
+                                    .Prop("relativePath", Schema::String().Desc("Present only when 'path' was given — the same file relative to the editor's working directory (OloEditor/)."))
+                                    .Prop("bytesWritten", Schema::Int().Min(0).Desc("Present only when 'path' was given — the size of the PNG written."))
                                     .Prop("frameIndex", Schema::Int().Min(0).Desc("Editor frame the image came from. Two captures reporting the SAME frameIndex came from the same frame, whatever changed between the calls."))
                                     .Prop("stale", Schema::Bool().Desc("True when the editor's loop was parked, so this image is the last frame drawn before it stopped — not a current one. A leading STALE FRAME text block says so too."))
                                     .Prop("liveness", EditorLiveness::SchemaNode())

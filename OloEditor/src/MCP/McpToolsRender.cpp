@@ -21,8 +21,10 @@
 #include "MCP/McpRenderLODStats.h"
 #include "MCP/McpGroomBudgetStats.h"
 #include "MCP/McpSkeletalDeformationStats.h"
+#include "MCP/McpRayTraceRay.h"
 #include "MCP/McpRayTracingStats.h"
 
+#include "OloEngine/Renderer/RayTracing/RayTracingProbe.h"
 #include "OloEngine/Renderer/RayTracing/RayTracingScene.h"
 #include "MCP/McpRenderTargetStats.h"
 #include "MCP/McpRenderValidate.h"
@@ -102,12 +104,14 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <deque>
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <sstream>
@@ -6771,6 +6775,239 @@ namespace OloEngine::MCP
             return ToolResult::Structured(result);
         }
 
+        // ---- olo_rt_trace_ray (#607) ------------------------------------
+        //
+        // The editor-side half of #978's probe. Same SUBMIT -> SETTLE -> RE-POLL
+        // shape olo_terrain_pick uses, and for the same reason: the dispatch has
+        // to be recorded inside a frame (after RayTracingScenePass has built the
+        // structures and emitted its build->read barrier), and an MCP handler
+        // runs between frames. A naive same-frame readback returns stale or
+        // empty data.
+        static_assert(RayTraceRay::kMaxRays == RayTracing::RayTracingProbe::kMaxRays,
+                      "the tool's advertised ray cap and the probe's must agree, or a request the schema "
+                      "accepts is refused by the engine (or worse, the reverse)");
+
+        // Batch identity. Monotonic and process-wide so a reply can never carry
+        // an older batch's hits while looking like an answer to this one — the
+        // ring is three slots deep and a busy editor can retire someone else's
+        // trace between the submit and the poll.
+        std::atomic<u32> s_RayTraceBatchId{ 0 };
+
+        // ONE TRACE AT A TIME, across the whole submit -> settle -> re-poll
+        // window. The handler body runs on an HTTP worker, and nothing
+        // serializes those: two concurrent calls would have the second
+        // SubmitBatch overwrite the first's queued batch (the probe answers the
+        // LATEST question by design), after which the first call settles its
+        // full budget and reports `pending` — telling its caller the editor did
+        // not render, which is false. Worse, a refusal of the second batch would
+        // be read by the first as ITS reason. Both are confidently wrong
+        // answers, which is the one thing a diagnostic must never produce.
+        //
+        // Serializing costs a second caller its wait and buys a correct answer
+        // for both. Safe to hold across MarshalRead: the main thread never takes
+        // this lock — RayTracingScenePass only calls into the probe, which knows
+        // nothing about it.
+        //
+        // TIMED, and polled against cancellation, because an httplib worker must
+        // never be pinned indefinitely (McpServer.h's CallTimeout carries the
+        // same rule for a hung bridged child). An unconditional lock() would
+        // ignore notifications/cancelled and, against an ICONIFIED editor —
+        // where frames stop but MarshalRead keeps working, so every call spends
+        // its whole settle budget — N queued callers would hold N workers for
+        // 8N seconds, out of the same pool that serves the SSE stream.
+        std::timed_mutex s_RayTraceMutex;
+
+        // How long a queued caller waits for the one in front of it before
+        // giving up. Two settle budgets: enough for one call ahead to finish
+        // honestly, short enough that a queue cannot outlive the client's
+        // patience. Returning "busy" is a true answer; blocking is not.
+        constexpr auto kRayTraceQueueBudget = std::chrono::seconds(20);
+
+        // Read the probe's latest answer and shape it, matching on batch id.
+        Json PollRayTraceResult(const RayTraceRay::Request& request, u32 batchId)
+        {
+            RayTraceRay::Snapshot snapshot;
+            snapshot.Input = request;
+            snapshot.BatchId = batchId;
+            if (!Renderer3D::HasInitialized())
+            {
+                snapshot.UnavailableReason = "The renderer is not initialized.";
+                return RayTraceRay::BuildResult(snapshot);
+            }
+
+            auto& probe = Renderer3D::GetRayTracingProbe();
+            snapshot.SlotsInFlight = probe.GetSlotsInFlight();
+            const auto& latest = probe.GetLatest();
+            const bool isOurs = latest.Valid && latest.BatchId == batchId;
+
+            // A reason set by a refused dispatch outranks "pending": the batch
+            // was consumed and no answer is coming, so reporting pending would
+            // make the caller wait out the whole settle window and then blame
+            // the editor rather than read the reason.
+            if (!isOurs && !probe.HasPendingBatch() && !probe.GetUnavailableReason().empty() &&
+                probe.GetUnavailableBatchId() == batchId)
+            {
+                snapshot.UnavailableReason = probe.GetUnavailableReason();
+                return RayTraceRay::BuildResult(snapshot);
+            }
+            if (!isOurs)
+            {
+                snapshot.State = RayTraceRay::Status::Pending;
+                return RayTraceRay::BuildResult(snapshot);
+            }
+
+            snapshot.State = RayTraceRay::Status::Answered;
+            snapshot.LatencyFrames = latest.Latency;
+            // The rays the ANSWER belongs to, read back off the probe rather
+            // than re-echoed from the request: they are the ones the GPU
+            // actually traced, normalization and all, so the reported position
+            // and the reported ray are arithmetically consistent.
+            snapshot.Input.Rays.clear();
+            snapshot.Input.Rays.reserve(latest.Rays.size());
+            for (const auto& ray : latest.Rays)
+            {
+                snapshot.Input.Rays.push_back(RayTraceRay::Ray{ ray.Origin, ray.Direction, ray.TMin, ray.TMax });
+            }
+            snapshot.Input.CullBackFaces = (latest.RayFlags & RayTracing::RayTracingProbe::kFlagCullBackFaces) != 0u;
+            snapshot.Input.TerminateOnFirstHit =
+                (latest.RayFlags & RayTracing::RayTracingProbe::kFlagTerminateOnFirstHit) != 0u;
+            snapshot.Input.InstanceMask = latest.InstanceMask;
+
+            snapshot.Hits.reserve(latest.Hits.size());
+            for (const auto& hit : latest.Hits)
+            {
+                RayTraceRay::Hit out;
+                out.IsHit = hit.IsHit;
+                out.Distance = hit.Distance;
+                out.Position = hit.Position;
+                out.Barycentrics = hit.Barycentrics;
+                out.InstanceSlot = hit.InstanceSlot;
+                out.PrimitiveIndex = hit.PrimitiveIndex;
+                out.MaterialSlot = hit.MaterialSlot;
+                out.GeometrySlot = hit.GeometrySlot;
+                out.UV = hit.UV;
+                out.WorldNormal = hit.WorldNormal;
+                out.WindingSign = hit.WindingSign;
+                snapshot.Hits.push_back(out);
+            }
+            return RayTraceRay::BuildResult(snapshot);
+        }
+
+        ToolResult Handle_RayTraceRay(IAutomationHost& host, const Json& args)
+        {
+            RayTraceRay::Request request;
+            if (const auto error = RayTraceRay::ParseRequest(args, request))
+            {
+                return ToolResult::Error(*error);
+            }
+
+            // Held for the whole call, not just the submit — see s_RayTraceMutex.
+            // Acquired in short slices so a cancelled call stops waiting instead
+            // of pinning its worker until the holder finishes.
+            std::unique_lock<std::timed_mutex> traceLock(s_RayTraceMutex, std::defer_lock);
+            {
+                const auto deadline = std::chrono::steady_clock::now() + kRayTraceQueueBudget;
+                while (!traceLock.try_lock_for(std::chrono::milliseconds(100)))
+                {
+                    if (host.IsCurrentCallCancelled())
+                        return ToolResult::Error("Cancelled while waiting for another olo_rt_trace_ray call to finish.");
+                    if (std::chrono::steady_clock::now() >= deadline)
+                    {
+                        return ToolResult::Error(
+                            "Another olo_rt_trace_ray call is still in flight and did not finish within "
+                            "20 s. Traces are serialized so each caller gets its own answer rather than a "
+                            "neighbour's — retry, and check olo_perf_snapshot's liveness block if this "
+                            "persists, because a stalled editor makes every trace spend its full settle "
+                            "budget.");
+                    }
+                }
+            }
+
+            // Never 0: that is the probe's "no batch" sentinel, and after 2^32
+            // traces the naive +1 would hand it out as a real id.
+            u32 batchId = s_RayTraceBatchId.fetch_add(1u, std::memory_order_relaxed) + 1u;
+            if (batchId == 0u)
+                batchId = s_RayTraceBatchId.fetch_add(1u, std::memory_order_relaxed) + 1u;
+
+            // 1. Submit. The availability checks run here as well as inside the
+            // probe so an unusable device answers in ONE round trip instead of
+            // queueing a batch and settling frames to learn the same thing.
+            const Json submitted = host.MarshalRead(
+                [&request, batchId]() -> Json
+                {
+                    RayTraceRay::Snapshot snapshot;
+                    snapshot.Input = request;
+                    snapshot.BatchId = batchId;
+                    if (!Renderer3D::HasInitialized())
+                    {
+                        snapshot.UnavailableReason =
+                            "The renderer is not initialized, so there is nothing to trace against.";
+                        return RayTraceRay::BuildResult(snapshot);
+                    }
+                    const auto& scene = Renderer3D::GetRayTracingScene();
+                    if (!scene.GetCapabilities().Supported)
+                    {
+                        snapshot.UnavailableReason =
+                            "This device/backend has no hardware ray tracing, so there is no TLAS to trace "
+                            "against. GL_EXT_ray_query has no OpenGL representation — relaunch the editor with "
+                            "--rhi=vulkan, and read olo_rt_scene_stats for the capability detail.";
+                        return RayTraceRay::BuildResult(snapshot);
+                    }
+                    if (scene.GetTlasDeviceAddress() == 0u)
+                    {
+                        snapshot.UnavailableReason =
+                            "No TLAS has been built yet — a scene with no traceable geometry is exactly this. "
+                            "olo_rt_scene_stats' gpuScene block says what the builder did and did not accept.";
+                        return RayTraceRay::BuildResult(snapshot);
+                    }
+
+                    RayTracing::RayTracingProbe::Batch batch;
+                    batch.BatchId = batchId;
+                    batch.InstanceMask = request.InstanceMask;
+                    batch.RayFlags =
+                        (request.CullBackFaces ? RayTracing::RayTracingProbe::kFlagCullBackFaces : 0u) |
+                        (request.TerminateOnFirstHit ? RayTracing::RayTracingProbe::kFlagTerminateOnFirstHit : 0u);
+                    batch.Rays.reserve(request.Rays.size());
+                    for (const auto& ray : request.Rays)
+                    {
+                        batch.Rays.push_back(
+                            RayTracing::RayTracingProbe::Ray{ ray.Origin, ray.TMin, ray.Direction, ray.TMax });
+                    }
+
+                    std::string error;
+                    if (!Renderer3D::GetRayTracingProbe().SubmitBatch(batch, error))
+                    {
+                        snapshot.UnavailableReason = error;
+                        return RayTraceRay::BuildResult(snapshot);
+                    }
+                    snapshot.State = RayTraceRay::Status::Pending;
+                    return RayTraceRay::BuildResult(snapshot);
+                });
+
+            if (submitted.value("status", std::string{}) != "pending")
+            {
+                return ToolResult::Structured(submitted);
+            }
+
+            // 2. Settle. FIVE frames, the same budget olo_terrain_pick waits:
+            // one to record the dispatch, one or two for the fence to signal,
+            // and slack for a frame the editor skipped. Waiting longer would not
+            // help — if it has not landed by then something is stopped, and the
+            // pending reply says where to look.
+            if (host.Context().GetFrameIndex)
+            {
+                const u64 baseFrame = host.MarshalRead([&host]() -> Json
+                                                       { return Json(host.Context().GetFrameIndex()); })
+                                          .get<u64>();
+                static_cast<void>(AwaitRenderedFrames(host, baseFrame, 5, std::chrono::seconds(8)));
+            }
+
+            // 3. Re-poll.
+            const Json result = host.MarshalRead([&request, batchId]() -> Json
+                                                 { return PollRayTraceResult(request, batchId); });
+            return ToolResult::Structured(result);
+        }
+
         // The GPU reference path tracer's counters (issue #1055), the MCP twin
         // of the Post-Process panel's stats block. Read like the other
         // previous-frame stats: the pass fills GpuPathTracerStats while it
@@ -9170,6 +9407,33 @@ namespace OloEngine::MCP
                         RayTracing::VegetationDiagnostics::SetForceDetailed(args["forceDetailed"].get<bool>());
                     return Json{ { "forceDetailed", RayTracing::VegetationDiagnostics::GetForceDetailed() } }; }));
             };
+            registry.Register(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_rt_trace_ray";
+            tool.Toolset = "render";
+            tool.Title = "Trace rays against the scene TLAS";
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "Trace up to 64 deterministic world-space rays against the LIVE scene's ray-tracing TLAS and "
+                "report, per ray: hit or miss, distance, world position, all three barycentrics, the GPU Scene "
+                "instance / primitive / material / geometry slots, the interpolated UV, and the world shading "
+                "normal with its winding sign. This is the tool that separates 'the TLAS was BUILT' from 'the "
+                "TLAS is CORRECT': olo_rt_scene_stats' counters look identical whether an instance transform "
+                "transposed, a geometry landed in the wrong slot, or everything is right — tracing a ray whose "
+                "answer you already know is the only question that tells them apart. A MISS is a first-class "
+                "answer with its ray echoed beside it, never an absent entry. 'terminateOnFirstHit' makes a "
+                "VISIBILITY ray (any hit, not the nearest); 'instanceMask' is ANDed with each instance's own "
+                "mask. VULKAN ONLY — GL_EXT_ray_query has no OpenGL representation, and on OpenGL this returns "
+                "status 'unavailable' with the reason rather than zeros. The trace is dispatched inside a frame "
+                "and read back through a fence, so the call settles a few frames before answering; a 'pending' "
+                "reply means the editor did not render in that window.";
+            tool.InputSchema = RayTraceRay::InputSchema();
+            tool.OutputSchema = RayTraceRay::OutputSchema();
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_RayTraceRay;
             registry.Register(std::move(tool));
         }
 

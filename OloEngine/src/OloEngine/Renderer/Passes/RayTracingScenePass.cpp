@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/GPUScene/GPUScene.h"
 #include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
+#include "OloEngine/Renderer/RayTracing/RayTracingProbe.h"
 #include "OloEngine/Renderer/RayTracing/RayTracingScene.h"
 #include "OloEngine/Renderer/RayTracing/VegetationSurfaceCache.h"
 
@@ -65,6 +66,17 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         static_cast<void>(context);
+        // FIRST, and before every early return below: the probe's ring retires
+        // on a frame count, and Result::Latency is measured in it. Polling only
+        // on frames that also dispatched would report a two-frame-old answer as
+        // zero-latency — the reading that makes a fenced ring and a synchronous
+        // readback look identical. Polling costs a fence query per pending slot
+        // and nothing at all when the ring is empty, which it is on every frame
+        // nobody asked a question.
+        if (m_Probe != nullptr)
+        {
+            m_Probe->Poll();
+        }
         if (m_Scene == nullptr || m_GPUScene == nullptr)
         {
             return;
@@ -74,6 +86,15 @@ namespace OloEngine
         // return.
         if (!m_Scene->IsAvailable())
         {
+            // The probe still gets its turn: its Dispatch() REFUSES with a
+            // reason and consumes the queued batch. Returning first would leave
+            // that batch queued forever, so olo_rt_trace_ray would report a
+            // settle timeout instead of "this device has no ray tracing" — the
+            // difference between a diagnosis and a shrug.
+            if (m_Probe != nullptr)
+            {
+                static_cast<void>(m_Probe->Dispatch(*m_Scene, *m_GPUScene));
+            }
             return;
         }
 
@@ -106,5 +127,18 @@ namespace OloEngine
         // when nothing was built this frame is cheap: the backend no-ops when
         // it has nothing outstanding.
         m_Scene->RecordBuildToReadBarrier();
+
+        // The diagnostic probe's trace (#607), AFTER that barrier — it is a
+        // ray-query consumer like any other, and this node is the one place
+        // where the structures are known built and readable. It runs only on a
+        // frame where an MCP caller queued a batch; otherwise it is one
+        // predicate. Placing it here rather than in its own node is deliberate:
+        // a separate node would need the same build->read edge declared a
+        // second time, which is exactly the duplication this node exists to
+        // avoid.
+        if (m_Probe != nullptr)
+        {
+            static_cast<void>(m_Probe->Dispatch(*m_Scene, *m_GPUScene));
+        }
     }
 } // namespace OloEngine

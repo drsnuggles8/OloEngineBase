@@ -941,6 +941,12 @@
 		"OloEngine/Renderer/RayTracing/VegetationSurfaceCache.h"
 		"OloEngine/Renderer/RayTracing/VegetationSurfaceCache.cpp"
 		"OloEngine/Renderer/RayTracing/RayTracingScene.cpp"
+		# The live-frame ray probe behind olo_rt_trace_ray (#607). Runs #978's
+		# RayTracingProbe.comp against the SCENE's TLAS and reads the hits back
+		# through a fenced ring, so a session can ask what a ray actually hits
+		# rather than only reading the TLAS counters.
+		"OloEngine/Renderer/RayTracing/RayTracingProbe.h"
+		"OloEngine/Renderer/RayTracing/RayTracingProbe.cpp"
 		"OloEngine/Renderer/Instancing/GPUFrustumCuller.cpp"
 		"OloEngine/Renderer/Instancing/GPUFrustumCuller.h"
 		"OloEngine/Renderer/ComputeShader.cpp"

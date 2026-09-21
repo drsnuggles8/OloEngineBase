@@ -693,6 +693,11 @@ namespace OloEngine
         return s_Data.SceneRT;
     }
 
+    RayTracing::RayTracingProbe& Renderer3D::GetRayTracingProbe()
+    {
+        return s_Data.ProbeRT;
+    }
+
     RayTracing::DeformedSurfaceCache& Renderer3D::GetDeformedSurfaceCache()
     {
         return s_Data.DeformedSurfaces;

@@ -800,6 +800,11 @@ namespace OloEngine
         s_Data.SharedSceneUBOs.Reset();
         s_Data.MultiLightBuffer.Reset();
         s_Data.ModelInstanceBuffer.Reset();
+        // The diagnostic probe BEFORE the scene it traces against (#607): its
+        // ring holds raw GPU handles — a fence and a buffer per slot — and
+        // those must be released while the context is still alive, which is the
+        // whole reason this block exists.
+        s_Data.ProbeRT.Shutdown();
         // Ray tracing before the GPU Scene it keys off, so no acceleration
         // structure outlives the records that named it...
         s_Data.SceneRT.Shutdown();
