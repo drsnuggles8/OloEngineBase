@@ -203,6 +203,7 @@ namespace OloEngine::Tests
             BuildSkin(scene);
             BuildHair(scene);
             BuildFoliage(scene);
+            ASSERT_TRUE(m_Skin && m_Hair && m_Foliage) << "one of the three subjects failed to build";
             ShowOnly(Subject::Skin);
         }
 
@@ -214,8 +215,17 @@ namespace OloEngine::Tests
             // settings structs wholesale, but the render-target size and the
             // history are renderer-wide state it does not snapshot.
             Time::ClearMockTime();
-            ResizeRenderTarget(kWidth, kHeight);
-            Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::SceneReset);
+            // GUARDED, because gtest runs TearDown even when SetUp SKIPPED.
+            // RendererAttachedTest::SetUp returns from GTEST_SKIP before it
+            // creates the Scene, so on a box with no GL 4.6 context m_Scene is
+            // null here — and ResizeRenderTarget dereferences it. That is not
+            // a skipped test, it is a segfault that takes the whole binary
+            // down, on exactly the machines that cannot run this fixture.
+            if (GetSceneRef())
+            {
+                ResizeRenderTarget(kWidth, kHeight);
+                Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::SceneReset);
+            }
             RendererAttachedTest::TearDown();
         }
 
@@ -421,6 +431,15 @@ namespace OloEngine::Tests
         /// the Ref this fixture kept when it built the sphere.
         void ShowOnly(Subject subject)
         {
+            // An ASSERT_* inside BuildSkin/BuildHair/BuildFoliage returns from
+            // THAT helper only, so BuildScene carries on and reaches here with
+            // a default-constructed Entity. Dereferencing one is a crash, which
+            // turns a reportable asset failure into a dead test binary.
+            if (!m_Skin || !m_Hair || !m_Foliage)
+            {
+                ADD_FAILURE() << "a subject failed to build; refusing to pose the scene";
+                return;
+            }
             m_Skin.GetComponent<MeshComponent>().m_MeshSource =
                 (subject == Subject::Skin) ? m_SkinMeshSource : Ref<MeshSource>{};
             m_Hair.GetComponent<GroomComponent>().m_RenderStrands = (subject == Subject::Hair);
@@ -617,14 +636,23 @@ namespace OloEngine::Tests
         {
             auto& foliage = m_Foliage.GetComponent<FoliageComponent>();
 
+            // COLD BEFORE EACH, not merely after both. From the second
+            // render-path cell onward the resolve is running at feedback 0.9,
+            // so a second capture taken straight after the first is ~90% the
+            // FIRST one's history — the two frames converge toward each other
+            // and the guard's per-pixel delta is attenuated about tenfold. A
+            // presence guard that under-reports is the one kind that fails
+            // open.
             std::vector<u8> bare;
             foliage.m_Enabled = false;
             foliage.m_NeedsRebuild = true;
+            ColdHistory();
             const bool gotBare = CaptureFrame(0u, pose, width, height, bare);
 
             std::vector<u8> planted;
             foliage.m_Enabled = true;
             foliage.m_NeedsRebuild = true;
+            ColdHistory();
             const bool gotPlanted = CaptureFrame(0u, pose, width, height, planted);
             ColdHistory();
 
@@ -656,12 +684,16 @@ namespace OloEngine::Tests
         [[nodiscard]] f64 MeasureSubjectFraction(Subject subject, const CameraPose& pose, u32 width = kWidth,
                                                  u32 height = kHeight)
         {
+            // Cold before EACH capture — see MeasureFoliageFraction for why
+            // a shared history attenuates this guard about tenfold.
             std::vector<u8> empty;
             ShowOnly(Subject::None);
+            ColdHistory();
             const bool gotEmpty = CaptureFrame(0u, pose, width, height, empty);
 
             std::vector<u8> present;
             ShowOnly(subject);
+            ColdHistory();
             const bool gotPresent = CaptureFrame(0u, pose, width, height, present);
             ColdHistory();
 
@@ -902,9 +934,11 @@ namespace OloEngine::Tests
 
         ASSERT_GT(ghost.ComparedPixels, 0u) << "the instrument measured nothing after the cut";
         ASSERT_GT(cold.ComparedPixels, 0u);
-        ASSERT_NE(cold.SettlingFrames, kNeverSettled)
-            << "the cold-history reference never settled against its own final frame, so the tolerance "
-               "is below this configuration's noise floor and nothing below can be concluded.";
+        // No kNeverSettled check on `cold`: its target IS its own final frame,
+        // so the last residual is exactly 0 and it settles for any tolerance.
+        // Asserting otherwise would read as a noise-floor guard while being
+        // incapable of failing. What `cold` is here for is the BASELINE the cut
+        // is compared against, which is a real measurement.
 
         // The instrument: the cut must actually have been a cut. If the two
         // poses render the same thing there is no stale history to drag and
@@ -1051,7 +1085,8 @@ namespace OloEngine::Tests
 
         // The instrument, in DIRECTION only, and the margin is itself a
         // finding: pushing the feedback from 0.9 to the 0.98 ceiling costs
-        // this subject about 1% of its retained variance (0.904 -> 0.892),
+        // this subject about 1% of its retained variance (0.742 -> 0.734 under
+        // the dolly; 0.904 -> 0.892 on the same shot held still),
         // not the large swing one might expect. The reason is that a meadow's
         // spatial variance is dominated by STATIC structure — the terrain and
         // the plant silhouettes — and temporal averaging can only blur the
@@ -1064,6 +1099,10 @@ namespace OloEngine::Tests
         // genuinely flattened field and requires RetainedFraction ~ 0. This
         // arm is here to show the GPU path moves the same way, not to
         // re-derive that contract.
+        // Strict, with no factor, and the ~1% margin is deliberate rather
+        // than careless: both arms render the same scene at the same mock
+        // times in the same process, so the only spread between them is driver
+        // rounding, and the gap reproduced at 0.008 across runs.
         EXPECT_LT(blurred.RetainedFraction, detail.RetainedFraction)
             << "the over-blurred control retained as much detail as the shipping one (" << blurred.RetainedFraction
             << " vs " << detail.RetainedFraction << "), so this instrument is not measuring blur.";

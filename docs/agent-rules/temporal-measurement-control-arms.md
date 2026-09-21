@@ -52,8 +52,9 @@ when the whole neighbourhood has moved. Expect it to be inert in any scenario wh
 change is a resample.
 
 **Prove the shader is reaching the GPU before concluding anything from an unchanged number.**
-Identical numbers are also what a stale program looks like ([shader cache key excludes
-`#include`s](../../MEMORY.md)). Here, forcing `confidence = 0.0` at the blend site moved the same
+Identical numbers are also what a stale program looks like — the shader cache key does not cover
+`#include`s, so editing only an include serves the previous program. Here, forcing
+`confidence = 0.0` at the blend site moved the same
 measurement from `0.00212` to `0.0247` — a 10x swing that proves the edit took, so the dead-band
 result was a real null and not a cache hit.
 
