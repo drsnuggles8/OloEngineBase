@@ -138,6 +138,35 @@ namespace
         return items;
     }
 
+    /// Everything on `line` that the compiler would see, with `//` comments and
+    /// string literals removed. Enough for a source scan over one known file:
+    /// it is not a C++ lexer, it just refuses to let a token inside a comment
+    /// or a log message stand in for the statement the scan is looking for.
+    [[nodiscard]] std::string StripNonCode(std::string_view line)
+    {
+        std::string code;
+        code.reserve(line.size());
+        bool inString = false;
+        for (sizet i = 0; i < line.size(); ++i)
+        {
+            const char c = line[i];
+            if (!inString && c == '/' && i + 1 < line.size() && line[i + 1] == '/')
+            {
+                break;
+            }
+            if (c == '"' && (i == 0 || line[i - 1] != '\\'))
+            {
+                inString = !inString;
+                continue;
+            }
+            if (!inString)
+            {
+                code.push_back(c);
+            }
+        }
+        return code;
+    }
+
     [[nodiscard]] AnimalBudgetPolicy TightPolicy()
     {
         AnimalBudgetPolicy policy;
@@ -541,6 +570,81 @@ TEST(AnimalSchedulerFloor, TheFloorCounterSeesTheLadderBeingRefusedAndNotOnlyThe
     // And the tell that exposed it: refusing to coarsen leaves the SCHEDULED
     // cost above the DESIRED cost, which nothing else in the scheduler can do.
     EXPECT_GT(stats.ScheduledCostUnits[kVis], stats.DesiredCostUnits[kVis]);
+}
+
+TEST(AnimalSchedulerFloor, AnAnimalHeldByItsAuthoredCapIsNotCountedAgainstTheFloor)
+{
+    // THE OTHER HALF OF THE COUNTER'S CONTRACT, and the half a `<=` made
+    // vacuous. `AnimalsAtVisibilityFloor` answers "how many coats is
+    // MinVisibleStrands holding back", so an animal pinned by its author's
+    // m_MaxVisibilitySteps must not appear in it — that number would move when
+    // somebody edited an asset, not when the floor bound anything.
+    //
+    // The guard that excluded it compared the item's combined cap against the
+    // floor-only cap with `<=`. Both come out of the same monotonic halving
+    // loop and differ only in the bound given to it, so `<=` is true for every
+    // animal alive and the filter never fired.
+    constexpr u32 kStrands = 1000u;
+    constexpr u32 kFloor = 100u;
+    constexpr u32 kAuthoredMax = 2u;
+
+    AnimalBudgetPolicy policy = TightPolicy();
+    policy.MinVisibleStrands = kFloor;
+    // Hard pressure, so the allocator coarsens this animal all the way to
+    // whichever cap binds first. That is the branch the counter reads.
+    policy.FrameBudgetUnits = 1.0f;
+
+    AnimalWorkItem item = MakeAnimal(11u, AnimalRole::Background, 4.0f, kStrands);
+    item.DesiredStep[kVis] = 0u; // the ladder is asking for full rate, so nothing is refused
+    item.MaxStep[kVis] = MaxVisibilityStepForStrandFloor(kStrands, kFloor, kAuthoredMax);
+
+    // The fixture is only meaningful while the AUTHOR is strictly the tighter
+    // of the two caps: 1000 strands over a floor of 100 affords three halvings
+    // (1000 -> 500 -> 250 -> 125), and the author allowed two.
+    const u32 floorOnlyCap = MaxVisibilityStepForStrandFloor(kStrands, kFloor, 16u);
+    ASSERT_EQ(floorOnlyCap, 3u);
+    ASSERT_EQ(item.MaxStep[kVis], kAuthoredMax);
+    ASSERT_LT(item.MaxStep[kVis], floorOnlyCap) << "the author must be the binding cap or this case proves nothing";
+
+    // Several frames: the allocator moves a step at a time so the picture does
+    // not jump, so "pushed all the way to its cap" is a settled state, not a
+    // first-frame one.
+    PopulationRun run({ item }, policy);
+    AnimalSchedulerStats stats;
+    std::vector<AnimalSchedule> schedules;
+    for (u32 frame = 0; frame < 16u; ++frame)
+    {
+        stats = AnimalSchedulerStats{};
+        schedules = run.Step(&stats);
+    }
+
+    ASSERT_EQ(schedules.size(), 1u);
+    ASSERT_EQ(schedules[0].Step[kVis], kAuthoredMax)
+        << "the budget did not actually drive this animal to its cap, so the counter's branch never ran";
+    EXPECT_EQ(stats.AnimalsAtVisibilityFloor, 0u)
+        << "an animal stopped by its authored m_MaxVisibilitySteps was counted as held by MinVisibleStrands: the "
+           "floor still permits "
+        << floorOnlyCap << " halvings here and only the author refuses the third";
+
+    // And the control, on the same fixture: lift the authored cap to the
+    // floor's own answer and the animal IS floor-held, so the counter must see
+    // it. Without this the case above would also pass on a counter wired to 0.
+    AnimalWorkItem floorHeld = item;
+    floorHeld.MaxStep[kVis] = MaxVisibilityStepForStrandFloor(kStrands, kFloor, 16u);
+    PopulationRun floorRun({ floorHeld }, policy);
+    AnimalSchedulerStats floorStats;
+    std::vector<AnimalSchedule> floorSchedules;
+    for (u32 frame = 0; frame < 16u; ++frame)
+    {
+        floorStats = AnimalSchedulerStats{};
+        floorSchedules = floorRun.Step(&floorStats);
+    }
+
+    ASSERT_EQ(floorSchedules.size(), 1u);
+    ASSERT_EQ(floorSchedules[0].Step[kVis], floorOnlyCap);
+    EXPECT_EQ(floorStats.AnimalsAtVisibilityFloor, 1u)
+        << "the same pressure against the floor's own cap must still be counted, or the fix above has simply "
+           "switched the counter off";
 }
 
 TEST(AnimalSchedulerFloor, ACoatAuthoredBelowTheFloorIsNotForcedUpToIt)
@@ -1093,11 +1197,18 @@ TEST(AnimalSchedulerStability, AnimalPoseTickIsAdvancedAtEveryAnimationSite)
 
         // The increment sits just above, allowing for the comment block that
         // explains why — the same tolerance SkeletalDeformationContract uses.
+        //
+        // AND THE MATCH HAS TO BE CODE. A scan that accepts any occurrence of
+        // the text accepts one inside the very comment block that explains the
+        // tick, or inside a log string naming it, and a site could then lose
+        // its increment while this still passed. StripNonCode removes line
+        // comments and string literals before the search, so what is left is
+        // executable or nothing.
         const sizet lo = i >= 24u ? i - 24u : 0u;
         bool advanced = false;
         for (sizet j = lo; j < i && !advanced; ++j)
         {
-            advanced = lines[j].find(kTick) != std::string::npos;
+            advanced = StripNonCode(lines[j]).find(kTick) != std::string::npos;
         }
 
         EXPECT_TRUE(advanced)
@@ -1108,9 +1219,34 @@ TEST(AnimalSchedulerStability, AnimalPoseTickIsAdvancedAtEveryAnimationSite)
                "congruence is skipped forever, in that mode only, silently.";
     }
 
+    // The two sites are thousands of lines apart, so no single increment can
+    // satisfy both windows — each EXPECT above is its own site's assertion.
+    //
     // A guard nobody reaches is the failure this scan exists to catch, so it
     // also has to fail when the sites themselves move or are renamed.
     EXPECT_GE(sites, 2u)
         << "fewer than two animation loops found in Scene.cpp — either a site was removed, or this scan stopped "
            "matching and is now passing vacuously";
+}
+
+TEST(AnimalSchedulerStability, TheSourceScanSieveRejectsCommentsAndStrings)
+{
+    // The scan above is only as strong as StripNonCode, so break it on purpose:
+    // if the sieve ever let a comment through, the per-site assertion would go
+    // green on a file that had lost its increment, and nothing else in the
+    // suite would notice.
+    EXPECT_NE(StripNonCode("            ++m_AnimalPoseTick;").find("++m_AnimalPoseTick;"), std::string::npos)
+        << "the executable statement must survive the sieve, or the scan can never pass";
+
+    EXPECT_EQ(StripNonCode("            // ++m_AnimalPoseTick; advances the clock").find("++m_AnimalPoseTick;"),
+              std::string::npos)
+        << "a line comment satisfied the scan";
+    EXPECT_EQ(StripNonCode("        OLO_CORE_TRACE(\"++m_AnimalPoseTick;\");").find("++m_AnimalPoseTick;"),
+              std::string::npos)
+        << "a string literal satisfied the scan";
+    EXPECT_EQ(StripNonCode("        Foo(); // ++m_AnimalPoseTick;").find("++m_AnimalPoseTick;"), std::string::npos)
+        << "a trailing comment after real code satisfied the scan";
+
+    // Code before a comment is still code.
+    EXPECT_NE(StripNonCode("            ++m_AnimalPoseTick; // why").find("++m_AnimalPoseTick;"), std::string::npos);
 }

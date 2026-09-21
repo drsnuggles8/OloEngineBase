@@ -657,11 +657,22 @@ namespace OloEngine
                 // floor's answer is held by the AUTHOR, not by the floor —
                 // counting it would inflate this number with a value that has
                 // nothing to do with MinVisibleStrands.
+                //
+                // AND THE DISCRIMINATOR IS EQUALITY, NOT `<=`. Both caps come
+                // out of the same monotonic halving loop, differing only in the
+                // bound handed to it — the authored one here, kMaxBudgetSteps
+                // for the floor-only figure — so `visCap <= floorOnlyCap` holds
+                // for EVERY animal and excludes nothing. It has to be `==`:
+                // that is true exactly when the loop stopped at the floor
+                // before the authored bound could bind, which is what "held by
+                // the floor" means. With 1000 strands over a floor of 100 the
+                // floor affords 3 halvings; an author who wrote 2 is the reason
+                // that animal is at 2, and `<=` counted it anyway.
                 const u32 floorOnlyCap =
                     MaxVisibilityStepForStrandFloor(item.StrandCount, policy.MinVisibleStrands, kMaxBudgetSteps);
                 const bool ladderRefused = floorOnlyCap < visDesired;
                 const bool budgetCapped =
-                    schedule.Step[vis] > visDesired && schedule.Step[vis] >= visCap && visCap <= floorOnlyCap;
+                    schedule.Step[vis] > visDesired && schedule.Step[vis] >= visCap && visCap == floorOnlyCap;
                 if (item.Visible && item.StrandCount > 0u && policy.MinVisibleStrands > 0u &&
                     (ladderRefused || budgetCapped))
                 {
