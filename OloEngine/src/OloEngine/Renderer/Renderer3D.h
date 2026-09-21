@@ -36,6 +36,7 @@
 #include "OloEngine/Renderer/PathTracing/MaterialTextureTable.h"
 #include "OloEngine/Renderer/MaterialShaderHeapTable.h"
 #include "OloEngine/Renderer/RayTracing/DeformedSurfaceCache.h"
+#include "OloEngine/Renderer/RayTracing/GroomSurfaceCache.h"
 #include "OloEngine/Renderer/RayTracing/VegetationSurfaceCache.h"
 #include "OloEngine/Renderer/RayTracing/RayTracingProbe.h"
 #include "OloEngine/Renderer/RayTracing/RayTracingScene.h"
@@ -432,6 +433,14 @@ namespace OloEngine
         [[nodiscard]] static RayTracing::DeformedSurfaceCache& GetDeformedSurfaceCache();
         [[nodiscard]] static RayTracing::VegetationSurfaceCache& GetVegetationSurfaceCache();
         [[nodiscard]] static bool WantsRayTracingVegetation();
+        // The groom coats' ray-space proxies (#1253).
+        [[nodiscard]] static RayTracing::GroomSurfaceCache& GetGroomSurfaceCache();
+        // True when a ray-traced consumer would read a groom proxy this frame.
+        // The twin of WantsRayTracingVegetation and gated identically: both
+        // hybrid consumers (the RT shadow tier and RT reflections) only run on
+        // the DEFERRED path, so on Forward and Forward+ there is nothing to
+        // put a coat into and building one would be work no ray reads.
+        [[nodiscard]] static bool WantsRayTracingGrooms();
         [[nodiscard]] static const RayTracing::SceneStats& GetRayTracingStats();
         // Turns every link staged this frame into the record it names. Called
         // once, from EndScene, after EndExtraction and Upload; a consumer that
@@ -2305,6 +2314,7 @@ namespace OloEngine
             // on OpenGL or on any device without ray tracing.
             RayTracing::DeformedSurfaceCache DeformedSurfaces;
             RayTracing::VegetationSurfaceCache VegetationSurfaces;
+            RayTracing::GroomSurfaceCache GroomSurfaces;
             // See SetRayTracedShadowLightRequests (issue #1056).
             std::vector<RayTracedShadowLightRequest> RayTracedShadowLightRequests;
             // See SetGroomStrandRequests (issue #1246).

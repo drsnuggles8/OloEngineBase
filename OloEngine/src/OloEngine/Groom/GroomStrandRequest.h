@@ -268,6 +268,20 @@ namespace OloEngine
         // in the pass's cache: a pass runs once per CAMERA, so a split-screen
         // scene would advance the hold twice per frame and halve it.
 
+        /// This groom's apparent size, in pixels of the render target's
+        /// HEIGHT, from EstimateProjectedPixelSize against the engine's LOD
+        /// view. Zero when the frame resolved no usable view.
+        ///
+        /// CARRIED SEPARATELY FROM `Lod.PixelSize`, which is the same number
+        /// but only for a groom that opted into representation LOD: a groom
+        /// with no GroomLodComponent gets IdentityGroomLodDecision, whose
+        /// PixelSize is zero because no decision was made at one. The
+        /// ray-tracing proxy (#1253) has to pick a tier for EVERY groom,
+        /// opted in or not, so it needs the measurement rather than the
+        /// decision's record of it. Computed once, by the producer, and fed
+        /// to both.
+        f32 ApparentPixelSize = 0.0f;
+
         /// The authored policy, sanitised. Carried rather than re-read from the
         /// component because the panel that shows a decision must show the
         /// contract it was taken against, and because the pass needs the

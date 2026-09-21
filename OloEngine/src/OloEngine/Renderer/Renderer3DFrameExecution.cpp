@@ -224,6 +224,13 @@ namespace OloEngine
             // deformed buffer and the record that named it die together.
             s_Data.DeformedSurfaces.EndFrame();
             s_Data.VegetationSurfaces.FinishExtraction(s_Data.SceneGPU);
+            // The groom coats' ray-space proxies (#1253), on the same frame
+            // and under the same retire-by-absence rule. It reads this
+            // frame's request vector directly and keeps nothing past the
+            // call, so a second camera replacing that vector cannot leave a
+            // dangling read behind.
+            s_Data.GroomSurfaces.Extract(s_Data.SceneGPU, s_Data.GroomStrandRequests,
+                                         WantsRayTracingGrooms());
             if (s_Data.RGraph && s_Data.VegetationSurfaces.GetStats().HistoryReset)
             {
                 // A shape/time-resolution switch cannot be reprojected from

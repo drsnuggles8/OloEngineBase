@@ -124,6 +124,7 @@ add_executable(OloEngine-Tests
 		# its two anti-thrash mechanisms, the coverage compensation's linear rule,
 		# and the card cook's determinism and density conservation.
 		Groom/GroomLodContractTest.cpp
+		Groom/GroomRayTracingProxyTest.cpp
 		# ...and the cooked format's half: the level survives the cook byte for
 		# byte, the cook stays deterministic, a file from before the version bump
 		# is refused by name, and a hostile level header is refused before it

@@ -6,6 +6,7 @@
 #if OLO_WITH_VULKAN
 
 #include "OloEngine/Memory/AlignmentTemplates.h"
+#include "OloEngine/Groom/GroomRayTracingProxy.h"
 #include "OloEngine/Renderer/RayTracing/VegetationPolicy.h"
 #include "Platform/Vulkan/VulkanDeferredReclaim.h"
 #include "Platform/Vulkan/VulkanFrameArena.h"
@@ -156,6 +157,7 @@ namespace OloEngine::RayTracing
             // reference uninitialised memory — undefined, and silent.
             bool Built = false;
             bool Vegetation = false;
+            bool Groom = false;
             // Compaction is a multi-frame handshake so nothing ever waits:
             // NotRequested -> SizeQueryPending -> ReadyToCompact -> Compacted.
             enum class Compaction : u8
@@ -399,19 +401,29 @@ namespace OloEngine::RayTracing
 
         VkDeviceSize scratchTotal = 0;
         u64 vegetationBytes = 0u;
+        u64 groomBytes = 0u;
         for (const auto& [key, entry] : m_Blas)
         {
             static_cast<void>(key);
             if (entry.Vegetation)
                 vegetationBytes += entry.Storage.Size;
+            if (entry.Groom)
+                groomBytes += entry.Storage.Size;
         }
         VegetationFrameBudget vegetationWork;
+        // The groom proxies' own per-frame conversion budget is spent at the
+        // PRODUCER (GroomSurfaceCache), which knows the real triangle count
+        // before any buffer exists. What is left for here is the one thing
+        // only the device knows: how many BYTES a built structure occupies.
+        GroomProxyFrameBudget groomWork;
         for (const BlasBuildRequest& request : requests)
         {
             // Retries also consume AS work, independently of this frame's
             // deformation dispatches. Never let a partially warmed scene
             // turn the retry queue into unbounded vegetation builds.
             if (request.Vegetation && !vegetationWork.Reserve(request.VertexCount, request.IndexCount / 3u))
+                continue;
+            if (request.Groom && !groomWork.Reserve(request.VertexCount, request.IndexCount / 3u))
                 continue;
             Pending item{};
             item.Request = &request;
@@ -514,6 +526,12 @@ namespace OloEngine::RayTracing
                 sizes.accelerationStructureSize > VegetationPolicy::AccelerationStructureBytes -
                                                       (vegetationBytes - previousVegetationBytes))
                 continue;
+            const u64 previousGroomBytes =
+                existing != m_Blas.end() && existing->second.Groom ? existing->second.Storage.Size : 0u;
+            if (request.Groom && !item.IsUpdate &&
+                sizes.accelerationStructureSize >
+                    GroomProxyPolicy::AccelerationStructureBytes - (groomBytes - previousGroomBytes))
+                continue;
 
             if (item.IsUpdate)
             {
@@ -554,8 +572,11 @@ namespace OloEngine::RayTracing
                 entry.AllowsUpdate = wantsUpdate;
                 entry.Built = false;
                 entry.Vegetation = request.Vegetation;
+                entry.Groom = request.Groom;
                 vegetationBytes = vegetationBytes - previousVegetationBytes +
                                   (request.Vegetation ? sizes.accelerationStructureSize : 0u);
+                groomBytes =
+                    groomBytes - previousGroomBytes + (request.Groom ? sizes.accelerationStructureSize : 0u);
                 entry.CompactionState = BlasEntry::Compaction::NotRequested;
 
                 VkAccelerationStructureDeviceAddressInfoKHR addressInfo{};
