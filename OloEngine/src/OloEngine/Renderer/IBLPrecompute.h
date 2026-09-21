@@ -71,7 +71,7 @@ namespace OloEngine
         static Ref<TextureCubemap> ConvertEquirectangularToCubemap(const std::string& filePath, ShaderLibrary& shaderLibrary, u32 resolution = 512);
 
         // Utility to create cubemap from 6 face images
-        static Ref<TextureCubemap> CreateCubemapFromFaces(const std::vector<std::string>& facePaths);
+        static Ref<TextureCubemap> CreateCubemapFromFaces(std::span<const FString> facePaths);
 
       private:
         // Render to cubemap helper. Serial, one pass per face by design — the

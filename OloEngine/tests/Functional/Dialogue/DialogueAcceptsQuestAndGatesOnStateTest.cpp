@@ -148,13 +148,13 @@ TEST_F(DialogueAcceptsQuestAndGatesOnStateTest, AcceptActionMovesQuestToActiveAn
     say.Name = "Done";
     say.Properties.try_emplace("text", DialoguePropertyValue{ std::string("Accepted!") });
 
-    tree->GetNodesWritable().push_back(std::move(action));
-    tree->GetNodesWritable().push_back(std::move(say));
+    tree->GetNodesWritable().AddTail(std::move(action));
+    tree->GetNodesWritable().AddTail(std::move(say));
 
     DialogueConnection conn;
     conn.SourceNodeID = UUID{ 0xA1ULL };
     conn.TargetNodeID = UUID{ 0xB1ULL };
-    tree->GetConnectionsWritable().push_back(conn);
+    tree->GetConnectionsWritable().Add(conn);
     tree->SetRootNodeID(UUID{ 0xA1ULL });
     AttachTree(tree);
 
@@ -206,13 +206,13 @@ TEST_F(DialogueAcceptsQuestAndGatesOnStateTest, BareAcceptActionUsesQuestGiverOf
     say.Name = "Done";
     say.Properties.try_emplace("text", DialoguePropertyValue{ std::string("Take this.") });
 
-    tree->GetNodesWritable().push_back(std::move(action));
-    tree->GetNodesWritable().push_back(std::move(say));
+    tree->GetNodesWritable().AddTail(std::move(action));
+    tree->GetNodesWritable().AddTail(std::move(say));
 
     DialogueConnection conn;
     conn.SourceNodeID = UUID{ 0xA2ULL };
     conn.TargetNodeID = UUID{ 0xB2ULL };
-    tree->GetConnectionsWritable().push_back(conn);
+    tree->GetConnectionsWritable().Add(conn);
     tree->SetRootNodeID(UUID{ 0xA2ULL });
     AttachTree(tree);
 
@@ -251,21 +251,21 @@ TEST_F(DialogueAcceptsQuestAndGatesOnStateTest, ConditionNodeBranchesOnQuestActi
     no.Name = "No";
     no.Properties.try_emplace("text", DialoguePropertyValue{ std::string("GoGetIt") });
 
-    tree->GetNodesWritable().push_back(std::move(cond));
-    tree->GetNodesWritable().push_back(std::move(yes));
-    tree->GetNodesWritable().push_back(std::move(no));
+    tree->GetNodesWritable().AddTail(std::move(cond));
+    tree->GetNodesWritable().AddTail(std::move(yes));
+    tree->GetNodesWritable().AddTail(std::move(no));
 
     DialogueConnection trueConn;
     trueConn.SourceNodeID = UUID{ 0xC1ULL };
     trueConn.TargetNodeID = UUID{ 0xD1ULL };
     trueConn.SourcePort = "true";
-    tree->GetConnectionsWritable().push_back(trueConn);
+    tree->GetConnectionsWritable().Add(trueConn);
 
     DialogueConnection falseConn;
     falseConn.SourceNodeID = UUID{ 0xC1ULL };
     falseConn.TargetNodeID = UUID{ 0xE1ULL };
     falseConn.SourcePort = "false";
-    tree->GetConnectionsWritable().push_back(falseConn);
+    tree->GetConnectionsWritable().Add(falseConn);
 
     tree->SetRootNodeID(UUID{ 0xC1ULL });
     AttachTree(tree);

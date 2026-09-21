@@ -130,9 +130,9 @@ namespace OloEngine
                       SourceLoadResult loaded = LoadSourceFromFile(filepath);
 
                       RawShaderData data;
-                      data.Name = std::move(loaded.Name);
+                      data.Name = FString(loaded.Name);
                       // Empty on failure -> CreateComputeShaderCommand reports nullptr.
-                      data.ComputeSource = std::move(loaded.Source);
+                      data.ComputeSource = FString(loaded.Source);
 
                       GPUResourceQueue::Enqueue<CreateComputeShaderCommand>(std::move(data), std::move(onReady));
                   });

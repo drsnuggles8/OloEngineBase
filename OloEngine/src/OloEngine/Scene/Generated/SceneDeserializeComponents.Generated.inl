@@ -404,10 +404,10 @@ if (auto node = entity["DiscoveredSetComponent"]; node)
     auto& comp = deserializedEntity.AddComponent<DiscoveredSetComponent>();
     if (auto seqNode = node["Discovered"]; seqNode && seqNode.IsSequence())
     {
-        comp.m_Discovered.clear();
+        comp.m_Discovered.Empty();
         for (auto const& e : seqNode)
-            if (decltype(comp.m_Discovered)::value_type v{}; ::YAML::convert<decltype(comp.m_Discovered)::value_type>::decode(e, v))
-                comp.m_Discovered.push_back(v);
+            if (decltype(comp.m_Discovered)::ElementType v{}; ::YAML::convert<decltype(comp.m_Discovered)::ElementType>::decode(e, v))
+                comp.m_Discovered.Add(v);
     }
 }
 
@@ -987,10 +987,10 @@ if (auto node = entity["RelationshipComponent"]; node)
     comp.m_ParentHandle = node["ParentHandle"].as<u64>(static_cast<u64>(comp.m_ParentHandle));
     if (auto seqNode = node["Children"]; seqNode && seqNode.IsSequence())
     {
-        comp.m_Children.clear();
+        comp.m_Children.Empty();
         for (auto const& e : seqNode)
-            if (decltype(comp.m_Children)::value_type v{}; ::YAML::convert<decltype(comp.m_Children)::value_type>::decode(e, v))
-                comp.m_Children.push_back(v);
+            if (decltype(comp.m_Children)::ElementType v{}; ::YAML::convert<decltype(comp.m_Children)::ElementType>::decode(e, v))
+                comp.m_Children.Add(v);
     }
 }
 

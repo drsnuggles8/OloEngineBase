@@ -114,9 +114,9 @@ namespace OloEngine::Tests
             u32 layerCount = 1;
             ar << layerCount;
 
-            std::string name = l.Name;
-            std::string meshPath = l.MeshPath;
-            std::string albedoPath = l.AlbedoPath;
+            std::string name = l.Name.ToStdString();
+            std::string meshPath = l.MeshPath.ToStdString();
+            std::string albedoPath = l.AlbedoPath.ToStdString();
             ar << name << meshPath << albedoPath;
             f32 density = l.Density;
             ar << density;
@@ -176,10 +176,10 @@ namespace OloEngine::Tests
     {
         FoliageComponent seed;
         seed.m_Enabled = true;
-        seed.m_Layers.push_back(MakeAuthoredLeafLayer());
+        seed.m_Layers.Add(MakeAuthoredLeafLayer());
 
         const FoliageComponent loaded = RoundTrip(seed, kSaveGameFormatVersion);
-        ASSERT_EQ(loaded.m_Layers.size(), 1u);
+        ASSERT_EQ(loaded.m_Layers.Num(), 1u);
         const FoliageLayer& got = loaded.m_Layers[0];
         const FoliageLayer& want = seed.m_Layers[0];
 
@@ -214,7 +214,7 @@ namespace OloEngine::Tests
             << "the v33 reader consumed bytes a v32 save does not have. In a fixed-order archive that is not a "
                "wrong value — it is every component after this one reading the wrong bytes.";
 
-        ASSERT_EQ(loaded.m_Layers.size(), 1u);
+        ASSERT_EQ(loaded.m_Layers.Num(), 1u);
         const FoliageLayer& l = loaded.m_Layers[0];
 
         // The fields v32 DID carry came back, so this is a test of the gate and
@@ -229,9 +229,9 @@ namespace OloEngine::Tests
         EXPECT_FLOAT_EQ(l.TransmissionStrength, 0.0f)
             << "a v32 save came back with the leaf material ON. A world saved before #1234 must render as the "
                "build that saved it rendered.";
-        EXPECT_TRUE(l.NormalMapPath.empty());
-        EXPECT_TRUE(l.RoughnessMapPath.empty());
-        EXPECT_TRUE(l.ThicknessMapPath.empty());
+        EXPECT_TRUE(l.NormalMapPath.IsEmpty());
+        EXPECT_TRUE(l.RoughnessMapPath.IsEmpty());
+        EXPECT_TRUE(l.ThicknessMapPath.IsEmpty());
     }
 
     TEST(FoliageLeafMaterialSaveLoad, HostileValuesAreSanitizedOnLoad)
@@ -250,7 +250,7 @@ namespace OloEngine::Tests
         hostile.TransmissionWrap = std::numeric_limits<f32>::quiet_NaN();
         hostile.TransmissionAmbient = std::numeric_limits<f32>::infinity();
         hostile.NormalStrength = -std::numeric_limits<f32>::infinity();
-        seed.m_Layers.push_back(hostile);
+        seed.m_Layers.Add(hostile);
 
         // A SECOND LAYER, FINITE BUT OUT OF RANGE. The layer above proves the
         // REJECT path: a non-finite component sends the whole vector back to
@@ -262,10 +262,10 @@ namespace OloEngine::Tests
         outOfRange.TransmissionStrength = 2.0f;
         outOfRange.TransmissionColor = glm::vec3(-0.5f, 4.0f, 0.25f);
         outOfRange.Thickness = 0.5f;
-        seed.m_Layers.push_back(outOfRange);
+        seed.m_Layers.Add(outOfRange);
 
         const FoliageComponent loaded = RoundTrip(seed, kSaveGameFormatVersion);
-        ASSERT_EQ(loaded.m_Layers.size(), 2u);
+        ASSERT_EQ(loaded.m_Layers.Num(), 2u);
         const FoliageLayer& l = loaded.m_Layers[0];
 
         EXPECT_TRUE(std::isfinite(l.TransmissionStrength));

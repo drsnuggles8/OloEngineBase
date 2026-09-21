@@ -231,7 +231,7 @@ namespace OloEngine::Tests
                 InstanceData instance;
                 instance.Transform = glm::translate(glm::mat4(1.0f), glm::vec3(static_cast<f32>(i) * 3.0f, 0.0f, 0.0f));
                 instance.StableID = static_cast<u64>(i) + 1u;
-                imc.Instances.push_back(instance);
+                imc.Instances.Add(instance);
             }
             return rocks;
         }
@@ -266,13 +266,13 @@ namespace OloEngine::Tests
         InstanceData extra;
         extra.Transform = glm::translate(glm::mat4(1.0f), glm::vec3(-9.0f, 0.0f, 0.0f));
         extra.StableID = 99;
-        instances.push_back(extra);
+        instances.Add(extra);
         // The new instance has NO region until a re-bake. Without the sub-key in
         // the key this would read as "still valid" and the new rock would be the
         // only unlit thing in the scene.
         EXPECT_NE(SceneLightmapRuntime::ComputeBakeKey(*f.World, settings), original);
 
-        instances.pop_back();
+        instances.Pop();
         EXPECT_EQ(SceneLightmapRuntime::ComputeBakeKey(*f.World, settings), original);
     }
 

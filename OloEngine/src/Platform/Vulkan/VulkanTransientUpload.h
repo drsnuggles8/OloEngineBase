@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Containers/Array.h"
 
 #if OLO_WITH_VULKAN
 
@@ -105,7 +106,7 @@ namespace OloEngine::VulkanUpload
 
     // Expand tightly-packed 3-channel rows into the widened 4-channel
     // layout the VkImage actually has (opaque alpha).
-    [[nodiscard]] std::vector<u8> ExpandRgbToRgba(ImageFormat format, const void* data, u64 pixelCount);
+    [[nodiscard]] TArray64<u8> ExpandRgbToRgba(ImageFormat format, const void* data, u64 pixelCount);
 
     // One VkImageMemoryBarrier2 over a mip/layer range of a color image —
     // upload-path plumbing (the graph's barriers go through

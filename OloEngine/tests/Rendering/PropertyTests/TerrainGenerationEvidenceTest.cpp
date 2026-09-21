@@ -26,6 +26,8 @@
 // =============================================================================
 
 #include "OloEnginePCH.h"
+#include <span>
+#include "OloEngine/Containers/Array.h"
 #include "../../TestOptions.h"
 
 #include "RendererAttachedTest.h"
@@ -253,7 +255,7 @@ namespace OloEngine::Tests
             const auto& sp0 = terrain.m_Material->GetSplatmapData(0);
             std::array<int, 4> chanMin{ 255, 255, 255, 255 };
             std::array<int, 4> chanMax{ 0, 0, 0, 0 };
-            for (std::size_t i = 0; i + 3 < sp0.size(); i += 4)
+            for (std::size_t i = 0; i + 3 < sp0.Num(); i += 4)
                 for (int c = 0; c < 4; ++c)
                 {
                     chanMin[static_cast<std::size_t>(c)] = std::min(chanMin[static_cast<std::size_t>(c)], static_cast<int>(sp0[i + c]));
@@ -274,7 +276,7 @@ namespace OloEngine::Tests
                 std::error_code ec;
                 fs::create_directories(dir, ec);
                 ::stbi_write_png((dir / "TerrainGen_splat0.png").string().c_str(), static_cast<int>(sres),
-                                 static_cast<int>(sres), 4, sp0.data(), static_cast<int>(sres) * 4);
+                                 static_cast<int>(sres), 4, sp0.GetData(), static_cast<int>(sres) * 4);
             }
         }
 

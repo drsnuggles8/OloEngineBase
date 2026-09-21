@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "UINavigationSystem.h"
+#include "OloEngine/Containers/Array.h"
 
 #include "OloEngine/Core/GamepadCodes.h"
 #include "OloEngine/Core/InputAction.h"
@@ -46,7 +47,7 @@ namespace OloEngine
         }
 
         // Gather every navigable widget with a resolved rect into `out`.
-        void CollectNavItems(Scene& scene, std::vector<NavItem>& out)
+        void CollectNavItems(Scene& scene, TArray<NavItem>& out)
         {
             for (const auto view = scene.GetAllEntitiesWith<UIResolvedRectComponent>(); const auto e : view)
             {
@@ -55,7 +56,7 @@ namespace OloEngine
                     continue;
 
                 const auto& resolved = view.get<UIResolvedRectComponent>(e);
-                out.push_back(NavItem{ entity.GetUUID(), resolved.m_Position + resolved.m_Size * 0.5f });
+                out.Add(NavItem{ entity.GetUUID(), resolved.m_Position + resolved.m_Size * 0.5f });
             }
         }
 
@@ -63,7 +64,7 @@ namespace OloEngine
         // direction (dir is a unit axis; screen origin is top-left, +Y downwards).
         // Scores candidates by primary-axis travel plus a perpendicular-offset
         // penalty, the classic 2D focus-navigation heuristic. UUID(0) if none.
-        [[nodiscard]] UUID BestInDirection(const std::vector<NavItem>& items, const glm::vec2& fromCenter, const glm::vec2& dir)
+        [[nodiscard]] UUID BestInDirection(const TArray<NavItem>& items, const glm::vec2& fromCenter, const glm::vec2& dir)
         {
             constexpr f32 threshold = 1.0f; // must move at least a pixel along dir
             UUID best{ 0 };
@@ -89,7 +90,7 @@ namespace OloEngine
 
         // Top-most, then left-most navigable widget — the seed focus when a nav
         // key is pressed while nothing is focused.
-        [[nodiscard]] UUID FirstNavItem(const std::vector<NavItem>& items)
+        [[nodiscard]] UUID FirstNavItem(const TArray<NavItem>& items)
         {
             UUID first{ 0 };
             glm::vec2 bestPos{ std::numeric_limits<f32>::max(), std::numeric_limits<f32>::max() };
@@ -223,8 +224,13 @@ namespace OloEngine
     {
         constexpr f32 epsilon = 1e-6f;
 
-        std::vector<std::pair<UUID, f32>> pendingValueChanged;
-        std::vector<UUID> pendingClicks;
+        struct PendingValueChange
+        {
+            UUID Id;
+            f32 Value;
+        };
+        TArray<PendingValueChange> pendingValueChanged;
+        TArray<UUID> pendingClicks;
         std::unordered_set<u64> liveSliders, liveCheckboxes, liveToggles, liveButtons;
 
         for (const auto view = scene.GetAllEntitiesWith<UISliderComponent>(); const auto e : view)
@@ -236,7 +242,7 @@ namespace OloEngine
             {
                 if (std::abs(cur - it->second) > epsilon)
                 {
-                    pendingValueChanged.emplace_back(uuid, cur);
+                    pendingValueChanged.Add({ uuid, cur });
                     it->second = cur;
                 }
             }
@@ -248,7 +254,7 @@ namespace OloEngine
             const bool cur = view.get<UICheckboxComponent>(e).m_IsChecked;
             if (auto it = nav.m_PrevCheckbox.find(static_cast<u64>(uuid)); it != nav.m_PrevCheckbox.end() && it->second != cur)
             {
-                pendingValueChanged.emplace_back(uuid, cur ? 1.0f : 0.0f);
+                pendingValueChanged.Add({ uuid, cur ? 1.0f : 0.0f });
                 it->second = cur;
             }
         }
@@ -259,7 +265,7 @@ namespace OloEngine
             const bool cur = view.get<UIToggleComponent>(e).m_IsOn;
             if (auto it = nav.m_PrevToggle.find(static_cast<u64>(uuid)); it != nav.m_PrevToggle.end() && it->second != cur)
             {
-                pendingValueChanged.emplace_back(uuid, cur ? 1.0f : 0.0f);
+                pendingValueChanged.Add({ uuid, cur ? 1.0f : 0.0f });
                 it->second = cur;
             }
         }
@@ -275,7 +281,7 @@ namespace OloEngine
             if (auto it = nav.m_PrevButtonState.find(static_cast<u64>(uuid)); it != nav.m_PrevButtonState.end())
             {
                 if (it->second == static_cast<u8>(UIButtonState::Pressed) && cur == static_cast<u8>(UIButtonState::Hovered))
-                    pendingClicks.push_back(uuid);
+                    pendingClicks.Add(uuid);
                 it->second = cur;
             }
         }
@@ -316,7 +322,7 @@ namespace OloEngine
         SeedSnapshots(scene, nav);
 
         // 1. Navigation + activation.
-        std::vector<NavItem> items;
+        TArray<NavItem> items;
         CollectNavItems(scene, items);
 
         // Drop focus that no longer points at a navigable widget (destroyed /
@@ -334,7 +340,7 @@ namespace OloEngine
         if (!nav.HasFocus())
         {
             // First directional input seeds focus rather than moving.
-            if (anyDir && !items.empty())
+            if (anyDir && !items.IsEmpty())
                 nav.SetFocus(FirstNavItem(items));
         }
         else

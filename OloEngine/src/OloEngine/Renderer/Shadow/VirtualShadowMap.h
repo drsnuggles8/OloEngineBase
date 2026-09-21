@@ -1,5 +1,7 @@
 #pragma once
 
+#include "OloEngine/Containers/Array.h"
+
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/Debug/StagedBufferReadback.h"
@@ -613,7 +615,7 @@ namespace OloEngine
             // Slots are never ERASED — Owner and ByLight both store indices into
             // this vector, and erasing would silently repoint every index past
             // the hole. Count == 0 is the free marker.
-            std::vector<Slot> Slots;
+            TArray64<Slot> Slots;
             std::unordered_map<u64, u32> ByLight;               // light id -> index into Slots
             std::array<u16, VSM::kMaxLocalLayers> Owner{};      // layer -> slot index + 1 (0 = free)
             std::array<u32, VSM::kMaxLocalLayers> Invalidate{}; // 1 = flush this layer's pages this frame
@@ -669,7 +671,7 @@ namespace OloEngine
         // are no longer registered.
         [[nodiscard]] u32 GetLocalLightCount() const
         {
-            return AreLocalLightsActive() ? static_cast<u32>(m_LocalHeads.size()) : 0u;
+            return AreLocalLightsActive() ? static_cast<u32>(m_LocalHeads.Num()) : 0u;
         }
         // Layers in use — 6 per point light, 1 per spot. The number the cull and
         // the HPB build dispatch over.
@@ -721,8 +723,8 @@ namespace OloEngine
         // GetClipProjections() is what lets it decide which levels to draw.
         using ExternalCasterRenderer = std::function<u32()>;
 
-        bool RenderCasters(const std::vector<ShadowMeshCaster>& meshCasters,
-                           const std::vector<ShadowSkinnedCaster>& skinnedCasters,
+        bool RenderCasters(std::span<const ShadowMeshCaster> meshCasters,
+                           std::span<const ShadowSkinnedCaster> skinnedCasters,
                            const glm::vec3& renderOrigin,
                            const BoneUploader& uploadBones,
                            const ExternalCasterRenderer& renderExternalCasters = {});
@@ -764,8 +766,8 @@ namespace OloEngine
         // conservative one: a reordered list reads as "everything moved", which
         // costs a redraw rather than leaving a stale shadow behind. Skinned casters
         // are always treated as moving — they are animating by definition.
-        void SubmitDynamicInvalidations(const std::vector<ShadowMeshCaster>& meshCasters,
-                                        const std::vector<ShadowSkinnedCaster>& skinnedCasters,
+        void SubmitDynamicInvalidations(std::span<const ShadowMeshCaster> meshCasters,
+                                        std::span<const ShadowSkinnedCaster> skinnedCasters,
                                         const glm::vec3& renderOrigin);
 
         // --- Binding + diagnostics -------------------------------------------
@@ -907,6 +909,7 @@ namespace OloEngine
             Ref<UniformBuffer> Animation;
             Ref<StorageBuffer> Instances;
         };
+        friend struct TIsTriviallyRelocatable<RasterItemResources>;
         struct PreparedSkinnedDraw
         {
             u32 CasterIndex;
@@ -915,7 +918,7 @@ namespace OloEngine
         };
         void PrepareRasterItems(u32 count);
         u32 RenderBatches(bool local);
-        u32 RecordSkinnedDraws(const std::vector<ShadowSkinnedCaster>& casters,
+        u32 RecordSkinnedDraws(std::span<const ShadowSkinnedCaster> casters,
                                const BoneUploader& uploadBones);
 
         // One (VAO, index range, cull mode) group of static casters — the same key
@@ -977,7 +980,7 @@ namespace OloEngine
         void ResetPageState();
         void ReadbackStatistics();
         void BindWorkingSet();
-        u32 RenderSkinnedCasters(const std::vector<ShadowSkinnedCaster>& skinnedCasters,
+        u32 RenderSkinnedCasters(std::span<const ShadowSkinnedCaster> skinnedCasters,
                                  const glm::vec3& renderOrigin, u32 instanceBase,
                                  const BoneUploader& uploadBones);
 
@@ -985,7 +988,7 @@ namespace OloEngine
         // than folded into RenderCasters so the two rasters' GL state changes stay
         // readable: they share a framebuffer and a pool image but not a viewport,
         // not a shader and not a projection source.
-        u32 RenderLocalCasters(const std::vector<ShadowSkinnedCaster>& skinnedCasters,
+        u32 RenderLocalCasters(std::span<const ShadowSkinnedCaster> skinnedCasters,
                                const glm::vec3& renderOrigin, u32 instanceBase,
                                const BoneUploader& uploadBones);
         // Uploads the layer header + projections. Also what resets the GPU-written
@@ -1097,7 +1100,7 @@ namespace OloEngine
         glm::vec3 m_PrevRenderOrigin{ 0.0f };
         bool m_FullInvalidate = true;
 
-        std::vector<glm::vec4> m_PendingInvalidations; // pairs of (min,max), flushed by UpdatePages
+        TArray64<glm::vec4> m_PendingInvalidations; // pairs of (min,max), flushed by UpdatePages
 
         // Per-frame scratch, kept as members so the allocations survive across
         // frames (per-frame-scratch-reuse.md: these are cleared, never read
@@ -1114,22 +1117,22 @@ namespace OloEngine
             glm::vec3 BoundsMax{ 0.0f };
             bool HasBounds = false;
         };
-        std::vector<CasterPose> m_PrevCasterPoses;
+        TArray64<CasterPose> m_PrevCasterPoses;
 
-        std::vector<Batch> m_Batches;
+        TArray64<Batch> m_Batches;
         std::unordered_map<BatchKey, u32, BatchKeyHash> m_BatchLookup; // key -> index into m_Batches
-        std::vector<VSM::CullInstance> m_CullInput;
-        std::vector<VSM::DrawCommand> m_DrawCommandStaging;
-        std::vector<VSM::DrawInstance> m_SkinnedInstanceStaging;
-        std::vector<PreparedSkinnedDraw> m_PreparedSkinnedDraws;
-        std::vector<VSM::DrawInstance> m_PreparedSkinnedInstances;
-        std::vector<RasterItemResources> m_RasterItems;
+        TArray64<VSM::CullInstance> m_CullInput;
+        TArray64<VSM::DrawCommand> m_DrawCommandStaging;
+        TArray64<VSM::DrawInstance> m_SkinnedInstanceStaging;
+        TArray64<PreparedSkinnedDraw> m_PreparedSkinnedDraws;
+        TArray64<VSM::DrawInstance> m_PreparedSkinnedInstances;
+        TArray64<RasterItemResources> m_RasterItems;
 
         // --- Local-light layer state (issue #703) -----------------------------
         LocalLayerPool m_LocalPool;
         std::array<VSM::LocalLight, VSM::kMaxLocalLayers> m_LocalLayers{};
         // (layerBase << 1) | isPoint, compacted — what the marker walks.
-        std::vector<u32> m_LocalHeads;
+        TArray64<u32> m_LocalHeads;
         u32 m_LocalLayerHighWater = 0;
         u32 m_LocalLightsStarved = 0;
         bool m_LoggedLocalPoolExhausted = false;
@@ -1139,7 +1142,7 @@ namespace OloEngine
         // first) and consumed by RenderLocalCasters.
         u32 m_LocalInstanceBase = 0;
         u32 m_LocalInstanceCapacity = 0;
-        std::vector<VSM::DrawInstance> m_LocalSkinnedStaging;
+        TArray64<VSM::DrawInstance> m_LocalSkinnedStaging;
 
         u32 m_StatsWriteIndex = 0;
         VSM::Statistics m_Statistics{};
@@ -1147,5 +1150,14 @@ namespace OloEngine
         bool m_LoggedRasterIncomplete = false;
         bool m_LoggedDrawBudgetExhausted = false;
         bool m_LoggedCasterBudgetExhausted = false;
+    };
+    // Owns only audited pointer-based containers/Refs; no address-relative members.
+    template<>
+    struct TIsTriviallyRelocatable<VirtualShadowMap::RasterItemResources>
+    {
+        using Record = VirtualShadowMap::RasterItemResources;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::Pass)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Animation)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Instances)>;
     };
 } // namespace OloEngine

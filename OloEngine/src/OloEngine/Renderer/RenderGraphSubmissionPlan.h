@@ -16,7 +16,7 @@ namespace OloEngine::RenderGraphSubmissionPlan
     // as part of the module split (2026-05-11). This module turns the
     // compiled execution order + barrier plan + per-pass work-type / async
     // candidate metadata into a backend-agnostic submission IR
-    // (`std::vector<SubmissionCommand>`) that the executor consumes verbatim.
+    // (`TArray64<SubmissionCommand>`) that the executor consumes verbatim.
     //
     // Two public surfaces:
     //   1. `ComputeBatches` — groups consecutive AsyncComputeCandidate passes
@@ -29,21 +29,21 @@ namespace OloEngine::RenderGraphSubmissionPlan
 
     struct BatchesInput
     {
-        std::span<const std::string> ExecutionOrder;
-        const std::unordered_map<std::string, std::vector<std::string>>& Dependencies;
-        const std::unordered_map<std::string, std::vector<RGAccessDeclaration>>& PassAccessDeclarations;
+        std::span<const FString> ExecutionOrder;
+        const RGTransparentStringMap<TArray64<FString>>& Dependencies;
+        const RGTransparentStringMap<TArray64<RGAccessDeclaration>>& PassAccessDeclarations;
         std::function<bool(std::string_view)> IsGraphEntryAsyncComputeCandidate;
     };
 
-    [[nodiscard]] auto ComputeBatches(const BatchesInput& input) -> std::vector<RenderGraph::AsyncComputeBatch>;
+    [[nodiscard]] auto ComputeBatches(const BatchesInput& input) -> TArray64<RenderGraph::AsyncComputeBatch>;
 
     struct PlanInput
     {
-        std::span<const std::string> ExecutionOrder;
+        std::span<const FString> ExecutionOrder;
         // Incoming graph edges (consumer -> producers). Split submission is
         // derived from this complete ordering graph; resource transitions only
         // annotate those edges with the resources that caused them.
-        const std::unordered_map<std::string, std::vector<std::string>>& Dependencies;
+        const RGTransparentStringMap<TArray64<FString>>& Dependencies;
         std::span<const RenderGraph::PlannedBarrier> PlannedBarriers;
         // ADR 0011 §1.5: the per-resource transition records for
         // the same barrier plan. Attached (deduplicated) to each emitted
@@ -57,14 +57,14 @@ namespace OloEngine::RenderGraphSubmissionPlan
         // commands are always emitted; this only removes the additional
         // cross-submission signal/wait scheduling IR.
         bool EnableSplitBarriers = true;
-        std::function<RenderGraphPassWorkType(const std::string&)> GetPassWorkType;
+        std::function<RenderGraphPassWorkType(std::string_view)> GetPassWorkType;
         // Returns the node pointer for the named pass, or nullptr if the
         // pass is unknown / external.
-        std::function<RenderGraphNode*(const std::string&)> ResolveNodePointer;
+        std::function<RenderGraphNode*(std::string_view)> ResolveNodePointer;
         // Compiled reachability, when building a real graph. A culled member
         // must not make an otherwise valid recording group decline at runtime.
-        std::function<bool(const std::string&)> IsPassReachable;
+        std::function<bool(std::string_view)> IsPassReachable;
     };
 
-    [[nodiscard]] auto BuildPlan(const PlanInput& input) -> std::vector<RenderGraph::SubmissionCommand>;
+    [[nodiscard]] auto BuildPlan(const PlanInput& input) -> TArray64<RenderGraph::SubmissionCommand>;
 } // namespace OloEngine::RenderGraphSubmissionPlan

@@ -69,9 +69,9 @@ namespace OloEngine
         {
             return m_RHIHandle.Get();
         }
-        [[nodiscard]] const std::string& GetPath() const override
+        [[nodiscard]] std::string_view GetPath() const override
         {
-            return m_Path;
+            return m_Path.ToView();
         }
         [[nodiscard]] bool IsLoaded() const override
         {
@@ -99,12 +99,12 @@ namespace OloEngine
         void Invalidate(std::string_view path, u32 width, u32 height, const void* data, u32 channels) override;
         bool SetLayerMipData(u32 layer, u32 mip, const void* data, sizet sizeBytes) override;
         bool CopyLayerFromCubemap(u32 layer, const TextureCubemap& source) override;
-        bool GetData(std::vector<u8>& outData, u32 mipLevel = 0) const override;
+        bool GetData(TArray64<u8>& outData, u32 mipLevel = 0) const override;
 
       private:
         TextureSpecification m_Specification;
         CubemapArraySpecification m_ArraySpecification;
-        std::string m_Path;
+        FString m_Path;
         u32 m_MipLevels = 1;
         VkImage m_Image = VK_NULL_HANDLE;
         VmaAllocation m_Allocation = VK_NULL_HANDLE;

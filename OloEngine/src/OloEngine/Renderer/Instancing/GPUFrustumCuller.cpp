@@ -112,7 +112,7 @@ namespace OloEngine
     GPUFrustumCuller::PoolSlot& GPUFrustumCuller::AcquireSlot(u32 requiredCapacity)
     {
         // Either reuse an existing pool slot or grow the pool by one.
-        if (m_NextSlot >= m_Pool.size())
+        if (m_NextSlot >= static_cast<sizet>(m_Pool.Num()))
         {
             PoolSlot slot;
             slot.OutputBuffer = Ref<InstanceBuffer>::Create(std::max(requiredCapacity, 64u));
@@ -125,7 +125,7 @@ namespace OloEngine
                 ShaderBindingLayout::SSBO_INSTANCE_DRAW_INDIRECT,
                 StorageBufferUsage::DynamicCopy);
             slot.Capacity = std::max(requiredCapacity, 64u);
-            m_Pool.push_back(std::move(slot));
+            m_Pool.Add(std::move(slot));
         }
 
         PoolSlot& slot = m_Pool[m_NextSlot++];
@@ -198,14 +198,15 @@ namespace OloEngine
         if (inputCount > 0)
         {
             const glm::vec3 origin = Renderer3D::GetRenderOrigin();
-            thread_local std::vector<InstanceData> scratch;
-            scratch.assign(instances.begin(), instances.end());
+            thread_local TArray<InstanceData> scratch;
+            scratch.Reset();
+            scratch.Append(instances.data(), static_cast<i32>(instances.size()));
             for (InstanceData& inst : scratch)
             {
                 inst.Transform = MakeModelRelative(inst.Transform, origin);
                 inst.PrevTransform = MakeModelRelative(inst.PrevTransform, origin);
             }
-            slot.InputBuffer->SetData(scratch.data(),
+            slot.InputBuffer->SetData(scratch.GetData(),
                                       inputCount * static_cast<u32>(sizeof(InstanceData)),
                                       0);
         }
@@ -401,14 +402,15 @@ namespace OloEngine
         if (inputCount > 0)
         {
             const glm::vec3 origin = Renderer3D::GetRenderOrigin();
-            thread_local std::vector<InstanceData> scratch;
-            scratch.assign(instances.begin(), instances.end());
+            thread_local TArray<InstanceData> scratch;
+            scratch.Reset();
+            scratch.Append(instances.data(), static_cast<i32>(instances.size()));
             for (InstanceData& inst : scratch)
             {
                 inst.Transform = MakeModelRelative(inst.Transform, origin);
                 inst.PrevTransform = MakeModelRelative(inst.PrevTransform, origin);
             }
-            slot.InputBuffer->SetData(scratch.data(), inputCount * static_cast<u32>(sizeof(InstanceData)), 0);
+            slot.InputBuffer->SetData(scratch.GetData(), inputCount * static_cast<u32>(sizeof(InstanceData)), 0);
         }
 
         // Seed the phase-1 indirect command (compute atomic-adds survivors) and

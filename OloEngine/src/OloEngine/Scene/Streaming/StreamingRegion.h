@@ -5,8 +5,8 @@
 #include "OloEngine/Core/UUID.h"
 
 #include <filesystem>
-#include <string>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/String.h"
 
 #include <glm/glm.hpp>
 
@@ -34,7 +34,9 @@ namespace OloEngine
 
         // Identity
         UUID m_RegionID;
-        std::string m_Name;
+        FString m_Name;
+        // Native filesystem path passed to ParseRegionFile; retain Windows wide
+        // characters without converting through an engine narrow string.
         std::filesystem::path m_SourcePath; // .oloregion file
 
         // Spatial bounds (axis-aligned)
@@ -48,7 +50,7 @@ namespace OloEngine
         u64 m_LastUsedFrame = 0;
 
         // Entity tracking (filled after additive deserialize)
-        std::vector<UUID> m_EntityUUIDs;
+        TArray<UUID> m_EntityUUIDs;
 
         // Raw YAML data (populated by background thread, consumed on main)
         YAML::Node m_RawData;

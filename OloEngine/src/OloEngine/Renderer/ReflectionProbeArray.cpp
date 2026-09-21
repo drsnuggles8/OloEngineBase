@@ -59,7 +59,7 @@ namespace OloEngine
 
     void ReflectionProbeArray::Shutdown()
     {
-        m_Layers.clear();
+        m_Layers.Reset();
         m_RadianceArray.Reset();
         m_DistanceArray.Reset();
         m_PlaceholderRadiance.Reset();
@@ -68,13 +68,13 @@ namespace OloEngine
         m_GridSSBO.Reset();
         m_CullShader.Reset();
         m_CullParamsUBO.Reset();
-        m_Submitted.clear();
+        m_Submitted.Reset();
         m_UploadedCount = 0;
         m_GridValid = false;
         m_Initialized = false;
     }
 
-    void ReflectionProbeArray::SetProbes(std::vector<ReflectionProbeRenderData>&& probes)
+    void ReflectionProbeArray::SetProbes(TArray<ReflectionProbeRenderData>&& probes)
     {
         m_Submitted = std::move(probes);
     }
@@ -97,7 +97,7 @@ namespace OloEngine
         // The radiance array's face size / format follow the probes'
         // prefilter maps (every bake uses the same IBLConfiguration, so all
         // probes agree; a mismatching probe is skipped in PrepareFrame).
-        u32 const capacity = static_cast<u32>(m_Layers.size());
+        u32 const capacity = static_cast<u32>(m_Layers.Num());
         if (m_RadianceArray && m_DistanceArray && requiredLayers <= capacity)
         {
             return true;
@@ -116,9 +116,9 @@ namespace OloEngine
         Ref<TextureCubemap> reference = referencePrefilter;
         for (auto const& slot : m_Layers)
         {
-            if (slot.Environment && slot.Environment->GetPrefilterMap())
+            if (slot && slot->GetPrefilterMap())
             {
-                reference = slot.Environment->GetPrefilterMap();
+                reference = slot->GetPrefilterMap();
                 break;
             }
         }
@@ -150,19 +150,19 @@ namespace OloEngine
 
         // Swap in the new arrays, then re-upload every occupied layer — the
         // old GPU contents die with the old textures.
-        std::vector<LayerSlot> previous = std::move(m_Layers);
-        m_Layers.assign(newCapacity, {});
+        TArray<Ref<EnvironmentMap>> previous = std::move(m_Layers);
+        m_Layers.SetNum(static_cast<i32>(newCapacity), EAllowShrinking::No);
         m_RadianceArray = radiance;
         m_DistanceArray = distance;
 
-        // Capacity never shrinks, so previous.size() <= m_Layers.size() —
+        // Capacity never shrinks, so previous.Num() <= m_Layers.Num() —
         // the double bound is belt-and-braces against that ever changing.
-        sizet const reuploadCount = std::min(previous.size(), m_Layers.size());
+        sizet const reuploadCount = std::min(previous.Num(), m_Layers.Num());
         for (sizet i = 0; i < reuploadCount; ++i)
         {
-            if (previous[i].Environment && UploadLayer(static_cast<u32>(i), *previous[i].Environment))
+            if (previous[i] && UploadLayer(static_cast<u32>(i), *previous[i]))
             {
-                m_Layers[i].Environment = previous[i].Environment;
+                m_Layers[i] = previous[i];
             }
         }
 
@@ -232,18 +232,18 @@ namespace OloEngine
         m_GridValid = false;
         if (!m_Initialized)
         {
-            m_Submitted.clear();
+            m_Submitted.Reset();
             return;
         }
 
         // Validate + cap the submitted set. A probe without a distance field
         // (pre-#705 bake, or a failed distance capture) is skipped — it still
         // contributes through the irradiance override, just not here.
-        std::vector<ReflectionProbeRenderData> wanted;
-        wanted.reserve(std::min<sizet>(m_Submitted.size(), UBOStructures::ReflectionProbeUBO::MAX_PROBES));
+        TArray<ReflectionProbeRenderData> wanted;
+        wanted.Reserve(std::min<sizet>(m_Submitted.Num(), UBOStructures::ReflectionProbeUBO::MAX_PROBES));
         for (auto& probe : m_Submitted)
         {
-            if (wanted.size() >= UBOStructures::ReflectionProbeUBO::MAX_PROBES)
+            if (wanted.Num() >= UBOStructures::ReflectionProbeUBO::MAX_PROBES)
             {
                 break;
             }
@@ -268,13 +268,13 @@ namespace OloEngine
                 }
                 continue;
             }
-            wanted.push_back(std::move(probe));
+            wanted.Add(std::move(probe));
         }
-        m_Submitted.clear();
+        m_Submitted.Reset();
 
         UBOStructures::ReflectionProbeUBO uboData{};
-        if (wanted.empty() ||
-            !EnsureArrays(static_cast<u32>(wanted.size()), wanted.front().Environment->GetPrefilterMap()))
+        if (wanted.IsEmpty() ||
+            !EnsureArrays(static_cast<u32>(wanted.Num()), wanted.First().Environment->GetPrefilterMap()))
         {
             // Keep the UBO current so shaders see zero probes rather than a
             // stale count from the previous scene/frame.
@@ -287,14 +287,14 @@ namespace OloEngine
         // EnvironmentMap reference (the bake result) immediately.
         for (auto& slot : m_Layers)
         {
-            if (!slot.Environment)
+            if (!slot)
             {
                 continue;
             }
             bool stillWanted = false;
             for (auto const& probe : wanted)
             {
-                if (probe.Environment.Raw() == slot.Environment.Raw())
+                if (probe.Environment.Raw() == slot.Raw())
                 {
                     stillWanted = true;
                     break;
@@ -302,7 +302,7 @@ namespace OloEngine
             }
             if (!stillWanted)
             {
-                slot.Environment = nullptr;
+                slot = nullptr;
             }
         }
 
@@ -315,7 +315,7 @@ namespace OloEngine
         glm::vec3 const renderOrigin = Renderer3D::GetRenderOrigin();
 
         u32 count = 0;
-        auto const layerCount = m_Layers.size();
+        auto const layerCount = m_Layers.Num();
         for (auto const& probe : wanted)
         {
             // Find the probe's layer (identity match on the bake result) or
@@ -323,7 +323,7 @@ namespace OloEngine
             i32 layer = -1;
             for (sizet i = 0; i < layerCount; ++i)
             {
-                if (m_Layers[i].Environment.Raw() == probe.Environment.Raw())
+                if (m_Layers[i].Raw() == probe.Environment.Raw())
                 {
                     layer = static_cast<i32>(i);
                     break;
@@ -333,7 +333,7 @@ namespace OloEngine
             {
                 for (sizet i = 0; i < layerCount; ++i)
                 {
-                    if (!m_Layers[i].Environment)
+                    if (!m_Layers[i])
                     {
                         layer = static_cast<i32>(i);
                         break;
@@ -348,7 +348,7 @@ namespace OloEngine
                     OLO_CORE_WARN("ReflectionProbeArray: layer upload failed — probe skipped this frame");
                     continue;
                 }
-                m_Layers[static_cast<sizet>(layer)].Environment = probe.Environment;
+                m_Layers[static_cast<sizet>(layer)] = probe.Environment;
             }
 
             auto& gpuProbe = uboData.Probes[count];

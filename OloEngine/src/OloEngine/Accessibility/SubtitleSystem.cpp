@@ -166,7 +166,7 @@ namespace OloEngine
             rel.m_ParentHandle = m_CanvasEntity;
             if (!canvasEntity.HasComponent<RelationshipComponent>())
                 canvasEntity.AddComponent<RelationshipComponent>();
-            canvasEntity.GetComponent<RelationshipComponent>().m_Children.push_back(panelEntity.GetUUID());
+            canvasEntity.GetComponent<RelationshipComponent>().m_Children.Add(panelEntity.GetUUID());
 
             m_PanelEntity = panelEntity.GetUUID();
         }
@@ -188,7 +188,7 @@ namespace OloEngine
 
             auto& rel = textEntity.AddComponent<RelationshipComponent>();
             rel.m_ParentHandle = m_PanelEntity;
-            panelEntity.GetComponent<RelationshipComponent>().m_Children.push_back(textEntity.GetUUID());
+            panelEntity.GetComponent<RelationshipComponent>().m_Children.Add(textEntity.GetUUID());
 
             m_TextEntity = textEntity.GetUUID();
         }

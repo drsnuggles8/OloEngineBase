@@ -79,7 +79,7 @@ namespace OloEngine::Tests
             ASSERT_TRUE(proxy.IsValid()) << label << ": proxy is invalid";
 
             std::map<std::pair<PositionKey, PositionKey>, int> edgeCounts;
-            for (sizet i = 0; i + 2 < proxy.Indices.size(); i += 3)
+            for (sizet i = 0; i + 2 < static_cast<sizet>(proxy.Indices.Num()); i += 3)
             {
                 const std::array<PositionKey, 3> keys = {
                     MakePositionKey(proxy.Vertices[proxy.Indices[i]]),
@@ -107,8 +107,8 @@ namespace OloEngine::Tests
 
         void ExpectProxyIndicesAreInRange(const VirtualProxyMesh& proxy, const char* label)
         {
-            ASSERT_EQ(proxy.Indices.size() % 3u, 0u) << label << ": index count is not a whole number of triangles";
-            const auto vertexCount = static_cast<u32>(proxy.Vertices.size());
+            ASSERT_EQ(static_cast<sizet>(proxy.Indices.Num()) % 3u, 0u) << label << ": index count is not a whole number of triangles";
+            const auto vertexCount = static_cast<u32>(static_cast<sizet>(proxy.Vertices.Num()));
             for (const u32 index : proxy.Indices)
             {
                 ASSERT_LT(index, vertexCount) << label << ": index " << index << " is out of range of "
@@ -125,8 +125,8 @@ namespace OloEngine::Tests
         ASSERT_GT(vm.LevelCount, 1u) << "fixture did not build a multi-level DAG — the cut test would be vacuous";
 
         const f32 threshold = vm.CoarsestCutThreshold();
-        const std::vector<u32> cut = vm.SelectCoarsestCut();
-        ASSERT_FALSE(cut.empty());
+        const TArray<u32> cut = vm.SelectCoarsestCut();
+        ASSERT_FALSE(cut.IsEmpty());
 
         // Every selected cluster belongs to a group the threshold cannot
         // satisfy, i.e. a terminal (FLT_MAX-error) one. That IS the definition
@@ -148,8 +148,8 @@ namespace OloEngine::Tests
         // ...and going one notch finer must select MORE, or the "coarsest"
         // claim is untested: a threshold that selects everything at every
         // value would pass the loop above vacuously.
-        const std::vector<u32> finer = vm.SelectClusters(threshold * 0.5f);
-        EXPECT_GT(finer.size(), cut.size()) << "a finer threshold selected no more clusters than the coarsest one";
+        const TArray<u32> finer = vm.SelectClusters(threshold * 0.5f);
+        EXPECT_GT(static_cast<sizet>(finer.Num()), static_cast<sizet>(cut.Num())) << "a finer threshold selected no more clusters than the coarsest one";
     }
 
     TEST(VirtualMeshProxy, ProxyIsWatertightAndSubstantiallySmallerThanTheSource)
@@ -174,7 +174,7 @@ namespace OloEngine::Tests
         EXPECT_GT(proxy.TriangleCount(), 0u);
         // Compaction: the proxy must not carry the DAG's whole vertex array,
         // which holds every LOD level's vertices.
-        EXPECT_LT(proxy.Vertices.size(), vm.Vertices.size());
+        EXPECT_LT(static_cast<sizet>(proxy.Vertices.Num()), static_cast<sizet>(vm.Vertices.Num()));
     }
 
     TEST(VirtualMeshProxy, ProxyVerticesAreByteCopiesOfTheDagVertices)
@@ -236,8 +236,8 @@ namespace OloEngine::Tests
         // partial success" this issue explicitly warns against.
         const VirtualProxyMesh empty = BuildVirtualProxyMesh(VirtualMesh{});
         EXPECT_FALSE(empty.IsValid());
-        EXPECT_TRUE(empty.Vertices.empty());
-        EXPECT_TRUE(empty.Indices.empty());
+        EXPECT_TRUE(empty.Vertices.IsEmpty());
+        EXPECT_TRUE(empty.Indices.IsEmpty());
     }
 
     TEST(VirtualMeshProxy, ACutThatLosesAnyTriangleIsRejectedRatherThanShippedWithAHole)
@@ -251,20 +251,20 @@ namespace OloEngine::Tests
         VirtualMesh vm = VirtualMeshBuilder::Build(*mesh);
         ASSERT_TRUE(vm.IsValid());
         ASSERT_TRUE(BuildVirtualProxyMesh(vm).IsValid()) << "the intact DAG must build, or this test is vacuous";
-        ASSERT_GT(vm.Clusters.size(), 1u);
+        ASSERT_GT(static_cast<sizet>(vm.Clusters.Num()), 1u);
 
         // Corrupt exactly ONE cluster of the coarsest cut, the way a truncated
         // or stale cooked blob would: a vertex window that runs past the end of
         // ClusterVertexRefs.
-        const std::vector<u32> cut = vm.SelectCoarsestCut();
-        ASSERT_FALSE(cut.empty());
-        vm.Clusters[cut.front()].VertexOffset = static_cast<u32>(vm.ClusterVertexRefs.size());
+        const TArray<u32> cut = vm.SelectCoarsestCut();
+        ASSERT_FALSE(cut.IsEmpty());
+        vm.Clusters[cut[0]].VertexOffset = static_cast<u32>(static_cast<sizet>(vm.ClusterVertexRefs.Num()));
 
         const VirtualProxyMesh proxy = BuildVirtualProxyMesh(vm);
         EXPECT_FALSE(proxy.IsValid())
             << "a cut that lost a cluster still produced a proxy — it is no longer watertight and must be refused";
-        EXPECT_TRUE(proxy.Indices.empty());
-        EXPECT_TRUE(proxy.Vertices.empty());
+        EXPECT_TRUE(proxy.Indices.IsEmpty());
+        EXPECT_TRUE(proxy.Vertices.IsEmpty());
     }
 
     TEST(VirtualMeshProxy, EveryPartOfAMultiSubmeshSourceGetsItsOwnProxy)
@@ -292,7 +292,7 @@ namespace OloEngine::Tests
 
         const VirtualMeshSet set = VirtualMeshBuilder::BuildSet(*mesh);
         ASSERT_TRUE(set.IsValid());
-        ASSERT_GE(set.Parts.size(), 2u) << "fixture did not produce a multi-part DAG";
+        ASSERT_GE(static_cast<sizet>(set.Parts.Num()), 2u) << "fixture did not produce a multi-part DAG";
 
         for (const VirtualMeshPart& part : set.Parts)
         {

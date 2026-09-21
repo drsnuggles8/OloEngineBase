@@ -19,7 +19,7 @@ namespace OloEngine
         // OpenGLTextureCubemap::LoadFaces' contract — faces are NOT
         // vertically flipped (unlike Texture2D), extent comes from face 0,
         // and every face must match it (pixels are force-expanded to RGBA8).
-        Ref<TextureCubemap> LoadVulkanCubemapFromFacePaths(const std::vector<std::string>& facePaths)
+        Ref<TextureCubemap> LoadVulkanCubemapFromFacePaths(std::span<const FString> facePaths)
         {
             stbi_set_flip_vertically_on_load_thread(0);
 
@@ -36,10 +36,10 @@ namespace OloEngine
                 // size below always matches the RGBA8 spec (a native-channel
                 // load handed SetFaceDataMip a texel size the format doesn't
                 // describe for grey / grey-alpha faces).
-                stbi_uc* pixels = stbi_load(facePaths[i].c_str(), &width, &height, &fileChannels, 4);
+                stbi_uc* pixels = stbi_load(facePaths[i].GetData(), &width, &height, &fileChannels, 4);
                 if (pixels == nullptr)
                 {
-                    OLO_CORE_ERROR("[RHI/Vulkan] cubemap face '{}' failed to load: {}", facePaths[i],
+                    OLO_CORE_ERROR("[RHI/Vulkan] cubemap face '{}' failed to load: {}", facePaths[i].ToView(),
                                    stbi_failure_reason());
                     return nullptr;
                 }
@@ -57,7 +57,7 @@ namespace OloEngine
                 }
                 if (cubemap == nullptr)
                 {
-                    OLO_CORE_ERROR("[RHI/Vulkan] cubemap creation failed for '{}' ({}x{})", facePaths[i], faceWidth,
+                    OLO_CORE_ERROR("[RHI/Vulkan] cubemap creation failed for '{}' ({}x{})", facePaths[i].ToView(), faceWidth,
                                    faceHeight);
                     stbi_image_free(pixels);
                     return nullptr;
@@ -65,7 +65,7 @@ namespace OloEngine
                 if (static_cast<u32>(width) != faceWidth || static_cast<u32>(height) != faceHeight ||
                     fileChannels != channels)
                 {
-                    OLO_CORE_ERROR("[RHI/Vulkan] cubemap face '{}' is {}x{}x{} but face 0 was {}x{}x{}", facePaths[i],
+                    OLO_CORE_ERROR("[RHI/Vulkan] cubemap face '{}' is {}x{}x{} but face 0 was {}x{}x{}", facePaths[i].ToView(),
                                    width, height, fileChannels, faceWidth, faceHeight, channels);
                     stbi_image_free(pixels);
                     return nullptr;
@@ -86,7 +86,7 @@ namespace OloEngine
     } // namespace
 #endif
 
-    Ref<TextureCubemap> TextureCubemap::Create(const std::vector<std::string>& facePaths)
+    Ref<TextureCubemap> TextureCubemap::Create(std::span<const FString> facePaths)
     {
         OLO_CORE_ASSERT(facePaths.size() == 6, "Cubemap requires exactly 6 face textures!");
 

@@ -1,5 +1,8 @@
 #pragma once
 
+#include "OloEngine/Containers/Array.h"
+#include <span>
+
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Renderer/RenderGraphNode.h"
@@ -131,9 +134,10 @@ namespace OloEngine
         // The frame's opted-in lights, in the order Scene found them. More than
         // kRayTracedShadowMaskChannels of them is not an error: the surplus is
         // counted as MaskChannelBudgetExhausted and falls back.
-        void SetLightRequests(std::vector<RayTracedShadowLightRequest> requests) noexcept
+        void SetLightRequests(std::span<const RayTracedShadowLightRequest> requests)
         {
-            m_LightRequests = std::move(requests);
+            m_LightRequests.Reset();
+            m_LightRequests.Append(requests.data(), static_cast<i64>(requests.size()));
         }
         // TLAS instances whose geometry is alpha-tested. They shadow as solid
         // here (no shader-visible sampler heap yet, #805) and the count is what
@@ -172,7 +176,7 @@ namespace OloEngine
         u32 m_FrameIndex = 0;
         u32 m_MaskedOccluderCount = 0;
 
-        std::vector<RayTracedShadowLightRequest> m_LightRequests;
+        TArray64<RayTracedShadowLightRequest> m_LightRequests;
         // Channel -> the request that won it, BY VALUE. Rebuilt every frame by
         // ResolveTechniqueForFrame. A pointer into m_LightRequests would be
         // one SetLightRequests call away from dangling, and the struct is five

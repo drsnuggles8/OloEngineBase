@@ -19,7 +19,7 @@ namespace OloEngine
         if (!node)
             return nullptr;
         auto* ptr = node.get();
-        m_Nodes.push_back(std::move(node));
+        m_Nodes.AddTail(std::move(node));
         return ptr;
     }
 
@@ -40,12 +40,18 @@ namespace OloEngine
             pinIDs.insert(static_cast<u64>(pin.ID));
 
         // Remove links referencing those pins
-        std::erase_if(m_Links, [&pinIDs](const ShaderGraphLink& link)
-                      { return pinIDs.contains(static_cast<u64>(link.OutputPinID)) || pinIDs.contains(static_cast<u64>(link.InputPinID)); });
+        m_Links.RemoveAll([&pinIDs](const ShaderGraphLink& link)
+                          { return pinIDs.contains(static_cast<u64>(link.OutputPinID)) || pinIDs.contains(static_cast<u64>(link.InputPinID)); });
 
         // Remove the node
-        std::erase_if(m_Nodes, [nodeID](const Scope<ShaderGraphNode>& n)
-                      { return n->ID == nodeID; });
+        for (auto* entry = m_Nodes.GetHead(); entry; entry = entry->GetNextNode())
+        {
+            if (entry->GetValue()->ID == nodeID)
+            {
+                m_Nodes.RemoveNode(entry);
+                break;
+            }
+        }
         return true;
     }
 
@@ -136,21 +142,21 @@ namespace OloEngine
             return nullptr;
 
         // Remove any existing link to this input pin (each input has at most one connection)
-        std::erase_if(m_Links, [inputPinID](const ShaderGraphLink& link)
-                      { return link.InputPinID == inputPinID; });
+        m_Links.RemoveAll([inputPinID](const ShaderGraphLink& link)
+                          { return link.InputPinID == inputPinID; });
 
         // Create the link
-        m_Links.emplace_back(UUID(), outputPinID, inputPinID);
-        return &m_Links.back();
+        m_Links.Emplace(UUID(), outputPinID, inputPinID);
+        return &m_Links.Last();
     }
 
     void ShaderGraph::RestoreLink(UUID linkID, UUID outputPinID, UUID inputPinID)
     {
         // Remove any existing link to this input pin
-        std::erase_if(m_Links, [inputPinID](const ShaderGraphLink& link)
-                      { return link.InputPinID == inputPinID; });
+        m_Links.RemoveAll([inputPinID](const ShaderGraphLink& link)
+                          { return link.InputPinID == inputPinID; });
 
-        m_Links.emplace_back(linkID, outputPinID, inputPinID);
+        m_Links.Emplace(linkID, outputPinID, inputPinID);
     }
 
     bool ShaderGraph::RemoveLink(UUID linkID)
@@ -162,7 +168,7 @@ namespace OloEngine
                                        { return link.ID == linkID; });
         if (it == m_Links.end())
             return false;
-        m_Links.erase(it);
+        m_Links.RemoveAt(static_cast<i32>(it - m_Links.begin()), 1, EAllowShrinking::No);
         return true;
     }
 
@@ -196,13 +202,13 @@ namespace OloEngine
         return nullptr;
     }
 
-    std::vector<const ShaderGraphLink*> ShaderGraph::GetLinksForOutputPin(UUID outputPinID) const
+    TArray<const ShaderGraphLink*> ShaderGraph::GetLinksForOutputPin(UUID outputPinID) const
     {
-        std::vector<const ShaderGraphLink*> result;
+        TArray<const ShaderGraphLink*> result;
         for (const auto& link : m_Links)
         {
             if (link.OutputPinID == outputPinID)
-                result.push_back(&link);
+                result.Add(&link);
         }
         return result;
     }
@@ -234,13 +240,13 @@ namespace OloEngine
         // BFS from the input node's outputs to see if we can reach the output node
         // If the output node is reachable from the input node, adding this link creates a cycle
         std::unordered_set<u64> visited;
-        std::queue<u64> frontier;
-        frontier.push(static_cast<u64>(inputNode->ID));
+        TArray<u64> frontier;
+        i32 frontierIndex = 0;
+        frontier.Add(static_cast<u64>(inputNode->ID));
 
-        while (!frontier.empty())
+        while (frontierIndex < frontier.Num())
         {
-            u64 currentID = frontier.front();
-            frontier.pop();
+            u64 currentID = frontier[frontierIndex++];
 
             if (currentID == static_cast<u64>(outputNode->ID))
                 return true;
@@ -261,7 +267,7 @@ namespace OloEngine
                 {
                     const auto* downstreamNode = FindNodeByPinID(link->InputPinID);
                     if (downstreamNode && !visited.contains(static_cast<u64>(downstreamNode->ID)))
-                        frontier.push(static_cast<u64>(downstreamNode->ID));
+                        frontier.Add(static_cast<u64>(downstreamNode->ID));
                 }
             }
         }
@@ -299,12 +305,12 @@ namespace OloEngine
         if (int outputCount = pbrCount + computeCount; outputCount == 0)
         {
             result.IsValid = false;
-            result.Errors.emplace_back("Graph must have exactly one output node (PBROutput or ComputeOutput)");
+            result.Errors.Emplace("Graph must have exactly one output node (PBROutput or ComputeOutput)");
         }
         else if (outputCount > 1)
         {
             result.IsValid = false;
-            result.Errors.push_back("Graph must have exactly one output node, found " + std::to_string(outputCount));
+            result.Errors.Add("Graph must have exactly one output node, found " + std::to_string(outputCount));
         }
         else
         {
@@ -328,7 +334,7 @@ namespace OloEngine
                     node->TypeName == ShaderGraphNodeTypes::Texture2DParameter)
                 {
                     result.IsValid = false;
-                    result.Errors.push_back("Raster-only node '" + node->TypeName + "' not allowed in compute graph");
+                    result.Errors.Add("Raster-only node '" + node->TypeName + "' not allowed in compute graph");
                 }
             }
             else
@@ -341,16 +347,16 @@ namespace OloEngine
                     node->TypeName == ShaderGraphNodeTypes::GlobalInvocationID)
                 {
                     result.IsValid = false;
-                    result.Errors.push_back("Compute-only node '" + node->TypeName + "' not allowed in PBR graph");
+                    result.Errors.Add("Compute-only node '" + node->TypeName + "' not allowed in PBR graph");
                 }
             }
         }
 
         // Check for cycles via topological sort
-        if (auto order = GetTopologicalOrder(); order.empty() && !m_Nodes.empty())
+        if (auto order = GetTopologicalOrder(); order.IsEmpty() && !m_Nodes.IsEmpty())
         {
             result.IsValid = false;
-            result.Errors.emplace_back("Graph contains a cycle");
+            result.Errors.Emplace("Graph contains a cycle");
         }
 
         // Warn about disconnected required inputs on the output node
@@ -358,16 +364,16 @@ namespace OloEngine
         {
             const auto* albedoPin = outputNode->FindPinByName("Albedo", ShaderGraphPinDirection::Input);
             if (albedoPin && !GetLinkForInputPin(albedoPin->ID))
-                result.Warnings.emplace_back("PBROutput 'Albedo' input is not connected, will use default value");
+                result.Warnings.Emplace("PBROutput 'Albedo' input is not connected, will use default value");
         }
 
         // Check for parameter name uniqueness
         std::unordered_map<std::string, int> paramNames;
         for (const auto& node : m_Nodes)
         {
-            if (!node->ParameterName.empty())
+            if (!node->ParameterName.IsEmpty())
             {
-                ++paramNames[node->ParameterName];
+                ++paramNames[node->ParameterName.ToStdString()];
             }
         }
         for (const auto& [name, count] : paramNames)
@@ -375,22 +381,22 @@ namespace OloEngine
             if (count > 1)
             {
                 result.IsValid = false;
-                result.Errors.push_back("Duplicate parameter name: '" + name + "' used by " + std::to_string(count) + " nodes");
+                result.Errors.Add("Duplicate parameter name: '" + name + "' used by " + std::to_string(count) + " nodes");
             }
         }
 
         return result;
     }
 
-    std::vector<const ShaderGraphNode*> ShaderGraph::GetTopologicalOrder() const
+    TArray<const ShaderGraphNode*> ShaderGraph::GetTopologicalOrder() const
     {
         OLO_PROFILE_FUNCTION();
 
-        if (m_Nodes.empty())
+        if (m_Nodes.IsEmpty())
             return {};
 
         // Build adjacency: for each node, which nodes depend on it (downstream)
-        std::unordered_map<u64, std::vector<u64>> adjacency;
+        std::unordered_map<u64, TArray<u64>> adjacency;
         std::unordered_map<u64, int> inDegree;
 
         for (const auto& node : m_Nodes)
@@ -410,41 +416,41 @@ namespace OloEngine
 
             u64 fromID = static_cast<u64>(outputNode->ID);
             u64 toID = static_cast<u64>(inputNode->ID);
-            adjacency[fromID].push_back(toID);
+            adjacency[fromID].Add(toID);
             ++inDegree[toID];
         }
 
         // Kahn's algorithm
-        std::queue<u64> frontier;
+        TArray<u64> frontier;
+        i32 frontierIndex = 0;
         for (const auto& [id, degree] : inDegree)
         {
             if (degree == 0)
-                frontier.push(id);
+                frontier.Add(id);
         }
 
-        std::vector<const ShaderGraphNode*> sorted;
-        sorted.reserve(m_Nodes.size());
+        TArray<const ShaderGraphNode*> sorted;
+        sorted.Reserve(m_Nodes.Num());
 
-        while (!frontier.empty())
+        while (frontierIndex < frontier.Num())
         {
-            u64 current = frontier.front();
-            frontier.pop();
+            u64 current = frontier[frontierIndex++];
 
             if (const auto* node = FindNode(UUID(current)); node)
-                sorted.push_back(node);
+                sorted.Add(node);
 
             if (auto it = adjacency.find(current); it != adjacency.end())
             {
                 for (u64 downstream : it->second)
                 {
                     if (--inDegree[downstream] == 0)
-                        frontier.push(downstream);
+                        frontier.Add(downstream);
                 }
             }
         }
 
         // If we didn't visit all nodes, there's a cycle
-        if (sorted.size() != m_Nodes.size())
+        if (sorted.Num() != m_Nodes.Num())
             return {};
 
         return sorted;

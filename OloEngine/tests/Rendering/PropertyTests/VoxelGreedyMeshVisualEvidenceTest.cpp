@@ -415,9 +415,9 @@ namespace OloEngine::Tests
             {
                 VoxelNeighbourhood neighbourhood;
                 VoxelGreedyMesher::Gather(*terraced, coord, neighbourhood);
-                std::vector<PackedQuad> quads;
+                TArray<PackedQuad> quads;
                 mesher.Mesh(neighbourhood, quads);
-                terracedQuads += static_cast<u32>(quads.size());
+                terracedQuads += static_cast<u32>(quads.Num());
             }
             ASSERT_GT(terracedQuads, 0u);
 

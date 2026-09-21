@@ -224,7 +224,7 @@ namespace OloEngine
                 encodedVB = MeshOptimization::EncodeVertexBuffer(
                     vertices.GetData(), geo.VertexCount, sizeof(Vertex));
             }
-            geo.EncodedVertexSize = encodedVB.Data.size();
+            geo.EncodedVertexSize = static_cast<sizet>(encodedVB.Data.Num());
 
             // Encode index buffer
             EncodedMeshBuffer encodedIB;
@@ -233,7 +233,7 @@ namespace OloEngine
                 encodedIB = MeshOptimization::EncodeIndexBuffer(
                     indices.GetData(), geo.IndexCount, geo.VertexCount);
             }
-            geo.EncodedIndexSize = encodedIB.Data.size();
+            geo.EncodedIndexSize = static_cast<sizet>(encodedIB.Data.Num());
 
             // Encode shadow index buffer
             EncodedMeshBuffer encodedShadow;
@@ -242,20 +242,20 @@ namespace OloEngine
                 encodedShadow = MeshOptimization::EncodeIndexBuffer(
                     meshSource.GetShadowIndices().GetData(), geo.ShadowIndexCount, geo.VertexCount);
             }
-            geo.EncodedShadowIndexSize = encodedShadow.Data.size();
+            geo.EncodedShadowIndexSize = static_cast<sizet>(encodedShadow.Data.Num());
 
             WriteBytes(payload, &geo, sizeof(geo));
-            if (!encodedVB.Data.empty())
+            if (!encodedVB.Data.IsEmpty())
             {
-                WriteBytes(payload, encodedVB.Data.data(), encodedVB.Data.size());
+                WriteBytes(payload, encodedVB.Data.GetData(), static_cast<sizet>(encodedVB.Data.Num()));
             }
-            if (!encodedIB.Data.empty())
+            if (!encodedIB.Data.IsEmpty())
             {
-                WriteBytes(payload, encodedIB.Data.data(), encodedIB.Data.size());
+                WriteBytes(payload, encodedIB.Data.GetData(), static_cast<sizet>(encodedIB.Data.Num()));
             }
-            if (!encodedShadow.Data.empty())
+            if (!encodedShadow.Data.IsEmpty())
             {
-                WriteBytes(payload, encodedShadow.Data.data(), encodedShadow.Data.size());
+                WriteBytes(payload, encodedShadow.Data.GetData(), static_cast<sizet>(encodedShadow.Data.Num()));
             }
 
             directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::Geometry))].Size =
@@ -420,12 +420,12 @@ namespace OloEngine
                 encoded = MeshOptimization::EncodeVertexBuffer(
                     boneInfluences.GetData(), influenceCount, sizeof(BoneInfluence));
             }
-            biHeader.EncodedSize = encoded.Data.size();
+            biHeader.EncodedSize = static_cast<sizet>(encoded.Data.Num());
 
             WriteBytes(payload, &biHeader, sizeof(biHeader));
-            if (!encoded.Data.empty())
+            if (!encoded.Data.IsEmpty())
             {
-                WriteBytes(payload, encoded.Data.data(), encoded.Data.size());
+                WriteBytes(payload, encoded.Data.GetData(), static_cast<sizet>(encoded.Data.Num()));
             }
 
             directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::BoneInfluences))].Size =
@@ -893,9 +893,9 @@ namespace OloEngine
                 if (geo.VertexCount > 0 && geo.EncodedVertexSize > 0)
                 {
                     EncodedMeshBuffer encoded;
-                    encoded.Data.resize(static_cast<sizet>(geo.EncodedVertexSize));
+                    encoded.Data.SetNum(static_cast<sizet>(geo.EncodedVertexSize));
                     encoded.OriginalSize = geo.VertexCount * geo.VertexStride;
-                    ReadBytes(payload, encoded.Data.data(), encoded.Data.size());
+                    ReadBytes(payload, encoded.Data.GetData(), static_cast<sizet>(encoded.Data.Num()));
 
                     vertices.SetNum(static_cast<i32>(geo.VertexCount));
                     if (!MeshOptimization::DecodeVertexBuffer(vertices.GetData(), geo.VertexCount, geo.VertexStride, encoded))
@@ -909,9 +909,9 @@ namespace OloEngine
                 if (geo.IndexCount > 0 && geo.EncodedIndexSize > 0)
                 {
                     EncodedMeshBuffer encoded;
-                    encoded.Data.resize(static_cast<sizet>(geo.EncodedIndexSize));
+                    encoded.Data.SetNum(static_cast<sizet>(geo.EncodedIndexSize));
                     encoded.OriginalSize = geo.IndexCount * sizeof(u32);
-                    ReadBytes(payload, encoded.Data.data(), encoded.Data.size());
+                    ReadBytes(payload, encoded.Data.GetData(), static_cast<sizet>(encoded.Data.Num()));
 
                     indices.SetNum(static_cast<i32>(geo.IndexCount));
                     if (!MeshOptimization::DecodeIndexBuffer(indices.GetData(), geo.IndexCount, encoded))
@@ -936,9 +936,9 @@ namespace OloEngine
                 if (geo.ShadowIndexCount > 0 && geo.EncodedShadowIndexSize > 0)
                 {
                     EncodedMeshBuffer encoded;
-                    encoded.Data.resize(static_cast<sizet>(geo.EncodedShadowIndexSize));
+                    encoded.Data.SetNum(static_cast<sizet>(geo.EncodedShadowIndexSize));
                     encoded.OriginalSize = geo.ShadowIndexCount * sizeof(u32);
-                    ReadBytes(payload, encoded.Data.data(), encoded.Data.size());
+                    ReadBytes(payload, encoded.Data.GetData(), static_cast<sizet>(encoded.Data.Num()));
 
                     shadowIndices.SetNum(static_cast<i32>(geo.ShadowIndexCount));
                     if (!MeshOptimization::DecodeIndexBuffer(shadowIndices.GetData(), geo.ShadowIndexCount, encoded))
@@ -1216,9 +1216,9 @@ namespace OloEngine
                 if (biHeader.InfluenceCount > 0 && biHeader.EncodedSize > 0)
                 {
                     EncodedMeshBuffer encoded;
-                    encoded.Data.resize(static_cast<sizet>(biHeader.EncodedSize));
+                    encoded.Data.SetNum(static_cast<sizet>(biHeader.EncodedSize));
                     encoded.OriginalSize = biHeader.InfluenceCount * biHeader.InfluenceStride;
-                    ReadBytes(payload, encoded.Data.data(), encoded.Data.size());
+                    ReadBytes(payload, encoded.Data.GetData(), static_cast<sizet>(encoded.Data.Num()));
 
                     auto& boneInfluences = meshSource->GetBoneInfluences();
                     boneInfluences.SetNum(static_cast<i32>(biHeader.InfluenceCount));
@@ -1653,7 +1653,7 @@ namespace OloEngine
     // ========================================================================
 
     bool AnimationBinarySerializer::Write(const std::filesystem::path& path,
-                                          const std::vector<Ref<AnimationClip>>& clips, u64 sourceTimestamp)
+                                          std::span<const Ref<AnimationClip>> clips, u64 sourceTimestamp)
     {
         OLO_PROFILE_FUNCTION();
 

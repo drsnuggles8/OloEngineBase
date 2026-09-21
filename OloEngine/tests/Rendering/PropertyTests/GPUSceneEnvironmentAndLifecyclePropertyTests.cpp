@@ -69,7 +69,7 @@ namespace OloEngine::Tests
         record = scene.GetEnvironmentRecord(handle);
         ASSERT_NE(record, nullptr);
         EXPECT_FLOAT_EQ(record->Intensity, 0.5f);
-        EXPECT_TRUE(extract().m_EnvironmentDirtyRanges.empty());
+        EXPECT_TRUE(extract().m_EnvironmentDirtyRanges.IsEmpty());
     }
 
     TEST(GPUScene, EnvironmentTextureSwapAdvancesGenerationInPlaceAndRemovalTombstones)

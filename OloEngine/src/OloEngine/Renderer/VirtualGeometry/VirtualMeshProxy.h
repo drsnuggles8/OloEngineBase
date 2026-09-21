@@ -1,10 +1,9 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Containers/Array.h"
 #include "OloEngine/Renderer/Vertex.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMesh.h"
-
-#include <vector>
 
 namespace OloEngine
 {
@@ -50,9 +49,9 @@ namespace OloEngine
         // the DAG's vertex array holds every LOD level's vertices — carrying
         // the whole array would put a full-resolution vertex buffer on the GPU
         // to serve a few thousand triangles.
-        std::vector<Vertex> Vertices;
+        TArray<Vertex> Vertices;
         // Triangle list into Vertices. Always a multiple of 3.
-        std::vector<u32> Indices;
+        TArray<u32> Indices;
         // The DAG's full-resolution triangle count, kept so a consumer can
         // report the reduction the proxy achieved rather than only its own
         // size — "1,412 of 871,414 triangles" is actionable where "1,412" is
@@ -61,12 +60,12 @@ namespace OloEngine
 
         [[nodiscard]] u32 TriangleCount() const
         {
-            return static_cast<u32>(Indices.size() / 3);
+            return static_cast<u32>(static_cast<sizet>(Indices.Num()) / 3);
         }
 
         [[nodiscard]] bool IsValid() const
         {
-            return !Vertices.empty() && Indices.size() >= 3 && (Indices.size() % 3) == 0;
+            return !Vertices.IsEmpty() && static_cast<sizet>(Indices.Num()) >= 3 && (static_cast<sizet>(Indices.Num()) % 3) == 0;
         }
     };
 
@@ -87,4 +86,14 @@ namespace OloEngine
     // every offset is bounds-checked and an out-of-range reference fails the
     // whole proxy rather than being read.
     [[nodiscard]] VirtualProxyMesh BuildVirtualProxyMesh(const VirtualMesh& dag);
+
+    // Every owner points to a separate allocation; the remaining fields are numerical.
+    template<>
+    struct TIsTriviallyRelocatable<VirtualProxyMesh>
+    {
+        static constexpr bool Value =
+            TIsTriviallyRelocatable<decltype(VirtualProxyMesh::Vertices)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualProxyMesh::Indices)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualProxyMesh::SourceTriangleCount)>::Value;
+    };
 } // namespace OloEngine

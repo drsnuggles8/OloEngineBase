@@ -185,13 +185,13 @@ TEST_F(AnimatedSurfaceLODTest, ASkinnedSourceGetsAnLODChainAtAll)
 {
     // The headline of the LOD half. Before #1227 every generator refused a source
     // with a skeleton or morph targets, so this chain could not exist.
-    ASSERT_GT(Lod().m_LODGroup.Levels.size(), 1u)
+    ASSERT_GT(Lod().m_LODGroup.Levels.Num(), 1u)
         << "no LOD chain was generated for a skinned + morphing source — conventional LOD "
            "cannot reach the animated surface while that is true";
 
     // And every level has to carry the streams, or drawing one renders an
     // unskinned, undeformable mesh.
-    for (sizet level = 1; level < Lod().m_LODGroup.Levels.size(); ++level)
+    for (sizet level = 1; level < Lod().m_LODGroup.Levels.Num(); ++level)
     {
         auto lodMesh = AssetManager::GetAsset<Mesh>(Lod().m_LODGroup.Levels[level].MeshHandle);
         ASSERT_TRUE(lodMesh) << "level " << level << " does not resolve to a mesh";

@@ -19,9 +19,10 @@ namespace OloEngine
 {
     namespace
     {
-        bool Contains(const std::vector<std::string>& names, const std::string& value)
+        bool Contains(const TArray<FString>& names, std::string_view value)
         {
-            return std::ranges::find(names, value) != names.end();
+            return names.ContainsByPredicate([value](const FString& name)
+                                             { return name.ToView() == value; });
         }
 
         // Default for the parallel path: enabled, unless the environment opts the
@@ -48,14 +49,14 @@ namespace OloEngine
 
     SystemScheduler::SystemBuilder& SystemScheduler::SystemBuilder::Reads(std::string_view resource)
     {
-        m_Owner.m_Systems[m_Index].Reads.emplace_back(resource);
+        m_Owner.m_Systems[m_Index].Reads.Emplace(resource);
         m_Owner.m_Built = false;
         return *this;
     }
 
     SystemScheduler::SystemBuilder& SystemScheduler::SystemBuilder::Writes(std::string_view resource)
     {
-        m_Owner.m_Systems[m_Index].Writes.emplace_back(resource);
+        m_Owner.m_Systems[m_Index].Writes.Emplace(resource);
         m_Owner.m_Built = false;
         return *this;
     }
@@ -69,14 +70,14 @@ namespace OloEngine
 
     SystemScheduler::SystemBuilder& SystemScheduler::SystemBuilder::After(std::string_view systemName)
     {
-        m_Owner.m_Systems[m_Index].After.emplace_back(systemName);
+        m_Owner.m_Systems[m_Index].After.Emplace(systemName);
         m_Owner.m_Built = false;
         return *this;
     }
 
     SystemScheduler::SystemBuilder& SystemScheduler::SystemBuilder::Before(std::string_view systemName)
     {
-        m_Owner.m_Systems[m_Index].Before.emplace_back(systemName);
+        m_Owner.m_Systems[m_Index].Before.Emplace(systemName);
         m_Owner.m_Built = false;
         return *this;
     }
@@ -92,8 +93,10 @@ namespace OloEngine
 
     SystemScheduler::SystemBuilder SystemScheduler::AddSystem(std::string name, ExecFn exec)
     {
-        const u32 index = static_cast<u32>(m_Systems.size());
-        m_Systems.push_back(SystemNode{ std::move(name), {}, {}, {}, {}, std::move(exec) });
+        const u32 index = static_cast<u32>(m_Systems.Num());
+        // TFunction stores this non-relocatable std::function on the heap, so
+        // moving the node bytes never moves the callback target itself.
+        m_Systems.Add(SystemNode{ FString(name), {}, {}, {}, {}, TFunction<void(Scene&, Timestep)>(std::move(exec)) });
         m_Built = false;
         return SystemBuilder{ *this, index };
     }
@@ -128,7 +131,8 @@ namespace OloEngine
         // Tasks::Launch executes the body inline on this thread at launch, which
         // collapses back to exact sequential order. Wait() retracts a still-
         // queued task onto this thread, so the join can always make progress.
-        std::vector<Tasks::TTask<void>> inFlight(m_Systems.size());
+        TArray<Tasks::TTask<void>> inFlight;
+        inFlight.SetNum(m_Systems.Num());
         std::exception_ptr firstError;
         std::mutex errorMutex;
 
@@ -165,12 +169,12 @@ namespace OloEngine
             // complete (Mass-style dispatch — UE feeds its solver's edges to the
             // task graph the same way). The handles stay live in inFlight until
             // a barrier joins them; the prerequisite holds its own reference.
-            std::vector<Tasks::TTask<void>> prerequisites;
+            TArray<Tasks::TTask<void>> prerequisites;
             for (const u32 pred : m_Predecessors[index])
             {
                 if (inFlight[pred].IsValid())
                 {
-                    prerequisites.push_back(inFlight[pred]);
+                    prerequisites.Add(inFlight[pred]);
                 }
             }
 
@@ -191,9 +195,9 @@ namespace OloEngine
                     }
                 }
             };
-            inFlight[index] = prerequisites.empty()
-                                  ? Tasks::Launch(node.Name.c_str(), std::move(body), Tasks::ETaskPriority::Normal)
-                                  : Tasks::Launch(node.Name.c_str(), std::move(body), prerequisites,
+            inFlight[index] = prerequisites.IsEmpty()
+                                  ? Tasks::Launch(*node.Name, std::move(body), Tasks::ETaskPriority::Normal)
+                                  : Tasks::Launch(*node.Name, std::move(body), prerequisites,
                                                   Tasks::ETaskPriority::Normal);
         }
         joinAll();
@@ -204,7 +208,7 @@ namespace OloEngine
         }
     }
 
-    const std::vector<std::string>& SystemScheduler::GetOrderedNames()
+    const TArray<FString>& SystemScheduler::GetOrderedNames()
     {
         Build();
         return m_OrderedNames;
@@ -229,13 +233,14 @@ namespace OloEngine
         const u32 source = resolveIndex(ancestor);
 
         // BFS over the derived successor edges from `ancestor`.
-        std::vector<bool> visited(m_Systems.size(), false);
-        std::vector<u32> queue{ source };
+        TArray<bool> visited;
+        visited.Init(false, m_Systems.Num());
+        TArray<u32> queue{ source };
         visited[source] = true;
-        while (!queue.empty())
+        while (!queue.IsEmpty())
         {
-            const u32 current = queue.back();
-            queue.pop_back();
+            const u32 current = queue.Last();
+            queue.Pop();
             for (const u32 next : m_Successors[current])
             {
                 if (next == target)
@@ -245,7 +250,7 @@ namespace OloEngine
                 if (!visited[next])
                 {
                     visited[next] = true;
-                    queue.push_back(next);
+                    queue.Add(next);
                 }
             }
         }
@@ -256,17 +261,29 @@ namespace OloEngine
     {
         Build();
 
+        // GraphSnapshot is the MCP/JSON DTO. Copy engine-owned strings at this
+        // export boundary instead of retaining a second standard-container owner.
+        const auto exportNames = [](const TArray<FString>& names)
+        {
+            std::vector<std::string> result;
+            result.reserve(static_cast<sizet>(names.Num()));
+            for (const FString& name : names)
+            {
+                result.push_back(name.ToStdString());
+            }
+            return result;
+        };
         GraphSnapshot snapshot;
         snapshot.ParallelExecutionEnabled = m_AnyParallel && IsParallelExecutionEnabled();
-        snapshot.Nodes.reserve(m_Order.size());
+        snapshot.Nodes.reserve(m_Order.Num());
 
         // Walk the DERIVED order, not m_Systems: the order is the thing this class
         // computes, so a reader should see the graph laid out the way it will run
         // rather than the way it happened to be registered.
-        for (u32 position = 0; position < static_cast<u32>(m_Order.size()); ++position)
+        for (u32 position = 0; position < static_cast<u32>(m_Order.Num()); ++position)
         {
             const SystemNode& node = m_Systems[m_Order[position]];
-            snapshot.Nodes.push_back(GraphNode{ node.Name, node.Reads, node.Writes, node.After, node.Before,
+            snapshot.Nodes.push_back(GraphNode{ node.Name.ToStdString(), exportNames(node.Reads), exportNames(node.Writes), exportNames(node.After), exportNames(node.Before),
                                                 node.Parallel, position });
         }
 
@@ -274,11 +291,11 @@ namespace OloEngine
         // includes the edges derived from the read/write declarations, so this is
         // the complete edge set the executor honours — not just the explicit
         // After()/Before() ones, which are the only edges a source file shows.
-        for (u32 from = 0; from < static_cast<u32>(m_Successors.size()); ++from)
+        for (u32 from = 0; from < static_cast<u32>(m_Successors.Num()); ++from)
         {
             for (const u32 to : m_Successors[from])
             {
-                snapshot.Edges.push_back(GraphEdge{ m_Systems[from].Name, m_Systems[to].Name });
+                snapshot.Edges.push_back(GraphEdge{ m_Systems[from].Name.ToStdString(), m_Systems[to].Name.ToStdString() });
             }
         }
         return snapshot;
@@ -286,7 +303,7 @@ namespace OloEngine
 
     void SystemScheduler::DeriveOrder()
     {
-        const u32 n = static_cast<u32>(m_Systems.size());
+        const u32 n = static_cast<u32>(m_Systems.Num());
 
         // Name -> index, catching duplicate registrations early (a duplicate makes
         // every by-name After/Before reference ambiguous).
@@ -294,16 +311,18 @@ namespace OloEngine
         nameToIndex.reserve(n);
         for (u32 i = 0; i < n; ++i)
         {
-            if (!nameToIndex.emplace(m_Systems[i].Name, i).second)
+            if (!nameToIndex.emplace(m_Systems[i].Name.ToStdString(), i).second)
             {
-                const std::string message = "SystemScheduler: duplicate system name '" + m_Systems[i].Name + "'";
+                const std::string message = "SystemScheduler: duplicate system name '" + m_Systems[i].Name.ToStdString() + "'";
                 OLO_CORE_ERROR("{}", message);
                 throw SystemSchedulerError(message);
             }
         }
 
-        std::vector<std::vector<u32>> successors(n);
-        std::vector<u32> inDegree(n, 0);
+        TArray<TArray<u32>> successors;
+        successors.SetNum(static_cast<i32>(n));
+        TArray<u32> inDegree;
+        inDegree.Init(0, static_cast<i32>(n));
         std::unordered_set<u64> edgeSet; // dedup: from * n + to
         edgeSet.reserve(n * 4);
 
@@ -316,7 +335,7 @@ namespace OloEngine
             const u64 key = static_cast<u64>(from) * n + to;
             if (edgeSet.insert(key).second)
             {
-                successors[from].push_back(to);
+                successors[from].Add(to);
                 ++inDegree[to];
             }
         };
@@ -328,14 +347,20 @@ namespace OloEngine
         std::unordered_set<std::string> resources;
         for (const SystemNode& node : m_Systems)
         {
-            resources.insert(node.Reads.begin(), node.Reads.end());
-            resources.insert(node.Writes.begin(), node.Writes.end());
+            for (const FString& resource : node.Reads)
+            {
+                resources.insert(resource.ToStdString());
+            }
+            for (const FString& resource : node.Writes)
+            {
+                resources.insert(resource.ToStdString());
+            }
         }
-        std::vector<u32> readersSinceWrite;
+        TArray<u32> readersSinceWrite;
         for (const std::string& resource : resources)
         {
             i32 lastWriter = -1;
-            readersSinceWrite.clear();
+            readersSinceWrite.Reset();
             for (u32 s = 0; s < n; ++s)
             {
                 const bool reads = Contains(m_Systems[s].Reads, resource);
@@ -346,7 +371,7 @@ namespace OloEngine
                     {
                         addEdge(static_cast<u32>(lastWriter), s); // read-after-write
                     }
-                    readersSinceWrite.push_back(s);
+                    readersSinceWrite.Add(s);
                 }
                 if (writes)
                 {
@@ -359,20 +384,20 @@ namespace OloEngine
                         addEdge(reader, s); // write-after-read (addEdge drops the self case)
                     }
                     lastWriter = static_cast<i32>(s);
-                    readersSinceWrite.clear();
+                    readersSinceWrite.Reset();
                 }
             }
         }
 
         // ── Explicit After()/Before() edges. These are the only source of a cycle,
         // and the only place a dangling (unregistered) reference can appear. ─────
-        const auto resolve = [&](const std::string& referencedName, const std::string& owner) -> u32
+        const auto resolve = [&](const FString& referencedName, const FString& owner) -> u32
         {
-            const auto it = nameToIndex.find(referencedName);
+            const auto it = nameToIndex.find(referencedName.ToStdString());
             if (it == nameToIndex.end())
             {
-                const std::string message = "SystemScheduler: system '" + owner +
-                                            "' references unknown system '" + referencedName + "'";
+                const std::string message = "SystemScheduler: system '" + owner.ToStdString() +
+                                            "' references unknown system '" + referencedName.ToStdString() + "'";
                 OLO_CORE_ERROR("{}", message);
                 throw SystemSchedulerError(message);
             }
@@ -380,11 +405,11 @@ namespace OloEngine
         };
         for (u32 i = 0; i < n; ++i)
         {
-            for (const std::string& afterName : m_Systems[i].After)
+            for (const FString& afterName : m_Systems[i].After)
             {
                 addEdge(resolve(afterName, m_Systems[i].Name), i); // other -> this
             }
-            for (const std::string& beforeName : m_Systems[i].Before)
+            for (const FString& beforeName : m_Systems[i].Before)
             {
                 addEdge(i, resolve(beforeName, m_Systems[i].Name)); // this -> other
             }
@@ -404,13 +429,13 @@ namespace OloEngine
             }
         }
 
-        m_Order.clear();
-        m_Order.reserve(n);
+        m_Order.Reset();
+        m_Order.Reserve(static_cast<i32>(n));
         while (!ready.empty())
         {
             const u32 s = *ready.begin();
             ready.erase(ready.begin());
-            m_Order.push_back(s);
+            m_Order.Add(s);
             for (const u32 successor : successors[s])
             {
                 if (--inDegree[successor] == 0)
@@ -420,7 +445,7 @@ namespace OloEngine
             }
         }
 
-        if (m_Order.size() != n)
+        if (static_cast<u32>(m_Order.Num()) != n)
         {
             std::string cycleNames;
             for (u32 i = 0; i < n; ++i)
@@ -431,7 +456,7 @@ namespace OloEngine
                     {
                         cycleNames += ", ";
                     }
-                    cycleNames += m_Systems[i].Name;
+                    cycleNames += m_Systems[i].Name.ToStdString();
                 }
             }
             const std::string message = "SystemScheduler: dependency cycle among systems { " + cycleNames + " }";
@@ -439,21 +464,22 @@ namespace OloEngine
             throw SystemSchedulerError(message);
         }
 
-        m_OrderedNames.clear();
-        m_OrderedNames.reserve(n);
+        m_OrderedNames.Reset();
+        m_OrderedNames.Reserve(static_cast<i32>(n));
         for (const u32 index : m_Order)
         {
-            m_OrderedNames.push_back(m_Systems[index].Name);
+            m_OrderedNames.Add(m_Systems[index].Name);
         }
 
         // Persist the derived DAG for DependsOn queries and the executor.
         m_Successors = std::move(successors);
-        m_Predecessors.assign(n, {});
+        m_Predecessors.Reset();
+        m_Predecessors.SetNum(static_cast<i32>(n));
         for (u32 from = 0; from < n; ++from)
         {
             for (const u32 to : m_Successors[from])
             {
-                m_Predecessors[to].push_back(from);
+                m_Predecessors[to].Add(from);
             }
         }
         m_NameToIndex = std::move(nameToIndex);

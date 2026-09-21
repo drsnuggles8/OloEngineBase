@@ -40,7 +40,7 @@ namespace OloEngine
         if (auto it = currentFrame.BufferAllocations.find(name); it != currentFrame.BufferAllocations.end())
         {
             u32 bufferIndex = it->second;
-            if (bufferIndex < currentFrame.UniformBuffers.size())
+            if (bufferIndex < static_cast<u32>(currentFrame.UniformBuffers.Num()))
             {
                 auto& buffer = currentFrame.UniformBuffers[bufferIndex];
                 if (buffer && buffer->GetSize() >= size)
@@ -52,8 +52,8 @@ namespace OloEngine
 
         // Create new buffer for this frame
         auto buffer = UniformBuffer::Create(size, 0); // Use binding 0 as default
-        u32 bufferIndex = static_cast<u32>(currentFrame.UniformBuffers.size());
-        currentFrame.UniformBuffers.push_back(buffer);
+        u32 bufferIndex = static_cast<u32>(currentFrame.UniformBuffers.Num());
+        currentFrame.UniformBuffers.Add(buffer);
         currentFrame.BufferAllocations[name] = bufferIndex;
 
         OLO_CORE_TRACE("InflightFrameManager: Created buffer '{0}' for frame {1}, size {2}",
@@ -68,7 +68,7 @@ namespace OloEngine
             return;
 
         auto& frame = m_Frames[frameIndex];
-        frame.UniformBuffers.clear();
+        frame.UniformBuffers.Reset();
         frame.BufferAllocations.clear();
         frame.IsComplete = false;
     }

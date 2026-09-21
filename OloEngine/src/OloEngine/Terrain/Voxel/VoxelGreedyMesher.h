@@ -5,7 +5,7 @@
 #include "OloEngine/Terrain/Voxel/VoxelQuad.h"
 
 #include <array>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -60,7 +60,7 @@ namespace OloEngine
         // like VoxelChunk). A face always belongs to a centre voxel, so no
         // padding is needed here. Empty => material 0 everywhere, which enables
         // the fully bitwise merge path.
-        std::vector<u8> Materials;
+        TArray<u8> Materials;
 
         VoxelCoord Coord{};
 
@@ -79,7 +79,7 @@ namespace OloEngine
 
         [[nodiscard]] u8 MaterialAt(u32 lx, u32 ly, u32 lz) const
         {
-            return Materials.empty() ? u8{ 0 } : Materials[VoxelChunk::Index(lx, ly, lz)];
+            return Materials.IsEmpty() ? u8{ 0 } : Materials[VoxelChunk::Index(lx, ly, lz)];
         }
     };
 
@@ -101,17 +101,17 @@ namespace OloEngine
         static void Gather(const VoxelOverride& voxels, const VoxelCoord& coord, VoxelNeighbourhood& out);
 
         // The greedy pass. Appends to `outQuads` (does not clear it).
-        void Mesh(const VoxelNeighbourhood& neighbourhood, std::vector<PackedQuad>& outQuads);
+        void Mesh(const VoxelNeighbourhood& neighbourhood, TArray<PackedQuad>& outQuads);
 
         // Reference mesher: one 1x1 quad per visible face, derived directly
         // from the padded solidity with per-voxel neighbour tests. Deliberately
         // shares NO code with Mesh() — it exists so a test can compare two
         // independent derivations of the same face set. Not used at runtime.
-        static void MeshNaive(const VoxelNeighbourhood& neighbourhood, std::vector<PackedQuad>& outQuads);
+        static void MeshNaive(const VoxelNeighbourhood& neighbourhood, TArray<PackedQuad>& outQuads);
 
         // Expands one merged quad into the unit faces it covers. Used by tests
         // to compare a greedy mesh against a naive one face-for-face.
-        static void ExpandQuad(const PackedQuad& quad, std::vector<PackedQuad>& outUnitQuads);
+        static void ExpandQuad(const PackedQuad& quad, TArray<PackedQuad>& outUnitQuads);
 
       private:
         static constexpr u32 CS = VoxelNeighbourhood::CS;
@@ -119,16 +119,16 @@ namespace OloEngine
 
         // Emits every quad of one face direction into outQuads.
         void MeshDirection(const VoxelNeighbourhood& neighbourhood, VoxelFace face,
-                           const std::vector<u64>& faceMask, std::vector<PackedQuad>& outQuads);
+                           const TArray<u64>& faceMask, TArray<PackedQuad>& outQuads);
 
         // Solid bit columns, one array per axis:
         //   [0] bits along X, indexed [pz * CS_P + py]
         //   [1] bits along Y, indexed [pz * CS_P + px]  (the snapshot's own layout)
         //   [2] bits along Z, indexed [py * CS_P + px]
-        std::array<std::vector<u64>, 3> m_AxisColumns;
+        std::array<TArray<u64>, 3> m_AxisColumns;
 
         // Face mask of the direction being meshed, in that direction's axis layout.
-        std::vector<u64> m_FaceMask;
+        TArray<u64> m_FaceMask;
 
         // Per-slice face bitmaps for the current direction: m_Planes[slice][row],
         // bit = the plane's inner coordinate. Slice/row/inner are chunk-local.

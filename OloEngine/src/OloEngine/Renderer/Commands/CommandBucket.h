@@ -5,7 +5,8 @@
 #include "OloEngine/Memory/Platform.h"
 #include "CommandPacket.h"
 #include "CommandAllocator.h"
-#include <vector>
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/LinkedList.h"
 #include <unordered_map>
 #include <atomic>
 #include <functional>
@@ -180,8 +181,8 @@ namespace OloEngine
             CommandPacket* packet = alloc->CreateCommandPacket(commandData, metadata);
             if (packet)
             {
-                m_Keys.push_back(metadata.m_SortKey.GetKey());
-                m_Packets.push_back(packet);
+                m_Keys.Add(metadata.m_SortKey.GetKey());
+                m_Packets.Add(packet);
                 ++m_CommandCount;
                 ++m_Stats.TotalCommands;
 
@@ -291,13 +292,13 @@ namespace OloEngine
         }
 
         // Debugging/analysis methods to access commands
-        const std::vector<CommandPacket*>& GetSortedCommands() const
+        std::span<CommandPacket* const> GetSortedCommands() const
         {
-            return m_Packets;
+            return { m_Packets.GetData(), static_cast<sizet>(m_Packets.Num()) };
         }
-        const std::vector<CommandPacket*>& GetPackets() const
+        std::span<CommandPacket* const> GetPackets() const
         {
-            return m_Packets;
+            return { m_Packets.GetData(), static_cast<sizet>(m_Packets.Num()) };
         }
         bool IsSorted() const
         {
@@ -321,8 +322,8 @@ namespace OloEngine
             OLO_CORE_ASSERT(packet, "CommandBucket::SubmitPacket: Null packet!");
             TUniqueLock<FMutex> lock(m_Mutex);
 
-            m_Keys.push_back(packet->GetMetadata().m_SortKey.GetKey());
-            m_Packets.push_back(packet);
+            m_Keys.Add(packet->GetMetadata().m_SortKey.GetKey());
+            m_Packets.Add(packet);
             ++m_CommandCount;
             ++m_Stats.TotalCommands;
 
@@ -478,7 +479,8 @@ namespace OloEngine
         };
 
         // Instance transform buffer management
-        std::vector<InstancedTransformBuffer> m_TransformBuffers;
+        // Nodes retain the owning buffer object at a stable address.
+        TDoubleLinkedList<InstancedTransformBuffer> m_TransformBuffers;
         // Maps for tracking instanced command transform buffers
         std::unordered_map<CommandPacket*, u32> m_PacketToBufferIndex;
 
@@ -499,7 +501,7 @@ namespace OloEngine
         // subsets into `groups` under distinct bonePaletteID ordinals
         // (issue #1031). Lives on the bucket because it reads m_Packets and
         // reports into m_Stats.
-        using InstanceGroupMap = std::unordered_map<InstanceGroupKey, std::vector<sizet>, InstanceGroupKeyHash>;
+        using InstanceGroupMap = std::unordered_map<InstanceGroupKey, TArray64<sizet>, InstanceGroupKeyHash>;
         void PartitionSkinnedGroups(const InstanceGroupMap& candidates, InstanceGroupMap& groups);
 
         // Internal sort implementation — caller must hold m_Mutex
@@ -508,8 +510,8 @@ namespace OloEngine
         // ——— Flat array storage (replaces linked list) ———
         // Keys and packets are stored in 1:1 correspondence.
         // Keys are pre-extracted once during AddCommand for cache-friendly sorting.
-        std::vector<u64> m_Keys;
-        std::vector<CommandPacket*> m_Packets;
+        TArray64<u64> m_Keys;
+        TArray64<CommandPacket*> m_Packets;
 
         // Count of commands in the bucket
         sizet m_CommandCount = 0;
@@ -547,7 +549,7 @@ namespace OloEngine
 
         // Global command packet array for parallel submission
         // Workers claim batches of TLS_BATCH_SIZE slots atomically
-        std::vector<CommandPacket*> m_ParallelCommands;
+        TArray64<CommandPacket*> m_ParallelCommands;
 
         // Atomic counter for claiming batches of slots
         std::atomic<u32> m_NextBatchStart{ 0 };

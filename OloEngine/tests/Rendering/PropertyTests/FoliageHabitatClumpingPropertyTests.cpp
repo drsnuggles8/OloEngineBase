@@ -42,6 +42,8 @@
 // =============================================================================
 
 #include "OloEnginePCH.h"
+#include <span>
+#include "OloEngine/Containers/Array.h"
 
 #include "OloEngine/Terrain/Foliage/FoliageInstanceRegistry.h"
 #include "OloEngine/Terrain/Foliage/FoliagePlacement.h"
@@ -71,17 +73,17 @@ namespace
 
     /// A perfectly flat field at `height` (normalized [0, 1]). Every normal is
     /// straight up, so the default 0-45 degree slope gate accepts every cell.
-    [[nodiscard]] std::vector<f32> FlatField(f32 height)
+    [[nodiscard]] TArray<f32> FlatField(f32 height)
     {
-        return std::vector<f32>(static_cast<sizet>(kResolution) * kResolution, height);
+        return TArray<f32>(static_cast<sizet>(kResolution) * kResolution, height);
     }
 
     /// A field that ramps linearly with X from 0 to `top` (normalized). Gentle
     /// enough that the default slope gate still accepts everywhere, so a test
     /// that bands on ALTITUDE is measuring the altitude band and not the slope.
-    [[nodiscard]] std::vector<f32> RampField(f32 top)
+    [[nodiscard]] TArray<f32> RampField(f32 top)
     {
-        std::vector<f32> heights(static_cast<sizet>(kResolution) * kResolution, 0.0f);
+        TArray<f32> heights(static_cast<sizet>(kResolution) * kResolution, 0.0f);
         for (u32 z = 0; z < kResolution; ++z)
         {
             for (u32 x = 0; x < kResolution; ++x)
@@ -96,10 +98,10 @@ namespace
     /// A plane tilted about Z by a known angle, expressed as a normalized
     /// height field. Returns the field; `outTanSlope` receives the exact
     /// world-space slope tangent the generator will see.
-    [[nodiscard]] std::vector<f32> TiltedField(f32 riseOverRunWorld, f32& outTanSlope)
+    [[nodiscard]] TArray<f32> TiltedField(f32 riseOverRunWorld, f32& outTanSlope)
     {
         outTanSlope = riseOverRunWorld;
-        std::vector<f32> heights(static_cast<sizet>(kResolution) * kResolution, 0.0f);
+        TArray<f32> heights(static_cast<sizet>(kResolution) * kResolution, 0.0f);
         for (u32 z = 0; z < kResolution; ++z)
         {
             for (u32 x = 0; x < kResolution; ++x)
@@ -115,10 +117,10 @@ namespace
         return heights;
     }
 
-    [[nodiscard]] std::vector<FP::Placement> Generate(const FoliageLayer& layer, u32 layerIndex,
-                                                      const std::vector<f32>& heights)
+    [[nodiscard]] TArray<FP::Placement> Generate(const FoliageLayer& layer, u32 layerIndex,
+                                                 const TArray<f32>& heights)
     {
-        std::vector<FP::Placement> out;
+        TArray<FP::Placement> out;
         FP::GenerateLayer(layer, layerIndex, heights, kResolution, nullptr, kWorldSize, kWorldSize,
                           kHeightScale, out);
         return out;
@@ -127,7 +129,7 @@ namespace
     /// Index of dispersion (variance / mean) of per-tile counts. A Poisson
     /// (uniform random) scatter sits at ~1; a grid-jittered one below 1; a
     /// clumped one well above.
-    [[nodiscard]] f64 TileDispersion(const std::vector<FP::Placement>& placements, f32 tileSize)
+    [[nodiscard]] f64 TileDispersion(const TArray<FP::Placement>& placements, f32 tileSize)
     {
         const auto tiles = static_cast<u32>(std::ceil(kWorldSize / tileSize));
         std::vector<u32> counts(static_cast<sizet>(tiles) * tiles, 0u);
@@ -152,7 +154,7 @@ namespace
         return variance / mean;
     }
 
-    [[nodiscard]] std::vector<u32> TileCounts(const std::vector<FP::Placement>& placements, u32 tiles)
+    [[nodiscard]] std::vector<u32> TileCounts(const TArray<FP::Placement>& placements, u32 tiles)
     {
         const f32 tileSize = kWorldSize / static_cast<f32>(tiles);
         std::vector<u32> counts(static_cast<sizet>(tiles) * tiles, 0u);
@@ -244,7 +246,7 @@ TEST(FoliageHabitatClumping, ADefaultLayerPlacesExactlyWhereItAlwaysDid)
 
     const auto heights = FlatField(0.4f);
     const auto placements = Generate(layer, 0, heights);
-    ASSERT_FALSE(placements.empty());
+    ASSERT_FALSE(placements.IsEmpty());
 
     const f32 spacing = FP::SpacingForDensity(layer.Density);
     const u32 seed = FP::SeedForLayer(0);
@@ -278,7 +280,7 @@ TEST(FoliageHabitatClumping, ADefaultLayerPlacesExactlyWhereItAlwaysDid)
                 ++inBounds;
         }
     }
-    EXPECT_EQ(placements.size(), inBounds) << "a rule-free layer must not reject a single in-bounds cell";
+    EXPECT_EQ(placements.Num(), inBounds) << "a rule-free layer must not reject a single in-bounds cell";
 }
 
 TEST(FoliageHabitatClumping, HabitatRulesOffIsExactlyOne)
@@ -328,7 +330,7 @@ TEST(FoliageHabitatClumping, AltitudeBandGatesPlacementAndFeatherIsGradual)
     banded.MaxAltitude = 20.0f;
 
     const auto placements = Generate(banded, 0, heights);
-    ASSERT_FALSE(placements.empty()) << "the band accepted nothing at all";
+    ASSERT_FALSE(placements.IsEmpty()) << "the band accepted nothing at all";
 
     for (const auto& p : placements)
     {
@@ -341,7 +343,7 @@ TEST(FoliageHabitatClumping, AltitudeBandGatesPlacementAndFeatherIsGradual)
     FoliageLayer feathered = banded;
     feathered.AltitudeFeather = 4.0f;
     const auto softened = Generate(feathered, 0, heights);
-    EXPECT_LT(softened.size(), placements.size())
+    EXPECT_LT(softened.Num(), placements.Num())
         << "a feathered band must thin its own edges, not widen them";
     for (const auto& p : softened)
     {
@@ -351,7 +353,7 @@ TEST(FoliageHabitatClumping, AltitudeBandGatesPlacementAndFeatherIsGradual)
 
     // And the thinning is at the EDGES: the outer quarter of the band loses a
     // larger fraction than the core does.
-    const auto fractionIn = [](const std::vector<FP::Placement>& ps, f32 lo, f32 hi)
+    const auto fractionIn = [](const TArray<FP::Placement>& ps, f32 lo, f32 hi)
     {
         sizet n = 0;
         for (const auto& p : ps)
@@ -388,23 +390,23 @@ TEST(FoliageHabitatClumping, MoistureBandSeparatesTwoSpeciesWithASharedFringe)
 
     const auto wetPlants = Generate(wet, 0, heights);
     const auto dryPlants = Generate(dry, 1, heights);
-    ASSERT_FALSE(wetPlants.empty());
-    ASSERT_FALSE(dryPlants.empty());
+    ASSERT_FALSE(wetPlants.IsEmpty());
+    ASSERT_FALSE(dryPlants.IsEmpty());
 
     // On a ramp rising with X, moisture FALLS with X, so the wet species owns
     // low X and the dry species high X.
-    const auto meanX = [](const std::vector<FP::Placement>& ps)
+    const auto meanX = [](const TArray<FP::Placement>& ps)
     {
         f64 sum = 0.0;
         for (const auto& p : ps)
             sum += p.m_Row.PositionScale.x;
-        return sum / static_cast<f64>(ps.size());
+        return sum / static_cast<f64>(ps.Num());
     };
     EXPECT_LT(meanX(wetPlants), meanX(dryPlants)) << "the wet species did not settle on the wetter ground";
 
     // Both present in the overlap, neither present at the far end of the other's
     // range — a real boundary, not a hard partition and not a total overlap.
-    const auto countInStrip = [](const std::vector<FP::Placement>& ps, f32 lo, f32 hi)
+    const auto countInStrip = [](const TArray<FP::Placement>& ps, f32 lo, f32 hi)
     {
         sizet n = 0;
         for (const auto& p : ps)
@@ -475,11 +477,11 @@ TEST(FoliageHabitatClumping, ClumpingProducesPatchesNotUniformThinning)
 
     const auto uniformPlants = Generate(uniform, 0, heights);
     const auto clumpedPlants = Generate(clumped, 0, heights);
-    ASSERT_FALSE(clumpedPlants.empty());
+    ASSERT_FALSE(clumpedPlants.IsEmpty());
 
     // Clumping can only multiply suitability DOWN, which is the fact the
     // inspector warns authors about.
-    EXPECT_LT(clumpedPlants.size(), uniformPlants.size());
+    EXPECT_LT(clumpedPlants.Num(), uniformPlants.Num());
 
     // The real contract: the survivors are in PATCHES. A grid-jittered scatter
     // is more regular than Poisson (dispersion below 1); a clumped one is far
@@ -547,7 +549,7 @@ TEST(FoliageHabitatClumping, ClumpScaleInfluenceGrowsBiggerPlantsInPatchCores)
     layer.ClumpScaleInfluence = 1.0f;
 
     const auto plants = Generate(layer, 0, heights);
-    ASSERT_FALSE(plants.empty());
+    ASSERT_FALSE(plants.IsEmpty());
 
     // With MinScale == MaxScale the ONLY thing that can move a plant's scale is
     // the clump influence, so scale is a direct readout of the field.
@@ -634,11 +636,11 @@ TEST(FoliageHabitatClumping, SlopeSinkLandsTheDownhillEdgeOnTheGround)
 
     const auto without = Generate(floating, 0, heights);
     const auto with = Generate(sunk, 0, heights);
-    ASSERT_EQ(without.size(), with.size()) << "the sink changed WHICH cells emit; it must only move Y";
+    ASSERT_EQ(without.Num(), with.Num()) << "the sink changed WHICH cells emit; it must only move Y";
 
     // Same plants, same XZ — the sink is a Y-only edit, which is what lets the
     // registry keep every id through it.
-    for (sizet i = 0; i < with.size(); ++i)
+    for (sizet i = 0; i < with.Num(); ++i)
     {
         EXPECT_FLOAT_EQ(with[i].m_Row.PositionScale.x, without[i].m_Row.PositionScale.x);
         EXPECT_FLOAT_EQ(with[i].m_Row.PositionScale.z, without[i].m_Row.PositionScale.z);
@@ -659,7 +661,7 @@ TEST(FoliageHabitatClumping, SlopeSinkLandsTheDownhillEdgeOnTheGround)
     constexpr f32 kBorderMargin = 2.0f;
     f64 worstError = 0.0;
     sizet compared = 0;
-    for (sizet i = 0; i < with.size(); ++i)
+    for (sizet i = 0; i < with.Num(); ++i)
     {
         const f32 x = with[i].m_Row.PositionScale.x;
         if (x < kBorderMargin || x > kWorldSize - kBorderMargin)
@@ -692,8 +694,8 @@ TEST(FoliageHabitatClumping, FlatGroundIsUnaffectedBySlopeSink)
     sunk.SlopeSinkFactor = 1.0f;
     const auto with = Generate(sunk, 0, heights);
 
-    ASSERT_EQ(without.size(), with.size());
-    for (sizet i = 0; i < with.size(); ++i)
+    ASSERT_EQ(without.Num(), with.Num());
+    for (sizet i = 0; i < with.Num(); ++i)
         EXPECT_FLOAT_EQ(with[i].m_Row.PositionScale.y, without[i].m_Row.PositionScale.y)
             << "flat ground has no drop to compensate, so the sink must be exactly zero there";
 
@@ -701,8 +703,8 @@ TEST(FoliageHabitatClumping, FlatGroundIsUnaffectedBySlopeSink)
     FoliageLayer raised = layer;
     raised.GroundOffset = 0.25f;
     const auto lifted = Generate(raised, 0, heights);
-    ASSERT_EQ(lifted.size(), without.size());
-    for (sizet i = 0; i < lifted.size(); ++i)
+    ASSERT_EQ(lifted.Num(), without.Num());
+    for (sizet i = 0; i < lifted.Num(); ++i)
         EXPECT_FLOAT_EQ(lifted[i].m_Row.PositionScale.y, without[i].m_Row.PositionScale.y + 0.25f);
 }
 
@@ -738,10 +740,10 @@ TEST(FoliageHabitatClumping, RegenerationIsBitIdentical)
 
     const auto first = Generate(layer, 3, heights);
     const auto second = Generate(layer, 3, heights);
-    ASSERT_FALSE(first.empty());
-    ASSERT_EQ(first.size(), second.size());
+    ASSERT_FALSE(first.IsEmpty());
+    ASSERT_EQ(first.Num(), second.Num());
 
-    for (sizet i = 0; i < first.size(); ++i)
+    for (sizet i = 0; i < first.Num(); ++i)
     {
         EXPECT_EQ(first[i].m_CellX, second[i].m_CellX);
         EXPECT_EQ(first[i].m_CellZ, second[i].m_CellZ);
@@ -770,13 +772,13 @@ namespace
     /// The driver loop from FoliageRenderer::GenerateInstances, minus the GPU
     /// upload — the same ~12 lines FoliageInstanceIdentityPropertyTests uses.
     /// Keep all three in step.
-    void Regenerate(FoliageInstanceRegistry& registry, const std::vector<FoliageLayer>& layers,
-                    const std::vector<f32>& heights)
+    void Regenerate(FoliageInstanceRegistry& registry, const TArray<FoliageLayer>& layers,
+                    const TArray<f32>& heights)
     {
         registry.BeginGeneration(layers);
 
-        std::vector<FP::Placement> placements;
-        for (u32 layerIdx = 0; layerIdx < static_cast<u32>(layers.size()); ++layerIdx)
+        TArray<FP::Placement> placements;
+        for (u32 layerIdx = 0; layerIdx < static_cast<u32>(layers.Num()); ++layerIdx)
         {
             const auto& layer = layers[layerIdx];
             if (!layer.Enabled || layer.Density <= 0.0f)
@@ -789,7 +791,7 @@ namespace
                                 FP::SpacingForDensity(layer.Density), kWorldSize, kWorldSize,
                                 FoliageRepresentation::MeshCard, false);
 
-            for (u32 row = 0; row < static_cast<u32>(placements.size()); ++row)
+            for (u32 row = 0; row < static_cast<u32>(placements.Num()); ++row)
                 registry.AddInstance(placements[row].m_CellX, placements[row].m_CellZ, placements[row].m_Row, row);
             registry.EndLayer();
         }
@@ -823,7 +825,7 @@ TEST(FoliageHabitatClumping, TighteningAHabitatBandRetiresOnlyThePlantsThatFallO
     wide.MaxAltitude = 40.0f;
 
     Regenerate(registry, { wide }, heights);
-    ASSERT_GT(registry.GetRecords().size(), 100u);
+    ASSERT_GT(registry.GetRecords().Num(), 100u);
     const auto before = LiveIds(registry);
 
     FoliageLayer narrow = wide;
@@ -837,9 +839,9 @@ TEST(FoliageHabitatClumping, TighteningAHabitatBandRetiresOnlyThePlantsThatFallO
     // Every surviving id is one that already existed: no plant was re-issued.
     for (const FoliageInstanceId id : after)
         EXPECT_TRUE(before.contains(id)) << "a plant inside the unchanged part of the band got a NEW id";
-    EXPECT_TRUE(registry.GetLastDelta().m_Added.empty())
+    EXPECT_TRUE(registry.GetLastDelta().m_Added.IsEmpty())
         << "tightening a habitat band added plants, so it is moving them, not gating them";
-    EXPECT_EQ(registry.GetLastDelta().m_Retired.size(), before.size() - after.size());
+    EXPECT_EQ(registry.GetLastDelta().m_Retired.Num(), before.size() - after.size());
 }
 
 TEST(FoliageHabitatClumping, EnablingClumpingKeepsTheIdsOfEveryPlantItLeftStanding)
@@ -864,7 +866,7 @@ TEST(FoliageHabitatClumping, EnablingClumpingKeepsTheIdsOfEveryPlantItLeftStandi
     EXPECT_LT(after.size(), before.size());
     for (const FoliageInstanceId id : after)
         EXPECT_TRUE(before.contains(id)) << "clumping re-issued an id for a plant that did not move";
-    EXPECT_TRUE(registry.GetLastDelta().m_Added.empty());
+    EXPECT_TRUE(registry.GetLastDelta().m_Added.IsEmpty());
 }
 
 TEST(FoliageHabitatClumping, DecorrelatedVariationRetiresEveryIdInThatLayer)
@@ -893,7 +895,7 @@ TEST(FoliageHabitatClumping, DecorrelatedVariationRetiresEveryIdInThatLayer)
     ASSERT_FALSE(after.empty());
     for (const FoliageInstanceId id : after)
         EXPECT_FALSE(before.contains(id)) << "a plant that MOVED kept its canonical id";
-    EXPECT_EQ(registry.GetLastDelta().m_Retired.size(), before.size());
+    EXPECT_EQ(registry.GetLastDelta().m_Retired.Num(), before.size());
     EXPECT_EQ(registry.GetLastDelta().m_Survived, 0u);
 }
 
@@ -919,7 +921,7 @@ TEST(FoliageHabitatClumping, GroundSinkIsAnAttributeEditNotAnIdentityChange)
     Regenerate(registry, { sunk }, heights);
 
     EXPECT_EQ(LiveIds(registry), before) << "sinking a layer changed which plants exist";
-    EXPECT_TRUE(registry.GetLastDelta().m_Retired.empty());
+    EXPECT_TRUE(registry.GetLastDelta().m_Retired.IsEmpty());
     EXPECT_EQ(registry.GetLastDelta().m_Updated, before.size())
         << "every plant moved in Y, so every record must be reported as updated";
 }
@@ -1006,11 +1008,11 @@ TEST(FoliageHabitatClumping, EveryGeneratedSpeciesCanActuallyPlaceSomething)
     // habitat band cannot overlap its own splat layer is a species that is
     // silently gone.
     const auto layers = TerrainGenerator::MakeDefaultFoliageLayers();
-    ASSERT_GE(layers.size(), 5u) << "the default biome should emit the full species table";
+    ASSERT_GE(layers.Num(), 5u) << "the default biome should emit the full species table";
 
     for (const auto& layer : layers)
     {
-        ASSERT_TRUE(layer.UseMoisture) << layer.Name << ": expected a generated layer to carry habitat rules";
+        ASSERT_TRUE(layer.UseMoisture) << layer.Name.ToView() << ": expected a generated layer to carry habitat rules";
 
         // Sweep the moisture the proxy can actually report, and require the
         // band to admit SOMETHING. Slope and altitude are left at their
@@ -1028,9 +1030,9 @@ TEST(FoliageHabitatClumping, EveryGeneratedSpeciesCanActuallyPlaceSomething)
                     reachable = true;
             }
         }
-        EXPECT_TRUE(reachable) << layer.Name << ": no terrain this species is allowed on satisfies its habitat "
-                                                "band, so the generator emits a layer that places nothing";
-        EXPECT_GT(best, 0.5f) << layer.Name << ": the species is reachable but never more than " << best
+        EXPECT_TRUE(reachable) << layer.Name.ToView() << ": no terrain this species is allowed on satisfies its habitat "
+                                                         "band, so the generator emits a layer that places nothing";
+        EXPECT_GT(best, 0.5f) << layer.Name.ToView() << ": the species is reachable but never more than " << best
                               << " suitable, so it is a rumour rather than a population";
     }
 }
@@ -1044,11 +1046,11 @@ TEST(FoliageHabitatClumping, GeneratedSpeciesActuallyScatterOnGeneratedTerrain)
     const auto heights = RampField(1.0f);
     const auto layers = TerrainGenerator::MakeDefaultFoliageLayers();
 
-    for (u32 i = 0; i < static_cast<u32>(layers.size()); ++i)
+    for (u32 i = 0; i < static_cast<u32>(layers.Num()); ++i)
     {
         // The splatmap mask is not available headlessly, so this measures the
         // habitat rules alone — which is exactly where the defect was.
         const auto placed = Generate(layers[i], i, heights);
-        EXPECT_FALSE(placed.empty()) << layers[i].Name << ": placed nothing on a full-range ramp";
+        EXPECT_FALSE(placed.IsEmpty()) << layers[i].Name.ToView() << ": placed nothing on a full-range ramp";
     }
 }

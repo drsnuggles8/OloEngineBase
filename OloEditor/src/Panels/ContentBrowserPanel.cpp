@@ -1317,7 +1317,7 @@ namespace OloEngine
                     rootNode.Properties["speaker"] = std::string("NPC");
                     rootNode.Properties["text"] = std::string("Hello there!");
                     rootNode.EditorPosition = { 0.0f, 0.0f };
-                    dialogueAsset->GetNodesWritable().push_back(std::move(rootNode));
+                    dialogueAsset->GetNodesWritable().AddTail(std::move(rootNode));
                     dialogueAsset->SetRootNodeID(UUID(1));
                     dialogueAsset->RebuildNodeIndex();
 

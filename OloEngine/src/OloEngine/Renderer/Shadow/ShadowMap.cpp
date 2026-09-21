@@ -152,7 +152,7 @@ namespace OloEngine
         // The diagnostics candidate list describes ONE frame's allocation
         // (issue #607); a frame with no shadow candidates must report an empty
         // layout, not last frame's winners.
-        m_AtlasLayout.clear();
+        m_AtlasLayout.Reset();
     }
 
     void ShadowMap::ComputeCSMCascades(

@@ -78,7 +78,7 @@ namespace OloEngine
             return;
         }
 
-        if (dialogueTree->GetNodes().empty())
+        if (dialogueTree->GetNodes().IsEmpty())
         {
             OLO_CORE_WARN("DialogueSystem::StartDialogue - DialogueTreeAsset has no nodes");
             return;
@@ -96,7 +96,7 @@ namespace OloEngine
                 otherState.m_State = DialogueState::Inactive;
                 otherState.m_CurrentText.clear();
                 otherState.m_CurrentSpeaker.clear();
-                otherState.m_AvailableChoices.clear();
+                otherState.m_AvailableChoices.Reset();
             }
         }
 
@@ -119,7 +119,7 @@ namespace OloEngine
         state.m_State = DialogueState::Processing;
         state.m_CurrentText.clear();
         state.m_CurrentSpeaker.clear();
-        state.m_AvailableChoices.clear();
+        state.m_AvailableChoices.Reset();
         state.m_SelectedChoiceIndex = -1;
         state.m_HoveredChoiceIndex = -1;
         state.m_TextRevealProgress = 0.0f;
@@ -165,7 +165,7 @@ namespace OloEngine
         }
 
         auto connections = dialogueTree->GetConnectionsFrom(state.m_CurrentNodeID);
-        if (connections.empty())
+        if (connections.IsEmpty())
         {
             // No more nodes — end the dialogue
             EndDialogue(entity);
@@ -192,7 +192,7 @@ namespace OloEngine
             return;
         }
 
-        if (choiceIndex < 0 || choiceIndex >= static_cast<i32>(state.m_AvailableChoices.size()))
+        if (choiceIndex < 0 || choiceIndex >= static_cast<i32>(state.m_AvailableChoices.Num()))
         {
             OLO_CORE_WARN("DialogueSystem::SelectChoice - Invalid choice index: {}", choiceIndex);
             return;
@@ -298,7 +298,7 @@ namespace OloEngine
             state.m_CurrentText = resolveLocalized("text_key", "text");
             state.m_CurrentSpeaker = resolveLocalized("speaker_key", "speaker");
 
-            state.m_AvailableChoices.clear();
+            state.m_AvailableChoices.Reset();
             state.m_TextRevealProgress = 0.0f;
             state.m_State = DialogueState::Displaying;
         }
@@ -306,14 +306,14 @@ namespace OloEngine
         {
             // Populate choices from outgoing connections
             auto connections = dialogueTree->GetConnectionsFrom(nodeID);
-            state.m_AvailableChoices.clear();
+            state.m_AvailableChoices.Reset();
 
             // Resolve a raw label by checking for the `@key:` localization
             // prefix. Authors can either put a literal string into the port
             // / node name (legacy / single-language path) or write
             // "@key:dialogue.choice.cancel" to defer the text to the active
             // locale's table.
-            auto resolveChoiceLabel = [](const std::string& raw) -> std::string
+            auto resolveChoiceLabel = [](std::string_view raw) -> FString
             {
                 if (constexpr std::string_view kKeyPrefix = "@key:"; raw.size() > kKeyPrefix.size() && raw.starts_with(kKeyPrefix))
                 {
@@ -330,13 +330,13 @@ namespace OloEngine
                 choice.TargetNodeID = conn.TargetNodeID;
 
                 // Use the source port as the choice label, or get from target node name
-                if (!conn.SourcePort.empty() && conn.SourcePort != "output")
+                if (!conn.SourcePort.IsEmpty() && conn.SourcePort != "output")
                 {
-                    choice.Text = resolveChoiceLabel(conn.SourcePort);
+                    choice.Text = resolveChoiceLabel(conn.SourcePort.ToView());
                 }
                 else if (targetNode)
                 {
-                    choice.Text = resolveChoiceLabel(targetNode->Name);
+                    choice.Text = resolveChoiceLabel(targetNode->Name.ToView());
                 }
                 else
                 {
@@ -354,16 +354,16 @@ namespace OloEngine
                 }
 
                 // Check condition if specified
-                if (!choice.Condition.empty())
+                if (!choice.Condition.IsEmpty())
                 {
-                    if (!EvaluateCondition(entity.GetUUID(), choice.Condition, ""))
+                    if (!EvaluateCondition(entity.GetUUID(), choice.Condition.ToStdString(), ""))
                         continue; // Skip unavailable choices
                 }
 
-                state.m_AvailableChoices.push_back(std::move(choice));
+                state.m_AvailableChoices.Add(std::move(choice));
             }
 
-            if (state.m_AvailableChoices.empty())
+            if (state.m_AvailableChoices.IsEmpty())
             {
                 // No valid choices available — end the dialogue instead of trapping
                 OLO_CORE_WARN("DialogueSystem::ProcessNode - Choice node {} has no available choices", static_cast<u64>(nodeID));
@@ -415,7 +415,7 @@ namespace OloEngine
             if (static_cast<u64>(nextNodeID) == 0)
             {
                 // No matching branch — try default connection
-                if (!connections.empty())
+                if (!connections.IsEmpty())
                     nextNodeID = connections[0].TargetNodeID;
                 else
                 {
@@ -447,7 +447,7 @@ namespace OloEngine
 
             // Proceed to next connected node
             auto connections = dialogueTree->GetConnectionsFrom(nodeID);
-            if (connections.empty())
+            if (connections.IsEmpty())
             {
                 EndDialogue(entity);
                 return;
@@ -456,7 +456,7 @@ namespace OloEngine
         }
         else
         {
-            OLO_CORE_WARN("DialogueSystem::ProcessNode - Unknown node type: {}", node->Type);
+            OLO_CORE_WARN("DialogueSystem::ProcessNode - Unknown node type: {}", node->Type.ToView());
             EndDialogue(entity);
         }
     }

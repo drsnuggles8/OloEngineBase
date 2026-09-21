@@ -77,7 +77,7 @@ namespace
     {
         const auto particles =
             WS::Emit(settings, foamThreshold, { 0.0f, 0.0f }, timeSeconds, dt, FlatSea(fold));
-        return static_cast<u32>(particles.size());
+        return static_cast<u32>(particles.Num());
     }
 
     /// Emissions summed over several steps, so a probabilistic emitter is
@@ -229,9 +229,9 @@ namespace OloEngine::Tests
         const WS::WaterSpraySettings settings = MakeSettings();
         const auto a = WS::Emit(settings, 0.25f, { 0.0f, 0.0f }, 12.0f, 1.0f / 60.0f, FlatSea(0.9f));
         const auto b = WS::Emit(settings, 0.25f, { 0.0f, 0.0f }, 12.0f, 1.0f / 60.0f, FlatSea(0.9f));
-        ASSERT_FALSE(a.empty());
-        ASSERT_EQ(a.size(), b.size());
-        for (sizet i = 0; i < a.size(); ++i)
+        ASSERT_FALSE(a.IsEmpty());
+        ASSERT_EQ(a.Num(), b.Num());
+        for (sizet i = 0; i < a.Num(); ++i)
         {
             for (glm::length_t c = 0; c < 4; ++c)
             {
@@ -351,7 +351,7 @@ namespace OloEngine::Tests
             total += static_cast<u32>(
                 WS::Emit(settings, foamDefaults.m_DepositThreshold, { 0.0f, 0.0f },
                          5.0f + static_cast<f32>(i) / 60.0f, 1.0f / 60.0f, sampleCrest)
-                    .size());
+                    .Num());
         }
         EXPECT_GT(total, 0u) << "no spray from a real storm sea (peak fold " << peakFold << ")";
     }
@@ -413,8 +413,8 @@ namespace OloEngine::Tests
         settings.m_RadiusMetres = 200.0f;
         const auto particles =
             WS::Emit(settings, 0.25f, { 0.0f, 0.0f }, 3.0f, 1.0f / 60.0f, FlatSea(1.0f));
-        EXPECT_LE(particles.size(), static_cast<sizet>(WS::kMaxEmitPerFrame));
-        EXPECT_GT(particles.size(), 0u);
+        EXPECT_LE(particles.Num(), static_cast<sizet>(WS::kMaxEmitPerFrame));
+        EXPECT_GT(particles.Num(), 0u);
     }
 
     TEST(WaterSprayTest, NonFiniteCrestSamplesAreSkippedRatherThanEmitted)
@@ -424,7 +424,7 @@ namespace OloEngine::Tests
         const auto particles = WS::Emit(settings, 0.25f, { 0.0f, 0.0f }, 3.0f, 1.0f / 60.0f,
                                         [nan](glm::vec2) -> WS::CrestSample
                                         { return { nan, nan, glm::vec2(nan) }; });
-        EXPECT_TRUE(particles.empty());
+        EXPECT_TRUE(particles.IsEmpty());
     }
 
     TEST(WaterSprayTest, ZeroOrNonFiniteDtEmitsNothing)
@@ -441,7 +441,7 @@ namespace OloEngine::Tests
         constexpr f32 kCrestHeight = 1.25f;
         const auto particles = WS::Emit(settings, 0.25f, { 0.0f, 0.0f }, 3.0f, 1.0f / 60.0f,
                                         FlatSea(0.95f, kCrestHeight));
-        ASSERT_FALSE(particles.empty());
+        ASSERT_FALSE(particles.IsEmpty());
         for (const GPUParticle& p : particles)
         {
             // Above the crest it came off, not below it and not at the plane —
@@ -463,12 +463,12 @@ namespace OloEngine::Tests
         settings.m_WindMetresPerSecond = { 12.0f, 0.0f };
         const auto particles =
             WS::Emit(settings, 0.25f, { 0.0f, 0.0f }, 3.0f, 1.0f / 60.0f, FlatSea(0.95f));
-        ASSERT_FALSE(particles.empty());
+        ASSERT_FALSE(particles.IsEmpty());
 
         f32 meanX = 0.0f;
         for (const GPUParticle& p : particles)
             meanX += p.VelocityMaxLifetime.x;
-        meanX /= static_cast<f32>(particles.size());
+        meanX /= static_cast<f32>(particles.Num());
         EXPECT_GT(meanX, 0.0f) << "spray was not carried downwind";
     }
 } // namespace OloEngine::Tests

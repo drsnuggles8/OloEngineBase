@@ -14,15 +14,15 @@
 
 namespace OloEngine::RenderGraphPlanExecutor
 {
-    auto ExecutePlan(const ExecuteInput& input) -> std::vector<RenderGraph::ExecutionTiming>
+    auto ExecutePlan(const ExecuteInput& input) -> TArray64<RenderGraph::ExecutionTiming>
     {
         OLO_PROFILE_FUNCTION();
 
         using SubmissionCommand = RenderGraph::SubmissionCommand;
         using ExecutionTiming = RenderGraph::ExecutionTiming;
 
-        std::vector<ExecutionTiming> timings;
-        timings.reserve(input.SubmissionPlan.size());
+        TArray64<ExecutionTiming> timings;
+        timings.Reserve(input.SubmissionPlan.size());
 
         // One fence/value per immutable plan edge. The plan is backend-neutral;
         // a concrete GpuFence exists only while a backend can actually submit
@@ -53,8 +53,8 @@ namespace OloEngine::RenderGraphPlanExecutor
             i8& cached = fenceReachability[edge.Index];
             if (cached < 0)
             {
-                cached = static_cast<i8>(input.IsPassReachable(edge.ProducerPass) &&
-                                         input.IsPassReachable(edge.ConsumerPass));
+                cached = static_cast<i8>(input.IsPassReachable(edge.ProducerPass.ToView()) &&
+                                         input.IsPassReachable(edge.ConsumerPass.ToView()));
             }
             return cached != 0;
         };
@@ -96,7 +96,7 @@ namespace OloEngine::RenderGraphPlanExecutor
             {
                 if (command.CommandKind == SubmissionCommand::Kind::Pass)
                 {
-                    if (!command.NodePointer || !input.IsPassReachable(command.NodeName))
+                    if (!command.NodePointer || !input.IsPassReachable(command.NodeName.ToView()))
                         return false;
                     passes.push_back(&command);
                 }
@@ -111,7 +111,7 @@ namespace OloEngine::RenderGraphPlanExecutor
             // is counted and named instead of being absorbed silently — a
             // group that declines in steady state is a planner bug, and only a
             // number that moves will say so.
-            const auto decline = [&api, &passes](const char* reason, const std::string& passName)
+            const auto decline = [&api, &passes](const char* reason, std::string_view passName)
             {
                 api.NoteDeclinedRecordingGroup();
                 // Warn once — the per-frame count is the metric; the log line
@@ -137,13 +137,13 @@ namespace OloEngine::RenderGraphPlanExecutor
                 // Resolve lazy graph state and snapshot mutable uploads on the
                 // caller. Each worker receives an independent active-pass label.
                 auto context = input.Context.CreateRecordingLane(pass->RecordingLane);
-                context.BeginPass(pass->NodeName);
+                context.BeginPass(pass->NodeName.ToView());
                 auto recording = pass->NodePointer->PrepareParallelRecording(context);
                 if (!recording.Record)
-                    return decline("pass prepared no recording body", pass->NodeName);
+                    return decline("pass prepared no recording body", pass->NodeName.ToView());
                 for (const auto& previous : prepared)
                     if (RecordingResourcesConflict(previous, recording))
-                        return decline("physical resource use conflicts with an earlier member", pass->NodeName);
+                        return decline("physical resource use conflicts with an earlier member", pass->NodeName.ToView());
                 instanceCapacity = std::max(instanceCapacity, recording.InstanceCapacity);
                 prepared.push_back(std::move(recording));
                 contexts.push_back(std::move(context));
@@ -159,21 +159,21 @@ namespace OloEngine::RenderGraphPlanExecutor
                 {
                     if (command.CommandKind != SubmissionCommand::Kind::MemoryBarrier)
                         continue;
-                    std::vector<RHI::Barrier> resolved;
-                    if (input.GraphForBarrierResolution && !command.Transitions.empty())
-                        resolved = input.GraphForBarrierResolution->ResolveTransitionsToBarriers(command.Transitions);
-                    input.Context.IssueBarrierBatch(command.Barriers, resolved);
+                    TArray64<RHI::Barrier> resolved;
+                    if (input.GraphForBarrierResolution && !command.Transitions.IsEmpty())
+                        resolved = input.GraphForBarrierResolution->ResolveTransitionsToBarriers(std::span<const RenderGraph::ResourceTransition>(command.Transitions.GetData(), static_cast<sizet>(command.Transitions.Num())));
+                    input.Context.IssueBarrierBatch(command.Barriers, std::span<const RHI::Barrier>(resolved.GetData(), static_cast<sizet>(resolved.Num())));
                 }
             }
 
             std::vector<f64> recordMs(passes.size());
             std::vector<std::string> passNames;
             for (const auto* pass : passes)
-                passNames.push_back(pass->NodeName);
+                passNames.push_back(pass->NodeName.ToStdString());
             api.RecordParallelOrdered(static_cast<u32>(passes.size()), [&](u32 lane)
                                       {
                     const auto start = std::chrono::steady_clock::now();
-                    api.PushDebugGroup(0u, passes[lane]->NodeName);
+                    api.PushDebugGroup(0u, passes[lane]->NodeName.ToView());
                     struct EndDebugGroup
                     {
                         RendererAPI& API;
@@ -182,13 +182,13 @@ namespace OloEngine::RenderGraphPlanExecutor
                     prepared[lane].Record(contexts[lane]);
                     recordMs[lane] = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - start).count();
                     contexts[lane].EndPass(); }, [&](u32 lane)
-                                      { GPUPassTimerPool::GetInstance().BeginPass(passes[lane]->NodeName); }, [&](u32 lane)
+                                      { GPUPassTimerPool::GetInstance().BeginPass(passes[lane]->NodeName.ToStdString()); }, [&](u32 lane)
                                       {
                     GPUPassTimerPool::GetInstance().EndPass();
                     if (prepared[lane].Publish)
                         prepared[lane].Publish(); }, instanceCapacity, passNames);
             for (u32 lane = 0; lane < passes.size(); ++lane)
-                timings.push_back({ .NodeName = passes[lane]->NodeName, .CpuMs = recordMs[lane] });
+                timings.Add({ .NodeName = passes[lane]->NodeName, .CpuMs = recordMs[lane] });
             return true;
         };
 
@@ -263,7 +263,7 @@ namespace OloEngine::RenderGraphPlanExecutor
                         {
                             OLO_CORE_WARN("RenderGraph: split-barrier wait for '{}' -> '{}' had no producer value; "
                                           "falling back to full barriers for this frame",
-                                          edge.ProducerPass, edge.ConsumerPass);
+                                          edge.ProducerPass.ToView(), edge.ConsumerPass.ToView());
                             canStage = false;
                             break;
                         }
@@ -311,7 +311,7 @@ namespace OloEngine::RenderGraphPlanExecutor
                         {
                             OLO_CORE_WARN("RenderGraph: split-barrier signal for '{}' -> '{}' could not create a GPU fence; "
                                           "falling back to full barriers for this frame",
-                                          edge.ProducerPass, edge.ConsumerPass);
+                                          edge.ProducerPass.ToView(), edge.ConsumerPass.ToView());
                             canStage = false;
                             break;
                         }
@@ -333,7 +333,7 @@ namespace OloEngine::RenderGraphPlanExecutor
                         {
                             OLO_CORE_ERROR("RenderGraph: split-barrier fence for '{}' -> '{}' exhausted its timeline; "
                                            "falling back to full barriers for this frame",
-                                           edge.ProducerPass, edge.ConsumerPass);
+                                           edge.ProducerPass.ToView(), edge.ConsumerPass.ToView());
                             splitSubmissionEnabled = false;
                             break;
                         }
@@ -348,29 +348,29 @@ namespace OloEngine::RenderGraphPlanExecutor
                 {
                     if (input.RuntimeBarrierExecutionEnabled)
                     {
-                        std::vector<RHI::Barrier> resolved;
-                        if (input.GraphForBarrierResolution && !cmd.Transitions.empty())
-                            resolved = input.GraphForBarrierResolution->ResolveTransitionsToBarriers(cmd.Transitions);
-                        input.Context.IssueBarrierBatch(cmd.Barriers, resolved);
+                        TArray64<RHI::Barrier> resolved;
+                        if (input.GraphForBarrierResolution && !cmd.Transitions.IsEmpty())
+                            resolved = input.GraphForBarrierResolution->ResolveTransitionsToBarriers(std::span<const RenderGraph::ResourceTransition>(cmd.Transitions.GetData(), static_cast<sizet>(cmd.Transitions.Num())));
+                        input.Context.IssueBarrierBatch(cmd.Barriers, std::span<const RHI::Barrier>(resolved.GetData(), static_cast<sizet>(resolved.Num())));
                     }
                     break;
                 }
                 case SubmissionCommand::Kind::Pass:
                 {
-                    if (!input.IsPassReachable(cmd.NodeName))
+                    if (!input.IsPassReachable(cmd.NodeName.ToView()))
                         break;
 
                     if (!cmd.NodePointer)
                         break;
 
-                    input.Context.BeginPass(cmd.NodeName);
+                    input.Context.BeginPass(cmd.NodeName.ToView());
                     // Always-on per-pass GPU timestamps (GL_TIMESTAMP pairs, so
                     // they coexist with the capture path's per-draw
                     // GL_TIME_ELAPSED scopes inside the pass). Resolved a few
                     // frames later by GPUPassTimerPool::BeginFrame; surfaced via
                     // the olo_perf_pass_timings MCP tool.
                     auto& gpuTimers = GPUPassTimerPool::GetInstance();
-                    gpuTimers.BeginPass(cmd.NodeName);
+                    gpuTimers.BeginPass(cmd.NodeName.ToStdString());
                     // Name the pass in the backend's command stream. This is
                     // what makes a GPU-side diagnostic say WHICH pass: a
                     // RenderDoc/Nsight region, and — on Vulkan — the
@@ -401,7 +401,7 @@ namespace OloEngine::RenderGraphPlanExecutor
                     std::chrono::steady_clock::time_point executeStart{};
                     std::chrono::steady_clock::time_point executeEnd{};
                     {
-                        const DebugGroupScope debugGroup{ cmd.NodeName };
+                        const DebugGroupScope debugGroup{ cmd.NodeName.ToView() };
                         executeStart = std::chrono::steady_clock::now();
                         cmd.NodePointer->Execute(input.Context);
                         executeEnd = std::chrono::steady_clock::now();
@@ -410,7 +410,7 @@ namespace OloEngine::RenderGraphPlanExecutor
                     input.Context.EndPass();
 
                     const auto elapsedMs = std::chrono::duration<f64, std::milli>(executeEnd - executeStart).count();
-                    timings.push_back(ExecutionTiming{
+                    timings.Add(ExecutionTiming{
                         .NodeName = cmd.NodeName,
                         .CpuMs = elapsedMs,
                     });
@@ -419,7 +419,7 @@ namespace OloEngine::RenderGraphPlanExecutor
                     // the next pass begins. Lets debug tooling snapshot
                     // intermediate resource state (see RenderGraphFrameCapture).
                     if (input.PostPassHook && input.GraphForPostPassHook)
-                        input.PostPassHook(cmd.NodeName, *input.GraphForPostPassHook);
+                        input.PostPassHook(cmd.NodeName.ToView(), *input.GraphForPostPassHook);
                     break;
                 }
             }

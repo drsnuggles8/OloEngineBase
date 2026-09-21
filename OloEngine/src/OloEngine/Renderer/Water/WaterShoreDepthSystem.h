@@ -8,7 +8,7 @@
 #include <glm/glm.hpp>
 
 #include <span>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -32,13 +32,13 @@ namespace OloEngine
     /// at the sampling end.
     struct SeabedTerrain
     {
-        glm::vec2 OriginXZ{ 0.0f };                ///< world XZ of the tile's minimum corner
-        glm::vec2 SizeXZ{ 1.0f };                  ///< tile world size in metres
-        f32 BaseY = 0.0f;                          ///< world Y of a normalised height of 0
-        f32 HeightScale = 1.0f;                    ///< metres per unit of normalised height
-        u32 Resolution = 0;                        ///< height field is Resolution x Resolution
-        const std::vector<f32>* Heights = nullptr; ///< row-major, borrowed for the call
-                                                   ///< (TerrainData::GetHeightData)
+        glm::vec2 OriginXZ{ 0.0f };           ///< world XZ of the tile's minimum corner
+        glm::vec2 SizeXZ{ 1.0f };             ///< tile world size in metres
+        f32 BaseY = 0.0f;                     ///< world Y of a normalised height of 0
+        f32 HeightScale = 1.0f;               ///< metres per unit of normalised height
+        u32 Resolution = 0;                   ///< height field is Resolution x Resolution
+        const TArray<f32>* Heights = nullptr; ///< row-major, borrowed for the call
+                                              ///< (TerrainData::GetHeightData)
         /// TerrainData::GetHeightRevision(). Carried because the heights vector's
         /// ADDRESS is not an identity for its contents: a sculpt rewrites every
         /// sample in place, at the same address, so a bake keyed on the pointer
@@ -157,7 +157,7 @@ namespace OloEngine
         /// pins.
         static void BakeField(const WaterShoreBakeRequest& request,
                               std::span<const SeabedTerrain> terrains,
-                              std::vector<glm::vec4>& outTexels);
+                              TArray<glm::vec4>& outTexels);
 
         /// Bilinear read of a baked texel array, in the same addressing the
         /// GLSL side uses. Shared by SampleWorld and by the tests, so the CPU

@@ -47,7 +47,8 @@
 
 #include <set>
 #include <span>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
+#include <span>
 
 namespace OloEngine
 {
@@ -115,7 +116,7 @@ namespace OloEngine
 
         [[nodiscard]] u32 GetTriangleCount() const noexcept
         {
-            return static_cast<u32>(m_Records.size());
+            return static_cast<u32>(m_Records.Num());
         }
         [[nodiscard]] f32 GetTotalArea() const noexcept
         {
@@ -175,12 +176,14 @@ namespace OloEngine
         // area. Records carry the raw running area in NormalAndCdf.w until
         // Finalize normalises it.
         static f32 AppendTriangles(const TriangleRange& range, const Emitter& emitter, f32 runningArea,
-                                   std::vector<EmissiveTriangleRecord>& out);
+                                   TArray<EmissiveTriangleRecord>& out);
         // Turn the running area sums into cumulative fractions; the last
         // entry is forced to exactly 1.
-        static void Finalize(std::vector<EmissiveTriangleRecord>& records, f32 totalArea);
+        static void Finalize(TArray<EmissiveTriangleRecord>& records, f32 totalArea);
 
       private:
+        template<typename>
+        friend struct TIsTriviallyRelocatable;
         struct PendingSubmesh
         {
             Ref<MeshSource> m_MeshSource;
@@ -189,19 +192,31 @@ namespace OloEngine
             GPUSceneMaterialKey m_MaterialKey{};
         };
 
-        std::vector<PendingSubmesh> m_Pending;
+        TArray<PendingSubmesh> m_Pending;
         std::set<GPUSceneMaterialKey> m_EmissiveMaterials;
-        std::vector<EmissiveTriangleRecord> m_Records;
+        TArray<EmissiveTriangleRecord> m_Records;
         // What the device buffer holds, so a frame whose table is byte-identical
         // to the last one (the common case: a static scene converging) issues
         // no write. The write would race the previous frame's in-flight draw,
         // which reads the persistent buffer by device address.
-        std::vector<EmissiveTriangleRecord> m_Uploaded;
+        TArray<EmissiveTriangleRecord> m_Uploaded;
         glm::vec3 m_RenderOrigin{ 0.0f };
         f32 m_TotalArea = 0.0f;
         u32 m_UploadedCount = 0;
         bool m_Gathering = false;
         bool m_ChangedThisFrame = false;
         Ref<StorageBuffer> m_Buffer;
+    };
+} // namespace OloEngine
+
+namespace OloEngine
+{
+    template<>
+    struct TIsTriviallyRelocatable<EmissiveTriangleTable::PendingSubmesh>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(EmissiveTriangleTable::PendingSubmesh::m_MeshSource)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(EmissiveTriangleTable::PendingSubmesh::m_SubmeshIndex)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(EmissiveTriangleTable::PendingSubmesh::m_WorldTransform)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(EmissiveTriangleTable::PendingSubmesh::m_MaterialKey)>::Value;
     };
 } // namespace OloEngine

@@ -2153,3 +2153,13 @@ namespace OloEngine
     // Note: GetTypeHash for TPair is provided by Tuple.h via TTuple's hash function
 
 } // namespace OloEngine
+
+namespace OloEngine
+{
+    // TMap owns only its set; key functions are a static policy, not stored state.
+    template<typename K, typename V, typename A, typename F>
+    struct TIsTriviallyRelocatable<TMap<K, V, A, F>>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable_V<TSet<TPair<K, V>, F, A>>;
+    };
+} // namespace OloEngine

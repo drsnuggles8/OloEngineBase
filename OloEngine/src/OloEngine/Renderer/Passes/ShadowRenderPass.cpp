@@ -25,6 +25,25 @@
 
 namespace OloEngine
 {
+    struct ShadowMeshBatch
+    {
+        RHI::ResourceHandle drawVao;
+        u32 indexCount;
+        u32 baseIndex;
+        bool twoSided; // rendered with culling disabled instead of front-cull (issue #650)
+        TArray64<InstanceData> instances;
+    };
+    template<>
+    struct TIsTriviallyRelocatable<ShadowMeshBatch>
+    {
+        // Scalar draw identity plus an audited heap-owned instance array.
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(ShadowMeshBatch::drawVao)> &&
+                                      TIsTriviallyRelocatable_V<decltype(ShadowMeshBatch::indexCount)> &&
+                                      TIsTriviallyRelocatable_V<decltype(ShadowMeshBatch::baseIndex)> &&
+                                      TIsTriviallyRelocatable_V<decltype(ShadowMeshBatch::twoSided)> &&
+                                      TIsTriviallyRelocatable_V<decltype(ShadowMeshBatch::instances)>;
+    };
+
     ShadowRenderPass::ShadowRenderPass()
     {
         OLO_PROFILE_FUNCTION();
@@ -103,9 +122,9 @@ namespace OloEngine
         // that exercised them happened to contain a classic MeshComponent — a ground plane —
         // holding this gate open. Delete the ground from the Nanite stress scene and 24 dragons
         // stop casting, which is exactly how this surfaced.
-        const bool hasCasters = !m_MeshCasters.empty() || !m_SkinnedCasters.empty() ||
-                                !m_TerrainCasters.empty() || !m_VoxelCasters.empty() ||
-                                !m_FoliageCasters.empty() || AnyVirtualShadowCaster();
+        const bool hasCasters = !m_MeshCasters.IsEmpty() || !m_SkinnedCasters.IsEmpty() ||
+                                !m_TerrainCasters.IsEmpty() || !m_VoxelCasters.IsEmpty() ||
+                                !m_FoliageCasters.IsEmpty() || AnyVirtualShadowCaster();
 
         // Root-cause early-out for issue #522: when no light requested shadows this
         // frame the CSM/spot/point matrices are stale (identity), so rendering any
@@ -124,11 +143,11 @@ namespace OloEngine
                 m_WarnedOnce = true;
             }
             // Clear caster lists for next frame
-            m_MeshCasters.clear();
-            m_SkinnedCasters.clear();
-            m_TerrainCasters.clear();
-            m_VoxelCasters.clear();
-            m_FoliageCasters.clear();
+            m_MeshCasters.Reset();
+            m_SkinnedCasters.Reset();
+            m_TerrainCasters.Reset();
+            m_VoxelCasters.Reset();
+            m_FoliageCasters.Reset();
             return;
         }
 
@@ -228,7 +247,7 @@ namespace OloEngine
             // BEFORE UpdatePages, which consumes the invalidations: running it
             // after would allocate and clear this frame's pages first, leaving a
             // mover's old silhouette baked into a page now marked clean.
-            vsm.SubmitDynamicInvalidations(m_MeshCasters, m_SkinnedCasters, Renderer3D::GetRenderOrigin());
+            vsm.SubmitDynamicInvalidations({ m_MeshCasters.GetData(), static_cast<sizet>(m_MeshCasters.Num()) }, { m_SkinnedCasters.GetData(), static_cast<sizet>(m_SkinnedCasters.Num()) }, Renderer3D::GetRenderOrigin());
             // Unconditional, for the same reason: with both lists empty it does
             // nothing, and with only the PREVIOUS list populated it is the only
             // thing that retires a deleted caster's shadow.
@@ -265,19 +284,19 @@ namespace OloEngine
             if (vsmVirtualCasters)
             {
                 BuildVirtualClipViews(vsm);
-                if (!m_VsmClipViews.empty())
+                if (!m_VsmClipViews.IsEmpty())
                 {
                     renderVirtualCasters = [this, &vsm]()
                     {
                         return VirtualGeometryShadow::RenderVirtualShadowMapLevels(
-                            m_VsmClipViews, VSM::kVirtualResolution,
+                            { m_VsmClipViews.GetData(), static_cast<sizet>(m_VsmClipViews.Num()) }, VSM::kVirtualResolution,
                             [&vsm]()
                             { vsm.BindPhysicalPoolImage(); }, m_VsmVirtualResources);
                     };
                 }
             }
 
-            vsm.RenderCasters(m_MeshCasters, m_SkinnedCasters, Renderer3D::GetRenderOrigin(), uploadBones,
+            vsm.RenderCasters({ m_MeshCasters.GetData(), static_cast<sizet>(m_MeshCasters.Num()) }, { m_SkinnedCasters.GetData(), static_cast<sizet>(m_SkinnedCasters.Num()) }, Renderer3D::GetRenderOrigin(), uploadBones,
                               renderVirtualCasters);
             vsm.EndFrame();
 
@@ -300,7 +319,7 @@ namespace OloEngine
 
         // The largest upload any item can make: one batch holds at most every
         // static caster, and the per-caster uploads (skinned, voxel) hold one.
-        const u32 itemInstanceCapacity = std::max<u32>(64u, static_cast<u32>(m_MeshCasters.size()));
+        const u32 itemInstanceCapacity = std::max<u32>(64u, static_cast<u32>(m_MeshCasters.Num()));
 
         // Resolved per region, not once up front, so a frame makes exactly the
         // library lookups it made before (a VSM frame with no atlas entries made
@@ -310,13 +329,13 @@ namespace OloEngine
         const auto resolveCasterShaders = [this, &casterShaders]()
         {
             casterShaders.Mesh = Renderer3D::GetShaderLibrary().Get("ShadowDepth");
-            if (!m_SkinnedCasters.empty())
+            if (!m_SkinnedCasters.IsEmpty())
             {
                 casterShaders.Skinned = Renderer3D::GetShaderLibrary().Get("ShadowDepthSkinned");
             }
             casterShaders.Voxel = Renderer3D::GetVoxelDepthShader();
             casterShaders.VoxelQuad = Renderer3D::GetVoxelGreedyDepthShader();
-            if (!m_TerrainCasters.empty())
+            if (!m_TerrainCasters.IsEmpty())
             {
                 casterShaders.Terrain = Renderer3D::GetShaderLibrary().Get("Terrain_Depth");
                 if (!casterShaders.Terrain)
@@ -336,7 +355,7 @@ namespace OloEngine
 
             // Collect the cascades that will render this frame — the region's
             // items, in cascade order — before any of them records.
-            m_ActiveViews.clear();
+            m_ActiveViews.Reset();
             for (u32 cascade = 0; cascade < ShadowMap::MAX_CSM_CASCADES; ++cascade)
             {
                 const glm::mat4& lightVP = m_ShadowMap->GetCSMMatrix(cascade);
@@ -362,9 +381,9 @@ namespace OloEngine
                 // asks before doing any work, so a cascade opened here for virtual geometry that
                 // then turns out to be empty costs a framebuffer attach and a depth clear, not a
                 // dispatch.
-                const bool hasUnbounded = !m_TerrainCasters.empty() ||
-                                          !m_FoliageCasters.empty() ||
-                                          !m_VoxelCasters.empty() ||
+                const bool hasUnbounded = !m_TerrainCasters.IsEmpty() ||
+                                          !m_FoliageCasters.IsEmpty() ||
+                                          !m_VoxelCasters.IsEmpty() ||
                                           AnyVirtualShadowCaster();
                 if (!hasUnbounded)
                 {
@@ -378,10 +397,10 @@ namespace OloEngine
                         continue; // No work for this cascade — skip all GL state changes
                 }
 
-                m_ActiveViews.push_back({ cascade, lightVP, cascadeFrustum });
+                m_ActiveViews.Add({ cascade, lightVP, cascadeFrustum });
             }
 
-            if (!m_ActiveViews.empty())
+            if (!m_ActiveViews.IsEmpty())
             {
                 resolveCasterShaders();
                 RecordShadowRegion(ShadowPassType::CSM, casterShaders, recordingInstancedDraws, itemInstanceCapacity, [&](const ActiveShadowView& view)
@@ -422,7 +441,7 @@ namespace OloEngine
 
             // Collect the entries that will render — the region's items, in
             // entry order. An entry without a tile is skipped, as before.
-            m_ActiveViews.clear();
+            m_ActiveViews.Reset();
             const u32 entryCount = m_ShadowMap->GetAtlasEntryCount();
             for (u32 entry = 0; entry < entryCount; ++entry)
             {
@@ -430,10 +449,10 @@ namespace OloEngine
                     continue;
 
                 const glm::mat4& lightVP = m_ShadowMap->GetAtlasEntryMatrix(entry);
-                m_ActiveViews.push_back({ entry, lightVP, Frustum(lightVP) });
+                m_ActiveViews.Add({ entry, lightVP, Frustum(lightVP) });
             }
 
-            if (!m_ActiveViews.empty())
+            if (!m_ActiveViews.IsEmpty())
             {
                 resolveCasterShaders();
                 RecordShadowRegion(ShadowPassType::Atlas, casterShaders, recordingInstancedDraws, itemInstanceCapacity, [&](const ActiveShadowView& view)
@@ -456,11 +475,11 @@ namespace OloEngine
         RenderCommand::SetViewport(prevViewport.x, prevViewport.y, prevViewport.width, prevViewport.height);
 
         // Clear caster lists for next frame (vectors keep their allocation)
-        m_MeshCasters.clear();
-        m_SkinnedCasters.clear();
-        m_TerrainCasters.clear();
-        m_VoxelCasters.clear();
-        m_FoliageCasters.clear();
+        m_MeshCasters.Reset();
+        m_SkinnedCasters.Reset();
+        m_TerrainCasters.Reset();
+        m_VoxelCasters.Reset();
+        m_FoliageCasters.Reset();
     }
 
     void ShadowRenderPass::RecordShadowRegion(const ShadowPassType type, const ShadowCasterShaders& shaders,
@@ -469,12 +488,12 @@ namespace OloEngine
                                               const std::function<void(const ActiveShadowView&)>& selectTarget,
                                               const bool clearPerItem)
     {
-        const auto activeCount = static_cast<u32>(m_ActiveViews.size());
+        const auto activeCount = static_cast<u32>(m_ActiveViews.Num());
         EnsureItemResources(activeCount, instanceCapacity);
-        if (m_VirtualItemResources.size() < activeCount)
-            m_VirtualItemResources.resize(activeCount);
+        if (static_cast<sizet>(m_VirtualItemResources.Num()) < activeCount)
+            m_VirtualItemResources.SetNum(static_cast<i64>(activeCount), EAllowShrinking::No);
         const bool virtualCasters = VirtualGeometryShadow::PrepareViews(
-            std::span<VirtualGeometryShadow::ViewResources>(m_VirtualItemResources.data(), activeCount));
+            std::span<VirtualGeometryShadow::ViewResources>(m_VirtualItemResources.GetData(), activeCount));
 
         // Foliage GPU culling for every view in this region (issue #1235), run
         // HERE and not inside recordItem. The region records in parallel on
@@ -529,7 +548,7 @@ namespace OloEngine
         // Same sizes and binding points as the UBOs ShadowMap::Init creates for
         // the (now VSM-only) shared pair; the instance buffer takes its default
         // capacity and grows on the first oversized batch like the engine-wide one.
-        while (m_ItemResources.size() < count)
+        while (static_cast<sizet>(m_ItemResources.Num()) < count)
         {
             ItemResources resources;
             resources.Camera = UniformBuffer::Create(
@@ -543,7 +562,7 @@ namespace OloEngine
             // (92) rule 7), so the capacity covers the largest batch any item can
             // upload this frame.
             resources.Instances = Ref<InstanceBuffer>::Create(instanceCapacity);
-            m_ItemResources.push_back(std::move(resources));
+            m_ItemResources.Add(std::move(resources));
         }
         for (u32 item = 0; item < count; ++item)
         {
@@ -551,9 +570,9 @@ namespace OloEngine
             // an earlier frame's (the buffer keeps its capacity across frames).
             m_ItemResources[item].Instances->EnsureCapacity(instanceCapacity);
         }
-        if (m_ItemTallies.size() < m_ItemResources.size())
+        if (static_cast<sizet>(m_ItemTallies.Num()) < static_cast<sizet>(m_ItemResources.Num()))
         {
-            m_ItemTallies.resize(m_ItemResources.size());
+            m_ItemTallies.SetNum(static_cast<i64>(m_ItemResources.Num()), EAllowShrinking::No);
         }
     }
 
@@ -570,11 +589,11 @@ namespace OloEngine
         // cascade 1" — making it obvious which shadow target a batched draw is
         // filling in.
         const char* kind = (type == ShadowPassType::CSM) ? "CSM cascade" : "Atlas entry";
-        const auto itemCount = m_ActiveViews.size();
+        const auto itemCount = static_cast<sizet>(m_ActiveViews.Num());
         for (sizet item = 0; item < itemCount; ++item)
         {
             auto& tally = m_ItemTallies[item];
-            if (tally.InstancedDraws.empty())
+            if (tally.InstancedDraws.IsEmpty())
                 continue;
 
             char sourceLabel[64];
@@ -593,7 +612,7 @@ namespace OloEngine
                     /*fromAutoBatching=*/true,
                     sourceLabel);
             }
-            tally.InstancedDraws.clear();
+            tally.InstancedDraws.Reset();
         }
     }
 
@@ -639,7 +658,7 @@ namespace OloEngine
 
         if (tally)
         {
-            tally->InstancedDraws.clear();
+            tally->InstancedDraws.Reset();
         }
 
         // Upload light VP to this item's shadow camera UBO (binding 0).
@@ -678,24 +697,16 @@ namespace OloEngine
         // ── Static meshes (auto-batched by shared VAO + index range) ──
         {
             const Ref<Shader>& shadowShader = shaders.Mesh;
-            if (shadowShader && !m_MeshCasters.empty())
+            if (shadowShader && !m_MeshCasters.IsEmpty())
             {
                 // Casters sharing (drawVao, indexCount, baseIndex) all read the
                 // same submesh range, so they can collapse into a single
                 // glDrawElementsInstanced. The shadow VS reads
                 // instances[gl_InstanceIndex].Transform from the SSBO.
-                struct ShadowMeshBatch
-                {
-                    RHI::ResourceHandle drawVao;
-                    u32 indexCount;
-                    u32 baseIndex;
-                    bool twoSided; // rendered with culling disabled instead of front-cull (issue #650)
-                    std::vector<InstanceData> instances;
-                };
                 // thread_local, which is what makes it per ITEM when the region
                 // forks: a worker owns its own list, and inline there is one thread.
-                thread_local std::vector<ShadowMeshBatch> batches;
-                batches.clear();
+                thread_local TArray64<ShadowMeshBatch> batches;
+                batches.Reset();
 
                 for (const auto& caster : m_MeshCasters)
                 {
@@ -718,15 +729,15 @@ namespace OloEngine
                                                             b.baseIndex == caster.baseIndex && b.twoSided == caster.twoSided; });
                     if (it == batches.end())
                     {
-                        batches.push_back({ drawVao, caster.indexCount, caster.baseIndex, caster.twoSided, { inst } });
+                        batches.Add({ drawVao, caster.indexCount, caster.baseIndex, caster.twoSided, { inst } });
                     }
                     else
                     {
-                        it->instances.push_back(inst);
+                        it->instances.Add(inst);
                     }
                 }
 
-                if (!batches.empty())
+                if (!batches.IsEmpty())
                 {
                     shadowShader->Bind();
                     // Profiler records are TALLIED here and handed to
@@ -758,20 +769,20 @@ namespace OloEngine
 
                         if (instanceBuffer)
                         {
-                            instanceBuffer->Upload(std::span<const InstanceData>(batch.instances.data(),
-                                                                                 batch.instances.size()));
+                            instanceBuffer->Upload(std::span<const InstanceData>(batch.instances.GetData(),
+                                                                                 static_cast<sizet>(batch.instances.Num())));
                             instanceBuffer->Bind();
                         }
                         // Single-instance groups still go through the instanced
                         // call — gl_InstanceIndex is 0 either way and the
                         // driver handles count==1 cheaply.
                         RenderCommand::DrawIndexedInstancedRaw(batch.drawVao, batch.indexCount, batch.baseIndex,
-                                                               static_cast<u32>(batch.instances.size()));
+                                                               static_cast<u32>(batch.instances.Num()));
                         if (tally)
                         {
-                            tally->InstancedDraws.push_back({ batch.drawVao.Index,
-                                                              batch.indexCount,
-                                                              static_cast<u32>(batch.instances.size()) });
+                            tally->InstancedDraws.Add({ batch.drawVao.Index,
+                                                        batch.indexCount,
+                                                        static_cast<u32>(batch.instances.Num()) });
                         }
                     }
 
@@ -789,7 +800,7 @@ namespace OloEngine
         }
 
         // ── Skinned meshes ──
-        if (!m_SkinnedCasters.empty())
+        if (!m_SkinnedCasters.IsEmpty())
         {
             const Ref<Shader>& skinnedShadowShader = shaders.Skinned;
             if (skinnedShadowShader)
@@ -832,7 +843,7 @@ namespace OloEngine
         // Two depth shaders: the marching-cubes triangle soup and the packed-
         // quad instanced path (issue #727). Casters are interleaved in one list,
         // so bind lazily and only when the shader actually changes.
-        if (!m_VoxelCasters.empty())
+        if (!m_VoxelCasters.IsEmpty())
         {
             const Ref<Shader>& voxelDepthShader = shaders.Voxel;
             const Ref<Shader>& voxelQuadDepthShader = shaders.VoxelQuad;
@@ -864,7 +875,7 @@ namespace OloEngine
         }
 
         // ── Terrain patches ──
-        if (!m_TerrainCasters.empty())
+        if (!m_TerrainCasters.IsEmpty())
         {
             const auto& terrainDepthShader = shaders.Terrain;
             if (terrainDepthShader)
@@ -935,15 +946,15 @@ namespace OloEngine
     bool ShadowRenderPass::CollectVirtualCasterBounds()
     {
         OLO_PROFILE_FUNCTION();
-        m_VsmVirtualBounds.clear();
+        m_VsmVirtualBounds.Reset();
         return VirtualGeometryShadow::CollectShadowCasterBounds(m_VsmVirtualBounds);
     }
 
     void ShadowRenderPass::BuildVirtualClipViews(const VirtualShadowMap& vsm)
     {
         OLO_PROFILE_FUNCTION();
-        m_VsmClipViews.clear();
-        if (m_VsmVirtualBounds.empty())
+        m_VsmClipViews.Reset();
+        if (m_VsmVirtualBounds.IsEmpty())
             return;
 
         // The same eight-corner NDC test VSM_CullCasters.comp runs per caster,
@@ -971,7 +982,7 @@ namespace OloEngine
             view.ViewProjection = clips[level].ViewProjection;
             view.PageOffset = clips[level].PageOffset;
             view.ClipLevel = level;
-            m_VsmClipViews.push_back(view);
+            m_VsmClipViews.Add(view);
         }
     }
 
@@ -1067,31 +1078,31 @@ namespace OloEngine
     void ShadowRenderPass::AddMeshCaster(RHI::ResourceHandle vaoID, u32 indexCount, u32 baseIndex, const glm::mat4& transform,
                                          RHI::ResourceHandle shadowVaoID, const BoundingBox& worldBounds, bool twoSided)
     {
-        m_MeshCasters.push_back({ vaoID, indexCount, baseIndex, transform, shadowVaoID, worldBounds, twoSided });
+        m_MeshCasters.Add({ vaoID, indexCount, baseIndex, transform, shadowVaoID, worldBounds, twoSided });
     }
 
     void ShadowRenderPass::AddSkinnedCaster(RHI::ResourceHandle vaoID, u32 indexCount, u32 baseIndex, const glm::mat4& transform,
                                             u32 boneBufferOffset, u32 boneCount, const BoundingBox& worldBounds)
     {
-        m_SkinnedCasters.push_back({ vaoID, indexCount, baseIndex, transform, boneBufferOffset, boneCount, worldBounds });
+        m_SkinnedCasters.Add({ vaoID, indexCount, baseIndex, transform, boneBufferOffset, boneCount, worldBounds });
     }
 
     void ShadowRenderPass::AddTerrainCaster(RHI::ResourceHandle vaoID, u32 indexCount, u32 patchVertexCount,
                                             const glm::mat4& transform, RHI::ResourceHandle heightmapTextureID,
                                             const ShaderBindingLayout::TerrainUBO& terrainUBO)
     {
-        m_TerrainCasters.push_back({ vaoID, indexCount, patchVertexCount, transform, heightmapTextureID, terrainUBO });
+        m_TerrainCasters.Add({ vaoID, indexCount, patchVertexCount, transform, heightmapTextureID, terrainUBO });
     }
 
     void ShadowRenderPass::AddVoxelCaster(RHI::ResourceHandle vaoID, u32 indexCount, const glm::mat4& transform,
                                           u32 instanceCount)
     {
-        m_VoxelCasters.push_back({ vaoID, indexCount, instanceCount, transform });
+        m_VoxelCasters.Add({ vaoID, indexCount, instanceCount, transform });
     }
 
     void ShadowRenderPass::AddFoliageCaster(FoliageRenderer* renderer, const Ref<Shader>& depthShader, f32 time)
     {
-        m_FoliageCasters.push_back({ renderer, depthShader, time });
+        m_FoliageCasters.Add({ renderer, depthShader, time });
     }
 
     Ref<Framebuffer> ShadowRenderPass::GetTarget() const
@@ -1120,9 +1131,9 @@ namespace OloEngine
         // The per-item pool is GPU resources of the same generation as the
         // framebuffer being rebuilt below; drop it with the framebuffer and let
         // the next Execute recreate what it needs (render thread, before the fork).
-        m_ItemResources.clear();
-        m_ItemTallies.clear();
-        m_ActiveViews.clear();
+        m_ItemResources.Reset();
+        m_ItemTallies.Reset();
+        m_ActiveViews.Reset();
         if (m_FramebufferSpec.Width > 0 && m_FramebufferSpec.Height > 0)
         {
             Init(m_FramebufferSpec);

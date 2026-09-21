@@ -199,15 +199,15 @@ namespace OloEngine::Tests
             EXPECT_FLOAT_EQ(material->GetRoughnessFactor(), 1.0f)
                 << "Packed roughness channel already contains scalar fallback/scale";
 
-            std::vector<u8> packedMR;
+            TArray64<u8> packedMR;
             ASSERT_TRUE(material->GetMetallicRoughnessMap()->GetData(packedMR));
-            ASSERT_GE(packedMR.size(), static_cast<sizet>(4));
-            ASSERT_EQ(packedMR.size() % 4u, static_cast<sizet>(0));
+            ASSERT_GE(packedMR.Num(), static_cast<sizet>(4));
+            ASSERT_EQ(packedMR.Num() % 4u, static_cast<sizet>(0));
 
             bool sawMetallicTexels = false;
             bool sawRoughnessTexels = false;
             bool sawDistinctChannels = false;
-            for (sizet offset = 0; offset + 3u < packedMR.size(); offset += 4u)
+            for (sizet offset = 0; offset + 3u < packedMR.Num(); offset += 4u)
             {
                 const auto roughness = packedMR[offset + 1u];
                 const auto metallic = packedMR[offset + 2u];
@@ -468,11 +468,11 @@ namespace OloEngine::Tests
             const u32 mipH = std::max(1u, kHeight >> mip);
             for (u32 face = 0; face < 6; ++face)
             {
-                std::vector<u8> readBytes;
+                TArray64<u8> readBytes;
                 ASSERT_TRUE(cached.Prefilter->GetFaceData(face, readBytes, mip));
-                ASSERT_EQ(readBytes.size(), static_cast<std::size_t>(mipW) * mipH * 4 * sizeof(f32));
+                ASSERT_EQ(readBytes.Num(), static_cast<std::size_t>(mipW) * mipH * 4 * sizeof(f32));
 
-                // Avoid reinterpret_cast-through-std::vector<u8>: copy each
+                // Avoid reinterpret_cast-through-TArray64<u8>: copy each
                 // 4-byte texel into a local f32 via std::memcpy so we only
                 // touch the underlying bytes through their canonical type.
                 // Strict-aliasing safe and matches the pattern used in the
@@ -488,7 +488,7 @@ namespace OloEngine::Tests
                         {
                             f32 readValue = 0.0f;
                             std::memcpy(&readValue,
-                                        readBytes.data() + (idx + c) * sizeof(f32),
+                                        readBytes.GetData() + (idx + c) * sizeof(f32),
                                         sizeof(f32));
                             if (std::memcmp(&expectedFace[idx + c], &readValue, sizeof(f32)) != 0)
                             {

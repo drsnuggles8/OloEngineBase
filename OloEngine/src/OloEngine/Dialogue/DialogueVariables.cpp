@@ -43,8 +43,8 @@ namespace OloEngine
         auto it = m_Variables.find(key);
         if (it == m_Variables.end())
             return defaultValue;
-        if (const auto* val = std::get_if<std::string>(&it->second))
-            return *val;
+        if (const auto* val = std::get_if<FString>(&it->second))
+            return val->ToStdString();
         return defaultValue;
     }
 
@@ -69,7 +69,7 @@ namespace OloEngine
     void DialogueVariables::SetString(const std::string& key, const std::string& value)
     {
         OLO_PROFILE_FUNCTION();
-        m_Variables[key] = value;
+        m_Variables[key] = FString(value);
     }
 
     bool DialogueVariables::Has(const std::string& key) const

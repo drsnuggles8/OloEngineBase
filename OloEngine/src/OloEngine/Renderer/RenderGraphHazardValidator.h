@@ -30,7 +30,7 @@ namespace OloEngine::RenderGraphHazardValidator
     struct ValidatorInput
     {
         // Predicates injected by the graph.
-        std::function<bool(const std::string&)> IsPassReachable;
+        std::function<bool(std::string_view)> IsPassReachable;
         std::function<u32(RGTextureHandle)> ResolveTexture;
         // Either a native backing or a live generation-checked RHI buffer.
         std::function<bool(RGBufferHandle)> HasBufferBacking;
@@ -38,17 +38,17 @@ namespace OloEngine::RenderGraphHazardValidator
 
         // Topology (already up to date — caller has run UpdateDependencyGraph
         // and surfaced any cycle diagnostic).
-        std::span<const std::string> ExecutionOrder;
-        const std::unordered_map<std::string, std::vector<std::string>>& Dependencies;
+        std::span<const FString> ExecutionOrder;
+        const RGTransparentStringMap<TArray64<FString>>& Dependencies;
 
         // Setup-time access + feedback declarations.
-        const std::unordered_map<std::string, std::vector<RGAccessDeclaration>>& PassAccessDeclarations;
-        const std::unordered_map<std::string, std::vector<RGFeedbackDeclaration>>& PassFeedbackDeclarations;
+        const RGTransparentStringMap<TArray64<RGAccessDeclaration>>& PassAccessDeclarations;
+        const RGTransparentStringMap<TArray64<RGFeedbackDeclaration>>& PassFeedbackDeclarations;
 
         // Registry stage outputs.
         std::span<const RenderGraph::Hazard> RegistryDiagnostics;
         std::span<const RenderGraph::ResourceInfo> RegisteredResources;
     };
 
-    [[nodiscard]] auto Validate(const ValidatorInput& input) -> std::vector<RenderGraph::Hazard>;
+    [[nodiscard]] auto Validate(const ValidatorInput& input) -> TArray64<RenderGraph::Hazard>;
 } // namespace OloEngine::RenderGraphHazardValidator

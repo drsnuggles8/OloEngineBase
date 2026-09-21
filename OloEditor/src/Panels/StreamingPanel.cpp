@@ -232,7 +232,7 @@ namespace OloEngine
 
             if (m_ExportUseSceneBounds || inBounds)
             {
-                region->m_EntityUUIDs.push_back(idc.ID);
+                region->m_EntityUUIDs.Add(idc.ID);
             }
         }
 
@@ -241,7 +241,7 @@ namespace OloEngine
         serializer.Serialize(region, savePath);
 
         OLO_CORE_INFO("Exported streaming region '{}' with {} entities to '{}'",
-                      m_ExportRegionName, region->m_EntityUUIDs.size(), savePath);
+                      m_ExportRegionName, region->m_EntityUUIDs.Num(), savePath);
     }
 
     void StreamingPanel::DrawRegionsSection()
@@ -293,10 +293,10 @@ namespace OloEngine
                 auto idStr = std::to_string(static_cast<u64>(id));
                 ImGui::PushID(idStr.c_str());
 
-                if (bool nodeOpen = ImGui::TreeNode("", "%s [%s]", region->m_Name.c_str(), stateStr))
+                if (bool nodeOpen = ImGui::TreeNode("", "%s [%s]", region->m_Name.GetData(), stateStr))
                 {
                     ImGui::Text("ID: %llu", static_cast<unsigned long long>(static_cast<u64>(id)));
-                    ImGui::Text("Entities: %zu", region->m_EntityUUIDs.size());
+                    ImGui::Text("Entities: %d", region->m_EntityUUIDs.Num());
                     ImGui::Text("Source: %s", region->m_SourcePath.c_str());
                     ImGui::Text("Bounds Min: (%.1f, %.1f, %.1f)",
                                 region->m_BoundsMin.x, region->m_BoundsMin.y, region->m_BoundsMin.z);

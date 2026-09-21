@@ -453,7 +453,7 @@ namespace OloEngine
         return shape != nullptr;
     }
 
-    JPH::Ref<JPH::Shape> JoltShapes::CreateTerrainHeightFieldShape(const std::vector<f32>& heights, u32 resolution,
+    JPH::Ref<JPH::Shape> JoltShapes::CreateTerrainHeightFieldShape(std::span<const f32> heights, u32 resolution,
                                                                    f32 worldSizeX, f32 worldSizeZ, f32 heightScale,
                                                                    const glm::vec3& scale)
     {

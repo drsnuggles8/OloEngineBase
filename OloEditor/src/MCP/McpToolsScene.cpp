@@ -168,7 +168,7 @@ namespace OloEngine::MCP
                     e["name"] = entity.HasComponent<TagComponent>() ? entity.GetComponent<TagComponent>().Tag : std::string{};
                     if (const UUID parent = entity.GetParentUUID(); static_cast<u64>(parent) != 0)
                         e["parent"] = UuidToString(parent);
-                    e["childCount"] = static_cast<int>(entity.Children().size());
+                    e["childCount"] = static_cast<int>(entity.Children().Num());
                     entities.push_back(std::move(e));
                 }
 

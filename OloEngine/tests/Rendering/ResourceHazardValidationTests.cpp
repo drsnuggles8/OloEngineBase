@@ -121,7 +121,7 @@ namespace
         {
         }
 
-        [[nodiscard]] const std::string& GetName() const override
+        [[nodiscard]] std::string_view GetName() const override
         {
             return m_Name;
         }
@@ -151,20 +151,20 @@ namespace
         return node;
     }
 
-    std::string HazardsToString(const std::vector<RenderGraph::Hazard>& hazards)
+    std::string HazardsToString(const TArray64<RenderGraph::Hazard>& hazards)
     {
-        if (hazards.empty())
+        if (hazards.IsEmpty())
             return "<no hazards>";
         std::string out;
         for (const auto& h : hazards)
         {
             out += "\n  - ";
-            out += h.Message;
+            out += h.Message.ToView();
         }
         return out;
     }
 
-    bool ContainsHazardForResource(const std::vector<RenderGraph::Hazard>& hazards, std::string_view resource)
+    bool ContainsHazardForResource(const TArray64<RenderGraph::Hazard>& hazards, std::string_view resource)
     {
         for (const auto& h : hazards)
         {
@@ -194,7 +194,7 @@ TEST(RenderGraphResourceHazards, LinearChainWithHandoffIsHazardFree)
     graph.ConnectPass("Scene", "Post");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty()) << "expected no hazards, got:" << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.IsEmpty()) << "expected no hazards, got:" << HazardsToString(hazards);
 }
 
 // =============================================================================
@@ -216,7 +216,7 @@ TEST(RenderGraphResourceHazards, DeclaredRAWPair_DerivedEdgePreventsHazardWithou
     // RAW edge from the declaration pair alone.
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "Declared RAW pair should not require an explicit edge."
         << HazardsToString(hazards);
 }
@@ -242,7 +242,7 @@ TEST(RenderGraphResourceHazards, Slice27_DeclarationChainTransitivityIsHazardFre
     // then transitivity propagates A into C's closure.
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "Two-hop declaration chain must be fully derived "
            "without any explicit AddExecutionDependency calls."
         << HazardsToString(hazards);
@@ -268,7 +268,7 @@ TEST(RenderGraphResourceHazards, WriteAfterReadWithoutDependencyIsFlagged)
     graph.ConnectPass("Writer1", "Rewriter");
 
     const auto hazards = graph.ValidateResourceHazards();
-    ASSERT_FALSE(hazards.empty());
+    ASSERT_FALSE(hazards.IsEmpty());
     EXPECT_TRUE(ContainsHazardForResource(hazards, "R")) << HazardsToString(hazards);
 }
 
@@ -289,7 +289,7 @@ TEST(RenderGraphResourceHazards, TransitiveDependencyCountsAsDependency)
     graph.ConnectPass("B", "C"); // A → B → C transitively proves C depends on A
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.IsEmpty()) << HazardsToString(hazards);
 }
 
 // =============================================================================
@@ -310,7 +310,7 @@ TEST(RenderGraphResourceHazards, DiamondReadersOfSharedResourceIsHazardFree)
     graph.ConnectPass("A", "C");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.IsEmpty()) << HazardsToString(hazards);
 }
 
 // =============================================================================
@@ -326,7 +326,7 @@ TEST(RenderGraphResourceHazards, ReadOnlyResourceHasNoHazards)
     b->TestDeclareRead("ImportedTexture");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.IsEmpty()) << HazardsToString(hazards);
 }
 
 // =============================================================================
@@ -342,7 +342,7 @@ TEST(RenderGraphResourceHazards, UndeclaredPassDoesNotContributeHazards)
     // Undecl reads X but doesn't declare it — validator cannot know.
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.IsEmpty()) << HazardsToString(hazards);
     // Sanity: declared pass surfaces, undeclared one stays empty.
     EXPECT_EQ(decl->GetWrites().size(), 1u);
     EXPECT_EQ(undecl->GetReads().size(), 0u);
@@ -375,7 +375,7 @@ TEST(RenderGraphResourceHazards, ProductionShapedGraphIsHazardFree)
     graph.ConnectPass("PostProcessPass", "FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.IsEmpty()) << HazardsToString(hazards);
 }
 
 // =============================================================================
@@ -401,7 +401,7 @@ TEST(RenderGraphResourceHazards, ProductionShapedGraph_DerivedEdgePreventsHazard
     graph.ConnectPass("PostProcessPass", "FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "ShadowPass.DeclareWrite + PostProcessPass.DeclareRead "
            "should derive the ordering edge automatically."
         << HazardsToString(hazards);
@@ -431,7 +431,7 @@ TEST(RenderGraphResourceHazards, IblProducerConsumerIsHazardFree)
     graph.ConnectPass("EnvironmentPass", "ScenePass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.IsEmpty()) << HazardsToString(hazards);
 }
 
 // EnvironmentPass.DeclareWrite(PrefilterMap) +
@@ -449,7 +449,7 @@ TEST(RenderGraphResourceHazards, IblDeclarationsAloneSufficient)
 
     // NOTE: no ConnectPass — slice 27 derives the RAW edge from declarations.
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "IBL declaration pair alone must be sufficient."
         << HazardsToString(hazards);
 }
@@ -479,7 +479,7 @@ TEST(RenderGraphResourceHazards, UICompositeInChainIsHazardFree)
     graph.AddExecutionDependency("UICompositePass", "FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.IsEmpty()) << HazardsToString(hazards);
 }
 
 TEST(RenderGraphResourceHazards, UICompositeSkippedByFinalIsFlagged)
@@ -502,7 +502,7 @@ TEST(RenderGraphResourceHazards, UICompositeSkippedByFinalIsFlagged)
     // + FinalPass.DeclareRead(UIComposite).  This is the exact edge that was
     // removed from Renderer3D.cpp ConfigureRenderGraph in slice 27.
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "UIComposite declaration pair must derive the ordering edge."
         << HazardsToString(hazards);
 }
@@ -552,19 +552,19 @@ TEST(RenderGraphResourceHazards, ImportedResourceIsTrackedByRegistry)
         });
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.IsEmpty()) << HazardsToString(hazards);
 
     const auto* imported = graph.FindRegisteredResource("ImportedShadowMap");
     ASSERT_NE(imported, nullptr);
     EXPECT_TRUE(imported->Desc.Imported);
     EXPECT_EQ(imported->Desc.Kind, RGResourceHandle::Kind::Texture2DArray);
     EXPECT_EQ(imported->Desc.Format, RGResourceFormat::Depth32Float);
-    ASSERT_EQ(imported->Consumers.size(), 1u);
+    ASSERT_EQ(imported->Consumers.Num(), 1u);
     EXPECT_EQ(imported->Consumers[0], "Scene");
 
     const auto* sceneColor = graph.FindRegisteredResource("SceneColor");
     ASSERT_NE(sceneColor, nullptr);
-    ASSERT_EQ(sceneColor->Producers.size(), 1u);
+    ASSERT_EQ(sceneColor->Producers.Num(), 1u);
     EXPECT_EQ(sceneColor->Producers[0], "Scene");
 }
 
@@ -578,7 +578,7 @@ TEST(RenderGraphResourceHazards, TypedHandleLookupMatchesDeclaredKinds)
     pass->TestDeclareWrite("LightGrid", RGResourceHandle::Kind::StorageBuffer);
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.IsEmpty()) << HazardsToString(hazards);
 
     const auto envTex = graph.GetTextureHandle("EnvironmentMap");
     const auto sceneFB = graph.GetFramebufferHandle("SceneColor");
@@ -599,7 +599,7 @@ TEST(RenderGraphResourceHazards, UnknownResourceHandleLookupReturnsInvalid)
     AddDeclStub(graph, "Pass")->TestDeclareWrite("SceneColor", RGResourceHandle::Kind::Framebuffer);
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.IsEmpty()) << HazardsToString(hazards);
 
     EXPECT_FALSE(graph.GetTextureHandle("DoesNotExist").IsValid());
     EXPECT_FALSE(graph.GetBufferHandle("DoesNotExist").IsValid());
@@ -614,7 +614,7 @@ TEST(RenderGraphResourceHazards, StaleTypedHandleIsRejectedAfterTopologyReset)
     pass->TestDeclareRead("EnvironmentMap", RGResourceHandle::Kind::TextureCube);
 
     auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.IsEmpty()) << HazardsToString(hazards);
 
     const auto oldHandle = graph.GetTextureHandle("EnvironmentMap");
     ASSERT_TRUE(oldHandle.IsValid());
@@ -626,7 +626,7 @@ TEST(RenderGraphResourceHazards, StaleTypedHandleIsRejectedAfterTopologyReset)
     newPass->TestDeclareWrite("SceneColor", RGResourceHandle::Kind::Framebuffer);
 
     hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.IsEmpty()) << HazardsToString(hazards);
 
     EXPECT_FALSE(graph.IsTextureHandleCurrent(oldHandle));
     EXPECT_FALSE(graph.GetTextureHandle("EnvironmentMap").IsValid());
@@ -640,7 +640,7 @@ TEST(RenderGraphResourceHazards, RecreatedResourceGetsNewGeneration)
     pass->TestDeclareWrite("TransientTex", RGResourceHandle::Kind::Texture2D);
 
     auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.IsEmpty()) << HazardsToString(hazards);
 
     const auto first = graph.GetTextureHandle("TransientTex");
     ASSERT_TRUE(first.IsValid());
@@ -648,13 +648,13 @@ TEST(RenderGraphResourceHazards, RecreatedResourceGetsNewGeneration)
 
     graph.ResetTopology();
     hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.IsEmpty()) << HazardsToString(hazards);
 
     auto recreated = AddDeclStub(graph, "PassAgain");
     recreated->TestDeclareWrite("TransientTex", RGResourceHandle::Kind::Texture2D);
 
     hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.IsEmpty()) << HazardsToString(hazards);
 
     const auto second = graph.GetTextureHandle("TransientTex");
     ASSERT_TRUE(second.IsValid());
@@ -907,7 +907,7 @@ TEST(RenderGraphResourceHazards, DynamicOITDepthContractDerivesPrepareAndContrib
     graph.BuildFrameGraph();
 
     const auto hazards = graph.ValidateCompiledResourceHazards();
-    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.IsEmpty()) << HazardsToString(hazards);
 
     const auto connections = graph.GetConnections();
     const auto sceneToPrepare = std::ranges::find_if(connections,
@@ -1002,7 +1002,7 @@ TEST(RenderGraphResourceHazards, WriteNewVersionClonesFramebufferDescriptorAndUs
     graph.BuildFrameGraph();
 
     const auto hazards = graph.ValidateCompiledResourceHazards();
-    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.IsEmpty()) << HazardsToString(hazards);
 
     ASSERT_TRUE(firstVersion.IsValid());
     ASSERT_TRUE(secondVersion.IsValid());
@@ -1088,7 +1088,7 @@ TEST(RenderGraphResourceHazards, ExplicitVersionHandlesDeriveRewriteChainsWithou
     graph.BuildFrameGraph();
 
     const auto hazards = graph.ValidateCompiledResourceHazards();
-    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.IsEmpty()) << HazardsToString(hazards);
     EXPECT_TRUE(graph.GetBuildDiagnostics().empty());
 
     ASSERT_TRUE(sceneColor.IsValid());
@@ -1437,7 +1437,7 @@ TEST(RenderGraphConfigureTopology, ForwardPathIsHazardFree)
     ConfiguredGraphFixture f;
     BuildPathTopology(f, /*deferred=*/false);
     const auto hazards = f.Graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.IsEmpty()) << HazardsToString(hazards);
 }
 
 TEST(RenderGraphConfigureTopology, ForwardPlusPathIsHazardFree)
@@ -1447,7 +1447,7 @@ TEST(RenderGraphConfigureTopology, ForwardPlusPathIsHazardFree)
     ConfiguredGraphFixture f;
     BuildPathTopology(f, /*deferred=*/false);
     const auto hazards = f.Graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.IsEmpty()) << HazardsToString(hazards);
 }
 
 TEST(RenderGraphConfigureTopology, DeferredPathIsHazardFree)
@@ -1459,7 +1459,7 @@ TEST(RenderGraphConfigureTopology, DeferredPathIsHazardFree)
     ConfiguredGraphFixture f;
     BuildPathTopology(f, /*deferred=*/true);
     const auto hazards = f.Graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.IsEmpty()) << HazardsToString(hazards);
 }
 
 // =============================================================================
@@ -1518,7 +1518,7 @@ TEST(RenderGraphConfigureTopology, StartupBaselineEdges_DerivedEdgesMakeGraphHaz
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "Declaration-derived edges must resolve all RAW hazards "
            "even without explicit startup baseline edges."
         << HazardsToString(hazards);
@@ -1556,7 +1556,7 @@ TEST(RenderGraphConfigureTopology, Slice28_AOApplyPassToPostProcessPassDerivedEd
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "AOApplyColor DeclareWrite/DeclareRead must derive the "
            "AOApplyPass → PostProcessPass ordering edge."
         << HazardsToString(hazards);
@@ -1623,7 +1623,7 @@ TEST(RenderGraphConfigureTopology, Slice28_FullPostChainNoExplicitEdgesIsHazardF
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "Full post-chain from PostProcess to Final must be "
            "hazard-free with only declaration-derived edges."
         << HazardsToString(hazards);
@@ -1661,7 +1661,7 @@ TEST(RenderGraphConfigureTopology, Slice28_FXAAAndSelectionOutlineVariantIsHazar
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "FXAA + SelectionOutline chain must be hazard-free with "
            "only declaration-derived edges."
         << HazardsToString(hazards);
@@ -1694,7 +1694,7 @@ TEST(RenderGraphConfigureTopology, Slice28_SelectionOutlineOnlyVariantIsHazardFr
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "SelectionOutline-only (no FXAA) chain must derive "
            "Vignette→SelectionOutline→UIComposite from VignetteColor pair."
         << HazardsToString(hazards);
@@ -1734,7 +1734,7 @@ TEST(RenderGraphConfigureTopology, Slice29_ParticleToOITResolveDerivedEdge)
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "OITAccum DeclareWrite/DeclareRead must derive the "
            "ParticlePass → OITResolvePass ordering edge."
         << HazardsToString(hazards);
@@ -1763,7 +1763,7 @@ TEST(RenderGraphConfigureTopology, Slice29_OITResolveToSSSPassDerivedEdge)
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "SceneColor DeclareWrite/DeclareRead must derive "
            "OITResolvePass → SSSPass; SSSColor pair must derive SSS → AOApply."
         << HazardsToString(hazards);
@@ -1813,7 +1813,7 @@ TEST(RenderGraphConfigureTopology, Slice29_FullGeometryTailNoExplicitEdgesIsHaza
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "Particle→OITResolve→SSS→AOApply must all be hazard-free "
            "with only declaration-derived RAW edges."
         << HazardsToString(hazards);
@@ -1845,7 +1845,7 @@ TEST(RenderGraphConfigureTopology, Slice30_SSAOToAOApplyDerivedEdge)
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "AOBuffer DeclareWrite/DeclareRead must derive "
            "SSAOPass -> AOApplyPass ordering."
         << HazardsToString(hazards);
@@ -1870,7 +1870,7 @@ TEST(RenderGraphConfigureTopology, Slice30_GTAOToAOApplyDerivedEdge)
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "AOBuffer DeclareWrite/DeclareRead must derive "
            "GTAOPass -> AOApplyPass ordering."
         << HazardsToString(hazards);
@@ -1898,7 +1898,7 @@ TEST(RenderGraphConfigureTopology, Slice30_DualAOWritersNeedExplicitOrdering)
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "When both AO passes are present and declare AOBuffer writes, "
            "an explicit SSAOPass -> GTAOPass edge must serialize dual writers."
         << HazardsToString(hazards);
@@ -1933,7 +1933,7 @@ TEST(RenderGraphConfigureTopology, Slice31_SceneToSSAODerivedEdgeWithoutWaterEdg
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "SceneDepth DeclareWrite/DeclareRead must derive "
            "ScenePass -> SSAOPass ordering without WaterPass->SSAOPass edge."
         << HazardsToString(hazards);
@@ -1961,7 +1961,7 @@ TEST(RenderGraphConfigureTopology, Slice31_SceneToGTAODerivedEdgeWithoutWaterEdg
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "SceneDepth DeclareWrite/DeclareRead must derive "
            "ScenePass -> GTAOPass ordering without WaterPass->GTAOPass edge."
         << HazardsToString(hazards);
@@ -1996,7 +1996,7 @@ TEST(RenderGraphConfigureTopology, Slice32_SceneToFoliageDerivedFromSceneColor)
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "SceneColor DeclareWrite/DeclareRead must derive "
            "ScenePass -> FoliagePass ordering without an explicit edge."
         << HazardsToString(hazards);
@@ -2027,7 +2027,7 @@ TEST(RenderGraphConfigureTopology, Slice32_FoliageToDecalDerivedFromSceneColor)
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "SceneColor DeclareWrite/DeclareRead must derive "
            "FoliagePass -> DecalPass ordering without an explicit edge."
         << HazardsToString(hazards);
@@ -2062,7 +2062,7 @@ TEST(RenderGraphConfigureTopology, Slice32_DecalToWaterDerivedFromSceneColor)
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "SceneColor DeclareWrite/DeclareRead must derive "
            "DecalPass -> WaterPass ordering without an explicit edge."
         << HazardsToString(hazards);
@@ -2089,7 +2089,7 @@ TEST(RenderGraphConfigureTopology, Slice32_WaterToParticleDerivedFromSceneColor)
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "SceneColor DeclareWrite/DeclareRead must derive "
            "WaterPass -> ParticlePass ordering without an explicit edge."
         << HazardsToString(hazards);
@@ -2128,7 +2128,7 @@ TEST(RenderGraphConfigureTopology, Slice33_SceneToDeferredOpaqueDecalDerivedFrom
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "SceneDepth DeclareWrite/DeclareRead must derive "
            "ScenePass -> DeferredOpaqueDecalPass ordering without an explicit edge."
         << HazardsToString(hazards);
@@ -2161,7 +2161,7 @@ TEST(RenderGraphConfigureTopology, Slice33_DeferredOpaqueDecalToDeferredLighting
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "SceneColor DeclareWrite/DeclareRead must derive "
            "DeferredOpaqueDecalPass -> DeferredLightingPass ordering without an explicit edge."
         << HazardsToString(hazards);
@@ -2193,7 +2193,7 @@ TEST(RenderGraphConfigureTopology, Slice33_DeferredLightingToForwardOverlayDeriv
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "SceneColor DeclareWrite/DeclareRead must derive "
            "DeferredLightingPass -> ForwardOverlayPass ordering without an explicit edge."
         << HazardsToString(hazards);
@@ -2220,7 +2220,7 @@ TEST(RenderGraphConfigureTopology, Slice33_ForwardOverlayToFoliageDerivedFromSce
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "SceneColor DeclareWrite/DeclareRead must derive "
            "ForwardOverlayPass -> FoliagePass ordering without an explicit edge."
         << HazardsToString(hazards);
@@ -2254,7 +2254,7 @@ TEST(RenderGraphConfigureTopology, MissingShadowToSceneExplicitEdge_DerivedEdgeS
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "ShadowPass→ScenePass ordering is derived from declarations, "
            "no explicit edge required."
         << HazardsToString(hazards);
@@ -2291,7 +2291,7 @@ TEST(RenderGraphConfigureTopology, SceneToDeferredLightingCanBeTransitiveViaDeca
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "Transitive Scene -> DeferredOpaqueDecal -> DeferredLighting ordering should be hazard-free: "
         << HazardsToString(hazards);
 }
@@ -2323,7 +2323,7 @@ TEST(RenderGraphConfigureTopology, MissingSceneToDeferredOpaqueDecalExplicitEdge
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "ScenePass→DeferredOpaqueDecalPass ordering is derived from "
            "declarations, no explicit edge required."
         << HazardsToString(hazards);
@@ -2337,7 +2337,7 @@ TEST(RenderGraphConfigureTopology, ForwardPathWithSelectionOutlineIsHazardFree)
     ConfiguredGraphFixture f;
     BuildPathTopology(f, /*deferred=*/false, /*enableSelectionOutline=*/true);
     const auto hazards = f.Graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.IsEmpty()) << HazardsToString(hazards);
     EXPECT_TRUE(static_cast<bool>(f.SelectionOutline))
         << "SelectionOutline stub must be populated when the feature flag is on";
 }
@@ -2347,7 +2347,7 @@ TEST(RenderGraphConfigureTopology, DeferredPathWithSelectionOutlineIsHazardFree)
     ConfiguredGraphFixture f;
     BuildPathTopology(f, /*deferred=*/true, /*enableSelectionOutline=*/true);
     const auto hazards = f.Graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.IsEmpty()) << HazardsToString(hazards);
 }
 
 TEST(RenderGraphConfigureTopology, ForwardPathWithGTAOIsHazardFree)
@@ -2359,7 +2359,7 @@ TEST(RenderGraphConfigureTopology, ForwardPathWithGTAOIsHazardFree)
     ConfiguredGraphFixture f;
     BuildPathTopology(f, /*deferred=*/false, /*enableSelectionOutline=*/false, AOMode::GTAO);
     const auto hazards = f.Graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.IsEmpty()) << HazardsToString(hazards);
     EXPECT_TRUE(static_cast<bool>(f.GTAO))
         << "GTAO stub must be populated when AOMode::GTAO is selected";
     EXPECT_FALSE(static_cast<bool>(f.SSAO))
@@ -2374,7 +2374,7 @@ TEST(RenderGraphConfigureTopology, DeferredPathWithGTAOIsHazardFree)
     ConfiguredGraphFixture f;
     BuildPathTopology(f, /*deferred=*/true, /*enableSelectionOutline=*/false, AOMode::GTAO);
     const auto hazards = f.Graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.IsEmpty()) << HazardsToString(hazards);
     EXPECT_TRUE(static_cast<bool>(f.GTAO))
         << "GTAO stub must be populated when AOMode::GTAO is selected";
     EXPECT_FALSE(static_cast<bool>(f.SSAO))
@@ -2403,7 +2403,7 @@ TEST(RenderGraphConfigureTopology, DecalNodePresence)
     EXPECT_EQ(f.DeferredOpaqueDecal->GetName(), "DeferredOpaqueDecalPass");
 
     const auto hazards = f.Graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.IsEmpty()) << HazardsToString(hazards);
 
     // Omission regression: rebuild the same topology *without* the decal
     // node and assert the validator flags the missing producer edge (the
@@ -2443,7 +2443,7 @@ TEST(RenderGraphConfigureTopology, DecalNodePresence)
     barePathGraph.AddExecutionDependency("ScenePass", "DeferredLightingPass");
     barePathGraph.SetFinalPass("DeferredLightingPass");
     const auto bareHazards = barePathGraph.ValidateResourceHazards();
-    EXPECT_TRUE(bareHazards.empty())
+    EXPECT_TRUE(bareHazards.IsEmpty())
         << "Bare scene->lighting graph (no decal node) must validate — the "
         << "decal contract is an *ordering* guarantee, not a hazard-count "
         << "diff. DecalNodeOrdering covers the ordering evidence.";
@@ -2458,7 +2458,7 @@ TEST(RenderGraphConfigureTopology, DecalNodeOrderingIsHazardFree)
     ConfiguredGraphFixture f;
     BuildPathTopology(f, /*deferred=*/true);
     const auto hazards = f.Graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "Intended ScenePass -> DeferredOpaqueDecalPass -> "
         << "DeferredLightingPass ordering must be hazard-free. "
         << HazardsToString(hazards);
@@ -2540,14 +2540,14 @@ TEST(RenderGraphConfigureTopology, ResetTopologyAndRebuildAcrossPathsNoLeaks)
     {
         buildOn(paths[i]);
         const auto hazards = graph.ValidateResourceHazards();
-        EXPECT_TRUE(hazards.empty())
+        EXPECT_TRUE(hazards.IsEmpty())
             << "Cycle " << i << " (deferred=" << paths[i] << "): "
             << HazardsToString(hazards);
 
         // Pass set must match what this cycle installed — no residual edges
         // or passes leaked from a previous cycle (the ResetTopology contract).
         const sizet expectedPassCount = paths[i] ? 5u : 3u;
-        EXPECT_EQ(graph.GetNodeSubmissionInfo().size(), expectedPassCount)
+        EXPECT_EQ(graph.GetNodeSubmissionInfo().Num(), expectedPassCount)
             << "Cycle " << i << ": residual passes from prior cycle";
     }
 }
@@ -2586,7 +2586,7 @@ TEST(RenderGraphConfigureTopology, Slice34_SSAOOnlyInGraphHasNoAOBufferWAW)
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "SSAOPass alone writes AOBuffer — single writer, no WAW, "
            "no explicit edge required.  "
         << HazardsToString(hazards);
@@ -2611,7 +2611,7 @@ TEST(RenderGraphConfigureTopology, Slice34_GTAOOnlyInGraphHasNoAOBufferWAW)
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "GTAOPass alone writes AOBuffer — single writer, no WAW, "
            "no explicit edge required.  "
         << HazardsToString(hazards);
@@ -2635,7 +2635,7 @@ TEST(RenderGraphConfigureTopology, Slice34_NoneAOTechniqueNoAOPassInGraphIsHazar
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "With no AO passes registered (AOTechnique::None), "
            "the graph must be hazard-free — no AOBuffer writer exists."
         << HazardsToString(hazards);
@@ -2716,7 +2716,7 @@ TEST(RenderGraphConfigureTopology, Slice35_OITResolveAndSSSOrderingDerivesFromDe
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "OITResolve → SSS ordering derives from SceneColor RAW "
            "declaration — no explicit edge or per-frame side-channel needed."
         << HazardsToString(hazards);
@@ -2748,7 +2748,7 @@ TEST(RenderGraphConfigureTopology, Slice35_SSSColorRAWEdgeToAOApplyDerivesFromDe
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "SSS → AOApplyPass ordering derives from SSSColor RAW "
            "declaration — no side-channel needed."
         << HazardsToString(hazards);
@@ -2789,7 +2789,7 @@ TEST(RenderGraphConfigureTopology, Slice36_ForwardGeometryPassesSceneColorRAWEdg
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "All 5 forward geometry passes read SceneColor with no "
            "concurrent writer — no hazards expected."
         << HazardsToString(hazards);
@@ -2815,7 +2815,7 @@ TEST(RenderGraphConfigureTopology, Slice36_DecalPassSceneDepthRAWEdgeFromDeclara
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "DecalPass reads SceneDepth — RAW edge inferred from "
            "declarations; no side-channel setter required."
         << HazardsToString(hazards);
@@ -2841,7 +2841,7 @@ TEST(RenderGraphConfigureTopology, Slice36_ParticleAndWaterAfterSceneColorWriter
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "ParticlePass and WaterPass read SceneColor written by "
            "ScenePass — no hazards when ordering derives from declarations."
         << HazardsToString(hazards);
@@ -2868,7 +2868,7 @@ TEST(RenderGraphConfigureTopology, Slice36_FoliageAndOverlayAfterSceneColorWrite
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "FoliagePass and ForwardOverlayPass read SceneColor — "
            "ordering derives from declarations with no side-channel setter."
         << HazardsToString(hazards);
@@ -2907,7 +2907,7 @@ TEST(RenderGraphConfigureTopology, PhaseH_DecalPassResolvesSceneDepthFromBlackbo
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "DecalPass resolves SceneDepth purely from the blackboard "
            "— ordering is hazard-free without any scene-framebuffer side path."
         << HazardsToString(hazards);
@@ -2943,7 +2943,7 @@ TEST(RenderGraphConfigureTopology, Slice37_SSAOPassSelfResolvesSceneDepthAndNorm
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "SSAOPass reads SceneDepth+SceneNormals — ordering "
            "derives from declarations; no SetSceneDepthHandle side-channel needed."
         << HazardsToString(hazards);
@@ -2967,7 +2967,7 @@ TEST(RenderGraphConfigureTopology, Slice37_GTAOPassSelfResolvesSceneDepthAndNorm
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "GTAOPass reads SceneDepth+SceneNormals — ordering "
            "derives from declarations; no SetSceneDepthHandle side-channel needed."
         << HazardsToString(hazards);
@@ -2996,7 +2996,7 @@ TEST(RenderGraphConfigureTopology, Slice37_AOPassesAfterSceneDepthWriterNoHazard
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "SSAOPass and GTAOPass both reading SceneDepth+SceneNormals "
            "— no WAW hazard (neither writes those resources)."
         << HazardsToString(hazards);
@@ -3024,7 +3024,7 @@ TEST(RenderGraphConfigureTopology, Slice38_AOApplyPassSelfResolvesSceneColor)
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "AOApplyPass reading SceneColor written by ScenePass — no hazard."
         << HazardsToString(hazards);
 }
@@ -3052,7 +3052,7 @@ TEST(RenderGraphConfigureTopology, Slice38_AOApplyPassSelfResolvesAOBufferAndSce
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "AOApplyPass reading AOBuffer+SceneDepth — no hazard."
         << HazardsToString(hazards);
 }
@@ -3075,7 +3075,7 @@ TEST(RenderGraphConfigureTopology, Slice38_AOApplyPassPrefersSSSColorOverSceneCo
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "AOApplyPass reading SSSColor — no hazard."
         << HazardsToString(hazards);
 }
@@ -3107,7 +3107,7 @@ TEST(RenderGraphConfigureTopology, Slice39_PostProcessPassSelfResolvesInputChain
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "PostProcessPass reading AOApplyColor — no hazard."
         << HazardsToString(hazards);
 }
@@ -3134,7 +3134,7 @@ TEST(RenderGraphConfigureTopology, Slice39_PostProcessPassSelfResolvesSceneDepth
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "PostProcessPass reading SceneDepth+AOBuffer — no hazard."
         << HazardsToString(hazards);
 }
@@ -3161,7 +3161,7 @@ TEST(RenderGraphConfigureTopology, Slice39_PostProcessPassSelfResolvesShadowMapA
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "PostProcessPass reading ShadowMapCSM+Velocity — no hazard."
         << HazardsToString(hazards);
 }
@@ -3195,7 +3195,7 @@ TEST(RenderGraphConfigureTopology, Slice40_DOFPassSelfResolvesInputAndSceneDepth
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "DOFPass reading BloomColor+SceneDepth — no hazard."
         << HazardsToString(hazards);
 }
@@ -3223,7 +3223,7 @@ TEST(RenderGraphConfigureTopology, Slice40_MotionBlurPassSelfResolvesInputChain)
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "MotionBlurPass reading DOFColor+SceneDepth — no hazard."
         << HazardsToString(hazards);
 }
@@ -3254,7 +3254,7 @@ TEST(RenderGraphConfigureTopology, Slice40_TAAPassSelfResolvesInputDepthAndVeloc
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "TAAPass reading MotionBlurColor+SceneDepth+Velocity — no hazard."
         << HazardsToString(hazards);
 }
@@ -3286,7 +3286,7 @@ TEST(RenderGraphConfigureTopology, Slice41_DeferredLightingPassSelfResolvesScene
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "DeferredLightingPass reading GBuffer+SceneDepth — no hazard."
         << HazardsToString(hazards);
 }
@@ -3309,7 +3309,7 @@ TEST(RenderGraphConfigureTopology, Slice41_DeferredLightingPassSelfResolvesScene
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "DeferredLightingPass reading SceneDepth — no hazard."
         << HazardsToString(hazards);
 }
@@ -3341,7 +3341,7 @@ TEST(RenderGraphConfigureTopology, Slice41_DeferredLightingPassSelfResolvesMSAAV
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "DeferredLightingPass reading GBufferMS+SceneDepthMS — no hazard."
         << HazardsToString(hazards);
 }
@@ -3369,7 +3369,7 @@ TEST(RenderGraphConfigureTopology, Slice42_FogPassSelfResolvesInputAndSceneDepth
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "FogPass reading PostProcessColor+SceneDepth — no hazard."
         << HazardsToString(hazards);
 }
@@ -3397,7 +3397,7 @@ TEST(RenderGraphConfigureTopology, Slice42_FogPassSelfResolvesShadowMapCSM)
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "FogPass reading PostProcessColor+SceneDepth+ShadowMapCSM — no hazard."
         << HazardsToString(hazards);
 }
@@ -3444,7 +3444,7 @@ TEST(RenderGraphConfigureTopology, Slice42_FogPassSelfResolvesUpstreamChain)
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "FogPass reading PrecipitationColor upstream chain — no hazard."
         << HazardsToString(hazards);
 }
@@ -3507,7 +3507,7 @@ TEST(RenderGraphConfigureTopology, PhaseH_PostChainDepthAndShadowUsersResolveBla
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "AO/DOF/MotionBlur/TAA/Fog should derive their full depth/shadow ordering from blackboard reads only."
         << HazardsToString(hazards);
 }
@@ -3532,7 +3532,7 @@ TEST(RenderGraphConfigureTopology, Slice43_BloomPassSelfResolvesPostProcessColor
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "BloomPass self-resolving PostProcessColor — no hazard."
         << HazardsToString(hazards);
 }
@@ -3562,7 +3562,7 @@ TEST(RenderGraphConfigureTopology, Slice43_ChromaticAberrationPassSelfResolvesUp
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "ChromaticAberrationPass self-resolving FogColor upstream — no hazard."
         << HazardsToString(hazards);
 }
@@ -3596,7 +3596,7 @@ TEST(RenderGraphConfigureTopology, Slice43_ColorGradingPassSelfResolvesUpstreamC
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "ColorGradingPass self-resolving ChromAbColor upstream — no hazard."
         << HazardsToString(hazards);
 }
@@ -3630,7 +3630,7 @@ TEST(RenderGraphConfigureTopology, Slice43_ToneMapAndVignettePassSelfResolveUpst
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "ToneMap and Vignette self-resolving upstream chain — no hazard."
         << HazardsToString(hazards);
 }
@@ -3664,7 +3664,7 @@ TEST(RenderGraphConfigureTopology, Slice44_FXAAPassSelfResolvesUpstreamChain)
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "FXAAPass self-resolving VignetteColor upstream — no hazard."
         << HazardsToString(hazards);
 }
@@ -3690,7 +3690,7 @@ TEST(RenderGraphConfigureTopology, Slice44_PrecipitationPassSelfResolvesUpstream
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "PrecipitationPass self-resolving BloomColor upstream — no hazard."
         << HazardsToString(hazards);
 }
@@ -3717,7 +3717,7 @@ TEST(RenderGraphConfigureTopology, Slice44_SelectionOutlinePassSelfResolvesUpstr
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "SelectionOutlinePass self-resolving FXAAColor upstream — no hazard."
         << HazardsToString(hazards);
 }
@@ -3744,7 +3744,7 @@ TEST(RenderGraphConfigureTopology, Slice44_UICompositeAndFinalPassSelfResolveUps
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "UIComposite and FinalPass self-resolving upstream chain — no hazard."
         << HazardsToString(hazards);
 }

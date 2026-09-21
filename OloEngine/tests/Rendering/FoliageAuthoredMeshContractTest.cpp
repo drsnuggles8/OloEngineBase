@@ -29,6 +29,8 @@
 // =============================================================================
 
 #include "OloEnginePCH.h"
+#include <span>
+#include "OloEngine/Containers/Array.h"
 
 #include "OloEngine/Renderer/ShaderSourceScan.h"
 #include "OloEngine/Terrain/Foliage/FoliageInstanceRegistry.h"
@@ -166,13 +168,13 @@ namespace OloEngine::Tests
         registry.EndLayer();
         registry.EndGeneration();
 
-        ASSERT_EQ(registry.GetRecords().size(), 1u);
-        const auto& record = registry.GetRecords().front();
+        ASSERT_EQ(registry.GetRecords().Num(), 1u);
+        const auto& record = registry.GetRecords()[0];
         EXPECT_FLOAT_EQ(record.m_LocalBounds.Max.x, 8.0f + 1.25f * 6.0f)
             << "the record still bounds a quad, not the authored mesh";
         EXPECT_FLOAT_EQ(record.m_LocalBounds.Max.y, 6.0f);
 
-        ASSERT_FALSE(registry.GetGroups().empty());
+        ASSERT_FALSE(registry.GetGroups().IsEmpty());
         const auto& group = registry.GetGroups()[record.m_GroupIndex];
         EXPECT_GE(group.m_LocalBounds.Max.x, record.m_LocalBounds.Max.x)
             << "the spatial group does not contain the instance it holds";

@@ -143,45 +143,45 @@ namespace OloEngine::RenderGraphBarrierPlanner
         PlanResult result;
 
         // resource name → per-subresource writer slots (one entry per (pass, range) pair)
-        std::unordered_map<std::string, std::vector<LastWriterState>> lastWriterByResource;
+        RGTransparentStringMap<std::vector<LastWriterState>> lastWriterByResource;
         lastWriterByResource.reserve(input.ExecutionOrder.size() * 2u);
 
-        std::unordered_map<std::string, std::unordered_set<std::string>> allWriterPassesByResource;
+        RGTransparentStringMap<RGTransparentStringSet> allWriterPassesByResource;
         allWriterPassesByResource.reserve(input.PassAccessDeclarations.size() * 2u);
         for (const auto& [passName, accessDeclarations] : input.PassAccessDeclarations)
         {
             for (const auto& access : accessDeclarations)
             {
-                if (!access.IsWrite || access.ResourceName.empty())
+                if (!access.IsWrite || access.ResourceName.IsEmpty())
                     continue;
-                allWriterPassesByResource[access.ResourceName].insert(passName);
+                allWriterPassesByResource[access.ResourceName.ToStdString()].insert(passName);
             }
         }
 
         for (const auto& passName : input.ExecutionOrder)
         {
-            if (!input.IsPassReachable(passName))
+            if (!input.IsPassReachable(passName.ToView()))
                 continue;
 
-            const auto declarationIt = input.PassAccessDeclarations.find(passName);
+            const auto declarationIt = input.PassAccessDeclarations.find(passName.ToView());
             if (declarationIt == input.PassAccessDeclarations.end())
                 continue;
 
             auto plannedFlags = MemoryBarrierFlags::None;
             for (const auto& access : declarationIt->second)
             {
-                if (access.ResourceName.empty())
+                if (access.ResourceName.IsEmpty())
                     continue;
 
                 if (!access.IsWrite)
                 {
                     // Find every writer whose subresource range overlaps this read.
-                    const auto writerIt = lastWriterByResource.find(access.ResourceName);
+                    const auto writerIt = lastWriterByResource.find(access.ResourceName.ToView());
                     if (writerIt == lastWriterByResource.end() || writerIt->second.empty())
                     {
-                        if (const auto allWritersIt = allWriterPassesByResource.find(access.ResourceName); allWritersIt == allWriterPassesByResource.end() || allWritersIt->second.empty())
+                        if (const auto allWritersIt = allWriterPassesByResource.find(access.ResourceName.ToView()); allWritersIt == allWriterPassesByResource.end() || allWritersIt->second.empty())
                         {
-                            result.Diagnostics.push_back(RenderGraph::BarrierDiagnostic{
+                            result.Diagnostics.Add(RenderGraph::BarrierDiagnostic{
                                 .Kind = RenderGraph::BarrierDiagnosticKind::MissingProducer,
                                 .PassName = passName,
                                 .Resource = access.ResourceName,
@@ -202,7 +202,7 @@ namespace OloEngine::RenderGraphBarrierPlanner
 
                             if (!hasReachableWriter)
                             {
-                                result.Diagnostics.push_back(RenderGraph::BarrierDiagnostic{
+                                result.Diagnostics.Add(RenderGraph::BarrierDiagnostic{
                                     .Kind = RenderGraph::BarrierDiagnosticKind::CulledProducer,
                                     .PassName = passName,
                                     .Resource = access.ResourceName,
@@ -225,7 +225,7 @@ namespace OloEngine::RenderGraphBarrierPlanner
                         // read access) for the Vulkan lowering. The
                         // diagnostics above still fire; this is a barrier, not
                         // an exoneration.
-                        result.PlannedBarriers.push_back(RenderGraph::PlannedBarrier{
+                        result.PlannedBarriers.Add(RenderGraph::PlannedBarrier{
                             .BeforePass = passName,
                             .Resource = access.ResourceName,
                             .Flags = MemoryBarrierFlags::None,
@@ -248,7 +248,7 @@ namespace OloEngine::RenderGraphBarrierPlanner
                                            ResolveConsumerBarrierFlags(access.ReadUsage);
                         if (flags == MemoryBarrierFlags::None)
                         {
-                            result.Diagnostics.push_back(RenderGraph::BarrierDiagnostic{
+                            result.Diagnostics.Add(RenderGraph::BarrierDiagnostic{
                                 .Kind = RenderGraph::BarrierDiagnosticKind::UnmappedTransition,
                                 .PassName = passName,
                                 .Resource = access.ResourceName,
@@ -258,7 +258,7 @@ namespace OloEngine::RenderGraphBarrierPlanner
                         }
 
                         plannedFlags |= flags;
-                        result.PlannedBarriers.push_back(RenderGraph::PlannedBarrier{
+                        result.PlannedBarriers.Add(RenderGraph::PlannedBarrier{
                             .BeforePass = passName,
                             .Resource = access.ResourceName,
                             .Flags = flags,
@@ -270,7 +270,7 @@ namespace OloEngine::RenderGraphBarrierPlanner
                 else
                 {
                     // WAW: emit a barrier for every prior writer whose range overlaps.
-                    auto& writerVec = lastWriterByResource[access.ResourceName];
+                    auto& writerVec = lastWriterByResource[access.ResourceName.ToStdString()];
                     for (const auto& writer : writerVec)
                     {
                         if (writer.PassName == passName)
@@ -282,7 +282,7 @@ namespace OloEngine::RenderGraphBarrierPlanner
                                            ResolveProducerBarrierFlags(access.WriteUsage);
                         if (flags == MemoryBarrierFlags::None)
                         {
-                            result.Diagnostics.push_back(RenderGraph::BarrierDiagnostic{
+                            result.Diagnostics.Add(RenderGraph::BarrierDiagnostic{
                                 .Kind = RenderGraph::BarrierDiagnosticKind::UnmappedTransition,
                                 .PassName = passName,
                                 .Resource = access.ResourceName,
@@ -292,7 +292,7 @@ namespace OloEngine::RenderGraphBarrierPlanner
                         else
                         {
                             plannedFlags |= flags;
-                            result.PlannedBarriers.push_back(RenderGraph::PlannedBarrier{
+                            result.PlannedBarriers.Add(RenderGraph::PlannedBarrier{
                                 .BeforePass = passName,
                                 .Resource = access.ResourceName,
                                 .Flags = flags,
@@ -323,7 +323,7 @@ namespace OloEngine::RenderGraphBarrierPlanner
                     if (!slotUpdated)
                     {
                         writerVec.push_back(LastWriterState{
-                            .PassName = passName,
+                            .PassName = passName.ToStdString(),
                             .Usage = access.WriteUsage,
                             .Range = access.Range,
                         });
@@ -332,24 +332,24 @@ namespace OloEngine::RenderGraphBarrierPlanner
             }
 
             if (plannedFlags != MemoryBarrierFlags::None)
-                result.PassBarrierFlags[passName] = plannedFlags;
+                result.PassBarrierFlags[passName.ToStdString()] = plannedFlags;
         }
 
         return result;
     }
 
-    auto BuildResourceTransitions(const TransitionInput& input) -> std::vector<RenderGraph::ResourceTransition>
+    auto BuildResourceTransitions(const TransitionInput& input) -> TArray64<RenderGraph::ResourceTransition>
     {
         if (input.PlannedBarriers.empty())
             return {};
 
         // Build a pass → execution-order-index map for the backward producer scan.
-        std::unordered_map<std::string, std::size_t> passOrderIdx;
+        RGTransparentStringMap<std::size_t> passOrderIdx;
         passOrderIdx.reserve(input.ExecutionOrder.size());
         for (std::size_t i = 0; i < input.ExecutionOrder.size(); ++i)
             passOrderIdx.emplace(input.ExecutionOrder[i], i);
 
-        const auto passToLane = [&input](const std::string& passName) -> RenderGraph::QueueLane
+        const auto passToLane = [&input](std::string_view passName) -> RenderGraph::QueueLane
         {
             switch (input.GetPassWorkType(passName))
             {
@@ -370,26 +370,26 @@ namespace OloEngine::RenderGraphBarrierPlanner
         struct WriterEntry
         {
             std::size_t PassIndex;
-            const std::string* PassName;
+            const FString* PassName;
             RGWriteUsage Usage;
         };
-        std::unordered_map<std::string, std::vector<WriterEntry>> writersByResource;
+        RGTransparentStringMap<std::vector<WriterEntry>> writersByResource;
         for (std::size_t i = 0; i < input.ExecutionOrder.size(); ++i)
         {
             const auto& passName = input.ExecutionOrder[i];
-            const auto dit = input.PassAccessDeclarations.find(passName);
+            const auto dit = input.PassAccessDeclarations.find(passName.ToView());
             if (dit == input.PassAccessDeclarations.end())
                 continue;
             for (const auto& decl : dit->second)
             {
                 if (!decl.IsWrite)
                     continue;
-                writersByResource[decl.ResourceName].emplace_back(i, &passName, decl.WriteUsage);
+                writersByResource[decl.ResourceName.ToStdString()].emplace_back(i, &passName, decl.WriteUsage);
             }
         }
 
-        std::vector<RenderGraph::ResourceTransition> transitions;
-        transitions.reserve(input.PlannedBarriers.size());
+        TArray64<RenderGraph::ResourceTransition> transitions;
+        transitions.Reserve(input.PlannedBarriers.size());
 
         for (const auto& barrier : input.PlannedBarriers)
         {
@@ -412,12 +412,12 @@ namespace OloEngine::RenderGraphBarrierPlanner
             // must not lower to a plain read-only layout.
             if (!RHI::IsWriteAccess(t.ToAccess))
             {
-                if (const auto dit = input.PassAccessDeclarations.find(barrier.BeforePass);
+                if (const auto dit = input.PassAccessDeclarations.find(barrier.BeforePass.ToStdString());
                     dit != input.PassAccessDeclarations.end())
                 {
                     for (const auto& decl : dit->second)
                     {
-                        if (decl.ResourceName != barrier.Resource || !decl.IsWrite)
+                        if (decl.ResourceName != barrier.Resource.ToView() || !decl.IsWrite)
                             continue;
                         const bool isAttachmentWrite = decl.WriteUsage == RGWriteUsage::RenderTarget ||
                                                        decl.WriteUsage == RGWriteUsage::DepthStencil ||
@@ -444,10 +444,10 @@ namespace OloEngine::RenderGraphBarrierPlanner
             t.ProducerPass = "external";
             t.FromAccess = RHI::Access::Undefined;
 
-            if (const auto consumerIdxIt = passOrderIdx.find(barrier.BeforePass); consumerIdxIt != passOrderIdx.end())
+            if (const auto consumerIdxIt = passOrderIdx.find(barrier.BeforePass.ToStdString()); consumerIdxIt != passOrderIdx.end())
             {
                 const std::size_t consumerIdx = consumerIdxIt->second;
-                if (const auto writersIt = writersByResource.find(barrier.Resource);
+                if (const auto writersIt = writersByResource.find(barrier.Resource.ToStdString());
                     writersIt != writersByResource.end())
                 {
                     const auto& writers = writersIt->second;
@@ -463,7 +463,7 @@ namespace OloEngine::RenderGraphBarrierPlanner
                 }
             }
 
-            transitions.push_back(std::move(t));
+            transitions.Add(std::move(t));
         }
 
         // Annotate each transition with cross-lane sync metadata.
@@ -472,8 +472,8 @@ namespace OloEngine::RenderGraphBarrierPlanner
             // External producers (imported resources) are treated as Graphics lane.
             const auto producerLane = (tr.ProducerPass == "external")
                                           ? RenderGraph::QueueLane::Graphics
-                                          : passToLane(tr.ProducerPass);
-            const auto consumerLane = passToLane(tr.ConsumerPass);
+                                          : passToLane(tr.ProducerPass.ToView());
+            const auto consumerLane = passToLane(tr.ConsumerPass.ToView());
             tr.ProducerLane = producerLane;
             tr.ConsumerLane = consumerLane;
             tr.IsCrossLane = (producerLane != consumerLane);

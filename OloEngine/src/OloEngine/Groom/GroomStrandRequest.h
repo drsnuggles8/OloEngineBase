@@ -1,5 +1,7 @@
 #pragma once
 
+#include "OloEngine/Containers/Array.h"
+
 // =============================================================================
 // GroomStrandRequest.h — one groom the frame wants drawn. Issue #1246.
 //
@@ -127,7 +129,7 @@ namespace OloEngine
         /// One entry per CURVE of `Groom`, or empty. Sized by
         /// EvaluateGroomRootTransforms, which fills the whole array precisely so
         /// an index into it is always safe.
-        std::vector<GroomRootTransform> RootTransforms;
+        TArray<GroomRootTransform> RootTransforms;
 
         /// What the evaluation did, forwarded to the renderer's statistics panel
         /// so "why is this coat at the bind pose" is answerable from the editor.
@@ -216,16 +218,16 @@ namespace OloEngine
 
         /// This frame's and last frame's OBJECT-space guide displacements, laid
         /// out by `SimulationGuideOffsets`. Empty when not simulated.
-        std::vector<glm::vec3> SimulationDisplacements;
-        std::vector<glm::vec3> SimulationPrevDisplacements;
-        std::vector<u32> SimulationGuideOffsets;
+        TArray<glm::vec3> SimulationDisplacements;
+        TArray<glm::vec3> SimulationPrevDisplacements;
+        TArray<u32> SimulationGuideOffsets;
 
         /// Table slot -> this frame's guide index, or GroomNoGuide for a slot
         /// the budget did not simulate. Sized by the table's guide count, so a
         /// strand's slot lookup is always in range.
-        std::vector<u32> SimulationGuideOfSlot;
+        TArray<u32> SimulationGuideOfSlot;
         /// Guide index -> table slot, the inverse of the above.
-        std::vector<u32> SimulationSlotOfGuide;
+        TArray<u32> SimulationSlotOfGuide;
 
         /// What the step did, forwarded to the renderer's statistics panel so
         /// "why is this coat not moving" is answerable from the editor.
@@ -240,7 +242,7 @@ namespace OloEngine
         /// The fitted body proxy, WORLD space, for the debug view. Empty when
         /// the view is off -- a capsule list per groom per frame is not carried
         /// across the bus to be ignored.
-        std::vector<GroomCollider> SimulationColliders;
+        TArray<GroomCollider> SimulationColliders;
 
         /// The requested debug view. What it can actually DRAW depends on the
         /// editor debug flags, which the pass checks, so this is a request in
@@ -316,11 +318,11 @@ namespace OloEngine
                 return simulation;
             }
             simulation.Influence = Influence.Raw();
-            simulation.GuideOfSlot = SimulationGuideOfSlot;
-            simulation.Displacements.GuideOffsets = SimulationGuideOffsets;
-            simulation.Displacements.Displacements = SimulationDisplacements;
-            simulation.Displacements.PrevDisplacements = SimulationPrevDisplacements;
-            simulation.Displacements.SlotOfGuide = SimulationSlotOfGuide;
+            simulation.GuideOfSlot = std::span{ SimulationGuideOfSlot.GetData(), static_cast<sizet>(SimulationGuideOfSlot.Num()) };
+            simulation.Displacements.GuideOffsets = std::span{ SimulationGuideOffsets.GetData(), static_cast<sizet>(SimulationGuideOffsets.Num()) };
+            simulation.Displacements.Displacements = std::span{ SimulationDisplacements.GetData(), static_cast<sizet>(SimulationDisplacements.Num()) };
+            simulation.Displacements.PrevDisplacements = std::span{ SimulationPrevDisplacements.GetData(), static_cast<sizet>(SimulationPrevDisplacements.Num()) };
+            simulation.Displacements.SlotOfGuide = std::span{ SimulationSlotOfGuide.GetData(), static_cast<sizet>(SimulationSlotOfGuide.Num()) };
             return simulation;
         }
     };

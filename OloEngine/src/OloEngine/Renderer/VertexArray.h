@@ -1,5 +1,8 @@
 #pragma once
 
+#include "OloEngine/Containers/Array.h"
+#include <span>
+
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Renderer/IndexBuffer.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
@@ -34,7 +37,7 @@ namespace OloEngine
 
         virtual void SetIndexBuffer(const Ref<IndexBuffer>& indexBuffer) = 0;
 
-        [[nodiscard("Store this!")]] virtual const std::vector<Ref<VertexBuffer>>& GetVertexBuffers() const = 0;
+        [[nodiscard("Store this!")]] virtual std::span<const Ref<VertexBuffer>> GetVertexBuffers() const = 0;
         [[nodiscard("Store this!")]] virtual const Ref<IndexBuffer>& GetIndexBuffer() const = 0;
 
         static Ref<VertexArray> Create();

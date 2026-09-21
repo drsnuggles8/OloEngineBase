@@ -1,5 +1,7 @@
 // OLO_TEST_LAYER: unit
 #include "OloEnginePCH.h"
+#include <span>
+#include "OloEngine/Containers/Array.h"
 #include <gtest/gtest.h>
 
 #include "OloEngine/Terrain/TerrainData.h"
@@ -74,7 +76,7 @@ namespace OloEngine::Tests
         {
             std::string Name;
             TerrainGenerator::HeightParams Params;
-            std::vector<TerrainLayerRule> Rules;
+            TArray<TerrainLayerRule> Rules;
             std::vector<std::string> LayerNames;
             std::vector<glm::vec3> LayerColours;
             f32 WorldSizeX = 0.0f;
@@ -156,7 +158,7 @@ namespace OloEngine::Tests
                     rule.MaxSlopeDeg = r["MaxSlopeDeg"].as<f32>(rule.MaxSlopeDeg);
                     rule.SlopeBlend = r["SlopeBlend"].as<f32>(rule.SlopeBlend);
                     rule.Strength = r["Strength"].as<f32>(rule.Strength);
-                    isl.Rules.push_back(rule);
+                    isl.Rules.Add(rule);
                 }
 
                 if (const YAML::Node layers = terrain["Layers"]; layers && layers.IsSequence())
@@ -189,7 +191,7 @@ namespace OloEngine::Tests
         // including it would let a flat island pass.
         [[nodiscard]] Coverage MeasureCoverage(const Island& isl)
         {
-            std::vector<f32> heights;
+            TArray<f32> heights;
             TerrainGenerator::GenerateHeightField(heights, isl.Params);
 
             const u32 res = std::max(isl.Params.Resolution, 2u);
@@ -311,7 +313,7 @@ namespace OloEngine::Tests
         bool sawShortfall = false;
         for (const Island& isl : islands)
         {
-            std::vector<f32> heights;
+            TArray<f32> heights;
             TerrainGenerator::GenerateHeightField(heights, isl.Params);
             const f32 maxH = *std::ranges::max_element(heights);
             ASSERT_TRUE(std::isfinite(maxH));

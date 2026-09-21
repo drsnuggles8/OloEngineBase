@@ -4,7 +4,7 @@
 #include "OloEngine/Math/Math.h"
 
 #include <glm/glm.hpp>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -62,6 +62,6 @@ namespace OloEngine
         }
 
         u32 m_SideLength;
-        std::vector<T> m_Storage;
+        TArray64<T> m_Storage;
     };
 } // namespace OloEngine

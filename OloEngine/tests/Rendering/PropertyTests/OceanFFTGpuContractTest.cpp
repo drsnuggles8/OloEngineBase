@@ -52,14 +52,14 @@ namespace OloEngine::Tests
 {
     namespace
     {
-        [[nodiscard]] f32 RmsOf(const std::vector<f32>& v)
+        [[nodiscard]] f32 RmsOf(const TArray<f32>& v)
         {
-            if (v.empty())
+            if (v.IsEmpty())
                 return 0.0f;
             f64 acc = 0.0;
             for (f32 x : v)
                 acc += static_cast<f64>(x) * x;
-            return static_cast<f32>(std::sqrt(acc / static_cast<f64>(v.size())));
+            return static_cast<f32>(std::sqrt(acc / static_cast<f64>(v.Num())));
         }
 
         // The cascade outputs are 2D ARRAYS since issue #969 — one layer per
@@ -106,16 +106,16 @@ namespace OloEngine::Tests
         OLO_ENSURE_GPU_OR_SKIP();
 
         constexpr u32 N = 64u;
-        std::vector<Complex> freq(static_cast<sizet>(N) * N, Complex(0.0f, 0.0f));
+        TArray<Complex> freq(static_cast<sizet>(N) * N, Complex(0.0f, 0.0f));
         freq[0] = Complex(1.0f, 0.0f); // DC only ⇒ inverse is 1/N² everywhere
 
         auto gpu = Ref<Ocean::OceanFFTGpu>::Create();
         ASSERT_TRUE(gpu->IsAvailable()) << "Ocean FFT compute shaders failed to compile";
         const auto spatial = gpu->DebugInverseFFT2D(freq, N);
-        ASSERT_EQ(spatial.size(), freq.size());
+        ASSERT_EQ(spatial.Num(), freq.Num());
 
         const f32 expected = 1.0f / (static_cast<f32>(N) * static_cast<f32>(N));
-        for (sizet i = 0; i < spatial.size(); ++i)
+        for (sizet i = 0; i < spatial.Num(); ++i)
         {
             EXPECT_NEAR(spatial[i].real(), expected, expected * 1e-3f) << "idx " << i;
             EXPECT_NEAR(spatial[i].imag(), 0.0f, expected * 1e-3f) << "idx " << i;
@@ -127,19 +127,19 @@ namespace OloEngine::Tests
         OLO_ENSURE_GPU_OR_SKIP();
 
         constexpr u32 N = 64u;
-        std::vector<Complex> freq(static_cast<sizet>(N) * N);
+        TArray<Complex> freq(static_cast<sizet>(N) * N);
         std::mt19937 rng(4242u);
         std::uniform_real_distribution<f32> dist(-1.0f, 1.0f);
         for (auto& c : freq)
             c = Complex(dist(rng), dist(rng));
 
-        std::vector<Complex> cpu = freq;
+        TArray<Complex> cpu = freq;
         Ocean::FFT2D(cpu, N, N, /*inverse=*/true);
 
         auto gpu = Ref<Ocean::OceanFFTGpu>::Create();
         ASSERT_TRUE(gpu->IsAvailable()) << "Ocean FFT compute shaders failed to compile";
         const auto gpuOut = gpu->DebugInverseFFT2D(freq, N);
-        ASSERT_EQ(gpuOut.size(), cpu.size());
+        ASSERT_EQ(gpuOut.Num(), cpu.Num());
 
         f32 maxAbs = 0.0f;
         for (const auto& c : cpu)
@@ -147,7 +147,7 @@ namespace OloEngine::Tests
         const f32 tol = std::max(maxAbs * 1e-3f, 1e-6f);
 
         f32 maxErr = 0.0f;
-        for (sizet i = 0; i < cpu.size(); ++i)
+        for (sizet i = 0; i < cpu.Num(); ++i)
         {
             maxErr = std::max({ maxErr, std::abs(gpuOut[i].real() - cpu[i].real()),
                                 std::abs(gpuOut[i].imag() - cpu[i].imag()) });

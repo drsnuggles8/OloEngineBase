@@ -84,8 +84,8 @@ namespace OloEngine::RayTracing
         bool ValidInput(const VegetationSurfaceInput& input)
         {
             if (!input.Rest || input.Rest->GetDeviceAddress() == 0u || input.VertexCount == 0u ||
-                input.Rows.empty() || input.Rows.size() > VegetationPolicy::CardPlantsPerGroup ||
-                input.Parts.empty() ||
+                input.Rows.IsEmpty() || static_cast<u32>(input.Rows.Num()) > VegetationPolicy::CardPlantsPerGroup ||
+                input.Parts.IsEmpty() ||
                 !std::isfinite(WindTime(input)) || !std::isfinite(input.DistanceToView) ||
                 !std::isfinite(input.DetailedDistance) || !std::isfinite(input.VelocityBound) ||
                 input.VelocityBound < 0.0f)
@@ -102,10 +102,10 @@ namespace OloEngine::RayTracing
             std::unordered_set<u32> slots;
             for (const auto& part : input.Parts)
             {
-                if (part.Indices.empty() || part.Indices.size() % 3u != 0u || !slots.insert(part.Slot).second ||
-                    part.Indices.size() > std::numeric_limits<u32>::max() - sourceIndices)
+                if (part.Indices.IsEmpty() || part.Indices.Num() % 3u != 0u || !slots.insert(part.Slot).second ||
+                    static_cast<u64>(part.Indices.Num()) > std::numeric_limits<u32>::max() - sourceIndices)
                     return false;
-                sourceIndices += part.Indices.size();
+                sourceIndices += part.Indices.Num();
                 for (const u32 index : part.Indices)
                     if (index >= input.VertexCount)
                         return false;
@@ -139,8 +139,8 @@ namespace OloEngine::RayTracing
 
     void VegetationSurfaceCache::Shutdown()
     {
-        m_Jobs.clear();
-        m_Inputs.clear();
+        m_Jobs.Reset();
+        m_Inputs.Reset();
         m_Entries.clear();
         m_Shader.Reset();
         m_Params.Reset();
@@ -156,14 +156,14 @@ namespace OloEngine::RayTracing
         for (const auto& job : m_Jobs)
             if (auto entry = m_Entries.find(job.Identity); entry != m_Entries.end())
                 entry->second.Valid = false;
-        m_Jobs.clear();
+        m_Jobs.Reset();
     }
 
     void VegetationSurfaceCache::BeginFrame()
     {
         RollbackJobs();
         ++m_Frame;
-        m_Inputs.clear();
+        m_Inputs.Reset();
         m_PreviousComplete = m_Stats.Complete;
         m_StagedBytes = 0u;
         m_Stats = {};
@@ -187,9 +187,9 @@ namespace OloEngine::RayTracing
         }
         u64 sourceIndices = 0u;
         for (const auto& part : input.Parts)
-            sourceIndices += part.Indices.size();
-        const u64 stagedBytes = input.Rows.size() * (static_cast<u64>(input.VertexCount) * sizeof(Vertex) +
-                                                     sourceIndices * sizeof(u32) + sizeof(FoliageInstanceData));
+            sourceIndices += part.Indices.Num();
+        const u64 stagedBytes = input.Rows.Num() * (static_cast<u64>(input.VertexCount) * sizeof(Vertex) +
+                                                    sourceIndices * sizeof(u32) + sizeof(FoliageInstanceData));
         if (!HasQueueCapacity() || stagedBytes > VegetationPolicy::GeometryBytes - m_StagedBytes)
         {
             ++m_Stats.Refused;
@@ -197,7 +197,7 @@ namespace OloEngine::RayTracing
             return;
         }
         m_StagedBytes += stagedBytes;
-        m_Inputs.push_back(std::move(input));
+        m_Inputs.Add(std::move(input));
     }
 
     bool VegetationSurfaceCache::EnsureShader()
@@ -237,15 +237,15 @@ namespace OloEngine::RayTracing
             const f32 bt = bi == m_Entries.end() || !bi->second.Valid ? -std::numeric_limits<f32>::infinity() : bi->second.SnapshotTime;
             return at < bt || (!(bt < at) && ak < bk); });
         VegetationFrameBudget budget;
-        const bool shaderReady = m_Inputs.empty() || EnsureShader();
+        const bool shaderReady = m_Inputs.IsEmpty() || EnsureShader();
         for (const auto& input : m_Inputs)
         {
             const Key key{ input.Owner, input.FirstPlantId, RHI::HashKey(input.Rest->GetRHIHandle()) };
-            const u64 vertices = static_cast<u64>(input.VertexCount) * input.Rows.size();
+            const u64 vertices = static_cast<u64>(input.VertexCount) * input.Rows.Num();
             u64 indexCount = 0u;
             for (const auto& part : input.Parts)
-                indexCount += static_cast<u64>(part.Indices.size()) * input.Rows.size();
-            const u64 bytes = vertices * sizeof(Vertex) + indexCount * sizeof(u32) + input.Rows.size() * sizeof(FoliageInstanceData);
+                indexCount += static_cast<u64>(part.Indices.Num()) * input.Rows.Num();
+            const u64 bytes = vertices * sizeof(Vertex) + indexCount * sizeof(u32) + input.Rows.Num() * sizeof(FoliageInstanceData);
             auto found = m_Entries.find(key);
             const u64 oldBytes = found == m_Entries.end() ? 0u : found->second.Bytes;
             const auto refuse = [this]()
@@ -269,7 +269,7 @@ namespace OloEngine::RayTracing
             for (const auto& part : input.Parts)
             {
                 state.Mix(part.Slot);
-                state.Mix(part.Indices.size());
+                state.Mix(part.Indices.Num());
                 for (const auto index : part.Indices)
                     state.Mix(index);
             }
@@ -321,15 +321,15 @@ namespace OloEngine::RayTracing
             {
                 Entry replacement;
                 replacement.Rest = input.Rest;
-                replacement.Rows = VertexBuffer::Create(input.Rows.data(), static_cast<u32>(input.Rows.size() * sizeof(FoliageInstanceData)));
+                replacement.Rows = VertexBuffer::Create(input.Rows.GetData(), static_cast<u32>(input.Rows.Num() * sizeof(FoliageInstanceData)));
                 replacement.Output = VertexBuffer::Create(static_cast<u32>(vertices * sizeof(Vertex)));
-                std::vector<u32> indices;
-                indices.reserve(static_cast<sizet>(indexCount));
+                TArray<u32> indices;
+                indices.Reserve(static_cast<sizet>(indexCount));
                 for (const auto& part : input.Parts)
-                    for (u32 plant = 0u; plant < input.Rows.size(); ++plant)
+                    for (u32 plant = 0u; plant < static_cast<u32>(input.Rows.Num()); ++plant)
                         for (const u32 index : part.Indices)
-                            indices.push_back(index + plant * input.VertexCount);
-                replacement.Indices = IndexBuffer::Create(indices.data(), static_cast<u32>(indices.size()));
+                            indices.Add(index + plant * input.VertexCount);
+                replacement.Indices = IndexBuffer::Create(indices.GetData(), static_cast<u32>(indices.Num()));
                 if (!replacement.Rows || !replacement.Output || !replacement.Indices ||
                     replacement.Rows->GetDeviceAddress() == 0u || replacement.Output->GetDeviceAddress() == 0u ||
                     replacement.Indices->GetDeviceAddress() == 0u)
@@ -365,14 +365,14 @@ namespace OloEngine::RayTracing
                 entry.SnapshotTime = time;
                 entry.SnapshotBucket = bucket;
                 entry.Valid = true;
-                m_Jobs.push_back({ key, input.Wind,
-                                   MakeModelRelative(input.WorldTransform, scene.GetRenderOrigin()),
-                                   input.VertexCount, static_cast<u32>(input.Rows.size()) });
+                m_Jobs.Add({ key, input.Wind,
+                             MakeModelRelative(input.WorldTransform, scene.GetRenderOrigin()),
+                             input.VertexCount, static_cast<u32>(input.Rows.Num()) });
             }
             u32 firstIndex = 0u;
             for (const auto& part : input.Parts)
             {
-                const u32 partIndices = static_cast<u32>(part.Indices.size() * input.Rows.size());
+                const u32 partIndices = static_cast<u32>(part.Indices.Num() * input.Rows.Num());
                 const GPUSceneGeometryKey geometryKey{ RHI::HashKey(entry.Output->GetRHIHandle()),
                                                        RHI::HashKey(entry.Indices->GetRHIHandle()), part.Slot };
                 const GPUSceneMaterialKey materialKey{ RHI::HashKey(input.Rest->GetRHIHandle()), part.Slot,
@@ -398,21 +398,21 @@ namespace OloEngine::RayTracing
                                                                                         });
                 firstIndex += partIndices;
             }
-            m_Stats.PlantsRepresented += static_cast<u32>(input.Rows.size());
+            m_Stats.PlantsRepresented += static_cast<u32>(input.Rows.Num());
         }
-        m_Inputs.clear();
+        m_Inputs.Reset();
         m_Stats.HistoryReset |= m_Stats.Complete != m_PreviousComplete;
     }
 
     u32 VegetationSurfaceCache::Dispatch()
     {
-        if (m_Jobs.empty())
+        if (m_Jobs.IsEmpty())
             return 0u;
         if (!m_Enabled || !EnsureShader())
         {
             m_Stats.Complete = false;
             m_Stats.ProducerFailed = true;
-            m_Stats.Refused += static_cast<u32>(m_Jobs.size());
+            m_Stats.Refused += static_cast<u32>(m_Jobs.Num());
             RollbackJobs();
             return 0u;
         }
@@ -420,46 +420,39 @@ namespace OloEngine::RayTracing
         // output in place. The Vulkan backend lowers this to ALL_COMMANDS and
         // MEMORY_READ|MEMORY_WRITE; the producer-to-AS edge follows dispatch.
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
-        struct Batch
-        {
-            u64 Owner = 0u;
-            u64 RestHandle = 0u;
-            const Job* Parameters = nullptr;
-            std::vector<const Job*> Jobs;
-        };
-        std::vector<Batch> batches;
+        TArray<Batch> batches;
         for (const auto& job : m_Jobs)
         {
-            const u64 owner = std::get<0>(job.Identity), restHandle = std::get<2>(job.Identity);
+            const u64 owner = job.Identity[0], restHandle = job.Identity[2];
             auto batch = std::find_if(batches.begin(), batches.end(), [&](const Batch& candidate)
                                       { return candidate.Owner == owner && candidate.RestHandle == restHandle &&
                                                Math::BitwiseEqual(candidate.Parameters->Wind, job.Wind) &&
                                                Math::BitwiseEqual(candidate.Parameters->Model, job.Model); });
             if (batch == batches.end())
             {
-                batches.push_back({ owner, restHandle, &job, {} });
+                batches.Add({ owner, restHandle, &job, {} });
                 batch = std::prev(batches.end());
             }
-            batch->Jobs.push_back(&job);
+            batch->Jobs.Add(&job);
         }
         for (const auto& batch : batches)
         {
-            std::vector<DispatchGroup> groups;
-            std::vector<glm::uvec2> tasks;
+            TArray<DispatchGroup> groups;
+            TArray<glm::uvec2> tasks;
             u32 batchVertices = 0u;
             for (const auto* job : batch.Jobs)
             {
                 auto& entry = m_Entries.at(job->Identity);
-                const u32 group = static_cast<u32>(groups.size());
-                groups.push_back({ Address(entry.Rows->GetDeviceAddress()), Address(entry.Output->GetDeviceAddress()),
-                                   job->VertexCount, job->PlantCount });
+                const u32 group = static_cast<u32>(groups.Num());
+                groups.Add({ Address(entry.Rows->GetDeviceAddress()), Address(entry.Output->GetDeviceAddress()),
+                             job->VertexCount, job->PlantCount });
                 const u32 vertices = job->VertexCount * job->PlantCount;
                 for (u32 firstVertex = 0u; firstVertex < vertices; firstVertex += 64u)
-                    tasks.emplace_back(group, firstVertex);
+                    tasks.Emplace(group, firstVertex);
                 batchVertices += vertices;
             }
-            const u32 groupBytes = static_cast<u32>(groups.size() * sizeof(DispatchGroup));
-            const u32 taskBytes = static_cast<u32>(tasks.size() * sizeof(glm::uvec2));
+            const u32 groupBytes = static_cast<u32>(groups.Num() * sizeof(DispatchGroup));
+            const u32 taskBytes = static_cast<u32>(tasks.Num() * sizeof(glm::uvec2));
             auto groupBuffer = StorageBuffer::Create(groupBytes, StorageBuffer::kNoBinding);
             auto taskBuffer = StorageBuffer::Create(taskBytes, StorageBuffer::kNoBinding);
             if (!groupBuffer || !taskBuffer || groupBuffer->GetDeviceAddress() == 0u || taskBuffer->GetDeviceAddress() == 0u)
@@ -467,18 +460,18 @@ namespace OloEngine::RayTracing
                 m_Stats.Complete = false;
                 m_Stats.ProducerFailed = true;
                 m_Stats.HistoryReset = true;
-                m_Stats.Refused += static_cast<u32>(batch.Jobs.size());
+                m_Stats.Refused += static_cast<u32>(batch.Jobs.Num());
                 for (const auto* job : batch.Jobs)
                     m_Entries.at(job->Identity).Valid = false;
                 continue;
             }
-            groupBuffer->SetData(groups.data(), groupBytes);
-            taskBuffer->SetData(tasks.data(), taskBytes);
+            groupBuffer->SetData(groups.GetData(), groupBytes);
+            taskBuffer->SetData(tasks.GetData(), taskBytes);
             const auto& parameters = *batch.Parameters;
             const auto& entry = m_Entries.at(parameters.Identity);
             const DeformParams params{ parameters.Model, Address(entry.Rest->GetDeviceAddress()),
                                        Address(groupBuffer->GetDeviceAddress()), Address(taskBuffer->GetDeviceAddress()),
-                                       static_cast<u32>(tasks.size()), 0u };
+                                       static_cast<u32>(tasks.Num()), 0u };
             m_Params->SetData(&params, sizeof(params));
             m_Wind->SetData(&parameters.Wind, sizeof(parameters.Wind));
             m_Shader->Bind();
@@ -489,16 +482,16 @@ namespace OloEngine::RayTracing
                 m_Stats.Complete = false;
                 m_Stats.ProducerFailed = true;
                 m_Stats.HistoryReset = true;
-                m_Stats.Refused += static_cast<u32>(batch.Jobs.size());
+                m_Stats.Refused += static_cast<u32>(batch.Jobs.Num());
                 for (const auto* job : batch.Jobs)
                     m_Entries.at(job->Identity).Valid = false;
                 continue;
             }
-            m_Stats.Dispatched += static_cast<u32>(batch.Jobs.size());
+            m_Stats.Dispatched += static_cast<u32>(batch.Jobs.Num());
             ++m_Stats.DispatchBatches;
             m_Stats.VerticesDeformed += batchVertices;
         }
-        m_Jobs.clear();
+        m_Jobs.Reset();
         return m_Stats.Dispatched;
     }
 } // namespace OloEngine::RayTracing

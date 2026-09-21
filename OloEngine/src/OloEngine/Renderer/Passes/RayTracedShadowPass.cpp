@@ -247,7 +247,7 @@ namespace OloEngine
             {
                 m_LastReportedFallback = reason;
                 OLO_CORE_WARN("RayTracedShadowPass: {} of {} light(s) fell back to shadow maps — {}",
-                              m_Stats.FallbackLights, m_LightRequests.size(), ToString(reason));
+                              m_Stats.FallbackLights, m_LightRequests.Num(), ToString(reason));
             }
         }
         else

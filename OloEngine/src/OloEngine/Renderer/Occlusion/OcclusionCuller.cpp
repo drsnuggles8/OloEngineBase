@@ -44,27 +44,27 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         m_ProxyCube.Reset();
-        m_PendingQueries.clear();
+        m_PendingQueries.Reset();
         m_Initialized = false;
     }
 
     void OcclusionCuller::QueueBoundingBox(u32 queryIndex, const BoundingBox& worldBounds)
     {
         OLO_PROFILE_FUNCTION();
-        m_PendingQueries.push_back({ queryIndex, worldBounds });
+        m_PendingQueries.Add({ queryIndex, worldBounds });
     }
 
     void OcclusionCuller::FlushQueuedQueries()
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!m_Initialized || !m_ProxyCube || m_PendingQueries.empty())
+        if (!m_Initialized || !m_ProxyCube || m_PendingQueries.IsEmpty())
             return;
 
         auto& queryPool = OcclusionQueryPool::GetInstance();
         if (!queryPool.IsActive())
         {
-            m_PendingQueries.clear();
+            m_PendingQueries.Reset();
             return;
         }
 
@@ -85,7 +85,7 @@ namespace OloEngine
         if (!proxyShader)
         {
             OLO_CORE_WARN("OcclusionCuller: OcclusionProxy shader not found, skipping queries");
-            m_PendingQueries.clear();
+            m_PendingQueries.Reset();
             return;
         }
 
@@ -93,7 +93,7 @@ namespace OloEngine
         if (!instanceBuffer)
         {
             OLO_CORE_WARN("OcclusionCuller: ModelInstanceBuffer not available, skipping queries");
-            m_PendingQueries.clear();
+            m_PendingQueries.Reset();
             return;
         }
 
@@ -141,6 +141,6 @@ namespace OloEngine
         api.SetDepthMask(true);
         api.SetDepthFunc(RHI::CompareOp::Less);
 
-        m_PendingQueries.clear();
+        m_PendingQueries.Reset();
     }
 } // namespace OloEngine

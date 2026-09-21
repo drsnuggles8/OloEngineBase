@@ -28,7 +28,7 @@ namespace OloEngine
         {
             if (!texture)
                 return;
-            const std::string& srcPath = texture->GetPath();
+            const auto srcPath = texture->GetPath();
             if (srcPath.empty())
                 return;
             const std::string filename = std::filesystem::path(srcPath).filename().string();
@@ -42,7 +42,7 @@ namespace OloEngine
         {
             auto* mat = new aiMaterial();
 
-            aiString name(material.GetName().empty() ? std::string("Material") : material.GetName());
+            aiString name(material.GetName().IsEmpty() ? "Material" : material.GetName().GetData());
             mat->AddProperty(&name, AI_MATKEY_NAME);
 
             const glm::vec4& baseColor = material.GetBaseColorFactor();

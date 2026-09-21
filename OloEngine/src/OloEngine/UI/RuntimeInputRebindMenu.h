@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/InputActionManager.h"
+#include "OloEngine/Containers/String.h"
 #include "OloEngine/Core/InputRebindController.h"
 #include "OloEngine/Events/Event.h"
 #include "OloEngine/Scene/Entity.h"
@@ -8,11 +9,30 @@
 #include <filesystem>
 #include <string>
 #include <unordered_map>
-#include <vector>
 
 namespace OloEngine
 {
     class Scene;
+
+    namespace Detail
+    {
+        struct InputRebindMenuRow
+        {
+            FString Action;
+            Entity BindingsLabel;
+            Entity RebindButton;
+            Entity PadButton;
+            Entity ResetButton;
+        };
+    } // namespace Detail
+
+    // The owned string is heap-backed and Entity contains only an ECS handle and
+    // an external Scene pointer. None of the five members points into this row.
+    template<>
+    struct TIsTriviallyRelocatable<Detail::InputRebindMenuRow>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<FString>::Value && std::is_trivially_copyable_v<Entity>;
+    };
 
     // In-game (runtime) input-rebinding panel built on the ECS UI toolkit and driven by
     // InputRebindController. Open() builds a UI canvas into the given scene — one row per
@@ -51,14 +71,7 @@ namespace OloEngine
         }
 
       private:
-        struct Row
-        {
-            std::string Action;
-            Entity BindingsLabel;
-            Entity RebindButton;
-            Entity PadButton;
-            Entity ResetButton;
-        };
+        using Row = Detail::InputRebindMenuRow;
 
         // --- Builders ---
         Entity MakePanel(Entity parent, glm::vec2 anchorMin, glm::vec2 anchorMax, glm::vec2 anchoredPos, glm::vec2 size, glm::vec4 color);
@@ -82,7 +95,7 @@ namespace OloEngine
         std::filesystem::path m_SavePath;
 
         Entity m_Canvas;
-        std::vector<Row> m_Rows;
+        TArray<Row> m_Rows;
         Entity m_ResetAllButton;
         Entity m_SaveButton;
         Entity m_CloseButton;
@@ -98,7 +111,7 @@ namespace OloEngine
         Entity m_CancelButton;
 
         // Every interactive button in the panel — polled for clicks and state tracking.
-        std::vector<Entity> m_AllButtons;
+        TArray<Entity> m_AllButtons;
         // Previous-frame button state, keyed by entity UUID, for edge-detected clicks.
         std::unordered_map<u64, UIButtonState> m_PrevButtonState;
         // Set when the Close button is clicked; the owner polls IsOpen() after OnUpdate().

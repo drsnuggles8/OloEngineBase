@@ -50,7 +50,7 @@ class DialogueTextRevealsOverTicksTest : public FunctionalTest
         root.Type = "dialogue";
         root.Name = "Opening";
         root.Properties.emplace("text", DialoguePropertyValue{ std::string(kLine) });
-        m_TreeAsset->GetNodesWritable().push_back(std::move(root));
+        m_TreeAsset->GetNodesWritable().AddTail(std::move(root));
         m_TreeAsset->SetRootNodeID(OloEngine::UUID{ static_cast<u64>(0x100ULL) });
         m_TreeAsset->RebuildNodeIndex();
 

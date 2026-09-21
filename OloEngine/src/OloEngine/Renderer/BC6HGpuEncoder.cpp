@@ -14,7 +14,7 @@
 #include <algorithm>
 #include <chrono>
 #include <condition_variable>
-#include <deque>
+#include "OloEngine/Containers/LinkedList.h"
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -37,11 +37,11 @@ namespace OloEngine::BC6HGpu
         // the context thread holding references into a dead stack frame.
         struct EncodeJob
         {
-            std::vector<f32> Rgb;
+            TArray64<f32> Rgb;
             u32 Width = 0;
             u32 Height = 0;
             bool Signed = false;
-            std::vector<u8> Blocks;
+            TArray64<u8> Blocks;
             bool Done = false;
             bool Ok = false;
             std::mutex Mutex;
@@ -71,7 +71,7 @@ namespace OloEngine::BC6HGpu
             std::atomic<bool> WarnedOffThread{ false };
             std::mutex QueueMutex;
             std::thread::id ContextThread{}; // guarded by QueueMutex
-            std::deque<std::shared_ptr<EncodeJob>> Queue;
+            TDoubleLinkedList<std::shared_ptr<EncodeJob>> Queue;
         };
 
         // True when the caller owns the graphics context. Reads ContextThread under
@@ -166,7 +166,7 @@ namespace OloEngine::BC6HGpu
         // The GL half. Only ever runs on the context thread — either called straight
         // through by EncodeLevel, or by PumpPendingJobs for a job another thread queued.
         bool EncodeOnContextThread(const f32* rgb, u32 width, u32 height, bool isSigned,
-                                   std::vector<u8>& outBlocks)
+                                   TArray64<u8>& outBlocks)
         {
             OLO_PROFILE_FUNCTION();
 
@@ -183,7 +183,7 @@ namespace OloEngine::BC6HGpu
             // Upload the level as RGBA32F. The shader re-derives the half bit pattern with
             // packHalf2x16, exactly as the CPU encoder does with glm::packHalf1x16, so the
             // extra alpha channel is the only thing this widening costs.
-            std::vector<f32> rgba(static_cast<sizet>(width) * height * 4);
+            TArray64<f32> rgba(static_cast<sizet>(width) * height * 4);
             for (sizet texel = 0; texel < static_cast<sizet>(width) * height; ++texel)
             {
                 rgba[texel * 4 + 0] = rgb[texel * 3 + 0];
@@ -191,7 +191,7 @@ namespace OloEngine::BC6HGpu
                 rgba[texel * 4 + 2] = rgb[texel * 3 + 2];
                 rgba[texel * 4 + 3] = 1.0f;
             }
-            state.SourceTexture->SetData(rgba.data(), static_cast<u32>(rgba.size() * sizeof(f32)));
+            state.SourceTexture->SetData(rgba.GetData(), static_cast<u32>(rgba.Num() * sizeof(f32)));
 
             // The shader is bound FIRST because the binding seam forks on
             // Shader::IsBoundProgramBindless(), which describes the program IN FLIGHT — a
@@ -222,12 +222,12 @@ namespace OloEngine::BC6HGpu
             RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureUpdate |
                                          MemoryBarrierFlags::PixelBuffer | MemoryBarrierFlags::TextureFetch);
 
-            outBlocks.assign(static_cast<sizet>(blocksX) * blocksY * 16, 0);
+            outBlocks.Init(0, static_cast<i64>(blocksX) * blocksY * 16);
             if (!RenderCommand::ReadTextureImage(state.BlocksTexture->GetRHIHandle(), 0, RHI::Format::RGBA32UInt,
-                                                 outBlocks.size(), outBlocks.data()))
+                                                 outBlocks.Num(), outBlocks.GetData()))
             {
                 OLO_CORE_ERROR("BC6HGpu::EncodeLevel - readback of the {}x{} block image failed", blocksX, blocksY);
-                outBlocks.clear();
+                outBlocks.Reset();
                 return false;
             }
             return true;
@@ -246,14 +246,14 @@ namespace OloEngine::BC6HGpu
             std::shared_ptr<EncodeJob> job;
             {
                 std::lock_guard<std::mutex> lock(state.QueueMutex);
-                if (state.Queue.empty())
+                if (state.Queue.Num() == 0)
                     break;
-                job = state.Queue.front();
-                state.Queue.pop_front();
+                job = state.Queue.GetHead()->GetValue();
+                state.Queue.RemoveNode(state.Queue.GetHead());
             }
 
-            std::vector<u8> blocks;
-            const bool ok = EncodeOnContextThread(job->Rgb.data(), job->Width, job->Height, job->Signed, blocks);
+            TArray64<u8> blocks;
+            const bool ok = EncodeOnContextThread(job->Rgb.GetData(), job->Width, job->Height, job->Signed, blocks);
             {
                 std::lock_guard<std::mutex> lock(job->Mutex);
                 job->Blocks = std::move(blocks);
@@ -277,7 +277,7 @@ namespace OloEngine::BC6HGpu
         state.WarnedOffThread.store(false, std::memory_order_relaxed);
     }
 
-    bool EncodeLevel(const f32* rgb, u32 width, u32 height, bool isSigned, std::vector<u8>& outBlocks)
+    bool EncodeLevel(const f32* rgb, u32 width, u32 height, bool isSigned, TArray64<u8>& outBlocks)
     {
         if (!rgb || width == 0 || height == 0)
         {
@@ -305,13 +305,13 @@ namespace OloEngine::BC6HGpu
         // Marshal. The job OWNS its input, so a waiter that times out cannot leave the
         // context thread reading a dead stack frame.
         auto job = std::make_shared<EncodeJob>();
-        job->Rgb.assign(rgb, rgb + static_cast<sizet>(width) * height * 3);
+        job->Rgb.Append(rgb, static_cast<i64>(width) * height * 3);
         job->Width = width;
         job->Height = height;
         job->Signed = isSigned;
         {
             std::lock_guard<std::mutex> lock(state.QueueMutex);
-            state.Queue.push_back(job);
+            state.Queue.AddTail(job);
         }
 
         // Ask the game thread to drain the queue. Application::Run already calls
@@ -341,9 +341,14 @@ namespace OloEngine::BC6HGpu
             // there is nothing to erase.
             {
                 std::lock_guard<std::mutex> queueLock(state.QueueMutex);
-                const auto it = std::find(state.Queue.begin(), state.Queue.end(), job);
-                if (it != state.Queue.end())
-                    state.Queue.erase(it);
+                for (auto* node = state.Queue.GetHead(); node; node = node->GetNextNode())
+                {
+                    if (node->GetValue() == job)
+                    {
+                        state.Queue.RemoveNode(node);
+                        break;
+                    }
+                }
             }
 
             // Latch the whole path off: whatever should have drained the queue is not
@@ -367,10 +372,10 @@ namespace OloEngine::BC6HGpu
 
         // Fail anything still queued before the resources go: a worker blocked inside
         // EncodeLevel would otherwise sit out the full timeout during teardown.
-        std::deque<std::shared_ptr<EncodeJob>> pending;
+        TDoubleLinkedList<std::shared_ptr<EncodeJob>> pending;
         {
             std::lock_guard<std::mutex> lock(state.QueueMutex);
-            pending.swap(state.Queue);
+            pending = std::move(state.Queue);
         }
         for (auto& job : pending)
         {

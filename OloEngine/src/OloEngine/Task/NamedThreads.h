@@ -772,3 +772,13 @@ namespace OloEngine::Tasks
     bool ShouldForceWaitWithNamedThreadsSupport(EExtendedTaskPriority Priority);
 
 } // namespace OloEngine::Tasks
+
+namespace OloEngine
+{
+    // Callable storage is relocation-checked; other fields are external pointers/scalars.
+    template<>
+    struct TIsTriviallyRelocatable<Tasks::FNamedThreadTask>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable_V<TFunction<void()>>;
+    };
+} // namespace OloEngine

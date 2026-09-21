@@ -1,5 +1,7 @@
 #pragma once
 
+#include <span>
+
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/Vertex.h"
@@ -194,13 +196,19 @@ namespace OloEngine
         // VirtualMeshComponent) rendered with the flat engine-default material. Model has
         // always had the real Ref<Material> objects; this just carries them across so a
         // MeshSource asset is self-sufficient.
-        [[nodiscard]] const std::vector<Ref<Material>>& GetImportedMaterials() const
+        [[nodiscard]] std::span<const Ref<Material>> GetImportedMaterials() const
         {
-            return m_ImportedMaterials;
+            return { m_ImportedMaterials.GetData(), static_cast<sizet>(m_ImportedMaterials.Num()) };
         }
-        void SetImportedMaterials(std::vector<Ref<Material>> materials)
+        void SetImportedMaterials(TArray<Ref<Material>> materials)
         {
             m_ImportedMaterials = std::move(materials);
+        }
+        template<typename Allocator>
+        void SetImportedMaterials(const std::vector<Ref<Material>, Allocator>& materials)
+        {
+            m_ImportedMaterials.Reset();
+            m_ImportedMaterials.Append(materials);
         }
         // Material for a submesh, or nullptr when the mesh carries none / the index is out
         // of range. Callers fall back to their own default.
@@ -211,7 +219,7 @@ namespace OloEngine
                 return nullptr;
             }
             u32 const materialIndex = m_Submeshes[static_cast<i32>(submeshIndex)].m_MaterialIndex;
-            if (materialIndex >= static_cast<u32>(m_ImportedMaterials.size()))
+            if (materialIndex >= static_cast<u32>(m_ImportedMaterials.Num()))
             {
                 return nullptr;
             }
@@ -230,7 +238,7 @@ namespace OloEngine
                 return nullptr;
             }
             u32 const materialIndex = m_Submeshes[static_cast<i32>(submeshIndex)].m_MaterialIndex;
-            if (materialIndex >= static_cast<u32>(m_ImportedMaterials.size()))
+            if (materialIndex >= static_cast<u32>(m_ImportedMaterials.Num()))
             {
                 return nullptr;
             }
@@ -581,15 +589,21 @@ namespace OloEngine
         // rebuilding the DAG from raw geometry. Empty = not cooked.
         [[nodiscard]] bool HasVirtualMeshBlob() const
         {
-            return !m_VirtualMeshBlob.empty();
+            return !m_VirtualMeshBlob.IsEmpty();
         }
-        [[nodiscard]] const std::vector<u8>& GetVirtualMeshBlob() const
+        [[nodiscard]] std::span<const u8> GetVirtualMeshBlob() const
         {
-            return m_VirtualMeshBlob;
+            return { m_VirtualMeshBlob.GetData(), static_cast<sizet>(m_VirtualMeshBlob.Num()) };
         }
-        void SetVirtualMeshBlob(std::vector<u8> blob)
+        void SetVirtualMeshBlob(TArray<u8> blob)
         {
             m_VirtualMeshBlob = std::move(blob);
+        }
+        template<typename Allocator>
+        void SetVirtualMeshBlob(const std::vector<u8, Allocator>& blob)
+        {
+            m_VirtualMeshBlob.Reset();
+            m_VirtualMeshBlob.Append(blob);
         }
 
         // Asset interface
@@ -614,8 +628,8 @@ namespace OloEngine
         TArray<Vertex> m_Vertices;
         TArray<u32> m_Indices;
         TArray<Submesh> m_Submeshes;
-        TMap<u32, AssetHandle> m_Materials;             // Material mapping for submeshes (asset-pack path)
-        std::vector<Ref<Material>> m_ImportedMaterials; // Materials from the source file, by Submesh::m_MaterialIndex
+        TMap<u32, AssetHandle> m_Materials;        // Material mapping for submeshes (asset-pack path)
+        TArray<Ref<Material>> m_ImportedMaterials; // Materials from the source file, by Submesh::m_MaterialIndex
 
         // Rigging data (Hazel-style: separated from vertex data)
         Ref<Skeleton> m_Skeleton;
@@ -650,11 +664,31 @@ namespace OloEngine
         BoundingSphere m_BoundingSphere;
 
         // Cooked OVGM cluster-DAG blob (see accessors above)
-        std::vector<u8> m_VirtualMeshBlob;
+        TArray<u8> m_VirtualMeshBlob;
 
         bool m_Built = false;
         bool m_PreOptimized = false;
         bool m_SourceIsRigged = false; // Source file contained bones (see IsSourceRigged)
         u64 m_Generation = 0;
+    };
+} // namespace OloEngine
+
+namespace OloEngine
+{
+    // Numerical transforms/indices and two heap-owning FString names, no self pointers.
+    template<>
+    struct TIsTriviallyRelocatable<Submesh>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Submesh::m_Transform)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Submesh::m_LocalTransform)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Submesh::m_BoundingBox)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Submesh::m_BaseVertex)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Submesh::m_BaseIndex)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Submesh::m_MaterialIndex)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Submesh::m_IndexCount)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Submesh::m_VertexCount)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Submesh::m_NodeName)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Submesh::m_MeshName)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Submesh::m_IsRigged)>;
     };
 } // namespace OloEngine

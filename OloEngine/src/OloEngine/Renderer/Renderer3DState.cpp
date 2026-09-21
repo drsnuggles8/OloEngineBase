@@ -104,13 +104,13 @@ namespace OloEngine
     {
         if (s_Data.AuxCasterSink != nullptr)
         {
-            s_Data.AuxCasterSink->push_back(caster);
+            s_Data.AuxCasterSink->Add(caster);
         }
         // Sphere-proxy AO keeps only the world AABB (issue #710) — it fits
         // spheres to bounds, so the VAO, material and transform are dead weight.
         if (s_Data.AOProxyCollecting)
         {
-            s_Data.AOProxyBounds.push_back(caster.worldBounds);
+            s_Data.AOProxyBounds.Add(caster.worldBounds);
         }
         // Only feed the DDGI pass when IT asked for casters this frame — the
         // aux sink alone must not push bake-time geometry into the pass's
@@ -122,7 +122,7 @@ namespace OloEngine
         }
     }
 
-    void Renderer3D::SetAuxCasterSink(std::vector<DDGIMeshCaster>* sink)
+    void Renderer3D::SetAuxCasterSink(TArray<DDGIMeshCaster>* sink)
     {
         s_Data.AuxCasterSink = sink;
     }
@@ -188,13 +188,22 @@ namespace OloEngine
         s_Data.PrimaryDirectionalLightRadiance = radiance;
     }
 
-    void Renderer3D::SetRayTracedShadowLightRequests(std::vector<RayTracedShadowLightRequest> requests)
+    void Renderer3D::SetRayTracedShadowLightRequests(std::span<const RayTracedShadowLightRequest> requests)
     {
-        s_Data.RayTracedShadowLightRequests = std::move(requests);
+        s_Data.RayTracedShadowLightRequests.Reset();
+        s_Data.RayTracedShadowLightRequests.Append(requests.data(), static_cast<i64>(requests.size()));
     }
 
-    void Renderer3D::SetGroomStrandRequests(std::vector<GroomStrandRequest> requests)
+    void Renderer3D::SetGroomStrandRequests(std::span<const GroomStrandRequest> requests)
     {
+        s_Data.GroomStrandRequests.Empty();
+        for (const auto& request : requests)
+            s_Data.GroomStrandRequests.AddTail(request);
+    }
+
+    void Renderer3D::SetGroomStrandRequests(TDoubleLinkedList<GroomStrandRequest>&& requests) noexcept
+    {
+        // Transfer node ownership without copying per-groom root/simulation buffers.
         s_Data.GroomStrandRequests = std::move(requests);
     }
 

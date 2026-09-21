@@ -99,20 +99,20 @@ TEST_F(DiscoveryLoopLandingAndSaveTest, LandingRegistersOnceAndRestingDoesNotDou
 
     ASSERT_TRUE(m_Boat.HasComponent<DiscoveredSetComponent>());
     const auto& discovered = m_Boat.GetComponent<DiscoveredSetComponent>().m_Discovered;
-    ASSERT_EQ(discovered.size(), 1u) << "landing on the island must register exactly one discovery";
-    EXPECT_EQ(static_cast<u64>(discovered.front()), static_cast<u64>(m_Island.GetUUID()));
+    ASSERT_EQ(discovered.Num(), 1u) << "landing on the island must register exactly one discovery";
+    EXPECT_EQ(static_cast<u64>(discovered[0]), static_cast<u64>(m_Island.GetUUID()));
 
     // Keep resting inside the trigger for many more ticks — GetActiveContactPairs()
     // reports the same pair every one of them. The set must stay at size 1.
     TickFor(/*totalSeconds=*/2.0f);
-    EXPECT_EQ(m_Boat.GetComponent<DiscoveredSetComponent>().m_Discovered.size(), 1u)
+    EXPECT_EQ(m_Boat.GetComponent<DiscoveredSetComponent>().m_Discovered.Num(), 1u)
         << "resting in the landing trigger across repeated ticks double-counted the same island";
 }
 
 TEST_F(DiscoveryLoopLandingAndSaveTest, DiscoveredSetSurvivesSaveReloadRoundTrip)
 {
     TickFor(/*totalSeconds=*/0.5f);
-    ASSERT_EQ(m_Boat.GetComponent<DiscoveredSetComponent>().m_Discovered.size(), 1u);
+    ASSERT_EQ(m_Boat.GetComponent<DiscoveredSetComponent>().m_Discovered.Num(), 1u);
 
     const auto payload = SaveGameSerializer::CaptureSceneState(GetScene());
     ASSERT_GT(payload.size(), 0u);
@@ -128,8 +128,8 @@ TEST_F(DiscoveryLoopLandingAndSaveTest, DiscoveredSetSurvivesSaveReloadRoundTrip
            "REGISTER_SAVE_COMPONENT / generated SAVE_COMPONENT+TRY_LOAD_COMPONENT lists";
 
     const auto& restoredDiscovered = restoredBoat.GetComponent<DiscoveredSetComponent>().m_Discovered;
-    ASSERT_EQ(restoredDiscovered.size(), 1u) << "quit and reopen must keep the discovered set intact";
-    EXPECT_EQ(static_cast<u64>(restoredDiscovered.front()), static_cast<u64>(m_Island.GetUUID()));
+    ASSERT_EQ(restoredDiscovered.Num(), 1u) << "quit and reopen must keep the discovered set intact";
+    EXPECT_EQ(static_cast<u64>(restoredDiscovered[0]), static_cast<u64>(m_Island.GetUUID()));
 }
 
 // Simulates a save file written BEFORE this game added DiscoveredSetComponent

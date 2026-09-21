@@ -9,7 +9,7 @@
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include <glm/glm.hpp>
-#include <vector>
+#include <span>
 #include <array>
 
 namespace OloEngine
@@ -51,9 +51,9 @@ namespace OloEngine
         // Upload pre-gathered point/spot/sphere lights (packed by the scene
         // during its single light pass in Scene::ProcessScene3DSharedLogic)
         // into the cull SSBOs and decide whether Forward+ runs this frame.
-        void SetLights(const std::vector<GPUPointLight>& pointLights,
-                       const std::vector<GPUSpotLight>& spotLights,
-                       const std::vector<GPUSphereAreaLight>& sphereAreaLights);
+        void SetLights(std::span<const GPUPointLight> pointLights,
+                       std::span<const GPUSpotLight> spotLights,
+                       std::span<const GPUSphereAreaLight> sphereAreaLights);
 
         // Dispatch the clustered light culling compute pass. The camera
         // near/far planes for the depth-slice mapping are extracted from the

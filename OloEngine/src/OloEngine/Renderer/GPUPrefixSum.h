@@ -1,10 +1,9 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Containers/Array.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
-
-#include <vector>
 
 namespace OloEngine
 {
@@ -134,7 +133,7 @@ namespace OloEngine
 
         // Indexed by recursion depth; `kMaxDepth` covers kMaxElements.
         static constexpr u32 kMaxDepth = 3;
-        std::vector<Ref<StorageBuffer>> m_BlockSums;
+        TArray<Ref<StorageBuffer>> m_BlockSums;
 
         // A valid 1-uint buffer for the slots a given dispatch does not write.
         // Leaving a declared SSBO binding dangling is legal-but-undefined

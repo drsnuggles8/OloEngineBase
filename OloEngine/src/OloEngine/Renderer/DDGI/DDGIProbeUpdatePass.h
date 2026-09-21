@@ -19,7 +19,7 @@
 
 #include <array>
 #include <functional>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -134,6 +134,24 @@ namespace OloEngine
     // decides stays on the GPU. The one readback that remains is
     // ReadbackProbeDiagnostics(), which only the editor inspector, the MCP
     // tools and the tests call — never the frame.
+    namespace Detail
+    {
+        struct DDGICaptureResources
+        {
+            Ref<Framebuffer> Target;
+            Ref<UniformBuffer> Camera;
+            Ref<UniformBuffer> PassData;
+        };
+    } // namespace Detail
+
+    // All references point at separately allocated renderer resources.
+    template<>
+    struct TIsTriviallyRelocatable<Detail::DDGICaptureResources>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<Ref<Framebuffer>>::Value &&
+                                      TIsTriviallyRelocatable<Ref<UniformBuffer>>::Value;
+    };
+
     class DDGIProbeUpdatePass : public RenderGraphNode
     {
       public:
@@ -324,7 +342,7 @@ namespace OloEngine
         //
         // Call ReadbackProbeDiagnostics() first if you need the GPU-owned
         // fields (OffsetN / State / Bounce*).
-        [[nodiscard]] const std::vector<ProbeRecord>& GetProbeRecords() const
+        [[nodiscard]] const TArray<ProbeRecord>& GetProbeRecords() const
         {
             return m_Records;
         }
@@ -347,22 +365,17 @@ namespace OloEngine
         void UploadComputeParams(i32 probeIndexOrTotal, i32 flags, UniformBuffer* target = nullptr);
         void BindProbeBuffers() const;
 
-        [[nodiscard]] std::vector<i32> PickCaptureSet(i32 budget);
-        [[nodiscard]] std::vector<i32> PickCaptureSetLegacy(i32 budget);
-        [[nodiscard]] std::vector<i32> PickCaptureSetPrioritized(i32 budget);
+        [[nodiscard]] TArray<i32> PickCaptureSet(i32 budget);
+        [[nodiscard]] TArray<i32> PickCaptureSetLegacy(i32 budget);
+        [[nodiscard]] TArray<i32> PickCaptureSetPrioritized(i32 budget);
         [[nodiscard]] bool IsProbeCpuLive(i32 probeIndex) const;
 
         void DispatchProbeMaintain();
         void DispatchScreenRequests();
         void DispatchProbeRequests();
-        struct CaptureResources
-        {
-            Ref<Framebuffer> Target;
-            Ref<UniformBuffer> Camera;
-            Ref<UniformBuffer> PassData;
-        };
+        using CaptureResources = Detail::DDGICaptureResources;
         void PrepareCaptureResources(u32 count);
-        void RecordProbeRanges(const std::vector<i32>& probes, u32 minProbesPerItem,
+        void RecordProbeRanges(const TArray<i32>& probes, u32 minProbesPerItem,
                                const std::function<void(i32, CaptureResources&)>& body);
         void CaptureProbe(i32 probeIdx, CaptureResources& resources);
         void ResampleProbe(i32 probeIdx, CaptureResources& resources);
@@ -370,8 +383,8 @@ namespace OloEngine
         // UBOStructures::DDGIPassDataUBO::MaxRelocationBatch (issue #846). Reads each
         // probe's record to decide its hold-position flag, so call it BEFORE the
         // capture bookkeeping that advances ProbeRecord::CaptureCount this frame.
-        void RelocateProbesGPU(const std::vector<i32>& captureSet);
-        void BlendVisibility(const std::vector<i32>& capturedProbes);
+        void RelocateProbesGPU(const TArray<i32>& captureSet);
+        void BlendVisibility(const TArray<i32>& capturedProbes);
         void RelightProbes();
         void BlendIrradiance();
         void SetPassDataProbe(i32 probeIdx, UniformBuffer* params = nullptr);
@@ -395,7 +408,7 @@ namespace OloEngine
         Ref<UniformBuffer> m_PassDataUBO;       // binding 7  (UBO_USER_0) — per-draw/per-dispatch data
         Ref<UniformBuffer> m_RelocateParamsUBO; // binding 7 too — the batched relocation capture set (#846)
         Ref<UniformBuffer> m_CaptureCameraUBO;  // binding 0  (UBO_CAMERA) — per-face overwrite, ShadowRenderPass style
-        std::vector<CaptureResources> m_CaptureItems;
+        TArray<CaptureResources> m_CaptureItems;
 
         // SSBO (issue #707; one buffer since #1015)
         Ref<StorageBuffer> m_ProbeAuxSSBO; // SSBO_DDGI_PROBE_AUX (6) — ProbeStats header, then one record per probe
@@ -430,10 +443,10 @@ namespace OloEngine
         // Per-frame submission state
         DDGIVolumeDesc m_Desc;
         bool m_VolumeSubmitted = false;
-        std::vector<DDGIMeshCaster> m_Casters;
+        TArray<DDGIMeshCaster> m_Casters;
 
         // CPU scheduling state
-        mutable std::vector<ProbeRecord> m_Records;
+        mutable TArray<ProbeRecord> m_Records;
         mutable ProbeStats m_Stats{};
         i32 m_CaptureCursor = 0; // linear cursor over uncaptured probes (legacy path)
         u32 m_FrameIndex = 0;

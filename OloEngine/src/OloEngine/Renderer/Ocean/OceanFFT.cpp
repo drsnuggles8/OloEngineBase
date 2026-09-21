@@ -17,9 +17,9 @@ namespace OloEngine::Ocean
         constexpr f32 kTwoPi = 6.28318530717958647692f;
 
         // In-place bit-reversal reordering of an N-element (power-of-two) array.
-        void BitReverseReorder(std::vector<Complex>& data)
+        void BitReverseReorder(TArray<Complex>& data)
         {
-            const u32 n = static_cast<u32>(data.size());
+            const u32 n = static_cast<u32>(data.Num());
             for (u32 i = 1u, j = 0u; i < n; ++i)
             {
                 u32 bit = n >> 1u;
@@ -32,9 +32,9 @@ namespace OloEngine::Ocean
         }
     } // namespace
 
-    void FFT1D(std::vector<Complex>& data, bool inverse)
+    void FFT1D(TArray<Complex>& data, bool inverse)
     {
-        const u32 n = static_cast<u32>(data.size());
+        const u32 n = static_cast<u32>(data.Num());
         OLO_CORE_ASSERT(IsPowerOfTwo(n), "FFT1D size must be a power of two");
         if (n <= 1u)
             return;
@@ -70,13 +70,13 @@ namespace OloEngine::Ocean
         }
     }
 
-    void FFT2D(std::vector<Complex>& grid, u32 width, u32 height, bool inverse)
+    void FFT2D(TArray<Complex>& grid, u32 width, u32 height, bool inverse)
     {
         OLO_CORE_ASSERT(IsPowerOfTwo(width) && IsPowerOfTwo(height), "FFT2D dims must be powers of two");
-        OLO_CORE_ASSERT(grid.size() == static_cast<sizet>(width) * height, "FFT2D grid size mismatch");
+        OLO_CORE_ASSERT(grid.Num() == static_cast<sizet>(width) * height, "FFT2D grid size mismatch");
 
         // Transform each row in place.
-        std::vector<Complex> row(width);
+        TArray<Complex> row(width);
         for (u32 y = 0u; y < height; ++y)
         {
             const sizet base = static_cast<sizet>(y) * width;
@@ -88,7 +88,7 @@ namespace OloEngine::Ocean
         }
 
         // Transform each column in place.
-        std::vector<Complex> col(height);
+        TArray<Complex> col(height);
         for (u32 x = 0u; x < width; ++x)
         {
             for (u32 y = 0u; y < height; ++y)

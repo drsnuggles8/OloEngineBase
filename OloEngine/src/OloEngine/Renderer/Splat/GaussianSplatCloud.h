@@ -8,8 +8,9 @@
 #include <array>
 #include <filesystem>
 #include <span>
-#include <string>
-#include <vector>
+#include "OloEngine/Containers/String.h"
+#include <string_view>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine::GaussianSplat
 {
@@ -71,7 +72,7 @@ namespace OloEngine::GaussianSplat
     struct LoadResult
     {
         bool Ok = false;
-        std::string Error;
+        FString Error;
         u32 SplatsRead = 0;
         // Bytes the source file spent on properties this representation drops
         // (normals and the f_rest_* SH bands). Reported so the writeup's memory
@@ -95,15 +96,15 @@ namespace OloEngine::GaussianSplat
 
         [[nodiscard]] auto Splats() const -> std::span<const GpuSplat>
         {
-            return m_Splats;
+            return { m_Splats.GetData(), static_cast<sizet>(m_Splats.Num()) };
         }
         [[nodiscard]] auto Count() const -> u32
         {
-            return static_cast<u32>(m_Splats.size());
+            return static_cast<u32>(m_Splats.Num());
         }
         [[nodiscard]] auto Empty() const -> bool
         {
-            return m_Splats.empty();
+            return m_Splats.IsEmpty();
         }
         [[nodiscard]] auto Bounds() const -> const BoundingBox&
         {
@@ -120,7 +121,7 @@ namespace OloEngine::GaussianSplat
 
         [[nodiscard]] auto GpuBytes() const -> sizet
         {
-            return m_Splats.size() * sizeof(GpuSplat);
+            return m_Splats.Num() * sizeof(GpuSplat);
         }
 
         // Builds a cloud directly from unpacked parameters. This is the seam the
@@ -138,12 +139,12 @@ namespace OloEngine::GaussianSplat
         // the largest radius from them. This is how a merged LOD level becomes
         // a cloud (issue #1039): its splats are already packed, so pushing them
         // back through Build would decode and re-encode every one.
-        void Adopt(std::vector<GpuSplat>&& splats);
+        void Adopt(TArray<GpuSplat>&& splats);
 
         void Clear();
 
       private:
-        std::vector<GpuSplat> m_Splats;
+        TArray<GpuSplat> m_Splats;
         BoundingBox m_Bounds;
         f32 m_MaxRadius = 0.0f;
     };
@@ -175,3 +176,14 @@ namespace OloEngine::GaussianSplat
     [[nodiscard]] auto PackColorOpacity(const glm::vec3& linearRgb, f32 opacity) -> u32;
     [[nodiscard]] auto UnpackColorOpacity(u32 packed) -> glm::vec4;
 } // namespace OloEngine::GaussianSplat
+
+namespace OloEngine
+{
+    // Cloud storage owns its allocation; bounds and radius have no self-pointers.
+    template<>
+    struct TIsTriviallyRelocatable<GaussianSplat::SplatCloud>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<TArray<GaussianSplat::GpuSplat>>::Value &&
+                                      std::is_trivially_copyable_v<BoundingBox>;
+    };
+} // namespace OloEngine

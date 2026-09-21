@@ -338,7 +338,7 @@ namespace OloEngine::Tests
             };
         }
 
-        [[nodiscard]] static std::vector<TerrainLayerRule> MakeShoreRules()
+        [[nodiscard]] static TArray<TerrainLayerRule> MakeShoreRules()
         {
             const auto rule = [](u32 index, f32 minH, f32 maxH, f32 heightBlend, f32 minSlope, f32 maxSlope,
                                  f32 slopeBlend)

@@ -11,7 +11,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine::RendererValidate
 {
@@ -37,10 +37,10 @@ namespace OloEngine::RendererValidate
             return stats;
 
         const auto& spec = fb->GetSpecification();
-        if (attachmentIndex >= spec.Attachments.Attachments.size())
+        if (attachmentIndex >= spec.Attachments.Attachments.Num())
         {
             OLO_CORE_WARN("RendererValidate: attachment index {} out of range (have {})",
-                          attachmentIndex, spec.Attachments.Attachments.size());
+                          attachmentIndex, spec.Attachments.Attachments.Num());
             return stats;
         }
         if (const auto fmt = spec.Attachments.Attachments[attachmentIndex].TextureFormat; !IsFloatColorFormat(fmt))
@@ -87,14 +87,15 @@ namespace OloEngine::RendererValidate
         if (pixelCount == 0)
             return stats;
 
-        std::vector<f32> pixels(static_cast<std::size_t>(pixelCount) * 4);
+        TArray64<f32> pixels;
+        pixels.SetNum(static_cast<i64>(pixelCount) * 4);
         const auto byteSize64 = pixelCount64 * bytesPerPixel;
         // Facade readback (#691, ADR 0011 amendment (7)): failure is the
         // bool return, not a glGetError drain — and the same call reads back on
         // both backends via each arm's readback spine.
         const RHI::ResourceHandle tex = fb->GetColorAttachmentHandle(attachmentIndex);
         if (!RenderCommand::ReadTextureImage(tex, 0, RHI::Format::RGBA32Float,
-                                             static_cast<sizet>(byteSize64), pixels.data()))
+                                             static_cast<sizet>(byteSize64), pixels.GetData()))
         {
             OLO_CORE_ERROR("RendererValidate: texture readback failed for attachment {}; marking readback as failed",
                            attachmentIndex);
@@ -207,7 +208,7 @@ namespace OloEngine::RendererValidate
         if (fb)
         {
             const auto& spec = fb->GetSpecification();
-            if (attachmentIndex < spec.Attachments.Attachments.size())
+            if (attachmentIndex < spec.Attachments.Attachments.Num())
             {
                 format = spec.Attachments.Attachments[attachmentIndex].TextureFormat;
             }

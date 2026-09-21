@@ -26,6 +26,7 @@
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Scene/SceneBinaryFormat.h"
+#include "OloEngine/Scene/SceneBinaryIO.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
 
@@ -36,12 +37,70 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
 namespace OloEngine::Tests
 {
+    TEST(SceneBinaryStringCompatibility, FStringPreservesLegacyBytesAndReadsBothDirections)
+    {
+        const std::vector<std::string> cases{
+            "", "short", std::string("a\0b", 3), "Gr\xC3\xBC\xC3\x9F"
+                                                 "e \xE6\xA3\xAE",
+            std::string(96, 'x')
+        };
+        for (const auto& legacy : cases)
+        {
+            SCOPED_TRACE(legacy.size());
+            std::ostringstream oldStream, newStream;
+            SceneBinIO::Write(oldStream, legacy);
+            SceneBinIO::Write(newStream, FString(legacy));
+            const std::string oldBytes = oldStream.str();
+            const std::string newBytes = newStream.str();
+            EXPECT_EQ(newBytes, oldBytes);
+
+            FString loaded("replace on success");
+            SceneBinIO::Reader oldReader{ reinterpret_cast<const u8*>(oldBytes.data()), oldBytes.size() };
+            ASSERT_TRUE(SceneBinIO::Read(oldReader, loaded));
+            EXPECT_EQ(loaded.ToStdString(), legacy);
+            EXPECT_EQ(oldReader.Cursor, oldBytes.size());
+
+            std::string legacyLoaded;
+            SceneBinIO::Reader newReader{ reinterpret_cast<const u8*>(newBytes.data()), newBytes.size() };
+            ASSERT_TRUE(SceneBinIO::Read(newReader, legacyLoaded));
+            EXPECT_EQ(legacyLoaded, legacy);
+            EXPECT_EQ(newReader.Cursor, newBytes.size());
+        }
+    }
+
+    TEST(SceneBinaryStringCompatibility, EveryTruncatedPrefixKeepsTheDestination)
+    {
+        std::ostringstream stream;
+        SceneBinIO::Write(stream, std::string("a\0b", 3));
+        const std::string bytes = stream.str();
+        for (sizet length = 0; length < bytes.size(); ++length)
+        {
+            SCOPED_TRACE(length);
+            FString loaded("keep");
+            SceneBinIO::Reader reader{ reinterpret_cast<const u8*>(bytes.data()), length };
+            EXPECT_FALSE(SceneBinIO::Read(reader, loaded));
+            EXPECT_EQ(loaded.ToStdString(), "keep");
+        }
+    }
+
+    TEST(SceneBinaryStringCompatibility, OversizedLengthKeepsTheDestination)
+    {
+        std::ostringstream stream;
+        SceneBinIO::WriteU32(stream, SceneBinIO::MaxStringLength + 1);
+        const std::string bytes = stream.str();
+        FString loaded("keep");
+        SceneBinIO::Reader reader{ reinterpret_cast<const u8*>(bytes.data()), bytes.size() };
+        EXPECT_FALSE(SceneBinIO::Read(reader, loaded));
+        EXPECT_EQ(loaded.ToStdString(), "keep");
+    }
+
     namespace
     {
         constexpr f32 kEpsilon = 1e-4f;

@@ -83,6 +83,13 @@ namespace OloEngine
         };
     } // namespace HazardPointer_Impl
 
+    // Position-independent virtual dispatch plus an external retired-object pointer.
+    template<>
+    struct TIsTriviallyRelocatable<HazardPointer_Impl::FHazardDeleter>
+    {
+        static constexpr bool Value = true;
+    };
+
     // Forward declaration
     template<typename, bool>
     class THazardPointer;

@@ -4,7 +4,7 @@
 #include "OloEngine/Renderer/SphericalHarmonics.h"
 
 #include <glm/glm.hpp>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -31,7 +31,7 @@ namespace OloEngine
 
         // Baked SH coefficient data — 9 vec4s per probe, flat array
         // Layout: probe[0] coeffs 0..8, probe[1] coeffs 0..8, ...
-        std::vector<glm::vec4> CoefficientData;
+        TArray<glm::vec4> CoefficientData;
 
         [[nodiscard]] i32 GetTotalProbeCount() const noexcept
         {
@@ -44,7 +44,7 @@ namespace OloEngine
 
         [[nodiscard]] bool HasBakedData() const noexcept
         {
-            return !CoefficientData.empty();
+            return !CoefficientData.IsEmpty();
         }
 
         void AllocateCoefficients()
@@ -59,13 +59,13 @@ namespace OloEngine
             {
                 return;
             }
-            CoefficientData.resize(static_cast<size_t>(totalCoeffs), glm::vec4(0.0f));
+            CoefficientData.SetNumZeroed(static_cast<i32>(totalCoeffs), EAllowShrinking::No);
         }
 
         // Store baked SH data for a single probe at the given linear index
         void SetProbeData(i32 probeIndex, const SHCoefficients& sh, f32 validity = 1.0f)
         {
-            if (size_t const maxProbes = CoefficientData.size() / SH_COEFFICIENT_COUNT; probeIndex < 0 || static_cast<size_t>(probeIndex) >= maxProbes)
+            if (size_t const maxProbes = CoefficientData.Num() / SH_COEFFICIENT_COUNT; probeIndex < 0 || static_cast<size_t>(probeIndex) >= maxProbes)
             {
                 return;
             }
@@ -81,7 +81,7 @@ namespace OloEngine
         // Retrieve SH data for a single probe
         [[nodiscard]] SHCoefficients GetProbeData(i32 probeIndex) const
         {
-            if (size_t const maxProbes = CoefficientData.size() / SH_COEFFICIENT_COUNT; probeIndex < 0 || static_cast<size_t>(probeIndex) >= maxProbes)
+            if (size_t const maxProbes = CoefficientData.Num() / SH_COEFFICIENT_COUNT; probeIndex < 0 || static_cast<size_t>(probeIndex) >= maxProbes)
             {
                 return {};
             }

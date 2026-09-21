@@ -1,6 +1,9 @@
 #pragma once
 
 #include <string>
+#include <span>
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/String.h"
 #include <vector>
 #include <unordered_map>
 #include <set>
@@ -52,21 +55,21 @@ namespace OloEngine
         [[nodiscard]] Ref<MeshSource> CreateCombinedMeshSource() const;
 
         // Accessors
-        [[nodiscard]] const std::vector<Ref<MeshSource>>& GetMeshes() const
+        [[nodiscard]] std::span<const Ref<MeshSource>> GetMeshes() const
         {
-            return m_Meshes;
+            return { m_Meshes.GetData(), static_cast<sizet>(m_Meshes.Num()) };
         }
-        [[nodiscard]] const std::vector<Material>& GetMaterials() const
+        [[nodiscard]] std::span<const Material> GetMaterials() const
         {
-            return m_Materials;
+            return { m_Materials.GetData(), static_cast<sizet>(m_Materials.Num()) };
         }
         [[nodiscard]] const Ref<Skeleton>& GetSkeleton() const
         {
             return m_Skeleton;
         }
-        [[nodiscard]] const std::vector<Ref<AnimationClip>>& GetAnimations() const
+        [[nodiscard]] std::span<const Ref<AnimationClip>> GetAnimations() const
         {
-            return m_Animations;
+            return { m_Animations.GetData(), static_cast<sizet>(m_Animations.Num()) };
         }
         [[nodiscard]] const BoundingBox& GetBoundingBox() const
         {
@@ -76,7 +79,7 @@ namespace OloEngine
         {
             return m_BoundingSphere;
         }
-        [[nodiscard]] const std::string& GetDirectory() const
+        [[nodiscard]] const FString& GetDirectory() const
         {
             return m_Directory;
         }
@@ -87,7 +90,7 @@ namespace OloEngine
         // Utility methods
         [[nodiscard]] bool HasAnimations() const
         {
-            return !m_Animations.empty();
+            return !m_Animations.IsEmpty();
         }
         [[nodiscard]] bool HasSkeleton() const
         {
@@ -95,9 +98,9 @@ namespace OloEngine
         }
 
         // Static dynamic sampling methods for optimized keyframe storage (public for AnimationSystem)
-        static glm::vec3 SampleBonePosition(const std::vector<BonePositionKey>& keys, f32 time);
-        static glm::quat SampleBoneRotation(const std::vector<BoneRotationKey>& keys, f32 time);
-        static glm::vec3 SampleBoneScale(const std::vector<BoneScaleKey>& keys, f32 time);
+        static glm::vec3 SampleBonePosition(std::span<const BonePositionKey> keys, f32 time);
+        static glm::quat SampleBoneRotation(std::span<const BoneRotationKey> keys, f32 time);
+        static glm::vec3 SampleBoneScale(std::span<const BoneScaleKey> keys, f32 time);
 
       private:
         // Model processing
@@ -110,14 +113,14 @@ namespace OloEngine
         // volume THICKNESS map, since it shares aiTextureType_TRANSMISSION with
         // the transmission map and is distinguished only by index 1 (issue
         // #1242). -1, the default, keeps the historical count-driven behaviour.
-        std::vector<Ref<Texture2D>> LoadMaterialTextures(const aiMaterial* mat, aiTextureType type,
-                                                         i32 semanticIndex = -1);
+        TArray<Ref<Texture2D>> LoadMaterialTextures(const aiMaterial* mat, aiTextureType type,
+                                                    i32 semanticIndex = -1);
         Material ProcessMaterial(const aiMaterial* mat);
 
         // Skeleton and animation processing
         void ProcessSkeleton(const aiScene* scene);
         void ProcessAnimations(const aiScene* scene);
-        void ProcessBones(const aiMesh* mesh, std::vector<BoneInfluence>& outBoneInfluences);
+        void ProcessBones(const aiMesh* mesh, TArray<BoneInfluence>& outBoneInfluences);
 
         // Helper methods
         void CalculateBounds();
@@ -137,12 +140,12 @@ namespace OloEngine
         };
 
         // Data members
-        std::vector<Ref<MeshSource>> m_Meshes;
-        std::vector<Material> m_Materials;
-        std::vector<Ref<AnimationClip>> m_Animations;
+        TArray<Ref<MeshSource>> m_Meshes;
+        TArray<Material> m_Materials;
+        TArray<Ref<AnimationClip>> m_Animations;
         Ref<Skeleton> m_Skeleton;
 
-        std::string m_Directory;
+        FString m_Directory;
         std::unordered_map<std::string, Ref<Texture2D>> m_LoadedTextures;
 
         // Bone name to BoneInfo mapping for O(1) lookup during mesh processing.

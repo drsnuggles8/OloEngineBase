@@ -35,9 +35,9 @@ namespace OloEngine
         {
             return m_RHIHandle.Get();
         }
-        [[nodiscard("Store this!")]] const std::string& GetPath() const override
+        [[nodiscard("Store this!")]] std::string_view GetPath() const override
         {
-            return m_Path;
+            return m_Path.ToView();
         }
 
         void SetData(void* data, u32 size) override;
@@ -52,7 +52,7 @@ namespace OloEngine
         {
             return false;
         }
-        bool GetData(std::vector<u8>& outData, u32 mipLevel = 0) const override;
+        bool GetData(TArray64<u8>& outData, u32 mipLevel = 0) const override;
 
         // TextureCubemapArray interface
         [[nodiscard]] const CubemapArraySpecification& GetArraySpecification() const override
@@ -69,7 +69,7 @@ namespace OloEngine
         TextureSpecification m_Specification;
         CubemapArraySpecification m_ArraySpecification;
 
-        std::string m_Path;
+        FString m_Path;
         bool m_IsLoaded = false;
         u32 m_RendererID{};
         // Generation-checked identity for m_RendererID, kept in lockstep by

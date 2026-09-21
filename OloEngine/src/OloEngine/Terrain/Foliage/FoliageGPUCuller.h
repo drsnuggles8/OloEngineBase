@@ -8,7 +8,7 @@
 
 #include <glm/glm.hpp>
 #include <span>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -299,8 +299,8 @@ namespace OloEngine
             u32 Visible = 0;   // passed the per-instance test
             u32 Reserved = 0;  // append slots handed out; > Visible never happens
             u32 Submitted = 0; // what the indirect draw draws
-            std::vector<u32> SourceRows;
-            std::vector<FoliageInstanceData> Compacted;
+            TArray<u32> SourceRows;
+            TArray<FoliageInstanceData> Compacted;
         };
 
         [[nodiscard]] bool ReadbackResult(const LayerResources& layer, const ViewResources& view,
@@ -392,4 +392,26 @@ namespace OloEngine
     };
     static_assert(sizeof(FoliageCullDrawArgs) == FoliageGPUCuller::kDrawArgsStride,
                   "the draw-args stride and the record must agree, or part N draws part N-1's range");
+    // GPU resources are intrusive handles; scalar bounds and capacities have no self-address dependencies.
+    template<>
+    struct TIsTriviallyRelocatable<FoliageGPUCuller::LayerResources>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(FoliageGPUCuller::LayerResources::LayerBuffer)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageGPUCuller::LayerResources::GroupCount)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageGPUCuller::LayerResources::InstanceCount)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageGPUCuller::LayerResources::LocalBounds)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageGPUCuller::LayerResources::BuiltGeneration)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageGPUCuller::LayerResources::RefusedForBuiltGeneration)>::Value;
+    };
+
+    template<>
+    struct TIsTriviallyRelocatable<FoliageGPUCuller::ViewResources>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(FoliageGPUCuller::ViewResources::Compacted)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageGPUCuller::ViewResources::State)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageGPUCuller::ViewResources::DrawArgs)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageGPUCuller::ViewResources::Capacity)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageGPUCuller::ViewResources::GroupCapacity)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageGPUCuller::ViewResources::PartCount)>::Value;
+    };
 } // namespace OloEngine

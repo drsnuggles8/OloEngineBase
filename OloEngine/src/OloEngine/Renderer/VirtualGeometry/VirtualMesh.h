@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Containers/Array.h"
 #include "OloEngine/Renderer/Vertex.h"
 
 #include <glm/vec2.hpp>
@@ -173,7 +174,7 @@ namespace OloEngine
 
     struct VirtualMesh
     {
-        std::vector<Vertex> Vertices; // compacted copy of the referenced source vertices
+        TArray<Vertex> Vertices; // compacted copy of the referenced source vertices
         // Baked lightmap UV2, one per entry of Vertices, or EMPTY when the
         // source had none (issue #867).
         //
@@ -183,11 +184,11 @@ namespace OloEngine
         // with three pinned offsets and ~38 shaders whose vertex-pull branch
         // hard-codes that stride. Only lightmapped meshes pay, and an unbaked
         // virtual mesh is byte-identical to what it cooked before.
-        std::vector<glm::vec2> LightmapUVs;
-        std::vector<VirtualCluster> Clusters;
-        std::vector<VirtualClusterGroup> Groups;
-        std::vector<u32> ClusterVertexRefs; // per-cluster references into Vertices
-        std::vector<u8> ClusterTriangles;   // per-cluster local triangle indices (3 per triangle)
+        TArray<glm::vec2> LightmapUVs;
+        TArray<VirtualCluster> Clusters;
+        TArray<VirtualClusterGroup> Groups;
+        TArray<u32> ClusterVertexRefs; // per-cluster references into Vertices
+        TArray<u8> ClusterTriangles;   // per-cluster local triangle indices (3 per triangle)
 
         // ── Skinning payload (issue #1150), all EMPTY for a rigid cook ────────
         //
@@ -201,42 +202,42 @@ namespace OloEngine
         // LightmapUVs is one: Vertex is 32 bytes with three pinned offsets and
         // the virtual path's packed GPU vertex mirrors it, so only skinned
         // meshes pay for the extra stream.
-        std::vector<VirtualVertexSkinning> Skinning;
+        TArray<VirtualVertexSkinning> Skinning;
 
         // One per bone SLOT of the source skeleton (indexed by the same bone id
         // Skinning::BoneIDs carries), so a slot no vertex binds to is present
         // and marked non-influencing rather than shifting every later index.
-        std::vector<VirtualBoneBounds> BoneBounds;
+        TArray<VirtualBoneBounds> BoneBounds;
 
         // kMaxClusterBones entries per cluster, cluster-major: cluster k's set
         // is [k * kMaxClusterBones, (k + 1) * kMaxClusterBones). Unused slots —
         // and every slot of a cluster whose set overflowed — are kNoClusterBone.
-        std::vector<u32> ClusterBoneRefs;
+        TArray<u32> ClusterBoneRefs;
 
         [[nodiscard]] bool IsSkinned() const
         {
-            return !Skinning.empty();
+            return !Skinning.IsEmpty();
         }
         u32 LevelCount = 0; // number of DAG levels (max group Depth + 1)
         u32 SourceTriangleCount = 0;
 
         [[nodiscard]] bool IsValid() const
         {
-            return !Clusters.empty() && !Groups.empty();
+            return !Clusters.IsEmpty() && !Groups.IsEmpty();
         }
 
         // Reference CPU implementation of the DAG cut rule (see the selection contract
         // above). errorThreshold is an absolute object-space error; pass a negative
         // threshold to select exactly the LOD-0 (leaf) clusters.
         [[nodiscard]] bool IsClusterSelected(u32 clusterIndex, f32 errorThreshold) const;
-        [[nodiscard]] std::vector<u32> SelectClusters(f32 errorThreshold) const;
+        [[nodiscard]] TArray<u32> SelectClusters(f32 errorThreshold) const;
 
         // Same cut, but with the per-group errors projected to screen space first
         // (VirtualLODBounds::ProjectError); threshold is in [0..1] screen-height units.
         [[nodiscard]] bool IsClusterSelectedProjected(u32 clusterIndex, const glm::vec3& cameraPosition,
                                                       f32 zNear, f32 projectionScale, f32 threshold) const;
-        [[nodiscard]] std::vector<u32> SelectClustersProjected(const glm::vec3& cameraPosition,
-                                                               f32 zNear, f32 projectionScale, f32 threshold) const;
+        [[nodiscard]] TArray<u32> SelectClustersProjected(const glm::vec3& cameraPosition,
+                                                          f32 zNear, f32 projectionScale, f32 threshold) const;
 
         // The absolute object-space threshold that selects the COARSEST cut,
         // i.e. the DAG's root clusters. Every finite group error is at or under
@@ -253,7 +254,25 @@ namespace OloEngine
         // other cut (SelectClusters) rather than a second "walk the terminal
         // groups" implementation — the two would be free to disagree, and a
         // cut that disagrees with the rule is a cracked surface.
-        [[nodiscard]] std::vector<u32> SelectCoarsestCut() const;
+        [[nodiscard]] TArray<u32> SelectCoarsestCut() const;
+    };
+
+    // Every owning field is a heap-backed TArray; no field points into this record.
+    template<>
+    struct TIsTriviallyRelocatable<VirtualMesh>
+    {
+        static constexpr bool Value =
+            TIsTriviallyRelocatable<decltype(VirtualMesh::Vertices)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMesh::LightmapUVs)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMesh::Clusters)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMesh::Groups)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMesh::ClusterVertexRefs)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMesh::ClusterTriangles)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMesh::Skinning)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMesh::BoneBounds)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMesh::ClusterBoneRefs)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMesh::LevelCount)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMesh::SourceTriangleCount)>::Value;
     };
 
     // One DAG plus the submesh/material it belongs to.
@@ -271,16 +290,24 @@ namespace OloEngine
         u32 MaterialIndex = 0; // index into MeshSource::GetImportedMaterials()
     };
 
+    template<>
+    struct TIsTriviallyRelocatable<VirtualMeshPart>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(VirtualMeshPart::Dag)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(VirtualMeshPart::SubmeshIndex)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(VirtualMeshPart::MaterialIndex)>::Value;
+    };
+
     // Every buildable submesh of one source mesh. Parts whose submesh the builder rejects
-    // (degenerate, too few triangles) are simply absent, so Parts.size() can be < the
+    // (degenerate, too few triangles) are simply absent, so Parts.Num() can be < the
     // submesh count — the remaining parts still render.
     struct VirtualMeshSet
     {
-        std::vector<VirtualMeshPart> Parts;
+        TArray<VirtualMeshPart> Parts;
 
         [[nodiscard]] bool IsValid() const
         {
-            return !Parts.empty();
+            return !Parts.IsEmpty();
         }
         [[nodiscard]] u32 TotalSourceTriangles() const;
         [[nodiscard]] sizet TotalClusters() const;

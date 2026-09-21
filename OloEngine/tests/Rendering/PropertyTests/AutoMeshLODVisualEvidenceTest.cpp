@@ -89,7 +89,7 @@ namespace OloEngine::Tests
         u64 SubmittedTriangles(const std::vector<u32>& objectsPerLevel, const LODGroup& group)
         {
             u64 total = 0;
-            for (sizet level = 0; level < objectsPerLevel.size() && level < group.Levels.size(); ++level)
+            for (sizet level = 0; level < objectsPerLevel.size() && level < group.Levels.Num(); ++level)
             {
                 total += static_cast<u64>(objectsPerLevel[level]) * group.Levels[level].TriangleCount;
             }
@@ -235,7 +235,7 @@ namespace OloEngine::Tests
             ASSERT_NE(static_cast<u64>(baseHandle), 0ULL);
 
             m_SharedGroup = MeshOptimization::GenerateAutoLODGroup(*m_SubjectMeshSource, baseHandle);
-            ASSERT_GE(m_SharedGroup.Levels.size(), 3u)
+            ASSERT_GE(m_SharedGroup.Levels.Num(), 3u)
                 << "the subject mesh produced no usable LOD chain — every assertion below would be vacuous";
             ASSERT_TRUE(m_SharedGroup.HasErrorData());
 
@@ -267,7 +267,8 @@ namespace OloEngine::Tests
         std::vector<u32> CaptureHistogram(u32 frames = 3)
         {
             RunFrames(frames);
-            return Renderer3D::GetStats().ObjectsPerLODLevel;
+            const auto& histogram = Renderer3D::GetStats().ObjectsPerLODLevel;
+            return std::vector<u32>(histogram.begin(), histogram.end());
         }
 
         void SetAllGroupsEnabled(bool enabled)
@@ -332,7 +333,7 @@ namespace OloEngine::Tests
         // Find a radius that puts the subject in the MIDDLE of the chain. Pinned at
         // LOD 0 or at the coarsest level it would hold its histogram no matter how
         // wrong the projection is, and the whole test would be vacuous.
-        const auto lastLevel = static_cast<sizet>(m_SharedGroup.Levels.size() - 1);
+        const auto lastLevel = static_cast<sizet>(m_SharedGroup.Levels.Num() - 1);
         f32 orbitRadius = 0.0f;
         std::vector<u32> reference;
         sizet referenceLevel = 0;
@@ -436,7 +437,7 @@ namespace OloEngine::Tests
         ASSERT_TRUE(ReadbackComposite(fullDetail, w, h));
         WriteEvidence("AutoMeshLOD_Off", fullDetail, w, h);
 
-        const u64 trianglesOff = static_cast<u64>(m_SubjectCount) * m_SharedGroup.Levels.front().TriangleCount;
+        const u64 trianglesOff = static_cast<u64>(m_SubjectCount) * m_SharedGroup.Levels[0].TriangleCount;
         ASSERT_GT(trianglesOff, 0u);
         EXPECT_GT(LuminanceSpread(fullDetail), 0.05f)
             << "the LOD-off frame is nearly flat — the subjects may not have drawn, which would "
@@ -452,7 +453,7 @@ namespace OloEngine::Tests
         WriteEvidence("AutoMeshLOD_On", loddedFrame, w, h);
 
         std::cout << "[ LOD  off  ] " << m_SubjectCount << " subjects x "
-                  << m_SharedGroup.Levels.front().TriangleCount << " tris = " << trianglesOff << " triangles\n"
+                  << m_SharedGroup.Levels[0].TriangleCount << " tris = " << trianglesOff << " triangles\n"
                   << "[ LOD  on   ] " << HistogramString(histogram) << " = " << trianglesOn << " triangles ("
                   << (100.0 - 100.0 * static_cast<f64>(trianglesOn) / static_cast<f64>(trianglesOff))
                   << "% fewer)\n";
@@ -484,11 +485,11 @@ namespace OloEngine::Tests
     {
         OLO_ENSURE_GPU_OR_SKIP();
 
-        ASSERT_GE(m_SharedGroup.Levels.size(), 3u);
+        ASSERT_GE(m_SharedGroup.Levels.Num(), 3u);
 
         // Every generated level past LOD 0 must really be a memory-only asset, or
         // the assertion below is vacuous.
-        for (sizet i = 1; i < m_SharedGroup.Levels.size(); ++i)
+        for (sizet i = 1; i < m_SharedGroup.Levels.Num(); ++i)
         {
             ASSERT_TRUE(AssetManager::IsMemoryAsset(m_SharedGroup.Levels[i].MeshHandle))
                 << "level " << i << " is not a memory-only asset — this test is not measuring anything";
@@ -503,7 +504,7 @@ namespace OloEngine::Tests
         const std::string yaml = SceneSerializer(GetSceneRef()).SerializeToYAML();
         ASSERT_FALSE(yaml.empty());
 
-        for (sizet i = 1; i < m_SharedGroup.Levels.size(); ++i)
+        for (sizet i = 1; i < m_SharedGroup.Levels.Num(); ++i)
         {
             const std::string handle = std::to_string(static_cast<u64>(m_SharedGroup.Levels[i].MeshHandle));
             EXPECT_EQ(yaml.find(handle), std::string::npos)

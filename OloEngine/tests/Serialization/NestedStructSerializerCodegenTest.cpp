@@ -107,7 +107,7 @@ namespace OloEngine::Tests
             {
                 if (auto seqNode1 = sub0["Levels"]; seqNode1 && seqNode1.IsSequence())
                 {
-                    g.Levels.clear();
+                    g.Levels.Reset();
                     for (auto const& e1 : seqNode1)
                     {
                         LODLevel tmp1{};
@@ -115,7 +115,7 @@ namespace OloEngine::Tests
                         if (f32 v; TryReadFiniteF32(e1["MaxDistance"], v))
                             tmp1.MaxDistance = v;
                         tmp1.TriangleCount = e1["TriangleCount"].as<u32>(tmp1.TriangleCount);
-                        g.Levels.push_back(tmp1);
+                        g.Levels.Add(tmp1);
                     }
                 }
                 if (f32 v; TryReadFiniteF32(sub0["Bias"], v))
@@ -158,8 +158,8 @@ namespace OloEngine::Tests
     {
         LODGroup group;
         group.Bias = 1.5f;
-        group.Levels.emplace_back(AssetHandle(1234), 10.0f, 500u);
-        group.Levels.emplace_back(AssetHandle(5678), 50.0f, 120u);
+        group.Levels.Emplace(AssetHandle(1234), 10.0f, 500u);
+        group.Levels.Emplace(AssetHandle(5678), 50.0f, 120u);
 
         const std::string yaml = EmitToString([&](YAML::Emitter& out)
                                               { SerializeLODGroup(out, group); });
@@ -169,7 +169,7 @@ namespace OloEngine::Tests
         DeserializeLODGroup(YAML::Load(yaml), roundtripped);
 
         EXPECT_EQ(roundtripped, group);
-        ASSERT_EQ(roundtripped.Levels.size(), 2u);
+        ASSERT_EQ(roundtripped.Levels.Num(), 2u);
         EXPECT_EQ(static_cast<u64>(roundtripped.Levels[0].MeshHandle), 1234u);
         EXPECT_EQ(roundtripped.Levels[1].TriangleCount, 120u);
     }
@@ -180,13 +180,13 @@ namespace OloEngine::Tests
     {
         LODGroup dest;
         dest.Bias = 3.0f;
-        dest.Levels.emplace_back(AssetHandle(9), 1.0f, 1u);
+        dest.Levels.Emplace(AssetHandle(9), 1.0f, 1u);
 
         // A YAML map with no "LODGroup" key at all.
         DeserializeLODGroup(YAML::Load("{ Unrelated: 1 }"), dest);
 
         EXPECT_FLOAT_EQ(dest.Bias, 3.0f);
-        ASSERT_EQ(dest.Levels.size(), 1u); // vector untouched (no IsSequence branch entered)
+        ASSERT_EQ(dest.Levels.Num(), 1u); // vector untouched (no IsSequence branch entered)
     }
 
     // A non-finite float element field is rejected (keeps the element's default),

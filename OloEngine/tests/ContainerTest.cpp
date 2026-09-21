@@ -9,6 +9,10 @@
 #include "OloEngine/Containers/String.h"
 #include "OloEngine/Templates/UnrealTypeTraits.h"
 #include <string>
+#include <iterator>
+#include <ranges>
+#include <vector>
+#include "OloEngine/Templates/Function.h"
 
 // ============================================================================
 // ContainerTest -- wire-up smoke for the UE-ported container primitives,
@@ -314,76 +318,24 @@ TEST(TArrayRegression, CopyAssignmentDoesNotGrowCapacityWithoutBound)
         EXPECT_EQ(target[i], i);
 }
 
-// ============================================================================
-// TMap element relocation — a controlled three-case matrix.
-//
-// Material.h keeps a dozen uniform tables as TMap<std::string, T>. TMap is
-// built on TSet -> TSparseArray -> TArray, and TArray relocates bitwise. The
-// question is whether that relocation reaches the element payload and corrupts
-// std::string keys the way it corrupted TArray<Submesh>.
-//
-// Three cases isolate the mechanism:
-//   1. std::string keys, too few to grow   -> must pass (no relocation)
-//   2. std::string keys, many (grows)      -> corrupts (DISABLED, see below)
-//   3. FString keys, many (grows)          -> must pass (relocatable)
-//
-// Short keys throughout: only those live in std::string's SSO inline buffer and
-// carry the self-referential pointer. Long keys point at separate heap blocks
-// and survive relocation regardless, so a test using them proves nothing.
-// ============================================================================
-
-// Case 1 — control. Few enough entries that the backing storage never grows,
-// so no element is ever relocated. If this failed, the problem would be
-// something other than relocation.
-TEST(TMapRelocation, StdStringKeysIntactWithoutGrowth)
+// ADR 0012: unsafe containers are now compile errors, including aggregates
+// containing a string. The old disabled corruption repro can no longer compile.
+TEST(TMapRelocation, NonTrivialAggregatesRequireExplicitOptIn)
 {
-    using namespace OloEngine;
-
-    TMap<std::string, f32> uniforms;
-    constexpr i32 kFew = 4;
-
-    for (i32 i = 0; i < kFew; ++i)
-        uniforms.Add("u" + std::to_string(i), static_cast<f32>(i));
-
-    ASSERT_EQ(uniforms.Num(), kFew);
-    for (i32 i = 0; i < kFew; ++i)
+    struct StringRecord
     {
-        const f32* found = uniforms.Find("u" + std::to_string(i));
-        ASSERT_NE(found, nullptr) << "key lost WITHOUT any growth — not a relocation problem";
-        EXPECT_FLOAT_EQ(*found, static_cast<f32>(i));
-    }
+        std::string Name;
+    };
+    static_assert(!TIsTriviallyRelocatable_V<StringRecord>);
+    static_assert(!TIsTriviallyRelocatable_V<std::string>);
+    static_assert(TIsTriviallyRelocatable_V<TArray<FString>>);
+    static_assert(TIsTriviallyRelocatable_V<TArray<FString, TInlineAllocator<4>>>);
+    static_assert(!TIsTriviallyRelocatable_V<TArray<int, TNonRelocatableInlineAllocator<4>>>);
+    static_assert(TIsTriviallyRelocatable_V<TMap<FString, TArray<int>>>);
+    SUCCEED();
 }
 
-// Case 2 — the defect. DISABLED because it fails by design: std::string is not
-// trivially relocatable, so it must not be used as a TMap key at all. Kept as
-// executable documentation of why, and as the reproduction if anyone doubts it.
-//
-// Observed: keys u0..u3 found intact, u4 lost, then the run hung walking the
-// corrupted map. Partial, scattered loss is the signature of relocation damage
-// — a logic error in Add/Find would fail uniformly, not from the fifth key on.
-//
-// Run with --gtest_also_run_disabled_tests to see it fail.
-TEST(TMapRelocation, DISABLED_StdStringKeysCorruptAcrossGrowth)
-{
-    using namespace OloEngine;
-
-    TMap<std::string, f32> uniforms;
-    constexpr i32 kCount = 512;
-
-    for (i32 i = 0; i < kCount; ++i)
-        uniforms.Add("u" + std::to_string(i), static_cast<f32>(i));
-
-    for (i32 i = 0; i < kCount; ++i)
-    {
-        const std::string key = "u" + std::to_string(i);
-        const f32* found = uniforms.Find(key);
-        ASSERT_NE(found, nullptr) << "key '" << key << "' lost across TMap growth";
-        EXPECT_FLOAT_EQ(*found, static_cast<f32>(i));
-    }
-}
-
-// Case 3 — the fix. Same shape as case 2 but with a relocatable key type.
-// This is what Material's uniform tables must use.
+// Short FString keys exercise repeated growth without an SSO self-pointer.
 TEST(TMapRelocation, FStringKeysSurviveGrowth)
 {
     using namespace OloEngine;
@@ -464,4 +416,71 @@ TEST(FStringSelfAppend, AppendingOwnSuffixCopiesFromTheReDerivedSource)
 
     ASSERT_EQ(static_cast<std::size_t>(s.Len()), expected.size());
     EXPECT_EQ(std::string(*s, static_cast<std::size_t>(s.Len())), expected);
+}
+
+TEST(TArrayInterop, CheckedIteratorsSupportStandardAlgorithmsAndEmptyCopies)
+{
+    using Array = TArray<i32>;
+    static_assert(std::random_access_iterator<decltype(std::declval<Array&>().begin())>);
+    static_assert(std::random_access_iterator<decltype(std::declval<const Array&>().begin())>);
+    static_assert(std::random_access_iterator<decltype(std::declval<Array&>().rbegin())>);
+    Array values{ 3, 1, 4, 2 };
+    std::ranges::sort(values);
+    const Array& readable = values;
+    EXPECT_EQ(std::vector<i32>(readable.begin(), readable.end()), (std::vector<i32>{ 1, 2, 3, 4 }));
+    EXPECT_EQ(std::vector<i32>(readable.rbegin(), readable.rend()), (std::vector<i32>{ 4, 3, 2, 1 }));
+    EXPECT_EQ(values.end() - values.begin(), 4);
+    EXPECT_EQ(values.rend() - values.rbegin(), 4);
+    EXPECT_EQ(*(2 + values.begin()), 3);
+    Array empty;
+    EXPECT_EQ(std::ranges::distance(empty), 0);
+    EXPECT_TRUE(std::vector<i32>(empty.begin(), empty.end()).empty());
+}
+
+TEST(TArrayRelocation, NestedMapOwnershipSurvivesGrowthAndInteriorRemoval)
+{
+    TArray<TMap<FString, FString>> maps;
+    for (i32 i = 0; i < 64; ++i)
+    {
+        auto& map = maps.Emplace_GetRef();
+        map.Add(FString("short"), FString(std::to_string(i)));
+        map.Add(FString(std::string(96, 'k')), FString(std::string(128, 'v')));
+    }
+    maps.Reserve(1024);
+    maps.RemoveAt(5);
+    for (i32 i = 0; i < maps.Num(); ++i)
+    {
+        ASSERT_NE(maps[i].Find(FString("short")), nullptr);
+        EXPECT_EQ(maps[i].Find(FString("short"))->ToStdString(), std::to_string(i < 5 ? i : i + 1));
+        EXPECT_EQ(maps[i].Find(FString(std::string(96, 'k')))->Len(), 128);
+    }
+}
+
+TEST(TArrayRelocation, FunctionOwningStandardStringSurvivesGrowth)
+{
+    TArray<TFunction<std::string()>> functions;
+    for (i32 i = 0; i < 64; ++i)
+    {
+        // Short strings expose self-pointing SSO on libstdc++; the closure must
+        // stay on the heap even when it fits the function's inline byte budget.
+        functions.Add([text = std::to_string(i)]
+                      { return text; });
+    }
+    functions.Reserve(1024);
+    functions.RemoveAt(3);
+    for (i32 i = 0; i < functions.Num(); ++i)
+        EXPECT_EQ(functions[i](), std::to_string(i < 3 ? i : i + 1));
+}
+
+TEST(TArraySearch, ConstPredicateSearchDistinguishesIndexPointerAndMembership)
+{
+    const TArray<i32> values{ 7, 11, 19 };
+    const auto isEleven = [](i32 value)
+    { return value == 11; };
+    EXPECT_EQ(values.IndexOfByPredicate(isEleven), 1);
+    ASSERT_NE(values.FindByPredicate(isEleven), nullptr);
+    EXPECT_EQ(*values.FindByPredicate(isEleven), 11);
+    EXPECT_TRUE(values.ContainsByPredicate(isEleven));
+    EXPECT_FALSE(values.ContainsByPredicate([](i32 value)
+                                            { return value == 20; }));
 }

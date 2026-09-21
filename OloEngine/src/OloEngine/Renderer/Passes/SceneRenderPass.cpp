@@ -126,7 +126,7 @@ namespace OloEngine
         m_FramebufferSpec = spec;
 
         // Ensure the specification includes color and depth attachments
-        if (m_FramebufferSpec.Attachments.Attachments.empty())
+        if (m_FramebufferSpec.Attachments.Attachments.IsEmpty())
         {
             OLO_CORE_WARN("SceneRenderPass::Init: No attachments specified, adding default color and depth attachments");
             m_FramebufferSpec.Attachments = {
@@ -221,7 +221,7 @@ namespace OloEngine
         if (m_Target)
         {
             const auto& attachments = m_Target->GetSpecification().Attachments.Attachments;
-            if (attachments.size() > 3 && attachments[3].TextureFormat == FramebufferTextureFormat::RG16F)
+            if (attachments.Num() > 3 && attachments[3].TextureFormat == FramebufferTextureFormat::RG16F)
                 m_Target->ClearAttachment(3, glm::vec4(0.0f));
         }
 
@@ -807,7 +807,7 @@ namespace OloEngine
         // wasn't created with it (deferred path swaps to G-Buffer) just
         // bail — the caller already checks deferred state, but defensive.
         const auto& attachments = m_Target->GetSpecification().Attachments.Attachments;
-        if (attachments.size() <= 3 ||
+        if (attachments.Num() <= 3 ||
             attachments[3].TextureFormat != FramebufferTextureFormat::RG16F)
             return;
 

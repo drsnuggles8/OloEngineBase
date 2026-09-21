@@ -67,11 +67,11 @@ namespace OloEngine
     GroomColliderBuildStats BuildGroomBodyColliders(const GroomSurfaceView& surface,
                                                     const GroomSkinningView& skinning,
                                                     const GroomColliderBuildSettings& settings,
-                                                    std::vector<GroomColliderBinding>& outBindings)
+                                                    TArray<GroomColliderBinding>& outBindings)
     {
         OLO_PROFILE_FUNCTION();
 
-        outBindings.clear();
+        outBindings.Reset();
         GroomColliderBuildStats stats;
 
         // An unskinned or morph-only body has nothing to carry a capsule. NOT an
@@ -205,7 +205,7 @@ namespace OloEngine
             binding.PointB = centre + direction * high;
             binding.Radius = radius;
             binding.BoneIndex = bone;
-            outBindings.push_back(binding);
+            outBindings.Add(binding);
         }
 
         // ── The cap ─────────────────────────────────────────────────────────
@@ -214,7 +214,7 @@ namespace OloEngine
         // torso is visible from across the room and a coat penetrating a finger
         // is not. Sorted back into bone order afterwards so the output is
         // deterministic and a diff of two proxies is readable.
-        if (outBindings.size() > settings.MaxColliders)
+        if (static_cast<u32>(outBindings.Num()) > settings.MaxColliders)
         {
             const auto volume = [](const GroomColliderBinding& c)
             {
@@ -224,28 +224,28 @@ namespace OloEngine
             std::ranges::partial_sort(outBindings, outBindings.begin() + settings.MaxColliders,
                                       [&volume](const GroomColliderBinding& a, const GroomColliderBinding& b)
                                       { return volume(a) > volume(b); });
-            outBindings.resize(settings.MaxColliders);
+            outBindings.SetNum(static_cast<i32>(settings.MaxColliders));
             stats.Truncated = true;
         }
         std::ranges::sort(outBindings, [](const GroomColliderBinding& a, const GroomColliderBinding& b)
                           { return a.BoneIndex < b.BoneIndex; });
 
-        stats.CollidersBuilt = static_cast<u32>(outBindings.size());
+        stats.CollidersBuilt = static_cast<u32>(outBindings.Num());
         return stats;
     }
 
     void ResolveGroomBodyColliders(std::span<const GroomColliderBinding> bindings,
                                    std::span<const glm::mat4> palette, const glm::mat4& bindingToWorld,
-                                   f32 radiusScale, std::vector<GroomCollider>& outColliders)
+                                   f32 radiusScale, TArray<GroomCollider>& outColliders)
     {
         OLO_PROFILE_FUNCTION();
 
-        outColliders.clear();
+        outColliders.Reset();
         if (bindings.empty() || palette.empty() || !Math::IsFinite(bindingToWorld) || !std::isfinite(radiusScale))
         {
             return;
         }
-        outColliders.reserve(bindings.size());
+        outColliders.Reserve(static_cast<i32>(bindings.size()));
 
         for (const GroomColliderBinding& binding : bindings)
         {
@@ -278,7 +278,7 @@ namespace OloEngine
             {
                 continue;
             }
-            outColliders.push_back(collider);
+            outColliders.Add(collider);
         }
     }
 } // namespace OloEngine

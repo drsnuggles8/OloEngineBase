@@ -190,6 +190,7 @@ add_executable(OloEngine-Tests
 		Tasks/TaskSystemTest.cpp
 		HAL/ThreadManagerTest.cpp
 		Containers/ConcurrentQueuesTest.cpp
+		Containers/LinkedListTest.cpp
 		Containers/StringTest.cpp
 		Memory/MemoryViewTest.cpp
 		Memory/LockFreeAllocatorConcurrencyTest.cpp

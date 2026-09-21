@@ -56,7 +56,7 @@ namespace OloEngine::Tests
         }
 
         // Collect every distinct endpoint across a segment list.
-        [[nodiscard]] std::vector<glm::vec3> DistinctEndpoints(const std::vector<Segment>& segments, f32 eps = kEps)
+        [[nodiscard]] std::vector<glm::vec3> DistinctEndpoints(const TArray<Segment>& segments, f32 eps = kEps)
         {
             std::vector<glm::vec3> unique;
             for (const auto& segment : segments)
@@ -81,8 +81,8 @@ namespace OloEngine::Tests
         entry.Start = { 1.0f, 2.0f, 3.0f };
         entry.End = { -4.0f, 5.0f, 6.0f };
 
-        const auto segments = ShaderDebugDrawExpansion::ExpandToVector(entry);
-        ASSERT_EQ(segments.size(), 1u);
+        const auto segments = ShaderDebugDrawExpansion::ExpandToArray(entry);
+        ASSERT_EQ(segments.Num(), 1u);
         EXPECT_TRUE(NearlyEqual(segments[0].A, entry.Start));
         EXPECT_TRUE(NearlyEqual(segments[0].B, entry.End));
     }
@@ -97,8 +97,8 @@ namespace OloEngine::Tests
         entry.Min = { -1.0f, -2.0f, -3.0f };
         entry.Max = { 4.0f, 5.0f, 6.0f };
 
-        const auto segments = ShaderDebugDrawExpansion::ExpandToVector(entry);
-        ASSERT_EQ(segments.size(), 12u);
+        const auto segments = ShaderDebugDrawExpansion::ExpandToArray(entry);
+        ASSERT_EQ(segments.Num(), 12u);
 
         const auto corners = ShaderDebugDrawExpansion::AABBCorners(entry.Min, entry.Max);
         const std::vector<glm::vec3> cornerList(corners.begin(), corners.end());
@@ -144,7 +144,7 @@ namespace OloEngine::Tests
         entry.Min = { 0.0f, 0.0f, 0.0f };
         entry.Max = { 1.0f, 1.0f, 1.0f };
 
-        const auto segments = ShaderDebugDrawExpansion::ExpandToVector(entry);
+        const auto segments = ShaderDebugDrawExpansion::ExpandToArray(entry);
         std::set<std::pair<i64, i64>> seen;
         for (const auto& segment : segments)
         {
@@ -183,10 +183,10 @@ namespace OloEngine::Tests
         for (u32 i = 0; i < 8; ++i)
             boxEntry.Corners[i] = glm::vec4(corners[i], 1.0f);
 
-        const auto aabbSegments = ShaderDebugDrawExpansion::ExpandToVector(aabbEntry);
-        const auto boxSegments = ShaderDebugDrawExpansion::ExpandToVector(boxEntry);
-        ASSERT_EQ(aabbSegments.size(), boxSegments.size());
-        for (sizet i = 0; i < aabbSegments.size(); ++i)
+        const auto aabbSegments = ShaderDebugDrawExpansion::ExpandToArray(aabbEntry);
+        const auto boxSegments = ShaderDebugDrawExpansion::ExpandToArray(boxEntry);
+        ASSERT_EQ(aabbSegments.Num(), boxSegments.Num());
+        for (sizet i = 0; i < aabbSegments.Num(); ++i)
         {
             EXPECT_TRUE(NearlyEqual(aabbSegments[i].A, boxSegments[i].A)) << "segment " << i;
             EXPECT_TRUE(NearlyEqual(aabbSegments[i].B, boxSegments[i].B)) << "segment " << i;
@@ -201,8 +201,8 @@ namespace OloEngine::Tests
         entry.Min = { 1.0f, 1.0f, 1.0f };
         entry.Max = { -1.0f, -1.0f, -1.0f };
 
-        const auto segments = ShaderDebugDrawExpansion::ExpandToVector(entry);
-        ASSERT_EQ(segments.size(), 12u);
+        const auto segments = ShaderDebugDrawExpansion::ExpandToArray(entry);
+        ASSERT_EQ(segments.Num(), 12u);
         const auto endpoints = DistinctEndpoints(segments);
         EXPECT_EQ(endpoints.size(), 8u);
         EXPECT_TRUE(IsOneOf(glm::vec3(1.0f), endpoints));
@@ -220,8 +220,8 @@ namespace OloEngine::Tests
         entry.Normal = { 0.3f, 0.9f, -0.2f }; // deliberately not unit length
         entry.Radius = 2.5f;
 
-        const auto segments = ShaderDebugDrawExpansion::ExpandToVector(entry);
-        ASSERT_EQ(segments.size(), ShaderDebugDrawContract::kCircleSegments);
+        const auto segments = ShaderDebugDrawExpansion::ExpandToArray(entry);
+        ASSERT_EQ(segments.Num(), ShaderDebugDrawContract::kCircleSegments);
 
         const glm::vec3 unitNormal = glm::normalize(entry.Normal);
         for (const auto& segment : segments)
@@ -238,9 +238,9 @@ namespace OloEngine::Tests
         // Consecutive segments must share an endpoint, and the last must close
         // back onto the first: a ring that does not close reads as a dotted
         // circle, which looks like a rendering artefact rather than a maths one.
-        for (sizet i = 0; i + 1 < segments.size(); ++i)
+        for (sizet i = 0; i + 1 < segments.Num(); ++i)
             EXPECT_TRUE(NearlyEqual(segments[i].B, segments[i + 1].A, 1e-3f)) << "gap after segment " << i;
-        EXPECT_TRUE(NearlyEqual(segments.back().B, segments.front().A, 1e-3f)) << "the ring does not close";
+        EXPECT_TRUE(NearlyEqual(segments.Last().B, segments[0].A, 1e-3f)) << "the ring does not close";
     }
 
     TEST(ShaderDebugDrawExpansion, SphereIsThreeAxisAlignedGreatCircles)
@@ -249,9 +249,9 @@ namespace OloEngine::Tests
         entry.Center = { -5.0f, 2.0f, 1.0f };
         entry.Radius = 3.0f;
 
-        const auto segments = ShaderDebugDrawExpansion::ExpandToVector(entry);
+        const auto segments = ShaderDebugDrawExpansion::ExpandToArray(entry);
         constexpr u32 ringSegments = ShaderDebugDrawContract::kSphereRingSegments;
-        ASSERT_EQ(segments.size(), 3u * ringSegments);
+        ASSERT_EQ(segments.Num(), 3u * ringSegments);
 
         // Every point is on the sphere.
         for (const auto& segment : segments)
@@ -291,8 +291,8 @@ namespace OloEngine::Tests
         entry.AxisU = { 2.0f, 0.0f, 0.0f };
         entry.AxisV = { 0.0f, 0.0f, 3.0f };
 
-        const auto segments = ShaderDebugDrawExpansion::ExpandToVector(entry);
-        ASSERT_EQ(segments.size(), 4u);
+        const auto segments = ShaderDebugDrawExpansion::ExpandToArray(entry);
+        ASSERT_EQ(segments.Num(), 4u);
 
         const std::vector<glm::vec3> expectedCorners{
             entry.Center - entry.AxisU - entry.AxisV, entry.Center + entry.AxisU - entry.AxisV,
@@ -303,9 +303,9 @@ namespace OloEngine::Tests
         for (const auto& corner : expectedCorners)
             EXPECT_TRUE(IsOneOf(corner, endpoints));
 
-        for (sizet i = 0; i < segments.size(); ++i)
+        for (sizet i = 0; i < segments.Num(); ++i)
         {
-            EXPECT_TRUE(NearlyEqual(segments[i].B, segments[(i + 1) % segments.size()].A))
+            EXPECT_TRUE(NearlyEqual(segments[i].B, segments[(i + 1) % segments.Num()].A))
                 << "the rectangle's outline is not a closed loop at segment " << i;
         }
     }
@@ -317,10 +317,10 @@ namespace OloEngine::Tests
         entry.Axis = { 0.0f, -4.0f, 0.0f }; // apex -> base, height 4
         entry.Radius = 1.5f;
 
-        const auto segments = ShaderDebugDrawExpansion::ExpandToVector(entry);
+        const auto segments = ShaderDebugDrawExpansion::ExpandToArray(entry);
         constexpr u32 ringSegments = ShaderDebugDrawContract::kConeRingSegments;
         constexpr u32 sideLines = ShaderDebugDrawContract::kConeSideLines;
-        ASSERT_EQ(segments.size(), ringSegments + sideLines);
+        ASSERT_EQ(segments.Num(), ringSegments + sideLines);
 
         const glm::vec3 baseCenter = entry.Apex + entry.Axis;
         const glm::vec3 unitAxis = glm::normalize(entry.Axis);
@@ -361,7 +361,7 @@ namespace OloEngine::Tests
         // case where the expected-vs-actual numbers are the whole diagnosis, and
         // EXPECT_TRUE would print only "false".
         const auto expanded = [](auto entry)
-        { return ShaderDebugDrawExpansion::ExpandToVector(entry).size(); };
+        { return ShaderDebugDrawExpansion::ExpandToArray(entry).Num(); };
 
         EXPECT_EQ(expanded(ShaderDebugDrawLine{}),
                   ShaderDebugDrawContract::SegmentCount(ShaderDebugDrawPrimitive::Line));

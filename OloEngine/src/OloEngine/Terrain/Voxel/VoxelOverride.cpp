@@ -9,6 +9,12 @@
 
 namespace OloEngine
 {
+    struct VoxelRun
+    {
+        f32 first;
+        u16 second;
+    };
+
     void VoxelOverride::Initialize(f32 worldSizeX, f32 worldSizeZ, f32 heightScale, f32 voxelSize)
     {
         OLO_PROFILE_FUNCTION();
@@ -36,7 +42,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::vector<VoxelCoord> affectedChunks;
+        TArray<VoxelCoord> affectedChunks;
         GetChunksInSphere(center, radius, affectedChunks);
 
         for (const auto& coord : affectedChunks)
@@ -64,7 +70,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::vector<VoxelCoord> affectedChunks;
+        TArray<VoxelCoord> affectedChunks;
         GetChunksInSphere(center, radius, affectedChunks);
 
         for (const auto& coord : affectedChunks)
@@ -321,16 +327,16 @@ namespace OloEngine
         }
     }
 
-    void VoxelOverride::GetDirtyChunks(std::vector<VoxelCoord>& outCoords) const
+    void VoxelOverride::GetDirtyChunks(TArray<VoxelCoord>& outCoords) const
     {
         OLO_PROFILE_FUNCTION();
 
-        outCoords.clear();
+        outCoords.Reset();
         for (const auto& [coord, chunk] : m_Chunks)
         {
             if (chunk.Dirty)
             {
-                outCoords.push_back(coord);
+                outCoords.Add(coord);
             }
         }
     }
@@ -374,21 +380,21 @@ namespace OloEngine
         return { minCorner, minCorner + glm::vec3(chunkWorldSize) };
     }
 
-    void VoxelOverride::GetChunksInSphere(const glm::vec3& center, f32 radius, std::vector<VoxelCoord>& outCoords) const
+    void VoxelOverride::GetChunksInSphere(const glm::vec3& center, f32 radius, TArray<VoxelCoord>& outCoords) const
     {
         OLO_PROFILE_FUNCTION();
 
         VoxelCoord minCoord = WorldToChunkCoord(center - glm::vec3(radius));
         VoxelCoord maxCoord = WorldToChunkCoord(center + glm::vec3(radius));
 
-        outCoords.clear();
+        outCoords.Reset();
         for (i32 cz = minCoord.Z; cz <= maxCoord.Z; ++cz)
         {
             for (i32 cy = minCoord.Y; cy <= maxCoord.Y; ++cy)
             {
                 for (i32 cx = minCoord.X; cx <= maxCoord.X; ++cx)
                 {
-                    outCoords.push_back({ cx, cy, cz });
+                    outCoords.Add({ cx, cy, cz });
                 }
             }
         }
@@ -407,18 +413,18 @@ namespace OloEngine
     //       [2 bytes: u16 count]
     //   V1 only: [1 byte: material-data-present][32768 material bytes if present]
 
-    std::vector<u8> VoxelOverride::SerializeRLE() const
+    TArray<u8> VoxelOverride::SerializeRLE() const
     {
         OLO_PROFILE_FUNCTION();
 
-        std::vector<u8> data;
+        TArray<u8> data;
 
         auto writeI32 = [&data](i32 v)
-        { data.insert(data.end(), reinterpret_cast<const u8*>(&v), reinterpret_cast<const u8*>(&v) + 4); };
+        { data.Append(reinterpret_cast<const u8*>(&v), 4); };
         auto writeU16 = [&data](u16 v)
-        { data.insert(data.end(), reinterpret_cast<const u8*>(&v), reinterpret_cast<const u8*>(&v) + 2); };
+        { data.Append(reinterpret_cast<const u8*>(&v), 2); };
         auto writeF32 = [&data](f32 v)
-        { data.insert(data.end(), reinterpret_cast<const u8*>(&v), reinterpret_cast<const u8*>(&v) + 4); };
+        { data.Append(reinterpret_cast<const u8*>(&v), 4); };
 
         constexpr i32 magic = 0x31584F56; // little-endian "VOX1"
         constexpr i32 version = 1;
@@ -434,13 +440,13 @@ namespace OloEngine
             writeI32(coord.Z);
 
             // RLE encode the SDF data
-            std::vector<std::pair<f32, u16>> runs;
-            if (!chunk.SDFData.empty())
+            TArray<VoxelRun> runs;
+            if (!chunk.SDFData.IsEmpty())
             {
                 f32 currentVal = chunk.SDFData[0];
                 u16 runLen = 1;
 
-                for (sizet i = 1; i < chunk.SDFData.size(); ++i)
+                for (sizet i = 1; i < chunk.SDFData.Num(); ++i)
                 {
                     // Use exact equality for RLE (SDF values are stored precisely)
                     if (chunk.SDFData[i] == currentVal && runLen < 65535)
@@ -449,34 +455,34 @@ namespace OloEngine
                     }
                     else
                     {
-                        runs.push_back({ currentVal, runLen });
+                        runs.Add({ currentVal, runLen });
                         currentVal = chunk.SDFData[i];
                         runLen = 1;
                     }
                 }
-                runs.push_back({ currentVal, runLen });
+                runs.Add({ currentVal, runLen });
             }
 
-            writeI32(static_cast<i32>(runs.size()));
+            writeI32(static_cast<i32>(runs.Num()));
             for (const auto& [val, count] : runs)
             {
                 writeF32(val);
                 writeU16(count);
             }
 
-            data.push_back(chunk.MaterialData.empty() ? u8{ 0 } : u8{ 1 });
-            if (!chunk.MaterialData.empty())
-                data.insert(data.end(), chunk.MaterialData.begin(), chunk.MaterialData.end());
+            data.Add(chunk.MaterialData.IsEmpty() ? u8{ 0 } : u8{ 1 });
+            if (!chunk.MaterialData.IsEmpty())
+                data.Append(chunk.MaterialData);
         }
 
         return data;
     }
 
-    bool VoxelOverride::DeserializeRLE(const std::vector<u8>& data)
+    bool VoxelOverride::DeserializeRLE(const TArray<u8>& data)
     {
         OLO_PROFILE_FUNCTION();
 
-        if (data.size() < 4)
+        if (data.Num() < 4)
         {
             return false;
         }
@@ -495,7 +501,7 @@ namespace OloEngine
         i32 rawChunkCount = firstWord;
         if (firstWord == magic)
         {
-            if (offset + 8 > data.size())
+            if (offset + 8 > data.Num())
                 return false;
             const i32 version = readI32();
             if (version != 1)
@@ -512,7 +518,7 @@ namespace OloEngine
 
         for (u32 ci = 0; ci < chunkCount; ++ci)
         {
-            if (offset + 16 > data.size())
+            if (offset + 16 > data.Num())
             {
                 return false;
             }
@@ -535,7 +541,7 @@ namespace OloEngine
 
             for (u32 ri = 0; ri < runCountU; ++ri)
             {
-                if (offset + 6 > data.size())
+                if (offset + 6 > data.Num())
                 {
                     return false;
                 }
@@ -557,15 +563,15 @@ namespace OloEngine
 
             if (hasMaterials)
             {
-                if (offset + 1 > data.size())
+                if (offset + 1 > data.Num())
                     return false;
                 const bool materialPresent = data[offset++] != 0;
                 if (materialPresent)
                 {
-                    if (offset + VoxelChunk::TOTAL_VOXELS > data.size())
+                    if (offset + VoxelChunk::TOTAL_VOXELS > data.Num())
                         return false;
-                    chunk.MaterialData.assign(data.begin() + static_cast<std::ptrdiff_t>(offset),
-                                              data.begin() + static_cast<std::ptrdiff_t>(offset + VoxelChunk::TOTAL_VOXELS));
+                    chunk.MaterialData.Reset();
+                    chunk.MaterialData.Append(data.GetData() + offset, VoxelChunk::TOTAL_VOXELS);
                     offset += VoxelChunk::TOTAL_VOXELS;
                 }
             }

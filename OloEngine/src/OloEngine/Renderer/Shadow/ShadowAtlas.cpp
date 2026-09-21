@@ -24,7 +24,7 @@ namespace OloEngine::ShadowAtlas
 
             u32 AtlasResolution = 0;
             u32 YCursor = 0;
-            std::vector<Shelf> Shelves;
+            TArray64<Shelf> Shelves;
 
             explicit ShelfPacker(u32 atlasResolution)
                 : AtlasResolution(atlasResolution)
@@ -55,7 +55,7 @@ namespace OloEngine::ShadowAtlas
                     shelf.Height = size;
                     shelf.XCursor = size;
                     YCursor += size;
-                    Shelves.push_back(shelf);
+                    Shelves.Add(shelf);
                     outRect = { 0, shelf.Y, size };
                     return true;
                 }
@@ -92,14 +92,14 @@ namespace OloEngine::ShadowAtlas
             if (candidate.Score <= 0.0f)
                 break; // sorted: everything after is unscored too
 
-            if (result.Accepted.size() >= maxLights)
+            if (static_cast<sizet>(result.Accepted.Num()) >= maxLights)
                 break;
 
             const u32 entryCount = (candidate.Type == CasterType::Point) ? 6u : 1u;
             if (entriesUsed + entryCount > maxEntries)
                 continue; // a cheaper (1-entry) candidate later may still fit
 
-            const u32 rank = static_cast<u32>(result.Accepted.size());
+            const u32 rank = static_cast<u32>(result.Accepted.Num());
             const u32 tileSize = TileSizeForRank(rank, atlasResolution, candidate.Type);
 
             // Attempt to place every tile; roll back the packer wholesale if
@@ -123,11 +123,11 @@ namespace OloEngine::ShadowAtlas
 
             Allocation allocation;
             allocation.CandidateIndex = candidateIndex;
-            allocation.BaseEntry = static_cast<u32>(result.EntryRects.size());
+            allocation.BaseEntry = static_cast<u32>(result.EntryRects.Num());
             allocation.EntryCount = entryCount;
-            result.Accepted.push_back(allocation);
+            result.Accepted.Add(allocation);
             for (u32 i = 0; i < entryCount; ++i)
-                result.EntryRects.push_back(rects[i]);
+                result.EntryRects.Add(rects[i]);
             entriesUsed += entryCount;
         }
 
@@ -179,7 +179,7 @@ namespace OloEngine::ShadowAtlas
 
         m_AtlasResolution = atlasResolution;
         m_Allocator = OloEngine::AtlasAllocator(atlasResolution, MinTileSizeFor(atlasResolution));
-        m_Live.clear();
+        m_Live.Reset();
     }
 
     void PersistentAllocator::FreeSlot(LiveSlot& slot)
@@ -204,8 +204,8 @@ namespace OloEngine::ShadowAtlas
         // would look "not kept" the instant it was inserted and get freed
         // before Allocate() even returned, letting a later candidate in the
         // same call double-allocate its just-vacated tile.
-        std::vector<LiveSlot> previousLive;
-        previousLive.swap(m_Live);
+        TArray64<LiveSlot> previousLive;
+        std::swap(previousLive, m_Live);
 
         if (m_AtlasResolution == 0 || maxEntries == 0 || maxLights == 0 || candidates.empty())
         {
@@ -226,8 +226,8 @@ namespace OloEngine::ShadowAtlas
         // trailing sweep and its tile becomes available next call, not this
         // one. Any persistent allocator that can't see its own future
         // accept/reject decisions in advance has that same one-call lag.
-        std::erase_if(previousLive, [&](LiveSlot& slot)
-                      {
+        previousLive.RemoveAll([&](LiveSlot& slot)
+                               {
                           if (slot.UserData == 0)
                               return false; // no identity to match against candidates
                           const bool stillCandidate = std::ranges::any_of(
@@ -250,14 +250,14 @@ namespace OloEngine::ShadowAtlas
             if (candidate.Score <= 0.0f)
                 break; // sorted: everything after is unscored too
 
-            if (result.Accepted.size() >= maxLights)
+            if (static_cast<sizet>(result.Accepted.Num()) >= maxLights)
                 break;
 
             const u32 entryCount = (candidate.Type == CasterType::Point) ? 6u : 1u;
             if (entriesUsed + entryCount > maxEntries)
                 continue; // a cheaper (1-entry) candidate later may still fit
 
-            const u32 rank = static_cast<u32>(result.Accepted.size());
+            const u32 rank = static_cast<u32>(result.Accepted.Num());
             const u32 tileSize = TileSizeForRank(rank, m_AtlasResolution, candidate.Type);
 
             // Reuse a held tile set only when identity, type AND size all
@@ -281,7 +281,7 @@ namespace OloEngine::ShadowAtlas
                 // time, and on a near-full atlas that doubled peak could make
                 // its own reallocation below fail.
                 FreeSlot(*prevIt);
-                previousLive.erase(prevIt);
+                previousLive.RemoveAt(prevIt - previousLive.begin(), 1, EAllowShrinking::No);
                 prevIt = previousLive.end();
             }
 
@@ -317,13 +317,13 @@ namespace OloEngine::ShadowAtlas
 
             Allocation allocation;
             allocation.CandidateIndex = candidateIndex;
-            allocation.BaseEntry = static_cast<u32>(result.EntryRects.size());
+            allocation.BaseEntry = static_cast<u32>(result.EntryRects.Num());
             allocation.EntryCount = entryCount;
-            result.Accepted.push_back(allocation);
+            result.Accepted.Add(allocation);
             for (u32 i = 0; i < entryCount; ++i)
             {
                 const auto region = m_Allocator.GetRegion(nodes[i]);
-                result.EntryRects.push_back({ region.X, region.Y, region.Size });
+                result.EntryRects.Add({ region.X, region.Y, region.Size });
             }
             entriesUsed += entryCount;
 
@@ -333,10 +333,10 @@ namespace OloEngine::ShadowAtlas
             slot.TileSize = tileSize;
             slot.EntryCount = entryCount;
             slot.Nodes = nodes;
-            m_Live.push_back(slot);
+            m_Live.Add(slot);
 
             if (reusable)
-                previousLive.erase(prevIt); // consumed — the trailing sweep must not free it
+                previousLive.RemoveAt(prevIt - previousLive.begin(), 1, EAllowShrinking::No); // consumed — the trailing sweep must not free it
         }
 
         // Whatever is left in previousLive was held last call but not reused

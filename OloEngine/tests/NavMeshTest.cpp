@@ -158,7 +158,7 @@ TEST(NavMeshBoundsComponentTest, DefaultValues)
     NavMeshBoundsComponent comp;
     EXPECT_EQ(comp.m_Min, glm::vec3(-100.0f, -10.0f, -100.0f));
     EXPECT_EQ(comp.m_Max, glm::vec3(100.0f, 50.0f, 100.0f));
-    EXPECT_TRUE(comp.m_Links.empty());
+    EXPECT_TRUE(comp.m_Links.IsEmpty());
 }
 
 TEST(OffMeshLinkTest, DefaultValues)
@@ -187,14 +187,14 @@ TEST(OffMeshLinkTest, EqualityComparesAllFields)
 TEST(NavMeshBoundsComponentTest, CopyPreservesLinks)
 {
     NavMeshBoundsComponent comp;
-    comp.m_Links.emplace_back(glm::vec3{ -1.0f, 0.0f, 0.0f }, glm::vec3{ 1.0f, 0.0f, 0.0f }, 0.5f, false);
+    comp.m_Links.Emplace_GetRef(glm::vec3{ -1.0f, 0.0f, 0.0f }, glm::vec3{ 1.0f, 0.0f, 0.0f }, 0.5f, false);
 
     NavMeshBoundsComponent copy(comp);
-    ASSERT_EQ(copy.m_Links.size(), 1u);
+    ASSERT_EQ(copy.m_Links.Num(), 1u);
     EXPECT_TRUE(copy == comp);
 
     // operator== must reflect link differences (drives editor undo detection).
-    copy.m_Links.front().m_Radius = 2.0f;
+    copy.m_Links.First().m_Radius = 2.0f;
     EXPECT_FALSE(copy == comp);
 }
 

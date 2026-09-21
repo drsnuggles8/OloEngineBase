@@ -229,7 +229,7 @@ namespace OloEngine
         m_Path = "Generated Cubemap";
     }
 
-    OpenGLTextureCubemap::OpenGLTextureCubemap(const std::vector<std::string>& facePaths)
+    OpenGLTextureCubemap::OpenGLTextureCubemap(std::span<const FString> facePaths)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -260,7 +260,7 @@ namespace OloEngine
                                                       { glDeleteTextures(1, &id); });
     }
 
-    void OpenGLTextureCubemap::LoadFaces(const std::vector<std::string>& facePaths)
+    void OpenGLTextureCubemap::LoadFaces(std::span<const FString> facePaths)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -277,10 +277,10 @@ namespace OloEngine
         bool firstFace = true;
         for (u32 i = 0; i < 6; ++i)
         {
-            stbi_uc* data = stbi_load(facePaths[i].c_str(), &width, &height, &channels, 0);
+            stbi_uc* data = stbi_load(facePaths[i].GetData(), &width, &height, &channels, 0);
             if (!data)
             {
-                OLO_CORE_ERROR("Failed to load cubemap face {}: {}", i, facePaths[i]);
+                OLO_CORE_ERROR("Failed to load cubemap face {}: {}", i, facePaths[i].ToView());
                 stbi_image_free(data);
                 return;
             }
@@ -348,10 +348,10 @@ namespace OloEngine
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
         for (u32 i = 0; i < 6; ++i)
         {
-            stbi_uc* data = stbi_load(facePaths[i].c_str(), &width, &height, &channels, 0);
+            stbi_uc* data = stbi_load(facePaths[i].GetData(), &width, &height, &channels, 0);
             if (!data)
             {
-                OLO_CORE_ERROR("Failed to load cubemap face {}: {}", i, facePaths[i]);
+                OLO_CORE_ERROR("Failed to load cubemap face {}: {}", i, facePaths[i].ToView());
                 continue;
             }
 
@@ -398,7 +398,7 @@ namespace OloEngine
                             "OpenGL TextureCubemap (loaded)");
 
         // Register with GPU Resource Inspector
-        GPUResourceInspector::GetInstance().RegisterTextureCubemap(m_RendererID, m_Path, "TextureCubemap (loaded)");
+        GPUResourceInspector::GetInstance().RegisterTextureCubemap(m_RendererID, m_Path.ToStdString(), "TextureCubemap (loaded)");
 
         m_IsLoaded = true;
         OLO_CORE_TRACE("Loaded cubemap with {} faces, dimensions: {}x{}", facePaths.size(), m_Width, m_Height);
@@ -593,7 +593,7 @@ namespace OloEngine
         return levels;
     }
 
-    bool OpenGLTextureCubemap::GetFaceData(u32 faceIndex, std::vector<u8>& outData, u32 mipLevel) const
+    bool OpenGLTextureCubemap::GetFaceData(u32 faceIndex, TArray64<u8>& outData, u32 mipLevel) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -621,7 +621,7 @@ namespace OloEngine
         }
 
         sizet faceSize = static_cast<sizet>(mipWidth) * mipHeight * formatInfo.BytesPerPixel;
-        outData.resize(faceSize);
+        outData.SetNum(faceSize, EAllowShrinking::No);
 
         // Drain leaked GL errors so the post-readback glGetError() check reflects
         // only glGetTextureSubImage. An inherited error (e.g. one a previous render
@@ -648,7 +648,7 @@ namespace OloEngine
             m_DataFormat,                    // format
             formatInfo.DataType,             // type
             static_cast<GLsizei>(faceSize),  // buffer size
-            outData.data()                   // buffer
+            outData.GetData()                // buffer
         );
 
         if (GLenum error = glGetError(); error != GL_NO_ERROR)
@@ -660,7 +660,7 @@ namespace OloEngine
         return true;
     }
 
-    bool OpenGLTextureCubemap::GetData(std::vector<u8>& outData, u32 mipLevel) const
+    bool OpenGLTextureCubemap::GetData(TArray64<u8>& outData, u32 mipLevel) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -682,21 +682,21 @@ namespace OloEngine
         }
 
         sizet faceSize = static_cast<sizet>(mipWidth) * mipHeight * formatInfo.BytesPerPixel;
-        outData.resize(faceSize * 6);
+        outData.SetNum(faceSize * 6, EAllowShrinking::No);
 
         // Reuse buffer for face data to avoid repeated allocations
-        std::vector<u8> faceData;
-        faceData.reserve(faceSize);
+        TArray64<u8> faceData;
+        faceData.Reserve(faceSize);
 
         // Read all 6 faces
         for (u32 face = 0; face < 6; ++face)
         {
-            faceData.clear();
+            faceData.Reset();
             if (!GetFaceData(face, faceData, mipLevel))
             {
                 return false;
             }
-            std::memcpy(outData.data() + face * faceSize, faceData.data(), faceSize);
+            std::memcpy(outData.GetData() + face * faceSize, faceData.GetData(), faceSize);
         }
 
         return true;

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <span>
+
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/MeshOptimization.h"
@@ -109,7 +111,7 @@ namespace OloEngine
             Entity entity,
             const Ref<MeshSource>& meshSource,
             const Ref<Skeleton>& skeleton,
-            const std::vector<Ref<AnimationClip>>& clips,
+            std::span<const Ref<AnimationClip>> clips,
             const Material* material,
             const std::string& sourcePath,
             bool resetPlaybackState = true);

@@ -7,7 +7,7 @@
 
 #include <glm/glm.hpp>
 #include <string>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -34,7 +34,7 @@ namespace OloEngine
         // (row-major, resolution × resolution, expected in [0, 1]). Re-uploads
         // to the GPU. Used by TerrainGenerator to push a procedurally shaped
         // height field without GenerateProcedural's fixed single-fBm formula.
-        void SetHeights(u32 resolution, std::vector<f32> heights);
+        void SetHeights(u32 resolution, TArray<f32> heights);
 
         // CPU height query with bilinear interpolation — normalizedX/Z in [0, 1]
         [[nodiscard]] f32 GetHeightAt(f32 normalizedX, f32 normalizedZ) const;
@@ -49,14 +49,14 @@ namespace OloEngine
         // members above. The members delegate here, so there is exactly one
         // implementation of the sampling convention and the slope metric that
         // TerrainGenerator::GenerateSplatmap classifies layers by.
-        [[nodiscard]] static f32 SampleHeight(const std::vector<f32>& heights, u32 resolution,
+        [[nodiscard]] static f32 SampleHeight(const TArray<f32>& heights, u32 resolution,
                                               f32 normalizedX, f32 normalizedZ);
-        [[nodiscard]] static glm::vec3 SampleNormal(const std::vector<f32>& heights, u32 resolution,
+        [[nodiscard]] static glm::vec3 SampleNormal(const TArray<f32>& heights, u32 resolution,
                                                     f32 normalizedX, f32 normalizedZ, f32 worldSizeX,
                                                     f32 worldSizeZ, f32 heightScale);
         // Slope in DEGREES from the surface normal — the quantity a
         // TerrainLayerRule's MinSlopeDeg/MaxSlopeDeg band is expressed in.
-        [[nodiscard]] static f32 SampleSlopeDegrees(const std::vector<f32>& heights, u32 resolution,
+        [[nodiscard]] static f32 SampleSlopeDegrees(const TArray<f32>& heights, u32 resolution,
                                                     f32 normalizedX, f32 normalizedZ, f32 worldSizeX,
                                                     f32 worldSizeZ, f32 heightScale);
 
@@ -100,7 +100,7 @@ namespace OloEngine
         // that failure mode is invisible — the terrain looks right and gameplay
         // disagrees with it — which is precisely why the sync is here rather than
         // left to each of the twelve call sites to remember.
-        [[nodiscard]] const std::vector<f32>& GetHeightData() const
+        [[nodiscard]] const TArray<f32>& GetHeightData() const
         {
             SyncFromGPU();
             return m_Heights;
@@ -108,7 +108,7 @@ namespace OloEngine
         // The non-const form hands out a writable mirror, so the CPU becomes
         // authoritative again the moment a caller uses it; the caller still owes
         // the matching UploadToGPU / UploadRegionToGPU, exactly as before.
-        [[nodiscard]] std::vector<f32>& GetHeightData()
+        [[nodiscard]] TArray<f32>& GetHeightData()
         {
             SyncFromGPU();
             return m_Heights;
@@ -163,7 +163,7 @@ namespace OloEngine
         u32 m_Resolution = 0; // Heightmap is m_Resolution × m_Resolution
         // Mutable because SyncFromGPU() refreshes them from a const read
         // accessor — see the sync-point comment above.
-        mutable std::vector<f32> m_Heights; // Row-major CPU MIRROR of the heightmap, [0, 1]
+        mutable TArray<f32> m_Heights; // Row-major CPU MIRROR of the heightmap, [0, 1]
         // Bumped at the three points height CONTENT changes — see
         // GetHeightRevision(). Mutable because SyncFromGPU() is const.
         mutable u64 m_HeightRevision = 0;

@@ -10,6 +10,8 @@
 // another dropped), so the comparison is element-wise and in both directions.
 
 #include "OloEnginePCH.h"
+#include <span>
+#include "OloEngine/Containers/Array.h"
 #include <gtest/gtest.h>
 
 #include "OloEngine/Core/Ref.h"
@@ -61,24 +63,24 @@ namespace
         return neighbourhood;
     }
 
-    std::vector<PackedQuad> MeshGreedy(const VoxelNeighbourhood& neighbourhood)
+    TArray<PackedQuad> MeshGreedy(const VoxelNeighbourhood& neighbourhood)
     {
         VoxelGreedyMesher mesher;
-        std::vector<PackedQuad> quads;
+        TArray<PackedQuad> quads;
         mesher.Mesh(neighbourhood, quads);
         return quads;
     }
 
-    std::vector<PackedQuad> MeshNaive(const VoxelNeighbourhood& neighbourhood)
+    TArray<PackedQuad> MeshNaive(const VoxelNeighbourhood& neighbourhood)
     {
-        std::vector<PackedQuad> quads;
+        TArray<PackedQuad> quads;
         VoxelGreedyMesher::MeshNaive(neighbourhood, quads);
         return quads;
     }
 
-    std::vector<PackedQuad> ExpandAll(const std::vector<PackedQuad>& quads)
+    TArray<PackedQuad> ExpandAll(const TArray<PackedQuad>& quads)
     {
-        std::vector<PackedQuad> unit;
+        TArray<PackedQuad> unit;
         for (const auto& quad : quads)
         {
             VoxelGreedyMesher::ExpandQuad(quad, unit);
@@ -88,7 +90,7 @@ namespace
 
     // Multiset keyed by the full 64 bits of the record, so a duplicated face
     // and a dropped face cannot cancel each other out in the comparison.
-    std::map<std::pair<u32, u32>, u32> ToMultiset(const std::vector<PackedQuad>& quads)
+    std::map<std::pair<u32, u32>, u32> ToMultiset(const TArray<PackedQuad>& quads)
     {
         std::map<std::pair<u32, u32>, u32> counts;
         for (const auto& quad : quads)
@@ -273,9 +275,9 @@ TEST_P(VoxelGreedyMesherFaceSet, GreedyFaceSetMatchesNaive)
     const auto voxels = MakeVolume(solidity);
     const VoxelNeighbourhood neighbourhood = GatherOne(*voxels);
 
-    const std::vector<PackedQuad> greedy = MeshGreedy(neighbourhood);
-    const std::vector<PackedQuad> naive = MeshNaive(neighbourhood);
-    const std::vector<PackedQuad> expanded = ExpandAll(greedy);
+    const TArray<PackedQuad> greedy = MeshGreedy(neighbourhood);
+    const TArray<PackedQuad> naive = MeshNaive(neighbourhood);
+    const TArray<PackedQuad> expanded = ExpandAll(greedy);
 
     // Element-wise multiset equality, not a count comparison.
     EXPECT_EQ(ToMultiset(expanded), ToMultiset(naive))
@@ -290,9 +292,9 @@ TEST_P(VoxelGreedyMesherFaceSet, GreedyFaceSetMatchesNaive)
 
     if (shape != 4)
     {
-        EXPECT_FALSE(greedy.empty()) << "shape " << shape;
+        EXPECT_FALSE(greedy.IsEmpty()) << "shape " << shape;
     }
-    EXPECT_LE(greedy.size(), naive.size()) << "merging must never increase the quad count";
+    EXPECT_LE(greedy.Num(), naive.Num()) << "merging must never increase the quad count";
 }
 
 INSTANTIATE_TEST_SUITE_P(Shapes, VoxelGreedyMesherFaceSet, ::testing::Values(0, 1, 2, 3, 4, 5, 6));
@@ -307,9 +309,9 @@ TEST(VoxelGreedyMesher, SolidChunkCollapsesToSixFullFaces)
     // the biased extent encoding: a 32-wide run.
     const auto voxels = MakeVolume([](u32, u32, u32)
                                    { return true; });
-    const std::vector<PackedQuad> quads = MeshGreedy(GatherOne(*voxels));
+    const TArray<PackedQuad> quads = MeshGreedy(GatherOne(*voxels));
 
-    ASSERT_EQ(quads.size(), 6u);
+    ASSERT_EQ(quads.Num(), 6u);
 
     std::vector<bool> seenFace(6, false);
     for (const auto& quad : quads)
@@ -331,7 +333,7 @@ TEST(VoxelGreedyMesher, CheckerboardCannotMerge)
                                    { return ((x + y + z) & 1u) == 0u; });
     const VoxelNeighbourhood neighbourhood = GatherOne(*voxels);
 
-    EXPECT_EQ(MeshGreedy(neighbourhood).size(), MeshNaive(neighbourhood).size())
+    EXPECT_EQ(MeshGreedy(neighbourhood).Num(), MeshNaive(neighbourhood).Num())
         << "no two faces of a checkerboard are adjacent, so there is nothing to merge";
 }
 
@@ -344,8 +346,8 @@ TEST(VoxelGreedyMesher, FlatSlabMergesToFarFewerQuadsThanFaces)
                                    { return y < 8; });
     const VoxelNeighbourhood neighbourhood = GatherOne(*voxels);
 
-    const sizet greedyQuads = MeshGreedy(neighbourhood).size();
-    const sizet naiveFaces = MeshNaive(neighbourhood).size();
+    const sizet greedyQuads = MeshGreedy(neighbourhood).Num();
+    const sizet naiveFaces = MeshNaive(neighbourhood).Num();
 
     EXPECT_GT(naiveFaces, greedyQuads * 50) << greedyQuads << " merged quads vs " << naiveFaces << " raw faces";
 }
@@ -354,14 +356,14 @@ TEST(VoxelGreedyMesher, EmptyChunkEmitsNothing)
 {
     const auto voxels = MakeVolume([](u32, u32, u32)
                                    { return false; });
-    EXPECT_TRUE(MeshGreedy(GatherOne(*voxels)).empty());
+    EXPECT_TRUE(MeshGreedy(GatherOne(*voxels)).IsEmpty());
 }
 
 TEST(VoxelGreedyMesher, MissingChunkEmitsNothing)
 {
     auto voxels = Ref<VoxelOverride>::Create();
     voxels->Initialize(256.0f, 256.0f, 64.0f, 1.0f);
-    EXPECT_TRUE(MeshGreedy(GatherOne(*voxels, { 4, 4, 4 })).empty());
+    EXPECT_TRUE(MeshGreedy(GatherOne(*voxels, { 4, 4, 4 })).IsEmpty());
 }
 
 // =============================================================================
@@ -389,7 +391,7 @@ TEST(VoxelGreedyMesher, MergeStopsAtAMaterialBoundary)
     }
 
     const VoxelNeighbourhood neighbourhood = GatherOne(*voxels);
-    const std::vector<PackedQuad> quads = MeshGreedy(neighbourhood);
+    const TArray<PackedQuad> quads = MeshGreedy(neighbourhood);
 
     // Face set is still exactly right...
     EXPECT_EQ(ToMultiset(ExpandAll(quads)), ToMultiset(MeshNaive(neighbourhood)));
@@ -398,7 +400,7 @@ TEST(VoxelGreedyMesher, MergeStopsAtAMaterialBoundary)
     for (const auto& quad : quads)
     {
         const u8 material = VoxelQuadCodec::DecodeMaterialIndex(quad.Material);
-        std::vector<PackedQuad> unit;
+        TArray<PackedQuad> unit;
         VoxelGreedyMesher::ExpandQuad(quad, unit);
         for (const auto& face : unit)
         {
@@ -433,9 +435,9 @@ TEST(VoxelGreedyMesher, UniformMaterialTakesTheSameResultAsAnExplicitZeroArray)
     VoxelChunk& chunk = explicitVoxels->GetOrCreateChunk({ 0, 0, 0 });
     FillChunk(chunk, [](u32 x, u32 y, u32 z)
               { return HashSolid(x, y, z, 0x99u); });
-    chunk.MaterialData.assign(VoxelChunk::TOTAL_VOXELS, u8{ 0 });
+    chunk.MaterialData.Init(u8{ 0 }, VoxelChunk::TOTAL_VOXELS);
 
-    ASSERT_TRUE(implicitVoxels->GetChunks().at({ 0, 0, 0 }).MaterialData.empty());
+    ASSERT_TRUE(implicitVoxels->GetChunks().at({ 0, 0, 0 }).MaterialData.IsEmpty());
 
     EXPECT_EQ(ToMultiset(MeshGreedy(GatherOne(*implicitVoxels))),
               ToMultiset(MeshGreedy(GatherOne(*explicitVoxels))));
@@ -449,7 +451,7 @@ TEST(VoxelGreedyMesherBoundary, LoneChunkDrawsAllSixOuterFaces)
 {
     const auto voxels = MakeVolume([](u32, u32, u32)
                                    { return true; });
-    EXPECT_EQ(MeshGreedy(GatherOne(*voxels)).size(), 6u);
+    EXPECT_EQ(MeshGreedy(GatherOne(*voxels)).Num(), 6u);
 }
 
 TEST(VoxelGreedyMesherBoundary, SharedFaceBetweenSolidNeighboursIsCulledOnBothSides)
@@ -466,15 +468,15 @@ TEST(VoxelGreedyMesherBoundary, SharedFaceBetweenSolidNeighboursIsCulledOnBothSi
                   { return true; });
     }
 
-    const std::vector<PackedQuad> left = MeshGreedy(GatherOne(*voxels, { 0, 0, 0 }));
-    const std::vector<PackedQuad> right = MeshGreedy(GatherOne(*voxels, { 1, 0, 0 }));
+    const TArray<PackedQuad> left = MeshGreedy(GatherOne(*voxels, { 0, 0, 0 }));
+    const TArray<PackedQuad> right = MeshGreedy(GatherOne(*voxels, { 1, 0, 0 }));
 
-    ASSERT_EQ(left.size(), 5u) << "the +X face of the left chunk must be culled";
-    ASSERT_EQ(right.size(), 5u) << "the -X face of the right chunk must be culled";
+    ASSERT_EQ(left.Num(), 5u) << "the +X face of the left chunk must be culled";
+    ASSERT_EQ(right.Num(), 5u) << "the -X face of the right chunk must be culled";
 
-    auto hasFace = [](const std::vector<PackedQuad>& quads, VoxelFace face)
+    auto hasFace = [](const TArray<PackedQuad>& quads, VoxelFace face)
     {
-        return std::ranges::any_of(quads, [face](const PackedQuad& q)
+        return std::ranges::any_of(std::span(quads.GetData(), static_cast<sizet>(quads.Num())), [face](const PackedQuad& q)
                                    { return VoxelQuadCodec::DecodeGeometry(q.Geometry).Face == face; });
     };
 
@@ -506,11 +508,11 @@ TEST(VoxelGreedyMesherBoundary, EveryAxisCullsAgainstItsNeighbour)
                   [](u32, u32, u32)
                   { return true; });
 
-        const std::vector<PackedQuad> quads = MeshGreedy(GatherOne(*voxels, { 0, 0, 0 }));
-        EXPECT_EQ(quads.size(), 5u) << "neighbour direction " << i;
+        const TArray<PackedQuad> quads = MeshGreedy(GatherOne(*voxels, { 0, 0, 0 }));
+        EXPECT_EQ(quads.Num(), 5u) << "neighbour direction " << i;
 
         const bool drawsFacingNeighbour =
-            std::ranges::any_of(quads, [&](const PackedQuad& q)
+            std::ranges::any_of(std::span(quads.GetData(), static_cast<sizet>(quads.Num())), [&](const PackedQuad& q)
                                 { return VoxelQuadCodec::DecodeGeometry(q.Geometry).Face == kFacingNeighbour[i]; });
         EXPECT_FALSE(drawsFacingNeighbour) << "direction " << i << " draws a face into its solid neighbour";
     }
@@ -529,7 +531,7 @@ TEST(VoxelGreedyMesherBoundary, PartialNeighbourCullsOnlyTheCoveredFaces)
     FillChunk(voxels->GetOrCreateChunk({ 1, 0, 0 }), [](u32, u32 y, u32)
               { return y < CS / 2; });
 
-    const std::vector<PackedQuad> quads = MeshGreedy(GatherOne(*voxels, { 0, 0, 0 }));
+    const TArray<PackedQuad> quads = MeshGreedy(GatherOne(*voxels, { 0, 0, 0 }));
 
     u32 posXArea = 0;
     for (const auto& quad : quads)
@@ -572,8 +574,8 @@ TEST(VoxelGreedyMesher, RepeatedMeshingOfTheSameSnapshotIsStable)
     const VoxelNeighbourhood neighbourhood = GatherOne(*voxels);
 
     VoxelGreedyMesher mesher;
-    std::vector<PackedQuad> first;
-    std::vector<PackedQuad> second;
+    TArray<PackedQuad> first;
+    TArray<PackedQuad> second;
     mesher.Mesh(neighbourhood, first);
     mesher.Mesh(neighbourhood, second);
 

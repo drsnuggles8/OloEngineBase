@@ -29,6 +29,7 @@
 // =============================================================================
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Containers/String.h"
 #include "OloEngine/Renderer/RenderingPath.h"
 
 #include <glm/glm.hpp>
@@ -101,7 +102,7 @@ namespace OloEngine::Benchmark
 
     struct ManifestCamera
     {
-        std::string Id;
+        FString Id;
         glm::vec3 Position{ 0.0f };
         f32 YawDegrees = 0.0f;
         f32 PitchDegrees = 0.0f;
@@ -137,8 +138,8 @@ namespace OloEngine::Benchmark
 
     struct ManifestAttachment
     {
-        std::string Name;   // file stem in the result directory
-        std::string Source; // render-graph resource name (ResourceNames::*)
+        FString Name;   // file stem in the result directory
+        FString Source; // render-graph resource name (ResourceNames::*)
         AttachmentFormat Format = AttachmentFormat::Png;
         AttachmentNormalize Normalize = AttachmentNormalize::Auto;
         AttachmentDerive Derive = AttachmentDerive::None;
@@ -196,9 +197,9 @@ namespace OloEngine::Benchmark
 
     struct ManifestAssetRecord
     {
-        std::string Path;
-        std::string Origin;
-        std::string License;
+        FString Path;
+        FString Origin;
+        FString License;
 
         // ---- ManifestVersion 2 provenance (issue #1239) -------------------
         // Required from v2; absent (nullopt / empty) in a v1 manifest, which
@@ -210,15 +211,15 @@ namespace OloEngine::Benchmark
         std::optional<AssetColorSpace> ColorSpace;
         // Upstream release tag / commit, or "generated" for an asset this repo
         // produces from a committed script.
-        std::string Version;
+        FString Version;
         // SHA-256 of the file AS ACQUIRED, 64 lowercase hex — what makes the
         // acquisition path checkable instead of merely described. The parser
         // validates the FORMAT; tools/benchmark/reference_assets.py verifies
         // the bytes.
-        std::string Sha256;
+        FString Sha256;
         // URL, or the documented local procedure for a LocalOnly asset. This is
         // the "reproducible local acquisition path" acceptance criterion.
-        std::string Acquisition;
+        FString Acquisition;
     };
 
     // The subset of renderer-side (non-scene-serialized) state a benchmark
@@ -245,17 +246,65 @@ namespace OloEngine::Benchmark
         std::optional<u32> GpuPathTracerSamplesPerFrame;
     };
 
+} // namespace OloEngine::Benchmark
+
+namespace OloEngine
+{
+    template<>
+    struct TIsTriviallyRelocatable<Benchmark::ManifestCamera>
+    {
+        using Record = Benchmark::ManifestCamera;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::Id)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Position)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::YawDegrees)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::PitchDegrees)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::FovDegrees)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::NearClip)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::FarClip)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::WarmupFrames)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Motion)>;
+    };
+    template<>
+    struct TIsTriviallyRelocatable<Benchmark::ManifestAttachment>
+    {
+        using Record = Benchmark::ManifestAttachment;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::Name)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Source)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Format)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Normalize)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Derive)>;
+    };
+    template<>
+    struct TIsTriviallyRelocatable<Benchmark::ManifestAssetRecord>
+    {
+        using Record = Benchmark::ManifestAssetRecord;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::Path)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Origin)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::License)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Redistribution)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::LicenseVerified)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Units)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::UpAxis)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::ColorSpace)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Version)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Sha256)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Acquisition)>;
+    };
+} // namespace OloEngine
+
+namespace OloEngine::Benchmark
+{
     struct BenchmarkManifest
     {
         u32 ManifestVersion = 0;
-        std::string Id; // [a-z0-9-], becomes the result dir name
+        FString Id; // [a-z0-9-], becomes the result dir name
         ManifestProduct Product = ManifestProduct::Golden;
-        std::string ScenePath; // project-relative, e.g. Scenes/Benchmark/MaterialLab.olo
+        FString ScenePath; // project-relative, e.g. Scenes/Benchmark/MaterialLab.olo
 
-        std::vector<std::string> SupportedBackends;                             // "opengl", "vulkan"
-        std::map<std::string, std::vector<std::string>> UnsupportedAttachments; // backend -> attachment Names
+        TArray<FString> SupportedBackends;                             // "opengl", "vulkan"
+        std::map<std::string, TArray<FString>> UnsupportedAttachments; // backend -> attachment Names
 
-        std::vector<ManifestCamera> Cameras;
+        TArray<ManifestCamera> Cameras;
 
         u32 Width = 1280;
         u32 Height = 720;
@@ -273,12 +322,12 @@ namespace OloEngine::Benchmark
         u32 WarmupFrames = 0;
         std::map<std::string, u32> WarmupPerFeature;
 
-        std::vector<ManifestAttachment> Attachments;
+        TArray<ManifestAttachment> Attachments;
 
         // Documented run-twice tolerance (RMSE in 0..255 units; 0 = byte-identical).
         f32 RepeatRmseTolerance = 0.0f;
 
-        std::vector<ManifestAssetRecord> Assets;
+        TArray<ManifestAssetRecord> Assets;
 
         // The manifest file's own bytes hashed (FNV-1a 64) — recorded into
         // result.json so a result directory names the exact manifest revision
@@ -290,7 +339,7 @@ namespace OloEngine::Benchmark
         /// Attachment names declared unavailable for `backend` — these are
         /// skipped with a per-attachment record in result.json rather than
         /// failing the capture (declared, never silent).
-        [[nodiscard]] const std::vector<std::string>* UnsupportedFor(std::string_view backend) const;
+        [[nodiscard]] const TArray<FString>* UnsupportedFor(std::string_view backend) const;
     };
 
     /// Parse + validate a manifest file. Returns nullopt and fills `outError`

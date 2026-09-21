@@ -7,7 +7,7 @@
 #include "OloEngine/Terrain/TerrainVertex.h"
 
 #include <glm/glm.hpp>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -54,13 +54,26 @@ namespace OloEngine
             return m_VAO != nullptr;
         }
 
+        friend struct TIsTriviallyRelocatable<TerrainChunk>;
+
       private:
         Ref<VertexArray> m_VAO;
         u32 m_IndexCount = 0;
         BoundingBox m_Bounds;
 
         // Staging buffers for CPU→GPU split
-        std::vector<TerrainVertex> m_StagedVertices;
-        std::vector<u32> m_StagedIndices;
+        TArray<TerrainVertex> m_StagedVertices;
+        TArray<u32> m_StagedIndices;
+    };
+
+    // External intrusive VAO Ref, owned TArray staging buffers and scalar/bounds values.
+    template<>
+    struct TIsTriviallyRelocatable<TerrainChunk>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(TerrainChunk::m_VAO)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TerrainChunk::m_IndexCount)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TerrainChunk::m_Bounds)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TerrainChunk::m_StagedVertices)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TerrainChunk::m_StagedIndices)>::Value;
     };
 } // namespace OloEngine

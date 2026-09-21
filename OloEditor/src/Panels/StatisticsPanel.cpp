@@ -154,7 +154,7 @@ namespace OloEngine
             ImGui::Text("Shader Binds: %u", stats3D.ShaderBinds);
             ImGui::Text("Texture Binds: %u", stats3D.TextureBinds);
             ImGui::Text("LOD Switches: %u", stats3D.LODSwitches);
-            for (u32 i = 0; i < static_cast<u32>(stats3D.ObjectsPerLODLevel.size()); ++i)
+            for (u32 i = 0; i < static_cast<u32>(stats3D.ObjectsPerLODLevel.Num()); ++i)
             {
                 if (stats3D.ObjectsPerLODLevel[i] > 0)
                 {
@@ -682,10 +682,10 @@ namespace OloEngine
 
         // Leak detection summary
         auto const leaks = tracker.DetectLeaks();
-        if (!leaks.empty())
+        if (!leaks.IsEmpty())
         {
             ImGui::Separator();
-            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Potential Leaks: %u", static_cast<u32>(leaks.size()));
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Potential Leaks: %u", static_cast<u32>(leaks.Num()));
         }
     }
 

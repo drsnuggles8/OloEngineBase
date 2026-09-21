@@ -206,7 +206,7 @@ namespace OloEngine
                 backend->ReleaseDownload({ download.m_PBO, download.m_Fence });
             }
         }
-        m_TextureDownloads.clear();
+        m_TextureDownloads.Reset();
 
         // Clean up resources
         {
@@ -227,8 +227,8 @@ namespace OloEngine
         auto textureInfo = CreateScope<TextureInfo>();
         textureInfo->m_RendererID = rendererID;
         textureInfo->m_Type = ResourceType::Texture2D;
-        textureInfo->m_Name = name;
-        textureInfo->m_DebugName = debugName.empty() ? name : debugName;
+        textureInfo->m_Name = FString(name);
+        textureInfo->m_DebugName = FString(debugName.empty() ? name : debugName);
         textureInfo->m_CreationTime = DebugUtils::GetCurrentTimeSeconds();
 
         // Query texture properties immediately
@@ -272,8 +272,8 @@ namespace OloEngine
         auto textureInfo = CreateScope<TextureInfo>();
         textureInfo->m_RendererID = rendererID;
         textureInfo->m_Type = ResourceType::TextureCubemap;
-        textureInfo->m_Name = name;
-        textureInfo->m_DebugName = debugName.empty() ? name : debugName;
+        textureInfo->m_Name = FString(name);
+        textureInfo->m_DebugName = FString(debugName.empty() ? name : debugName);
         textureInfo->m_CreationTime = DebugUtils::GetCurrentTimeSeconds();
         // Query cubemap properties
         QueryTextureCubemapInfo(*textureInfo);
@@ -310,8 +310,8 @@ namespace OloEngine
         auto bufferInfo = CreateScope<BufferInfo>();
         bufferInfo->m_RendererID = rendererID;
         bufferInfo->m_Target = target;
-        bufferInfo->m_Name = name;
-        bufferInfo->m_DebugName = debugName.empty() ? name : debugName;
+        bufferInfo->m_Name = FString(name);
+        bufferInfo->m_DebugName = FString(debugName.empty() ? name : debugName);
         bufferInfo->m_CreationTime = DebugUtils::GetCurrentTimeSeconds();
 
         // Determine resource type based on target (native-enum decoding is
@@ -367,8 +367,8 @@ namespace OloEngine
         auto framebufferInfo = CreateScope<FramebufferInfo>();
         framebufferInfo->m_RendererID = rendererID;
         framebufferInfo->m_Type = ResourceType::Framebuffer;
-        framebufferInfo->m_Name = name;
-        framebufferInfo->m_DebugName = debugName.empty() ? name : debugName;
+        framebufferInfo->m_Name = FString(name);
+        framebufferInfo->m_DebugName = FString(debugName.empty() ? name : debugName);
         framebufferInfo->m_CreationTime = DebugUtils::GetCurrentTimeSeconds();
         // Query framebuffer properties
         QueryFramebufferInfo(*framebufferInfo);
@@ -579,12 +579,13 @@ namespace OloEngine
         const sizet readRowStride = static_cast<sizet>(width) * static_cast<sizet>(channels) * readBytesPerChannel;
         const sizet readBufferBytes = readRowStride * static_cast<sizet>(height);
 
-        std::vector<u8> readBuffer(readBufferBytes);
+        TArray64<u8> readBuffer;
+        readBuffer.SetNum(readBufferBytes);
 
         std::string readError;
         if (!backend->ReadTextureLevel(info.m_RendererID, isCubemap, mipLevel, faceIndex,
                                        width, height, info.m_Format, sourceIsFloat,
-                                       readBuffer.data(), readBufferBytes, readError))
+                                       readBuffer.GetData(), readBufferBytes, readError))
         {
             OLO_CORE_ERROR("[GPUResourceInspector] SaveTextureToFile: {}", readError);
             return false;
@@ -602,15 +603,15 @@ namespace OloEngine
         // Convert to encoder precision when source and output disagree. Float→PNG
         // clamps to [0,1] and quantises to 8-bit; uint→HDR normalises by 255.
         // HDR float values outside [0,1] are preserved (that's the point of HDR).
-        std::vector<u8> convertBuffer;
-        const void* encoderPixels = readBuffer.data();
+        TArray64<u8> convertBuffer;
+        const void* encoderPixels = readBuffer.GetData();
         sizet encoderRowStride = readRowStride;
         const sizet pixelChannelCount = static_cast<sizet>(width) * static_cast<sizet>(height) * static_cast<sizet>(channels);
 
         if (sourceIsFloat && !wantFloatOutput)
         {
-            convertBuffer.resize(pixelChannelCount * sizeof(u8));
-            const f32* src = reinterpret_cast<const f32*>(readBuffer.data());
+            convertBuffer.SetNum(pixelChannelCount * sizeof(u8), EAllowShrinking::No);
+            const f32* src = reinterpret_cast<const f32*>(readBuffer.GetData());
             for (sizet i = 0; i < pixelChannelCount; ++i)
             {
                 // Substitute NaN with 0 before the float→u8 cast:
@@ -624,18 +625,18 @@ namespace OloEngine
                 const f32 clamped = std::clamp(safe, 0.0f, 1.0f);
                 convertBuffer[i] = static_cast<u8>(clamped * 255.0f + 0.5f);
             }
-            encoderPixels = convertBuffer.data();
+            encoderPixels = convertBuffer.GetData();
             encoderRowStride = static_cast<sizet>(width) * static_cast<sizet>(channels);
         }
         else if (!sourceIsFloat && wantFloatOutput)
         {
-            convertBuffer.resize(pixelChannelCount * sizeof(f32));
-            f32* dst = reinterpret_cast<f32*>(convertBuffer.data());
+            convertBuffer.SetNum(pixelChannelCount * sizeof(f32), EAllowShrinking::No);
+            f32* dst = reinterpret_cast<f32*>(convertBuffer.GetData());
             for (sizet i = 0; i < pixelChannelCount; ++i)
             {
                 dst[i] = static_cast<f32>(readBuffer[i]) / 255.0f;
             }
-            encoderPixels = convertBuffer.data();
+            encoderPixels = convertBuffer.GetData();
             encoderRowStride = static_cast<sizet>(width) * static_cast<sizet>(channels) * sizeof(f32);
         }
         else
@@ -725,10 +726,10 @@ namespace OloEngine
         else if (region.X >= fullWidth || region.Y >= fullHeight ||
                  region.Width > fullWidth - region.X || region.Height > fullHeight - region.Y)
         {
-            result.Error = "region (" + std::to_string(region.X) + ", " + std::to_string(region.Y) + ", " +
-                           std::to_string(region.Width) + "x" + std::to_string(region.Height) + ") exceeds mip " +
-                           std::to_string(mipLevel) + " (" + std::to_string(fullWidth) + "x" +
-                           std::to_string(fullHeight) + ")";
+            result.Error = FString("region (" + std::to_string(region.X) + ", " + std::to_string(region.Y) + ", " +
+                                   std::to_string(region.Width) + "x" + std::to_string(region.Height) + ") exceeds mip " +
+                                   std::to_string(mipLevel) + " (" + std::to_string(fullWidth) + "x" +
+                                   std::to_string(fullHeight) + ")");
             return result;
         }
 
@@ -738,14 +739,15 @@ namespace OloEngine
         const sizet bytesPerChannel = sourceIsFloat ? sizeof(f32) : sizeof(u8);
         const sizet rowStride = static_cast<sizet>(region.Width) * static_cast<sizet>(channels) * bytesPerChannel;
         const sizet bufferBytes = rowStride * static_cast<sizet>(region.Height);
-        std::vector<u8> readBuffer(bufferBytes);
+        TArray64<u8> readBuffer;
+        readBuffer.SetNum(bufferBytes);
 
         std::string readError;
         if (!backend->ReadCaptureRegion(textureId, mipLevel, faceOrLayer, source,
                                         region.X, region.Y, region.Width, region.Height,
-                                        readBuffer.data(), bufferBytes, readError))
+                                        readBuffer.GetData(), bufferBytes, readError))
         {
-            result.Error = readError;
+            result.Error = FString(readError);
             return result;
         }
 
@@ -760,10 +762,10 @@ namespace OloEngine
         // (Auto = depth only) so a depth buffer / HDR target isn't a flat
         // white/black image after the [0,1] clamp.
         const sizet valueCount = capturedWidth * capturedHeight * static_cast<sizet>(channels);
-        std::vector<u8> pixels8;
+        TArray64<u8> pixels8;
         if (sourceIsFloat)
         {
-            const f32* src = reinterpret_cast<const f32*>(readBuffer.data());
+            const f32* src = reinterpret_cast<const f32*>(readBuffer.GetData());
             const bool wantNormalize = normalize == CaptureNormalizeMode::On ||
                                        (normalize == CaptureNormalizeMode::Auto && isDepth);
             f32 minV = std::numeric_limits<f32>::max();
@@ -786,7 +788,7 @@ namespace OloEngine
             result.Normalized = doNormalize;
             const f32 scale = doNormalize ? 1.0f / (maxV - minV) : 1.0f;
             const f32 bias = doNormalize ? -minV : 0.0f;
-            pixels8.resize(valueCount);
+            pixels8.SetNum(valueCount, EAllowShrinking::No);
             for (sizet i = 0; i < valueCount; ++i)
             {
                 const f32 safe = std::isnan(src[i]) ? 0.0f : src[i];
@@ -805,7 +807,8 @@ namespace OloEngine
         if (channels == 2)
         {
             outChannels = 3;
-            std::vector<u8> widened(capturedWidth * capturedHeight * 3, 0);
+            TArray64<u8> widened;
+            widened.Init(0, static_cast<i64>(capturedWidth) * capturedHeight * 3);
             for (sizet i = 0; i < capturedWidth * capturedHeight; ++i)
             {
                 widened[i * 3 + 0] = pixels8[i * 2 + 0];
@@ -819,13 +822,13 @@ namespace OloEngine
         // intentionally differs from SaveTextureToFile's raw-memory dump).
         // The backend reports its row order; a top-down backend needs no flip.
         const sizet outRowBytes = capturedWidth * static_cast<sizet>(outChannels);
-        std::vector<u8> flipped;
+        TArray64<u8> flipped;
         if (backend->CaptureRowsAreBottomUp())
         {
-            flipped.resize(pixels8.size());
+            flipped.SetNum(pixels8.Num(), EAllowShrinking::No);
             for (sizet y = 0; y < capturedHeight; ++y)
-                std::memcpy(flipped.data() + y * outRowBytes,
-                            pixels8.data() + (capturedHeight - 1 - y) * outRowBytes, outRowBytes);
+                std::memcpy(flipped.GetData() + y * outRowBytes,
+                            pixels8.GetData() + (capturedHeight - 1 - y) * outRowBytes, outRowBytes);
         }
         else
         {
@@ -837,15 +840,15 @@ namespace OloEngine
         // whole point of asking for a region.
         auto outW = static_cast<u32>(capturedWidth);
         auto outH = static_cast<u32>(capturedHeight);
-        const std::vector<u8>* encodeSrc = &flipped;
-        std::vector<u8> scaled;
+        const TArray64<u8>* encodeSrc = &flipped;
+        TArray64<u8> scaled;
         if (maxWidth > 0 && outW > static_cast<u32>(maxWidth))
         {
             const u32 srcW = outW;
             const u32 srcH = outH;
             outW = static_cast<u32>(maxWidth);
             outH = std::max<u32>(1, static_cast<u32>((static_cast<u64>(srcH) * outW) / srcW));
-            scaled.assign(static_cast<sizet>(outW) * outH * outChannels, 0);
+            scaled.Init(0, static_cast<i64>(outW) * outH * outChannels);
             for (u32 y = 0; y < outH; ++y)
             {
                 const u32 sy = std::min(srcH - 1, static_cast<u32>((static_cast<u64>(y) * srcH) / outH));
@@ -860,15 +863,15 @@ namespace OloEngine
             encodeSrc = &scaled;
         }
 
-        std::vector<u8> png;
-        const auto appendToVector = [](void* context, void* data, int size)
+        TArray64<u8> png;
+        const auto appendToArray = [](void* context, void* data, int size)
         {
-            auto* out = static_cast<std::vector<u8>*>(context);
+            auto* out = static_cast<TArray64<u8>*>(context);
             const auto* bytes = static_cast<const u8*>(data);
-            out->insert(out->end(), bytes, bytes + size);
+            out->Append(bytes, size);
         };
-        if (stbi_write_png_to_func(appendToVector, &png, static_cast<int>(outW), static_cast<int>(outH),
-                                   outChannels, encodeSrc->data(), static_cast<int>(outW) * outChannels) == 0)
+        if (stbi_write_png_to_func(appendToArray, &png, static_cast<int>(outW), static_cast<int>(outH),
+                                   outChannels, encodeSrc->GetData(), static_cast<int>(outW) * outChannels) == 0)
         {
             result.Error = "PNG encode failed";
             return result;
@@ -927,9 +930,10 @@ namespace OloEngine
         IResourceInspectorBackend* backend = GetBackend();
 
         // Process async texture downloads and check for completion using modern sync objects
-        auto it = m_TextureDownloads.begin();
-        while (it != m_TextureDownloads.end())
+        i32 downloadIndex = 0;
+        while (downloadIndex < m_TextureDownloads.Num())
         {
+            auto* it = &m_TextureDownloads[downloadIndex];
             if (it->m_InProgress)
             {
                 bool downloadComplete = false;
@@ -990,7 +994,7 @@ namespace OloEngine
                         backend->ReleaseDownload({ it->m_PBO, it->m_Fence });
 
                     // Remove completed download from queue
-                    it = m_TextureDownloads.erase(it);
+                    m_TextureDownloads.RemoveAt(downloadIndex, 1, EAllowShrinking::No);
                 }
                 else
                 {
@@ -1003,17 +1007,17 @@ namespace OloEngine
                         // Clean up resources
                         if (backend != nullptr)
                             backend->ReleaseDownload({ it->m_PBO, it->m_Fence });
-                        it = m_TextureDownloads.erase(it);
+                        m_TextureDownloads.RemoveAt(downloadIndex, 1, EAllowShrinking::No);
                     }
                     else
                     {
-                        ++it;
+                        ++downloadIndex;
                     }
                 }
             }
             else
             {
-                ++it;
+                ++downloadIndex;
             }
         }
     }
@@ -1059,7 +1063,7 @@ namespace OloEngine
         request.m_InProgress = true;
         request.m_RequestTime = DebugUtils::GetCurrentTimeSeconds();
 
-        m_TextureDownloads.push_back(request);
+        m_TextureDownloads.Add(request);
 
         OLO_CORE_TRACE("Requested async texture download for texture {} mip {} face {}",
                        info.m_RendererID, mipLevel, faceIndex);
@@ -1113,10 +1117,10 @@ namespace OloEngine
         // read past the end of the mapped buffer when m_PreviewOffset > 0.
         const u32 remaining = (info.m_Size > info.m_PreviewOffset) ? (info.m_Size - info.m_PreviewOffset) : 0;
         const u32 previewSize = std::min(info.m_PreviewSize, remaining);
-        info.m_ContentPreview.resize(previewSize);
+        info.m_ContentPreview.SetNum(previewSize, EAllowShrinking::No);
 
         if (backend->ReadBufferRange(info.m_RendererID, info.m_Target, info.m_PreviewOffset, previewSize,
-                                     info.m_ContentPreview.data()))
+                                     info.m_ContentPreview.GetData()))
         {
             info.m_ContentPreviewValid = true;
         }
@@ -1204,7 +1208,7 @@ namespace OloEngine
         // The backend reads render-thread-only side tables, so this must not
         // run under m_ResourceMutex with an MCP handler waiting on it — gather
         // first, then swap under the lock.
-        std::vector<IResourceInspectorBackend::DiscoveredResource> discovered;
+        TArray<IResourceInspectorBackend::DiscoveredResource> discovered;
         backend->DiscoverResources(discovered);
 
         TUniqueLock<FMutex> lock(m_ResourceMutex);
@@ -1257,7 +1261,7 @@ namespace OloEngine
             info->m_Backend = RHI::GetNativeHandleForDebug(entry.Handle).Owner;
             info->m_Type = type;
             info->m_Name = entry.Name;
-            info->m_DebugName = entry.DebugName.empty() ? entry.Name : entry.DebugName;
+            info->m_DebugName = entry.DebugName.IsEmpty() ? entry.Name : entry.DebugName;
             info->m_MemoryUsage = static_cast<sizet>(entry.SizeBytes);
             info->m_CreationTime = DebugUtils::GetCurrentTimeSeconds();
 
@@ -1276,12 +1280,12 @@ namespace OloEngine
         }
     }
 
-    std::vector<GPUResourceInspector::ResourceSnapshotEntry> GPUResourceInspector::SnapshotResources() const
+    TArray<GPUResourceInspector::ResourceSnapshotEntry> GPUResourceInspector::SnapshotResources() const
     {
-        std::vector<ResourceSnapshotEntry> rows;
+        TArray<ResourceSnapshotEntry> rows;
 
         TUniqueLock<FMutex> lock(m_ResourceMutex);
-        rows.reserve(m_Resources.size());
+        rows.Reserve(m_Resources.size());
         for (const auto& [key, resource] : m_Resources)
         {
             ResourceSnapshotEntry row;
@@ -1306,7 +1310,7 @@ namespace OloEngine
                     row.Height = texture.m_Height;
                     row.MipLevels = texture.m_MipLevels;
                     row.NativeFormat = texture.m_InternalFormat;
-                    row.FormatName = FormatTextureFormat(texture.m_InternalFormat);
+                    row.FormatName = FString(FormatTextureFormat(texture.m_InternalFormat));
                     break;
                 }
                 case ResourceType::Framebuffer:
@@ -1323,11 +1327,11 @@ namespace OloEngine
                     row.SizeBytes = buffer.m_Size;
                     row.NativeTarget = buffer.m_Target;
                     row.NativeFormat = buffer.m_Usage;
-                    row.FormatName = FormatBufferUsage(buffer.m_Usage);
+                    row.FormatName = FString(FormatBufferUsage(buffer.m_Usage));
                     break;
                 }
             }
-            rows.push_back(std::move(row));
+            rows.Add(std::move(row));
         }
 
         // Deterministic order so two consecutive reads of an unchanged scene
@@ -1344,9 +1348,9 @@ namespace OloEngine
         return rows;
     }
 
-    bool GPUResourceInspector::QueryMemoryHeaps(std::vector<IResourceInspectorBackend::MemoryHeap>& out) const
+    bool GPUResourceInspector::QueryMemoryHeaps(TArray<IResourceInspectorBackend::MemoryHeap>& out) const
     {
-        out.clear();
+        out.Reset();
         IResourceInspectorBackend* backend = GetBackend();
         return backend != nullptr && backend->QueryMemoryHeaps(out);
     }
@@ -1449,7 +1453,7 @@ namespace OloEngine
         ImGui::SameLine(); // Create a buffer for InputText (ImGui needs a char buffer)
         if (static char searchBuffer[256] = ""; ImGui::InputText("Search", searchBuffer, sizeof(searchBuffer)))
         {
-            m_SearchFilter = std::string(searchBuffer);
+            m_SearchFilter = searchBuffer;
         }
         ImGui::Separator();
 
@@ -1574,7 +1578,12 @@ namespace OloEngine
         ImGui::Separator();
 
         // Group resources by type
-        std::unordered_map<ResourceType, std::vector<std::pair<u64, ResourceInfo*>>> groupedResources;
+        struct ResourceTreeEntry
+        {
+            u64 Key;
+            ResourceInfo* Resource;
+        };
+        std::unordered_map<ResourceType, TArray<ResourceTreeEntry>> groupedResources;
 
         for (const auto& [key, resource] : m_Resources)
         {
@@ -1582,15 +1591,15 @@ namespace OloEngine
             if (m_FilterType != ResourceType::COUNT && resource->m_Type != m_FilterType)
                 continue;
 
-            if (!m_SearchFilter.empty())
+            if (!m_SearchFilter.IsEmpty())
             {
                 constexpr auto toLowerChar = [](unsigned char c)
                 { return static_cast<char>(std::tolower(c)); };
 
-                std::string searchLower = m_SearchFilter;
+                std::string searchLower = m_SearchFilter.ToStdString();
                 std::ranges::transform(searchLower, searchLower.begin(), toLowerChar);
 
-                std::string nameLower = resource->m_Name;
+                std::string nameLower = resource->m_Name.ToStdString();
                 std::ranges::transform(nameLower, nameLower.begin(), toLowerChar);
 
                 if (nameLower.find(searchLower) == std::string::npos)
@@ -1604,7 +1613,7 @@ namespace OloEngine
             // the key is the RHI identity (a Vulkan framebuffer and an
             // arena-backed UBO both register native 0, so the native cannot
             // select a row). Under OpenGL the two are the same value.
-            groupedResources[resource->m_Type].emplace_back(key, resource.get());
+            groupedResources[resource->m_Type].Add({ key, resource.get() });
         }
 
         // Render tree nodes by type
@@ -1613,7 +1622,7 @@ namespace OloEngine
             ResourceType type = static_cast<ResourceType>(i);
             const auto& resources = groupedResources[type];
 
-            if (resources.empty())
+            if (resources.IsEmpty())
                 continue;
 
             if (ImGui::TreeNode(GetResourceTypeName(type)))
@@ -1624,7 +1633,7 @@ namespace OloEngine
                     if (key == m_SelectedResourceID)
                         flags |= ImGuiTreeNodeFlags_Selected;
 
-                    std::string label = resource->m_DebugName.empty() ? resource->m_Name : resource->m_DebugName;
+                    std::string label = (resource->m_DebugName.IsEmpty() ? resource->m_Name : resource->m_DebugName).ToStdString();
                     if (label.empty())
                         label = "Unnamed Resource";
 
@@ -1684,10 +1693,10 @@ namespace OloEngine
             ImGui::TextDisabled("RHI handle: (not recorded at registration)");
         }
         ImGui::Text("Type: %s", GetResourceTypeName(resource->m_Type));
-        ImGui::Text("Name: %s", resource->m_Name.c_str());
-        if (!resource->m_DebugName.empty() && resource->m_DebugName != resource->m_Name)
+        ImGui::Text("Name: %s", resource->m_Name.GetData());
+        if (!resource->m_DebugName.IsEmpty() && resource->m_DebugName != resource->m_Name)
         {
-            ImGui::Text("Debug Name: %s", resource->m_DebugName.c_str());
+            ImGui::Text("Debug Name: %s", resource->m_DebugName.GetData());
         }
         ImGui::Text("Memory Usage: %s", FormatMemorySize(resource->m_MemoryUsage).c_str());
         ImGui::Text("Active: %s", resource->m_IsActive ? "Yes" : "No");
@@ -1784,7 +1793,7 @@ namespace OloEngine
             }
         }
 
-        if (info.m_PreviewDataValid && !info.m_PreviewData.empty())
+        if (info.m_PreviewDataValid && !info.m_PreviewData.IsEmpty())
         {
             // Create ImGui texture if not already created
             if (info.m_ImGuiTextureID == 0)
@@ -1876,7 +1885,7 @@ namespace OloEngine
                 info.m_Stride = std::max(1u, info.m_Stride); // Ensure stride is at least 1
             }
 
-            if (info.m_Stride > 0 && info.m_ContentPreviewValid && !info.m_ContentPreview.empty())
+            if (info.m_Stride > 0 && info.m_ContentPreviewValid && !info.m_ContentPreview.IsEmpty())
             {
                 ImGui::Text("Vertex Count (estimated): %u", info.m_Size / info.m_Stride);
 
@@ -1884,8 +1893,8 @@ namespace OloEngine
                 ImGui::Separator();
                 ImGui::Text("Vertex Data (first 10 vertices):");
 
-                const u8* data = info.m_ContentPreview.data();
-                sizet size = info.m_ContentPreview.size();
+                const u8* data = info.m_ContentPreview.GetData();
+                sizet size = info.m_ContentPreview.Num();
                 u32 vertexCount = std::min(10u, static_cast<u32>(size / info.m_Stride));
 
                 if (ImGui::BeginTable("VertexData", std::min(info.m_Stride / 4 + 2, 8u), ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
@@ -1921,7 +1930,7 @@ namespace OloEngine
             ImGui::Separator();
             ImGui::Text("Index Buffer");
 
-            if (info.m_ContentPreviewValid && !info.m_ContentPreview.empty())
+            if (info.m_ContentPreviewValid && !info.m_ContentPreview.IsEmpty())
             {
                 // Assume 32-bit indices for now (could be improved to detect 16-bit vs 32-bit)
                 u32 indexCount = info.m_Size / sizeof(u32);
@@ -1929,8 +1938,8 @@ namespace OloEngine
 
                 // Show first few indices
                 ImGui::Text("Indices (first 20):");
-                const u32* indices = reinterpret_cast<const u32*>(info.m_ContentPreview.data());
-                sizet previewIndices = std::min(20u, static_cast<u32>(info.m_ContentPreview.size() / sizeof(u32)));
+                const u32* indices = reinterpret_cast<const u32*>(info.m_ContentPreview.GetData());
+                sizet previewIndices = std::min(20u, static_cast<u32>(info.m_ContentPreview.Num() / sizeof(u32)));
 
                 std::string indexString;
                 for (sizet i = 0; i < previewIndices; ++i)
@@ -1962,14 +1971,14 @@ namespace OloEngine
             UpdateBufferPreview(info);
         }
 
-        if (info.m_ContentPreviewValid && !info.m_ContentPreview.empty())
+        if (info.m_ContentPreviewValid && !info.m_ContentPreview.IsEmpty())
         {
             ImGui::Separator();
             ImGui::Text("Raw Content Preview (Hex Dump):");
 
             // Hex dump display
-            const u8* data = info.m_ContentPreview.data();
-            sizet size = info.m_ContentPreview.size();
+            const u8* data = info.m_ContentPreview.GetData();
+            sizet size = info.m_ContentPreview.Num();
 
             for (sizet i = 0; i < size; i += 16)
             {
@@ -2040,7 +2049,7 @@ namespace OloEngine
         ImGui::Text("Color Attachments: %u", info.m_ColorAttachmentCount);
         for (u32 i = 0; i < info.m_ColorAttachmentCount; ++i)
         {
-            if (i < info.m_ColorAttachmentFormats.size())
+            if (i < info.m_ColorAttachmentFormats.Num())
             {
                 // Decoded, not raw hex: these carry sized internal formats
                 // now that the GL backend queries the attached object rather
@@ -2127,8 +2136,8 @@ namespace OloEngine
         // answers "am I about to run out of VRAM?". They deliberately differ:
         // the allocator's blocks include padding, suballocation slack and
         // anything created before the inspector existed.
-        std::vector<IResourceInspectorBackend::MemoryHeap> heaps;
-        if (!QueryMemoryHeaps(heaps) || heaps.empty())
+        TArray<IResourceInspectorBackend::MemoryHeap> heaps;
+        if (!QueryMemoryHeaps(heaps) || heaps.IsEmpty())
             return;
 
         ImGui::Separator();
@@ -2184,8 +2193,8 @@ namespace OloEngine
         {
             file << resource->m_RendererID << ","
                  << GetResourceTypeName(resource->m_Type) << ","
-                 << "\"" << resource->m_Name << "\","
-                 << "\"" << resource->m_DebugName << "\","
+                 << "\"" << resource->m_Name.ToView() << "\","
+                 << "\"" << resource->m_DebugName.ToView() << "\","
                  << resource->m_MemoryUsage << ","
                  << (resource->m_IsActive ? "true" : "false") << ","
                  << (resource->m_IsBound ? "true" : "false") << ","
@@ -2290,12 +2299,12 @@ namespace OloEngine
             u32 previewHeight = std::min(height, 256u);
 
             // Allocate preview buffer
-            info.m_PreviewData.resize(previewWidth * previewHeight * bytesPerPixel);
+            info.m_PreviewData.SetNum(previewWidth * previewHeight * bytesPerPixel, EAllowShrinking::No);
 
             if (previewWidth == width && previewHeight == height)
             {
                 // Direct copy if no scaling needed
-                std::memcpy(info.m_PreviewData.data(), data, dataSize);
+                std::memcpy(info.m_PreviewData.GetData(), data, dataSize);
             }
             else
             {

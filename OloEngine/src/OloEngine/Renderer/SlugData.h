@@ -5,7 +5,7 @@
 #include "OloEngine/Renderer/Texture.h"
 
 #include <unordered_map>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 #include <glm/glm.hpp>
 
@@ -86,8 +86,8 @@ namespace OloEngine
         // before the renderer exists would silently drop all its text on every
         // later render even once a context is live (issue #520).
         bool GpuUploadPending = false;
-        std::vector<f32> PendingCurveTexels; // RGBA16F, padded to Width*Height*4 floats
-        std::vector<u16> PendingBandTexels;  // RG16UI,  padded to Width*Height*2 u16s
+        TArray<f32> PendingCurveTexels; // RGBA16F, padded to Width*Height*4 floats
+        TArray<u16> PendingBandTexels;  // RG16UI,  padded to Width*Height*2 u16s
         u32 PendingCurveWidth = 0;
         u32 PendingCurveHeight = 0;
         u32 PendingBandWidth = 0;

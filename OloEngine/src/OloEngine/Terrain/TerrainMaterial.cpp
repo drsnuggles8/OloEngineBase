@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include <limits>
 #include "OloEngine/Terrain/TerrainMaterial.h"
 
 #include <stb_image/stb_image.h>
@@ -49,33 +50,34 @@ namespace OloEngine
         return m_Layers[index];
     }
 
-    bool TerrainMaterial::LoadTextureData(const std::string& path, u32 targetSize,
-                                          std::vector<u8>& outData)
+    bool TerrainMaterial::LoadTextureData(const FString& path, u32 targetSize,
+                                          TArray<u8>& outData)
     {
         OLO_PROFILE_FUNCTION();
 
-        if (path.empty())
+        if (path.IsEmpty())
         {
             return false;
         }
 
         i32 w = 0, h = 0, channels = 0;
         stbi_set_flip_vertically_on_load_thread(0);
-        u8* pixels = stbi_load(path.c_str(), &w, &h, &channels, 4); // Force RGBA
+        u8* pixels = stbi_load(path.GetData(), &w, &h, &channels, 4); // Force RGBA
         if (!pixels)
         {
-            OLO_CORE_WARN("TerrainMaterial: Failed to load texture '{}'", path);
+            OLO_CORE_WARN("TerrainMaterial: Failed to load texture '{}'", path.ToView());
             return false;
         }
 
         if (static_cast<u32>(w) == targetSize && static_cast<u32>(h) == targetSize)
         {
-            outData.assign(pixels, pixels + static_cast<sizet>(w) * h * 4);
+            outData.Reset();
+            outData.Append(pixels, w * h * 4);
         }
         else
         {
             // Simple nearest-neighbor resize to target size
-            outData.resize(static_cast<sizet>(targetSize) * targetSize * 4);
+            outData.SetNum(static_cast<sizet>(targetSize) * targetSize * 4, EAllowShrinking::No);
             for (u32 y = 0; y < targetSize; ++y)
             {
                 for (u32 x = 0; x < targetSize; ++x)
@@ -133,12 +135,12 @@ namespace OloEngine
         }
 
         // Default data for layers without textures
-        std::vector<u8> defaultAlbedo(static_cast<sizet>(layerResolution) * layerResolution * 4, 128);
-        std::vector<u8> defaultNormal(static_cast<sizet>(layerResolution) * layerResolution * 4);
-        std::vector<u8> defaultARM(static_cast<sizet>(layerResolution) * layerResolution * 4);
+        TArray<u8> defaultAlbedo(static_cast<sizet>(layerResolution) * layerResolution * 4, 128);
+        TArray<u8> defaultNormal(static_cast<sizet>(layerResolution) * layerResolution * 4);
+        TArray<u8> defaultARM(static_cast<sizet>(layerResolution) * layerResolution * 4);
 
         // Fill default normal map (flat: 128, 128, 255, 255 = tangent-space up)
-        for (sizet i = 0; i < defaultNormal.size(); i += 4)
+        for (sizet i = 0; i < defaultNormal.Num(); i += 4)
         {
             defaultNormal[i + 0] = 128; // X
             defaultNormal[i + 1] = 128; // Y
@@ -147,7 +149,7 @@ namespace OloEngine
         }
 
         // Fill default ARM (AO=255, Roughness=204 (~0.8), Metallic=0)
-        for (sizet i = 0; i < defaultARM.size(); i += 4)
+        for (sizet i = 0; i < defaultARM.Num(); i += 4)
         {
             defaultARM[i + 0] = 255; // AO
             defaultARM[i + 1] = 204; // Roughness
@@ -155,7 +157,7 @@ namespace OloEngine
             defaultARM[i + 3] = 255; // A (height for blending)
         }
 
-        std::vector<u8> texData;
+        TArray<u8> texData;
 
         for (u32 i = 0; i < m_LayerCount; ++i)
         {
@@ -164,7 +166,7 @@ namespace OloEngine
             // Albedo
             if (LoadTextureData(layer.AlbedoPath, layerResolution, texData))
             {
-                m_AlbedoArray->SetLayerData(i, texData.data(), layerResolution, layerResolution);
+                m_AlbedoArray->SetLayerData(i, texData.GetData(), layerResolution, layerResolution);
             }
             else
             {
@@ -173,30 +175,30 @@ namespace OloEngine
                 u8 r = static_cast<u8>(std::clamp(layer.BaseColor.r, 0.0f, 1.0f) * 255.0f);
                 u8 g = static_cast<u8>(std::clamp(layer.BaseColor.g, 0.0f, 1.0f) * 255.0f);
                 u8 b = static_cast<u8>(std::clamp(layer.BaseColor.b, 0.0f, 1.0f) * 255.0f);
-                for (sizet j = 0; j < solidColor.size(); j += 4)
+                for (sizet j = 0; j < solidColor.Num(); j += 4)
                 {
                     solidColor[j + 0] = r;
                     solidColor[j + 1] = g;
                     solidColor[j + 2] = b;
                     solidColor[j + 3] = 255;
                 }
-                m_AlbedoArray->SetLayerData(i, solidColor.data(), layerResolution, layerResolution);
+                m_AlbedoArray->SetLayerData(i, solidColor.GetData(), layerResolution, layerResolution);
             }
 
             // Normal
             if (LoadTextureData(layer.NormalPath, layerResolution, texData))
             {
-                m_NormalArray->SetLayerData(i, texData.data(), layerResolution, layerResolution);
+                m_NormalArray->SetLayerData(i, texData.GetData(), layerResolution, layerResolution);
             }
             else
             {
-                m_NormalArray->SetLayerData(i, defaultNormal.data(), layerResolution, layerResolution);
+                m_NormalArray->SetLayerData(i, defaultNormal.GetData(), layerResolution, layerResolution);
             }
 
             // ARM
             if (LoadTextureData(layer.ARMPath, layerResolution, texData))
             {
-                m_ARMArray->SetLayerData(i, texData.data(), layerResolution, layerResolution);
+                m_ARMArray->SetLayerData(i, texData.GetData(), layerResolution, layerResolution);
             }
             else
             {
@@ -204,12 +206,12 @@ namespace OloEngine
                 auto armData = defaultARM;
                 u8 roughByte = static_cast<u8>(std::clamp(layer.Roughness, 0.0f, 1.0f) * 255.0f);
                 u8 metalByte = static_cast<u8>(std::clamp(layer.Metallic, 0.0f, 1.0f) * 255.0f);
-                for (sizet j = 0; j < armData.size(); j += 4)
+                for (sizet j = 0; j < armData.Num(); j += 4)
                 {
                     armData[j + 1] = roughByte;
                     armData[j + 2] = metalByte;
                 }
-                m_ARMArray->SetLayerData(i, armData.data(), layerResolution, layerResolution);
+                m_ARMArray->SetLayerData(i, armData.GetData(), layerResolution, layerResolution);
             }
         }
 
@@ -222,7 +224,7 @@ namespace OloEngine
                       m_LayerCount, layerResolution, layerResolution);
     }
 
-    void TerrainMaterial::SetSplatmapPath(u32 index, const std::string& path)
+    void TerrainMaterial::SetSplatmapPath(u32 index, const FString& path)
     {
         if (index < 2)
         {
@@ -230,9 +232,9 @@ namespace OloEngine
         }
     }
 
-    const std::string& TerrainMaterial::GetSplatmapPath(u32 index) const
+    const FString& TerrainMaterial::GetSplatmapPath(u32 index) const
     {
-        static const std::string empty;
+        static const FString empty;
         return (index < 2) ? m_SplatmapPaths[index] : empty;
     }
 
@@ -242,9 +244,9 @@ namespace OloEngine
 
         for (u32 i = 0; i < 2; ++i)
         {
-            if (!m_SplatmapPaths[i].empty())
+            if (!m_SplatmapPaths[i].IsEmpty())
             {
-                m_Splatmaps[i] = Texture2D::Create(m_SplatmapPaths[i]);
+                m_Splatmaps[i] = Texture2D::Create(m_SplatmapPaths[i].ToStdString());
             }
         }
     }
@@ -264,15 +266,24 @@ namespace OloEngine
             return;
         }
 
+        // The CPU mirror uses a signed 32-bit element count. Reject an oversized
+        // image before narrowing its byte count or changing the active resolution.
+        const u64 pixelCount = static_cast<u64>(resolution) * resolution;
+        if (pixelCount > static_cast<u64>(std::numeric_limits<i32>::max()) / 4)
+        {
+            OLO_CORE_ERROR("TerrainMaterial::InitializeCPUSplatmaps - Resolution {} exceeds CPU storage capacity", resolution);
+            return;
+        }
+
+        const u64 totalPixels = pixelCount * 4; // RGBA8
         m_SplatmapResolution = resolution;
         // Initialisation loads the mirror and the GPU textures together, so any
         // pending GPU-newer flag from a previous material configuration is void.
         m_CPUSplatmapsStale = false;
-        sizet totalPixels = static_cast<sizet>(resolution) * resolution * 4; // RGBA8
 
         for (u32 i = 0; i < 2; ++i)
         {
-            m_CPUSplatmaps[i].resize(totalPixels, 0);
+            m_CPUSplatmaps[i].SetNum(static_cast<i32>(totalPixels), EAllowShrinking::No);
         }
 
         // If splatmaps were loaded from file, read them back into CPU buffers
@@ -280,15 +291,16 @@ namespace OloEngine
         {
             if (m_Splatmaps[i])
             {
-                std::vector<u8> readback;
+                TArray64<u8> readback;
                 if (m_Splatmaps[i]->GetData(readback))
                 {
                     // Resize if needed (readback may differ from target resolution)
                     u32 texW = m_Splatmaps[i]->GetWidth();
                     u32 texH = m_Splatmaps[i]->GetHeight();
-                    if (texW == resolution && texH == resolution && readback.size() == totalPixels)
+                    if (texW == resolution && texH == resolution && readback.Num() == totalPixels)
                     {
-                        m_CPUSplatmaps[i] = std::move(readback);
+                        m_CPUSplatmaps[i].Reset();
+                        m_CPUSplatmaps[i].Append(readback.GetData(), static_cast<i32>(readback.Num()));
                     }
                     else
                     {
@@ -325,19 +337,19 @@ namespace OloEngine
                 OLO_CORE_ERROR("TerrainMaterial::InitializeCPUSplatmaps - Failed to create splatmap texture {}", i);
                 continue;
             }
-            m_Splatmaps[i]->SetData(m_CPUSplatmaps[i].data(),
-                                    static_cast<u32>(m_CPUSplatmaps[i].size()));
+            m_Splatmaps[i]->SetData(m_CPUSplatmaps[i].GetData(),
+                                    static_cast<u32>(m_CPUSplatmaps[i].Num()));
         }
     }
 
-    std::vector<u8>& TerrainMaterial::GetSplatmapData(u32 index)
+    TArray<u8>& TerrainMaterial::GetSplatmapData(u32 index)
     {
         OLO_CORE_ASSERT(index < 2, "Splatmap index out of bounds");
         SyncSplatmapsFromGPU();
         return m_CPUSplatmaps[index];
     }
 
-    const std::vector<u8>& TerrainMaterial::GetSplatmapData(u32 index) const
+    const TArray<u8>& TerrainMaterial::GetSplatmapData(u32 index) const
     {
         OLO_CORE_ASSERT(index < 2, "Splatmap index out of bounds");
         SyncSplatmapsFromGPU();
@@ -371,20 +383,21 @@ namespace OloEngine
                 continue;
             }
 
-            std::vector<u8> readback;
+            TArray64<u8> readback;
             if (!m_Splatmaps[i]->GetData(readback))
             {
                 OLO_CORE_ERROR("TerrainMaterial::SyncSplatmapsFromGPU - Failed to read back splatmap {}", i);
                 continue;
             }
-            if (readback.size() != expectedBytes)
+            if (readback.Num() != expectedBytes)
             {
                 OLO_CORE_ERROR("TerrainMaterial::SyncSplatmapsFromGPU - Splatmap {} readback size mismatch: "
                                "got {} bytes, expected {}",
-                               i, readback.size(), expectedBytes);
+                               i, readback.Num(), expectedBytes);
                 continue;
             }
-            m_CPUSplatmaps[i] = std::move(readback);
+            m_CPUSplatmaps[i].Reset();
+            m_CPUSplatmaps[i].Append(readback.GetData(), static_cast<i32>(readback.Num()));
         }
     }
 
@@ -411,7 +424,7 @@ namespace OloEngine
             return;
 
         // Extract contiguous sub-region
-        std::vector<u8> regionData(static_cast<sizet>(w) * h * 4);
+        TArray<u8> regionData(static_cast<sizet>(w) * h * 4);
         const auto& cpuData = m_CPUSplatmaps[splatmapIndex];
         for (u32 row = 0; row < h; ++row)
         {
@@ -421,7 +434,7 @@ namespace OloEngine
         }
 
         u32 dataSize = w * h * 4;
-        m_Splatmaps[splatmapIndex]->SubImage(x, y, w, h, regionData.data(), dataSize);
+        m_Splatmaps[splatmapIndex]->SubImage(x, y, w, h, regionData.GetData(), dataSize);
     }
 
 } // namespace OloEngine

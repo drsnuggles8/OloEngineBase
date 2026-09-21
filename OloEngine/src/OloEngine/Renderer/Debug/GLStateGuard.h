@@ -30,7 +30,8 @@
 #include <array>
 #include <string>
 #include <string_view>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/String.h"
 
 namespace OloEngine
 {
@@ -150,7 +151,7 @@ namespace OloEngine
         // Compute a list of human-readable descriptions for every field in
         // which this snapshot differs from `other`. Empty vector means
         // identical state.
-        std::vector<std::string> DiffAgainst(const GLStateSnapshot& other) const;
+        TArray<FString> DiffAgainst(const GLStateSnapshot& other) const;
 
         // Re-issue the GL calls needed to bring the pipeline state back to
         // the values in this snapshot. Covers the *core* subset that passes
@@ -205,7 +206,7 @@ namespace OloEngine
 
         // Force the compare to run now and return the mismatches, without
         // logging. Useful for tests. Subsequent destructor call is a no-op.
-        std::vector<std::string> DetectLeaks();
+        TArray<FString> DetectLeaks();
 
         // Access the entry snapshot (for tests / diagnostics).
         const GLStateSnapshot& EntryState() const
@@ -214,7 +215,7 @@ namespace OloEngine
         }
 
       private:
-        std::string m_PassName;
+        FString m_PassName;
         GLStateSnapshot m_EntryState;
         Policy m_Policy;
         bool m_Finalized = false;

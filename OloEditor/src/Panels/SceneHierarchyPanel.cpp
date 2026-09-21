@@ -596,7 +596,7 @@ namespace OloEngine
 
         // Mark as leaf if entity has no children
         const auto& children = entity.Children();
-        if (children.empty())
+        if (children.IsEmpty())
         {
             flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
         }
@@ -856,7 +856,7 @@ namespace OloEngine
             }
         }
 
-        if (opened && !children.empty())
+        if (opened && !children.IsEmpty())
         {
             for (const UUID& childUUID : children)
             {
@@ -1863,7 +1863,7 @@ namespace OloEngine
             {
                 BuildEmitMeshFromPrimitive(*mesh, primIdx);
             }
-            ImGui::Text("Triangles: %u", static_cast<u32>(mesh->Triangles.size()));
+            ImGui::Text("Triangles: %u", static_cast<u32>(mesh->Triangles.Num()));
         }
     }
 
@@ -2922,7 +2922,7 @@ namespace OloEngine
                 ImGui::Text("Submeshes: %d", component.MeshSource->GetSubmeshes().Num());
             }
             ImGui::Text("Override Material: %s", component.OverrideMaterial ? "Set" : "None");
-            ImGui::Text("Inline Instance Count: %zu", component.Instances.size());
+            ImGui::Text("Inline Instance Count: %d", component.Instances.Num());
             ImGui::Text("Placement Asset Handle: %llu", static_cast<unsigned long long>(component.PlacementAssetHandle));
             ImGui::Separator();
             ImGui::Checkbox("Frustum Cull Per Instance", &component.FrustumCullPerInstance);
@@ -2950,7 +2950,7 @@ namespace OloEngine
                 // one per instance from both lists), so a count of the inline
                 // list alone understates the atlas pressure this very tooltip
                 // exists to help the author judge.
-                sizet regionCount = component.Instances.size();
+                sizet regionCount = component.Instances.Num();
                 if (component.PlacementAssetHandle != 0)
                 {
                     if (auto placement = AssetManager::GetAsset<InstancePlacementAsset>(component.PlacementAssetHandle))
@@ -3112,7 +3112,7 @@ namespace OloEngine
                     }
                 }
 
-                component.Instances.reserve(component.Instances.size() + xzPositions.size());
+                component.Instances.Reserve(component.Instances.Num() + xzPositions.size());
                 for (const auto& xz : xzPositions)
                 {
                     InstanceData inst;
@@ -3125,13 +3125,13 @@ namespace OloEngine
                     inst.Transform = t * r * s;
                     inst.Normal = glm::transpose(glm::inverse(inst.Transform));
                     inst.PrevTransform = inst.Transform;
-                    component.Instances.push_back(inst);
+                    component.Instances.Add(inst);
                 }
             }
             ImGui::SameLine();
             if (ImGui::Button("Clear Inline"))
             {
-                component.Instances.clear();
+                component.Instances.Reset();
             } });
 
         DrawComponent<ModelComponent>("Model", entity, [](auto& component)
@@ -3218,7 +3218,7 @@ namespace OloEngine
             // removes deliberately leave it alone — they do not change whether the
             // chain's meshes can be persisted, which the serializer decides separately
             // by inspecting the level handles (issue #711).
-            ImGui::Text("LOD Levels: %zu", component.m_LODGroup.Levels.size());
+            ImGui::Text("LOD Levels: %d", component.m_LODGroup.Levels.Num());
             if (component.m_LODGroup.HasErrorData())
             {
                 ImGui::TextDisabled("Selected by pixel error (threshold in Renderer Settings).");
@@ -3230,7 +3230,7 @@ namespace OloEngine
 
             i32 removeIndex = -1;
             bool needsResort = false;
-            for (sizet i = 0; i < component.m_LODGroup.Levels.size(); ++i)
+            for (sizet i = 0; i < component.m_LODGroup.Levels.Num(); ++i)
             {
                 auto& level = component.m_LODGroup.Levels[i];
                 ImGui::PushID(static_cast<int>(i));
@@ -3288,10 +3288,10 @@ namespace OloEngine
 
             if (removeIndex >= 0)
             {
-                component.m_LODGroup.Levels.erase(component.m_LODGroup.Levels.begin() + removeIndex);
+                component.m_LODGroup.Levels.RemoveAt(removeIndex, 1, EAllowShrinking::No);
             }
 
-            if (needsResort && component.m_LODGroup.Levels.size() > 1)
+            if (needsResort && component.m_LODGroup.Levels.Num() > 1)
             {
                 std::ranges::sort(component.m_LODGroup.Levels,
                           [](const LODLevel& a, const LODLevel& b) { return a.MaxDistance < b.MaxDistance; });
@@ -3299,10 +3299,10 @@ namespace OloEngine
 
             if (ImGui::Button("Add LOD Level"))
             {
-                f32 nextDistance = component.m_LODGroup.Levels.empty()
+                f32 nextDistance = component.m_LODGroup.Levels.IsEmpty()
                     ? 50.0f
-                    : component.m_LODGroup.Levels.back().MaxDistance + 50.0f;
-                component.m_LODGroup.Levels.emplace_back(AssetHandle{0}, nextDistance);
+                    : component.m_LODGroup.Levels.Last().MaxDistance + 50.0f;
+                component.m_LODGroup.Levels.Emplace(AssetHandle{0}, nextDistance);
             }
 
             // Auto-generate LODs from the entity's mesh source
@@ -3323,12 +3323,12 @@ namespace OloEngine
                                 AssetManager::RemoveAsset(handle);
                             }
                         }
-                        component.m_GeneratedLODHandles.clear();
+                        component.m_GeneratedLODHandles.Reset();
 
                         // Register the base mesh as a memory asset so LOD 0 has a valid handle
                         auto baseMesh = Ref<Mesh>::Create(meshComp.m_MeshSource, 0);
                         AssetHandle const baseHandle = AssetManager::AddMemoryOnlyAsset(baseMesh);
-                        component.m_GeneratedLODHandles.push_back(baseHandle);
+                        component.m_GeneratedLODHandles.Add(baseHandle);
 
                         // Auto chain (issue #711): halves triangles per level and
                         // records each level's error, so selection needs no authored
@@ -3346,9 +3346,9 @@ namespace OloEngine
                         component.m_AutoGenerated = true;
 
                         // Track all generated LOD handles (skip LOD 0 which is the base)
-                        for (sizet li = 1; li < component.m_LODGroup.Levels.size(); ++li)
+                        for (sizet li = 1; li < component.m_LODGroup.Levels.Num(); ++li)
                         {
-                            component.m_GeneratedLODHandles.push_back(
+                            component.m_GeneratedLODHandles.Add(
                                 component.m_LODGroup.Levels[li].MeshHandle);
                         }
                     }
@@ -3403,10 +3403,10 @@ namespace OloEngine
             ImGui::Separator();
 
             // Material palette
-            ImGui::Text("Materials: %zu", component.Materials.size());
+            ImGui::Text("Materials: %d", component.Materials.Num());
 
             i32 removeIdx = -1;
-            auto materialCount = component.Materials.size();
+            auto materialCount = component.Materials.Num();
             for (sizet i = 0; i < materialCount; ++i)
             {
                 auto& mat = component.Materials[i];
@@ -3414,7 +3414,7 @@ namespace OloEngine
 
                 ImGui::Text("Material %zu", i);
                 ImGui::SameLine(ImGui::GetContentRegionAvail().x - 20.0f);
-                if (component.Materials.size() > 1 && ImGui::Button("X"))
+                if (component.Materials.Num() > 1 && ImGui::Button("X"))
                 {
                     removeIdx = static_cast<i32>(i);
                 }
@@ -3442,7 +3442,7 @@ namespace OloEngine
             if (removeIdx >= 0)
             {
                 u8 removedIdx = static_cast<u8>(removeIdx);
-                component.Materials.erase(component.Materials.begin() + removeIdx);
+                component.Materials.RemoveAt(removeIdx, 1, EAllowShrinking::No);
                 // Remap MaterialIDs: shift indices down, clamp deleted references
                 for (auto& id : component.MaterialIDs)
                 {
@@ -3454,19 +3454,19 @@ namespace OloEngine
                 }
             }
 
-            if (component.Materials.size() < 255 && ImGui::Button("Add Material"))
+            if (component.Materials.Num() < 255 && ImGui::Button("Add Material"))
             {
-                component.Materials.emplace_back();
+                component.Materials.Emplace();
             }
 
             ImGui::Separator();
 
             // Per-cell material ID editor
             auto expectedSize = static_cast<sizet>(component.Width) * component.Height;
-            if (!component.Materials.empty() && component.Width > 0 && component.Height > 0
-                && component.MaterialIDs.size() == expectedSize && ImGui::TreeNode("Tile Grid"))
+            if (!component.Materials.IsEmpty() && component.Width > 0 && component.Height > 0
+                && component.MaterialIDs.Num() == expectedSize && ImGui::TreeNode("Tile Grid"))
             {
-                auto maxIdx = static_cast<u8>(std::min<sizet>(component.Materials.size() - 1, 255));
+                auto maxIdx = static_cast<u8>(std::min<sizet>(component.Materials.Num() - 1, 255));
 
                 // Compute visible column range to avoid creating hundreds of off-screen widgets
                 constexpr f32 cellWidgetWidth = 34.0f; // 30px widget + ~4px spacing
@@ -3736,7 +3736,7 @@ namespace OloEngine
                     if (auto profile = AssetManager::GetAsset<SkinProfile>(profileHandle))
                     {
                         const SkinProfileParameters& parameters = profile->GetParameters();
-                        ImGui::TextUnformatted(("Name: " + profile->GetName()).c_str());
+                        ImGui::TextUnformatted(("Name: " + std::string(profile->GetName())).c_str());
                         ImGui::Text("Transport version: %s", std::string(ToString(parameters.EvaluationModel)).c_str());
                         ImGui::Text("Scatter colour (linear Rec.709): %.3f %.3f %.3f",
                                     static_cast<f64>(parameters.ScatterColor.r),
@@ -5030,7 +5030,7 @@ namespace OloEngine
                     // >= 2 are required for the constraint to build.
                     ImGui::TextDisabled("Path Points (local to connected body / world)");
                     int removeIndex = -1;
-                    for (int i = 0; i < static_cast<int>(component.m_PathPoints.size()); ++i)
+                    for (int i = 0; i < static_cast<int>(component.m_PathPoints.Num()); ++i)
                     {
                         ImGui::PushID(i);
                         DrawVec3Control(("Point " + std::to_string(i) + "##PathJoint").c_str(), component.m_PathPoints[i]);
@@ -5040,15 +5040,15 @@ namespace OloEngine
                         ImGui::PopID();
                     }
                     if (removeIndex >= 0)
-                        component.m_PathPoints.erase(component.m_PathPoints.begin() + removeIndex);
+                        component.m_PathPoints.RemoveAt(removeIndex, 1, EAllowShrinking::No);
                     if (ImGui::Button("Add Point##PathJoint"))
                     {
-                        const glm::vec3 next = component.m_PathPoints.empty()
+                        const glm::vec3 next = component.m_PathPoints.IsEmpty()
                                                    ? glm::vec3(0.0f)
-                                                   : component.m_PathPoints.back() + glm::vec3(1.0f, 0.0f, 0.0f);
-                        component.m_PathPoints.push_back(next);
+                                                   : component.m_PathPoints.Last() + glm::vec3(1.0f, 0.0f, 0.0f);
+                        component.m_PathPoints.Add(next);
                     }
-                    if (component.m_PathPoints.size() < 2)
+                    if (component.m_PathPoints.Num() < 2)
                         ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f), "Path needs at least 2 points.");
 
                     ImGui::Checkbox("Looping##PathJoint", &component.m_PathIsLooping);
@@ -5983,19 +5983,21 @@ namespace OloEngine
 
         DrawComponent<UIDropdownComponent>("UI Dropdown", entity, [](auto& component)
                                            {
-            if (int selectedIndex = component.m_SelectedIndex; ImGui::DragInt("Selected Index", &selectedIndex, 1, -1, static_cast<int>(component.m_Options.size()) - 1))
+            if (int selectedIndex = component.m_SelectedIndex; ImGui::DragInt("Selected Index", &selectedIndex, 1, -1, static_cast<int>(component.m_Options.Num()) - 1))
                 component.m_SelectedIndex = selectedIndex;
 
-            ImGui::Text("Options (%zu):", component.m_Options.size());
-            for (sizet i = 0; i < component.m_Options.size(); ++i)
+            ImGui::Text("Options (%d):", component.m_Options.Num());
+            for (sizet i = 0; i < component.m_Options.Num(); ++i)
             {
                 ImGui::PushID(static_cast<int>(i));
-                ImGui::InputText("##option", &component.m_Options[i].m_Label);
+                auto label = component.m_Options[i].m_Label.ToStdString();
+                if (ImGui::InputText("##option", &label))
+                    component.m_Options[i].m_Label = label;
                 ImGui::SameLine();
                 if (ImGui::SmallButton("X"))
                 {
                     const int removedIndex = static_cast<int>(i);
-                    component.m_Options.erase(component.m_Options.begin() + static_cast<std::ptrdiff_t>(i));
+                    component.m_Options.RemoveAt(i, 1, EAllowShrinking::No);
                     if (component.m_SelectedIndex == removedIndex)
                         component.m_SelectedIndex = -1;
                     else if (component.m_SelectedIndex > removedIndex)
@@ -6008,7 +6010,7 @@ namespace OloEngine
             }
             if (ImGui::SmallButton("Add Option"))
             {
-                component.m_Options.push_back({ "New Option" });
+                component.m_Options.Add({ "New Option" });
             }
 
             ImGui::ColorEdit4("Background Color", glm::value_ptr(component.m_BackgroundColor));
@@ -6186,7 +6188,7 @@ namespace OloEngine
             if (ImGui::CollapsingHeader("Force Fields"))
             {
                 const char* ffTypes[] = { "Attraction", "Repulsion", "Vortex" };
-                for (sizet fi = 0; fi < sys.ForceFields.size(); ++fi)
+                for (sizet fi = 0; fi < sys.ForceFields.Num(); ++fi)
                 {
                     auto& ff = sys.ForceFields[fi];
                     ImGui::PushID(static_cast<int>(fi));
@@ -6208,7 +6210,7 @@ namespace OloEngine
                         }
                         if (ImGui::Button("Remove"))
                         {
-                            sys.ForceFields.erase(sys.ForceFields.begin() + static_cast<ptrdiff_t>(fi));
+                            sys.ForceFields.RemoveAt(fi, 1, EAllowShrinking::No);
                             ImGui::TreePop();
                             ImGui::PopID();
                             break;
@@ -6219,7 +6221,7 @@ namespace OloEngine
                 }
                 if (ImGui::Button("Add Force Field"))
                 {
-                    sys.ForceFields.emplace_back();
+                    sys.ForceFields.Emplace_GetRef();
                 }
             }
             if (ImGui::CollapsingHeader("Trail"))
@@ -6374,7 +6376,7 @@ namespace OloEngine
                 // Splatmap paths
                 {
                     char sp0Buf[256]{};
-                    std::strncpy(sp0Buf, mat->GetSplatmapPath(0).c_str(), sizeof(sp0Buf) - 1);
+                    std::strncpy(sp0Buf, mat->GetSplatmapPath(0).GetData(), sizeof(sp0Buf) - 1);
                     if (ImGui::InputText("Splatmap 0", sp0Buf, sizeof(sp0Buf)))
                     {
                         mat->SetSplatmapPath(0, sp0Buf);
@@ -6382,7 +6384,7 @@ namespace OloEngine
                     }
 
                     char sp1Buf[256]{};
-                    std::strncpy(sp1Buf, mat->GetSplatmapPath(1).c_str(), sizeof(sp1Buf) - 1);
+                    std::strncpy(sp1Buf, mat->GetSplatmapPath(1).GetData(), sizeof(sp1Buf) - 1);
                     if (ImGui::InputText("Splatmap 1", sp1Buf, sizeof(sp1Buf)))
                     {
                         mat->SetSplatmapPath(1, sp1Buf);
@@ -6398,7 +6400,7 @@ namespace OloEngine
                     auto& layer = mat->GetLayer(i);
 
                     bool layerOpen = ImGui::TreeNodeEx(
-                        layer.Name.c_str(),
+                        layer.Name.GetData(),
                         ImGuiTreeNodeFlags_AllowOverlap | ImGuiTreeNodeFlags_DefaultOpen);
 
                     // Remove button on same line
@@ -6415,12 +6417,12 @@ namespace OloEngine
                     if (layerOpen)
                     {
                         char nameBuf[128]{};
-                        std::strncpy(nameBuf, layer.Name.c_str(), sizeof(nameBuf) - 1);
+                        std::strncpy(nameBuf, layer.Name.GetData(), sizeof(nameBuf) - 1);
                         if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf)))
                             layer.Name = nameBuf;
 
                         char albBuf[256]{};
-                        std::strncpy(albBuf, layer.AlbedoPath.c_str(), sizeof(albBuf) - 1);
+                        std::strncpy(albBuf, layer.AlbedoPath.GetData(), sizeof(albBuf) - 1);
                         if (ImGui::InputText("Albedo", albBuf, sizeof(albBuf)))
                         {
                             layer.AlbedoPath = albBuf;
@@ -6428,7 +6430,7 @@ namespace OloEngine
                         }
 
                         char nrmBuf[256]{};
-                        std::strncpy(nrmBuf, layer.NormalPath.c_str(), sizeof(nrmBuf) - 1);
+                        std::strncpy(nrmBuf, layer.NormalPath.GetData(), sizeof(nrmBuf) - 1);
                         if (ImGui::InputText("Normal", nrmBuf, sizeof(nrmBuf)))
                         {
                             layer.NormalPath = nrmBuf;
@@ -6436,7 +6438,7 @@ namespace OloEngine
                         }
 
                         char armBuf[256]{};
-                        std::strncpy(armBuf, layer.ARMPath.c_str(), sizeof(armBuf) - 1);
+                        std::strncpy(armBuf, layer.ARMPath.GetData(), sizeof(armBuf) - 1);
                         if (ImGui::InputText("ARM", armBuf, sizeof(armBuf)))
                         {
                             layer.ARMPath = armBuf;
@@ -6513,7 +6515,7 @@ namespace OloEngine
                     component.m_AutoSplatNeedsRebuild = true;
                 }
 
-                for (sizet i = 0; i < component.m_LayerRules.size(); ++i)
+                for (sizet i = 0; i < component.m_LayerRules.Num(); ++i)
                 {
                     ImGui::PushID(static_cast<int>(2000 + i));
                     auto& rule = component.m_LayerRules[i];
@@ -6525,7 +6527,7 @@ namespace OloEngine
                     ImGui::SameLine(ImGui::GetContentRegionAvail().x - 20.0f);
                     if (ImGui::SmallButton("X"))
                     {
-                        component.m_LayerRules.erase(component.m_LayerRules.begin() + static_cast<std::ptrdiff_t>(i));
+                        component.m_LayerRules.RemoveAt(i, 1, EAllowShrinking::No);
                         component.m_AutoSplatNeedsRebuild = true;
                         if (ruleOpen)
                             ImGui::TreePop();
@@ -6558,7 +6560,7 @@ namespace OloEngine
 
                 if (ImGui::Button("+ Add Rule"))
                 {
-                    component.m_LayerRules.push_back(TerrainLayerRule{});
+                    component.m_LayerRules.Add(TerrainLayerRule{});
                     component.m_AutoSplatNeedsRebuild = true;
                 }
                 ImGui::SameLine();
@@ -6862,7 +6864,7 @@ namespace OloEngine
                 if (component.m_TessellationEnabled)
                 {
                     ImGui::Text("Visible (LOD): %u",
-                        static_cast<u32>(component.m_ChunkManager->GetSelectedChunks().size()));
+                        static_cast<u32>(component.m_ChunkManager->GetSelectedChunks().Num()));
                     ImGui::Text("Quadtree Nodes: %u",
                         component.m_ChunkManager->GetQuadtree().GetNodeCount());
                 }
@@ -6873,7 +6875,7 @@ namespace OloEngine
                 ImGui::Checkbox("Enabled", &component.m_Enabled);
 
                 ImGui::Separator();
-                ImGui::Text("Layers: %u", static_cast<u32>(component.m_Layers.size()));
+                ImGui::Text("Layers: %u", static_cast<u32>(component.m_Layers.Num()));
 
                 // Canonical instance census (issue #1230). Read-only: this is
                 // runtime state owned by the renderer, not authored data, so it
@@ -6907,8 +6909,8 @@ namespace OloEngine
                 if (ImGui::Button("+ Add Layer"))
                 {
                     FoliageLayer newLayer;
-                    newLayer.Name = "Layer " + std::to_string(component.m_Layers.size());
-                    component.m_Layers.push_back(newLayer);
+                    newLayer.Name = "Layer " + std::to_string(component.m_Layers.Num());
+                    component.m_Layers.Add(newLayer);
                     component.m_NeedsRebuild = true;
                 }
 
@@ -6920,11 +6922,11 @@ namespace OloEngine
                 ImGui::SameLine();
                 if (ImGui::Button("Generate from Terrain Rules"))
                 {
-                    std::vector<FoliageLayer> generated;
+                    TArray<FoliageLayer> generated;
                     if (entity.HasComponent<TerrainComponent>())
                     {
                         const auto& terrain = entity.GetComponent<TerrainComponent>();
-                        generated = terrain.m_LayerRules.empty()
+                        generated = terrain.m_LayerRules.IsEmpty()
                                         ? TerrainGenerator::MakeDefaultFoliageLayers()
                                         : TerrainGenerator::MakeFoliageLayersFromRules(terrain.m_LayerRules);
                     }
@@ -6941,12 +6943,12 @@ namespace OloEngine
                     "splatmaps for per-channel masking.");
 
                 i32 removeIdx = -1;
-                for (sizet i = 0; i < component.m_Layers.size(); ++i)
+                for (sizet i = 0; i < component.m_Layers.Num(); ++i)
                 {
                     auto& layer = component.m_Layers[i];
                     ImGui::PushID(static_cast<int>(i));
 
-                    bool layerOpen = ImGui::TreeNodeEx(layer.Name.c_str(),
+                    bool layerOpen = ImGui::TreeNodeEx(layer.Name.GetData(),
                         ImGuiTreeNodeFlags_AllowOverlap | ImGuiTreeNodeFlags_Framed);
 
                     ImGui::SameLine(ImGui::GetContentRegionAvail().x - 60.0f);
@@ -6958,7 +6960,7 @@ namespace OloEngine
                     if (layerOpen)
                     {
                         char nameBuf[128];
-                        std::strncpy(nameBuf, layer.Name.c_str(), sizeof(nameBuf) - 1);
+                        std::strncpy(nameBuf, layer.Name.GetData(), sizeof(nameBuf) - 1);
                         nameBuf[sizeof(nameBuf) - 1] = '\0';
                         if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf)))
                         {
@@ -6968,7 +6970,7 @@ namespace OloEngine
 
                         // Paths
                         char meshBuf[256];
-                        std::strncpy(meshBuf, layer.MeshPath.c_str(), sizeof(meshBuf) - 1);
+                        std::strncpy(meshBuf, layer.MeshPath.GetData(), sizeof(meshBuf) - 1);
                         meshBuf[sizeof(meshBuf) - 1] = '\0';
                         if (ImGui::InputText("Mesh Path", meshBuf, sizeof(meshBuf)))
                         {
@@ -6984,7 +6986,7 @@ namespace OloEngine
                             "OloEngine.log and the layer draws its flat card everywhere.");
 
                         char albedoBuf[256];
-                        std::strncpy(albedoBuf, layer.AlbedoPath.c_str(), sizeof(albedoBuf) - 1);
+                        std::strncpy(albedoBuf, layer.AlbedoPath.GetData(), sizeof(albedoBuf) - 1);
                         albedoBuf[sizeof(albedoBuf) - 1] = '\0';
                         if (ImGui::InputText("Albedo Path", albedoBuf, sizeof(albedoBuf)))
                         {
@@ -6997,7 +6999,7 @@ namespace OloEngine
                         // distances: with no mesh assigned these do nothing, and
                         // an author reading them out of context would take them
                         // for the card's own fade.
-                        if (!layer.MeshPath.empty())
+                        if (!layer.MeshPath.IsEmpty())
                         {
                             if (ImGui::Checkbox("Render Authored Mesh", &layer.UseAuthoredMesh))
                                 component.m_NeedsRebuild = true;
@@ -7331,10 +7333,10 @@ namespace OloEngine
                             "Strength 0 turns the whole thing off, which is what a layer authored "
                             "before this material existed loads as.");
 
-                        const auto pathField = [&](const char* label, std::string& path, const char* tip)
+                        const auto pathField = [&](const char* label, FString& path, const char* tip)
                         {
                             char buf[256];
-                            std::strncpy(buf, path.c_str(), sizeof(buf) - 1);
+                            std::strncpy(buf, path.GetData(), sizeof(buf) - 1);
                             buf[sizeof(buf) - 1] = '\0';
                             if (ImGui::InputText(label, buf, sizeof(buf)))
                             {
@@ -7350,7 +7352,7 @@ namespace OloEngine
                                   "derived from screen-space derivatives (the foliage vertex stream "
                                   "carries no tangent), so the card, the authored mesh and the "
                                   "impostor all build it the same way.");
-                        if (!layer.NormalMapPath.empty())
+                        if (!layer.NormalMapPath.IsEmpty())
                         {
                             if (ImGui::DragFloat("Normal Strength", &layer.NormalStrength, 0.01f, 0.0f, 4.0f))
                                 component.m_NeedsRebuild = true;
@@ -7418,7 +7420,7 @@ namespace OloEngine
 
                 if (removeIdx >= 0)
                 {
-                    component.m_Layers.erase(component.m_Layers.begin() + removeIdx);
+                    component.m_Layers.RemoveAt(removeIdx, 1, EAllowShrinking::No);
                     component.m_NeedsRebuild = true;
                 }
 
@@ -8055,7 +8057,7 @@ namespace OloEngine
 
         DrawComponent<DiscoveredSetComponent>("Discovered Set", entity, [](auto& component)
                                               {
-                ImGui::Text("Discovered: %d", static_cast<int>(component.m_Discovered.size()));
+                ImGui::Text("Discovered: %d", static_cast<int>(component.m_Discovered.Num()));
                 ImGui::TextDisabled("Populated at runtime by the discovery system; not hand-authored."); });
 
         // Destructible (issue #459) — shatters into pre-authored debris chunks on
@@ -10599,7 +10601,8 @@ namespace OloEngine
                         // than the lightmap bake would disagree with it
                         // photometrically for no visible reason.
                         PathTracing::ReferenceSceneBuilder builder;
-                        builder.AddLightmapReceivers(*m_Context, GatherLightmapReceivers(*m_Context));
+                        const auto receivers = GatherLightmapReceivers(*m_Context);
+                        builder.AddLightmapReceivers(*m_Context, { receivers.GetData(), static_cast<sizet>(receivers.Num()) });
 
                         bool baked = false;
                         auto asset = Ref<LightProbeVolumeAsset>::Create();
@@ -10989,13 +10992,13 @@ namespace OloEngine
             }
 
             ImGui::Separator();
-            ImGui::Text("Off-Mesh Links (%d)", static_cast<int>(component.m_Links.size()));
+            ImGui::Text("Off-Mesh Links (%d)", static_cast<int>(component.m_Links.Num()));
             ImGui::TextDisabled("Point-to-point connections agents jump/drop/ladder across. Re-bake to apply.");
             if (ImGui::Button("Add Link"))
-                component.m_Links.emplace_back();
+                component.m_Links.Emplace_GetRef();
 
             int removeIndex = -1;
-            for (int i = 0; i < static_cast<int>(component.m_Links.size()); ++i)
+            for (int i = 0; i < static_cast<int>(component.m_Links.Num()); ++i)
             {
                 ImGui::PushID(i);
                 auto& link = component.m_Links[static_cast<sizet>(i)];
@@ -11009,7 +11012,7 @@ namespace OloEngine
                 ImGui::PopID();
             }
             if (removeIndex >= 0)
-                component.m_Links.erase(component.m_Links.begin() + removeIndex); });
+                component.m_Links.RemoveAt(removeIndex, 1, EAllowShrinking::No); });
 
         DrawComponent<NavAgentComponent>("Nav Agent", entity, [](auto& component)
                                          {
@@ -11023,7 +11026,7 @@ namespace OloEngine
 
             if (component.m_HasPath)
             {
-                ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Has path (%d corners)", static_cast<int>(component.m_PathCorners.size()));
+                ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Has path (%d corners)", static_cast<int>(component.m_PathCorners.Num()));
             }
             else
             {

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "OloEngine/Containers/Array.h"
+
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
@@ -164,9 +166,22 @@ namespace OloEngine
         //
         // Requires PrepareViews (or RenderVirtualShadowMapLevels) to have run
         // this frame; returns false when there is no prepared frame to read.
-        [[nodiscard]] bool CollectShadowCasterBounds(std::vector<ShadowCasterBounds>& out);
+        [[nodiscard]] bool CollectShadowCasterBounds(TArray64<ShadowCasterBounds>& out);
 
         // Releases the lazily-created shaders (Renderer3D::Shutdown).
         void Shutdown();
     } // namespace VirtualGeometryShadow
+    // External object identities and Ref ownership survive byte relocation; no self pointers.
+    template<>
+    struct TIsTriviallyRelocatable<VirtualGeometryShadow::ViewResources>
+    {
+        using Record = VirtualGeometryShadow::ViewResources;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::Commands)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Args)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Visible)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::CullParams)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::DrawInfo)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::VsmCamera)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::VsmPass)>;
+    };
 } // namespace OloEngine

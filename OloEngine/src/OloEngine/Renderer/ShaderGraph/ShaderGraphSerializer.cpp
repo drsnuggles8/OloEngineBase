@@ -209,7 +209,7 @@ namespace OloEngine
         out << YAML::Key << "ShaderGraph" << YAML::Value;
         out << YAML::BeginMap;
 
-        out << YAML::Key << "Name" << YAML::Value << graph.GetName();
+        out << YAML::Key << "Name" << YAML::Value << graph.GetName().ToStdString();
 
         // Nodes
         out << YAML::Key << "Nodes" << YAML::Value << YAML::BeginSeq;
@@ -217,16 +217,16 @@ namespace OloEngine
         {
             out << YAML::BeginMap;
             out << YAML::Key << "ID" << YAML::Value << static_cast<u64>(node->ID);
-            out << YAML::Key << "TypeName" << YAML::Value << node->TypeName;
+            out << YAML::Key << "TypeName" << YAML::Value << node->TypeName.ToStdString();
             out << YAML::Key << "Category" << YAML::Value << NodeCategoryToString(node->Category);
             out << YAML::Key << "EditorPosition" << YAML::Value << YAML::Flow << YAML::BeginSeq
                 << node->EditorPosition.x << node->EditorPosition.y << YAML::EndSeq;
 
-            if (!node->ParameterName.empty())
-                out << YAML::Key << "ParameterName" << YAML::Value << node->ParameterName;
+            if (!node->ParameterName.IsEmpty())
+                out << YAML::Key << "ParameterName" << YAML::Value << node->ParameterName.ToStdString();
 
-            if (!node->CustomFunctionBody.empty())
-                out << YAML::Key << "CustomFunctionBody" << YAML::Value << node->CustomFunctionBody;
+            if (!node->CustomFunctionBody.IsEmpty())
+                out << YAML::Key << "CustomFunctionBody" << YAML::Value << node->CustomFunctionBody.ToStdString();
 
             if (node->WorkgroupSize != glm::ivec3(16, 16, 1))
                 out << YAML::Key << "WorkgroupSize" << YAML::Value << YAML::Flow << YAML::BeginSeq
@@ -236,14 +236,14 @@ namespace OloEngine
                 out << YAML::Key << "BufferBinding" << YAML::Value << node->BufferBinding;
 
             // Serialize pin IDs and default values
-            auto serializePins = [&out](const std::string& key, const std::vector<ShaderGraphPin>& pins)
+            auto serializePins = [&out](const std::string& key, const TArray<ShaderGraphPin>& pins)
             {
                 out << YAML::Key << key << YAML::Value << YAML::BeginSeq;
                 for (const auto& pin : pins)
                 {
                     out << YAML::BeginMap;
                     out << YAML::Key << "ID" << YAML::Value << static_cast<u64>(pin.ID);
-                    out << YAML::Key << "Name" << YAML::Value << pin.Name;
+                    out << YAML::Key << "Name" << YAML::Value << pin.Name.ToStdString();
                     out << YAML::Key << "Type" << YAML::Value << PinTypeToString(pin.Type);
 
                     if (std::string valStr = PinValueToYAMLString(pin.DefaultValue); !valStr.empty())
@@ -308,8 +308,8 @@ namespace OloEngine
         auto& graph = graphAsset->m_Graph;
 
         // Clear any existing state so re-deserialization doesn't duplicate
-        graph.m_Nodes.clear();
-        graph.m_Links.clear();
+        graph.m_Nodes.Empty();
+        graph.m_Links.Reset();
 
         graph.SetName(sgNode["Name"].as<std::string>("Untitled"));
 
@@ -366,13 +366,13 @@ namespace OloEngine
                         node->BufferBinding = nodeYAML["BufferBinding"].as<int>();
 
                     // Restore pin IDs and default values from YAML
-                    auto restorePins = [&nodeYAML, &typeName, &nodeID, &node](const std::string& key, std::vector<ShaderGraphPin>& pins)
+                    auto restorePins = [&nodeYAML, &typeName, &nodeID, &node](const std::string& key, TArray<ShaderGraphPin>& pins)
                     {
                         if (auto pinsYAML = nodeYAML[key]; pinsYAML && pinsYAML.IsSequence())
                         {
-                            if (pinsYAML.size() != pins.size())
+                            if (pinsYAML.size() != pins.Num())
                                 OLO_CORE_WARN("ShaderGraphSerializer - Node '{}' (ID {}): YAML {} count ({}) differs from factory ({})",
-                                              typeName, nodeID, key, pinsYAML.size(), pins.size());
+                                              typeName, nodeID, key, pinsYAML.size(), pins.Num());
 
                             for (size_t yi = 0; yi < pinsYAML.size(); ++yi)
                             {
@@ -404,7 +404,7 @@ namespace OloEngine
                                         }
                                     }
                                 }
-                                if (!targetPin && yi < pins.size())
+                                if (!targetPin && yi < pins.Num())
                                     targetPin = &pins[yi];
 
                                 if (!targetPin)
@@ -425,7 +425,7 @@ namespace OloEngine
                     restorePins("Inputs", node->Inputs);
                     restorePins("Outputs", node->Outputs);
 
-                    graph.m_Nodes.push_back(std::move(node));
+                    graph.m_Nodes.AddTail(std::move(node));
                 }
                 catch (const YAML::Exception& e)
                 {
@@ -454,7 +454,7 @@ namespace OloEngine
                         continue;
                     }
 
-                    graph.m_Links.push_back(link);
+                    graph.m_Links.Add(link);
                 }
                 catch (const YAML::Exception& e)
                 {

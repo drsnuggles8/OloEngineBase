@@ -280,24 +280,24 @@ TEST_F(WorldOriginRebaseClothTest, ClothVerticesShiftRigidlyWithRebase)
     // grid), making a rigid-translation check meaningful.
     TickFor(0.5f);
 
-    const std::vector<glm::vec3>* beforePtr = GetScene().GetClothVertexPositions(clothID);
+    const TArray<glm::vec3>* beforePtr = GetScene().GetClothVertexPositions(clothID);
     ASSERT_NE(beforePtr, nullptr) << "cloth soft body has no readback";
-    const std::vector<glm::vec3> before = *beforePtr; // copy — it is live
-    ASSERT_GT(before.size(), 0u);
+    const TArray<glm::vec3> before = *beforePtr; // copy — it is live
+    ASSERT_GT(before.Num(), 0u);
 
     const glm::vec3 shift{ -4096.0f, 0.0f, 2048.0f };
     GetScene().RebaseOrigin(shift);
 
-    const std::vector<glm::vec3>* afterPtr = GetScene().GetClothVertexPositions(clothID);
+    const TArray<glm::vec3>* afterPtr = GetScene().GetClothVertexPositions(clothID);
     ASSERT_NE(afterPtr, nullptr);
-    const std::vector<glm::vec3>& after = *afterPtr;
-    ASSERT_EQ(after.size(), before.size());
+    const TArray<glm::vec3>& after = *afterPtr;
+    ASSERT_EQ(after.Num(), before.Num());
 
     // Every vertex moved by EXACTLY the shift — the whole particle cloud
     // translated rigidly (internal vertex-to-vertex offsets preserved). This is
     // read straight from the render cache immediately after the rebase (no tick
     // in between), so it also proves the CPU cache was shifted in lockstep.
-    for (sizet i = 0; i < before.size(); ++i)
+    for (sizet i = 0; i < before.Num(); ++i)
     {
         EXPECT_NEAR(after[i].x, before[i].x + shift.x, 0.02f) << "cloth vertex " << i << " x diverged";
         EXPECT_NEAR(after[i].y, before[i].y + shift.y, 0.02f) << "cloth vertex " << i << " y diverged";
@@ -306,7 +306,7 @@ TEST_F(WorldOriginRebaseClothTest, ClothVerticesShiftRigidlyWithRebase)
 
     // It keeps simulating sanely after the rebase (no NaN, pinned edge still up).
     TickFor(0.5f);
-    const std::vector<glm::vec3>* settledPtr = GetScene().GetClothVertexPositions(clothID);
+    const TArray<glm::vec3>* settledPtr = GetScene().GetClothVertexPositions(clothID);
     ASSERT_NE(settledPtr, nullptr);
     f32 maxY = -std::numeric_limits<f32>::max();
     for (const glm::vec3& p : *settledPtr)

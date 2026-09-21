@@ -184,8 +184,8 @@ namespace OloEngine::Tests
             EXPECT_EQ(gpu.Stats.TooSmall, cpu.Stats.TooSmall) << pose.Name;
             EXPECT_EQ(gpu.Stats.TooFaint, cpu.Stats.TooFaint) << pose.Name;
 
-            ASSERT_EQ(gpu.Indices.size(), cpu.Indices.size()) << pose.Name;
-            for (sizet i = 0; i < cpu.Indices.size(); ++i)
+            ASSERT_EQ(gpu.Indices.Num(), cpu.Indices.Num()) << pose.Name;
+            for (sizet i = 0; i < cpu.Indices.Num(); ++i)
                 ASSERT_EQ(gpu.Indices[i], cpu.Indices[i]) << pose.Name << " diverged at draw slot " << i;
         }
 

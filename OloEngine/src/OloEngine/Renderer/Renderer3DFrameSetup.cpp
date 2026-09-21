@@ -72,9 +72,9 @@ namespace OloEngine
         // Ray-traced shadow candidates are per-frame (issue #1056). Cleared
         // HERE so an empty list can only mean "no light asked this frame" —
         // a scene that stops publishing them must not keep the last frame's.
-        s_Data.RayTracedShadowLightRequests.clear();
+        s_Data.RayTracedShadowLightRequests.Reset();
         // Groom submissions are per-frame for the same reason (issue #1246).
-        s_Data.GroomStrandRequests.clear();
+        s_Data.GroomStrandRequests.Empty();
         // Leaf-profile slots are rebuilt from THIS frame's submissions (issue
         // #1234). Cleared here for the same reason as the line above: an
         // assignment that accumulated across frames would fill up from the
@@ -104,9 +104,9 @@ namespace OloEngine
         // Ray-traced shadow candidates are per-frame (issue #1056). Cleared
         // HERE so an empty list can only mean "no light asked this frame" —
         // a scene that stops publishing them must not keep the last frame's.
-        s_Data.RayTracedShadowLightRequests.clear();
+        s_Data.RayTracedShadowLightRequests.Reset();
         // Groom submissions are per-frame for the same reason (issue #1246).
-        s_Data.GroomStrandRequests.clear();
+        s_Data.GroomStrandRequests.Empty();
         // Leaf-profile slots are rebuilt from THIS frame's submissions (issue
         // #1234). Cleared here for the same reason as the line above: an
         // assignment that accumulated across frames would fill up from the
@@ -136,9 +136,9 @@ namespace OloEngine
         // Ray-traced shadow candidates are per-frame (issue #1056). Cleared
         // HERE so an empty list can only mean "no light asked this frame" —
         // a scene that stops publishing them must not keep the last frame's.
-        s_Data.RayTracedShadowLightRequests.clear();
+        s_Data.RayTracedShadowLightRequests.Reset();
         // Groom submissions are per-frame for the same reason (issue #1246).
-        s_Data.GroomStrandRequests.clear();
+        s_Data.GroomStrandRequests.Empty();
         // Leaf-profile slots are rebuilt from THIS frame's submissions (issue
         // #1234). Cleared here for the same reason as the line above: an
         // assignment that accumulated across frames would fill up from the

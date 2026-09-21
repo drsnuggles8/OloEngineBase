@@ -16,6 +16,22 @@
 
 namespace OloEngine
 {
+    struct CapturedStateChange
+    {
+        u32 fromIndex;
+        u32 toIndex;
+        FString description;
+    };
+
+    // FString owns external character storage; the source/destination indices are values.
+    template<>
+    struct TIsTriviallyRelocatable<CapturedStateChange>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(CapturedStateChange::fromIndex)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(CapturedStateChange::toIndex)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(CapturedStateChange::description)>::Value;
+    };
+
     namespace
     {
         // Identities print as #Index:Generation via RHITypes' fmt formatter.
@@ -289,7 +305,7 @@ namespace OloEngine
         if (u64 currentGen = captureManager.GetCaptureGeneration(); currentGen != m_CachedGeneration)
         {
             m_CachedFrames = captureManager.GetCapturedFramesCopy();
-            m_CachedFrameCount = m_CachedFrames.size();
+            m_CachedFrameCount = m_CachedFrames.Num();
             m_CachedGeneration = currentGen;
         }
 
@@ -301,7 +317,7 @@ namespace OloEngine
         // Horizontal scrolling frame list
         ImGui::BeginChild("FrameList", ImVec2(0, 120), ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar);
 
-        for (i32 i = 0; i < static_cast<i32>(m_CachedFrames.size()); ++i)
+        for (i32 i = 0; i < static_cast<i32>(m_CachedFrames.Num()); ++i)
         {
             const auto& frame = m_CachedFrames[i];
             bool isSelected = (i == selectedIdx);
@@ -371,7 +387,7 @@ namespace OloEngine
         ImGui::Separator();
 
         // Select the command list based on view mode
-        const std::vector<CapturedCommandData>* commands = nullptr;
+        const TArray<CapturedCommandData>* commands = nullptr;
         switch (m_CommandViewMode)
         {
             case CommandViewMode::PreSort:
@@ -388,15 +404,15 @@ namespace OloEngine
                 break;
         }
 
-        if (!commands || commands->empty())
+        if (!commands || commands->IsEmpty())
         {
             ImGui::TextColored(DebugUtils::Colors::Warning, "No commands in this view.");
             return;
         }
 
         // Summary
-        ImGui::Text("Commands: %zu | Draw: %u | State: %u | Sort: %.3fms | Execute: %.3fms",
-                    commands->size(), frame->Stats.DrawCalls, frame->Stats.StateChanges,
+        ImGui::Text("Commands: %d | Draw: %u | State: %u | Sort: %.3fms | Execute: %.3fms",
+                    commands->Num(), frame->Stats.DrawCalls, frame->Stats.StateChanges,
                     frame->Stats.SortTimeMs, frame->Stats.ExecuteTimeMs);
         ImGui::Separator();
 
@@ -419,7 +435,7 @@ namespace OloEngine
             ImGui::TableSetupScrollFreeze(0, 1);
             ImGui::TableHeadersRow();
 
-            for (i32 i = 0; i < static_cast<i32>(commands->size()); ++i)
+            for (i32 i = 0; i < static_cast<i32>(commands->Num()); ++i)
             {
                 const auto& cmd = (*commands)[i];
 
@@ -476,7 +492,7 @@ namespace OloEngine
 
                 // Debug Name
                 ImGui::TableSetColumnIndex(5);
-                ImGui::Text("%s", cmd.GetDebugName().empty() ? "-" : cmd.GetDebugName().c_str());
+                ImGui::Text("%s", cmd.GetDebugName().IsEmpty() ? "-" : cmd.GetDebugName().GetData());
             }
 
             ImGui::EndTable();
@@ -489,7 +505,7 @@ namespace OloEngine
         // Right panel: detail view
         ImGui::BeginChild("CmdDetail", ImVec2(0, 0), ImGuiChildFlags_Borders);
 
-        if (m_SelectedCommandIndex >= 0 && m_SelectedCommandIndex < static_cast<i32>(commands->size()))
+        if (m_SelectedCommandIndex >= 0 && m_SelectedCommandIndex < static_cast<i32>(commands->Num()))
         {
             RenderCommandDetail((*commands)[m_SelectedCommandIndex], frame);
         }
@@ -531,7 +547,7 @@ namespace OloEngine
             ImGui::Text("Execution Order: %u", cmd.GetExecutionOrder());
             ImGui::Text("Static: %s", cmd.IsStatic() ? "Yes" : "No");
             ImGui::Text("Depends on Previous: %s", cmd.DependsOnPrevious() ? "Yes" : "No");
-            ImGui::Text("Debug Name: %s", cmd.GetDebugName().empty() ? "None" : cmd.GetDebugName().c_str());
+            ImGui::Text("Debug Name: %s", cmd.GetDebugName().IsEmpty() ? "None" : cmd.GetDebugName().GetData());
             if (cmd.GetGpuTimeMs() > 0.0)
                 ImGui::Text("GPU Time: %.4f ms", cmd.GetGpuTimeMs());
         }
@@ -715,21 +731,21 @@ namespace OloEngine
         const auto& pre = frame->PreSortCommands;
         const auto& post = frame->PostSortCommands;
 
-        if (pre.empty() || post.empty())
+        if (pre.IsEmpty() || post.IsEmpty())
         {
             ImGui::TextColored(DebugUtils::Colors::Warning, "Insufficient data for sort analysis.");
             return;
         }
 
-        ImGui::Text("Sort Time: %.3f ms | Commands: %zu -> %zu",
-                    frame->Stats.SortTimeMs, pre.size(), post.size());
+        ImGui::Text("Sort Time: %.3f ms | Commands: %d -> %d",
+                    frame->Stats.SortTimeMs, pre.Num(), post.Num());
         ImGui::Separator();
 
         // Sort displacement metric
         f64 totalDisplacement = 0.0;
         u32 maxDisplacement = 0;
 
-        for (u32 postIdx = 0; postIdx < static_cast<u32>(post.size()); ++postIdx)
+        for (u32 postIdx = 0; postIdx < static_cast<u32>(post.Num()); ++postIdx)
         {
             u32 origIdx = post[postIdx].GetOriginalIndex();
             u32 displacement = (origIdx > postIdx) ? origIdx - postIdx : postIdx - origIdx;
@@ -737,7 +753,7 @@ namespace OloEngine
             maxDisplacement = std::max(maxDisplacement, displacement);
         }
 
-        f64 avgDisplacement = post.empty() ? 0.0 : totalDisplacement / post.size();
+        f64 avgDisplacement = post.IsEmpty() ? 0.0 : totalDisplacement / post.Num();
         ImGui::Text("Avg Sort Displacement: %.1f positions", avgDisplacement);
         ImGui::Text("Max Sort Displacement: %u positions", maxDisplacement);
         ImGui::Separator();
@@ -750,7 +766,7 @@ namespace OloEngine
         ImGui::TextColored(DebugUtils::Colors::Info, "Pre-Sort (Submission Order)");
         ImGui::Separator();
 
-        for (u32 i = 0; i < static_cast<u32>(pre.size()); ++i)
+        for (u32 i = 0; i < static_cast<u32>(pre.Num()); ++i)
         {
             const auto& cmd = pre[i];
             ImGui::TextColored(GetColorForCommandType(cmd.GetCommandType()),
@@ -766,7 +782,7 @@ namespace OloEngine
         ImGui::TextColored(DebugUtils::Colors::Info, "Post-Sort (Execution Order)");
         ImGui::Separator();
 
-        for (u32 i = 0; i < static_cast<u32>(post.size()); ++i)
+        for (u32 i = 0; i < static_cast<u32>(post.Num()); ++i)
         {
             const auto& cmd = post[i];
             ImGui::TextColored(GetColorForCommandType(cmd.GetCommandType()),
@@ -792,9 +808,9 @@ namespace OloEngine
         }
 
         // Use post-sort or post-batch
-        const auto& commands = !frame->PostBatchCommands.empty() ? frame->PostBatchCommands : frame->PostSortCommands;
+        const auto& commands = !frame->PostBatchCommands.IsEmpty() ? frame->PostBatchCommands : frame->PostSortCommands;
 
-        if (commands.size() < 2)
+        if (commands.Num() < 2)
         {
             ImGui::TextColored(DebugUtils::Colors::Warning, "Need at least 2 commands for delta analysis.");
             return;
@@ -807,15 +823,9 @@ namespace OloEngine
         u32 depthChanges = 0;
         u32 polygonChanges = 0;
 
-        struct StateChangeEntry
-        {
-            u32 fromIndex;
-            u32 toIndex;
-            std::string description;
-        };
-        std::vector<StateChangeEntry> changeLog;
+        TArray<CapturedStateChange> changeLog;
 
-        for (u32 i = 1; i < static_cast<u32>(commands.size()); ++i)
+        for (u32 i = 1; i < static_cast<u32>(commands.Num()); ++i)
         {
             const auto& prev = commands[i - 1];
             const auto& curr = commands[i];
@@ -824,8 +834,8 @@ namespace OloEngine
             if (prev.GetSortKey().GetShaderID() != curr.GetSortKey().GetShaderID())
             {
                 ++shaderChanges;
-                changeLog.push_back({ i - 1, i,
-                                      "Shader: " + std::to_string(prev.GetSortKey().GetShaderID()) + " -> " + std::to_string(curr.GetSortKey().GetShaderID()) });
+                changeLog.Add({ i - 1, i,
+                                FString("Shader: " + std::to_string(prev.GetSortKey().GetShaderID()) + " -> " + std::to_string(curr.GetSortKey().GetShaderID())) });
             }
 
             // Material change (from DrawKey)
@@ -863,7 +873,7 @@ namespace OloEngine
         u32 totalRenderStateChanges = blendChanges + depthChanges + polygonChanges;
 
         // Summary
-        ImGui::Text("State Change Summary (%zu commands):", commands.size());
+        ImGui::Text("State Change Summary (%d commands):", commands.Num());
         ImGui::Separator();
         ImGui::Text("Shader Binds: %u", shaderChanges);
         ImGui::Text("Material Changes: %u", materialChanges);
@@ -873,9 +883,9 @@ namespace OloEngine
         ImGui::Text("Total Render State Changes: %u", totalRenderStateChanges);
 
         // Efficiency metric
-        if (commands.size() > 1)
+        if (commands.Num() > 1)
         {
-            f32 efficiency = 1.0f - (static_cast<f32>(shaderChanges) / static_cast<f32>(commands.size() - 1));
+            f32 efficiency = 1.0f - (static_cast<f32>(shaderChanges) / static_cast<f32>(commands.Num() - 1));
             ImVec4 color = DebugUtils::GetPerformanceColor((1.0f - efficiency) * 100.0f, 70.0f, 40.0f);
             ImGui::TextColored(color, "Shader Coherence: %.1f%%", efficiency * 100.0f);
         }
@@ -883,13 +893,13 @@ namespace OloEngine
         ImGui::Separator();
 
         // Change log (scrollable)
-        if (!changeLog.empty())
+        if (!changeLog.IsEmpty())
         {
             ImGui::Text("Change Log:");
             ImGui::BeginChild("ChangeLog", ImVec2(0, 200), ImGuiChildFlags_Borders);
             for (const auto& entry : changeLog)
             {
-                ImGui::Text("[%u -> %u] %s", entry.fromIndex, entry.toIndex, entry.description.c_str());
+                ImGui::Text("[%u -> %u] %s", entry.fromIndex, entry.toIndex, entry.description.GetData());
             }
             ImGui::EndChild();
         }
@@ -915,16 +925,16 @@ namespace OloEngine
         ImGui::Text("Batching Analysis");
         ImGui::Separator();
 
-        if (postBatch.empty())
+        if (postBatch.IsEmpty())
         {
             ImGui::TextColored(DebugUtils::Colors::Warning, "No post-batch data (batching may be disabled).");
-            ImGui::Text("Pre-batch commands: %zu", preBatch.size());
+            ImGui::Text("Pre-batch commands: %d", preBatch.Num());
 
             // Show missed batch opportunities
-            if (preBatch.size() >= 2)
+            if (preBatch.Num() >= 2)
             {
                 u32 missedBatches = 0;
-                for (u32 i = 1; i < static_cast<u32>(preBatch.size()); ++i)
+                for (u32 i = 1; i < static_cast<u32>(preBatch.Num()); ++i)
                 {
                     const auto& prev = preBatch[i - 1];
                     const auto& curr = preBatch[i];
@@ -941,14 +951,14 @@ namespace OloEngine
             return;
         }
 
-        i32 merged = static_cast<i32>(preBatch.size()) - static_cast<i32>(postBatch.size());
-        ImGui::Text("Pre-batch: %zu commands", preBatch.size());
-        ImGui::Text("Post-batch: %zu commands", postBatch.size());
+        i32 merged = static_cast<i32>(preBatch.Num()) - static_cast<i32>(postBatch.Num());
+        ImGui::Text("Pre-batch: %d commands", preBatch.Num());
+        ImGui::Text("Post-batch: %d commands", postBatch.Num());
         ImGui::Text("Merged: %d commands", merged > 0 ? merged : 0);
 
-        if (!preBatch.empty())
+        if (!preBatch.IsEmpty())
         {
-            f32 ratio = static_cast<f32>(postBatch.size()) / static_cast<f32>(preBatch.size());
+            f32 ratio = static_cast<f32>(postBatch.Num()) / static_cast<f32>(preBatch.Num());
             ImGui::Text("Batch Ratio: %.1f%%", ratio * 100.0f);
         }
 
@@ -987,15 +997,15 @@ namespace OloEngine
             return;
         }
 
-        const auto& commands = !frame->PostBatchCommands.empty() ? frame->PostBatchCommands : frame->PostSortCommands;
+        const auto& commands = !frame->PostBatchCommands.IsEmpty() ? frame->PostBatchCommands : frame->PostSortCommands;
 
-        if (commands.empty())
+        if (commands.IsEmpty())
         {
             ImGui::TextColored(DebugUtils::Colors::Warning, "No commands to display.");
             return;
         }
 
-        ImGui::Text("Frame #%u Timeline (%zu commands)", frame->FrameNumber, commands.size());
+        ImGui::Text("Frame #%u Timeline (%d commands)", frame->FrameNumber, commands.Num());
         ImGui::Separator();
 
         // Check if GPU timing data is available
@@ -1031,12 +1041,12 @@ namespace OloEngine
         f32 totalWidth = canvasSize.x - padding * 2.0f;
 
         // Calculate bar widths
-        f32 uniformWidth = totalWidth / static_cast<f32>(commands.size());
+        f32 uniformWidth = totalWidth / static_cast<f32>(commands.Num());
 
         f32 xOffset = canvasPos.x + padding;
         f32 yOffset = canvasPos.y + padding;
 
-        for (u32 i = 0; i < static_cast<u32>(commands.size()); ++i)
+        for (u32 i = 0; i < static_cast<u32>(commands.Num()); ++i)
         {
             const auto& cmd = commands[i];
 
@@ -1211,9 +1221,9 @@ namespace OloEngine
 
             file << "Index,Type,DrawKey,ViewportID,ViewLayer,RenderMode,MaterialID,ShaderID,Depth,Static,GroupID,DebugName,GpuTimeMs\n";
 
-            const auto& commands = !selectedFrame->PostSortCommands.empty() ? selectedFrame->PostSortCommands : selectedFrame->PreSortCommands;
+            const auto& commands = !selectedFrame->PostSortCommands.IsEmpty() ? selectedFrame->PostSortCommands : selectedFrame->PreSortCommands;
 
-            for (sizet i = 0; i < commands.size(); ++i)
+            for (sizet i = 0; i < commands.Num(); ++i)
             {
                 const auto& cmd = commands[i];
                 const DrawKey& key = cmd.GetSortKey();
@@ -1229,7 +1239,7 @@ namespace OloEngine
                      << key.GetDepth() << ","
                      << (cmd.IsStatic() ? "true" : "false") << ","
                      << cmd.GetGroupID() << ","
-                     << EscapeCsvField(cmd.GetDebugName().empty() ? std::string("None") : cmd.GetDebugName()) << ","
+                     << EscapeCsvField(cmd.GetDebugName().IsEmpty() ? std::string("None") : cmd.GetDebugName().ToStdString()) << ","
                      << cmd.GetGpuTimeMs() << "\n";
             }
 
@@ -1295,11 +1305,11 @@ namespace OloEngine
             file << "## Frame Info\n\n";
             file << "- **Frame Number:** " << frame->FrameNumber << "\n";
             file << "- **Timestamp:** " << std::fixed << std::setprecision(3) << frame->TimestampSeconds << "s\n";
-            file << "- **Total Commands (pre-sort):** " << frame->PreSortCommands.size() << "\n";
-            file << "- **Total Commands (post-sort):** " << frame->PostSortCommands.size() << "\n";
-            file << "- **Total Commands (post-batch):** " << frame->PostBatchCommands.size() << "\n";
-            if (!frame->Notes.empty())
-                file << "- **Notes:** " << frame->Notes << "\n";
+            file << "- **Total Commands (pre-sort):** " << frame->PreSortCommands.Num() << "\n";
+            file << "- **Total Commands (post-sort):** " << frame->PostSortCommands.Num() << "\n";
+            file << "- **Total Commands (post-batch):** " << frame->PostBatchCommands.Num() << "\n";
+            if (!frame->Notes.IsEmpty())
+                file << "- **Notes:** " << frame->Notes.ToView() << "\n";
             file << "\n";
         }
 
@@ -1320,13 +1330,13 @@ namespace OloEngine
             file << "\n";
         }
 
-        void AppendCommandListSection(const std::vector<CapturedCommandData>& commands, std::ostringstream& file)
+        void AppendCommandListSection(const TArray<CapturedCommandData>& commands, std::ostringstream& file)
         {
             file << "## Command List (Post-Sort Order)\n\n";
             file << "| # | Type | ShaderID | MaterialID | Depth | ViewLayer | RenderMode | Static | DebugName | GpuTimeMs |\n";
             file << "|---|------|----------|------------|-------|-----------|------------|--------|-----------|----------|\n";
 
-            for (sizet i = 0; i < commands.size(); ++i)
+            for (sizet i = 0; i < commands.Num(); ++i)
             {
                 const auto& cmd = commands[i];
                 const DrawKey& key = cmd.GetSortKey();
@@ -1339,7 +1349,7 @@ namespace OloEngine
                      << " | " << ToString(key.GetViewLayer())
                      << " | " << ToString(key.GetRenderMode())
                      << " | " << (cmd.IsStatic() ? "Yes" : "No")
-                     << " | " << (cmd.GetDebugName().empty() ? "-" : cmd.GetDebugName())
+                     << " | " << (cmd.GetDebugName().IsEmpty() ? std::string_view("-") : cmd.GetDebugName().ToView())
                      << " | " << std::fixed << std::setprecision(4) << cmd.GetGpuTimeMs()
                      << " |\n";
             }
@@ -1349,7 +1359,7 @@ namespace OloEngine
         void AppendSortAnalysisSection(const CapturedFrameData* frame, std::ostringstream& file)
         {
             file << "## Sort Analysis\n\n";
-            if (!frame->PreSortCommands.empty() && !frame->PostSortCommands.empty())
+            if (!frame->PreSortCommands.IsEmpty() && !frame->PostSortCommands.IsEmpty())
             {
                 const auto& post = frame->PostSortCommands;
 
@@ -1357,7 +1367,7 @@ namespace OloEngine
                 u32 maxDisplacement = 0;
                 u32 movedCount = 0;
 
-                for (u32 postIdx = 0; postIdx < static_cast<u32>(post.size()); ++postIdx)
+                for (u32 postIdx = 0; postIdx < static_cast<u32>(post.Num()); ++postIdx)
                 {
                     u32 origIdx = post[postIdx].GetOriginalIndex();
                     u32 displacement = (origIdx > postIdx) ? origIdx - postIdx : postIdx - origIdx;
@@ -1367,8 +1377,8 @@ namespace OloEngine
                         ++movedCount;
                 }
 
-                f64 avgDisplacement = post.empty() ? 0.0 : totalDisplacement / post.size();
-                file << "- **Commands moved:** " << movedCount << "/" << post.size() << "\n";
+                f64 avgDisplacement = post.IsEmpty() ? 0.0 : totalDisplacement / post.Num();
+                file << "- **Commands moved:** " << movedCount << "/" << post.Num() << "\n";
                 file << "- **Average displacement:** " << std::fixed << std::setprecision(1) << avgDisplacement << " positions\n";
                 file << "- **Max displacement:** " << maxDisplacement << " positions\n\n";
             }
@@ -1378,17 +1388,17 @@ namespace OloEngine
             }
         }
 
-        void AppendStateChangeAnalysisSection(const CapturedFrameData* frame, const std::vector<CapturedCommandData>& commands, std::ostringstream& file)
+        void AppendStateChangeAnalysisSection(const CapturedFrameData* frame, const TArray<CapturedCommandData>& commands, std::ostringstream& file)
         {
             file << "## State Change Analysis\n\n";
-            if (commands.size() >= 2)
+            if (commands.Num() >= 2)
             {
                 u32 shaderChanges = 0;
                 u32 materialChanges = 0;
                 u32 blendChanges = 0;
                 u32 depthChanges = 0;
 
-                for (u32 i = 1; i < static_cast<u32>(commands.size()); ++i)
+                for (u32 i = 1; i < static_cast<u32>(commands.Num()); ++i)
                 {
                     const auto& prev = commands[i - 1];
                     const auto& curr = commands[i];
@@ -1414,7 +1424,7 @@ namespace OloEngine
                     }
                 }
 
-                f32 shaderCoherence = 1.0f - (static_cast<f32>(shaderChanges) / static_cast<f32>(commands.size() - 1));
+                f32 shaderCoherence = 1.0f - (static_cast<f32>(shaderChanges) / static_cast<f32>(commands.Num() - 1));
 
                 file << "| Metric | Count |\n";
                 file << "|--------|-------|\n";
@@ -1426,16 +1436,16 @@ namespace OloEngine
             }
         }
 
-        void AppendBatchingAnalysisSection(const CapturedFrameData* frame, const std::vector<CapturedCommandData>& commands, std::ostringstream& file)
+        void AppendBatchingAnalysisSection(const CapturedFrameData* frame, const TArray<CapturedCommandData>& commands, std::ostringstream& file)
         {
             file << "## Batching Analysis\n\n";
-            if (!frame->PostBatchCommands.empty())
+            if (!frame->PostBatchCommands.IsEmpty())
             {
-                i32 merged = static_cast<i32>(frame->PostSortCommands.size()) - static_cast<i32>(frame->PostBatchCommands.size());
-                f32 batchRatio = frame->PostSortCommands.empty() ? 1.0f : static_cast<f32>(frame->PostBatchCommands.size()) / static_cast<f32>(frame->PostSortCommands.size());
+                i32 merged = static_cast<i32>(frame->PostSortCommands.Num()) - static_cast<i32>(frame->PostBatchCommands.Num());
+                f32 batchRatio = frame->PostSortCommands.IsEmpty() ? 1.0f : static_cast<f32>(frame->PostBatchCommands.Num()) / static_cast<f32>(frame->PostSortCommands.Num());
 
-                file << "- **Pre-batch commands:** " << frame->PostSortCommands.size() << "\n";
-                file << "- **Post-batch commands:** " << frame->PostBatchCommands.size() << "\n";
+                file << "- **Pre-batch commands:** " << frame->PostSortCommands.Num() << "\n";
+                file << "- **Post-batch commands:** " << frame->PostBatchCommands.Num() << "\n";
                 file << "- **Merged:** " << (merged > 0 ? merged : 0) << " commands\n";
                 file << "- **Batch ratio:** " << std::fixed << std::setprecision(1) << (batchRatio * 100.0f) << "%\n\n";
             }
@@ -1445,7 +1455,7 @@ namespace OloEngine
 
                 // Count potential batch merges
                 u32 potentialMerges = 0;
-                for (u32 i = 1; i < static_cast<u32>(commands.size()); ++i)
+                for (u32 i = 1; i < static_cast<u32>(commands.Num()); ++i)
                 {
                     const auto& prev = commands[i - 1];
                     const auto& curr = commands[i];
@@ -1462,7 +1472,7 @@ namespace OloEngine
             }
         }
 
-        void AppendDrawCommandDetailsSection(const CapturedFrameData* frame, const std::vector<CapturedCommandData>& commands, std::ostringstream& file)
+        void AppendDrawCommandDetailsSection(const CapturedFrameData* frame, const TArray<CapturedCommandData>& commands, std::ostringstream& file)
         {
             file << "## Draw Command Details\n\n";
             u32 drawIdx = 0;
@@ -1513,7 +1523,7 @@ namespace OloEngine
             }
         }
 
-        void AppendGpuTimingSection(const std::vector<CapturedCommandData>& commands, std::ostringstream& file)
+        void AppendGpuTimingSection(const TArray<CapturedCommandData>& commands, std::ostringstream& file)
         {
             bool hasGpuTiming = false;
             f64 totalGpuTime = 0.0;
@@ -1533,7 +1543,7 @@ namespace OloEngine
 
                 file << "| # | Type | GPU Time (ms) | % of Total |\n";
                 file << "|---|------|--------------|------------|\n";
-                for (sizet i = 0; i < commands.size(); ++i)
+                for (sizet i = 0; i < commands.Num(); ++i)
                 {
                     const auto& cmd = commands[i];
                     if (cmd.GetGpuTimeMs() > 0.0)
@@ -1548,7 +1558,7 @@ namespace OloEngine
             }
         }
 
-        void AppendOptimizationSuggestionsSection(const CapturedFrameData* frame, const std::vector<CapturedCommandData>& commands, std::ostringstream& file)
+        void AppendOptimizationSuggestionsSection(const CapturedFrameData* frame, const TArray<CapturedCommandData>& commands, std::ostringstream& file)
         {
             file << "## Optimization Suggestions\n\n";
             file << "The following are auto-detected observations. An LLM or engineer should review these in context.\n\n";
@@ -1556,15 +1566,15 @@ namespace OloEngine
             bool hasSuggestions = false;
 
             // High shader change ratio
-            if (commands.size() >= 2)
+            if (commands.Num() >= 2)
             {
                 u32 shaderChanges = 0;
-                for (u32 i = 1; i < static_cast<u32>(commands.size()); ++i)
+                for (u32 i = 1; i < static_cast<u32>(commands.Num()); ++i)
                 {
                     if (commands[i - 1].GetSortKey().GetShaderID() != commands[i].GetSortKey().GetShaderID())
                         ++shaderChanges;
                 }
-                f32 changeRatio = static_cast<f32>(shaderChanges) / static_cast<f32>(commands.size() - 1);
+                f32 changeRatio = static_cast<f32>(shaderChanges) / static_cast<f32>(commands.Num() - 1);
                 if (changeRatio > 0.5f)
                 {
                     file << "- **High shader change frequency** (" << std::fixed << std::setprecision(0) << (changeRatio * 100.0f) << "%): "
@@ -1593,10 +1603,10 @@ namespace OloEngine
             }
 
             // Low batch merge rate
-            if (!frame->PostBatchCommands.empty() && !frame->PostSortCommands.empty())
+            if (!frame->PostBatchCommands.IsEmpty() && !frame->PostSortCommands.IsEmpty())
             {
-                f32 batchRatio = static_cast<f32>(frame->PostBatchCommands.size()) / static_cast<f32>(frame->PostSortCommands.size());
-                if (batchRatio > 0.95f && frame->PostSortCommands.size() > 10)
+                f32 batchRatio = static_cast<f32>(frame->PostBatchCommands.Num()) / static_cast<f32>(frame->PostSortCommands.Num());
+                if (batchRatio > 0.95f && frame->PostSortCommands.Num() > 10)
                 {
                     file << "- **Low batch merge rate** (" << std::fixed << std::setprecision(1) << ((1.0f - batchRatio) * 100.0f) << "% merged): "
                          << "Check if meshes with the same shader/material could share vertex buffers for instancing.\n";
@@ -1640,7 +1650,7 @@ namespace OloEngine
 
         // Post-sort is the most useful for analysis; fall back to pre-sort when the
         // sort stage wasn't captured. The section builders share this selection.
-        const auto& commands = !frame->PostSortCommands.empty() ? frame->PostSortCommands : frame->PreSortCommands;
+        const auto& commands = !frame->PostSortCommands.IsEmpty() ? frame->PostSortCommands : frame->PreSortCommands;
 
         AppendFrameInfoSection(frame, file);
         AppendPipelineStatisticsSection(frame, file);

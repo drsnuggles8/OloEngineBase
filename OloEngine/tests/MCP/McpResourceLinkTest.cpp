@@ -232,7 +232,7 @@ TEST(McpResourceLink, DuplicateUriReplacesInsteadOfShadowing)
         server.HandleMessage(MakeRequest(3, "resources/read", Json{ { "uri", "olo://capture/same" } }));
     ASSERT_TRUE(response.contains("result")) << response.dump(2);
     EXPECT_EQ(response["result"]["contents"][0]["blob"],
-              OloEngine::MCP::Base64Encode({ 2, 2 }));
+              OloEngine::MCP::Base64Encode(std::array<u8, 2>{ 2, 2 }));
 }
 
 // The copy-on-write property the whole design leans on: a snapshot taken before

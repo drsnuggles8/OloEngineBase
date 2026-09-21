@@ -117,7 +117,7 @@ TEST(GroomDeformation, TheBindPosePaletteReproducesTheAuthoredCoat)
     inputs.Skinning = grid.Skinning(palette, palette, true);
     inputs.HasHistory = true;
 
-    std::vector<GroomRootTransform> transforms;
+    TArray<GroomRootTransform> transforms;
     const GroomDeformationStats stats =
         EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, std::nullopt, transforms);
 
@@ -158,7 +158,7 @@ TEST(GroomDeformation, EveryRootStaysOnTheDeformedSurfaceThroughABend)
     inputs.Skinning = grid.Skinning(bent, rest, true);
     inputs.HasHistory = true;
 
-    std::vector<GroomRootTransform> transforms;
+    TArray<GroomRootTransform> transforms;
     const GroomDeformationStats stats =
         EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, std::nullopt, transforms);
     ASSERT_EQ(stats.RootsDeformed, bound.Groom->GetCurveCount());
@@ -216,7 +216,7 @@ TEST(GroomDeformation, ARootAuthoredAboveTheSurfaceKeepsItsOffsetThroughABend)
     inputs.Skinning = grid.Skinning(bent, bent, true);
     inputs.HasHistory = true;
 
-    std::vector<GroomRootTransform> transforms;
+    TArray<GroomRootTransform> transforms;
     (void)EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, std::nullopt, transforms);
     const auto deformed = DeformAllPoints(*bound.Groom, *bound.Binding, transforms);
 
@@ -251,7 +251,7 @@ TEST(GroomDeformation, EveryStrandKeepsItsLengthThroughABend)
         inputs.Skinning = grid.Skinning(bent, bent, true);
         inputs.HasHistory = true;
 
-        std::vector<GroomRootTransform> transforms;
+        TArray<GroomRootTransform> transforms;
         const GroomDeformationStats stats =
             EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, std::nullopt, transforms);
         ASSERT_EQ(stats.RootsHeldDegenerate, 0u) << "at " << degrees << " degrees";
@@ -289,12 +289,12 @@ TEST(GroomDeformation, ABentCoatActuallyMoves)
     restInputs.Surface = grid.View(2u);
     restInputs.Skinning = grid.Skinning(rest, rest, true);
     restInputs.HasHistory = true;
-    std::vector<GroomRootTransform> restTransforms;
+    TArray<GroomRootTransform> restTransforms;
     (void)EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, restInputs, std::nullopt, restTransforms);
 
     GroomDeformationInputs bentInputs = restInputs;
     bentInputs.Skinning = grid.Skinning(bent, bent, true);
-    std::vector<GroomRootTransform> bentTransforms;
+    TArray<GroomRootTransform> bentTransforms;
     (void)EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, bentInputs, std::nullopt, bentTransforms);
 
     const auto restPoints = DeformAllPoints(*bound.Groom, *bound.Binding, restTransforms);
@@ -332,7 +332,7 @@ TEST(GroomDeformation, AMorphedSurfaceCarriesTheCoatWithNoSkeletonAtAll)
     GroomDeformationInputs neutral;
     neutral.Surface = grid.View();
     neutral.HasHistory = true;
-    std::vector<GroomRootTransform> neutralTransforms;
+    TArray<GroomRootTransform> neutralTransforms;
     (void)EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, neutral, std::nullopt, neutralTransforms);
     const auto neutralPoints = DeformAllPoints(*bound.Groom, *bound.Binding, neutralTransforms);
 
@@ -349,7 +349,7 @@ TEST(GroomDeformation, AMorphedSurfaceCarriesTheCoatWithNoSkeletonAtAll)
     GroomDeformationInputs morphed;
     morphed.Surface = expressed.View();
     morphed.HasHistory = true;
-    std::vector<GroomRootTransform> morphedTransforms;
+    TArray<GroomRootTransform> morphedTransforms;
     const GroomDeformationStats stats =
         EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, morphed, std::nullopt, morphedTransforms);
     EXPECT_EQ(stats.RootsDeformed, bound.Groom->GetCurveCount());
@@ -389,7 +389,7 @@ TEST(GroomDeformation, PreviousPositionsComeFromThePreviousPose)
     inputs.Skinning = grid.Skinning(currentPose, previousPose, true);
     inputs.HasHistory = true;
 
-    std::vector<GroomRootTransform> transforms;
+    TArray<GroomRootTransform> transforms;
     const GroomDeformationStats stats =
         EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, std::nullopt, transforms);
     EXPECT_TRUE(stats.HasHistory);
@@ -414,7 +414,7 @@ TEST(GroomDeformation, PreviousPositionsComeFromThePreviousPose)
     asPrevious.Surface = grid.View(2u);
     asPrevious.Skinning = grid.Skinning(previousPose, previousPose, true);
     asPrevious.HasHistory = true;
-    std::vector<GroomRootTransform> previousTransforms;
+    TArray<GroomRootTransform> previousTransforms;
     (void)EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, asPrevious, std::nullopt, previousTransforms);
     const auto reference = DeformAllPoints(*bound.Groom, *bound.Binding, previousTransforms);
     for (sizet i = 0; i < previous.size(); ++i)
@@ -446,7 +446,7 @@ TEST(GroomDeformation, RejectedHistoryMakesPreviousExactlyEqualToCurrent)
     inputs.Skinning = grid.Skinning(current, previous, true);
     inputs.HasHistory = false; // the caller detected a discontinuity
 
-    std::vector<GroomRootTransform> transforms;
+    TArray<GroomRootTransform> transforms;
     const GroomDeformationStats stats =
         EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, std::nullopt, transforms);
     EXPECT_FALSE(stats.HasHistory);
@@ -490,7 +490,7 @@ TEST(GroomDeformation, ASkeletonWithNoBoneHistoryEmitsZeroMotionEvenWhenTheCalle
     inputs.Skinning = grid.Skinning(current, previous, /*hasPreviousPose*/ false);
     inputs.HasHistory = true;
 
-    std::vector<GroomRootTransform> transforms;
+    TArray<GroomRootTransform> transforms;
     (void)EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, std::nullopt, transforms);
     for (const auto& transform : transforms)
     {
@@ -567,7 +567,7 @@ TEST(GroomDeformation, ABodyScaledRelativeToItsGroomStillBindsAndDeformsCorrectl
     restInputs.Skinning = grid.Skinning(rest, rest, true);
     restInputs.SurfaceToGroom = surfaceToGroom;
     restInputs.HasHistory = true;
-    std::vector<GroomRootTransform> restTransforms;
+    TArray<GroomRootTransform> restTransforms;
     (void)EvaluateGroomRootTransforms(*groom, *binding, restInputs, std::nullopt, restTransforms);
 
     // The PREVIOUS pose gets the same space conversion, and this is asserted
@@ -580,10 +580,10 @@ TEST(GroomDeformation, ABodyScaledRelativeToItsGroomStillBindsAndDeformsCorrectl
     // "the identity", and the arm below is what says so.
     GroomDeformationInputs previousFrame = restInputs;
     previousFrame.PrevSurfaceToGroom = surfaceToGroom;
-    std::vector<GroomRootTransform> previousFrameTransforms;
+    TArray<GroomRootTransform> previousFrameTransforms;
     (void)EvaluateGroomRootTransforms(*groom, *binding, previousFrame, std::nullopt, previousFrameTransforms);
-    ASSERT_EQ(previousFrameTransforms.size(), restTransforms.size());
-    for (sizet i = 0; i < restTransforms.size(); ++i)
+    ASSERT_EQ(previousFrameTransforms.Num(), restTransforms.Num());
+    for (sizet i = 0; i < restTransforms.Num(); ++i)
     {
         if (!restTransforms[i].Valid)
         {
@@ -604,7 +604,7 @@ TEST(GroomDeformation, ABodyScaledRelativeToItsGroomStillBindsAndDeformsCorrectl
 
     GroomDeformationInputs bentInputs = restInputs;
     bentInputs.Skinning = grid.Skinning(bent, bent, true);
-    std::vector<GroomRootTransform> bentTransforms;
+    TArray<GroomRootTransform> bentTransforms;
     const GroomDeformationStats bentStats =
         EvaluateGroomRootTransforms(*groom, *binding, bentInputs, std::nullopt, bentTransforms);
     EXPECT_EQ(bentStats.RootsDeformed, groom->GetCurveCount());
@@ -652,7 +652,7 @@ TEST(GroomDeformation, ADegenerateTriangleHoldsItsStrandsAtRestAndIsCounted)
     inputs.Surface = collapsed.View();
     inputs.HasHistory = true;
 
-    std::vector<GroomRootTransform> transforms;
+    TArray<GroomRootTransform> transforms;
     const GroomDeformationStats stats =
         EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, std::nullopt, transforms);
 
@@ -690,7 +690,7 @@ TEST(GroomDeformation, AnUnweightedVertexIsUsedUnskinnedAndCounted)
     inputs.Skinning = grid.Skinning(palette, palette, true);
     inputs.HasHistory = true;
 
-    std::vector<GroomRootTransform> transforms;
+    TArray<GroomRootTransform> transforms;
     const GroomDeformationStats stats =
         EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, std::nullopt, transforms);
 
@@ -721,10 +721,10 @@ TEST(GroomDeformation, EvaluatingOnlyTheSelectedCurvesLeavesTheRestInvalid)
 
     GroomStrandBuildSettings build;
     build.MaxStrands = 4u;
-    std::vector<u32> selected;
+    TArray<u32> selected;
     SelectGroomStrandCurves(*bound.Groom, build, selected);
-    ASSERT_FALSE(selected.empty());
-    ASSERT_LT(selected.size(), bound.Groom->GetCurveCount());
+    ASSERT_FALSE(selected.IsEmpty());
+    ASSERT_LT(selected.Num(), bound.Groom->GetCurveCount());
 
     const auto palette = RestPalette();
     GroomDeformationInputs inputs;
@@ -732,12 +732,12 @@ TEST(GroomDeformation, EvaluatingOnlyTheSelectedCurvesLeavesTheRestInvalid)
     inputs.Skinning = grid.Skinning(palette, palette, true);
     inputs.HasHistory = true;
 
-    std::vector<GroomRootTransform> transforms;
+    TArray<GroomRootTransform> transforms;
     const GroomDeformationStats stats =
-        EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, std::span<const u32>(selected), transforms);
+        EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, std::span<const u32>{ selected.GetData(), static_cast<sizet>(selected.Num()) }, transforms);
 
-    EXPECT_EQ(transforms.size(), bound.Groom->GetCurveCount()) << "the array must span the whole groom";
-    EXPECT_EQ(stats.RootsDeformed, static_cast<u32>(selected.size()));
+    EXPECT_EQ(transforms.Num(), bound.Groom->GetCurveCount()) << "the array must span the whole groom";
+    EXPECT_EQ(stats.RootsDeformed, static_cast<u32>(selected.Num()));
 
     for (u32 curve = 0; curve < bound.Groom->GetCurveCount(); ++curve)
     {
@@ -767,14 +767,14 @@ TEST(GroomDeformation, TheRibbonBuildMovesItsVerticesAndItsBounds)
     inputs.HasHistory = true;
 
     GroomStrandBuildSettings build;
-    std::vector<u32> selected;
+    TArray<u32> selected;
     SelectGroomStrandCurves(*bound.Groom, build, selected);
-    std::vector<GroomRootTransform> transforms;
-    (void)EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, std::span<const u32>(selected), transforms);
+    TArray<GroomRootTransform> transforms;
+    (void)EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, std::span<const u32>{ selected.GetData(), static_cast<sizet>(selected.Num()) }, transforms);
 
     GroomStrandDeformation deformation;
     deformation.Binding = bound.Binding.Raw();
-    deformation.RootTransforms = transforms;
+    deformation.RootTransforms = std::span{ transforms.GetData(), static_cast<sizet>(transforms.Num()) };
     ASSERT_TRUE(deformation.IsUsable(bound.Groom->GetCurveCount()));
 
     std::vector<GroomStrandVertex> restVertices;
@@ -853,11 +853,11 @@ TEST(GroomDeformation, AnEmptySelectionDeformsNothingWhileNulloptDeformsEverythi
     inputs.HasHistory = true;
 
     const std::vector<u32> nothing;
-    std::vector<GroomRootTransform> transforms;
+    TArray<GroomRootTransform> transforms;
     const GroomDeformationStats none =
         EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, std::span<const u32>(nothing), transforms);
     EXPECT_EQ(none.RootsDeformed, 0u);
-    EXPECT_EQ(transforms.size(), bound.Groom->GetCurveCount()) << "still fully addressable";
+    EXPECT_EQ(transforms.Num(), bound.Groom->GetCurveCount()) << "still fully addressable";
     for (const auto& transform : transforms)
     {
         EXPECT_FALSE(transform.Valid);
@@ -900,7 +900,7 @@ TEST(GroomDeformation, TheSelectionStopsOnTheSameCurveTheBuildStopsOn)
     GroomStrandBuildSettings build;
     build.MaxStrands = 64u;  // not the binding constraint here
     build.MaxSegments = 10u; // half of ONE strand
-    std::vector<u32> selected;
+    TArray<u32> selected;
     SelectGroomStrandCurves(*bound.Groom, build, selected);
 
     std::vector<GroomStrandVertex> vertices;
@@ -908,7 +908,7 @@ TEST(GroomDeformation, TheSelectionStopsOnTheSameCurveTheBuildStopsOn)
     const GroomStrandMeshStats stats = BuildGroomStrandMesh(*bound.Groom, build, vertices, indices);
     ASSERT_TRUE(stats.SegmentBudgetLimited) << "this case is only interesting under a real budget";
     ASSERT_GT(stats.Stride, 1u) << "the premise: the budget is tight enough to have widened the stride";
-    ASSERT_LT(selected.size(), static_cast<sizet>(bound.Groom->GetCurveCount()))
+    ASSERT_LT(selected.Num(), static_cast<sizet>(bound.Groom->GetCurveCount()))
         << "the premise: the budget excluded some curves";
 
     // Four vertices per emitted segment.
@@ -1009,7 +1009,7 @@ TEST(GroomDeformation, ASkinnedSurfaceWithNoPreviousPoseReportsNoHistoryRatherTh
     inputs.Skinning = grid.Skinning(palette, palette, false); // skinned, no previous pose
     inputs.HasHistory = true;
 
-    std::vector<GroomRootTransform> transforms;
+    TArray<GroomRootTransform> transforms;
     const GroomDeformationStats stats =
         EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, std::nullopt, transforms);
     EXPECT_FALSE(stats.HasHistory) << "the caller offered history; the skeleton could not supply it";
@@ -1039,7 +1039,7 @@ TEST(GroomDeformation, ThePreviousPoseIsMappedWithThePreviousFrameMatrix)
     inputs.SurfaceToGroom = glm::mat4(1.0f);
     inputs.PrevSurfaceToGroom = glm::translate(glm::mat4(1.0f), glm::vec3{ 0.0f, 0.0f, -2.0f });
 
-    std::vector<GroomRootTransform> transforms;
+    TArray<GroomRootTransform> transforms;
     (void)EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, std::nullopt, transforms);
 
     u32 withMotion = 0;

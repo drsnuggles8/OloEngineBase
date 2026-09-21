@@ -8,7 +8,7 @@
 #include <cstddef>
 #include <limits>
 #include <unordered_map>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -47,31 +47,31 @@ namespace OloEngine
 
         // All entities whose position lies within `radius` of `center`
         // (inclusive). Order is unspecified. A negative radius yields nothing.
-        [[nodiscard]] std::vector<UUID> QueryRadius(const glm::vec3& center, f32 radius) const;
+        [[nodiscard]] TArray<UUID> QueryRadius(const glm::vec3& center, f32 radius) const;
 
         // Append form of QueryRadius — results are pushed onto `out` (not
         // cleared first), so a caller can reuse one scratch buffer across many
         // queries without per-call allocation (the AI perception hot path does
         // exactly this).
-        void QueryRadius(const glm::vec3& center, f32 radius, std::vector<UUID>& out) const;
+        void QueryRadius(const glm::vec3& center, f32 radius, TArray<UUID>& out) const;
 
         // All entities whose position lies inside the axis-aligned box
         // [min, max] (inclusive on every axis). Order is unspecified. If any
         // min component exceeds the matching max, the box is empty.
-        [[nodiscard]] std::vector<UUID> QueryAABB(const glm::vec3& min, const glm::vec3& max) const;
-        void QueryAABB(const glm::vec3& min, const glm::vec3& max, std::vector<UUID>& out) const;
+        [[nodiscard]] TArray<UUID> QueryAABB(const glm::vec3& min, const glm::vec3& max) const;
+        void QueryAABB(const glm::vec3& min, const glm::vec3& max, TArray<UUID>& out) const;
 
         // The up-to-`count` entities nearest `center`, sorted nearest-first.
         // Only entities within `maxRadius` are considered; pass the default
         // sentinel to search the whole index (an O(n) scan — bound it when the
         // index is large). Ties break arbitrarily but deterministically for a
         // fixed insertion order.
-        [[nodiscard]] std::vector<UUID> NearestN(const glm::vec3& center, u32 count,
-                                                 f32 maxRadius = std::numeric_limits<f32>::max()) const;
+        [[nodiscard]] TArray<UUID> NearestN(const glm::vec3& center, u32 count,
+                                            f32 maxRadius = std::numeric_limits<f32>::max()) const;
 
         [[nodiscard]] u32 GetEntityCount() const
         {
-            return static_cast<u32>(m_Entries.size());
+            return static_cast<u32>(m_Entries.Num());
         }
 
         // Number of distinct occupied cells. Primarily an introspection /
@@ -134,9 +134,9 @@ namespace OloEngine
         // Flat list of every indexed entity; cells store indices into this.
         // Keeping positions here (rather than in the cell vectors) lets queries
         // do the exact distance test without a second lookup.
-        std::vector<Entry> m_Entries;
+        TArray<Entry> m_Entries;
 
         // Cell coordinate -> indices into m_Entries occupying that cell.
-        std::unordered_map<CellKey, std::vector<u32>, CellKeyHash> m_Cells;
+        std::unordered_map<CellKey, TArray<u32>, CellKeyHash> m_Cells;
     };
 } // namespace OloEngine

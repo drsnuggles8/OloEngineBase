@@ -32,6 +32,8 @@
 
 #include "ShaderHarness.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/Buffer.h"
+#include "OloEngine/Renderer/ShaderReflection.h"
 
 #include <algorithm>
 #include <set>
@@ -264,3 +266,32 @@ namespace OloEngine::Tests
         }
     }
 } // namespace OloEngine::Tests
+
+TEST(ShaderOwnedStorage, LayoutAndNestedReflectionNamesSurviveGrowthAndCopies)
+{
+    using namespace OloEngine;
+    const std::string longName(256, 'u');
+    BufferLayout layout{ { ShaderDataType::Float3, "position" }, { ShaderDataType::Float2, longName } };
+    auto elements = layout.GetElements();
+    elements.Reserve(128);
+    EXPECT_EQ(elements[0].name, "position");
+    EXPECT_EQ(elements[1].name.ToStdString(), longName);
+    EXPECT_EQ(elements[1].offset, 12u);
+    EXPECT_EQ(layout.GetStride(), 20u);
+
+    ShaderReflection::UniformBlockInfo block;
+    block.Name = "Material";
+    block.BindingPoint = 2;
+    block.Size = 16;
+    block.Variables.Add(ShaderUniformDeclaration{ FString(longName), ShaderDataType::Float4, 16, 0, 1 });
+    TArray<ShaderReflection::UniformBlockInfo> blocks;
+    blocks.Add(std::move(block));
+    blocks.Reserve(128);
+    auto copy = blocks;
+    blocks.Reset();
+    ASSERT_EQ(copy.Num(), 1);
+    EXPECT_EQ(copy[0].Name, "Material");
+    ASSERT_EQ(copy[0].Variables.Num(), 1);
+    EXPECT_EQ(copy[0].Variables[0].Name.ToStdString(), longName);
+    EXPECT_EQ(copy[0].Variables[0].Size, 16u);
+}

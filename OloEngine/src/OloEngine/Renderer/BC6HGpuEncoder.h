@@ -2,7 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 // GPU compute BC6H encoder (#624 item 3) — the "fast path" #440 originally proposed.
 //
@@ -56,7 +56,7 @@ namespace OloEngine::BC6HGpu
     // expected to fall back to the CPU encoder, which produces the same format from the
     // same algorithm, only slower.
     [[nodiscard]] bool EncodeLevel(const f32* rgb, u32 width, u32 height, bool isSigned,
-                                   std::vector<u8>& outBlocks);
+                                   TArray64<u8>& outBlocks);
 
     // Records the CALLING thread as the one holding the graphics context. Called by
     // Renderer::Init; a test that brings up its own context calls it directly. Until it

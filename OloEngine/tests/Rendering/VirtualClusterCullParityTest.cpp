@@ -85,7 +85,7 @@ TEST(VirtualClusterCullParity, GpuSelectionMatchesCpuReferenceAtEveryThreshold)
     auto packed = PackVirtualMeshForGpu(vm);
     ASSERT_TRUE(packed.IsValid());
 
-    auto const clusterCount = static_cast<u32>(packed.Clusters.size());
+    auto const clusterCount = static_cast<u32>(static_cast<sizet>(packed.Clusters.Num()));
 
     // Camera: unit sphere fully in view from 4 units away
     constexpr f32 kZNear = 0.1f;
@@ -107,16 +107,16 @@ TEST(VirtualClusterCullParity, GpuSelectionMatchesCpuReferenceAtEveryThreshold)
                                                ShaderBindingLayout::UBO_VIRTUAL_CLUSTER_CULL);
 
     // Static pools
-    auto clusterBuffer = StorageBuffer::Create(static_cast<u32>(packed.Clusters.size() * sizeof(VirtualClusterGpuRecord)),
+    auto clusterBuffer = StorageBuffer::Create(static_cast<u32>(static_cast<sizet>(packed.Clusters.Num()) * sizeof(VirtualClusterGpuRecord)),
                                                ShaderBindingLayout::SSBO_VIRTUAL_CLUSTERS, StorageBufferUsage::DynamicDraw);
-    clusterBuffer->SetData(packed.Clusters.data(), static_cast<u32>(packed.Clusters.size() * sizeof(VirtualClusterGpuRecord)), 0);
-    auto groupBuffer = StorageBuffer::Create(static_cast<u32>(packed.Groups.size() * sizeof(VirtualGroupGpuRecord)),
+    clusterBuffer->SetData(packed.Clusters.GetData(), static_cast<u32>(static_cast<sizet>(packed.Clusters.Num()) * sizeof(VirtualClusterGpuRecord)), 0);
+    auto groupBuffer = StorageBuffer::Create(static_cast<u32>(static_cast<sizet>(packed.Groups.Num()) * sizeof(VirtualGroupGpuRecord)),
                                              ShaderBindingLayout::SSBO_VIRTUAL_GROUPS, StorageBufferUsage::DynamicDraw);
-    groupBuffer->SetData(packed.Groups.data(), static_cast<u32>(packed.Groups.size() * sizeof(VirtualGroupGpuRecord)), 0);
+    groupBuffer->SetData(packed.Groups.GetData(), static_cast<u32>(static_cast<sizet>(packed.Groups.Num()) * sizeof(VirtualGroupGpuRecord)), 0);
 
     // Streaming states (slice 5): all pages resident so the residency clamp is
     // inert and the parity contract stays purely about the cut + culling math.
-    std::vector<u32> const allResident(packed.Groups.size(), 1u);
+    std::vector<u32> const allResident(static_cast<sizet>(packed.Groups.Num()), 1u);
     auto groupStatesBuffer = StorageBuffer::Create(static_cast<u32>(allResident.size() * sizeof(u32)),
                                                    ShaderBindingLayout::SSBO_VIRTUAL_GROUP_STATES,
                                                    StorageBufferUsage::DynamicCopy);
@@ -343,7 +343,7 @@ TEST(VirtualClusterCullParity, SwListAppendNeverWritesPastAnUndersizedCapacity)
     auto packed = PackVirtualMeshForGpu(vm);
     ASSERT_TRUE(packed.IsValid());
 
-    auto const clusterCount = static_cast<u32>(packed.Clusters.size());
+    auto const clusterCount = static_cast<u32>(static_cast<sizet>(packed.Clusters.Num()));
     ASSERT_GT(clusterCount, 1u);
 
     constexpr f32 kZNear = 0.1f;
@@ -361,14 +361,14 @@ TEST(VirtualClusterCullParity, SwListAppendNeverWritesPastAnUndersizedCapacity)
     auto cullParamsUBO = UniformBuffer::Create(UBOStructures::VirtualClusterCullUBO::GetSize(),
                                                ShaderBindingLayout::UBO_VIRTUAL_CLUSTER_CULL);
 
-    auto clusterBuffer = StorageBuffer::Create(static_cast<u32>(packed.Clusters.size() * sizeof(VirtualClusterGpuRecord)),
+    auto clusterBuffer = StorageBuffer::Create(static_cast<u32>(static_cast<sizet>(packed.Clusters.Num()) * sizeof(VirtualClusterGpuRecord)),
                                                ShaderBindingLayout::SSBO_VIRTUAL_CLUSTERS, StorageBufferUsage::DynamicDraw);
-    clusterBuffer->SetData(packed.Clusters.data(), static_cast<u32>(packed.Clusters.size() * sizeof(VirtualClusterGpuRecord)), 0);
-    auto groupBuffer = StorageBuffer::Create(static_cast<u32>(packed.Groups.size() * sizeof(VirtualGroupGpuRecord)),
+    clusterBuffer->SetData(packed.Clusters.GetData(), static_cast<u32>(static_cast<sizet>(packed.Clusters.Num()) * sizeof(VirtualClusterGpuRecord)), 0);
+    auto groupBuffer = StorageBuffer::Create(static_cast<u32>(static_cast<sizet>(packed.Groups.Num()) * sizeof(VirtualGroupGpuRecord)),
                                              ShaderBindingLayout::SSBO_VIRTUAL_GROUPS, StorageBufferUsage::DynamicDraw);
-    groupBuffer->SetData(packed.Groups.data(), static_cast<u32>(packed.Groups.size() * sizeof(VirtualGroupGpuRecord)), 0);
+    groupBuffer->SetData(packed.Groups.GetData(), static_cast<u32>(static_cast<sizet>(packed.Groups.Num()) * sizeof(VirtualGroupGpuRecord)), 0);
 
-    std::vector<u32> const allResident(packed.Groups.size(), 1u);
+    std::vector<u32> const allResident(static_cast<sizet>(packed.Groups.Num()), 1u);
     auto groupStatesBuffer = StorageBuffer::Create(static_cast<u32>(allResident.size() * sizeof(u32)),
                                                    ShaderBindingLayout::SSBO_VIRTUAL_GROUP_STATES,
                                                    StorageBufferUsage::DynamicCopy);

@@ -12,6 +12,7 @@
 #include <atomic>
 #include <span>
 #include <string>
+#include "OloEngine/Containers/String.h"
 #include <vector>
 
 namespace OloEngine
@@ -80,7 +81,7 @@ namespace OloEngine
     struct LightmapBakeResult
     {
         bool Success = false;
-        std::string Error;        // set when Success == false ("cancelled" included)
+        FString Error;            // set when Success == false ("cancelled" included)
         Ref<LightmapAsset> Asset; // set when Success == true
         u32 BakedEntityCount = 0;
         u32 SkippedEntityCount = 0; // atlas exhaustion / unwrap failure — listed in the log
@@ -116,9 +117,9 @@ namespace OloEngine
     // texel loop reads only this struct and the ReferenceScene).
     struct LightmapBakePrepared
     {
-        std::vector<LightmapTexelJob> Jobs;
-        std::vector<LightmapEntityEntry> Entries;
-        std::vector<LightmapAtlasRegion> Regions; // parallel to Entries (same order)
+        TArray<LightmapTexelJob> Jobs;
+        TArray<LightmapEntityEntry> Entries;
+        TArray<LightmapAtlasRegion> Regions; // parallel to Entries (same order)
         u32 AtlasSize = 0;
         u32 PageCount = 0; // atlas pages actually used (>= 1 on success, issue #868)
         u32 BakedEntityCount = 0;

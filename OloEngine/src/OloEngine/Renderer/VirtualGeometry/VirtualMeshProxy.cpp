@@ -17,14 +17,14 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         VirtualProxyMesh proxy;
-        if (!dag.IsValid() || dag.Vertices.empty())
+        if (!dag.IsValid() || dag.Vertices.IsEmpty())
         {
             return proxy;
         }
         proxy.SourceTriangleCount = dag.SourceTriangleCount;
 
-        const std::vector<u32> cut = dag.SelectCoarsestCut();
-        if (cut.empty())
+        const TArray<u32> cut = dag.SelectCoarsestCut();
+        if (cut.IsEmpty())
         {
             return proxy;
         }
@@ -33,7 +33,7 @@ namespace OloEngine
         // a few hundred KB at worst and turns the remap into an array read; a
         // hash map here would be the hot loop's cost for a mesh with a million
         // vertices.
-        std::vector<u32> remap(dag.Vertices.size(), kUnmapped);
+        TArray<u32> remap(static_cast<sizet>(dag.Vertices.Num()), kUnmapped);
 
         // Exact reserve rather than a per-cluster upper bound: a cut of a
         // Nanite-class mesh is thousands of clusters, and cluster capacity
@@ -43,7 +43,7 @@ namespace OloEngine
         sizet cutVertices = 0;
         for (const u32 clusterIndex : cut)
         {
-            if (clusterIndex < dag.Clusters.size())
+            if (clusterIndex < static_cast<sizet>(dag.Clusters.Num()))
             {
                 cutTriangles += dag.Clusters[clusterIndex].TriangleCount;
                 cutVertices += dag.Clusters[clusterIndex].VertexCount;
@@ -56,16 +56,16 @@ namespace OloEngine
         // check below exists to distrust — so reserving from them raw lets a
         // corrupt blob throw length_error out of a function whose contract is
         // to drop bad clusters and carry on.
-        proxy.Indices.reserve(std::min(cutTriangles, dag.ClusterTriangles.size() / 3u) * 3u);
+        proxy.Indices.Reserve(std::min(cutTriangles, static_cast<sizet>(dag.ClusterTriangles.Num()) / 3u) * 3u);
         // An over-estimate — clusters share boundary vertices, so the compacted
         // count is lower — but bounded by the DAG's own vertex array.
-        proxy.Vertices.reserve(std::min(cutVertices, dag.Vertices.size()));
+        proxy.Vertices.Reserve(std::min(cutVertices, static_cast<sizet>(dag.Vertices.Num())));
 
         u32 droppedClusters = 0;
         u32 droppedTriangles = 0;
         for (const u32 clusterIndex : cut)
         {
-            if (clusterIndex >= dag.Clusters.size())
+            if (clusterIndex >= static_cast<sizet>(dag.Clusters.Num()))
             {
                 ++droppedClusters;
                 continue;
@@ -79,7 +79,7 @@ namespace OloEngine
             const sizet vertexEnd = static_cast<sizet>(cluster.VertexOffset) + static_cast<sizet>(cluster.VertexCount);
             const sizet triangleEnd =
                 static_cast<sizet>(cluster.TriangleOffset) + static_cast<sizet>(cluster.TriangleCount) * 3u;
-            if (vertexEnd > dag.ClusterVertexRefs.size() || triangleEnd > dag.ClusterTriangles.size())
+            if (vertexEnd > static_cast<sizet>(dag.ClusterVertexRefs.Num()) || triangleEnd > static_cast<sizet>(dag.ClusterTriangles.Num()))
             {
                 ++droppedClusters;
                 continue;
@@ -100,7 +100,7 @@ namespace OloEngine
                     }
                     const u32 sourceVertex =
                         dag.ClusterVertexRefs[static_cast<sizet>(cluster.VertexOffset) + localIndex];
-                    if (sourceVertex >= dag.Vertices.size())
+                    if (sourceVertex >= static_cast<sizet>(dag.Vertices.Num()))
                     {
                         resolved = false;
                         break;
@@ -108,8 +108,8 @@ namespace OloEngine
                     u32& slot = remap[sourceVertex];
                     if (slot == kUnmapped)
                     {
-                        slot = static_cast<u32>(proxy.Vertices.size());
-                        proxy.Vertices.push_back(dag.Vertices[sourceVertex]);
+                        slot = static_cast<u32>(proxy.Vertices.Num());
+                        proxy.Vertices.Add(dag.Vertices[sourceVertex]);
                     }
                     corner[k] = slot;
                 }
@@ -126,9 +126,9 @@ namespace OloEngine
                     ++droppedTriangles;
                     continue;
                 }
-                proxy.Indices.push_back(corner[0]);
-                proxy.Indices.push_back(corner[1]);
-                proxy.Indices.push_back(corner[2]);
+                proxy.Indices.Add(corner[0]);
+                proxy.Indices.Add(corner[1]);
+                proxy.Indices.Add(corner[2]);
             }
         }
 
@@ -151,8 +151,8 @@ namespace OloEngine
             return VirtualProxyMesh{};
         }
 
-        proxy.Vertices.shrink_to_fit();
-        proxy.Indices.shrink_to_fit();
+        proxy.Vertices.Shrink();
+        proxy.Indices.Shrink();
         if (!proxy.IsValid())
         {
             // All-or-nothing: a caller tests IsValid() once and never has to

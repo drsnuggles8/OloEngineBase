@@ -393,12 +393,12 @@ namespace OloEngine
             .Depth = depthID, .Normals = normalsID, .PreviousColor = previousColorID, .AO = aoOutputTexID, .Edge = edgeTexID, .Ping = denoisePingTexID, .Pong = denoisePongTexID, .Denoise = willDispatchDenoise, .GPUData = m_GPUData ? *m_GPUData : UBOStructures::GTAOUBO{} });
         RGPreparedPass prepared;
         if (m_GTAOUBO)
-            prepared.Resources.push_back({ m_GTAOUBO->GetRHIHandle(), true });
+            prepared.Resources.Add({ m_GTAOUBO->GetRHIHandle(), true });
         for (auto resource : { depthID, normalsID, previousColorID, m_HilbertLUT->GetRHIHandle() })
-            prepared.Resources.push_back({ resource, false });
+            prepared.Resources.Add({ resource, false });
         for (auto resource : { aoOutputTexID, edgeTexID, denoisePingTexID, denoisePongTexID, transientHZBID,
                                m_ShadingRateClassifier.GetRateTexture(), m_RecordingGTAOUBO->GetRHIHandle(), m_DenoiseUBO->GetRHIHandle() })
-            prepared.Resources.push_back({ resource, true });
+            prepared.Resources.Add({ resource, true });
         prepared.Record = [this, inputs](RGCommandContext&)
         { RecordPrepared(*inputs); };
         prepared.Publish = [this, inputs]

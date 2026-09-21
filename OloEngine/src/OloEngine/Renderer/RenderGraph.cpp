@@ -144,7 +144,7 @@ namespace OloEngine
             return Levers::BlackSquareHunt();
         }
 
-        void HuntBlackSquares(const std::string& passName, const Ref<Framebuffer>& target,
+        void HuntBlackSquares(std::string_view passName, const Ref<Framebuffer>& target,
                               const char* watchLabel = nullptr)
         {
             if (!target)
@@ -298,12 +298,12 @@ namespace OloEngine
             return kPoisonPalette[hash % std::size(kPoisonPalette)];
         }
 
-        const PoisonColor& PoisonColorForResource(const std::string& resourceName)
+        const PoisonColor& PoisonColorForResource(std::string_view resourceName)
         {
             const auto& color = PoisonPaletteEntry(resourceName);
 
-            static std::unordered_set<std::string> s_Logged;
-            if (s_Logged.insert(resourceName).second)
+            static RGTransparentStringSet s_Logged;
+            if (s_Logged.insert(std::string(resourceName)).second)
                 OLO_CORE_WARN("RG poison map: {} -> {}", resourceName, color.Name);
             return color;
         }
@@ -382,7 +382,7 @@ namespace OloEngine
 
         Ref<RenderGraphNode> TryGetGraphEntryNode(
             std::string_view name,
-            const std::unordered_map<std::string, Ref<RenderGraphNode>>& nodeLookup)
+            const RGTransparentStringMap<Ref<RenderGraphNode>>& nodeLookup)
         {
             if (const auto nodeIt = nodeLookup.find(std::string(name)); nodeIt != nodeLookup.end() && nodeIt->second)
                 return nodeIt->second;
@@ -391,10 +391,10 @@ namespace OloEngine
         }
 
         [[nodiscard]] auto FindPassAccessDeclarations(
-            const std::unordered_map<std::string, std::vector<RGAccessDeclaration>>& passAccessDeclarations,
-            std::string_view passName) -> const std::vector<RGAccessDeclaration>*
+            const RGTransparentStringMap<TArray64<RGAccessDeclaration>>& passAccessDeclarations,
+            std::string_view passName) -> const TArray64<RGAccessDeclaration>*
         {
-            if (const auto accessIt = passAccessDeclarations.find(std::string(passName));
+            if (const auto accessIt = passAccessDeclarations.find(passName);
                 accessIt != passAccessDeclarations.end())
             {
                 return &accessIt->second;
@@ -435,30 +435,30 @@ namespace OloEngine
         m_NodeLookup.clear();
         m_Dependencies.clear();
         m_ExplicitDependencies.clear();
-        m_InsertionOrder.clear();
-        m_ExecutionOrder.clear();
-        m_FinalPassName.clear();
+        m_InsertionOrder.Reset();
+        m_ExecutionOrder.Reset();
+        m_FinalPassName.Reset();
         m_HasExplicitFinalPass = false;
         m_ReachablePasses.clear();
-        m_CulledPasses.clear();
+        m_CulledPasses.Reset();
         m_LastBuildStats = {};
         m_PassAccessDeclarations.clear();
         m_PassFeedbackDeclarations.clear();
         m_PassLifetimeExtensions.clear();
         m_PassBarrierFlags.clear();
-        m_PlannedBarriers.clear();
-        m_BuildDiagnostics.clear();
-        m_BarrierDiagnostics.clear();
-        m_LastExecutionTimings.clear();
-        m_ResolveFailures.clear();
-        m_CachedSubmissionPlan.clear();
-        m_LastLoggedSubmissionPlanDigest.clear();
-        m_LastLoggedCulledPassDigest.clear();
-        m_LastLoggedBuildDiagnosticDigest.clear();
+        m_PlannedBarriers.Reset();
+        m_BuildDiagnostics.Reset();
+        m_BarrierDiagnostics.Reset();
+        m_LastExecutionTimings.Reset();
+        m_ResolveFailures.Reset();
+        m_CachedSubmissionPlan.Reset();
+        m_LastLoggedSubmissionPlanDigest.Reset();
+        m_LastLoggedCulledPassDigest.Reset();
+        m_LastLoggedBuildDiagnosticDigest.Reset();
         m_ImportedResources.clear();
         m_ResourceRegistry.clear();
-        m_RegisteredResources.clear();
-        m_ResourceRegistryDiagnostics.clear();
+        m_RegisteredResources.Reset();
+        m_ResourceRegistryDiagnostics.Reset();
         m_TextureHandlesByName.clear();
         m_LatestTextureHandlesByBaseName.clear();
         m_TextureViewResourceDescs.clear();
@@ -468,27 +468,27 @@ namespace OloEngine
         m_LatestBufferHandlesByBaseName.clear();
         m_FramebufferHandlesByName.clear();
         m_LatestFramebufferHandlesByBaseName.clear();
-        m_TextureHandleSlots.clear();
-        m_BufferHandleSlots.clear();
-        m_FramebufferHandleSlots.clear();
-        m_FreeTextureHandleIndices.clear();
-        m_FreeBufferHandleIndices.clear();
-        m_FreeFramebufferHandleIndices.clear();
-        m_PhysicalTextures.clear();
-        m_PhysicalFramebuffers.clear();
-        m_PhysicalBuffers.clear();
-        m_TextureExtracts.clear();
-        m_ExternalTextureSinkContracts.clear();
-        m_HistoryTextureExtracts.clear();
-        m_FramebufferExtracts.clear();
-        m_TemporalHistoryContracts.clear();
+        m_TextureHandleSlots.Reset();
+        m_BufferHandleSlots.Reset();
+        m_FramebufferHandleSlots.Reset();
+        m_FreeTextureHandleIndices.Reset();
+        m_FreeBufferHandleIndices.Reset();
+        m_FreeFramebufferHandleIndices.Reset();
+        m_PhysicalTextures.Reset();
+        m_PhysicalFramebuffers.Reset();
+        m_PhysicalBuffers.Reset();
+        m_TextureExtracts.Empty();
+        m_ExternalTextureSinkContracts.Reset();
+        m_HistoryTextureExtracts.Empty();
+        m_FramebufferExtracts.Empty();
+        m_TemporalHistoryContracts.Reset();
         m_ExternalTextureSinks.clear();
         m_HistoryTextureSinks.clear();
         m_ExternallyBackedTransientTextures.clear();
         m_ExternallyBackedTransientFramebuffers.clear();
         m_Blackboard.Reset();
         m_TransientResourceDescs.clear();
-        m_TransientPlan.clear();
+        m_TransientPlan.Reset();
         m_ExplicitVersionProducers.clear();
         m_LastWriterPassNameByResource.clear();
         m_ResourceNames.Clear();
@@ -513,31 +513,31 @@ namespace OloEngine
         m_NodeLookup.clear();
         m_Dependencies.clear();
         m_ExplicitDependencies.clear();
-        m_InsertionOrder.clear();
-        m_ExecutionOrder.clear();
-        m_FinalPassName.clear();
+        m_InsertionOrder.Reset();
+        m_ExecutionOrder.Reset();
+        m_FinalPassName.Reset();
         m_HasExplicitFinalPass = false;
         m_ReachablePasses.clear();
-        m_CulledPasses.clear();
+        m_CulledPasses.Reset();
         m_LastBuildStats = {};
         m_PassAccessDeclarations.clear();
         m_PassFeedbackDeclarations.clear();
         m_PassLifetimeExtensions.clear();
         m_PassBarrierFlags.clear();
-        m_PlannedBarriers.clear();
-        m_BuildDiagnostics.clear();
-        m_BarrierDiagnostics.clear();
-        m_LastExecutionTimings.clear();
-        m_ResolveFailures.clear();
-        m_CachedSubmissionPlan.clear();
-        m_LastLoggedSubmissionPlanDigest.clear();
-        m_LastLoggedCulledPassDigest.clear();
-        m_LastLoggedBuildDiagnosticDigest.clear();
+        m_PlannedBarriers.Reset();
+        m_BuildDiagnostics.Reset();
+        m_BarrierDiagnostics.Reset();
+        m_LastExecutionTimings.Reset();
+        m_ResolveFailures.Reset();
+        m_CachedSubmissionPlan.Reset();
+        m_LastLoggedSubmissionPlanDigest.Reset();
+        m_LastLoggedCulledPassDigest.Reset();
+        m_LastLoggedBuildDiagnosticDigest.Reset();
         m_DependencyGraphDirty = true;
         m_ImportedResources.clear();
         m_ResourceRegistry.clear();
-        m_RegisteredResources.clear();
-        m_ResourceRegistryDiagnostics.clear();
+        m_RegisteredResources.Reset();
+        m_ResourceRegistryDiagnostics.Reset();
         m_TextureHandlesByName.clear();
         m_LatestTextureHandlesByBaseName.clear();
         m_TextureViewResourceDescs.clear();
@@ -550,20 +550,20 @@ namespace OloEngine
 
         auto invalidateSlots = [](auto& slots, auto& freeIndices)
         {
-            freeIndices.clear();
-            freeIndices.reserve(slots.size());
-            for (u32 i = 0; i < static_cast<u32>(slots.size()); ++i)
+            freeIndices.Reset();
+            freeIndices.Reserve(static_cast<i64>(static_cast<sizet>(slots.Num())));
+            for (u32 i = 0; i < static_cast<u32>(static_cast<sizet>(slots.Num())); ++i)
             {
                 auto& slot = slots[i];
                 slot.Alive = false;
-                slot.Name.clear();
+                slot.Name.Reset();
                 // Increment first, then repair a wrap to 0: Generation 0 is
                 // the "never allocated" sentinel (IsValid() requires > 0), so
                 // an overflow must land on 1, not 0.
                 ++slot.Generation;
                 if (slot.Generation == 0)
                     slot.Generation = 1;
-                freeIndices.push_back(i);
+                freeIndices.Add(i);
             }
         };
 
@@ -576,21 +576,21 @@ namespace OloEngine
         // releases Framebuffer refs so the destructor runs at the right time.
         for (auto& phys : m_PhysicalFramebuffers)
             phys.FB.Reset();
-        m_PhysicalTextures.clear();
-        m_PhysicalFramebuffers.clear();
-        m_PhysicalBuffers.clear();
-        m_TextureExtracts.clear();
-        m_ExternalTextureSinkContracts.clear();
-        m_HistoryTextureExtracts.clear();
-        m_FramebufferExtracts.clear();
-        m_TemporalHistoryContracts.clear();
+        m_PhysicalTextures.Reset();
+        m_PhysicalFramebuffers.Reset();
+        m_PhysicalBuffers.Reset();
+        m_TextureExtracts.Empty();
+        m_ExternalTextureSinkContracts.Reset();
+        m_HistoryTextureExtracts.Empty();
+        m_FramebufferExtracts.Empty();
+        m_TemporalHistoryContracts.Reset();
         m_ExternalTextureSinks.clear();
         m_HistoryTextureSinks.clear();
         m_ExternallyBackedTransientTextures.clear();
         m_ExternallyBackedTransientFramebuffers.clear();
         m_Blackboard.Reset();
         m_TransientResourceDescs.clear();
-        m_TransientPlan.clear();
+        m_TransientPlan.Reset();
         m_ExplicitVersionProducers.clear();
         m_ResourceNames.Clear();
         m_PassNames.Clear();
@@ -617,7 +617,7 @@ namespace OloEngine
         if (Levers::RenderGraphDiagnostics())
             OLO_CORE_TRACE("Adding graph node: {}", name);
 
-        m_InsertionOrder.push_back(name);
+        m_InsertionOrder.Add(name);
 
         m_NodeLookup[name] = node;
         SynchronizeGraphEntryLifecycle(node, m_PhysicalWidth, m_PhysicalHeight, m_RenderScale);
@@ -629,8 +629,8 @@ namespace OloEngine
     {
         auto importedDesc = desc;
         importedDesc.Imported = true;
-        if (importedDesc.DebugName.empty())
-            importedDesc.DebugName = std::string(name);
+        if (importedDesc.DebugName.IsEmpty())
+            importedDesc.DebugName = name;
 
         m_ImportedResources[std::string(name)] = std::move(importedDesc);
         m_ResourceRegistryDirty = true;
@@ -647,7 +647,7 @@ namespace OloEngine
         m_LatestFramebufferHandlesByBaseName.clear();
         m_TextureBaseNameAliases.clear();
         m_FramebufferBaseNameAliases.clear();
-        m_ExternalTextureSinkContracts.clear();
+        m_ExternalTextureSinkContracts.Reset();
         m_ExternalTextureSinks.clear();
         m_HistoryTextureSinks.clear();
         m_ExternallyBackedTransientTextures.clear();
@@ -669,7 +669,7 @@ namespace OloEngine
         // leave stale handle copies around during graph rebuild transitions.
         if (const auto existingIt = m_TextureHandlesByName.find(std::string(name));
             existingIt != m_TextureHandlesByName.end() &&
-            existingIt->second.Index < m_TextureHandleSlots.size())
+            existingIt->second.Index < static_cast<sizet>(m_TextureHandleSlots.Num()))
         {
             handle.Index = existingIt->second.Index;
             auto& slot = m_TextureHandleSlots[handle.Index];
@@ -682,10 +682,10 @@ namespace OloEngine
                                                   handle.Index);
             const bool wasOnFreeList = (freeIt != m_FreeTextureHandleIndices.end());
             if (wasOnFreeList)
-                m_FreeTextureHandleIndices.erase(freeIt);
+                m_FreeTextureHandleIndices.RemoveAt(freeIt - m_FreeTextureHandleIndices.begin(), 1, EAllowShrinking::No);
 
-            if (handle.Index >= m_PhysicalTextures.size())
-                m_PhysicalTextures.resize(static_cast<sizet>(handle.Index) + 1u);
+            if (handle.Index >= static_cast<sizet>(m_PhysicalTextures.Num()))
+                m_PhysicalTextures.SetNum(static_cast<i64>(static_cast<sizet>(handle.Index) + 1u), EAllowShrinking::No);
 
             auto& phys = m_PhysicalTextures[handle.Index];
 
@@ -696,7 +696,7 @@ namespace OloEngine
             const bool resourceChanged = (phys.TextureID != textureID) || !(phys.Handle == identity) ||
                                          (phys.IsHistory != isHistory);
             const bool placeholderChanged = (slot.IsPlaceholder != isPlaceholder) ||
-                                            (slot.PlaceholderReason != placeholderReason);
+                                            (slot.PlaceholderReason.ToView() != placeholderReason);
             const bool needsGenBump = wasOnFreeList || !slot.Alive || resourceChanged || placeholderChanged;
 
             if (slot.Generation == 0)
@@ -705,9 +705,9 @@ namespace OloEngine
                 ++slot.Generation;
 
             slot.Alive = true;
-            slot.Name = std::string(name);
+            slot.Name = name;
             slot.IsPlaceholder = isPlaceholder;
-            slot.PlaceholderReason = std::string(placeholderReason);
+            slot.PlaceholderReason = placeholderReason;
             slot.PlaceholderWarnedThisFrame = false;
             handle.Generation = slot.Generation;
 
@@ -719,15 +719,15 @@ namespace OloEngine
             return handle;
         }
 
-        if (!m_FreeTextureHandleIndices.empty())
+        if (!m_FreeTextureHandleIndices.IsEmpty())
         {
-            handle.Index = m_FreeTextureHandleIndices.back();
-            m_FreeTextureHandleIndices.pop_back();
+            handle.Index = m_FreeTextureHandleIndices.Last();
+            m_FreeTextureHandleIndices.Pop(EAllowShrinking::No);
             auto& slot = m_TextureHandleSlots[handle.Index];
             slot.Alive = true;
-            slot.Name = std::string(name);
+            slot.Name = name;
             slot.IsPlaceholder = isPlaceholder;
-            slot.PlaceholderReason = std::string(placeholderReason);
+            slot.PlaceholderReason = placeholderReason;
             slot.PlaceholderWarnedThisFrame = false;
             // Free-list reuse hands this slot to a DIFFERENT resource, so the
             // generation must be bumped here, locally — not merely trusted to
@@ -739,8 +739,8 @@ namespace OloEngine
                 slot.Generation = 1;
             handle.Generation = slot.Generation;
 
-            if (handle.Index >= m_PhysicalTextures.size())
-                m_PhysicalTextures.resize(static_cast<sizet>(handle.Index) + 1u);
+            if (handle.Index >= static_cast<sizet>(m_PhysicalTextures.Num()))
+                m_PhysicalTextures.SetNum(static_cast<i64>(static_cast<sizet>(handle.Index) + 1u), EAllowShrinking::No);
 
             auto& phys = m_PhysicalTextures[handle.Index];
             phys.TextureID = textureID;
@@ -749,23 +749,23 @@ namespace OloEngine
         }
         else
         {
-            handle.Index = static_cast<u32>(m_TextureHandleSlots.size());
+            handle.Index = static_cast<u32>(static_cast<sizet>(m_TextureHandleSlots.Num()));
             handle.Generation = 1;
 
             HandleSlot slot;
             slot.Generation = 1;
             slot.Alive = true;
-            slot.Name = std::string(name);
+            slot.Name = name;
             slot.IsPlaceholder = isPlaceholder;
-            slot.PlaceholderReason = std::string(placeholderReason);
+            slot.PlaceholderReason = placeholderReason;
             slot.PlaceholderWarnedThisFrame = false;
-            m_TextureHandleSlots.push_back(std::move(slot));
+            m_TextureHandleSlots.Add(std::move(slot));
 
             PhysicalTexture phys;
             phys.TextureID = textureID;
             phys.Handle = identity;
             phys.IsHistory = isHistory;
-            m_PhysicalTextures.push_back(std::move(phys));
+            m_PhysicalTextures.Add(std::move(phys));
         }
 
         m_TextureHandlesByName[std::string(name)] = handle;
@@ -780,10 +780,10 @@ namespace OloEngine
             return {};
 
         const auto sourceResource = GetResourceName(sourceHandle);
-        if (sourceResource.empty())
+        if (sourceResource.IsEmpty())
             return {};
 
-        auto desc = BuildVersionedResourceDesc(sourceResource,
+        auto desc = BuildVersionedResourceDesc(sourceResource.ToView(),
                                                RGResourceHandle::Kind::Texture2D,
                                                versionedName);
         auto versionHandle = AllocateTransientTextureHandle(versionedName, desc);
@@ -796,7 +796,7 @@ namespace OloEngine
             // source's physical and the transient planner never allocates a
             // separate backing for the version.
             m_VersionAliasTargets[std::string(versionedName)] = std::string(sourceResource);
-            m_LatestTextureHandlesByBaseName[std::string(GetVersionLookupBaseName(sourceResource))] = versionHandle;
+            m_LatestTextureHandlesByBaseName[std::string(GetVersionLookupBaseName(sourceResource.ToView()))] = versionHandle;
         }
 
         return versionHandle;
@@ -815,7 +815,7 @@ namespace OloEngine
         // rendering when consumers cache handles across frames.
         if (const auto existingIt = m_FramebufferHandlesByName.find(std::string(name));
             existingIt != m_FramebufferHandlesByName.end() &&
-            existingIt->second.Index < m_FramebufferHandleSlots.size())
+            existingIt->second.Index < static_cast<sizet>(m_FramebufferHandleSlots.Num()))
         {
             handle.Index = existingIt->second.Index;
             auto& slot = m_FramebufferHandleSlots[handle.Index];
@@ -827,10 +827,10 @@ namespace OloEngine
                                                   handle.Index);
             const bool wasOnFreeList = (freeIt != m_FreeFramebufferHandleIndices.end());
             if (wasOnFreeList)
-                m_FreeFramebufferHandleIndices.erase(freeIt);
+                m_FreeFramebufferHandleIndices.RemoveAt(freeIt - m_FreeFramebufferHandleIndices.begin(), 1, EAllowShrinking::No);
 
-            if (handle.Index >= m_PhysicalFramebuffers.size())
-                m_PhysicalFramebuffers.resize(static_cast<sizet>(handle.Index) + 1u);
+            if (handle.Index >= static_cast<sizet>(m_PhysicalFramebuffers.Num()))
+                m_PhysicalFramebuffers.SetNum(static_cast<i64>(static_cast<sizet>(handle.Index) + 1u), EAllowShrinking::No);
 
             auto& phys = m_PhysicalFramebuffers[handle.Index];
 
@@ -840,7 +840,7 @@ namespace OloEngine
             // get spuriously invalidated.
             const bool resourceChanged = (phys.FB.get() != fb.get());
             const bool placeholderChanged = (slot.IsPlaceholder != isPlaceholder) ||
-                                            (slot.PlaceholderReason != placeholderReason);
+                                            (slot.PlaceholderReason.ToView() != placeholderReason);
             const bool needsGenBump = wasOnFreeList || !slot.Alive || resourceChanged || placeholderChanged;
 
             if (slot.Generation == 0)
@@ -849,9 +849,9 @@ namespace OloEngine
                 ++slot.Generation;
 
             slot.Alive = true;
-            slot.Name = std::string(name);
+            slot.Name = name;
             slot.IsPlaceholder = isPlaceholder;
-            slot.PlaceholderReason = std::string(placeholderReason);
+            slot.PlaceholderReason = placeholderReason;
             slot.PlaceholderWarnedThisFrame = false;
             handle.Generation = slot.Generation;
 
@@ -860,15 +860,15 @@ namespace OloEngine
             return handle;
         }
 
-        if (!m_FreeFramebufferHandleIndices.empty())
+        if (!m_FreeFramebufferHandleIndices.IsEmpty())
         {
-            handle.Index = m_FreeFramebufferHandleIndices.back();
-            m_FreeFramebufferHandleIndices.pop_back();
+            handle.Index = m_FreeFramebufferHandleIndices.Last();
+            m_FreeFramebufferHandleIndices.Pop(EAllowShrinking::No);
             auto& slot = m_FramebufferHandleSlots[handle.Index];
             slot.Alive = true;
-            slot.Name = std::string(name);
+            slot.Name = name;
             slot.IsPlaceholder = isPlaceholder;
-            slot.PlaceholderReason = std::string(placeholderReason);
+            slot.PlaceholderReason = placeholderReason;
             slot.PlaceholderWarnedThisFrame = false;
             // Free-list reuse hands this slot to a DIFFERENT resource — bump
             // the generation locally so stale cached handles fail their
@@ -879,8 +879,8 @@ namespace OloEngine
                 slot.Generation = 1;
             handle.Generation = slot.Generation;
 
-            if (handle.Index >= m_PhysicalFramebuffers.size())
-                m_PhysicalFramebuffers.resize(static_cast<sizet>(handle.Index) + 1u);
+            if (handle.Index >= static_cast<sizet>(m_PhysicalFramebuffers.Num()))
+                m_PhysicalFramebuffers.SetNum(static_cast<i64>(static_cast<sizet>(handle.Index) + 1u), EAllowShrinking::No);
 
             m_PhysicalFramebuffers[handle.Index].FB = fb;
         }
@@ -889,33 +889,33 @@ namespace OloEngine
             // CRITICAL: keep slots & physicals in lockstep. If a prior
             // operation cleared one but not the other, push_back here
             // would leave handle.Index OOB on the smaller vector.
-            const sizet slotsBefore = m_FramebufferHandleSlots.size();
-            const sizet physBefore = m_PhysicalFramebuffers.size();
+            const sizet slotsBefore = static_cast<sizet>(m_FramebufferHandleSlots.Num());
+            const sizet physBefore = static_cast<sizet>(m_PhysicalFramebuffers.Num());
             if (slotsBefore != physBefore)
             {
                 OLO_CORE_ERROR("RG-FB-WRITE [SIZE MISMATCH BEFORE PUSH]: slots.size={} physicals.size={} freeFB.size={} — vectors out of sync!",
-                               slotsBefore, physBefore, m_FreeFramebufferHandleIndices.size());
+                               slotsBefore, physBefore, static_cast<sizet>(m_FreeFramebufferHandleIndices.Num()));
                 // Re-sync to keep things from crashing.
                 const sizet target = std::max(slotsBefore, physBefore);
-                m_FramebufferHandleSlots.resize(target);
-                m_PhysicalFramebuffers.resize(target);
+                m_FramebufferHandleSlots.SetNum(static_cast<i64>(target), EAllowShrinking::No);
+                m_PhysicalFramebuffers.SetNum(static_cast<i64>(target), EAllowShrinking::No);
             }
 
-            handle.Index = static_cast<u32>(m_FramebufferHandleSlots.size());
+            handle.Index = static_cast<u32>(static_cast<sizet>(m_FramebufferHandleSlots.Num()));
             handle.Generation = 1;
 
             HandleSlot slot;
             slot.Generation = 1;
             slot.Alive = true;
-            slot.Name = std::string(name);
+            slot.Name = name;
             slot.IsPlaceholder = isPlaceholder;
-            slot.PlaceholderReason = std::string(placeholderReason);
+            slot.PlaceholderReason = placeholderReason;
             slot.PlaceholderWarnedThisFrame = false;
-            m_FramebufferHandleSlots.push_back(std::move(slot));
+            m_FramebufferHandleSlots.Add(std::move(slot));
 
             PhysicalFramebuffer phys;
             phys.FB = fb;
-            m_PhysicalFramebuffers.push_back(std::move(phys));
+            m_PhysicalFramebuffers.Add(std::move(phys));
         }
 
         m_FramebufferHandlesByName[std::string(name)] = handle;
@@ -930,10 +930,10 @@ namespace OloEngine
             return {};
 
         const auto sourceResource = GetResourceName(sourceHandle);
-        if (sourceResource.empty())
+        if (sourceResource.IsEmpty())
             return {};
 
-        auto desc = BuildVersionedResourceDesc(sourceResource,
+        auto desc = BuildVersionedResourceDesc(sourceResource.ToView(),
                                                RGResourceHandle::Kind::Framebuffer,
                                                versionedName);
         auto versionHandle = AllocateTransientFramebufferHandle(versionedName, desc);
@@ -943,7 +943,7 @@ namespace OloEngine
         {
             // Same-physical rename — see CreateVersionedTextureHandle.
             m_VersionAliasTargets[std::string(versionedName)] = std::string(sourceResource);
-            m_LatestFramebufferHandlesByBaseName[std::string(GetVersionLookupBaseName(sourceResource))] = versionHandle;
+            m_LatestFramebufferHandlesByBaseName[std::string(GetVersionLookupBaseName(sourceResource.ToView()))] = versionHandle;
 
             // Auto-publish versioned attachment views: every colour/depth
             // attachment view that was registered against the *base*
@@ -1018,7 +1018,7 @@ namespace OloEngine
         // Stable handle reuse by name, mirroring textures/framebuffers.
         if (const auto existingIt = m_BufferHandlesByName.find(std::string(name));
             existingIt != m_BufferHandlesByName.end() &&
-            existingIt->second.Index < m_BufferHandleSlots.size())
+            existingIt->second.Index < static_cast<sizet>(m_BufferHandleSlots.Num()))
         {
             handle.Index = existingIt->second.Index;
             auto& slot = m_BufferHandleSlots[handle.Index];
@@ -1030,10 +1030,10 @@ namespace OloEngine
                                                   handle.Index);
             const bool wasOnFreeList = (freeIt != m_FreeBufferHandleIndices.end());
             if (wasOnFreeList)
-                m_FreeBufferHandleIndices.erase(freeIt);
+                m_FreeBufferHandleIndices.RemoveAt(freeIt - m_FreeBufferHandleIndices.begin(), 1, EAllowShrinking::No);
 
-            if (handle.Index >= m_PhysicalBuffers.size())
-                m_PhysicalBuffers.resize(static_cast<sizet>(handle.Index) + 1u);
+            if (handle.Index >= static_cast<sizet>(m_PhysicalBuffers.Num()))
+                m_PhysicalBuffers.SetNum(static_cast<i64>(static_cast<sizet>(handle.Index) + 1u), EAllowShrinking::No);
 
             auto& phys = m_PhysicalBuffers[handle.Index];
 
@@ -1044,7 +1044,7 @@ namespace OloEngine
             // either retires cached handles before publishing the new backing.
             const bool resourceChanged = (phys.BufferID != bufferID) || (phys.Handle != identity);
             const bool placeholderChanged = (slot.IsPlaceholder != isPlaceholder) ||
-                                            (slot.PlaceholderReason != placeholderReason);
+                                            (slot.PlaceholderReason.ToView() != placeholderReason);
             const bool needsGenBump = wasOnFreeList || !slot.Alive || resourceChanged || placeholderChanged;
 
             if (slot.Generation == 0)
@@ -1053,9 +1053,9 @@ namespace OloEngine
                 ++slot.Generation;
 
             slot.Alive = true;
-            slot.Name = std::string(name);
+            slot.Name = name;
             slot.IsPlaceholder = isPlaceholder;
-            slot.PlaceholderReason = std::string(placeholderReason);
+            slot.PlaceholderReason = placeholderReason;
             slot.PlaceholderWarnedThisFrame = false;
             handle.Generation = slot.Generation;
 
@@ -1067,15 +1067,15 @@ namespace OloEngine
             return handle;
         }
 
-        if (!m_FreeBufferHandleIndices.empty())
+        if (!m_FreeBufferHandleIndices.IsEmpty())
         {
-            handle.Index = m_FreeBufferHandleIndices.back();
-            m_FreeBufferHandleIndices.pop_back();
+            handle.Index = m_FreeBufferHandleIndices.Last();
+            m_FreeBufferHandleIndices.Pop(EAllowShrinking::No);
             auto& slot = m_BufferHandleSlots[handle.Index];
             slot.Alive = true;
-            slot.Name = std::string(name);
+            slot.Name = name;
             slot.IsPlaceholder = isPlaceholder;
-            slot.PlaceholderReason = std::string(placeholderReason);
+            slot.PlaceholderReason = placeholderReason;
             slot.PlaceholderWarnedThisFrame = false;
             // Free-list reuse hands this slot to a DIFFERENT resource — bump
             // the generation locally so stale cached handles fail their
@@ -1086,30 +1086,30 @@ namespace OloEngine
                 slot.Generation = 1;
             handle.Generation = slot.Generation;
 
-            if (handle.Index >= m_PhysicalBuffers.size())
-                m_PhysicalBuffers.resize(static_cast<sizet>(handle.Index) + 1u);
+            if (handle.Index >= static_cast<sizet>(m_PhysicalBuffers.Num()))
+                m_PhysicalBuffers.SetNum(static_cast<i64>(static_cast<sizet>(handle.Index) + 1u), EAllowShrinking::No);
 
             m_PhysicalBuffers[handle.Index].BufferID = bufferID;
             m_PhysicalBuffers[handle.Index].Handle = identity;
         }
         else
         {
-            handle.Index = static_cast<u32>(m_BufferHandleSlots.size());
+            handle.Index = static_cast<u32>(static_cast<sizet>(m_BufferHandleSlots.Num()));
             handle.Generation = 1;
 
             HandleSlot slot;
             slot.Generation = 1;
             slot.Alive = true;
-            slot.Name = std::string(name);
+            slot.Name = name;
             slot.IsPlaceholder = isPlaceholder;
-            slot.PlaceholderReason = std::string(placeholderReason);
+            slot.PlaceholderReason = placeholderReason;
             slot.PlaceholderWarnedThisFrame = false;
-            m_BufferHandleSlots.push_back(std::move(slot));
+            m_BufferHandleSlots.Add(std::move(slot));
 
             PhysicalBuffer phys;
             phys.BufferID = bufferID;
             phys.Handle = identity;
-            m_PhysicalBuffers.push_back(std::move(phys));
+            m_PhysicalBuffers.Add(std::move(phys));
         }
 
         m_BufferHandlesByName[std::string(name)] = handle;
@@ -1124,10 +1124,10 @@ namespace OloEngine
             return {};
 
         const auto sourceResource = GetResourceName(sourceHandle);
-        if (sourceResource.empty())
+        if (sourceResource.IsEmpty())
             return {};
 
-        auto desc = BuildVersionedResourceDesc(sourceResource,
+        auto desc = BuildVersionedResourceDesc(sourceResource.ToView(),
                                                RGResourceHandle::Kind::StorageBuffer,
                                                versionedName);
         auto versionHandle = AllocateTransientBufferHandle(versionedName, desc);
@@ -1137,7 +1137,7 @@ namespace OloEngine
         {
             // Same-physical rename — see CreateVersionedTextureHandle.
             m_VersionAliasTargets[std::string(versionedName)] = std::string(sourceResource);
-            m_LatestBufferHandlesByBaseName[std::string(GetVersionLookupBaseName(sourceResource))] = versionHandle;
+            m_LatestBufferHandlesByBaseName[std::string(GetVersionLookupBaseName(sourceResource.ToView()))] = versionHandle;
         }
 
         return versionHandle;
@@ -1161,14 +1161,14 @@ namespace OloEngine
         importDesc.Imported = true;
         if (importDesc.Kind == RGResourceHandle::Kind::Unknown)
             importDesc.Kind = RGResourceHandle::Kind::Texture2D;
-        if (importDesc.DebugName.empty())
-            importDesc.DebugName = std::string(name);
+        if (importDesc.DebugName.IsEmpty())
+            importDesc.DebugName = name;
 
         m_ImportedResources[std::string(name)] = importDesc;
         m_ResourceRegistryDirty = true;
 
         return AllocateTextureHandle(name, textureID, false, importDesc.IsPlaceholder,
-                                     importDesc.PlaceholderReason, identity);
+                                     importDesc.PlaceholderReason.ToView(), identity);
     }
 
     RGTextureHandle RenderGraph::ImportTexture(std::string_view name, u32 textureID,
@@ -1191,13 +1191,13 @@ namespace OloEngine
         importDesc.Imported = true;
         if (importDesc.Kind == RGResourceHandle::Kind::Unknown)
             importDesc.Kind = RGResourceHandle::Kind::Framebuffer;
-        if (importDesc.DebugName.empty())
-            importDesc.DebugName = std::string(name);
+        if (importDesc.DebugName.IsEmpty())
+            importDesc.DebugName = name;
 
         m_ImportedResources[std::string(name)] = importDesc;
         m_ResourceRegistryDirty = true;
 
-        return AllocateFramebufferHandle(name, fb, importDesc.IsPlaceholder, importDesc.PlaceholderReason);
+        return AllocateFramebufferHandle(name, fb, importDesc.IsPlaceholder, importDesc.PlaceholderReason.ToView());
     }
 
     RGBufferHandle RenderGraph::ImportBuffer(std::string_view name, u32 bufferID,
@@ -1207,13 +1207,13 @@ namespace OloEngine
         importDesc.Imported = true;
         if (importDesc.Kind == RGResourceHandle::Kind::Unknown)
             importDesc.Kind = RGResourceHandle::Kind::UniformBuffer;
-        if (importDesc.DebugName.empty())
-            importDesc.DebugName = std::string(name);
+        if (importDesc.DebugName.IsEmpty())
+            importDesc.DebugName = name;
 
         m_ImportedResources[std::string(name)] = importDesc;
         m_ResourceRegistryDirty = true;
 
-        return AllocateBufferHandle(name, bufferID, importDesc.IsPlaceholder, importDesc.PlaceholderReason);
+        return AllocateBufferHandle(name, bufferID, importDesc.IsPlaceholder, importDesc.PlaceholderReason.ToView());
     }
 
     RGBufferHandle RenderGraph::ImportBufferHandle(std::string_view name, RHI::ResourceHandle buffer,
@@ -1223,13 +1223,13 @@ namespace OloEngine
         importDesc.Imported = true;
         if (importDesc.Kind == RGResourceHandle::Kind::Unknown)
             importDesc.Kind = RGResourceHandle::Kind::UniformBuffer;
-        if (importDesc.DebugName.empty())
-            importDesc.DebugName = std::string(name);
+        if (importDesc.DebugName.IsEmpty())
+            importDesc.DebugName = name;
 
         m_ImportedResources[std::string(name)] = importDesc;
         m_ResourceRegistryDirty = true;
 
-        return AllocateBufferHandle(name, 0u, importDesc.IsPlaceholder, importDesc.PlaceholderReason, buffer);
+        return AllocateBufferHandle(name, 0u, importDesc.IsPlaceholder, importDesc.PlaceholderReason.ToView(), buffer);
     }
 
     RGTextureHandle RenderGraph::ImportHistory(std::string_view name, u32 textureID,
@@ -1242,13 +1242,13 @@ namespace OloEngine
         importDesc.Imported = true;
         if (importDesc.Kind == RGResourceHandle::Kind::Unknown)
             importDesc.Kind = RGResourceHandle::Kind::Texture2D;
-        if (importDesc.DebugName.empty())
-            importDesc.DebugName = std::string(name);
+        if (importDesc.DebugName.IsEmpty())
+            importDesc.DebugName = name;
 
         m_ImportedResources[std::string(name)] = importDesc;
         m_ResourceRegistryDirty = true;
 
-        return AllocateTextureHandle(name, textureID, /*isHistory=*/true, importDesc.IsPlaceholder, importDesc.PlaceholderReason);
+        return AllocateTextureHandle(name, textureID, /*isHistory=*/true, importDesc.IsPlaceholder, importDesc.PlaceholderReason.ToView());
     }
 
     RGTextureHandle RenderGraph::ImportHistoryHandle(std::string_view name, RHI::ResourceHandle texture,
@@ -1261,8 +1261,8 @@ namespace OloEngine
         importDesc.Imported = true;
         if (importDesc.Kind == RGResourceHandle::Kind::Unknown)
             importDesc.Kind = RGResourceHandle::Kind::Texture2D;
-        if (importDesc.DebugName.empty())
-            importDesc.DebugName = std::string(name);
+        if (importDesc.DebugName.IsEmpty())
+            importDesc.DebugName = name;
 
         m_ImportedResources[std::string(name)] = importDesc;
         m_ResourceRegistryDirty = true;
@@ -1273,7 +1273,7 @@ namespace OloEngine
         // it (see the ImportTextureHandle story in
         // docs/agent-rules/rhi-abstraction-boundary.md).
         return AllocateTextureHandle(name, 0u, /*isHistory=*/true, importDesc.IsPlaceholder,
-                                     importDesc.PlaceholderReason, texture);
+                                     importDesc.PlaceholderReason.ToView(), texture);
     }
 
     RGTextureHandle RenderGraph::CreateFramebufferAttachmentView(std::string_view name,
@@ -1304,13 +1304,13 @@ namespace OloEngine
 
         RGResourceDesc viewDesc = parentInfo->Desc;
         viewDesc.Kind = RGResourceHandle::Kind::Texture2D;
-        viewDesc.DebugName = std::string(name);
-        viewDesc.Attachments.clear();
+        viewDesc.DebugName = name;
+        viewDesc.Attachments.Reset();
         viewDesc.DepthOrLayers = 1u;
 
-        if (!parentInfo->Desc.Attachments.empty())
+        if (!parentInfo->Desc.Attachments.IsEmpty())
         {
-            if (colorAttachmentIndex >= parentInfo->Desc.Attachments.size())
+            if (colorAttachmentIndex >= parentInfo->Desc.Attachments.Num())
             {
                 OLO_CORE_ERROR("RenderGraph::CreateFramebufferAttachmentView: attachment index {} is out of range for framebuffer '{}'",
                                colorAttachmentIndex,
@@ -1351,7 +1351,7 @@ namespace OloEngine
         m_TextureViewResourceDescs[stableName] = viewDesc;
         m_ResourceRegistryDirty = true;
 
-        const auto handle = AllocateTextureHandle(name, 0u, /*isHistory=*/false, viewDesc.IsPlaceholder, viewDesc.PlaceholderReason);
+        const auto handle = AllocateTextureHandle(name, 0u, /*isHistory=*/false, viewDesc.IsPlaceholder, viewDesc.PlaceholderReason.ToView());
         if (handle.IsValid() && HasExplicitVersionQualifier(stableName))
             m_LatestTextureHandlesByBaseName[std::string(GetVersionLookupBaseName(stableName))] = handle;
         return handle;
@@ -1383,11 +1383,11 @@ namespace OloEngine
 
         RGResourceDesc viewDesc = parentInfo->Desc;
         viewDesc.Kind = RGResourceHandle::Kind::Texture2D;
-        viewDesc.DebugName = std::string(name);
-        viewDesc.Attachments.clear();
+        viewDesc.DebugName = name;
+        viewDesc.Attachments.Reset();
         viewDesc.DepthOrLayers = 1u;
 
-        if (!parentInfo->Desc.Attachments.empty())
+        if (!parentInfo->Desc.Attachments.IsEmpty())
         {
             if (const auto depthIt = std::ranges::find_if(parentInfo->Desc.Attachments,
                                                           [&isDepthFormat](const RGResourceFormat format)
@@ -1426,7 +1426,7 @@ namespace OloEngine
         m_TextureViewResourceDescs[stableName] = viewDesc;
         m_ResourceRegistryDirty = true;
 
-        return AllocateTextureHandle(name, 0u, /*isHistory=*/false, viewDesc.IsPlaceholder, viewDesc.PlaceholderReason);
+        return AllocateTextureHandle(name, 0u, /*isHistory=*/false, viewDesc.IsPlaceholder, viewDesc.PlaceholderReason.ToView());
     }
 
     RGTextureHandle RenderGraph::CreateTextureMipView(std::string_view name,
@@ -1492,8 +1492,8 @@ namespace OloEngine
         };
 
         RGResourceDesc viewDesc = parentInfo->Desc;
-        viewDesc.DebugName = std::string(name);
-        viewDesc.Attachments.clear();
+        viewDesc.DebugName = name;
+        viewDesc.Attachments.Reset();
         viewDesc.Width = mipDimension(parentInfo->Desc.Width, mipLevel);
         viewDesc.Height = mipDimension(parentInfo->Desc.Height, mipLevel);
         viewDesc.MipLevels = 1u;
@@ -1508,7 +1508,7 @@ namespace OloEngine
         m_TextureViewResourceDescs[stableName] = viewDesc;
         m_ResourceRegistryDirty = true;
 
-        return AllocateTextureHandle(name, 0u, /*isHistory=*/false, viewDesc.IsPlaceholder, viewDesc.PlaceholderReason);
+        return AllocateTextureHandle(name, 0u, /*isHistory=*/false, viewDesc.IsPlaceholder, viewDesc.PlaceholderReason.ToView());
     }
 
     RGTextureHandle RenderGraph::CreateTextureArrayLayerView(std::string_view name,
@@ -1547,8 +1547,8 @@ namespace OloEngine
         }
 
         RGResourceDesc viewDesc = parentInfo->Desc;
-        viewDesc.DebugName = std::string(name);
-        viewDesc.Attachments.clear();
+        viewDesc.DebugName = name;
+        viewDesc.Attachments.Reset();
         viewDesc.DepthOrLayers = 1u;
 
         const auto stableName = std::string(name);
@@ -1561,7 +1561,7 @@ namespace OloEngine
         m_TextureViewResourceDescs[stableName] = viewDesc;
         m_ResourceRegistryDirty = true;
 
-        return AllocateTextureHandle(name, 0u, /*isHistory=*/false, viewDesc.IsPlaceholder, viewDesc.PlaceholderReason);
+        return AllocateTextureHandle(name, 0u, /*isHistory=*/false, viewDesc.IsPlaceholder, viewDesc.PlaceholderReason.ToView());
     }
 
     u32 RenderGraph::GetTextureViewLayerIndex(std::string_view name) const
@@ -1621,8 +1621,8 @@ namespace OloEngine
         }
 
         RGResourceDesc viewDesc = parentInfo->Desc;
-        viewDesc.DebugName = std::string(name);
-        viewDesc.Attachments.clear();
+        viewDesc.DebugName = name;
+        viewDesc.Attachments.Reset();
         viewDesc.DepthOrLayers = 1u;
 
         RGSubresourceRange faceRange{};
@@ -1639,7 +1639,7 @@ namespace OloEngine
         m_TextureViewResourceDescs[stableName] = viewDesc;
         m_ResourceRegistryDirty = true;
 
-        return AllocateTextureHandle(name, 0u, /*isHistory=*/false, viewDesc.IsPlaceholder, viewDesc.PlaceholderReason);
+        return AllocateTextureHandle(name, 0u, /*isHistory=*/false, viewDesc.IsPlaceholder, viewDesc.PlaceholderReason.ToView());
     }
 
     RGTextureHandle RenderGraph::CreateTextureMultisampleResolveView(std::string_view name,
@@ -1710,8 +1710,8 @@ namespace OloEngine
         }
 
         auto viewDesc = backingInfo->Desc;
-        viewDesc.DebugName = std::string(name);
-        viewDesc.Attachments.clear();
+        viewDesc.DebugName = name;
+        viewDesc.Attachments.Reset();
         viewDesc.Samples = 1u;
 
         const auto stableName = std::string(name);
@@ -1725,16 +1725,16 @@ namespace OloEngine
         m_TextureViewResourceDescs[stableName] = viewDesc;
         m_ResourceRegistryDirty = true;
 
-        return AllocateTextureHandle(name, 0u, /*isHistory=*/false, viewDesc.IsPlaceholder, viewDesc.PlaceholderReason);
+        return AllocateTextureHandle(name, 0u, /*isHistory=*/false, viewDesc.IsPlaceholder, viewDesc.PlaceholderReason.ToView());
     }
 
     RHI::ResourceHandle RenderGraph::ResolveTextureHandle(RGTextureHandle handle) const
     {
         EnsureResourceRegistryBuilt();
 
-        if (!handle.IsValid() || handle.Index >= m_PhysicalTextures.size())
+        if (!handle.IsValid() || handle.Index >= static_cast<sizet>(m_PhysicalTextures.Num()))
             return {};
-        if (handle.Index >= m_TextureHandleSlots.size())
+        if (handle.Index >= static_cast<sizet>(m_TextureHandleSlots.Num()))
             return {};
         const auto& slot = m_TextureHandleSlots[handle.Index];
         if (!slot.Alive || slot.Generation != handle.Generation)
@@ -1746,7 +1746,7 @@ namespace OloEngine
         // native id. `ShadowMapCSMCascade*` is a TextureArrayLayer view, so the
         // earlier "leave subresource views to the native resolver" shortcut
         // would have silently unbound every cascade.
-        if (const auto viewIt = m_TextureViewDefinitions.find(slot.Name);
+        if (const auto viewIt = m_TextureViewDefinitions.find(slot.Name.ToView());
             viewIt != m_TextureViewDefinitions.end())
         {
             const auto isTextureSubresourceView = [](const TextureViewKind kind)
@@ -1808,19 +1808,19 @@ namespace OloEngine
         // whose latest-version redirect would loop), ITERATIVE and depth-capped
         // so a self- or mutually-referencing alias map cannot recurse the stack
         // to death.
-        if (const auto aliasIt = m_VersionAliasTargets.find(slot.Name);
+        if (const auto aliasIt = m_VersionAliasTargets.find(slot.Name.ToView());
             aliasIt != m_VersionAliasTargets.end())
         {
-            const std::string* current = &aliasIt->second;
+            const FString* current = &aliasIt->second;
             for (u32 depth = 0; depth < kMaxVersionAliasDepth; ++depth)
             {
-                const auto sourceIt = m_TextureHandlesByName.find(*current);
+                const auto sourceIt = m_TextureHandlesByName.find(current->ToView());
                 if (sourceIt == m_TextureHandlesByName.end() || !IsTextureHandleCurrent(sourceIt->second))
                     return {};
 
                 // Terminal link — resolve it so view/placeholder handling still
                 // runs. It is not itself a rename, so this cannot re-enter here.
-                const auto nextIt = m_VersionAliasTargets.find(*current);
+                const auto nextIt = m_VersionAliasTargets.find(current->ToView());
                 if (nextIt == m_VersionAliasTargets.end())
                     return ResolveTextureHandle(sourceIt->second);
 
@@ -1840,9 +1840,9 @@ namespace OloEngine
     {
         EnsureResourceRegistryBuilt();
 
-        if (!handle.IsValid() || handle.Index >= m_PhysicalTextures.size())
+        if (!handle.IsValid() || handle.Index >= static_cast<sizet>(m_PhysicalTextures.Num()))
             return 0;
-        if (handle.Index >= m_TextureHandleSlots.size())
+        if (handle.Index >= static_cast<sizet>(m_TextureHandleSlots.Num()))
             return 0;
         const auto& slot = m_TextureHandleSlots[handle.Index];
         if (!slot.Alive || slot.Generation != handle.Generation)
@@ -1851,12 +1851,12 @@ namespace OloEngine
         if (slot.IsPlaceholder && !slot.PlaceholderWarnedThisFrame)
         {
             OLO_CORE_WARN("RenderGraph: resolving placeholder texture resource '{}' (reason: {})",
-                          slot.Name,
-                          slot.PlaceholderReason.empty() ? "unspecified" : slot.PlaceholderReason);
+                          slot.Name.ToView(),
+                          slot.PlaceholderReason.IsEmpty() ? std::string_view("unspecified") : slot.PlaceholderReason.ToView());
             slot.PlaceholderWarnedThisFrame = true;
         }
 
-        if (const auto viewIt = m_TextureViewDefinitions.find(slot.Name);
+        if (const auto viewIt = m_TextureViewDefinitions.find(slot.Name.ToView());
             viewIt != m_TextureViewDefinitions.end())
         {
             const auto isTextureSubresourceView = [](const TextureViewKind kind)
@@ -1914,19 +1914,19 @@ namespace OloEngine
         // recurse until the stack dies. Bound matches
         // RenderGraphTransientPlanner's canonicalResourceName guard — real
         // chains are one hop, so this only ever fires on a corrupt map.
-        if (const auto aliasIt = m_VersionAliasTargets.find(slot.Name);
+        if (const auto aliasIt = m_VersionAliasTargets.find(slot.Name.ToView());
             aliasIt != m_VersionAliasTargets.end())
         {
-            const std::string* current = &aliasIt->second;
+            const FString* current = &aliasIt->second;
             for (u32 depth = 0; depth < kMaxVersionAliasDepth; ++depth)
             {
-                const auto sourceIt = m_TextureHandlesByName.find(*current);
+                const auto sourceIt = m_TextureHandlesByName.find(current->ToView());
                 if (sourceIt == m_TextureHandlesByName.end() || !IsTextureHandleCurrent(sourceIt->second))
                     return 0;
 
                 // Terminal link — resolve it so view/placeholder handling still
                 // runs. It is not itself a rename, so this cannot re-enter here.
-                const auto nextIt = m_VersionAliasTargets.find(*current);
+                const auto nextIt = m_VersionAliasTargets.find(current->ToView());
                 if (nextIt == m_VersionAliasTargets.end())
                     return ResolveTexture(sourceIt->second);
 
@@ -1943,9 +1943,9 @@ namespace OloEngine
     {
         EnsureResourceRegistryBuilt();
 
-        if (!handle.IsValid() || handle.Index >= m_PhysicalFramebuffers.size())
+        if (!handle.IsValid() || handle.Index >= static_cast<sizet>(m_PhysicalFramebuffers.Num()))
             return nullptr;
-        if (handle.Index >= m_FramebufferHandleSlots.size())
+        if (handle.Index >= static_cast<sizet>(m_FramebufferHandleSlots.Num()))
             return nullptr;
         const auto& slot = m_FramebufferHandleSlots[handle.Index];
         if (!slot.Alive || slot.Generation != handle.Generation)
@@ -1954,24 +1954,24 @@ namespace OloEngine
         if (slot.IsPlaceholder && !slot.PlaceholderWarnedThisFrame)
         {
             OLO_CORE_WARN("RenderGraph: resolving placeholder framebuffer resource '{}' (reason: {})",
-                          slot.Name,
-                          slot.PlaceholderReason.empty() ? "unspecified" : slot.PlaceholderReason);
+                          slot.Name.ToView(),
+                          slot.PlaceholderReason.IsEmpty() ? std::string_view("unspecified") : slot.PlaceholderReason.ToView());
             slot.PlaceholderWarnedThisFrame = true;
         }
 
         // WriteNewVersion rename — resolve the source's physical, via the same
         // depth-capped iterative walk (see ResolveTexture for the full rationale).
-        if (const auto aliasIt = m_VersionAliasTargets.find(slot.Name);
+        if (const auto aliasIt = m_VersionAliasTargets.find(slot.Name.ToView());
             aliasIt != m_VersionAliasTargets.end())
         {
-            const std::string* current = &aliasIt->second;
+            const FString* current = &aliasIt->second;
             for (u32 depth = 0; depth < kMaxVersionAliasDepth; ++depth)
             {
-                const auto sourceIt = m_FramebufferHandlesByName.find(*current);
+                const auto sourceIt = m_FramebufferHandlesByName.find(current->ToView());
                 if (sourceIt == m_FramebufferHandlesByName.end() || !IsFramebufferHandleCurrent(sourceIt->second))
                     return nullptr;
 
-                const auto nextIt = m_VersionAliasTargets.find(*current);
+                const auto nextIt = m_VersionAliasTargets.find(current->ToView());
                 if (nextIt == m_VersionAliasTargets.end())
                     return ResolveFramebuffer(sourceIt->second);
 
@@ -1988,9 +1988,9 @@ namespace OloEngine
     {
         EnsureResourceRegistryBuilt();
 
-        if (!handle.IsValid() || handle.Index >= m_PhysicalBuffers.size())
+        if (!handle.IsValid() || handle.Index >= static_cast<sizet>(m_PhysicalBuffers.Num()))
             return 0;
-        if (handle.Index >= m_BufferHandleSlots.size())
+        if (handle.Index >= static_cast<sizet>(m_BufferHandleSlots.Num()))
             return 0;
         const auto& slot = m_BufferHandleSlots[handle.Index];
         if (!slot.Alive || slot.Generation != handle.Generation)
@@ -1999,24 +1999,24 @@ namespace OloEngine
         if (slot.IsPlaceholder && !slot.PlaceholderWarnedThisFrame)
         {
             OLO_CORE_WARN("RenderGraph: resolving placeholder buffer resource '{}' (reason: {})",
-                          slot.Name,
-                          slot.PlaceholderReason.empty() ? "unspecified" : slot.PlaceholderReason);
+                          slot.Name.ToView(),
+                          slot.PlaceholderReason.IsEmpty() ? std::string_view("unspecified") : slot.PlaceholderReason.ToView());
             slot.PlaceholderWarnedThisFrame = true;
         }
 
         // WriteNewVersion rename — resolve the source's physical, via the same
         // depth-capped iterative walk (see ResolveTexture for the full rationale).
-        if (const auto aliasIt = m_VersionAliasTargets.find(slot.Name);
+        if (const auto aliasIt = m_VersionAliasTargets.find(slot.Name.ToView());
             aliasIt != m_VersionAliasTargets.end())
         {
-            const std::string* current = &aliasIt->second;
+            const FString* current = &aliasIt->second;
             for (u32 depth = 0; depth < kMaxVersionAliasDepth; ++depth)
             {
-                const auto sourceIt = m_BufferHandlesByName.find(*current);
+                const auto sourceIt = m_BufferHandlesByName.find(current->ToView());
                 if (sourceIt == m_BufferHandlesByName.end() || !IsBufferHandleCurrent(sourceIt->second))
                     return 0;
 
-                const auto nextIt = m_VersionAliasTargets.find(*current);
+                const auto nextIt = m_VersionAliasTargets.find(current->ToView());
                 if (nextIt == m_VersionAliasTargets.end())
                     return ResolveBuffer(sourceIt->second);
 
@@ -2033,9 +2033,9 @@ namespace OloEngine
     {
         EnsureResourceRegistryBuilt();
 
-        if (!handle.IsValid() || handle.Index >= m_PhysicalBuffers.size())
+        if (!handle.IsValid() || handle.Index >= static_cast<sizet>(m_PhysicalBuffers.Num()))
             return {};
-        if (handle.Index >= m_BufferHandleSlots.size())
+        if (handle.Index >= static_cast<sizet>(m_BufferHandleSlots.Num()))
             return {};
         const auto& slot = m_BufferHandleSlots[handle.Index];
         if (!slot.Alive || slot.Generation != handle.Generation)
@@ -2050,17 +2050,17 @@ namespace OloEngine
         // buffer, so walk to the source exactly as ResolveBuffer does —
         // iterative and depth-capped so a corrupt alias map cannot recurse the
         // stack to death.
-        if (const auto aliasIt = m_VersionAliasTargets.find(slot.Name);
+        if (const auto aliasIt = m_VersionAliasTargets.find(slot.Name.ToView());
             aliasIt != m_VersionAliasTargets.end())
         {
-            const std::string* current = &aliasIt->second;
+            const FString* current = &aliasIt->second;
             for (u32 depth = 0; depth < kMaxVersionAliasDepth; ++depth)
             {
-                const auto sourceIt = m_BufferHandlesByName.find(*current);
+                const auto sourceIt = m_BufferHandlesByName.find(current->ToView());
                 if (sourceIt == m_BufferHandlesByName.end() || !IsBufferHandleCurrent(sourceIt->second))
                     return {};
 
-                const auto nextIt = m_VersionAliasTargets.find(*current);
+                const auto nextIt = m_VersionAliasTargets.find(current->ToView());
                 if (nextIt == m_VersionAliasTargets.end())
                     return ResolveBufferHandle(sourceIt->second);
 
@@ -2075,9 +2075,9 @@ namespace OloEngine
         return m_PhysicalBuffers[handle.Index].Handle;
     }
 
-    std::string RenderGraph::GetResourceName(RGTextureHandle handle) const
+    FString RenderGraph::GetResourceName(RGTextureHandle handle) const
     {
-        if (!handle.IsValid() || handle.Index >= m_TextureHandleSlots.size())
+        if (!handle.IsValid() || handle.Index >= static_cast<sizet>(m_TextureHandleSlots.Num()))
             return {};
 
         const auto& slot = m_TextureHandleSlots[handle.Index];
@@ -2087,9 +2087,9 @@ namespace OloEngine
         return slot.Name;
     }
 
-    std::string RenderGraph::GetResourceName(RGFramebufferHandle handle) const
+    FString RenderGraph::GetResourceName(RGFramebufferHandle handle) const
     {
-        if (!handle.IsValid() || handle.Index >= m_FramebufferHandleSlots.size())
+        if (!handle.IsValid() || handle.Index >= static_cast<sizet>(m_FramebufferHandleSlots.Num()))
             return {};
 
         const auto& slot = m_FramebufferHandleSlots[handle.Index];
@@ -2099,9 +2099,9 @@ namespace OloEngine
         return slot.Name;
     }
 
-    std::string RenderGraph::GetResourceName(RGBufferHandle handle) const
+    FString RenderGraph::GetResourceName(RGBufferHandle handle) const
     {
-        if (!handle.IsValid() || handle.Index >= m_BufferHandleSlots.size())
+        if (!handle.IsValid() || handle.Index >= static_cast<sizet>(m_BufferHandleSlots.Num()))
             return {};
 
         const auto& slot = m_BufferHandleSlots[handle.Index];
@@ -2115,7 +2115,7 @@ namespace OloEngine
     {
         if (!handle.IsValid() || !callback)
             return;
-        m_TextureExtracts.push_back({ handle, std::move(callback) });
+        m_TextureExtracts.AddTail({ handle, std::move(callback) });
     }
 
     void RenderGraph::RegisterExternalTextureSink(RGTextureHandle sourceHandle,
@@ -2128,10 +2128,10 @@ namespace OloEngine
             return;
 
         const auto sourceResource = GetResourceName(sourceHandle);
-        if (sourceResource.empty())
+        if (sourceResource.IsEmpty())
             return;
 
-        RegisterExternalTextureSink(sourceResource, texture, width, height, 0u, validFlag);
+        RegisterExternalTextureSink(sourceResource.ToView(), texture, width, height, 0u, validFlag);
     }
 
     void RenderGraph::RegisterExternalTextureSink(RGFramebufferHandle sourceHandle,
@@ -2145,10 +2145,10 @@ namespace OloEngine
             return;
 
         const auto sourceResource = GetResourceName(sourceHandle);
-        if (sourceResource.empty())
+        if (sourceResource.IsEmpty())
             return;
 
-        RegisterExternalTextureSink(sourceResource, texture, width, height, colorAttachmentIndex, validFlag);
+        RegisterExternalTextureSink(sourceResource.ToView(), texture, width, height, colorAttachmentIndex, validFlag);
     }
 
     void RenderGraph::RegisterExternalTextureSink(std::string_view sourceResource,
@@ -2187,7 +2187,7 @@ namespace OloEngine
         if (existing != m_ExternalTextureSinkContracts.end())
             return;
 
-        m_ExternalTextureSinkContracts.push_back(ExternalTextureSinkContract{
+        m_ExternalTextureSinkContracts.Add(ExternalTextureSinkContract{
             .SourceResource = std::string(sourceResource),
             .ColorAttachmentIndex = colorAttachmentIndex,
         });
@@ -2195,7 +2195,7 @@ namespace OloEngine
 
     void RenderGraph::RefreshExternalTextureSinkContracts()
     {
-        if (m_ExternalTextureSinkContracts.empty())
+        if (m_ExternalTextureSinkContracts.IsEmpty())
             return;
 
         EnsureResourceRegistryBuilt();
@@ -2203,7 +2203,7 @@ namespace OloEngine
         for (auto& contract : m_ExternalTextureSinkContracts)
         {
             contract.SourceKind = RGResourceHandle::Kind::Unknown;
-            contract.SourceReachable = IsResourceReachableForExtraction(contract.SourceResource);
+            contract.SourceReachable = IsResourceReachableForExtraction(contract.SourceResource.ToView());
 
             if (const auto resourceIt = m_ResourceRegistry.find(contract.SourceResource);
                 resourceIt != m_ResourceRegistry.end())
@@ -2276,7 +2276,7 @@ namespace OloEngine
         rgDescriptor.Height = descriptor.Height;
         rgDescriptor.MipLevels = descriptor.MipLevels;
         rgDescriptor.Samples = descriptor.Samples;
-        rgDescriptor.DebugName = std::string(debugName);
+        rgDescriptor.DebugName = debugName;
         return {
             .Token = acquired.Token,
             .Previous = ImportHistoryHandle(debugName, texture->GetRHIHandle(), rgDescriptor),
@@ -2325,7 +2325,7 @@ namespace OloEngine
         if (existing != m_TemporalHistoryContracts.end())
             return;
 
-        m_TemporalHistoryContracts.push_back(TemporalHistoryContract{
+        m_TemporalHistoryContracts.Add(TemporalHistoryContract{
             .HistoryResource = std::string(historyResource),
             .SourceResource = std::string(sourceResource),
             .Kind = kind,
@@ -2337,9 +2337,9 @@ namespace OloEngine
     {
         for (auto& contract : m_TemporalHistoryContracts)
         {
-            contract.HistoryImported = HasHistoryTextureSink(contract.HistoryResource) ||
-                                       IsHistoryTextureResource(contract.HistoryResource);
-            contract.SourceReachable = IsResourceReachableForExtraction(contract.SourceResource);
+            contract.HistoryImported = HasHistoryTextureSink(contract.HistoryResource.ToView()) ||
+                                       IsHistoryTextureResource(contract.HistoryResource.ToView());
+            contract.SourceReachable = IsResourceReachableForExtraction(contract.SourceResource.ToView());
         }
     }
 
@@ -2368,7 +2368,7 @@ namespace OloEngine
                                         sourceResource,
                                         TemporalHistoryContract::SourceKind::Texture);
         RefreshTemporalHistoryContracts();
-        m_HistoryTextureExtracts.push_back(HistoryTextureExtract{
+        m_HistoryTextureExtracts.AddTail(HistoryTextureExtract{
             .HistoryResource = std::string(historyResource),
             .Kind = HistoryTextureExtract::SourceKind::Texture,
             .SourceTextureHandle = sourceHandle,
@@ -2405,7 +2405,7 @@ namespace OloEngine
                                         TemporalHistoryContract::SourceKind::Framebuffer,
                                         colorAttachmentIndex);
         RefreshTemporalHistoryContracts();
-        m_HistoryTextureExtracts.push_back(HistoryTextureExtract{
+        m_HistoryTextureExtracts.AddTail(HistoryTextureExtract{
             .HistoryResource = std::string(historyResource),
             .Kind = HistoryTextureExtract::SourceKind::Framebuffer,
             .SourceFramebufferHandle = sourceHandle,
@@ -2419,7 +2419,7 @@ namespace OloEngine
     {
         if (!handle.IsValid() || !callback)
             return;
-        m_FramebufferExtracts.push_back({ handle, std::move(callback) });
+        m_FramebufferExtracts.AddTail({ handle, std::move(callback) });
     }
 
     void RenderGraph::FlushExtractions()
@@ -2430,7 +2430,7 @@ namespace OloEngine
         {
             if (resourceName.empty())
             {
-                m_BarrierDiagnostics.push_back(BarrierDiagnostic{
+                m_BarrierDiagnostics.Add(BarrierDiagnostic{
                     .Kind = BarrierDiagnosticKind::StaleExtractionHandle,
                     .PassName = std::string(passName),
                     .Resource = {},
@@ -2442,7 +2442,7 @@ namespace OloEngine
             if (IsResourceReachableForExtraction(resourceName))
                 return true;
 
-            m_BarrierDiagnostics.push_back(BarrierDiagnostic{
+            m_BarrierDiagnostics.Add(BarrierDiagnostic{
                 .Kind = BarrierDiagnosticKind::ExtractionOfCulledResource,
                 .PassName = std::string(passName),
                 .Resource = std::string(resourceName),
@@ -2470,16 +2470,16 @@ namespace OloEngine
             if (!sink.Texture.IsValid() || sink.Width == 0 || sink.Height == 0)
                 continue;
 
-            if (!diagnoseExtractionResource(contract.SourceResource, "<history-sink>"))
+            if (!diagnoseExtractionResource(contract.SourceResource.ToView(), "<history-sink>"))
                 continue;
 
             RHI::ResourceHandle sourceTexture{};
             if (contract.Kind == TemporalHistoryContract::SourceKind::Texture)
             {
-                const auto sourceHandle = GetTextureHandle(contract.SourceResource);
+                const auto sourceHandle = GetTextureHandle(contract.SourceResource.ToView());
                 if (!sourceHandle.IsValid() || !IsTextureHandleCurrent(sourceHandle))
                 {
-                    m_BarrierDiagnostics.push_back(BarrierDiagnostic{
+                    m_BarrierDiagnostics.Add(BarrierDiagnostic{
                         .Kind = BarrierDiagnosticKind::StaleExtractionHandle,
                         .PassName = "<history-sink>",
                         .Resource = std::string(contract.SourceResource),
@@ -2492,10 +2492,10 @@ namespace OloEngine
             }
             else
             {
-                const auto sourceHandle = GetFramebufferHandle(contract.SourceResource);
+                const auto sourceHandle = GetFramebufferHandle(contract.SourceResource.ToView());
                 if (!sourceHandle.IsValid() || !IsFramebufferHandleCurrent(sourceHandle))
                 {
-                    m_BarrierDiagnostics.push_back(BarrierDiagnostic{
+                    m_BarrierDiagnostics.Add(BarrierDiagnostic{
                         .Kind = BarrierDiagnosticKind::StaleExtractionHandle,
                         .PassName = "<history-sink>",
                         .Resource = std::string(contract.SourceResource),
@@ -2528,16 +2528,16 @@ namespace OloEngine
             if (!sink.Texture.IsValid() || sink.Width == 0 || sink.Height == 0)
                 continue;
 
-            if (!diagnoseExtractionResource(sinkKey.SourceResource, "<external-sink>"))
+            if (!diagnoseExtractionResource(sinkKey.SourceResource.ToView(), "<external-sink>"))
                 continue;
 
             RHI::ResourceHandle sourceTexture{};
-            if (const auto textureHandle = GetTextureHandle(sinkKey.SourceResource);
+            if (const auto textureHandle = GetTextureHandle(sinkKey.SourceResource.ToView());
                 textureHandle.IsValid() && IsTextureHandleCurrent(textureHandle))
             {
                 sourceTexture = ResolveTextureHandle(textureHandle);
             }
-            else if (const auto framebufferHandle = GetFramebufferHandle(sinkKey.SourceResource);
+            else if (const auto framebufferHandle = GetFramebufferHandle(sinkKey.SourceResource.ToView());
                      framebufferHandle.IsValid() && IsFramebufferHandleCurrent(framebufferHandle))
             {
                 if (auto sourceFramebuffer = ResolveFramebuffer(framebufferHandle))
@@ -2545,7 +2545,7 @@ namespace OloEngine
             }
             else
             {
-                m_BarrierDiagnostics.push_back(BarrierDiagnostic{
+                m_BarrierDiagnostics.Add(BarrierDiagnostic{
                     .Kind = BarrierDiagnosticKind::StaleExtractionHandle,
                     .PassName = "<external-sink>",
                     .Resource = sinkKey.SourceResource,
@@ -2564,11 +2564,12 @@ namespace OloEngine
                 *sink.ValidFlag = true;
         }
 
-        for (const auto& extract : m_TextureExtracts)
+        for (auto* node = m_TextureExtracts.GetHead(); node; node = node->GetNextNode())
         {
+            const auto& extract = node->GetValue();
             if (!IsTextureHandleCurrent(extract.Handle))
             {
-                m_BarrierDiagnostics.push_back(BarrierDiagnostic{
+                m_BarrierDiagnostics.Add(BarrierDiagnostic{
                     .Kind = BarrierDiagnosticKind::StaleExtractionHandle,
                     .PassName = "<extract-texture>",
                     .Resource = {},
@@ -2577,21 +2578,22 @@ namespace OloEngine
                 continue;
             }
 
-            if (const auto resourceName = GetResourceName(extract.Handle); !diagnoseExtractionResource(resourceName, "<extract-texture>"))
+            if (const auto resourceName = GetResourceName(extract.Handle); !diagnoseExtractionResource(resourceName.ToView(), "<extract-texture>"))
                 continue;
             extract.Callback(ResolveTexture(extract.Handle));
         }
 
-        for (const auto& extract : m_HistoryTextureExtracts)
+        for (auto* node = m_HistoryTextureExtracts.GetHead(); node; node = node->GetNextNode())
         {
-            std::string sourceResource;
+            const auto& extract = node->GetValue();
+            FString sourceResource;
             u32 sourceTextureID = 0;
 
             if (extract.Kind == HistoryTextureExtract::SourceKind::Texture)
             {
                 if (!IsTextureHandleCurrent(extract.SourceTextureHandle))
                 {
-                    m_BarrierDiagnostics.push_back(BarrierDiagnostic{
+                    m_BarrierDiagnostics.Add(BarrierDiagnostic{
                         .Kind = BarrierDiagnosticKind::StaleExtractionHandle,
                         .PassName = "<extract-history>",
                         .Resource = {},
@@ -2607,7 +2609,7 @@ namespace OloEngine
             {
                 if (!IsFramebufferHandleCurrent(extract.SourceFramebufferHandle))
                 {
-                    m_BarrierDiagnostics.push_back(BarrierDiagnostic{
+                    m_BarrierDiagnostics.Add(BarrierDiagnostic{
                         .Kind = BarrierDiagnosticKind::StaleExtractionHandle,
                         .PassName = "<extract-history>",
                         .Resource = {},
@@ -2621,11 +2623,11 @@ namespace OloEngine
                     sourceTextureID = sourceFramebuffer->GetColorAttachmentRendererID(extract.ColorAttachmentIndex);
             }
 
-            if (!diagnoseExtractionResource(sourceResource, "<extract-history>"))
+            if (!diagnoseExtractionResource(sourceResource.ToView(), "<extract-history>"))
                 continue;
-            if (!IsHistoryTextureResource(extract.HistoryResource))
+            if (!IsHistoryTextureResource(extract.HistoryResource.ToView()))
             {
-                m_BarrierDiagnostics.push_back(BarrierDiagnostic{
+                m_BarrierDiagnostics.Add(BarrierDiagnostic{
                     .Kind = BarrierDiagnosticKind::InvalidHistoryContract,
                     .PassName = "<extract-history>",
                     .Resource = extract.HistoryResource,
@@ -2637,11 +2639,12 @@ namespace OloEngine
             extract.Callback(sourceTextureID);
         }
 
-        for (const auto& extract : m_FramebufferExtracts)
+        for (auto* node = m_FramebufferExtracts.GetHead(); node; node = node->GetNextNode())
         {
+            const auto& extract = node->GetValue();
             if (!IsFramebufferHandleCurrent(extract.Handle))
             {
-                m_BarrierDiagnostics.push_back(BarrierDiagnostic{
+                m_BarrierDiagnostics.Add(BarrierDiagnostic{
                     .Kind = BarrierDiagnosticKind::StaleExtractionHandle,
                     .PassName = "<extract-framebuffer>",
                     .Resource = {},
@@ -2650,14 +2653,14 @@ namespace OloEngine
                 continue;
             }
 
-            if (const auto resourceName = GetResourceName(extract.Handle); !diagnoseExtractionResource(resourceName, "<extract-framebuffer>"))
+            if (const auto resourceName = GetResourceName(extract.Handle); !diagnoseExtractionResource(resourceName.ToView(), "<extract-framebuffer>"))
                 continue;
             extract.Callback(ResolveFramebuffer(extract.Handle));
         }
 
-        m_TextureExtracts.clear();
-        m_HistoryTextureExtracts.clear();
-        m_FramebufferExtracts.clear();
+        m_TextureExtracts.Empty();
+        m_HistoryTextureExtracts.Empty();
+        m_FramebufferExtracts.Empty();
     }
 
     // -------------------------------------------------------------------
@@ -2677,7 +2680,7 @@ namespace OloEngine
         transientDesc.Imported = false;
         if (transientDesc.Kind == RGResourceHandle::Kind::Unknown)
             transientDesc.Kind = RGResourceHandle::Kind::Texture2D;
-        if (transientDesc.DebugName.empty())
+        if (transientDesc.DebugName.IsEmpty())
             transientDesc.DebugName = stableName;
 
         m_TransientResourceDescs[stableName] = transientDesc;
@@ -2687,7 +2690,7 @@ namespace OloEngine
 
         if (const auto existingIt = m_TextureHandlesByName.find(stableName);
             existingIt != m_TextureHandlesByName.end() &&
-            existingIt->second.Index < m_TextureHandleSlots.size())
+            existingIt->second.Index < static_cast<sizet>(m_TextureHandleSlots.Num()))
         {
             auto& slot = m_TextureHandleSlots[existingIt->second.Index];
             if (slot.Generation == 0)
@@ -2696,16 +2699,16 @@ namespace OloEngine
             slot.Alive = true;
             slot.Name = stableName;
             slot.IsPlaceholder = false;
-            slot.PlaceholderReason.clear();
+            slot.PlaceholderReason.Reset();
             slot.PlaceholderWarnedThisFrame = false;
 
             const auto freeIt = std::ranges::find(m_FreeTextureHandleIndices,
                                                   existingIt->second.Index);
             if (freeIt != m_FreeTextureHandleIndices.end())
-                m_FreeTextureHandleIndices.erase(freeIt);
+                m_FreeTextureHandleIndices.RemoveAt(freeIt - m_FreeTextureHandleIndices.begin(), 1, EAllowShrinking::No);
 
-            if (existingIt->second.Index >= m_PhysicalTextures.size())
-                m_PhysicalTextures.resize(static_cast<sizet>(existingIt->second.Index) + 1u);
+            if (existingIt->second.Index >= static_cast<sizet>(m_PhysicalTextures.Num()))
+                m_PhysicalTextures.SetNum(static_cast<i64>(static_cast<sizet>(existingIt->second.Index) + 1u), EAllowShrinking::No);
 
             const RGTextureHandle handle{ existingIt->second.Index, slot.Generation };
             existingIt->second = handle;
@@ -2713,24 +2716,24 @@ namespace OloEngine
             return handle;
         }
 
-        if (m_FreeTextureHandleIndices.empty())
+        if (m_FreeTextureHandleIndices.IsEmpty())
         {
-            u32 index = static_cast<u32>(m_TextureHandleSlots.size());
-            m_TextureHandleSlots.emplace_back();
+            u32 index = static_cast<u32>(static_cast<sizet>(m_TextureHandleSlots.Num()));
+            m_TextureHandleSlots.Emplace();
             m_TextureHandleSlots[index].Alive = true;
             m_TextureHandleSlots[index].Name = stableName;
             m_TextureHandleSlots[index].IsPlaceholder = false;
-            m_TextureHandleSlots[index].PlaceholderReason.clear();
+            m_TextureHandleSlots[index].PlaceholderReason.Reset();
             m_TextureHandleSlots[index].PlaceholderWarnedThisFrame = false;
-            m_PhysicalTextures.emplace_back();
+            m_PhysicalTextures.Emplace();
             const RGTextureHandle handle{ index, static_cast<u32>(m_TextureHandleSlots[index].Generation) };
             m_TextureHandlesByName[stableName] = handle;
             refreshLatestVersionLookup(handle);
             return handle;
         }
 
-        u32 index = m_FreeTextureHandleIndices.back();
-        m_FreeTextureHandleIndices.pop_back();
+        u32 index = m_FreeTextureHandleIndices.Last();
+        m_FreeTextureHandleIndices.Pop(EAllowShrinking::No);
         auto& slot = m_TextureHandleSlots[index];
         // Free-list reuse hands this slot to a DIFFERENT resource — bump the
         // generation locally so stale cached handles fail their generation
@@ -2741,10 +2744,10 @@ namespace OloEngine
         slot.Alive = true;
         slot.Name = stableName;
         slot.IsPlaceholder = false;
-        slot.PlaceholderReason.clear();
+        slot.PlaceholderReason.Reset();
         slot.PlaceholderWarnedThisFrame = false;
-        if (index >= m_PhysicalTextures.size())
-            m_PhysicalTextures.resize(static_cast<sizet>(index) + 1u);
+        if (index >= static_cast<sizet>(m_PhysicalTextures.Num()))
+            m_PhysicalTextures.SetNum(static_cast<i64>(static_cast<sizet>(index) + 1u), EAllowShrinking::No);
 
         const RGTextureHandle handle{ index, slot.Generation };
         m_TextureHandlesByName[stableName] = handle;
@@ -2772,8 +2775,8 @@ namespace OloEngine
         const auto stableName = std::string(name);
         m_ExternallyBackedTransientTextures.insert(m_ResourceNames.Intern(stableName));
 
-        if (handle.Index >= m_PhysicalTextures.size())
-            m_PhysicalTextures.resize(static_cast<sizet>(handle.Index) + 1u);
+        if (handle.Index >= static_cast<sizet>(m_PhysicalTextures.Num()))
+            m_PhysicalTextures.SetNum(static_cast<i64>(static_cast<sizet>(handle.Index) + 1u), EAllowShrinking::No);
 
         auto& physicalTexture = m_PhysicalTextures[handle.Index];
         physicalTexture.TextureID = backingTextureID;
@@ -2795,7 +2798,7 @@ namespace OloEngine
         transientDesc.Imported = false;
         if (transientDesc.Kind == RGResourceHandle::Kind::Unknown)
             transientDesc.Kind = RGResourceHandle::Kind::Framebuffer;
-        if (transientDesc.DebugName.empty())
+        if (transientDesc.DebugName.IsEmpty())
             transientDesc.DebugName = stableName;
 
         m_TransientResourceDescs[stableName] = transientDesc;
@@ -2805,7 +2808,7 @@ namespace OloEngine
 
         if (const auto existingIt = m_FramebufferHandlesByName.find(stableName);
             existingIt != m_FramebufferHandlesByName.end() &&
-            existingIt->second.Index < m_FramebufferHandleSlots.size())
+            existingIt->second.Index < static_cast<sizet>(m_FramebufferHandleSlots.Num()))
         {
             auto& slot = m_FramebufferHandleSlots[existingIt->second.Index];
             if (slot.Generation == 0)
@@ -2814,16 +2817,16 @@ namespace OloEngine
             slot.Alive = true;
             slot.Name = stableName;
             slot.IsPlaceholder = false;
-            slot.PlaceholderReason.clear();
+            slot.PlaceholderReason.Reset();
             slot.PlaceholderWarnedThisFrame = false;
 
             const auto freeIt = std::ranges::find(m_FreeFramebufferHandleIndices,
                                                   existingIt->second.Index);
             if (freeIt != m_FreeFramebufferHandleIndices.end())
-                m_FreeFramebufferHandleIndices.erase(freeIt);
+                m_FreeFramebufferHandleIndices.RemoveAt(freeIt - m_FreeFramebufferHandleIndices.begin(), 1, EAllowShrinking::No);
 
-            if (existingIt->second.Index >= m_PhysicalFramebuffers.size())
-                m_PhysicalFramebuffers.resize(static_cast<sizet>(existingIt->second.Index) + 1u);
+            if (existingIt->second.Index >= static_cast<sizet>(m_PhysicalFramebuffers.Num()))
+                m_PhysicalFramebuffers.SetNum(static_cast<i64>(static_cast<sizet>(existingIt->second.Index) + 1u), EAllowShrinking::No);
 
             const RGFramebufferHandle handle{ existingIt->second.Index, slot.Generation };
             existingIt->second = handle;
@@ -2831,24 +2834,24 @@ namespace OloEngine
             return handle;
         }
 
-        if (m_FreeFramebufferHandleIndices.empty())
+        if (m_FreeFramebufferHandleIndices.IsEmpty())
         {
-            u32 index = static_cast<u32>(m_FramebufferHandleSlots.size());
-            m_FramebufferHandleSlots.emplace_back();
+            u32 index = static_cast<u32>(static_cast<sizet>(m_FramebufferHandleSlots.Num()));
+            m_FramebufferHandleSlots.Emplace();
             m_FramebufferHandleSlots[index].Alive = true;
             m_FramebufferHandleSlots[index].Name = stableName;
             m_FramebufferHandleSlots[index].IsPlaceholder = false;
-            m_FramebufferHandleSlots[index].PlaceholderReason.clear();
+            m_FramebufferHandleSlots[index].PlaceholderReason.Reset();
             m_FramebufferHandleSlots[index].PlaceholderWarnedThisFrame = false;
-            m_PhysicalFramebuffers.emplace_back();
+            m_PhysicalFramebuffers.Emplace();
             const RGFramebufferHandle handle{ index, static_cast<u32>(m_FramebufferHandleSlots[index].Generation) };
             m_FramebufferHandlesByName[stableName] = handle;
             refreshLatestVersionLookup(handle);
             return handle;
         }
 
-        u32 index = m_FreeFramebufferHandleIndices.back();
-        m_FreeFramebufferHandleIndices.pop_back();
+        u32 index = m_FreeFramebufferHandleIndices.Last();
+        m_FreeFramebufferHandleIndices.Pop(EAllowShrinking::No);
         auto& slot = m_FramebufferHandleSlots[index];
         // Free-list reuse hands this slot to a DIFFERENT resource — bump the
         // generation locally so stale cached handles fail their generation
@@ -2859,10 +2862,10 @@ namespace OloEngine
         slot.Alive = true;
         slot.Name = stableName;
         slot.IsPlaceholder = false;
-        slot.PlaceholderReason.clear();
+        slot.PlaceholderReason.Reset();
         slot.PlaceholderWarnedThisFrame = false;
-        if (index >= m_PhysicalFramebuffers.size())
-            m_PhysicalFramebuffers.resize(static_cast<sizet>(index) + 1u);
+        if (index >= static_cast<sizet>(m_PhysicalFramebuffers.Num()))
+            m_PhysicalFramebuffers.SetNum(static_cast<i64>(static_cast<sizet>(index) + 1u), EAllowShrinking::No);
 
         const RGFramebufferHandle handle{ index, slot.Generation };
         m_FramebufferHandlesByName[stableName] = handle;
@@ -2889,8 +2892,8 @@ namespace OloEngine
         const auto stableName = std::string(name);
         m_ExternallyBackedTransientFramebuffers.insert(m_ResourceNames.Intern(stableName));
 
-        if (handle.Index >= m_PhysicalFramebuffers.size())
-            m_PhysicalFramebuffers.resize(static_cast<sizet>(handle.Index) + 1u);
+        if (handle.Index >= static_cast<sizet>(m_PhysicalFramebuffers.Num()))
+            m_PhysicalFramebuffers.SetNum(static_cast<i64>(static_cast<sizet>(handle.Index) + 1u), EAllowShrinking::No);
 
         m_PhysicalFramebuffers[handle.Index].FB = backingFramebuffer;
         return handle;
@@ -2909,7 +2912,7 @@ namespace OloEngine
         transientDesc.Imported = false;
         if (transientDesc.Kind == RGResourceHandle::Kind::Unknown)
             transientDesc.Kind = RGResourceHandle::Kind::StorageBuffer;
-        if (transientDesc.DebugName.empty())
+        if (transientDesc.DebugName.IsEmpty())
             transientDesc.DebugName = stableName;
 
         m_TransientResourceDescs[stableName] = transientDesc;
@@ -2917,7 +2920,7 @@ namespace OloEngine
 
         if (const auto existingIt = m_BufferHandlesByName.find(stableName);
             existingIt != m_BufferHandlesByName.end() &&
-            existingIt->second.Index < m_BufferHandleSlots.size())
+            existingIt->second.Index < static_cast<sizet>(m_BufferHandleSlots.Num()))
         {
             auto& slot = m_BufferHandleSlots[existingIt->second.Index];
             if (slot.Generation == 0)
@@ -2926,16 +2929,16 @@ namespace OloEngine
             slot.Alive = true;
             slot.Name = stableName;
             slot.IsPlaceholder = false;
-            slot.PlaceholderReason.clear();
+            slot.PlaceholderReason.Reset();
             slot.PlaceholderWarnedThisFrame = false;
 
             const auto freeIt = std::ranges::find(m_FreeBufferHandleIndices,
                                                   existingIt->second.Index);
             if (freeIt != m_FreeBufferHandleIndices.end())
-                m_FreeBufferHandleIndices.erase(freeIt);
+                m_FreeBufferHandleIndices.RemoveAt(freeIt - m_FreeBufferHandleIndices.begin(), 1, EAllowShrinking::No);
 
-            if (existingIt->second.Index >= m_PhysicalBuffers.size())
-                m_PhysicalBuffers.resize(static_cast<sizet>(existingIt->second.Index) + 1u);
+            if (existingIt->second.Index >= static_cast<sizet>(m_PhysicalBuffers.Num()))
+                m_PhysicalBuffers.SetNum(static_cast<i64>(static_cast<sizet>(existingIt->second.Index) + 1u), EAllowShrinking::No);
 
             const RGBufferHandle handle{ existingIt->second.Index, slot.Generation };
             existingIt->second = handle;
@@ -2943,24 +2946,24 @@ namespace OloEngine
             return handle;
         }
 
-        if (m_FreeBufferHandleIndices.empty())
+        if (m_FreeBufferHandleIndices.IsEmpty())
         {
-            u32 index = static_cast<u32>(m_BufferHandleSlots.size());
-            m_BufferHandleSlots.emplace_back();
+            u32 index = static_cast<u32>(static_cast<sizet>(m_BufferHandleSlots.Num()));
+            m_BufferHandleSlots.Emplace();
             m_BufferHandleSlots[index].Alive = true;
             m_BufferHandleSlots[index].Name = stableName;
             m_BufferHandleSlots[index].IsPlaceholder = false;
-            m_BufferHandleSlots[index].PlaceholderReason.clear();
+            m_BufferHandleSlots[index].PlaceholderReason.Reset();
             m_BufferHandleSlots[index].PlaceholderWarnedThisFrame = false;
-            m_PhysicalBuffers.emplace_back();
+            m_PhysicalBuffers.Emplace();
             const RGBufferHandle handle{ index, static_cast<u32>(m_BufferHandleSlots[index].Generation) };
             m_BufferHandlesByName[stableName] = handle;
             refreshLatestVersionLookup(handle);
             return handle;
         }
 
-        u32 index = m_FreeBufferHandleIndices.back();
-        m_FreeBufferHandleIndices.pop_back();
+        u32 index = m_FreeBufferHandleIndices.Last();
+        m_FreeBufferHandleIndices.Pop(EAllowShrinking::No);
         auto& slot = m_BufferHandleSlots[index];
         // Free-list reuse hands this slot to a DIFFERENT resource — bump the
         // generation locally so stale cached handles fail their generation
@@ -2971,10 +2974,10 @@ namespace OloEngine
         slot.Alive = true;
         slot.Name = stableName;
         slot.IsPlaceholder = false;
-        slot.PlaceholderReason.clear();
+        slot.PlaceholderReason.Reset();
         slot.PlaceholderWarnedThisFrame = false;
-        if (index >= m_PhysicalBuffers.size())
-            m_PhysicalBuffers.resize(static_cast<sizet>(index) + 1u);
+        if (index >= static_cast<sizet>(m_PhysicalBuffers.Num()))
+            m_PhysicalBuffers.SetNum(static_cast<i64>(static_cast<sizet>(index) + 1u), EAllowShrinking::No);
 
         const RGBufferHandle handle{ index, slot.Generation };
         m_BufferHandlesByName[stableName] = handle;
@@ -2994,7 +2997,7 @@ namespace OloEngine
             auto clonedDesc = sourceDesc;
             clonedDesc.Imported = false;
             clonedDesc.IsPlaceholder = false;
-            clonedDesc.PlaceholderReason.clear();
+            clonedDesc.PlaceholderReason.Reset();
             clonedDesc.DebugName = debugName;
             if (clonedDesc.Kind == RGResourceHandle::Kind::Unknown)
                 clonedDesc.Kind = fallbackKind;
@@ -3025,10 +3028,10 @@ namespace OloEngine
         return desc;
     }
 
-    const std::vector<RenderGraph::ResourceInfo>& RenderGraph::GetRegisteredResources() const
+    std::span<const RenderGraph::ResourceInfo> RenderGraph::GetRegisteredResources() const
     {
         EnsureResourceRegistryBuilt();
-        return m_RegisteredResources;
+        return { m_RegisteredResources.GetData(), static_cast<sizet>(m_RegisteredResources.Num()) };
     }
 
     RenderGraph::TransientDebugFlags RenderGraph::GetTransientDebugFlags()
@@ -3092,7 +3095,7 @@ namespace OloEngine
             if (const auto aliasIt = m_TextureBaseNameAliases.find(nameId);
                 aliasIt != m_TextureBaseNameAliases.end() && aliasIt->second != nameId)
             {
-                return GetTextureHandle(m_ResourceNames.NameOf(aliasIt->second));
+                return GetTextureHandle(m_ResourceNames.NameOf(aliasIt->second).ToView());
             }
         }
 
@@ -3140,7 +3143,7 @@ namespace OloEngine
             if (const auto aliasIt = m_FramebufferBaseNameAliases.find(nameId);
                 aliasIt != m_FramebufferBaseNameAliases.end() && aliasIt->second != nameId)
             {
-                return GetFramebufferHandle(m_ResourceNames.NameOf(aliasIt->second));
+                return GetFramebufferHandle(m_ResourceNames.NameOf(aliasIt->second).ToView());
             }
         }
 
@@ -3183,7 +3186,7 @@ namespace OloEngine
         return result;
     }
 
-    std::string RenderGraph::ReverseResolveTextureName(RGTextureHandle handle) const
+    FString RenderGraph::ReverseResolveTextureName(RGTextureHandle handle) const
     {
         if (!handle.IsValid())
             return {};
@@ -3196,7 +3199,7 @@ namespace OloEngine
         return {};
     }
 
-    std::string RenderGraph::ReverseResolveFramebufferName(RGFramebufferHandle handle) const
+    FString RenderGraph::ReverseResolveFramebufferName(RGFramebufferHandle handle) const
     {
         if (!handle.IsValid())
             return {};
@@ -3209,7 +3212,7 @@ namespace OloEngine
         return {};
     }
 
-    std::string RenderGraph::FindAttachmentViewParent(std::string_view name) const
+    FString RenderGraph::FindAttachmentViewParent(std::string_view name) const
     {
         if (name.empty())
             return {};
@@ -3225,12 +3228,12 @@ namespace OloEngine
         return it->second.ParentResource;
     }
 
-    auto RenderGraph::GetLastWriterPassName(std::string_view resourceName) const -> const std::string&
+    auto RenderGraph::GetLastWriterPassName(std::string_view resourceName) const -> const FString&
     {
-        static const std::string emptyName;
+        static const FString emptyName;
         if (resourceName.empty())
             return emptyName;
-        if (const auto it = m_LastWriterPassNameByResource.find(std::string(resourceName));
+        if (const auto it = m_LastWriterPassNameByResource.find(resourceName);
             it != m_LastWriterPassNameByResource.end())
         {
             return it->second;
@@ -3242,7 +3245,7 @@ namespace OloEngine
     {
         EnsureResourceRegistryBuilt();
 
-        if (!handle.IsValid() || handle.Index >= m_TextureHandleSlots.size())
+        if (!handle.IsValid() || handle.Index >= static_cast<sizet>(m_TextureHandleSlots.Num()))
             return false;
 
         const auto& slot = m_TextureHandleSlots[handle.Index];
@@ -3253,7 +3256,7 @@ namespace OloEngine
     {
         EnsureResourceRegistryBuilt();
 
-        if (!handle.IsValid() || handle.Index >= m_BufferHandleSlots.size())
+        if (!handle.IsValid() || handle.Index >= static_cast<sizet>(m_BufferHandleSlots.Num()))
             return false;
 
         const auto& slot = m_BufferHandleSlots[handle.Index];
@@ -3264,7 +3267,7 @@ namespace OloEngine
     {
         EnsureResourceRegistryBuilt();
 
-        if (!handle.IsValid() || handle.Index >= m_FramebufferHandleSlots.size())
+        if (!handle.IsValid() || handle.Index >= static_cast<sizet>(m_FramebufferHandleSlots.Num()))
             return false;
 
         const auto& slot = m_FramebufferHandleSlots[handle.Index];
@@ -3314,7 +3317,7 @@ namespace OloEngine
         // Only add dependency for execution ordering, no framebuffer piping (avoid duplicates)
         if (auto& deps = m_Dependencies[afterPass]; std::ranges::find(deps, beforePass) == deps.end())
         {
-            deps.push_back(beforePass);
+            deps.Add(beforePass);
         }
 
         if (persistent)
@@ -3322,7 +3325,7 @@ namespace OloEngine
             auto& explicitDeps = m_ExplicitDependencies[afterPass];
             if (std::ranges::find(explicitDeps, beforePass) == explicitDeps.end())
             {
-                explicitDeps.push_back(beforePass);
+                explicitDeps.Add(beforePass);
             }
         }
 
@@ -3335,20 +3338,24 @@ namespace OloEngine
             return;
         for (auto& [existingKey, existingHook] : m_PostPassHooks)
         {
-            if (existingKey == key)
+            if (existingKey.ToView() == key)
             {
                 existingHook = std::move(hook);
                 return;
             }
         }
-        m_PostPassHooks.emplace_back(std::string(key), std::move(hook));
+        m_PostPassHooks.AddTail({ FString(key), std::move(hook) });
     }
 
     void RenderGraph::RemovePostPassHook(const std::string_view key)
     {
-        std::erase_if(m_PostPassHooks,
-                      [key](const auto& entry)
-                      { return entry.first == key; });
+        for (auto* node = m_PostPassHooks.GetHead(); node;)
+        {
+            auto* next = node->GetNextNode();
+            if (node->GetValue().first.ToView() == key)
+                m_PostPassHooks.RemoveNode(node);
+            node = next;
+        }
     }
 
     void RenderGraph::Execute()
@@ -3356,9 +3363,9 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         OLO_PERF_SCOPE_AUTO("RG::Execute");
 
-        m_LastExecutionTimings.clear();
-        m_LastExecutionTimings.reserve(m_ExecutionOrder.size());
-        m_ResolveFailures.clear();
+        m_LastExecutionTimings.Reset();
+        m_LastExecutionTimings.Reserve(m_ExecutionOrder.Num());
+        m_ResolveFailures.Reset();
 
         for (auto& slot : m_TextureHandleSlots)
             slot.PlaceholderWarnedThisFrame = false;
@@ -3422,9 +3429,9 @@ namespace OloEngine
         // bool test in the common case.
         PostPassHook composedPostPassHook;
         const bool blackSquareHunt = IsBlackSquareHuntEnabled();
-        if (!m_PostPassHooks.empty() || blackSquareHunt)
+        if (m_PostPassHooks.Num() != 0 || blackSquareHunt)
         {
-            composedPostPassHook = [this, blackSquareHunt](const std::string& passName, RenderGraph& graph)
+            composedPostPassHook = [this, blackSquareHunt](std::string_view passName, RenderGraph& graph)
             {
                 for (const auto& [key, hook] : m_PostPassHooks)
                 {
@@ -3468,10 +3475,10 @@ namespace OloEngine
         RHI::DescriptorHeap::Get().Flush();
 
         m_LastExecutionTimings = RenderGraphPlanExecutor::ExecutePlan({
-            .SubmissionPlan = m_CachedSubmissionPlan,
+            .SubmissionPlan = std::span<const SubmissionCommand>(m_CachedSubmissionPlan.GetData(), static_cast<sizet>(m_CachedSubmissionPlan.Num())),
             .Context = commandContext,
             .RuntimeBarrierExecutionEnabled = m_RuntimeBarrierExecutionEnabled,
-            .IsPassReachable = [this](const std::string& passName)
+            .IsPassReachable = [this](std::string_view passName)
             { return IsPassReachable(passName); },
             .BatchEventHook = m_BatchEventHook,
             .PostPassHook = composedPostPassHook,
@@ -3503,8 +3510,8 @@ namespace OloEngine
         auto existing = std::ranges::find_if(m_ResolveFailures,
                                              [passName, reason](const ResolveFailure& failure)
                                              {
-                                                 return failure.PassName == passName &&
-                                                        failure.Reason == reason;
+                                                 return failure.PassName.ToView() == passName &&
+                                                        failure.Reason.ToView() == reason;
                                              });
 
         if (existing != m_ResolveFailures.end())
@@ -3513,7 +3520,7 @@ namespace OloEngine
             return;
         }
 
-        m_ResolveFailures.push_back(ResolveFailure{
+        m_ResolveFailures.Add(ResolveFailure{
             .PassName = std::string(passName),
             .Reason = std::string(reason),
             .Count = 1,
@@ -3580,7 +3587,7 @@ namespace OloEngine
         if (!m_RuntimeTransientMaterializationEnabled)
             return;
 
-        if (m_TransientPlan.empty())
+        if (m_TransientPlan.IsEmpty())
             return;
 
         if (RendererAPI::GetAPI() == RendererAPI::API::None)
@@ -3591,9 +3598,9 @@ namespace OloEngine
         // shares the same group+slot. The transient planner already proved
         // these entries have non-overlapping lifetimes, so a single physical
         // resource backs them all.
-        std::unordered_map<std::string, Ref<Texture>> textureAliasesBySlot;
-        std::unordered_map<std::string, Ref<Framebuffer>> framebufferAliasesBySlot;
-        std::unordered_map<std::string, Ref<StorageBuffer>> bufferAliasesBySlot;
+        RGTransparentStringMap<Ref<Texture>> textureAliasesBySlot;
+        RGTransparentStringMap<Ref<Framebuffer>> framebufferAliasesBySlot;
+        RGTransparentStringMap<Ref<StorageBuffer>> bufferAliasesBySlot;
 
         // Per alias-group only (any slot) — used during pass 2 to wire a
         // WillAllocate=false handle to *some* live sibling in the same group.
@@ -3603,16 +3610,16 @@ namespace OloEngine
         // External consumers querying these handles (editor picking, frame
         // capture thumbnails) saw null where the actual resource was sitting
         // one alias-step away.
-        std::unordered_map<std::string, Ref<Texture>> textureAliasesByGroup;
-        std::unordered_map<std::string, Ref<Framebuffer>> framebufferAliasesByGroup;
-        std::unordered_map<std::string, Ref<StorageBuffer>> bufferAliasesByGroup;
+        RGTransparentStringMap<Ref<Texture>> textureAliasesByGroup;
+        RGTransparentStringMap<Ref<Framebuffer>> framebufferAliasesByGroup;
+        RGTransparentStringMap<Ref<StorageBuffer>> bufferAliasesByGroup;
 
-        textureAliasesBySlot.reserve(m_TransientPlan.size());
-        framebufferAliasesBySlot.reserve(m_TransientPlan.size());
-        bufferAliasesBySlot.reserve(m_TransientPlan.size());
-        textureAliasesByGroup.reserve(m_TransientPlan.size());
-        framebufferAliasesByGroup.reserve(m_TransientPlan.size());
-        bufferAliasesByGroup.reserve(m_TransientPlan.size());
+        textureAliasesBySlot.reserve(m_TransientPlan.Num());
+        framebufferAliasesBySlot.reserve(m_TransientPlan.Num());
+        bufferAliasesBySlot.reserve(m_TransientPlan.Num());
+        textureAliasesByGroup.reserve(m_TransientPlan.Num());
+        framebufferAliasesByGroup.reserve(m_TransientPlan.Num());
+        bufferAliasesByGroup.reserve(m_TransientPlan.Num());
 
         const auto entryIsManaged = [this](const RenderGraph::TransientPlanEntry& entry) -> bool
         {
@@ -3624,7 +3631,7 @@ namespace OloEngine
             // version alias must never receive its own pool object — the
             // planner already marks them skip, this is the defensive belt).
             return !m_ImportedResources.contains(entry.Resource) &&
-                   !IsExternallyBackedTransientResource(entry.Resource) &&
+                   !IsExternallyBackedTransientResource(entry.Resource.ToView()) &&
                    !m_VersionAliasTargets.contains(entry.Resource);
         };
 
@@ -3688,7 +3695,7 @@ namespace OloEngine
                 case RGResourceHandle::Kind::TextureCube:
                 case RGResourceHandle::Kind::TextureCubeArray:
                 {
-                    auto textureIt = textureAliasesBySlot.find(aliasKey);
+                    auto textureIt = textureAliasesBySlot.find(aliasKey.ToView());
                     if (textureIt == textureAliasesBySlot.end())
                     {
                         TextureSpecification spec;
@@ -3701,16 +3708,16 @@ namespace OloEngine
 
                         auto transientTexture = m_TransientPool.AcquireTexture(spec);
                         if (poisonTransients)
-                            PoisonTexture(transientTexture, spec, PoisonColorForResource(entry.Resource));
+                            PoisonTexture(transientTexture, spec, PoisonColorForResource(entry.Resource.ToView()));
                         textureIt = textureAliasesBySlot.emplace(aliasKey, transientTexture).first;
                         // First time we've seen this alias group with a live
                         // physical — record it so pass 2's siblings can share.
-                        textureAliasesByGroup.try_emplace(entry.AliasGroup, transientTexture);
+                        textureAliasesByGroup.try_emplace(entry.AliasGroup.ToStdString(), transientTexture);
                     }
 
                     if (const auto texHandleIt = m_TextureHandlesByName.find(entry.Resource);
                         texHandleIt != m_TextureHandlesByName.end() &&
-                        texHandleIt->second.Index < m_PhysicalTextures.size())
+                        texHandleIt->second.Index < static_cast<sizet>(m_PhysicalTextures.Num()))
                     {
                         // BOTH currencies, read off the one pooled Ref in one
                         // statement (issue #691). See
@@ -3732,7 +3739,7 @@ namespace OloEngine
                 }
                 case RGResourceHandle::Kind::Framebuffer:
                 {
-                    auto framebufferIt = framebufferAliasesBySlot.find(aliasKey);
+                    auto framebufferIt = framebufferAliasesBySlot.find(aliasKey.ToView());
                     if (framebufferIt == framebufferAliasesBySlot.end())
                     {
                         FramebufferSpecification spec;
@@ -3741,17 +3748,17 @@ namespace OloEngine
                         spec.Samples = std::max(desc.Samples, 1u);
                         spec.SwapChainTarget = false;
 
-                        if (!desc.Attachments.empty())
+                        if (!desc.Attachments.IsEmpty())
                         {
                             // MRT path: build one attachment spec per entry in Attachments.
-                            std::vector<FramebufferTextureSpecification> attachSpecs;
-                            attachSpecs.reserve(desc.Attachments.size());
+                            TArray<FramebufferTextureSpecification> attachSpecs;
+                            attachSpecs.Reserve(desc.Attachments.Num());
                             for (u32 attachmentIndex = 0u; const auto fmt : desc.Attachments)
                             {
                                 const auto af = ToFramebufferFormat(fmt);
                                 if (af != FramebufferTextureFormat::None)
                                 {
-                                    attachSpecs.push_back(FramebufferTextureSpecification{ af });
+                                    attachSpecs.Add(FramebufferTextureSpecification{ af });
                                 }
                                 else
                                 {
@@ -3763,12 +3770,12 @@ namespace OloEngine
                                     OLO_CORE_ERROR("RenderGraph: transient framebuffer '{}' declares attachment {} with "
                                                    "RGResourceFormat {} which has no FramebufferTextureFormat — later "
                                                    "attachments would re-index. Add the format to ToFramebufferFormat.",
-                                                   entry.Resource, attachmentIndex,
+                                                   entry.Resource.ToView(), attachmentIndex,
                                                    static_cast<u32>(std::to_underlying(fmt)));
                                 }
                                 ++attachmentIndex;
                             }
-                            if (!attachSpecs.empty())
+                            if (!attachSpecs.IsEmpty())
                             {
                                 spec.Attachments.Attachments = std::move(attachSpecs);
                             }
@@ -3787,14 +3794,14 @@ namespace OloEngine
 
                         auto transientFramebuffer = m_TransientPool.AcquireFramebuffer(spec);
                         if (poisonTransients)
-                            PoisonFramebuffer(transientFramebuffer, PoisonColorForResource(entry.Resource));
+                            PoisonFramebuffer(transientFramebuffer, PoisonColorForResource(entry.Resource.ToView()));
                         framebufferIt = framebufferAliasesBySlot.emplace(aliasKey, transientFramebuffer).first;
-                        framebufferAliasesByGroup.try_emplace(entry.AliasGroup, transientFramebuffer);
+                        framebufferAliasesByGroup.try_emplace(entry.AliasGroup.ToStdString(), transientFramebuffer);
                     }
 
                     if (const auto fbHandleIt = m_FramebufferHandlesByName.find(entry.Resource);
                         fbHandleIt != m_FramebufferHandlesByName.end() &&
-                        fbHandleIt->second.Index < m_PhysicalFramebuffers.size())
+                        fbHandleIt->second.Index < static_cast<sizet>(m_PhysicalFramebuffers.Num()))
                     {
                         m_PhysicalFramebuffers[fbHandleIt->second.Index].FB = framebufferIt->second;
                     }
@@ -3809,16 +3816,16 @@ namespace OloEngine
                         auto transientBuffer = m_TransientPool.AcquireBuffer(desc.Width);
                         if (poisonTransients)
                         {
-                            [[maybe_unused]] const auto& loggedColor = PoisonColorForResource(entry.Resource);
+                            [[maybe_unused]] const auto& loggedColor = PoisonColorForResource(entry.Resource.ToView());
                             PoisonBuffer(transientBuffer);
                         }
                         bufferIt = bufferAliasesBySlot.emplace(aliasKey, transientBuffer).first;
-                        bufferAliasesByGroup.try_emplace(entry.AliasGroup, transientBuffer);
+                        bufferAliasesByGroup.try_emplace(entry.AliasGroup.ToStdString(), transientBuffer);
                     }
 
                     if (const auto bufferHandleIt = m_BufferHandlesByName.find(entry.Resource);
                         bufferHandleIt != m_BufferHandlesByName.end() &&
-                        bufferHandleIt->second.Index < m_PhysicalBuffers.size())
+                        bufferHandleIt->second.Index < static_cast<sizet>(m_PhysicalBuffers.Num()))
                     {
                         // The graph holds the pooled Ref itself, so it sets BOTH
                         // currencies off one pointer — the PhysicalTexture
@@ -3871,7 +3878,7 @@ namespace OloEngine
 
                     if (const auto texHandleIt = m_TextureHandlesByName.find(entry.Resource);
                         texHandleIt != m_TextureHandlesByName.end() &&
-                        texHandleIt->second.Index < m_PhysicalTextures.size())
+                        texHandleIt->second.Index < static_cast<sizet>(m_PhysicalTextures.Num()))
                     {
                         // BOTH currencies, like pass 1's acquire. Setting only
                         // the native id here would leave every ALIASED (unallocated,
@@ -3893,7 +3900,7 @@ namespace OloEngine
 
                     if (const auto fbHandleIt = m_FramebufferHandlesByName.find(entry.Resource);
                         fbHandleIt != m_FramebufferHandlesByName.end() &&
-                        fbHandleIt->second.Index < m_PhysicalFramebuffers.size())
+                        fbHandleIt->second.Index < static_cast<sizet>(m_PhysicalFramebuffers.Num()))
                     {
                         m_PhysicalFramebuffers[fbHandleIt->second.Index].FB = sibling;
                     }
@@ -3908,7 +3915,7 @@ namespace OloEngine
 
                     if (const auto bufferHandleIt = m_BufferHandlesByName.find(entry.Resource);
                         bufferHandleIt != m_BufferHandlesByName.end() &&
-                        bufferHandleIt->second.Index < m_PhysicalBuffers.size())
+                        bufferHandleIt->second.Index < static_cast<sizet>(m_PhysicalBuffers.Num()))
                     {
                         // Alias fan-out sets BOTH currencies too — item 4 of
                         // the boundary doc found exactly this site-class
@@ -4059,51 +4066,51 @@ namespace OloEngine
         m_DependencyGraphDirty = true;
     }
 
-    bool RenderGraph::IsFinalPass(const std::string& passName) const
+    bool RenderGraph::IsFinalPass(std::string_view passName) const
     {
         return passName == m_FinalPassName;
     }
 
-    std::vector<RenderGraph::ConnectionInfo> RenderGraph::GetConnections() const
+    TArray64<RenderGraph::ConnectionInfo> RenderGraph::GetConnections() const
     {
-        std::vector<ConnectionInfo> result;
+        TArray64<ConnectionInfo> result;
         for (const auto& [input, outputs] : m_Dependencies)
         {
             for (const auto& output : outputs)
             {
-                result.push_back({ output, input, 0 });
+                result.Add({ output, input, 0 });
             }
         }
         return result;
     }
 
-    std::vector<RenderGraph::NodeSubmissionInfo> RenderGraph::GetNodeSubmissionInfo() const
+    TArray64<RenderGraph::NodeSubmissionInfo> RenderGraph::GetNodeSubmissionInfo() const
     {
-        std::vector<NodeSubmissionInfo> result;
-        result.reserve(m_NodeLookup.size());
+        TArray64<NodeSubmissionInfo> result;
+        result.Reserve(m_NodeLookup.size());
 
-        const auto appendEntryInfo = [this, &result](const std::string& name)
+        const auto appendEntryInfo = [this, &result](std::string_view name)
         {
             if (const auto nodeIt = m_NodeLookup.find(name); nodeIt != m_NodeLookup.end() && nodeIt->second)
             {
                 const auto declarationsIt = m_PassAccessDeclarations.find(name);
-                result.push_back(NodeSubmissionInfo{
+                result.Add(NodeSubmissionInfo{
                     .NodeName = name,
                     .DeclaresResources = declarationsIt != m_PassAccessDeclarations.end() &&
-                                         !declarationsIt->second.empty(),
+                                         !declarationsIt->second.IsEmpty(),
                     .WorkType = nodeIt->second->GetPassWorkType(),
                     .AsyncComputeCandidate = nodeIt->second->IsAsyncComputeCandidate(),
                 });
             }
         };
 
-        std::unordered_set<std::string> visited;
-        visited.reserve(m_InsertionOrder.size());
+        RGTransparentStringSet visited;
+        visited.reserve(m_InsertionOrder.Num());
 
         for (const auto& name : m_InsertionOrder)
         {
-            appendEntryInfo(name);
-            visited.insert(name);
+            appendEntryInfo(name.ToView());
+            visited.insert(name.ToStdString());
         }
 
         for (const auto& [name, node] : m_NodeLookup)
@@ -4119,42 +4126,42 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        m_ExecutionOrder.clear();
+        m_ExecutionOrder.Reset();
 
         // Iterative DFS-based topological sort. Previously this used a
         // recursive std::function<bool(const std::string&)>, which heap-
         // allocates per call and was the slower of the two topo sorts that
         // run back-to-back here (UpdateDependencyGraph + HoistComputePasses).
         // The explicit stack avoids the allocation and call-frame overhead.
-        std::unordered_set<std::string> visited;
-        std::unordered_set<std::string> inProgress;
+        RGTransparentStringSet visited;
+        RGTransparentStringSet inProgress;
 
         struct Frame
         {
-            const std::string* Node;
+            std::string_view Node;
             std::size_t NextDepIdx;
         };
         std::vector<Frame> stack;
-        stack.reserve(m_InsertionOrder.size());
+        stack.reserve(m_InsertionOrder.Num());
 
-        const auto visit = [this, &visited, &inProgress, &stack](const std::string& root) -> bool
+        const auto visit = [this, &visited, &inProgress, &stack](std::string_view root) -> bool
         {
             if (visited.contains(root))
                 return true;
 
-            stack.push_back(Frame{ &root, 0u });
-            inProgress.insert(root);
+            stack.push_back(Frame{ root, 0u });
+            inProgress.insert(std::string(root));
 
             while (!stack.empty())
             {
                 auto& frame = stack.back();
-                const auto& nodeName = *frame.Node;
+                const auto nodeName = frame.Node;
 
                 const auto depIt = m_Dependencies.find(nodeName);
                 const bool hasDeps = depIt != m_Dependencies.end();
                 const auto* deps = hasDeps ? &depIt->second : nullptr;
 
-                if (deps && frame.NextDepIdx < deps->size())
+                if (deps && frame.NextDepIdx < deps->Num())
                 {
                     const auto& dep = (*deps)[frame.NextDepIdx++];
                     if (inProgress.contains(dep))
@@ -4165,15 +4172,15 @@ namespace OloEngine
                     if (visited.contains(dep))
                         continue;
 
-                    inProgress.insert(dep);
-                    stack.push_back(Frame{ &dep, 0u });
+                    inProgress.insert(dep.ToStdString());
+                    stack.push_back(Frame{ dep.ToView(), 0u });
                     continue;
                 }
 
                 // All dependencies processed — emit this node in post-order.
-                visited.insert(nodeName);
+                visited.insert(std::string(nodeName));
                 inProgress.erase(nodeName);
-                m_ExecutionOrder.push_back(nodeName);
+                m_ExecutionOrder.Add(nodeName);
                 stack.pop_back();
             }
 
@@ -4184,21 +4191,21 @@ namespace OloEngine
         // deterministically (independent of std::unordered_map hashing).
         for (const auto& name : m_InsertionOrder)
         {
-            if (!ContainsGraphEntry(name))
+            if (!ContainsGraphEntry(name.ToView()))
                 continue;
             if (!visited.contains(name))
             {
-                if (!visit(name))
+                if (!visit(name.ToView()))
                 {
                     OLO_CORE_ERROR("RenderGraph::UpdateDependencyGraph: Failed to build execution order!");
-                    m_ExecutionOrder.clear();
+                    m_ExecutionOrder.Reset();
                     return false;
                 }
             }
         }
 
         if (Levers::RenderGraphDiagnostics())
-            OLO_CORE_TRACE("RenderGraph execution order updated with {} nodes", m_ExecutionOrder.size());
+            OLO_CORE_TRACE("RenderGraph execution order updated with {} nodes", m_ExecutionOrder.Num());
 
         // Hoist independent AsyncComputeCandidate passes before graphics.
         HoistComputePasses();
@@ -4212,17 +4219,17 @@ namespace OloEngine
 
         // Only Setup-active prepared nodes influence grouping. Disabled nodes
         // have empty declarations and must not postpone useful work indefinitely.
-        std::unordered_map<std::string, RenderGraphNode*> recordingCandidates;
+        RGTransparentStringMap<RenderGraphNode*> recordingCandidates;
         bool hasCandidate = false;
         for (const auto& name : m_ExecutionOrder)
         {
-            hasCandidate = hasCandidate || IsGraphEntryAsyncComputeCandidate(name);
+            hasCandidate = hasCandidate || IsGraphEntryAsyncComputeCandidate(name.ToView());
             const auto node = m_NodeLookup.find(name);
             const auto accesses = m_PassAccessDeclarations.find(name);
             if (node != m_NodeLookup.end() && node->second &&
                 node->second->IsEnabled() &&
                 node->second->SupportsWholePassRecording() &&
-                accesses != m_PassAccessDeclarations.end() && !accesses->second.empty())
+                accesses != m_PassAccessDeclarations.end() && !accesses->second.IsEmpty())
                 recordingCandidates.emplace(name, node->second.Raw());
         }
         if (!hasCandidate && recordingCandidates.size() < 2)
@@ -4233,13 +4240,13 @@ namespace OloEngine
         //   all AsyncComputeCandidate passes are drained before any graphics
         //   pass advances.  The result is still a valid topological order.
         std::unordered_set<std::string_view> passSet;
-        passSet.reserve(m_ExecutionOrder.size());
+        passSet.reserve(m_ExecutionOrder.Num());
         for (const auto& name : m_ExecutionOrder)
-            passSet.insert(name);
+            passSet.insert(name.ToStdString());
 
-        std::unordered_map<std::string, u32> inDegree;
-        std::unordered_map<std::string, std::vector<std::string>> successors;
-        inDegree.reserve(m_ExecutionOrder.size());
+        RGTransparentStringMap<u32> inDegree;
+        RGTransparentStringMap<TArray64<FString>> successors;
+        inDegree.reserve(m_ExecutionOrder.Num());
 
         for (const auto& name : m_ExecutionOrder)
         {
@@ -4249,10 +4256,10 @@ namespace OloEngine
                 continue;
             for (const auto& dep : it->second)
             {
-                if (!passSet.contains(dep))
+                if (!passSet.contains(dep.ToView()))
                     continue;
-                successors[dep].push_back(name);
-                ++inDegree[name];
+                successors[dep.ToStdString()].Add(name);
+                ++inDegree[std::string(name)];
             }
         }
 
@@ -4269,17 +4276,17 @@ namespace OloEngine
             // legacy static declarations must not leak back into scheduler
             // ordering. Fall back to static declarations only for pre-build /
             // legacy-only paths that have no compiled access entry at all.
-            std::unordered_map<std::string, std::string> lastWriter;
-            lastWriter.reserve(m_ExecutionOrder.size() * 4u);
+            RGTransparentStringMap<std::string> lastWriter;
+            lastWriter.reserve(m_ExecutionOrder.Num() * 4u);
 
             for (const auto& prodName : m_ExecutionOrder)
             {
-                if (const auto* accesses = FindPassAccessDeclarations(m_PassAccessDeclarations, prodName))
+                if (const auto* accesses = FindPassAccessDeclarations(m_PassAccessDeclarations, prodName.ToView()))
                 {
                     for (const auto& access : *accesses)
                     {
-                        if (access.IsWrite && !access.ResourceName.empty())
-                            lastWriter[access.ResourceName] = prodName;
+                        if (access.IsWrite && !access.ResourceName.IsEmpty())
+                            lastWriter[access.ResourceName.ToStdString()] = std::string(prodName);
                     }
                 }
             }
@@ -4288,23 +4295,23 @@ namespace OloEngine
             // resource it reads whose last writer is a different pass.
             for (const auto& consName : m_ExecutionOrder)
             {
-                auto addImplicitEdge = [&consName, &passSet, &successors, &inDegree](const std::string& producer)
+                auto addImplicitEdge = [&consName, &passSet, &successors, &inDegree](std::string_view producer)
                 {
                     if (producer == consName || !passSet.contains(producer))
                         return;
                     // Skip if the edge is already present to avoid double-counting.
-                    auto& succVec = successors[producer];
+                    auto& succVec = successors[std::string(producer)];
                     if (std::ranges::find(succVec, consName) != succVec.end())
                         return;
-                    succVec.push_back(consName);
-                    ++inDegree[consName];
+                    succVec.Add(consName);
+                    ++inDegree[consName.ToStdString()];
                 };
 
-                if (const auto* accesses = FindPassAccessDeclarations(m_PassAccessDeclarations, consName))
+                if (const auto* accesses = FindPassAccessDeclarations(m_PassAccessDeclarations, consName.ToView()))
                 {
                     for (const auto& access : *accesses)
                     {
-                        if (!access.IsWrite && !access.ResourceName.empty())
+                        if (!access.IsWrite && !access.ResourceName.IsEmpty())
                         {
                             if (const auto wIt = lastWriter.find(access.ResourceName);
                                 wIt != lastWriter.end())
@@ -4317,35 +4324,35 @@ namespace OloEngine
             }
         }
 
-        std::deque<std::string> computeReady;
-        std::deque<std::string> graphicsReady;
+        std::deque<FString> computeReady;
+        std::deque<FString> graphicsReady;
 
-        auto classify = [this, &computeReady, &graphicsReady](const std::string& passName)
+        auto classify = [this, &computeReady, &graphicsReady](std::string_view passName)
         {
             if (IsGraphEntryAsyncComputeCandidate(passName))
-                computeReady.push_back(passName);
+                computeReady.push_back(FString(passName));
             else
-                graphicsReady.push_back(passName);
+                graphicsReady.push_back(FString(passName));
         };
 
         for (const auto& name : m_ExecutionOrder)
         {
-            if (inDegree[name] == 0)
-                classify(name);
+            if (inDegree[std::string(name)] == 0)
+                classify(name.ToView());
         }
 
-        std::vector<std::string> reordered;
-        reordered.reserve(m_ExecutionOrder.size());
+        TArray64<FString> reordered;
+        reordered.Reserve(m_ExecutionOrder.Num());
 
-        const auto emit = [&](const std::string& name)
+        const auto emit = [&](std::string_view name)
         {
             auto& ready = IsGraphEntryAsyncComputeCandidate(name) ? computeReady : graphicsReady;
             ready.erase(std::ranges::find(ready, name));
-            reordered.push_back(name);
+            reordered.Add(name);
             if (const auto successorsIt = successors.find(name); successorsIt != successors.end())
                 for (const auto& successor : successorsIt->second)
-                    if (--inDegree[successor] == 0)
-                        classify(successor);
+                    if (--inDegree[successor.ToStdString()] == 0)
+                        classify(successor.ToView());
         };
         while (!computeReady.empty() || !graphicsReady.empty())
         {
@@ -4401,7 +4408,7 @@ namespace OloEngine
         // Commit the reordered sequence only when it's complete.
         // Defensive guard: the DFS above already validated no cycles, but
         // be conservative in case of any unforeseen edge case.
-        if (reordered.size() == m_ExecutionOrder.size())
+        if (reordered.Num() == m_ExecutionOrder.Num())
         {
             // Every edge this function derived must still point forwards.
             //
@@ -4423,8 +4430,8 @@ namespace OloEngine
 #if !defined(OLO_DIST)
             {
                 std::unordered_map<std::string_view, sizet> position;
-                position.reserve(reordered.size());
-                for (sizet index = 0; index < reordered.size(); ++index)
+                position.reserve(reordered.Num());
+                for (sizet index = 0; index < reordered.Num(); ++index)
                     position.emplace(reordered[index], index);
                 for (const auto& [producer, consumers] : successors)
                 {
@@ -4433,7 +4440,7 @@ namespace OloEngine
                         continue;
                     for (const auto& consumer : consumers)
                     {
-                        const auto consumerAt = position.find(consumer);
+                        const auto consumerAt = position.find(consumer.ToView());
                         OLO_CORE_ASSERT(consumerAt == position.end() || producerAt->second < consumerAt->second,
                                         "RenderGraph reorder placed a consumer before its producer");
                     }
@@ -4452,10 +4459,10 @@ namespace OloEngine
     // it must wait for (WaitNodes) and the non-batch passes that must wait
     // for it (SignalNodes) — the fence-sync metadata needed by explicit-
     // barrier backends (Vulkan semaphores, DX12 fence Signal/Wait).
-    std::vector<RenderGraph::AsyncComputeBatch> RenderGraph::GetAsyncComputeBatches() const
+    TArray64<RenderGraph::AsyncComputeBatch> RenderGraph::GetAsyncComputeBatches() const
     {
         return RenderGraphSubmissionPlan::ComputeBatches({
-            .ExecutionOrder = m_ExecutionOrder,
+            .ExecutionOrder = { m_ExecutionOrder.GetData(), static_cast<sizet>(m_ExecutionOrder.Num()) },
             .Dependencies = m_Dependencies,
             .PassAccessDeclarations = m_PassAccessDeclarations,
             .IsGraphEntryAsyncComputeCandidate = [this](std::string_view name)
@@ -4467,12 +4474,12 @@ namespace OloEngine
     // Merges the hoisted execution order, the barrier plan, and the
     // async-compute batch boundaries into a single linearised
     // command stream that a backend can replay without touching the graph.
-    std::vector<RenderGraph::SubmissionCommand> RenderGraph::GetSubmissionPlan() const
+    TArray64<RenderGraph::SubmissionCommand> RenderGraph::GetSubmissionPlan() const
     {
         return BuildSubmissionPlan(Levers::RenderGraphSequential());
     }
 
-    std::vector<RenderGraph::SubmissionCommand> RenderGraph::BuildSubmissionPlan(const bool sequential) const
+    TArray64<RenderGraph::SubmissionCommand> RenderGraph::BuildSubmissionPlan(const bool sequential) const
     {
         // Delegate to the extracted submission-plan module.
         // GetAsyncComputeBatches itself delegates; here we just plumb the
@@ -4483,21 +4490,21 @@ namespace OloEngine
         // explicit-barrier backend (GL ignores them; ADR 0011 §1.5).
         const auto transitions = GetResourceTransitions();
         return RenderGraphSubmissionPlan::BuildPlan({
-            .ExecutionOrder = m_ExecutionOrder,
+            .ExecutionOrder = { m_ExecutionOrder.GetData(), static_cast<sizet>(m_ExecutionOrder.Num()) },
             .Dependencies = m_Dependencies,
-            .PlannedBarriers = m_PlannedBarriers,
-            .Transitions = transitions,
-            .Batches = batches,
+            .PlannedBarriers = { m_PlannedBarriers.GetData(), static_cast<sizet>(m_PlannedBarriers.Num()) },
+            .Transitions = std::span<const ResourceTransition>(transitions.GetData(), static_cast<sizet>(transitions.Num())),
+            .Batches = std::span<const AsyncComputeBatch>(batches.GetData(), static_cast<sizet>(batches.Num())),
             .EnableSplitBarriers = !sequential,
-            .GetPassWorkType = [this](const std::string& passName)
+            .GetPassWorkType = [this](std::string_view passName)
             { return GetGraphEntryWorkType(passName); },
-            .ResolveNodePointer = [this](const std::string& passName) -> RenderGraphNode*
+            .ResolveNodePointer = [this](std::string_view passName) -> RenderGraphNode*
             {
                 if (auto nodeIt = m_NodeLookup.find(passName); nodeIt != m_NodeLookup.end() && nodeIt->second)
                     return const_cast<RenderGraphNode*>(nodeIt->second.Raw());
                 return nullptr;
             },
-            .IsPassReachable = [this](const std::string& passName)
+            .IsPassReachable = [this](std::string_view passName)
             { return IsPassReachable(passName); },
         });
     }
@@ -4505,39 +4512,39 @@ namespace OloEngine
     // -------------------------------------------------------------------
     // Explicit resource transition records
     // -------------------------------------------------------------------
-    std::vector<RenderGraph::ResourceTransition> RenderGraph::GetResourceTransitions() const
+    TArray64<RenderGraph::ResourceTransition> RenderGraph::GetResourceTransitions() const
     {
         // Delegate to the extracted barrier-planner module.
         return RenderGraphBarrierPlanner::BuildResourceTransitions({
-            .PlannedBarriers = m_PlannedBarriers,
-            .ExecutionOrder = m_ExecutionOrder,
+            .PlannedBarriers = { m_PlannedBarriers.GetData(), static_cast<sizet>(m_PlannedBarriers.Num()) },
+            .ExecutionOrder = { m_ExecutionOrder.GetData(), static_cast<sizet>(m_ExecutionOrder.Num()) },
             .PassAccessDeclarations = m_PassAccessDeclarations,
-            .GetPassWorkType = [this](const std::string& passName)
+            .GetPassWorkType = [this](std::string_view passName)
             { return GetGraphEntryWorkType(passName); },
         });
     }
 
-    std::vector<RHI::Barrier> RenderGraph::ResolveTransitionsToBarriers(std::span<const ResourceTransition> transitions) const
+    TArray64<RHI::Barrier> RenderGraph::ResolveTransitionsToBarriers(std::span<const ResourceTransition> transitions) const
     {
         OLO_PROFILE_FUNCTION();
 
-        std::vector<RHI::Barrier> barriers;
-        barriers.reserve(transitions.size());
+        TArray64<RHI::Barrier> barriers;
+        barriers.Reserve(transitions.size());
 
         // Version-aliased names (SceneColor@Pass) refer to the SAME physical
         // resource as their source — follow the chain with the same depth
         // guard the transient planner uses.
-        const auto canonicalName = [this](const std::string& name) -> const std::string&
+        const auto canonicalName = [this](std::string_view name) -> std::string_view
         {
-            const std::string* current = &name;
+            std::string_view current = name;
             for (u32 depth = 0; depth < kMaxVersionAliasDepth; ++depth)
             {
-                const auto it = m_VersionAliasTargets.find(*current);
-                if (it == m_VersionAliasTargets.end() || it->second.empty())
+                const auto it = m_VersionAliasTargets.find(current);
+                if (it == m_VersionAliasTargets.end() || it->second.IsEmpty())
                     break;
-                current = &it->second;
+                current = it->second.ToView();
             }
-            return *current;
+            return current;
         };
 
         const auto toQueueType = [](const QueueLane lane) -> RHI::QueueType
@@ -4571,7 +4578,7 @@ namespace OloEngine
 
         for (const auto& transition : transitions)
         {
-            const auto& name = canonicalName(transition.ResourceName);
+            const auto& name = canonicalName(transition.ResourceName.ToView());
 
             RHI::Barrier prototype;
             prototype.Range = toRHIRange(transition.Range);
@@ -4586,10 +4593,10 @@ namespace OloEngine
             if (const auto texIt = m_TextureHandlesByName.find(name); texIt != m_TextureHandlesByName.end())
             {
                 const u32 slot = texIt->second.Index;
-                if (slot < m_PhysicalTextures.size() && m_PhysicalTextures[slot].Handle.IsValid())
+                if (slot < static_cast<sizet>(m_PhysicalTextures.Num()) && m_PhysicalTextures[slot].Handle.IsValid())
                 {
                     prototype.Resource = m_PhysicalTextures[slot].Handle;
-                    barriers.push_back(prototype);
+                    barriers.Add(prototype);
                 }
                 // A native-only import cannot answer in the identity currency;
                 // the GL flags path still synchronises it. Skipped, not an
@@ -4603,7 +4610,7 @@ namespace OloEngine
             if (const auto fbIt = m_FramebufferHandlesByName.find(name); fbIt != m_FramebufferHandlesByName.end())
             {
                 const u32 slot = fbIt->second.Index;
-                if (slot < m_PhysicalFramebuffers.size() && m_PhysicalFramebuffers[slot].FB)
+                if (slot < static_cast<sizet>(m_PhysicalFramebuffers.Num()) && m_PhysicalFramebuffers[slot].FB)
                 {
                     const auto& fb = m_PhysicalFramebuffers[slot].FB;
                     const auto& spec = fb->GetSpecification();
@@ -4622,7 +4629,7 @@ namespace OloEngine
                         {
                             auto barrier = prototype;
                             barrier.Resource = handle;
-                            barriers.push_back(barrier);
+                            barriers.Add(barrier);
                         }
                         ++colorIndex;
                     }
@@ -4632,7 +4639,7 @@ namespace OloEngine
                         {
                             auto barrier = prototype;
                             barrier.Resource = handle;
-                            barriers.push_back(barrier);
+                            barriers.Add(barrier);
                         }
                     }
                 }
@@ -4643,10 +4650,10 @@ namespace OloEngine
             if (const auto bufIt = m_BufferHandlesByName.find(name); bufIt != m_BufferHandlesByName.end())
             {
                 const u32 slot = bufIt->second.Index;
-                if (slot < m_PhysicalBuffers.size() && m_PhysicalBuffers[slot].Handle.IsValid())
+                if (slot < static_cast<sizet>(m_PhysicalBuffers.Num()) && m_PhysicalBuffers[slot].Handle.IsValid())
                 {
                     prototype.Resource = m_PhysicalBuffers[slot].Handle;
-                    barriers.push_back(prototype);
+                    barriers.Add(prototype);
                 }
                 continue;
             }
@@ -4655,7 +4662,7 @@ namespace OloEngine
         return barriers;
     }
 
-    std::vector<RenderGraph::ResourceLifetime> RenderGraph::GetResourceLifetimes() const
+    TArray64<RenderGraph::ResourceLifetime> RenderGraph::GetResourceLifetimes() const
     {
         // ----------------------------------------------------------------
         // Unified resource lifetime records.
@@ -4674,66 +4681,68 @@ namespace OloEngine
 
         // Extracted: resources with a pending TextureExtract or
         // FramebufferExtract callback.  Resolve handles → names.
-        std::unordered_set<std::string> extractedNames;
-        extractedNames.reserve(m_TextureExtracts.size() +
-                               m_FramebufferExtracts.size() +
-                               m_TemporalHistoryContracts.size() +
-                               m_ExternalTextureSinkContracts.size());
-        for (const auto& ex : m_TextureExtracts)
+        RGTransparentStringSet extractedNames;
+        extractedNames.reserve(static_cast<sizet>(m_TextureExtracts.Num()) +
+                               static_cast<sizet>(m_FramebufferExtracts.Num()) +
+                               m_TemporalHistoryContracts.Num() +
+                               m_ExternalTextureSinkContracts.Num());
+        for (auto* node = m_TextureExtracts.GetHead(); node; node = node->GetNextNode())
         {
+            const auto& ex = node->GetValue();
             const auto n = GetResourceName(ex.Handle);
-            if (!n.empty())
+            if (!n.IsEmpty())
                 extractedNames.emplace(n);
         }
-        for (const auto& ex : m_FramebufferExtracts)
+        for (auto* node = m_FramebufferExtracts.GetHead(); node; node = node->GetNextNode())
         {
+            const auto& ex = node->GetValue();
             const auto n = GetResourceName(ex.Handle);
-            if (!n.empty())
+            if (!n.IsEmpty())
                 extractedNames.emplace(n);
         }
         for (const auto& contract : m_TemporalHistoryContracts)
         {
-            if (!contract.SourceResource.empty())
-                extractedNames.insert(contract.SourceResource);
+            if (!contract.SourceResource.IsEmpty())
+                extractedNames.insert(contract.SourceResource.ToStdString());
         }
         for (const auto& contract : m_ExternalTextureSinkContracts)
         {
-            if (!contract.SourceResource.empty())
-                extractedNames.insert(contract.SourceResource);
+            if (!contract.SourceResource.IsEmpty())
+                extractedNames.insert(contract.SourceResource.ToStdString());
         }
 
         // History: resources listed as HistoryResource in any temporal
         // contract (they are imported from the previous frame).
-        std::unordered_set<std::string> historyNames;
-        historyNames.reserve(m_TemporalHistoryContracts.size());
+        RGTransparentStringSet historyNames;
+        historyNames.reserve(m_TemporalHistoryContracts.Num());
         for (const auto& contract : m_TemporalHistoryContracts)
-            historyNames.insert(contract.HistoryResource);
+            historyNames.insert(contract.HistoryResource.ToStdString());
 
         // --- Build pass-order index map ---------------------------------
-        std::unordered_map<std::string, u32> passOrderIdx;
-        passOrderIdx.reserve(m_ExecutionOrder.size());
-        for (u32 i = 0; i < static_cast<u32>(m_ExecutionOrder.size()); ++i)
+        RGTransparentStringMap<u32> passOrderIdx;
+        passOrderIdx.reserve(m_ExecutionOrder.Num());
+        for (u32 i = 0; i < static_cast<u32>(m_ExecutionOrder.Num()); ++i)
             passOrderIdx.emplace(m_ExecutionOrder[i], i);
 
         // --- Produce one ResourceLifetime per registered resource -------
         // GetRegisteredResources() ensures the registry is lazily built before
         // we iterate — do NOT access m_RegisteredResources directly here.
         const auto& registeredResources = GetRegisteredResources();
-        std::vector<ResourceLifetime> lifetimes;
-        lifetimes.reserve(registeredResources.size());
+        TArray64<ResourceLifetime> lifetimes;
+        lifetimes.Reserve(registeredResources.size());
 
         for (const auto& info : registeredResources)
         {
             ResourceLifetime lt;
-            lt.ResourceName = info.Name;
-            lt.IsImported = IsImportedResource(info.Name);
-            lt.IsExtracted = extractedNames.contains(info.Name);
-            lt.IsHistory = historyNames.contains(info.Name);
-            lt.IsTransient = IsTransientResource(info.Name);
-            lt.HasExternalBacking = IsExternallyBackedTransientResource(info.Name);
+            lt.ResourceName = info.Name.ToStdString();
+            lt.IsImported = IsImportedResource(info.Name.ToView());
+            lt.IsExtracted = extractedNames.contains(info.Name.ToStdString());
+            lt.IsHistory = historyNames.contains(info.Name.ToStdString());
+            lt.IsTransient = IsTransientResource(info.Name.ToView());
+            lt.HasExternalBacking = IsExternallyBackedTransientResource(info.Name.ToView());
 
             // Walk the execution order to find first write and last read.
-            for (u32 i = 0; i < static_cast<u32>(m_ExecutionOrder.size()); ++i)
+            for (u32 i = 0; i < static_cast<u32>(m_ExecutionOrder.Num()); ++i)
             {
                 const auto& passName = m_ExecutionOrder[i];
                 const auto dit = m_PassAccessDeclarations.find(passName);
@@ -4742,7 +4751,7 @@ namespace OloEngine
 
                 for (const auto& decl : dit->second)
                 {
-                    if (decl.ResourceName != info.Name)
+                    if (decl.ResourceName != info.Name.ToView())
                         continue;
 
                     if (decl.IsWrite)
@@ -4772,7 +4781,7 @@ namespace OloEngine
             if (lt.FirstWritePassIndex == std::numeric_limits<u32>::max())
                 lt.FirstWritePass = "external";
 
-            lifetimes.push_back(std::move(lt));
+            lifetimes.Add(std::move(lt));
         }
 
         return lifetimes;
@@ -4784,8 +4793,8 @@ namespace OloEngine
             return;
 
         std::string digest;
-        std::unordered_map<std::string, u32> passIndexByName;
-        passIndexByName.reserve(m_CachedSubmissionPlan.size());
+        RGTransparentStringMap<u32> passIndexByName;
+        passIndexByName.reserve(m_CachedSubmissionPlan.Num());
 
         u32 passIndex = 0;
         for (const auto& cmd : m_CachedSubmissionPlan)
@@ -4796,14 +4805,14 @@ namespace OloEngine
             if (!digest.empty())
                 digest += " -> ";
 
-            if (IsPassReachable(cmd.NodeName))
+            if (IsPassReachable(cmd.NodeName.ToView()))
             {
-                digest += cmd.NodeName;
+                digest += cmd.NodeName.ToView();
             }
             else
             {
                 digest += "(";
-                digest += cmd.NodeName;
+                digest += cmd.NodeName.ToView();
                 digest += ":culled)";
             }
 
@@ -4826,9 +4835,9 @@ namespace OloEngine
             {
                 if (!fenceDigest.empty())
                     fenceDigest += ", ";
-                fenceDigest += edge.ProducerPass;
+                fenceDigest += edge.ProducerPass.ToView();
                 fenceDigest += " => ";
-                fenceDigest += edge.ConsumerPass;
+                fenceDigest += edge.ConsumerPass.ToView();
             }
         }
         digest += fenceDigest.empty() ? " | fences:sequential" : " | fences:" + fenceDigest;
@@ -4870,11 +4879,11 @@ namespace OloEngine
 
         if (!m_HasExplicitFinalPass)
         {
-            m_FinalPassName.clear();
+            m_FinalPassName.Reset();
             return;
         }
 
-        if (m_FinalPassName.empty())
+        if (m_FinalPassName.IsEmpty())
         {
             OLO_CORE_WARN("RenderGraph: explicit final pass not set");
         }
@@ -4885,9 +4894,9 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         m_ReachablePasses.clear();
-        m_CulledPasses.clear();
+        m_CulledPasses.Reset();
 
-        if (m_HasExplicitFinalPass && m_FinalPassName.empty())
+        if (m_HasExplicitFinalPass && m_FinalPassName.IsEmpty())
         {
             OLO_CORE_WARN("ComputeReachability: final pass not set; all passes marked reachable");
         }
@@ -4895,45 +4904,47 @@ namespace OloEngine
         // Gather extraction / temporal-history / external-sink resource roots
         // for the BFS. The reachability module needs only resource names; we
         // filter stale handles and skip empty contract entries here.
-        std::vector<std::string> extractedResourceNames;
-        extractedResourceNames.reserve(m_TextureExtracts.size() + m_FramebufferExtracts.size() +
-                                       m_TemporalHistoryContracts.size() + m_ExternalTextureSinkContracts.size());
-        for (const auto& extract : m_TextureExtracts)
+        TArray64<FString> extractedResourceNames;
+        extractedResourceNames.Reserve(static_cast<sizet>(m_TextureExtracts.Num()) + static_cast<sizet>(m_FramebufferExtracts.Num()) +
+                                       m_TemporalHistoryContracts.Num() + m_ExternalTextureSinkContracts.Num());
+        for (auto* node = m_TextureExtracts.GetHead(); node; node = node->GetNextNode())
         {
+            const auto& extract = node->GetValue();
             if (!IsTextureHandleCurrent(extract.Handle))
                 continue;
             auto name = std::string(GetResourceName(extract.Handle));
             if (!name.empty())
-                extractedResourceNames.push_back(std::move(name));
+                extractedResourceNames.Add(FString(name));
         }
-        for (const auto& extract : m_FramebufferExtracts)
+        for (auto* node = m_FramebufferExtracts.GetHead(); node; node = node->GetNextNode())
         {
+            const auto& extract = node->GetValue();
             if (!IsFramebufferHandleCurrent(extract.Handle))
                 continue;
             auto name = std::string(GetResourceName(extract.Handle));
             if (!name.empty())
-                extractedResourceNames.push_back(std::move(name));
+                extractedResourceNames.Add(FString(name));
         }
         for (const auto& contract : m_TemporalHistoryContracts)
         {
-            if (!contract.SourceResource.empty())
-                extractedResourceNames.push_back(contract.SourceResource);
+            if (!contract.SourceResource.IsEmpty())
+                extractedResourceNames.Add(contract.SourceResource);
         }
         for (const auto& contract : m_ExternalTextureSinkContracts)
         {
-            if (!contract.SourceResource.empty())
-                extractedResourceNames.push_back(contract.SourceResource);
+            if (!contract.SourceResource.IsEmpty())
+                extractedResourceNames.Add(contract.SourceResource);
         }
 
         // Delegate the BFS / iterative read→writer expansion to the
         // RenderGraphReachability module.
         m_ReachablePasses = RenderGraphReachability::ComputeReachableSet({
             .HasExplicitFinalPass = m_HasExplicitFinalPass,
-            .FinalPassName = m_FinalPassName,
-            .InsertionOrder = m_InsertionOrder,
+            .FinalPassName = m_FinalPassName.ToView(),
+            .InsertionOrder = { m_InsertionOrder.GetData(), static_cast<sizet>(m_InsertionOrder.Num()) },
             .PassAccessDeclarations = m_PassAccessDeclarations,
             .Dependencies = m_Dependencies,
-            .ExtractedResourceNames = extractedResourceNames,
+            .ExtractedResourceNames = std::span<const FString>(extractedResourceNames.GetData(), static_cast<sizet>(extractedResourceNames.Num())),
         });
 
         // Refresh contract metadata (depends on m_ReachablePasses) before the
@@ -4949,26 +4960,26 @@ namespace OloEngine
             if (m_ReachablePasses.contains(passName))
                 continue;
 
-            if (IsGraphEntrySideEffecting(passName))
+            if (IsGraphEntrySideEffecting(passName.ToView()))
             {
-                m_ReachablePasses.insert(passName);
+                m_ReachablePasses.insert(passName.ToStdString());
                 if (Levers::RenderGraphDiagnostics())
-                    OLO_CORE_TRACE("Pass '{}' is unreachable but has side effects; keeping it", passName);
+                    OLO_CORE_TRACE("Pass '{}' is unreachable but has side effects; keeping it", passName.ToView());
             }
             else
             {
-                m_CulledPasses.push_back(passName);
+                m_CulledPasses.Add(passName);
             }
         }
 
-        std::ranges::sort(m_CulledPasses);
+        m_CulledPasses.Sort();
 
         std::string digest;
         for (const auto& passName : m_CulledPasses)
         {
             if (!digest.empty())
                 digest += ",";
-            digest += passName;
+            digest += passName.ToView();
         }
         if (digest.empty())
             digest = "<none>";
@@ -5002,9 +5013,9 @@ namespace OloEngine
         // flags to `glMemoryBarrier` bits via the abstract
         // `RGCommandContext::MemoryBarrier(flags)` entry point.
         auto plan = RenderGraphBarrierPlanner::ComputePlan({
-            .ExecutionOrder = m_ExecutionOrder,
+            .ExecutionOrder = { m_ExecutionOrder.GetData(), static_cast<sizet>(m_ExecutionOrder.Num()) },
             .PassAccessDeclarations = m_PassAccessDeclarations,
-            .IsPassReachable = [this](const std::string& passName)
+            .IsPassReachable = [this](std::string_view passName)
             { return IsPassReachable(passName); },
         });
 
@@ -5013,7 +5024,7 @@ namespace OloEngine
         m_BarrierDiagnostics = std::move(plan.Diagnostics);
     }
 
-    bool RenderGraph::IsPassReachable(const std::string& passName) const
+    bool RenderGraph::IsPassReachable(std::string_view passName) const
     {
         return m_ReachablePasses.contains(passName);
     }
@@ -5053,7 +5064,7 @@ namespace OloEngine
         const auto handle = GetTextureHandle(resourceName);
         if (!handle.IsValid() || !IsTextureHandleCurrent(handle))
             return false;
-        if (handle.Index >= m_PhysicalTextures.size())
+        if (handle.Index >= static_cast<sizet>(m_PhysicalTextures.Num()))
             return false;
         return m_PhysicalTextures[handle.Index].IsHistory;
     }
@@ -5071,7 +5082,7 @@ namespace OloEngine
             viewIt != m_TextureViewDefinitions.end() &&
             viewIt->second.ParentResource != stableName)
         {
-            return IsImportedResource(viewIt->second.ParentResource);
+            return IsImportedResource(viewIt->second.ParentResource.ToView());
         }
 
         return false;
@@ -5090,7 +5101,7 @@ namespace OloEngine
             viewIt != m_TextureViewDefinitions.end() &&
             viewIt->second.ParentResource != stableName)
         {
-            return IsTransientResource(viewIt->second.ParentResource);
+            return IsTransientResource(viewIt->second.ParentResource.ToView());
         }
 
         return false;
@@ -5115,15 +5126,15 @@ namespace OloEngine
         if (const auto viewIt = m_TextureViewDefinitions.find(stableName);
             viewIt != m_TextureViewDefinitions.end())
         {
-            if (!viewIt->second.BackingResource.empty() &&
+            if (!viewIt->second.BackingResource.IsEmpty() &&
                 viewIt->second.BackingResource != stableName &&
-                IsExternallyBackedTransientResource(viewIt->second.BackingResource))
+                IsExternallyBackedTransientResource(viewIt->second.BackingResource.ToView()))
             {
                 return true;
             }
 
             if (viewIt->second.ParentResource != stableName)
-                return IsExternallyBackedTransientResource(viewIt->second.ParentResource);
+                return IsExternallyBackedTransientResource(viewIt->second.ParentResource.ToView());
         }
 
         return false;
@@ -5160,23 +5171,23 @@ namespace OloEngine
         // the planner tracks the lifetime of `TAAColor`. Matching raw strings
         // silently misses every versioned source, which is the majority of the
         // interesting ones.
-        const auto canonical = [this](const std::string& name) -> const std::string&
+        const auto canonical = [this](std::string_view name) -> std::string_view
         {
-            const std::string* current = &name;
+            std::string_view current = name;
             for (u32 depth = 0; depth < kMaxVersionAliasDepth; ++depth)
             {
-                const auto aliasIt = m_VersionAliasTargets.find(*current);
+                const auto aliasIt = m_VersionAliasTargets.find(current);
                 if (aliasIt == m_VersionAliasTargets.end())
                 {
-                    return *current;
+                    return current;
                 }
-                current = &aliasIt->second;
+                current = aliasIt->second.ToView();
             }
-            return *current;
+            return current;
         };
 
         const auto matches = [resourceName, &canonical](const auto& contract)
-        { return canonical(contract.SourceResource) == resourceName; };
+        { return canonical(contract.SourceResource.ToView()) == resourceName; };
         return std::ranges::any_of(m_TemporalHistoryContracts, matches) ||
                std::ranges::any_of(m_ExternalTextureSinkContracts, matches);
     }
@@ -5189,12 +5200,12 @@ namespace OloEngine
         const auto* info = FindRegisteredResource(resourceName);
         if (!info)
             return true;
-        if (info->Producers.empty())
+        if (info->Producers.IsEmpty())
             return true;
 
         for (const auto& producer : info->Producers)
         {
-            if (m_ReachablePasses.contains(producer))
+            if (m_ReachablePasses.contains(producer.ToStdString()))
                 return true;
         }
         return false;
@@ -5218,7 +5229,7 @@ namespace OloEngine
         return UpdateDependencyGraph();
     }
 
-    std::vector<RenderGraph::Hazard> RenderGraph::ValidateResourceHazards()
+    TArray64<RenderGraph::Hazard> RenderGraph::ValidateResourceHazards()
     {
         // Setup-time declarations only land in m_PassAccessDeclarations after
         // BuildFrameGraph runs each pass's Setup callback. Auto-build only
@@ -5232,14 +5243,14 @@ namespace OloEngine
         return ValidateResourceHazardsInternal();
     }
 
-    std::vector<RenderGraph::Hazard> RenderGraph::ValidateCompiledResourceHazards()
+    TArray64<RenderGraph::Hazard> RenderGraph::ValidateCompiledResourceHazards()
     {
         if (m_DependencyGraphDirty)
             BuildFrameGraph();
         return ValidateResourceHazardsInternal();
     }
 
-    std::vector<RenderGraph::Hazard> RenderGraph::ValidateResourceHazardsInternal()
+    TArray64<RenderGraph::Hazard> RenderGraph::ValidateResourceHazardsInternal()
     {
         OLO_PROFILE_FUNCTION();
 
@@ -5259,11 +5270,11 @@ namespace OloEngine
                 // validate" (the empty-vector overload used to conflate
                 // both).
                 OLO_CORE_ERROR("RenderGraph::ValidateResourceHazards: aborting (graph has a cycle)");
-                std::vector<Hazard> hazards;
+                TArray64<Hazard> hazards;
                 Hazard h;
                 h.Kind = HazardKind::Cycle;
                 h.Message = "RenderGraph contains a cycle; resource hazard validation aborted";
-                hazards.push_back(std::move(h));
+                hazards.Add(std::move(h));
                 return hazards;
             }
             // Note: we deliberately leave m_DependencyGraphDirty set so the
@@ -5273,7 +5284,7 @@ namespace OloEngine
 
         // Delegate to the extracted hazard-validator module.
         return RenderGraphHazardValidator::Validate({
-            .IsPassReachable = [this](const std::string& passName)
+            .IsPassReachable = [this](std::string_view passName)
             { return IsPassReachable(passName); },
             .ResolveTexture = [this](RGTextureHandle handle)
             { return ResolveTexture(handle); },
@@ -5286,12 +5297,12 @@ namespace OloEngine
                 return registry.IsLive(identity) && registry.KindOf(identity) == RHI::ResourceKind::Buffer; },
             .ResolveFramebuffer = [this](RGFramebufferHandle handle)
             { return ResolveFramebuffer(handle); },
-            .ExecutionOrder = m_ExecutionOrder,
+            .ExecutionOrder = { m_ExecutionOrder.GetData(), static_cast<sizet>(m_ExecutionOrder.Num()) },
             .Dependencies = m_Dependencies,
             .PassAccessDeclarations = m_PassAccessDeclarations,
             .PassFeedbackDeclarations = m_PassFeedbackDeclarations,
-            .RegistryDiagnostics = m_ResourceRegistryDiagnostics,
-            .RegisteredResources = m_RegisteredResources,
+            .RegistryDiagnostics = { m_ResourceRegistryDiagnostics.GetData(), static_cast<sizet>(m_ResourceRegistryDiagnostics.Num()) },
+            .RegisteredResources = { m_RegisteredResources.GetData(), static_cast<sizet>(m_RegisteredResources.Num()) },
         });
     }
 
@@ -5322,7 +5333,7 @@ namespace OloEngine
             .ImportedResources = m_ImportedResources,
             .TransientResourceDescs = m_TransientResourceDescs,
             .TextureViewResourceDescs = m_TextureViewResourceDescs,
-            .InsertionOrder = m_InsertionOrder,
+            .InsertionOrder = { m_InsertionOrder.GetData(), static_cast<sizet>(m_InsertionOrder.Num()) },
             .PassAccessDeclarations = m_PassAccessDeclarations,
             .IsExternallyBackedTransientResource = [this](std::string_view name)
             { return IsExternallyBackedTransientResource(name); },
@@ -5336,17 +5347,17 @@ namespace OloEngine
         // for live resources. The generic slot-allocator pattern is shared
         // across the three handle families and lives in the
         // RenderGraphHandleAllocator module.
-        std::unordered_set<std::string> activeTextureNames;
-        std::unordered_set<std::string> activeBufferNames;
-        std::unordered_set<std::string> activeFramebufferNames;
+        RGTransparentStringSet activeTextureNames;
+        RGTransparentStringSet activeBufferNames;
+        RGTransparentStringSet activeFramebufferNames;
         for (const auto& info : m_RegisteredResources)
         {
             if (isTextureKind(info.Desc.Kind))
-                activeTextureNames.insert(info.Name);
+                activeTextureNames.insert(info.Name.ToStdString());
             else if (isBufferKind(info.Desc.Kind))
-                activeBufferNames.insert(info.Name);
+                activeBufferNames.insert(info.Name.ToStdString());
             else if (info.Desc.Kind == RGResourceHandle::Kind::Framebuffer)
-                activeFramebufferNames.insert(info.Name);
+                activeFramebufferNames.insert(info.Name.ToStdString());
             else
             {
                 // No additional handling required.
@@ -5361,7 +5372,7 @@ namespace OloEngine
         {
             if (isTextureKind(info.Desc.Kind))
             {
-                info.TextureHandle = RenderGraphHandleAllocator::Allocate(info.Name,
+                info.TextureHandle = RenderGraphHandleAllocator::Allocate(info.Name.ToStdString(),
                                                                           m_TextureHandlesByName,
                                                                           m_TextureHandleSlots,
                                                                           m_PhysicalTextures,
@@ -5373,7 +5384,7 @@ namespace OloEngine
             }
             else if (isBufferKind(info.Desc.Kind))
             {
-                info.BufferHandle = RenderGraphHandleAllocator::Allocate(info.Name,
+                info.BufferHandle = RenderGraphHandleAllocator::Allocate(info.Name.ToStdString(),
                                                                          m_BufferHandlesByName,
                                                                          m_BufferHandleSlots,
                                                                          m_PhysicalBuffers,
@@ -5385,7 +5396,7 @@ namespace OloEngine
             }
             else if (info.Desc.Kind == RGResourceHandle::Kind::Framebuffer)
             {
-                info.FramebufferHandle = RenderGraphHandleAllocator::Allocate(info.Name,
+                info.FramebufferHandle = RenderGraphHandleAllocator::Allocate(info.Name.ToStdString(),
                                                                               m_FramebufferHandlesByName,
                                                                               m_FramebufferHandleSlots,
                                                                               m_PhysicalFramebuffers,
@@ -5404,7 +5415,7 @@ namespace OloEngine
         m_ResourceRegistryDirty = false;
     }
 
-    std::string RenderGraph::BuildTransientAliasGroup(const RGResourceDesc& desc)
+    FString RenderGraph::BuildTransientAliasGroup(const RGResourceDesc& desc)
     {
         return RenderGraphTransientPlanner::BuildAliasGroup(desc);
     }
@@ -5430,11 +5441,11 @@ namespace OloEngine
         // RenderGraphTransientPlanner module.
         m_TransientPlan = RenderGraphTransientPlanner::ComputePlan({
             .TransientResourceDescs = m_TransientResourceDescs,
-            .ExecutionOrder = m_ExecutionOrder,
+            .ExecutionOrder = { m_ExecutionOrder.GetData(), static_cast<sizet>(m_ExecutionOrder.Num()) },
             .PassAccessDeclarations = m_PassAccessDeclarations,
             .PassLifetimeExtensions = m_PassLifetimeExtensions,
             .VersionAliasTargets = m_VersionAliasTargets,
-            .IsPassReachable = [this](const std::string& passName)
+            .IsPassReachable = [this](std::string_view passName)
             { return IsPassReachable(passName); },
             .IsExternallyBackedTransientResource = [this](std::string_view name)
             { return IsExternallyBackedTransientResource(name); },
@@ -5483,14 +5494,14 @@ namespace OloEngine
         {
             const bool isFinal = (name == m_FinalPassName);
 
-            const auto workType = GetGraphEntryWorkType(name);
+            const auto workType = GetGraphEntryWorkType(name.ToView());
             const bool isCompute = workType == RenderGraphPassWorkType::Compute;
             const bool isCopy = workType == RenderGraphPassWorkType::Copy;
-            const bool isAsyncCandidate = IsGraphEntryAsyncComputeCandidate(name);
+            const bool isAsyncCandidate = IsGraphEntryAsyncComputeCandidate(name.ToView());
 
-            const std::string label = isAsyncCandidate ? ("[async] " + name) : name;
+            const std::string label = isAsyncCandidate ? ("[async] " + name.ToStdString()) : name.ToStdString();
 
-            out << "    \"" << name << "\"";
+            out << "    \"" << name.ToView() << "\"";
 
             std::vector<std::string> attributes;
             attributes.push_back(std::string("label=\"") + label + "\"");
@@ -5543,7 +5554,7 @@ namespace OloEngine
         {
             for (const auto& producer : producers)
             {
-                out << "    \"" << producer << "\" -> \"" << consumer
+                out << "    \"" << producer.ToView() << "\" -> \"" << consumer
                     << "\" [style=dashed, color=\"#5f6368\", label=\"order\"];\n";
             }
         }
@@ -5551,26 +5562,26 @@ namespace OloEngine
         out << "\n    // Planned barriers\n";
         for (const auto& barrier : m_PlannedBarriers)
         {
-            out << "    // before '" << barrier.BeforePass << "': resource='" << barrier.Resource
+            out << "    // before '" << barrier.BeforePass.ToView() << "': resource='" << barrier.Resource.ToView()
                 << "', flags=0x" << std::hex << std::to_underlying(barrier.Flags) << std::dec << "\n";
         }
 
         out << "\n    // Barrier diagnostics\n";
         for (const auto& diagnostic : m_BarrierDiagnostics)
         {
-            out << "    // pass='" << diagnostic.PassName << "', resource='" << diagnostic.Resource
-                << "': " << diagnostic.Message << "\n";
+            out << "    // pass='" << diagnostic.PassName.ToView() << "', resource='" << diagnostic.Resource.ToView()
+                << "': " << diagnostic.Message.ToView() << "\n";
         }
 
         out << "\n    // Async batch lane assignments\n";
         const auto batches = GetAsyncComputeBatches();
-        for (sizet i = 0; i < batches.size(); ++i)
+        for (sizet i = 0; i < batches.Num(); ++i)
         {
             out << "    // batch " << i << ": lane=" << queueLaneToString(batches[i].Lane) << ", passes=[";
-            for (sizet pi = 0; pi < batches[i].ComputeNodes.size(); ++pi)
+            for (sizet pi = 0; pi < batches[i].ComputeNodes.Num(); ++pi)
             {
-                out << batches[i].ComputeNodes[pi];
-                if (pi + 1 < batches[i].ComputeNodes.size())
+                out << batches[i].ComputeNodes[pi].ToView();
+                if (pi + 1 < batches[i].ComputeNodes.Num())
                     out << ",";
             }
             out << "]\n";
@@ -5586,16 +5597,16 @@ namespace OloEngine
         {
             if (!tr.IsCrossLane)
                 continue;
-            out << "    // cross-lane: resource='" << tr.ResourceName
-                << "', producer='" << tr.ProducerPass << "' (" << queueLaneToString(tr.ProducerLane) << ")"
-                << " -> consumer='" << tr.ConsumerPass << "' (" << queueLaneToString(tr.ConsumerLane) << ")\n";
+            out << "    // cross-lane: resource='" << tr.ResourceName.ToView()
+                << "', producer='" << tr.ProducerPass.ToView() << "' (" << queueLaneToString(tr.ProducerLane) << ")"
+                << " -> consumer='" << tr.ConsumerPass.ToView() << "' (" << queueLaneToString(tr.ConsumerLane) << ")\n";
         }
 
         out << "}\n";
         out.close();
 
         OLO_CORE_INFO("RenderGraph::DumpToDot: wrote {} passes, {} dependency groups to '{}'",
-                      m_InsertionOrder.size(),
+                      m_InsertionOrder.Num(),
                       m_Dependencies.size(),
                       filePath);
         return true;
@@ -5614,7 +5625,7 @@ namespace OloEngine
             return false;
         }
 
-        const auto jsonEscape = [](const std::string& value)
+        const auto jsonEscape = [](std::string_view value)
         {
             std::string escaped;
             escaped.reserve(value.size());
@@ -5815,19 +5826,19 @@ namespace OloEngine
             u32 WriteCount = 0;
         };
 
-        std::unordered_map<std::string, LifetimeInfo> lifetimeByResource;
-        std::unordered_map<std::string, std::unordered_set<std::string>> readModesByResource;
-        std::unordered_map<std::string, std::unordered_set<std::string>> writeModesByResource;
+        RGTransparentStringMap<LifetimeInfo> lifetimeByResource;
+        RGTransparentStringMap<RGTransparentStringSet> readModesByResource;
+        RGTransparentStringMap<RGTransparentStringSet> writeModesByResource;
 
-        auto noteLifetimeAccess = [&lifetimeByResource](const std::string& resource,
+        auto noteLifetimeAccess = [&lifetimeByResource](std::string_view resource,
                                                         const bool isWrite,
-                                                        const std::string& passName,
+                                                        std::string_view passName,
                                                         const u32 passIndex)
         {
             if (resource.empty())
                 return;
 
-            auto& info = lifetimeByResource[resource];
+            auto& info = lifetimeByResource[std::string(resource)];
             if (passIndex < info.FirstIndex)
             {
                 info.FirstIndex = passIndex;
@@ -5845,19 +5856,19 @@ namespace OloEngine
                 ++info.ReadCount;
         };
 
-        for (u32 passIndex = 0; passIndex < static_cast<u32>(m_ExecutionOrder.size()); ++passIndex)
+        for (u32 passIndex = 0; passIndex < static_cast<u32>(m_ExecutionOrder.Num()); ++passIndex)
         {
             const auto& passName = m_ExecutionOrder[passIndex];
 
-            if (const auto* accesses = FindPassAccessDeclarations(m_PassAccessDeclarations, passName))
+            if (const auto* accesses = FindPassAccessDeclarations(m_PassAccessDeclarations, passName.ToView()))
             {
                 for (const auto& access : *accesses)
                 {
-                    noteLifetimeAccess(access.ResourceName, access.IsWrite, passName, passIndex);
+                    noteLifetimeAccess(access.ResourceName.ToView(), access.IsWrite, passName.ToView(), passIndex);
                     if (access.IsWrite)
-                        writeModesByResource[access.ResourceName].insert(writeUsageToString(access.WriteUsage));
+                        writeModesByResource[access.ResourceName.ToStdString()].insert(writeUsageToString(access.WriteUsage));
                     else
-                        readModesByResource[access.ResourceName].insert(readUsageToString(access.ReadUsage));
+                        readModesByResource[access.ResourceName.ToStdString()].insert(readUsageToString(access.ReadUsage));
                 }
             }
         }
@@ -5865,27 +5876,27 @@ namespace OloEngine
         f64 totalCpuMs = 0.0;
         f64 maxCpuMs = 0.0;
         std::string maxPassName;
-        std::unordered_map<std::string, f64> cpuMsByPass;
-        cpuMsByPass.reserve(m_LastExecutionTimings.size());
+        RGTransparentStringMap<f64> cpuMsByPass;
+        cpuMsByPass.reserve(m_LastExecutionTimings.Num());
         for (const auto& timing : m_LastExecutionTimings)
         {
             totalCpuMs += timing.CpuMs;
-            cpuMsByPass[timing.NodeName] = timing.CpuMs;
+            cpuMsByPass[timing.NodeName.ToStdString()] = timing.CpuMs;
             if (timing.CpuMs > maxCpuMs)
             {
                 maxCpuMs = timing.CpuMs;
-                maxPassName = timing.NodeName;
+                maxPassName = timing.NodeName.ToStdString();
             }
         }
-        const std::unordered_set<std::string> culledPasses(m_CulledPasses.begin(), m_CulledPasses.end());
+        const RGTransparentStringSet culledPasses(m_CulledPasses.begin(), m_CulledPasses.end());
 
-        std::unordered_map<std::string, u32> passOrderIndexByName;
-        passOrderIndexByName.reserve(m_ExecutionOrder.size());
-        for (sizet i = 0; i < m_ExecutionOrder.size(); ++i)
-            passOrderIndexByName[m_ExecutionOrder[i]] = static_cast<u32>(i);
+        RGTransparentStringMap<u32> passOrderIndexByName;
+        passOrderIndexByName.reserve(m_ExecutionOrder.Num());
+        for (sizet i = 0; i < m_ExecutionOrder.Num(); ++i)
+            passOrderIndexByName[m_ExecutionOrder[i].ToStdString()] = static_cast<u32>(i);
 
         std::vector<std::string> timingDigestEntries;
-        timingDigestEntries.reserve(m_ExecutionOrder.size());
+        timingDigestEntries.reserve(m_ExecutionOrder.Num());
         std::string timingDigestConcat;
 
         std::vector<std::string> resourceDigestEntries;
@@ -5901,12 +5912,12 @@ namespace OloEngine
         u32 staleExtractionCount = 0;
         u32 extractionOfCulledCount = 0;
 
-        const auto executedPassCount = m_LastExecutionTimings.size();
+        const auto executedPassCount = m_LastExecutionTimings.Num();
         const auto averageCpuMs = executedPassCount > 0
                                       ? (totalCpuMs / static_cast<f64>(executedPassCount))
                                       : 0.0;
 
-        for (sizet i = 0; i < m_ExecutionOrder.size(); ++i)
+        for (sizet i = 0; i < m_ExecutionOrder.Num(); ++i)
         {
             const auto& passName = m_ExecutionOrder[i];
             const auto timingIt = cpuMsByPass.find(passName);
@@ -5923,10 +5934,10 @@ namespace OloEngine
 
         {
             std::vector<std::string> descriptorEntries;
-            descriptorEntries.reserve(m_RegisteredResources.size());
+            descriptorEntries.reserve(m_RegisteredResources.Num());
             for (const auto& resource : m_RegisteredResources)
             {
-                descriptorEntries.push_back(std::string("res:") + std::string(resource.Name) + ":" + std::string(ToString(resource.Desc.Kind)) +
+                descriptorEntries.push_back(std::string("res:") + resource.Name.ToStdString() + ":" + std::string(ToString(resource.Desc.Kind)) +
                                             ":" + (resource.Desc.Imported ? "1" : "0") +
                                             ":xb" + (resource.HasExternalBacking ? "1" : "0"));
             }
@@ -5947,7 +5958,7 @@ namespace OloEngine
                                                 std::to_string(info.WriteCount));
             }
 
-            std::unordered_set<std::string> accessResourcesSet;
+            RGTransparentStringSet accessResourcesSet;
             for (const auto& [resource, modes] : readModesByResource)
                 accessResourcesSet.insert(resource);
             for (const auto& [resource, modes] : writeModesByResource)
@@ -5996,14 +6007,14 @@ namespace OloEngine
 
             for (const auto& plan : m_TransientPlan)
             {
-                resourceDigestEntries.push_back(std::string("alias:") + plan.Resource + ":" + plan.AliasGroup +
+                resourceDigestEntries.push_back(std::string("alias:") + plan.Resource.ToStdString() + ":" + plan.AliasGroup.ToStdString() +
                                                 ":slot=" +
                                                 (plan.AliasSlot == std::numeric_limits<u32>::max()
                                                      ? std::string("-1")
                                                      : std::to_string(plan.AliasSlot)) +
                                                 ":reachable=" + (plan.Reachable ? "1" : "0") +
                                                 ":alloc=" + (plan.WillAllocate ? "1" : "0") +
-                                                ":skip=" + plan.SkipReason);
+                                                ":skip=" + plan.SkipReason.ToStdString());
             }
 
             for (const auto& entry : resourceDigestEntries)
@@ -6023,11 +6034,11 @@ namespace OloEngine
             };
 
             std::vector<BarrierDigestRow> barrierRows;
-            barrierRows.reserve(m_PlannedBarriers.size());
+            barrierRows.reserve(m_PlannedBarriers.Num());
             for (const auto& barrier : m_PlannedBarriers)
             {
                 const auto flags = std::to_underlying(barrier.Flags);
-                barrierRows.push_back({ barrier.BeforePass, barrier.Resource, flags });
+                barrierRows.push_back({ barrier.BeforePass.ToStdString(), barrier.Resource.ToStdString(), flags });
                 barrierFlagsOr |= flags;
             }
             std::ranges::sort(barrierRows,
@@ -6040,7 +6051,7 @@ namespace OloEngine
                                   return lhs.Flags < rhs.Flags;
                               });
 
-            barrierDigestEntries.reserve(m_PlannedBarriers.size() + m_BarrierDiagnostics.size());
+            barrierDigestEntries.reserve(m_PlannedBarriers.Num() + m_BarrierDiagnostics.Num());
             for (const auto& row : barrierRows)
             {
                 barrierDigestEntries.push_back(std::string("bar:") + row.BeforePass + "/" + row.Resource +
@@ -6055,11 +6066,11 @@ namespace OloEngine
             };
 
             std::vector<DiagnosticDigestRow> diagnosticRows;
-            diagnosticRows.reserve(m_BarrierDiagnostics.size());
+            diagnosticRows.reserve(m_BarrierDiagnostics.Num());
             for (const auto& diagnostic : m_BarrierDiagnostics)
             {
                 const auto kind = std::string(barrierDiagnosticKindToString(diagnostic.Kind));
-                diagnosticRows.push_back({ kind, diagnostic.PassName, diagnostic.Resource });
+                diagnosticRows.push_back({ kind, diagnostic.PassName.ToStdString(), diagnostic.Resource.ToStdString() });
                 switch (diagnostic.Kind)
                 {
                     case BarrierDiagnosticKind::MissingProducer:
@@ -6109,7 +6120,7 @@ namespace OloEngine
         u32 computePassCount = 0;
         u32 asyncComputeCandidateCount = 0;
         u32 historyResourceCount = 0;
-        const auto externalTextureSinkContractCount = static_cast<u32>(m_ExternalTextureSinkContracts.size());
+        const auto externalTextureSinkContractCount = static_cast<u32>(m_ExternalTextureSinkContracts.Num());
         const auto externallyBackedTransientRootCount =
             static_cast<u32>(m_ExternallyBackedTransientTextures.size() + m_ExternallyBackedTransientFramebuffers.size());
         u32 externallyBackedResourceCount = 0;
@@ -6120,17 +6131,17 @@ namespace OloEngine
         };
 
         std::vector<PassAuthoringRow> passAuthoringRows;
-        passAuthoringRows.reserve(m_InsertionOrder.size());
+        passAuthoringRows.reserve(m_InsertionOrder.Num());
         for (const auto& passName : m_ExecutionOrder)
         {
-            if (GetGraphEntryWorkType(passName) == RenderGraphPassWorkType::Compute)
+            if (GetGraphEntryWorkType(passName.ToView()) == RenderGraphPassWorkType::Compute)
                 ++computePassCount;
-            if (IsGraphEntryAsyncComputeCandidate(passName))
+            if (IsGraphEntryAsyncComputeCandidate(passName.ToView()))
                 ++asyncComputeCandidateCount;
         }
         for (const auto& resource : m_RegisteredResources)
         {
-            if (IsHistoryTextureResource(resource.Name))
+            if (IsHistoryTextureResource(resource.Name.ToView()))
                 ++historyResourceCount;
             if (resource.HasExternalBacking)
                 ++externallyBackedResourceCount;
@@ -6138,11 +6149,11 @@ namespace OloEngine
 
         for (const auto& passName : m_InsertionOrder)
         {
-            if (const auto node = TryGetGraphEntryNode(passName, m_NodeLookup); !node)
+            if (const auto node = TryGetGraphEntryNode(passName.ToView(), m_NodeLookup); !node)
                 continue;
 
             passAuthoringRows.push_back(PassAuthoringRow{
-                .PassName = passName,
+                .PassName = passName.ToStdString(),
                 .Reachable = m_ReachablePasses.contains(passName),
             });
         }
@@ -6154,13 +6165,13 @@ namespace OloEngine
         u32 batchOutputResourceCount = 0;
         for (const auto& batch : dumpBatches)
         {
-            batchInputResourceCount += static_cast<u32>(batch.InputResources.size());
-            batchOutputResourceCount += static_cast<u32>(batch.OutputResources.size());
+            batchInputResourceCount += static_cast<u32>(batch.InputResources.Num());
+            batchOutputResourceCount += static_cast<u32>(batch.OutputResources.Num());
         }
 
         // Resource transition records for frameSummary/graphDigest.
         const auto dumpTransitions = GetResourceTransitions();
-        const auto resourceTransitionCount = static_cast<u32>(dumpTransitions.size());
+        const auto resourceTransitionCount = static_cast<u32>(dumpTransitions.Num());
         // Count cross-lane sync transitions.
         const auto crossLaneSyncCount = static_cast<u32>(std::ranges::count_if(
             dumpTransitions,
@@ -6170,12 +6181,12 @@ namespace OloEngine
         for (const auto& command : submissionPlan)
         {
             if (command.CommandKind == SubmissionCommand::Kind::FenceSignal)
-                fenceEdgeCount += static_cast<u32>(command.FenceEdges.size());
+                fenceEdgeCount += static_cast<u32>(command.FenceEdges.Num());
         }
 
         // Unified resource lifetime records.
         const auto dumpLifetimes = GetResourceLifetimes();
-        const auto resourceLifetimeCount = static_cast<u32>(dumpLifetimes.size());
+        const auto resourceLifetimeCount = static_cast<u32>(dumpLifetimes.Num());
         u32 resolveFailureCount = 0;
         for (const auto& failure : m_ResolveFailures)
             resolveFailureCount += failure.Count;
@@ -6204,29 +6215,29 @@ namespace OloEngine
         out << "{\n";
         out << "  \"schemaVersion\": 17,\n";
         out << "  \"timingVersion\": 4,\n";
-        out << "  \"finalPass\": \"" << jsonEscape(m_FinalPassName) << "\",\n";
+        out << "  \"finalPass\": \"" << jsonEscape(m_FinalPassName.ToView()) << "\",\n";
         out << "  \"hasExplicitFinalPass\": " << (m_HasExplicitFinalPass ? "true" : "false") << ",\n";
-        out << "  \"hasTimings\": " << (m_LastExecutionTimings.empty() ? "false" : "true") << ",\n";
+        out << "  \"hasTimings\": " << (m_LastExecutionTimings.IsEmpty() ? "false" : "true") << ",\n";
         out << "  \"frameSummary\": { "
-            << "\"passCount\": " << m_ExecutionOrder.size()
-            << ", \"resourceCount\": " << m_RegisteredResources.size()
-            << ", \"culledPassCount\": " << m_CulledPasses.size()
-            << ", \"plannedBarrierCount\": " << m_PlannedBarriers.size()
-            << ", \"buildDiagnosticCount\": " << m_BuildDiagnostics.size()
-            << ", \"barrierDiagnosticCount\": " << m_BarrierDiagnostics.size()
-            << ", \"transientAliasCount\": " << m_TransientPlan.size()
+            << "\"passCount\": " << m_ExecutionOrder.Num()
+            << ", \"resourceCount\": " << m_RegisteredResources.Num()
+            << ", \"culledPassCount\": " << m_CulledPasses.Num()
+            << ", \"plannedBarrierCount\": " << m_PlannedBarriers.Num()
+            << ", \"buildDiagnosticCount\": " << m_BuildDiagnostics.Num()
+            << ", \"barrierDiagnosticCount\": " << m_BarrierDiagnostics.Num()
+            << ", \"transientAliasCount\": " << m_TransientPlan.Num()
             << ", \"timingsCount\": " << executedPassCount
             << ", \"computePassCount\": " << computePassCount
             << ", \"asyncComputeCandidateCount\": " << asyncComputeCandidateCount
             << ", \"historyResourceCount\": " << historyResourceCount
             << ", \"externallyBackedTransientRootCount\": " << externallyBackedTransientRootCount
             << ", \"externallyBackedResourceCount\": " << externallyBackedResourceCount
-            << ", \"temporalHistoryContractCount\": " << m_TemporalHistoryContracts.size()
+            << ", \"temporalHistoryContractCount\": " << m_TemporalHistoryContracts.Num()
             << ", \"externalTextureSinkContractCount\": " << externalTextureSinkContractCount
-            << ", \"asyncBatchCount\": " << dumpBatches.size()
+            << ", \"asyncBatchCount\": " << dumpBatches.Num()
             << ", \"batchInputResourceCount\": " << batchInputResourceCount
             << ", \"batchOutputResourceCount\": " << batchOutputResourceCount
-            << ", \"submissionCommandCount\": " << submissionPlan.size()
+            << ", \"submissionCommandCount\": " << submissionPlan.Num()
             << ", \"fenceEdgeCount\": " << fenceEdgeCount
             << ", \"resourceTransitionCount\": " << resourceTransitionCount
             << ", \"crossLaneSyncCount\": " << crossLaneSyncCount
@@ -6259,51 +6270,51 @@ namespace OloEngine
         };
 
         out << "  \"buildDiagnostics\": [\n";
-        for (sizet i = 0; i < m_BuildDiagnostics.size(); ++i)
+        for (sizet i = 0; i < m_BuildDiagnostics.Num(); ++i)
         {
             const auto& diagnostic = m_BuildDiagnostics[i];
             out << "    { \"kind\": \"" << buildDiagnosticKindToString(diagnostic.Kind)
-                << "\", \"resource\": \"" << jsonEscape(diagnostic.Resource)
-                << "\", \"currentBeforePass\": \"" << jsonEscape(diagnostic.CurrentBeforePass)
-                << "\", \"currentAfterPass\": \"" << jsonEscape(diagnostic.CurrentAfterPass)
-                << "\", \"alternateBeforePass\": \"" << jsonEscape(diagnostic.AlternateBeforePass)
-                << "\", \"alternateAfterPass\": \"" << jsonEscape(diagnostic.AlternateAfterPass)
-                << "\", \"message\": \"" << jsonEscape(diagnostic.Message) << "\" }";
-            if (i + 1 < m_BuildDiagnostics.size())
+                << "\", \"resource\": \"" << jsonEscape(diagnostic.Resource.ToView())
+                << "\", \"currentBeforePass\": \"" << jsonEscape(diagnostic.CurrentBeforePass.ToView())
+                << "\", \"currentAfterPass\": \"" << jsonEscape(diagnostic.CurrentAfterPass.ToView())
+                << "\", \"alternateBeforePass\": \"" << jsonEscape(diagnostic.AlternateBeforePass.ToView())
+                << "\", \"alternateAfterPass\": \"" << jsonEscape(diagnostic.AlternateAfterPass.ToView())
+                << "\", \"message\": \"" << jsonEscape(diagnostic.Message.ToView()) << "\" }";
+            if (i + 1 < m_BuildDiagnostics.Num())
                 out << ",";
             out << "\n";
         }
         out << "  ],\n";
 
         out << "  \"passOrder\": [";
-        for (sizet i = 0; i < m_ExecutionOrder.size(); ++i)
+        for (sizet i = 0; i < m_ExecutionOrder.Num(); ++i)
         {
-            out << "\"" << jsonEscape(m_ExecutionOrder[i]) << "\"";
-            if (i + 1 < m_ExecutionOrder.size())
+            out << "\"" << jsonEscape(m_ExecutionOrder[i].ToView()) << "\"";
+            if (i + 1 < m_ExecutionOrder.Num())
                 out << ", ";
         }
         out << "],\n";
 
         out << "  \"culledPasses\": [";
-        for (sizet i = 0; i < m_CulledPasses.size(); ++i)
+        for (sizet i = 0; i < m_CulledPasses.Num(); ++i)
         {
-            out << "\"" << jsonEscape(m_CulledPasses[i]) << "\"";
-            if (i + 1 < m_CulledPasses.size())
+            out << "\"" << jsonEscape(m_CulledPasses[i].ToView()) << "\"";
+            if (i + 1 < m_CulledPasses.Num())
                 out << ", ";
         }
         out << "],\n";
 
         // Per-pass work-type and async-compute flags.
         out << "  \"passFlags\": [\n";
-        for (sizet i = 0; i < m_ExecutionOrder.size(); ++i)
+        for (sizet i = 0; i < m_ExecutionOrder.Num(); ++i)
         {
             const auto& passName = m_ExecutionOrder[i];
-            const auto workType = passWorkTypeToString(GetGraphEntryWorkType(passName));
-            const auto asyncCandidate = IsGraphEntryAsyncComputeCandidate(passName);
-            out << "    { \"pass\": \"" << jsonEscape(passName)
+            const auto workType = passWorkTypeToString(GetGraphEntryWorkType(passName.ToView()));
+            const auto asyncCandidate = IsGraphEntryAsyncComputeCandidate(passName.ToView());
+            out << "    { \"pass\": \"" << jsonEscape(passName.ToView())
                 << "\", \"workType\": \"" << workType
                 << "\", \"asyncComputeCandidate\": " << (asyncCandidate ? "true" : "false") << " }";
-            if (i + 1 < m_ExecutionOrder.size())
+            if (i + 1 < m_ExecutionOrder.Num())
                 out << ",";
             out << "\n";
         }
@@ -6322,35 +6333,35 @@ namespace OloEngine
         out << "  ],\n";
 
         out << "  \"plannedBarriers\": [\n";
-        for (sizet i = 0; i < m_PlannedBarriers.size(); ++i)
+        for (sizet i = 0; i < m_PlannedBarriers.Num(); ++i)
         {
             const auto& barrier = m_PlannedBarriers[i];
-            out << "    { \"beforePass\": \"" << jsonEscape(barrier.BeforePass)
-                << "\", \"resource\": \"" << jsonEscape(barrier.Resource)
+            out << "    { \"beforePass\": \"" << jsonEscape(barrier.BeforePass.ToView())
+                << "\", \"resource\": \"" << jsonEscape(barrier.Resource.ToView())
                 << "\", \"flags\": " << std::to_underlying(barrier.Flags)
                 << ", \"range\": " << subresourceRangeToJson(barrier.Range) << " }";
-            if (i + 1 < m_PlannedBarriers.size())
+            if (i + 1 < m_PlannedBarriers.Num())
                 out << ",";
             out << "\n";
         }
         out << "  ],\n";
 
         out << "  \"barrierDiagnostics\": [\n";
-        for (sizet i = 0; i < m_BarrierDiagnostics.size(); ++i)
+        for (sizet i = 0; i < m_BarrierDiagnostics.Num(); ++i)
         {
             const auto& diagnostic = m_BarrierDiagnostics[i];
             out << "    { \"kind\": \"" << barrierDiagnosticKindToString(diagnostic.Kind)
-                << "\", \"pass\": \"" << jsonEscape(diagnostic.PassName)
-                << "\", \"resource\": \"" << jsonEscape(diagnostic.Resource)
-                << "\", \"message\": \"" << jsonEscape(diagnostic.Message) << "\" }";
-            if (i + 1 < m_BarrierDiagnostics.size())
+                << "\", \"pass\": \"" << jsonEscape(diagnostic.PassName.ToView())
+                << "\", \"resource\": \"" << jsonEscape(diagnostic.Resource.ToView())
+                << "\", \"message\": \"" << jsonEscape(diagnostic.Message.ToView()) << "\" }";
+            if (i + 1 < m_BarrierDiagnostics.Num())
                 out << ",";
             out << "\n";
         }
         out << "  ],\n";
 
         out << "  \"resources\": [\n";
-        for (sizet i = 0; i < m_RegisteredResources.size(); ++i)
+        for (sizet i = 0; i < m_RegisteredResources.Num(); ++i)
         {
             const auto& resource = m_RegisteredResources[i];
             u32 textureID = 0;
@@ -6369,46 +6380,46 @@ namespace OloEngine
                     framebufferColor0ID = fb->GetColorAttachmentRendererID(0);
                 }
             }
-            out << "    { \"name\": \"" << jsonEscape(resource.Name)
+            out << "    { \"name\": \"" << jsonEscape(resource.Name.ToView())
                 << "\", \"kind\": \"" << ToString(resource.Desc.Kind)
                 << "\", \"imported\": " << (resource.Desc.Imported ? "true" : "false")
-                << ", \"isHistory\": " << (IsHistoryTextureResource(resource.Name) ? "true" : "false")
+                << ", \"isHistory\": " << (IsHistoryTextureResource(resource.Name.ToView()) ? "true" : "false")
                 << ", \"hasExternalBacking\": " << (resource.HasExternalBacking ? "true" : "false")
                 << ", \"textureID\": " << textureID
                 << ", \"bufferID\": " << bufferID
                 << ", \"framebufferID\": " << framebufferID
                 << ", \"framebufferColor0ID\": " << framebufferColor0ID << " }";
-            if (i + 1 < m_RegisteredResources.size())
+            if (i + 1 < m_RegisteredResources.Num())
                 out << ",";
             out << "\n";
         }
         out << "  ],\n";
 
         out << "  \"externalTextureSinkContracts\": [\n";
-        for (sizet i = 0; i < m_ExternalTextureSinkContracts.size(); ++i)
+        for (sizet i = 0; i < m_ExternalTextureSinkContracts.Num(); ++i)
         {
             const auto& contract = m_ExternalTextureSinkContracts[i];
-            out << "    { \"sourceResource\": \"" << jsonEscape(contract.SourceResource)
+            out << "    { \"sourceResource\": \"" << jsonEscape(contract.SourceResource.ToView())
                 << "\", \"sourceKind\": \"" << ToString(contract.SourceKind)
                 << "\", \"colorAttachmentIndex\": " << contract.ColorAttachmentIndex
                 << ", \"sourceReachable\": " << (contract.SourceReachable ? "true" : "false") << " }";
-            if (i + 1 < m_ExternalTextureSinkContracts.size())
+            if (i + 1 < m_ExternalTextureSinkContracts.Num())
                 out << ",";
             out << "\n";
         }
         out << "  ],\n";
 
         out << "  \"temporalHistoryContracts\": [\n";
-        for (sizet i = 0; i < m_TemporalHistoryContracts.size(); ++i)
+        for (sizet i = 0; i < m_TemporalHistoryContracts.Num(); ++i)
         {
             const auto& contract = m_TemporalHistoryContracts[i];
-            out << "    { \"historyResource\": \"" << jsonEscape(contract.HistoryResource)
-                << "\", \"sourceResource\": \"" << jsonEscape(contract.SourceResource)
+            out << "    { \"historyResource\": \"" << jsonEscape(contract.HistoryResource.ToView())
+                << "\", \"sourceResource\": \"" << jsonEscape(contract.SourceResource.ToView())
                 << "\", \"sourceKind\": \"" << (contract.Kind == TemporalHistoryContract::SourceKind::Texture ? "Texture" : "Framebuffer")
                 << "\", \"colorAttachmentIndex\": " << contract.ColorAttachmentIndex
                 << ", \"historyImported\": " << (contract.HistoryImported ? "true" : "false")
                 << ", \"sourceReachable\": " << (contract.SourceReachable ? "true" : "false") << " }";
-            if (i + 1 < m_TemporalHistoryContracts.size())
+            if (i + 1 < m_TemporalHistoryContracts.Num())
                 out << ",";
             out << "\n";
         }
@@ -6442,7 +6453,7 @@ namespace OloEngine
 
         out << "  \"accessModes\": [\n";
         {
-            std::unordered_set<std::string> allResources;
+            RGTransparentStringSet allResources;
             for (const auto& [resource, modes] : readModesByResource)
                 allResources.insert(resource);
             for (const auto& [resource, modes] : writeModesByResource)
@@ -6495,26 +6506,26 @@ namespace OloEngine
         out << "  ],\n";
 
         out << "  \"aliases\": [\n";
-        for (sizet i = 0; i < m_TransientPlan.size(); ++i)
+        for (sizet i = 0; i < m_TransientPlan.Num(); ++i)
         {
             const auto& plan = m_TransientPlan[i];
-            out << "    { \"resource\": \"" << jsonEscape(plan.Resource)
+            out << "    { \"resource\": \"" << jsonEscape(plan.Resource.ToView())
                 << "\", \"kind\": \"" << ToString(plan.Kind)
-                << "\", \"aliasGroup\": \"" << jsonEscape(plan.AliasGroup)
+                << "\", \"aliasGroup\": \"" << jsonEscape(plan.AliasGroup.ToView())
                 << "\", \"aliasSlot\": "
                 << (plan.AliasSlot == std::numeric_limits<u32>::max() ? -1 : static_cast<i64>(plan.AliasSlot))
                 << ", \"reachable\": " << (plan.Reachable ? "true" : "false")
                 << ", \"willAllocate\": " << (plan.WillAllocate ? "true" : "false")
-                << ", \"skipReason\": \"" << jsonEscape(plan.SkipReason)
-                << "\", \"firstPass\": \"" << jsonEscape(plan.FirstPass)
-                << "\", \"lastPass\": \"" << jsonEscape(plan.LastPass)
+                << ", \"skipReason\": \"" << jsonEscape(plan.SkipReason.ToView())
+                << "\", \"firstPass\": \"" << jsonEscape(plan.FirstPass.ToView())
+                << "\", \"lastPass\": \"" << jsonEscape(plan.LastPass.ToView())
                 << "\", \"firstIndex\": "
                 << (plan.FirstPassIndex == std::numeric_limits<u32>::max() ? -1 : static_cast<i64>(plan.FirstPassIndex))
                 << ", \"lastIndex\": "
                 << (plan.FirstPassIndex == std::numeric_limits<u32>::max() ? -1 : static_cast<i64>(plan.LastPassIndex))
                 << ", \"estimatedBytes\": " << plan.EstimatedBytes
                 << " }";
-            if (i + 1 < m_TransientPlan.size())
+            if (i + 1 < m_TransientPlan.Num())
                 out << ",";
             out << "\n";
         }
@@ -6522,7 +6533,7 @@ namespace OloEngine
 
         out << "  \"timingSummary\": { "
             << "\"executedPasses\": " << executedPassCount
-            << ", \"culledPasses\": " << m_CulledPasses.size()
+            << ", \"culledPasses\": " << m_CulledPasses.Num()
             << ", \"totalCpuMs\": " << totalCpuMs
             << ", \"averageCpuMs\": " << averageCpuMs
             << ", \"maxCpuMs\": " << maxCpuMs
@@ -6530,48 +6541,48 @@ namespace OloEngine
             << "\" },\n";
 
         out << "  \"executionTimeline\": [\n";
-        for (sizet i = 0; i < m_ExecutionOrder.size(); ++i)
+        for (sizet i = 0; i < m_ExecutionOrder.Num(); ++i)
         {
             const auto& passName = m_ExecutionOrder[i];
             const auto isCulled = culledPasses.contains(passName);
             const auto timingIt = cpuMsByPass.find(passName);
             const auto executed = timingIt != cpuMsByPass.end();
             const auto cpuMs = executed ? timingIt->second : 0.0;
-            const auto workType = passWorkTypeToString(GetGraphEntryWorkType(passName));
-            const auto asyncCandidate = IsGraphEntryAsyncComputeCandidate(passName);
+            const auto workType = passWorkTypeToString(GetGraphEntryWorkType(passName.ToView()));
+            const auto asyncCandidate = IsGraphEntryAsyncComputeCandidate(passName.ToView());
 
-            out << "    { \"pass\": \"" << jsonEscape(passName)
+            out << "    { \"pass\": \"" << jsonEscape(passName.ToView())
                 << "\", \"orderIndex\": " << i
                 << ", \"culled\": " << (isCulled ? "true" : "false")
                 << ", \"executed\": " << (executed ? "true" : "false")
                 << ", \"cpuMs\": " << cpuMs
                 << ", \"workType\": \"" << workType << "\""
                 << ", \"asyncComputeCandidate\": " << (asyncCandidate ? "true" : "false") << " }";
-            if (i + 1 < m_ExecutionOrder.size())
+            if (i + 1 < m_ExecutionOrder.Num())
                 out << ",";
             out << "\n";
         }
         out << "  ],\n";
 
         out << "  \"timingStatsByPass\": {\n";
-        for (sizet i = 0; i < m_ExecutionOrder.size(); ++i)
+        for (sizet i = 0; i < m_ExecutionOrder.Num(); ++i)
         {
             const auto& passName = m_ExecutionOrder[i];
             const auto isCulled = culledPasses.contains(passName);
             const auto timingIt = cpuMsByPass.find(passName);
             const auto executed = timingIt != cpuMsByPass.end();
             const auto cpuMs = executed ? timingIt->second : 0.0;
-            const auto workType = passWorkTypeToString(GetGraphEntryWorkType(passName));
-            const auto asyncCandidate = IsGraphEntryAsyncComputeCandidate(passName);
+            const auto workType = passWorkTypeToString(GetGraphEntryWorkType(passName.ToView()));
+            const auto asyncCandidate = IsGraphEntryAsyncComputeCandidate(passName.ToView());
 
-            out << "    \"" << jsonEscape(passName)
+            out << "    \"" << jsonEscape(passName.ToView())
                 << "\": { \"orderIndex\": " << i
                 << ", \"executed\": " << (executed ? "true" : "false")
                 << ", \"culled\": " << (isCulled ? "true" : "false")
                 << ", \"cpuMs\": " << cpuMs
                 << ", \"workType\": \"" << workType << "\""
                 << ", \"asyncComputeCandidate\": " << (asyncCandidate ? "true" : "false") << " }";
-            if (i + 1 < m_ExecutionOrder.size())
+            if (i + 1 < m_ExecutionOrder.Num())
                 out << ",";
             out << "\n";
         }
@@ -6587,10 +6598,10 @@ namespace OloEngine
         out << "  \"resourceDigest\": { "
             << "\"version\": 1"
             << ", \"entryCount\": " << resourceDigestEntries.size()
-            << ", \"resourceCount\": " << m_RegisteredResources.size()
+            << ", \"resourceCount\": " << m_RegisteredResources.Num()
             << ", \"lifetimeCount\": " << lifetimeByResource.size()
             << ", \"accessCount\": " << resourceDigestAccessCount
-            << ", \"aliasCount\": " << m_TransientPlan.size()
+            << ", \"aliasCount\": " << m_TransientPlan.Num()
             << ", \"externallyBackedTransientRootCount\": " << externallyBackedTransientRootCount
             << ", \"externallyBackedResourceCount\": " << externallyBackedResourceCount
             << ", \"concat\": \"" << jsonEscape(resourceDigestConcat)
@@ -6598,8 +6609,8 @@ namespace OloEngine
 
         out << "  \"barrierDigest\": { "
             << "\"version\": 1"
-            << ", \"plannedCount\": " << m_PlannedBarriers.size()
-            << ", \"diagnosticCount\": " << m_BarrierDiagnostics.size()
+            << ", \"plannedCount\": " << m_PlannedBarriers.Num()
+            << ", \"diagnosticCount\": " << m_BarrierDiagnostics.Num()
             << ", \"missingProducerCount\": " << missingProducerCount
             << ", \"culledProducerCount\": " << culledProducerCount
             << ", \"unmappedTransitionCount\": " << unmappedTransitionCount
@@ -6610,24 +6621,24 @@ namespace OloEngine
             << ", \"concat\": \"" << jsonEscape(barrierDigestConcat)
             << "\" },\n";
 
-        const auto graphDigestConcat = std::string("passes=") + std::to_string(m_ExecutionOrder.size()) +
-                                       ";resources=" + std::to_string(m_RegisteredResources.size()) +
-                                       ";culled=" + std::to_string(m_CulledPasses.size()) +
-                                       ";barriers=" + std::to_string(m_PlannedBarriers.size()) +
-                                       ";diags=" + std::to_string(m_BarrierDiagnostics.size()) +
-                                       ";aliases=" + std::to_string(m_TransientPlan.size()) +
-                                       ";timings=" + std::to_string(m_LastExecutionTimings.size()) +
+        const auto graphDigestConcat = std::string("passes=") + std::to_string(m_ExecutionOrder.Num()) +
+                                       ";resources=" + std::to_string(m_RegisteredResources.Num()) +
+                                       ";culled=" + std::to_string(m_CulledPasses.Num()) +
+                                       ";barriers=" + std::to_string(m_PlannedBarriers.Num()) +
+                                       ";diags=" + std::to_string(m_BarrierDiagnostics.Num()) +
+                                       ";aliases=" + std::to_string(m_TransientPlan.Num()) +
+                                       ";timings=" + std::to_string(m_LastExecutionTimings.Num()) +
                                        ";compute=" + std::to_string(computePassCount) +
                                        ";asyncCandidates=" + std::to_string(asyncComputeCandidateCount) +
                                        ";histories=" + std::to_string(historyResourceCount) +
                                        ";externalBackingRoots=" + std::to_string(externallyBackedTransientRootCount) +
                                        ";externalBackingResources=" + std::to_string(externallyBackedResourceCount) +
                                        ";externalTextureSinks=" + std::to_string(externalTextureSinkContractCount) +
-                                       ";historyContracts=" + std::to_string(m_TemporalHistoryContracts.size()) +
-                                       ";batches=" + std::to_string(dumpBatches.size()) +
+                                       ";historyContracts=" + std::to_string(m_TemporalHistoryContracts.Num()) +
+                                       ";batches=" + std::to_string(dumpBatches.Num()) +
                                        ";batchInputResources=" + std::to_string(batchInputResourceCount) +
                                        ";batchOutputResources=" + std::to_string(batchOutputResourceCount) +
-                                       ";submissionCommands=" + std::to_string(submissionPlan.size()) +
+                                       ";submissionCommands=" + std::to_string(submissionPlan.Num()) +
                                        ";transitions=" + std::to_string(resourceTransitionCount) +
                                        ";crossLaneSync=" + std::to_string(crossLaneSyncCount) +
                                        ";lifetimes=" + std::to_string(resourceLifetimeCount) +
@@ -6641,7 +6652,7 @@ namespace OloEngine
 
         // Async-compute batches with cross-boundary resource deps.
         out << "  \"asyncBatches\": [\n";
-        for (sizet bi = 0; bi < dumpBatches.size(); ++bi)
+        for (sizet bi = 0; bi < dumpBatches.Num(); ++bi)
         {
             const auto& batch = dumpBatches[bi];
             out << "    {\n";
@@ -6649,42 +6660,42 @@ namespace OloEngine
 
             // ComputePasses array
             out << "      \"computePasses\": [";
-            for (sizet pi = 0; pi < batch.ComputeNodes.size(); ++pi)
+            for (sizet pi = 0; pi < batch.ComputeNodes.Num(); ++pi)
             {
-                out << "\"" << jsonEscape(batch.ComputeNodes[pi]) << "\"";
-                if (pi + 1 < batch.ComputeNodes.size())
+                out << "\"" << jsonEscape(batch.ComputeNodes[pi].ToView()) << "\"";
+                if (pi + 1 < batch.ComputeNodes.Num())
                     out << ", ";
             }
             out << "],\n";
 
             // WaitPasses array
             out << "      \"waitPasses\": [";
-            for (sizet pi = 0; pi < batch.WaitNodes.size(); ++pi)
+            for (sizet pi = 0; pi < batch.WaitNodes.Num(); ++pi)
             {
-                out << "\"" << jsonEscape(batch.WaitNodes[pi]) << "\"";
-                if (pi + 1 < batch.WaitNodes.size())
+                out << "\"" << jsonEscape(batch.WaitNodes[pi].ToView()) << "\"";
+                if (pi + 1 < batch.WaitNodes.Num())
                     out << ", ";
             }
             out << "],\n";
 
             // SignalPasses array
             out << "      \"signalPasses\": [";
-            for (sizet pi = 0; pi < batch.SignalNodes.size(); ++pi)
+            for (sizet pi = 0; pi < batch.SignalNodes.Num(); ++pi)
             {
-                out << "\"" << jsonEscape(batch.SignalNodes[pi]) << "\"";
-                if (pi + 1 < batch.SignalNodes.size())
+                out << "\"" << jsonEscape(batch.SignalNodes[pi].ToView()) << "\"";
+                if (pi + 1 < batch.SignalNodes.Num())
                     out << ", ";
             }
             out << "],\n";
 
             // InputResources array
             out << "      \"inputResources\": [\n";
-            for (sizet ri = 0; ri < batch.InputResources.size(); ++ri)
+            for (sizet ri = 0; ri < batch.InputResources.Num(); ++ri)
             {
                 const auto& dep = batch.InputResources[ri];
-                out << "        { \"resource\": \"" << jsonEscape(dep.ResourceName)
-                    << "\", \"externalPass\": \"" << jsonEscape(dep.ExternalNode) << "\" }";
-                if (ri + 1 < batch.InputResources.size())
+                out << "        { \"resource\": \"" << jsonEscape(dep.ResourceName.ToView())
+                    << "\", \"externalPass\": \"" << jsonEscape(dep.ExternalNode.ToView()) << "\" }";
+                if (ri + 1 < batch.InputResources.Num())
                     out << ",";
                 out << "\n";
             }
@@ -6692,19 +6703,19 @@ namespace OloEngine
 
             // OutputResources array
             out << "      \"outputResources\": [\n";
-            for (sizet ri = 0; ri < batch.OutputResources.size(); ++ri)
+            for (sizet ri = 0; ri < batch.OutputResources.Num(); ++ri)
             {
                 const auto& dep = batch.OutputResources[ri];
-                out << "        { \"resource\": \"" << jsonEscape(dep.ResourceName)
-                    << "\", \"externalPass\": \"" << jsonEscape(dep.ExternalNode) << "\" }";
-                if (ri + 1 < batch.OutputResources.size())
+                out << "        { \"resource\": \"" << jsonEscape(dep.ResourceName.ToView())
+                    << "\", \"externalPass\": \"" << jsonEscape(dep.ExternalNode.ToView()) << "\" }";
+                if (ri + 1 < batch.OutputResources.Num())
                     out << ",";
                 out << "\n";
             }
             out << "      ]\n";
 
             out << "    }";
-            if (bi + 1 < dumpBatches.size())
+            if (bi + 1 < dumpBatches.Num())
                 out << ",";
             out << "\n";
         }
@@ -6713,7 +6724,7 @@ namespace OloEngine
         // Pre-linearized submission command stream with
         // batch sync/resource metadata.
         out << "  \"submissionPlan\": [\n";
-        for (sizet ci = 0; ci < submissionPlan.size(); ++ci)
+        for (sizet ci = 0; ci < submissionPlan.Num(); ++ci)
         {
             const auto& cmd = submissionPlan[ci];
             out << "    { \"kind\": \"" << submissionCommandKindToString(cmd.CommandKind)
@@ -6721,7 +6732,7 @@ namespace OloEngine
 
             if (cmd.CommandKind == SubmissionCommand::Kind::Pass)
             {
-                out << ", \"pass\": \"" << jsonEscape(cmd.NodeName)
+                out << ", \"pass\": \"" << jsonEscape(cmd.NodeName.ToView())
                     << "\", \"workType\": \"" << passWorkTypeToString(cmd.WorkType) << "\"";
             }
             else if (cmd.CommandKind == SubmissionCommand::Kind::MemoryBarrier)
@@ -6732,23 +6743,23 @@ namespace OloEngine
                      cmd.CommandKind == SubmissionCommand::Kind::FenceSignal)
             {
                 out << ", \"fenceEdges\": [";
-                for (sizet i = 0; i < cmd.FenceEdges.size(); ++i)
+                for (sizet i = 0; i < cmd.FenceEdges.Num(); ++i)
                 {
                     const auto& edge = cmd.FenceEdges[i];
                     out << "{ \"index\": " << edge.Index
-                        << ", \"producerPass\": \"" << jsonEscape(edge.ProducerPass)
-                        << "\", \"consumerPass\": \"" << jsonEscape(edge.ConsumerPass)
+                        << ", \"producerPass\": \"" << jsonEscape(edge.ProducerPass.ToView())
+                        << "\", \"consumerPass\": \"" << jsonEscape(edge.ConsumerPass.ToView())
                         << "\", \"producerLane\": \"" << queueLaneToString(edge.ProducerLane)
                         << "\", \"consumerLane\": \"" << queueLaneToString(edge.ConsumerLane)
                         << "\", \"resources\": [";
-                    for (sizet resourceIndex = 0; resourceIndex < edge.Resources.size(); ++resourceIndex)
+                    for (sizet resourceIndex = 0; resourceIndex < edge.Resources.Num(); ++resourceIndex)
                     {
-                        out << "\"" << jsonEscape(edge.Resources[resourceIndex]) << "\"";
-                        if (resourceIndex + 1 < edge.Resources.size())
+                        out << "\"" << jsonEscape(edge.Resources[resourceIndex].ToView()) << "\"";
+                        if (resourceIndex + 1 < edge.Resources.Num())
                             out << ", ";
                     }
                     out << "] }";
-                    if (i + 1 < cmd.FenceEdges.size())
+                    if (i + 1 < cmd.FenceEdges.Num())
                         out << ", ";
                 }
                 out << "]";
@@ -6759,41 +6770,41 @@ namespace OloEngine
                 out << ", \"batchIndex\": " << cmd.BatchIndex;
 
                 out << ", \"waitPasses\": [";
-                for (sizet i = 0; i < cmd.WaitNodes.size(); ++i)
+                for (sizet i = 0; i < cmd.WaitNodes.Num(); ++i)
                 {
-                    out << "\"" << jsonEscape(cmd.WaitNodes[i]) << "\"";
-                    if (i + 1 < cmd.WaitNodes.size())
+                    out << "\"" << jsonEscape(cmd.WaitNodes[i].ToView()) << "\"";
+                    if (i + 1 < cmd.WaitNodes.Num())
                         out << ", ";
                 }
                 out << "]";
 
                 out << ", \"signalPasses\": [";
-                for (sizet i = 0; i < cmd.SignalNodes.size(); ++i)
+                for (sizet i = 0; i < cmd.SignalNodes.Num(); ++i)
                 {
-                    out << "\"" << jsonEscape(cmd.SignalNodes[i]) << "\"";
-                    if (i + 1 < cmd.SignalNodes.size())
+                    out << "\"" << jsonEscape(cmd.SignalNodes[i].ToView()) << "\"";
+                    if (i + 1 < cmd.SignalNodes.Num())
                         out << ", ";
                 }
                 out << "]";
 
                 out << ", \"inputResources\": [";
-                for (sizet i = 0; i < cmd.InputResources.size(); ++i)
+                for (sizet i = 0; i < cmd.InputResources.Num(); ++i)
                 {
                     const auto& dep = cmd.InputResources[i];
-                    out << "{ \"resource\": \"" << jsonEscape(dep.ResourceName)
-                        << "\", \"externalPass\": \"" << jsonEscape(dep.ExternalNode) << "\" }";
-                    if (i + 1 < cmd.InputResources.size())
+                    out << "{ \"resource\": \"" << jsonEscape(dep.ResourceName.ToView())
+                        << "\", \"externalPass\": \"" << jsonEscape(dep.ExternalNode.ToView()) << "\" }";
+                    if (i + 1 < cmd.InputResources.Num())
                         out << ", ";
                 }
                 out << "]";
 
                 out << ", \"outputResources\": [";
-                for (sizet i = 0; i < cmd.OutputResources.size(); ++i)
+                for (sizet i = 0; i < cmd.OutputResources.Num(); ++i)
                 {
                     const auto& dep = cmd.OutputResources[i];
-                    out << "{ \"resource\": \"" << jsonEscape(dep.ResourceName)
-                        << "\", \"externalPass\": \"" << jsonEscape(dep.ExternalNode) << "\" }";
-                    if (i + 1 < cmd.OutputResources.size())
+                    out << "{ \"resource\": \"" << jsonEscape(dep.ResourceName.ToView())
+                        << "\", \"externalPass\": \"" << jsonEscape(dep.ExternalNode.ToView()) << "\" }";
+                    if (i + 1 < cmd.OutputResources.Num())
                         out << ", ";
                 }
                 out << "]";
@@ -6804,7 +6815,7 @@ namespace OloEngine
             }
 
             out << " }";
-            if (ci + 1 < submissionPlan.size())
+            if (ci + 1 < submissionPlan.Num())
                 out << ",";
             out << "\n";
         }
@@ -6812,12 +6823,12 @@ namespace OloEngine
 
         // Resource transition records.
         out << "  \"resourceTransitions\": [\n";
-        for (sizet ri = 0; ri < dumpTransitions.size(); ++ri)
+        for (sizet ri = 0; ri < dumpTransitions.Num(); ++ri)
         {
             const auto& tr = dumpTransitions[ri];
-            out << "    { \"resource\": \"" << jsonEscape(tr.ResourceName)
-                << "\", \"producerPass\": \"" << jsonEscape(tr.ProducerPass)
-                << "\", \"consumerPass\": \"" << jsonEscape(tr.ConsumerPass)
+            out << "    { \"resource\": \"" << jsonEscape(tr.ResourceName.ToView())
+                << "\", \"producerPass\": \"" << jsonEscape(tr.ProducerPass.ToView())
+                << "\", \"consumerPass\": \"" << jsonEscape(tr.ConsumerPass.ToView())
                 << "\", \"fromAccess\": \"" << accessToString(tr.FromAccess)
                 << "\", \"toAccess\": \"" << accessToString(tr.ToAccess)
                 << "\", \"flags\": " << std::to_underlying(tr.Flags)
@@ -6827,7 +6838,7 @@ namespace OloEngine
                 << ", \"producerLane\": \"" << queueLaneToString(tr.ProducerLane)
                 << "\", \"consumerLane\": \"" << queueLaneToString(tr.ConsumerLane)
                 << "\" }";
-            if (ri + 1 < dumpTransitions.size())
+            if (ri + 1 < dumpTransitions.Num())
                 out << ",";
             out << "\n";
         }
@@ -6835,10 +6846,10 @@ namespace OloEngine
 
         // Resource lifetime records.
         out << "  \"resourceLifetimes\": [\n";
-        for (sizet li = 0; li < dumpLifetimes.size(); ++li)
+        for (sizet li = 0; li < dumpLifetimes.Num(); ++li)
         {
             const auto& lt = dumpLifetimes[li];
-            out << "    { \"resource\": \"" << jsonEscape(lt.ResourceName)
+            out << "    { \"resource\": \"" << jsonEscape(lt.ResourceName.ToView())
                 << "\", \"isImported\": " << (lt.IsImported ? "true" : "false")
                 << ", \"isExtracted\": " << (lt.IsExtracted ? "true" : "false")
                 << ", \"isHistory\": " << (lt.IsHistory ? "true" : "false")
@@ -6852,25 +6863,25 @@ namespace OloEngine
                 << (lt.LastReadPassIndex == std::numeric_limits<u32>::max()
                         ? -1
                         : static_cast<i64>(lt.LastReadPassIndex))
-                << ", \"firstWritePass\": \"" << jsonEscape(lt.FirstWritePass)
-                << "\", \"lastReadPass\": \"" << jsonEscape(lt.LastReadPass)
+                << ", \"firstWritePass\": \"" << jsonEscape(lt.FirstWritePass.ToView())
+                << "\", \"lastReadPass\": \"" << jsonEscape(lt.LastReadPass.ToView())
                 << "\", \"firstWriteUsage\": \"" << writeUsageToString(lt.FirstWriteUsage)
                 << "\", \"lastReadUsage\": \"" << readUsageToString(lt.LastReadUsage)
                 << "\" }";
-            if (li + 1 < dumpLifetimes.size())
+            if (li + 1 < dumpLifetimes.Num())
                 out << ",";
             out << "\n";
         }
         out << "  ],\n";
 
         out << "  \"resolveFailures\": [\n";
-        for (sizet i = 0; i < m_ResolveFailures.size(); ++i)
+        for (sizet i = 0; i < m_ResolveFailures.Num(); ++i)
         {
             const auto& failure = m_ResolveFailures[i];
-            out << "    { \"pass\": \"" << jsonEscape(failure.PassName)
-                << "\", \"reason\": \"" << jsonEscape(failure.Reason)
+            out << "    { \"pass\": \"" << jsonEscape(failure.PassName.ToView())
+                << "\", \"reason\": \"" << jsonEscape(failure.Reason.ToView())
                 << "\", \"count\": " << failure.Count << " }";
-            if (i + 1 < m_ResolveFailures.size())
+            if (i + 1 < m_ResolveFailures.Num())
                 out << ",";
             out << "\n";
         }
@@ -6888,13 +6899,13 @@ namespace OloEngine
             // pipeline registers it under "FinalPass".)
             std::string finalFb;
             std::string finalTex;
-            if (!m_FinalPassName.empty())
+            if (!m_FinalPassName.IsEmpty())
             {
-                if (const auto finalIt = m_NodeLookup.find(m_FinalPassName);
+                if (const auto finalIt = m_NodeLookup.find(m_FinalPassName.ToStdString());
                     finalIt != m_NodeLookup.end() && finalIt->second)
                 {
-                    finalFb = ReverseResolveFramebufferName(finalIt->second->GetPrimaryInputFramebufferHandle());
-                    finalTex = ReverseResolveTextureName(finalIt->second->GetPrimaryInputTextureHandle());
+                    finalFb = ReverseResolveFramebufferName(finalIt->second->GetPrimaryInputFramebufferHandle()).ToStdString();
+                    finalTex = ReverseResolveTextureName(finalIt->second->GetPrimaryInputTextureHandle()).ToStdString();
                 }
             }
             out << "    \"finalPassInput\": { "
@@ -6935,11 +6946,11 @@ namespace OloEngine
             out << "    \"passDiagnostics\": [\n";
             std::vector<std::string> diagOrder;
             diagOrder.reserve(m_NodeLookup.size());
-            std::unordered_set<std::string> emittedInDiag;
+            RGTransparentStringSet emittedInDiag;
             for (const auto& passName : m_ExecutionOrder)
             {
-                diagOrder.push_back(passName);
-                emittedInDiag.insert(passName);
+                diagOrder.push_back(std::string(passName));
+                emittedInDiag.insert(std::string(passName));
             }
             for (const auto& [passName, _node] : m_NodeLookup)
             {
@@ -6949,15 +6960,16 @@ namespace OloEngine
                     emittedInDiag.insert(passName);
                 }
             }
-            std::sort(diagOrder.begin() + static_cast<std::ptrdiff_t>(m_ExecutionOrder.size()),
+            std::sort(diagOrder.begin() + static_cast<std::ptrdiff_t>(m_ExecutionOrder.Num()),
                       diagOrder.end());
 
-            const auto deriveCullReason = [this, &culledPasses](const std::string& passName) -> std::string
+            const auto deriveCullReason = [this, &culledPasses](std::string_view passName) -> std::string
             {
                 std::vector<const ResourceInfo*> writtenResources;
                 for (const auto& info : m_RegisteredResources)
                 {
-                    if (std::ranges::find(info.Producers, passName) != info.Producers.end())
+                    if (info.Producers.ContainsByPredicate([&](const FString& producer)
+                                                           { return producer.ToView() == passName; }))
                         writtenResources.push_back(&info);
                 }
                 if (writtenResources.empty())
@@ -6967,7 +6979,7 @@ namespace OloEngine
                 {
                     for (const auto& consumer : info->Consumers)
                     {
-                        if (!culledPasses.contains(consumer))
+                        if (!culledPasses.contains(consumer.ToStdString()))
                             return "indirectly unreachable";
                     }
                 }
@@ -6993,10 +7005,10 @@ namespace OloEngine
                     << ", \"isReady\": " << (ready ? "true" : "false")
                     << ", \"isCulled\": " << (culled ? "true" : "false")
                     << ", \"cullReason\": \"" << jsonEscape(culled ? deriveCullReason(passName) : std::string{})
-                    << "\", \"primaryInputFramebuffer\": \"" << jsonEscape(ReverseResolveFramebufferName(inFb))
-                    << "\", \"primaryInputTexture\": \"" << jsonEscape(ReverseResolveTextureName(inTex))
-                    << "\", \"primaryOutputFramebuffer\": \"" << jsonEscape(ReverseResolveFramebufferName(outFb))
-                    << "\", \"primaryOutputTexture\": \"" << jsonEscape(ReverseResolveTextureName(outTex))
+                    << "\", \"primaryInputFramebuffer\": \"" << jsonEscape(ReverseResolveFramebufferName(inFb).ToView())
+                    << "\", \"primaryInputTexture\": \"" << jsonEscape(ReverseResolveTextureName(inTex).ToView())
+                    << "\", \"primaryOutputFramebuffer\": \"" << jsonEscape(ReverseResolveFramebufferName(outFb).ToView())
+                    << "\", \"primaryOutputTexture\": \"" << jsonEscape(ReverseResolveTextureName(outTex).ToView())
                     << "\" }";
                 if (pi + 1 < diagOrder.size())
                     out << ",";
@@ -7007,17 +7019,17 @@ namespace OloEngine
         out << "  },\n";
 
         out << "  \"timings\": [\n";
-        for (sizet i = 0; i < m_LastExecutionTimings.size(); ++i)
+        for (sizet i = 0; i < m_LastExecutionTimings.Num(); ++i)
         {
             const auto& timing = m_LastExecutionTimings[i];
-            const auto passOrderIt = passOrderIndexByName.find(timing.NodeName);
+            const auto passOrderIt = passOrderIndexByName.find(timing.NodeName.ToStdString());
             const auto orderIndex = passOrderIt != passOrderIndexByName.end()
                                         ? static_cast<i64>(passOrderIt->second)
                                         : -1;
-            out << "    { \"pass\": \"" << jsonEscape(timing.NodeName)
+            out << "    { \"pass\": \"" << jsonEscape(timing.NodeName.ToView())
                 << "\", \"orderIndex\": " << orderIndex
                 << ", \"cpuMs\": " << timing.CpuMs << " }";
-            if (i + 1 < m_LastExecutionTimings.size())
+            if (i + 1 < m_LastExecutionTimings.Num())
                 out << ",";
             out << "\n";
         }
@@ -7026,7 +7038,7 @@ namespace OloEngine
         out.close();
 
         OLO_CORE_INFO("RenderGraph::DumpToJson: wrote {} passes and {} resources to '{}'",
-                      m_ExecutionOrder.size(), m_RegisteredResources.size(), filePath);
+                      m_ExecutionOrder.Num(), m_RegisteredResources.Num(), filePath);
         return true;
     }
     // -------------------------------------------------------------------
@@ -7075,10 +7087,10 @@ namespace OloEngine
         m_PassFeedbackDeclarations.clear();
         m_PassLifetimeExtensions.clear();
         m_PassBarrierFlags.clear();
-        m_PlannedBarriers.clear();
-        m_BuildDiagnostics.clear();
-        m_BarrierDiagnostics.clear();
-        m_TemporalHistoryContracts.clear();
+        m_PlannedBarriers.Reset();
+        m_BuildDiagnostics.Reset();
+        m_BarrierDiagnostics.Reset();
+        m_TemporalHistoryContracts.Reset();
         m_ExplicitVersionProducers.clear();
         m_LastWriterPassNameByResource.clear();
         m_LatestTextureHandlesByBaseName.clear();
@@ -7095,8 +7107,8 @@ namespace OloEngine
             std::string PassName;
             RGSubresourceRange Range;
         };
-        std::unordered_map<std::string, std::vector<DepWriterSlot>> lastWriterByResource;
-        const auto graphEntryCount = m_InsertionOrder.size();
+        RGTransparentStringMap<std::vector<DepWriterSlot>> lastWriterByResource;
+        const auto graphEntryCount = m_InsertionOrder.Num();
         lastWriterByResource.reserve(graphEntryCount * 4u);
 
         struct EdgeKey
@@ -7127,11 +7139,11 @@ namespace OloEngine
 
         struct SimulatedDependencyResult
         {
-            std::unordered_map<std::string, std::vector<std::string>> Dependencies;
+            RGTransparentStringMap<TArray64<FString>> Dependencies;
             DerivedEdgeMap DerivedEdges;
         };
 
-        std::unordered_map<std::string, std::vector<std::string>> declaredPassDependenciesByPass;
+        RGTransparentStringMap<TArray64<FString>> declaredPassDependenciesByPass;
         declaredPassDependenciesByPass.reserve(graphEntryCount);
         std::vector<std::string> processedNodeNames;
         processedNodeNames.reserve(graphEntryCount);
@@ -7177,10 +7189,10 @@ namespace OloEngine
                    lhs.Range.SliceCount == rhs.Range.SliceCount;
         };
 
-        auto appendUniqueAccessDeclaration = [&accessDeclarationsEqual](std::vector<RGAccessDeclaration>& declarations,
+        auto appendUniqueAccessDeclaration = [&accessDeclarationsEqual](TArray64<RGAccessDeclaration>& declarations,
                                                                         const RGAccessDeclaration& declaration)
         {
-            if (declaration.ResourceName.empty())
+            if (declaration.ResourceName.IsEmpty())
                 return;
 
             if (std::ranges::find_if(declarations,
@@ -7189,14 +7201,14 @@ namespace OloEngine
                                          return accessDeclarationsEqual(existing, declaration);
                                      }) == declarations.end())
             {
-                declarations.push_back(declaration);
+                declarations.Add(declaration);
             }
         };
 
-        auto appendUniqueFeedbackDeclaration = [&feedbackDeclarationsEqual](std::vector<RGFeedbackDeclaration>& declarations,
+        auto appendUniqueFeedbackDeclaration = [&feedbackDeclarationsEqual](TArray64<RGFeedbackDeclaration>& declarations,
                                                                             const RGFeedbackDeclaration& declaration)
         {
-            if (declaration.ResourceName.empty())
+            if (declaration.ResourceName.IsEmpty())
                 return;
 
             if (std::ranges::find_if(declarations,
@@ -7205,15 +7217,15 @@ namespace OloEngine
                                          return feedbackDeclarationsEqual(existing, declaration);
                                      }) == declarations.end())
             {
-                declarations.push_back(declaration);
+                declarations.Add(declaration);
             }
         };
 
         auto expandTextureViewAccesses =
-            [this, &appendUniqueAccessDeclaration, &depSubresourceRangesOverlap](const std::vector<RGAccessDeclaration>& accesses)
+            [this, &appendUniqueAccessDeclaration, &depSubresourceRangesOverlap](const TArray64<RGAccessDeclaration>& accesses)
         {
-            std::vector<RGAccessDeclaration> expandedAccesses;
-            expandedAccesses.reserve(accesses.size() * 3u);
+            TArray64<RGAccessDeclaration> expandedAccesses;
+            expandedAccesses.Reserve(accesses.Num() * 3);
 
             const auto isTextureSubresourceView = [](const TextureViewKind kind)
             {
@@ -7225,7 +7237,7 @@ namespace OloEngine
             for (const auto& access : accesses)
             {
                 appendUniqueAccessDeclaration(expandedAccesses, access);
-                if (access.ResourceName.empty())
+                if (access.ResourceName.IsEmpty())
                     continue;
 
                 const auto resourceKey = std::string(access.ResourceName);
@@ -7240,7 +7252,7 @@ namespace OloEngine
                         appendUniqueAccessDeclaration(expandedAccesses, expandedAccess);
                     }
                     else if (viewIt->second.Kind == TextureViewKind::TextureMultisampleResolve &&
-                             !viewIt->second.BackingResource.empty())
+                             !viewIt->second.BackingResource.IsEmpty())
                     {
                         auto expandedAccess = access;
                         expandedAccess.ResourceName = viewIt->second.BackingResource;
@@ -7279,10 +7291,10 @@ namespace OloEngine
         };
 
         auto expandTextureViewFeedbacks =
-            [this, &appendUniqueFeedbackDeclaration, &depSubresourceRangesOverlap](const std::vector<RGFeedbackDeclaration>& feedbacks)
+            [this, &appendUniqueFeedbackDeclaration, &depSubresourceRangesOverlap](const TArray64<RGFeedbackDeclaration>& feedbacks)
         {
-            std::vector<RGFeedbackDeclaration> expandedFeedbacks;
-            expandedFeedbacks.reserve(feedbacks.size() * 3u);
+            TArray64<RGFeedbackDeclaration> expandedFeedbacks;
+            expandedFeedbacks.Reserve(feedbacks.Num() * 3);
 
             const auto isTextureSubresourceView = [](const TextureViewKind kind)
             {
@@ -7294,7 +7306,7 @@ namespace OloEngine
             for (const auto& feedback : feedbacks)
             {
                 appendUniqueFeedbackDeclaration(expandedFeedbacks, feedback);
-                if (feedback.ResourceName.empty())
+                if (feedback.ResourceName.IsEmpty())
                     continue;
 
                 const auto resourceKey = std::string(feedback.ResourceName);
@@ -7309,7 +7321,7 @@ namespace OloEngine
                         appendUniqueFeedbackDeclaration(expandedFeedbacks, expandedFeedback);
                     }
                     else if (viewIt->second.Kind == TextureViewKind::TextureMultisampleResolve &&
-                             !viewIt->second.BackingResource.empty())
+                             !viewIt->second.BackingResource.IsEmpty())
                     {
                         auto expandedFeedback = feedback;
                         expandedFeedback.ResourceName = viewIt->second.BackingResource;
@@ -7347,7 +7359,7 @@ namespace OloEngine
             return expandedFeedbacks;
         };
 
-        auto tryAddDerivedDependency = [this](const std::string& beforePass, const std::string& afterPass) -> bool
+        auto tryAddDerivedDependency = [this](std::string_view beforePass, std::string_view afterPass) -> bool
         {
             if (beforePass == afterPass)
                 return false;
@@ -7367,15 +7379,15 @@ namespace OloEngine
                 return false;
             }
 
-            if (auto& deps = m_Dependencies[afterPass]; std::ranges::find(deps, beforePass) != deps.end())
+            if (auto& deps = m_Dependencies[std::string(afterPass)]; std::ranges::find(deps, beforePass) != deps.end())
                 return false;
 
             // Avoid introducing a derived edge that would close a cycle.
             // m_Dependencies stores incoming edges (consumer -> producers),
             // so adding beforePass -> afterPass is illegal if beforePass
             // already transitively depends on afterPass.
-            std::unordered_set<std::string> visited;
-            std::vector<std::string> frontier{ beforePass };
+            RGTransparentStringSet visited;
+            std::vector<std::string> frontier{ std::string(beforePass) };
             while (!frontier.empty())
             {
                 std::string current = std::move(frontier.back());
@@ -7399,11 +7411,11 @@ namespace OloEngine
                 for (const auto& producer : existingIt->second)
                 {
                     if (!visited.contains(producer))
-                        frontier.push_back(producer);
+                        frontier.push_back(std::string(producer));
                 }
             }
 
-            AddExecutionDependency(beforePass, afterPass, false);
+            AddExecutionDependency(std::string(beforePass), std::string(afterPass), false);
             return true;
         };
 
@@ -7441,7 +7453,7 @@ namespace OloEngine
             }
 
             const auto& reads = builder.GetDeclaredReads();
-            m_LastBuildStats.DeclaredReads += static_cast<u32>(reads.size());
+            m_LastBuildStats.DeclaredReads += static_cast<u32>(reads.Num());
 
             const auto& accesses = builder.GetDeclaredAccesses();
             const auto expandedAccesses = expandTextureViewAccesses(accesses);
@@ -7456,16 +7468,16 @@ namespace OloEngine
             declaredPassDependenciesByPass[nodeName] = passDependencies;
             for (const auto& beforePass : passDependencies)
             {
-                if (beforePass.empty())
+                if (beforePass.IsEmpty())
                     continue;
 
-                if (tryAddDerivedDependency(beforePass, nodeName))
+                if (tryAddDerivedDependency(beforePass.ToView(), nodeName))
                     ++m_LastBuildStats.DerivedEdges;
             }
 
             for (const auto& access : expandedAccesses)
             {
-                if (access.ResourceName.empty())
+                if (access.ResourceName.IsEmpty())
                     continue;
 
                 if (!access.IsWrite)
@@ -7474,7 +7486,7 @@ namespace OloEngine
                         explicitVersionIt != m_ExplicitVersionProducers.end())
                     {
                         if (explicitVersionIt->second != nodeName &&
-                            tryAddDerivedDependency(explicitVersionIt->second, nodeName))
+                            tryAddDerivedDependency(explicitVersionIt->second.ToView(), nodeName))
                         {
                             ++m_LastBuildStats.DerivedEdges;
                         }
@@ -7496,7 +7508,7 @@ namespace OloEngine
                 }
                 else
                 {
-                    auto& writerVec = lastWriterByResource[access.ResourceName];
+                    auto& writerVec = lastWriterByResource[access.ResourceName.ToStdString()];
                     for (const auto& slot : writerVec)
                     {
                         if (slot.PassName == nodeName)
@@ -7539,8 +7551,8 @@ namespace OloEngine
                     // reachability sweep culls ForwardOverlay as "no
                     // downstream reader" whenever the optional read paths in
                     // between are absent.
-                    m_LastWriterPassNameByResource[access.ResourceName] = nodeName;
-                    if (const auto baseName = GetVersionLookupBaseName(access.ResourceName);
+                    m_LastWriterPassNameByResource[access.ResourceName.ToStdString()] = nodeName;
+                    if (const auto baseName = GetVersionLookupBaseName(access.ResourceName.ToView());
                         baseName != access.ResourceName)
                     {
                         m_LastWriterPassNameByResource[std::string(baseName)] = nodeName;
@@ -7580,16 +7592,16 @@ namespace OloEngine
 
             for (const auto& resourceName : reads)
             {
-                if (resourceName.empty())
+                if (resourceName.IsEmpty())
                     OLO_CORE_WARN("processGraphNode: node '{}' declared empty-name read (handle mapping failed)", nodeName);
             }
 
             const auto& writes = builder.GetDeclaredWrites();
-            m_LastBuildStats.DeclaredWrites += static_cast<u32>(writes.size());
+            m_LastBuildStats.DeclaredWrites += static_cast<u32>(writes.Num());
 
             for (const auto& resourceName : writes)
             {
-                if (resourceName.empty())
+                if (resourceName.IsEmpty())
                     OLO_CORE_WARN("processGraphNode: node '{}' declared empty-name write (handle mapping failed)", nodeName);
             }
 
@@ -7615,14 +7627,14 @@ namespace OloEngine
         {
             SimulatedDependencyResult result{};
             result.Dependencies = m_ExplicitDependencies;
-            std::unordered_map<std::string, std::vector<DepWriterSlot>> simulatedLastWriterByResource;
+            RGTransparentStringMap<std::vector<DepWriterSlot>> simulatedLastWriterByResource;
             simulatedLastWriterByResource.reserve(visitOrder.size() * 4u);
 
             result.DerivedEdges.reserve(visitOrder.size() * 4u);
 
             auto tryAddSimulatedDerivedDependency =
-                [this, &result](const std::string& beforePass,
-                                const std::string& afterPass,
+                [this, &result](std::string_view beforePass,
+                                std::string_view afterPass,
                                 const DerivedEdgeOrigin& origin) -> bool
             {
                 if (beforePass == afterPass)
@@ -7630,12 +7642,12 @@ namespace OloEngine
                 if (!ContainsGraphEntry(beforePass) || !ContainsGraphEntry(afterPass))
                     return false;
 
-                auto& deps = result.Dependencies[afterPass];
+                auto& deps = result.Dependencies[std::string(afterPass)];
                 if (std::ranges::find(deps, beforePass) != deps.end())
                     return false;
 
-                std::unordered_set<std::string> visited;
-                std::vector<std::string> frontier{ beforePass };
+                RGTransparentStringSet visited;
+                std::vector<std::string> frontier{ std::string(beforePass) };
                 while (!frontier.empty())
                 {
                     auto current = std::move(frontier.back());
@@ -7654,12 +7666,12 @@ namespace OloEngine
                     for (const auto& producer : existingIt->second)
                     {
                         if (!visited.contains(producer))
-                            frontier.push_back(producer);
+                            frontier.push_back(std::string(producer));
                     }
                 }
 
-                deps.push_back(beforePass);
-                result.DerivedEdges.emplace(EdgeKey{ beforePass, afterPass }, origin);
+                deps.Add(FString(beforePass));
+                result.DerivedEdges.emplace(EdgeKey{ std::string(beforePass), std::string(afterPass) }, origin);
                 return true;
             };
 
@@ -7670,10 +7682,10 @@ namespace OloEngine
                 {
                     for (const auto& beforePass : passDependencyIt->second)
                     {
-                        if (beforePass.empty())
+                        if (beforePass.IsEmpty())
                             continue;
 
-                        tryAddSimulatedDerivedDependency(beforePass, nodeName, DerivedEdgeOrigin{ "", true });
+                        tryAddSimulatedDerivedDependency(beforePass.ToView(), nodeName, DerivedEdgeOrigin{ "", true });
                     }
                 }
 
@@ -7683,7 +7695,7 @@ namespace OloEngine
 
                 for (const auto& access : accessIt->second)
                 {
-                    if (access.ResourceName.empty())
+                    if (access.ResourceName.IsEmpty())
                         continue;
 
                     if (!access.IsWrite)
@@ -7693,9 +7705,9 @@ namespace OloEngine
                         {
                             if (explicitVersionIt->second != nodeName)
                             {
-                                tryAddSimulatedDerivedDependency(explicitVersionIt->second,
+                                tryAddSimulatedDerivedDependency(explicitVersionIt->second.ToView(),
                                                                  nodeName,
-                                                                 DerivedEdgeOrigin{ access.ResourceName, false });
+                                                                 DerivedEdgeOrigin{ access.ResourceName.ToStdString(), false });
                             }
                             continue;
                         }
@@ -7713,12 +7725,12 @@ namespace OloEngine
 
                             tryAddSimulatedDerivedDependency(slot.PassName,
                                                              nodeName,
-                                                             DerivedEdgeOrigin{ access.ResourceName, false });
+                                                             DerivedEdgeOrigin{ access.ResourceName.ToStdString(), false });
                         }
                     }
                     else
                     {
-                        auto& writerVec = simulatedLastWriterByResource[access.ResourceName];
+                        auto& writerVec = simulatedLastWriterByResource[access.ResourceName.ToStdString()];
                         for (const auto& slot : writerVec)
                         {
                             if (slot.PassName == nodeName)
@@ -7728,7 +7740,7 @@ namespace OloEngine
 
                             tryAddSimulatedDerivedDependency(slot.PassName,
                                                              nodeName,
-                                                             DerivedEdgeOrigin{ access.ResourceName, false });
+                                                             DerivedEdgeOrigin{ access.ResourceName.ToStdString(), false });
                         }
 
                         bool slotUpdated = false;
@@ -7770,15 +7782,15 @@ namespace OloEngine
                 AfterBefore,
             };
 
-            const auto hasSimulatedOrdering = [](const std::unordered_map<std::string, std::vector<std::string>>& dependencies,
-                                                 const std::string& beforePass,
-                                                 const std::string& afterPass) -> bool
+            const auto hasSimulatedOrdering = [](const RGTransparentStringMap<TArray64<FString>>& dependencies,
+                                                 std::string_view beforePass,
+                                                 std::string_view afterPass) -> bool
             {
                 if (beforePass.empty() || afterPass.empty() || beforePass == afterPass)
                     return false;
 
-                std::unordered_set<std::string> visited;
-                std::vector<std::string> frontier{ afterPass };
+                RGTransparentStringSet visited;
+                std::vector<std::string> frontier{ std::string(afterPass) };
                 while (!frontier.empty())
                 {
                     auto current = std::move(frontier.back());
@@ -7797,16 +7809,16 @@ namespace OloEngine
                     for (const auto& producer : it->second)
                     {
                         if (!visited.contains(producer))
-                            frontier.push_back(producer);
+                            frontier.push_back(std::string(producer));
                     }
                 }
 
                 return false;
             };
 
-            const auto getSimulatedOrderingRelation = [&hasSimulatedOrdering](const std::unordered_map<std::string, std::vector<std::string>>& dependencies,
-                                                                              const std::string& passA,
-                                                                              const std::string& passB) -> SimulatedOrderingRelation
+            const auto getSimulatedOrderingRelation = [&hasSimulatedOrdering](const RGTransparentStringMap<TArray64<FString>>& dependencies,
+                                                                              std::string_view passA,
+                                                                              std::string_view passB) -> SimulatedOrderingRelation
             {
                 const bool aBeforeB = hasSimulatedOrdering(dependencies, passA, passB);
                 const bool bBeforeA = hasSimulatedOrdering(dependencies, passB, passA);
@@ -7866,23 +7878,23 @@ namespace OloEngine
                 }
 
                 std::string message = "registration order changed derived dependency result";
-                if (!diagnostic.Resource.empty())
-                    message += " for resource '" + diagnostic.Resource + "'";
+                if (!diagnostic.Resource.IsEmpty())
+                    message += " for resource '" + diagnostic.Resource.ToStdString() + "'";
 
                 if (currentEdge && alternateEdge)
                 {
-                    message += ": current build derives '" + diagnostic.CurrentBeforePass + "' -> '" + diagnostic.CurrentAfterPass +
-                               "', reversed visitation derives '" + diagnostic.AlternateBeforePass + "' -> '" + diagnostic.AlternateAfterPass + "'";
+                    message += ": current build derives '" + diagnostic.CurrentBeforePass.ToStdString() + "' -> '" + diagnostic.CurrentAfterPass.ToStdString() +
+                               "', reversed visitation derives '" + diagnostic.AlternateBeforePass.ToStdString() + "' -> '" + diagnostic.AlternateAfterPass.ToStdString() + "'";
                 }
                 else if (currentEdge)
                 {
-                    message += ": current build derives '" + diagnostic.CurrentBeforePass + "' -> '" + diagnostic.CurrentAfterPass +
+                    message += ": current build derives '" + diagnostic.CurrentBeforePass.ToStdString() + "' -> '" + diagnostic.CurrentAfterPass.ToStdString() +
                                "', reversed visitation derives no matching edge";
                 }
                 else if (alternateEdge)
                 {
-                    message += ": current build derives no matching edge, reversed visitation derives '" + diagnostic.AlternateBeforePass +
-                               "' -> '" + diagnostic.AlternateAfterPass + "'";
+                    message += ": current build derives no matching edge, reversed visitation derives '" + diagnostic.AlternateBeforePass.ToStdString() +
+                               "' -> '" + diagnostic.AlternateAfterPass.ToStdString() + "'";
                 }
                 else
                 {
@@ -7890,7 +7902,7 @@ namespace OloEngine
                 }
 
                 diagnostic.Message = std::move(message);
-                m_BuildDiagnostics.push_back(std::move(diagnostic));
+                m_BuildDiagnostics.Add(std::move(diagnostic));
             };
 
             std::unordered_set<EdgeKey, EdgeKeyHasher> consumedReversedEdges;
@@ -7944,11 +7956,11 @@ namespace OloEngine
                                   return lhs.Message < rhs.Message;
                               });
 
-            m_LastBuildStats.OrderSensitiveResults = static_cast<u32>(m_BuildDiagnostics.size());
+            m_LastBuildStats.OrderSensitiveResults = static_cast<u32>(m_BuildDiagnostics.Num());
 
-            if (m_BuildDiagnostics.empty())
+            if (m_BuildDiagnostics.IsEmpty())
             {
-                m_LastLoggedBuildDiagnosticDigest.clear();
+                m_LastLoggedBuildDiagnosticDigest.Reset();
             }
             else
             {
@@ -7957,15 +7969,15 @@ namespace OloEngine
                 {
                     if (!buildDiagnosticDigest.empty())
                         buildDiagnosticDigest += ';';
-                    buildDiagnosticDigest += diagnostic.Message;
+                    buildDiagnosticDigest += diagnostic.Message.ToView();
                 }
 
                 if (buildDiagnosticDigest != m_LastLoggedBuildDiagnosticDigest)
                 {
                     OLO_CORE_WARN("RenderGraph::BuildFrameGraph: registration order changed the derived dependency result ({} diagnostics)",
-                                  m_BuildDiagnostics.size());
+                                  m_BuildDiagnostics.Num());
                     for (const auto& diagnostic : m_BuildDiagnostics)
-                        OLO_CORE_WARN("RenderGraph::BuildFrameGraph: {}", diagnostic.Message);
+                        OLO_CORE_WARN("RenderGraph::BuildFrameGraph: {}", diagnostic.Message.ToView());
 
                     m_LastLoggedBuildDiagnosticDigest = std::move(buildDiagnosticDigest);
                 }

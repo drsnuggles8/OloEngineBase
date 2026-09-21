@@ -438,9 +438,9 @@ void main()
     ASSERT_TRUE(shader);
     ASSERT_EQ(shader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
     auto* vkShader = static_cast<VulkanShader*>(shader.get());
-    ASSERT_EQ(vkShader->GetBindings().size(), 2u) << "Reflection must surface the SSBO and the UBO";
+    ASSERT_EQ(vkShader->GetBindings().Num(), 2u) << "Reflection must surface the SSBO and the UBO";
 
-    const VulkanRootDataLayout layout = VulkanRootDataLayout::Build(vkShader->GetBindings());
+    const VulkanRootDataLayout layout = VulkanRootDataLayout::Build(std::span{ vkShader->GetBindings().GetData(), static_cast<sizet>(vkShader->GetBindings().Num()) });
     ASSERT_NE(layout.Find(0, 30), nullptr);
     ASSERT_NE(layout.Find(0, 31), nullptr);
     EXPECT_EQ(layout.Find(0, 30)->Offset % 8, 0u);
@@ -622,7 +622,7 @@ TEST_F(VulkanShaderPipeline, FxaaGoldenPassRendersCorrectlyOnVulkan)
         << "PostProcess_FXAA.glsl must compile through shaderc(vulkan_1_4)";
     auto* vkShader = static_cast<VulkanShader*>(shader.get());
 
-    const VulkanRootDataLayout layout = VulkanRootDataLayout::Build(vkShader->GetBindings());
+    const VulkanRootDataLayout layout = VulkanRootDataLayout::Build(std::span{ vkShader->GetBindings().GetData(), static_cast<sizet>(vkShader->GetBindings().Num()) });
     const auto* uboField = layout.Find(0, 7);   // PostProcessUBO
     const auto* texField = layout.Find(0, 0);   // u_Texture
     const auto* pullField = layout.Find(0, 57); // OloVertexPull (§5 conversion)

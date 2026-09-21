@@ -22,22 +22,22 @@ namespace OloEngine
 {
     namespace
     {
-        void AppendIfDifferent(std::vector<std::string>& out, std::string_view field, i64 a, i64 b)
+        void AppendIfDifferent(TArray<FString>& out, std::string_view field, i64 a, i64 b)
         {
             if (a == b)
                 return;
             std::ostringstream oss;
             oss << field << ": " << a << " -> " << b;
-            out.emplace_back(oss.str());
+            out.Emplace(oss.str());
         }
 
-        void AppendIfDifferentBool(std::vector<std::string>& out, std::string_view field, bool a, bool b)
+        void AppendIfDifferentBool(TArray<FString>& out, std::string_view field, bool a, bool b)
         {
             if (a == b)
                 return;
             std::ostringstream oss;
             oss << field << ": " << (a ? "true" : "false") << " -> " << (b ? "true" : "false");
-            out.emplace_back(oss.str());
+            out.Emplace(oss.str());
         }
     } // namespace
 
@@ -62,11 +62,11 @@ namespace OloEngine
         return Detail::CaptureGLState();
     }
 
-    std::vector<std::string> GLStateSnapshot::DiffAgainst(const GLStateSnapshot& other) const
+    TArray<FString> GLStateSnapshot::DiffAgainst(const GLStateSnapshot& other) const
     {
         OLO_PROFILE_FUNCTION();
 
-        std::vector<std::string> diffs;
+        TArray<FString> diffs;
 
         AppendIfDifferentBool(diffs, "DepthTest", m_DepthTest, other.m_DepthTest);
         AppendIfDifferentBool(diffs, "DepthMask", m_DepthMask, other.m_DepthMask);
@@ -215,7 +215,7 @@ namespace OloEngine
                 return;
 
             const GLStateSnapshot exit = GLStateSnapshot::Capture();
-            if (const auto diffs = m_EntryState.DiffAgainst(exit); !diffs.empty())
+            if (const auto diffs = m_EntryState.DiffAgainst(exit); !diffs.IsEmpty())
             {
                 // Policy::Restore is the "trust me to clean up" path —
                 // mutations escaping into the destructor are EXPECTED for
@@ -228,15 +228,15 @@ namespace OloEngine
                 // "this should not happen" contracts.
                 if (m_Policy == Policy::Restore)
                 {
-                    OLO_CORE_TRACE("GLStateGuard[{}]: {} state mutation(s) escaped the pass (restoring):", m_PassName, diffs.size());
+                    OLO_CORE_TRACE("GLStateGuard[{}]: {} state mutation(s) escaped the pass (restoring):", m_PassName.ToView(), diffs.Num());
                     for (const auto& d : diffs)
-                        OLO_CORE_TRACE("    {}", d);
+                        OLO_CORE_TRACE("    {}", d.ToView());
                 }
                 else
                 {
-                    OLO_CORE_ERROR("GLStateGuard[{}]: {} state mutation(s) escaped the pass:", m_PassName, diffs.size());
+                    OLO_CORE_ERROR("GLStateGuard[{}]: {} state mutation(s) escaped the pass:", m_PassName.ToView(), diffs.Num());
                     for (const auto& d : diffs)
-                        OLO_CORE_ERROR("    {}", d);
+                        OLO_CORE_ERROR("    {}", d.ToView());
 
                     if (m_Policy == Policy::Assert)
                     {
@@ -254,7 +254,7 @@ namespace OloEngine
         }
     }
 
-    std::vector<std::string> GLStateGuard::DetectLeaks()
+    TArray<FString> GLStateGuard::DetectLeaks()
     {
         OLO_PROFILE_FUNCTION();
 

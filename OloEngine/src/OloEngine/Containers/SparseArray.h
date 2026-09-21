@@ -700,8 +700,8 @@ namespace OloEngine
             //
             // TPair is a TTuple, and TTuple propagates the trait across its
             // members, so TMap<std::string, T> correctly trips this.
-            OLO_STATIC_ASSERT_WARN(TIsTriviallyRelocatable_V<InElementType>,
-                                   "This container can only be used with trivially relocatable types");
+            static_assert(TIsTriviallyRelocatable_V<InElementType>,
+                          "This container can only be used with trivially relocatable types");
 
             Empty();
         }
@@ -1603,3 +1603,13 @@ namespace OloEngine
 #ifdef _MSC_VER
 #pragma warning(pop)
 #endif
+
+namespace OloEngine
+{
+    // No pointer into the container object; inline storage is checked by policy.
+    template<typename T, typename A>
+    struct TIsTriviallyRelocatable<TSparseArray<T, A>>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable_V<T> && TIsContainerAllocatorRelocatable<A>::Value;
+    };
+} // namespace OloEngine

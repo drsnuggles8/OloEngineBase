@@ -12,11 +12,94 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/String.h"
 
 namespace OloEngine
 {
     class RenderGraph;
+
+    enum class RenderGraphCaptureSource : u8
+    {
+        SceneColor = 0,        // Canonical SceneColor framebuffer resolved from the render graph
+        GBufferAlbedo,         // Deferred G-Buffer RT0 (albedo + metallic)
+        GBufferNormal,         // Deferred G-Buffer RT1 (normal + roughness + material AO)
+        GBufferEmissive,       // Deferred G-Buffer RT2 (emissive + flags)
+        GBufferBakedGI,        // Deferred G-Buffer RT5 (baked lightmap irradiance + coverage, issue #865)
+        Velocity,              // Motion-vector buffer
+        SceneNormals,          // Scene FB color attachment 2 (view-space normals, RG16F octahedral)
+        HZBDepth,              // GTAO HZB texture (mip 0)
+        SSSColor,              // SSS pass output (subsurface scattering blur), if active
+        OITResolveColor,       // OIT resolve pass output, if active
+        AOTexture,             // GTAO/SSAO output (R8 single channel, captured to RGBA8)
+        AOApplyColor,          // AO-composited scene color
+        BloomColor,            // Bloom composite output
+        DOFColor,              // Depth-of-field output
+        MotionBlurColor,       // Motion-blur output
+        TAAColor,              // TAA resolve output
+        CloudsColor,           // Cloudscape composite output -- the sky+deck the fog
+                               // pass composites OVER, and the only way to ask whether
+                               // there was anything behind the fog (issue #1008)
+        PrecipitationColor,    // Screen-space precipitation output
+        FogColor,              // Fog output
+        ChromAbColor,          // Chromatic-aberration output
+        ColorGradingColor,     // Color-grading output
+        ToneMapColor,          // Tone-mapped output
+        VignetteColor,         // Vignette output
+        FXAAColor,             // FXAA output
+        SelectionOutlineColor, // Selection-outline pass output
+        UIComposite,           // UI composite pass output
+        ColorBlindColor,       // Colour-vision adaptation output (issue #458), the last stage before present
+        Backbuffer,            // Default framebuffer after FinalPass
+        COUNT
+    };
+
+    struct RenderGraphCaptureEntry
+    {
+        FString PassName;
+        FString ResourceName;
+        RenderGraphCaptureSource SourceKind = RenderGraphCaptureSource::SceneColor;
+        // Native GPU object names, deliberately (native-currency debug
+        // info, ADR 0011 amendment (77)): TextureID feeds the debugger's
+        // ImGui thumbnails as an ImTextureID, and the source ids exist
+        // purely for diagnostics output. The capture path itself works in
+        // RHI::ResourceHandle currency.
+        u32 TextureID = 0; // native texture name of the RGBA8 capture
+        u32 SourceTextureID = 0;
+        u32 SourceFramebufferID = 0;
+        u32 Width = 0;
+        u32 Height = 0;
+        u32 PassOrderIndex = std::numeric_limits<u32>::max();
+        u32 CulledPassCount = 0;
+        u32 PlannedBarrierCount = 0;
+        u32 ResourceCount = 0;
+        // Quick visibility diagnostics from a 3x3 probe grid over the
+        // captured texture.
+        u32 NonBlackSamples = 0;       // samples where any RGB channel > 0
+        u32 NonTransparentSamples = 0; // samples where A > 0
+        std::array<u8, 4> CenterRGBA{ 0, 0, 0, 0 };
+    };
+
+    // Two owning strings, scalar handles/counters and inline scalar sample bytes.
+    template<>
+    struct TIsTriviallyRelocatable<RenderGraphCaptureEntry>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(RenderGraphCaptureEntry::PassName)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RenderGraphCaptureEntry::ResourceName)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RenderGraphCaptureEntry::SourceKind)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RenderGraphCaptureEntry::TextureID)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RenderGraphCaptureEntry::SourceTextureID)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RenderGraphCaptureEntry::SourceFramebufferID)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RenderGraphCaptureEntry::Width)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RenderGraphCaptureEntry::Height)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RenderGraphCaptureEntry::PassOrderIndex)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RenderGraphCaptureEntry::CulledPassCount)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RenderGraphCaptureEntry::PlannedBarrierCount)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RenderGraphCaptureEntry::ResourceCount)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RenderGraphCaptureEntry::NonBlackSamples)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RenderGraphCaptureEntry::NonTransparentSamples)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RenderGraphCaptureEntry::CenterRGBA)>::Value;
+    };
 
     // @brief Per-pass GPU snapshot capture for render-graph debugging.
     //
@@ -45,66 +128,8 @@ namespace OloEngine
       public:
         // What the capture entry represents — multiple per pass (e.g. scene
         // color + post-process color + final).
-        enum class Source : u8
-        {
-            SceneColor = 0,        // Canonical SceneColor framebuffer resolved from the render graph
-            GBufferAlbedo,         // Deferred G-Buffer RT0 (albedo + metallic)
-            GBufferNormal,         // Deferred G-Buffer RT1 (normal + roughness + material AO)
-            GBufferEmissive,       // Deferred G-Buffer RT2 (emissive + flags)
-            GBufferBakedGI,        // Deferred G-Buffer RT5 (baked lightmap irradiance + coverage, issue #865)
-            Velocity,              // Motion-vector buffer
-            SceneNormals,          // Scene FB color attachment 2 (view-space normals, RG16F octahedral)
-            HZBDepth,              // GTAO HZB texture (mip 0)
-            SSSColor,              // SSS pass output (subsurface scattering blur), if active
-            OITResolveColor,       // OIT resolve pass output, if active
-            AOTexture,             // GTAO/SSAO output (R8 single channel, captured to RGBA8)
-            AOApplyColor,          // AO-composited scene color
-            BloomColor,            // Bloom composite output
-            DOFColor,              // Depth-of-field output
-            MotionBlurColor,       // Motion-blur output
-            TAAColor,              // TAA resolve output
-            CloudsColor,           // Cloudscape composite output -- the sky+deck the fog
-                                   // pass composites OVER, and the only way to ask whether
-                                   // there was anything behind the fog (issue #1008)
-            PrecipitationColor,    // Screen-space precipitation output
-            FogColor,              // Fog output
-            ChromAbColor,          // Chromatic-aberration output
-            ColorGradingColor,     // Color-grading output
-            ToneMapColor,          // Tone-mapped output
-            VignetteColor,         // Vignette output
-            FXAAColor,             // FXAA output
-            SelectionOutlineColor, // Selection-outline pass output
-            UIComposite,           // UI composite pass output
-            ColorBlindColor,       // Colour-vision adaptation output (issue #458), the last stage before present
-            Backbuffer,            // Default framebuffer after FinalPass
-            COUNT
-        };
-
-        struct CaptureEntry
-        {
-            std::string PassName;
-            std::string ResourceName;
-            Source SourceKind = Source::SceneColor;
-            // Native GPU object names, deliberately (native-currency debug
-            // info, ADR 0011 amendment (77)): TextureID feeds the debugger's
-            // ImGui thumbnails as an ImTextureID, and the source ids exist
-            // purely for diagnostics output. The capture path itself works in
-            // RHI::ResourceHandle currency.
-            u32 TextureID = 0; // native texture name of the RGBA8 capture
-            u32 SourceTextureID = 0;
-            u32 SourceFramebufferID = 0;
-            u32 Width = 0;
-            u32 Height = 0;
-            u32 PassOrderIndex = std::numeric_limits<u32>::max();
-            u32 CulledPassCount = 0;
-            u32 PlannedBarrierCount = 0;
-            u32 ResourceCount = 0;
-            // Quick visibility diagnostics from a 3x3 probe grid over the
-            // captured texture.
-            u32 NonBlackSamples = 0;       // samples where any RGB channel > 0
-            u32 NonTransparentSamples = 0; // samples where A > 0
-            std::array<u8, 4> CenterRGBA{ 0, 0, 0, 0 };
-        };
+        using Source = RenderGraphCaptureSource;
+        using CaptureEntry = RenderGraphCaptureEntry;
 
         RenderGraphFrameCapture() = default;
         ~RenderGraphFrameCapture();
@@ -124,7 +149,7 @@ namespace OloEngine
         // first hook call) or has just completed.
         [[nodiscard]] bool HasCapture() const
         {
-            return !m_Captures.empty();
+            return !m_Captures.IsEmpty();
         }
 
         // Installs the post-pass hook on the supplied render graph.
@@ -148,7 +173,7 @@ namespace OloEngine
         // change or capture restart.
         void ClearCaptures();
 
-        [[nodiscard]] const std::vector<CaptureEntry>& GetCaptures() const
+        [[nodiscard]] const TArray<CaptureEntry>& GetCaptures() const
         {
             return m_Captures;
         }
@@ -215,7 +240,7 @@ namespace OloEngine
         bool m_CapturingActive = false; // True while a frame's captures are being collected
         bool m_DiagLogged = false;      // True after the per-capture one-shot diagnostic line fires
         u32 m_FrameStartCaptureCount = 0;
-        std::vector<CaptureEntry> m_Captures;
+        TArray<CaptureEntry> m_Captures;
         std::unordered_map<CacheKey, CachedTexture, CacheKeyHash> m_TextureCache;
         std::unordered_set<std::string> m_PassesSeenThisCapture;
 

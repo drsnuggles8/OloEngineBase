@@ -6,7 +6,7 @@
 #include <stb_image/stb_truetype.h>
 
 #include <utility>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -40,10 +40,10 @@ namespace OloEngine
 
         struct GlyphCurveData
         {
-            std::vector<SlugCurve> Curves;
+            TArray<SlugCurve> Curves;
             // Contour boundaries for endpoint sharing in the curve texture.
             // ContourStarts[i] = index of first curve in contour i.
-            std::vector<u32> ContourStarts;
+            TArray<u32> ContourStarts;
             u32 ContourCount = 0;
         };
 
@@ -52,19 +52,25 @@ namespace OloEngine
 
         // Pack curve control points into the curve texture buffer.
         // Returns the starting texel index for this glyph's curves.
+        struct CurveLocation
+        {
+            u16 X = 0;
+            u16 Y = 0;
+        };
+
         struct CurvePackResult
         {
             // Maps local curve index → (texelX, texelY) in curve texture.
-            std::vector<std::pair<u16, u16>> CurveLocations;
+            TArray<CurveLocation> CurveLocations;
             bool Valid = true;
         };
-        static CurvePackResult PackCurves(const GlyphCurveData& curves, std::vector<f32>& curveTexelData, u32& curveTexelCount);
+        static CurvePackResult PackCurves(const GlyphCurveData& curves, TArray<f32>& curveTexelData, u32& curveTexelCount);
 
         // Build band data for one glyph and append to the band texture buffer.
         static SlugGlyphRenderData BuildBands(const GlyphCurveData& curves,
                                               const CurvePackResult& curveLocations,
                                               const SlugGlyphData& glyphMetrics,
-                                              std::vector<u16>& bandTexelData,
+                                              TArray<u16>& bandTexelData,
                                               u32& bandTexelCount);
     };
 } // namespace OloEngine

@@ -107,7 +107,7 @@ namespace OloEngine::Tests
         // would silently change rendering for any entity that gets the
         // component via AddComponent<> without initialiser.
         InstancedMeshComponent imc{};
-        EXPECT_TRUE(imc.Instances.empty());
+        EXPECT_TRUE(imc.Instances.IsEmpty());
         EXPECT_FALSE(static_cast<bool>(imc.MeshSource));
         EXPECT_FALSE(static_cast<bool>(imc.OverrideMaterial));
         EXPECT_TRUE(imc.FrustumCullPerInstance);
@@ -119,7 +119,7 @@ namespace OloEngine::Tests
         EXPECT_EQ(imc._MergedCache.InlineSize, 0u);
         EXPECT_EQ(imc._MergedCache.InlineDataPtr, nullptr);
         EXPECT_EQ(imc._MergedCache.AssetSize, 0u);
-        EXPECT_TRUE(imc._MergedCache.Data.empty());
+        EXPECT_TRUE(imc._MergedCache.Data.IsEmpty());
         imc.InvalidateMergedCache();
         EXPECT_NE(imc._MergedCache.InlineSize, 0u) << "Invalidation should leave the size at a sentinel value distinct from any real inline size";
     }

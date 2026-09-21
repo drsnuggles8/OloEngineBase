@@ -403,13 +403,13 @@ namespace OloEngine
         if (IsCompressedFormat(m_Specification.Format))
             return false;
 
-        if (m_Path.empty())
+        if (m_Path.IsEmpty())
             return false;
 
         // m_Path is the texture's *identity*, not necessarily something this process
         // can open — the asset system stores a project-relative spelling. The shared
         // helper resolves it (and logs if it can't); see its comment for #1067.
-        const std::filesystem::path readPath = ResolveStoredSourcePath(m_Path);
+        const std::filesystem::path readPath = ResolveStoredSourcePath(m_Path.ToView());
         if (readPath.empty())
             return false;
 
@@ -430,14 +430,14 @@ namespace OloEngine
 
         if (!data)
         {
-            OLO_CORE_ERROR("OpenGLTexture2D::Reload: failed to re-read texture '{}' (from '{}')", m_Path, readPathString);
+            OLO_CORE_ERROR("OpenGLTexture2D::Reload: failed to re-read texture '{}' (from '{}')", m_Path.ToView(), readPathString);
             return false;
         }
 
         // InvalidateImpl tears down the previous GL texture (its re-entrancy guard) and
         // uploads the new data onto this same object. m_RendererID changes, but the
         // Ref<Texture2D> does not — every consumer picks up the new pixels on next bind.
-        InvalidateImpl(m_Path, static_cast<u32>(width), static_cast<u32>(height), data, static_cast<u32>(channels));
+        InvalidateImpl(m_Path.ToView(), static_cast<u32>(width), static_cast<u32>(height), data, static_cast<u32>(channels));
 
         ::stbi_image_free(data);
         return true;
@@ -513,19 +513,19 @@ namespace OloEngine
         {
             const u32 mipWidth = std::max(1u, m_Width >> level);
             const u32 mipHeight = std::max(1u, m_Height >> level);
-            const std::vector<u8>& blocks = image.Mips[level];
+            const TArray64<u8>& blocks = image.Mips[level];
 
             const sizet expected = TextureCompression::MipByteSize(image.Format, mipWidth, mipHeight);
-            if (blocks.size() != expected)
+            if (blocks.Num() != expected)
             {
-                OLO_CORE_ERROR("OpenGLTexture2D: mip {} size {} != expected {} — skipping upload", level, blocks.size(), expected);
+                OLO_CORE_ERROR("OpenGLTexture2D: mip {} size {} != expected {} — skipping upload", level, blocks.Num(), expected);
                 continue;
             }
 
             glCompressedTextureSubImage2D(m_RendererID, static_cast<GLint>(level), 0, 0,
                                           static_cast<GLsizei>(mipWidth), static_cast<GLsizei>(mipHeight),
-                                          m_InternalFormat, static_cast<GLsizei>(blocks.size()), blocks.data());
-            totalBytes += blocks.size();
+                                          m_InternalFormat, static_cast<GLsizei>(blocks.Num()), blocks.GetData());
+            totalBytes += blocks.Num();
             if (level == 0)
                 baseLevelUploaded = true;
         }
@@ -564,10 +564,10 @@ namespace OloEngine
         // preserves the high dynamic range (an 8-bit fallback would clip/banding the HDR).
         if (IsBC6H(image.Format))
         {
-            std::vector<f32> rgbaF;
+            TArray64<f32> rgbaF;
             u32 fw = 0;
             u32 fh = 0;
-            if (!TextureCompression::DecodeToRGBAFloat(image, 0, rgbaF, fw, fh) || rgbaF.empty())
+            if (!TextureCompression::DecodeToRGBAFloat(image, 0, rgbaF, fw, fh) || rgbaF.IsEmpty())
             {
                 OLO_CORE_ERROR("OpenGLTexture2D: BC6H fallback decode failed");
                 return;
@@ -588,14 +588,14 @@ namespace OloEngine
             glTextureStorage2D(m_RendererID, static_cast<GLsizei>(m_MipLevels), m_InternalFormat,
                                static_cast<GLsizei>(fw), static_cast<GLsizei>(fh));
             glTextureSubImage2D(m_RendererID, 0, 0, 0, static_cast<GLsizei>(fw), static_cast<GLsizei>(fh),
-                                GL_RGBA, GL_FLOAT, rgbaF.data());
+                                GL_RGBA, GL_FLOAT, rgbaF.GetData());
             if (m_MipLevels > 1u)
             {
                 glGenerateTextureMipmap(m_RendererID);
                 m_MipsPopulated = true;
             }
 
-            OLO_TRACK_GPU_ALLOC(this, rgbaF.size() * sizeof(f32), RendererMemoryTracker::ResourceType::Texture2D, "OpenGL Texture2D (BC6H-fallback)");
+            OLO_TRACK_GPU_ALLOC(this, rgbaF.Num() * sizeof(f32), RendererMemoryTracker::ResourceType::Texture2D, "OpenGL Texture2D (BC6H-fallback)");
             GPUResourceInspector::GetInstance().RegisterTexture(m_RendererID, "Texture2D (BC6H-fallback)", "Texture2D");
 
             glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, m_MipLevels > 1u ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR);
@@ -608,10 +608,10 @@ namespace OloEngine
         }
 
         // Decode base mip to RGBA8 and upload as a normal texture; regenerate mips on GPU.
-        std::vector<u8> rgba;
+        TArray64<u8> rgba;
         u32 w = 0;
         u32 h = 0;
-        if (!TextureCompression::DecodeToRGBA8(image, 0, rgba, w, h) || rgba.empty())
+        if (!TextureCompression::DecodeToRGBA8(image, 0, rgba, w, h) || rgba.IsEmpty())
         {
             OLO_CORE_ERROR("OpenGLTexture2D: fallback decode failed");
             return;
@@ -634,14 +634,14 @@ namespace OloEngine
         glTextureStorage2D(m_RendererID, static_cast<GLsizei>(m_MipLevels), m_InternalFormat,
                            static_cast<GLsizei>(w), static_cast<GLsizei>(h));
         glTextureSubImage2D(m_RendererID, 0, 0, 0, static_cast<GLsizei>(w), static_cast<GLsizei>(h),
-                            GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+                            GL_RGBA, GL_UNSIGNED_BYTE, rgba.GetData());
         if (m_MipLevels > 1u)
         {
             glGenerateTextureMipmap(m_RendererID);
             m_MipsPopulated = true;
         }
 
-        OLO_TRACK_GPU_ALLOC(this, rgba.size(), RendererMemoryTracker::ResourceType::Texture2D, "OpenGL Texture2D (compressed-fallback)");
+        OLO_TRACK_GPU_ALLOC(this, rgba.Num(), RendererMemoryTracker::ResourceType::Texture2D, "OpenGL Texture2D (compressed-fallback)");
         GPUResourceInspector::GetInstance().RegisterTexture(m_RendererID, "Texture2D (compressed-fallback)", "Texture2D");
 
         glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, m_MipLevels > 1u ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR);
@@ -1080,7 +1080,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         m_Path = path;
-        OLO_CORE_TRACE("Loading texture from path: {}", m_Path);
+        OLO_CORE_TRACE("Loading texture from path: {}", m_Path.ToView());
         m_IsLoaded = true;
         m_Width = width;
         m_Height = height;
@@ -1189,7 +1189,7 @@ namespace OloEngine
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::TextureBinds, 1);
     }
 
-    bool OpenGLTexture2D::GetData(std::vector<u8>& outData, u32 mipLevel) const
+    bool OpenGLTexture2D::GetData(TArray64<u8>& outData, u32 mipLevel) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -1282,7 +1282,7 @@ namespace OloEngine
         }
 
         sizet dataSize = static_cast<sizet>(mipWidth) * mipHeight * bytesPerPixel;
-        outData.resize(dataSize);
+        outData.SetNum(dataSize, EAllowShrinking::No);
 
         // Drain leaked GL errors so the check below reflects only this readback
         // (see OpenGLTextureCubemap::GetFaceData for the spurious-failure this prevents).
@@ -1296,7 +1296,7 @@ namespace OloEngine
 
         // Use DSA glGetTextureImage for readback
         glGetTextureImage(m_RendererID, static_cast<GLint>(mipLevel), m_DataFormat, dataType,
-                          static_cast<GLsizei>(dataSize), outData.data());
+                          static_cast<GLsizei>(dataSize), outData.GetData());
 
         if (GLenum error = glGetError(); error != GL_NO_ERROR)
         {

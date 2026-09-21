@@ -98,7 +98,7 @@ namespace OloEngine
         // One MeshEntry per part, pushed contiguously so MeshParts is just a range. The pool
         // packing walks m_Entries and stays entirely part-agnostic.
         MeshParts parts;
-        parts.FirstEntry = static_cast<u32>(m_Entries.size());
+        parts.FirstEntry = static_cast<u32>(m_Entries.Num());
         for (const VirtualMeshPart& part : built.Parts)
         {
             MeshEntry entry;
@@ -118,8 +118,8 @@ namespace OloEngine
                 entry.MeshletCompatible = IsMeshletCompatible(entry.Packed);
                 // Recorded now because the on-disk spill (#1151) releases both arrays this
                 // test reads, and "spilled" must not read as "no uv2".
-                entry.HasLightmapUVs = !entry.Packed.LightmapUVs.empty() &&
-                                       entry.Packed.LightmapUVs.size() == entry.Packed.Vertices.size();
+                entry.HasLightmapUVs = !entry.Packed.LightmapUVs.IsEmpty() &&
+                                       entry.Packed.LightmapUVs.Num() == entry.Packed.Vertices.Num();
                 // Same reason, for the same spill: IsSkinned() compares against Vertices,
                 // which the spill releases. See MeshEntry::IsSkinned in the header.
                 entry.IsSkinned = entry.Packed.IsSkinned();
@@ -149,9 +149,9 @@ namespace OloEngine
             }
             parts.Valid = parts.Valid || entry.Valid;
             m_PoolsDirty = m_PoolsDirty || entry.Valid;
-            m_Entries.push_back(std::move(entry));
+            m_Entries.Add(std::move(entry));
         }
-        parts.Count = static_cast<u32>(m_Entries.size()) - parts.FirstEntry;
+        parts.Count = static_cast<u32>(m_Entries.Num()) - parts.FirstEntry;
 
         if (!parts.Valid)
         {
@@ -176,7 +176,7 @@ namespace OloEngine
 
     bool VirtualMeshRegistry::EnsureProxyGeometry(u32 entryIndex)
     {
-        if (entryIndex >= m_Entries.size())
+        if (entryIndex >= static_cast<sizet>(m_Entries.Num()))
         {
             return false;
         }
@@ -201,8 +201,8 @@ namespace OloEngine
         // Bytes for the vertex buffer, ELEMENTS for the index buffer — the two
         // Create() overloads disagree on the unit and always have (see
         // MeshSource::BuildVertexBuffer / BuildIndexBuffer).
-        const auto vertexBytes = static_cast<u32>(entry.Proxy.Vertices.size() * sizeof(Vertex));
-        entry.ProxyVertexBuffer = VertexBuffer::Create(static_cast<const void*>(entry.Proxy.Vertices.data()),
+        const auto vertexBytes = static_cast<u32>(static_cast<sizet>(entry.Proxy.Vertices.Num()) * sizeof(Vertex));
+        entry.ProxyVertexBuffer = VertexBuffer::Create(static_cast<const void*>(entry.Proxy.Vertices.GetData()),
                                                        vertexBytes);
         if (entry.ProxyVertexBuffer)
         {
@@ -212,8 +212,8 @@ namespace OloEngine
             // trap for the next consumer.
             entry.ProxyVertexBuffer->SetLayout(Vertex::GetLayout());
         }
-        entry.ProxyIndexBuffer = IndexBuffer::Create(entry.Proxy.Indices.data(),
-                                                     static_cast<u32>(entry.Proxy.Indices.size()));
+        entry.ProxyIndexBuffer = IndexBuffer::Create(entry.Proxy.Indices.GetData(),
+                                                     static_cast<u32>(entry.Proxy.Indices.Num()));
         if (!entry.ProxyVertexBuffer || !entry.ProxyIndexBuffer)
         {
             // Partial success is worse than none: a vertex buffer with no
@@ -225,7 +225,7 @@ namespace OloEngine
 
         OLO_CORE_TRACE("VirtualMeshRegistry: ray-tracing proxy for part {} is {} triangles / {} vertices "
                        "(from {} source triangles)",
-                       entryIndex, entry.Proxy.TriangleCount(), entry.Proxy.Vertices.size(),
+                       entryIndex, entry.Proxy.TriangleCount(), static_cast<sizet>(entry.Proxy.Vertices.Num()),
                        entry.Proxy.SourceTriangleCount);
         return true;
     }
@@ -344,8 +344,8 @@ namespace OloEngine
 
     void VirtualMeshRegistry::BeginFrame()
     {
-        m_Submissions.clear();
-        m_FrameInstances.clear();
+        m_Submissions.Reset();
+        m_FrameInstances.Reset();
         m_TotalFrameClusterCount = 0;
         m_FramePrepared = false;
         m_FramePreparedResult = false;
@@ -355,7 +355,7 @@ namespace OloEngine
 
     void VirtualMeshRegistry::Submit(const VirtualMeshSubmission& submission)
     {
-        m_Submissions.push_back(submission);
+        m_Submissions.Add(submission);
     }
 
     void VirtualMeshRegistry::SetPageBudgetSlots(u32 budgetSlots)
@@ -398,7 +398,7 @@ namespace OloEngine
         for (MeshEntry& entry : m_Entries)
         {
             if (!entry.Valid || entry.StorePageBase != VirtualGeometryPageStore::kInvalidMesh ||
-                entry.Packed.Pages.empty())
+                entry.Packed.Pages.IsEmpty())
             {
                 continue;
             }
@@ -543,18 +543,18 @@ namespace OloEngine
                 ++m_FailedPages;
                 return PageLoadResult::NotLoaded;
             }
-            vertexSource = payload->Vertices.data();
-            lightmapSource = payload->LightmapUVs.empty() ? nullptr : payload->LightmapUVs.data();
-            indexSource = payload->Indices.data();
+            vertexSource = payload->Vertices.GetData();
+            lightmapSource = payload->LightmapUVs.IsEmpty() ? nullptr : payload->LightmapUVs.GetData();
+            indexSource = payload->Indices.GetData();
         }
         else
         {
             // Empty-guarded: `data()` may be null on an empty vector and null + n is undefined
             // even where nothing is read through it. A page with no vertices or no indices is
             // degenerate rather than impossible, and CopyThroughRing already no-ops on 0 bytes.
-            vertexSource = packed.Vertices.empty() ? nullptr : packed.Vertices.data() + page.Info.VertexOffset;
-            lightmapSource = entry.HasLightmapUVs ? packed.LightmapUVs.data() + page.Info.VertexOffset : nullptr;
-            indexSource = packed.Indices.empty() ? nullptr : packed.Indices.data() + page.Info.IndexOffset;
+            vertexSource = packed.Vertices.IsEmpty() ? nullptr : packed.Vertices.GetData() + page.Info.VertexOffset;
+            lightmapSource = entry.HasLightmapUVs ? packed.LightmapUVs.GetData() + page.Info.VertexOffset : nullptr;
+            indexSource = packed.Indices.IsEmpty() ? nullptr : packed.Indices.GetData() + page.Info.IndexOffset;
         }
 
         // ---- 2. Allocate a slot through the shared paged-cache substrate (#704) ---------
@@ -602,7 +602,7 @@ namespace OloEngine
             // slot-local index therefore equals the lane of its global index,
             // which is what the shader relies on.
             u32 const packedElements = VirtualLightmapUVElementCount(page.Info.VertexCount);
-            std::vector<VirtualGpuVertex> uvStaging(packedElements);
+            TArray<VirtualGpuVertex> uvStaging(packedElements);
             for (u32 v = 0; v < page.Info.VertexCount; ++v)
             {
                 PackVirtualLightmapUV(uvStaging[VirtualLightmapUVElementOffset(v)], v, lightmapSource[v]);
@@ -611,7 +611,7 @@ namespace OloEngine
                             (static_cast<u64>(m_LightmapUVBaseElement) +
                              VirtualLightmapUVElementOffset(static_cast<u32>(slotVertexBase))) *
                                 sizeof(VirtualGpuVertex),
-                            uvStaging.data(),
+                            uvStaging.GetData(),
                             static_cast<u64>(packedElements) * sizeof(VirtualGpuVertex));
         }
 
@@ -623,7 +623,7 @@ namespace OloEngine
         if (m_SkinningBaseElement != 0 && entry.IsSkinned)
         {
             u32 const packedElements = VirtualSkinningElementCount(page.Info.VertexCount);
-            std::vector<VirtualGpuVertex> skinStaging(packedElements);
+            TArray<VirtualGpuVertex> skinStaging(packedElements);
             for (u32 v = 0; v < page.Info.VertexCount; ++v)
             {
                 PackVirtualSkinning(skinStaging[VirtualSkinningElementOffset(v)], v,
@@ -633,13 +633,13 @@ namespace OloEngine
                             (static_cast<u64>(m_SkinningBaseElement) +
                              VirtualSkinningElementOffset(static_cast<u32>(slotVertexBase))) *
                                 sizeof(VirtualGpuVertex),
-                            skinStaging.data(),
+                            skinStaging.GetData(),
                             static_cast<u64>(packedElements) * sizeof(VirtualGpuVertex));
         }
 
         // Rebase the page's cluster records onto the live slot and publish them
         // (contiguous range in the pooled cluster buffer).
-        std::vector<VirtualClusterGpuRecord> rebased(page.Info.ClusterCount);
+        TArray<VirtualClusterGpuRecord> rebased(page.Info.ClusterCount);
         for (u32 c = 0; c < page.Info.ClusterCount; ++c)
         {
             VirtualClusterGpuRecord record = m_PooledClusters[page.PooledFirstCluster + c];
@@ -647,8 +647,8 @@ namespace OloEngine
             record.IndexBase = static_cast<u32>(slotIndexBase) + (record.IndexBase - page.Info.IndexOffset);
             rebased[c] = record;
         }
-        m_ClusterBuffer->SetData(rebased.data(),
-                                 static_cast<u32>(rebased.size() * sizeof(VirtualClusterGpuRecord)),
+        m_ClusterBuffer->SetData(rebased.GetData(),
+                                 static_cast<u32>(static_cast<sizet>(rebased.Num()) * sizeof(VirtualClusterGpuRecord)),
                                  page.PooledFirstCluster * static_cast<u32>(sizeof(VirtualClusterGpuRecord)));
 
         if (consumedFromStore)
@@ -660,7 +660,7 @@ namespace OloEngine
         page.Resident = true;
         page.LastUsedFrame = m_FrameCounter;
         m_GroupStatesCpu[page.PooledGroup] |= kStateResident;
-        m_DirtyResidencyGroups.push_back(page.PooledGroup);
+        m_DirtyResidencyGroups.Add(page.PooledGroup);
         ++m_ResidencyStats.PageUploads;
         ++m_ResidencyStats.ResidentPages;
         return PageLoadResult::Loaded;
@@ -678,7 +678,7 @@ namespace OloEngine
         page.SlotIndex = kNoSlot;
         page.Resident = false;
         m_GroupStatesCpu[page.PooledGroup] &= ~kStateResident;
-        m_DirtyResidencyGroups.push_back(page.PooledGroup);
+        m_DirtyResidencyGroups.Add(page.PooledGroup);
         ++m_ResidencyStats.PageEvictions;
         --m_ResidencyStats.ResidentPages;
     }
@@ -687,7 +687,7 @@ namespace OloEngine
     {
         u32 victim = kNoSlot;
         u64 oldestUse = ~0ull;
-        auto const pageCount = static_cast<u32>(m_Pages.size());
+        auto const pageCount = static_cast<u32>(m_Pages.Num());
         for (u32 p = 0; p < pageCount; ++p)
         {
             const PageRuntime& candidate = m_Pages[p];
@@ -714,10 +714,10 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::vector<VirtualGroupGpuRecord> groups;
-        m_PooledClusters.clear();
-        m_Pages.clear();
-        m_PageOfPooledGroup.clear();
+        TArray<VirtualGroupGpuRecord> groups;
+        m_PooledClusters.Reset();
+        m_Pages.Reset();
+        m_PageOfPooledGroup.Reset();
         m_SlotCache.Destroy();
         m_ResidencyStats = {};
 
@@ -739,7 +739,7 @@ namespace OloEngine
         u32 maxPageIndices = 0;
         u32 pinnedPages = 0;
 
-        for (u32 entryIndex = 0; entryIndex < m_Entries.size(); ++entryIndex)
+        for (u32 entryIndex = 0; entryIndex < static_cast<sizet>(m_Entries.Num()); ++entryIndex)
         {
             MeshEntry& entry = m_Entries[entryIndex];
             if (!entry.Valid)
@@ -747,8 +747,8 @@ namespace OloEngine
                 continue;
             }
 
-            entry.ClusterBase = static_cast<u32>(m_PooledClusters.size());
-            entry.GroupBase = static_cast<u32>(groups.size());
+            entry.ClusterBase = static_cast<u32>(m_PooledClusters.Num());
+            entry.GroupBase = static_cast<u32>(groups.Num());
 
             for (const VirtualClusterGpuRecord& record : entry.Packed.Clusters)
             {
@@ -758,11 +758,11 @@ namespace OloEngine
                 {
                     pooled.RefinedGroup += entry.GroupBase;
                 }
-                m_PooledClusters.push_back(pooled);
+                m_PooledClusters.Add(pooled);
             }
-            groups.insert(groups.end(), entry.Packed.Groups.begin(), entry.Packed.Groups.end());
+            groups.Append(entry.Packed.Groups);
 
-            auto const entryPageCount = static_cast<u32>(entry.Packed.Pages.size());
+            auto const entryPageCount = static_cast<u32>(entry.Packed.Pages.Num());
             for (u32 entryPage = 0; entryPage < entryPageCount; ++entryPage)
             {
                 const VirtualPageInfo& info = entry.Packed.Pages[entryPage];
@@ -776,16 +776,16 @@ namespace OloEngine
                 maxPageVertices = std::max(maxPageVertices, info.VertexCount);
                 maxPageIndices = std::max(maxPageIndices, info.IndexCount);
                 pinnedPages += info.Pinned ? 1u : 0u;
-                m_Pages.push_back(page);
+                m_Pages.Add(page);
             }
         }
 
-        if (m_PooledClusters.empty())
+        if (m_PooledClusters.IsEmpty())
         {
             return;
         }
-        m_PageOfPooledGroup.assign(groups.size(), kNoSlot);
-        for (u32 p = 0; p < m_Pages.size(); ++p)
+        m_PageOfPooledGroup = TArray<u32>(groups.Num(), kNoSlot);
+        for (u32 p = 0; p < static_cast<sizet>(m_Pages.Num()); ++p)
         {
             m_PageOfPooledGroup[m_Pages[p].PooledGroup] = p;
         }
@@ -800,7 +800,7 @@ namespace OloEngine
         // no per-page fixup. Rounding costs at most 3 unused vertices a slot.
         m_SlotVertexCapacity = (std::max(maxPageVertices, 1u) + 3u) & ~3u;
         m_SlotIndexCapacity = std::max(maxPageIndices, 1u);
-        auto const totalPages = static_cast<u32>(m_Pages.size());
+        auto const totalPages = static_cast<u32>(m_Pages.Num());
         u32 slotCount = (m_BudgetSlotsSetting == 0) ? totalPages
                                                     : std::min(m_BudgetSlotsSetting, totalPages);
         u32 const minimumSlots = std::min(pinnedPages + 2u, totalPages);
@@ -845,9 +845,9 @@ namespace OloEngine
         };
 
         uploadPool(m_ClusterBuffer, ShaderBindingLayout::SSBO_VIRTUAL_CLUSTERS,
-                   m_PooledClusters.data(), m_PooledClusters.size() * sizeof(VirtualClusterGpuRecord));
+                   m_PooledClusters.GetData(), static_cast<sizet>(m_PooledClusters.Num()) * sizeof(VirtualClusterGpuRecord));
         uploadPool(m_GroupBuffer, ShaderBindingLayout::SSBO_VIRTUAL_GROUPS,
-                   groups.data(), groups.size() * sizeof(VirtualGroupGpuRecord));
+                   groups.GetData(), static_cast<sizet>(groups.Num()) * sizeof(VirtualGroupGpuRecord));
 
         // Geometry arenas (contents populated per page load).
         //
@@ -885,7 +885,7 @@ namespace OloEngine
         u64 const skinningElements =
             anySkinned ? VirtualSkinningElementCount(static_cast<u32>(vertexElements)) : 0u;
         m_SkinningBaseElement = anySkinned ? static_cast<u32>(vertexElements + lightmapElements) : 0u;
-        u64 const clusterBoneElements = anySkinned ? m_PooledClusters.size() : 0u;
+        u64 const clusterBoneElements = anySkinned ? static_cast<sizet>(m_PooledClusters.Num()) : 0u;
         m_ClusterBoneBaseElement =
             anySkinned ? static_cast<u32>(vertexElements + lightmapElements + skinningElements) : 0u;
 
@@ -923,11 +923,11 @@ namespace OloEngine
         // whole point of the residency-clamped cut), so its bone set has to be
         // there unconditionally — and it is keyed by pooled cluster index, which
         // does not move.
-        if (m_ClusterBoneBaseElement != 0 && !m_PooledClusters.empty())
+        if (m_ClusterBoneBaseElement != 0 && !m_PooledClusters.IsEmpty())
         {
             static_assert(sizeof(VirtualGpuVertex) == kMaxClusterBones * sizeof(u32),
                           "one arena element must hold exactly one cluster's bone set");
-            std::vector<u32> boneStaging(m_PooledClusters.size() * kMaxClusterBones, kNoClusterBone);
+            TArray<u32> boneStaging(static_cast<sizet>(m_PooledClusters.Num()) * kMaxClusterBones, kNoClusterBone);
             for (const MeshEntry& entry : m_Entries)
             {
                 if (!entry.Valid || !entry.IsSkinned)
@@ -940,13 +940,13 @@ namespace OloEngine
             }
             CopyThroughRing(m_VertexBuffer->GetRHIHandle(),
                             static_cast<u64>(m_ClusterBoneBaseElement) * sizeof(VirtualGpuVertex),
-                            boneStaging.data(), boneStaging.size() * sizeof(u32));
+                            boneStaging.GetData(), static_cast<sizet>(boneStaging.Num()) * sizeof(u32));
         }
 
         // Residency reset: nothing resident, then load pinned pages (always) and
         // — when the budget fits everything — every page eagerly so the default
         // configuration has no pop-in.
-        m_GroupStatesCpu.assign(groups.size(), 0u);
+        m_GroupStatesCpu = TArray<u32>(groups.Num(), 0u);
         for (PageRuntime& page : m_Pages)
         {
             page.Resident = false;
@@ -955,7 +955,7 @@ namespace OloEngine
             page.LoadFailed = false;
         }
         bool const eager = (slotCount >= totalPages);
-        for (u32 p = 0; p < m_Pages.size(); ++p)
+        for (u32 p = 0; p < static_cast<sizet>(m_Pages.Num()); ++p)
         {
             if (m_Pages[p].Pinned || eager)
             {
@@ -967,14 +967,14 @@ namespace OloEngine
         }
         PublishPageStoreStats();
 
-        auto const statesBytes = static_cast<u32>(m_GroupStatesCpu.size() * sizeof(u32));
+        auto const statesBytes = static_cast<u32>(static_cast<sizet>(m_GroupStatesCpu.Num()) * sizeof(u32));
         if (!m_GroupStatesBuffer || m_GroupStatesBuffer->GetSize() < statesBytes)
         {
             m_GroupStatesBuffer = StorageBuffer::Create(statesBytes,
                                                         ShaderBindingLayout::SSBO_VIRTUAL_GROUP_STATES,
                                                         StorageBufferUsage::DynamicCopy);
         }
-        m_GroupStatesBuffer->SetData(m_GroupStatesCpu.data(), statesBytes, 0);
+        m_GroupStatesBuffer->SetData(m_GroupStatesCpu.GetData(), statesBytes, 0);
 
         // The group count just changed size, so any readback ring slot sized
         // for the old count would decode garbage next poll — drop the ring and
@@ -982,13 +982,13 @@ namespace OloEngine
         // draining is moot: the buffer it read from no longer exists in this
         // shape, and this full publish above is already authoritative.
         DestroyResidencyReadbackSlots();
-        m_DirtyResidencyGroups.clear();
+        m_DirtyResidencyGroups.Reset();
 
         m_PoolsDirty = false;
 
         OLO_CORE_TRACE("VirtualMeshRegistry: pools rebuilt — {} clusters, {} groups, {} pages ({} pinned), "
                        "{} slots x ({} verts / {} indices), {} resident, backing {}",
-                       m_PooledClusters.size(), groups.size(), totalPages, pinnedPages,
+                       static_cast<sizet>(m_PooledClusters.Num()), static_cast<sizet>(groups.Num()), totalPages, pinnedPages,
                        slotCount, m_SlotVertexCapacity, m_SlotIndexCapacity, m_ResidencyStats.ResidentPages,
                        m_PageStore.IsOpen() ? "disk" : "memory");
         if (m_FailedPages > 0)
@@ -1004,7 +1004,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (m_Pages.empty() || !m_GroupStatesBuffer || m_ResidencyProcessed)
+        if (m_Pages.IsEmpty() || !m_GroupStatesBuffer || m_ResidencyProcessed)
         {
             return;
         }
@@ -1031,7 +1031,7 @@ namespace OloEngine
 
     bool VirtualMeshRegistry::EnsureResidencyReadbackSlots()
     {
-        auto const bytes = static_cast<u32>(m_GroupStatesCpu.size() * sizeof(u32));
+        auto const bytes = static_cast<u32>(static_cast<sizet>(m_GroupStatesCpu.Num()) * sizeof(u32));
         if (bytes == 0)
         {
             return false;
@@ -1122,8 +1122,8 @@ namespace OloEngine
         // re-derives and re-asserts via atomicOr whatever is still actually
         // true — exactly the cadence the pre-#719 synchronous version had
         // (it republished resident-only bits at the end of every call).
-        m_GroupStatesBuffer->SetData(m_GroupStatesCpu.data(),
-                                     static_cast<u32>(m_GroupStatesCpu.size() * sizeof(u32)), 0);
+        m_GroupStatesBuffer->SetData(m_GroupStatesCpu.GetData(),
+                                     static_cast<u32>(static_cast<sizet>(m_GroupStatesCpu.Num()) * sizeof(u32)), 0);
     }
 
     void VirtualMeshRegistry::PollResidencyReadback()
@@ -1159,8 +1159,8 @@ namespace OloEngine
                 continue;
             }
 
-            std::vector<u32> gpuStates(m_GroupStatesCpu.size());
-            RenderCommand::ReadBufferSubData(slot.m_Buffer, 0, m_ResidencyReadbackBytes, gpuStates.data());
+            TArray<u32> gpuStates(static_cast<sizet>(m_GroupStatesCpu.Num()));
+            RenderCommand::ReadBufferSubData(slot.m_Buffer, 0, m_ResidencyReadbackBytes, gpuStates.GetData());
 
             RenderCommand::DestroyFence(slot.m_Fence);
             slot.m_Fence = 0;
@@ -1171,10 +1171,10 @@ namespace OloEngine
         m_ResidencyReadbackSlotsInFlight = inFlight;
     }
 
-    void VirtualMeshRegistry::ApplyResidencySnapshot(const std::vector<u32>& gpuStates, u32& workBudget)
+    void VirtualMeshRegistry::ApplyResidencySnapshot(const TArray<u32>& gpuStates, u32& workBudget)
     {
         // LRU touches first so this snapshot's loads cannot evict just-used pages.
-        for (u32 g = 0; g < gpuStates.size(); ++g)
+        for (u32 g = 0; g < static_cast<sizet>(gpuStates.Num()); ++g)
         {
             if ((gpuStates[g] & kStateTouched) != 0u)
             {
@@ -1186,7 +1186,7 @@ namespace OloEngine
             }
         }
 
-        for (u32 g = 0; g < gpuStates.size() && workBudget > 0; ++g)
+        for (u32 g = 0; g < static_cast<sizet>(gpuStates.Num()) && workBudget > 0; ++g)
         {
             if ((gpuStates[g] & kStateRequested) == 0u)
             {
@@ -1232,14 +1232,13 @@ namespace OloEngine
         // within one call — harmless either way (last write wins, and it
         // always reads the current m_GroupStatesCpu value), but redundant.
         std::sort(m_DirtyResidencyGroups.begin(), m_DirtyResidencyGroups.end());
-        m_DirtyResidencyGroups.erase(std::unique(m_DirtyResidencyGroups.begin(), m_DirtyResidencyGroups.end()),
-                                     m_DirtyResidencyGroups.end());
+        m_DirtyResidencyGroups.SetNum(static_cast<i32>(std::unique(m_DirtyResidencyGroups.begin(), m_DirtyResidencyGroups.end()) - m_DirtyResidencyGroups.begin()), EAllowShrinking::No);
         for (u32 group : m_DirtyResidencyGroups)
         {
             u32 const value = m_GroupStatesCpu[group];
             m_GroupStatesBuffer->SetData(&value, sizeof(u32), group * static_cast<u32>(sizeof(u32)));
         }
-        m_DirtyResidencyGroups.clear();
+        m_DirtyResidencyGroups.Reset();
     }
 
     void VirtualMeshRegistry::EnsureVisbuffer(u32 viewportWidth, u32 viewportHeight)
@@ -1265,13 +1264,13 @@ namespace OloEngine
     VirtualCullStats VirtualMeshRegistry::ReadFrameCullStats() const
     {
         VirtualCullStats stats;
-        if (m_FrameInstances.empty() || !m_ArgsBuffer)
+        if (m_FrameInstances.IsEmpty() || !m_ArgsBuffer)
             return stats;
 
-        stats.InstanceCount = static_cast<u32>(m_FrameInstances.size());
+        stats.InstanceCount = static_cast<u32>(m_FrameInstances.Num());
         // Both phase regions: [0, n) is phase 1, [n, 2n) is phase 2 (issue #682).
-        std::vector<VirtualDrawArgs> args(m_FrameInstances.size() * 2);
-        auto const bytes = static_cast<u32>(args.size() * sizeof(VirtualDrawArgs));
+        TArray<VirtualDrawArgs> args(static_cast<sizet>(m_FrameInstances.Num()) * 2);
+        auto const bytes = static_cast<u32>(static_cast<sizet>(args.Num()) * sizeof(VirtualDrawArgs));
 
         // Stage the args through a dedicated GL_DYNAMIC_READ buffer rather than reading
         // m_ArgsBuffer directly. m_ArgsBuffer is GL_DYNAMIC_COPY and must stay that way:
@@ -1294,9 +1293,9 @@ namespace OloEngine
             m_ArgsReadbackBytes = bytes;
         }
         RenderCommand::CopyBufferSubData(m_ArgsBuffer->GetRHIHandle(), m_ArgsReadback, 0, 0, bytes);
-        RenderCommand::ReadBufferSubData(m_ArgsReadback, 0, bytes, args.data());
-        sizet const phaseStride = m_FrameInstances.size();
-        for (sizet i = 0; i < args.size(); ++i)
+        RenderCommand::ReadBufferSubData(m_ArgsReadback, 0, bytes, args.GetData());
+        sizet const phaseStride = static_cast<sizet>(m_FrameInstances.Num());
+        for (sizet i = 0; i < static_cast<sizet>(args.Num()); ++i)
         {
             const VirtualDrawArgs& a = args[i];
             bool const phase2 = i >= phaseStride;
@@ -1366,7 +1365,7 @@ namespace OloEngine
 
     void VirtualMeshRegistry::EnsureFrameBuffers()
     {
-        auto const instanceCount = static_cast<u32>(m_FrameInstances.size());
+        auto const instanceCount = static_cast<u32>(m_FrameInstances.Num());
         // The bone-palette tail rides this buffer (issue #1150) — one palette
         // entry per element, in the same record layout, because a posed bone
         // needs exactly the three matrices a VirtualInstance carries and there
@@ -1448,7 +1447,7 @@ namespace OloEngine
         m_FramePrepared = true;
         m_FramePreparedResult = false;
 
-        if (m_Submissions.empty())
+        if (m_Submissions.IsEmpty())
         {
             return false;
         }
@@ -1462,15 +1461,15 @@ namespace OloEngine
             return false; // no valid mesh has ever been registered
         }
 
-        m_FrameInstances.clear();
-        m_FrameInstances.reserve(m_Submissions.size());
+        m_FrameInstances.Reset();
+        m_FrameInstances.Reserve(static_cast<sizet>(m_Submissions.Num()));
         m_TotalFrameClusterCount = 0;
 
         // This frame's bone palettes, accumulated beside the instance records
         // and appended to the same upload as the buffer's tail (issue #1150).
         // Built here rather than in a second pass because the base an instance
         // records IS its position in this vector.
-        std::vector<VirtualInstanceGpuRecord> bonePalette;
+        TArray<VirtualInstanceGpuRecord> bonePalette;
 
         for (const VirtualMeshSubmission& submission : m_Submissions)
         {
@@ -1516,10 +1515,10 @@ namespace OloEngine
                 // A submission always carries one material slot per part; fall back to the
                 // first if a caller ever under-fills it rather than reading out of bounds.
                 instance.MaterialDataIndex =
-                    partIndex < submission.MaterialDataIndices.size()
+                    partIndex < static_cast<sizet>(submission.MaterialDataIndices.Num())
                         ? submission.MaterialDataIndices[partIndex]
-                        : (submission.MaterialDataIndices.empty() ? 0u : submission.MaterialDataIndices.front());
-                bool const partAlphaMasked = partIndex < submission.PartAlphaMasked.size() &&
+                        : (submission.MaterialDataIndices.IsEmpty() ? 0u : submission.MaterialDataIndices[0]);
+                bool const partAlphaMasked = partIndex < static_cast<sizet>(submission.PartAlphaMasked.Num()) &&
                                              submission.PartAlphaMasked[partIndex] != 0u;
 
                 // ── AlphaMode::Blend is NOT representable in the virtual path (issue #629) ──
@@ -1530,7 +1529,7 @@ namespace OloEngine
                 // glDisable(GL_BLEND) for every instance, so a Blend part was written into the
                 // G-Buffer FULLY OPAQUE. Drawing it wrong is worse than not drawing it, so skip
                 // it and say so, once per mesh (this runs every frame).
-                if (partIndex < submission.MaterialDataIndices.size() &&
+                if (partIndex < static_cast<sizet>(submission.MaterialDataIndices.Num()) &&
                     FrameDataBufferManager::Get()
                             .GetMaterialData(static_cast<u16>(submission.MaterialDataIndices[partIndex]))
                             .alphaMode == static_cast<i32>(AlphaMode::Blend))
@@ -1551,7 +1550,7 @@ namespace OloEngine
                 // shader never samples the albedo alpha, so a cutout leaf card would project
                 // as a SOLID quad silhouette instead of a leaf.
                 instance.CastShadows = submission.CastShadows && !partAlphaMasked;
-                instance.TwoSided = partIndex < submission.PartTwoSided.size() &&
+                instance.TwoSided = partIndex < static_cast<sizet>(submission.PartTwoSided.Num()) &&
                                     submission.PartTwoSided[partIndex] != 0u;
                 instance.MeshletCompatible = entry.MeshletCompatible;
 
@@ -1563,7 +1562,7 @@ namespace OloEngine
                 gpu.PrevTransform[3] -= glm::vec4(renderOrigin, 0.0f);
                 gpu.NormalMatrix = glm::mat4(glm::transpose(glm::inverse(glm::mat3(submission.Transform))));
                 gpu.ClusterBase = entry.ClusterBase;
-                gpu.ClusterCount = static_cast<u32>(entry.Packed.Clusters.size());
+                gpu.ClusterCount = static_cast<u32>(entry.Packed.Clusters.Num());
                 gpu.GroupBase = entry.GroupBase;
                 gpu.EntityID = submission.EntityID;
                 gpu.ErrorThresholdPixels = submission.ErrorThresholdPixels;
@@ -1590,11 +1589,11 @@ namespace OloEngine
                 {
                     if (submissionPaletteBase == kNoPalette)
                     {
-                        submissionPaletteBase = static_cast<u32>(bonePalette.size());
+                        submissionPaletteBase = static_cast<u32>(bonePalette.Num());
                         // Bone velocity degrades to "no motion" rather than to a
                         // mismatched pairing when the two sets disagree in length.
-                        const bool usePrev = submission.PrevBoneMatrices.size() == submission.BoneMatrices.size();
-                        for (sizet b = 0; b < submission.BoneMatrices.size(); ++b)
+                        const bool usePrev = submission.PrevBoneMatrices.Num() == submission.BoneMatrices.Num();
+                        for (sizet b = 0; b < static_cast<sizet>(submission.BoneMatrices.Num()); ++b)
                         {
                             VirtualInstanceGpuRecord paletteEntry;
                             paletteEntry.Transform = submission.BoneMatrices[b];
@@ -1607,7 +1606,7 @@ namespace OloEngine
                             // per-bone inverse-transpose would be a second
                             // answer to a question that already has one — and
                             // an inverse per bone per frame to compute it.
-                            bonePalette.push_back(paletteEntry);
+                            bonePalette.Add(paletteEntry);
                         }
                     }
 
@@ -1615,7 +1614,7 @@ namespace OloEngine
                     // RELATIVE to the tail here; rebased to an absolute element
                     // index below, once the instance count is final.
                     gpu.SkinBoneBase = submissionPaletteBase;
-                    gpu.SkinBoneCount = static_cast<u32>(submission.BoneMatrices.size());
+                    gpu.SkinBoneCount = static_cast<u32>(submission.BoneMatrices.Num());
                     gpu.SkinClusterBoneBase = m_ClusterBoneBaseElement + entry.ClusterBase;
                     // The MAX over both poses, not the current one alone.
                     //
@@ -1630,12 +1629,12 @@ namespace OloEngine
                     // cull's previous-pose fallback sphere for a cluster whose
                     // bone set did not fit.
                     const auto& effectivePrevPalette =
-                        submission.PrevBoneMatrices.size() == submission.BoneMatrices.size()
+                        submission.PrevBoneMatrices.Num() == submission.BoneMatrices.Num()
                             ? submission.PrevBoneMatrices
                             : submission.BoneMatrices;
                     gpu.SkinBoundsPadding =
-                        std::max(SkinDisplacementBound(entry.Packed.BoneBounds, submission.BoneMatrices),
-                                 SkinDisplacementBound(entry.Packed.BoneBounds, effectivePrevPalette));
+                        std::max(SkinDisplacementBound({ entry.Packed.BoneBounds.GetData(), static_cast<sizet>(entry.Packed.BoneBounds.Num()) }, { submission.BoneMatrices.GetData(), static_cast<sizet>(submission.BoneMatrices.Num()) }),
+                                 SkinDisplacementBound({ entry.Packed.BoneBounds.GetData(), static_cast<sizet>(entry.Packed.BoneBounds.Num()) }, { effectivePrevPalette.GetData(), static_cast<sizet>(effectivePrevPalette.Num()) }));
 
                     // The group ERROR scale, applied to the THRESHOLD instead of
                     // to the errors. A bone that stretches its vertices by s
@@ -1647,7 +1646,7 @@ namespace OloEngine
                     // the CPU is EXACTLY multiplying every error on the GPU —
                     // for no new field in a record whose lanes are spoken for,
                     // and no arithmetic in the cull's hot loop.
-                    f32 const errorScale = SkinMaxBoneScale(submission.BoneMatrices);
+                    f32 const errorScale = SkinMaxBoneScale({ submission.BoneMatrices.GetData(), static_cast<sizet>(submission.BoneMatrices.Num()) });
                     if (errorScale > 1.0f)
                     {
                         // Floored rather than clamped at the scale: below a
@@ -1714,11 +1713,11 @@ namespace OloEngine
                 }
 
                 m_TotalFrameClusterCount += gpu.ClusterCount;
-                m_FrameInstances.push_back(instance);
+                m_FrameInstances.Add(instance);
             }
         }
 
-        if (m_FrameInstances.empty())
+        if (m_FrameInstances.IsEmpty())
         {
             m_BonePaletteBaseElement = 0;
             m_BonePaletteElementCount = 0;
@@ -1729,8 +1728,8 @@ namespace OloEngine
         // knowable now — hence the two steps: the loop above recorded a base
         // RELATIVE to the tail, and this rebases it to the absolute element the
         // shader indexes with.
-        m_BonePaletteBaseElement = static_cast<u32>(m_FrameInstances.size());
-        m_BonePaletteElementCount = static_cast<u32>(bonePalette.size());
+        m_BonePaletteBaseElement = static_cast<u32>(m_FrameInstances.Num());
+        m_BonePaletteElementCount = static_cast<u32>(bonePalette.Num());
         for (FrameInstance& instance : m_FrameInstances)
         {
             if (instance.Gpu.SkinBoneCount != 0)
@@ -1741,24 +1740,24 @@ namespace OloEngine
 
         EnsureFrameBuffers();
 
-        std::vector<VirtualInstanceGpuRecord> gpuRecords;
-        gpuRecords.reserve(m_FrameInstances.size() + bonePalette.size());
+        TArray<VirtualInstanceGpuRecord> gpuRecords;
+        gpuRecords.Reserve(static_cast<sizet>(m_FrameInstances.Num()) + static_cast<sizet>(bonePalette.Num()));
         for (const FrameInstance& instance : m_FrameInstances)
         {
-            gpuRecords.push_back(instance.Gpu);
+            gpuRecords.Add(instance.Gpu);
         }
         // One upload, not two: the tail is part of the same array, so appending
         // here keeps the two regions contiguous by construction rather than by
         // two offsets that could drift apart.
-        gpuRecords.insert(gpuRecords.end(), bonePalette.begin(), bonePalette.end());
-        m_InstanceBuffer->SetData(gpuRecords.data(),
-                                  static_cast<u32>(gpuRecords.size() * sizeof(VirtualInstanceGpuRecord)), 0);
+        gpuRecords.Append(bonePalette);
+        m_InstanceBuffer->SetData(gpuRecords.GetData(),
+                                  static_cast<u32>(static_cast<sizet>(gpuRecords.Num()) * sizeof(VirtualInstanceGpuRecord)), 0);
 
         // Zero this frame's draw counts + stats before the cull dispatches —
         // BOTH phase regions (issue #682).
-        std::vector<VirtualDrawArgs> const zeroArgs(m_FrameInstances.size() * 2);
-        m_ArgsBuffer->SetData(zeroArgs.data(),
-                              static_cast<u32>(zeroArgs.size() * sizeof(VirtualDrawArgs)), 0);
+        TArray<VirtualDrawArgs> const zeroArgs(static_cast<sizet>(m_FrameInstances.Num()) * 2);
+        m_ArgsBuffer->SetData(zeroArgs.GetData(),
+                              static_cast<u32>(static_cast<sizet>(zeroArgs.Num()) * sizeof(VirtualDrawArgs)), 0);
 
         // Zero the software-raster + two-phase reject list headers (Count + padding)
         u32 const zeroHeader[4] = { 0, 0, 0, 0 };
@@ -1797,7 +1796,7 @@ namespace OloEngine
         }
         m_UploadRing.Destroy();
         DestroyResidencyReadbackSlots();
-        m_DirtyResidencyGroups.clear();
+        m_DirtyResidencyGroups.Reset();
         if (m_Vao.IsValid())
         {
             RenderCommand::DeleteVertexArray(m_Vao);
@@ -1820,15 +1819,15 @@ namespace OloEngine
         }
         m_DebugWidth = 0;
         m_DebugHeight = 0;
-        m_Entries.clear();
+        m_Entries.Reset();
         m_EntryLookup.clear();
         m_BlendRejectionWarned.clear();
-        m_Submissions.clear();
-        m_FrameInstances.clear();
-        m_Pages.clear();
-        m_PageOfPooledGroup.clear();
-        m_PooledClusters.clear();
-        m_GroupStatesCpu.clear();
+        m_Submissions.Reset();
+        m_FrameInstances.Reset();
+        m_Pages.Reset();
+        m_PageOfPooledGroup.Reset();
+        m_PooledClusters.Reset();
+        m_GroupStatesCpu.Reset();
         m_SlotCache.Destroy();
         // Joins the IO workers and deletes the spill file. Must happen while the entries that
         // reference it are being torn down, not later: a worker still reading would otherwise

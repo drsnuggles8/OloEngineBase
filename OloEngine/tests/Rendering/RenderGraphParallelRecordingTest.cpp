@@ -55,7 +55,7 @@ namespace
         std::function<void(RGBuilder&)> OnSetup;
         std::function<void(RGCommandContext&)> Record;
         std::function<void()> Publish;
-        std::vector<RGRecordingResourceUse> Resources;
+        TArray<RGRecordingResourceUse> Resources;
     };
 
     class ThreadedRecordingAPI final : public Testing::MockRendererAPI
@@ -97,28 +97,28 @@ namespace
     };
 
     auto MakePlan(std::span<PreparedNode*> nodes,
-                  const std::unordered_map<std::string, std::vector<std::string>>& dependencies = {},
+                  const RGTransparentStringMap<TArray64<FString>>& dependencies = {},
                   std::span<const RenderGraph::PlannedBarrier> barriers = {},
                   std::span<const RenderGraph::AsyncComputeBatch> batches = {}, bool splitBarriers = false,
-                  const std::function<bool(const std::string&)>& isPassReachable = {})
+                  const std::function<bool(std::string_view)>& isPassReachable = {})
     {
-        std::vector<std::string> order;
+        TArray64<FString> order;
         for (const auto* node : nodes)
-            order.push_back(node->GetName());
+            order.Add(FString(node->GetName()));
         return RenderGraphSubmissionPlan::BuildPlan({
-            .ExecutionOrder = order,
+            .ExecutionOrder = std::span<const FString>(order.GetData(), static_cast<sizet>(order.Num())),
             .Dependencies = dependencies,
             .PlannedBarriers = barriers,
             .Transitions = {},
             .Batches = batches,
             .EnableSplitBarriers = splitBarriers,
-            .GetPassWorkType = [nodes](const std::string& name)
+            .GetPassWorkType = [nodes](std::string_view name)
             {
                 for (const auto* node : nodes)
                     if (node->GetName() == name)
                         return node->GetPassWorkType();
                 return RenderGraphPassWorkType::Graphics; },
-            .ResolveNodePointer = [nodes](const std::string& name) -> RenderGraphNode*
+            .ResolveNodePointer = [nodes](std::string_view name) -> RenderGraphNode*
             {
                 for (auto* node : nodes)
                     if (node->GetName() == name)
@@ -152,7 +152,7 @@ TEST(RenderGraphParallelRecording, WorkersOwnContextsAndPublishBeforeDependentCo
         node->Publish = [&, node]
         {
             EXPECT_EQ(std::this_thread::get_id(), caller);
-            published.push_back(node->GetName());
+            published.push_back(std::string(node->GetName()));
         };
     }
     consumer.Record = [&](RGCommandContext&)
@@ -161,16 +161,16 @@ TEST(RenderGraphParallelRecording, WorkersOwnContextsAndPublishBeforeDependentCo
     };
     std::array nodes{ &first, &second, &consumer };
     const auto plan = MakePlan(nodes, { { "Consumer", { "First", "Second" } } });
-    ASSERT_EQ(plan.size(), 3u);
+    ASSERT_EQ(plan.Num(), 3u);
     EXPECT_EQ(plan[0].RecordingGroup, plan[1].RecordingGroup);
     EXPECT_NE(plan[0].RecordingGroup, UINT32_MAX);
     EXPECT_EQ(plan[2].RecordingGroup, UINT32_MAX);
     ThreadedRecordingAPI api;
     RGCommandContext context;
-    const auto timings = RenderGraphPlanExecutor::ExecutePlan({ .SubmissionPlan = plan, .Context = context, .RuntimeBarrierExecutionEnabled = false, .IsPassReachable = [](const std::string&)
-                                                                                                                                                     { return true; },
+    const auto timings = RenderGraphPlanExecutor::ExecutePlan({ .SubmissionPlan = std::span<const RenderGraph::SubmissionCommand>(plan.GetData(), static_cast<sizet>(plan.Num())), .Context = context, .RuntimeBarrierExecutionEnabled = false, .IsPassReachable = [](std::string_view)
+                                                                                                                                                                                                                                                { return true; },
                                                                 .RecordingAPI = &api });
-    ASSERT_EQ(timings.size(), 3u);
+    ASSERT_EQ(timings.Num(), 3u);
     EXPECT_EQ(labels, (std::array<std::string, 2>{ "First", "Second" }));
     EXPECT_EQ(lanes, (std::array<u32, 2>{ 0, 1 }));
     EXPECT_NE(threads[0], caller);
@@ -196,12 +196,12 @@ TEST(RenderGraphParallelRecording, PhysicalAliasDeclinesLogicalIndependence)
     const auto plan = MakePlan(nodes);
     ThreadedRecordingAPI api;
     RGCommandContext context;
-    const auto timings = RenderGraphPlanExecutor::ExecutePlan({ .SubmissionPlan = plan, .Context = context, .RuntimeBarrierExecutionEnabled = false, .IsPassReachable = [](const std::string&)
-                                                                                                                                                     { return true; },
+    const auto timings = RenderGraphPlanExecutor::ExecutePlan({ .SubmissionPlan = std::span<const RenderGraph::SubmissionCommand>(plan.GetData(), static_cast<sizet>(plan.Num())), .Context = context, .RuntimeBarrierExecutionEnabled = false, .IsPassReachable = [](std::string_view)
+                                                                                                                                                                                                                                                { return true; },
                                                                 .RecordingAPI = &api });
     EXPECT_EQ(api.Groups, 0u);
     EXPECT_EQ(order, (std::vector<std::string>{ "Writer", "Reader" }));
-    EXPECT_EQ(timings.size(), 2u);
+    EXPECT_EQ(timings.Num(), 2u);
     // The decline is counted, not absorbed. Reader was already prepared when
     // the conflict was found, and the sequential fallback prepares it again, so
     // a group that declines every frame pays for itself twice every frame.
@@ -223,13 +223,13 @@ TEST(RenderGraphParallelRecording, PassThatPreparesNoBodyCountsAsADeclinedGroup)
     const auto plan = MakePlan(nodes);
     ThreadedRecordingAPI api;
     RGCommandContext context;
-    const auto timings = RenderGraphPlanExecutor::ExecutePlan({ .SubmissionPlan = plan, .Context = context, .RuntimeBarrierExecutionEnabled = false, .IsPassReachable = [](const std::string&)
-                                                                                                                                                     { return true; },
+    const auto timings = RenderGraphPlanExecutor::ExecutePlan({ .SubmissionPlan = std::span<const RenderGraph::SubmissionCommand>(plan.GetData(), static_cast<sizet>(plan.Num())), .Context = context, .RuntimeBarrierExecutionEnabled = false, .IsPassReachable = [](std::string_view)
+                                                                                                                                                                                                                                                { return true; },
                                                                 .RecordingAPI = &api });
     EXPECT_EQ(api.Groups, 0u);
     EXPECT_EQ(api.Declined, 1u);
     EXPECT_EQ(order, (std::vector<std::string>{ "First" }));
-    EXPECT_EQ(timings.size(), 2u);
+    EXPECT_EQ(timings.Num(), 2u);
 }
 
 TEST(RenderGraphParallelRecording, CaptureHookRetainsEveryOriginalPassBoundary)
@@ -245,15 +245,15 @@ TEST(RenderGraphParallelRecording, CaptureHookRetainsEveryOriginalPassBoundary)
     ThreadedRecordingAPI api;
     RGCommandContext context;
     RenderGraph graph;
-    const auto timings = RenderGraphPlanExecutor::ExecutePlan({ .SubmissionPlan = plan, .Context = context, .RuntimeBarrierExecutionEnabled = false, .IsPassReachable = [](const std::string&)
-                                                                                                                                                     { return true; },
-                                                                .PostPassHook = [&](const std::string& name, RenderGraph&)
-                                                                { order.push_back("Capture " + name); },
+    const auto timings = RenderGraphPlanExecutor::ExecutePlan({ .SubmissionPlan = std::span<const RenderGraph::SubmissionCommand>(plan.GetData(), static_cast<sizet>(plan.Num())), .Context = context, .RuntimeBarrierExecutionEnabled = false, .IsPassReachable = [](std::string_view)
+                                                                                                                                                                                                                                                { return true; },
+                                                                .PostPassHook = [&](std::string_view name, RenderGraph&)
+                                                                { order.push_back("Capture " + std::string(name)); },
                                                                 .GraphForPostPassHook = &graph,
                                                                 .RecordingAPI = &api });
     EXPECT_EQ(api.Groups, 0u);
     EXPECT_EQ(order, (std::vector<std::string>{ "First", "Capture First", "Second", "Capture Second" }));
-    EXPECT_EQ(timings.size(), 2u);
+    EXPECT_EQ(timings.Num(), 2u);
 }
 
 TEST(RenderGraphParallelRecording, ConsumerBarrierRemainsAfterRecordingGroup)
@@ -266,7 +266,7 @@ TEST(RenderGraphParallelRecording, ConsumerBarrierRemainsAfterRecordingGroup)
         RenderGraph::PlannedBarrier{ .BeforePass = "Consumer", .Resource = "Output", .Flags = MemoryBarrierFlags::TextureFetch }
     };
     const auto plan = MakePlan(nodes, { { "Consumer", { "First", "Second" } } }, barriers);
-    ASSERT_EQ(plan.size(), 6u);
+    ASSERT_EQ(plan.Num(), 6u);
     for (sizet command = 0; command < 4; ++command)
         EXPECT_EQ(plan[command].RecordingGroup, 0u);
     EXPECT_EQ(plan[4].CommandKind, RenderGraph::SubmissionCommand::Kind::MemoryBarrier);
@@ -392,9 +392,9 @@ TEST(RenderGraphParallelRecording, SchedulingGroupsEarlyComputeWithLaterReadyPee
     EXPECT_EQ(std::ranges::find(order, "Marking"), fog + 2);
     EXPECT_EQ(order.back(), "Final");
     const auto batches = graph.GetAsyncComputeBatches();
-    ASSERT_EQ(batches.size(), 2u);
-    EXPECT_EQ(batches[0].ComputeNodes, (std::vector<std::string>{ "DisabledPrepared" }));
-    EXPECT_EQ(batches[1].ComputeNodes, (std::vector<std::string>{ "Fog", "GTAO", "Marking" }));
+    ASSERT_EQ(batches.Num(), 2u);
+    EXPECT_EQ(batches[0].ComputeNodes, (TArray64<FString>{ FString("DisabledPrepared") }));
+    EXPECT_EQ(batches[1].ComputeNodes, (TArray64<FString>{ FString("Fog"), FString("GTAO"), FString("Marking") }));
 }
 
 TEST(RenderGraphParallelRecording, DisabledOrCulledTailCannotInvalidateAnActiveRecordingGroup)
@@ -405,16 +405,16 @@ TEST(RenderGraphParallelRecording, DisabledOrCulledTailCannotInvalidateAnActiveR
         tail.Enabled = !disabled;
         first.Record = second.Record = [](RGCommandContext&) {};
         std::array nodes{ &first, &second, &tail };
-        const auto reachable = [disabled](const std::string& name)
+        const auto reachable = [disabled](std::string_view name)
         { return disabled || name != "Tail"; };
         const auto plan = MakePlan(nodes, {}, {}, {}, false, reachable);
-        ASSERT_EQ(plan.size(), 3u);
+        ASSERT_EQ(plan.Num(), 3u);
         EXPECT_NE(plan[0].RecordingGroup, UINT32_MAX);
         EXPECT_EQ(plan[0].RecordingGroup, plan[1].RecordingGroup);
         EXPECT_EQ(plan[2].RecordingGroup, UINT32_MAX);
         ThreadedRecordingAPI api;
         RGCommandContext context;
-        [[maybe_unused]] const auto timings = RenderGraphPlanExecutor::ExecutePlan({ .SubmissionPlan = plan, .Context = context, .RuntimeBarrierExecutionEnabled = false, .IsPassReachable = reachable, .RecordingAPI = &api });
+        [[maybe_unused]] const auto timings = RenderGraphPlanExecutor::ExecutePlan({ .SubmissionPlan = std::span<const RenderGraph::SubmissionCommand>(plan.GetData(), static_cast<sizet>(plan.Num())), .Context = context, .RuntimeBarrierExecutionEnabled = false, .IsPassReachable = reachable, .RecordingAPI = &api });
         EXPECT_EQ(api.Groups, 1u);
         EXPECT_EQ(api.ExecutionOrder, (std::vector<u32>{ 0, 1 }));
     }

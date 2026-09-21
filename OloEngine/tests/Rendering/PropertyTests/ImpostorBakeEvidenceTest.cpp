@@ -66,15 +66,15 @@ namespace OloEngine::Tests
             return OloEngine::Tests::Options().GoldenRebase;
         }
 
-        void WriteAtlasPng(const std::string& name, const std::vector<u8>& rgba, u32 size)
+        void WriteAtlasPng(const std::string& name, const TArray64<u8>& rgba, u32 size)
         {
             // GL readback is bottom-up; flip vertically for a natural PNG.
-            std::vector<u8> flipped(rgba);
+            TArray64<u8> flipped(rgba);
             const std::size_t rowBytes = static_cast<std::size_t>(size) * 4u;
             for (u32 y = 0; y < size / 2u; ++y)
             {
-                u8* a = flipped.data() + static_cast<std::size_t>(y) * rowBytes;
-                u8* b = flipped.data() + static_cast<std::size_t>(size - 1u - y) * rowBytes;
+                u8* a = flipped.GetData() + static_cast<std::size_t>(y) * rowBytes;
+                u8* b = flipped.GetData() + static_cast<std::size_t>(size - 1u - y) * rowBytes;
                 for (std::size_t i = 0; i < rowBytes; ++i)
                     std::swap(a[i], b[i]);
             }
@@ -82,7 +82,7 @@ namespace OloEngine::Tests
             std::error_code ec;
             fs::create_directories(dir, ec);
             ::stbi_write_png((dir / name).string().c_str(), static_cast<int>(size), static_cast<int>(size), 4,
-                             flipped.data(), static_cast<int>(size) * 4);
+                             flipped.GetData(), static_cast<int>(size) * 4);
         }
     } // namespace
 
@@ -134,11 +134,11 @@ namespace OloEngine::Tests
         const u32 tileRes = size / N;
         ASSERT_GT(tileRes, 0u);
 
-        std::vector<u8> albedo;
+        TArray64<u8> albedo;
         ASSERT_TRUE(atlas.Albedo->GetData(albedo)) << "albedo atlas readback failed";
-        ASSERT_EQ(albedo.size(), static_cast<std::size_t>(size) * size * 4u);
+        ASSERT_EQ(albedo.Num(), static_cast<std::size_t>(size) * size * 4u);
 
-        std::vector<u8> normalDepth;
+        TArray64<u8> normalDepth;
         ASSERT_TRUE(atlas.NormalDepth->GetData(normalDepth)) << "normal/depth atlas readback failed";
 
         // (1) Real coverage — the bake rasterised the mesh, not an empty atlas.
@@ -290,7 +290,7 @@ namespace OloEngine::Tests
                 trees.ImpostorAtlasResolution = 512;
                 trees.ImpostorHemiOctahedral = true;
                 trees.Enabled = true;
-                foliage.m_Layers.push_back(trees);
+                foliage.m_Layers.Add(trees);
                 foliage.m_NeedsRebuild = true;
             }
         }

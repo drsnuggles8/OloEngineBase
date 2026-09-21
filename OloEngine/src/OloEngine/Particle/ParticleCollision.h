@@ -4,7 +4,6 @@
 #include "OloEngine/Particle/ParticlePool.h"
 
 #include <glm/glm.hpp>
-#include <vector>
 
 namespace OloEngine
 {
@@ -39,10 +38,10 @@ namespace OloEngine
         bool KillOnCollide = false;
 
         // Apply collision response to all alive particles
-        void Apply(f32 dt, ParticlePool& pool, std::vector<CollisionEvent>* outEvents = nullptr) const;
+        void Apply(f32 dt, ParticlePool& pool, TArray<CollisionEvent>* outEvents = nullptr, ParticleSwapObserver observer = {}) const;
 
         // Apply with Jolt scene raycasts (more expensive)
-        void ApplyWithRaycasts(f32 dt, ParticlePool& pool, JoltScene* joltScene, std::vector<CollisionEvent>* outEvents = nullptr) const;
+        void ApplyWithRaycasts(f32 dt, ParticlePool& pool, JoltScene* joltScene, TArray<CollisionEvent>* outEvents = nullptr, ParticleSwapObserver observer = {}) const;
     };
 
     enum class ForceFieldType : u8

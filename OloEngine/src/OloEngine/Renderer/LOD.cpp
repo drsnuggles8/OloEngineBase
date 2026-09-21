@@ -27,7 +27,7 @@ namespace OloEngine
     i32 LODGroup::SelectLOD(f32 distance) const
     {
         OLO_PROFILE_FUNCTION();
-        if (Levels.empty())
+        if (Levels.IsEmpty())
         {
             return -1;
         }
@@ -35,7 +35,7 @@ namespace OloEngine
         f32 const safeBias = SanitizeBias(Bias);
         f32 const effectiveDistance = distance / safeBias;
 
-        for (i32 i = 0; i < static_cast<i32>(Levels.size()); ++i)
+        for (i32 i = 0; i < static_cast<i32>(Levels.Num()); ++i)
         {
             if (effectiveDistance <= Levels[i].MaxDistance)
             {
@@ -44,7 +44,7 @@ namespace OloEngine
         }
 
         // Beyond all thresholds — return lowest detail level (last)
-        return static_cast<i32>(Levels.size()) - 1;
+        return static_cast<i32>(Levels.Num()) - 1;
     }
 
     bool LODGroup::HasErrorData() const
@@ -57,7 +57,7 @@ namespace OloEngine
     i32 LODGroup::SelectLODByPixelError(f32 projectedPixelSize, f32 pixelErrorThreshold) const
     {
         OLO_PROFILE_FUNCTION();
-        if (Levels.empty())
+        if (Levels.IsEmpty())
         {
             return -1;
         }
@@ -79,7 +79,7 @@ namespace OloEngine
         // the first level that exceeds the budget ends the scan; everything past it
         // is coarser still.
         i32 selected = 0;
-        for (i32 i = 1; i < static_cast<i32>(Levels.size()); ++i)
+        for (i32 i = 1; i < static_cast<i32>(Levels.Num()); ++i)
         {
             f32 const error = Levels[i].Error;
 
@@ -156,7 +156,7 @@ namespace OloEngine
         outMesh = mesh;
         LODSelectionResult result;
 
-        if (!mesh || !lodGroup || lodGroup->Levels.empty())
+        if (!mesh || !lodGroup || lodGroup->Levels.IsEmpty())
         {
             return result;
         }

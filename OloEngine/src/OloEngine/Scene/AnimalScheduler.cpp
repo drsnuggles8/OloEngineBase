@@ -286,16 +286,16 @@ namespace OloEngine
         return step;
     }
 
-    std::vector<AnimalSchedule> ScheduleAnimalPopulation(const AnimalBudgetPolicy& rawPolicy,
-                                                         const AnimalCostModel& rawModel,
-                                                         std::span<const AnimalScheduleSlot> slots,
-                                                         AnimalSchedulerStats* outStats)
+    TArray<AnimalSchedule> ScheduleAnimalPopulation(const AnimalBudgetPolicy& rawPolicy,
+                                                    const AnimalCostModel& rawModel,
+                                                    std::span<const AnimalScheduleSlot> slots,
+                                                    AnimalSchedulerStats* outStats)
     {
         const AnimalBudgetPolicy policy = SanitizeAnimalBudgetPolicy(rawPolicy);
         const AnimalCostModel model = SanitizeAnimalCostModel(rawModel);
 
-        std::vector<AnimalSchedule> results;
-        results.reserve(slots.size());
+        TArray<AnimalSchedule> results;
+        results.Reserve(static_cast<i32>(slots.size()));
 
         AnimalSchedulerStats stats;
         stats.FrameBudgetUnits = policy.FrameBudgetUnits;
@@ -331,7 +331,7 @@ namespace OloEngine
                     schedule.MaxStep[a] = std::min(slot.Item.MaxStep[a], kMaxBudgetSteps);
                 }
                 schedule.EstimatedCostUnits = EstimateAnimalCostUnits(model, slot.Item, schedule.Step);
-                results.push_back(schedule);
+                results.Add(schedule);
             }
             if (outStats != nullptr)
             {
@@ -353,7 +353,8 @@ namespace OloEngine
         // stopped from thinning a visible coat below MinVisibleStrands all on
         // its own, with no budget pressure involved at all. "Invisible distant
         // coats" is a failure the ladder can produce unaided.
-        std::vector<std::array<u32, AnimalWorkAxisCount>> allocated(count);
+        TArray<std::array<u32, AnimalWorkAxisCount>> allocated;
+        allocated.SetNum(static_cast<i32>(count));
         for (sizet i = 0; i < count; ++i)
         {
             for (sizet a = 0; a < AnimalWorkAxisCount; ++a)
@@ -426,8 +427,8 @@ namespace OloEngine
                 continue; // fits at the desired steps; nothing to take away
             }
 
-            std::vector<ServiceOrder> order;
-            order.reserve(count);
+            TArray<ServiceOrder> order;
+            order.Reserve(static_cast<i32>(count));
             for (sizet i = 0; i < count; ++i)
             {
                 ServiceOrder entry;
@@ -442,7 +443,7 @@ namespace OloEngine
                 entry.PixelSize =
                     std::isfinite(slots[i].Item.PixelSize) ? (std::max(slots[i].Item.PixelSize, 0.0f) + 0.0f) : 0.0f;
                 entry.Id = static_cast<u64>(slots[i].Item.Id);
-                order.push_back(entry);
+                order.Add(entry);
             }
             std::stable_sort(order.begin(), order.end(), GivesWayBefore);
 
@@ -736,7 +737,7 @@ namespace OloEngine
                     AxisCostAtStep(model, item, static_cast<AnimalWorkAxis>(a), schedule.Step[a]);
             }
 
-            results.push_back(schedule);
+            results.Add(schedule);
         }
 
         // The share each axis carries, which is the answer to criterion 2 in a

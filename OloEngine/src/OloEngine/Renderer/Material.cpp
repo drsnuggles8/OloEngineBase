@@ -9,7 +9,7 @@ namespace OloEngine
     {
     }
 
-    Material::Material(const Ref<OloEngine::Shader>& shader, const std::string& name)
+    Material::Material(const Ref<OloEngine::Shader>& shader, const FString& name)
         : m_Shader(shader), m_Name(name), m_MaterialType(MaterialType::PBR)
     {
     }
@@ -121,12 +121,12 @@ namespace OloEngine
         return *this;
     }
 
-    Ref<Material> Material::Create(const Ref<OloEngine::Shader>& shader, const std::string& name)
+    Ref<Material> Material::Create(const Ref<OloEngine::Shader>& shader, const FString& name)
     {
         return Ref<Material>(new Material(shader, name));
     }
 
-    Ref<Material> Material::Copy(const Ref<Material>& other, const std::string& name)
+    Ref<Material> Material::Copy(const Ref<Material>& other, const FString& name)
     {
         // A THIRD hand-maintained copy of "copy every field", and it had drifted further than the
         // other two: it dropped the alpha mode + cutoff, every PBR factor (base colour, metallic,
@@ -135,14 +135,14 @@ namespace OloEngine
         // MaterialAsset came back OPAQUE and WHITE. Delegate to the copy constructor, which is
         // the one place that has to know the field list (issue #629).
         auto material = Ref<Material>(new Material(*other));
-        if (!name.empty())
+        if (!name.IsEmpty())
         {
             material->m_Name = name;
         }
         return material;
     }
 
-    Ref<Material> Material::CreatePBR(const std::string& name, const glm::vec3& baseColor, float metallic, float roughness)
+    Ref<Material> Material::CreatePBR(const FString& name, const glm::vec3& baseColor, float metallic, float roughness)
     {
         auto material = Ref<Material>(new Material());
         material->m_Name = name;
@@ -167,7 +167,7 @@ namespace OloEngine
         return material;
     }
 
-    Ref<Material> Material::CreateSnow(const std::string& name)
+    Ref<Material> Material::CreateSnow(const FString& name)
     {
         return CreatePBR(name, glm::vec3(0.95f, 0.95f, 0.98f), 0.0f, 0.85f);
     }

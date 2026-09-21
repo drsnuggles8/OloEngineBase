@@ -3,7 +3,7 @@
 #include "OloEngine/Core/Base.h"
 
 #include <complex>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine::Ocean
 {
@@ -46,11 +46,11 @@ namespace OloEngine::Ocean
     }
 
     /// In-place 1D FFT. `inverse == true` selects the e^{+i...} kernel and
-    /// divides by N. `data.size()` must be a power of two.
-    void FFT1D(std::vector<Complex>& data, bool inverse);
+    /// divides by N. `data.Num()` must be a power of two.
+    void FFT1D(TArray<Complex>& data, bool inverse);
 
     /// In-place 2D FFT of a row-major width*height grid (transform rows then
     /// columns). `width` and `height` must both be powers of two. `inverse`
     /// selects the inverse transform (e^{+i...}, divided by width*height).
-    void FFT2D(std::vector<Complex>& grid, u32 width, u32 height, bool inverse);
+    void FFT2D(TArray<Complex>& grid, u32 width, u32 height, bool inverse);
 } // namespace OloEngine::Ocean

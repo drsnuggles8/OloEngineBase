@@ -319,15 +319,15 @@ TEST_F(VulkanResourceFactory, TextureUploadRoundTripsThroughGetData)
     auto texture = Texture2D::Create(spec);
     ASSERT_NE(texture, nullptr);
 
-    std::vector<u8> pixels(4 * 4 * 4);
-    for (sizet i = 0; i < pixels.size(); ++i)
+    TArray64<u8> pixels(4 * 4 * 4);
+    for (sizet i = 0; i < pixels.Num(); ++i)
         pixels[i] = static_cast<u8>(i * 7 + 3);
-    texture->SetData(pixels.data(), static_cast<u32>(pixels.size()));
+    texture->SetData(pixels.GetData(), static_cast<u32>(pixels.Num()));
 
-    std::vector<u8> readback;
+    TArray64<u8> readback;
     ASSERT_TRUE(texture->GetData(readback, 0));
-    ASSERT_EQ(readback.size(), pixels.size());
-    EXPECT_EQ(std::memcmp(readback.data(), pixels.data(), pixels.size()), 0);
+    ASSERT_EQ(readback.Num(), pixels.Num());
+    EXPECT_EQ(std::memcmp(readback.GetData(), pixels.GetData(), pixels.Num()), 0);
 }
 
 TEST_F(VulkanResourceFactory, Rgba16fTextureArrayLayersRoundTripBitExactlyThroughThePublicFacade)
@@ -352,9 +352,9 @@ TEST_F(VulkanResourceFactory, RgbUploadWidensToRgbaWithOpaqueAlpha)
     const u8 rgb[2 * 2 * 3] = { 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120 };
     texture->SetData(const_cast<u8*>(rgb), sizeof(rgb));
 
-    std::vector<u8> readback;
+    TArray64<u8> readback;
     ASSERT_TRUE(texture->GetData(readback, 0));
-    ASSERT_EQ(readback.size(), sizet{ 2 * 2 * 4 }) << "the VkImage is the widened RGBA form";
+    ASSERT_EQ(readback.Num(), sizet{ 2 * 2 * 4 }) << "the VkImage is the widened RGBA form";
     for (u32 pixel = 0; pixel < 4; ++pixel)
     {
         EXPECT_EQ(readback[pixel * 4 + 0], rgb[pixel * 3 + 0]);
@@ -380,12 +380,12 @@ TEST_F(VulkanResourceFactory, MipChainGeneratesAndReadsBack)
 
     // Solid mid-grey: every mip of a constant image is the same constant, so
     // the blit chain's correctness is byte-checkable without filtering math.
-    std::vector<u8> pixels(8 * 8 * 4, 0x80);
-    texture->SetData(pixels.data(), static_cast<u32>(pixels.size()));
+    TArray64<u8> pixels(8 * 8 * 4, 0x80);
+    texture->SetData(pixels.GetData(), static_cast<u32>(pixels.Num()));
 
-    std::vector<u8> mip2;
+    TArray64<u8> mip2;
     ASSERT_TRUE(texture->GetData(mip2, 2));
-    ASSERT_EQ(mip2.size(), sizet{ 2 * 2 * 4 });
+    ASSERT_EQ(mip2.Num(), sizet{ 2 * 2 * 4 });
     for (const u8 byte : mip2)
         EXPECT_EQ(byte, 0x80u);
 }
@@ -457,10 +457,10 @@ TEST_F(VulkanResourceFactory, HostImageCopyRouteIsActuallyTakenNotJustPermitted)
     auto texture = Texture2D::Create(spec);
     ASSERT_NE(texture, nullptr);
 
-    std::vector<u8> pixels(4 * 4 * 4);
-    for (sizet i = 0; i < pixels.size(); ++i)
+    TArray64<u8> pixels(4 * 4 * 4);
+    for (sizet i = 0; i < pixels.Num(); ++i)
         pixels[i] = static_cast<u8>(i * 5 + 1);
-    texture->SetData(pixels.data(), static_cast<u32>(pixels.size()));
+    texture->SetData(pixels.GetData(), static_cast<u32>(pixels.Num()));
 
     EXPECT_GT(VulkanTexture2D::GetHostImageCopyUploadCount(), before)
         << "an un-mipped RGBA8 upload on a host-image-copy device must take the host route "
@@ -468,10 +468,10 @@ TEST_F(VulkanResourceFactory, HostImageCopyRouteIsActuallyTakenNotJustPermitted)
 
     // ...and the pixels must still be right, which is what makes the counter
     // an assertion about a working route rather than about a code path.
-    std::vector<u8> readback;
+    TArray64<u8> readback;
     ASSERT_TRUE(texture->GetData(readback, 0));
-    ASSERT_EQ(readback.size(), pixels.size());
-    EXPECT_EQ(std::memcmp(readback.data(), pixels.data(), pixels.size()), 0);
+    ASSERT_EQ(readback.Num(), pixels.Num());
+    EXPECT_EQ(std::memcmp(readback.GetData(), pixels.GetData(), pixels.Num()), 0);
 
     // ...and a RE-upload of the same texture must NOT take it. A host copy
     // executes on the CPU with no queue ordering and no fence, so an image an
@@ -481,17 +481,17 @@ TEST_F(VulkanResourceFactory, HostImageCopyRouteIsActuallyTakenNotJustPermitted)
     // (VideoTexture::UpdateFrame, OceanFFTField::Upload) being handed a
     // racy upload.
     const u64 afterFirst = VulkanTexture2D::GetHostImageCopyUploadCount();
-    for (sizet i = 0; i < pixels.size(); ++i)
+    for (sizet i = 0; i < pixels.Num(); ++i)
         pixels[i] = static_cast<u8>(255 - pixels[i]);
-    texture->SetData(pixels.data(), static_cast<u32>(pixels.size()));
+    texture->SetData(pixels.GetData(), static_cast<u32>(pixels.Num()));
 
     EXPECT_EQ(VulkanTexture2D::GetHostImageCopyUploadCount(), afterFirst)
         << "a re-upload of a live texture must stay on the staging/command path";
 
-    std::vector<u8> reReadback;
+    TArray64<u8> reReadback;
     ASSERT_TRUE(texture->GetData(reReadback, 0));
-    ASSERT_EQ(reReadback.size(), pixels.size());
-    EXPECT_EQ(std::memcmp(reReadback.data(), pixels.data(), pixels.size()), 0)
+    ASSERT_EQ(reReadback.Num(), pixels.Num());
+    EXPECT_EQ(std::memcmp(reReadback.GetData(), pixels.GetData(), pixels.Num()), 0)
         << "the staging fallback must still land the new pixels";
 }
 
@@ -518,14 +518,14 @@ TEST_F(VulkanResourceFactory, HostUploadOfAMippedWidenedTextureRoundTrips)
 
     // Constant colour again: every mip of a constant image is that constant,
     // so no filtering math enters the assertion.
-    std::vector<u8> rgb(8 * 8 * 3);
+    TArray64<u8> rgb(8 * 8 * 3);
     for (sizet pixel = 0; pixel < 8 * 8; ++pixel)
     {
         rgb[pixel * 3 + 0] = 0x20;
         rgb[pixel * 3 + 1] = 0x40;
         rgb[pixel * 3 + 2] = 0x60;
     }
-    texture->SetData(rgb.data(), static_cast<u32>(rgb.size()));
+    texture->SetData(rgb.GetData(), static_cast<u32>(rgb.Num()));
 
     if (m_Device->IsHostImageCopyEnabled())
     {
@@ -533,9 +533,9 @@ TEST_F(VulkanResourceFactory, HostUploadOfAMippedWidenedTextureRoundTrips)
             << "mip 0 must have arrived from the host even though the blit chain still submits";
     }
 
-    std::vector<u8> mip0;
+    TArray64<u8> mip0;
     ASSERT_TRUE(texture->GetData(mip0, 0));
-    ASSERT_EQ(mip0.size(), sizet{ 8 * 8 * 4 });
+    ASSERT_EQ(mip0.Num(), sizet{ 8 * 8 * 4 });
     for (sizet pixel = 0; pixel < 8 * 8; ++pixel)
     {
         EXPECT_EQ(mip0[pixel * 4 + 0], 0x20u);
@@ -549,9 +549,9 @@ TEST_F(VulkanResourceFactory, HostUploadOfAMippedWidenedTextureRoundTrips)
     // (#803). So a mip that reads back at all is also proof the upload left the
     // image in the backend's steady-state layout AND recorded it — the
     // invariant the host path declines the whole route rather than weaken.
-    std::vector<u8> mip2;
+    TArray64<u8> mip2;
     ASSERT_TRUE(texture->GetData(mip2, 2));
-    ASSERT_EQ(mip2.size(), sizet{ 2 * 2 * 4 });
+    ASSERT_EQ(mip2.Num(), sizet{ 2 * 2 * 4 });
     for (sizet pixel = 0; pixel < 2 * 2; ++pixel)
     {
         EXPECT_EQ(mip2[pixel * 4 + 0], 0x20u);
@@ -578,16 +578,16 @@ TEST_F(VulkanResourceFactory, HostUploadedTextureStillAcceptsASubImageUpdate)
     auto texture = Texture2D::Create(spec);
     ASSERT_NE(texture, nullptr);
 
-    std::vector<u8> pixels(4 * 4 * 4, 0x11);
-    texture->SetData(pixels.data(), static_cast<u32>(pixels.size()));
+    TArray64<u8> pixels(4 * 4 * 4, 0x11);
+    texture->SetData(pixels.GetData(), static_cast<u32>(pixels.Num()));
 
     const u8 patch[2 * 2 * 4] = { 0xAA, 0xBB, 0xCC, 0xDD, 0xAA, 0xBB, 0xCC, 0xDD,
                                   0xAA, 0xBB, 0xCC, 0xDD, 0xAA, 0xBB, 0xCC, 0xDD };
     texture->SubImage(1u, 1u, 2u, 2u, patch, sizeof(patch));
 
-    std::vector<u8> readback;
+    TArray64<u8> readback;
     ASSERT_TRUE(texture->GetData(readback, 0));
-    ASSERT_EQ(readback.size(), pixels.size());
+    ASSERT_EQ(readback.Num(), pixels.Num());
     // The patched 2x2 block, and one untouched texel to prove the update was
     // partial rather than a full overwrite.
     const sizet patchedTexel = (1u * 4u + 1u) * 4u;
@@ -757,9 +757,9 @@ TEST_F(VulkanResourceFactory, ReadbackBarriersFromTheRecordedLayoutNotAnAssumedO
     auto texture = Texture2D::Create(spec);
     ASSERT_NE(texture, nullptr);
 
-    std::vector<u8> readback;
+    TArray64<u8> readback;
     EXPECT_TRUE(texture->GetData(readback, 0));
-    EXPECT_EQ(readback.size(), sizet{ 4 * 4 * 4 });
+    EXPECT_EQ(readback.Num(), sizet{ 4 * 4 * 4 });
 }
 
 TEST_F(VulkanResourceFactory, DeviceAddressCommandEntryPointsAreLoaded)

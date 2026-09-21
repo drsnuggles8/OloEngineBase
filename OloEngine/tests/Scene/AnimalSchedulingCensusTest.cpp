@@ -362,7 +362,7 @@ TEST(AnimalSchedulingCensus, APopulationThatFitsIsNotCoarsenedAtAll)
     }
 
     AnimalSchedulerStats stats;
-    const std::vector<AnimalSchedule> schedules = ScheduleAnimalPopulation(policy, AnimalCostModel{}, slots, &stats);
+    const TArray<AnimalSchedule> schedules = ScheduleAnimalPopulation(policy, AnimalCostModel{}, slots, &stats);
 
     EXPECT_FALSE(stats.BudgetExceeded);
     EXPECT_EQ(stats.AnimalsCoarsened, 0u);

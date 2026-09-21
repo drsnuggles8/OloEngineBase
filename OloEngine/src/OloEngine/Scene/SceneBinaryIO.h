@@ -22,6 +22,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/UUID.h"
+#include "OloEngine/Containers/String.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -268,6 +269,21 @@ namespace OloEngine::SceneBinIO
         }
         v.assign(len, '\0');
         return len == 0 || r.Raw(v.data(), len);
+    }
+
+    // FString uses the same UTF-8 wire shape, without its terminator.
+    inline void Write(std::ostream& out, const FString& v)
+    {
+        WriteU32(out, static_cast<u32>(v.Len()));
+        out.write(v.GetData(), static_cast<std::streamsize>(v.Len()));
+    }
+    [[nodiscard]] inline bool Read(Reader& r, FString& v)
+    {
+        std::string value;
+        if (!Read(r, value))
+            return false;
+        v = value;
+        return true;
     }
 
     // UUID / AssetHandle (AssetHandle = UUID) — round-trips as a u64.

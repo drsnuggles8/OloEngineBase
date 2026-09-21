@@ -682,7 +682,7 @@ namespace OloEngine::Tests
         pass->ReadbackProbeDiagnostics();
 
         const auto& records = pass->GetProbeRecords();
-        ASSERT_EQ(records.size(), static_cast<std::size_t>(kTotalProbes))
+        ASSERT_EQ(records.Num(), static_cast<std::size_t>(kTotalProbes))
             << "Probe record count does not match the submitted 4x3x4 grid";
 
         i32 uncaptured = 0, active = 0, inactive = 0;
@@ -1221,7 +1221,7 @@ namespace OloEngine::Tests
             CascadeHistogram histogram{};
             const auto& records = pass.GetProbeRecords();
             const glm::ivec3 dims(kCascadeRes);
-            for (std::size_t i = 0; i < records.size(); ++i)
+            for (std::size_t i = 0; i < records.Num(); ++i)
             {
                 const i32 level = std::clamp(DDGI::CascadeOfProbeIndex(static_cast<i32>(i), dims), 0, 7);
                 switch (records[i].State)

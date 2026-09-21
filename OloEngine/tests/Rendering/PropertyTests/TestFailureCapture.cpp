@@ -273,7 +273,7 @@ namespace OloEngine::Tests::TestFailureCapture
     {
         const auto& mgr = OloEngine::FrameCaptureManager::GetInstance();
         const auto frames = mgr.GetCapturedFramesCopy();
-        if (frames.empty())
+        if (frames.IsEmpty())
             return false;
 
         std::error_code ec;
@@ -282,13 +282,13 @@ namespace OloEngine::Tests::TestFailureCapture
         if (!out)
             return false;
 
-        const OloEngine::CapturedFrameData& last = frames.back();
+        const OloEngine::CapturedFrameData& last = frames.Last();
         out << "# OloEngine FrameCaptureManager — last captured frame\n";
         out << "FrameNumber        = " << last.FrameNumber << '\n';
         out << "TimestampSeconds   = " << last.TimestampSeconds << '\n';
-        out << "PreSortCommands    = " << last.PreSortCommands.size() << '\n';
-        out << "PostSortCommands   = " << last.PostSortCommands.size() << '\n';
-        out << "PostBatchCommands  = " << last.PostBatchCommands.size() << '\n';
+        out << "PreSortCommands    = " << last.PreSortCommands.Num() << '\n';
+        out << "PostSortCommands   = " << last.PostSortCommands.Num() << '\n';
+        out << "PostBatchCommands  = " << last.PostBatchCommands.Num() << '\n';
         out << "Stats.TotalCommands  = " << last.Stats.TotalCommands << '\n';
         out << "Stats.BatchedCommands= " << last.Stats.BatchedCommands << '\n';
         out << "Stats.DrawCalls      = " << last.Stats.DrawCalls << '\n';
@@ -299,8 +299,8 @@ namespace OloEngine::Tests::TestFailureCapture
         out << "Stats.BatchTimeMs    = " << last.Stats.BatchTimeMs << '\n';
         out << "Stats.ExecuteTimeMs  = " << last.Stats.ExecuteTimeMs << '\n';
         out << "Stats.TotalFrameTime = " << last.Stats.TotalFrameTimeMs << '\n';
-        if (!last.Notes.empty())
-            out << "Notes = " << last.Notes << '\n';
+        if (!last.Notes.IsEmpty())
+            out << "Notes = " << last.Notes.ToView() << '\n';
         return out.good();
     }
 

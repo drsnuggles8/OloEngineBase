@@ -201,7 +201,7 @@ namespace OloEngine::Tests
         EXPECT_NE(secondOwner, firstOwner);
         EXPECT_FALSE(scene.IsInstanceHandleLive(firstOwner));
         EXPECT_TRUE(scene.IsInstanceHandleLive(secondOwner));
-        ASSERT_EQ(replacement.m_InstanceDirtyRanges.size(), 1u);
+        ASSERT_EQ(replacement.m_InstanceDirtyRanges.Num(), 1u);
         EXPECT_EQ(replacement.m_InstanceDirtyRanges[0], (GPUSceneDirtyRange{ 0, 2 }));
     }
 
@@ -246,7 +246,7 @@ namespace OloEngine::Tests
         };
 
         const auto firstUpdate = extract(1010.0f, 1000.0f);
-        ASSERT_EQ(firstUpdate.m_InstanceDirtyRanges.size(), 1u);
+        ASSERT_EQ(firstUpdate.m_InstanceDirtyRanges.Num(), 1u);
         EXPECT_EQ(firstUpdate.m_InstanceDirtyRanges[0], (GPUSceneDirtyRange{ 0, 1 }));
 
         const GPUSceneHandle handle = scene.FindInstance(instanceKey);
@@ -273,8 +273,8 @@ namespace OloEngine::Tests
             << "both temporal transforms must use this frame's render origin";
 
         const auto unchangedUpdate = extract(1020.0f, 1010.0f);
-        EXPECT_TRUE(unchangedUpdate.m_InstanceDirtyRanges.empty());
-        EXPECT_TRUE(unchangedUpdate.m_GeometryDirtyRanges.empty());
+        EXPECT_TRUE(unchangedUpdate.m_InstanceDirtyRanges.IsEmpty());
+        EXPECT_TRUE(unchangedUpdate.m_GeometryDirtyRanges.IsEmpty());
 
         const GPUSceneGeometry* geometryRecord = scene.GetGeometryRecord(scene.FindGeometry(geometryKey));
         ASSERT_NE(geometryRecord, nullptr);
@@ -314,17 +314,17 @@ namespace OloEngine::Tests
         };
 
         const auto initial = extract(0.0f);
-        ASSERT_EQ(initial.m_InstanceDirtyRanges.size(), 1u);
+        ASSERT_EQ(initial.m_InstanceDirtyRanges.Num(), 1u);
         EXPECT_EQ(initial.m_InstanceDirtyRanges[0], (GPUSceneDirtyRange{ 0, 3 }));
-        ASSERT_EQ(initial.m_GeometryDirtyRanges.size(), 1u);
+        ASSERT_EQ(initial.m_GeometryDirtyRanges.Num(), 1u);
         EXPECT_EQ(initial.m_GeometryDirtyRanges[0], (GPUSceneDirtyRange{ 0, 1 }));
 
         const auto stable = extract(0.0f);
-        EXPECT_TRUE(stable.m_InstanceDirtyRanges.empty());
-        EXPECT_TRUE(stable.m_GeometryDirtyRanges.empty());
+        EXPECT_TRUE(stable.m_InstanceDirtyRanges.IsEmpty());
+        EXPECT_TRUE(stable.m_GeometryDirtyRanges.IsEmpty());
 
         const auto partial = extract(5.0f);
-        ASSERT_EQ(partial.m_InstanceDirtyRanges.size(), 1u);
+        ASSERT_EQ(partial.m_InstanceDirtyRanges.Num(), 1u);
         EXPECT_EQ(partial.m_InstanceDirtyRanges[0], (GPUSceneDirtyRange{ 1, 1 }));
 
         const GPUSceneInstanceKey firstInstanceKey{ .m_EntityId = 10, .m_Geometry = geometryKey };
@@ -333,9 +333,9 @@ namespace OloEngine::Tests
         scene.Reset();
         EXPECT_FALSE(scene.IsInstanceHandleLive(staleInstance));
         EXPECT_FALSE(scene.IsGeometryHandleLive(staleGeometry));
-        ASSERT_EQ(scene.GetLastFrameUpdate().m_InstanceDirtyRanges.size(), 1u);
+        ASSERT_EQ(scene.GetLastFrameUpdate().m_InstanceDirtyRanges.Num(), 1u);
         EXPECT_EQ(scene.GetLastFrameUpdate().m_InstanceDirtyRanges[0], (GPUSceneDirtyRange{ 0, 3 }));
-        ASSERT_EQ(scene.GetLastFrameUpdate().m_GeometryDirtyRanges.size(), 1u);
+        ASSERT_EQ(scene.GetLastFrameUpdate().m_GeometryDirtyRanges.Num(), 1u);
         EXPECT_EQ(scene.GetLastFrameUpdate().m_GeometryDirtyRanges[0], (GPUSceneDirtyRange{ 0, 1 }));
 
         const auto afterReset = extract(0.0f);
@@ -345,9 +345,9 @@ namespace OloEngine::Tests
         EXPECT_NE(reusedGeometry.m_Index, staleGeometry.m_Index);
         EXPECT_EQ(afterReset.m_Stats.m_Instances.m_RetiredSlots, 3u);
         EXPECT_EQ(afterReset.m_Stats.m_Geometries.m_RetiredSlots, 1u);
-        ASSERT_EQ(afterReset.m_InstanceDirtyRanges.size(), 1u);
+        ASSERT_EQ(afterReset.m_InstanceDirtyRanges.Num(), 1u);
         EXPECT_EQ(afterReset.m_InstanceDirtyRanges[0], (GPUSceneDirtyRange{ 0, 6 }));
-        ASSERT_EQ(afterReset.m_GeometryDirtyRanges.size(), 1u);
+        ASSERT_EQ(afterReset.m_GeometryDirtyRanges.Num(), 1u);
         EXPECT_EQ(afterReset.m_GeometryDirtyRanges[0], (GPUSceneDirtyRange{ 0, 2 }));
     }
 } // namespace OloEngine::Tests

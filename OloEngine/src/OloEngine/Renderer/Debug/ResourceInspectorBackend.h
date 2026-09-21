@@ -6,7 +6,8 @@
 
 #include <memory>
 #include <string>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/String.h"
 
 namespace OloEngine
 {
@@ -103,7 +104,7 @@ namespace OloEngine
             // GL_FLOAT component TYPE the GL arm used to answer with (#803).
             // 0 means "no queryable object": an attachment of the default
             // framebuffer, or none at all (0 is GL_NONE).
-            std::vector<u32> ColorAttachmentFormats;
+            TArray<u32> ColorAttachmentFormats;
             bool HasDepthAttachment = false;
             u32 DepthAttachmentFormat = 0;
             bool HasStencilAttachment = false;
@@ -126,8 +127,8 @@ namespace OloEngine
             // back to ReadCaptureRegion unchanged.
             bool Layered = false;
             u32 PixelFormat = 0; // native readback format enum value
-            std::string FormatName;
-            std::string Error;
+            FString FormatName;
+            FString Error;
         };
 
         // Opaque handles for one in-flight async texture download. The shell
@@ -217,23 +218,20 @@ namespace OloEngine
             u64 Native = 0;
             RHI::ResourceKind Kind = RHI::ResourceKind::Unknown;
             bool IsCubemap = false;
-            std::string Name;      ///< best label the backend can derive
-            std::string DebugName; ///< finer detail (view type, usage, …)
+            FString Name;      ///< best label the backend can derive
+            FString DebugName; ///< finer detail (view type, usage, …)
             u32 Width = 0;
             u32 Height = 0;
             u32 MipLevels = 1;
             u32 ArrayLayers = 1;
             u32 NativeFormat = 0; ///< VkFormat / GL internal-format enum value
-            std::string FormatName;
+            FString FormatName;
             u64 SizeBytes = 0;    ///< bytes of GPU storage, 0 = unknown
             u32 NativeTarget = 0; ///< buffer target / usage bits; 0 for images
         };
         // Fills `out` with every live resource this backend can describe.
         // Only called when DiscoversResources() is true.
-        virtual void DiscoverResources(std::vector<DiscoveredResource>& out)
-        {
-            out.clear();
-        }
+        virtual void DiscoverResources(TArray<DiscoveredResource>& out);
 
         // ---- Device memory budget (#810) -----------------------------------
         //
@@ -252,9 +250,9 @@ namespace OloEngine
             u64 AllocationCount = 0; ///< live suballocations
             u64 BlockCount = 0;      ///< device memory blocks
         };
-        [[nodiscard]] virtual bool QueryMemoryHeaps(std::vector<MemoryHeap>& out)
+        [[nodiscard]] virtual bool QueryMemoryHeaps(TArray<MemoryHeap>& out)
         {
-            out.clear();
+            out.Reset();
             return false;
         }
 
@@ -264,6 +262,31 @@ namespace OloEngine
         // ImGui::Image draw, same contract as ImGuiLayer::GetTextureID.
         [[nodiscard]] virtual u64 GetImGuiTextureID(u64 nativeTextureId) const = 0;
     };
+
+    // Owned strings plus resource handles, enums and scalars; no pointers into the record.
+    template<>
+    struct TIsTriviallyRelocatable<IResourceInspectorBackend::DiscoveredResource>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(IResourceInspectorBackend::DiscoveredResource::Handle)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(IResourceInspectorBackend::DiscoveredResource::Native)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(IResourceInspectorBackend::DiscoveredResource::Kind)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(IResourceInspectorBackend::DiscoveredResource::IsCubemap)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(IResourceInspectorBackend::DiscoveredResource::Name)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(IResourceInspectorBackend::DiscoveredResource::DebugName)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(IResourceInspectorBackend::DiscoveredResource::Width)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(IResourceInspectorBackend::DiscoveredResource::Height)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(IResourceInspectorBackend::DiscoveredResource::MipLevels)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(IResourceInspectorBackend::DiscoveredResource::ArrayLayers)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(IResourceInspectorBackend::DiscoveredResource::NativeFormat)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(IResourceInspectorBackend::DiscoveredResource::FormatName)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(IResourceInspectorBackend::DiscoveredResource::SizeBytes)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(IResourceInspectorBackend::DiscoveredResource::NativeTarget)>::Value;
+    };
+
+    inline void IResourceInspectorBackend::DiscoverResources(TArray<DiscoveredResource>& out)
+    {
+        out.Reset();
+    }
 
     // Factory — the one place the backend switch lives. Returns null only for
     // RendererAPI::API::None (headless / no renderer); defined in

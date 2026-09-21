@@ -23,7 +23,7 @@ namespace OloEngine
         auto& heights = terrainData.GetHeightData();
         u32 res = terrainData.GetResolution();
 
-        if (res <= 1 || heights.empty() || heightScale <= 0.0f || worldSizeX <= 0.0f || worldSizeZ <= 0.0f)
+        if (res <= 1 || heights.IsEmpty() || heightScale <= 0.0f || worldSizeX <= 0.0f || worldSizeZ <= 0.0f)
             return dirty;
 
         // Convert world position to normalized terrain coords [0, 1]
@@ -55,7 +55,7 @@ namespace OloEngine
         bool changed = false;
 
         // Snapshot for smooth tool so reads are order-independent
-        std::vector<f32> smoothSnapshot;
+        TArray<f32> smoothSnapshot;
         if (settings.Tool == TerrainBrushTool::Smooth)
         {
             smoothSnapshot = heights;

@@ -4,7 +4,7 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/Texture.h"
 
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -28,6 +28,30 @@ namespace OloEngine
     // holds a Ref<Texture2D>, not a raw RHI handle, so eviction, reallocation and
     // stack teardown all release through the same refcount. Do not "optimise" that
     // into a raw handle plus a manual free.
+    struct TerrainTextureUndoEntry
+    {
+        u64 Id = 0;
+        Ref<Texture2D> Snapshot; // RAII — see the class comment
+        u32 X = 0;
+        u32 Y = 0;
+        u32 Width = 0;
+        u32 Height = 0;
+        sizet Bytes = 0;
+    };
+
+    // The snapshot Ref owns an external texture; all other fields are scalar values.
+    template<>
+    struct TIsTriviallyRelocatable<TerrainTextureUndoEntry>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(TerrainTextureUndoEntry::Id)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TerrainTextureUndoEntry::Snapshot)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TerrainTextureUndoEntry::X)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TerrainTextureUndoEntry::Y)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TerrainTextureUndoEntry::Width)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TerrainTextureUndoEntry::Height)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TerrainTextureUndoEntry::Bytes)>::Value;
+    };
+
     class TerrainTextureUndoStack : public RefCounted
     {
       public:
@@ -78,7 +102,7 @@ namespace OloEngine
 
         [[nodiscard]] u32 GetEntryCount() const
         {
-            return static_cast<u32>(m_Entries.size());
+            return static_cast<u32>(m_Entries.Num());
         }
         [[nodiscard]] sizet GetBytesUsed() const
         {
@@ -103,21 +127,12 @@ namespace OloEngine
         [[nodiscard]] bool Contains(SnapshotId id) const;
 
       private:
-        struct Entry
-        {
-            SnapshotId Id = kInvalidSnapshot;
-            Ref<Texture2D> Snapshot; // RAII — see the class comment
-            u32 X = 0;
-            u32 Y = 0;
-            u32 Width = 0;
-            u32 Height = 0;
-            sizet Bytes = 0;
-        };
+        using Entry = TerrainTextureUndoEntry;
 
         void EvictUntilWithinBudget();
 
-        std::vector<Entry> m_Entries; // oldest first
-        SnapshotId m_NextId = 1;      // 0 is reserved for kInvalidSnapshot
+        TArray<Entry> m_Entries; // oldest first
+        SnapshotId m_NextId = 1; // 0 is reserved for kInvalidSnapshot
         u32 m_MaxEntries;
         sizet m_MaxBytes;
         sizet m_BytesUsed = 0;

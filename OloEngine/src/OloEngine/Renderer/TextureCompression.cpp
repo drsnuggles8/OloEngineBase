@@ -52,14 +52,14 @@ namespace OloEngine
 
         // Expand tightly-packed `channels`-per-texel source to RGBA8 (4 bytes/texel).
         // 1ch -> R,R,R,255 (greyscale); 2ch -> R,G,0,255; 3ch -> R,G,B,255; 4ch -> as-is.
-        std::vector<u8> ExpandToRGBA8(const u8* pixels, u32 width, u32 height, u32 channels)
+        TArray64<u8> ExpandToRGBA8(const u8* pixels, u32 width, u32 height, u32 channels)
         {
             const sizet texelCount = static_cast<sizet>(width) * height;
-            std::vector<u8> rgba(texelCount * 4);
+            TArray64<u8> rgba(texelCount * 4);
             for (sizet i = 0; i < texelCount; ++i)
             {
                 const u8* src = pixels + i * channels;
-                u8* dst = rgba.data() + i * 4;
+                u8* dst = rgba.GetData() + i * 4;
                 switch (channels)
                 {
                     case 1:
@@ -130,12 +130,12 @@ namespace OloEngine
         //
         // Alpha is NEVER gamma-decoded — it is coverage, not light, and is linear in the
         // stored space already. `outW`/`outH` receive the reduced dimensions.
-        std::vector<u8> DownsampleRGBA8(const std::vector<u8>& src, u32 width, u32 height, bool srgb,
-                                        u32& outW, u32& outH)
+        TArray64<u8> DownsampleRGBA8(const TArray64<u8>& src, u32 width, u32 height, bool srgb,
+                                     u32& outW, u32& outH)
         {
             outW = std::max(1u, width / 2);
             outH = std::max(1u, height / 2);
-            std::vector<u8> dst(static_cast<sizet>(outW) * outH * 4);
+            TArray64<u8> dst(static_cast<sizet>(outW) * outH * 4);
             const std::array<f32, 256>& decode = SRGBDecodeTable();
 
             for (u32 y = 0; y < outH; ++y)
@@ -172,7 +172,7 @@ namespace OloEngine
 
         // Gather the 4x4 block at (blockX, blockY) from an RGBA8 image into a 64-byte
         // (16 texel x RGBA) contiguous buffer, clamping to the edge for partial blocks.
-        void GatherBlockRGBA(const std::vector<u8>& rgba, u32 width, u32 height, u32 blockX, u32 blockY,
+        void GatherBlockRGBA(const TArray64<u8>& rgba, u32 width, u32 height, u32 blockX, u32 blockY,
                              std::array<u8, 64>& outBlock)
         {
             for (u32 ry = 0; ry < 4; ++ry)
@@ -195,12 +195,12 @@ namespace OloEngine
         // `encodeBlock(dst, block64)` fills `blockBytes` output bytes from a 64-byte RGBA
         // block. `blockBytes` is 16 for BC5/BC7 and 8 for BC4, which stores one channel.
         template<typename EncodeBlockFn>
-        std::vector<u8> EncodeLevel(const std::vector<u8>& rgba, u32 width, u32 height, EncodeBlockFn&& encodeBlock,
-                                    u32 blockBytes = 16)
+        TArray64<u8> EncodeLevel(const TArray64<u8>& rgba, u32 width, u32 height, EncodeBlockFn&& encodeBlock,
+                                 u32 blockBytes = 16)
         {
             const u32 bx = TextureCompression::BlockCount(width);
             const u32 by = TextureCompression::BlockCount(height);
-            std::vector<u8> out(static_cast<sizet>(bx) * by * blockBytes);
+            TArray64<u8> out(static_cast<sizet>(bx) * by * blockBytes);
 
             std::array<u8, 64> block{};
             for (u32 y = 0; y < by; ++y)
@@ -208,7 +208,7 @@ namespace OloEngine
                 for (u32 x = 0; x < bx; ++x)
                 {
                     GatherBlockRGBA(rgba, width, height, x, y, block);
-                    u8* dst = out.data() + (static_cast<sizet>(y) * bx + x) * blockBytes;
+                    u8* dst = out.GetData() + (static_cast<sizet>(y) * bx + x) * blockBytes;
                     encodeBlock(dst, block.data());
                 }
             }
@@ -221,15 +221,15 @@ namespace OloEngine
         // loop, the !generateMips / 1x1 termination, and the dimension bookkeeping are
         // identical — only the pixel type and the two callables differ.
         template<typename Pixel, typename EncodeLevelFn, typename DownsampleFn>
-        std::vector<std::vector<u8>> BuildMipChain(std::vector<Pixel> level, u32 width, u32 height, bool generateMips,
-                                                   EncodeLevelFn&& encodeLevel, DownsampleFn&& downsample)
+        TArray<TArray64<u8>> BuildMipChain(TArray64<Pixel> level, u32 width, u32 height, bool generateMips,
+                                           EncodeLevelFn&& encodeLevel, DownsampleFn&& downsample)
         {
-            std::vector<std::vector<u8>> mips;
+            TArray<TArray64<u8>> mips;
             u32 mw = width;
             u32 mh = height;
             while (true)
             {
-                mips.push_back(encodeLevel(level, mw, mh));
+                mips.Add(encodeLevel(level, mw, mh));
                 if (!generateMips || (mw == 1 && mh == 1))
                     break;
                 u32 nw = 0;
@@ -298,14 +298,14 @@ namespace OloEngine
 
         // Expand tightly-packed `channels`-per-texel float source to RGB (3 floats/texel).
         // channels>=3 keeps R,G,B (extra dropped); 2 -> R,G,0; 1 -> R,R,R.
-        std::vector<f32> ExpandToRGBFloat(const f32* pixels, u32 width, u32 height, u32 channels)
+        TArray64<f32> ExpandToRGBFloat(const f32* pixels, u32 width, u32 height, u32 channels)
         {
             const sizet texelCount = static_cast<sizet>(width) * height;
-            std::vector<f32> rgb(texelCount * 3);
+            TArray64<f32> rgb(texelCount * 3);
             for (sizet i = 0; i < texelCount; ++i)
             {
                 const f32* src = pixels + i * channels;
-                f32* dst = rgb.data() + i * 3;
+                f32* dst = rgb.GetData() + i * 3;
                 dst[0] = src[0];
                 dst[1] = channels >= 2 ? src[1] : src[0];
                 dst[2] = channels >= 3 ? src[2] : (channels == 1 ? src[0] : 0.0f);
@@ -315,11 +315,11 @@ namespace OloEngine
 
         // Box-filter downsample an RGB-float image to half size. HDR data is already
         // linear, so a plain average is correct (unlike the gamma-naive 8-bit path).
-        std::vector<f32> DownsampleRGBFloat(const std::vector<f32>& src, u32 width, u32 height, u32& outW, u32& outH)
+        TArray64<f32> DownsampleRGBFloat(const TArray64<f32>& src, u32 width, u32 height, u32& outW, u32& outH)
         {
             outW = std::max(1u, width / 2);
             outH = std::max(1u, height / 2);
-            std::vector<f32> dst(static_cast<sizet>(outW) * outH * 3);
+            TArray64<f32> dst(static_cast<sizet>(outW) * outH * 3);
             for (u32 y = 0; y < outH; ++y)
             {
                 const u32 sy0 = std::min(y * 2, height - 1);
@@ -342,7 +342,7 @@ namespace OloEngine
 
         // Gather the 4x4 block at (blockX, blockY) from an RGB-float image into 48
         // contiguous floats (16 texel x RGB), clamping to the edge for partial blocks.
-        void GatherBlockRGBFloat(const std::vector<f32>& rgb, u32 width, u32 height, u32 blockX, u32 blockY,
+        void GatherBlockRGBFloat(const TArray64<f32>& rgb, u32 width, u32 height, u32 blockX, u32 blockY,
                                  std::array<f32, 48>& outBlock)
         {
             for (u32 ry = 0; ry < 4; ++ry)
@@ -467,9 +467,9 @@ namespace OloEngine
 
             image.Mips = BuildMipChain<u8>(
                 ExpandToRGBA8(pixels, width, height, channels), width, height, generateMips,
-                [&encodeBlock](const std::vector<u8>& lvl, u32 w, u32 h)
+                [&encodeBlock](const TArray64<u8>& lvl, u32 w, u32 h)
                 { return EncodeLevel(lvl, w, h, encodeBlock); },
-                [srgb](const std::vector<u8>& s, u32 w, u32 h, u32& ow, u32& oh)
+                [srgb](const TArray64<u8>& s, u32 w, u32 h, u32& ow, u32& oh)
                 { return DownsampleRGBA8(s, w, h, srgb, ow, oh); });
             return image;
         }
@@ -502,9 +502,9 @@ namespace OloEngine
 
             image.Mips = BuildMipChain<u8>(
                 ExpandToRGBA8(pixels, width, height, channels), width, height, generateMips,
-                [&encodeBlock](const std::vector<u8>& lvl, u32 w, u32 h)
+                [&encodeBlock](const TArray64<u8>& lvl, u32 w, u32 h)
                 { return EncodeLevel(lvl, w, h, encodeBlock); },
-                [](const std::vector<u8>& s, u32 w, u32 h, u32& ow, u32& oh)
+                [](const TArray64<u8>& s, u32 w, u32 h, u32& ow, u32& oh)
                 { return DownsampleRGBA8(s, w, h, /*srgb*/ false, ow, oh); });
             return image;
         }
@@ -563,9 +563,9 @@ namespace OloEngine
 
             image.Mips = BuildMipChain<u8>(
                 ExpandToRGBA8(pixels, width, height, channels), width, height, generateMips,
-                [&encodeBlock](const std::vector<u8>& lvl, u32 w, u32 h)
+                [&encodeBlock](const TArray64<u8>& lvl, u32 w, u32 h)
                 { return EncodeLevel(lvl, w, h, encodeBlock, 8); },
-                [](const std::vector<u8>& s, u32 w, u32 h, u32& ow, u32& oh)
+                [](const TArray64<u8>& s, u32 w, u32 h, u32& ow, u32& oh)
                 { return DownsampleRGBA8(s, w, h, /*srgb*/ false, ow, oh); });
             return image;
         }
@@ -576,7 +576,7 @@ namespace OloEngine
             if (!pixels || width == 0 || height == 0 || channels == 0 || channels > 4)
                 return usage;
 
-            const std::vector<u8> rgba = ExpandToRGBA8(pixels, width, height, channels);
+            const TArray64<u8> rgba = ExpandToRGBA8(pixels, width, height, channels);
             const sizet texelCount = static_cast<sizet>(width) * height;
 
             std::array<u8, 4> first{ rgba[0], rgba[1], rgba[2], rgba[3] };
@@ -645,7 +645,7 @@ namespace OloEngine
             image.SRGB = false;     // HDR is linear, never sRGB
             image.HasAlpha = false; // BC6H is RGB only
 
-            const auto encodeLevel = [isSigned](const std::vector<f32>& rgb, u32 w, u32 h)
+            const auto encodeLevel = [isSigned](const TArray64<f32>& rgb, u32 w, u32 h)
             {
                 const u32 bx = BlockCount(w);
                 const u32 by = BlockCount(h);
@@ -656,9 +656,9 @@ namespace OloEngine
                 // and continues on the CPU rather than failing the cook.
                 if (const Bc6hGpuEncodeFn gpu = s_GpuBC6HEncoder.load(std::memory_order_relaxed))
                 {
-                    std::vector<u8> gpuOut;
-                    if (gpu(rgb.data(), w, h, isSigned, gpuOut) &&
-                        gpuOut.size() == static_cast<sizet>(bx) * by * 16)
+                    TArray64<u8> gpuOut;
+                    if (gpu(rgb.GetData(), w, h, isSigned, gpuOut) &&
+                        gpuOut.Num() == static_cast<sizet>(bx) * by * 16)
                     {
                         s_Bc6hGpuLevels.fetch_add(1, std::memory_order_relaxed);
                         return gpuOut;
@@ -668,14 +668,14 @@ namespace OloEngine
                                   w, h);
                 }
 
-                std::vector<u8> out(static_cast<sizet>(bx) * by * 16);
+                TArray64<u8> out(static_cast<sizet>(bx) * by * 16);
                 std::array<f32, 48> block{};
                 for (u32 y = 0; y < by; ++y)
                 {
                     for (u32 x = 0; x < bx; ++x)
                     {
                         GatherBlockRGBFloat(rgb, w, h, x, y, block);
-                        BC6H::EncodeBlock(out.data() + (static_cast<sizet>(y) * bx + x) * 16, block.data(), isSigned);
+                        BC6H::EncodeBlock(out.GetData() + (static_cast<sizet>(y) * bx + x) * 16, block.data(), isSigned);
                     }
                 }
                 s_Bc6hCpuLevels.fetch_add(1, std::memory_order_relaxed);
@@ -685,13 +685,13 @@ namespace OloEngine
             image.Mips = BuildMipChain<f32>(
                 ExpandToRGBFloat(pixels, width, height, channels), width, height, generateMips,
                 encodeLevel,
-                [](const std::vector<f32>& s, u32 w, u32 h, u32& ow, u32& oh)
+                [](const TArray64<f32>& s, u32 w, u32 h, u32& ow, u32& oh)
                 { return DownsampleRGBFloat(s, w, h, ow, oh); });
             return image;
         }
 
         bool DecodeToRGBA8(const CompressedTextureImage& image, u32 mipLevel,
-                           std::vector<u8>& outRGBA8, u32& outWidth, u32& outHeight)
+                           TArray64<u8>& outRGBA8, u32& outWidth, u32& outHeight)
         {
             if (!image.IsValid() || mipLevel >= image.MipLevels())
                 return false;
@@ -707,14 +707,14 @@ namespace OloEngine
             const u32 mh = std::max(1u, image.Height >> mipLevel);
             outWidth = mw;
             outHeight = mh;
-            outRGBA8.assign(static_cast<sizet>(mw) * mh * 4, 0);
+            outRGBA8.Init(0, static_cast<i64>(mw) * mh * 4);
 
-            const std::vector<u8>& blocks = image.Mips[mipLevel];
+            const TArray64<u8>& blocks = image.Mips[mipLevel];
             const u32 bxCount = BlockCount(mw);
             const u32 byCount = BlockCount(mh);
             // BC4 is 8 bytes per block, everything else 16 — never assume the stride.
             const u32 blockBytes = BlockSizeBytes(image.Format);
-            if (blocks.size() < static_cast<sizet>(bxCount) * byCount * blockBytes)
+            if (blocks.Num() < static_cast<sizet>(bxCount) * byCount * blockBytes)
             {
                 OLO_CORE_ERROR("TextureCompression::DecodeToRGBA8 - mip {} block data truncated", mipLevel);
                 return false;
@@ -725,7 +725,7 @@ namespace OloEngine
             {
                 for (u32 bx = 0; bx < bxCount; ++bx)
                 {
-                    const u8* blockPtr = blocks.data() + (static_cast<sizet>(by) * bxCount + bx) * blockBytes;
+                    const u8* blockPtr = blocks.GetData() + (static_cast<sizet>(by) * bxCount + bx) * blockBytes;
                     if (image.Format == TextureCompressionFormat::BC7)
                     {
                         // bc7decomp writes 16 color_rgba (RGBA) contiguously.
@@ -778,7 +778,7 @@ namespace OloEngine
         }
 
         bool DecodeToRGBAFloat(const CompressedTextureImage& image, u32 mipLevel,
-                               std::vector<f32>& outRGBA, u32& outWidth, u32& outHeight)
+                               TArray64<f32>& outRGBA, u32& outWidth, u32& outHeight)
         {
             if (!image.IsValid() || !IsBC6H(image.Format) || mipLevel >= image.MipLevels())
                 return false;
@@ -788,12 +788,12 @@ namespace OloEngine
             const u32 mh = std::max(1u, image.Height >> mipLevel);
             outWidth = mw;
             outHeight = mh;
-            outRGBA.assign(static_cast<sizet>(mw) * mh * 4, 0.0f);
+            outRGBA.Init(0.0f, static_cast<i64>(mw) * mh * 4);
 
-            const std::vector<u8>& blocks = image.Mips[mipLevel];
+            const TArray64<u8>& blocks = image.Mips[mipLevel];
             const u32 bxCount = BlockCount(mw);
             const u32 byCount = BlockCount(mh);
-            if (blocks.size() < static_cast<sizet>(bxCount) * byCount * 16)
+            if (blocks.Num() < static_cast<sizet>(bxCount) * byCount * 16)
             {
                 OLO_CORE_ERROR("TextureCompression::DecodeToRGBAFloat - mip {} block data truncated", mipLevel);
                 return false;
@@ -805,7 +805,7 @@ namespace OloEngine
             {
                 for (u32 bx = 0; bx < bxCount; ++bx)
                 {
-                    const u8* blockPtr = blocks.data() + (static_cast<sizet>(by) * bxCount + bx) * 16;
+                    const u8* blockPtr = blocks.GetData() + (static_cast<sizet>(by) * bxCount + bx) * 16;
                     ::bcdec_bc6h_float(blockPtr, decoded.data(), 4 * 3, bcdecSigned);
 
                     for (u32 ry = 0; ry < 4; ++ry)
@@ -840,8 +840,8 @@ namespace OloEngine
             // Total size is fully known up front (28-byte header + per-mip 4-byte length
             // + block bytes); reserve once so the appends don't repeatedly realloc.
             sizet total = 4 + 6 * sizeof(u32);
-            for (const std::vector<u8>& mip : image.Mips)
-                total += sizeof(u32) + mip.size();
+            for (const TArray64<u8>& mip : image.Mips)
+                total += sizeof(u32) + mip.Num();
             blob.reserve(total);
 
             u32 flags = 0;
@@ -857,9 +857,9 @@ namespace OloEngine
             AppendU32(blob, image.Height);
             AppendU32(blob, flags);
             AppendU32(blob, image.MipLevels());
-            for (const std::vector<u8>& mip : image.Mips)
+            for (const TArray64<u8>& mip : image.Mips)
             {
-                AppendU32(blob, static_cast<u32>(mip.size()));
+                AppendU32(blob, static_cast<u32>(mip.Num()));
                 blob.insert(blob.end(), mip.begin(), mip.end());
             }
             return blob;
@@ -950,7 +950,7 @@ namespace OloEngine
             image.Height = height;
             image.SRGB = (flags & kFlagSRGB) != 0;
             image.HasAlpha = (flags & kFlagHasAlpha) != 0;
-            image.Mips.reserve(mipCount); // now bounded by MaxMipLevels above
+            image.Mips.Reserve(mipCount); // now bounded by MaxMipLevels above
 
             for (u32 i = 0; i < mipCount; ++i)
             {
@@ -973,7 +973,7 @@ namespace OloEngine
                                    i, mipSize, MipByteSize(image.Format, mw, mh));
                     return false;
                 }
-                image.Mips.emplace_back(blob.begin() + cursor, blob.begin() + cursor + mipSize);
+                image.Mips.Emplace(blob.data() + cursor, static_cast<i64>(mipSize));
                 cursor += mipSize;
             }
 
@@ -1166,12 +1166,12 @@ namespace OloEngine
                 //
                 // Widen it here, in the one place that knows the bytes came from stb, so
                 // the encoders keep their raw-channel contracts.
-                std::vector<u8> greyAlphaRGBA;
+                TArray64<u8> greyAlphaRGBA;
                 const u8* pixels = data;
                 if (sourceChannels == 2)
                 {
                     const sizet texelCount = static_cast<sizet>(texelWidth) * texelHeight;
-                    greyAlphaRGBA.resize(texelCount * 4);
+                    greyAlphaRGBA.SetNum(texelCount * 4, EAllowShrinking::No);
                     for (sizet i = 0; i < texelCount; ++i)
                     {
                         const u8 grey = data[i * 2 + 0];
@@ -1180,7 +1180,7 @@ namespace OloEngine
                         greyAlphaRGBA[i * 4 + 2] = grey;
                         greyAlphaRGBA[i * 4 + 3] = data[i * 2 + 1];
                     }
-                    pixels = greyAlphaRGBA.data();
+                    pixels = greyAlphaRGBA.GetData();
                     sourceChannels = 4;
                 }
 

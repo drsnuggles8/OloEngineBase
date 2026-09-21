@@ -64,7 +64,7 @@ namespace OloEngine::PathTracing
         // window drops that triangle (warned once per submesh). Returns true
         // iff at least one triangle survived.
         [[nodiscard]] bool ExtractSubmeshTriangles(const MeshSource& meshSource, u32 submeshIndex,
-                                                   std::vector<Vertex>& outVertices, std::vector<u32>& outIndices)
+                                                   TArray<Vertex>& outVertices, TArray<u32>& outIndices)
         {
             const auto& vertices = meshSource.GetVertices();
             const auto& indices = meshSource.GetIndices();
@@ -82,15 +82,15 @@ namespace OloEngine::PathTracing
                 return false;
             }
 
-            outVertices.clear();
-            outVertices.reserve(submesh.m_VertexCount);
+            outVertices.Reset();
+            outVertices.Reserve(submesh.m_VertexCount);
             for (u32 v = 0; v < submesh.m_VertexCount; ++v)
             {
-                outVertices.push_back(vertices[static_cast<i32>(submesh.m_BaseVertex + v)]);
+                outVertices.Add(vertices[static_cast<i32>(submesh.m_BaseVertex + v)]);
             }
 
-            outIndices.clear();
-            outIndices.reserve(submesh.m_IndexCount);
+            outIndices.Reset();
+            outIndices.Reserve(submesh.m_IndexCount);
             bool warnedOutOfWindow = false;
             for (u32 i = 0; i + 2 < submesh.m_IndexCount; i += 3)
             {
@@ -114,12 +114,12 @@ namespace OloEngine::PathTracing
                     continue;
                 }
 
-                outIndices.push_back(i0 - submesh.m_BaseVertex);
-                outIndices.push_back(i1 - submesh.m_BaseVertex);
-                outIndices.push_back(i2 - submesh.m_BaseVertex);
+                outIndices.Add(i0 - submesh.m_BaseVertex);
+                outIndices.Add(i1 - submesh.m_BaseVertex);
+                outIndices.Add(i2 - submesh.m_BaseVertex);
             }
 
-            return !outIndices.empty();
+            return !outIndices.IsEmpty();
         }
     } // namespace
 
@@ -177,13 +177,13 @@ namespace OloEngine::PathTracing
         pending.AlphaCutoff = material.GetAlphaCutoff();
         pending.NormalScale = material.GetNormalScale();
 
-        const u32 index = static_cast<u32>(m_Materials.size());
-        m_Materials.push_back(pending);
+        const u32 index = static_cast<u32>(m_Materials.Num());
+        m_Materials.Add(&m_MaterialStorage.AddTail(pending)->GetValue());
         // Parallel to m_Materials: Build() needs the Material back to ask the
         // map provider for its textures. The pointer is already held by
         // m_MaterialCache for the builder's whole life, so this adds no
         // lifetime requirement that was not there before.
-        m_MaterialSources.push_back(&material);
+        m_MaterialSources.Add(&material);
         m_MaterialCache.emplace(&material, index);
         return index;
     }
@@ -200,8 +200,8 @@ namespace OloEngine::PathTracing
         u32 index = kInvalidIndex;
         if (ExtractSubmeshTriangles(meshSource, submeshIndex, geometry.Vertices, geometry.Indices))
         {
-            index = static_cast<u32>(m_Geometries.size());
-            m_Geometries.push_back(std::move(geometry));
+            index = static_cast<u32>(m_Geometries.Num());
+            m_Geometries.Add(std::move(geometry));
         }
         // Failures are cached too, so a degenerate submesh instanced N times
         // warns once instead of N times.
@@ -287,7 +287,7 @@ namespace OloEngine::PathTracing
                 {
                     continue;
                 }
-                m_Instances.push_back({ geometryIndex, materialIndex, worldTransform });
+                m_Instances.Add({ geometryIndex, materialIndex, worldTransform });
             }
             else
             {
@@ -313,15 +313,15 @@ namespace OloEngine::PathTracing
 
                 if (flipWinding)
                 {
-                    for (sizet i = 0; i + 2 < geometry.Indices.size(); i += 3)
+                    for (sizet i = 0; i + 2 < geometry.Indices.Num(); i += 3)
                     {
                         std::swap(geometry.Indices[i + 1], geometry.Indices[i + 2]);
                     }
                 }
 
-                const u32 geometryIndex = static_cast<u32>(m_Geometries.size());
-                m_Geometries.push_back(std::move(geometry));
-                m_Instances.push_back({ geometryIndex, materialIndex, glm::mat4(1.0f) });
+                const u32 geometryIndex = static_cast<u32>(m_Geometries.Num());
+                m_Geometries.Add(std::move(geometry));
+                m_Instances.Add({ geometryIndex, materialIndex, glm::mat4(1.0f) });
             }
             addedAny = true;
         }
@@ -378,7 +378,7 @@ namespace OloEngine::PathTracing
         // mirror is kept literal so a future consumer inherits the same bits.
         refLight.AttenuationParams = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
         refLight.SpotParams = glm::vec4(0.0f);
-        m_Lights.push_back(refLight);
+        m_Lights.Add(refLight);
     }
 
     void ReferenceSceneBuilder::AddPointLight(const PointLightComponent& light, const glm::vec3& position)
@@ -414,7 +414,7 @@ namespace OloEngine::PathTracing
         // Unused for a point light; mirrors the UBO row's direction default.
         refLight.Direction = glm::vec3(0.0f, -1.0f, 0.0f);
         refLight.SpotParams = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
-        m_Lights.push_back(refLight);
+        m_Lights.Add(refLight);
     }
 
     void ReferenceSceneBuilder::AddSphereAreaLight(const SphereAreaLightComponent& light, const glm::vec3& position)
@@ -449,7 +449,7 @@ namespace OloEngine::PathTracing
         refLight.AttenuationParams = glm::vec4(1.0f, 0.0f, 0.0f, light.m_Range);
         refLight.Direction = glm::vec3(0.0f, -1.0f, 0.0f);
         refLight.SpotParams = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
-        m_Lights.push_back(refLight);
+        m_Lights.Add(refLight);
     }
 
     void ReferenceSceneBuilder::AddSpotLight(const SpotLightComponent& light, const glm::vec3& position)
@@ -494,7 +494,7 @@ namespace OloEngine::PathTracing
         // "enabled" convention documented on ReferenceLight::SpotParams.
         refLight.SpotParams = glm::vec4(SpotConeCosine(light.m_InnerCutoff), SpotConeCosine(light.m_OuterCutoff),
                                         1.0f, 1.0f);
-        m_Lights.push_back(refLight);
+        m_Lights.Add(refLight);
     }
 
     namespace
@@ -544,7 +544,7 @@ namespace OloEngine::PathTracing
         // Deterministic gather: see GatheredEntity / SortKeyFor above.
         // ---- geometry -------------------------------------------------------
         {
-            std::vector<GatheredEntity> meshEntities;
+            TArray<GatheredEntity> meshEntities;
             auto view = scene.GetAllEntitiesWith<TransformComponent, MeshComponent>();
             for (const auto entityHandle : view)
             {
@@ -566,7 +566,7 @@ namespace OloEngine::PathTracing
                 {
                     continue;
                 }
-                meshEntities.push_back({ SortKeyFor(scene, entityHandle), entityHandle });
+                meshEntities.Add({ SortKeyFor(scene, entityHandle), entityHandle });
             }
             std::sort(meshEntities.begin(), meshEntities.end(), ByGatherKey);
 
@@ -637,11 +637,11 @@ namespace OloEngine::PathTracing
             const auto addLightsOfType = [&]<typename LightComponent>(std::type_identity<LightComponent>,
                                                                       auto&& addOne)
             {
-                std::vector<GatheredEntity> lights;
+                TArray<GatheredEntity> lights;
                 auto view = scene.GetAllEntitiesWith<TransformComponent, LightComponent>();
                 for (const auto entityHandle : view)
                 {
-                    lights.push_back({ SortKeyFor(scene, entityHandle), entityHandle });
+                    lights.Add({ SortKeyFor(scene, entityHandle), entityHandle });
                 }
                 std::sort(lights.begin(), lights.end(), ByGatherKey);
                 for (const GatheredEntity& gathered : lights)
@@ -684,9 +684,9 @@ namespace OloEngine::PathTracing
         }
         m_Consumed = true;
 
-        for (sizet i = 0; i < m_Materials.size(); ++i)
+        for (sizet i = 0; i < m_Materials.Num(); ++i)
         {
-            ReferenceMaterial& material = m_Materials[i];
+            ReferenceMaterial& material = *m_Materials[i];
             // LambertianDiffuseOnly is a Build-time option, not a per-material
             // property here — stamp it on the way out (the builder is consumed
             // anyway, so mutating in place is fine).
@@ -698,7 +698,7 @@ namespace OloEngine::PathTracing
             // parity fixtures pinning what they always pinned (ADR 0022). The
             // alpha-mode mirroring above is deliberately NOT gated on it — see
             // ReferenceSceneBuildOptions::MaterialMapProvider for why.
-            if (options.MaterialMapProvider && i < m_MaterialSources.size() && m_MaterialSources[i] != nullptr)
+            if (options.MaterialMapProvider && i < m_MaterialSources.Num() && m_MaterialSources[i] != nullptr)
             {
                 const ReferenceMaterialMaps maps = options.MaterialMapProvider(*m_MaterialSources[i]);
                 material.AlbedoMap = maps.Albedo;

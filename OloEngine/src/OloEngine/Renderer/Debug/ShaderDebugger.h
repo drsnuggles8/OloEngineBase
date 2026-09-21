@@ -7,7 +7,9 @@
 #include "DebugUtils.h"
 
 #include <imgui.h>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/String.h"
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -53,6 +55,134 @@
 
 namespace OloEngine
 {
+    enum class ShaderDebugUniformType : u8
+    {
+        Int,
+        UInt,
+        IntArray,
+        Float,
+        Float2,
+        Float3,
+        Float4,
+        Mat3,
+        Mat4,
+        Sampler2D,
+        SamplerCube
+    };
+
+    enum class ShaderDebugStage : u8
+    {
+        Vertex = 0,
+        Fragment = 1,
+        Geometry = 2,
+        Compute = 3
+    };
+
+    struct ShaderDebugUniformInfo
+    {
+        FString m_Name;
+        ShaderDebugUniformType m_Type;
+        u32 m_Location = 0;
+        u32 m_Size = 1;      // Array size or 1 for non-arrays
+        FString m_LastValue; // String representation of last set value
+        u32 m_SetCount = 0;  // How many times this uniform has been set
+        std::chrono::steady_clock::time_point m_LastSetTime;
+    };
+
+    struct ShaderDebugUniformBufferInfo
+    {
+        FString m_Name;
+        u32 m_Binding = 0;
+        u32 m_Size = 0;
+        TArray<FString> m_Members;
+    };
+
+    struct ShaderDebugSamplerInfo
+    {
+        FString m_Name;
+        u32 m_Binding = 0;
+        u32 m_TextureUnit = 0;
+        FString m_Type; // "sampler2D", "samplerCube", etc.
+    };
+
+    struct ShaderDebugCompilationResult
+    {
+        bool m_Success = false;
+        FString m_ErrorMessage;
+        f64 m_CompileTimeMs = 0.0;
+        std::chrono::steady_clock::time_point m_Timestamp;
+        sizet m_VertexGeometrySPIRVSize = 0;  // Vertex + Geometry stages
+        sizet m_FragmentComputeSPIRVSize = 0; // Fragment + Compute stages
+        u32 m_InstructionCount = 0;           // Estimated from SPIR-V
+    };
+
+    struct ShaderDebugResourceBindingInfo
+    {
+        FString m_Name;
+        ShaderResourceType m_Type = ShaderResourceType::None;
+        u32 m_BindingPoint = 0;
+        bool m_IsBound = false;
+    };
+
+    struct ShaderDebugReloadEvent
+    {
+        std::chrono::steady_clock::time_point m_Timestamp;
+        bool m_Success = false;
+        FString m_Reason; // Why reload was triggered
+    };
+
+    // Owns FString/TArray storage and value metadata; clock values retain their own trait.
+    template<>
+    struct TIsTriviallyRelocatable<ShaderDebugUniformInfo>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(ShaderDebugUniformInfo::m_Name)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ShaderDebugUniformInfo::m_Type)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ShaderDebugUniformInfo::m_Location)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ShaderDebugUniformInfo::m_Size)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ShaderDebugUniformInfo::m_LastValue)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ShaderDebugUniformInfo::m_SetCount)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ShaderDebugUniformInfo::m_LastSetTime)>::Value;
+    };
+
+    // Owns FString/TArray storage and value metadata; clock values retain their own trait.
+    template<>
+    struct TIsTriviallyRelocatable<ShaderDebugUniformBufferInfo>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(ShaderDebugUniformBufferInfo::m_Name)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ShaderDebugUniformBufferInfo::m_Binding)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ShaderDebugUniformBufferInfo::m_Size)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ShaderDebugUniformBufferInfo::m_Members)>::Value;
+    };
+
+    // Owns FString/TArray storage and value metadata; clock values retain their own trait.
+    template<>
+    struct TIsTriviallyRelocatable<ShaderDebugSamplerInfo>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(ShaderDebugSamplerInfo::m_Name)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ShaderDebugSamplerInfo::m_Binding)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ShaderDebugSamplerInfo::m_TextureUnit)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ShaderDebugSamplerInfo::m_Type)>::Value;
+    };
+
+    // Owns FString/TArray storage and value metadata; clock values retain their own trait.
+    template<>
+    struct TIsTriviallyRelocatable<ShaderDebugResourceBindingInfo>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(ShaderDebugResourceBindingInfo::m_Name)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ShaderDebugResourceBindingInfo::m_Type)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ShaderDebugResourceBindingInfo::m_BindingPoint)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ShaderDebugResourceBindingInfo::m_IsBound)>::Value;
+    };
+
+    // Owns FString/TArray storage and value metadata; clock values retain their own trait.
+    template<>
+    struct TIsTriviallyRelocatable<ShaderDebugReloadEvent>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(ShaderDebugReloadEvent::m_Timestamp)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ShaderDebugReloadEvent::m_Success)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ShaderDebugReloadEvent::m_Reason)>::Value;
+    };
+
     // @brief Comprehensive shader debugging and analysis tool
     //
     // Provides detailed inspection of shader compilation, uniforms, performance,
@@ -60,104 +190,37 @@ namespace OloEngine
     class ShaderDebugger
     {
       public:
-        enum class UniformType : u8
-        {
-            Int,
-            UInt,
-            IntArray,
-            Float,
-            Float2,
-            Float3,
-            Float4,
-            Mat3,
-            Mat4,
-            Sampler2D,
-            SamplerCube
-        };
-
-        enum class ShaderStage : u8
-        {
-            Vertex = 0,
-            Fragment = 1,
-            Geometry = 2,
-            Compute = 3
-        };
-
-        struct UniformInfo
-        {
-            std::string m_Name;
-            UniformType m_Type;
-            u32 m_Location = 0;
-            u32 m_Size = 1;          // Array size or 1 for non-arrays
-            std::string m_LastValue; // String representation of last set value
-            u32 m_SetCount = 0;      // How many times this uniform has been set
-            std::chrono::steady_clock::time_point m_LastSetTime;
-        };
-
-        struct UniformBufferInfo
-        {
-            std::string m_Name;
-            u32 m_Binding = 0;
-            u32 m_Size = 0;
-            std::vector<std::string> m_Members;
-        };
-
-        struct SamplerInfo
-        {
-            std::string m_Name;
-            u32 m_Binding = 0;
-            u32 m_TextureUnit = 0;
-            std::string m_Type; // "sampler2D", "samplerCube", etc.
-        };
-
-        struct CompilationResult
-        {
-            bool m_Success = false;
-            std::string m_ErrorMessage;
-            f64 m_CompileTimeMs = 0.0;
-            std::chrono::steady_clock::time_point m_Timestamp;
-            sizet m_VertexGeometrySPIRVSize = 0;  // Vertex + Geometry stages
-            sizet m_FragmentComputeSPIRVSize = 0; // Fragment + Compute stages
-            u32 m_InstructionCount = 0;           // Estimated from SPIR-V
-        };
-
-        struct ResourceBindingInfo
-        {
-            std::string m_Name;
-            ShaderResourceType m_Type = ShaderResourceType::None;
-            u32 m_BindingPoint = 0;
-            bool m_IsBound = false;
-        };
-
-        struct ReloadEvent
-        {
-            std::chrono::steady_clock::time_point m_Timestamp;
-            bool m_Success = false;
-            std::string m_Reason; // Why reload was triggered
-        };
+        using UniformType = ShaderDebugUniformType;
+        using ShaderStage = ShaderDebugStage;
+        using UniformInfo = ShaderDebugUniformInfo;
+        using UniformBufferInfo = ShaderDebugUniformBufferInfo;
+        using SamplerInfo = ShaderDebugSamplerInfo;
+        using CompilationResult = ShaderDebugCompilationResult;
+        using ResourceBindingInfo = ShaderDebugResourceBindingInfo;
+        using ReloadEvent = ShaderDebugReloadEvent;
 
         struct ShaderInfo
         {
             u32 m_RendererID = 0;
-            std::string m_Name;
-            std::string m_FilePath;
+            FString m_Name;
+            FString m_FilePath;
 
             // Source code
-            std::unordered_map<ShaderStage, std::string> m_OriginalSource;
-            std::unordered_map<ShaderStage, std::string> m_GeneratedGLSL;
-            std::unordered_map<ShaderStage, std::vector<u8>> m_SPIRVBinary;
+            std::unordered_map<ShaderStage, FString> m_OriginalSource;
+            std::unordered_map<ShaderStage, FString> m_GeneratedGLSL;
+            std::unordered_map<ShaderStage, TArray<u8>> m_SPIRVBinary;
 
             // Reflection data
-            std::vector<UniformInfo> m_Uniforms;
-            std::vector<UniformBufferInfo> m_UniformBuffers;
-            std::vector<SamplerInfo> m_Samplers;
+            TArray<UniformInfo> m_Uniforms;
+            TArray<UniformBufferInfo> m_UniformBuffers;
+            TArray<SamplerInfo> m_Samplers;
 
             // Resource binding information from UniformBufferRegistry
-            std::vector<ResourceBindingInfo> m_ResourceBindings;
+            TArray<ResourceBindingInfo> m_ResourceBindings;
 
             // Performance and usage tracking
             CompilationResult m_LastCompilation;
-            std::vector<ReloadEvent> m_ReloadHistory;
+            TArray<ReloadEvent> m_ReloadHistory;
             u32 m_BindCount = 0;
             std::chrono::steady_clock::time_point m_LastBindTime;
             f64 m_TotalActiveTimeMs = 0.0; // Time spent bound
@@ -221,7 +284,7 @@ namespace OloEngine
         // @brief Update shader reflection data
         // @param rendererID OpenGL shader program ID
         // @param spirvData SPIR-V binary data
-        void UpdateReflectionData(u32 rendererID, const std::vector<u32>& spirvData);
+        void UpdateReflectionData(u32 rendererID, std::span<const u32> spirvData);
 
         // @brief Set shader source code
         // @param rendererID OpenGL shader program ID
@@ -232,7 +295,7 @@ namespace OloEngine
         void SetShaderSource(u32 rendererID, ShaderStage stage,
                              const std::string& originalSource,
                              const std::string& generatedGLSL = "",
-                             const std::vector<u8>& spirvBinary = {});
+                             std::span<const u8> spirvBinary = {});
 
         // @brief Render the debug UI
         // @param open Pointer to boolean controlling window visibility
@@ -312,12 +375,12 @@ namespace OloEngine
         std::string GetUniformTypeString(UniformType type) const;
         std::string GetShaderStageString(ShaderStage stage) const;
         ImVec4 GetShaderStageColor(ShaderStage stage) const;
-        void AnalyzeSPIRV(const std::vector<u8>& spirvData, u32& instructionCount) const;
-        void AnalyzeSPIRVFromWords(const std::vector<u32>& spirvWords, u32& instructionCount) const;
+        void AnalyzeSPIRV(std::span<const u8> spirvData, u32& instructionCount) const;
+        void AnalyzeSPIRVFromWords(std::span<const u32> spirvWords, u32& instructionCount) const;
 
         // Advanced SPIR-V analysis methods
-        std::string GenerateSPIRVDisassembly(const std::vector<u8>& spirvData) const;
-        void PerformOptimizationAnalysis(const std::vector<u8>& spirvData) const;
+        std::string GenerateSPIRVDisassembly(std::span<const u8> spirvData) const;
+        void PerformOptimizationAnalysis(std::span<const u8> spirvData) const;
 
         // Data members
         bool m_IsInitialized = false;
@@ -327,8 +390,8 @@ namespace OloEngine
         // Compilation tracking
         struct PendingCompilation
         {
-            std::string m_Name;
-            std::string m_FilePath;
+            FString m_Name;
+            FString m_FilePath;
             std::chrono::steady_clock::time_point m_StartTime;
         };
         std::unordered_map<std::string, PendingCompilation> m_PendingCompilations;

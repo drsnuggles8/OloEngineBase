@@ -530,9 +530,9 @@ namespace OloEngine::Tests
         constexpr u32 kSize = 64;
 
         // Tangent-space "flat" normal: (0.5, 0.5, 1.0) encodes (0, 0, 1).
-        const std::vector<u8> flatTexel = []
+        const TArray64<u8> flatTexel = []
         {
-            std::vector<u8> px(kSize * kSize * 4);
+            TArray64<u8> px(kSize * kSize * 4);
             for (std::size_t i = 0; i < static_cast<std::size_t>(kSize) * kSize; ++i)
             {
                 px[i * 4 + 0] = 128; // 0.5
@@ -557,7 +557,7 @@ namespace OloEngine::Tests
         ::glCreateTextures(GL_TEXTURE_2D, 1, &normalTexGuard.m_Id);
         const GLuint normalTex = normalTexGuard.m_Id;
         ::glTextureStorage2D(normalTex, 1, GL_RGBA8, kSize, kSize);
-        ::glTextureSubImage2D(normalTex, 0, 0, 0, kSize, kSize, GL_RGBA, GL_UNSIGNED_BYTE, flatTexel.data());
+        ::glTextureSubImage2D(normalTex, 0, 0, 0, kSize, kSize, GL_RGBA, GL_UNSIGNED_BYTE, flatTexel.GetData());
         ::glTextureParameteri(normalTex, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         ::glTextureParameteri(normalTex, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
@@ -644,9 +644,9 @@ namespace OloEngine::Tests
         // A NON-flat tangent normal (0.75, 0.25, ...) so a broken fallback that
         // silently keeps rotating by a garbage TBN cannot coincidentally land on
         // the expected value.
-        const std::vector<u8> texel = []
+        const TArray64<u8> texel = []
         {
-            std::vector<u8> px(kSize * kSize * 4);
+            TArray64<u8> px(kSize * kSize * 4);
             for (std::size_t i = 0; i < static_cast<std::size_t>(kSize) * kSize; ++i)
             {
                 px[i * 4 + 0] = 192;
@@ -669,7 +669,7 @@ namespace OloEngine::Tests
         ::glCreateTextures(GL_TEXTURE_2D, 1, &normalTexGuard.m_Id);
         const GLuint normalTex = normalTexGuard.m_Id;
         ::glTextureStorage2D(normalTex, 1, GL_RGBA8, kSize, kSize);
-        ::glTextureSubImage2D(normalTex, 0, 0, 0, kSize, kSize, GL_RGBA, GL_UNSIGNED_BYTE, texel.data());
+        ::glTextureSubImage2D(normalTex, 0, 0, 0, kSize, kSize, GL_RGBA, GL_UNSIGNED_BYTE, texel.GetData());
         ::glTextureParameteri(normalTex, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         ::glTextureParameteri(normalTex, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
@@ -753,9 +753,9 @@ namespace OloEngine::Tests
 
         // Non-flat tangent-space normal, so a broken frame cannot coincidentally
         // land on the expected value (a flat map returns N whatever the TBN is).
-        const std::vector<u8> texel = []
+        const TArray64<u8> texel = []
         {
-            std::vector<u8> px(kSize * kSize * 4);
+            TArray64<u8> px(kSize * kSize * 4);
             for (std::size_t i = 0; i < static_cast<std::size_t>(kSize) * kSize; ++i)
             {
                 px[i * 4 + 0] = 192;
@@ -778,7 +778,7 @@ namespace OloEngine::Tests
         ::glCreateTextures(GL_TEXTURE_2D, 1, &normalTexGuard.m_Id);
         const GLuint normalTex = normalTexGuard.m_Id;
         ::glTextureStorage2D(normalTex, 1, GL_RGBA8, kSize, kSize);
-        ::glTextureSubImage2D(normalTex, 0, 0, 0, kSize, kSize, GL_RGBA, GL_UNSIGNED_BYTE, texel.data());
+        ::glTextureSubImage2D(normalTex, 0, 0, 0, kSize, kSize, GL_RGBA, GL_UNSIGNED_BYTE, texel.GetData());
         ::glTextureParameteri(normalTex, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         ::glTextureParameteri(normalTex, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
@@ -1262,17 +1262,17 @@ namespace OloEngine::Tests
         {
             outMean = 0.0f;
             outPeak = 0.0f;
-            std::vector<u8> bytes;
+            TArray64<u8> bytes;
             if (!cm->GetFaceData(face, bytes, mip))
             {
                 ADD_FAILURE() << "GetFaceData failed for face " << face << " mip " << mip;
                 return false;
             }
             const std::size_t texelCount = static_cast<std::size_t>(mipResolution) * mipResolution;
-            if (bytes.size() != texelCount * 4 * sizeof(f32))
+            if (bytes.Num() != texelCount * 4 * sizeof(f32))
             {
                 ADD_FAILURE() << "readback size mismatch for face " << face << " mip " << mip
-                              << " (expected " << texelCount * 4 * sizeof(f32) << ", got " << bytes.size() << ")";
+                              << " (expected " << texelCount * 4 * sizeof(f32) << ", got " << bytes.Num() << ")";
                 return false;
             }
             // Copy into a properly-aligned f32 vector instead of reinterpret_cast.
@@ -1280,7 +1280,7 @@ namespace OloEngine::Tests
             // would trap on an unaligned cast; x86 tolerates it but it is still
             // formally UB under the C++ aliasing rules.
             std::vector<f32> pixels(texelCount * 4);
-            std::memcpy(pixels.data(), bytes.data(), bytes.size());
+            std::memcpy(pixels.data(), bytes.GetData(), bytes.Num());
             f32 sum = 0.0f;
             f32 peak = 0.0f;
             for (std::size_t i = 0; i < texelCount; ++i)
@@ -1349,20 +1349,20 @@ namespace OloEngine::Tests
     {
         outMean = 0.0f;
         outPeak = 0.0f;
-        std::vector<u8> bytes;
+        TArray64<u8> bytes;
         if (!cm->GetFaceData(face, bytes, mip))
         {
             ADD_FAILURE() << "GetFaceData failed for face " << face << " mip " << mip;
             return false;
         }
         const std::size_t texelCount = static_cast<std::size_t>(mipResolution) * mipResolution;
-        if (bytes.size() != texelCount * 4 * sizeof(f32))
+        if (bytes.Num() != texelCount * 4 * sizeof(f32))
         {
             ADD_FAILURE() << "readback size mismatch for face " << face << " mip " << mip;
             return false;
         }
         std::vector<f32> pixels(texelCount * 4);
-        std::memcpy(pixels.data(), bytes.data(), bytes.size());
+        std::memcpy(pixels.data(), bytes.GetData(), bytes.Num());
         f32 sum = 0.0f;
         f32 peak = 0.0f;
         for (std::size_t i = 0; i < texelCount; ++i)
@@ -1646,13 +1646,13 @@ namespace OloEngine::Tests
         config.Quality = IBLQuality::Medium; // 512 samples
         IBLPrecompute::GenerateBRDFLutAdvanced(brdfLut, localLib, config);
 
-        std::vector<u8> bytes;
+        TArray64<u8> bytes;
         ASSERT_TRUE(brdfLut->GetData(bytes, 0)) << "BRDF LUT readback failed";
         const std::size_t texelCount = static_cast<std::size_t>(kRes) * kRes;
-        ASSERT_EQ(bytes.size(), texelCount * 2 * sizeof(f32)) << "unexpected RG32F readback size";
+        ASSERT_EQ(bytes.Num(), texelCount * 2 * sizeof(f32)) << "unexpected RG32F readback size";
 
         std::vector<f32> rg(texelCount * 2);
-        std::memcpy(rg.data(), bytes.data(), bytes.size());
+        std::memcpy(rg.data(), bytes.GetData(), bytes.Num());
 
         f32 maxScale = 0.0f;
         f32 maxBias = 0.0f;

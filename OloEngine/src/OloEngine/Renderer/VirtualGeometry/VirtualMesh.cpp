@@ -34,13 +34,13 @@ namespace OloEngine
 
     bool VirtualMesh::IsClusterSelected(u32 clusterIndex, f32 errorThreshold) const
     {
-        if (clusterIndex >= Clusters.size())
+        if (clusterIndex >= static_cast<sizet>(Clusters.Num()))
         {
             return false;
         }
 
         const VirtualCluster& cluster = Clusters[clusterIndex];
-        if (cluster.GroupIndex < 0 || static_cast<sizet>(cluster.GroupIndex) >= Groups.size())
+        if (cluster.GroupIndex < 0 || static_cast<sizet>(cluster.GroupIndex) >= static_cast<sizet>(Groups.Num()))
         {
             return false;
         }
@@ -56,24 +56,24 @@ namespace OloEngine
         {
             return true;
         }
-        if (static_cast<sizet>(cluster.RefinedGroup) >= Groups.size())
+        if (static_cast<sizet>(cluster.RefinedGroup) >= static_cast<sizet>(Groups.Num()))
         {
             return false;
         }
         return Groups[static_cast<sizet>(cluster.RefinedGroup)].LODBounds.Error <= errorThreshold;
     }
 
-    std::vector<u32> VirtualMesh::SelectClusters(f32 errorThreshold) const
+    TArray<u32> VirtualMesh::SelectClusters(f32 errorThreshold) const
     {
         OLO_PROFILE_FUNCTION();
 
-        std::vector<u32> selected;
-        auto clusterCount = static_cast<u32>(Clusters.size());
+        TArray<u32> selected;
+        auto clusterCount = static_cast<u32>(Clusters.Num());
         for (u32 i = 0; i < clusterCount; ++i)
         {
             if (IsClusterSelected(i, errorThreshold))
             {
-                selected.push_back(i);
+                selected.Add(i);
             }
         }
         return selected;
@@ -108,7 +108,7 @@ namespace OloEngine
         return threshold;
     }
 
-    std::vector<u32> VirtualMesh::SelectCoarsestCut() const
+    TArray<u32> VirtualMesh::SelectCoarsestCut() const
     {
         return SelectClusters(CoarsestCutThreshold());
     }
@@ -116,13 +116,13 @@ namespace OloEngine
     bool VirtualMesh::IsClusterSelectedProjected(u32 clusterIndex, const glm::vec3& cameraPosition,
                                                  f32 zNear, f32 projectionScale, f32 threshold) const
     {
-        if (clusterIndex >= Clusters.size())
+        if (clusterIndex >= static_cast<sizet>(Clusters.Num()))
         {
             return false;
         }
 
         const VirtualCluster& cluster = Clusters[clusterIndex];
-        if (cluster.GroupIndex < 0 || static_cast<sizet>(cluster.GroupIndex) >= Groups.size())
+        if (cluster.GroupIndex < 0 || static_cast<sizet>(cluster.GroupIndex) >= static_cast<sizet>(Groups.Num()))
         {
             return false;
         }
@@ -137,7 +137,7 @@ namespace OloEngine
         {
             return true;
         }
-        if (static_cast<sizet>(cluster.RefinedGroup) >= Groups.size())
+        if (static_cast<sizet>(cluster.RefinedGroup) >= static_cast<sizet>(Groups.Num()))
         {
             return false;
         }
@@ -145,18 +145,18 @@ namespace OloEngine
         return selfBounds.ProjectError(cameraPosition, zNear, projectionScale) <= threshold;
     }
 
-    std::vector<u32> VirtualMesh::SelectClustersProjected(const glm::vec3& cameraPosition,
-                                                          f32 zNear, f32 projectionScale, f32 threshold) const
+    TArray<u32> VirtualMesh::SelectClustersProjected(const glm::vec3& cameraPosition,
+                                                     f32 zNear, f32 projectionScale, f32 threshold) const
     {
         OLO_PROFILE_FUNCTION();
 
-        std::vector<u32> selected;
-        auto clusterCount = static_cast<u32>(Clusters.size());
+        TArray<u32> selected;
+        auto clusterCount = static_cast<u32>(Clusters.Num());
         for (u32 i = 0; i < clusterCount; ++i)
         {
             if (IsClusterSelectedProjected(i, cameraPosition, zNear, projectionScale, threshold))
             {
-                selected.push_back(i);
+                selected.Add(i);
             }
         }
         return selected;
@@ -412,7 +412,7 @@ namespace OloEngine
 
             [[nodiscard]] bool ReadVertices(BlobReader& reader, VirtualMesh& mesh, const WireCounts& counts)
             {
-                mesh.Vertices.resize(counts.VertexCount);
+                mesh.Vertices.SetNum(counts.VertexCount, EAllowShrinking::No);
                 for (Vertex& vertex : mesh.Vertices)
                 {
                     if (!ReadFiniteVec3(reader, vertex.Position) || !ReadFiniteVec3(reader, vertex.Normal) ||
@@ -422,7 +422,7 @@ namespace OloEngine
                     }
                 }
 
-                mesh.LightmapUVs.resize(counts.LightmapUVCount);
+                mesh.LightmapUVs.SetNum(counts.LightmapUVCount, EAllowShrinking::No);
                 for (glm::vec2& uv : mesh.LightmapUVs)
                 {
                     if (!ReadFiniteF32(reader, uv.x) || !ReadFiniteF32(reader, uv.y))
@@ -440,7 +440,7 @@ namespace OloEngine
                 // multiplies a bone matrix and spreads a NaN through the whole
                 // vertex, and a negative one breaks the convexity that makes
                 // every bound in VirtualSkinningBounds conservative.
-                mesh.Skinning.resize(counts.SkinningCount);
+                mesh.Skinning.SetNum(counts.SkinningCount, EAllowShrinking::No);
                 for (VirtualVertexSkinning& binding : mesh.Skinning)
                 {
                     for (u32& boneId : binding.BoneIDs)
@@ -459,7 +459,7 @@ namespace OloEngine
                     }
                 }
 
-                mesh.BoneBounds.resize(counts.BoneBoundsCount);
+                mesh.BoneBounds.SetNum(counts.BoneBoundsCount, EAllowShrinking::No);
                 for (VirtualBoneBounds& bounds : mesh.BoneBounds)
                 {
                     if (!ReadFiniteVec3(reader, bounds.Center) || !ReadFiniteF32(reader, bounds.Radius))
@@ -488,7 +488,7 @@ namespace OloEngine
                 u64 runningVertexOffset = 0;
                 u64 runningTriangleOffset = 0;
 
-                mesh.Clusters.resize(counts.ClusterCount);
+                mesh.Clusters.SetNum(counts.ClusterCount, EAllowShrinking::No);
                 for (VirtualCluster& cluster : mesh.Clusters)
                 {
                     if (!reader.Read(cluster.VertexOffset) || !reader.Read(cluster.TriangleOffset) ||
@@ -528,7 +528,7 @@ namespace OloEngine
             [[nodiscard]] bool ReadAndValidateGroups(BlobReader& reader, VirtualMesh& mesh, const WireCounts& counts)
             {
                 u64 runningFirstCluster = 0;
-                mesh.Groups.resize(counts.GroupCount);
+                mesh.Groups.SetNum(counts.GroupCount, EAllowShrinking::No);
                 for (VirtualClusterGroup& group : mesh.Groups)
                 {
                     if (!reader.Read(group.Depth) || !reader.Read(group.FirstCluster) || !reader.Read(group.ClusterCount) ||
@@ -557,7 +557,7 @@ namespace OloEngine
             // them a crafted blob makes SelectClusters return overlapping or holey cuts.
             [[nodiscard]] bool ValidateClusterGroupTopology(const VirtualMesh& mesh)
             {
-                auto groupCount = mesh.Groups.size();
+                auto groupCount = static_cast<sizet>(mesh.Groups.Num());
                 for (sizet g = 0; g < groupCount; ++g)
                 {
                     const VirtualClusterGroup& group = mesh.Groups[g];
@@ -571,7 +571,7 @@ namespace OloEngine
                     }
                 }
 
-                std::vector<bool> groupIsRefinedFrom(groupCount, false);
+                TArray<bool> groupIsRefinedFrom(groupCount, false);
                 for (const VirtualCluster& cluster : mesh.Clusters)
                 {
                     if (cluster.RefinedGroup < 0)
@@ -607,8 +607,8 @@ namespace OloEngine
 
             [[nodiscard]] bool ReadAndValidateGeometry(BlobReader& reader, VirtualMesh& mesh, const WireCounts& counts)
             {
-                mesh.ClusterVertexRefs.resize(counts.VertexRefCount);
-                if (!reader.ReadBytes(reinterpret_cast<u8*>(mesh.ClusterVertexRefs.data()),
+                mesh.ClusterVertexRefs.SetNum(counts.VertexRefCount, EAllowShrinking::No);
+                if (!reader.ReadBytes(reinterpret_cast<u8*>(mesh.ClusterVertexRefs.GetData()),
                                       static_cast<sizet>(counts.VertexRefCount) * sizeof(u32)))
                 {
                     return false;
@@ -621,8 +621,8 @@ namespace OloEngine
                     }
                 }
 
-                mesh.ClusterTriangles.resize(counts.TriangleByteCount);
-                if (!reader.ReadBytes(mesh.ClusterTriangles.data(), counts.TriangleByteCount))
+                mesh.ClusterTriangles.SetNum(counts.TriangleByteCount, EAllowShrinking::No);
+                if (!reader.ReadBytes(mesh.ClusterTriangles.GetData(), counts.TriangleByteCount))
                 {
                     return false;
                 }
@@ -646,8 +646,8 @@ namespace OloEngine
                 // to ClusterCount * kMaxClusterBones by the header check, so
                 // this only has to read them; the ids themselves are bounded by
                 // the runtime palette, exactly as the per-vertex ids are.
-                mesh.ClusterBoneRefs.resize(counts.ClusterBoneRefCount);
-                if (!reader.ReadBytes(reinterpret_cast<u8*>(mesh.ClusterBoneRefs.data()),
+                mesh.ClusterBoneRefs.SetNum(counts.ClusterBoneRefCount, EAllowShrinking::No);
+                if (!reader.ReadBytes(reinterpret_cast<u8*>(mesh.ClusterBoneRefs.GetData()),
                                       static_cast<sizet>(counts.ClusterBoneRefCount) * sizeof(u32)))
                 {
                     return false;
@@ -698,26 +698,26 @@ namespace OloEngine
         {
             OLO_PROFILE_FUNCTION();
 
-            BlobWriter writer(ExpectedBlobSize(mesh.Vertices.size(), mesh.Clusters.size(), mesh.Groups.size(),
-                                               mesh.ClusterVertexRefs.size(), mesh.ClusterTriangles.size(),
-                                               mesh.LightmapUVs.size(), mesh.Skinning.size(),
-                                               mesh.BoneBounds.size(), mesh.ClusterBoneRefs.size()));
+            BlobWriter writer(ExpectedBlobSize(static_cast<sizet>(mesh.Vertices.Num()), static_cast<sizet>(mesh.Clusters.Num()), static_cast<sizet>(mesh.Groups.Num()),
+                                               static_cast<sizet>(mesh.ClusterVertexRefs.Num()), static_cast<sizet>(mesh.ClusterTriangles.Num()),
+                                               static_cast<sizet>(mesh.LightmapUVs.Num()), static_cast<sizet>(mesh.Skinning.Num()),
+                                               static_cast<sizet>(mesh.BoneBounds.Num()), static_cast<sizet>(mesh.ClusterBoneRefs.Num())));
 
             writer.Write(kMagic);
             writer.Write(kVersion);
             writer.Write(kVirtualMeshBuilderVersion);
             writer.Write(CurrentCookFingerprint());
-            writer.Write(static_cast<u32>(mesh.Vertices.size()));
-            writer.Write(static_cast<u32>(mesh.Clusters.size()));
-            writer.Write(static_cast<u32>(mesh.Groups.size()));
-            writer.Write(static_cast<u32>(mesh.ClusterVertexRefs.size()));
-            writer.Write(static_cast<u32>(mesh.ClusterTriangles.size()));
+            writer.Write(static_cast<u32>(mesh.Vertices.Num()));
+            writer.Write(static_cast<u32>(mesh.Clusters.Num()));
+            writer.Write(static_cast<u32>(mesh.Groups.Num()));
+            writer.Write(static_cast<u32>(mesh.ClusterVertexRefs.Num()));
+            writer.Write(static_cast<u32>(mesh.ClusterTriangles.Num()));
             writer.Write(mesh.LevelCount);
             writer.Write(mesh.SourceTriangleCount);
-            writer.Write(static_cast<u32>(mesh.LightmapUVs.size()));
-            writer.Write(static_cast<u32>(mesh.Skinning.size()));
-            writer.Write(static_cast<u32>(mesh.BoneBounds.size()));
-            writer.Write(static_cast<u32>(mesh.ClusterBoneRefs.size()));
+            writer.Write(static_cast<u32>(mesh.LightmapUVs.Num()));
+            writer.Write(static_cast<u32>(mesh.Skinning.Num()));
+            writer.Write(static_cast<u32>(mesh.BoneBounds.Num()));
+            writer.Write(static_cast<u32>(mesh.ClusterBoneRefs.Num()));
 
             for (const Vertex& vertex : mesh.Vertices)
             {
@@ -778,11 +778,11 @@ namespace OloEngine
                 writer.Write(group.LODBounds.Error);
             }
 
-            writer.WriteBytes(reinterpret_cast<const u8*>(mesh.ClusterVertexRefs.data()),
-                              mesh.ClusterVertexRefs.size() * sizeof(u32));
-            writer.WriteBytes(mesh.ClusterTriangles.data(), mesh.ClusterTriangles.size());
-            writer.WriteBytes(reinterpret_cast<const u8*>(mesh.ClusterBoneRefs.data()),
-                              mesh.ClusterBoneRefs.size() * sizeof(u32));
+            writer.WriteBytes(reinterpret_cast<const u8*>(mesh.ClusterVertexRefs.GetData()),
+                              static_cast<sizet>(mesh.ClusterVertexRefs.Num()) * sizeof(u32));
+            writer.WriteBytes(mesh.ClusterTriangles.GetData(), static_cast<sizet>(mesh.ClusterTriangles.Num()));
+            writer.WriteBytes(reinterpret_cast<const u8*>(mesh.ClusterBoneRefs.GetData()),
+                              static_cast<sizet>(mesh.ClusterBoneRefs.Num()) * sizeof(u32));
 
             return writer.Take();
         }
@@ -875,7 +875,7 @@ namespace OloEngine
             std::vector<u8> out;
             AppendU32(out, kSetMagic);
             AppendU32(out, kSetVersion);
-            AppendU32(out, static_cast<u32>(set.Parts.size()));
+            AppendU32(out, static_cast<u32>(set.Parts.Num()));
 
             for (const auto& part : set.Parts)
             {
@@ -907,7 +907,7 @@ namespace OloEngine
                     return false;
                 }
                 VirtualMeshSet parsed;
-                parsed.Parts.push_back(std::move(part));
+                parsed.Parts.Add(std::move(part));
                 out = std::move(parsed);
                 return true;
             }
@@ -926,7 +926,7 @@ namespace OloEngine
             }
 
             VirtualMeshSet parsed;
-            parsed.Parts.reserve(partCount);
+            parsed.Parts.Reserve(partCount);
             for (u32 i = 0; i < partCount; ++i)
             {
                 VirtualMeshPart part;
@@ -951,7 +951,7 @@ namespace OloEngine
                     return false;
                 }
                 cursor += static_cast<sizet>(partSize);
-                parsed.Parts.push_back(std::move(part));
+                parsed.Parts.Add(std::move(part));
             }
 
             // Exact-size: trailing bytes mean the blob is not what it claims to be.
@@ -980,7 +980,7 @@ namespace OloEngine
         sizet total = 0;
         for (const auto& part : Parts)
         {
-            total += part.Dag.Clusters.size();
+            total += static_cast<sizet>(part.Dag.Clusters.Num());
         }
         return total;
     }

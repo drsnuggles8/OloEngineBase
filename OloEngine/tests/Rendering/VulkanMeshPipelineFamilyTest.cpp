@@ -81,7 +81,7 @@ namespace OloEngine::Tests
         // encoding is fixed and tiny — the instruction word is
         // (wordCount << 16) | opcode, and OpArrayLength (68) is
         // [type, result, structPointer, memberIndex].
-        [[nodiscard]] std::vector<ArrayLengthUse> FindArrayLengthUses(const std::vector<u32>& spirv)
+        [[nodiscard]] std::vector<ArrayLengthUse> FindArrayLengthUses(std::span<const u32> spirv)
         {
             constexpr u32 kSpirvMagic = 0x07230203u;
             constexpr u32 kHeaderWords = 5u;
@@ -116,7 +116,7 @@ namespace OloEngine::Tests
             }
 
             // Name the offender where reflection can: "Payload" beats "%14".
-            const spirv_cross::Compiler refl(spirv);
+            const spirv_cross::Compiler refl(spirv.data(), spirv.size());
             const spirv_cross::ShaderResources resources = refl.get_shader_resources();
             for (ArrayLengthUse& use : uses)
             {
@@ -342,7 +342,7 @@ namespace
         }
     }
 
-    [[nodiscard]] ColorPlan DeriveColorPlan(const std::vector<u32>& fragmentSpirv)
+    [[nodiscard]] ColorPlan DeriveColorPlan(std::span<const u32> fragmentSpirv)
     {
         ColorPlan plan;
         if (fragmentSpirv.empty())
@@ -351,7 +351,7 @@ namespace
             return plan;
         }
 
-        const spirv_cross::Compiler refl(fragmentSpirv);
+        const spirv_cross::Compiler refl(fragmentSpirv.data(), fragmentSpirv.size());
         const spirv_cross::ShaderResources resources = refl.get_shader_resources();
         for (const auto& out : resources.stage_outputs)
         {
@@ -621,7 +621,7 @@ TEST_F(VulkanMeshPipelineFamily, EveryShippedMeshShaderProducesAPipeline)
         bool preflightFailed = false;
         for (const auto& [stage, stageSpirv] : vkShader->GetSPIRV())
         {
-            const std::vector<ArrayLengthUse> uses = FindArrayLengthUses(stageSpirv);
+            const std::vector<ArrayLengthUse> uses = FindArrayLengthUses(std::span{ stageSpirv.GetData(), static_cast<sizet>(stageSpirv.Num()) });
             if (uses.empty())
             {
                 continue;
@@ -655,7 +655,7 @@ TEST_F(VulkanMeshPipelineFamily, EveryShippedMeshShaderProducesAPipeline)
             ADD_FAILURE() << name << " has no fragment-stage SPIR-V";
             continue;
         }
-        const ColorPlan plan = DeriveColorPlan(fragmentIt->second);
+        const ColorPlan plan = DeriveColorPlan(std::span{ fragmentIt->second.GetData(), static_cast<sizet>(fragmentIt->second.Num()) });
         if (!plan.Error.empty())
         {
             ADD_FAILURE() << name << ": " << plan.Error;

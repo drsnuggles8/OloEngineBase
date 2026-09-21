@@ -19,22 +19,22 @@ namespace OloEngine
     {
         // Default codepoint coverage: Latin-1 — preserves the original
         // behaviour for fonts loaded through the no-range constructor.
-        LoadFromFile(filepath, { FontCodepointRanges::Latin1 });
+        LoadFromFile(filepath, { &FontCodepointRanges::Latin1, 1 });
     }
 
-    Font::Font(const std::filesystem::path& filepath, const std::vector<FontCodepointRange>& ranges)
+    Font::Font(const std::filesystem::path& filepath, std::span<const FontCodepointRange> ranges)
         : m_Data(CreateScope<SlugFontData>())
     {
         LoadFromFile(filepath, ranges);
     }
 
-    Font::Font(std::string name, std::span<const u8> fontData, const std::vector<FontCodepointRange>& ranges)
+    Font::Font(std::string name, std::span<const u8> fontData, std::span<const FontCodepointRange> ranges)
         : m_Data(CreateScope<SlugFontData>())
     {
         LoadFromMemory(std::move(name), fontData, ranges);
     }
 
-    void Font::LoadFromFile(const std::filesystem::path& filepath, const std::vector<FontCodepointRange>& ranges)
+    void Font::LoadFromFile(const std::filesystem::path& filepath, std::span<const FontCodepointRange> ranges)
     {
         // Set name/path up front so diagnostics carry them even if a read step
         // below fails before the shared loader runs (it re-sets m_Name).
@@ -45,44 +45,45 @@ namespace OloEngine
         std::ifstream file(filepath, std::ios::binary | std::ios::ate);
         if (!file.is_open())
         {
-            OLO_CORE_ERROR("Failed to open font file: {}", m_Path);
+            OLO_CORE_ERROR("Failed to open font file: {}", m_Path.ToView());
             return;
         }
 
         const auto fileSize = file.tellg();
         if (fileSize <= 0)
         {
-            OLO_CORE_ERROR("Failed to determine font file size (tellg={}) for: {}", static_cast<std::streamoff>(fileSize), m_Path);
+            OLO_CORE_ERROR("Failed to determine font file size (tellg={}) for: {}", static_cast<std::streamoff>(fileSize), m_Path.ToView());
             return;
         }
 
         if (constexpr std::streamoff kMaxFontFileSize = 64 * 1024 * 1024 /* 64 MB sanity cap */; fileSize > kMaxFontFileSize)
         {
-            OLO_CORE_ERROR("Font file too large ({} bytes, max {}) for: {}", static_cast<std::streamoff>(fileSize), kMaxFontFileSize, m_Path);
+            OLO_CORE_ERROR("Font file too large ({} bytes, max {}) for: {}", static_cast<std::streamoff>(fileSize), kMaxFontFileSize, m_Path.ToView());
             return;
         }
 
         file.seekg(0, std::ios::beg);
         if (!file.good())
         {
-            OLO_CORE_ERROR("Failed to seek to start of font file: {}", m_Path);
+            OLO_CORE_ERROR("Failed to seek to start of font file: {}", m_Path.ToView());
             return;
         }
 
-        std::vector<u8> fontBuffer(static_cast<sizet>(fileSize));
-        file.read(reinterpret_cast<char*>(fontBuffer.data()), fileSize);
+        TArray<u8> fontBuffer;
+        fontBuffer.SetNumUninitialized(static_cast<i32>(fileSize), EAllowShrinking::No);
+        file.read(reinterpret_cast<char*>(fontBuffer.GetData()), fileSize);
         if (file.fail())
         {
-            OLO_CORE_ERROR("Failed to read font file: {}", m_Path);
+            OLO_CORE_ERROR("Failed to read font file: {}", m_Path.ToView());
             return;
         }
 
         // m_Path stays as set above; LoadFromMemory deliberately leaves it alone
         // so the file path survives the shared parse.
-        LoadFromMemory(filepath.filename().stem().string(), fontBuffer, ranges);
+        LoadFromMemory(filepath.filename().stem().string(), { fontBuffer.GetData(), static_cast<sizet>(fontBuffer.Num()) }, ranges);
     }
 
-    void Font::LoadFromMemory(std::string name, std::span<const u8> fontData, const std::vector<FontCodepointRange>& ranges)
+    void Font::LoadFromMemory(std::string name, std::span<const u8> fontData, std::span<const FontCodepointRange> ranges)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -95,20 +96,20 @@ namespace OloEngine
         // 0 in the loops below and spin forever; a merely-large Last would burn
         // billions of iterations on codepoints no font defines.
         constexpr u32 kMaxCodepoint = 0x10FFFFu;
-        m_Ranges.clear();
-        m_Ranges.reserve(ranges.size());
+        m_Ranges.Reset();
+        m_Ranges.Reserve(static_cast<i32>(ranges.size()));
         for (const auto& r : ranges)
         {
             const u32 first = r.First > kMaxCodepoint ? kMaxCodepoint : r.First;
             const u32 last = r.Last > kMaxCodepoint ? kMaxCodepoint : r.Last;
             if (last < first)
                 continue; // inverted / degenerate range
-            m_Ranges.emplace_back(first, last);
+            m_Ranges.Emplace(first, last);
         }
 
         if (fontData.empty())
         {
-            OLO_CORE_ERROR("Font '{}' has no font-file data to load", m_Name);
+            OLO_CORE_ERROR("Font '{}' has no font-file data to load", m_Name.ToView());
             return;
         }
 
@@ -116,7 +117,7 @@ namespace OloEngine
         ::stbtt_fontinfo fontInfo{};
         if (::stbtt_InitFont(&fontInfo, fontData.data(), ::stbtt_GetFontOffsetForIndex(fontData.data(), 0)) == 0)
         {
-            OLO_CORE_ERROR("stb_truetype failed to parse font: {}", m_Name);
+            OLO_CORE_ERROR("stb_truetype failed to parse font: {}", m_Name.ToView());
             return;
         }
 
@@ -130,7 +131,7 @@ namespace OloEngine
         f32 unitsPerEm = static_cast<f32>(ascent - descent);
         if (!std::isfinite(unitsPerEm) || std::abs(unitsPerEm) < 1e-6f)
         {
-            OLO_CORE_ERROR("Font '{}' has invalid metrics (ascent={}, descent={}) — using fallback unitsPerEm=1.0", m_Name, ascent, descent);
+            OLO_CORE_ERROR("Font '{}' has invalid metrics (ascent={}, descent={}) — using fallback unitsPerEm=1.0", m_Name.ToView(), ascent, descent);
             unitsPerEm = 1.0f;
         }
         const f32 emScale = 1.0f / unitsPerEm;
@@ -179,19 +180,20 @@ namespace OloEngine
             // Build glyphIndex → codepoint reverse map for the loaded charset.
             // Multiple codepoints can share the same glyph index (aliases),
             // so store all codepoints per glyph to emit kerning for every pair.
-            std::unordered_map<int, std::vector<u32>> glyphIndexToCodepoints;
+            std::unordered_map<int, TArray<u32>> glyphIndexToCodepoints;
             for (const auto& range : m_Ranges)
             {
                 for (u32 cp = range.First; cp <= range.Last; ++cp)
                 {
                     const int gi = ::stbtt_FindGlyphIndex(&fontInfo, static_cast<int>(cp));
                     if (gi != 0 || cp == ' ')
-                        glyphIndexToCodepoints[gi].push_back(cp);
+                        glyphIndexToCodepoints[gi].Add(cp);
                 }
             }
 
-            std::vector<::stbtt_kerningentry> kernTable(static_cast<sizet>(kernTableLength));
-            ::stbtt_GetKerningTable(&fontInfo, kernTable.data(), kernTableLength);
+            TArray<::stbtt_kerningentry> kernTable;
+            kernTable.SetNumUninitialized(kernTableLength, EAllowShrinking::No);
+            ::stbtt_GetKerningTable(&fontInfo, kernTable.GetData(), kernTableLength);
             for (const auto& entry : kernTable)
             {
                 if (entry.advance == 0)
@@ -215,7 +217,7 @@ namespace OloEngine
             }
         }
 
-        OLO_CORE_INFO("Loaded {} glyphs from font '{}' via stb_truetype", glyphCount, m_Name);
+        OLO_CORE_INFO("Loaded {} glyphs from font '{}' via stb_truetype", glyphCount, m_Name.ToView());
 
         // Generate Slug curve + band textures.
         SlugFontProcessor::Process(fontInfo, emScale, *m_Data);
@@ -342,7 +344,7 @@ namespace OloEngine
         return newFont;
     }
 
-    Ref<Font> Font::Create(const std::filesystem::path& font, const std::vector<FontCodepointRange>& ranges)
+    Ref<Font> Font::Create(const std::filesystem::path& font, std::span<const FontCodepointRange> ranges)
     {
         // No cache for ranged variants — the cache key would need to fold
         // the range list in, and the typical use (one ranged load per
@@ -350,7 +352,7 @@ namespace OloEngine
         return Ref<Font>::Create(std::filesystem::weakly_canonical(font).string(), ranges);
     }
 
-    Ref<Font> Font::Create(std::string name, std::span<const u8> fontData, const std::vector<FontCodepointRange>& ranges)
+    Ref<Font> Font::Create(std::string name, std::span<const u8> fontData, std::span<const FontCodepointRange> ranges)
     {
         OLO_PROFILE_FUNCTION();
         // No cache: there's no canonical path to key on, and asset-pack loads

@@ -51,7 +51,7 @@ namespace
             info.IndexOffset = page * indicesPerPage;
             info.IndexCount = indicesPerPage;
             info.Pinned = (page == pageCount - 1);
-            data.Pages.push_back(info);
+            data.Pages.Add(info);
 
             for (u32 v = 0; v < verticesPerPage; ++v)
             {
@@ -59,21 +59,21 @@ namespace
                 VirtualGpuVertex vertex;
                 vertex.PositionU = glm::vec4(seed, seed + 1.0f, seed + 2.0f, seed + 3.0f);
                 vertex.NormalV = glm::vec4(seed + 4.0f, seed + 5.0f, seed + 6.0f, seed + 7.0f);
-                data.Vertices.push_back(vertex);
+                data.Vertices.Add(vertex);
                 if (withLightmapUVs)
                 {
-                    data.LightmapUVs.emplace_back(seed + 8.0f, seed + 9.0f);
+                    data.LightmapUVs.Emplace(seed + 8.0f, seed + 9.0f);
                 }
             }
             for (u32 i = 0; i < indicesPerPage; ++i)
             {
-                data.Indices.push_back(page * 1000 + i);
+                data.Indices.Add(page * 1000 + i);
             }
         }
         // The registry only spills entries whose DAG built, and IsValid() gates that — give
         // the fixture the one cluster/group it takes to look like a real cook.
-        data.Clusters.emplace_back();
-        data.Groups.emplace_back();
+        data.Clusters.Emplace();
+        data.Groups.Emplace();
         return data;
     }
 
@@ -81,9 +81,9 @@ namespace
                            bool withLightmapUVs)
     {
         const VirtualPageInfo& info = source.Pages[page];
-        ASSERT_EQ(payload.Vertices.size(), info.VertexCount);
-        ASSERT_EQ(payload.Indices.size(), info.IndexCount);
-        ASSERT_EQ(payload.LightmapUVs.size(), withLightmapUVs ? info.VertexCount : 0u);
+        ASSERT_EQ(static_cast<sizet>(payload.Vertices.Num()), info.VertexCount);
+        ASSERT_EQ(static_cast<sizet>(payload.Indices.Num()), info.IndexCount);
+        ASSERT_EQ(static_cast<sizet>(payload.LightmapUVs.Num()), withLightmapUVs ? info.VertexCount : 0u);
 
         for (u32 v = 0; v < info.VertexCount; ++v)
         {
@@ -498,15 +498,15 @@ TEST_F(VirtualGeometryPageStoreTest, SeparateMeshesGetDisjointPageRanges)
     u32 const secondBase = store.AddMesh(second);
     ASSERT_NE(firstBase, VirtualGeometryPageStore::kInvalidMesh);
     ASSERT_NE(secondBase, VirtualGeometryPageStore::kInvalidMesh);
-    EXPECT_EQ(secondBase, firstBase + static_cast<u32>(first.Pages.size()));
+    EXPECT_EQ(secondBase, firstBase + static_cast<u32>(static_cast<sizet>(first.Pages.Num())));
 
-    for (u32 page = 0; page < first.Pages.size(); ++page)
+    for (u32 page = 0; page < static_cast<sizet>(first.Pages.Num()); ++page)
     {
         VirtualPagePayload payload;
         ASSERT_TRUE(store.ReadPageBlocking(firstBase, page, payload));
         ExpectPageMatches(payload, first, page, /*withLightmapUVs=*/false);
     }
-    for (u32 page = 0; page < second.Pages.size(); ++page)
+    for (u32 page = 0; page < static_cast<sizet>(second.Pages.Num()); ++page)
     {
         VirtualPagePayload payload;
         ASSERT_TRUE(store.ReadPageBlocking(secondBase, page, payload));

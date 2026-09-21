@@ -6,11 +6,60 @@
 
 #include <functional>
 #include <string>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/LinkedList.h"
+#include "OloEngine/Containers/String.h"
 
 namespace OloEngine
 {
     class RenderGraph;
+
+    struct RenderGraphPassSnapshotResult
+    {
+        bool Captured = false;
+        FString Error; // non-empty when the pass fired but this copy failed
+        FString ResourceName;
+        // The scratch clone, owned by this class. Read it through the
+        // facade like any other texture; do not cache it across an Arm().
+        RHI::ResourceHandle Handle;
+        RHI::ResourceHandle SourceHandle;
+        u32 Width = 0;
+        u32 Height = 0;
+        u32 DepthOrLayers = 1;
+        u32 MipLevels = 1;
+        // BOTH currencies, per ADR 0011 amendment (77): the identity above
+        // is what the tools read through, the native handle below is what
+        // a RenderDoc / RGP capture shows. 0 is legitimate on a backend
+        // whose object has no native name, so nothing may DECIDE on it.
+        //
+        // u64, not u32 (issue #890): these were truncating, and a `VkImage`
+        // squeezed into 32 bits correlates with nothing a capture shows —
+        // which defeats the only purpose the field has.
+        u64 NativeCloneHandle = 0;
+        u64 NativeSourceHandle = 0;
+        // The clone's storage format, in the neutral diagnostic vocabulary
+        // (token + native enum value); the tools report the token and
+        // decode with the rest.
+        RHI::TextureFormatInfo Format;
+    };
+
+    // Handles, scalars and the format's static token have no self-pointers; FString owns relocatable storage.
+    template<>
+    struct TIsTriviallyRelocatable<RenderGraphPassSnapshotResult>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(RenderGraphPassSnapshotResult::Captured)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RenderGraphPassSnapshotResult::Error)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RenderGraphPassSnapshotResult::ResourceName)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RenderGraphPassSnapshotResult::Handle)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RenderGraphPassSnapshotResult::SourceHandle)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RenderGraphPassSnapshotResult::Width)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RenderGraphPassSnapshotResult::Height)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RenderGraphPassSnapshotResult::DepthOrLayers)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RenderGraphPassSnapshotResult::MipLevels)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RenderGraphPassSnapshotResult::NativeCloneHandle)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RenderGraphPassSnapshotResult::NativeSourceHandle)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RenderGraphPassSnapshotResult::Format)>::Value;
+    };
 
     // @brief One-shot mid-frame snapshot of render-graph resources AS OF a
     // given pass's execution (issue #607 — the MCP tools' 'afterPass' param).
@@ -68,38 +117,14 @@ namespace OloEngine
 
         struct Request
         {
-            std::string ResourceName;
+            FString ResourceName;
+
+            Request(std::string_view resourceName, Resolver resolve)
+                : ResourceName(resourceName), Resolve(std::move(resolve)) {}
             Resolver Resolve;
         };
 
-        struct Result
-        {
-            bool Captured = false;
-            std::string Error; // non-empty when the pass fired but this copy failed
-            std::string ResourceName;
-            // The scratch clone, owned by this class. Read it through the
-            // facade like any other texture; do not cache it across an Arm().
-            RHI::ResourceHandle Handle;
-            RHI::ResourceHandle SourceHandle;
-            u32 Width = 0;
-            u32 Height = 0;
-            u32 DepthOrLayers = 1;
-            u32 MipLevels = 1;
-            // BOTH currencies, per ADR 0011 amendment (77): the identity above
-            // is what the tools read through, the native handle below is what
-            // a RenderDoc / RGP capture shows. 0 is legitimate on a backend
-            // whose object has no native name, so nothing may DECIDE on it.
-            //
-            // u64, not u32 (issue #890): these were truncating, and a `VkImage`
-            // squeezed into 32 bits correlates with nothing a capture shows —
-            // which defeats the only purpose the field has.
-            u64 NativeCloneHandle = 0;
-            u64 NativeSourceHandle = 0;
-            // The clone's storage format, in the neutral diagnostic vocabulary
-            // (token + native enum value); the tools report the token and
-            // decode with the rest.
-            RHI::TextureFormatInfo Format;
-        };
+        using Result = RenderGraphPassSnapshotResult;
 
         RenderGraphPassSnapshot() = default;
         ~RenderGraphPassSnapshot();
@@ -111,7 +136,7 @@ namespace OloEngine
         // RenderGraph::Execute(), clone every requested resource. Installs
         // this tool's keyed post-pass hook on `graph` (replacing any previous
         // armed request). Results are reset to empty.
-        void Arm(RenderGraph* graph, std::string passName, std::vector<Request> requests);
+        void Arm(RenderGraph* graph, std::string_view passName, TDoubleLinkedList<Request> requests);
 
         // Uninstall the hook and drop any pending request. The scratch
         // textures and the last results stay valid until the next Arm() or
@@ -124,14 +149,14 @@ namespace OloEngine
             return m_Pending;
         }
 
-        [[nodiscard]] const std::string& GetPassName() const
+        [[nodiscard]] const FString& GetPassName() const
         {
             return m_PassName;
         }
 
         // One Result per Arm() request, in request order. Empty while pending
         // (the pass has not fired since arming).
-        [[nodiscard]] const std::vector<Result>& GetResults() const
+        [[nodiscard]] const TArray<Result>& GetResults() const
         {
             return m_Results;
         }
@@ -172,10 +197,10 @@ namespace OloEngine
 
         RenderGraph* m_InstalledGraph = nullptr;
         bool m_Pending = false;
-        std::string m_PassName;
-        std::vector<Request> m_Requests;
-        std::vector<Result> m_Results;
-        std::vector<ScratchSlot> m_Scratch;
+        FString m_PassName;
+        TDoubleLinkedList<Request> m_Requests;
+        TArray<Result> m_Results;
+        TArray<ScratchSlot> m_Scratch;
 
         static constexpr const char* kPostPassHookKey = "mcp-afterpass-snapshot";
     };

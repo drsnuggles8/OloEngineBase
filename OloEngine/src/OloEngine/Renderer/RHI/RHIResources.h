@@ -22,8 +22,8 @@
 
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 
-#include <string>
-#include <vector>
+#include "OloEngine/Containers/String.h"
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine::RHI
 {
@@ -89,7 +89,7 @@ namespace OloEngine::RHI
         // being inferred from usage flags.
         bool Streaming = false;
 
-        std::string DebugName;
+        FString DebugName;
     };
 
     enum class BufferUsage : u32
@@ -123,7 +123,7 @@ namespace OloEngine::RHI
         u64 SizeBytes = 0;
         BufferUsage Usage = BufferUsage::Storage;
         MemoryResidency Residency = MemoryResidency::DeviceLocal;
-        std::string DebugName;
+        FString DebugName;
     };
 
     // =========================================================================
@@ -472,16 +472,16 @@ namespace OloEngine::RHI
         // blend is not optional: weighted-blended OIT needs different blend
         // functions on accum (RT0) and revealage (RT1) of the same framebuffer,
         // and the deferred G-Buffer mixes integer and float attachments.
-        std::vector<BlendState> ColorBlend;
+        TArray<BlendState> ColorBlend;
 
         // Attachment formats are part of pipeline identity on Vulkan. They are
         // NOT part of it on GL, which is exactly why a shader reload invalidates
         // one program on GL and N pipelines on Vulkan.
-        std::vector<Format> ColorAttachmentFormats;
+        TArray<Format> ColorAttachmentFormats;
         Format DepthStencilAttachmentFormat = Format::Unknown;
         u32 Samples = 1;
 
-        std::string DebugName;
+        FString DebugName;
     };
 
     // =========================================================================

@@ -224,7 +224,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         const auto& children = sourceEntity.Children();
-        if (children.empty())
+        if (children.IsEmpty())
             return;
 
         const Scene* sourceScene = sourceEntity.GetScene();
@@ -358,7 +358,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         const auto& children = prefabParent.Children();
-        if (children.empty())
+        if (children.IsEmpty())
             return;
 
         for (const UUID& childUUID : children)
@@ -396,10 +396,10 @@ namespace OloEngine
     // Uses PrefabComponent::m_PrefabEntityID to map children correctly.
     // ─────────────────────────────────────────────────────────────────────────
 
-    const std::vector<std::string>& Prefab::CopyableComponentNames()
+    std::span<const std::string_view> Prefab::CopyableComponentNames()
     {
 #define OLO_PREFAB_COMPONENT_NAME(CompType, Name) Name,
-        static const std::vector<std::string> s_Names{ FOR_EACH_COPYABLE_COMPONENT(OLO_PREFAB_COMPONENT_NAME) };
+        static constexpr std::string_view s_Names[]{ FOR_EACH_COPYABLE_COMPONENT(OLO_PREFAB_COMPONENT_NAME) };
 #undef OLO_PREFAB_COMPONENT_NAME
         return s_Names;
     }
@@ -545,11 +545,11 @@ namespace OloEngine
         return false;
     }
 
-    std::vector<AssetHandle> Prefab::NestedPrefabHandles() const
+    TArray<AssetHandle> Prefab::NestedPrefabHandles() const
     {
         OLO_PROFILE_FUNCTION();
 
-        std::vector<AssetHandle> handles;
+        TArray<AssetHandle> handles;
         if (!m_Scene)
             return handles;
 
@@ -561,7 +561,7 @@ namespace OloEngine
             if (static_cast<u64>(pc.m_PrefabID) == 0 || pc.m_PrefabID == GetHandle())
                 continue;
             if (std::ranges::find(handles, pc.m_PrefabID) == handles.end())
-                handles.push_back(pc.m_PrefabID);
+                handles.Add(pc.m_PrefabID);
         }
         std::ranges::sort(handles, [](AssetHandle a, AssetHandle b)
                           { return static_cast<u64>(a) < static_cast<u64>(b); });

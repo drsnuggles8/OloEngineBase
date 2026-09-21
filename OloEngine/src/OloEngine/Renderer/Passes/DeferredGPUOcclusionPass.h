@@ -8,7 +8,7 @@
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Instancing/GPUFrustumCuller.h"
 
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -78,8 +78,8 @@ namespace OloEngine
 
         // Phase-2 work registered this frame (parallel arrays: packet[i] draws
         // cull[i].Phase2Output after DispatchPhase2 fills it). Cleared each Execute.
-        std::vector<CommandPacket*> m_Phase2Packets;
-        std::vector<GPUFrustumCuller::TwoPhaseCullResult> m_Phase2Culls;
+        TArray<CommandPacket*> m_Phase2Packets;
+        TArray<GPUFrustumCuller::TwoPhaseCullResult> m_Phase2Culls;
 
         // G-Buffer re-export targets. After the phase-2 draws the pass copies
         // the live G-Buffer attachments into these graph textures so downstream

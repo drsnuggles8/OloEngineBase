@@ -11,9 +11,9 @@ TEST_F(RayTracingDevice, VegetationSharesPartStreamsAndRecoversAfterUnsubmittedO
     input.FirstPlantId = 91u;
     input.Rest = VertexBuffer::Create(vertices.data(), sizeof(vertices));
     input.VertexCount = 4u;
-    input.Rows.push_back({ glm::vec4(10, 0, 5, 1), glm::vec4(0, 2, 1, FoliageWindPhase(91u)), glm::vec4(1) });
-    input.Parts.push_back({ 0u, { 0u, 1u, 2u }, {} });
-    input.Parts.push_back({ 1u, { 2u, 3u, 0u }, {} });
+    input.Rows.Add({ glm::vec4(10, 0, 5, 1), glm::vec4(0, 2, 1, FoliageWindPhase(91u)), glm::vec4(1) });
+    input.Parts.Add({ 0u, { 0u, 1u, 2u }, {} });
+    input.Parts.Add({ 1u, { 2u, 3u, 0u }, {} });
     input.DistanceToView = 0.0f;
     input.DetailedDistance = 12.0f;
     input.HistoryContinuous = true;

@@ -13,6 +13,8 @@
 //
 // Ported from Unreal Engine 5.7's Templates/RefCounting.h
 
+#include "OloEngine/Templates/UnrealTypeTraits.h"
+
 #pragma once
 
 #include "OloEngine/Core/Base.h"
@@ -648,4 +650,14 @@ namespace OloEngine
         return TRefCountPtr<T>(NewObject);
     }
 
+} // namespace OloEngine
+
+namespace OloEngine
+{
+    // Owns an external intrusive pointer; bookkeeping never retains the wrapper address.
+    template<typename T>
+    struct TIsTriviallyRelocatable<TRefCountPtr<T>>
+    {
+        static constexpr bool Value = true;
+    };
 } // namespace OloEngine

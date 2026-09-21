@@ -344,13 +344,13 @@ namespace OloEngine::Tests
         IBLPrecompute::GenerateBRDFLut(lut, shaderLibrary);
         ::glFinish();
 
-        std::vector<u8> bytes;
+        TArray64<u8> bytes;
         if (!lut->GetData(bytes, 0))
         {
             cleanupLut();
             FAIL() << "BRDF LUT readback failed";
         }
-        if (bytes.size() != static_cast<std::size_t>(kSize) * kSize * 2 * sizeof(f32))
+        if (bytes.Num() != static_cast<std::size_t>(kSize) * kSize * 2 * sizeof(f32))
         {
             cleanupLut();
             FAIL() << "BRDF LUT readback size mismatch";
@@ -360,13 +360,13 @@ namespace OloEngine::Tests
         f32 maxB = 0.0f;
         f64 sum = 0.0;
         u32 invalidCount = 0;
-        const auto sampleCount = bytes.size() / (2 * sizeof(f32));
+        const auto sampleCount = bytes.Num() / (2 * sizeof(f32));
         for (std::size_t i = 0; i < sampleCount; ++i)
         {
             f32 a = 0.0f;
             f32 b = 0.0f;
-            std::memcpy(&a, bytes.data() + i * 2 * sizeof(f32), sizeof(f32));
-            std::memcpy(&b, bytes.data() + (i * 2 + 1) * sizeof(f32), sizeof(f32));
+            std::memcpy(&a, bytes.GetData() + i * 2 * sizeof(f32), sizeof(f32));
+            std::memcpy(&b, bytes.GetData() + (i * 2 + 1) * sizeof(f32), sizeof(f32));
 
             if (!std::isfinite(a) || !std::isfinite(b))
             {
@@ -397,7 +397,7 @@ namespace OloEngine::Tests
     {
         OLO_ENSURE_GPU_OR_SKIP();
 
-        const std::vector<std::string> facePaths = {
+        const std::array<FString, 6> facePaths = {
             "assets/textures/Skybox/right.jpg",
             "assets/textures/Skybox/left.jpg",
             "assets/textures/Skybox/top.jpg",
@@ -409,8 +409,8 @@ namespace OloEngine::Tests
         for (const auto& facePath : facePaths)
         {
             std::error_code ec;
-            ASSERT_TRUE(std::filesystem::exists(facePath, ec)) << "Missing skybox fixture: " << facePath;
-            ASSERT_FALSE(ec) << "Failed to probe skybox fixture: " << facePath << ": " << ec.message();
+            ASSERT_TRUE(std::filesystem::exists(facePath.ToView(), ec)) << "Missing skybox fixture: " << facePath.ToView();
+            ASSERT_FALSE(ec) << "Failed to probe skybox fixture: " << facePath.ToView() << ": " << ec.message();
         }
 
         Ref<TextureCubemap> skybox = TextureCubemap::Create(facePaths);

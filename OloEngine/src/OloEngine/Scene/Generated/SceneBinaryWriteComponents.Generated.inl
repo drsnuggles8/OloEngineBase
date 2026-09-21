@@ -280,7 +280,7 @@ if (entity.HasComponent<DiscoveredSetComponent>())
 {
     SceneBinIO::WriteU32(out, 4028072432u); // DiscoveredSetComponent
     auto const& comp = entity.GetComponent<DiscoveredSetComponent>();
-    SceneBinIO::WriteU32(out, static_cast<u32>(comp.m_Discovered.size()));
+    SceneBinIO::WriteU32(out, static_cast<u32>(comp.m_Discovered.Num()));
     for (auto const& be0 : comp.m_Discovered)
         SceneBinIO::Write(out, be0);
 }
@@ -767,7 +767,7 @@ if (entity.HasComponent<RelationshipComponent>())
     SceneBinIO::WriteU32(out, 3765764758u); // RelationshipComponent
     auto const& comp = entity.GetComponent<RelationshipComponent>();
     SceneBinIO::Write(out, comp.m_ParentHandle);
-    SceneBinIO::WriteU32(out, static_cast<u32>(comp.m_Children.size()));
+    SceneBinIO::WriteU32(out, static_cast<u32>(comp.m_Children.Num()));
     for (auto const& be0 : comp.m_Children)
         SceneBinIO::Write(out, be0);
 }

@@ -636,7 +636,7 @@ namespace OloEngine
 
     bool JoltScene::UpdateTerrainBodyHeights(UUID terrainEntityID, u32 regionX, u32 regionZ,
                                              u32 regionWidth, u32 regionHeight,
-                                             const std::vector<f32>& fullHeights, u32 resolution)
+                                             std::span<const f32> fullHeights, u32 resolution)
     {
         if (!m_Initialized || !m_JoltSystem)
             return false;
@@ -813,9 +813,9 @@ namespace OloEngine
         m_Cloths.clear();
     }
 
-    bool JoltScene::GetClothVertices(UUID entityID, std::vector<glm::vec3>& outWorldPositions) const
+    bool JoltScene::GetClothVertices(UUID entityID, TArray<glm::vec3>& outWorldPositions) const
     {
-        outWorldPositions.clear();
+        outWorldPositions.Reset();
 
         auto it = m_Cloths.find(entityID);
         if (it == m_Cloths.end() || !m_JoltSystem)
@@ -829,11 +829,11 @@ namespace OloEngine
                                      {
             const JPH::RMat44 comTransform = body.GetCenterOfMassTransform();
             const auto& vertices = motion.GetVertices();
-            outWorldPositions.reserve(vertices.size());
+            outWorldPositions.Reserve(static_cast<i32>(vertices.size()));
             for (const auto& vertex : vertices)
             {
                 const JPH::RVec3 world = comTransform * vertex.mPosition;
-                outWorldPositions.emplace_back(JoltUtils::FromJoltRVec3(world));
+                outWorldPositions.Emplace(JoltUtils::FromJoltRVec3(world));
             } });
     }
 
@@ -865,9 +865,9 @@ namespace OloEngine
         m_JoltSystem->GetBodyInterface().AddForce(it->second.m_BodyID, JPH::Vec3(force.x, force.y, force.z));
     }
 
-    bool JoltScene::GetClothPinnedVertexIndices(UUID entityID, std::vector<u32>& outIndices) const
+    bool JoltScene::GetClothPinnedVertexIndices(UUID entityID, TArray<u32>& outIndices) const
     {
-        outIndices.clear();
+        outIndices.Reset();
 
         auto it = m_Cloths.find(entityID);
         if (it == m_Cloths.end() || !m_JoltSystem)
@@ -881,12 +881,12 @@ namespace OloEngine
             {
                 // A pinned particle carries zero inverse mass (JoltShapes::CreateClothSharedSettings).
                 if (vertices[i].mInvMass == 0.0f)
-                    outIndices.push_back(i);
+                    outIndices.Add(i);
             } });
     }
 
-    void JoltScene::DriveClothAttachment(UUID entityID, const std::vector<u32>& vertexIndices,
-                                         const std::vector<glm::vec3>& targetWorldPositions, f32 dt)
+    void JoltScene::DriveClothAttachment(UUID entityID, std::span<const u32> vertexIndices,
+                                         std::span<const glm::vec3> targetWorldPositions, f32 dt)
     {
         if (!m_JoltSystem || !std::isfinite(dt) || dt <= 0.0f)
             return;
@@ -1926,7 +1926,7 @@ namespace OloEngine
         // modes rely on it). `looping` is honoured only with >= 3 distinct points;
         // a 2-point loop has a zero central-difference tangent, so it is treated
         // as a straight (non-looping) path.
-        JPH::Ref<JPH::PathConstraintPathHermite> BuildHermitePath(const std::vector<glm::vec3>& points, bool looping)
+        JPH::Ref<JPH::PathConstraintPathHermite> BuildHermitePath(std::span<const glm::vec3> points, bool looping)
         {
             const sizet n = points.size();
             if (n < 2)
@@ -2461,7 +2461,7 @@ namespace OloEngine
                     // body2 is pulled onto the path and may be driven along it by
                     // the position motor. Returns nullptr (skips the constraint)
                     // when the authored points can't form a valid path.
-                    JPH::Ref<JPH::PathConstraintPathHermite> path = BuildHermitePath(joint.m_PathPoints, joint.m_PathIsLooping);
+                    JPH::Ref<JPH::PathConstraintPathHermite> path = BuildHermitePath({ joint.m_PathPoints.GetData(), static_cast<sizet>(joint.m_PathPoints.Num()) }, joint.m_PathIsLooping);
                     if (path == nullptr)
                     {
                         OLO_CORE_WARN("PhysicsJoint3D on entity {0}: Path joint needs >= 2 finite points; skipping constraint", (u64)entityID);

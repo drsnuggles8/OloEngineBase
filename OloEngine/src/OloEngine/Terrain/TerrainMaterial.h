@@ -1,5 +1,7 @@
 #pragma once
 
+#include "OloEngine/Containers/Array.h"
+
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Terrain/TerrainLayer.h"
@@ -7,7 +9,7 @@
 #include "OloEngine/Renderer/Texture2DArray.h"
 
 #include <array>
-#include <string>
+#include "OloEngine/Containers/String.h"
 
 namespace OloEngine
 {
@@ -39,8 +41,8 @@ namespace OloEngine
         void BuildTextureArrays(u32 layerResolution = 512);
 
         // Splatmap management
-        void SetSplatmapPath(u32 index, const std::string& path); // index 0 or 1
-        [[nodiscard]] const std::string& GetSplatmapPath(u32 index) const;
+        void SetSplatmapPath(u32 index, const FString& path); // index 0 or 1
+        [[nodiscard]] const FString& GetSplatmapPath(u32 index) const;
         void LoadSplatmaps();
 
         // GPU resources for rendering
@@ -83,8 +85,8 @@ namespace OloEngine
         // TerrainData's height sync point. Consumers that read this without a
         // sync (foliage density masks, the auto-material evidence test, save) saw
         // a pre-stroke splatmap and had no way to tell.
-        [[nodiscard]] std::vector<u8>& GetSplatmapData(u32 index);
-        [[nodiscard]] const std::vector<u8>& GetSplatmapData(u32 index) const;
+        [[nodiscard]] TArray<u8>& GetSplatmapData(u32 index);
+        [[nodiscard]] const TArray<u8>& GetSplatmapData(u32 index) const;
 
         // Declare the GPU splatmaps newer than the CPU mirror. Called by
         // TerrainGPUBrush::ApplyPaint; the next CPU consumer pays for one readback.
@@ -103,19 +105,19 @@ namespace OloEngine
         void UploadSplatmapRegion(u32 splatmapIndex, u32 x, u32 y, u32 w, u32 h);
         [[nodiscard]] bool HasCPUSplatmaps() const
         {
-            return m_SplatmapResolution > 0 && !m_CPUSplatmaps[0].empty();
+            return m_SplatmapResolution > 0 && !m_CPUSplatmaps[0].IsEmpty();
         }
 
       private:
         // Load a single texture, resize if needed, return RGBA8 pixel data
-        static bool LoadTextureData(const std::string& path, u32 targetSize,
-                                    std::vector<u8>& outData);
+        static bool LoadTextureData(const FString& path, u32 targetSize,
+                                    TArray<u8>& outData);
 
         std::array<TerrainLayer, MAX_TERRAIN_LAYERS> m_Layers;
         u32 m_LayerCount = 0;
 
         // Splatmaps (RGBA8): splatmap 0 = layers 0-3, splatmap 1 = layers 4-7
-        std::array<std::string, 2> m_SplatmapPaths;
+        std::array<FString, 2> m_SplatmapPaths;
         std::array<Ref<Texture2D>, 2> m_Splatmaps;
 
         // GPU texture arrays (one layer per array slice)
@@ -128,7 +130,7 @@ namespace OloEngine
         // CPU-side splatmap pixel buffers (RGBA8, row-major). A MIRROR of the GPU
         // splatmaps while painting; mutable so SyncSplatmapsFromGPU() can refresh
         // it from the const read accessor.
-        mutable std::array<std::vector<u8>, 2> m_CPUSplatmaps;
+        mutable std::array<TArray<u8>, 2> m_CPUSplatmaps;
         mutable bool m_CPUSplatmapsStale = false;
         u32 m_SplatmapResolution = 0;
     };

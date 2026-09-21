@@ -122,10 +122,10 @@ namespace OloEngine::RayTracing
             m_Backend.reset();
         }
         m_Blas.clear();
-        m_Instances.clear();
-        m_PendingBuilds.clear();
-        m_PendingBlasCommits.clear();
-        m_PendingRetires.clear();
+        m_Instances.Reset();
+        m_PendingBuilds.Reset();
+        m_PendingBlasCommits.Reset();
+        m_PendingRetires.Reset();
         m_Stats = SceneStats{};
         m_PreviousInstanceCount = 0;
         m_EverBuiltTlas = false;
@@ -354,10 +354,10 @@ namespace OloEngine::RayTracing
         m_RenderOrigin = renderOrigin;
         m_HasRenderOrigin = true;
 
-        m_Instances.clear();
-        m_PendingBuilds.clear();
-        m_PendingBlasCommits.clear();
-        m_PendingRetires.clear();
+        m_Instances.Reset();
+        m_PendingBuilds.Reset();
+        m_PendingBlasCommits.Reset();
+        m_PendingRetires.Reset();
 
         ResidentCounters resident{};
         // NOT seeded from renderOriginRebased. Both force a rebuild, but they
@@ -472,7 +472,7 @@ namespace OloEngine::RayTracing
             // computed, so nothing about the rigid path changes.
             record.ForceOpaque = material->AlphaMode != static_cast<u32>(AlphaMode::Mask);
             record.Geometry = key;
-            m_Instances.push_back(record);
+            m_Instances.Add(record);
         }
 
         // Second pass: at most one build request per geometry.
@@ -565,7 +565,7 @@ namespace OloEngine::RayTracing
                 // A refit extends the run; any full rebuild resets it, so a
                 // geometry that stops deforming keeps its run length rather
                 // than rebuilding on the next change.
-                m_PendingBlasCommits.push_back(PendingBlasCommit{
+                m_PendingBlasCommits.Add(PendingBlasCommit{
                     .Key = key,
                     .Class = buildClass,
                     .GeometryFingerprint = entry.Fingerprint,
@@ -573,7 +573,7 @@ namespace OloEngine::RayTracing
                     .ConsecutiveRefits = *reason == BuildReason::DeformedRefit ? consecutiveRefits + 1u : 0u,
                     .HasDeformation = buildClass == GeometryClass::Deformed,
                 });
-                m_PendingBuilds.push_back(BlasBuildRequest{
+                m_PendingBuilds.Add(BlasBuildRequest{
                     .Key = key,
                     .Class = buildClass,
                     .Reason = *reason,
@@ -598,7 +598,7 @@ namespace OloEngine::RayTracing
         {
             if (state.LastSeenFrame != m_FrameNumber)
             {
-                m_PendingRetires.push_back(key);
+                m_PendingRetires.Add(key);
             }
         }
         for (const GeometryKey& key : m_PendingRetires)
@@ -618,8 +618,8 @@ namespace OloEngine::RayTracing
         // at all. Guarding this on a non-empty list is how compaction silently
         // never completes in production while a test that calls the backend
         // directly still passes.
-        const u32 recorded = m_Backend->RecordBlasBuilds(m_PendingBuilds);
-        const bool everyBuildRecorded = recorded == m_PendingBuilds.size();
+        const u32 recorded = m_Backend->RecordBlasBuilds({ m_PendingBuilds.GetData(), static_cast<sizet>(m_PendingBuilds.Num()) });
+        const bool everyBuildRecorded = recorded == m_PendingBuilds.Num();
         // Vegetation readiness follows the VEGETATION builds, not the batch: a
         // dropped build somewhere else in the scene is not a reason to withhold
         // the canopy. A backend that reports only a count answers false from
@@ -630,7 +630,7 @@ namespace OloEngine::RayTracing
         if (!everyBuildRecorded)
         {
             OLO_CORE_WARN("[RayTracing] {} of {} BLAS builds could not be recorded this frame",
-                          m_PendingBuilds.size() - recorded, m_PendingBuilds.size());
+                          m_PendingBuilds.Num() - recorded, m_PendingBuilds.Num());
         }
 
         // Commit only acknowledged writes. Vulkan reports keys so bounded
@@ -649,17 +649,17 @@ namespace OloEngine::RayTracing
                 found->second.ConsecutiveRefits = commit.ConsecutiveRefits;
             }
         }
-        m_PendingBlasCommits.clear();
+        m_PendingBlasCommits.Reset();
 
         // Belt to the retire loop's braces: a build that failed above would
         // otherwise leave an instance in the TLAS pointing at no structure.
-        std::erase_if(m_Instances, [this](const InstanceRecord& record)
-                      { return !m_Backend->IsBlasResident(record.Geometry); });
+        m_Instances.RemoveAll([this](const InstanceRecord& record)
+                              { return !m_Backend->IsBlasResident(record.Geometry); });
 
-        const u32 instanceCount = static_cast<u32>(m_Instances.size());
+        const u32 instanceCount = static_cast<u32>(m_Instances.Num());
         const TlasBuildReason requested = DecideTlasBuild(m_PreviousInstanceCount, instanceCount, topologyChanged,
                                                           renderOriginRebased, m_EverBuiltTlas);
-        const TlasBuildReason used = m_Backend->RecordTlasBuild(m_Instances, requested);
+        const TlasBuildReason used = m_Backend->RecordTlasBuild({ m_Instances.GetData(), static_cast<sizet>(m_Instances.Num()) }, requested);
         if (used == TlasBuildReason::Update)
         {
             ++m_Stats.Frame.TlasUpdates;

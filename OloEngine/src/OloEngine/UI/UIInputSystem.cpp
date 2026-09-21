@@ -147,10 +147,10 @@ namespace OloEngine
 
                 const bool hoveredMain = PointInRect(mousePos, resolved.m_Position, resolved.m_Size);
 
-                if (dropdown.m_IsOpen && !dropdown.m_Options.empty())
+                if (dropdown.m_IsOpen && !dropdown.m_Options.IsEmpty())
                 {
                     const f32 itemHeight = glm::max(dropdown.m_ItemHeight, 1.0f);
-                    const f32 listHeight = static_cast<f32>(dropdown.m_Options.size()) * itemHeight;
+                    const f32 listHeight = static_cast<f32>(dropdown.m_Options.Num()) * itemHeight;
                     const glm::vec2 listPos = { resolved.m_Position.x, resolved.m_Position.y + resolved.m_Size.y };
                     const bool hoveredList = PointInRect(mousePos, listPos, { resolved.m_Size.x, listHeight });
 
@@ -165,7 +165,7 @@ namespace OloEngine
 
                     if (mousePressed)
                     {
-                        if (hoveredList && dropdown.m_HoveredIndex >= 0 && dropdown.m_HoveredIndex < static_cast<i32>(dropdown.m_Options.size()))
+                        if (hoveredList && dropdown.m_HoveredIndex >= 0 && dropdown.m_HoveredIndex < static_cast<i32>(dropdown.m_Options.Num()))
                         {
                             dropdown.m_SelectedIndex = dropdown.m_HoveredIndex;
                         }

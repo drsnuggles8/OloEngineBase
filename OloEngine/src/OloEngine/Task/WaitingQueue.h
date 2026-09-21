@@ -116,3 +116,14 @@ namespace OloEngine::LowLevelTasks::Private
     };
 
 } // namespace OloEngine::LowLevelTasks::Private
+
+namespace OloEngine
+{
+    // Pooled event ownership is an external pointer; atomics/scalars have no self-pointers.
+    // Scheduler sizes this array before publishing nodes and never grows it while active.
+    template<>
+    struct TIsTriviallyRelocatable<LowLevelTasks::Private::FWaitEvent>
+    {
+        static constexpr bool Value = true;
+    };
+} // namespace OloEngine

@@ -408,7 +408,7 @@ namespace OloEngine
         data.AOProxyCollecting = data.PostProcess.SphereProxyAOEnabled &&
                                  data.PostProcess.GTAOEnabled &&
                                  data.ActiveGraphAOTechnique == AOTechnique::GTAO;
-        data.AOProxyBounds.clear();
+        data.AOProxyBounds.Reset();
 
         // Process any pending GPU resource creation commands from async loaders.
         GPUResourceQueue::ProcessAll();
@@ -987,7 +987,7 @@ namespace OloEngine
             // Setup and the FluidRefraction declaration both key off
             // HasPendingDraws() (issue #630).
             RenderStreamPasses.FluidIntermediates->SetFrameDraws(std::move(data.PendingFluidDraws));
-            data.PendingFluidDraws.clear();
+            data.PendingFluidDraws.Reset();
         }
 
         // The AO PRODUCERS must be handed the same technique the consumers are
@@ -1070,7 +1070,7 @@ namespace OloEngine
             proxyPass.SetViewMatrix(data.ViewMatrix, Renderer3D::GetRenderOrigin());
             proxyPass.SetViewPosition(data.ViewPos);
 
-            proxyPass.SetProxySourceBounds(proxyEnabled ? std::span<const BoundingBox>(data.AOProxyBounds)
+            proxyPass.SetProxySourceBounds(proxyEnabled ? std::span<const BoundingBox>(data.AOProxyBounds.GetData(), static_cast<sizet>(data.AOProxyBounds.Num()))
                                                         : std::span<const BoundingBox>{});
             data.AOProxyCollecting = false;
         }
@@ -1980,9 +1980,9 @@ namespace OloEngine
 
         if (PostProcessPasses.SelectionOutline)
         {
-            PostProcessPasses.SelectionOutline->SetSelectedEntityIDs(data.SelectionOutlineEntityIDs);
+            PostProcessPasses.SelectionOutline->SetSelectedEntityIDs({ data.SelectionOutlineEntityIDs.GetData(), static_cast<sizet>(data.SelectionOutlineEntityIDs.Num()) });
             const bool selectionOutlineEnabled = data.EnableSelectionOutline &&
-                                                 !data.SelectionOutlineEntityIDs.empty() &&
+                                                 !data.SelectionOutlineEntityIDs.IsEmpty() &&
                                                  PostProcessPasses.SelectionOutline->IsReadyForExecution();
             PostProcessPasses.SelectionOutline->SetEnabled(selectionOutlineEnabled);
         }
@@ -3026,7 +3026,7 @@ namespace OloEngine
         // values must invalidate the cache or selecting an entity after
         // a frame with no selection would silently skip declaration.
         HashBool(h, data.EnableSelectionOutline);
-        HashBool(h, !data.SelectionOutlineEntityIDs.empty());
+        HashBool(h, !data.SelectionOutlineEntityIDs.IsEmpty());
 
         // Temporal-history gate inputs — `if (TAAHistoryValid && Texture)`
         // decides whether the prior frame's history is imported into the
@@ -3202,7 +3202,7 @@ namespace OloEngine
         // graph in which the node declared nothing, stay culled, and report
         // zeros from every counter meant to explain it.
         HashPassState(h, RenderStreamPasses.Groom);
-        HashBool(h, !Renderer3D::GetGroomStrandRequests().empty());
+        HashBool(h, Renderer3D::GetGroomStrandRequests().Num() != 0);
         HashPassState(h, RenderStreamPasses.Water);
         HashPassState(h, RenderStreamPasses.FluidIntermediates);
         HashPassState(h, RenderStreamPasses.FluidComposite);
@@ -3443,7 +3443,7 @@ namespace OloEngine
                     RGResourceFormat::RGBA16Float,
                     RGResourceFormat::Depth24Stencil8,
                 };
-                sceneDesc.DebugName = std::string(ResourceNames::SceneColor);
+                sceneDesc.DebugName = ResourceNames::SceneColor;
                 board.Scene.SceneColor = graph.DeclareTransientFramebuffer(ResourceNames::SceneColor, sceneDesc);
                 board.Scene.SceneColorTexture = graph.CreateFramebufferAttachmentView(ResourceNames::SceneColorTexture, board.Scene.SceneColor, 0u);
                 board.Scene.SceneEntityID = graph.CreateFramebufferAttachmentView(ResourceNames::SceneEntityID, board.Scene.SceneColor, 1u);
@@ -3468,7 +3468,7 @@ namespace OloEngine
                 depthDesc.Format = RGResourceFormat::Depth24Stencil8;
                 depthDesc.Width = sceneSpec.Width;
                 depthDesc.Height = sceneSpec.Height;
-                depthDesc.DebugName = std::string(ResourceNames::SceneDepth);
+                depthDesc.DebugName = ResourceNames::SceneDepth;
                 board.Scene.SceneDepth = graph.AllocateTransientTextureHandle(ResourceNames::SceneDepth, depthDesc);
 
                 RGResourceDesc normalsDesc;
@@ -3476,7 +3476,7 @@ namespace OloEngine
                 normalsDesc.Format = RGResourceFormat::RG16Float;
                 normalsDesc.Width = sceneSpec.Width;
                 normalsDesc.Height = sceneSpec.Height;
-                normalsDesc.DebugName = std::string(ResourceNames::SceneNormals);
+                normalsDesc.DebugName = ResourceNames::SceneNormals;
                 board.Scene.SceneNormals = graph.AllocateTransientTextureHandle(ResourceNames::SceneNormals, normalsDesc);
                 // Forward fills this from the scene FB's RT2, which the PBR shader
                 // writes in VIEW space — unlike the deferred G-Buffer's world-space
@@ -3531,7 +3531,7 @@ namespace OloEngine
                     RGResourceFormat::RGBA16Float,
                     RGResourceFormat::Depth24Stencil8,
                 };
-                desc.DebugName = std::string(debugName);
+                desc.DebugName = debugName;
                 return desc;
             };
 
@@ -3637,7 +3637,7 @@ namespace OloEngine
                 velocityDesc.Format = RGResourceFormat::RG16Float;
                 velocityDesc.Width = sceneSpec.Width;
                 velocityDesc.Height = sceneSpec.Height;
-                velocityDesc.DebugName = std::string(ResourceNames::Velocity);
+                velocityDesc.DebugName = ResourceNames::Velocity;
                 board.GBuffer.Velocity = graph.AllocateTransientTextureHandle(ResourceNames::Velocity, velocityDesc);
             }
         }
@@ -3677,7 +3677,7 @@ namespace OloEngine
                 aoDesc.Format = RGResourceFormat::RG16Float;
                 aoDesc.Width = aoWidth;
                 aoDesc.Height = aoHeight;
-                aoDesc.DebugName = std::string(ResourceNames::AOBuffer);
+                aoDesc.DebugName = ResourceNames::AOBuffer;
                 board.AO.AOBuffer = graph.AllocateTransientTextureHandle(ResourceNames::AOBuffer, aoDesc);
             }
             else if (gtaoReady)
@@ -3696,7 +3696,7 @@ namespace OloEngine
                 aoDesc.Format = RGResourceFormat::R8UNorm;
                 aoDesc.Width = aoWidth;
                 aoDesc.Height = aoHeight;
-                aoDesc.DebugName = std::string(ResourceNames::AOBuffer);
+                aoDesc.DebugName = ResourceNames::AOBuffer;
                 board.AO.AOBuffer = graph.AllocateTransientTextureHandle(ResourceNames::AOBuffer, aoDesc);
             }
             else
@@ -3937,7 +3937,7 @@ namespace OloEngine
             desc.Width = postProcessWidth;
             desc.Height = postProcessHeight;
             desc.Format = fmt;
-            desc.DebugName = std::string(name);
+            desc.DebugName = name;
             return declareGraphOnlyFramebuffer(name, desc);
         };
 
@@ -3974,7 +3974,7 @@ namespace OloEngine
             desc.Width = sceneBandWidth;
             desc.Height = sceneBandHeight;
             desc.Format = fmt;
-            desc.DebugName = std::string(framebufferName);
+            desc.DebugName = framebufferName;
             const auto framebuffer = declareGraphOnlyFramebuffer(framebufferName, desc);
             const auto texture = framebuffer.IsValid()
                                      ? graph.CreateFramebufferAttachmentView(textureName, framebuffer, 0u)
@@ -4008,7 +4008,7 @@ namespace OloEngine
                 board.Scratch.SSAORaw = declareGraphOnlyFramebuffer("SSAORaw", rawDesc);
 
                 RGResourceDesc blurDesc = rawDesc;
-                blurDesc.DebugName = std::string(ResourceNames::SSAOBlur);
+                blurDesc.DebugName = ResourceNames::SSAOBlur;
                 board.Scratch.SSAOBlur = declareGraphOnlyFramebuffer(ResourceNames::SSAOBlur, blurDesc);
             }
         }
@@ -4054,7 +4054,7 @@ namespace OloEngine
             hzbDesc.Width = hzbW;
             hzbDesc.Height = hzbH;
             hzbDesc.MipLevels = mipCount;
-            hzbDesc.DebugName = std::string(ResourceNames::HZBDepth);
+            hzbDesc.DebugName = ResourceNames::HZBDepth;
             board.Scratch.HZBDepth = declareGraphOnlyTexture(ResourceNames::HZBDepth, hzbDesc);
 
             if (board.Scratch.HZBDepth.IsValid())
@@ -4080,10 +4080,10 @@ namespace OloEngine
             denoiseDesc.Format = RGResourceFormat::R8UNorm;
             denoiseDesc.Width = sceneBandWidth;
             denoiseDesc.Height = sceneBandHeight;
-            denoiseDesc.DebugName = std::string(ResourceNames::GTAODenoisePing);
+            denoiseDesc.DebugName = ResourceNames::GTAODenoisePing;
             board.Scratch.GTAODenoisePing = declareGraphOnlyTexture(ResourceNames::GTAODenoisePing, denoiseDesc);
 
-            denoiseDesc.DebugName = std::string(ResourceNames::GTAODenoisePong);
+            denoiseDesc.DebugName = ResourceNames::GTAODenoisePong;
             board.Scratch.GTAODenoisePong = declareGraphOnlyTexture(ResourceNames::GTAODenoisePong, denoiseDesc);
         }
 
@@ -4203,7 +4203,7 @@ namespace OloEngine
                 ssgiSignalDesc.Format = RGResourceFormat::RGBA16Float;
                 ssgiSignalDesc.Width = ssgiTraceWidth;
                 ssgiSignalDesc.Height = ssgiTraceHeight;
-                ssgiSignalDesc.DebugName = std::string(ResourceNames::SSGISignal);
+                ssgiSignalDesc.DebugName = ResourceNames::SSGISignal;
                 // Attachment 1 is the guide plane: the trace-band copy of the
                 // G-Buffer normal/roughness every guided stage weights against,
                 // and the source SSGISurfaceHistory is extracted from. It must
@@ -4223,11 +4223,11 @@ namespace OloEngine
                 // attachment each: rgb = the filtered signal, a = the centre
                 // pixel's view depth carried through untouched so the next
                 // stage's geometry test still has it.
-                ssgiSignalDesc.Attachments.clear();
-                ssgiSignalDesc.DebugName = std::string(ResourceNames::SSGIPreBlurred);
+                ssgiSignalDesc.Attachments.Reset();
+                ssgiSignalDesc.DebugName = ResourceNames::SSGIPreBlurred;
                 board.Scratch.SSGIPreBlurred =
                     declareGraphOnlyFramebuffer(ResourceNames::SSGIPreBlurred, ssgiSignalDesc);
-                ssgiSignalDesc.DebugName = std::string(ResourceNames::SSGIDenoised);
+                ssgiSignalDesc.DebugName = ResourceNames::SSGIDenoised;
                 board.Scratch.SSGIDenoised =
                     declareGraphOnlyFramebuffer(ResourceNames::SSGIDenoised, ssgiSignalDesc);
 
@@ -4238,7 +4238,7 @@ namespace OloEngine
                     RGResourceFormat::RGBA16Float,
                     RGResourceFormat::RGBA16Float,
                 };
-                ssgiSignalDesc.DebugName = std::string(ResourceNames::SSGIResolved);
+                ssgiSignalDesc.DebugName = ResourceNames::SSGIResolved;
                 board.Scratch.SSGIResolved = declareGraphOnlyFramebuffer(ResourceNames::SSGIResolved, ssgiSignalDesc);
                 board.Scratch.SSGIMomentsFirst = graph.CreateFramebufferAttachmentView(
                     ResourceNames::SSGIMomentsFirst, board.Scratch.SSGIResolved, 1u);
@@ -4323,7 +4323,7 @@ namespace OloEngine
                     RGResourceFormat::RGBA16Float,
                     RGResourceFormat::RGBA16Float,
                 };
-                signalDesc.DebugName = std::string(ResourceNames::RayTracedShadowSignal);
+                signalDesc.DebugName = ResourceNames::RayTracedShadowSignal;
                 board.Scratch.RayTracedShadowSignal =
                     declareGraphOnlyFramebuffer(ResourceNames::RayTracedShadowSignal, signalDesc);
 
@@ -4331,7 +4331,7 @@ namespace OloEngine
                 // RayTracedShadowHistory source), attachment 1 = the moment
                 // summary plus the view depth and blocker distance next frame's
                 // disocclusion test compares against.
-                signalDesc.DebugName = std::string(ResourceNames::RayTracedShadowResolved);
+                signalDesc.DebugName = ResourceNames::RayTracedShadowResolved;
                 board.Scratch.RayTracedShadowResolved =
                     declareGraphOnlyFramebuffer(ResourceNames::RayTracedShadowResolved, signalDesc);
                 board.Scratch.RayTracedShadowMoments = graph.CreateFramebufferAttachmentView(
@@ -4415,7 +4415,7 @@ namespace OloEngine
                     RGResourceFormat::RGBA16Float,
                     RGResourceFormat::RGBA32Float,
                 };
-                radianceDesc.DebugName = std::string(ResourceNames::ReSTIRDIRadiance);
+                radianceDesc.DebugName = ResourceNames::ReSTIRDIRadiance;
                 board.Lighting.ReSTIRDIRadiance =
                     declareGraphOnlyFramebuffer(ResourceNames::ReSTIRDIRadiance, radianceDesc);
                 board.Lighting.ReSTIRDIRadianceTexture =
@@ -4442,7 +4442,7 @@ namespace OloEngine
                     RGResourceFormat::RGBA32Float,
                     RGResourceFormat::RGBA32Float,
                 };
-                reservoirDesc.DebugName = std::string(ResourceNames::ReSTIRDIInitial);
+                reservoirDesc.DebugName = ResourceNames::ReSTIRDIInitial;
                 board.Scratch.ReSTIRDIInitial =
                     declareGraphOnlyFramebuffer(ResourceNames::ReSTIRDIInitial, reservoirDesc);
 
@@ -4452,7 +4452,7 @@ namespace OloEngine
                     RGResourceFormat::RGBA32Float,
                     RGResourceFormat::RGBA32Float,
                 };
-                reservoirDesc.DebugName = std::string(ResourceNames::ReSTIRDITemporal);
+                reservoirDesc.DebugName = ResourceNames::ReSTIRDITemporal;
                 board.Scratch.ReSTIRDITemporal =
                     declareGraphOnlyFramebuffer(ResourceNames::ReSTIRDITemporal, reservoirDesc);
 
@@ -4461,10 +4461,10 @@ namespace OloEngine
                     RGResourceFormat::RGBA32Float,
                     RGResourceFormat::RGBA32Float,
                 };
-                reservoirDesc.DebugName = std::string(ResourceNames::ReSTIRDISpatial0);
+                reservoirDesc.DebugName = ResourceNames::ReSTIRDISpatial0;
                 board.Scratch.ReSTIRDISpatial0 =
                     declareGraphOnlyFramebuffer(ResourceNames::ReSTIRDISpatial0, reservoirDesc);
-                reservoirDesc.DebugName = std::string(ResourceNames::ReSTIRDISpatial1);
+                reservoirDesc.DebugName = ResourceNames::ReSTIRDISpatial1;
                 board.Scratch.ReSTIRDISpatial1 =
                     declareGraphOnlyFramebuffer(ResourceNames::ReSTIRDISpatial1, reservoirDesc);
             }
@@ -4489,7 +4489,7 @@ namespace OloEngine
                                  RGResourceFormat::RGBA32Float, RGResourceFormat::RGBA32Float };
             const auto target = [&](std::string_view name)
             {
-                desc.DebugName = std::string(name);
+                desc.DebugName = name;
                 return declareGraphOnlyFramebuffer(name, desc);
             };
             board.Scratch.ReSTIRPTInitial = target(ResourceNames::ReSTIRPTInitial);
@@ -4551,7 +4551,7 @@ namespace OloEngine
                     RGResourceFormat::RGBA16Float,
                     RGResourceFormat::RGBA32Float,
                 };
-                giRadianceDesc.DebugName = std::string(ResourceNames::ReSTIRGIRadiance);
+                giRadianceDesc.DebugName = ResourceNames::ReSTIRGIRadiance;
                 board.Lighting.ReSTIRGIRadiance =
                     declareGraphOnlyFramebuffer(ResourceNames::ReSTIRGIRadiance, giRadianceDesc);
                 board.Lighting.ReSTIRGIRadianceTexture =
@@ -4578,7 +4578,7 @@ namespace OloEngine
                     RGResourceFormat::RGBA32Float,
                     RGResourceFormat::RGBA32Float,
                 };
-                giReservoirDesc.DebugName = std::string(ResourceNames::ReSTIRGIInitial);
+                giReservoirDesc.DebugName = ResourceNames::ReSTIRGIInitial;
                 board.Scratch.ReSTIRGIInitial =
                     declareGraphOnlyFramebuffer(ResourceNames::ReSTIRGIInitial, giReservoirDesc);
 
@@ -4588,7 +4588,7 @@ namespace OloEngine
                     RGResourceFormat::RGBA32Float,
                     RGResourceFormat::RGBA32Float,
                 };
-                giReservoirDesc.DebugName = std::string(ResourceNames::ReSTIRGITemporal);
+                giReservoirDesc.DebugName = ResourceNames::ReSTIRGITemporal;
                 board.Scratch.ReSTIRGITemporal =
                     declareGraphOnlyFramebuffer(ResourceNames::ReSTIRGITemporal, giReservoirDesc);
 
@@ -4597,10 +4597,10 @@ namespace OloEngine
                     RGResourceFormat::RGBA32Float,
                     RGResourceFormat::RGBA32Float,
                 };
-                giReservoirDesc.DebugName = std::string(ResourceNames::ReSTIRGISpatial0);
+                giReservoirDesc.DebugName = ResourceNames::ReSTIRGISpatial0;
                 board.Scratch.ReSTIRGISpatial0 =
                     declareGraphOnlyFramebuffer(ResourceNames::ReSTIRGISpatial0, giReservoirDesc);
-                giReservoirDesc.DebugName = std::string(ResourceNames::ReSTIRGISpatial1);
+                giReservoirDesc.DebugName = ResourceNames::ReSTIRGISpatial1;
                 board.Scratch.ReSTIRGISpatial1 =
                     declareGraphOnlyFramebuffer(ResourceNames::ReSTIRGISpatial1, giReservoirDesc);
             }
@@ -4716,7 +4716,7 @@ namespace OloEngine
                     RGResourceFormat::RGBA32Float, // 4 first-hit normal sum
                     RGResourceFormat::RGBA16Float, // 5 variance of the mean
                 };
-                pathTracerDesc.DebugName = std::string(ResourceNames::PathTracerColor);
+                pathTracerDesc.DebugName = ResourceNames::PathTracerColor;
                 board.Post.PathTracerColor = declareGraphOnlyFramebuffer(ResourceNames::PathTracerColor, pathTracerDesc);
                 board.Post.PathTracerColorTexture =
                     board.Post.PathTracerColor.IsValid()
@@ -4752,7 +4752,7 @@ namespace OloEngine
                 ssrSignalDesc.Format = RGResourceFormat::RGBA16Float;
                 ssrSignalDesc.Width = sceneBandWidth;
                 ssrSignalDesc.Height = sceneBandHeight;
-                ssrSignalDesc.DebugName = std::string(ResourceNames::SSRSignal);
+                ssrSignalDesc.DebugName = ResourceNames::SSRSignal;
                 // Attachment 1 is the guide plane the two spatial denoiser
                 // stages weight their taps by (issue #708); its ROUGHNESS
                 // channel is what sets their radius, so a mirror is filtered
@@ -4765,15 +4765,15 @@ namespace OloEngine
                 board.Scratch.SSRGuide = graph.CreateFramebufferAttachmentView(
                     ResourceNames::SSRGuide, board.Scratch.SSRSignal, 1u);
 
-                ssrSignalDesc.Attachments.clear();
-                ssrSignalDesc.DebugName = std::string(ResourceNames::SSRPreBlurred);
+                ssrSignalDesc.Attachments.Reset();
+                ssrSignalDesc.DebugName = ResourceNames::SSRPreBlurred;
                 board.Scratch.SSRPreBlurred =
                     declareGraphOnlyFramebuffer(ResourceNames::SSRPreBlurred, ssrSignalDesc);
 
-                ssrSignalDesc.DebugName = std::string(ResourceNames::SSRResolved);
+                ssrSignalDesc.DebugName = ResourceNames::SSRResolved;
                 board.Scratch.SSRResolved = declareGraphOnlyFramebuffer(ResourceNames::SSRResolved, ssrSignalDesc);
 
-                ssrSignalDesc.DebugName = std::string(ResourceNames::SSRDenoised);
+                ssrSignalDesc.DebugName = ResourceNames::SSRDenoised;
                 board.Scratch.SSRDenoised =
                     declareGraphOnlyFramebuffer(ResourceNames::SSRDenoised, ssrSignalDesc);
             }
@@ -4852,7 +4852,7 @@ namespace OloEngine
                 dvDesc.Width = postProcessWidth;
                 dvDesc.Height = postProcessHeight;
                 dvDesc.Attachments = { RGResourceFormat::R32Float, RGResourceFormat::RG16Float };
-                dvDesc.DebugName = std::string(ResourceNames::UpscaledDepthVelocity);
+                dvDesc.DebugName = ResourceNames::UpscaledDepthVelocity;
                 // Only declare the FBO here; DepthVelocityUpscalePass creates the
                 // RT0/RT1 attachment views (and publishes them to board.Post) in
                 // its Setup, so board.Post.Upscaled*Texture is valid ONLY when the
@@ -5021,7 +5021,7 @@ namespace OloEngine
                     mipDesc.Width = mipW;
                     mipDesc.Height = mipH;
                     mipDesc.DebugName = "BloomMip" + std::to_string(i);
-                    board.Scratch.BloomMips[i] = declareGraphOnlyFramebuffer(mipDesc.DebugName, mipDesc);
+                    board.Scratch.BloomMips[i] = declareGraphOnlyFramebuffer(mipDesc.DebugName.ToView(), mipDesc);
 
                     mipW /= 2u;
                     mipH /= 2u;
@@ -5092,10 +5092,10 @@ namespace OloEngine
                 cloudsHalfDesc.Format = RGResourceFormat::RGBA16Float;
                 cloudsHalfDesc.Width = (cloudsSpec.Width + 1u) / 2u;
                 cloudsHalfDesc.Height = (cloudsSpec.Height + 1u) / 2u;
-                cloudsHalfDesc.DebugName = std::string(ResourceNames::CloudsRaw);
+                cloudsHalfDesc.DebugName = ResourceNames::CloudsRaw;
                 board.Scratch.CloudsRaw = declareGraphOnlyFramebuffer(ResourceNames::CloudsRaw, cloudsHalfDesc);
 
-                cloudsHalfDesc.DebugName = std::string(ResourceNames::CloudsResolved);
+                cloudsHalfDesc.DebugName = ResourceNames::CloudsResolved;
                 board.Scratch.CloudsResolved = declareGraphOnlyFramebuffer(ResourceNames::CloudsResolved, cloudsHalfDesc);
             }
         }
@@ -5134,7 +5134,7 @@ namespace OloEngine
                 fogHalfDesc.Format = RGResourceFormat::RGBA16Float;
                 fogHalfDesc.Width = (fogSpec.Width + 1u) / 2u;
                 fogHalfDesc.Height = (fogSpec.Height + 1u) / 2u;
-                fogHalfDesc.DebugName = std::string(ResourceNames::FogHalfRes);
+                fogHalfDesc.DebugName = ResourceNames::FogHalfRes;
                 board.Scratch.FogHalfRes = declareGraphOnlyFramebuffer(ResourceNames::FogHalfRes, fogHalfDesc);
             }
         }
@@ -5226,7 +5226,7 @@ namespace OloEngine
         // same two values so a selection change forces a rebuild.
         if (pipeline.PostProcessPasses.SelectionOutline &&
             data.EnableSelectionOutline &&
-            !data.SelectionOutlineEntityIDs.empty() &&
+            !data.SelectionOutlineEntityIDs.IsEmpty() &&
             pipeline.PostProcessPasses.SelectionOutline->IsReadyForExecution())
         {
             const auto selectionOutlineOutput = declareGraphOnlyPostProcessOutput(
@@ -5284,7 +5284,7 @@ namespace OloEngine
             uiCompositeDesc.Width = postProcessWidth;
             uiCompositeDesc.Height = postProcessHeight;
             uiCompositeDesc.Attachments = { RGResourceFormat::RGBA8UNorm, RGResourceFormat::R32Int, RGResourceFormat::RG16Float };
-            uiCompositeDesc.DebugName = std::string(ResourceNames::UIComposite);
+            uiCompositeDesc.DebugName = ResourceNames::UIComposite;
             board.Post.UIComposite = graph.DeclareTransientFramebuffer(ResourceNames::UIComposite, uiCompositeDesc);
             board.Post.UICompositeTexture = graph.CreateFramebufferAttachmentView(ResourceNames::UICompositeTexture, board.Post.UIComposite, 0u);
         }
@@ -5340,7 +5340,7 @@ namespace OloEngine
                 RGResourceFormat::RG16Float,
                 RGResourceFormat::Depth24Stencil8
             };
-            oitDesc.DebugName = std::string(ResourceNames::OITBuffer);
+            oitDesc.DebugName = ResourceNames::OITBuffer;
 
             const auto oitHandle = graph.DeclareTransientFramebuffer(ResourceNames::OITBuffer, oitDesc);
             board.OIT.OITBuffer = oitHandle;

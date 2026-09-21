@@ -55,6 +55,8 @@
 // =============================================================================
 
 #include "OloEnginePCH.h"
+#include <span>
+#include "OloEngine/Containers/Array.h"
 
 #include "RendererAttachedTest.h"
 #include "RenderPropertyTest.h"
@@ -226,7 +228,7 @@ namespace OloEngine::Tests
             // be the LOD moving, not the wind.
             pines.WindStrength = 0.0f;
             pines.BaseColor = glm::vec3(0.18f, 0.42f, 0.14f);
-            foliage.m_Layers.push_back(pines);
+            foliage.m_Layers.Add(pines);
             foliage.m_NeedsRebuild = true;
         }
 
@@ -508,7 +510,7 @@ namespace OloEngine::Tests
         const auto& foliage = m_TerrainEntity.GetComponent<FoliageComponent>();
         ASSERT_TRUE(foliage.m_Renderer);
         const auto& records = foliage.m_Renderer->GetInstanceRegistry().GetRecords();
-        ASSERT_FALSE(records.empty());
+        ASSERT_FALSE(records.IsEmpty());
 
         const glm::mat4 model = m_TerrainEntity.GetComponent<TransformComponent>().GetTransform();
 
@@ -557,7 +559,7 @@ namespace OloEngine::Tests
         const FlipStats off = flipStats(0.0f, 0.0f);
         const FlipStats on = flipStats(kTransitionSpread, 0.08f);
 
-        GTEST_LOG_(INFO) << "plants changing representation across a 1 m camera step, of " << records.size()
+        GTEST_LOG_(INFO) << "plants changing representation across a 1 m camera step, of " << records.Num()
                          << ": shared threshold " << off.Count << " at " << off.MeanDistance << " m +- "
                          << off.DepthStdDev << " | decorrelated over " << kTransitionSpread << " m " << on.Count
                          << " at " << on.MeanDistance << " m +- " << on.DepthStdDev;

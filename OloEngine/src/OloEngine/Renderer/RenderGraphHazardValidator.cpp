@@ -34,41 +34,41 @@ namespace OloEngine::RenderGraphHazardValidator
         }
     } // namespace
 
-    auto Validate(const ValidatorInput& input) -> std::vector<RenderGraph::Hazard>
+    auto Validate(const ValidatorInput& input) -> TArray64<RenderGraph::Hazard>
     {
         OLO_PROFILE_FUNCTION();
 
         using Hazard = RenderGraph::Hazard;
         using HazardKind = RenderGraph::HazardKind;
 
-        const auto shouldInspectPass = [&input](const std::string& passName)
+        const auto shouldInspectPass = [&input](std::string_view passName)
         {
             return input.IsPassReachable(passName);
         };
 
-        std::vector<Hazard> hazards;
-        hazards.reserve(input.RegistryDiagnostics.size());
+        TArray64<Hazard> hazards;
+        hazards.Reserve(input.RegistryDiagnostics.size());
 
         // 1. Forward filtered registry-stage diagnostics (e.g. kind mismatches)
         //    for reachable passes only.
         for (const auto& diagnostic : input.RegistryDiagnostics)
         {
-            const bool producerRelevant = diagnostic.Producer.empty() || shouldInspectPass(diagnostic.Producer);
-            const bool consumerRelevant = diagnostic.Consumer.empty() || shouldInspectPass(diagnostic.Consumer);
+            const bool producerRelevant = diagnostic.Producer.IsEmpty() || shouldInspectPass(diagnostic.Producer.ToStdString());
+            const bool consumerRelevant = diagnostic.Consumer.IsEmpty() || shouldInspectPass(diagnostic.Consumer.ToStdString());
             if (!producerRelevant || !consumerRelevant)
                 continue;
-            hazards.push_back(diagnostic);
+            hazards.Add(diagnostic);
         }
 
         // 2. Build transitive dependency closure: for each pass P, closure[P]
         //    is the set of all passes that must execute before P.
-        std::unordered_map<std::string, std::unordered_set<std::string>> closure;
+        RGTransparentStringMap<RGTransparentStringSet> closure;
         closure.reserve(input.ExecutionOrder.size());
         for (const auto& passName : input.ExecutionOrder)
         {
-            std::unordered_set<std::string>& cls = closure[passName];
+            RGTransparentStringSet& cls = closure[passName.ToStdString()];
             std::vector<std::string> frontier;
-            if (auto depsIt = input.Dependencies.find(passName); depsIt != input.Dependencies.end())
+            if (auto depsIt = input.Dependencies.find(passName.ToView()); depsIt != input.Dependencies.end())
             {
                 frontier.insert(frontier.end(), depsIt->second.begin(), depsIt->second.end());
             }
@@ -83,13 +83,13 @@ namespace OloEngine::RenderGraphHazardValidator
                     continue;
                 for (const auto& grand : parentDeps->second)
                 {
-                    if (!cls.contains(grand))
-                        frontier.push_back(grand);
+                    if (!cls.contains(grand.ToView()))
+                        frontier.push_back(std::string(grand));
                 }
             }
         }
 
-        const auto dependsOn = [&closure](const std::string& later, const std::string& earlier) -> bool
+        const auto dependsOn = [&closure](std::string_view later, std::string_view earlier) -> bool
         {
             auto it = closure.find(later);
             if (it == closure.end())
@@ -103,7 +103,7 @@ namespace OloEngine::RenderGraphHazardValidator
         //    hazard. The declaration is only correct for genuine intra-pass
         //    ping-pong / iteration patterns; inter-pass RMW must rename via
         //    WriteNewVersion instead.
-        const auto feedbackCoversOverlap = [&input](const std::string& passName,
+        const auto feedbackCoversOverlap = [&input](std::string_view passName,
                                                     const RGAccessDeclaration& readAccess,
                                                     const RGAccessDeclaration& writeAccess)
         {
@@ -124,13 +124,13 @@ namespace OloEngine::RenderGraphHazardValidator
             return false;
         };
 
-        const auto validateFeedbackHazards = [&hazards, &feedbackCoversOverlap, &shouldInspectPass](const std::string& passName,
-                                                                                                    const std::vector<RGAccessDeclaration>& accesses)
+        const auto validateFeedbackHazards = [&hazards, &feedbackCoversOverlap, &shouldInspectPass](std::string_view passName,
+                                                                                                    const TArray64<RGAccessDeclaration>& accesses)
         {
             if (!shouldInspectPass(passName))
                 return;
 
-            const auto accessCount = accesses.size();
+            const auto accessCount = accesses.Num();
             for (sizet readIdx = 0; readIdx < accessCount; ++readIdx)
             {
                 const auto& readAccess = accesses[readIdx];
@@ -154,11 +154,11 @@ namespace OloEngine::RenderGraphHazardValidator
                     h.Resource = readAccess.ResourceName;
                     h.Producer = passName;
                     h.Consumer = passName;
-                    h.Message = "Feedback hazard: pass '" + passName +
+                    h.Message = "Feedback hazard: pass '" + std::string(passName) +
                                 "' reads and writes overlapping subresources of resource '" +
                                 readAccess.ResourceName + "' without an explicit feedback declaration";
-                    OLO_CORE_ERROR("RenderGraph hazard: {}", h.Message);
-                    hazards.push_back(std::move(h));
+                    OLO_CORE_ERROR("RenderGraph hazard: {}", h.Message.ToView());
+                    hazards.Add(std::move(h));
                     break;
                 }
             }
@@ -166,22 +166,22 @@ namespace OloEngine::RenderGraphHazardValidator
 
         for (const auto& passName : input.ExecutionOrder)
         {
-            if (const auto accessIt = input.PassAccessDeclarations.find(passName);
+            if (const auto accessIt = input.PassAccessDeclarations.find(passName.ToView());
                 accessIt != input.PassAccessDeclarations.end())
             {
-                validateFeedbackHazards(passName, accessIt->second);
+                validateFeedbackHazards(passName.ToView(), accessIt->second);
             }
         }
 
         // 4. Imported-resource lifetime misuse. If an imported resource is
         //    produced and consumed in-graph (by reachable passes) it must
         //    have a valid backing object.
-        const auto findRelevantPass = [&shouldInspectPass](const std::vector<std::string>& passNames) -> std::string
+        const auto findRelevantPass = [&shouldInspectPass](const TArray64<FString>& passNames) -> std::string
         {
             for (const auto& passName : passNames)
             {
-                if (shouldInspectPass(passName))
-                    return passName;
+                if (shouldInspectPass(passName.ToStdString()))
+                    return passName.ToStdString();
             }
             return {};
         };
@@ -216,10 +216,10 @@ namespace OloEngine::RenderGraphHazardValidator
             h.Resource = resource.Name;
             h.Producer = relevantProducer;
             h.Consumer = relevantConsumer;
-            h.Message = "Imported resource lifetime misuse: resource '" + resource.Name +
+            h.Message = "Imported resource lifetime misuse: resource '" + resource.Name.ToStdString() +
                         "' is produced and consumed in-graph but has no valid backing object";
-            OLO_CORE_ERROR("RenderGraph hazard: {}", h.Message);
-            hazards.push_back(std::move(h));
+            OLO_CORE_ERROR("RenderGraph hazard: {}", h.Message.ToView());
+            hazards.Add(std::move(h));
         }
 
         // 5. Cross-pass RAW / WAW / WAR validation. Walk execution order and
@@ -229,9 +229,9 @@ namespace OloEngine::RenderGraphHazardValidator
         struct ResourceState
         {
             std::string LastWriter;
-            std::unordered_set<std::string> LiveReaders;
+            RGTransparentStringSet LiveReaders;
         };
-        std::unordered_map<std::string, ResourceState> state;
+        RGTransparentStringMap<ResourceState> state;
 
         const auto appendUniqueName = [](std::vector<std::string>& names, std::string_view resourceName)
         {
@@ -243,28 +243,28 @@ namespace OloEngine::RenderGraphHazardValidator
 
         for (const auto& passName : input.ExecutionOrder)
         {
-            if (!shouldInspectPass(passName))
+            if (!shouldInspectPass(passName.ToView()))
                 continue;
 
             std::vector<std::string> readNames;
             std::vector<std::string> writeNames;
 
-            if (const auto accessIt = input.PassAccessDeclarations.find(passName);
+            if (const auto accessIt = input.PassAccessDeclarations.find(passName.ToView());
                 accessIt != input.PassAccessDeclarations.end())
             {
                 for (const auto& access : accessIt->second)
                 {
                     if (access.IsWrite)
-                        appendUniqueName(writeNames, access.ResourceName);
+                        appendUniqueName(writeNames, access.ResourceName.ToView());
                     else
-                        appendUniqueName(readNames, access.ResourceName);
+                        appendUniqueName(readNames, access.ResourceName.ToView());
                 }
             }
 
             for (const auto& rName : readNames)
             {
                 ResourceState& st = state[rName];
-                if (!st.LastWriter.empty() && st.LastWriter != passName && !dependsOn(passName, st.LastWriter))
+                if (!st.LastWriter.empty() && st.LastWriter != passName.ToView() && !dependsOn(passName.ToView(), st.LastWriter))
                 {
                     Hazard h;
                     h.Kind = HazardKind::ReadAfterWrite;
@@ -274,17 +274,17 @@ namespace OloEngine::RenderGraphHazardValidator
                     h.Message = "RAW: pass '" + passName + "' reads resource '" + rName +
                                 "' written by '" + st.LastWriter +
                                 "' without declaring a dependency";
-                    OLO_CORE_ERROR("RenderGraph hazard: {}", h.Message);
-                    hazards.push_back(std::move(h));
+                    OLO_CORE_ERROR("RenderGraph hazard: {}", h.Message.ToView());
+                    hazards.Add(std::move(h));
                 }
-                st.LiveReaders.insert(passName);
+                st.LiveReaders.insert(passName.ToStdString());
             }
 
             for (const auto& wName : writeNames)
             {
                 ResourceState& st = state[wName];
 
-                if (!st.LastWriter.empty() && st.LastWriter != passName && !dependsOn(passName, st.LastWriter))
+                if (!st.LastWriter.empty() && st.LastWriter != passName.ToView() && !dependsOn(passName.ToView(), st.LastWriter))
                 {
                     Hazard h;
                     h.Kind = HazardKind::WriteAfterWrite;
@@ -294,15 +294,15 @@ namespace OloEngine::RenderGraphHazardValidator
                     h.Message = "WAW: pass '" + passName + "' writes resource '" + wName +
                                 "' previously written by '" + st.LastWriter +
                                 "' without declaring a dependency";
-                    OLO_CORE_ERROR("RenderGraph hazard: {}", h.Message);
-                    hazards.push_back(std::move(h));
+                    OLO_CORE_ERROR("RenderGraph hazard: {}", h.Message.ToView());
+                    hazards.Add(std::move(h));
                 }
 
                 for (const auto& reader : st.LiveReaders)
                 {
                     if (reader == passName)
                         continue;
-                    if (!dependsOn(passName, reader))
+                    if (!dependsOn(passName.ToView(), reader))
                     {
                         Hazard h;
                         h.Kind = HazardKind::WriteAfterRead;
@@ -312,12 +312,12 @@ namespace OloEngine::RenderGraphHazardValidator
                         h.Message = "WAR: pass '" + passName + "' overwrites resource '" + wName +
                                     "' still live for reader '" + reader +
                                     "' without declaring a dependency";
-                        OLO_CORE_ERROR("RenderGraph hazard: {}", h.Message);
-                        hazards.push_back(std::move(h));
+                        OLO_CORE_ERROR("RenderGraph hazard: {}", h.Message.ToView());
+                        hazards.Add(std::move(h));
                     }
                 }
 
-                st.LastWriter = passName;
+                st.LastWriter = std::string(passName);
                 st.LiveReaders.clear();
             }
         }

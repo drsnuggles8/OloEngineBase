@@ -8,7 +8,8 @@
 
 #include <imgui.h>
 #include <mutex>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/String.h"
 #include <string>
 #include <unordered_map>
 #include <memory>
@@ -154,8 +155,8 @@ namespace OloEngine
             RHI::ResourceHandle m_Handle;
             RHI::Backend m_Backend = RHI::Backend::None;
             ResourceType m_Type = ResourceType::Texture2D;
-            std::string m_Name;
-            std::string m_DebugName;
+            FString m_Name;
+            FString m_DebugName;
             sizet m_MemoryUsage = 0;
             bool m_IsActive = true;
             f64 m_CreationTime = 0.0;
@@ -175,7 +176,7 @@ namespace OloEngine
             u32 m_Format = 0x1908;         // GL_RGBA
             u32 m_DataType = 0x1401;       // GL_UNSIGNED_BYTE
             bool m_HasMips = false;
-            std::vector<u8> m_PreviewData;
+            TArray64<u8> m_PreviewData;
             bool m_PreviewDataValid = false;
             u32 m_SelectedMipLevel = 0;
             u32 m_SelectedCubemapFace = 0; // 0..5 = +X,-X,+Y,-Y,+Z,-Z (cubemaps only)
@@ -188,7 +189,7 @@ namespace OloEngine
             u32 m_Target = 0x8892; // GL_ARRAY_BUFFER
             u32 m_Usage = 0x88E4;  // GL_STATIC_DRAW
             u32 m_Size = 0;
-            std::vector<u8> m_ContentPreview;
+            TArray64<u8> m_ContentPreview;
             bool m_ContentPreviewValid = false;
             u32 m_PreviewOffset = 0;
             u32 m_PreviewSize = 256; // Preview first 256 bytes by default
@@ -204,7 +205,7 @@ namespace OloEngine
             bool m_HasStencilAttachment = false;
             // Native (backend) enum values, for RenderDoc correlation.
             u32 m_Status = 0x8CD5; // GL_FRAMEBUFFER_COMPLETE
-            std::vector<u32> m_ColorAttachmentFormats;
+            TArray<u32> m_ColorAttachmentFormats;
             u32 m_DepthAttachmentFormat = 0;   // GL_NONE
             u32 m_StencilAttachmentFormat = 0; // GL_NONE
         };
@@ -325,7 +326,7 @@ namespace OloEngine
         // Width against RegionWidth.
         struct TextureCaptureResult
         {
-            std::vector<u8> PngBytes;
+            TArray64<u8> PngBytes;
             u32 Width = 0;
             u32 Height = 0;
             u32 SourceWidth = 0;
@@ -334,12 +335,12 @@ namespace OloEngine
             u32 RegionY = 0;
             u32 RegionWidth = 0;
             u32 RegionHeight = 0;
-            std::string FormatName;
+            FString FormatName;
             bool IsDepth = false;
             bool Normalized = false;
             f32 MinValue = 0.0f;
             f32 MaxValue = 0.0f;
-            std::string Error;
+            FString Error;
         };
 
         // @brief Encode one mip/face of an arbitrary native-id texture to PNG bytes in memory.
@@ -391,8 +392,8 @@ namespace OloEngine
             RHI::ResourceHandle Handle;
             RHI::Backend Backend = RHI::Backend::None;
             ResourceType Type = ResourceType::Texture2D;
-            std::string Name;
-            std::string DebugName;
+            FString Name;
+            FString DebugName;
             sizet MemoryUsage = 0;
             bool IsActive = true;
             bool IsBound = false;
@@ -407,14 +408,14 @@ namespace OloEngine
             // Native format/status enum value + its decoded name, for
             // RenderDoc / RGP correlation.
             u32 NativeFormat = 0;
-            std::string FormatName;
+            FString FormatName;
         };
-        [[nodiscard]] std::vector<ResourceSnapshotEntry> SnapshotResources() const;
+        [[nodiscard]] TArray<ResourceSnapshotEntry> SnapshotResources() const;
 
         // Device memory heaps, when the backend can report them (Vulkan/VMA).
         // False = no answer available; see IResourceInspectorBackend::MemoryHeap
         // for why GL declines rather than guessing.
-        [[nodiscard]] bool QueryMemoryHeaps(std::vector<IResourceInspectorBackend::MemoryHeap>& out) const;
+        [[nodiscard]] bool QueryMemoryHeaps(TArray<IResourceInspectorBackend::MemoryHeap>& out) const;
 
         // Whether this backend can render texture PREVIEWS / async downloads.
         // False under Vulkan: previews ride the GL PBO+fence download engine
@@ -484,12 +485,12 @@ namespace OloEngine
 
       private:
         std::unordered_map<u64, std::unique_ptr<ResourceInfo>> m_Resources;
-        std::vector<TextureDownloadRequest> m_TextureDownloads;
+        TArray<TextureDownloadRequest> m_TextureDownloads;
 
         // UI state
         u64 m_SelectedResourceID = 0;
         ResourceType m_FilterType = ResourceType::COUNT; // No filter by default
-        std::string m_SearchFilter;
+        FString m_SearchFilter;
         bool m_ShowInactiveResources = true;
         bool m_AutoUpdatePreviews = true;
         PendingSaveRequest m_PendingSaveRequest;
@@ -505,5 +506,27 @@ namespace OloEngine
         mutable std::once_flag m_BackendOnce;
 
         bool m_IsInitialized = false;
+    };
+    // Strings own relocatable buffers; the rest are resource identities and scalar snapshots.
+    template<>
+    struct TIsTriviallyRelocatable<GPUResourceInspector::ResourceSnapshotEntry>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(GPUResourceInspector::ResourceSnapshotEntry::NativeHandle)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(GPUResourceInspector::ResourceSnapshotEntry::Handle)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(GPUResourceInspector::ResourceSnapshotEntry::Backend)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(GPUResourceInspector::ResourceSnapshotEntry::Type)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(GPUResourceInspector::ResourceSnapshotEntry::Name)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(GPUResourceInspector::ResourceSnapshotEntry::DebugName)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(GPUResourceInspector::ResourceSnapshotEntry::MemoryUsage)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(GPUResourceInspector::ResourceSnapshotEntry::IsActive)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(GPUResourceInspector::ResourceSnapshotEntry::IsBound)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(GPUResourceInspector::ResourceSnapshotEntry::BindingSlot)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(GPUResourceInspector::ResourceSnapshotEntry::Width)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(GPUResourceInspector::ResourceSnapshotEntry::Height)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(GPUResourceInspector::ResourceSnapshotEntry::MipLevels)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(GPUResourceInspector::ResourceSnapshotEntry::SizeBytes)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(GPUResourceInspector::ResourceSnapshotEntry::NativeTarget)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(GPUResourceInspector::ResourceSnapshotEntry::NativeFormat)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(GPUResourceInspector::ResourceSnapshotEntry::FormatName)>::Value;
     };
 } // namespace OloEngine

@@ -353,8 +353,8 @@ namespace OloEngine::Tests
             // would trace the ground truth at a different point in the room and
             // read as a transport error — see the note below.
             pass->ReadbackProbeDiagnostics();
-            const std::vector<DDGIProbeUpdatePass::ProbeRecord>& records = pass->GetProbeRecords();
-            if (probeIndex < 0 || static_cast<sizet>(probeIndex) >= records.size())
+            const TArray<DDGIProbeUpdatePass::ProbeRecord>& records = pass->GetProbeRecords();
+            if (probeIndex < 0 || static_cast<sizet>(probeIndex) >= records.Num())
                 return false;
 
             // The RELOCATED position, not the grid position. Relocation moves a

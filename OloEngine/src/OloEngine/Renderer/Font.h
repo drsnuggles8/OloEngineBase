@@ -4,7 +4,8 @@
 #include <span>
 #include <string>
 #include <string_view>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/String.h"
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/Texture.h"
@@ -48,14 +49,14 @@ namespace OloEngine
     {
       public:
         explicit Font(const std::filesystem::path& font);
-        Font(const std::filesystem::path& font, const std::vector<FontCodepointRange>& ranges);
+        Font(const std::filesystem::path& font, std::span<const FontCodepointRange> ranges);
 
         // Load from an in-memory font-file image (e.g. a font deserialized
         // from an asset pack, or embedded resource bytes). `name` becomes the
         // font's display name; `m_Path` stays empty because there is no source
         // file on disk. `fontData` only needs to outlive the constructor —
         // glyph metrics and the Slug curve/band data are copied out of it.
-        Font(std::string name, std::span<const u8> fontData, const std::vector<FontCodepointRange>& ranges);
+        Font(std::string name, std::span<const u8> fontData, std::span<const FontCodepointRange> ranges);
 
         ~Font() override;
 
@@ -85,13 +86,13 @@ namespace OloEngine
             return nullptr;
         }
 
-        const std::string& GetName() const
+        std::string GetName() const
         {
-            return m_Name;
+            return m_Name.ToStdString();
         }
-        const std::string& GetPath() const
+        std::string GetPath() const
         {
-            return m_Path;
+            return m_Path.ToStdString();
         }
 
         // Asset interface
@@ -118,19 +119,19 @@ namespace OloEngine
         static void ShutdownDefault();
 
         static Ref<Font> Create(const std::filesystem::path& font);
-        static Ref<Font> Create(const std::filesystem::path& font, const std::vector<FontCodepointRange>& ranges);
+        static Ref<Font> Create(const std::filesystem::path& font, std::span<const FontCodepointRange> ranges);
 
         // Create a font from an in-memory font-file image. Not cached (there is
         // no canonical path to key on); the AssetManager caches by handle. Used
         // by the asset-pack deserializer so shipped .olopack games can load
         // fonts whose original .ttf is no longer on disk.
-        static Ref<Font> Create(std::string name, std::span<const u8> fontData, const std::vector<FontCodepointRange>& ranges);
+        static Ref<Font> Create(std::string name, std::span<const u8> fontData, std::span<const FontCodepointRange> ranges);
 
         // Codepoint ranges this font was loaded with. Needed so the asset-pack
         // serializer can round-trip the glyph coverage, not just the bytes.
-        [[nodiscard("Query the loaded codepoint ranges; discarding the call is a no-op")]] const std::vector<FontCodepointRange>& GetRanges() const
+        [[nodiscard("Query the loaded codepoint ranges; discarding the call is a no-op")]] std::span<const FontCodepointRange> GetRanges() const
         {
-            return m_Ranges;
+            return { m_Ranges.GetData(), static_cast<sizet>(m_Ranges.Num()) };
         }
 
         // Fallback chain: when this font lacks a glyph for some codepoint,
@@ -139,13 +140,14 @@ namespace OloEngine
         // primary Latin font + a CJK fallback). The chain is consulted
         // glyph-by-glyph, so a single string can render correctly across
         // multiple scripts.
-        void SetFallbackFonts(std::vector<Ref<Font>> fallbacks)
+        void SetFallbackFonts(std::span<const Ref<Font>> fallbacks)
         {
-            m_FallbackFonts = std::move(fallbacks);
+            TArray<Ref<Font>> replacement(fallbacks.data(), static_cast<i32>(fallbacks.size()));
+            m_FallbackFonts = std::move(replacement);
         }
-        [[nodiscard]] const std::vector<Ref<Font>>& GetFallbackFonts() const
+        [[nodiscard]] std::span<const Ref<Font>> GetFallbackFonts() const
         {
-            return m_FallbackFonts;
+            return { m_FallbackFonts.GetData(), static_cast<sizet>(m_FallbackFonts.Num()) };
         }
 
         // Walk this font and its fallback chain for `codepoint`. Returns
@@ -181,21 +183,21 @@ namespace OloEngine
       private:
         // Common initialization path shared by both constructors. Loads
         // glyphs for every codepoint in `ranges` from the on-disk font file.
-        void LoadFromFile(const std::filesystem::path& font, const std::vector<FontCodepointRange>& ranges);
+        void LoadFromFile(const std::filesystem::path& font, std::span<const FontCodepointRange> ranges);
 
         // Shared by the file and memory load paths: parses the font-file image
         // in `fontData` (stb_truetype), pulls glyph metrics / kerning for every
         // codepoint in `ranges`, and generates the Slug curve/band data. Sets
         // m_Name, m_Ranges and m_IsLoaded; does NOT touch m_Path (the file path
         // is owned by the caller, since a memory load has none).
-        void LoadFromMemory(std::string name, std::span<const u8> fontData, const std::vector<FontCodepointRange>& ranges);
+        void LoadFromMemory(std::string name, std::span<const u8> fontData, std::span<const FontCodepointRange> ranges);
 
         Scope<SlugFontData> m_Data;
-        std::string m_Name;
-        std::string m_Path;
-        std::vector<FontCodepointRange> m_Ranges;
+        FString m_Name;
+        FString m_Path;
+        TArray<FontCodepointRange> m_Ranges;
         bool m_IsLoaded = false;
-        std::vector<Ref<Font>> m_FallbackFonts;
+        TArray<Ref<Font>> m_FallbackFonts;
 
       public:
         [[nodiscard]] bool IsLoaded() const

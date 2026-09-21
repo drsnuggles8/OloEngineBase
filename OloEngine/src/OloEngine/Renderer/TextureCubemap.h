@@ -23,7 +23,7 @@ namespace OloEngine
         virtual ~TextureCubemap() = default;
 
         // Create from 6 individual face images
-        static Ref<TextureCubemap> Create(const std::vector<std::string>& facePaths);
+        static Ref<TextureCubemap> Create(std::span<const FString> facePaths);
 
         // Create empty cubemap with specification
         static Ref<TextureCubemap> Create(const CubemapSpecification& specification);
@@ -51,7 +51,7 @@ namespace OloEngine
          * @param mipLevel Mipmap level to read (0 = base level)
          * @return true if readback succeeded
          */
-        virtual bool GetFaceData(u32 faceIndex, std::vector<u8>& outData, u32 mipLevel = 0) const = 0;
+        virtual bool GetFaceData(u32 faceIndex, TArray64<u8>& outData, u32 mipLevel = 0) const = 0;
 
         /**
          * @brief Get the number of mipmap levels

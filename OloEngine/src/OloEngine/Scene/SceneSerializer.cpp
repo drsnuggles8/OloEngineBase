@@ -1119,7 +1119,7 @@ namespace OloEngine
         TrySet(emitter.InitialColor, particleComponent["InitialColor"]);
 
         // Bursts
-        emitter.Bursts.clear();
+        emitter.Bursts.Reset();
         if (auto burstsNode = particleComponent["Bursts"]; burstsNode && burstsNode.IsSequence())
         {
             for (const auto& burstNode : burstsNode)
@@ -1128,7 +1128,7 @@ namespace OloEngine
                 TrySet(burst.Time, burstNode["Time"]);
                 TrySet(burst.Count, burstNode["Count"]);
                 TrySet(burst.Probability, burstNode["Probability"]);
-                emitter.Bursts.push_back(burst);
+                emitter.Bursts.Add(burst);
             }
         }
 
@@ -1224,7 +1224,7 @@ namespace OloEngine
         // Force Fields (vector, with backward compat for old single-field format)
         if (auto forceFieldsNode = particleComponent["ForceFields"]; forceFieldsNode && forceFieldsNode.IsSequence())
         {
-            sys.ForceFields.clear();
+            sys.ForceFields.Reset();
             for (auto ffNode : forceFieldsNode)
             {
                 ModuleForceField forceField{};
@@ -1235,7 +1235,7 @@ namespace OloEngine
                 TrySet(forceField.Strength, ffNode["Strength"]);
                 TrySet(forceField.Radius, ffNode["Radius"]);
                 TrySet(forceField.Axis, ffNode["Axis"]);
-                sys.ForceFields.push_back(forceField);
+                sys.ForceFields.Add(forceField);
             }
         }
         else if (auto oldEnabled = particleComponent["ForceFieldEnabled"]; oldEnabled)
@@ -1249,7 +1249,7 @@ namespace OloEngine
             TrySet(forceField.Strength, particleComponent["ForceFieldStrength"]);
             TrySet(forceField.Radius, particleComponent["ForceFieldRadius"]);
             TrySet(forceField.Axis, particleComponent["ForceFieldAxis"]);
-            sys.ForceFields.push_back(forceField);
+            sys.ForceFields.Add(forceField);
         }
         else
         {
@@ -1365,7 +1365,7 @@ namespace OloEngine
         terrain.m_SplatmapGenResolution = terrainComponent["SplatmapGenResolution"].as<u32>(terrain.m_SplatmapGenResolution);
         if (auto rulesNode = terrainComponent["LayerRules"]; rulesNode && rulesNode.IsSequence())
         {
-            terrain.m_LayerRules.clear();
+            terrain.m_LayerRules.Reset();
             for (const auto& ruleNode : rulesNode)
             {
                 TerrainLayerRule rule;
@@ -1377,7 +1377,7 @@ namespace OloEngine
                 rule.MaxSlopeDeg = ruleNode["MaxSlopeDeg"].as<f32>(rule.MaxSlopeDeg);
                 rule.SlopeBlend = ruleNode["SlopeBlend"].as<f32>(rule.SlopeBlend);
                 rule.Strength = ruleNode["Strength"].as<f32>(rule.Strength);
-                terrain.m_LayerRules.push_back(rule);
+                terrain.m_LayerRules.Add(rule);
             }
         }
 
@@ -1491,10 +1491,10 @@ namespace OloEngine
             for (const auto& layerNode : layersNode)
             {
                 TerrainLayer layer;
-                layer.Name = layerNode["Name"].as<std::string>(layer.Name);
-                layer.AlbedoPath = layerNode["AlbedoPath"].as<std::string>(layer.AlbedoPath);
-                layer.NormalPath = layerNode["NormalPath"].as<std::string>(layer.NormalPath);
-                layer.ARMPath = layerNode["ARMPath"].as<std::string>(layer.ARMPath);
+                layer.Name = layerNode["Name"].as<std::string>(layer.Name.ToStdString());
+                layer.AlbedoPath = layerNode["AlbedoPath"].as<std::string>(layer.AlbedoPath.ToStdString());
+                layer.NormalPath = layerNode["NormalPath"].as<std::string>(layer.NormalPath.ToStdString());
+                layer.ARMPath = layerNode["ARMPath"].as<std::string>(layer.ARMPath.ToStdString());
                 layer.TilingScale = layerNode["TilingScale"].as<f32>(layer.TilingScale);
                 layer.HeightBlendSharpness = layerNode["HeightBlendSharpness"].as<f32>(layer.HeightBlendSharpness);
                 layer.TriplanarSharpness = layerNode["TriplanarSharpness"].as<f32>(layer.TriplanarSharpness);
@@ -1517,13 +1517,13 @@ namespace OloEngine
 
         if (auto layersNode = foliageComponent["Layers"]; layersNode && layersNode.IsSequence())
         {
-            foliage.m_Layers.clear();
+            foliage.m_Layers.Reset();
             for (auto const& layerNode : layersNode)
             {
                 FoliageLayer layer;
-                layer.Name = layerNode["Name"].as<std::string>(layer.Name);
-                layer.MeshPath = layerNode["MeshPath"].as<std::string>(layer.MeshPath);
-                layer.AlbedoPath = layerNode["AlbedoPath"].as<std::string>(layer.AlbedoPath);
+                layer.Name = layerNode["Name"].as<std::string>(layer.Name.ToStdString());
+                layer.MeshPath = layerNode["MeshPath"].as<std::string>(layer.MeshPath.ToStdString());
+                layer.AlbedoPath = layerNode["AlbedoPath"].as<std::string>(layer.AlbedoPath.ToStdString());
                 layer.Density = layerNode["Density"].as<f32>(layer.Density);
                 layer.SplatmapChannel = layerNode["SplatmapChannel"].as<i32>(layer.SplatmapChannel);
                 layer.MinSlopeAngle = layerNode["MinSlopeAngle"].as<f32>(layer.MinSlopeAngle);
@@ -1631,9 +1631,9 @@ namespace OloEngine
                 // which is what makes a scene authored before this material
                 // existed load with transmission off and render exactly as it
                 // used to.
-                layer.NormalMapPath = layerNode["NormalMapPath"].as<std::string>(layer.NormalMapPath);
-                layer.RoughnessMapPath = layerNode["RoughnessMapPath"].as<std::string>(layer.RoughnessMapPath);
-                layer.ThicknessMapPath = layerNode["ThicknessMapPath"].as<std::string>(layer.ThicknessMapPath);
+                layer.NormalMapPath = layerNode["NormalMapPath"].as<std::string>(layer.NormalMapPath.ToStdString());
+                layer.RoughnessMapPath = layerNode["RoughnessMapPath"].as<std::string>(layer.RoughnessMapPath.ToStdString());
+                layer.ThicknessMapPath = layerNode["ThicknessMapPath"].as<std::string>(layer.ThicknessMapPath.ToStdString());
                 if (const f32 v = layerNode["NormalStrength"].as<f32>(layer.NormalStrength); std::isfinite(v))
                     layer.NormalStrength = std::clamp(v, 0.0f, 4.0f);
                 if (const f32 v = layerNode["TransmissionStrength"].as<f32>(layer.TransmissionStrength); std::isfinite(v))
@@ -1695,7 +1695,7 @@ namespace OloEngine
                 layer.ImpostorAtlasResolution = layerNode["ImpostorAtlasResolution"].as<u32>(layer.ImpostorAtlasResolution);
                 layer.ImpostorHemiOctahedral = layerNode["ImpostorHemiOctahedral"].as<bool>(layer.ImpostorHemiOctahedral);
                 layer.Enabled = layerNode["Enabled"].as<bool>(layer.Enabled);
-                foliage.m_Layers.push_back(layer);
+                foliage.m_Layers.Add(layer);
             }
         }
         foliage.m_NeedsRebuild = true;
@@ -2501,7 +2501,7 @@ namespace OloEngine
             // -1 / unassigned / 0.
             if (auto instances = imcNode["Instances"]; instances && instances.IsSequence())
             {
-                imc.Instances.reserve(instances.size());
+                imc.Instances.Reserve(instances.size());
                 for (const auto& node : instances)
                 {
                     InstanceData inst;
@@ -2531,7 +2531,7 @@ namespace OloEngine
                         if (!Math::IsFinite(inst.Custom))
                             inst.Custom = 0.0f;
                     }
-                    imc.Instances.push_back(inst);
+                    imc.Instances.Add(inst);
                 }
             }
         }
@@ -2648,7 +2648,7 @@ namespace OloEngine
                         {
                             continue; // Skip level with no mesh
                         }
-                        lodComp.m_LODGroup.Levels.push_back(level);
+                        lodComp.m_LODGroup.Levels.Add(level);
                     }
 
                     // Ensure levels are sorted by distance
@@ -2703,11 +2703,11 @@ namespace OloEngine
             }
             if (tileRendererComponent["Materials"])
             {
-                tileComp.Materials.clear();
+                tileComp.Materials.Reset();
                 constexpr sizet maxMaterials = static_cast<sizet>(std::numeric_limits<u8>::max()) + 1;
                 for (auto matNode : tileRendererComponent["Materials"])
                 {
-                    if (tileComp.Materials.size() >= maxMaterials)
+                    if (tileComp.Materials.Num() >= maxMaterials)
                         break;
                     Material mat;
                     if (matNode["AlbedoColor"])
@@ -2750,25 +2750,25 @@ namespace OloEngine
                     {
                         mat.SetSkinProfileHandle(matNode["SkinProfile"].as<u64>(0));
                     }
-                    tileComp.Materials.push_back(std::move(mat));
+                    tileComp.Materials.Add(std::move(mat));
                 }
             }
             if (tileRendererComponent["MaterialIDs"])
             {
-                tileComp.MaterialIDs.clear();
-                sizet maxIndex = tileComp.Materials.empty()
+                tileComp.MaterialIDs.Reset();
+                sizet maxIndex = tileComp.Materials.IsEmpty()
                                      ? 0
-                                     : std::min(tileComp.Materials.size() - 1, static_cast<sizet>(std::numeric_limits<u8>::max()));
+                                     : std::min(static_cast<sizet>(tileComp.Materials.Num() - 1), static_cast<sizet>(std::numeric_limits<u8>::max()));
                 u8 maxMatIdx = static_cast<u8>(maxIndex);
                 for (auto idNode : tileRendererComponent["MaterialIDs"])
                 {
                     i32 raw = idNode.as<i32>();
-                    tileComp.MaterialIDs.push_back(
+                    tileComp.MaterialIDs.Add(
                         static_cast<u8>(std::clamp(raw, 0, static_cast<i32>(maxMatIdx))));
                 }
             }
             // Ensure MaterialIDs matches grid size
-            tileComp.MaterialIDs.resize(static_cast<sizet>(tileComp.Width) * tileComp.Height, 0);
+            tileComp.MaterialIDs.SetNumZeroed(static_cast<i32>(tileComp.Width * tileComp.Height));
         }
 
         if (auto materialComponent = entity["MaterialComponent"]; materialComponent)
@@ -3350,13 +3350,13 @@ namespace OloEngine
             // motor + friction round-trip like the other motor fields.
             if (auto pathPointsNode = jointComponent["PathPoints"]; pathPointsNode && pathPointsNode.IsSequence())
             {
-                joint.m_PathPoints.clear();
-                joint.m_PathPoints.reserve(pathPointsNode.size());
+                joint.m_PathPoints.Reset();
+                joint.m_PathPoints.Reserve(pathPointsNode.size());
                 for (auto const& ptNode : pathPointsNode)
                 {
                     glm::vec3 p = ptNode.as<glm::vec3>(glm::vec3(0.0f));
                     if (std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z))
-                        joint.m_PathPoints.push_back(p);
+                        joint.m_PathPoints.Add(p);
                 }
             }
             joint.m_PathIsLooping = jointComponent["PathIsLooping"].as<bool>(joint.m_PathIsLooping);
@@ -3472,7 +3472,7 @@ namespace OloEngine
         }
 
         // RelationshipComponent — auto-generated (all-trivial: a UUID parent handle +
-        // a std::vector<UUID> children list). Block lives in the generated .inl
+        // a TArray<UUID> children list). Block lives in the generated .inl
         // (issue #451 vector slice).
 
         // UICanvasComponent — auto-generated (all-trivial: two enums + an i32 +
@@ -3560,7 +3560,7 @@ namespace OloEngine
                 {
                     UIDropdownOption option;
                     option.m_Label = optionNode.as<std::string>("");
-                    dropdown.m_Options.push_back(option);
+                    dropdown.m_Options.Add(option);
                 }
             }
             TrySet(dropdown.m_SelectedIndex, uiDropdownComponent["SelectedIndex"]);
@@ -3965,7 +3965,7 @@ namespace OloEngine
                     if (!Math::IsFinite(link.m_Start) || !Math::IsFinite(link.m_End))
                         continue;
                     SanitizeFloat(link.m_Radius, 0.01f, 1000.0f, 0.6f);
-                    nmb.m_Links.push_back(link);
+                    nmb.m_Links.Add(link);
                 }
             }
         }
@@ -4755,7 +4755,7 @@ namespace OloEngine
             out << YAML::Key << "TilingFactor" << YAML::Value << spriteRendererComponent.TilingFactor;
             if (auto& texture = spriteRendererComponent.Texture)
             {
-                out << YAML::Key << "TexturePath" << YAML::Value << texture->GetPath();
+                out << YAML::Key << "TexturePath" << YAML::Value << std::string(texture->GetPath());
             }
 
             out << YAML::EndMap; // SpriteRendererComponent
@@ -5059,24 +5059,24 @@ namespace OloEngine
             }
             if (auto albedoMap = matComponent.m_Material.GetAlbedoMap(); albedoMap && !albedoMap->GetPath().empty())
             {
-                out << YAML::Key << "AlbedoMapPath" << YAML::Value << albedoMap->GetPath();
+                out << YAML::Key << "AlbedoMapPath" << YAML::Value << std::string(albedoMap->GetPath());
             }
             if (auto normalMap = matComponent.m_Material.GetNormalMap(); normalMap && !normalMap->GetPath().empty())
             {
-                out << YAML::Key << "NormalMapPath" << YAML::Value << normalMap->GetPath();
+                out << YAML::Key << "NormalMapPath" << YAML::Value << std::string(normalMap->GetPath());
             }
             if (auto mrMap = matComponent.m_Material.GetMetallicRoughnessMap(); mrMap && !mrMap->GetPath().empty())
             {
-                out << YAML::Key << "MetallicRoughnessMapPath" << YAML::Value << mrMap->GetPath();
+                out << YAML::Key << "MetallicRoughnessMapPath" << YAML::Value << std::string(mrMap->GetPath());
             }
             if (auto aoMap = matComponent.m_Material.GetAOMap(); aoMap && !aoMap->GetPath().empty())
             {
-                out << YAML::Key << "AOMapPath" << YAML::Value << aoMap->GetPath();
+                out << YAML::Key << "AOMapPath" << YAML::Value << std::string(aoMap->GetPath());
             }
             if (auto emissiveMap = matComponent.m_Material.GetEmissiveMap();
                 emissiveMap && !emissiveMap->GetPath().empty())
             {
-                out << YAML::Key << "EmissiveMapPath" << YAML::Value << emissiveMap->GetPath();
+                out << YAML::Key << "EmissiveMapPath" << YAML::Value << std::string(emissiveMap->GetPath());
             }
             // The thickness map (issue #1242) — KHR_materials_volume's thickness
             // texture, a per-pixel modulation of ThicknessFactor. Written only
@@ -5085,7 +5085,7 @@ namespace OloEngine
             if (auto thicknessMap = matComponent.m_Material.GetThicknessMap();
                 thicknessMap && !thicknessMap->GetPath().empty())
             {
-                out << YAML::Key << "ThicknessMapPath" << YAML::Value << thicknessMap->GetPath();
+                out << YAML::Key << "ThicknessMapPath" << YAML::Value << std::string(thicknessMap->GetPath());
             }
             if (const f32 normalScale = matComponent.m_Material.GetNormalScale(); std::abs(normalScale - 1.0f) > 1e-6f)
             {
@@ -5483,7 +5483,7 @@ namespace OloEngine
             auto const& image = entity.GetComponent<UIImageComponent>();
             if (image.m_Texture)
             {
-                out << YAML::Key << "TexturePath" << YAML::Value << image.m_Texture->GetPath();
+                out << YAML::Key << "TexturePath" << YAML::Value << std::string(image.m_Texture->GetPath());
             }
             out << YAML::Key << "Color" << YAML::Value << image.m_Color;
             out << YAML::Key << "BorderInsets" << YAML::Value << image.m_BorderInsets;
@@ -5500,7 +5500,7 @@ namespace OloEngine
             out << YAML::Key << "BackgroundColor" << YAML::Value << panel.m_BackgroundColor;
             if (panel.m_BackgroundTexture)
             {
-                out << YAML::Key << "BackgroundTexturePath" << YAML::Value << panel.m_BackgroundTexture->GetPath();
+                out << YAML::Key << "BackgroundTexturePath" << YAML::Value << std::string(panel.m_BackgroundTexture->GetPath());
             }
 
             out << YAML::EndMap; // UIPanelComponent
@@ -5571,7 +5571,7 @@ namespace OloEngine
             out << YAML::Key << "Options" << YAML::Value << YAML::BeginSeq;
             for (const auto& option : dropdown.m_Options)
             {
-                out << option.m_Label;
+                out << option.m_Label.ToStdString();
             }
             out << YAML::EndSeq;
             out << YAML::Key << "SelectedIndex" << YAML::Value << dropdown.m_SelectedIndex;
@@ -5788,7 +5788,7 @@ namespace OloEngine
             // Automatic material assignment rules
             out << YAML::Key << "AutoMaterial" << YAML::Value << terrain.m_AutoMaterial;
             out << YAML::Key << "SplatmapGenResolution" << YAML::Value << terrain.m_SplatmapGenResolution;
-            if (!terrain.m_LayerRules.empty())
+            if (!terrain.m_LayerRules.IsEmpty())
             {
                 out << YAML::Key << "LayerRules";
                 out << YAML::Value << YAML::BeginSeq;
@@ -5843,18 +5843,18 @@ namespace OloEngine
             if (terrain.m_Material && terrain.m_Material->GetLayerCount() > 0)
             {
                 const auto& mat = terrain.m_Material;
-                out << YAML::Key << "SplatmapPath0" << YAML::Value << mat->GetSplatmapPath(0);
-                out << YAML::Key << "SplatmapPath1" << YAML::Value << mat->GetSplatmapPath(1);
+                out << YAML::Key << "SplatmapPath0" << YAML::Value << mat->GetSplatmapPath(0).ToStdString();
+                out << YAML::Key << "SplatmapPath1" << YAML::Value << mat->GetSplatmapPath(1).ToStdString();
                 out << YAML::Key << "Layers";
                 out << YAML::Value << YAML::BeginSeq;
                 for (u32 i = 0; i < mat->GetLayerCount(); ++i)
                 {
                     const auto& layer = mat->GetLayer(i);
                     out << YAML::BeginMap;
-                    out << YAML::Key << "Name" << YAML::Value << layer.Name;
-                    out << YAML::Key << "AlbedoPath" << YAML::Value << layer.AlbedoPath;
-                    out << YAML::Key << "NormalPath" << YAML::Value << layer.NormalPath;
-                    out << YAML::Key << "ARMPath" << YAML::Value << layer.ARMPath;
+                    out << YAML::Key << "Name" << YAML::Value << layer.Name.ToStdString();
+                    out << YAML::Key << "AlbedoPath" << YAML::Value << layer.AlbedoPath.ToStdString();
+                    out << YAML::Key << "NormalPath" << YAML::Value << layer.NormalPath.ToStdString();
+                    out << YAML::Key << "ARMPath" << YAML::Value << layer.ARMPath.ToStdString();
                     out << YAML::Key << "TilingScale" << YAML::Value << layer.TilingScale;
                     out << YAML::Key << "HeightBlendSharpness" << YAML::Value << layer.HeightBlendSharpness;
                     out << YAML::Key << "TriplanarSharpness" << YAML::Value << layer.TriplanarSharpness;
@@ -5877,16 +5877,16 @@ namespace OloEngine
             auto const& foliage = entity.GetComponent<FoliageComponent>();
             out << YAML::Key << "Enabled" << YAML::Value << foliage.m_Enabled;
 
-            if (!foliage.m_Layers.empty())
+            if (!foliage.m_Layers.IsEmpty())
             {
                 out << YAML::Key << "Layers";
                 out << YAML::Value << YAML::BeginSeq;
                 for (const auto& layer : foliage.m_Layers)
                 {
                     out << YAML::BeginMap;
-                    out << YAML::Key << "Name" << YAML::Value << layer.Name;
-                    out << YAML::Key << "MeshPath" << YAML::Value << layer.MeshPath;
-                    out << YAML::Key << "AlbedoPath" << YAML::Value << layer.AlbedoPath;
+                    out << YAML::Key << "Name" << YAML::Value << layer.Name.ToStdString();
+                    out << YAML::Key << "MeshPath" << YAML::Value << layer.MeshPath.ToStdString();
+                    out << YAML::Key << "AlbedoPath" << YAML::Value << layer.AlbedoPath.ToStdString();
                     out << YAML::Key << "Density" << YAML::Value << layer.Density;
                     out << YAML::Key << "SplatmapChannel" << YAML::Value << layer.SplatmapChannel;
                     out << YAML::Key << "MinSlopeAngle" << YAML::Value << layer.MinSlopeAngle;
@@ -5940,9 +5940,9 @@ namespace OloEngine
                     // round-trip is lossless even for a layer that leaves
                     // transmission off; the reader's defaults cover the older
                     // scenes that have none of these keys.
-                    out << YAML::Key << "NormalMapPath" << YAML::Value << layer.NormalMapPath;
-                    out << YAML::Key << "RoughnessMapPath" << YAML::Value << layer.RoughnessMapPath;
-                    out << YAML::Key << "ThicknessMapPath" << YAML::Value << layer.ThicknessMapPath;
+                    out << YAML::Key << "NormalMapPath" << YAML::Value << layer.NormalMapPath.ToStdString();
+                    out << YAML::Key << "RoughnessMapPath" << YAML::Value << layer.RoughnessMapPath.ToStdString();
+                    out << YAML::Key << "ThicknessMapPath" << YAML::Value << layer.ThicknessMapPath.ToStdString();
                     out << YAML::Key << "NormalStrength" << YAML::Value << layer.NormalStrength;
                     out << YAML::Key << "TransmissionStrength" << YAML::Value << layer.TransmissionStrength;
                     out << YAML::Key << "TransmissionColor" << YAML::Value << layer.TransmissionColor;
@@ -6130,19 +6130,19 @@ namespace OloEngine
 
             if (dc.m_AlbedoTexture)
             {
-                out << YAML::Key << "AlbedoTexturePath" << YAML::Value << dc.m_AlbedoTexture->GetPath();
+                out << YAML::Key << "AlbedoTexturePath" << YAML::Value << std::string(dc.m_AlbedoTexture->GetPath());
             }
             if (dc.m_NormalTexture)
             {
-                out << YAML::Key << "NormalTexturePath" << YAML::Value << dc.m_NormalTexture->GetPath();
+                out << YAML::Key << "NormalTexturePath" << YAML::Value << std::string(dc.m_NormalTexture->GetPath());
             }
             if (dc.m_RMATexture)
             {
-                out << YAML::Key << "RMATexturePath" << YAML::Value << dc.m_RMATexture->GetPath();
+                out << YAML::Key << "RMATexturePath" << YAML::Value << std::string(dc.m_RMATexture->GetPath());
             }
             if (dc.m_EmissiveTexture)
             {
-                out << YAML::Key << "EmissiveTexturePath" << YAML::Value << dc.m_EmissiveTexture->GetPath();
+                out << YAML::Key << "EmissiveTexturePath" << YAML::Value << std::string(dc.m_EmissiveTexture->GetPath());
             }
             out << YAML::Key << "Mode" << YAML::Value << static_cast<u32>(std::to_underlying(dc.m_Mode));
             out << YAML::Key << "Transparent" << YAML::Value << dc.m_Transparent;
@@ -7234,9 +7234,9 @@ namespace OloEngine
 
     void SceneSerializer::ForEachEntitySorted(const std::function<void(Entity)>& fn) const
     {
-        std::vector<entt::entity> sortedEntities;
+        TArray<entt::entity> sortedEntities;
         m_Scene->m_Registry.view<entt::entity>().each([&sortedEntities](auto entityID)
-                                                      { sortedEntities.push_back(entityID); });
+                                                      { sortedEntities.Add(entityID); });
         std::ranges::sort(sortedEntities, [this](entt::entity a, entt::entity b)
                           {
                               const u64 uuidA = m_Scene->m_Registry.get<IDComponent>(a).ID;
@@ -8019,18 +8019,18 @@ namespace OloEngine
         return true;
     }
 
-    std::vector<UUID> SceneSerializer::DeserializeAdditive(const YAML::Node& entitiesNode)
+    TArray<UUID> SceneSerializer::DeserializeAdditive(const YAML::Node& entitiesNode)
     {
         OLO_PROFILE_FUNCTION();
 
-        std::vector<UUID> createdUUIDs;
+        TArray<UUID> createdUUIDs;
 
         if (!entitiesNode || !entitiesNode.IsSequence())
         {
             return createdUUIDs;
         }
 
-        createdUUIDs.reserve(entitiesNode.size());
+        createdUUIDs.Reserve(static_cast<i32>(entitiesNode.size()));
 
         // Same reserve rationale as the primary Deserialize path above (issue #525):
         // pre-size the entity pool plus the 3 always-added components so additive
@@ -8071,7 +8071,7 @@ namespace OloEngine
                 OLO_CORE_TRACE("Additive deserialized entity with ID = {0}, name = {1}", uuid, name);
 
                 DeserializeEntity(uuid, name, entity);
-                createdUUIDs.emplace_back(uuid);
+                createdUUIDs.Emplace(uuid);
             }
             catch (const std::exception& e)
             {

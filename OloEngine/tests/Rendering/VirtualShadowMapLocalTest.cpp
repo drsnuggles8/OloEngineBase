@@ -833,7 +833,7 @@ TEST(VirtualShadowMapLocal, PointAndSpotTakeContiguousRunsOfTheRightLength)
             continue;
         ++ownedLayers;
         const u32 slotIndex = static_cast<u32>(owner) - 1u;
-        ASSERT_LT(slotIndex, pool.Slots.size()) << "layer " << layer << " names a slot that does not exist";
+        ASSERT_LT(slotIndex, pool.Slots.Num()) << "layer " << layer << " names a slot that does not exist";
         EXPECT_NE(0u, pool.Slots[slotIndex].Count)
             << "layer " << layer << " is owned by a FREED slot — the run was released without its "
                                     "ownership entries";

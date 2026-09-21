@@ -3,7 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/UUID.h"
 
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -32,7 +32,7 @@ namespace OloEngine
         UUID m_SpeakerNameEntity = 0;
         UUID m_DialogueBodyEntity = 0;
         UUID m_PortraitEntity = 0;
-        std::vector<UUID> m_ChoiceEntities;
+        TArray<UUID> m_ChoiceEntities;
 
         bool m_IsVisible = false;
         UUID m_ActiveNpcEntity = 0;

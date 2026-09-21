@@ -188,8 +188,8 @@ namespace OloEngine
                 {
                     auto& parentChildren = parent.GetOrCreateChildren();
                     UUID uuid = GetUUID();
-                    if (std::ranges::find(parentChildren, uuid) == parentChildren.end())
-                        parentChildren.emplace_back(uuid);
+                    if (!parentChildren.Contains(uuid))
+                        parentChildren.Add(uuid);
                 }
                 return;
             }
@@ -205,8 +205,8 @@ namespace OloEngine
             {
                 auto& parentChildren = parent.GetOrCreateChildren();
                 UUID uuid = GetUUID();
-                if (std::ranges::find(parentChildren, uuid) == parentChildren.end())
-                    parentChildren.emplace_back(uuid);
+                if (!parentChildren.Contains(uuid))
+                    parentChildren.Add(uuid);
             }
         }
 
@@ -217,18 +217,18 @@ namespace OloEngine
             return GetComponent<RelationshipComponent>().m_ParentHandle;
         }
 
-        std::vector<UUID>& GetOrCreateChildren()
+        TArray<UUID>& GetOrCreateChildren()
         {
             if (!HasComponent<RelationshipComponent>())
                 AddComponent<RelationshipComponent>();
             return GetComponent<RelationshipComponent>().m_Children;
         }
 
-        const std::vector<UUID>& Children() const
+        const TArray<UUID>& Children() const
         {
             if (!HasComponent<RelationshipComponent>())
             {
-                static const std::vector<UUID> emptyChildren{};
+                static const TArray<UUID> emptyChildren{};
                 return emptyChildren;
             }
             return GetComponent<RelationshipComponent>().m_Children;
@@ -243,8 +243,8 @@ namespace OloEngine
             OLO_CORE_ASSERT(child.m_Scene == m_Scene, "Child entity must belong to the same scene as parent");
 
             UUID childId = child.GetUUID();
-            std::vector<UUID>& children = GetOrCreateChildren();
-            if (auto it = std::ranges::find(children, childId); it != children.end())
+            TArray<UUID>& children = GetOrCreateChildren();
+            if (const auto index = children.Find(childId); index != INDEX_NONE)
             {
                 // Verify that the child's recorded parent UUID matches this entity's UUID
                 // This prevents mistakenly modifying unrelated entities
@@ -256,7 +256,7 @@ namespace OloEngine
                     return false;
                 }
 
-                children.erase(it);
+                children.RemoveAt(index);
 
                 // Clear the child's parent UUID to maintain relationship consistency
                 child.SetParentUUID(UUID(0));

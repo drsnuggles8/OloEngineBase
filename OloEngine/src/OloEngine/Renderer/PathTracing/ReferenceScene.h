@@ -32,6 +32,8 @@
 // =============================================================================
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/LinkedList.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Renderer/BoundingVolumeHierarchy.h"
 #include "OloEngine/Renderer/PBRModel.h"
@@ -40,11 +42,9 @@
 
 #include <memory>
 #include <span>
+#include <ranges>
 
 #include <glm/glm.hpp>
-
-#include <memory>
-#include <vector>
 
 namespace OloEngine::PathTracing
 {
@@ -73,7 +73,7 @@ namespace OloEngine::PathTracing
     {
         u32 Width = 0;
         u32 Height = 0;
-        std::vector<glm::vec4> Texels;
+        TArray64<glm::vec4> Texels;
 
         [[nodiscard]] static ReferenceTexture FromRgba8(u32 width, u32 height, std::span<const u8> rgba, bool srgb);
 
@@ -146,15 +146,16 @@ namespace OloEngine::PathTracing
     class ReferenceGeometry
     {
       public:
-        ReferenceGeometry(std::vector<Vertex> vertices, std::vector<u32> indices);
+        ReferenceGeometry(TArray<Vertex> vertices, TArray<u32> indices);
+        ReferenceGeometry(std::span<const Vertex> vertices, std::span<const u32> indices);
 
-        [[nodiscard]] const std::vector<Vertex>& GetVertices() const
+        [[nodiscard]] std::span<const Vertex> GetVertices() const
         {
-            return m_Vertices;
+            return { m_Vertices.GetData(), static_cast<sizet>(m_Vertices.Num()) };
         }
-        [[nodiscard]] const std::vector<u32>& GetIndices() const
+        [[nodiscard]] std::span<const u32> GetIndices() const
         {
-            return m_Indices;
+            return { m_Indices.GetData(), static_cast<sizet>(m_Indices.Num()) };
         }
         [[nodiscard]] const BoundingVolumeHierarchy& GetBVH() const
         {
@@ -166,7 +167,7 @@ namespace OloEngine::PathTracing
         }
         [[nodiscard]] u32 GetTriangleCount() const
         {
-            return static_cast<u32>(m_Indices.size() / 3);
+            return static_cast<u32>(m_Indices.Num() / 3);
         }
 
         // Shading normal at a barycentric point of triangle `triangleIndex`
@@ -182,8 +183,8 @@ namespace OloEngine::PathTracing
         [[nodiscard]] bool GetTriangleVertices(u32 triangleIndex, u32& i0, u32& i1, u32& i2) const;
 
       private:
-        std::vector<Vertex> m_Vertices;
-        std::vector<u32> m_Indices;
+        TArray<Vertex> m_Vertices;
+        TArray<u32> m_Indices;
         BoundingVolumeHierarchy m_BVH;
         BoundingBox m_LocalBounds{};
     };
@@ -284,7 +285,7 @@ namespace OloEngine::PathTracing
         static constexpr u32 kFaceCount = 6;
 
         u32 FaceSize = 0;
-        std::vector<glm::vec3> Texels;
+        TArray64<glm::vec3> Texels;
 
         // `rgbaFaces` is kFaceCount * faceSize * faceSize RGBA float texels in
         // face order, i.e. what a TextureCubemap readback of an RGBA32F sky
@@ -298,7 +299,7 @@ namespace OloEngine::PathTracing
 
         [[nodiscard]] bool IsValid() const
         {
-            return FaceSize > 0 && Texels.size() == static_cast<sizet>(kFaceCount) * FaceSize * FaceSize;
+            return FaceSize > 0 && Texels.Num() == static_cast<sizet>(kFaceCount) * FaceSize * FaceSize;
         }
 
         // Radiance arriving from `direction` (need not be normalized; only its
@@ -390,7 +391,8 @@ namespace OloEngine::PathTracing
 
         // Takes ownership of the triangle soup and builds its BVH. Returns the
         // geometry index for `AddInstance`.
-        u32 AddGeometry(std::vector<Vertex> vertices, std::vector<u32> indices);
+        u32 AddGeometry(TArray<Vertex> vertices, TArray<u32> indices);
+        u32 AddGeometry(std::span<const Vertex> vertices, std::span<const u32> indices);
 
         // Convenience: an axis-aligned quad with a constant normal, the
         // building block of every box-shaped reference scene. Corners are given
@@ -447,14 +449,16 @@ namespace OloEngine::PathTracing
 
         // ---- accessors ------------------------------------------------------
 
-        [[nodiscard]] const std::vector<ReferenceMaterial>& GetMaterials() const
+        [[nodiscard]] auto GetMaterials() const
         {
-            return m_Materials;
+            return std::span<const ReferenceMaterial* const>(m_Materials.GetData(), static_cast<sizet>(m_Materials.Num())) |
+                   std::views::transform([](const ReferenceMaterial* material) -> const ReferenceMaterial&
+                                         { return *material; });
         }
         [[nodiscard]] const ReferenceMaterial& GetMaterial(u32 index) const;
-        [[nodiscard]] const std::vector<ReferenceInstance>& GetInstances() const
+        [[nodiscard]] std::span<const ReferenceInstance> GetInstances() const
         {
-            return m_Instances;
+            return { m_Instances.GetData(), static_cast<sizet>(m_Instances.Num()) };
         }
         // The geometry an instance references, for a consumer building the
         // SAME scene for another tracer (the GPU path tracer's device parity
@@ -462,19 +466,19 @@ namespace OloEngine::PathTracing
         // only; a scene is immutable once Build()t.
         [[nodiscard]] const ReferenceGeometry& GetGeometry(u32 index) const
         {
-            return *m_Geometries.at(index);
+            return *m_Geometries[index];
         }
-        [[nodiscard]] const std::vector<ReferenceLight>& GetLights() const
+        [[nodiscard]] std::span<const ReferenceLight> GetLights() const
         {
-            return m_Lights;
+            return { m_Lights.GetData(), static_cast<sizet>(m_Lights.Num()) };
         }
         [[nodiscard]] const ReferenceEnvironment& GetEnvironment() const
         {
             return m_Environment;
         }
-        [[nodiscard]] const std::vector<EmissiveTriangle>& GetEmissiveTriangles() const
+        [[nodiscard]] std::span<const EmissiveTriangle> GetEmissiveTriangles() const
         {
-            return m_EmissiveTriangles;
+            return { m_EmissiveTriangles.GetData(), static_cast<sizet>(m_EmissiveTriangles.Num()) };
         }
         [[nodiscard]] f32 GetTotalEmissiveArea() const
         {
@@ -486,7 +490,7 @@ namespace OloEngine::PathTracing
         }
         [[nodiscard]] u32 GetGeometryCount() const
         {
-            return static_cast<u32>(m_Geometries.size());
+            return static_cast<u32>(m_Geometries.Num());
         }
 
         // One next-event-estimation sample on the emissive set.
@@ -538,23 +542,26 @@ namespace OloEngine::PathTracing
         [[nodiscard]] bool IntersectInstance(u32 instanceIndex, const Ray& ray, SurfaceInteraction& outHit) const;
         [[nodiscard]] bool OccludedInstance(u32 instanceIndex, const Ray& ray) const;
 
-        std::vector<ReferenceMaterial> m_Materials;
-        std::vector<std::unique_ptr<ReferenceGeometry>> m_Geometries;
-        std::vector<ReferenceInstance> m_Instances;
-        std::vector<ReferenceLight> m_Lights;
+        // Shared texture owners remain in stable nodes; indices borrow their addresses.
+        TDoubleLinkedList<ReferenceMaterial> m_MaterialStorage;
+        TArray<const ReferenceMaterial*> m_Materials;
+        TDoubleLinkedList<std::unique_ptr<ReferenceGeometry>> m_GeometryStorage;
+        TArray<const ReferenceGeometry*> m_Geometries;
+        TArray<ReferenceInstance> m_Instances;
+        TArray<ReferenceLight> m_Lights;
         ReferenceEnvironment m_Environment{};
 
-        std::vector<TLASNode> m_TLASNodes;
+        TArray<TLASNode> m_TLASNodes;
         // Instance indices, reordered by the TLAS build (leaves index a range
         // of this array, not of m_Instances directly).
-        std::vector<u32> m_TLASInstanceRefs;
+        TArray<u32> m_TLASInstanceRefs;
         // Centroids of the instance world AABBs, parallel to m_Instances —
         // cached so the split pass does not recompute them per level.
-        std::vector<glm::vec3> m_InstanceCentroids;
+        TArray<glm::vec3> m_InstanceCentroids;
 
-        std::vector<EmissiveTriangle> m_EmissiveTriangles;
+        TArray<EmissiveTriangle> m_EmissiveTriangles;
         // Prefix sums of triangle area, for area-proportional selection.
-        std::vector<f32> m_EmissiveAreaCdf;
+        TArray<f32> m_EmissiveAreaCdf;
         f32 m_TotalEmissiveArea = 0.0f;
 
         BoundingBox m_WorldBounds{};

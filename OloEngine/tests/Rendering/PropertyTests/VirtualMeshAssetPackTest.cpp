@@ -18,6 +18,8 @@
 // uploads GPU buffers; SKIPs cleanly on headless CI.
 
 #include "OloEnginePCH.h"
+
+#include <algorithm>
 #include <gtest/gtest.h>
 #include "TestTempDir.h"
 
@@ -171,14 +173,14 @@ TEST_F(VirtualMeshAssetPackTest, CookedDagSurvivesThePackRoundTrip)
     // The blob shipped, byte-for-byte...
     ASSERT_TRUE(unpacked->HasVirtualMeshBlob())
         << "the packed MeshSource carries no DAG — a shipped game would rebuild it on the render thread";
-    EXPECT_EQ(unpacked->GetVirtualMeshBlob(), cooked);
+    EXPECT_TRUE(std::ranges::equal(unpacked->GetVirtualMeshBlob(), cooked));
 
     // ...and still deserializes into the same DAG, which is what the registry consumes.
     VirtualMesh restored;
     ASSERT_TRUE(VirtualMeshSerializer::DeserializeFromBlob(unpacked->GetVirtualMeshBlob(), restored));
     EXPECT_TRUE(restored.IsValid());
     EXPECT_EQ(restored.LevelCount, built.LevelCount);
-    EXPECT_EQ(restored.Clusters.size(), built.Clusters.size());
+    EXPECT_EQ(static_cast<sizet>(restored.Clusters.Num()), static_cast<sizet>(built.Clusters.Num()));
 }
 
 TEST_F(VirtualMeshAssetPackTest, MeshWithoutADagRoundTripsWithAnEmptyBlob)

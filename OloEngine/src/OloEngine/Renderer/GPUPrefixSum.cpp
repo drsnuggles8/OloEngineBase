@@ -56,8 +56,8 @@ namespace OloEngine
     {
         OLO_CORE_ASSERT(depth < kMaxDepth, "GPUPrefixSum recursion deeper than kMaxElements allows");
 
-        if (m_BlockSums.size() <= depth)
-            m_BlockSums.resize(depth + 1);
+        if (static_cast<u32>(m_BlockSums.Num()) <= depth)
+            m_BlockSums.SetNum(static_cast<i32>(depth + 1));
 
         const u32 requiredBytes = elementCount * static_cast<u32>(sizeof(u32));
         Ref<StorageBuffer>& slot = m_BlockSums[depth];

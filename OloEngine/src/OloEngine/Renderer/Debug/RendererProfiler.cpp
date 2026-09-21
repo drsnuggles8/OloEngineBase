@@ -23,7 +23,7 @@ namespace OloEngine
     void RendererProfiler::RecordingStats::Reset()
     {
         Counters.fill(0);
-        InstancedDraws.clear();
+        InstancedDraws.Reset();
     }
 
     void RendererProfiler::RecordingStats::Publish()
@@ -36,7 +36,7 @@ namespace OloEngine
                 profiler.IncrementCounter(static_cast<MetricType>(index), Counters[index]);
         }
         for (auto& record : InstancedDraws)
-            profiler.m_InstancedDrawRecords.push_back(std::move(record));
+            profiler.m_InstancedDrawRecords.Add(std::move(record));
         Reset();
     }
 
@@ -68,7 +68,7 @@ namespace OloEngine
         }
 
         // Initialize frame history
-        m_FrameHistory.resize(OLO_FRAME_HISTORY_SIZE);
+        m_FrameHistory.SetNum(OLO_FRAME_HISTORY_SIZE, EAllowShrinking::No);
 
         m_LastUpdateTime = DebugUtils::GetCurrentTimeSeconds();
         m_LastFrameTime = std::chrono::high_resolution_clock::now();
@@ -82,7 +82,7 @@ namespace OloEngine
 
         m_Counters.clear();
         m_CustomTimings.clear();
-        m_FrameHistory.clear();
+        m_FrameHistory.Reset();
 
         OLO_CORE_INFO("Renderer Profiler shutdown");
     }
@@ -95,8 +95,8 @@ namespace OloEngine
             counter.Reset();
         }
         m_CustomTimings.clear();
-        m_FrameHistory.clear();
-        m_FrameHistory.resize(OLO_FRAME_HISTORY_SIZE);
+        m_FrameHistory.Reset();
+        m_FrameHistory.SetNum(OLO_FRAME_HISTORY_SIZE, EAllowShrinking::No);
         m_HistoryIndex = 0;
         m_LastWrittenHistoryIndex = 0;
 
@@ -139,7 +139,7 @@ namespace OloEngine
             m_PreviousFrame.m_FrameTime = frameTime;
             m_PreviousFrame.m_GPUWaitTime = patchedWait;
 
-            if (!m_FrameHistory.empty())
+            if (!m_FrameHistory.IsEmpty())
             {
                 m_FrameHistory[m_LastWrittenHistoryIndex].m_FrameTime = frameTime;
                 m_FrameHistory[m_LastWrittenHistoryIndex].m_GPUWaitTime = patchedWait;
@@ -190,7 +190,7 @@ namespace OloEngine
         // so this is empty most of the time; clearing unconditionally keeps
         // the cost negligible and stops stale data from polluting the UI
         // when the toggle is flipped on mid-session.
-        m_InstancedDrawRecords.clear();
+        m_InstancedDrawRecords.Reset();
     }
 
     void RendererProfiler::EndFrame()
@@ -232,14 +232,14 @@ namespace OloEngine
         // out-of-range subscript inside operator[], one frame deep in whatever
         // scene happened to be rendering, with nothing naming the profiler.
         // Say so, restore the invariant, and keep the frame.
-        if (m_FrameHistory.size() != OLO_FRAME_HISTORY_SIZE)
+        if (m_FrameHistory.Num() != OLO_FRAME_HISTORY_SIZE)
         {
             OLO_CORE_ERROR("RendererProfiler::EndFrame with a frame history of {0} entries (expected {1}): "
                            "EndFrame ran after Shutdown() with no matching Initialize(). Re-sizing the ring; "
                            "the history before this frame is gone.",
-                           m_FrameHistory.size(), OLO_FRAME_HISTORY_SIZE);
-            m_FrameHistory.clear();
-            m_FrameHistory.resize(OLO_FRAME_HISTORY_SIZE);
+                           m_FrameHistory.Num(), OLO_FRAME_HISTORY_SIZE);
+            m_FrameHistory.Reset();
+            m_FrameHistory.SetNum(OLO_FRAME_HISTORY_SIZE, EAllowShrinking::No);
             m_HistoryIndex = 0;
             m_LastWrittenHistoryIndex = 0;
         }
@@ -540,17 +540,17 @@ namespace OloEngine
             ImGui::Text("Join wait: %.3f ms", parallel.JoinWaitMs);
             if (ImGui::TreeNode("Recording regions and items"))
             {
-                for (sizet regionIndex = 0; regionIndex < parallel.RegionTimings.size(); ++regionIndex)
+                for (sizet regionIndex = 0; regionIndex < parallel.RegionTimings.Num(); ++regionIndex)
                 {
                     const auto& region = parallel.RegionTimings[regionIndex];
                     ImGui::PushID(static_cast<int>(regionIndex));
                     if (ImGui::TreeNode("region", "%s (%s): %.3f ms wall, %.3f ms join",
-                                        region.PassName.empty() ? "Unlabelled" : region.PassName.c_str(),
+                                        region.PassName.IsEmpty() ? "Unlabelled" : *region.PassName,
                                         region.Parallel ? "parallel" : "inline", region.RegionWallMs, region.JoinWaitMs))
                     {
-                        for (sizet item = 0; item < region.ItemRecordMs.size(); ++item)
+                        for (sizet item = 0; item < region.ItemRecordMs.Num(); ++item)
                         {
-                            const char* name = item < region.ItemPassNames.size() ? region.ItemPassNames[item].c_str() : "Item";
+                            const char* name = item < region.ItemPassNames.Num() ? *region.ItemPassNames[item] : "Item";
                             ImGui::BulletText("%s %zu: %.3f ms", name, item, region.ItemRecordMs[item]);
                         }
                         ImGui::TreePop();
@@ -671,15 +671,15 @@ namespace OloEngine
 
             ImGui::Separator();
             ImGui::Text("Description:");
-            ImGui::TextWrapped("%s", bottleneck.m_Description.c_str());
+            ImGui::TextWrapped("%s", *bottleneck.m_Description);
 
-            if (!bottleneck.m_Recommendations.empty())
+            if (!bottleneck.m_Recommendations.IsEmpty())
             {
                 ImGui::Separator();
                 ImGui::Text("Recommendations:");
                 for (const auto& recommendation : bottleneck.m_Recommendations)
                 {
-                    ImGui::BulletText("%s", recommendation.c_str());
+                    ImGui::BulletText("%s", *recommendation);
                 }
             }
         }
@@ -727,19 +727,19 @@ namespace OloEngine
 
                 ImGui::TableSetColumnIndex(0);
                 ImVec4 color = GetMetricTypeColor(type);
-                ImGui::TextColored(color, "%s", GetMetricTypeName(type).c_str());
+                ImGui::TextColored(color, "%s", GetMetricTypeName(type).data());
 
                 ImGui::TableSetColumnIndex(1);
-                ImGui::Text("%.2f %s", counter.m_Value, GetMetricTypeUnit(type).c_str());
+                ImGui::Text("%.2f %s", counter.m_Value, GetMetricTypeUnit(type).data());
 
                 ImGui::TableSetColumnIndex(2);
-                ImGui::Text("%.2f %s", counter.m_Average, GetMetricTypeUnit(type).c_str());
+                ImGui::Text("%.2f %s", counter.m_Average, GetMetricTypeUnit(type).data());
 
                 ImGui::TableSetColumnIndex(3);
-                ImGui::Text("%.2f %s", counter.m_Min == DBL_MAX ? 0.0 : counter.m_Min, GetMetricTypeUnit(type).c_str());
+                ImGui::Text("%.2f %s", counter.m_Min == DBL_MAX ? 0.0 : counter.m_Min, GetMetricTypeUnit(type).data());
 
                 ImGui::TableSetColumnIndex(4);
-                ImGui::Text("%.2f %s", counter.m_Max, GetMetricTypeUnit(type).c_str());
+                ImGui::Text("%.2f %s", counter.m_Max, GetMetricTypeUnit(type).data());
 
                 ImGui::TableSetColumnIndex(5);
                 ImGui::Text("%u", counter.m_SampleCount);
@@ -754,10 +754,14 @@ namespace OloEngine
         ImGui::Text("Performance History (Last %d frames):", OLO_FRAME_HISTORY_SIZE);
 
         // Extract data for plotting
-        std::vector<f32> frameTimeData(OLO_FRAME_HISTORY_SIZE);
-        std::vector<f32> drawCallData(OLO_FRAME_HISTORY_SIZE);
-        std::vector<f32> cpuTimeData(OLO_FRAME_HISTORY_SIZE);
-        std::vector<f32> gpuTimeData(OLO_FRAME_HISTORY_SIZE);
+        TArray<f32> frameTimeData;
+        frameTimeData.SetNumZeroed(OLO_FRAME_HISTORY_SIZE);
+        TArray<f32> drawCallData;
+        drawCallData.SetNumZeroed(OLO_FRAME_HISTORY_SIZE);
+        TArray<f32> cpuTimeData;
+        cpuTimeData.SetNumZeroed(OLO_FRAME_HISTORY_SIZE);
+        TArray<f32> gpuTimeData;
+        gpuTimeData.SetNumZeroed(OLO_FRAME_HISTORY_SIZE);
 
         for (u32 i = 0; i < OLO_FRAME_HISTORY_SIZE; ++i)
         {
@@ -769,15 +773,15 @@ namespace OloEngine
         }
 
         // Plot graphs
-        ImGui::PlotLines("Frame Time (ms)", frameTimeData.data(), OLO_FRAME_HISTORY_SIZE, 0, nullptr, 0.0f, FLT_MAX, ImVec2(0, 80));
-        ImGui::PlotLines("CPU Time (ms)", cpuTimeData.data(), OLO_FRAME_HISTORY_SIZE, 0, nullptr, 0.0f, FLT_MAX, ImVec2(0, 60));
+        ImGui::PlotLines("Frame Time (ms)", frameTimeData.GetData(), OLO_FRAME_HISTORY_SIZE, 0, nullptr, 0.0f, FLT_MAX, ImVec2(0, 80));
+        ImGui::PlotLines("CPU Time (ms)", cpuTimeData.GetData(), OLO_FRAME_HISTORY_SIZE, 0, nullptr, 0.0f, FLT_MAX, ImVec2(0, 60));
 
         if (m_EnableGPUTiming)
         {
-            ImGui::PlotLines("GPU Time (ms)", gpuTimeData.data(), OLO_FRAME_HISTORY_SIZE, 0, nullptr, 0.0f, FLT_MAX, ImVec2(0, 60));
+            ImGui::PlotLines("GPU Time (ms)", gpuTimeData.GetData(), OLO_FRAME_HISTORY_SIZE, 0, nullptr, 0.0f, FLT_MAX, ImVec2(0, 60));
         }
 
-        ImGui::PlotLines("Draw Calls", drawCallData.data(), OLO_FRAME_HISTORY_SIZE, 0, nullptr, 0.0f, FLT_MAX, ImVec2(0, 60));
+        ImGui::PlotLines("Draw Calls", drawCallData.GetData(), OLO_FRAME_HISTORY_SIZE, 0, nullptr, 0.0f, FLT_MAX, ImVec2(0, 60));
     }
 
     RendererProfiler::BottleneckInfo RendererProfiler::AnalyzeBottlenecks() const
@@ -885,7 +889,7 @@ namespace OloEngine
         return (f32)m_Counters.at(MetricType::FrameTime).m_Average;
     }
 
-    std::string RendererProfiler::GetMetricTypeName(MetricType type) const
+    std::string_view RendererProfiler::GetMetricTypeName(MetricType type) const
     {
         switch (type)
         {
@@ -928,7 +932,7 @@ namespace OloEngine
         }
     }
 
-    std::string RendererProfiler::GetMetricTypeUnit(MetricType type) const
+    std::string_view RendererProfiler::GetMetricTypeUnit(MetricType type) const
     {
         switch (type)
         {
@@ -1048,9 +1052,9 @@ namespace OloEngine
         m_Average = ((m_Average * (m_SampleCount - 1)) + value) / m_SampleCount;
 
         // Initialize history buffer on first use
-        if (m_History.empty())
+        if (m_History.IsEmpty())
         {
-            m_History.resize(OLO_HISTORY_SIZE, 0.0f);
+            m_History.SetNumZeroed(OLO_HISTORY_SIZE, EAllowShrinking::No);
         }
 
         // Add to ring buffer history - O(1) operation
@@ -1068,20 +1072,20 @@ namespace OloEngine
         m_Max = 0.0;
         m_Average = 0.0;
         m_SampleCount = 0;
-        m_History.clear();
+        m_History.Reset();
         m_HistoryIndex = 0;
         m_HistoryCount = 0;
     }
 
-    void RendererProfiler::PerformanceCounter::GetHistoryInOrder(std::vector<f32>& outHistory) const
+    void RendererProfiler::PerformanceCounter::GetHistoryInOrder(TArray<f32>& outHistory) const
     {
         if (m_HistoryCount == 0)
         {
-            outHistory.clear();
+            outHistory.Reset();
             return;
         }
 
-        outHistory.resize(m_HistoryCount);
+        outHistory.SetNum(static_cast<i32>(m_HistoryCount), EAllowShrinking::No);
 
         // Copy data in chronological order (oldest to newest)
         for (u32 i = 0; i < m_HistoryCount; ++i)
@@ -1139,7 +1143,7 @@ namespace OloEngine
     {
         auto endTime = std::chrono::high_resolution_clock::now();
         f64 duration = std::chrono::duration<f64, std::milli>(endTime - m_StartTime).count();
-        RendererProfiler::GetInstance().AddTimingSample(m_Name, duration, m_Type);
+        RendererProfiler::GetInstance().AddTimingSample(m_Name.ToStdString(), duration, m_Type);
     }
 
     // Frame Capture Implementation
@@ -1162,10 +1166,10 @@ namespace OloEngine
         frame.m_BottleneckAnalysis = AnalyzeBottlenecks();
 
         // Add to captured frames (keep only last N frames)
-        m_CapturedFrames.push_back(frame);
-        if (m_CapturedFrames.size() > OLO_MAX_CAPTURED_FRAMES)
+        m_CapturedFrames.Add(frame);
+        if (m_CapturedFrames.Num() > OLO_MAX_CAPTURED_FRAMES)
         {
-            m_CapturedFrames.erase(m_CapturedFrames.begin());
+            m_CapturedFrames.RemoveAt(0, 1, EAllowShrinking::No);
         }
 
         OLO_CORE_INFO("RendererProfiler: Captured frame {} - {}", frame.m_FrameNumber, notes);
@@ -1183,10 +1187,10 @@ namespace OloEngine
                                    .count();
 
         // If we have a current captured frame, add this pass to it
-        if (!m_CapturedFrames.empty())
+        if (!m_CapturedFrames.IsEmpty())
         {
-            m_CapturedFrames.back().m_RenderPasses.push_back(passInfo);
-            m_CurrentRenderPass = &m_CapturedFrames.back().m_RenderPasses.back();
+            m_CapturedFrames.Last().m_RenderPasses.Add(passInfo);
+            m_CurrentRenderPass = &m_CapturedFrames.Last().m_RenderPasses.Last();
         }
 
         OLO_CORE_TRACE("RendererProfiler: Begin render pass '{}'", passName);
@@ -1203,7 +1207,7 @@ namespace OloEngine
         m_CurrentRenderPass->m_Duration = currentTime - m_CurrentRenderPass->m_StartTime;
 
         OLO_CORE_TRACE("RendererProfiler: End render pass '{}' ({}ms)",
-                       m_CurrentRenderPass->m_Name, m_CurrentRenderPass->m_Duration);
+                       m_CurrentRenderPass->m_Name.ToView(), m_CurrentRenderPass->m_Duration);
 
         m_CurrentRenderPass = nullptr;
     }
@@ -1222,7 +1226,7 @@ namespace OloEngine
         drawCall.m_CPUTime = cpuTime;
         drawCall.m_GPUTime = gpuTime;
 
-        m_CurrentRenderPass->m_DrawCalls.push_back(drawCall);
+        m_CurrentRenderPass->m_DrawCalls.Add(drawCall);
         ++m_CurrentRenderPass->m_DrawCallCount;
 
         OLO_CORE_TRACE("RendererProfiler: Tracked draw call '{}' with shader '{}' - {} verts, {} indices",
@@ -1248,15 +1252,15 @@ namespace OloEngine
             record.m_Source = source;
         if (entityIDs && instanceCount > 0)
         {
-            record.m_EntityIDs.assign(entityIDs, entityIDs + instanceCount);
+            record.m_EntityIDs.Append(entityIDs, static_cast<i32>(instanceCount));
         }
         if (s_RecordingStats)
-            s_RecordingStats->InstancedDraws.push_back(std::move(record));
+            s_RecordingStats->InstancedDraws.Add(std::move(record));
         else
-            m_InstancedDrawRecords.push_back(std::move(record));
+            m_InstancedDrawRecords.Add(std::move(record));
     }
 
-    std::string RendererProfiler::CompareFrames(const CapturedFrame& frame1, const CapturedFrame& frame2) const
+    FString RendererProfiler::CompareFrames(const CapturedFrame& frame1, const CapturedFrame& frame2) const
     {
         std::stringstream ss;
 
@@ -1292,8 +1296,8 @@ namespace OloEngine
 
         // Bottleneck analysis
         ss << "\nBottleneck Analysis:\n";
-        ss << "Frame " << frame1.m_FrameNumber << ": " << frame1.m_BottleneckAnalysis.m_Description << "\n";
-        ss << "Frame " << frame2.m_FrameNumber << ": " << frame2.m_BottleneckAnalysis.m_Description << "\n";
+        ss << "Frame " << frame1.m_FrameNumber << ": " << frame1.m_BottleneckAnalysis.m_Description.ToView() << "\n";
+        ss << "Frame " << frame2.m_FrameNumber << ": " << frame2.m_BottleneckAnalysis.m_Description.ToView() << "\n";
 
         return ss.str();
     }
@@ -1319,7 +1323,7 @@ namespace OloEngine
         ImGui::Separator();
 
         // Display captured frames
-        ImGui::Text("Captured Frames: %zu", m_CapturedFrames.size());
+        ImGui::Text("Captured Frames: %d", m_CapturedFrames.Num());
 
         if (ImGui::Button("Clear All Captures"))
         {
@@ -1327,7 +1331,7 @@ namespace OloEngine
         }
 
         // Frame list
-        if (!m_CapturedFrames.empty())
+        if (!m_CapturedFrames.IsEmpty())
         {
             if (ImGui::BeginTable("CapturedFrames", 6, ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg))
             {
@@ -1382,7 +1386,7 @@ namespace OloEngine
                     }
 
                     ImGui::TableSetColumnIndex(5);
-                    ImGui::Text("%s", frame.m_Notes.c_str());
+                    ImGui::Text("%s", *frame.m_Notes);
                 }
 
                 ImGui::EndTable();
@@ -1399,7 +1403,7 @@ namespace OloEngine
         ImGui::Text("Frame Comparison Tool");
         ImGui::Separator();
 
-        if (m_CapturedFrames.size() < 2)
+        if (m_CapturedFrames.Num() < 2)
         {
             ImGui::Text("Capture at least 2 frames to enable comparison.");
             return;
@@ -1412,27 +1416,27 @@ namespace OloEngine
         ImGui::Text("Select frames to compare:");
 
         // Build frame list for combo boxes
-        std::vector<std::string> frameNames;
-        for (sizet i = 0; i < m_CapturedFrames.size(); ++i)
+        TArray<FString> frameNames;
+        for (sizet i = 0; i < m_CapturedFrames.Num(); ++i)
         {
             const auto& frame = m_CapturedFrames[i];
-            std::string name = "Frame " + std::to_string(frame.m_FrameNumber) +
-                               " (" + std::to_string(frame.m_FrameData.m_FrameTime) + "ms)";
-            if (!frame.m_Notes.empty())
+            FString name = "Frame " + std::to_string(frame.m_FrameNumber) +
+                           " (" + std::to_string(frame.m_FrameData.m_FrameTime) + "ms)";
+            if (!frame.m_Notes.IsEmpty())
                 name += " - " + frame.m_Notes;
-            frameNames.push_back(name);
+            frameNames.Add(name);
         }
 
         // Convert to char* array for ImGui
-        std::vector<const char*> frameNamePtrs;
+        TArray<const char*> frameNamePtrs;
         for (const auto& name : frameNames)
-            frameNamePtrs.push_back(name.c_str());
+            frameNamePtrs.Add(*name);
 
-        ImGui::Combo("Frame 1", &selectedFrame1, frameNamePtrs.data(), (int)frameNamePtrs.size());
-        ImGui::Combo("Frame 2", &selectedFrame2, frameNamePtrs.data(), (int)frameNamePtrs.size());
+        ImGui::Combo("Frame 1", &selectedFrame1, frameNamePtrs.GetData(), (int)frameNamePtrs.Num());
+        ImGui::Combo("Frame 2", &selectedFrame2, frameNamePtrs.GetData(), (int)frameNamePtrs.Num());
 
-        if (selectedFrame1 >= 0 && selectedFrame1 < (int)m_CapturedFrames.size() &&
-            selectedFrame2 >= 0 && selectedFrame2 < (int)m_CapturedFrames.size() &&
+        if (selectedFrame1 >= 0 && selectedFrame1 < (int)m_CapturedFrames.Num() &&
+            selectedFrame2 >= 0 && selectedFrame2 < (int)m_CapturedFrames.Num() &&
             selectedFrame1 != selectedFrame2)
         {
             const auto& frame1 = m_CapturedFrames[selectedFrame1];
@@ -1498,9 +1502,9 @@ namespace OloEngine
             // Detailed comparison text
             if (ImGui::Button("Generate Detailed Report"))
             {
-                std::string report = CompareFrames(frame1, frame2);
+                FString report = CompareFrames(frame1, frame2);
                 // For now just log it, later we could show it in a popup or export it
-                OLO_CORE_INFO("Frame Comparison Report:\n{}", report);
+                OLO_CORE_INFO("Frame Comparison Report:\n{}", report.ToView());
             }
         }
     }
@@ -1520,7 +1524,7 @@ namespace OloEngine
         {
             m_RecordInstancedDraws = recording;
             if (!recording)
-                m_InstancedDrawRecords.clear();
+                m_InstancedDrawRecords.Reset();
         }
         ImGui::SameLine();
         ImGui::TextDisabled("(toggle to start/stop capturing this frame's instanced submissions)");
@@ -1532,13 +1536,13 @@ namespace OloEngine
             ImGui::TextDisabled("Recording disabled — toggle on to start collecting per-call breakdowns.");
             return;
         }
-        if (m_InstancedDrawRecords.empty())
+        if (m_InstancedDrawRecords.IsEmpty())
         {
             ImGui::TextDisabled("No instanced draws recorded this frame yet.");
             return;
         }
 
-        ImGui::Text("Recorded draws this frame: %zu", m_InstancedDrawRecords.size());
+        ImGui::Text("Recorded draws this frame: %d", m_InstancedDrawRecords.Num());
 
         // Aggregate stats so the user can see the ratio at a glance — and the
         // diagnostic-friendly version of these counters lives in the "Copy to
@@ -1559,12 +1563,12 @@ namespace OloEngine
                 ++autoBatchedCalls;
                 autoBatchedInstances += rec.m_InstanceCount;
             }
-            if (rec.m_Source.rfind("Shadow", 0) == 0)
+            if (rec.m_Source.ToView().rfind("Shadow", 0) == 0)
             {
                 ++shadowCalls;
                 shadowInstances += rec.m_InstanceCount;
             }
-            else if (rec.m_Source.find("GPU cull") != std::string::npos)
+            else if (rec.m_Source.ToView().find("GPU cull") != std::string::npos)
             {
                 ++gpuCullCalls;
                 gpuCullInstances += rec.m_InstanceCount;
@@ -1577,7 +1581,7 @@ namespace OloEngine
         ImGui::Text("Total instances across these draws: %u", totalInstances);
         ImGui::Text("Auto-batched: %u calls / %u instances    Explicit InstancedMeshComponent: %u calls / %u instances",
                     autoBatchedCalls, autoBatchedInstances,
-                    static_cast<u32>(m_InstancedDrawRecords.size()) - autoBatchedCalls,
+                    static_cast<u32>(m_InstancedDrawRecords.Num()) - autoBatchedCalls,
                     totalInstances - autoBatchedInstances);
         // Per-pipeline breakdown — surfaces shadow / GPU-cull contributions
         // that previously hid because both ran outside the regular
@@ -1606,29 +1610,29 @@ namespace OloEngine
             report << "Triangles:   " << frame.m_TrianglesRendered << "\n";
             report << "Shader/Tex/Buf binds: " << frame.m_ShaderBinds << " / "
                    << frame.m_TextureBinds << " / " << frame.m_BufferBinds << "\n";
-            report << "\n--- Instanced Draws (" << m_InstancedDrawRecords.size() << ") ---\n";
-            for (sizet i = 0; i < m_InstancedDrawRecords.size(); ++i)
+            report << "\n--- Instanced Draws (" << m_InstancedDrawRecords.Num() << ") ---\n";
+            for (sizet i = 0; i < m_InstancedDrawRecords.Num(); ++i)
             {
                 const auto& rec = m_InstancedDrawRecords[i];
-                report << "[" << i << "] (" << rec.m_Source << ") MeshHandle=" << rec.m_MeshHandle
+                report << "[" << i << "] (" << rec.m_Source.ToView() << ") MeshHandle=" << rec.m_MeshHandle
                        << " VAO=" << rec.m_VertexArrayID
                        << " IndexCount=" << rec.m_IndexCount
                        << " Instances=" << rec.m_InstanceCount
                        << (rec.m_FromAutoBatching ? " [auto-batched]" : " [explicit]")
                        << "\n";
-                if (!rec.m_EntityIDs.empty())
+                if (!rec.m_EntityIDs.IsEmpty())
                 {
-                    report << "    EntityIDs (" << rec.m_EntityIDs.size() << "): ";
+                    report << "    EntityIDs (" << rec.m_EntityIDs.Num() << "): ";
                     constexpr sizet kMaxIDs = 64;
-                    const sizet shown = std::min<sizet>(kMaxIDs, rec.m_EntityIDs.size());
+                    const sizet shown = std::min<sizet>(kMaxIDs, rec.m_EntityIDs.Num());
                     for (sizet k = 0; k < shown; ++k)
                     {
                         if (k > 0)
                             report << ", ";
                         report << rec.m_EntityIDs[k];
                     }
-                    if (rec.m_EntityIDs.size() > shown)
-                        report << ", ... (+" << (rec.m_EntityIDs.size() - shown) << " more)";
+                    if (rec.m_EntityIDs.Num() > shown)
+                        report << ", ... (+" << (rec.m_EntityIDs.Num() - shown) << " more)";
                     report << "\n";
                 }
             }
@@ -1651,7 +1655,7 @@ namespace OloEngine
             ImGui::TableSetupColumn("Entity IDs");
             ImGui::TableHeadersRow();
 
-            for (sizet i = 0; i < m_InstancedDrawRecords.size(); ++i)
+            for (sizet i = 0; i < m_InstancedDrawRecords.Num(); ++i)
             {
                 const auto& rec = m_InstancedDrawRecords[i];
                 ImGui::TableNextRow();
@@ -1665,12 +1669,12 @@ namespace OloEngine
                 // frame — at a glance "everything CSM-tagged is cyan,
                 // everything Scene-tagged is white".
                 ImGui::TableSetColumnIndex(1);
-                if (rec.m_Source.rfind("Shadow", 0) == 0)
-                    ImGui::TextColored(ImVec4(0.5f, 0.8f, 1.0f, 1.0f), "%s", rec.m_Source.c_str());
-                else if (rec.m_Source.find("GPU cull") != std::string::npos)
-                    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.4f, 1.0f), "%s", rec.m_Source.c_str());
+                if (rec.m_Source.ToView().rfind("Shadow", 0) == 0)
+                    ImGui::TextColored(ImVec4(0.5f, 0.8f, 1.0f, 1.0f), "%s", *rec.m_Source);
+                else if (rec.m_Source.ToView().find("GPU cull") != std::string::npos)
+                    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.4f, 1.0f), "%s", *rec.m_Source);
                 else
-                    ImGui::TextUnformatted(rec.m_Source.c_str());
+                    ImGui::TextUnformatted(*rec.m_Source);
 
                 ImGui::TableSetColumnIndex(2);
                 ImGui::Text("%llu", static_cast<unsigned long long>(rec.m_MeshHandle));
@@ -1685,7 +1689,7 @@ namespace OloEngine
                     ImGui::Text("%u", rec.m_InstanceCount);
 
                 ImGui::TableSetColumnIndex(5);
-                if (rec.m_EntityIDs.empty())
+                if (rec.m_EntityIDs.IsEmpty())
                 {
                     ImGui::TextDisabled("(no entity-ID stream)");
                 }
@@ -1693,38 +1697,38 @@ namespace OloEngine
                 {
                     // Auto-batched: list the contributing entity IDs. Inline
                     // for small batches, collapsible TreeNode for large ones.
-                    if (rec.m_EntityIDs.size() <= 8)
+                    if (rec.m_EntityIDs.Num() <= 8)
                     {
-                        std::string ids;
-                        ids.reserve(rec.m_EntityIDs.size() * 6);
-                        for (sizet k = 0; k < rec.m_EntityIDs.size(); ++k)
+                        FString ids;
+                        ids.Reserve(rec.m_EntityIDs.Num() * 6);
+                        for (sizet k = 0; k < rec.m_EntityIDs.Num(); ++k)
                         {
                             if (k > 0)
                                 ids += ", ";
-                            ids += std::to_string(rec.m_EntityIDs[k]);
+                            ids += std::string_view(std::to_string(rec.m_EntityIDs[k]));
                         }
-                        ImGui::TextUnformatted(ids.c_str());
+                        ImGui::TextUnformatted(*ids);
                     }
                     else
                     {
-                        if (ImGui::TreeNode("entity-ids", "%zu entity IDs (click to expand)", rec.m_EntityIDs.size()))
+                        if (ImGui::TreeNode("entity-ids", "%d entity IDs (click to expand)", rec.m_EntityIDs.Num()))
                         {
                             // Render in rows of 10 for readability
-                            std::string row;
-                            row.reserve(80);
-                            for (sizet k = 0; k < rec.m_EntityIDs.size(); ++k)
+                            FString row;
+                            row.Reserve(80);
+                            for (sizet k = 0; k < rec.m_EntityIDs.Num(); ++k)
                             {
-                                if (!row.empty())
+                                if (!row.IsEmpty())
                                     row += ", ";
-                                row += std::to_string(rec.m_EntityIDs[k]);
+                                row += std::string_view(std::to_string(rec.m_EntityIDs[k]));
                                 if (((k + 1) % 10) == 0)
                                 {
-                                    ImGui::TextUnformatted(row.c_str());
-                                    row.clear();
+                                    ImGui::TextUnformatted(*row);
+                                    row.Reset();
                                 }
                             }
-                            if (!row.empty())
-                                ImGui::TextUnformatted(row.c_str());
+                            if (!row.IsEmpty())
+                                ImGui::TextUnformatted(*row);
                             ImGui::TreePop();
                         }
                     }
@@ -1734,7 +1738,7 @@ namespace OloEngine
                     // Explicit InstancedMeshComponent: per-instance IDs are the
                     // values the author set on InstanceData.EntityID. Distinct
                     // from auto-batched because the source is a single entity.
-                    ImGui::TextDisabled("InstancedMeshComponent (%zu per-instance IDs)", rec.m_EntityIDs.size());
+                    ImGui::TextDisabled("InstancedMeshComponent (%d per-instance IDs)", rec.m_EntityIDs.Num());
                 }
 
                 ImGui::PopID();

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "OloEngine/Containers/Array.h"
+
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/AtlasAllocator.h"
 #include "OloEngine/Renderer/Frustum.h"
@@ -75,8 +77,8 @@ namespace OloEngine
 
         struct Result
         {
-            std::vector<Allocation> Accepted; // in descending-score order
-            std::vector<TileRect> EntryRects; // indexed by Allocation::BaseEntry + face
+            TArray64<Allocation> Accepted; // in descending-score order
+            TArray64<TileRect> EntryRects; // indexed by Allocation::BaseEntry + face
         };
 
         // Estimated screen influence of a local light. Deliberately simple and
@@ -205,7 +207,7 @@ namespace OloEngine
 
             u32 m_AtlasResolution = 0;
             OloEngine::AtlasAllocator m_Allocator;
-            std::vector<LiveSlot> m_Live;
+            TArray64<LiveSlot> m_Live;
         };
 
         // UV scale/offset of a tile within the atlas — the per-entry value the

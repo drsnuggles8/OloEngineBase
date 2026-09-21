@@ -27,13 +27,13 @@ namespace OloEngine
         // Create double-buffered query objects
         for (u32 buf = 0; buf < 2; ++buf)
         {
-            m_QueryObjects[buf].resize(maxQueries, RHI::NullResource);
-            RenderCommand::CreateQueries(RHI::QueryType::OcclusionAnySamples, m_QueryObjects[buf]);
+            m_QueryObjects[buf].SetNum(static_cast<i64>(maxQueries));
+            RenderCommand::CreateQueries(RHI::QueryType::OcclusionAnySamples, { m_QueryObjects[buf].GetData(), static_cast<sizet>(m_QueryObjects[buf].Num()) });
         }
 
-        m_Results.resize(maxQueries, true); // Default visible until proven otherwise
+        m_Results.Init(true, static_cast<i64>(maxQueries)); // Default visible until proven otherwise
         for (u32 buf = 0; buf < 2; ++buf)
-            m_QueryIssued[buf].resize(maxQueries, false);
+            m_QueryIssued[buf].Init(false, static_cast<i64>(maxQueries));
         m_WriteBuffer = 0;
         m_WriteQueryCount = 0;
         m_ReadableQueryCount = 0;
@@ -51,16 +51,16 @@ namespace OloEngine
 
         for (u32 buf = 0; buf < 2; ++buf)
         {
-            if (!m_QueryObjects[buf].empty())
+            if (!m_QueryObjects[buf].IsEmpty())
             {
-                RenderCommand::DeleteQueries(m_QueryObjects[buf]);
-                m_QueryObjects[buf].clear();
+                RenderCommand::DeleteQueries({ m_QueryObjects[buf].GetData(), static_cast<sizet>(m_QueryObjects[buf].Num()) });
+                m_QueryObjects[buf].Reset();
             }
         }
 
-        m_Results.clear();
+        m_Results.Reset();
         for (u32 buf = 0; buf < 2; ++buf)
-            m_QueryIssued[buf].clear();
+            m_QueryIssued[buf].Reset();
         m_Initialized = false;
         m_Active = false;
 

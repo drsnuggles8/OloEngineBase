@@ -141,7 +141,7 @@ namespace OloEngine::Tests
                 rel.m_ParentHandle = canvas.GetUUID();
                 if (!canvas.HasComponent<RelationshipComponent>())
                     canvas.AddComponent<RelationshipComponent>();
-                canvas.GetComponent<RelationshipComponent>().m_Children.push_back(label.GetUUID());
+                canvas.GetComponent<RelationshipComponent>().m_Children.Add(label.GetUUID());
 
                 m_LabelEntity = label.GetUUID();
             }

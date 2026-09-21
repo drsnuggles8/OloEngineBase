@@ -207,17 +207,17 @@ namespace OloEngine
                                                   "pathPoints", sol::property([](const PhysicsJoint3DComponent& j, sol::this_state s) -> sol::table
                                                                               {
                                                                                   sol::state_view lua_state(s);
-                                                                                  sol::table t = lua_state.create_table(static_cast<int>(j.m_PathPoints.size()), 0);
-                                                                                  for (sizet i = 0; i < j.m_PathPoints.size(); ++i)
+                                                                                  sol::table t = lua_state.create_table(static_cast<int>(j.m_PathPoints.Num()), 0);
+                                                                                  for (sizet i = 0; i < j.m_PathPoints.Num(); ++i)
                                                                                       t[i + 1] = j.m_PathPoints[i];
                                                                                   return t; }, [](PhysicsJoint3DComponent& j, const sol::table& t)
                                                                               {
-                                                                                  std::vector<glm::vec3> pts;
-                                                                                  pts.reserve(t.size());
+                                                                                  TArray<glm::vec3> pts;
+                                                                                  pts.Reserve(static_cast<i32>(t.size()));
                                                                                   for (sizet i = 1; i <= t.size(); ++i)
                                                                                   {
                                                                                       if (sol::optional<glm::vec3> v = t[i]; v && IsFiniteVec3(*v))
-                                                                                          pts.push_back(*v);
+                                                                                          pts.Add(*v);
                                                                                   }
                                                                                   j.m_PathPoints = std::move(pts); }),
                                                   "pathIsLooping", sol::property([](const PhysicsJoint3DComponent& j)

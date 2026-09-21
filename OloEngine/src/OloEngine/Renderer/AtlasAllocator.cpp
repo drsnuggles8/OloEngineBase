@@ -27,13 +27,13 @@ namespace OloEngine
         m_LevelCount = levelCount;
 
         const u32 totalNodes = LevelStart(m_LevelCount);
-        m_Nodes.assign(totalNodes, Node{});
-        m_NodeLevel.resize(totalNodes);
+        m_Nodes.Init(Node{}, static_cast<i32>(totalNodes));
+        m_NodeLevel.SetNum(static_cast<i32>(totalNodes));
         for (u32 level = 0; level < m_LevelCount; ++level)
         {
             const u32 start = LevelStart(level);
             const u32 end = LevelStart(level + 1u);
-            std::fill(m_NodeLevel.begin() + start, m_NodeLevel.begin() + end, static_cast<u8>(level));
+            std::fill(m_NodeLevel.GetData() + start, m_NodeLevel.GetData() + end, static_cast<u8>(level));
         }
     }
 
@@ -109,7 +109,7 @@ namespace OloEngine
 
     bool AtlasAllocator::Free(u32 node)
     {
-        if (node == kInvalidNode || node >= m_Nodes.size() || !m_Nodes[node].Allocated)
+        if (node == kInvalidNode || node >= static_cast<u32>(m_Nodes.Num()) || !m_Nodes[node].Allocated)
             return false;
 
         m_Nodes[node].Allocated = false;
@@ -120,18 +120,19 @@ namespace OloEngine
 
     void AtlasAllocator::Reset()
     {
-        std::fill(m_Nodes.begin(), m_Nodes.end(), Node{});
+        for (Node& node : m_Nodes)
+            node = Node{};
         m_LiveCount = 0;
     }
 
     bool AtlasAllocator::IsAllocated(u32 node) const
     {
-        return node < m_Nodes.size() && m_Nodes[node].Allocated;
+        return node < static_cast<u32>(m_Nodes.Num()) && m_Nodes[node].Allocated;
     }
 
     AtlasAllocator::Region AtlasAllocator::GetRegion(u32 node) const
     {
-        if (node >= m_Nodes.size())
+        if (node >= static_cast<u32>(m_Nodes.Num()))
             return {};
 
         const u32 level = m_NodeLevel[node];

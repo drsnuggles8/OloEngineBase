@@ -161,7 +161,7 @@ TEST(ShadowAtlasPacking, HighestScoreWinsFirstAndLargestTile)
     };
 
     const auto result = ShadowAtlas::Allocate(candidates, 4096);
-    ASSERT_EQ(result.Accepted.size(), 3u);
+    ASSERT_EQ(result.Accepted.Num(), 3u);
     EXPECT_EQ(result.Accepted[0].CandidateIndex, 1u); // score 5 first
     EXPECT_EQ(result.Accepted[1].CandidateIndex, 2u); // score 3 second
     EXPECT_EQ(result.Accepted[2].CandidateIndex, 0u); // score 1 last
@@ -180,14 +180,14 @@ TEST(ShadowAtlasPacking, PointLightGetsSixContiguousEntries)
     };
 
     const auto result = ShadowAtlas::Allocate(candidates, 4096);
-    ASSERT_EQ(result.Accepted.size(), 2u);
+    ASSERT_EQ(result.Accepted.Num(), 2u);
     EXPECT_EQ(result.Accepted[0].CandidateIndex, 0u);
     EXPECT_EQ(result.Accepted[0].EntryCount, 6u);
     EXPECT_EQ(result.Accepted[1].EntryCount, 1u);
     // Entries are consecutive: the spot's base follows the point's 6 faces.
     EXPECT_EQ(result.Accepted[0].BaseEntry, 0u);
     EXPECT_EQ(result.Accepted[1].BaseEntry, 6u);
-    ASSERT_EQ(result.EntryRects.size(), 7u);
+    ASSERT_EQ(result.EntryRects.Num(), 7u);
 }
 
 TEST(ShadowAtlasPacking, ZeroScoreCandidatesAreNeverAllocated)
@@ -199,7 +199,7 @@ TEST(ShadowAtlasPacking, ZeroScoreCandidatesAreNeverAllocated)
     };
 
     const auto result = ShadowAtlas::Allocate(candidates, 4096);
-    ASSERT_EQ(result.Accepted.size(), 1u);
+    ASSERT_EQ(result.Accepted.Num(), 1u);
     EXPECT_EQ(result.Accepted[0].CandidateIndex, 1u);
 }
 
@@ -215,14 +215,14 @@ TEST(ShadowAtlasPacking, TilesNeverOverlapAndStayInBounds)
     constexpr u32 atlasResolution = 4096;
     const auto result = ShadowAtlas::Allocate(candidates, atlasResolution);
 
-    ASSERT_FALSE(result.EntryRects.empty());
-    for (sizet a = 0; a < result.EntryRects.size(); ++a)
+    ASSERT_FALSE(result.EntryRects.IsEmpty());
+    for (sizet a = 0; a < result.EntryRects.Num(); ++a)
     {
         const auto& rect = result.EntryRects[a];
         EXPECT_GT(rect.Size, 0u);
         EXPECT_LE(rect.X + rect.Size, atlasResolution);
         EXPECT_LE(rect.Y + rect.Size, atlasResolution);
-        for (sizet b = a + 1; b < result.EntryRects.size(); ++b)
+        for (sizet b = a + 1; b < result.EntryRects.Num(); ++b)
         {
             EXPECT_FALSE(RectsOverlap(rect, result.EntryRects[b]))
                 << "entries " << a << " and " << b << " overlap";
@@ -243,11 +243,11 @@ TEST(ShadowAtlasPacking, EntryBudgetIsRespected)
     for (const auto& a : result.Accepted)
         totalEntries += a.EntryCount;
     EXPECT_LE(totalEntries, UBOStructures::ShadowUBO::MAX_SHADOW_ATLAS_ENTRIES);
-    EXPECT_EQ(result.EntryRects.size(), totalEntries);
+    EXPECT_EQ(result.EntryRects.Num(), totalEntries);
     // 48 / 6 = 8 point lights fit.
-    EXPECT_EQ(result.Accepted.size(), 8u);
+    EXPECT_EQ(result.Accepted.Num(), 8u);
     // Highest scores won.
-    for (sizet i = 0; i < result.Accepted.size(); ++i)
+    for (sizet i = 0; i < result.Accepted.Num(); ++i)
         EXPECT_EQ(result.Accepted[i].CandidateIndex, static_cast<u32>(i));
 }
 
@@ -258,7 +258,7 @@ TEST(ShadowAtlasPacking, LightBudgetIsRespected)
         candidates.push_back(MakeCandidate(ShadowAtlas::CasterType::Spot, 30.0f - static_cast<f32>(i)));
 
     const auto result = ShadowAtlas::Allocate(candidates, 4096);
-    EXPECT_EQ(result.Accepted.size(), ShadowAtlas::kMaxShadowedLights);
+    EXPECT_EQ(result.Accepted.Num(), ShadowAtlas::kMaxShadowedLights);
 }
 
 TEST(ShadowAtlasPacking, BeatsTheOldFixedCaps)
@@ -273,7 +273,7 @@ TEST(ShadowAtlasPacking, BeatsTheOldFixedCaps)
         candidates.push_back(MakeCandidate(ShadowAtlas::CasterType::Point, 5.0f - static_cast<f32>(i) * 0.1f));
 
     const auto result = ShadowAtlas::Allocate(candidates, 4096);
-    EXPECT_EQ(result.Accepted.size(), 11u)
+    EXPECT_EQ(result.Accepted.Num(), 11u)
         << "the atlas must shadow 6 spots + 5 points simultaneously (old caps: 4 + 4)";
 }
 
@@ -286,7 +286,7 @@ TEST(ShadowAtlasPacking, EqualScoresKeepInputOrder)
     };
 
     const auto result = ShadowAtlas::Allocate(candidates, 4096);
-    ASSERT_EQ(result.Accepted.size(), 3u);
+    ASSERT_EQ(result.Accepted.Num(), 3u);
     EXPECT_EQ(result.Accepted[0].CandidateIndex, 0u);
     EXPECT_EQ(result.Accepted[1].CandidateIndex, 1u);
     EXPECT_EQ(result.Accepted[2].CandidateIndex, 2u);
@@ -302,14 +302,14 @@ TEST(ShadowAtlasPacking, DeterministicAcrossRuns)
 
     const auto a = ShadowAtlas::Allocate(candidates, 4096);
     const auto b = ShadowAtlas::Allocate(candidates, 4096);
-    ASSERT_EQ(a.Accepted.size(), b.Accepted.size());
-    for (sizet i = 0; i < a.Accepted.size(); ++i)
+    ASSERT_EQ(a.Accepted.Num(), b.Accepted.Num());
+    for (sizet i = 0; i < a.Accepted.Num(); ++i)
     {
         EXPECT_EQ(a.Accepted[i].CandidateIndex, b.Accepted[i].CandidateIndex);
         EXPECT_EQ(a.Accepted[i].BaseEntry, b.Accepted[i].BaseEntry);
     }
-    ASSERT_EQ(a.EntryRects.size(), b.EntryRects.size());
-    for (sizet i = 0; i < a.EntryRects.size(); ++i)
+    ASSERT_EQ(a.EntryRects.Num(), b.EntryRects.Num());
+    for (sizet i = 0; i < a.EntryRects.Num(); ++i)
     {
         EXPECT_EQ(a.EntryRects[i].X, b.EntryRects[i].X);
         EXPECT_EQ(a.EntryRects[i].Y, b.EntryRects[i].Y);
@@ -334,12 +334,12 @@ TEST(ShadowAtlasPacking, TileScaleOffsetRoundTrip)
 TEST(ShadowAtlasPacking, EmptyAndDegenerateInputs)
 {
     const auto emptyResult = ShadowAtlas::Allocate({}, 4096);
-    EXPECT_TRUE(emptyResult.Accepted.empty());
-    EXPECT_TRUE(emptyResult.EntryRects.empty());
+    EXPECT_TRUE(emptyResult.Accepted.IsEmpty());
+    EXPECT_TRUE(emptyResult.EntryRects.IsEmpty());
 
     std::vector<ShadowAtlas::Candidate> one = { MakeCandidate(ShadowAtlas::CasterType::Spot, 1.0f) };
     const auto zeroAtlas = ShadowAtlas::Allocate(one, 0);
-    EXPECT_TRUE(zeroAtlas.Accepted.empty());
+    EXPECT_TRUE(zeroAtlas.Accepted.IsEmpty());
 }
 
 // =============================================================================
@@ -366,13 +366,13 @@ TEST(ShadowAtlasPersistentAllocator, ReusesTheSameTileAcrossCallsForTheSameIdent
     };
 
     const auto first = allocator.Allocate(candidates);
-    ASSERT_EQ(first.Accepted.size(), 1u);
+    ASSERT_EQ(first.Accepted.Num(), 1u);
     const auto firstRect = first.EntryRects[first.Accepted[0].BaseEntry];
 
     // Same candidate, same score, called again — must land on the SAME tile
     // rather than a freshly repacked one.
     const auto second = allocator.Allocate(candidates);
-    ASSERT_EQ(second.Accepted.size(), 1u);
+    ASSERT_EQ(second.Accepted.Num(), 1u);
     const auto secondRect = second.EntryRects[second.Accepted[0].BaseEntry];
 
     EXPECT_EQ(firstRect.X, secondRect.X);
@@ -387,7 +387,7 @@ TEST(ShadowAtlasPersistentAllocator, RankShiftAcrossATierBoundaryReallocatesAtTh
     // Alone, this candidate ranks 0 (large tier, 1024px).
     const auto solo = allocator.Allocate(std::vector<ShadowAtlas::Candidate>{
         MakeIdentifiedCandidate(ShadowAtlas::CasterType::Spot, 5.0f, 7) });
-    ASSERT_EQ(solo.Accepted.size(), 1u);
+    ASSERT_EQ(solo.Accepted.Num(), 1u);
     EXPECT_EQ(solo.EntryRects[0].Size, 1024u);
 
     // Six brighter newcomers push it to rank 6 (small tier, 256px) — the
@@ -399,8 +399,8 @@ TEST(ShadowAtlasPersistentAllocator, RankShiftAcrossATierBoundaryReallocatesAtTh
     crowded.push_back(MakeIdentifiedCandidate(ShadowAtlas::CasterType::Spot, 5.0f, 7));
 
     const auto result = allocator.Allocate(crowded);
-    ASSERT_EQ(result.Accepted.size(), 7u);
-    const auto& last = result.Accepted.back();
+    ASSERT_EQ(result.Accepted.Num(), 7u);
+    const auto& last = result.Accepted.Last();
     EXPECT_EQ(last.CandidateIndex, 6u); // candidate 7 (UserData=7) is last by score
     EXPECT_EQ(result.EntryRects[last.BaseEntry].Size, 256u);
 }
@@ -419,7 +419,7 @@ TEST(ShadowAtlasPersistentAllocator, DroppedCandidateTileIsReclaimedNotLeaked)
     {
         const auto result = allocator.Allocate(std::vector<ShadowAtlas::Candidate>{
             MakeIdentifiedCandidate(ShadowAtlas::CasterType::Spot, 5.0f, id) });
-        ASSERT_EQ(result.Accepted.size(), 1u) << "candidate " << id << " starved — a prior tile was leaked, not reclaimed";
+        ASSERT_EQ(result.Accepted.Num(), 1u) << "candidate " << id << " starved — a prior tile was leaked, not reclaimed";
         EXPECT_EQ(result.EntryRects[0].Size, 16u);
     }
 }
@@ -434,14 +434,14 @@ TEST(ShadowAtlasPersistentAllocator, PreservesSkipWholeCasterAcrossCalls)
     };
 
     const auto result = allocator.Allocate(candidates);
-    ASSERT_EQ(result.Accepted.size(), 2u);
+    ASSERT_EQ(result.Accepted.Num(), 2u);
     EXPECT_EQ(result.Accepted[0].EntryCount, 6u); // point light: 6 contiguous entries, never partial
     EXPECT_EQ(result.Accepted[1].EntryCount, 1u);
 
     // Same candidates again: the point caster must keep its whole cube (never
     // a partial one) AND land on the exact same 6 tiles via reuse.
     const auto second = allocator.Allocate(candidates);
-    ASSERT_EQ(second.Accepted.size(), 2u);
+    ASSERT_EQ(second.Accepted.Num(), 2u);
     EXPECT_EQ(second.Accepted[0].EntryCount, 6u);
     EXPECT_EQ(second.Accepted[1].EntryCount, 1u);
     for (u32 face = 0; face < 6; ++face)
@@ -472,12 +472,12 @@ TEST(ShadowAtlasPersistentAllocator, TilesNeverOverlapAcrossRepeatedChangingCall
         }
 
         const auto result = allocator.Allocate(candidates);
-        for (sizet a = 0; a < result.EntryRects.size(); ++a)
+        for (sizet a = 0; a < result.EntryRects.Num(); ++a)
         {
             const auto& rect = result.EntryRects[a];
             EXPECT_LE(rect.X + rect.Size, 2048u);
             EXPECT_LE(rect.Y + rect.Size, 2048u);
-            for (sizet b = a + 1; b < result.EntryRects.size(); ++b)
+            for (sizet b = a + 1; b < result.EntryRects.Num(); ++b)
                 EXPECT_FALSE(RectsOverlap(rect, result.EntryRects[b]))
                     << "call " << call << ": entries " << a << " and " << b << " overlap";
         }
@@ -489,7 +489,7 @@ TEST(ShadowAtlasPersistentAllocator, ChangingAtlasResolutionResetsHeldTiles)
     ShadowAtlas::PersistentAllocator allocator(1024);
     const auto before = allocator.Allocate(std::vector<ShadowAtlas::Candidate>{
         MakeIdentifiedCandidate(ShadowAtlas::CasterType::Spot, 5.0f, 1) });
-    ASSERT_EQ(before.Accepted.size(), 1u);
+    ASSERT_EQ(before.Accepted.Num(), 1u);
     EXPECT_EQ(before.EntryRects[0].Size, 256u); // 1024/4
 
     allocator.SetAtlasResolution(2048);
@@ -497,14 +497,14 @@ TEST(ShadowAtlasPersistentAllocator, ChangingAtlasResolutionResetsHeldTiles)
 
     const auto after = allocator.Allocate(std::vector<ShadowAtlas::Candidate>{
         MakeIdentifiedCandidate(ShadowAtlas::CasterType::Spot, 5.0f, 1) });
-    ASSERT_EQ(after.Accepted.size(), 1u);
+    ASSERT_EQ(after.Accepted.Num(), 1u);
     EXPECT_EQ(after.EntryRects[0].Size, 512u); // 2048/4 — retiered at the new resolution
 
     // A no-op resize (same value) must not disturb what is already held.
     allocator.SetAtlasResolution(2048);
     const auto unchanged = allocator.Allocate(std::vector<ShadowAtlas::Candidate>{
         MakeIdentifiedCandidate(ShadowAtlas::CasterType::Spot, 5.0f, 1) });
-    ASSERT_EQ(unchanged.Accepted.size(), 1u);
+    ASSERT_EQ(unchanged.Accepted.Num(), 1u);
     EXPECT_EQ(unchanged.EntryRects[0].X, after.EntryRects[0].X);
     EXPECT_EQ(unchanged.EntryRects[0].Y, after.EntryRects[0].Y);
 }

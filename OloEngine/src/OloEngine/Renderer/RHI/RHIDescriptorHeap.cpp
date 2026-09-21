@@ -44,7 +44,7 @@ namespace OloEngine::RHI
         // Re-initialising must retire everything first, or a view minted against
         // the previous device stays structurally valid and resolves into the new
         // one's slots — the recycled-name hazard, one level up.
-        for (u32 index = 0u; index < static_cast<u32>(m_Slots.size()); ++index)
+        for (u32 index = 0u; index < static_cast<u32>(m_Slots.Num()); ++index)
         {
             if (m_Slots[index].Live)
             {
@@ -88,20 +88,20 @@ namespace OloEngine::RHI
         // that away, resetting every generation to 0 so the first CreateView
         // hands out generation 1 again and a stale ViewHandle{N, 1} validates.
         // Re-initialisation is exactly when the guarantee matters most.
-        std::vector<u32> survivingGenerations;
-        survivingGenerations.reserve(m_Slots.size());
+        TArray<u32> survivingGenerations;
+        survivingGenerations.Reserve(m_Slots.Num());
         for (const ViewSlot& slot : m_Slots)
         {
-            survivingGenerations.push_back(slot.Generation);
+            survivingGenerations.Add(slot.Generation);
         }
 
-        m_Slots.assign(total, ViewSlot{});
-        for (u32 index = 0u; index < total && index < static_cast<u32>(survivingGenerations.size()); ++index)
+        m_Slots.Init(ViewSlot{}, static_cast<i32>(total));
+        for (u32 index = 0u; index < total && index < static_cast<u32>(survivingGenerations.Num()); ++index)
         {
             m_Slots[index].Generation = survivingGenerations[index];
         }
 
-        m_Mirror.assign(total, backend != nullptr ? backend->NullDescriptor(ViewUsage::Sampled, NullSamplerKind::Texture2D) : 0u);
+        m_Mirror.Init(backend != nullptr ? backend->NullDescriptor(ViewUsage::Sampled, NullSamplerKind::Texture2D) : 0u, static_cast<i32>(total));
 
         // The two reserved nulls, written into the mirror and marked dirty so the
         // first Flush() publishes them. The backend prefills its whole buffer with
@@ -156,8 +156,8 @@ namespace OloEngine::RHI
             m_Mirror[kNullStorageR32UIHeapOffset] = backend->NullStorageDescriptor(Format::R32UInt);
         }
 
-        m_PersistentFreeList.clear();
-        m_PersistentFreeList.reserve(m_PersistentCapacity);
+        m_PersistentFreeList.Reset();
+        m_PersistentFreeList.Reserve(m_PersistentCapacity);
         // Descending, so the first allocations come off the front of the heap in
         // ascending order. Purely a debuggability choice: a capture that shows
         // "the shadow atlas is offset 3" every run is worth more than one where
@@ -180,12 +180,12 @@ namespace OloEngine::RHI
         // fixing it.
         for (u32 index = m_PersistentCapacity; index > kFirstAllocatableHeapSlot; --index)
         {
-            m_PersistentFreeList.push_back(index - 1u);
+            m_PersistentFreeList.Add(index - 1u);
         }
 
         m_TransientCursor = 0u;
         m_TransientFrame = 0u;
-        m_SamplerSlots.clear();
+        m_SamplerSlots.Reset();
         m_ViewsByResource.clear();
         m_PersistentViewCache.clear();
         m_DirtyFirst = 0u;
@@ -234,7 +234,7 @@ namespace OloEngine::RHI
     {
         const std::lock_guard lock(m_Mutex);
 
-        for (u32 index = 0u; index < static_cast<u32>(m_Slots.size()); ++index)
+        for (u32 index = 0u; index < static_cast<u32>(m_Slots.Num()); ++index)
         {
             if (m_Slots[index].Live)
             {
@@ -246,10 +246,10 @@ namespace OloEngine::RHI
         m_Initialized = false;
         m_Enabled = false;
         m_Backend = nullptr;
-        m_Slots.clear();
-        m_Mirror.clear();
-        m_PersistentFreeList.clear();
-        m_SamplerSlots.clear();
+        m_Slots.Reset();
+        m_Mirror.Reset();
+        m_PersistentFreeList.Reset();
+        m_SamplerSlots.Reset();
         m_ViewsByResource.clear();
         m_PersistentViewCache.clear();
         m_TransientCursor = 0u;
@@ -371,7 +371,7 @@ namespace OloEngine::RHI
         u32 index = 0u;
         if (lifetime == HeapSlotLifetime::Persistent)
         {
-            if (m_PersistentFreeList.empty())
+            if (m_PersistentFreeList.IsEmpty())
             {
                 ++m_Stats.PersistentOverflows;
                 OLO_CORE_WARN("[RHI] Descriptor heap persistent region exhausted ({} slots). "
@@ -379,8 +379,8 @@ namespace OloEngine::RHI
                               m_PersistentCapacity);
                 return {};
             }
-            index = m_PersistentFreeList.back();
-            m_PersistentFreeList.pop_back();
+            index = m_PersistentFreeList.Last();
+            m_PersistentFreeList.Pop(EAllowShrinking::No);
         }
         else
         {
@@ -410,7 +410,7 @@ namespace OloEngine::RHI
             ++m_Stats.DescriptorFailures;
             if (lifetime == HeapSlotLifetime::Persistent)
             {
-                m_PersistentFreeList.push_back(index);
+                m_PersistentFreeList.Add(index);
             }
             else
             {
@@ -454,7 +454,7 @@ namespace OloEngine::RHI
         m_Mirror[index] = descriptor;
         MarkDirtyLocked(index);
 
-        m_ViewsByResource[resource.Index].push_back(index);
+        m_ViewsByResource[resource.Index].Add(index);
 
         ++m_Stats.ViewsCreated;
         if (lifetime == HeapSlotLifetime::Persistent)
@@ -579,7 +579,7 @@ namespace OloEngine::RHI
         }
 
         ReleaseSlotLocked(view.Index, /*publishPoison=*/true);
-        m_PersistentFreeList.push_back(view.Index);
+        m_PersistentFreeList.Add(view.Index);
         --m_Stats.PersistentLive;
     }
 
@@ -703,7 +703,7 @@ namespace OloEngine::RHI
 
         if (m_DirtyLast > m_DirtyFirst)
         {
-            m_Backend->UploadSlots(m_DirtyFirst, m_Mirror.data() + m_DirtyFirst, m_DirtyLast - m_DirtyFirst);
+            m_Backend->UploadSlots(m_DirtyFirst, m_Mirror.GetData() + m_DirtyFirst, m_DirtyLast - m_DirtyFirst);
             m_DirtyFirst = 0u;
             m_DirtyLast = 0u;
         }
@@ -737,7 +737,7 @@ namespace OloEngine::RHI
 
         // ReleaseSlotLocked erases from m_ViewsByResource as it goes, so iterate
         // a copy rather than the live vector.
-        const std::vector<u32> indices = it->second;
+        const TArray<u32> indices = it->second;
         for (const u32 index : indices)
         {
             ViewSlot& slot = m_Slots[index];
@@ -765,7 +765,7 @@ namespace OloEngine::RHI
             // let it be allocated twice in one frame.
             if (persistent)
             {
-                m_PersistentFreeList.push_back(index);
+                m_PersistentFreeList.Add(index);
                 if (m_Stats.PersistentLive > 0u)
                 {
                     --m_Stats.PersistentLive;
@@ -814,7 +814,7 @@ namespace OloEngine::RHI
             // is about to drop residency for.
             m_Backend->ReleaseDescriptor(slot.Descriptor, slot.View.Usage);
 
-            const SamplerDesc sampler = slot.SamplerSlot < static_cast<u32>(m_SamplerSlots.size())
+            const SamplerDesc sampler = slot.SamplerSlot < static_cast<u32>(m_SamplerSlots.Num())
                                             ? m_SamplerSlots[slot.SamplerSlot].Desc
                                             : SamplerDesc{};
             u64 descriptor = m_Backend->AcquireDescriptor(slot.Resource, slot.View, sampler);
@@ -854,7 +854,7 @@ namespace OloEngine::RHI
 
     auto DescriptorHeap::IsSlotLiveLocked(ViewHandle view) const -> bool
     {
-        if (!view.IsValid() || view.Index >= static_cast<u32>(m_Slots.size()))
+        if (!view.IsValid() || view.Index >= static_cast<u32>(m_Slots.Num()))
         {
             return false;
         }
@@ -864,7 +864,7 @@ namespace OloEngine::RHI
 
     auto DescriptorHeap::ValidateLocked(ViewHandle view) const -> const ViewSlot*
     {
-        if (!view.IsValid() || view.Index >= static_cast<u32>(m_Slots.size()))
+        if (!view.IsValid() || view.Index >= static_cast<u32>(m_Slots.Num()))
         {
             ++m_Stats.StaleOffsetRejections;
             return nullptr;
@@ -913,8 +913,8 @@ namespace OloEngine::RHI
 
         if (const auto it = m_ViewsByResource.find(slot.Resource.Index); it != m_ViewsByResource.end())
         {
-            std::erase(it->second, index);
-            if (it->second.empty())
+            it->second.Remove(index);
+            if (it->second.IsEmpty())
             {
                 m_ViewsByResource.erase(it);
             }
@@ -978,7 +978,7 @@ namespace OloEngine::RHI
         // computed quantities, so two descs that should share a slot are
         // bit-identical and two that should not are visibly different. An epsilon
         // compare would make slot identity depend on iteration order.
-        for (u32 index = 0u; index < static_cast<u32>(m_SamplerSlots.size()); ++index)
+        for (u32 index = 0u; index < static_cast<u32>(m_SamplerSlots.Num()); ++index)
         {
             if (m_SamplerSlots[index].Desc == sampler)
             {
@@ -987,7 +987,7 @@ namespace OloEngine::RHI
             }
         }
 
-        if (static_cast<u32>(m_SamplerSlots.size()) >= m_Desc.SamplerSlotCapacity)
+        if (static_cast<u32>(m_SamplerSlots.Num()) >= m_Desc.SamplerSlotCapacity)
         {
             // Sharing slot 0 is wrong-but-bounded, and it is the only failure
             // here that does not cost correctness on THIS backend: under
@@ -1001,21 +1001,21 @@ namespace OloEngine::RHI
             // Still take a reference. The caller releases whatever index it is
             // handed, so returning slot 0 unreferenced would under-count it and
             // eventually free a slot that views still point at.
-            if (!m_SamplerSlots.empty())
+            if (!m_SamplerSlots.IsEmpty())
             {
                 ++m_SamplerSlots[0].RefCount;
             }
             return 0u;
         }
 
-        m_SamplerSlots.push_back(SamplerSlot{ .Desc = sampler, .RefCount = 1u });
-        m_Stats.SamplerSlotsLive = static_cast<u32>(m_SamplerSlots.size());
-        return static_cast<u32>(m_SamplerSlots.size()) - 1u;
+        m_SamplerSlots.Add(SamplerSlot{ .Desc = sampler, .RefCount = 1u });
+        m_Stats.SamplerSlotsLive = static_cast<u32>(m_SamplerSlots.Num());
+        return static_cast<u32>(m_SamplerSlots.Num()) - 1u;
     }
 
     void DescriptorHeap::ReleaseSamplerSlotLocked(u32 samplerSlot)
     {
-        if (samplerSlot >= static_cast<u32>(m_SamplerSlots.size()))
+        if (samplerSlot >= static_cast<u32>(m_SamplerSlots.Num()))
         {
             return;
         }
@@ -1054,7 +1054,7 @@ namespace OloEngine::RHI
     {
         const std::lock_guard lock(m_Mutex);
         Stats stats = m_Stats;
-        stats.SamplerSlotsLive = static_cast<u32>(m_SamplerSlots.size());
+        stats.SamplerSlotsLive = static_cast<u32>(m_SamplerSlots.Num());
         return stats;
     }
 

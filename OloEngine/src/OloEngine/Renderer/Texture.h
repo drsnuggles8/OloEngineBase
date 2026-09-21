@@ -8,7 +8,9 @@
 #include <filesystem>
 #include <string>
 #include <string_view>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/String.h"
+#include <span>
 
 namespace OloEngine
 {
@@ -138,7 +140,7 @@ namespace OloEngine
         // every caller has moved. Turning a handle back into a native object is
         // Platform/<Backend>/'s business.
         [[nodiscard("Store this!")]] virtual RHI::ResourceHandle GetRHIHandle() const = 0;
-        [[nodiscard("Store this!")]] virtual const std::string& GetPath() const = 0;
+        [[nodiscard("Store this!")]] virtual std::string_view GetPath() const = 0;
 
         virtual void SetData(void* data, u32 size) = 0;
         virtual void Invalidate(std::string_view path, u32 width, u32 height, const void* data, u32 channels) = 0;
@@ -156,7 +158,7 @@ namespace OloEngine
          * @param mipLevel Mipmap level to read (0 = base level)
          * @return true if readback succeeded
          */
-        virtual bool GetData(std::vector<u8>& outData, u32 mipLevel = 0) const = 0;
+        virtual bool GetData(TArray64<u8>& outData, u32 mipLevel = 0) const = 0;
 
         // Compares IDENTITIES, not driver names (issue #691). GL recycles
         // object names, so a name comparison could report two genuinely different

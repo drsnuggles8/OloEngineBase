@@ -2706,7 +2706,7 @@ namespace OloEngine
                         {
                             OLO_CORE_TRACE("[RHI/Vulkan] '{}' optional STORAGE binding {} ('{}') is absent — "
                                            "null block, read is gated by the shader",
-                                           shaderName, binding.Binding, binding.Name);
+                                           shaderName, binding.Binding, binding.Name.ToView());
                         }
                         else if (severity == VulkanMissingBufferSeverity::Error)
                         {
@@ -7958,9 +7958,11 @@ namespace OloEngine
         m_Main.PipelineLookupMs = 0.0;
         if (!m_Main.DebugLabels.empty())
             timing.PassName = m_Main.DebugLabels.back();
-        timing.ItemRecordMs.resize(itemCount);
+        timing.ItemRecordMs.SetNumZeroed(static_cast<i32>(itemCount));
         OLO_CORE_ASSERT(itemPassNames.empty() || itemPassNames.size() == itemCount, "One label per recording item");
-        timing.ItemPassNames.assign(itemPassNames.begin(), itemPassNames.end());
+        timing.ItemPassNames.Reserve(static_cast<i32>(itemPassNames.size()));
+        for (const auto& name : itemPassNames)
+            timing.ItemPassNames.Emplace(name);
         if (!itemPassNames.empty())
             timing.PassName = "RenderGraph";
 
@@ -8011,7 +8013,7 @@ namespace OloEngine
             timing.RegionWallMs = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - wallStart).count();
             m_ParallelStats.WorkerRecordMs += timing.WorkerRecordMs;
             m_ParallelStats.RegionWallMs += timing.RegionWallMs;
-            m_ParallelStats.RegionTimings.push_back(std::move(timing));
+            m_ParallelStats.RegionTimings.Add(std::move(timing));
             return;
         }
 
@@ -8201,7 +8203,7 @@ namespace OloEngine
         timing.RegionWallMs = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - wallStart).count();
         m_ParallelStats.RegionWallMs += timing.RegionWallMs;
         m_ParallelStats.JoinWaitMs += timing.JoinWaitMs;
-        m_ParallelStats.RegionTimings.push_back(std::move(timing));
+        m_ParallelStats.RegionTimings.Add(std::move(timing));
         if (batch.Conflicts != 0u)
         {
             // Not warn-once: a conflict is a pass bug, and its frequency is

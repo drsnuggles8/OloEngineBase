@@ -6,7 +6,7 @@
 
 #include <glm/glm.hpp>
 #include <unordered_map>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -32,20 +32,20 @@ namespace OloEngine
         static constexpr u32 CHUNK_SIZE = 32; // 32³ voxels per chunk
         static constexpr u32 TOTAL_VOXELS = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
 
-        std::vector<f32> SDFData; // Row-major [x + y*SIZE + z*SIZE*SIZE]
+        TArray<f32> SDFData; // Row-major [x + y*SIZE + z*SIZE*SIZE]
 
         // Optional per-voxel material index, same row-major indexing as SDFData.
         // Left EMPTY for chunks that only ever use material 0 (the marching-cubes
         // path never writes it), so the 32 KiB is paid only where a cubic chunk
         // actually paints strata. The greedy mesher takes a fully bitwise fast
         // path when this is empty — see VoxelGreedyMesher.
-        std::vector<u8> MaterialData;
+        TArray<u8> MaterialData;
 
         bool Dirty = true; // Needs mesh rebuild
 
         VoxelChunk()
         {
-            SDFData.resize(TOTAL_VOXELS, 1.0f); // Default: all empty (positive)
+            SDFData.Init(1.0f, TOTAL_VOXELS); // Default: all empty (positive)
         }
 
         [[nodiscard]] f32& At(u32 x, u32 y, u32 z)
@@ -71,20 +71,20 @@ namespace OloEngine
         [[nodiscard]] u8 MaterialAt(u32 x, u32 y, u32 z) const
         {
             OLO_CORE_ASSERT(x < CHUNK_SIZE && y < CHUNK_SIZE && z < CHUNK_SIZE, "VoxelChunk::MaterialAt out of bounds");
-            return MaterialData.empty() ? u8{ 0 } : MaterialData[Index(x, y, z)];
+            return MaterialData.IsEmpty() ? u8{ 0 } : MaterialData[Index(x, y, z)];
         }
 
         // Writing any non-zero material allocates the array on first use.
         void SetMaterialAt(u32 x, u32 y, u32 z, u8 material)
         {
             OLO_CORE_ASSERT(x < CHUNK_SIZE && y < CHUNK_SIZE && z < CHUNK_SIZE, "VoxelChunk::SetMaterialAt out of bounds");
-            if (MaterialData.empty())
+            if (MaterialData.IsEmpty())
             {
                 if (material == 0)
                 {
                     return; // Still uniformly material 0 — stay unallocated.
                 }
-                MaterialData.assign(TOTAL_VOXELS, u8{ 0 });
+                MaterialData.Init(u8{ 0 }, TOTAL_VOXELS);
             }
             MaterialData[Index(x, y, z)] = material;
         }
@@ -177,7 +177,7 @@ namespace OloEngine
         [[nodiscard]] bool HasChunk(const VoxelCoord& coord) const;
 
         // Get all dirty chunks (those needing mesh rebuild)
-        void GetDirtyChunks(std::vector<VoxelCoord>& outCoords) const;
+        void GetDirtyChunks(TArray<VoxelCoord>& outCoords) const;
 
         // Mark a chunk as clean (after mesh has been rebuilt)
         void MarkChunkClean(const VoxelCoord& coord);
@@ -226,12 +226,12 @@ namespace OloEngine
         }
 
         // RLE serialization
-        [[nodiscard]] std::vector<u8> SerializeRLE() const;
-        bool DeserializeRLE(const std::vector<u8>& data);
+        [[nodiscard]] TArray<u8> SerializeRLE() const;
+        bool DeserializeRLE(const TArray<u8>& data);
 
       private:
         // Get all chunks overlapping a sphere region
-        void GetChunksInSphere(const glm::vec3& center, f32 radius, std::vector<VoxelCoord>& outCoords) const;
+        void GetChunksInSphere(const glm::vec3& center, f32 radius, TArray<VoxelCoord>& outCoords) const;
 
         // Paint surface/subsoil/bedrock material bands into one seeded chunk.
         void PaintDepthStrata(const VoxelCoord& coord);

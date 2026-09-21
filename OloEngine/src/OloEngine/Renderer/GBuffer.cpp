@@ -22,9 +22,9 @@ namespace OloEngine
             spec.Width = width;
             spec.Height = height;
             spec.Samples = sampleCount;
-            spec.Attachments.Attachments.reserve(GBuffer::s_ColorAttachmentFormats.size() + 1);
+            spec.Attachments.Attachments.Reserve(GBuffer::s_ColorAttachmentFormats.size() + 1);
             for (const auto format : GBuffer::s_ColorAttachmentFormats)
-                spec.Attachments.Attachments.emplace_back(format);
+                spec.Attachments.Attachments.Emplace(format);
 
             // Depth must match the scene framebuffer's depth format
             // (`FramebufferTextureFormat::Depth` = DEPTH24STENCIL8) so that
@@ -36,7 +36,7 @@ namespace OloEngine
             // leaves the scene-FB depth uninitialised, breaking every
             // downstream depth-read (overlays, foliage, decals, water,
             // SSAO/GTAO, fog, DoF, motion blur).
-            spec.Attachments.Attachments.emplace_back(FramebufferTextureFormat::Depth);
+            spec.Attachments.Attachments.Emplace(FramebufferTextureFormat::Depth);
             return spec;
         }
 

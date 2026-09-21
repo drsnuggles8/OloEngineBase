@@ -141,7 +141,7 @@ namespace OloEngine
             }
             else if (attachmentSpec.TextureFormat != FramebufferTextureFormat::None)
             {
-                m_ColorAttachmentSpecifications.push_back(attachmentSpec);
+                m_ColorAttachmentSpecifications.Add(attachmentSpec);
             }
         }
 
@@ -215,7 +215,7 @@ namespace OloEngine
         // Replacing the Refs drops the old attachments — their destructors
         // route the images through VulkanDeferredReclaim, never an inline
         // destroy.
-        m_ColorAttachments.clear();
+        m_ColorAttachments.Reset();
         m_DepthAttachment = nullptr;
 
         // A 0-sized spec is legal in the engine (framebuffers are routinely
@@ -251,16 +251,16 @@ namespace OloEngine
             registry.SetSamplerAddressMode(attachment->GetVkImage(), VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
         };
 
-        m_ColorAttachments.reserve(m_ColorAttachmentSpecifications.size());
+        m_ColorAttachments.Reserve(m_ColorAttachmentSpecifications.Num());
         for (const auto& attachmentSpec : m_ColorAttachmentSpecifications)
         {
             // renderTargetOnly (#809): content arrives from the GPU, SetData
             // is never called — so this image must not carry
             // VK_IMAGE_USAGE_HOST_TRANSFER_BIT for an upload route it can
             // never take.
-            m_ColorAttachments.push_back(
+            m_ColorAttachments.Add(
                 Ref<VulkanTexture2D>::Create(makeAttachmentSpec(attachmentSpec.TextureFormat), true));
-            stampAttachmentSamplerState(m_ColorAttachments.back());
+            stampAttachmentSamplerState(m_ColorAttachments.Last());
         }
 
         if (m_DepthAttachmentSpecification.TextureFormat != FramebufferTextureFormat::None)
@@ -341,7 +341,7 @@ namespace OloEngine
         // ImGuiLayer::RenderTargetRowsAreBottomUp). The two sites move
         // together or picking silently selects the vertically mirrored
         // entity.
-        if (attachmentIndex >= m_ColorAttachments.size() || m_ColorAttachments[attachmentIndex] == nullptr)
+        if (attachmentIndex >= m_ColorAttachments.Num() || m_ColorAttachments[attachmentIndex] == nullptr)
         {
             return -1;
         }
@@ -365,7 +365,7 @@ namespace OloEngine
         // Single-attachment integer clear (the entity-ID -1 wipe) — the
         // per-attachment slice of ClearAllAttachments, riding the same facade
         // transfer clear (#691: last ClearAttachment stub retired).
-        if (attachmentIndex >= m_ColorAttachments.size() || m_ColorAttachments[attachmentIndex] == nullptr)
+        if (attachmentIndex >= m_ColorAttachments.Num() || m_ColorAttachments[attachmentIndex] == nullptr)
         {
             return;
         }
@@ -376,7 +376,7 @@ namespace OloEngine
     void VulkanFramebuffer::ClearAttachment(u32 attachmentIndex, const glm::vec4& value)
     {
         // Single-attachment float clear — same shape as the int form above.
-        if (attachmentIndex >= m_ColorAttachments.size() || m_ColorAttachments[attachmentIndex] == nullptr)
+        if (attachmentIndex >= m_ColorAttachments.Num() || m_ColorAttachments[attachmentIndex] == nullptr)
         {
             return;
         }
@@ -395,7 +395,7 @@ namespace OloEngine
         // whatever samples or renders these attachments next (#691
         // UICompositePass's mixed int/float clear is the first
         // caller on this backend).
-        for (sizet i = 0; i < m_ColorAttachments.size(); ++i)
+        for (sizet i = 0; i < m_ColorAttachments.Num(); ++i)
         {
             if (!m_ColorAttachments[i])
                 continue;
@@ -408,7 +408,7 @@ namespace OloEngine
             // finding, #691).
             const bool isExternal = m_ExternalColorIndices.contains(static_cast<u32>(i));
             const bool isInteger =
-                (!isExternal && i < m_ColorAttachmentSpecifications.size())
+                (!isExternal && i < m_ColorAttachmentSpecifications.Num())
                     ? m_ColorAttachmentSpecifications[i].TextureFormat == FramebufferTextureFormat::RED_INTEGER
                     : IsIntegerFormat(m_ColorAttachments[i]->GetSpecification().Format);
             if (isInteger)
@@ -435,8 +435,8 @@ namespace OloEngine
 
     RHI::ResourceHandle VulkanFramebuffer::GetColorAttachmentHandle(u32 index) const
     {
-        OLO_CORE_ASSERT(index < m_ColorAttachments.size());
-        if (index >= m_ColorAttachments.size())
+        OLO_CORE_ASSERT(index < m_ColorAttachments.Num());
+        if (index >= m_ColorAttachments.Num())
         {
             return {};
         }
@@ -571,8 +571,8 @@ namespace OloEngine
 
     Ref<VulkanTexture2D> VulkanFramebuffer::GetColorAttachmentImage(u32 index) const
     {
-        OLO_CORE_ASSERT(index < m_ColorAttachments.size());
-        if (index >= m_ColorAttachments.size())
+        OLO_CORE_ASSERT(index < m_ColorAttachments.Num());
+        if (index >= m_ColorAttachments.Num())
         {
             return nullptr;
         }
@@ -581,7 +581,7 @@ namespace OloEngine
 
     bool VulkanFramebuffer::HasLiveAttachmentOtherThan(i32 excludeColorIndex, bool excludeDepth) const
     {
-        for (sizet i = 0; i < m_ColorAttachments.size(); ++i)
+        for (sizet i = 0; i < m_ColorAttachments.Num(); ++i)
         {
             if (static_cast<i32>(i) != excludeColorIndex && m_ColorAttachments[i] != nullptr)
             {
@@ -629,7 +629,7 @@ namespace OloEngine
         {
             // Detach (GL's texture-0 form). An index that was never attached
             // needs no slot minted for it.
-            if (index < m_ColorAttachments.size())
+            if (index < m_ColorAttachments.Num())
             {
                 m_ColorAttachments[index] = nullptr;
             }
@@ -651,12 +651,12 @@ namespace OloEngine
         {
             return;
         }
-        if (index >= m_ColorAttachments.size())
+        if (index >= m_ColorAttachments.Num())
         {
             // Growth leaves null gaps below `index` — the scope's
             // VK_ATTACHMENT_UNUSED shape, and IsFramebufferComplete only
             // requires the NON-null attachments to be live.
-            m_ColorAttachments.resize(static_cast<sizet>(index) + 1u);
+            m_ColorAttachments.SetNum(static_cast<sizet>(index) + 1u, EAllowShrinking::No);
         }
         m_ColorAttachments[index] = std::move(texture);
         m_ExternalColorIndices.insert(index);

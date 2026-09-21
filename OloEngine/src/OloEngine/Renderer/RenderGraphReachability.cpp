@@ -5,11 +5,11 @@
 
 namespace OloEngine::RenderGraphReachability
 {
-    auto ComputeReachableSet(const ScanInput& input) -> std::unordered_set<std::string>
+    auto ComputeReachableSet(const ScanInput& input) -> RGTransparentStringSet
     {
         OLO_PROFILE_FUNCTION();
 
-        std::unordered_set<std::string> reachable;
+        RGTransparentStringSet reachable;
 
         // Without an explicit final pass, the graph keeps every registered
         // entry reachable (preserves ad-hoc / unit-test execution semantics).
@@ -17,7 +17,7 @@ namespace OloEngine::RenderGraphReachability
         {
             reachable.reserve(input.InsertionOrder.size());
             for (const auto& passName : input.InsertionOrder)
-                reachable.insert(passName);
+                reachable.insert(passName.ToStdString());
             return reachable;
         }
 
@@ -28,36 +28,36 @@ namespace OloEngine::RenderGraphReachability
             // used so behavior matches.
             reachable.reserve(input.InsertionOrder.size());
             for (const auto& passName : input.InsertionOrder)
-                reachable.insert(passName);
+                reachable.insert(passName.ToStdString());
             return reachable;
         }
 
         // Resource name → writer-pass list. Built once from every pass's
         // setup-time write declarations.
-        std::unordered_map<std::string, std::vector<std::string>> resourceWriters;
+        RGTransparentStringMap<TArray64<FString>> resourceWriters;
         resourceWriters.reserve(input.InsertionOrder.size() * 4u);
 
         for (const auto& passName : input.InsertionOrder)
         {
-            const auto accessIt = input.PassAccessDeclarations.find(passName);
+            const auto accessIt = input.PassAccessDeclarations.find(passName.ToView());
             if (accessIt == input.PassAccessDeclarations.end())
                 continue;
 
             for (const auto& access : accessIt->second)
             {
-                if (access.IsWrite && !access.ResourceName.empty())
-                    resourceWriters[access.ResourceName].push_back(passName);
+                if (access.IsWrite && !access.ResourceName.IsEmpty())
+                    resourceWriters[access.ResourceName.ToStdString()].Add(passName);
             }
         }
 
         std::vector<std::string> stack;
 
-        const auto enqueueReachablePass = [&reachable, &stack](const std::string& passName)
+        const auto enqueueReachablePass = [&reachable, &stack](std::string_view passName)
         {
             if (passName.empty())
                 return;
-            if (reachable.insert(passName).second)
-                stack.push_back(passName);
+            if (reachable.insert(std::string(passName)).second)
+                stack.push_back(std::string(passName));
         };
 
         const auto enqueueWritersForResource = [&resourceWriters, &enqueueReachablePass](std::string_view resourceName)
@@ -69,17 +69,17 @@ namespace OloEngine::RenderGraphReachability
                 writerIt != resourceWriters.end())
             {
                 for (const auto& writerName : writerIt->second)
-                    enqueueReachablePass(writerName);
+                    enqueueReachablePass(writerName.ToView());
             }
         };
 
         // Seed: final pass + every named extract / contract root.
         enqueueReachablePass(std::string(input.FinalPassName));
         for (const auto& resourceName : input.ExtractedResourceNames)
-            enqueueWritersForResource(resourceName);
+            enqueueWritersForResource(resourceName.ToView());
 
         // Walk explicit dependency edges (BFS).
-        std::unordered_set<std::string> visited;
+        RGTransparentStringSet visited;
         while (!stack.empty())
         {
             const auto current = std::move(stack.back());
@@ -91,7 +91,7 @@ namespace OloEngine::RenderGraphReachability
             if (const auto dependencyIt = input.Dependencies.find(current); dependencyIt != input.Dependencies.end())
             {
                 for (const auto& dependency : dependencyIt->second)
-                    enqueueReachablePass(dependency);
+                    enqueueReachablePass(dependency.ToView());
             }
         }
 
@@ -114,12 +114,12 @@ namespace OloEngine::RenderGraphReachability
                     if (access.IsWrite)
                         continue;
 
-                    auto writerIt = resourceWriters.find(access.ResourceName);
+                    auto writerIt = resourceWriters.find(access.ResourceName.ToView());
                     if (writerIt == resourceWriters.end())
                         continue;
                     for (const auto& writerName : writerIt->second)
                     {
-                        if (reachable.insert(writerName).second)
+                        if (reachable.insert(writerName.ToStdString()).second)
                             anyNew = true;
                     }
                 }

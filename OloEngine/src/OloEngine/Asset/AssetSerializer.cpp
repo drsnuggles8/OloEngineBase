@@ -218,7 +218,7 @@ namespace OloEngine
         rawData.Height = static_cast<u32>(height);
         rawData.Channels = static_cast<u32>(channels);
         rawData.Handle = metadata.Handle;
-        rawData.DebugName = metadata.FilePath.filename().string();
+        rawData.DebugName = FString(metadata.FilePath.filename().string());
         rawData.GenerateMipmaps = true;
         // Filename heuristic: model loaders (Model.cpp / AnimatedModel.cpp)
         // pass sRGB explicitly per aiTextureType, but the asset pipeline
@@ -227,18 +227,18 @@ namespace OloEngine
         // diffuse/albedo/basecolor/emissive → sRGB, everything else linear.
         // If a future asset metadata schema adds an explicit IsColorTexture
         // bit, prefer that over this heuristic.
-        rawData.SRGB = IsLikelyColorTextureByName(rawData.DebugName);
+        rawData.SRGB = IsLikelyColorTextureByName(rawData.DebugName.ToView());
 
         // Copy the pixel data
         sizet dataSize = static_cast<sizet>(width) * height * channels;
-        rawData.PixelData.resize(dataSize);
-        std::memcpy(rawData.PixelData.data(), data, dataSize);
+        rawData.PixelData.SetNum(dataSize);
+        std::memcpy(rawData.PixelData.GetData(), data, dataSize);
 
         // Free stb_image data
         ::stbi_image_free(data);
 
         OLO_CORE_TRACE("TextureSerializer::TryLoadRawData - Loaded raw texture data: {} ({}x{}, {} channels)",
-                       rawData.DebugName, width, height, channels);
+                       rawData.DebugName.ToView(), width, height, channels);
 
         outRawData = std::move(rawData);
         return true;
@@ -312,19 +312,19 @@ namespace OloEngine
 
         if (!texture)
         {
-            OLO_CORE_ERROR("TextureSerializer::FinalizeFromRawData - Failed to create texture: {}", texData.DebugName);
+            OLO_CORE_ERROR("TextureSerializer::FinalizeFromRawData - Failed to create texture: {}", texData.DebugName.ToView());
             return false;
         }
 
         // Set the pixel data on the texture
         // Note: SetData expects size in bytes
-        u32 dataSize = static_cast<u32>(texData.PixelData.size());
-        texture->SetData(const_cast<u8*>(texData.PixelData.data()), dataSize);
+        u32 dataSize = static_cast<u32>(texData.PixelData.Num());
+        texture->SetData(const_cast<u8*>(texData.PixelData.GetData()), dataSize);
 
         texture->m_Handle = texData.Handle;
 
         OLO_CORE_TRACE("TextureSerializer::FinalizeFromRawData - Created texture: {} ({}x{}, {} channels)",
-                       texData.DebugName, texData.Width, texData.Height, texData.Channels);
+                       texData.DebugName.ToView(), texData.Width, texData.Height, texData.Channels);
 
         asset = texture;
         return true;
@@ -342,7 +342,7 @@ namespace OloEngine
         outInfo.Offset = stream.GetStreamPosition();
 
         const auto& spec = texture->GetSpecification();
-        const std::string& path = texture->GetPath();
+        const auto path = texture->GetPath();
 
         // Auto-cook (#440): when pack compression is enabled and this is an UNcompressed
         // source texture (not already an .olotex), BC-compress it in-memory and embed the
@@ -400,7 +400,7 @@ namespace OloEngine
         stream.WriteRaw<u32>(spec.Height);
         stream.WriteRaw<u32>(static_cast<u32>(std::to_underlying(recordFormat)));
         stream.WriteRaw<bool>(recordGenerateMips);
-        stream.WriteString(path); // source path (unused by the compressed read path)
+        stream.WriteString(std::string(path)); // source path (unused by the compressed read path)
         stream.WriteRaw<bool>(recordHasAlpha);
         stream.WriteRaw<bool>(texture->IsLoaded());
 
@@ -429,7 +429,7 @@ namespace OloEngine
             }
             else if (!path.empty())
             {
-                std::ifstream file(path, std::ios::binary | std::ios::ate);
+                std::ifstream file(std::string(path), std::ios::binary | std::ios::ate);
                 if (file)
                 {
                     const std::streamsize sz = file.tellg();
@@ -651,7 +651,10 @@ namespace OloEngine
         }
 
         stream.WriteString(font->GetName());
-        stream.WriteArray(font->GetRanges());
+        const auto ranges = font->GetRanges();
+        stream.WriteRaw<u32>(static_cast<u32>(ranges.size()));
+        for (const auto& range : ranges)
+            stream.WriteRaw<FontCodepointRange>(range);
         stream.WriteBuffer(fontData);
 
         fontData.Release();
@@ -1275,7 +1278,7 @@ namespace OloEngine
 
         // Serialize environment specification for recreation
         const auto& spec = environment->GetSpecification();
-        stream.WriteString(spec.FilePath);
+        stream.WriteString(spec.FilePath.ToStdString());
         stream.WriteRaw(spec.Resolution);
         stream.WriteRaw(static_cast<u32>(std::to_underlying(spec.Format)));
         stream.WriteRaw(spec.GenerateIBL);
@@ -1293,7 +1296,7 @@ namespace OloEngine
         stream.WriteRaw(iblConfig.PrefilterSamples);
 
         outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
-        OLO_CORE_TRACE("EnvironmentSerializer::SerializeToAssetPack - Serialized environment: {}", spec.FilePath);
+        OLO_CORE_TRACE("EnvironmentSerializer::SerializeToAssetPack - Serialized environment: {}", spec.FilePath.ToView());
         return true;
     }
 
@@ -1303,7 +1306,9 @@ namespace OloEngine
 
         // Read environment specification
         EnvironmentMapSpecification spec;
-        stream.ReadString(spec.FilePath);
+        std::string storedPath;
+        stream.ReadString(storedPath);
+        spec.FilePath = storedPath;
         stream.ReadRaw(spec.Resolution);
 
         u32 formatValue;
@@ -1330,12 +1335,12 @@ namespace OloEngine
         auto environment = EnvironmentMap::Create(spec);
         if (!environment)
         {
-            OLO_CORE_ERROR("EnvironmentSerializer::DeserializeFromAssetPack - Failed to create environment from: {}", spec.FilePath);
+            OLO_CORE_ERROR("EnvironmentSerializer::DeserializeFromAssetPack - Failed to create environment from: {}", spec.FilePath.ToView());
             return nullptr;
         }
 
         environment->SetHandle(assetInfo.Handle);
-        OLO_CORE_TRACE("EnvironmentSerializer::DeserializeFromAssetPack - Deserialized environment: {}", spec.FilePath);
+        OLO_CORE_TRACE("EnvironmentSerializer::DeserializeFromAssetPack - Deserialized environment: {}", spec.FilePath.ToView());
         return environment;
     }
 
@@ -2859,7 +2864,7 @@ namespace OloEngine
         {
             auto encodedVB = MeshOptimization::EncodeVertexBuffer(
                 vertices.GetData(), vertexCount, sizeof(Vertex));
-            auto encodedSize = static_cast<u64>(encodedVB.Data.size());
+            auto encodedSize = static_cast<u64>(static_cast<sizet>(encodedVB.Data.Num()));
             if (encodedSize > kMaxEncodedSize)
             {
                 OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Encoded vertex buffer size ({}) exceeds limit ({})",
@@ -2867,7 +2872,7 @@ namespace OloEngine
                 return false;
             }
             stream.WriteRaw<u64>(encodedSize);
-            stream.WriteData(reinterpret_cast<const char*>(encodedVB.Data.data()),
+            stream.WriteData(reinterpret_cast<const char*>(encodedVB.Data.GetData()),
                              static_cast<sizet>(encodedSize));
         }
 
@@ -2876,7 +2881,7 @@ namespace OloEngine
         {
             auto encodedIB = MeshOptimization::EncodeIndexBuffer(
                 indices.GetData(), indexCount, vertexCount);
-            auto encodedSize = static_cast<u64>(encodedIB.Data.size());
+            auto encodedSize = static_cast<u64>(static_cast<sizet>(encodedIB.Data.Num()));
             if (encodedSize > kMaxEncodedSize)
             {
                 OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Encoded index buffer size ({}) exceeds limit ({})",
@@ -2884,7 +2889,7 @@ namespace OloEngine
                 return false;
             }
             stream.WriteRaw<u64>(encodedSize);
-            stream.WriteData(reinterpret_cast<const char*>(encodedIB.Data.data()),
+            stream.WriteData(reinterpret_cast<const char*>(encodedIB.Data.GetData()),
                              static_cast<sizet>(encodedSize));
         }
 
@@ -2980,7 +2985,7 @@ namespace OloEngine
             {
                 auto encodedBones = MeshOptimization::EncodeVertexBuffer(
                     boneInfluences.GetData(), boneCount, sizeof(BoneInfluence));
-                auto encodedSize = static_cast<u64>(encodedBones.Data.size());
+                auto encodedSize = static_cast<u64>(static_cast<sizet>(encodedBones.Data.Num()));
                 if (encodedSize > kMaxEncodedSize)
                 {
                     OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Encoded bone influence size ({}) exceeds limit ({})",
@@ -2988,7 +2993,7 @@ namespace OloEngine
                     return false;
                 }
                 stream.WriteRaw<u64>(encodedSize);
-                stream.WriteData(reinterpret_cast<const char*>(encodedBones.Data.data()),
+                stream.WriteData(reinterpret_cast<const char*>(encodedBones.Data.GetData()),
                                  static_cast<sizet>(encodedSize));
             }
         }
@@ -3004,7 +3009,7 @@ namespace OloEngine
             {
                 auto encodedShadow = MeshOptimization::EncodeIndexBuffer(
                     shadowIndices.GetData(), shadowCount, vertexCount);
-                auto encodedSize = static_cast<u64>(encodedShadow.Data.size());
+                auto encodedSize = static_cast<u64>(static_cast<sizet>(encodedShadow.Data.Num()));
                 if (encodedSize > kMaxEncodedSize)
                 {
                     OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Encoded shadow index size ({}) exceeds limit ({})",
@@ -3012,7 +3017,7 @@ namespace OloEngine
                     return false;
                 }
                 stream.WriteRaw<u64>(encodedSize);
-                stream.WriteData(reinterpret_cast<const char*>(encodedShadow.Data.data()),
+                stream.WriteData(reinterpret_cast<const char*>(encodedShadow.Data.GetData()),
                                  static_cast<sizet>(encodedSize));
             }
         }
@@ -3293,9 +3298,9 @@ namespace OloEngine
             }
 
             EncodedMeshBuffer encoded;
-            encoded.Data.resize(static_cast<sizet>(encodedSize));
+            encoded.Data.SetNum(static_cast<sizet>(encodedSize));
             encoded.OriginalSize = vertexCount * sizeof(Vertex);
-            stream.ReadData(reinterpret_cast<char*>(encoded.Data.data()),
+            stream.ReadData(reinterpret_cast<char*>(encoded.Data.GetData()),
                             static_cast<sizet>(encodedSize));
 
             outVertices.SetNum(static_cast<i32>(vertexCount));
@@ -3325,9 +3330,9 @@ namespace OloEngine
             }
 
             EncodedMeshBuffer encoded;
-            encoded.Data.resize(static_cast<sizet>(encodedSize));
+            encoded.Data.SetNum(static_cast<sizet>(encodedSize));
             encoded.OriginalSize = indexCount * sizeof(u32);
-            stream.ReadData(reinterpret_cast<char*>(encoded.Data.data()),
+            stream.ReadData(reinterpret_cast<char*>(encoded.Data.GetData()),
                             static_cast<sizet>(encodedSize));
 
             outIndices.SetNum(static_cast<i32>(indexCount));
@@ -3461,9 +3466,9 @@ namespace OloEngine
                 }
 
                 EncodedMeshBuffer encoded;
-                encoded.Data.resize(static_cast<sizet>(encodedSize));
+                encoded.Data.SetNum(static_cast<sizet>(encodedSize));
                 encoded.OriginalSize = boneCount * sizeof(BoneInfluence);
-                stream.ReadData(reinterpret_cast<char*>(encoded.Data.data()),
+                stream.ReadData(reinterpret_cast<char*>(encoded.Data.GetData()),
                                 static_cast<sizet>(encodedSize));
 
                 auto& boneInfluences = meshSource->GetBoneInfluences();
@@ -3502,9 +3507,9 @@ namespace OloEngine
                 }
 
                 EncodedMeshBuffer encoded;
-                encoded.Data.resize(static_cast<sizet>(encodedSize));
+                encoded.Data.SetNum(static_cast<sizet>(encodedSize));
                 encoded.OriginalSize = shadowCount * sizeof(u32);
-                stream.ReadData(reinterpret_cast<char*>(encoded.Data.data()),
+                stream.ReadData(reinterpret_cast<char*>(encoded.Data.GetData()),
                                 static_cast<sizet>(encodedSize));
 
                 auto& shadowIndices = meshSource->GetShadowIndices();
@@ -5392,7 +5397,7 @@ namespace OloEngine
             TrySetPS(emitter.InitialColor, ps["InitialColor"]);
 
             // Bursts
-            emitter.Bursts.clear();
+            emitter.Bursts.Reset();
             if (auto burstsNode = ps["Bursts"]; burstsNode && burstsNode.IsSequence())
             {
                 for (const auto& burstNode : burstsNode)
@@ -5401,7 +5406,7 @@ namespace OloEngine
                     TrySetPS(burst.Time, burstNode["Time"]);
                     TrySetPS(burst.Count, burstNode["Count"]);
                     TrySetPS(burst.Probability, burstNode["Probability"]);
-                    emitter.Bursts.push_back(burst);
+                    emitter.Bursts.Add(burst);
                 }
             }
 
@@ -5498,7 +5503,7 @@ namespace OloEngine
 
             if (auto forceFieldsNode = ps["ForceFields"]; forceFieldsNode && forceFieldsNode.IsSequence())
             {
-                sys.ForceFields.clear();
+                sys.ForceFields.Reset();
                 for (auto ffNode : forceFieldsNode)
                 {
                     ModuleForceField ff{};
@@ -5509,7 +5514,7 @@ namespace OloEngine
                     TrySetPS(ff.Strength, ffNode["Strength"]);
                     TrySetPS(ff.Radius, ffNode["Radius"]);
                     TrySetPS(ff.Axis, ffNode["Axis"]);
-                    sys.ForceFields.push_back(ff);
+                    sys.ForceFields.Add(ff);
                 }
             }
             else if (auto oldEnabled = ps["ForceFieldEnabled"]; oldEnabled)
@@ -5522,7 +5527,7 @@ namespace OloEngine
                 TrySetPS(ff.Strength, ps["ForceFieldStrength"]);
                 TrySetPS(ff.Radius, ps["ForceFieldRadius"]);
                 TrySetPS(ff.Axis, ps["ForceFieldAxis"]);
-                sys.ForceFields.push_back(ff);
+                sys.ForceFields.Add(ff);
             }
             else
             {
@@ -5542,7 +5547,7 @@ namespace OloEngine
             TrySetPS(sys.SubEmitterModule.Enabled, ps["SubEmitterEnabled"]);
             if (auto entriesNode = ps["SubEmitterEntries"]; entriesNode && entriesNode.IsSequence())
             {
-                sys.SubEmitterModule.Entries.clear();
+                sys.SubEmitterModule.Entries.Reset();
                 for (auto entryNode : entriesNode)
                 {
                     SubEmitterEntry entry{};
@@ -5554,7 +5559,7 @@ namespace OloEngine
                     TrySetPS(entry.InheritVelocityScale, entryNode["InheritVelocityScale"]);
                     if (auto val = entryNode["ChildSystemIndex"]; val)
                         entry.ChildSystemIndex = val.as<i32>();
-                    sys.SubEmitterModule.Entries.push_back(entry);
+                    sys.SubEmitterModule.Entries.Add(entry);
                 }
             }
             TrySetPS(sys.LODDistance1, ps["LODDistance1"]);

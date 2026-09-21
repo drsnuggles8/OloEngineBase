@@ -38,7 +38,7 @@ namespace OloEngine
         {
             if (!Utils::IsDepthFormat(spec.TextureFormat))
             {
-                m_ColorAttachmentSpecifications.emplace_back(spec);
+                m_ColorAttachmentSpecifications.Emplace(spec);
             }
             else
             {
@@ -88,13 +88,13 @@ namespace OloEngine
         }
 
         u32 fboId = m_RendererID;
-        std::vector<u32> colorIds(m_ColorAttachments);
+        TArray<u32> colorIds(m_ColorAttachments);
         u32 depthId = m_DepthAttachment;
         FrameResourceManager::Get().SubmitForDeletion([fboId, colorIds = std::move(colorIds), depthId]()
                                                       {
             glDeleteFramebuffers(1, &fboId);
-            if (!colorIds.empty())
-                glDeleteTextures(static_cast<GLsizei>(colorIds.size()), colorIds.data());
+            if (!colorIds.IsEmpty())
+                glDeleteTextures(static_cast<GLsizei>(colorIds.Num()), colorIds.GetData());
             glDeleteTextures(1, &depthId); });
     }
 
@@ -110,16 +110,16 @@ namespace OloEngine
             GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
 
             u32 oldFboId = m_RendererID;
-            std::vector<u32> oldColorIds(m_ColorAttachments);
+            TArray<u32> oldColorIds(m_ColorAttachments);
             u32 oldDepthId = m_DepthAttachment;
             FrameResourceManager::Get().SubmitForDeletion([oldFboId, oldColorIds = std::move(oldColorIds), oldDepthId]()
                                                           {
                 glDeleteFramebuffers(1, &oldFboId);
-                if (!oldColorIds.empty())
-                    glDeleteTextures(static_cast<GLsizei>(oldColorIds.size()), oldColorIds.data());
+                if (!oldColorIds.IsEmpty())
+                    glDeleteTextures(static_cast<GLsizei>(oldColorIds.Num()), oldColorIds.GetData());
                 glDeleteTextures(1, &oldDepthId); });
 
-            m_ColorAttachments.clear();
+            m_ColorAttachments.Reset();
             m_DepthAttachment = 0;
             // Retire the attachment identities with their GL names. A resize
             // destroys the attachment textures outright (the FBO is recreated
@@ -154,7 +154,7 @@ namespace OloEngine
             }
             RHI::DescriptorHeap::Get().RetireResource(m_DepthAttachmentHandle.Get());
 
-            m_ColorAttachmentHandles.clear();
+            m_ColorAttachmentHandles.Reset();
             m_DepthAttachmentHandle.Reset();
         }
 
@@ -165,13 +165,13 @@ namespace OloEngine
         const bool multisample = m_Specification.Samples > 1;
 
         // Attachments
-        if (!m_ColorAttachmentSpecifications.empty())
+        if (!m_ColorAttachmentSpecifications.IsEmpty())
         {
-            m_ColorAttachments.resize(m_ColorAttachmentSpecifications.size());
-            auto colorAttachmentSize = m_ColorAttachments.size();
-            Utils::CreateTextures(multisample, static_cast<int>(colorAttachmentSize), m_ColorAttachments.data());
+            m_ColorAttachments.SetNum(m_ColorAttachmentSpecifications.Num(), EAllowShrinking::No);
+            auto colorAttachmentSize = m_ColorAttachments.Num();
+            Utils::CreateTextures(multisample, static_cast<int>(colorAttachmentSize), m_ColorAttachments.GetData());
 
-            m_ColorAttachmentHandles.resize(colorAttachmentSize);
+            m_ColorAttachmentHandles.SetNum(colorAttachmentSize, EAllowShrinking::No);
             for (sizet i = 0; i < colorAttachmentSize; ++i)
             {
                 m_ColorAttachmentHandles[i].Sync(RHI::ResourceKind::Texture, m_ColorAttachments[i],
@@ -203,18 +203,18 @@ namespace OloEngine
             Utils::AttachDepthTexture(m_RendererID, m_DepthAttachment, static_cast<int>(m_Specification.Samples), format, attachmentType, static_cast<int>(m_Specification.Width), static_cast<int>(m_Specification.Height));
         }
 
-        if (m_ColorAttachments.size() > 1)
+        if (m_ColorAttachments.Num() > 1)
         {
-            std::vector<GLenum> colorBuffers;
-            auto colorAttachmentSize = static_cast<int>(m_ColorAttachments.size());
+            TArray<GLenum> colorBuffers;
+            auto colorAttachmentSize = static_cast<int>(m_ColorAttachments.Num());
             for (int i = 0; i < colorAttachmentSize; ++i)
             {
-                colorBuffers.emplace_back(static_cast<u32>(GL_COLOR_ATTACHMENT0 + i));
+                colorBuffers.Emplace(static_cast<u32>(GL_COLOR_ATTACHMENT0 + i));
             }
 
-            glDrawBuffers(static_cast<GLsizei>(m_ColorAttachments.size()), colorBuffers.data());
+            glDrawBuffers(static_cast<GLsizei>(m_ColorAttachments.Num()), colorBuffers.GetData());
         }
-        else if (m_ColorAttachments.empty())
+        else if (m_ColorAttachments.IsEmpty())
         {
             // Only depth-pass
             glDrawBuffer(GL_NONE);
@@ -229,7 +229,7 @@ namespace OloEngine
         sizet framebufferMemory = 0;
 
         // Color attachments
-        for (sizet i = 0; i < m_ColorAttachments.size(); ++i)
+        for (sizet i = 0; i < m_ColorAttachments.Num(); ++i)
         {
             // Estimate color attachment memory
             u32 bytesPerPixel = 4; // Default RGBA8
@@ -259,24 +259,24 @@ namespace OloEngine
     {
         glBindFramebuffer(GL_FRAMEBUFFER, m_RendererID);
 
-        if (m_ColorAttachments.empty())
+        if (m_ColorAttachments.IsEmpty())
         {
             glDrawBuffer(GL_NONE);
         }
-        else if (m_ColorAttachments.size() == 1)
+        else if (m_ColorAttachments.Num() == 1)
         {
             glDrawBuffer(GL_COLOR_ATTACHMENT0);
         }
         else
         {
-            std::vector<GLenum> colorBuffers;
-            auto colorAttachmentCount = m_ColorAttachments.size();
-            colorBuffers.reserve(colorAttachmentCount);
+            TArray<GLenum> colorBuffers;
+            auto colorAttachmentCount = m_ColorAttachments.Num();
+            colorBuffers.Reserve(colorAttachmentCount);
             for (sizet i = 0; i < colorAttachmentCount; ++i)
             {
-                colorBuffers.emplace_back(static_cast<GLenum>(GL_COLOR_ATTACHMENT0 + i));
+                colorBuffers.Emplace(static_cast<GLenum>(GL_COLOR_ATTACHMENT0 + i));
             }
-            glDrawBuffers(static_cast<GLsizei>(colorBuffers.size()), colorBuffers.data());
+            glDrawBuffers(static_cast<GLsizei>(colorBuffers.Num()), colorBuffers.GetData());
         }
 
         // Use the DRS render viewport override when set; fall back to physical size.
@@ -316,8 +316,8 @@ namespace OloEngine
 
     int OpenGLFramebuffer::ReadPixel(const u32 attachmentIndex, const int x, const int y)
     {
-        OLO_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size(),
-                        "ReadPixel: attachment index {} >= count {}", attachmentIndex, m_ColorAttachments.size());
+        OLO_CORE_ASSERT(attachmentIndex < m_ColorAttachments.Num(),
+                        "ReadPixel: attachment index {} >= count {}", attachmentIndex, m_ColorAttachments.Num());
 
         glBindFramebuffer(GL_READ_FRAMEBUFFER, m_RendererID);
         glReadBuffer(GL_COLOR_ATTACHMENT0 + attachmentIndex);
@@ -329,8 +329,8 @@ namespace OloEngine
 
     void OpenGLFramebuffer::ClearAttachment(const u32 attachmentIndex, const int value)
     {
-        OLO_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size(),
-                        "ClearAttachment: attachment index {} >= count {}", attachmentIndex, m_ColorAttachments.size());
+        OLO_CORE_ASSERT(attachmentIndex < m_ColorAttachments.Num(),
+                        "ClearAttachment: attachment index {} >= count {}", attachmentIndex, m_ColorAttachments.Num());
 
         auto const& spec = m_ColorAttachmentSpecifications[attachmentIndex];
         glClearTexImage(m_ColorAttachments[attachmentIndex], 0, Utils::OloFBTextureFormatToGL(spec.TextureFormat), GL_INT, &value);
@@ -338,8 +338,8 @@ namespace OloEngine
 
     void OpenGLFramebuffer::ClearAttachment(const u32 attachmentIndex, const glm::vec4& value)
     {
-        OLO_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size(),
-                        "ClearAttachment: attachment index {} >= count {}", attachmentIndex, m_ColorAttachments.size());
+        OLO_CORE_ASSERT(attachmentIndex < m_ColorAttachments.Num(),
+                        "ClearAttachment: attachment index {} >= count {}", attachmentIndex, m_ColorAttachments.Num());
 
         // See ClearAllAttachments(): a stale bound program would be
         // revalidated by the driver during this framebuffer clear.
@@ -406,7 +406,7 @@ namespace OloEngine
         }
 
         // Clear each color attachment based on its type
-        for (sizet i = 0; i < m_ColorAttachmentSpecifications.size(); ++i)
+        for (sizet i = 0; i < m_ColorAttachmentSpecifications.Num(); ++i)
         {
             auto const& spec = m_ColorAttachmentSpecifications[i];
             if (spec.TextureFormat == FramebufferTextureFormat::RED_INTEGER)

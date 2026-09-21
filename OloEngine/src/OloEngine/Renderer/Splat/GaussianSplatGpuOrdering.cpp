@@ -543,7 +543,7 @@ namespace OloEngine::GaussianSplat
     {
         OLO_PROFILE_FUNCTION();
 
-        out.Indices.clear();
+        out.Indices.Reset();
         out.Stats = ViewStats{};
         if (!m_Ready || !m_OrderBuffer)
             return;
@@ -564,12 +564,12 @@ namespace OloEngine::GaussianSplat
         out.Stats.TooSmall = stats[3];
         out.Stats.TooFaint = stats[4];
 
-        std::vector<u32> padded(m_PaddedCapacity);
-        m_OrderBuffer->GetData(padded.data(), m_PaddedCapacity * static_cast<u32>(sizeof(u32)));
+        TArray<u32> padded(m_PaddedCapacity);
+        m_OrderBuffer->GetData(padded.GetData(), m_PaddedCapacity * static_cast<u32>(sizeof(u32)));
 
         // Survivors occupy the front of the sorted array; everything the cull
         // rejected carries the maximum key and sorted behind them.
         const u32 drawn = std::min(out.Stats.Drawn, m_PaddedCapacity);
-        out.Indices.assign(padded.begin(), padded.begin() + static_cast<std::ptrdiff_t>(drawn));
+        out.Indices.Append(padded.GetData(), static_cast<i32>(drawn));
     }
 } // namespace OloEngine::GaussianSplat

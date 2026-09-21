@@ -177,7 +177,7 @@ TEST_F(PrefabOverrideTest, Prefab_CreatePreservesHierarchy)
 
     // Root should have children
     Entity root = prefab->GetRootEntity();
-    EXPECT_FALSE(root.Children().empty());
+    EXPECT_FALSE(root.Children().IsEmpty());
 }
 
 TEST_F(PrefabOverrideTest, Prefab_InstantiatePreservesHierarchy)
@@ -194,7 +194,7 @@ TEST_F(PrefabOverrideTest, Prefab_InstantiatePreservesHierarchy)
     Entity instance = prefab->Instantiate(*targetScene);
 
     ASSERT_TRUE(static_cast<bool>(instance));
-    EXPECT_FALSE(instance.Children().empty());
+    EXPECT_FALSE(instance.Children().IsEmpty());
 
     // Get the instantiated child
     UUID childUUID = instance.Children()[0];
@@ -521,7 +521,7 @@ TEST_F(PrefabOverrideTest, Prefab_RevertComponent_ChildEntity)
     Entity instanceParent = prefab->Instantiate(*targetScene);
 
     // Get the instantiated child
-    ASSERT_FALSE(instanceParent.Children().empty());
+    ASSERT_FALSE(instanceParent.Children().IsEmpty());
     auto childOpt = targetScene->TryGetEntityWithUUID(instanceParent.Children()[0]);
     ASSERT_TRUE(childOpt.has_value());
     Entity instanceChild = *childOpt;
@@ -557,7 +557,7 @@ TEST_F(PrefabOverrideTest, Prefab_UpdateInstance_ChildEntity)
     // Instantiate
     Ref<Scene> targetScene = Scene::Create();
     Entity instanceParent = prefab->Instantiate(*targetScene);
-    ASSERT_FALSE(instanceParent.Children().empty());
+    ASSERT_FALSE(instanceParent.Children().IsEmpty());
     auto childOpt = targetScene->TryGetEntityWithUUID(instanceParent.Children()[0]);
     ASSERT_TRUE(childOpt.has_value());
     Entity instanceChild = *childOpt;
@@ -569,7 +569,7 @@ TEST_F(PrefabOverrideTest, Prefab_UpdateInstance_ChildEntity)
 
     // Modify the prefab's child SpriteRendererComponent
     Entity prefabRoot = prefab->GetRootEntity();
-    ASSERT_FALSE(prefabRoot.Children().empty());
+    ASSERT_FALSE(prefabRoot.Children().IsEmpty());
     auto prefabChildOpt = prefab->GetScene()->TryGetEntityWithUUID(prefabRoot.Children()[0]);
     ASSERT_TRUE(prefabChildOpt.has_value());
     Entity prefabChild = *prefabChildOpt;

@@ -205,7 +205,7 @@ namespace OloEngine::Tests
         // Arm A: the shipped pre-#869 world — no provider, so factor-only.
         const BakeOutcome factorOnly =
             BakeRoom(pieces, &light, lightPosition, ReferenceSceneBuildOptions{});
-        ASSERT_TRUE(factorOnly.Result.Success) << factorOnly.Result.Error;
+        ASSERT_TRUE(factorOnly.Result.Success) << factorOnly.Result.Error.ToStdString();
 
         // Arm B: identical, plus albedo maps. The provider keys off the base
         // colour the fixture gave each piece, which is how one lambda can
@@ -224,7 +224,7 @@ namespace OloEngine::Tests
             return maps;
         };
         const BakeOutcome withMaps = BakeRoom(pieces, &light, lightPosition, textured);
-        ASSERT_TRUE(withMaps.Result.Success) << withMaps.Result.Error;
+        ASSERT_TRUE(withMaps.Result.Success) << withMaps.Result.Error.ToStdString();
 
         u32 redSideCount = 0;
         u32 greenSideCount = 0;
@@ -298,13 +298,13 @@ namespace OloEngine::Tests
 
         const BakeOutcome a = BakeRoom(pieces, &light, { 0.0f, 1.6f, 0.0f }, defaulted, 32);
         const BakeOutcome b = BakeRoom(pieces, &light, { 0.0f, 1.6f, 0.0f }, explicitlyEmpty, 32);
-        ASSERT_TRUE(a.Result.Success) << a.Result.Error;
-        ASSERT_TRUE(b.Result.Success) << b.Result.Error;
+        ASSERT_TRUE(a.Result.Success) << a.Result.Error.ToStdString();
+        ASSERT_TRUE(b.Result.Success) << b.Result.Error.ToStdString();
 
         const auto& left = a.Result.Asset->GetTexelData();
         const auto& right = b.Result.Asset->GetTexelData();
-        ASSERT_EQ(left.size(), right.size());
-        EXPECT_EQ(std::memcmp(left.data(), right.data(), left.size() * sizeof(f32)), 0)
+        ASSERT_EQ(left.Num(), right.Num());
+        EXPECT_EQ(std::memcmp(left.GetData(), right.GetData(), left.Num() * sizeof(f32)), 0)
             << "a provider that returns no maps changed the bake — the factor-only path is not clean";
     }
 
@@ -333,13 +333,13 @@ namespace OloEngine::Tests
             ReferenceEnvironmentCubemap::Constant(skyRadiance));
 
         const BakeOutcome lit = BakeRoom(pieces, nullptr, glm::vec3(0.0f), withSky, 96);
-        ASSERT_TRUE(lit.Result.Success) << lit.Result.Error;
+        ASSERT_TRUE(lit.Result.Success) << lit.Result.Error.ToStdString();
 
         // The control arm: the identical exterior with no sky, which is what
         // #869 says the bake does today — "an exterior under a sky/HDRI bakes
         // with NO sky contribution".
         const BakeOutcome dark = BakeRoom(pieces, nullptr, glm::vec3(0.0f), ReferenceSceneBuildOptions{}, 96);
-        ASSERT_TRUE(dark.Result.Success) << dark.Result.Error;
+        ASSERT_TRUE(dark.Result.Success) << dark.Result.Error.ToStdString();
 
         // Open floor: away from the overhang, so the hemisphere above is
         // entirely sky.

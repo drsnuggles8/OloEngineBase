@@ -62,10 +62,10 @@ namespace OloEngine
         auto& pool = m_TexturePool[key];
         Ref<Texture> result;
 
-        if (!pool.empty())
+        if (!pool.IsEmpty())
         {
-            result = pool.back();
-            pool.pop_back();
+            result = pool.Last();
+            pool.Pop(EAllowShrinking::No);
         }
         else
         {
@@ -73,7 +73,7 @@ namespace OloEngine
             result = Texture2D::Create(spec);
         }
 
-        m_AcquiredTextures.push_back(result);
+        m_AcquiredTextures.Add(result);
         return result;
     }
 
@@ -84,17 +84,17 @@ namespace OloEngine
         auto& pool = m_FramebufferPool[key];
         Ref<Framebuffer> result;
 
-        if (!pool.empty())
+        if (!pool.IsEmpty())
         {
-            result = pool.back();
-            pool.pop_back();
+            result = pool.Last();
+            pool.Pop(EAllowShrinking::No);
         }
         else
         {
             result = Framebuffer::Create(spec);
         }
 
-        m_AcquiredFramebuffers.push_back(result);
+        m_AcquiredFramebuffers.Add(result);
         return result;
     }
 
@@ -103,10 +103,10 @@ namespace OloEngine
         auto& pool = m_BufferPool[sizeBytes];
         Ref<StorageBuffer> result;
 
-        if (!pool.empty())
+        if (!pool.IsEmpty())
         {
-            result = pool.back();
-            pool.pop_back();
+            result = pool.Last();
+            pool.Pop(EAllowShrinking::No);
         }
         else
         {
@@ -114,7 +114,7 @@ namespace OloEngine
             result = StorageBuffer::Create(sizeBytes, 15, StorageBufferUsage::DynamicDraw);
         }
 
-        m_AcquiredBuffers.push_back(result);
+        m_AcquiredBuffers.Add(result);
         return result;
     }
 
@@ -134,7 +134,7 @@ namespace OloEngine
         // stop would simply move to the other end of the frame (every one of
         // the four GTAO textures then re-created per frame, not two).
         const bool acquiredAnything =
-            !m_AcquiredTextures.empty() || !m_AcquiredFramebuffers.empty() || !m_AcquiredBuffers.empty();
+            !m_AcquiredTextures.IsEmpty() || !m_AcquiredFramebuffers.IsEmpty() || !m_AcquiredBuffers.IsEmpty();
         if (!acquiredAnything)
             return;
 
@@ -146,11 +146,11 @@ namespace OloEngine
             if (tex)
             {
                 const auto key = BuildTextureKey(tex->GetSpecification());
-                m_TexturePool[key].push_back(tex);
+                m_TexturePool[key].Add(tex);
                 ++m_LastFrameTextureDemand[key];
             }
         }
-        m_AcquiredTextures.clear();
+        m_AcquiredTextures.Reset();
 
         m_LastFrameFramebufferDemand.clear();
         for (const auto& fb : m_AcquiredFramebuffers)
@@ -158,11 +158,11 @@ namespace OloEngine
             if (fb)
             {
                 const auto key = BuildFramebufferKey(fb->GetSpecification());
-                m_FramebufferPool[key].push_back(fb);
+                m_FramebufferPool[key].Add(fb);
                 ++m_LastFrameFramebufferDemand[key];
             }
         }
-        m_AcquiredFramebuffers.clear();
+        m_AcquiredFramebuffers.Reset();
 
         m_LastFrameBufferDemand.clear();
         for (const auto& buf : m_AcquiredBuffers)
@@ -170,11 +170,11 @@ namespace OloEngine
             if (buf)
             {
                 const auto key = buf->GetSize();
-                m_BufferPool[key].push_back(buf);
+                m_BufferPool[key].Add(buf);
                 ++m_LastFrameBufferDemand[key];
             }
         }
-        m_AcquiredBuffers.clear();
+        m_AcquiredBuffers.Reset();
     }
 
     void TransientPool::Trim(u32 maxPerBucket)
@@ -188,10 +188,10 @@ namespace OloEngine
                 auto& bucket = it->second;
                 const auto demandIt = demandByKey.find(it->first);
                 const u32 keep = std::max(maxPerBucket, demandIt != demandByKey.end() ? demandIt->second : 0u);
-                if (bucket.size() > keep)
-                    bucket.erase(bucket.begin(), bucket.begin() + static_cast<std::ptrdiff_t>(bucket.size() - keep));
+                if (static_cast<sizet>(bucket.Num()) > keep)
+                    bucket.RemoveAt(0, bucket.Num() - static_cast<i64>(keep), EAllowShrinking::No);
 
-                if (bucket.empty())
+                if (bucket.IsEmpty())
                     it = buckets.erase(it);
                 else
                     ++it;
@@ -247,13 +247,13 @@ namespace OloEngine
         m_TexturePool.clear();
         m_FramebufferPool.clear();
         m_BufferPool.clear();
-        m_AcquiredTextures.clear();
-        m_AcquiredFramebuffers.clear();
-        m_AcquiredBuffers.clear();
+        m_AcquiredTextures.Reset();
+        m_AcquiredFramebuffers.Reset();
+        m_AcquiredBuffers.Reset();
         // The snapshot describes objects that no longer exist after a Clear
         // (context loss, shutdown, a debug-flag flip evicting the pool), so drop
         // it rather than report stale GL ids — and the demand it implies.
-        m_LastFrameAcquireOrder.clear();
+        m_LastFrameAcquireOrder.Reset();
         m_LastFrameTextureDemand.clear();
         m_LastFrameFramebufferDemand.clear();
         m_LastFrameBufferDemand.clear();
@@ -266,30 +266,30 @@ namespace OloEngine
         stats.TextureAliasGroups = static_cast<u32>(m_TexturePool.size());
         for (const auto& [key, pool] : m_TexturePool)
         {
-            stats.TexturePoolSize += static_cast<u32>(pool.size());
+            stats.TexturePoolSize += static_cast<u32>(static_cast<sizet>(pool.Num()));
         }
 
         stats.FramebufferPoolSize = 0;
         stats.FramebufferAliasGroups = static_cast<u32>(m_FramebufferPool.size());
         for (const auto& [key, pool] : m_FramebufferPool)
         {
-            stats.FramebufferPoolSize += static_cast<u32>(pool.size());
+            stats.FramebufferPoolSize += static_cast<u32>(static_cast<sizet>(pool.Num()));
         }
 
         stats.BufferPoolSize = 0;
         stats.BufferAliasGroups = static_cast<u32>(m_BufferPool.size());
         for (const auto& [key, pool] : m_BufferPool)
         {
-            stats.BufferPoolSize += static_cast<u32>(pool.size());
+            stats.BufferPoolSize += static_cast<u32>(static_cast<sizet>(pool.Num()));
         }
 
         return stats;
     }
 
-    std::vector<TransientPool::BucketInfo> TransientPool::GetBucketReport() const
+    TArray64<TransientPool::BucketInfo> TransientPool::GetBucketReport() const
     {
-        std::vector<BucketInfo> buckets;
-        buckets.reserve(m_TexturePool.size() + m_FramebufferPool.size() + m_BufferPool.size());
+        TArray64<BucketInfo> buckets;
+        buckets.Reserve(m_TexturePool.size() + m_FramebufferPool.size() + m_BufferPool.size());
 
         for (const auto& [key, pool] : m_TexturePool)
         {
@@ -301,8 +301,8 @@ namespace OloEngine
             info.Format = key.Format;
             info.MipLevels = key.MipLevels;
             info.Samples = key.Samples;
-            info.PooledCount = static_cast<u32>(pool.size());
-            buckets.push_back(std::move(info));
+            info.PooledCount = static_cast<u32>(static_cast<sizet>(pool.Num()));
+            buckets.Add(std::move(info));
         }
 
         for (const auto& [key, pool] : m_FramebufferPool)
@@ -310,8 +310,8 @@ namespace OloEngine
             BucketInfo info;
             info.Kind = "framebuffer";
             info.Key = key;
-            info.PooledCount = static_cast<u32>(pool.size());
-            buckets.push_back(std::move(info));
+            info.PooledCount = static_cast<u32>(static_cast<sizet>(pool.Num()));
+            buckets.Add(std::move(info));
         }
 
         for (const auto& [key, pool] : m_BufferPool)
@@ -320,42 +320,42 @@ namespace OloEngine
             info.Kind = "buffer";
             info.Key = key;
             info.SizeBytes = key;
-            info.PooledCount = static_cast<u32>(pool.size());
-            buckets.push_back(std::move(info));
+            info.PooledCount = static_cast<u32>(static_cast<sizet>(pool.Num()));
+            buckets.Add(std::move(info));
         }
 
         // The pool maps are unordered, so iteration order is implementation-
         // defined and can differ run-to-run. Sort so two captures of an
         // unchanged pool are diffable — the same determinism reasoning the
         // generated container serializers follow.
-        std::sort(buckets.begin(), buckets.end(),
-                  [](const BucketInfo& a, const BucketInfo& b)
-                  {
-                      if (a.Kind != b.Kind)
-                          return a.Kind < b.Kind;
-                      return a.Key < b.Key;
-                  });
+        buckets.Sort(
+            [](const BucketInfo& a, const BucketInfo& b)
+            {
+                if (a.Kind != b.Kind)
+                    return a.Kind < b.Kind;
+                return a.Key < b.Key;
+            });
         return buckets;
     }
 
-    std::vector<TransientPool::AcquiredInfo> TransientPool::GetAcquireOrder(bool* isLiveFrame) const
+    TArray64<TransientPool::AcquiredInfo> TransientPool::GetAcquireOrder(bool* isLiveFrame) const
     {
         // Mid-frame there are live acquisitions; between frames ReleaseAll() has
         // already emptied the lists, so fall back to its snapshot of the last
         // completed frame. Without this every MCP read (which marshals at a frame
         // boundary) would report "nothing was acquired" — a confidently wrong
         // answer, which is worse than no tool at all.
-        const bool live = !m_AcquiredTextures.empty() || !m_AcquiredFramebuffers.empty() ||
-                          !m_AcquiredBuffers.empty();
+        const bool live = !m_AcquiredTextures.IsEmpty() || !m_AcquiredFramebuffers.IsEmpty() ||
+                          !m_AcquiredBuffers.IsEmpty();
         if (isLiveFrame != nullptr)
             *isLiveFrame = live;
         return live ? BuildAcquireOrder() : m_LastFrameAcquireOrder;
     }
 
-    std::vector<TransientPool::AcquiredInfo> TransientPool::BuildAcquireOrder() const
+    TArray64<TransientPool::AcquiredInfo> TransientPool::BuildAcquireOrder() const
     {
-        std::vector<AcquiredInfo> acquired;
-        acquired.reserve(m_AcquiredTextures.size() + m_AcquiredFramebuffers.size() + m_AcquiredBuffers.size());
+        TArray64<AcquiredInfo> acquired;
+        acquired.Reserve(static_cast<sizet>(m_AcquiredTextures.Num()) + static_cast<sizet>(m_AcquiredFramebuffers.Num()) + static_cast<sizet>(m_AcquiredBuffers.Num()));
 
         // Deliberately NOT sorted: acquisition order is the whole point — it is
         // the order the alias-slot assigner consumed the pool this frame, and a
@@ -365,23 +365,23 @@ namespace OloEngine
             if (!texture)
                 continue;
             const auto& spec = texture->GetSpecification();
-            acquired.push_back(AcquiredInfo{ "texture", texture->GetRendererID(), texture->GetRHIHandle(),
-                                             spec.Width, spec.Height, 0u });
+            acquired.Add(AcquiredInfo{ "texture", texture->GetRendererID(), texture->GetRHIHandle(),
+                                       spec.Width, spec.Height, 0u });
         }
         for (const auto& framebuffer : m_AcquiredFramebuffers)
         {
             if (!framebuffer)
                 continue;
             const auto& spec = framebuffer->GetSpecification();
-            acquired.push_back(AcquiredInfo{ "framebuffer", framebuffer->GetRendererID(), framebuffer->GetRHIHandle(),
-                                             spec.Width, spec.Height, 0u });
+            acquired.Add(AcquiredInfo{ "framebuffer", framebuffer->GetRendererID(), framebuffer->GetRHIHandle(),
+                                       spec.Width, spec.Height, 0u });
         }
         for (const auto& buffer : m_AcquiredBuffers)
         {
             if (!buffer)
                 continue;
-            acquired.push_back(AcquiredInfo{ "buffer", buffer->GetRendererID(), buffer->GetRHIHandle(),
-                                             0u, 0u, buffer->GetSize() });
+            acquired.Add(AcquiredInfo{ "buffer", buffer->GetRendererID(), buffer->GetRHIHandle(),
+                                       0u, 0u, buffer->GetSize() });
         }
         return acquired;
     }
@@ -399,7 +399,7 @@ namespace OloEngine
         OLO_CORE_INFO("  Buffer pool: {} objects in {} groups",
                       stats.BufferPoolSize, stats.BufferAliasGroups);
         OLO_CORE_INFO("  In flight: {} textures, {} framebuffers, {} buffers",
-                      m_AcquiredTextures.size(), m_AcquiredFramebuffers.size(), m_AcquiredBuffers.size());
+                      static_cast<sizet>(m_AcquiredTextures.Num()), static_cast<sizet>(m_AcquiredFramebuffers.Num()), static_cast<sizet>(m_AcquiredBuffers.Num()));
         OLO_CORE_INFO("  Total pooled objects: {}",
                       stats.TexturePoolSize + stats.FramebufferPoolSize + stats.BufferPoolSize);
 
@@ -424,7 +424,7 @@ namespace OloEngine
             spec.MipLevels = key.MipLevels;
             spec.Samples = key.Samples;
             spec.GenerateMips = (key.Flags & 1u) != 0u;
-            totalBytes += EstimateTextureBytes(spec) * pool.size();
+            totalBytes += EstimateTextureBytes(spec) * static_cast<sizet>(pool.Num());
         }
 
         for (const auto& tex : m_AcquiredTextures)
@@ -435,7 +435,7 @@ namespace OloEngine
 
         for (const auto& [sizeBytes, pool] : m_BufferPool)
         {
-            totalBytes += static_cast<u64>(sizeBytes) * pool.size();
+            totalBytes += static_cast<u64>(sizeBytes) * static_cast<sizet>(pool.Num());
         }
 
         for (const auto& buf : m_AcquiredBuffers)
@@ -464,7 +464,7 @@ namespace OloEngine
             {
                 const auto& spec = fb->GetSpecification();
                 const auto& attachSpec = spec.Attachments.Attachments;
-                if (!attachSpec.empty())
+                if (!attachSpec.IsEmpty())
                 {
                     // Estimate framebuffer size from first attachment format
                     const auto& firstAttach = attachSpec[0];
@@ -502,7 +502,7 @@ namespace OloEngine
         // assuming sequential use (first pool item released before second acquired)
         for (const auto& [key, pool] : m_TexturePool)
         {
-            if (pool.size() > 1)
+            if (static_cast<sizet>(pool.Num()) > 1)
             {
                 ++report.TextureGroupsWithAliasPotential;
                 // Estimate savings as (count-1) * sizeof(one item)
@@ -514,13 +514,13 @@ namespace OloEngine
                 spec.Samples = key.Samples;
                 spec.GenerateMips = (key.Flags & 1u) != 0u;
                 u64 itemBytes = EstimateTextureBytes(spec);
-                report.PotentialAliasingBytes += itemBytes * (pool.size() - 1);
+                report.PotentialAliasingBytes += itemBytes * (static_cast<sizet>(pool.Num()) - 1);
             }
         }
 
         for (const auto& [key, pool] : m_FramebufferPool)
         {
-            if (pool.size() > 1)
+            if (static_cast<sizet>(pool.Num()) > 1)
             {
                 ++report.FramebufferGroupsWithAliasPotential;
                 // Estimate based on first framebuffer in pool
@@ -528,7 +528,7 @@ namespace OloEngine
                 {
                     const auto& spec = pool[0]->GetSpecification();
                     const auto& attachSpec = spec.Attachments.Attachments;
-                    if (!attachSpec.empty())
+                    if (!attachSpec.IsEmpty())
                     {
                         const auto& firstAttach = attachSpec[0];
                         if (firstAttach.TextureFormat != FramebufferTextureFormat::None)
@@ -549,7 +549,7 @@ namespace OloEngine
 
                             u64 bytesPerPixel = BytesPerPixel(imgFormat);
                             u64 itemBytes = spec.Width * spec.Height * bytesPerPixel;
-                            report.PotentialAliasingBytes += itemBytes * (pool.size() - 1);
+                            report.PotentialAliasingBytes += itemBytes * (static_cast<sizet>(pool.Num()) - 1);
                         }
                     }
                 }
@@ -558,11 +558,11 @@ namespace OloEngine
 
         for (const auto& [sizeBytes, pool] : m_BufferPool)
         {
-            if (pool.size() > 1)
+            if (static_cast<sizet>(pool.Num()) > 1)
             {
                 ++report.BufferGroupsWithAliasPotential;
                 u64 itemBytes = static_cast<u64>(sizeBytes);
-                report.PotentialAliasingBytes += itemBytes * (pool.size() - 1);
+                report.PotentialAliasingBytes += itemBytes * (static_cast<sizet>(pool.Num()) - 1);
             }
         }
 

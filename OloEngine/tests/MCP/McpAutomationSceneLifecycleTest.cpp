@@ -387,6 +387,6 @@ namespace OloEngine::Automation::Tests
         EXPECT_EQ(lightEntity->GetParentUUID(), parentEntity->GetUUID());
         ASSERT_TRUE(lightEntity->HasComponent<PointLightComponent>());
         EXPECT_FLOAT_EQ(lightEntity->GetComponent<PointLightComponent>().m_Intensity, 7.25f);
-        EXPECT_EQ(parentEntity->Children(), std::vector<UUID>{ lightEntity->GetUUID() });
+        EXPECT_EQ(parentEntity->Children(), TArray<UUID>{ lightEntity->GetUUID() });
     }
 } // namespace OloEngine::Automation::Tests

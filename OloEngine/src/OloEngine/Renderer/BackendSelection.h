@@ -3,7 +3,7 @@
 #include "OloEngine/Renderer/RendererAPI.h"
 
 #include <filesystem>
-#include <string>
+#include "OloEngine/Containers/String.h"
 
 namespace OloEngine
 {
@@ -17,7 +17,7 @@ namespace OloEngine
 
         // Where the choice came from, for the startup log: "--rhi flag",
         // "config file", or "default".
-        std::string Source = "default";
+        FString Source = "default";
 
         // Non-empty when the user's request could not be honoured (unknown backend
         // name, or a backend that is not compiled into this binary). The selection
@@ -25,7 +25,7 @@ namespace OloEngine
         // at error level. A runtime CAPABILITY failure (device below ADR 0010's
         // contract) is NOT handled here — that refuses to initialise inside
         // VulkanContext instead of degrading, per ADR 0010's no-silent-fallback rule.
-        std::string Diagnostic;
+        FString Diagnostic;
     };
 
     // Resolve the backend for this process. Pure and side-effect-free apart from

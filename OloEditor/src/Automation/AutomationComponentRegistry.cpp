@@ -124,7 +124,7 @@ namespace OloEngine::Automation
                 : m_Data(data)
             {
                 m_Data.m_GeneratedLODHandles = data.m_GeneratedLODHandles;
-                if (!data.m_GeneratedLODHandles.empty())
+                if (!data.m_GeneratedLODHandles.IsEmpty())
                 {
                     m_Manager = Project::GetAssetManager();
                     for (const auto handle : data.m_GeneratedLODHandles)
@@ -181,7 +181,7 @@ namespace OloEngine::Automation
             }
             else if constexpr (std::is_same_v<T, LODGroupComponent>)
             {
-                if (!data.m_GeneratedLODHandles.empty())
+                if (!data.m_GeneratedLODHandles.IsEmpty())
                 {
                     if (!Project::HasAssetManager())
                     {
@@ -212,7 +212,7 @@ namespace OloEngine::Automation
             }
             else if constexpr (std::is_same_v<T, NavAgentComponent>)
             {
-                if (data.m_CrowdAgentId >= 0 || data.m_HasTarget || data.m_HasPath || !data.m_PathCorners.empty())
+                if (data.m_CrowdAgentId >= 0 || data.m_HasTarget || data.m_HasPath || !data.m_PathCorners.IsEmpty())
                 {
                     return "NavAgentComponent has active navigation state that authored snapshots do not capture.";
                 }
@@ -310,7 +310,7 @@ namespace OloEngine::Automation
             }
             else if constexpr (std::is_same_v<T, LODGroupComponent>)
             {
-                if (!data.m_GeneratedLODHandles.empty())
+                if (!data.m_GeneratedLODHandles.IsEmpty())
                 {
                     return "LODGroupComponent owns generated assets that cannot have two owners. Remove and destroy remain undoable.";
                 }

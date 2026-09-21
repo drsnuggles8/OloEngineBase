@@ -96,15 +96,15 @@ namespace
         return pass;
     }
 
-    std::string HazardsToString(const std::vector<RenderGraph::Hazard>& hazards)
+    std::string HazardsToString(const TArray64<RenderGraph::Hazard>& hazards)
     {
-        if (hazards.empty())
+        if (hazards.IsEmpty())
             return "<no hazards>";
         std::string out;
         for (const auto& h : hazards)
         {
             out += "\n  - ";
-            out += h.Message;
+            out += h.Message.ToView();
         }
         return out;
     }
@@ -186,7 +186,7 @@ TEST(RenderGraphPathSwitch, ForwardToDeferredInsertsDeferredPassesAndEdges)
 
     {
         const auto hazards = graph.ValidateResourceHazards();
-        EXPECT_TRUE(hazards.empty()) << "Forward baseline: " << HazardsToString(hazards);
+        EXPECT_TRUE(hazards.IsEmpty()) << "Forward baseline: " << HazardsToString(hazards);
     }
 
     RebuildTopology(graph, /*deferred=*/true);
@@ -197,7 +197,7 @@ TEST(RenderGraphPathSwitch, ForwardToDeferredInsertsDeferredPassesAndEdges)
     EXPECT_TRUE(ContainsPass(graph, "OITResolvePass"));
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty()) << "Deferred after switch: " << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.IsEmpty()) << "Deferred after switch: " << HazardsToString(hazards);
 }
 
 // =============================================================================
@@ -225,7 +225,7 @@ TEST(RenderGraphPathSwitch, DeferredToForwardRemovesDeferredOnlyPasses)
     EXPECT_TRUE(ContainsPass(graph, "OITResolvePass")) << "OITResolvePass is path-agnostic and must survive the switch";
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "Forward after Deferred→Forward switch: " << HazardsToString(hazards);
 }
 
@@ -252,7 +252,7 @@ TEST(RenderGraphPathSwitch, ForwardToDeferredMissingSceneToDecalExplicitEdge_Der
     // DeferredOpaqueDecalPass.DeclareRead(SceneDepth) derives the RAW edge
     // automatically.  No hazard expected.
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "Declaration-derived edge must prevent the SceneDepth RAW hazard."
         << HazardsToString(hazards);
 }
@@ -278,11 +278,11 @@ TEST(RenderGraphPathSwitch, AlternatingRebuildsHaveStablePassCounts)
     {
         RebuildTopology(graph, paths[i]);
         const auto hazards = graph.ValidateResourceHazards();
-        EXPECT_TRUE(hazards.empty())
+        EXPECT_TRUE(hazards.IsEmpty())
             << "Cycle " << i << " (deferred=" << paths[i] << "): " << HazardsToString(hazards);
 
         const sizet expected = paths[i] ? kDeferredPassCount : kForwardPassCount;
-        EXPECT_EQ(graph.GetNodeSubmissionInfo().size(), expected)
+        EXPECT_EQ(graph.GetNodeSubmissionInfo().Num(), expected)
             << "Cycle " << i << " (deferred=" << paths[i] << "): pass count drift — ResetTopology leaking";
     }
 }
@@ -455,11 +455,11 @@ TEST(RenderGraphPathSwitch, ThreeWayCycleCleansUpAllPathSpecificPasses)
         RebuildTopologyMultiPath(graph, steps[i].path);
 
         const auto hazards = graph.ValidateResourceHazards();
-        EXPECT_TRUE(hazards.empty())
+        EXPECT_TRUE(hazards.IsEmpty())
             << "Cycle " << i << " path=" << static_cast<i32>(std::to_underlying(steps[i].path))
             << ": " << HazardsToString(hazards);
 
-        EXPECT_EQ(graph.GetNodeSubmissionInfo().size(), steps[i].expected)
+        EXPECT_EQ(graph.GetNodeSubmissionInfo().Num(), steps[i].expected)
             << "Cycle " << i << ": pass count drift — ResetTopology leak";
 
         // Path-specific passes must be present iff path matches.
@@ -483,7 +483,7 @@ TEST(RenderGraphPathSwitch, MissingDecalExplicitEdge_DerivedEdgeSufficient)
     RebuildTopologyMultiPath(graph, TestPath::Deferred, /*skipDecalEdge=*/true);
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "ScenePass→DeferredOpaqueDecalPass is derived from declarations."
         << HazardsToString(hazards);
 }
@@ -498,7 +498,7 @@ TEST(RenderGraphPathSwitch, MissingLightGridExplicitEdge_DerivedEdgeSufficient)
     RebuildTopologyMultiPath(graph, TestPath::ForwardPlus, /*skipDecalEdge=*/false, /*skipLightGridEdge=*/true);
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "slice 27: LightCullingPass→ScenePass is derived from LightGrid declarations."
         << HazardsToString(hazards);
 }
@@ -555,7 +555,7 @@ TEST(RenderGraphDeterminism, ForwardPathBuildOrderIsStableAcrossFreshInstances)
     RebuildTopology(g2, /*deferred=*/false);
     (void)g2.ValidateResourceHazards();
 
-    EXPECT_EQ(g1.GetExecutionOrder(), g2.GetExecutionOrder())
+    EXPECT_TRUE(std::ranges::equal(g1.GetExecutionOrder(), g2.GetExecutionOrder()))
         << "Forward path built on two fresh RenderGraph instances produced "
         << "different execution orders — Kahn's topological sort is reading "
         << "from a hash-randomized container somewhere.";
@@ -571,7 +571,7 @@ TEST(RenderGraphDeterminism, DeferredPathBuildOrderIsStableAcrossFreshInstances)
     RebuildTopology(g2, /*deferred=*/true);
     (void)g2.ValidateResourceHazards();
 
-    EXPECT_EQ(g1.GetExecutionOrder(), g2.GetExecutionOrder())
+    EXPECT_TRUE(std::ranges::equal(g1.GetExecutionOrder(), g2.GetExecutionOrder()))
         << "Deferred path built on two fresh RenderGraph instances produced "
         << "different execution orders.";
 }
@@ -590,7 +590,7 @@ TEST(RenderGraphDeterminism, RebuildAfterResetMatchesFreshBuild)
     RebuildTopology(fresh, /*deferred=*/false);
     (void)fresh.ValidateResourceHazards();
 
-    EXPECT_EQ(reused.GetExecutionOrder(), fresh.GetExecutionOrder())
+    EXPECT_TRUE(std::ranges::equal(reused.GetExecutionOrder(), fresh.GetExecutionOrder()))
         << "Rebuilt-after-reset graph diverges from a fresh-instance build of "
         << "the same path — ResetTopology is leaving state behind.";
 }

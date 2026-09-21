@@ -95,9 +95,9 @@ namespace OloEngine::Tests
         layer.UseMoisture = true;
         layer.ClumpStrength = 0.5f;
         layer.DecorrelatedVariation = true;
-        authored.m_Layers.push_back(layer);
+        authored.m_Layers.Add(layer);
         const auto loaded = Read(Write(authored), kSaveGameFormatVersion);
-        ASSERT_EQ(loaded.m_Layers.size(), 1u);
+        ASSERT_EQ(loaded.m_Layers.Num(), 1u);
         EXPECT_TRUE(loaded.m_Layers[0] == layer);
         layer.WindLeafWeight = 0.0f;
         EXPECT_FALSE(loaded.m_Layers[0] == layer);
@@ -116,7 +116,7 @@ namespace OloEngine::Tests
         std::vector<u8> payload;
         ASSERT_TRUE(SaveGameFile::ReadPayload(path, payload));
         const auto loaded = Read(payload, loadedHeader.FormatVersion);
-        ASSERT_EQ(loaded.m_Layers.size(), 1u);
+        ASSERT_EQ(loaded.m_Layers.Num(), 1u);
         EXPECT_FLOAT_EQ(loaded.m_Layers[0].WindStiffness, 0.0f);
         EXPECT_FLOAT_EQ(loaded.m_Layers[0].WindBranchWeight, 0.0f);
         EXPECT_FLOAT_EQ(loaded.m_Layers[0].WindLeafWeight, 0.0f);
@@ -137,7 +137,7 @@ namespace OloEngine::Tests
         std::vector<u8> payload;
         ASSERT_TRUE(SaveGameFile::ReadPayload(path, payload));
         const auto loaded = Read(payload, loadedHeader.FormatVersion);
-        ASSERT_EQ(loaded.m_Layers.size(), 1u);
+        ASSERT_EQ(loaded.m_Layers.Num(), 1u);
         const auto& layer = loaded.m_Layers[0];
         EXPECT_FLOAT_EQ(layer.SlopeFeather, 7.5f);
         EXPECT_TRUE(layer.UseMoisture);
@@ -158,9 +158,9 @@ namespace OloEngine::Tests
         layer.WindStiffness = std::numeric_limits<f32>::quiet_NaN();
         layer.WindBranchWeight = -1.0f;
         layer.WindLeafWeight = 3.0f;
-        authored.m_Layers.push_back(layer);
+        authored.m_Layers.Add(layer);
         const auto loaded = Read(Write(authored), kSaveGameFormatVersion);
-        ASSERT_EQ(loaded.m_Layers.size(), 1u);
+        ASSERT_EQ(loaded.m_Layers.Num(), 1u);
         EXPECT_FLOAT_EQ(loaded.m_Layers[0].WindStiffness, 0.0f);
         EXPECT_FLOAT_EQ(loaded.m_Layers[0].WindBranchWeight, 0.0f);
         EXPECT_FLOAT_EQ(loaded.m_Layers[0].WindLeafWeight, 1.0f);
@@ -176,7 +176,7 @@ namespace OloEngine::Tests
         layer.WindBranchWeight = 0.625f;
         layer.WindLeafWeight = 0.8125f;
         layer.WindDebugDisplacement = true;
-        foliage.m_Layers.push_back(layer);
+        foliage.m_Layers.Add(layer);
         const auto yaml = SceneSerializer(scene).SerializeToYAML();
         auto restored = Scene::Create();
         ASSERT_TRUE(SceneSerializer(restored).DeserializeFromYAML(yaml));
@@ -187,7 +187,7 @@ namespace OloEngine::Tests
             {
                 Entity e{ id, result.get() };
                 const auto& layers = e.GetComponent<FoliageComponent>().m_Layers;
-                ASSERT_EQ(layers.size(), 1u);
+                ASSERT_EQ(layers.Num(), 1u);
                 EXPECT_TRUE(layers[0] == layer);
                 ++found;
             }
@@ -243,7 +243,7 @@ namespace OloEngine::Tests
         const auto ids = scene->GetAllEntitiesWith<FoliageComponent>();
         ASSERT_EQ(ids.size(), 1u);
         Entity entity{ *ids.begin(), scene.get() };
-        const auto& layer = entity.GetComponent<FoliageComponent>().m_Layers.at(0);
+        const auto& layer = entity.GetComponent<FoliageComponent>().m_Layers[0];
         EXPECT_FLOAT_EQ(layer.WindStrength, 0.3f);
         EXPECT_FLOAT_EQ(layer.WindSpeed, 1.0f);
         EXPECT_FLOAT_EQ(layer.WindStiffness, 0.0f);

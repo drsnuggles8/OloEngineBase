@@ -192,8 +192,8 @@ namespace OloEngine
             // hold its own post-pass hook on the same graph without either
             // tool clobbering the other.
             graph->AddPostPassHook(kPostPassHookKey,
-                                   [this](const std::string& passName, RenderGraph& g)
-                                   { this->OnPassExecuted(passName, g); });
+                                   [this](std::string_view passName, RenderGraph& g)
+                                   { this->OnPassExecuted(std::string(passName), g); });
         }
     }
 
@@ -208,7 +208,7 @@ namespace OloEngine
             }
         }
         m_TextureCache.clear();
-        m_Captures.clear();
+        m_Captures.Reset();
     }
 
     RHI::ResourceHandle RenderGraphFrameCapture::AcquireTexture(const std::string& passName, Source source, u32 width, u32 height)
@@ -442,9 +442,9 @@ namespace OloEngine
                            center[0], center[1], center[2], center[3]);
         }
 
-        m_Captures.push_back(CaptureEntry{
-            .PassName = passName,
-            .ResourceName = std::string(resourceName),
+        m_Captures.Add(CaptureEntry{
+            .PassName = FString(passName),
+            .ResourceName = FString(resourceName),
             .SourceKind = source,
             .TextureID = dstTextureID,
             .SourceTextureID = sourceTextureID,
@@ -474,7 +474,7 @@ namespace OloEngine
             m_PendingCapture = false;
             m_CapturingActive = true;
             m_DiagLogged = false;
-            m_Captures.clear();
+            m_Captures.Reset();
             m_PassesSeenThisCapture.clear();
         }
 
@@ -501,8 +501,8 @@ namespace OloEngine
         const auto passIndexOf = [&passOrder](std::string_view name) -> u32
         {
             const auto it = std::ranges::find_if(passOrder,
-                                                 [name](const std::string& candidate)
-                                                 { return std::string_view(candidate) == name; });
+                                                 [name](const FString& candidate)
+                                                 { return candidate.ToView() == name; });
             if (it == passOrder.end())
                 return std::numeric_limits<u32>::max();
             return static_cast<u32>(std::distance(passOrder.begin(), it));
@@ -534,7 +534,7 @@ namespace OloEngine
             // matches what the pass actually rendered into.
             if (!m_DiagLogged)
             {
-                const sizet attachmentCount = spec.Attachments.Attachments.size();
+                const sizet attachmentCount = spec.Attachments.Attachments.Num();
                 OLO_CORE_INFO("RenderGraphFrameCapture[live {}:{}]: fbGL={} attachments={} colorTex0={} ({}x{})",
                               SourceName(kind), resourceName, fb->GetRendererID(), attachmentCount,
                               Debug::NativeTextureIdForDiagnostics(colorAttachment), spec.Width, spec.Height);

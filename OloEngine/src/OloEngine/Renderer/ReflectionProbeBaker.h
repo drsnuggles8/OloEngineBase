@@ -5,7 +5,7 @@
 
 #include <glm/glm.hpp>
 #include <span>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -60,7 +60,7 @@ namespace OloEngine
         static Ref<TextureCubemap> CaptureSceneCubemap(Ref<Scene>& scene,
                                                        const glm::vec3& position,
                                                        u32 resolution,
-                                                       std::vector<DDGIMeshCaster>* casterSink = nullptr);
+                                                       TArray<DDGIMeshCaster>* casterSink = nullptr);
 
         // Rasterizes `casters` into a kProbeDistanceResolution RG32F cube-face
         // target around `position` with ReflectionProbe_Distance.glsl (six
@@ -68,7 +68,7 @@ namespace OloEngine
         // each face back and builds the CPU distance field (max-mips + dMax).
         // Encoding contract: ReflectionProbeDistanceField.h. Returns nullptr
         // when the capture cannot run (no GL context resources).
-        static Ref<ReflectionProbeDistanceField> CaptureDistanceField(const std::vector<DDGIMeshCaster>& casters,
+        static Ref<ReflectionProbeDistanceField> CaptureDistanceField(std::span<const DDGIMeshCaster> casters,
                                                                       const glm::vec3& position);
     };
 } // namespace OloEngine

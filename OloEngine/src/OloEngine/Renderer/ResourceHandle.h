@@ -1,5 +1,8 @@
 #pragma once
 
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/String.h"
+
 #include "OloEngine/Core/Base.h"
 
 #include <array>
@@ -59,7 +62,7 @@ namespace OloEngine
             StorageBuffer,
         };
 
-        std::string Name;
+        FString Name;
         Kind Type = Kind::Unknown;
 
         RGResourceHandle() = default;
@@ -76,6 +79,14 @@ namespace OloEngine
             // be reported as a bug by a future stricter validator).
             return Name == other.Name;
         }
+    };
+
+    // Resource identity owns one heap-backed name and value-kind metadata.
+    template<>
+    struct TIsTriviallyRelocatable<RGResourceHandle>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(RGResourceHandle::Name)> &&
+                                      TIsTriviallyRelocatable_V<decltype(RGResourceHandle::Type)>;
     };
 
     struct RGTextureHandle
@@ -223,18 +234,18 @@ namespace OloEngine
         // fill `Attachments`. A depth attachment, if required, should still be
         // represented as a FramebufferTextureFormat::Depth24Stencil8 entry appended
         // after the colour targets (matching FramebufferAttachmentSpecification order).
-        std::vector<RGResourceFormat> Attachments;
+        TArray64<RGResourceFormat> Attachments;
         bool Imported = false;
         bool IsPlaceholder = false;
-        std::string PlaceholderReason;
-        std::string DebugName;
+        FString PlaceholderReason;
+        FString DebugName;
 
         [[nodiscard]] static auto FromHandleKind(RGResourceHandle::Kind kind,
                                                  std::string_view debugName = {}) -> RGResourceDesc
         {
             RGResourceDesc desc;
             desc.Kind = kind;
-            desc.DebugName = std::string(debugName);
+            desc.DebugName = debugName;
             return desc;
         }
 
@@ -251,6 +262,26 @@ namespace OloEngine
                    Attachments == other.Attachments;
         }
     };
+    // Descriptor owns only heap-backed UE values and scalar metadata; no self-relative state.
+    template<>
+    struct TIsTriviallyRelocatable<RGResourceDesc>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(RGResourceDesc::Kind)> &&
+                                      TIsTriviallyRelocatable_V<decltype(RGResourceDesc::Format)> &&
+                                      TIsTriviallyRelocatable_V<decltype(RGResourceDesc::LoadAction)> &&
+                                      TIsTriviallyRelocatable_V<decltype(RGResourceDesc::StoreAction)> &&
+                                      TIsTriviallyRelocatable_V<decltype(RGResourceDesc::Queue)> &&
+                                      TIsTriviallyRelocatable_V<decltype(RGResourceDesc::Width)> &&
+                                      TIsTriviallyRelocatable_V<decltype(RGResourceDesc::Height)> &&
+                                      TIsTriviallyRelocatable_V<decltype(RGResourceDesc::DepthOrLayers)> &&
+                                      TIsTriviallyRelocatable_V<decltype(RGResourceDesc::MipLevels)> &&
+                                      TIsTriviallyRelocatable_V<decltype(RGResourceDesc::Samples)> &&
+                                      TIsTriviallyRelocatable_V<decltype(RGResourceDesc::Attachments)> &&
+                                      TIsTriviallyRelocatable_V<decltype(RGResourceDesc::Imported)> &&
+                                      TIsTriviallyRelocatable_V<decltype(RGResourceDesc::IsPlaceholder)> &&
+                                      TIsTriviallyRelocatable_V<decltype(RGResourceDesc::PlaceholderReason)> &&
+                                      TIsTriviallyRelocatable_V<decltype(RGResourceDesc::DebugName)>;
+    };
 } // namespace OloEngine
 
 namespace std
@@ -260,7 +291,7 @@ namespace std
     {
         std::size_t operator()(const OloEngine::RGResourceHandle& h) const noexcept
         {
-            return std::hash<std::string>{}(h.Name);
+            return std::hash<OloEngine::FString>{}(h.Name);
         }
     };
 

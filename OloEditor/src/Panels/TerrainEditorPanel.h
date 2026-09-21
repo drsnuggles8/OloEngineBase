@@ -173,7 +173,7 @@ namespace OloEngine
         u32 m_StrokeDirtyW = 0;
         u32 m_StrokeDirtyH = 0;
         // Snapshot of the height data before the stroke started (CPU fallback path)
-        std::vector<f32> m_StrokeOldHeights;
+        TArray<f32> m_StrokeOldHeights;
         // GPU path: whether this stroke went through TerrainGPUBrush, and the
         // reusable full-image pre-stroke copies the settle-time snapshots are
         // taken from. A stroke does not know its final rect until the mouse comes
@@ -188,8 +188,8 @@ namespace OloEngine
         // frame, which is the readback this issue exists to remove.
         f32 m_StrokeTargetHeight = 0.0f;
         // Snapshot of splatmap data before paint stroke
-        std::vector<u8> m_StrokeOldSplatmap0;
-        std::vector<u8> m_StrokeOldSplatmap1;
+        TArray<u8> m_StrokeOldSplatmap0;
+        TArray<u8> m_StrokeOldSplatmap1;
         // Terrain references for stroke undo
         Ref<TerrainData> m_StrokeTerrainData;
         Ref<TerrainChunkManager> m_StrokeChunkManager;

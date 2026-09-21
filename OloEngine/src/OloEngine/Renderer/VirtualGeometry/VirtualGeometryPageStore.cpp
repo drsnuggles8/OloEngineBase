@@ -29,7 +29,6 @@ namespace OloEngine
         // Two workers, not hardware_concurrency(): these threads block on file IO rather than
         // burn CPU, and the consumer applies at most m_MaxPageUploadsPerFrame page loads a
         // frame anyway. More would only deepen the queue the frame cannot drain.
-        constexpr u32 kWorkerCount = 2;
 
         // The store's own directory, resolved once. A process-private file under the OS temp
         // directory rather than anywhere under `assets/`: the editor's asset watcher imports
@@ -337,10 +336,10 @@ namespace OloEngine
             {
                 OLO_CORE_WARN("VirtualGeometryPageStore: could not open read handle {} for '{}' — running "
                               "with {} IO worker(s)",
-                              i, m_Path.string(), m_WorkerFiles.size());
+                              i, m_Path.string(), static_cast<sizet>(m_WorkerFiles.Num()));
                 continue;
             }
-            m_WorkerFiles.push_back(stream);
+            m_WorkerFiles.Add(stream);
         }
 
         m_WriteCursor = 0;
@@ -350,7 +349,7 @@ namespace OloEngine
 
     void VirtualGeometryPageStore::StartWorkers()
     {
-        if (!m_Workers.empty() || m_File == nullptr)
+        if (m_WorkerCount != 0 || m_File == nullptr)
         {
             return;
         }
@@ -360,10 +359,10 @@ namespace OloEngine
         // had just created; this only spawns the threads that own them.
         for (std::FILE* stream : m_WorkerFiles)
         {
-            m_Workers.emplace_back([this, stream]()
-                                   { WorkerMain(stream); });
+            m_Workers[m_WorkerCount++] = std::thread([this, stream]()
+                                                     { WorkerMain(stream); });
         }
-        if (m_Workers.empty())
+        if (m_WorkerCount == 0)
         {
             OLO_CORE_ERROR("VirtualGeometryPageStore: no IO worker could open '{}' — every asynchronous page "
                            "fault will fall back to a blocking read",
@@ -375,7 +374,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (packed.Pages.empty())
+        if (packed.Pages.IsEmpty())
         {
             return kInvalidMesh;
         }
@@ -387,17 +386,17 @@ namespace OloEngine
         // uv2 is all-or-nothing per mesh, exactly as MeshHasLightmapUVs requires: a page whose
         // uv2 window did not exist would otherwise read a sibling's charts.
         bool const hasLightmapUVs =
-            !packed.LightmapUVs.empty() && packed.LightmapUVs.size() == packed.Vertices.size();
+            !packed.LightmapUVs.IsEmpty() && packed.LightmapUVs.Num() == packed.Vertices.Num();
 
         // Records are built into a LOCAL vector and appended to m_Directory under the lock at
         // the end. The workers index m_Directory, so growing it in place here would reallocate
         // under a reader; and a mesh that fails halfway must leave no directory entries behind.
-        std::vector<PageRecord> records;
-        records.reserve(packed.Pages.size());
+        TArray<PageRecord> records;
+        records.Reserve(static_cast<sizet>(packed.Pages.Num()));
         u32 base = 0;
         {
             std::lock_guard lock(m_Mutex);
-            base = static_cast<u32>(m_Directory.size());
+            base = static_cast<u32>(m_Directory.Num());
         }
         u64 writeCursor = m_WriteCursor;
         if (!SeekTo(m_File, writeCursor))
@@ -415,13 +414,13 @@ namespace OloEngine
             // page that runs past the end would read heap behind the vectors.
             auto const vertexEnd = static_cast<u64>(info.VertexOffset) + info.VertexCount;
             auto const indexEnd = static_cast<u64>(info.IndexOffset) + info.IndexCount;
-            if (vertexEnd > packed.Vertices.size() || indexEnd > packed.Indices.size())
+            if (vertexEnd > static_cast<sizet>(packed.Vertices.Num()) || indexEnd > static_cast<sizet>(packed.Indices.Num()))
             {
                 OLO_CORE_ERROR("VirtualGeometryPageStore: page {} of this mesh spans [{}, {}) vertices / "
                                "[{}, {}) indices, outside the packed arrays ({} / {}) — refusing to spill "
                                "the mesh",
                                info.GroupIndex, info.VertexOffset, vertexEnd, info.IndexOffset, indexEnd,
-                               packed.Vertices.size(), packed.Indices.size());
+                               static_cast<sizet>(packed.Vertices.Num()), static_cast<sizet>(packed.Indices.Num()));
                 return kInvalidMesh;
             }
 
@@ -443,12 +442,12 @@ namespace OloEngine
             auto const vertexBytes = static_cast<u64>(info.VertexCount) * sizeof(VirtualGpuVertex);
             auto const uvBytes = static_cast<u64>(record.LightmapUVCount) * sizeof(glm::vec2);
             auto const indexBytes = static_cast<u64>(info.IndexCount) * sizeof(u32);
-            bool ok = writeSpan(packed.Vertices.data() + info.VertexOffset, vertexBytes);
+            bool ok = writeSpan(packed.Vertices.GetData() + info.VertexOffset, vertexBytes);
             // Never form `LightmapUVs.data() + offset` on an empty vector: data() is allowed
             // to be null and null + n is undefined even when nothing is read through it.
             ok = ok && (record.LightmapUVCount == 0 ||
-                        writeSpan(packed.LightmapUVs.data() + info.VertexOffset, uvBytes));
-            ok = ok && writeSpan(packed.Indices.data() + info.IndexOffset, indexBytes);
+                        writeSpan(packed.LightmapUVs.GetData() + info.VertexOffset, uvBytes));
+            ok = ok && writeSpan(packed.Indices.GetData() + info.IndexOffset, indexBytes);
             if (!ok)
             {
                 OLO_CORE_ERROR("VirtualGeometryPageStore: write failed spilling page {} to '{}' (disk full?) — "
@@ -458,7 +457,7 @@ namespace OloEngine
             }
 
             writeCursor += vertexBytes + uvBytes + indexBytes;
-            records.push_back(record);
+            records.Add(record);
         }
 
         // Flush before any worker can be asked for these bytes: the workers read through their
@@ -474,8 +473,8 @@ namespace OloEngine
 
         {
             std::lock_guard lock(m_Mutex);
-            m_Directory.insert(m_Directory.end(), records.begin(), records.end());
-            m_Stats.PagesWritten += records.size();
+            m_Directory.Append(records);
+            m_Stats.PagesWritten += static_cast<sizet>(records.Num());
             m_Stats.BytesWritten += writeCursor - m_WriteCursor;
         }
         m_WriteCursor = writeCursor;
@@ -498,9 +497,9 @@ namespace OloEngine
         // caller count it.
         try
         {
-            out.Vertices.resize(record.VertexCount);
-            out.LightmapUVs.resize(record.LightmapUVCount);
-            out.Indices.resize(record.IndexCount);
+            out.Vertices.SetNum(record.VertexCount, EAllowShrinking::No);
+            out.LightmapUVs.SetNum(record.LightmapUVCount, EAllowShrinking::No);
+            out.Indices.SetNum(record.IndexCount, EAllowShrinking::No);
         }
         catch (const std::exception& e)
         {
@@ -519,9 +518,9 @@ namespace OloEngine
             return std::fread(data, 1, static_cast<sizet>(bytes), stream) == static_cast<sizet>(bytes);
         };
 
-        bool ok = readSpan(out.Vertices.data(), static_cast<u64>(record.VertexCount) * sizeof(VirtualGpuVertex));
-        ok = ok && readSpan(out.LightmapUVs.data(), static_cast<u64>(record.LightmapUVCount) * sizeof(glm::vec2));
-        ok = ok && readSpan(out.Indices.data(), static_cast<u64>(record.IndexCount) * sizeof(u32));
+        bool ok = readSpan(out.Vertices.GetData(), static_cast<u64>(record.VertexCount) * sizeof(VirtualGpuVertex));
+        ok = ok && readSpan(out.LightmapUVs.GetData(), static_cast<u64>(record.LightmapUVCount) * sizeof(glm::vec2));
+        ok = ok && readSpan(out.Indices.GetData(), static_cast<u64>(record.IndexCount) * sizeof(u32));
         if (!ok)
         {
             // A short read leaves half a page in `out`. Clear it rather than hand back
@@ -543,13 +542,13 @@ namespace OloEngine
             {
                 std::unique_lock lock(m_Mutex);
                 m_WorkAvailable.wait(lock, [this]
-                                     { return m_Stop.load(std::memory_order_relaxed) || !m_Queue.empty(); });
+                                     { return m_Stop.load(std::memory_order_relaxed) || !m_Queue.IsEmpty(); });
                 if (m_Stop.load(std::memory_order_relaxed))
                 {
                     return;
                 }
-                request = m_Queue.front();
-                m_Queue.pop_front();
+                request = m_Queue.First();
+                m_Queue.PopFirst();
                 record = m_Directory[request.Page];
             }
 
@@ -581,7 +580,7 @@ namespace OloEngine
             try
             {
                 std::lock_guard lock(m_Mutex);
-                m_Completions.push_back(std::move(completion));
+                m_Completions.Add(std::move(completion));
             }
             catch (const std::exception& e)
             {
@@ -629,7 +628,7 @@ namespace OloEngine
                                completion.Page, m_Path.string());
             }
         }
-        m_Completions.clear();
+        m_Completions.Reset();
         TrimStagedLocked();
         m_Stats.ReadsInFlight = static_cast<u32>(m_Requested.size());
         m_Stats.PagesReady = static_cast<u32>(m_Ready.size());
@@ -651,7 +650,7 @@ namespace OloEngine
         NoteStagingBytesLocked(static_cast<i64>(payload.ByteSize()));
         auto const seq = m_NextReadySeq++;
         m_Ready.emplace(page, ReadyEntry{ std::move(payload), seq });
-        m_ReadyOrder.emplace_back(page, seq);
+        m_ReadyOrder.PushLast({ page, seq });
     }
 
     void VirtualGeometryPageStore::TrimStagedLocked()
@@ -662,17 +661,17 @@ namespace OloEngine
         // here forever. Without this, a moving camera over a large scene grows the staged set
         // without bound — the store would slowly re-accumulate in RAM exactly the payload it
         // spilled to get rid of, which is the whole point defeated.
-        auto isStale = [this](const std::pair<u32, u64>& entry)
+        auto isStale = [this](const ReadyOrderEntry& entry)
         {
-            auto const it = m_Ready.find(entry.first);
-            return it == m_Ready.end() || it->second.Seq != entry.second;
+            auto const it = m_Ready.find(entry.Page);
+            return it == m_Ready.end() || it->second.Seq != entry.Seq;
         };
 
         // Entries naming a page that was released, or an EARLIER staging of a page that has
         // since been staged again, are stale; drop them so the queue only holds live payloads.
-        while (!m_ReadyOrder.empty() && isStale(m_ReadyOrder.front()))
+        while (!m_ReadyOrder.IsEmpty() && isStale(m_ReadyOrder.First()))
         {
-            m_ReadyOrder.pop_front();
+            m_ReadyOrder.PopFirst();
         }
 
         // Oldest-first, but never a LEASED payload: a caller is holding a pointer into it
@@ -682,46 +681,46 @@ namespace OloEngine
         //
         // `skipped` holds the leased entries passed over, in order, and they go back on the
         // front afterwards so the queue stays an arrival-ordered list rather than losing them.
-        std::deque<std::pair<u32, u64>> skipped;
-        while (m_Ready.size() > m_MaxStagedPages && !m_ReadyOrder.empty())
+        TDeque<ReadyOrderEntry> skipped;
+        while (m_Ready.size() > m_MaxStagedPages && !m_ReadyOrder.IsEmpty())
         {
-            auto const entry = m_ReadyOrder.front();
-            m_ReadyOrder.pop_front();
+            auto const entry = m_ReadyOrder.First();
+            m_ReadyOrder.PopFirst();
             if (isStale(entry))
             {
                 continue;
             }
-            auto it = m_Ready.find(entry.first);
+            auto it = m_Ready.find(entry.Page);
             if (it->second.Leased)
             {
-                skipped.push_back(entry);
+                skipped.PushLast(entry);
                 continue;
             }
             NoteStagingBytesLocked(-static_cast<i64>(it->second.Payload.ByteSize()));
             m_Ready.erase(it);
             ++m_Stats.StagedDiscards;
         }
-        while (!skipped.empty())
+        while (!skipped.IsEmpty())
         {
-            m_ReadyOrder.push_front(skipped.back());
-            skipped.pop_back();
+            m_ReadyOrder.PushFirst(skipped.Last());
+            skipped.PopLast();
         }
 
         // Stale entries in the MIDDLE of the deque are not reachable by the front scan above
         // (consumption is not strictly FIFO), so the deque can outgrow the map it indexes even
         // while the map stays capped. Compact rather than let a bounded cache carry an
         // unbounded index.
-        if (m_ReadyOrder.size() > 4 * static_cast<sizet>(m_MaxStagedPages) + 4)
+        if (static_cast<sizet>(m_ReadyOrder.Num()) > 4 * static_cast<sizet>(m_MaxStagedPages) + 4)
         {
-            std::deque<std::pair<u32, u64>> live;
+            TDeque<ReadyOrderEntry> live;
             for (const auto& entry : m_ReadyOrder)
             {
                 if (!isStale(entry))
                 {
-                    live.push_back(entry);
+                    live.PushLast(entry);
                 }
             }
-            m_ReadyOrder.swap(live);
+            m_ReadyOrder = std::move(live);
         }
     }
 
@@ -730,7 +729,7 @@ namespace OloEngine
     {
         outPayload = nullptr;
         auto const page = meshBase + pageIndex;
-        if (meshBase == kInvalidMesh || page >= m_Directory.size())
+        if (meshBase == kInvalidMesh || page >= static_cast<sizet>(m_Directory.Num()))
         {
             return FetchState::Failed;
         }
@@ -740,7 +739,7 @@ namespace OloEngine
         // would otherwise retry a page that will never be queued, and every read counter would
         // stay at zero while the geometry silently stayed coarse. StartWorkers already logged
         // why; ReadPageBlocking counts the cost.
-        if (m_Workers.empty())
+        if (m_WorkerCount == 0)
         {
             {
                 // Answer from what is already staged first. Without this the degraded path
@@ -804,7 +803,7 @@ namespace OloEngine
         }
 
         m_Requested.insert(page);
-        m_Queue.push_back(Request{ page });
+        m_Queue.PushLast(Request{ page });
         ++m_Stats.ReadsIssued;
         m_Stats.ReadsInFlight = static_cast<u32>(m_Requested.size());
         m_WorkAvailable.notify_one();
@@ -854,7 +853,7 @@ namespace OloEngine
 
         out = {};
         auto const page = meshBase + pageIndex;
-        if (meshBase == kInvalidMesh || m_File == nullptr || page >= m_Directory.size())
+        if (meshBase == kInvalidMesh || m_File == nullptr || page >= static_cast<sizet>(m_Directory.Num()))
         {
             return false;
         }
@@ -902,12 +901,12 @@ namespace OloEngine
 
     void VirtualGeometryPageStore::Close()
     {
-        if (!m_Workers.empty())
+        if (m_WorkerCount != 0)
         {
             {
                 std::lock_guard lock(m_Mutex);
                 m_Stop.store(true, std::memory_order_relaxed);
-                m_Queue.clear();
+                m_Queue.Reset();
             }
             m_WorkAvailable.notify_all();
             for (std::thread& worker : m_Workers)
@@ -917,13 +916,13 @@ namespace OloEngine
                     worker.join();
                 }
             }
-            m_Workers.clear();
+            m_WorkerCount = 0;
         }
         for (std::FILE* stream : m_WorkerFiles)
         {
             (void)std::fclose(stream);
         }
-        m_WorkerFiles.clear();
+        m_WorkerFiles.Reset();
 
         if (m_File != nullptr)
         {
@@ -939,12 +938,12 @@ namespace OloEngine
         }
 
         m_Path.clear();
-        m_Directory.clear();
-        m_Queue.clear();
-        m_Completions.clear();
+        m_Directory.Reset();
+        m_Queue.Reset();
+        m_Completions.Reset();
         m_Requested.clear();
         m_Ready.clear();
-        m_ReadyOrder.clear();
+        m_ReadyOrder.Reset();
         m_NextReadySeq = 1;
         m_Failed.clear();
         m_WriteCursor = 0;

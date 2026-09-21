@@ -35,6 +35,27 @@
 using namespace OloEngine;
 using namespace OloEngine::LowLevelTasks;
 
+namespace OloEngine::Testing
+{
+    struct FMutexLockRateIteration
+    {
+        i64 LockRate = 0;
+        i64 LockCount = 0;
+        TArray<i64> LockCountByThread;
+    };
+} // namespace OloEngine::Testing
+
+namespace OloEngine
+{
+    template<>
+    struct TIsTriviallyRelocatable<Testing::FMutexLockRateIteration>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(Testing::FMutexLockRateIteration::LockRate)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(Testing::FMutexLockRateIteration::LockCount)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(Testing::FMutexLockRateIteration::LockCountByThread)>::Value;
+    };
+} // namespace OloEngine
+
 // ============================================================================
 // Test Utilities
 // ============================================================================
@@ -104,12 +125,7 @@ static void TestLockRate(LockType& Mutex, i32 LockTarget, i32 IterationCount)
               << std::setw(14) << "StdDev"
               << std::endl;
 
-    struct FIteration
-    {
-        i64 LockRate = 0;
-        i64 LockCount = 0;
-        TArray<i64> LockCountByThread;
-    };
+    using FIteration = Testing::FMutexLockRateIteration;
     TArray<FIteration> Iterations;
 
     const i32 ThreadLimit = static_cast<i32>(FScheduler::Get().GetNumWorkers());

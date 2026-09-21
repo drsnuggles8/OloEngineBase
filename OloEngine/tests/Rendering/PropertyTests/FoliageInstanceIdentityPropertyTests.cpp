@@ -37,6 +37,8 @@
 // =============================================================================
 
 #include "OloEnginePCH.h"
+#include <span>
+#include "OloEngine/Containers/Array.h"
 
 #include "OloEngine/Terrain/Foliage/FoliageInstanceRegistry.h"
 #include "OloEngine/Terrain/Foliage/FoliagePlacement.h"
@@ -60,9 +62,9 @@ namespace
     /// A perfectly flat field at `height` (normalized [0, 1]). Every cell's
     /// normal is straight up, so the default 0-45 degree slope gate accepts all
     /// of them.
-    [[nodiscard]] std::vector<f32> FlatField(f32 height)
+    [[nodiscard]] TArray<f32> FlatField(f32 height)
     {
-        return std::vector<f32>(static_cast<sizet>(kResolution) * kResolution, height);
+        return TArray<f32>(static_cast<sizet>(kResolution) * kResolution, height);
     }
 
     /// Flat on the left, broken ground on the right whose normals tilt past the
@@ -75,9 +77,9 @@ namespace
     /// stay inside [0, 1] across half the field cannot get there (0.5 over 32
     /// units is ~17 degrees), which is exactly the mistake this comment exists
     /// to stop the next person repeating.
-    [[nodiscard]] std::vector<f32> HalfSteepField()
+    [[nodiscard]] TArray<f32> HalfSteepField()
     {
-        std::vector<f32> heights(static_cast<sizet>(kResolution) * kResolution, 0.5f);
+        TArray<f32> heights(static_cast<sizet>(kResolution) * kResolution, 0.5f);
         for (u32 z = 0; z < kResolution; ++z)
         {
             for (u32 x = kResolution / 2; x < kResolution; ++x)
@@ -100,16 +102,16 @@ namespace
     /// The driver loop from FoliageRenderer::GenerateInstances, minus the GPU
     /// upload. Keep in step with it.
     void Regenerate(FoliageInstanceRegistry& registry,
-                    const std::vector<FoliageLayer>& layers,
-                    const std::vector<f32>& heights,
+                    const TArray<FoliageLayer>& layers,
+                    const TArray<f32>& heights,
                     FoliageRepresentation representation = FoliageRepresentation::MeshCard,
                     bool impostorUnavailable = false,
                     bool reverseBufferOrder = false)
     {
         registry.BeginGeneration(layers);
 
-        std::vector<FoliagePlacement::Placement> placements;
-        for (u32 layerIdx = 0; layerIdx < static_cast<u32>(layers.size()); ++layerIdx)
+        TArray<FoliagePlacement::Placement> placements;
+        for (u32 layerIdx = 0; layerIdx < static_cast<u32>(layers.Num()); ++layerIdx)
         {
             const auto& layer = layers[layerIdx];
             if (!layer.Enabled || layer.Density <= 0.0f)
@@ -130,7 +132,7 @@ namespace
             {
                 std::ranges::reverse(placements);
             }
-            for (u32 row = 0; row < static_cast<u32>(placements.size()); ++row)
+            for (u32 row = 0; row < static_cast<u32>(placements.Num()); ++row)
             {
                 registry.AddInstance(placements[row].m_CellX, placements[row].m_CellZ,
                                      placements[row].m_Row, row);
@@ -160,18 +162,18 @@ namespace OloEngine::Tests
     {
         FoliageInstanceRegistry registry;
         const auto heights = FlatField(0.5f);
-        const std::vector<FoliageLayer> layers{ MakeLayer("Grass") };
+        const TArray<FoliageLayer> layers{ MakeLayer("Grass") };
 
         Regenerate(registry, layers, heights);
-        ASSERT_GT(registry.GetRecords().size(), 100u) << "fixture must place enough plants to be meaningful";
+        ASSERT_GT(registry.GetRecords().Num(), 100u) << "fixture must place enough plants to be meaningful";
         const auto before = LiveIds(registry);
 
         const u64 generationBefore = registry.GetGeneration();
         Regenerate(registry, layers, heights);
 
         EXPECT_EQ(LiveIds(registry), before);
-        EXPECT_TRUE(registry.GetLastDelta().m_Added.empty());
-        EXPECT_TRUE(registry.GetLastDelta().m_Retired.empty());
+        EXPECT_TRUE(registry.GetLastDelta().m_Added.IsEmpty());
+        EXPECT_TRUE(registry.GetLastDelta().m_Retired.IsEmpty());
         EXPECT_EQ(registry.GetLastDelta().m_Survived, before.size());
         // Nothing changed, so nothing is allowed to look like a change.
         EXPECT_EQ(registry.GetLastDelta().m_Updated, 0u);
@@ -183,7 +185,7 @@ namespace OloEngine::Tests
     TEST(FoliageInstanceIdentity, SculptKeepsIdentityAndMovesPosition)
     {
         FoliageInstanceRegistry registry;
-        const std::vector<FoliageLayer> layers{ MakeLayer("Grass") };
+        const TArray<FoliageLayer> layers{ MakeLayer("Grass") };
 
         Regenerate(registry, layers, FlatField(0.5f));
         const auto before = LiveIds(registry);
@@ -196,7 +198,7 @@ namespace OloEngine::Tests
         Regenerate(registry, layers, FlatField(0.75f));
 
         EXPECT_EQ(LiveIds(registry), before) << "a sculpt that keeps a placement must keep its id";
-        EXPECT_TRUE(registry.GetLastDelta().m_Retired.empty());
+        EXPECT_TRUE(registry.GetLastDelta().m_Retired.IsEmpty());
         // ...but every one of them MOVED, and a consumer caching bounds has to
         // be told: same ids, new generation.
         EXPECT_EQ(registry.GetLastDelta().m_Updated, before.size());
@@ -213,7 +215,7 @@ namespace OloEngine::Tests
     TEST(FoliageInstanceIdentity, SteepeningRetiresOnlyTheCellsThatStopQualifying)
     {
         FoliageInstanceRegistry registry;
-        const std::vector<FoliageLayer> layers{ MakeLayer("Grass") };
+        const TArray<FoliageLayer> layers{ MakeLayer("Grass") };
 
         Regenerate(registry, layers, FlatField(0.5f));
         const auto before = LiveIds(registry);
@@ -235,18 +237,18 @@ namespace OloEngine::Tests
             EXPECT_TRUE(registry.IsRetired(id));
             EXPECT_FALSE(registry.IsLive(id));
         }
-        EXPECT_EQ(before.size() - after.size(), registry.GetLastDelta().m_Retired.size());
+        EXPECT_EQ(before.size() - after.size(), registry.GetLastDelta().m_Retired.Num());
     }
 
     TEST(FoliageInstanceIdentity, TerrainTransformUpdatesWorldBoundsWithoutInvalidating)
     {
         FoliageInstanceRegistry registry;
-        const std::vector<FoliageLayer> layers{ MakeLayer("Grass") };
+        const TArray<FoliageLayer> layers{ MakeLayer("Grass") };
         Regenerate(registry, layers, FlatField(0.5f));
 
         const auto before = LiveIds(registry);
         const u64 generationBefore = registry.GetGeneration();
-        ASSERT_FALSE(registry.GetGroups().empty());
+        ASSERT_FALSE(registry.GetGroups().IsEmpty());
         const BoundingBox worldBefore = registry.GetGroups()[0].m_WorldBounds;
         const BoundingBox localBefore = registry.GetGroups()[0].m_LocalBounds;
 
@@ -269,7 +271,7 @@ namespace OloEngine::Tests
     {
         FoliageInstanceRegistry registry;
         const auto heights = FlatField(0.5f);
-        std::vector<FoliageLayer> layers{ MakeLayer("Grass") };
+        TArray<FoliageLayer> layers{ MakeLayer("Grass") };
 
         Regenerate(registry, layers, heights);
         const auto before = LiveIds(registry);
@@ -282,7 +284,7 @@ namespace OloEngine::Tests
         Regenerate(registry, layers, heights);
 
         EXPECT_EQ(LiveIds(registry), before);
-        EXPECT_TRUE(registry.GetLastDelta().m_Retired.empty());
+        EXPECT_TRUE(registry.GetLastDelta().m_Retired.IsEmpty());
         // The tint is part of the material, so every plant's state changed
         // while its identity did not: an update, and a new generation.
         EXPECT_EQ(registry.GetLastDelta().m_Updated, before.size());
@@ -300,7 +302,7 @@ namespace OloEngine::Tests
     {
         FoliageInstanceRegistry registry;
         const auto heights = FlatField(0.5f);
-        std::vector<FoliageLayer> layers{ MakeLayer("Grass", 0.25f) };
+        TArray<FoliageLayer> layers{ MakeLayer("Grass", 0.25f) };
 
         Regenerate(registry, layers, heights);
         const auto before = LiveIds(registry);
@@ -320,14 +322,14 @@ namespace OloEngine::Tests
             EXPECT_TRUE(registry.IsRetired(id));
         }
         EXPECT_EQ(registry.GetLastDelta().m_Survived, 0u);
-        EXPECT_EQ(registry.GetLastDelta().m_Retired.size(), before.size());
+        EXPECT_EQ(registry.GetLastDelta().m_Retired.Num(), before.size());
     }
 
     TEST(FoliageInstanceIdentity, DisablingALayerRetiresOnlyItsInstances)
     {
         FoliageInstanceRegistry registry;
         const auto heights = FlatField(0.5f);
-        std::vector<FoliageLayer> layers{ MakeLayer("Grass"), MakeLayer("Flowers") };
+        TArray<FoliageLayer> layers{ MakeLayer("Grass"), MakeLayer("Flowers") };
 
         Regenerate(registry, layers, heights);
         std::set<FoliageInstanceId> grassBefore;
@@ -357,7 +359,7 @@ namespace OloEngine::Tests
         // retiring and reissuing every id it owned.
         FoliageInstanceRegistry registry;
         const auto heights = FlatField(0.5f);
-        std::vector<FoliageLayer> layers{ MakeLayer("Grass"), MakeLayer("Grass", 0.16f) };
+        TArray<FoliageLayer> layers{ MakeLayer("Grass"), MakeLayer("Grass", 0.16f) };
 
         Regenerate(registry, layers, heights);
         std::set<FoliageInstanceId> secondBefore;
@@ -382,19 +384,19 @@ namespace OloEngine::Tests
     {
         FoliageInstanceRegistry registry;
         const auto heights = FlatField(0.5f);
-        std::vector<FoliageLayer> layers{ MakeLayer("Grass") };
+        TArray<FoliageLayer> layers{ MakeLayer("Grass") };
 
         Regenerate(registry, layers, heights);
         const auto before = LiveIds(registry);
 
         layers[0].Enabled = false;
         Regenerate(registry, layers, heights);
-        ASSERT_TRUE(registry.GetRecords().empty());
+        ASSERT_TRUE(registry.GetRecords().IsEmpty());
 
         layers[0].Enabled = true;
         Regenerate(registry, layers, heights);
 
-        EXPECT_EQ(registry.GetRecords().size(), before.size()) << "the plants must come back";
+        EXPECT_EQ(registry.GetRecords().Num(), before.size()) << "the plants must come back";
         for (const auto id : LiveIds(registry))
         {
             EXPECT_FALSE(before.contains(id)) << "a re-enabled layer must not revive retired ids";
@@ -407,7 +409,7 @@ namespace OloEngine::Tests
     {
         FoliageInstanceRegistry registry;
         const auto heights = FlatField(0.5f);
-        std::vector<FoliageLayer> layers{ MakeLayer("Grass"), MakeLayer("Flowers") };
+        TArray<FoliageLayer> layers{ MakeLayer("Grass"), MakeLayer("Flowers") };
 
         Regenerate(registry, layers, heights);
         std::set<FoliageInstanceId> grassBefore;
@@ -420,26 +422,26 @@ namespace OloEngine::Tests
         }
         const auto allBefore = LiveIds(registry);
 
-        layers.pop_back();
+        layers.Pop();
         Regenerate(registry, layers, heights);
 
         EXPECT_EQ(LiveIds(registry), grassBefore);
-        EXPECT_EQ(registry.GetLastDelta().m_Retired.size(), allBefore.size() - grassBefore.size());
+        EXPECT_EQ(registry.GetLastDelta().m_Retired.Num(), allBefore.size() - grassBefore.size());
     }
 
     TEST(FoliageInstanceIdentity, ClearRetiresEverythingAndNeverReusesAnId)
     {
         FoliageInstanceRegistry registry;
         const auto heights = FlatField(0.5f);
-        const std::vector<FoliageLayer> layers{ MakeLayer("Grass") };
+        const TArray<FoliageLayer> layers{ MakeLayer("Grass") };
 
         Regenerate(registry, layers, heights);
         const auto before = LiveIds(registry);
         ASSERT_FALSE(before.empty());
 
         registry.Clear();
-        EXPECT_TRUE(registry.GetRecords().empty());
-        EXPECT_TRUE(registry.GetGroups().empty());
+        EXPECT_TRUE(registry.GetRecords().IsEmpty());
+        EXPECT_TRUE(registry.GetGroups().IsEmpty());
         EXPECT_EQ(registry.GetCensus(), FoliageCensus{})
             << "a cleared system must stop reporting a census it no longer has";
         for (const auto id : before)
@@ -463,7 +465,7 @@ namespace OloEngine::Tests
     {
         FoliageInstanceRegistry registry;
         const auto heights = FlatField(0.5f);
-        const std::vector<FoliageLayer> layers{ MakeLayer("Grass") };
+        const TArray<FoliageLayer> layers{ MakeLayer("Grass") };
 
         Regenerate(registry, layers, heights);
         const auto before = LiveIds(registry);
@@ -474,7 +476,7 @@ namespace OloEngine::Tests
         Regenerate(registry, layers, heights, FoliageRepresentation::MeshCard, false, /*reverseBufferOrder=*/true);
 
         EXPECT_EQ(LiveIds(registry), before) << "row order must not touch identity";
-        EXPECT_TRUE(registry.GetLastDelta().m_Retired.empty());
+        EXPECT_TRUE(registry.GetLastDelta().m_Retired.IsEmpty());
         EXPECT_NE(registry.GetIdForBufferRow(0, 0), firstRowBefore)
             << "the fixture must actually have reordered the buffer";
 
@@ -504,13 +506,13 @@ namespace OloEngine::Tests
         FoliageInstanceRegistry registry;
         Regenerate(registry, { MakeLayer("Grass"), MakeLayer("Flowers") }, FlatField(0.5f));
 
-        ASSERT_FALSE(registry.GetGroups().empty());
+        ASSERT_FALSE(registry.GetGroups().IsEmpty());
 
         sizet grouped = 0;
         for (const auto& group : registry.GetGroups())
         {
-            grouped += group.m_Instances.size();
-            EXPECT_EQ(group.m_RepresentedCount + group.m_UnsupportedCount, group.m_Instances.size());
+            grouped += group.m_Instances.Num();
+            EXPECT_EQ(group.m_RepresentedCount + group.m_UnsupportedCount, group.m_Instances.Num());
 
             for (const auto id : group.m_Instances)
             {
@@ -527,12 +529,12 @@ namespace OloEngine::Tests
                 EXPECT_GE(group.m_LocalBounds.Max.z, record->m_LocalBounds.Max.z);
             }
         }
-        EXPECT_EQ(grouped, registry.GetRecords().size()) << "every instance belongs to exactly one group";
+        EXPECT_EQ(grouped, registry.GetRecords().Num()) << "every instance belongs to exactly one group";
 
         // And the record's own back-pointer agrees.
         for (const auto& record : registry.GetRecords())
         {
-            ASSERT_LT(record.m_GroupIndex, registry.GetGroups().size());
+            ASSERT_LT(record.m_GroupIndex, registry.GetGroups().Num());
             const auto& group = registry.GetGroups()[record.m_GroupIndex];
             EXPECT_NE(std::ranges::find(group.m_Instances, record.m_Id), group.m_Instances.end());
         }
@@ -542,9 +544,9 @@ namespace OloEngine::Tests
     {
         FoliageInstanceRegistry registry;
         Regenerate(registry, { MakeLayer("Grass") }, FlatField(0.5f));
-        ASSERT_FALSE(registry.GetRecords().empty());
+        ASSERT_FALSE(registry.GetRecords().IsEmpty());
 
-        const auto& record = registry.GetRecords().front();
+        const auto& record = registry.GetRecords()[0];
         const auto& owning = registry.GetGroups()[record.m_GroupIndex];
 
         const auto hits = registry.FindGroupsInWorldBounds(owning.m_WorldBounds);
@@ -552,7 +554,7 @@ namespace OloEngine::Tests
 
         // A box far outside the terrain matches nothing.
         const BoundingBox elsewhere(glm::vec3(10000.0f), glm::vec3(10100.0f));
-        EXPECT_TRUE(registry.FindGroupsInWorldBounds(elsewhere).empty());
+        EXPECT_TRUE(registry.FindGroupsInWorldBounds(elsewhere).IsEmpty());
     }
 
     // ── Representation census ────────────────────────────────────────────
@@ -561,17 +563,17 @@ namespace OloEngine::Tests
     {
         FoliageInstanceRegistry registry;
         const auto heights = FlatField(0.5f);
-        const std::vector<FoliageLayer> layers{ MakeLayer("Grass") };
+        const TArray<FoliageLayer> layers{ MakeLayer("Grass") };
 
         Regenerate(registry, layers, heights, FoliageRepresentation::MeshCard);
         {
             const auto& census = registry.GetCensus();
-            EXPECT_EQ(census.m_CanonicalInstances, registry.GetRecords().size());
+            EXPECT_EQ(census.m_CanonicalInstances, registry.GetRecords().Num());
             EXPECT_EQ(census.m_MeshCardInstances, census.m_CanonicalInstances);
             EXPECT_EQ(census.m_ImpostorInstances, 0u);
             EXPECT_EQ(census.m_UnsupportedInstances, 0u);
             EXPECT_EQ(census.m_UnsupportedVariants, 0u);
-            EXPECT_EQ(census.m_SpatialGroups, registry.GetGroups().size());
+            EXPECT_EQ(census.m_SpatialGroups, registry.GetGroups().Num());
         }
 
         Regenerate(registry, layers, heights, FoliageRepresentation::Impostor);
@@ -611,7 +613,7 @@ namespace OloEngine::Tests
         // Two layers that differ only by name share nothing about placement but
         // DO have different albedo paths, so two descriptors.
         Regenerate(registry, { MakeLayer("Grass"), MakeLayer("Flowers") }, heights);
-        EXPECT_EQ(registry.GetMaterials().size(), 2u);
+        EXPECT_EQ(registry.GetMaterials().Num(), 2u);
 
         std::set<FoliageMaterialKey> keysByLayer[2];
         for (const auto& record : registry.GetRecords())

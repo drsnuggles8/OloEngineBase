@@ -1,4 +1,5 @@
 #pragma once
+#include "OloEngine/Containers/Array.h"
 
 // Process-wide name -> shader lookup for EVERY shader the engine creates from a
 // file, whether or not it lives in a ShaderLibrary (issue #607).
@@ -100,7 +101,7 @@ namespace OloEngine
             const std::scoped_lock lock(m_Mutex);
             auto& entries = m_Shaders[name];
             if (std::ranges::find(entries, shader) == entries.end())
-                entries.push_back(shader);
+                entries.Add(shader);
         }
 
         void UnregisterShader(Shader* shader)
@@ -118,7 +119,7 @@ namespace OloEngine
             const std::scoped_lock lock(m_Mutex);
             auto& entries = m_ComputeShaders[name];
             if (std::ranges::find(entries, shader) == entries.end())
-                entries.push_back(shader);
+                entries.Add(shader);
         }
 
         void UnregisterComputeShader(ComputeShader* shader)
@@ -181,26 +182,26 @@ namespace OloEngine
         ShaderRegistry() = default;
 
         template<typename TShader>
-        static void EraseFrom(std::unordered_map<std::string, std::vector<TShader*>>& map, TShader* shader)
+        static void EraseFrom(std::unordered_map<std::string, TArray<TShader*>>& map, TShader* shader)
         {
             for (auto it = map.begin(); it != map.end();)
             {
                 auto& entries = it->second;
-                std::erase(entries, shader);
-                it = entries.empty() ? map.erase(it) : std::next(it);
+                entries.Remove(shader); // RemoveAll compacts without shrinking capacity.
+                it = entries.IsEmpty() ? map.erase(it) : std::next(it);
             }
         }
 
         template<typename TShader>
         static std::vector<Ref<TShader>> LockAll(
-            const std::unordered_map<std::string, std::vector<TShader*>>& map,
+            const std::unordered_map<std::string, TArray<TShader*>>& map,
             const std::string& name)
         {
             std::vector<Ref<TShader>> found;
             const auto it = map.find(name);
             if (it == map.end())
                 return found;
-            found.reserve(it->second.size());
+            found.reserve(static_cast<sizet>(it->second.Num()));
             for (TShader* raw : it->second)
             {
                 // Lock() is the race-free "is it still alive? then take a strong
@@ -213,7 +214,7 @@ namespace OloEngine
         }
 
         mutable std::mutex m_Mutex;
-        std::unordered_map<std::string, std::vector<Shader*>> m_Shaders;
-        std::unordered_map<std::string, std::vector<ComputeShader*>> m_ComputeShaders;
+        std::unordered_map<std::string, TArray<Shader*>> m_Shaders;
+        std::unordered_map<std::string, TArray<ComputeShader*>> m_ComputeShaders;
     };
 } // namespace OloEngine

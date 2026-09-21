@@ -87,9 +87,9 @@ namespace OloEngine
             const BackendSelection backend = SelectRendererBackend(
                 m_Specification.CommandLineArgs.Count, m_Specification.CommandLineArgs.Args,
                 DefaultRendererConfigPath());
-            if (!backend.Diagnostic.empty())
+            if (!backend.Diagnostic.IsEmpty())
             {
-                OLO_CORE_ERROR("[RHI] {}", backend.Diagnostic);
+                OLO_CORE_ERROR("[RHI] {}", backend.Diagnostic.ToView());
             }
             RendererAPI::SetAPI(backend.Api);
             // ADR 0011 amendment (39): RenderCommand::s_RendererAPI was built
@@ -99,7 +99,7 @@ namespace OloEngine
             // is the only moment this swap is legal.
             RenderCommand::RecreateForSelectedBackend();
             OLO_CORE_INFO("[RHI] Backend: {} (source: {})",
-                          backend.Api == RendererAPI::API::Vulkan ? "Vulkan" : "OpenGL", backend.Source);
+                          backend.Api == RendererAPI::API::Vulkan ? "Vulkan" : "OpenGL", backend.Source.ToView());
             // A persisted preference is the SOFT half of the selection chain
             // (#691): if Vulkan came from the config file and cannot
             // actually initialise on this machine, the boot below retries on

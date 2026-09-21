@@ -7,9 +7,9 @@
 #include "OloEngine/Threading/SharedMutex.h"
 
 #include <glm/glm.hpp>
-#include <string>
+#include "OloEngine/Containers/String.h"
 #include <unordered_map>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -60,15 +60,31 @@ namespace OloEngine
         f32 MorphRegion = 0.3f;
 
         // Base directory for tile files (e.g., "assets/terrain/tiles/")
-        std::string TileDirectory;
+        FString TileDirectory;
 
         // Pattern for tile filenames, %d/%d replaced by GridX/GridZ
         // e.g., "tile_%d_%d.raw"
-        std::string TileFilePattern = "tile_%d_%d.raw";
+        FString TileFilePattern = "tile_%d_%d.raw";
     };
 
     // Manages a grid of terrain tiles, streaming them in/out based on camera proximity.
     // Uses an LRU cache with configurable tile budget and async loading via the Task system.
+    struct TerrainPendingLoad
+    {
+        TileCoord Coord;
+        Tasks::TTask<bool> Task;
+        Ref<TerrainTile> Tile;
+    };
+
+    // Task and Ref own external objects; TileCoord contains only integer coordinates.
+    template<>
+    struct TIsTriviallyRelocatable<TerrainPendingLoad>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(TerrainPendingLoad::Coord)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TerrainPendingLoad::Task)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TerrainPendingLoad::Tile)>::Value;
+    };
+
     class TerrainStreamer : public RefCounted
     {
       public:
@@ -85,7 +101,7 @@ namespace OloEngine
         void ProcessCompletedLoads();
 
         // Get all ready tiles for rendering
-        void GetReadyTiles(std::vector<Ref<TerrainTile>>& outTiles) const;
+        void GetReadyTiles(TArray<Ref<TerrainTile>>& outTiles) const;
 
         // Set shared material for all tiles
         void SetMaterial(const Ref<TerrainMaterial>& material);
@@ -108,7 +124,7 @@ namespace OloEngine
 
       private:
         // Build the file path for a tile at the given grid coordinates
-        [[nodiscard]] std::string BuildTilePath(i32 gridX, i32 gridZ) const;
+        [[nodiscard]] FString BuildTilePath(i32 gridX, i32 gridZ) const;
 
         // Request async load for a tile
         void RequestTileLoad(i32 gridX, i32 gridZ);
@@ -123,13 +139,8 @@ namespace OloEngine
         std::unordered_map<TileCoord, Ref<TerrainTile>, TileCoordHash> m_Tiles;
 
         // Track in-flight async load tasks
-        struct PendingLoad
-        {
-            TileCoord Coord;
-            Tasks::TTask<bool> Task;
-            Ref<TerrainTile> Tile;
-        };
-        std::vector<PendingLoad> m_PendingLoads;
+        using PendingLoad = TerrainPendingLoad;
+        TArray<PendingLoad> m_PendingLoads;
 
         // Protects m_Tiles and m_SharedMaterial during async load completion.
         // Reader/writer separation: GetReadyTiles / GetTile / GetLoadedTileCount /

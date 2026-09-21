@@ -158,13 +158,13 @@ TEST(CompressedTextureVisualEvidence, BC7UploadStoresBlocksAndDecompressesOnGPU)
     {
         GLint compressedSize = 0;
         glGetTextureLevelParameteriv(id, 0, GL_TEXTURE_COMPRESSED_IMAGE_SIZE, &compressedSize);
-        ASSERT_EQ(static_cast<sizet>(compressedSize), image.Mips[0].size())
+        ASSERT_EQ(static_cast<sizet>(compressedSize), image.Mips[0].Num())
             << "GPU-reported compressed size != uploaded block bytes";
 
         std::vector<u8> readback(static_cast<sizet>(compressedSize));
         glGetCompressedTextureImage(id, 0, compressedSize, readback.data());
         ASSERT_EQ(glGetError(), GL_NO_ERROR) << "glGetCompressedTextureImage failed";
-        EXPECT_EQ(readback, image.Mips[0]) << "stored BC7 blocks differ from uploaded blocks";
+        EXPECT_TRUE(std::equal(readback.begin(), readback.end(), image.Mips[0].begin(), image.Mips[0].end())) << "stored BC7 blocks differ from uploaded blocks";
     }
 
     // (2) Ask the driver to decompress the texture and compare to the source.
@@ -233,11 +233,11 @@ TEST(CompressedTextureVisualEvidence, BC5UploadStoresBlocksAndDecompressesOnGPU)
 
     GLint compressedSize = 0;
     glGetTextureLevelParameteriv(id, 0, GL_TEXTURE_COMPRESSED_IMAGE_SIZE, &compressedSize);
-    ASSERT_EQ(static_cast<sizet>(compressedSize), image.Mips[0].size());
+    ASSERT_EQ(static_cast<sizet>(compressedSize), image.Mips[0].Num());
     std::vector<u8> readback(static_cast<sizet>(compressedSize));
     glGetCompressedTextureImage(id, 0, compressedSize, readback.data());
     ASSERT_EQ(glGetError(), GL_NO_ERROR);
-    EXPECT_EQ(readback, image.Mips[0]) << "stored BC5 blocks differ from uploaded blocks";
+    EXPECT_TRUE(std::equal(readback.begin(), readback.end(), image.Mips[0].begin(), image.Mips[0].end())) << "stored BC5 blocks differ from uploaded blocks";
 
     // Decompress and compare the two carried channels (R,G). BC5 leaves B undefined
     // on the GPU (reconstructed by shaders), so only compare R,G here.
@@ -288,11 +288,11 @@ TEST(CompressedTextureVisualEvidence, BC6HUploadStoresBlocksAndDecompressesOnGPU
     // (1) Read the stored compressed blocks back — must be bit-exact with upload.
     GLint compressedSize = 0;
     glGetTextureLevelParameteriv(id, 0, GL_TEXTURE_COMPRESSED_IMAGE_SIZE, &compressedSize);
-    ASSERT_EQ(static_cast<sizet>(compressedSize), image.Mips[0].size());
+    ASSERT_EQ(static_cast<sizet>(compressedSize), image.Mips[0].Num());
     std::vector<u8> readback(static_cast<sizet>(compressedSize));
     glGetCompressedTextureImage(id, 0, compressedSize, readback.data());
     ASSERT_EQ(glGetError(), GL_NO_ERROR);
-    EXPECT_EQ(readback, image.Mips[0]) << "stored BC6H blocks differ from uploaded blocks";
+    EXPECT_TRUE(std::equal(readback.begin(), readback.end(), image.Mips[0].begin(), image.Mips[0].end())) << "stored BC6H blocks differ from uploaded blocks";
 
     // (2) Ask the DRIVER (the real BPTC hardware decoder — an oracle independent of both
     //     our encoder and bcdec) to decompress, and compare to the HDR source.

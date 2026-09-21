@@ -63,14 +63,14 @@ class DialogueSelectChoiceBranchesToTargetTest : public FunctionalTest
         start.Type = "dialogue";
         start.Name = "Start";
         start.Properties.emplace("text", DialoguePropertyValue{ std::string("Pick.") });
-        nodes.push_back(std::move(start));
+        nodes.AddTail(std::move(start));
 
         // Choice node — branches to Left/Right.
         DialogueNodeData choiceNode;
         choiceNode.ID = OloEngine::UUID{ kChoice_ID };
         choiceNode.Type = "choice";
         choiceNode.Name = "Choice";
-        nodes.push_back(std::move(choiceNode));
+        nodes.AddTail(std::move(choiceNode));
 
         // Left target.
         DialogueNodeData left;
@@ -78,7 +78,7 @@ class DialogueSelectChoiceBranchesToTargetTest : public FunctionalTest
         left.Type = "dialogue";
         left.Name = "Left";
         left.Properties.emplace("text", DialoguePropertyValue{ std::string("took the left path") });
-        nodes.push_back(std::move(left));
+        nodes.AddTail(std::move(left));
 
         // Right target.
         DialogueNodeData right;
@@ -86,12 +86,12 @@ class DialogueSelectChoiceBranchesToTargetTest : public FunctionalTest
         right.Type = "dialogue";
         right.Name = "Right";
         right.Properties.emplace("text", DialoguePropertyValue{ std::string(kRightText) });
-        nodes.push_back(std::move(right));
+        nodes.AddTail(std::move(right));
 
         // Edges: Start → Choice, Choice → Left, Choice → Right.
-        edges.push_back({ OloEngine::UUID{ kStart_ID }, OloEngine::UUID{ kChoice_ID }, "", "" });
-        edges.push_back({ OloEngine::UUID{ kChoice_ID }, OloEngine::UUID{ kLeft_ID }, "Left", "" });
-        edges.push_back({ OloEngine::UUID{ kChoice_ID }, OloEngine::UUID{ kRight_ID }, "Right", "" });
+        edges.Add({ OloEngine::UUID{ kStart_ID }, OloEngine::UUID{ kChoice_ID }, "", "" });
+        edges.Add({ OloEngine::UUID{ kChoice_ID }, OloEngine::UUID{ kLeft_ID }, "Left", "" });
+        edges.Add({ OloEngine::UUID{ kChoice_ID }, OloEngine::UUID{ kRight_ID }, "Right", "" });
 
         m_TreeAsset->SetRootNodeID(OloEngine::UUID{ kStart_ID });
         m_TreeAsset->RebuildNodeIndex();
@@ -131,9 +131,11 @@ TEST_F(DialogueSelectChoiceBranchesToTargetTest, SelectChoiceWalksTheChosenEdgeA
     ASSERT_EQ(state.m_State, DialogueState::WaitingForChoice)
         << "choice node didn't transition the dialogue into WaitingForChoice — "
            "the 'choice' branch in ProcessNode is wired wrong.";
-    ASSERT_EQ(state.m_AvailableChoices.size(), 2u)
-        << "expected two choices (Left, Right); got " << state.m_AvailableChoices.size()
+    ASSERT_EQ(state.m_AvailableChoices.Num(), 2u)
+        << "expected two choices (Left, Right); got " << state.m_AvailableChoices.Num()
         << " — m_AvailableChoices isn't being populated from outgoing connections.";
+    EXPECT_EQ(state.m_AvailableChoices[0].Text.ToStdString(), "Left");
+    EXPECT_EQ(state.m_AvailableChoices[1].Text.ToStdString(), "Right");
 
     // Pick the second option (index 1) — should branch to the Right node.
     dialogueSystem->SelectChoice(m_Speaker, /*choiceIndex=*/1);
@@ -148,4 +150,34 @@ TEST_F(DialogueSelectChoiceBranchesToTargetTest, SelectChoiceWalksTheChosenEdgeA
     EXPECT_EQ(state.m_CurrentText, std::string(kRightText));
     EXPECT_EQ(state.m_SelectedChoiceIndex, 1)
         << "m_SelectedChoiceIndex wasn't updated to record which option was taken.";
+}
+
+TEST_F(DialogueSelectChoiceBranchesToTargetTest, ChoiceConditionReachesStringHandlerWithoutChangingLabel)
+{
+    auto* dialogueSystem = GetScene().GetDialogueSystem();
+    ASSERT_NE(dialogueSystem, nullptr);
+    for (auto& node : m_TreeAsset->GetNodesWritable())
+    {
+        if (static_cast<u64>(node.ID) == kLeft_ID)
+        {
+            node.Properties["condition"] = std::string("locked");
+        }
+    }
+    bool evaluated = false;
+    dialogueSystem->RegisterConditionHandler("locked", [&](OloEngine::UUID entity, const std::string& name, const std::string& args)
+                                             {
+                                                 evaluated = true;
+                                                 EXPECT_EQ(static_cast<u64>(entity), static_cast<u64>(m_Speaker.GetUUID()));
+                                                 EXPECT_EQ(name, "locked");
+                                                 EXPECT_TRUE(args.empty());
+                                                 return false; });
+    dialogueSystem->StartDialogue(m_Speaker);
+    TickFor(1.5f);
+    dialogueSystem->AdvanceDialogue(m_Speaker);
+
+    const auto& state = m_Speaker.GetComponent<DialogueStateComponent>();
+    ASSERT_TRUE(evaluated);
+    ASSERT_EQ(state.m_AvailableChoices.Num(), 1u);
+    EXPECT_EQ(state.m_AvailableChoices[0].Text.ToStdString(), "Right");
+    EXPECT_EQ(static_cast<u64>(state.m_AvailableChoices[0].TargetNodeID), kRight_ID);
 }

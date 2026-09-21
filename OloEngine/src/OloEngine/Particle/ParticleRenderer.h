@@ -7,7 +7,6 @@
 #include "OloEngine/Renderer/Mesh.h"
 
 #include <glm/glm.hpp>
-#include <vector>
 
 namespace OloEngine
 {
@@ -23,7 +22,7 @@ namespace OloEngine
                                       const Ref<Texture2D>& texture,
                                       const glm::vec3& worldOffset = glm::vec3(0.0f),
                                       int entityID = -1,
-                                      const std::vector<u32>* sortedIndices = nullptr,
+                                      const TArray<u32>* sortedIndices = nullptr,
                                       const ModuleTextureSheetAnimation* spriteSheet = nullptr);
 
         // Render as billboarded quads facing the camera
@@ -32,7 +31,7 @@ namespace OloEngine
                                              const Ref<Texture2D>& texture,
                                              const glm::vec3& worldOffset = glm::vec3(0.0f),
                                              int entityID = -1,
-                                             const std::vector<u32>* sortedIndices = nullptr,
+                                             const TArray<u32>* sortedIndices = nullptr,
                                              const ModuleTextureSheetAnimation* spriteSheet = nullptr);
 
         // Render particles as stretched billboards (velocity-aligned)
@@ -42,7 +41,7 @@ namespace OloEngine
                                              f32 lengthScale = 1.0f,
                                              const glm::vec3& worldOffset = glm::vec3(0.0f),
                                              int entityID = -1,
-                                             const std::vector<u32>* sortedIndices = nullptr,
+                                             const TArray<u32>* sortedIndices = nullptr,
                                              const ModuleTextureSheetAnimation* spriteSheet = nullptr);
 
         // Render particles as instanced meshes
@@ -52,7 +51,7 @@ namespace OloEngine
                                         const Ref<Texture2D>& texture,
                                         const glm::vec3& worldOffset = glm::vec3(0.0f),
                                         int entityID = -1,
-                                        const std::vector<u32>* sortedIndices = nullptr);
+                                        const TArray<u32>* sortedIndices = nullptr);
 
       private:
         // Compute sprite sheet frame for a particle based on age or speed

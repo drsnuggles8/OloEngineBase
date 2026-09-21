@@ -157,7 +157,7 @@ namespace OloEngine
     {
         RenderGraphNode::Setup(builder, board);
 
-        if (m_Requests.empty())
+        if ((m_Requests.Num() == 0))
         {
             return;
         }
@@ -242,7 +242,7 @@ namespace OloEngine
         // non-empty: the build indexes it by curve, and a short array would read
         // past its end on the first strand past the boundary.
         return request.Groom && request.Binding &&
-               request.RootTransforms.size() == request.Groom->GetCurveCount();
+               static_cast<sizet>(request.RootTransforms.Num()) == request.Groom->GetCurveCount();
     }
 
     GroomRenderPass::CacheEntry* GroomRenderPass::AcquireGeometry(const GroomStrandRequest& request)
@@ -282,7 +282,7 @@ namespace OloEngine
         if (deformed)
         {
             deformation.Binding = request.Binding.Raw();
-            deformation.RootTransforms = request.RootTransforms;
+            deformation.RootTransforms = std::span{ request.RootTransforms.GetData(), static_cast<sizet>(request.RootTransforms.Num()) };
         }
 
         std::vector<GroomStrandVertex> vertices;
@@ -765,7 +765,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         m_Stats.Reset();
-        m_Stats.GroomsSubmitted = static_cast<u32>(m_Requests.size());
+        m_Stats.GroomsSubmitted = static_cast<u32>(m_Requests.Num());
         // One tick per executed frame, 64-bit and owned by this pass. See
         // m_CacheTick for why GroomFrameState::FrameIndex cannot serve.
         ++m_CacheTick;
@@ -778,9 +778,9 @@ namespace OloEngine
             }
         }
 
-        if (m_Requests.empty() || !m_SceneFramebuffer || !m_Shader || !m_ParamsUBO)
+        if ((m_Requests.Num() == 0) || !m_SceneFramebuffer || !m_Shader || !m_ParamsUBO)
         {
-            m_Requests.clear();
+            m_Requests.Empty();
             m_Stats.CachedBytes = m_CacheBytes;
             m_Stats.CachedGrooms = static_cast<u32>(m_Cache.size());
             return;
@@ -801,7 +801,7 @@ namespace OloEngine
             OLO_CORE_ERROR_TAG("Groom",
                                "GroomRenderPass has no coat-shadow placeholder volume; skipping the strand draws "
                                "rather than binding a null 3D sampler.");
-            m_Requests.clear();
+            m_Requests.Empty();
             m_Stats.CachedBytes = m_CacheBytes;
             m_Stats.CachedGrooms = static_cast<u32>(m_Cache.size());
             return;
@@ -1202,7 +1202,7 @@ namespace OloEngine
 
         // Requests are per-frame; holding them would draw last frame's grooms
         // on a frame that published none.
-        m_Requests.clear();
+        m_Requests.Empty();
     }
 
     Ref<Framebuffer> GroomRenderPass::GetTarget() const
@@ -1229,7 +1229,7 @@ namespace OloEngine
         m_Cache.clear();
         m_CacheBytes = 0;
         m_CacheTick = 0;
-        m_Requests.clear();
+        m_Requests.Empty();
         m_SceneFramebuffer = nullptr;
         m_LastReportedReason = GroomCompositionFallbackReason::None;
     }

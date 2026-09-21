@@ -317,7 +317,7 @@ void main()
         window->SwapBuffers();
     }
 
-    std::vector<Ref<Shader>> ShaderWarmup::LoadShadersParallel(
+    TArray<Ref<Shader>> ShaderWarmup::LoadShadersParallel(
         ShaderLibrary& library, Window* window, const std::vector<std::string>& filepaths,
         const std::string_view label, const i32 phase)
     {

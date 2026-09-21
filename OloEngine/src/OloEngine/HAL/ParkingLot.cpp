@@ -269,6 +269,18 @@ namespace OloEngine::ParkingLot
     };
 
     //////////////////////////////////////////////////////////////////////////
+} // namespace OloEngine::ParkingLot
+namespace OloEngine
+{
+    // Intrusive ownership tracks the external thread, never this wrapper's address.
+    template<typename T>
+    struct TIsTriviallyRelocatable<ParkingLot::TRefCountPtr<T>>
+    {
+        static constexpr bool Value = true;
+    };
+} // namespace OloEngine
+namespace OloEngine::ParkingLot
+{
     // FBucket - Cache-line aligned wait queue
 
     class alignas(PLATFORM_CACHE_LINE_SIZE) FBucket final

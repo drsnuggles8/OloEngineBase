@@ -7,10 +7,14 @@
 #include "OloEngine/Scene/Streaming/StreamingVolumeComponent.h"
 #include "OloEngine/Scene/Streaming/StreamingRegionSerializer.h"
 #include "OloEngine/Scene/Streaming/SceneStreamer.h"
+#include "OloEngine/Scene/Scene.h"
+#include "OloEngine/Task/Scheduler.h"
 
 #include <glm/glm.hpp>
 #include <filesystem>
 #include <fstream>
+#include <chrono>
+#include <thread>
 
 using namespace OloEngine;
 
@@ -66,8 +70,8 @@ TEST(StreamingRegion, DefaultState)
 {
     StreamingRegion region;
     EXPECT_EQ(region.m_State, StreamingRegion::State::Unloaded);
-    EXPECT_TRUE(region.m_EntityUUIDs.empty());
-    EXPECT_TRUE(region.m_Name.empty());
+    EXPECT_TRUE(region.m_EntityUUIDs.IsEmpty());
+    EXPECT_TRUE(region.m_Name.IsEmpty());
 }
 
 TEST(StreamingRegion, StateTransitions)
@@ -113,10 +117,10 @@ TEST(StreamingRegion, LRUFrameTracking)
 TEST(StreamingRegion, EntityUUIDs)
 {
     StreamingRegion region;
-    region.m_EntityUUIDs.emplace_back(UUID(123));
-    region.m_EntityUUIDs.emplace_back(UUID(456));
+    region.m_EntityUUIDs.Emplace(UUID(123));
+    region.m_EntityUUIDs.Emplace(UUID(456));
 
-    EXPECT_EQ(region.m_EntityUUIDs.size(), 2u);
+    EXPECT_EQ(region.m_EntityUUIDs.Num(), 2u);
 }
 
 // ============================================================
@@ -130,7 +134,7 @@ TEST(SceneStreamerConfig, DefaultValues)
     EXPECT_GT(cfg.LoadRadius, 0.0f);
     EXPECT_GT(cfg.UnloadRadius, cfg.LoadRadius);
     EXPECT_GT(cfg.MaxLoadedRegions, 0u);
-    EXPECT_TRUE(cfg.RegionDirectory.empty());
+    EXPECT_TRUE(cfg.RegionDirectory.IsEmpty());
 }
 
 TEST(SceneStreamerConfig, CustomValues)
@@ -195,6 +199,65 @@ TEST(SceneStreamer, ConfigAccessors)
 
     const auto& constRef = static_cast<const SceneStreamer&>(streamer);
     EXPECT_FLOAT_EQ(constRef.GetConfig().LoadRadius, 300.0f);
+}
+
+class SceneStreamerAsyncTest : public ::testing::Test
+{
+  protected:
+    static void SetUpTestSuite()
+    {
+        LowLevelTasks::FScheduler::Get().StartWorkers();
+    }
+
+    static void TearDownTestSuite()
+    {
+        LowLevelTasks::FScheduler::Get().StopWorkers();
+    }
+};
+
+TEST_F(SceneStreamerAsyncTest, PendingLoadsSurviveGrowthAndOrderedRemoval)
+{
+    constexpr u32 regionCount = 48;
+    const auto directory = OloEngine::Tests::TempDir("regions");
+    for (u32 index = 0; index < regionCount; ++index)
+    {
+        std::ofstream file(directory / (std::to_string(index) + ".oloregion"));
+        ASSERT_TRUE(file.good());
+        file << "Region: region_" << index << "\nRegionID: " << index + 1 << "\nEntities: []\n";
+    }
+
+    Ref<Scene> scene = Scene::Create();
+    scene->SetRenderingEnabled(false);
+    scene->GetStreamingSettings().MaxLoadedRegions = regionCount;
+    SceneStreamerConfig config;
+    config.RegionDirectory = directory.string();
+    config.MaxLoadedRegions = regionCount;
+    SceneStreamer streamer;
+    streamer.Initialize(scene.Raw(), config);
+    ASSERT_EQ(streamer.GetRegions().size(), regionCount);
+    for (u32 index = 0; index < regionCount; ++index)
+    {
+        streamer.LoadRegion(UUID{ index + 1 });
+    }
+    // Completed worker tasks remain pending until Update consumes them, so this
+    // guarantees growth of the array containing the owning task/region handles.
+    ASSERT_EQ(streamer.GetPendingLoadCount(), regionCount);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    u64 frame = 0;
+    while (streamer.GetPendingLoadCount() != 0 && std::chrono::steady_clock::now() < deadline)
+    {
+        streamer.Update(glm::vec3{ 0.0f }, ++frame);
+        std::this_thread::yield();
+    }
+    EXPECT_EQ(streamer.GetPendingLoadCount(), 0u);
+    EXPECT_EQ(streamer.GetLoadedRegionCount(), regionCount);
+    for (const auto& [id, region] : streamer.GetRegions())
+    {
+        EXPECT_EQ(region->m_Name.ToStdString(), "region_" + std::to_string(static_cast<u64>(id) - 1));
+        EXPECT_TRUE(region->m_EntityUUIDs.IsEmpty());
+    }
+    streamer.Shutdown();
+    EXPECT_TRUE(streamer.GetRegions().empty());
 }
 
 // ============================================================

@@ -408,7 +408,7 @@ namespace OloEngine::Tests
                 auto& imc = field.AddComponent<InstancedMeshComponent>();
                 imc.MeshSource = cube->GetMeshSource();
                 imc.CastShadows = false;
-                imc.Instances.reserve(kCullGridInstances);
+                imc.Instances.Reserve(kCullGridInstances);
                 for (i32 gy = 0; gy < kCullGridDim; ++gy)
                 {
                     for (i32 gx = 0; gx < kCullGridDim; ++gx)
@@ -420,7 +420,7 @@ namespace OloEngine::Tests
                             glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(u * 12.0f, v * 12.0f, 0.0f)),
                                        glm::vec3(0.15f));
                         inst.PrevTransform = inst.Transform;
-                        imc.Instances.push_back(inst);
+                        imc.Instances.Add(inst);
                     }
                 }
             }

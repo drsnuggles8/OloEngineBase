@@ -34,9 +34,9 @@ namespace OloEngine
         const u32 queriesPerSlot = 2 + (2 * maxPassesPerFrame);
         for (auto& slot : m_Slots)
         {
-            slot.Queries.assign(queriesPerSlot, RHI::NullResource);
-            RenderCommand::CreateQueries(RHI::QueryType::Timestamp, std::span<RHI::ResourceHandle>(slot.Queries));
-            slot.PassNames.resize(maxPassesPerFrame);
+            slot.Queries.Init(RHI::NullResource, queriesPerSlot);
+            RenderCommand::CreateQueries(RHI::QueryType::Timestamp, std::span<RHI::ResourceHandle>(slot.Queries.GetData(), static_cast<sizet>(slot.Queries.Num())));
+            slot.PassNames.SetNum(maxPassesPerFrame);
             slot.PassCount = 0;
             slot.FrameNumber = 0;
             slot.Pending = false;
@@ -49,7 +49,7 @@ namespace OloEngine
         m_SubPassOpen = false;
         m_LastFrameGpuMs = 0.0;
         m_LastResolvedFrame = 0;
-        m_LastPassTimings.clear();
+        m_LastPassTimings.Reset();
         m_Initialized = true;
 
         OLO_CORE_INFO("GPUPassTimerPool: Initialized with {} pass slots x {} frames in flight", maxPassesPerFrame, kSlotCount);
@@ -63,16 +63,16 @@ namespace OloEngine
 
         for (auto& slot : m_Slots)
         {
-            if (!slot.Queries.empty())
+            if (!slot.Queries.IsEmpty())
             {
-                RenderCommand::DeleteQueries(std::span<const RHI::ResourceHandle>(slot.Queries));
-                slot.Queries.clear();
+                RenderCommand::DeleteQueries(std::span<const RHI::ResourceHandle>(slot.Queries.GetData(), static_cast<sizet>(slot.Queries.Num())));
+                slot.Queries.Reset();
             }
-            slot.PassNames.clear();
+            slot.PassNames.Reset();
             slot.Pending = false;
         }
 
-        m_LastPassTimings.clear();
+        m_LastPassTimings.Reset();
         m_Initialized = false;
         m_Active = false;
         m_PassOpen = false;
@@ -174,7 +174,7 @@ namespace OloEngine
             return;
 
         m_CurrentSubPassIndex = slot.PassCount++;
-        slot.PassNames[m_CurrentSubPassIndex] = slot.PassNames[m_CurrentPassIndex] + "/" + name;
+        slot.PassNames[m_CurrentSubPassIndex] = slot.PassNames[m_CurrentPassIndex] + FString("/") + FString(name);
         RenderCommand::WriteTimestamp(slot.Queries[2 + (2 * m_CurrentSubPassIndex)]);
         m_SubPassOpen = true;
     }
@@ -210,14 +210,14 @@ namespace OloEngine
                                ? static_cast<f64>(frameEnd - frameBegin) / 1'000'000.0
                                : 0.0;
 
-        m_LastPassTimings.clear();
-        m_LastPassTimings.reserve(slot.PassCount);
+        m_LastPassTimings.Reset();
+        m_LastPassTimings.Reserve(slot.PassCount);
         for (u32 i = 0; i < slot.PassCount; ++i)
         {
             const u64 passBegin = RenderCommand::GetQueryResultU64(slot.Queries[2 + (2 * i)]);
             const u64 passEnd = RenderCommand::GetQueryResultU64(slot.Queries[3 + (2 * i)]);
 
-            m_LastPassTimings.push_back(PassTiming{
+            m_LastPassTimings.Add(PassTiming{
                 .Name = slot.PassNames[i],
                 .GpuMs = (passEnd > passBegin)
                              ? static_cast<f64>(passEnd - passBegin) / 1'000'000.0

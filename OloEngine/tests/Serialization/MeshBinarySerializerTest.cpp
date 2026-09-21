@@ -1,4 +1,6 @@
 #include "OloEnginePCH.h"
+
+#include <algorithm>
 #include <gtest/gtest.h>
 #include "TestTempDir.h"
 
@@ -207,7 +209,7 @@ TEST_F(MeshBinarySerializerTest, VirtualMeshBlobRoundTripsThroughV2Section)
     ASSERT_NE(loaded, nullptr);
     ASSERT_TRUE(loaded->HasVirtualMeshBlob());
     ASSERT_EQ(loaded->GetVirtualMeshBlob().size(), blob.size());
-    EXPECT_EQ(loaded->GetVirtualMeshBlob(), blob);
+    EXPECT_TRUE(std::ranges::equal(loaded->GetVirtualMeshBlob(), blob));
 
     // The geometry still round-trips alongside the new section
     EXPECT_EQ(loaded->GetVertices().Num(), original->GetVertices().Num());

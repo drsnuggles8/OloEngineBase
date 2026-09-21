@@ -27,22 +27,22 @@ namespace OloEngine
         // RenderGraphDebugRuntime::SetActiveGraph(nullptr).
     }
 
-    void RenderGraphPassSnapshot::Arm(RenderGraph* graph, std::string passName, std::vector<Request> requests)
+    void RenderGraphPassSnapshot::Arm(RenderGraph* graph, std::string_view passName, TDoubleLinkedList<Request> requests)
     {
         if (m_InstalledGraph && m_InstalledGraph != graph)
             m_InstalledGraph->RemovePostPassHook(kPostPassHookKey);
 
         m_InstalledGraph = graph;
-        m_PassName = std::move(passName);
+        m_PassName = FString(passName);
         m_Requests = std::move(requests);
-        m_Results.clear();
-        m_Pending = graph != nullptr && !m_Requests.empty();
+        m_Results.Reset();
+        m_Pending = graph != nullptr && m_Requests.Num() != 0;
 
         if (graph)
         {
             graph->AddPostPassHook(kPostPassHookKey,
-                                   [this](const std::string& executedPass, RenderGraph& g)
-                                   { this->OnPassExecuted(executedPass, g); });
+                                   [this](std::string_view executedPass, RenderGraph& g)
+                                   { this->OnPassExecuted(std::string(executedPass), g); });
         }
     }
 
@@ -52,7 +52,7 @@ namespace OloEngine
             m_InstalledGraph->RemovePostPassHook(kPostPassHookKey);
         m_InstalledGraph = nullptr;
         m_Pending = false;
-        m_Requests.clear();
+        m_Requests.Empty();
     }
 
     void RenderGraphPassSnapshot::ReleaseScratch()
@@ -62,8 +62,8 @@ namespace OloEngine
             if (slot.Texture.IsValid())
                 RenderCommand::DeleteTexture(slot.Texture);
         }
-        m_Scratch.clear();
-        m_Results.clear();
+        m_Scratch.Reset();
+        m_Results.Reset();
     }
 
     namespace
@@ -109,8 +109,8 @@ namespace OloEngine
                                                                 const u32 depthOrLayers,
                                                                 const RendererAPI::TextureTargetType target)
     {
-        if (slot >= m_Scratch.size())
-            m_Scratch.resize(slot + 1u);
+        if (slot >= static_cast<sizet>(m_Scratch.Num()))
+            m_Scratch.SetNum(static_cast<i32>(slot + 1u), EAllowShrinking::No);
 
         ScratchSlot& scratch = m_Scratch[slot];
         // Reuse only on an EXACT shape match. A near-match would be a copy into
@@ -231,15 +231,19 @@ namespace OloEngine
 
     void RenderGraphPassSnapshot::OnPassExecuted(const std::string& passName, RenderGraph& /*graph*/)
     {
-        if (!m_Pending || passName != m_PassName)
+        if (!m_Pending || passName != m_PassName.ToView())
             return;
 
         // One-shot: whatever happens below, this request is consumed.
         m_Pending = false;
-        m_Results.clear();
-        m_Results.resize(m_Requests.size());
+        m_Results.Reset();
+        m_Results.SetNum(m_Requests.Num(), EAllowShrinking::No);
 
-        for (sizet i = 0; i < m_Requests.size(); ++i)
-            CaptureOne(i, m_Requests[i], m_Results[i]);
+        i32 i = 0;
+        for (const auto& request : m_Requests)
+        {
+            CaptureOne(static_cast<sizet>(i), request, m_Results[i]);
+            ++i;
+        }
     }
 } // namespace OloEngine

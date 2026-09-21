@@ -1,8 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -105,6 +104,8 @@ namespace OloEngine
         }
 
       private:
+        friend struct TIsTriviallyRelocatable<AtlasAllocator>;
+
         struct Node
         {
             u32 RefCount = 0; // number of allocated descendants (any depth)
@@ -120,8 +121,19 @@ namespace OloEngine
         u32 m_AtlasSize = 0;
         u32 m_MinTileSize = 0;
         u32 m_LevelCount = 0; // number of levels; root is level 0
-        std::vector<Node> m_Nodes;
-        std::vector<u8> m_NodeLevel; // level of each node, parallel to m_Nodes
+        TArray<Node> m_Nodes;
+        TArray<u8> m_NodeLevel; // level of each node, parallel to m_Nodes
         u32 m_LiveCount = 0;
+    };
+    // The arrays own independent allocations; tree links are integer indices.
+    template<>
+    struct TIsTriviallyRelocatable<AtlasAllocator>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(AtlasAllocator::m_Nodes)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(AtlasAllocator::m_NodeLevel)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(AtlasAllocator::m_AtlasSize)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(AtlasAllocator::m_MinTileSize)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(AtlasAllocator::m_LevelCount)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(AtlasAllocator::m_LiveCount)>::Value;
     };
 } // namespace OloEngine

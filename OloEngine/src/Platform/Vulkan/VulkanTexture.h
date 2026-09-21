@@ -80,9 +80,9 @@ namespace OloEngine
         {
             return m_RHIHandle.Get();
         }
-        [[nodiscard("Store this!")]] const std::string& GetPath() const override
+        [[nodiscard("Store this!")]] std::string_view GetPath() const override
         {
-            return m_Path;
+            return m_Path.ToView();
         }
 
         // Real upload/readback paths (#691): one-shot staged copies,
@@ -96,7 +96,7 @@ namespace OloEngine
         // routed binds resolve on this backend too (they were silently dropped
         // while this was a stub).
         void Bind(u32 slot) const override;
-        bool GetData(std::vector<u8>& outData, u32 mipLevel = 0) const override;
+        bool GetData(TArray64<u8>& outData, u32 mipLevel = 0) const override;
 
         [[nodiscard("Store this!")]] bool IsLoaded() const override
         {
@@ -178,7 +178,7 @@ namespace OloEngine
         void RecordMipChain(VkCommandBuffer cmd, VkFilter blitFilter) const;
 
         TextureSpecification m_Specification;
-        std::string m_Path; // set by the file ctor; empty for transient/spec textures
+        FString m_Path; // set by the file ctor; empty for transient/spec textures
         u32 m_Width = 0;
         u32 m_Height = 0;
         u32 m_MipLevels = 1;

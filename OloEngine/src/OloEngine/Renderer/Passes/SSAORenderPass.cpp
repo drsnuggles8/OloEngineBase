@@ -190,7 +190,7 @@ namespace OloEngine
             // down only covers this pass's own SSAORaw/SSAOBlur scratch, and it
             // sits AFTER these returns, so it never protected AOBuffer.)
             RGPreparedPass skipped;
-            skipped.Resources.push_back({ aoOutputTexture, true });
+            skipped.Resources.Add({ aoOutputTexture, true });
             skipped.Record = [aoOutputTexture](RGCommandContext&)
             { PublishAOTargetAsFullyVisible(aoOutputTexture); };
             return skipped;
@@ -209,7 +209,7 @@ namespace OloEngine
         if (!rawFB || !blurFB)
         {
             RGPreparedPass skipped;
-            skipped.Resources.push_back({ aoOutputTexture, true });
+            skipped.Resources.Add({ aoOutputTexture, true });
             skipped.Record = [aoOutputTexture](RGCommandContext&)
             { PublishAOTargetAsFullyVisible(aoOutputTexture); };
             return skipped;
@@ -237,7 +237,7 @@ namespace OloEngine
         RGPreparedPass prepared;
         prepared.Resources = { { depthTexture, false }, { normalsTexture, false }, { m_NoiseTexture, false }, { m_RecordingSSAOUBO->GetRHIHandle(), false }, { aoOutputTexture, true }, { rawFB->GetColorAttachmentHandle(0), true }, { blurFB->GetColorAttachmentHandle(0), true } };
         if (m_SSAOUBO)
-            prepared.Resources.push_back({ m_SSAOUBO->GetRHIHandle(), true });
+            prepared.Resources.Add({ m_SSAOUBO->GetRHIHandle(), true });
         prepared.Record = [this, rawFB, blurFB, depthTexture, normalsTexture, aoOutputTexture, triangle](RGCommandContext& context) mutable
         {
             m_RecordingSSAOUBO->Bind();

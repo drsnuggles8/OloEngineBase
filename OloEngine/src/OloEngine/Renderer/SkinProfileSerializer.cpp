@@ -57,7 +57,7 @@ namespace OloEngine
         YAML::Emitter out;
         out << YAML::BeginMap;
         out << YAML::Key << "SkinProfile" << YAML::Value << YAML::BeginMap;
-        out << YAML::Key << "Name" << YAML::Value << profile->GetName();
+        out << YAML::Key << "Name" << YAML::Value << std::string(profile->GetName());
         // The ALGORITHM version, written as its integer because that is what is
         // on disk and what append-only numbering protects. It is deliberately a
         // separate key from anything naming the material's kind: a scene records

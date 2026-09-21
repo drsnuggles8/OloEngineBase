@@ -1,5 +1,7 @@
 #pragma once
 
+#include <initializer_list>
+
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Asset/Asset.h"
@@ -150,7 +152,7 @@ namespace OloEngine
         // Material -> descriptor. Resolves each texture's asset handle: the
         // texture's own handle when it has one, else the registry handle of its
         // source path (editor only). Never touches the GPU.
-        [[nodiscard]] std::vector<MaterialDesc> Describe(const std::vector<Ref<Material>>& materials);
+        [[nodiscard]] std::vector<MaterialDesc> Describe(std::span<const Ref<Material>> materials);
 
         // Descriptor -> Material. Resolves each texture through the AssetManager by
         // handle, falling back to loading the source path off disk when the handle
@@ -173,14 +175,19 @@ namespace OloEngine
         // false; the reader then re-imports the materials from source, which is slower and
         // correct. This is a backstop, not the fix: the importer's job is to give every
         // texture an identity in the first place (Model::CookEmbeddedTexture).
-        [[nodiscard]] bool CanPersistEveryTexture(const std::vector<Ref<Material>>& materials);
+        [[nodiscard]] bool CanPersistEveryTexture(std::span<const Ref<Material>> materials);
 
         // Wire format (self-describing; own magic + version).
         [[nodiscard]] std::vector<u8> Encode(const std::vector<MaterialDesc>& descs);
         [[nodiscard]] bool Decode(std::span<const u8> blob, std::vector<MaterialDesc>& outDescs);
 
         // Convenience: the two halves both carriers actually call.
-        [[nodiscard]] std::vector<u8> EncodeMaterials(const std::vector<Ref<Material>>& materials);
+        [[nodiscard]] std::vector<u8> EncodeMaterials(std::span<const Ref<Material>> materials);
+        // Brace-list callers use a short-lived view only for the duration of the encode.
+        [[nodiscard]] inline std::vector<u8> EncodeMaterials(std::initializer_list<Ref<Material>> materials)
+        {
+            return EncodeMaterials(std::span<const Ref<Material>>(materials.begin(), materials.size()));
+        }
         [[nodiscard]] bool DecodeMaterials(std::span<const u8> blob, std::vector<Ref<Material>>& outMaterials);
     } // namespace ImportedMaterialCodec
 } // namespace OloEngine

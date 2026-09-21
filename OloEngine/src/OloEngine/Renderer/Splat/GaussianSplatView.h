@@ -6,7 +6,7 @@
 #include <glm/glm.hpp>
 
 #include <span>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine::GaussianSplat
 {
@@ -63,7 +63,7 @@ namespace OloEngine::GaussianSplat
     // The draw order for one view: indices into the cloud, far-to-near.
     struct ViewOrdering
     {
-        std::vector<u32> Indices;
+        TArray<u32> Indices;
         ViewStats Stats;
     };
 
@@ -92,8 +92,8 @@ namespace OloEngine::GaussianSplat
     //
     // Exposed because the sort is the measured quantity in the spike's
     // perf probe, which compares it against std::sort on the same input.
-    void RadixSortDescending(std::span<u32> keys, std::span<u32> indices, std::vector<u32>& keyScratch,
-                             std::vector<u32>& indexScratch);
+    void RadixSortDescending(std::span<u32> keys, std::span<u32> indices, TArray<u32>& keyScratch,
+                             TArray<u32>& indexScratch);
 
     // The projected 3-sigma screen extent, in pixels, of a splat at
     // `viewDepth` whose largest world-space sigma is `worldSigma`.

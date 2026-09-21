@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/UUID.h"
+#include "OloEngine/Containers/String.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphTypes.h"
 
 #include <glm/glm.hpp>
@@ -18,18 +19,22 @@ namespace OloEngine
         glm::vec4,
         bool>;
 
+    // Every alternative is a value with no address-dependent state. Let the
+    // standard-library trivial-copy check guard the exact variant implementation.
+    static_assert(std::is_trivially_copyable_v<ShaderGraphPinValue>);
+
     /// A single input or output connection point on a shader graph node
     struct ShaderGraphPin
     {
         UUID ID;
-        std::string Name;
+        FString Name;
         ShaderGraphPinType Type = ShaderGraphPinType::Float;
         ShaderGraphPinDirection Direction = ShaderGraphPinDirection::Input;
         UUID NodeID;
         ShaderGraphPinValue DefaultValue;
 
         ShaderGraphPin() = default;
-        ShaderGraphPin(UUID id, std::string name, ShaderGraphPinType type, ShaderGraphPinDirection direction, UUID nodeID)
+        ShaderGraphPin(UUID id, FString name, ShaderGraphPinType type, ShaderGraphPinDirection direction, UUID nodeID)
             : ID(id), Name(std::move(name)), Type(type), Direction(direction), NodeID(nodeID)
         {
         }
@@ -78,6 +83,17 @@ namespace OloEngine
                 else
                     return "0.0"; }, DefaultValue);
         }
+    };
+
+    template<>
+    struct TIsTriviallyRelocatable<ShaderGraphPin>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(ShaderGraphPin::ID)> &&
+                                      TIsTriviallyRelocatable_V<decltype(ShaderGraphPin::Name)> &&
+                                      TIsTriviallyRelocatable_V<decltype(ShaderGraphPin::Type)> &&
+                                      TIsTriviallyRelocatable_V<decltype(ShaderGraphPin::Direction)> &&
+                                      TIsTriviallyRelocatable_V<decltype(ShaderGraphPin::NodeID)> &&
+                                      TIsTriviallyRelocatable_V<decltype(ShaderGraphPin::DefaultValue)>;
     };
 
 } // namespace OloEngine

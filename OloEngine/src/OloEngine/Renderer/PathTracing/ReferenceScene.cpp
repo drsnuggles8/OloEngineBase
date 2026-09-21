@@ -30,11 +30,17 @@ namespace OloEngine::PathTracing
     // ReferenceGeometry
     // =========================================================================
 
-    ReferenceGeometry::ReferenceGeometry(std::vector<Vertex> vertices, std::vector<u32> indices)
+    ReferenceGeometry::ReferenceGeometry(TArray<Vertex> vertices, TArray<u32> indices)
         : m_Vertices(std::move(vertices)), m_Indices(std::move(indices))
     {
-        m_BVH.Build(m_Vertices.data(), m_Vertices.size(), m_Indices.data(), m_Indices.size());
+        m_BVH.Build(m_Vertices.GetData(), m_Vertices.Num(), m_Indices.GetData(), m_Indices.Num());
         m_LocalBounds = m_BVH.IsBuilt() ? m_BVH.GetBounds() : BoundingBox(glm::vec3(0.0f), glm::vec3(0.0f));
+    }
+
+    ReferenceGeometry::ReferenceGeometry(std::span<const Vertex> vertices, std::span<const u32> indices)
+        : ReferenceGeometry(TArray<Vertex>(vertices.data(), static_cast<i32>(vertices.size())),
+                            TArray<u32>(indices.data(), static_cast<i32>(indices.size())))
+    {
     }
 
     ReferenceTexture ReferenceTexture::FromRgba8(u32 width, u32 height, std::span<const u8> rgba, bool srgb)
@@ -44,7 +50,7 @@ namespace OloEngine::PathTracing
             return texture;
         texture.Width = width;
         texture.Height = height;
-        texture.Texels.resize(static_cast<sizet>(width) * height);
+        texture.Texels.SetNum(static_cast<sizet>(width) * height, EAllowShrinking::No);
         // The sRGB EOTF, per channel, alpha untouched: what an sRGB image
         // format decodes to on the way into the filter.
         const auto decode = [srgb](u8 value) -> f32
@@ -54,7 +60,7 @@ namespace OloEngine::PathTracing
                 return c;
             return c <= 0.04045f ? c / 12.92f : std::pow((c + 0.055f) / 1.055f, 2.4f);
         };
-        for (sizet i = 0; i < texture.Texels.size(); ++i)
+        for (sizet i = 0; i < texture.Texels.Num(); ++i)
         {
             texture.Texels[i] = glm::vec4(decode(rgba[i * 4 + 0]), decode(rgba[i * 4 + 1]), decode(rgba[i * 4 + 2]),
                                           static_cast<f32>(rgba[i * 4 + 3]) / 255.0f);
@@ -64,7 +70,7 @@ namespace OloEngine::PathTracing
 
     glm::vec4 ReferenceTexture::SampleBilinear(const glm::vec2& uv) const
     {
-        if (Width == 0 || Height == 0 || Texels.empty())
+        if (Width == 0 || Height == 0 || Texels.IsEmpty())
             return glm::vec4(1.0f);
         // REPEAT addressing is applied to the coordinate FIRST, in float:
         // a UV far outside [0, 1) or a non-finite one would otherwise reach
@@ -117,8 +123,8 @@ namespace OloEngine::PathTracing
         if (faceSize == 0 || rgbaFaces.size() < needed)
             return cube;
         cube.FaceSize = faceSize;
-        cube.Texels.resize(static_cast<sizet>(kFaceCount) * faceSize * faceSize);
-        for (sizet i = 0; i < cube.Texels.size(); ++i)
+        cube.Texels.SetNum(static_cast<sizet>(kFaceCount) * faceSize * faceSize, EAllowShrinking::No);
+        for (sizet i = 0; i < cube.Texels.Num(); ++i)
         {
             // A non-finite or negative texel is dropped to zero rather than
             // carried into the integrator: one NaN in a sky would poison every
@@ -145,7 +151,7 @@ namespace OloEngine::PathTracing
         // whose only symptom is a poisoned bake.
         const auto clean = [](f32 c)
         { return std::isfinite(c) && c > 0.0f ? c : 0.0f; };
-        cube.Texels.assign(kFaceCount, glm::vec3(clean(radiance.x), clean(radiance.y), clean(radiance.z)));
+        cube.Texels.Init(glm::vec3(clean(radiance.x), clean(radiance.y), clean(radiance.z)), kFaceCount);
         return cube;
     }
 
@@ -260,12 +266,12 @@ namespace OloEngine::PathTracing
     bool ReferenceGeometry::GetTriangleVertices(u32 triangleIndex, u32& i0, u32& i1, u32& i2) const
     {
         const sizet base = static_cast<sizet>(triangleIndex) * 3;
-        if (base + 2 >= m_Indices.size())
+        if (base + 2 >= m_Indices.Num())
             return false;
         i0 = m_Indices[base + 0];
         i1 = m_Indices[base + 1];
         i2 = m_Indices[base + 2];
-        return i0 < m_Vertices.size() && i1 < m_Vertices.size() && i2 < m_Vertices.size();
+        return i0 < m_Vertices.Num() && i1 < m_Vertices.Num() && i2 < m_Vertices.Num();
     }
 
     glm::vec2 ReferenceGeometry::InterpolateUV(u32 triangleIndex, f32 u, f32 v) const
@@ -310,13 +316,13 @@ namespace OloEngine::PathTracing
     glm::vec3 ReferenceGeometry::InterpolateNormal(u32 triangleIndex, f32 u, f32 v) const
     {
         const sizet base = static_cast<sizet>(triangleIndex) * 3;
-        if (base + 2 >= m_Indices.size())
+        if (base + 2 >= m_Indices.Num())
             return glm::vec3(0.0f, 1.0f, 0.0f);
 
         const u32 i0 = m_Indices[base + 0];
         const u32 i1 = m_Indices[base + 1];
         const u32 i2 = m_Indices[base + 2];
-        if (i0 >= m_Vertices.size() || i1 >= m_Vertices.size() || i2 >= m_Vertices.size())
+        if (i0 >= m_Vertices.Num() || i1 >= m_Vertices.Num() || i2 >= m_Vertices.Num())
             return glm::vec3(0.0f, 1.0f, 0.0f);
 
         const f32 w = 1.0f - u - v;
@@ -345,16 +351,22 @@ namespace OloEngine::PathTracing
 
     u32 ReferenceScene::AddMaterial(const ReferenceMaterial& material)
     {
-        m_Materials.push_back(material);
+        m_Materials.Add(&m_MaterialStorage.AddTail(material)->GetValue());
         m_Built = false;
-        return static_cast<u32>(m_Materials.size() - 1);
+        return static_cast<u32>(m_Materials.Num() - 1);
     }
 
-    u32 ReferenceScene::AddGeometry(std::vector<Vertex> vertices, std::vector<u32> indices)
+    u32 ReferenceScene::AddGeometry(TArray<Vertex> vertices, TArray<u32> indices)
     {
-        m_Geometries.push_back(std::make_unique<ReferenceGeometry>(std::move(vertices), std::move(indices)));
+        m_Geometries.Add(m_GeometryStorage.AddTail(std::make_unique<ReferenceGeometry>(std::move(vertices), std::move(indices)))->GetValue().get());
         m_Built = false;
-        return static_cast<u32>(m_Geometries.size() - 1);
+        return static_cast<u32>(m_Geometries.Num() - 1);
+    }
+
+    u32 ReferenceScene::AddGeometry(std::span<const Vertex> vertices, std::span<const u32> indices)
+    {
+        return AddGeometry(TArray<Vertex>(vertices.data(), static_cast<i32>(vertices.size())),
+                           TArray<u32>(indices.data(), static_cast<i32>(indices.size())));
     }
 
     namespace
@@ -381,13 +393,13 @@ namespace OloEngine::PathTracing
         const f32 lengthSq = glm::dot(normal, normal);
         normal = (lengthSq > 1e-20f) ? normal * glm::inversesqrt(lengthSq) : glm::vec3(0.0f, 1.0f, 0.0f);
 
-        std::vector<Vertex> vertices = {
+        TArray<Vertex> vertices = {
             Vertex(p0, normal, glm::vec2(0.0f, 0.0f)),
             Vertex(p1, normal, glm::vec2(1.0f, 0.0f)),
             Vertex(p2, normal, glm::vec2(1.0f, 1.0f)),
             Vertex(p3, normal, glm::vec2(0.0f, 1.0f))
         };
-        std::vector<u32> indices = { 0, 1, 2, 0, 2, 3 };
+        TArray<u32> indices = { 0, 1, 2, 0, 2, 3 };
         return AddGeometry(std::move(vertices), std::move(indices));
     }
 
@@ -395,16 +407,16 @@ namespace OloEngine::PathTracing
     {
         constexpr u32 kInvalid = std::numeric_limits<u32>::max();
 
-        if (geometryIndex >= m_Geometries.size())
+        if (geometryIndex >= m_Geometries.Num())
         {
             OLO_CORE_ERROR("ReferenceScene::AddInstance: geometry index {} out of range ({} geometries)",
-                           geometryIndex, m_Geometries.size());
+                           geometryIndex, m_Geometries.Num());
             return kInvalid;
         }
-        if (materialIndex >= m_Materials.size())
+        if (materialIndex >= m_Materials.Num())
         {
             OLO_CORE_ERROR("ReferenceScene::AddInstance: material index {} out of range ({} materials)",
-                           materialIndex, m_Materials.size());
+                           materialIndex, m_Materials.Num());
             return kInvalid;
         }
 
@@ -460,23 +472,23 @@ namespace OloEngine::PathTracing
             return kInvalid;
         }
 
-        m_Instances.push_back(instance);
+        m_Instances.Add(instance);
         m_Built = false;
-        return static_cast<u32>(m_Instances.size() - 1);
+        return static_cast<u32>(m_Instances.Num() - 1);
     }
 
     void ReferenceScene::AddLight(const ReferenceLight& light)
     {
-        m_Lights.push_back(light);
+        m_Lights.Add(light);
         m_Built = false;
     }
 
     const ReferenceMaterial& ReferenceScene::GetMaterial(u32 index) const
     {
         static const ReferenceMaterial s_Fallback{};
-        if (index >= m_Materials.size())
+        if (index >= m_Materials.Num())
             return s_Fallback;
-        return m_Materials[index];
+        return *m_Materials[index];
     }
 
     // =========================================================================
@@ -492,26 +504,26 @@ namespace OloEngine::PathTracing
 
     void ReferenceScene::BuildTLAS()
     {
-        m_TLASNodes.clear();
-        m_TLASInstanceRefs.clear();
-        m_InstanceCentroids.clear();
+        m_TLASNodes.Reset();
+        m_TLASInstanceRefs.Reset();
+        m_InstanceCentroids.Reset();
         m_WorldBounds = BoundingBox(glm::vec3(0.0f), glm::vec3(0.0f));
 
-        if (m_Instances.empty())
+        if (m_Instances.IsEmpty())
             return;
 
-        m_TLASInstanceRefs.resize(m_Instances.size());
+        m_TLASInstanceRefs.SetNum(m_Instances.Num(), EAllowShrinking::No);
         std::iota(m_TLASInstanceRefs.begin(), m_TLASInstanceRefs.end(), 0u);
 
-        m_InstanceCentroids.reserve(m_Instances.size());
+        m_InstanceCentroids.Reserve(m_Instances.Num());
         for (const ReferenceInstance& instance : m_Instances)
-            m_InstanceCentroids.push_back(instance.WorldBounds.GetCenter());
+            m_InstanceCentroids.Add(instance.WorldBounds.GetCenter());
 
         // Worst case for a binary tree over N leaves with >= 1 leaf each.
-        m_TLASNodes.reserve(m_Instances.size() * 2);
-        TLASNode& root = m_TLASNodes.emplace_back();
+        m_TLASNodes.Reserve(m_Instances.Num() * 2);
+        TLASNode& root = m_TLASNodes.Emplace_GetRef();
         root.LeftFirst = 0;
-        root.Count = static_cast<u32>(m_TLASInstanceRefs.size());
+        root.Count = static_cast<u32>(m_TLASInstanceRefs.Num());
         UpdateTLASNodeBounds(0);
         SubdivideTLAS(0, 0);
 
@@ -541,13 +553,13 @@ namespace OloEngine::PathTracing
             u32 NodeIndex;
             u32 Depth;
         };
-        std::vector<Work> stack;
-        stack.push_back({ nodeIndex, depth });
+        TArray<Work> stack;
+        stack.Add({ nodeIndex, depth });
 
-        while (!stack.empty())
+        while (!stack.IsEmpty())
         {
-            const Work work = stack.back();
-            stack.pop_back();
+            const Work work = stack.Last();
+            stack.Pop(EAllowShrinking::No);
 
             TLASNode& node = m_TLASNodes[work.NodeIndex];
             if (node.Count <= s_MaxLeafInstances || work.Depth >= s_MaxDepth)
@@ -592,10 +604,10 @@ namespace OloEngine::PathTracing
 
             const u32 leftFirst = node.LeftFirst;
             const u32 totalCount = node.Count;
-            const auto leftChild = static_cast<u32>(m_TLASNodes.size());
+            const auto leftChild = static_cast<u32>(m_TLASNodes.Num());
 
-            m_TLASNodes.emplace_back();
-            m_TLASNodes.emplace_back();
+            m_TLASNodes.Emplace_GetRef();
+            m_TLASNodes.Emplace_GetRef();
 
             // `node` may dangle after the emplaces reallocated the vector.
             m_TLASNodes[work.NodeIndex].LeftFirst = leftChild;
@@ -609,18 +621,18 @@ namespace OloEngine::PathTracing
             UpdateTLASNodeBounds(leftChild);
             UpdateTLASNodeBounds(leftChild + 1);
 
-            stack.push_back({ leftChild, work.Depth + 1 });
-            stack.push_back({ leftChild + 1, work.Depth + 1 });
+            stack.Add({ leftChild, work.Depth + 1 });
+            stack.Add({ leftChild + 1, work.Depth + 1 });
         }
     }
 
     void ReferenceScene::BuildEmissiveList()
     {
-        m_EmissiveTriangles.clear();
-        m_EmissiveAreaCdf.clear();
+        m_EmissiveTriangles.Reset();
+        m_EmissiveAreaCdf.Reset();
         m_TotalEmissiveArea = 0.0f;
 
-        for (u32 instanceIndex = 0; instanceIndex < static_cast<u32>(m_Instances.size()); ++instanceIndex)
+        for (u32 instanceIndex = 0; instanceIndex < static_cast<u32>(m_Instances.Num()); ++instanceIndex)
         {
             const ReferenceInstance& instance = m_Instances[instanceIndex];
             const ReferenceMaterial& material = GetMaterial(instance.MaterialIndex);
@@ -628,8 +640,8 @@ namespace OloEngine::PathTracing
                 continue;
 
             const ReferenceGeometry& geometry = *m_Geometries[instance.GeometryIndex];
-            const std::vector<Vertex>& vertices = geometry.GetVertices();
-            const std::vector<u32>& indices = geometry.GetIndices();
+            const auto vertices = geometry.GetVertices();
+            const auto indices = geometry.GetIndices();
 
             for (sizet triangle = 0; triangle + 2 < indices.size(); triangle += 3)
             {
@@ -659,8 +671,8 @@ namespace OloEngine::PathTracing
                 emitter.TriangleIndex = static_cast<u32>(triangle / 3);
 
                 m_TotalEmissiveArea += emitter.Area;
-                m_EmissiveTriangles.push_back(emitter);
-                m_EmissiveAreaCdf.push_back(m_TotalEmissiveArea);
+                m_EmissiveTriangles.Add(emitter);
+                m_EmissiveAreaCdf.Add(m_TotalEmissiveArea);
             }
         }
 
@@ -669,7 +681,7 @@ namespace OloEngine::PathTracing
         {
             for (f32& value : m_EmissiveAreaCdf)
                 value /= m_TotalEmissiveArea;
-            m_EmissiveAreaCdf.back() = 1.0f;
+            m_EmissiveAreaCdf.Last() = 1.0f;
         }
     }
 
@@ -843,7 +855,7 @@ namespace OloEngine::PathTracing
         // invisible in the output.
         OLO_CORE_ASSERT(m_Built, "ReferenceScene::Intersect on an unbuilt or stale scene — call Build() after the last Add*()");
         outHit = SurfaceInteraction{};
-        if (m_TLASNodes.empty())
+        if (m_TLASNodes.IsEmpty())
             return false;
 
         const glm::vec3 invDir(1.0f / ray.Direction.x, 1.0f / ray.Direction.y, 1.0f / ray.Direction.z);
@@ -900,7 +912,7 @@ namespace OloEngine::PathTracing
     bool ReferenceScene::IsOccluded(const glm::vec3& from, const glm::vec3& to, f32 epsilon) const
     {
         OLO_CORE_ASSERT(m_Built, "ReferenceScene::IsOccluded on an unbuilt or stale scene — call Build() after the last Add*()");
-        if (m_TLASNodes.empty())
+        if (m_TLASNodes.IsEmpty())
             return false;
 
         const glm::vec3 delta = to - from;
@@ -963,7 +975,7 @@ namespace OloEngine::PathTracing
 
     bool ReferenceScene::SampleEmissive(f32 xiSelect, const glm::vec2& xiPoint, EmissiveSample& outSample) const
     {
-        if (m_EmissiveTriangles.empty() || !(m_TotalEmissiveArea > 0.0f))
+        if (m_EmissiveTriangles.IsEmpty() || !(m_TotalEmissiveArea > 0.0f))
             return false;
 
         // Area-proportional triangle selection. Uniform-over-area (rather than
@@ -972,8 +984,8 @@ namespace OloEngine::PathTracing
         // can reuse without re-deriving it.
         const auto it = std::lower_bound(m_EmissiveAreaCdf.begin(), m_EmissiveAreaCdf.end(), xiSelect);
         sizet triangleIndex = static_cast<sizet>(std::distance(m_EmissiveAreaCdf.begin(), it));
-        if (triangleIndex >= m_EmissiveTriangles.size())
-            triangleIndex = m_EmissiveTriangles.size() - 1;
+        if (triangleIndex >= m_EmissiveTriangles.Num())
+            triangleIndex = m_EmissiveTriangles.Num() - 1;
 
         const EmissiveTriangle& emitter = m_EmissiveTriangles[triangleIndex];
 

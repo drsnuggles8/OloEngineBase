@@ -242,7 +242,7 @@ namespace OloEngine
         // The link table is per frame and indices into it are handed to draw
         // packets, so it is cleared here and nowhere else: a stale entry would
         // give this frame's draw last frame's record.
-        s_Data.GPUSceneDrawLinks.clear();
+        s_Data.GPUSceneDrawLinks.Reset();
         s_Data.GPUSceneDrawLinksResolved = false;
         s_Data.GPUSceneLinkedDraws = 0;
         s_Data.GPUSceneUnlinkedDraws = 0;
@@ -445,8 +445,8 @@ namespace OloEngine
 
         // The link is appended AFTER staging succeeded, so an index always
         // names a key the registry was actually asked to commit.
-        const auto link = static_cast<u32>(s_Data.GPUSceneDrawLinks.size());
-        s_Data.GPUSceneDrawLinks.push_back(GPUSceneDrawLink{ .m_InstanceKey = instanceKey });
+        const auto link = static_cast<u32>(s_Data.GPUSceneDrawLinks.Num());
+        s_Data.GPUSceneDrawLinks.Add(GPUSceneDrawLink{ .m_InstanceKey = instanceKey });
         return link;
     }
 
@@ -494,7 +494,7 @@ namespace OloEngine
 
     const GPUSceneDrawLink* Renderer3D::GetGPUSceneDrawLink(u32 link)
     {
-        if (!s_Data.GPUSceneDrawLinksResolved || link >= s_Data.GPUSceneDrawLinks.size())
+        if (!s_Data.GPUSceneDrawLinksResolved || link >= static_cast<sizet>(s_Data.GPUSceneDrawLinks.Num()))
         {
             return nullptr;
         }
@@ -671,7 +671,7 @@ namespace OloEngine
         // this frame produced now names a retired slot. Dropping the table is
         // what stops a resolved link from outliving its record: after this a
         // consumer sees "no link" until the next extraction rebuilds one.
-        s_Data.GPUSceneDrawLinks.clear();
+        s_Data.GPUSceneDrawLinks.Reset();
         s_Data.GPUSceneDrawLinksResolved = false;
         s_Data.GPUSceneLinkedDraws = 0;
         s_Data.GPUSceneUnlinkedDraws = 0;
@@ -717,7 +717,7 @@ namespace OloEngine
     {
         return s_Data.GPUSceneExtractionActive && s_Data.SceneRT.IsAvailable() &&
                s_Data.Settings.Path == RenderingPath::Deferred &&
-               (!s_Data.RayTracedShadowLightRequests.empty() || s_Data.PostProcess.RayTracedReflection.Enabled);
+               (!s_Data.RayTracedShadowLightRequests.IsEmpty() || s_Data.PostProcess.RayTracedReflection.Enabled);
     }
 
     const GPUSceneFrameStats& Renderer3D::GetGPUSceneStats()

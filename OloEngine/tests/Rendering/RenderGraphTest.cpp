@@ -542,7 +542,7 @@ class TestGraphNode : public RenderGraphNode
     {
     }
 
-    [[nodiscard]] const std::string& GetName() const override
+    [[nodiscard]] std::string_view GetName() const override
     {
         return m_Name;
     }
@@ -732,25 +732,25 @@ class TestGraphNode : public RenderGraphNode
     static void MirrorRead(RGBuilder& builder, const RGResourceHandle& resource)
     {
         const auto kind = NormalizeKind(resource.Type);
-        const auto desc = MakeMirrorDesc(kind, resource.Name);
+        const auto desc = MakeMirrorDesc(kind, resource.Name.ToView());
         switch (kind)
         {
             case RGResourceHandle::Kind::Framebuffer:
             {
-                auto handle = builder.CreateFramebuffer(resource.Name, desc);
+                auto handle = builder.CreateFramebuffer(resource.Name.ToView(), desc);
                 [[maybe_unused]] const auto readHandle = builder.Read(handle, RGReadUsage::RenderTargetRead);
                 break;
             }
             case RGResourceHandle::Kind::UniformBuffer:
             case RGResourceHandle::Kind::StorageBuffer:
             {
-                auto handle = builder.CreateBuffer(resource.Name, desc);
+                auto handle = builder.CreateBuffer(resource.Name.ToView(), desc);
                 [[maybe_unused]] const auto readHandle = builder.Read(handle, RGReadUsage::ShaderStorage);
                 break;
             }
             default:
             {
-                auto handle = builder.CreateTexture(resource.Name, desc);
+                auto handle = builder.CreateTexture(resource.Name.ToView(), desc);
                 [[maybe_unused]] const auto readHandle = builder.Read(handle, RGReadUsage::ShaderSample);
                 break;
             }
@@ -760,25 +760,25 @@ class TestGraphNode : public RenderGraphNode
     static void MirrorWrite(RGBuilder& builder, const RGResourceHandle& resource)
     {
         const auto kind = NormalizeKind(resource.Type);
-        const auto desc = MakeMirrorDesc(kind, resource.Name);
+        const auto desc = MakeMirrorDesc(kind, resource.Name.ToView());
         switch (kind)
         {
             case RGResourceHandle::Kind::Framebuffer:
             {
-                auto handle = builder.CreateFramebuffer(resource.Name, desc);
+                auto handle = builder.CreateFramebuffer(resource.Name.ToView(), desc);
                 builder.Write(handle, RGWriteUsage::RenderTarget);
                 break;
             }
             case RGResourceHandle::Kind::UniformBuffer:
             case RGResourceHandle::Kind::StorageBuffer:
             {
-                auto handle = builder.CreateBuffer(resource.Name, desc);
+                auto handle = builder.CreateBuffer(resource.Name.ToView(), desc);
                 builder.Write(handle, RGWriteUsage::ShaderStorage);
                 break;
             }
             default:
             {
-                auto handle = builder.CreateTexture(resource.Name, desc);
+                auto handle = builder.CreateTexture(resource.Name.ToView(), desc);
                 builder.Write(handle, RGWriteUsage::RenderTarget);
                 break;
             }
@@ -1045,7 +1045,7 @@ TEST(RenderGraph, GetNodeSubmissionInfoReturnsAllRegisteredEntries)
     AddStub(graph, "C");
 
     const auto all = graph.GetNodeSubmissionInfo();
-    EXPECT_EQ(all.size(), 3u);
+    EXPECT_EQ(all.Num(), 3u);
 }
 
 TEST(RenderGraph, NodeSubmissionInfoReportsResourceDeclarations)
@@ -1066,7 +1066,7 @@ TEST(RenderGraph, NodeSubmissionInfoReportsResourceDeclarations)
     graph.BuildFrameGraph();
 
     const auto info = graph.GetNodeSubmissionInfo();
-    ASSERT_EQ(info.size(), 2u);
+    ASSERT_EQ(info.Num(), 2u);
 
     const auto bucketIt = std::ranges::find_if(info, [](const RenderGraph::NodeSubmissionInfo& entry)
                                                { return entry.NodeName == "BucketPass"; });
@@ -1093,7 +1093,7 @@ TEST(RenderGraph, GraphNodeStaticDeclarationsPopulateRegistryAndSubmissionInfo)
     graph.BuildFrameGraph();
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty());
+    EXPECT_TRUE(hazards.IsEmpty());
 
     const auto submissionInfo = graph.GetNodeSubmissionInfo();
     const auto producerIt = std::ranges::find_if(submissionInfo,
@@ -1115,9 +1115,9 @@ TEST(RenderGraph, GraphNodeStaticDeclarationsPopulateRegistryAndSubmissionInfo)
     const auto* resource = graph.FindRegisteredResource("GraphNodeColor");
     ASSERT_NE(resource, nullptr);
     EXPECT_EQ(resource->Desc.Kind, RGResourceHandle::Kind::Texture2D);
-    ASSERT_EQ(resource->Producers.size(), 1u);
+    ASSERT_EQ(resource->Producers.Num(), 1u);
     EXPECT_EQ(resource->Producers[0], "GraphProducer");
-    ASSERT_EQ(resource->Consumers.size(), 1u);
+    ASSERT_EQ(resource->Consumers.Num(), 1u);
     EXPECT_EQ(resource->Consumers[0], "GraphFinal");
 }
 
@@ -2863,7 +2863,7 @@ TEST(RenderGraph, GraphNodeFlagsDriveSubmissionMetadata)
     graph.Execute();
 
     const auto submissionInfo = graph.GetNodeSubmissionInfo();
-    ASSERT_EQ(submissionInfo.size(), 1u);
+    ASSERT_EQ(submissionInfo.Num(), 1u);
     EXPECT_EQ(submissionInfo[0].NodeName, "ComputeGraphNode");
     EXPECT_TRUE(submissionInfo[0].DeclaresResources);
     EXPECT_EQ(submissionInfo[0].WorkType, RenderGraphPassWorkType::Compute);
@@ -4345,7 +4345,7 @@ TEST(RenderGraphStructural, DerivedEdgesSatisfyDeferredCoreWithoutManualEdges)
     graph.BuildFrameGraph();
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty()) << "Derived deferred-core edges should satisfy hazards";
+    EXPECT_TRUE(hazards.IsEmpty()) << "Derived deferred-core edges should satisfy hazards";
 
     const auto& order = graph.GetExecutionOrder();
     auto posOf = [&](const char* name)
@@ -4421,7 +4421,7 @@ TEST(RenderGraphStructural, DerivedEdgesSatisfySceneToSSAOWithoutManualEdge)
     graph.BuildFrameGraph();
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty()) << "Derived Scene->SSAO edge should satisfy hazards";
+    EXPECT_TRUE(hazards.IsEmpty()) << "Derived Scene->SSAO edge should satisfy hazards";
 }
 
 TEST(RenderGraphStructural, DerivedEdgesSatisfySceneToGTAOWithoutManualEdge)
@@ -4488,7 +4488,7 @@ TEST(RenderGraphStructural, DerivedEdgesSatisfySceneToGTAOWithoutManualEdge)
     graph.BuildFrameGraph();
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty()) << "Derived Scene->GTAO edge should satisfy hazards";
+    EXPECT_TRUE(hazards.IsEmpty()) << "Derived Scene->GTAO edge should satisfy hazards";
 }
 
 TEST(RenderGraphStructural, ConnectingToMissingPassDoesNotCorruptGraph)
@@ -4502,7 +4502,7 @@ TEST(RenderGraphStructural, ConnectingToMissingPassDoesNotCorruptGraph)
     graph.ConnectPass("Nonexistent", "A");
 
     EXPECT_NO_THROW(graph.Execute());
-    EXPECT_EQ(graph.GetNodeSubmissionInfo().size(), 1u)
+    EXPECT_EQ(graph.GetNodeSubmissionInfo().Num(), 1u)
         << "Connect calls with missing graph entries must not register new entries";
 }
 
@@ -4521,7 +4521,7 @@ TEST(RenderGraph, GetConnectionsComplete)
     graph.ConnectPass("B", "C");
 
     auto connections = graph.GetConnections();
-    EXPECT_GE(connections.size(), 2u);
+    EXPECT_GE(connections.Num(), 2u);
 }
 
 // =============================================================================
@@ -4581,7 +4581,7 @@ TEST(RenderGraphResetTopology, ClearsPassesAndAllowsRebuild)
     graph.ConnectPass("B", "C");
     graph.SetFinalPass("C");
     graph.Execute();
-    EXPECT_EQ(graph.GetNodeSubmissionInfo().size(), 3u);
+    EXPECT_EQ(graph.GetNodeSubmissionInfo().Num(), 3u);
     EXPECT_EQ(graph.GetExecutionOrder().size(), 3u);
 
     graph.ResetTopology();
@@ -4589,8 +4589,8 @@ TEST(RenderGraphResetTopology, ClearsPassesAndAllowsRebuild)
     // After reset the graph must behave as freshly constructed: no
     // passes, no cached order, no stale connections leaking into the
     // next rebuild.
-    EXPECT_EQ(graph.GetNodeSubmissionInfo().size(), 0u);
-    EXPECT_EQ(graph.GetConnections().size(), 0u);
+    EXPECT_EQ(graph.GetNodeSubmissionInfo().Num(), 0u);
+    EXPECT_EQ(graph.GetConnections().Num(), 0u);
 
     // Rebuild as a different "forward-like" topology (2 passes).
     AddStub(graph, "X");
@@ -4644,7 +4644,7 @@ TEST(RenderGraphResetTopology, MultipleResetsAreSafe)
         AddStub(graph, "P");
         graph.SetFinalPass("P");
         graph.Execute();
-        EXPECT_EQ(graph.GetNodeSubmissionInfo().size(), 1u);
+        EXPECT_EQ(graph.GetNodeSubmissionInfo().Num(), 1u);
     }
 }
 
@@ -5372,7 +5372,7 @@ TEST(RenderGraphTransientPool, PhaseD_RG16FFramebufferFormatIsNowAllocatable)
 
     ASSERT_NE(it, plan.end());
     EXPECT_TRUE(it->WillAllocate) << "RG16F FB must be allocatable";
-    EXPECT_EQ(it->SkipReason, "") << "unexpected skip reason: " << it->SkipReason;
+    EXPECT_EQ(it->SkipReason, FString("")) << "unexpected skip reason: " << it->SkipReason.ToView();
 }
 
 // SSAOPass-style setup that declares SSAORaw as a transient RG16F FB.
@@ -5417,7 +5417,7 @@ TEST(RenderGraphTransientPool, PhaseD_SSAOPassDeclaresTransientRawFramebuffer)
     ASSERT_NE(it, plan.end()) << "SSAORaw not found in transient plan";
     EXPECT_TRUE(it->Reachable) << "SSAORaw must be reachable";
     EXPECT_TRUE(it->WillAllocate) << "SSAORaw must be planned for allocation";
-    EXPECT_EQ(it->SkipReason, "") << "unexpected skip reason: " << it->SkipReason;
+    EXPECT_EQ(it->SkipReason, FString("")) << "unexpected skip reason: " << it->SkipReason.ToView();
 
     // The stable handle must be resolvable after BuildFrameGraph
     const auto handle = graph.GetFramebufferHandle("SSAORaw");
@@ -5464,7 +5464,7 @@ TEST(RenderGraphTransientPool, PhaseD_SSAOAOBufferDeclaredAsTransientTexture)
     ASSERT_NE(it, plan.end()) << "AOBuffer not found in transient plan";
     EXPECT_TRUE(it->Reachable) << "AOBuffer must be reachable";
     EXPECT_TRUE(it->WillAllocate) << "AOBuffer must be planned for allocation";
-    EXPECT_EQ(it->SkipReason, "") << "AOBuffer unexpected skip reason: " << it->SkipReason;
+    EXPECT_EQ(it->SkipReason, FString("")) << "AOBuffer unexpected skip reason: " << it->SkipReason.ToView();
     EXPECT_EQ(it->EstimatedBytes, 698ull * 418ull * 4ull)
         << "AOBuffer (RG16F) should be 4 bytes per texel";
 
@@ -5509,7 +5509,7 @@ TEST(RenderGraphTransientPool, PhaseD_SSAOBlurFramebufferDeclaredAsTransientFram
     ASSERT_NE(it, plan.end()) << "SSAOBlur not found in transient plan";
     EXPECT_TRUE(it->Reachable) << "SSAOBlur must be reachable";
     EXPECT_TRUE(it->WillAllocate) << "SSAOBlur must be planned for allocation";
-    EXPECT_EQ(it->SkipReason, "") << "SSAOBlur unexpected skip reason: " << it->SkipReason;
+    EXPECT_EQ(it->SkipReason, FString("")) << "SSAOBlur unexpected skip reason: " << it->SkipReason.ToView();
 
     const auto handle = graph.GetFramebufferHandle(std::string(ResourceNames::SSAOBlur));
     EXPECT_TRUE(handle.IsValid()) << "stable handle for SSAOBlur must be valid after BuildFrameGraph";
@@ -5547,7 +5547,7 @@ TEST(RenderGraphTransientPool, PhaseD_RGBA32FFramebufferFormatIsAllocatable)
 
     ASSERT_NE(it, plan.end());
     EXPECT_TRUE(it->WillAllocate) << "RGBA32F FB must be allocatable";
-    EXPECT_EQ(it->SkipReason, "") << "unexpected skip reason: " << it->SkipReason;
+    EXPECT_EQ(it->SkipReason, FString("")) << "unexpected skip reason: " << it->SkipReason.ToView();
 }
 
 // SelectionOutline-style setup declaring JFAPing + JFAPong
@@ -5598,7 +5598,7 @@ TEST(RenderGraphTransientPool, PhaseD_SelectionOutlinePassDeclaresPingPongJFAFra
         ASSERT_NE(it, plan.end()) << name << " not found in transient plan";
         EXPECT_TRUE(it->Reachable) << name << " must be reachable";
         EXPECT_TRUE(it->WillAllocate) << name << " must be planned for allocation";
-        EXPECT_EQ(it->SkipReason, "") << name << " unexpected skip reason: " << it->SkipReason;
+        EXPECT_EQ(it->SkipReason, FString("")) << name << " unexpected skip reason: " << it->SkipReason.ToView();
 
         const auto handle = graph.GetFramebufferHandle(name);
         EXPECT_TRUE(handle.IsValid()) << "stable handle for " << name << " must be valid after BuildFrameGraph";
@@ -5676,7 +5676,7 @@ TEST(RenderGraphTransientPool, PhaseD_BloomMipChainDeclaredAsTransientFramebuffe
         ASSERT_NE(it, plan.end()) << mipName << " not found in transient plan";
         EXPECT_TRUE(it->Reachable) << mipName << " must be reachable";
         EXPECT_TRUE(it->WillAllocate) << mipName << " must be planned for allocation";
-        EXPECT_EQ(it->SkipReason, "") << mipName << " unexpected skip reason: " << it->SkipReason;
+        EXPECT_EQ(it->SkipReason, FString("")) << mipName << " unexpected skip reason: " << it->SkipReason.ToView();
 
         const auto handle = graph.GetFramebufferHandle(mipName);
         EXPECT_TRUE(handle.IsValid()) << "stable handle for " << mipName << " must be valid after BuildFrameGraph";
@@ -5735,7 +5735,7 @@ TEST(RenderGraphTransientPool, PhaseD_GTAOEdgeTextureDeclaredAsTransientTexture)
     ASSERT_NE(it, plan.end()) << "GTAOEdge not found in transient plan";
     EXPECT_TRUE(it->Reachable) << "GTAOEdge must be reachable";
     EXPECT_TRUE(it->WillAllocate) << "GTAOEdge must be planned for allocation";
-    EXPECT_EQ(it->SkipReason, "") << "GTAOEdge unexpected skip reason: " << it->SkipReason;
+    EXPECT_EQ(it->SkipReason, FString("")) << "GTAOEdge unexpected skip reason: " << it->SkipReason.ToView();
     // R8 = 1 byte per texel
     EXPECT_EQ(it->EstimatedBytes, 1280ull * 720ull * 1ull)
         << "GTAOEdge (R8) should be 1 byte per texel";
@@ -5784,7 +5784,7 @@ TEST(RenderGraphTransientPool, PhaseD_GTAOAOBufferDeclaredAsTransientTexture)
     ASSERT_NE(it, plan.end()) << "AOBuffer not found in transient plan";
     EXPECT_TRUE(it->Reachable) << "AOBuffer must be reachable";
     EXPECT_TRUE(it->WillAllocate) << "AOBuffer must be planned for allocation";
-    EXPECT_EQ(it->SkipReason, "") << "AOBuffer unexpected skip reason: " << it->SkipReason;
+    EXPECT_EQ(it->SkipReason, FString("")) << "AOBuffer unexpected skip reason: " << it->SkipReason.ToView();
     EXPECT_EQ(it->EstimatedBytes, 1280ull * 720ull * 1ull)
         << "AOBuffer (R8) should be 1 byte per texel";
 
@@ -5838,7 +5838,7 @@ TEST(RenderGraphTransientPool, PhaseD_GTAODenoisePingPongDeclaredAsTransientText
         ASSERT_NE(it, plan.end()) << resourceName << " not found in transient plan";
         EXPECT_TRUE(it->Reachable) << resourceName << " must be reachable";
         EXPECT_TRUE(it->WillAllocate) << resourceName << " must be planned for allocation";
-        EXPECT_EQ(it->SkipReason, "") << resourceName << " unexpected skip reason: " << it->SkipReason;
+        EXPECT_EQ(it->SkipReason, FString("")) << resourceName << " unexpected skip reason: " << it->SkipReason.ToView();
         EXPECT_EQ(it->EstimatedBytes, 1280ull * 720ull * 1ull)
             << resourceName << " (R8) should be 1 byte per texel";
     }
@@ -5891,8 +5891,8 @@ TEST(RenderGraphTransientPool, PhaseD_HZBDepthDeclaredAsTransientMipChainTexture
     ASSERT_NE(it, plan.end()) << "HZBDepth not found in transient plan";
     EXPECT_TRUE(it->Reachable) << "HZBDepth must be reachable";
     EXPECT_TRUE(it->WillAllocate) << "HZBDepth must be planned for allocation (Phase D Slice 6)";
-    EXPECT_EQ(it->SkipReason, "") << "HZBDepth unexpected skip reason: " << it->SkipReason;
-    EXPECT_NE(it->AliasGroup.find(":m12:"), std::string::npos)
+    EXPECT_EQ(it->SkipReason, FString("")) << "HZBDepth unexpected skip reason: " << it->SkipReason.ToView();
+    EXPECT_NE(it->AliasGroup.ToView().find(":m12:"), std::string_view::npos)
         << "Alias group should encode mip count for HZBDepth mip chain";
     EXPECT_EQ(it->EstimatedBytes, 2048ull * 1024ull * 4ull * 12ull)
         << "HZBDepth (R32F, 12 mips) estimated bytes should include mip multiplier in current planner model";
@@ -5941,7 +5941,7 @@ TEST(RenderGraphTransientPool, PhaseD_WaterRefractionDeclaredAsTransientTexture)
     ASSERT_NE(it, plan.end()) << "WaterRefraction not found in transient plan";
     EXPECT_TRUE(it->Reachable) << "WaterRefraction must be reachable";
     EXPECT_TRUE(it->WillAllocate) << "WaterRefraction must be planned for allocation";
-    EXPECT_EQ(it->SkipReason, "") << "WaterRefraction unexpected skip reason: " << it->SkipReason;
+    EXPECT_EQ(it->SkipReason, FString("")) << "WaterRefraction unexpected skip reason: " << it->SkipReason.ToView();
     // RGBA16F = 8 bytes per texel
     EXPECT_EQ(it->EstimatedBytes, 1280ull * 720ull * 8ull)
         << "WaterRefraction (RGBA16F) should be 8 bytes per texel";
@@ -5999,7 +5999,7 @@ TEST(RenderGraphTransientPool, RG16FloatTextureIsPlannedForAllocation)
     ASSERT_NE(planIt, transientPlan.end());
     EXPECT_TRUE(planIt->Reachable);
     EXPECT_TRUE(planIt->WillAllocate);
-    EXPECT_TRUE(planIt->SkipReason.empty());
+    EXPECT_TRUE(planIt->SkipReason.IsEmpty());
     EXPECT_EQ(planIt->EstimatedBytes, 320ull * 180ull * 4ull);
 }
 
@@ -6417,7 +6417,7 @@ TEST(RenderGraphTransientPool, TransientTextureIsAllocatedFromPoolWhenMaterializ
     ASSERT_NE(planIt, transientPlan.end()) << "Transient should exist in the plan";
     EXPECT_TRUE(planIt->Reachable) << "Transient should be reachable";
     EXPECT_TRUE(planIt->WillAllocate) << "Transient should be allocated from pool";
-    EXPECT_TRUE(planIt->SkipReason.empty()) << "Reachable allocatable transient should have no skip reason";
+    EXPECT_TRUE(planIt->SkipReason.IsEmpty()) << "Reachable allocatable transient should have no skip reason";
 }
 
 TEST(RenderGraphTransientPool, MaterializedTransientExtractionReturnsValidTextureWithGpuContext)
@@ -6606,8 +6606,8 @@ TEST(RenderGraphTransientPool, PhaseD_OITBufferDeclaredAsSharedTransientMRTFrame
     ASSERT_NE(it, plan.end()) << "OITBuffer not found in transient plan";
     EXPECT_TRUE(it->Reachable) << "OITBuffer must be reachable";
     EXPECT_TRUE(it->WillAllocate)
-        << "OITBuffer MRT must be planned for allocation; skip reason: " << it->SkipReason;
-    EXPECT_EQ(it->SkipReason, "") << "unexpected skip reason: " << it->SkipReason;
+        << "OITBuffer MRT must be planned for allocation; skip reason: " << it->SkipReason.ToView();
+    EXPECT_EQ(it->SkipReason, FString("")) << "unexpected skip reason: " << it->SkipReason.ToView();
 
     // EstimatedBytes must cover both color attachments plus depth:
     // RGBA16F (8 bytes) + RG16F (4 bytes) + DEPTH24_STENCIL8 (4 bytes) per pixel.
@@ -6968,7 +6968,7 @@ TEST(RenderGraphTypedHandles, ExternallyBackedTransientTextureViewsResolveBackin
     graph.BuildFrameGraph();
 
     const auto hazards = graph.ValidateCompiledResourceHazards();
-    EXPECT_TRUE(hazards.empty());
+    EXPECT_TRUE(hazards.IsEmpty());
 
     const auto* csmInfo = graph.FindRegisteredResource("ExternallyBackedShadowCSM");
     ASSERT_NE(csmInfo, nullptr);
@@ -7305,7 +7305,7 @@ TEST(RenderGraphTypedHandles, MultisampleParentWriterFeedsResolveViewReaderAcros
     EXPECT_LT(writerIt, readerIt);
 
     const auto hazards = graph.ValidateCompiledResourceHazards();
-    EXPECT_TRUE(hazards.empty());
+    EXPECT_TRUE(hazards.IsEmpty());
 
     const auto transitions = graph.GetResourceTransitions();
     const auto transitionIt = std::ranges::find_if(transitions,
@@ -7360,7 +7360,7 @@ TEST(RenderGraphTypedHandles, ParentFramebufferWriterFeedsAttachmentViewReaderAc
     EXPECT_LT(writerIt, readerIt);
 
     const auto hazards = graph.ValidateCompiledResourceHazards();
-    EXPECT_TRUE(hazards.empty());
+    EXPECT_TRUE(hazards.IsEmpty());
 
     const auto& culledPasses = graph.GetCulledPasses();
     EXPECT_TRUE(std::ranges::find(culledPasses, "FramebufferWriterPass") == culledPasses.end());
@@ -7417,7 +7417,7 @@ TEST(RenderGraphTypedHandles, ParentTextureWriterFeedsMipViewReaderAcrossCompile
     EXPECT_LT(writerIt, readerIt);
 
     const auto hazards = graph.ValidateCompiledResourceHazards();
-    EXPECT_TRUE(hazards.empty());
+    EXPECT_TRUE(hazards.IsEmpty());
 }
 
 TEST(RenderGraphTypedHandles, MipViewWriterFeedsParentTextureReaderAcrossCompileStages)
@@ -7461,7 +7461,7 @@ TEST(RenderGraphTypedHandles, MipViewWriterFeedsParentTextureReaderAcrossCompile
     EXPECT_LT(writerIt, readerIt);
 
     const auto hazards = graph.ValidateCompiledResourceHazards();
-    EXPECT_TRUE(hazards.empty());
+    EXPECT_TRUE(hazards.IsEmpty());
 }
 
 TEST(RenderGraphTypedHandles, ParentTextureWriterFeedsArrayLayerViewReaderAcrossCompileStages)
@@ -7505,7 +7505,7 @@ TEST(RenderGraphTypedHandles, ParentTextureWriterFeedsArrayLayerViewReaderAcross
     EXPECT_LT(writerIt, readerIt);
 
     const auto hazards = graph.ValidateCompiledResourceHazards();
-    EXPECT_TRUE(hazards.empty());
+    EXPECT_TRUE(hazards.IsEmpty());
 }
 
 TEST(RenderGraphTypedHandles, ArrayLayerViewWriterFeedsParentTextureReaderAcrossCompileStages)
@@ -7550,7 +7550,7 @@ TEST(RenderGraphTypedHandles, ArrayLayerViewWriterFeedsParentTextureReaderAcross
     EXPECT_LT(writerIt, readerIt);
 
     const auto hazards = graph.ValidateCompiledResourceHazards();
-    EXPECT_TRUE(hazards.empty());
+    EXPECT_TRUE(hazards.IsEmpty());
 }
 
 TEST(RenderGraphTypedHandles, ParentTextureWriterFeedsCubeFaceViewReaderAcrossCompileStages)
@@ -7597,7 +7597,7 @@ TEST(RenderGraphTypedHandles, ParentTextureWriterFeedsCubeFaceViewReaderAcrossCo
     EXPECT_LT(writerIt, readerIt);
 
     const auto hazards = graph.ValidateCompiledResourceHazards();
-    EXPECT_TRUE(hazards.empty());
+    EXPECT_TRUE(hazards.IsEmpty());
 }
 
 TEST(RenderGraphTypedHandles, CubeFaceViewWriterFeedsParentTextureReaderAcrossCompileStages)
@@ -7644,7 +7644,7 @@ TEST(RenderGraphTypedHandles, CubeFaceViewWriterFeedsParentTextureReaderAcrossCo
     EXPECT_LT(writerIt, readerIt);
 
     const auto hazards = graph.ValidateCompiledResourceHazards();
-    EXPECT_TRUE(hazards.empty());
+    EXPECT_TRUE(hazards.IsEmpty());
 }
 
 // Verify that the graph-owned OIT descriptor remains incompatible with the old
@@ -7780,7 +7780,7 @@ TEST(RenderGraphTransientPool, R32FloatColorAttachmentIsRepresentable)
                                          [](const RenderGraph::TransientPlanEntry& e)
                                          { return e.Resource == "UpscaledDepthVelocityTest"; });
     ASSERT_NE(it, plan.end());
-    EXPECT_TRUE(it->WillAllocate) << "unexpected skip reason: " << it->SkipReason;
+    EXPECT_TRUE(it->WillAllocate) << "unexpected skip reason: " << it->SkipReason.ToView();
     // 4 (R32F) + 4 (RG16F) bytes/px — the byte total is the cheapest proof that
     // BOTH attachments survived planning rather than one being dropped.
     EXPECT_EQ(it->EstimatedBytes, (4ull + 4ull) * 1280ull * 720ull)
@@ -7859,7 +7859,7 @@ TEST(RenderGraphTransientPool, AttachmentViewOnlyWriteExtendsParentFramebufferLi
     graph.Execute();
 
     const auto hazards = graph.ValidateCompiledResourceHazards();
-    EXPECT_TRUE(hazards.empty());
+    EXPECT_TRUE(hazards.IsEmpty());
 
     const auto& plan = graph.GetTransientPlan();
     const auto it = std::ranges::find_if(plan,
@@ -7921,7 +7921,7 @@ TEST(RenderGraphTransientPool, PhaseD_VelocityDeclaredAsTransientTexture)
     ASSERT_NE(it, plan.end()) << "Velocity not found in transient plan";
     EXPECT_TRUE(it->Reachable) << "Velocity must be reachable";
     EXPECT_TRUE(it->WillAllocate) << "Velocity must be planned for allocation";
-    EXPECT_EQ(it->SkipReason, "") << "Velocity unexpected skip reason: " << it->SkipReason;
+    EXPECT_EQ(it->SkipReason, FString("")) << "Velocity unexpected skip reason: " << it->SkipReason.ToView();
     EXPECT_EQ(it->EstimatedBytes, 1280ull * 720ull * 4ull)
         << "Velocity (RG16F) should be 4 bytes per texel";
 
@@ -7969,7 +7969,7 @@ TEST(RenderGraphTransientPool, PhaseD_SceneDepthDeclaredAsTransientTexture)
     ASSERT_NE(it, plan.end()) << "SceneDepth not found in transient plan";
     EXPECT_TRUE(it->Reachable) << "SceneDepth must be reachable";
     EXPECT_TRUE(it->WillAllocate) << "SceneDepth must be planned for allocation";
-    EXPECT_EQ(it->SkipReason, "") << "SceneDepth unexpected skip reason: " << it->SkipReason;
+    EXPECT_EQ(it->SkipReason, FString("")) << "SceneDepth unexpected skip reason: " << it->SkipReason.ToView();
     EXPECT_EQ(it->EstimatedBytes, 1280ull * 720ull * 4ull)
         << "SceneDepth (Depth24Stencil8) should be 4 bytes per texel";
 
@@ -8017,7 +8017,7 @@ TEST(RenderGraphTransientPool, PhaseD_SceneNormalsDeclaredAsTransientTexture)
     ASSERT_NE(it, plan.end()) << "SceneNormals not found in transient plan";
     EXPECT_TRUE(it->Reachable) << "SceneNormals must be reachable";
     EXPECT_TRUE(it->WillAllocate) << "SceneNormals must be planned for allocation";
-    EXPECT_EQ(it->SkipReason, "") << "SceneNormals unexpected skip reason: " << it->SkipReason;
+    EXPECT_EQ(it->SkipReason, FString("")) << "SceneNormals unexpected skip reason: " << it->SkipReason.ToView();
     EXPECT_EQ(it->EstimatedBytes, 1280ull * 720ull * 8ull)
         << "SceneNormals (RGBA16F deferred path) should be 8 bytes per texel";
 
@@ -8093,7 +8093,7 @@ TEST(RenderGraphTransientPool, PhaseD_DeferredGBufferRootsDeclaredAsTransientTex
         ASSERT_NE(it, plan.end()) << resource.Name << " not found in transient plan";
         EXPECT_TRUE(it->Reachable) << resource.Name << " must be reachable";
         EXPECT_TRUE(it->WillAllocate) << resource.Name << " must be planned for allocation";
-        EXPECT_EQ(it->SkipReason, "") << resource.Name << " unexpected skip reason: " << it->SkipReason;
+        EXPECT_EQ(it->SkipReason, FString("")) << resource.Name << " unexpected skip reason: " << it->SkipReason.ToView();
         EXPECT_EQ(it->EstimatedBytes, resource.EstimatedBytes)
             << resource.Name << " estimated bytes mismatch";
 
@@ -8176,7 +8176,7 @@ TEST(RenderGraphTransientPool, PhaseD_DeferredMSCompanionsDeclaredAsTransientTex
         ASSERT_NE(it, plan.end()) << resource.Name << " not found in transient plan";
         EXPECT_TRUE(it->Reachable) << resource.Name << " must be reachable";
         EXPECT_TRUE(it->WillAllocate) << resource.Name << " must be planned for allocation";
-        EXPECT_EQ(it->SkipReason, "") << resource.Name << " unexpected skip reason: " << it->SkipReason;
+        EXPECT_EQ(it->SkipReason, FString("")) << resource.Name << " unexpected skip reason: " << it->SkipReason.ToView();
         EXPECT_EQ(it->EstimatedBytes, resource.EstimatedBytes)
             << resource.Name << " estimated bytes mismatch";
 
@@ -8232,7 +8232,7 @@ TEST(RenderGraphTransientPool, PhaseD_SceneColorDeclaredAsTransientMRTFramebuffe
     ASSERT_NE(it, plan.end()) << "SceneColor not found in transient plan";
     EXPECT_TRUE(it->Reachable) << "SceneColor must be reachable";
     EXPECT_TRUE(it->WillAllocate) << "SceneColor must be planned for allocation";
-    EXPECT_EQ(it->SkipReason, "") << "SceneColor unexpected skip reason: " << it->SkipReason;
+    EXPECT_EQ(it->SkipReason, FString("")) << "SceneColor unexpected skip reason: " << it->SkipReason.ToView();
     EXPECT_EQ(it->EstimatedBytes, (8ull + 4ull + 4ull + 4ull + 4ull) * 1280ull * 720ull)
         << "SceneColor MRT estimated bytes should sum all attachments";
 
@@ -8659,7 +8659,7 @@ TEST(RenderGraphPassFlags, NodeSubmissionInfoReportsWorkTypeAndAsyncFlag)
     graph.SetFinalPass("GraphicsPass");
 
     const auto infos = graph.GetNodeSubmissionInfo();
-    ASSERT_FALSE(infos.empty());
+    ASSERT_FALSE(infos.IsEmpty());
 
     for (const auto& info : infos)
     {
@@ -8934,7 +8934,7 @@ TEST(RenderGraphAsyncBatch, NoCandidatesReturnsEmptyBatches)
     graph.Execute();
 
     const auto batches = graph.GetAsyncComputeBatches();
-    EXPECT_TRUE(batches.empty());
+    EXPECT_TRUE(batches.IsEmpty());
 }
 
 TEST(RenderGraphAsyncBatch, SingleComputePassFormsBatchWithCorrectSignalPass)
@@ -8953,19 +8953,19 @@ TEST(RenderGraphAsyncBatch, SingleComputePassFormsBatchWithCorrectSignalPass)
     graph.Execute();
 
     const auto batches = graph.GetAsyncComputeBatches();
-    ASSERT_EQ(batches.size(), 1u);
+    ASSERT_EQ(batches.Num(), 1u);
 
     const auto& batch = batches[0];
     EXPECT_EQ(batch.Lane, RenderGraph::QueueLane::Compute)
         << "Async compute batches must be assigned to compute lane";
-    ASSERT_EQ(batch.ComputeNodes.size(), 1u);
+    ASSERT_EQ(batch.ComputeNodes.Num(), 1u);
     EXPECT_EQ(batch.ComputeNodes[0], "ComputePass");
 
     // ComputePass has no non-batch predecessors
-    EXPECT_TRUE(batch.WaitNodes.empty());
+    EXPECT_TRUE(batch.WaitNodes.IsEmpty());
 
     // GfxPass depends on ComputePass — must appear in SignalNodes
-    ASSERT_EQ(batch.SignalNodes.size(), 1u);
+    ASSERT_EQ(batch.SignalNodes.Num(), 1u);
     EXPECT_EQ(batch.SignalNodes[0], "GfxPass");
 }
 
@@ -8983,12 +8983,12 @@ TEST(RenderGraphAsyncBatch, IndependentComputePassHasEmptyWaitAndSignalLists)
     graph.Execute();
 
     const auto batches = graph.GetAsyncComputeBatches();
-    ASSERT_EQ(batches.size(), 1u);
+    ASSERT_EQ(batches.Num(), 1u);
 
     const auto& batch = batches[0];
-    EXPECT_EQ(batch.ComputeNodes.size(), 1u);
-    EXPECT_TRUE(batch.WaitNodes.empty());
-    EXPECT_TRUE(batch.SignalNodes.empty());
+    EXPECT_EQ(batch.ComputeNodes.Num(), 1u);
+    EXPECT_TRUE(batch.WaitNodes.IsEmpty());
+    EXPECT_TRUE(batch.SignalNodes.IsEmpty());
 }
 
 TEST(RenderGraphAsyncBatch, ConsecutiveComputePassesGroupedInOneBatch)
@@ -9014,13 +9014,13 @@ TEST(RenderGraphAsyncBatch, ConsecutiveComputePassesGroupedInOneBatch)
     graph.Execute();
 
     const auto batches = graph.GetAsyncComputeBatches();
-    ASSERT_EQ(batches.size(), 1u) << "C1 and C2 are consecutive — one batch expected";
+    ASSERT_EQ(batches.Num(), 1u) << "C1 and C2 are consecutive — one batch expected";
 
     const auto& batch = batches[0];
-    EXPECT_EQ(batch.ComputeNodes.size(), 2u);
+    EXPECT_EQ(batch.ComputeNodes.Num(), 2u);
 
     // GfxFinal depends on C2 — must be in SignalNodes
-    ASSERT_EQ(batch.SignalNodes.size(), 1u);
+    ASSERT_EQ(batch.SignalNodes.Num(), 1u);
     EXPECT_EQ(batch.SignalNodes[0], "GfxFinal");
 }
 
@@ -9043,14 +9043,14 @@ TEST(RenderGraphAsyncBatch, ComputeBatchWaitsForGraphicsPrerequisite)
     graph.Execute();
 
     const auto batches = graph.GetAsyncComputeBatches();
-    ASSERT_EQ(batches.size(), 1u);
+    ASSERT_EQ(batches.Num(), 1u);
 
     const auto& batch = batches[0];
-    ASSERT_EQ(batch.WaitNodes.size(), 1u);
+    ASSERT_EQ(batch.WaitNodes.Num(), 1u);
     EXPECT_EQ(batch.WaitNodes[0], "GfxPre")
         << "ComputePass must list GfxPre as a prerequisite to wait for";
 
-    ASSERT_EQ(batch.SignalNodes.size(), 1u);
+    ASSERT_EQ(batch.SignalNodes.Num(), 1u);
     EXPECT_EQ(batch.SignalNodes[0], "GfxPost")
         << "GfxPost must be listed as waiting for the compute batch";
 }
@@ -9064,7 +9064,7 @@ namespace
     // Helper: count SubmissionCommand entries of a given Kind.
     using SCKind = RenderGraph::SubmissionCommand::Kind;
 
-    u32 CountKind(const std::vector<RenderGraph::SubmissionCommand>& plan, SCKind kind)
+    u32 CountKind(const TArray64<RenderGraph::SubmissionCommand>& plan, SCKind kind)
     {
         return static_cast<u32>(
             std::ranges::count_if(plan, [kind](const RenderGraph::SubmissionCommand& c)
@@ -9072,13 +9072,13 @@ namespace
     }
 
     // Helper: collect PassNames for Pass commands in order.
-    std::vector<std::string> PassOrder(const std::vector<RenderGraph::SubmissionCommand>& plan)
+    std::vector<std::string> PassOrder(const TArray64<RenderGraph::SubmissionCommand>& plan)
     {
         std::vector<std::string> names;
         for (const auto& cmd : plan)
         {
             if (cmd.CommandKind == SCKind::Pass)
-                names.push_back(cmd.NodeName);
+                names.push_back(cmd.NodeName.ToStdString());
         }
         return names;
     }
@@ -9252,10 +9252,10 @@ TEST(RenderGraphSubmissionPlan, BatchBeginCarriesWaitAndInputResources)
     EXPECT_EQ(beginIt->Lane, RenderGraph::QueueLane::Compute)
         << "BatchBegin lane should be compute";
 
-    ASSERT_EQ(beginIt->WaitNodes.size(), 1u);
+    ASSERT_EQ(beginIt->WaitNodes.Num(), 1u);
     EXPECT_EQ(beginIt->WaitNodes[0], "GfxPre");
 
-    ASSERT_EQ(beginIt->InputResources.size(), 1u);
+    ASSERT_EQ(beginIt->InputResources.Num(), 1u);
     EXPECT_EQ(beginIt->InputResources[0].ResourceName, "SharedTex");
     EXPECT_EQ(beginIt->InputResources[0].ExternalNode, "GfxPre");
 }
@@ -9306,10 +9306,10 @@ TEST(RenderGraphSubmissionPlan, BatchEndCarriesSignalAndOutputResources)
     EXPECT_EQ(endIt->Lane, RenderGraph::QueueLane::Compute)
         << "BatchEnd lane should be compute";
 
-    ASSERT_EQ(endIt->SignalNodes.size(), 1u);
+    ASSERT_EQ(endIt->SignalNodes.Num(), 1u);
     EXPECT_EQ(endIt->SignalNodes[0], "GfxPost");
 
-    ASSERT_EQ(endIt->OutputResources.size(), 1u);
+    ASSERT_EQ(endIt->OutputResources.Num(), 1u);
     EXPECT_EQ(endIt->OutputResources[0].ResourceName, "ResultTex");
     EXPECT_EQ(endIt->OutputResources[0].ExternalNode, "GfxPost");
 }
@@ -9379,8 +9379,8 @@ TEST(RenderGraphSubmissionPlan, CrossLaneDependenciesEmitPairedFenceCommandsAndS
     std::ostringstream transitionSummary;
     for (const auto& transition : transitions)
     {
-        transitionSummary << transition.ProducerPass << " -> " << transition.ConsumerPass
-                          << " [" << transition.ResourceName << ", cross="
+        transitionSummary << transition.ProducerPass.ToView() << " -> " << transition.ConsumerPass.ToView()
+                          << " [" << transition.ResourceName.ToView() << ", cross="
                           << transition.IsCrossLane << "]\n";
     }
 
@@ -9420,7 +9420,7 @@ TEST(RenderGraphSubmissionPlan, CrossLaneDependenciesEmitPairedFenceCommandsAndS
         [](const RenderGraph::FenceEdge& edge)
         { return edge.ProducerPass == "GfxProducer" && edge.ConsumerPass == "ComputeTransform"; });
     ASSERT_NE(producerSignal, signals.end());
-    EXPECT_EQ(producerSignal->Resources, std::vector<std::string>{ "InputTex" });
+    EXPECT_EQ(producerSignal->Resources, TArray64<FString>{ FString("InputTex") });
     EXPECT_EQ(producerSignal->ProducerLane, RenderGraph::QueueLane::Graphics);
     EXPECT_EQ(producerSignal->ConsumerLane, RenderGraph::QueueLane::Compute);
 
@@ -9473,23 +9473,23 @@ TEST(RenderGraphSubmissionPlan, OrderingOnlyCrossLaneDependencyEmitsFencePair)
         plan,
         [](const RenderGraph::SubmissionCommand& command)
         {
-            return command.CommandKind == SCKind::FenceSignal && command.FenceEdges.size() == 1u &&
-                   command.FenceEdges.front().ProducerPass == "OrderingProducer";
+            return command.CommandKind == SCKind::FenceSignal && command.FenceEdges.Num() == 1u &&
+                   command.FenceEdges[0].ProducerPass == "OrderingProducer";
         });
     const auto wait = std::ranges::find_if(
         plan,
         [](const RenderGraph::SubmissionCommand& command)
         {
-            return command.CommandKind == SCKind::FenceWait && command.FenceEdges.size() == 1u &&
-                   command.FenceEdges.front().ConsumerPass == "OrderingConsumer";
+            return command.CommandKind == SCKind::FenceWait && command.FenceEdges.Num() == 1u &&
+                   command.FenceEdges[0].ConsumerPass == "OrderingConsumer";
         });
     ASSERT_NE(signal, plan.end());
     ASSERT_NE(wait, plan.end());
-    EXPECT_EQ(signal->FenceEdges.front().Index, wait->FenceEdges.front().Index);
-    EXPECT_TRUE(signal->FenceEdges.front().Resources.empty())
+    EXPECT_EQ(signal->FenceEdges[0].Index, wait->FenceEdges[0].Index);
+    EXPECT_TRUE(signal->FenceEdges[0].Resources.IsEmpty())
         << "An ordering-only dependency has no resource transition to annotate";
-    EXPECT_EQ(signal->FenceEdges.front().ProducerLane, RenderGraph::QueueLane::Graphics);
-    EXPECT_EQ(signal->FenceEdges.front().ConsumerLane, RenderGraph::QueueLane::Compute);
+    EXPECT_EQ(signal->FenceEdges[0].ProducerLane, RenderGraph::QueueLane::Graphics);
+    EXPECT_EQ(signal->FenceEdges[0].ConsumerLane, RenderGraph::QueueLane::Compute);
 }
 
 TEST(RenderGraphSubmissionPlan, DumpToJsonIncludesSubmissionPlan)
@@ -9647,7 +9647,7 @@ TEST(RenderGraphExecutePlanDriven, CulledFenceEdgeDoesNotDisableLaterReachableSp
     {
         RenderGraph::SubmissionCommand command;
         command.CommandKind = kind;
-        command.FenceEdges.push_back(edge);
+        command.FenceEdges.Add(edge);
         return command;
     };
     const std::array plan{
@@ -9665,7 +9665,7 @@ TEST(RenderGraphExecutePlanDriven, CulledFenceEdgeDoesNotDisableLaterReachableSp
         .SubmissionPlan = plan,
         .Context = context,
         .RuntimeBarrierExecutionEnabled = false,
-        .IsPassReachable = [](const std::string& passName)
+        .IsPassReachable = [](std::string_view passName)
         { return passName.starts_with("Live"); },
         .SupportsFenceSubmission = []()
         { return true; },
@@ -9675,7 +9675,7 @@ TEST(RenderGraphExecutePlanDriven, CulledFenceEdgeDoesNotDisableLaterReachableSp
         { return Ref<RecordingFence>::Create(signalCount, waitCount); },
     });
 
-    EXPECT_TRUE(timings.empty());
+    EXPECT_TRUE(timings.IsEmpty());
     EXPECT_EQ(signalCount, 1u);
     EXPECT_EQ(waitCount, 1u);
     EXPECT_EQ(submitCount, 2u) << "producer submit plus final wait-only submit";
@@ -9799,8 +9799,8 @@ TEST(RenderGraphExecutePlanDriven, PostPassHookStillFiresForEachPass)
     graph.SetFinalPass("Y");
 
     std::vector<std::string> firedFor;
-    graph.SetPostPassHook([&](const std::string& passName, RenderGraph& /*g*/)
-                          { firedFor.push_back(passName); });
+    graph.SetPostPassHook([&](std::string_view passName, RenderGraph& /*g*/)
+                          { firedFor.push_back(std::string(passName)); });
 
     graph.Execute();
 
@@ -10160,12 +10160,12 @@ TEST(RenderGraphAsyncBatchResources, NoBatchResourceDepsWhenNoAccessDeclarations
     graph.Execute();
 
     const auto batches = graph.GetAsyncComputeBatches();
-    ASSERT_EQ(batches.size(), 1u);
+    ASSERT_EQ(batches.Num(), 1u);
 
     const auto& batch = batches[0];
-    EXPECT_TRUE(batch.InputResources.empty())
+    EXPECT_TRUE(batch.InputResources.IsEmpty())
         << "No access declarations → no InputResources expected";
-    EXPECT_TRUE(batch.OutputResources.empty())
+    EXPECT_TRUE(batch.OutputResources.IsEmpty())
         << "No access declarations → no OutputResources expected";
 }
 
@@ -10209,15 +10209,15 @@ TEST(RenderGraphAsyncBatchResources, SingleResourceFlowsIntoBatch)
     graph.Execute();
 
     const auto batches = graph.GetAsyncComputeBatches();
-    ASSERT_EQ(batches.size(), 1u);
+    ASSERT_EQ(batches.Num(), 1u);
 
     const auto& batch = batches[0];
-    ASSERT_EQ(batch.InputResources.size(), 1u)
+    ASSERT_EQ(batch.InputResources.Num(), 1u)
         << "SharedTex is written by GfxPre (external) and read by ComputePass → 1 InputResource";
     EXPECT_EQ(batch.InputResources[0].ResourceName, "SharedTex");
     EXPECT_EQ(batch.InputResources[0].ExternalNode, "GfxPre");
 
-    EXPECT_TRUE(batch.OutputResources.empty())
+    EXPECT_TRUE(batch.OutputResources.IsEmpty())
         << "ComputePass does not write SharedTex → no OutputResources";
 }
 
@@ -10260,13 +10260,13 @@ TEST(RenderGraphAsyncBatchResources, BatchOutputFlowsToGraphicsPass)
     graph.Execute();
 
     const auto batches = graph.GetAsyncComputeBatches();
-    ASSERT_EQ(batches.size(), 1u);
+    ASSERT_EQ(batches.Num(), 1u);
 
     const auto& batch = batches[0];
-    EXPECT_TRUE(batch.InputResources.empty())
+    EXPECT_TRUE(batch.InputResources.IsEmpty())
         << "No external pass writes ResultTex before the batch → no InputResources";
 
-    ASSERT_EQ(batch.OutputResources.size(), 1u)
+    ASSERT_EQ(batch.OutputResources.Num(), 1u)
         << "ResultTex is written by ComputePass and read by GfxPost (external) → 1 OutputResource";
     EXPECT_EQ(batch.OutputResources[0].ResourceName, "ResultTex");
     EXPECT_EQ(batch.OutputResources[0].ExternalNode, "GfxPost");
@@ -10299,11 +10299,11 @@ TEST(RenderGraphAsyncBatchResources, IndependentBatchHasNoCrossBoundaryResources
     graph.Execute();
 
     const auto batches = graph.GetAsyncComputeBatches();
-    ASSERT_EQ(batches.size(), 1u);
+    ASSERT_EQ(batches.Num(), 1u);
 
     const auto& batch = batches[0];
-    EXPECT_TRUE(batch.InputResources.empty());
-    EXPECT_TRUE(batch.OutputResources.empty());
+    EXPECT_TRUE(batch.InputResources.IsEmpty());
+    EXPECT_TRUE(batch.OutputResources.IsEmpty());
 }
 
 TEST(RenderGraphAsyncBatchResources, DumpToJsonIncludesBatchResourceDeps)
@@ -10404,7 +10404,7 @@ TEST(RenderGraphResourceTransitions, NoTransitionsWhenNoBarriersPlanned)
     graph.Execute();
 
     const auto transitions = graph.GetResourceTransitions();
-    EXPECT_TRUE(transitions.empty())
+    EXPECT_TRUE(transitions.IsEmpty())
         << "A graph with no declared access yields no transitions";
 }
 
@@ -10447,7 +10447,7 @@ TEST(RenderGraphResourceTransitions, SingleTransitionCapturesProducerAndConsumer
     graph.Execute();
 
     const auto transitions = graph.GetResourceTransitions();
-    ASSERT_EQ(transitions.size(), 1u);
+    ASSERT_EQ(transitions.Num(), 1u);
 
     const auto& tr = transitions[0];
     EXPECT_EQ(tr.ResourceName, "ColorTex");
@@ -10754,7 +10754,7 @@ TEST(RenderGraphSubmissionPlan, MemoryBarrierCommandsCarryDedupedTransitions)
                                          [](const RenderGraph::SubmissionCommand& cmd)
                                          { return cmd.CommandKind == RenderGraph::SubmissionCommand::Kind::MemoryBarrier; });
     ASSERT_NE(it, plan.end()) << "Expected a MemoryBarrier command in the plan";
-    ASSERT_EQ(it->Transitions.size(), 1u)
+    ASSERT_EQ(it->Transitions.Num(), 1u)
         << "The barrier command carries exactly the deduped transitions for its consumer pass";
     EXPECT_EQ(it->Transitions[0].ResourceName, "ColorTex");
     EXPECT_EQ(it->Transitions[0].FromAccess, RHI::Access::ColorAttachmentWrite);
@@ -10837,7 +10837,7 @@ TEST(RenderGraphResourceLifetimes, NoLifetimesWhenNoResourcesDeclared)
     // An empty graph (no passes, no resources) must return an empty vector.
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
-    EXPECT_TRUE(graph.GetResourceLifetimes().empty());
+    EXPECT_TRUE(graph.GetResourceLifetimes().IsEmpty());
 }
 
 TEST(RenderGraphResourceLifetimes, TransientResourceHasCorrectFirstAndLastPass)
@@ -10878,7 +10878,7 @@ TEST(RenderGraphResourceLifetimes, TransientResourceHasCorrectFirstAndLastPass)
     graph.Execute();
 
     const auto lifetimes = graph.GetResourceLifetimes();
-    ASSERT_FALSE(lifetimes.empty());
+    ASSERT_FALSE(lifetimes.IsEmpty());
 
     const auto it = std::ranges::find_if(lifetimes,
                                          [](const RenderGraph::ResourceLifetime& lt)
@@ -11450,7 +11450,7 @@ TEST(RenderGraphCrossLaneSync, PureGraphicsGraphHasNoCrossLaneTransitions)
     {
         EXPECT_FALSE(tr.IsCrossLane)
             << "Graphics-only graph must have no cross-lane transitions (resource='"
-            << tr.ResourceName << "')";
+            << tr.ResourceName.ToView() << "')";
         EXPECT_EQ(tr.ProducerLane, RenderGraph::QueueLane::Graphics);
         EXPECT_EQ(tr.ConsumerLane, RenderGraph::QueueLane::Graphics);
     }
@@ -11641,7 +11641,7 @@ TEST(RenderGraphQueueAwareScheduler, LegalOverlapDisjointResourcesNoHazard)
     graph.Execute();
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "Disjoint-resource compute+graphics must report no resource hazards";
 }
 
@@ -11778,7 +11778,7 @@ TEST(RenderGraphQueueAwareScheduler, GTAOStyleComputeToGraphicsCrossLaneTransiti
 
     // No hazards when ordering is declared.
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "GTAO-style compute→graphics must be hazard-free when ordered";
 
     // The AO transition must be flagged as cross-lane.
@@ -11856,7 +11856,7 @@ TEST(RenderGraphQueueAwareScheduler, HazardValidatorRemainsGreenAfterComputeHois
     graph.Execute();
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.empty())
+    EXPECT_TRUE(hazards.IsEmpty())
         << "Hazard validator must remain green after compute hoist on multi-compute graph";
 
     const auto& order = graph.GetExecutionOrder();
@@ -12655,7 +12655,7 @@ TEST(RenderGraphBuildDiagnostics, RegistrationOrderSensitivityIsReportedForRever
     EXPECT_EQ(diagnostic.CurrentAfterPass, "EarlyPass");
     EXPECT_EQ(diagnostic.AlternateBeforePass, "EarlyPass");
     EXPECT_EQ(diagnostic.AlternateAfterPass, "LatePass");
-    EXPECT_NE(diagnostic.Message.find("SceneColor"), std::string::npos);
+    EXPECT_NE(diagnostic.Message.ToView().find("SceneColor"), std::string::npos);
 }
 
 TEST(RenderGraphBuildDiagnostics, ExplicitDependencyRemovesRegistrationOrderSensitivity)
@@ -13202,7 +13202,7 @@ TEST(RenderGraph, ImportedBufferLifetimeValidationAcceptsLiveIdentityAndRejectsR
         builder.Write(pool, RGWriteUsage::ShaderStorage); });
     graph.SetFinalPass("ReservoirPass");
     graph.BuildFrameGraph();
-    EXPECT_TRUE(graph.ValidateResourceHazards().empty());
+    EXPECT_TRUE(graph.ValidateResourceHazards().IsEmpty());
 
     // A non-null identity alone is insufficient after the object is retired.
     registry.Unregister(identity);
@@ -13233,4 +13233,22 @@ TEST(RenderGraph, ImportedBufferLifetimeValidationKeepsNativeAndMissingBackingDi
                                                         { return hazard.Kind == RenderGraph::HazardKind::ImportedResourceLifetimeMisuse; });
         EXPECT_EQ(missingBacking, native == 0u);
     }
+}
+
+TEST(RenderGraphStringInterner, OwnedNamesSurviveGrowthAndClear)
+{
+    RGStringInterner names;
+    const u32 original = names.Intern("short");
+    const auto snapshot = names.NameOf(original);
+    for (u32 i = 0; i < 256; ++i)
+        names.Intern("resource-with-a-long-owned-name-" + std::to_string(i));
+
+    EXPECT_EQ(names.Find("short"), original);
+    EXPECT_EQ(names.NameOf(original), "short");
+    EXPECT_EQ(names.Size(), 257u);
+    names.Clear();
+    EXPECT_EQ(names.Size(), 0u);
+    EXPECT_EQ(names.Find("short"), 0u);
+    EXPECT_EQ(snapshot, "short");
+    EXPECT_TRUE(names.NameOf(original).IsEmpty());
 }

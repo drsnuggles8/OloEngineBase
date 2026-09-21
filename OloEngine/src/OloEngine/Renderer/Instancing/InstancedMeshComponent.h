@@ -11,7 +11,7 @@
 
 #include <span>
 #include <unordered_set>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -107,7 +107,7 @@ namespace OloEngine
         // Inline placement list authored at runtime / via scripting. Always
         // rendered. Combined with PlacementAssetHandle's instances at draw
         // time (asset instances are appended to this list).
-        std::vector<InstanceData> Instances;
+        TArray<InstanceData> Instances;
 
         // Optional reference to an authored .oloinstances placement asset.
         // Scene render loop loads the asset (if handle valid) and includes
@@ -135,7 +135,7 @@ namespace OloEngine
         // contents without changing size.
         struct MergedCache
         {
-            std::vector<InstanceData> Data;
+            TArray<InstanceData> Data;
             sizet InlineSize = 0;
             const InstanceData* InlineDataPtr = nullptr;
             AssetHandle PlacementHandle = 0;

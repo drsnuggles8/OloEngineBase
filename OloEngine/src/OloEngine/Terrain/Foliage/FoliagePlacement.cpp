@@ -260,10 +260,10 @@ namespace OloEngine::FoliagePlacement
                 return {};
 
             const auto& plane = material->GetSplatmapData(static_cast<u32>(channel / 4));
-            if (plane.empty())
+            if (plane.IsEmpty())
                 return {};
 
-            return SplatSource{ plane.data(), material->GetSplatmapResolution(), channel % 4 };
+            return SplatSource{ plane.GetData(), material->GetSplatmapResolution(), channel % 4 };
         }
 
         [[nodiscard]] f32 SampleSplat(const SplatSource& source, f32 nx, f32 nz)
@@ -388,14 +388,14 @@ namespace OloEngine::FoliagePlacement
     }
 
     void GenerateLayer(const FoliageLayer& layer, u32 layerIndex,
-                       const std::vector<f32>& heights, u32 resolution,
+                       const TArray<f32>& heights, u32 resolution,
                        const TerrainMaterial* material,
                        f32 worldSizeX, f32 worldSizeZ, f32 heightScale,
-                       std::vector<Placement>& out)
+                       TArray<Placement>& out)
     {
         OLO_PROFILE_FUNCTION();
 
-        out.clear();
+        out.Reset();
 
         if (!layer.Enabled || layer.Density <= 0.0f || resolution == 0)
         {
@@ -409,7 +409,7 @@ namespace OloEngine::FoliagePlacement
         const SplatSource density = ResolveSplat(material, layer.SplatmapChannel);
         const SplatSource exclusion = ResolveSplat(material, layer.ExclusionSplatmapChannel);
 
-        out.reserve(static_cast<sizet>(countX) * countZ / 4); // Estimate ~25% coverage
+        out.Reserve(static_cast<sizet>(countX) * countZ / 4); // Estimate ~25% coverage
 
         const u32 seed = SeedForLayer(layerIndex);
         const SanitizedRules rules = Sanitize(layer, seed);
@@ -532,7 +532,7 @@ namespace OloEngine::FoliagePlacement
                 placement.m_Row.PositionScale = glm::vec4(worldX, groundY, worldZ, scale);
                 placement.m_Row.RotationHeight = glm::vec4(rotation, instanceHeight, 1.0f, 0.0f); // fade=1 (full)
                 placement.m_Row.ColorAlpha = glm::vec4(layer.BaseColor, layer.AlphaCutoff);
-                out.push_back(placement);
+                out.Add(placement);
             }
         }
     }

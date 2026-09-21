@@ -1,13 +1,13 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Containers/Array.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMesh.h"
 
 #include <glm/vec2.hpp>
 #include <glm/vec4.hpp>
 
 #include <cstddef>
-#include <vector>
 
 namespace OloEngine
 {
@@ -365,7 +365,7 @@ namespace OloEngine
     // live page slots whenever a page is loaded.
     struct VirtualMeshGpuData
     {
-        std::vector<VirtualGpuVertex> Vertices;
+        TArray<VirtualGpuVertex> Vertices;
         // Baked lightmap UV2, one per entry of Vertices, or EMPTY when the cook
         // carried none (issue #867).
         //
@@ -379,27 +379,27 @@ namespace OloEngine
         // The two arrays are indexed by the SAME cluster-local vertex slot, so
         // they must always be either equal in size or this one empty — the
         // registry checks that before it uploads.
-        std::vector<glm::vec2> LightmapUVs;
+        TArray<glm::vec2> LightmapUVs;
         // Cluster-owned skin bindings, one per entry of Vertices, or EMPTY for a
         // rigid cook (issue #1150). Same lockstep contract as LightmapUVs: equal
         // in size to Vertices or empty, checked before upload.
-        std::vector<VirtualVertexSkinning> Skinning;
+        TArray<VirtualVertexSkinning> Skinning;
         // Copied straight from the cook — see PackVirtualMeshForGpu for why
         // neither needs expanding.
-        std::vector<VirtualBoneBounds> BoneBounds;
-        std::vector<u32> ClusterBoneRefs; // kMaxClusterBones per cluster, cluster-major
-        std::vector<u32> Indices;
-        std::vector<VirtualClusterGpuRecord> Clusters;
-        std::vector<VirtualGroupGpuRecord> Groups;
-        std::vector<VirtualPageInfo> Pages; // one per group, ordered by group index
+        TArray<VirtualBoneBounds> BoneBounds;
+        TArray<u32> ClusterBoneRefs; // kMaxClusterBones per cluster, cluster-major
+        TArray<u32> Indices;
+        TArray<VirtualClusterGpuRecord> Clusters;
+        TArray<VirtualGroupGpuRecord> Groups;
+        TArray<VirtualPageInfo> Pages; // one per group, ordered by group index
 
         [[nodiscard]] bool IsValid() const
         {
-            return !Clusters.empty() && !Groups.empty();
+            return !Clusters.IsEmpty() && !Groups.IsEmpty();
         }
 
         // The one predicate consumers ask, and it is deliberately the FULL
-        // consistency check rather than `!Skinning.empty()`: a part whose
+        // consistency check rather than `!Skinning.IsEmpty()`: a part whose
         // streams fell out of step must not be treated as skinned at all, or the
         // upload addresses one vertex's bones with another's binding.
         // Cook-time predicate: valid only while the packed payload is whole. It compares
@@ -408,8 +408,8 @@ namespace OloEngine
         // must read the recorded MeshEntry::IsSkinned instead.
         [[nodiscard]] bool IsSkinned() const
         {
-            return !Skinning.empty() && Skinning.size() == Vertices.size() && !BoneBounds.empty() &&
-                   ClusterBoneRefs.size() == Clusters.size() * kMaxClusterBones;
+            return !Skinning.IsEmpty() && Skinning.Num() == Vertices.Num() && !BoneBounds.IsEmpty() &&
+                   static_cast<u32>(ClusterBoneRefs.Num()) == static_cast<u32>(Clusters.Num()) * kMaxClusterBones;
         }
     };
 
@@ -422,4 +422,20 @@ namespace OloEngine
     // kMeshletMaxTriangles). Pure CPU; the registry stamps the result onto
     // MeshEntry::MeshletCompatible at registration.
     [[nodiscard]] bool IsMeshletCompatible(const VirtualMeshGpuData& data);
+
+    // Every owner points to a separate allocation; the remaining fields are numerical.
+    template<>
+    struct TIsTriviallyRelocatable<VirtualMeshGpuData>
+    {
+        static constexpr bool Value =
+            TIsTriviallyRelocatable<decltype(VirtualMeshGpuData::Vertices)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshGpuData::LightmapUVs)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshGpuData::Skinning)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshGpuData::BoneBounds)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshGpuData::ClusterBoneRefs)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshGpuData::Indices)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshGpuData::Clusters)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshGpuData::Groups)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshGpuData::Pages)>::Value;
+    };
 } // namespace OloEngine

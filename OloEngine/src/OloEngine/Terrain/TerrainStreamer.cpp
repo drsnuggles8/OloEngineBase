@@ -10,6 +10,12 @@
 
 namespace OloEngine
 {
+    struct TerrainTileAge
+    {
+        TileCoord first;
+        u64 second;
+    };
+
     TerrainStreamer::~TerrainStreamer()
     {
         OLO_PROFILE_FUNCTION();
@@ -84,9 +90,10 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        auto it = m_PendingLoads.begin();
-        while (it != m_PendingLoads.end())
+        i32 pendingIndex = 0;
+        while (pendingIndex < m_PendingLoads.Num())
         {
+            auto* it = &m_PendingLoads[pendingIndex];
             if (it->Task.IsCompleted())
             {
                 if (auto& tile = it->Tile; tile->GetState() == TerrainTile::State::Loaded)
@@ -114,25 +121,25 @@ namespace OloEngine
                     OLO_CORE_WARN("TerrainStreamer: Tile[{},{}] failed to load", it->Coord.X, it->Coord.Z);
                 }
 
-                it = m_PendingLoads.erase(it);
+                m_PendingLoads.RemoveAt(pendingIndex, 1, EAllowShrinking::No);
             }
             else
             {
-                ++it;
+                ++pendingIndex;
             }
         }
     }
 
-    void TerrainStreamer::GetReadyTiles(std::vector<Ref<TerrainTile>>& outTiles) const
+    void TerrainStreamer::GetReadyTiles(TArray<Ref<TerrainTile>>& outTiles) const
     {
         TSharedLock<FSharedMutex> lock(m_TileMutex);
-        outTiles.clear();
-        outTiles.reserve(m_Tiles.size());
+        outTiles.Reset();
+        outTiles.Reserve(m_Tiles.size());
         for (auto& [coord, tile] : m_Tiles)
         {
             if (tile->GetState() == TerrainTile::State::Ready)
             {
-                outTiles.push_back(tile);
+                outTiles.Add(tile);
             }
         }
     }
@@ -194,7 +201,7 @@ namespace OloEngine
 
     u32 TerrainStreamer::GetLoadingTileCount() const
     {
-        return static_cast<u32>(m_PendingLoads.size());
+        return static_cast<u32>(m_PendingLoads.Num());
     }
 
     Ref<TerrainTile> TerrainStreamer::GetTile(i32 gridX, i32 gridZ) const
@@ -216,7 +223,7 @@ namespace OloEngine
         {
             pending.Task.Wait();
         }
-        m_PendingLoads.clear();
+        m_PendingLoads.Reset();
 
         TUniqueLock<FSharedMutex> lock(m_TileMutex);
         for (auto& [coord, tile] : m_Tiles)
@@ -226,10 +233,10 @@ namespace OloEngine
         m_Tiles.clear();
     }
 
-    std::string TerrainStreamer::BuildTilePath(i32 gridX, i32 gridZ) const
+    FString TerrainStreamer::BuildTilePath(i32 gridX, i32 gridZ) const
     {
         char filename[256];
-        std::snprintf(filename, sizeof(filename), m_Config.TileFilePattern.c_str(), gridX, gridZ);
+        std::snprintf(filename, sizeof(filename), m_Config.TileFilePattern.GetData(), gridX, gridZ);
         return m_Config.TileDirectory + "/" + filename;
     }
 
@@ -261,15 +268,15 @@ namespace OloEngine
         tile->LastUsedFrame = m_CurrentFrame;
         tile->SetState(TerrainTile::State::Loading);
 
-        std::string tilePath = BuildTilePath(gridX, gridZ);
+        FString tilePath = BuildTilePath(gridX, gridZ);
 
         // Async load: CPU heightmap parsing happens on background thread
         // GPU upload deferred to ProcessCompletedLoads on the main thread
         auto loadTask = Tasks::Launch("TerrainTileLoad", [tile, tilePath]() mutable -> bool
                                       {
-                if (std::filesystem::exists(tilePath))
+                if (std::filesystem::exists(tilePath.ToStdString()))
                 {
-                    if (tile->LoadFromFile(tilePath))
+                    if (tile->LoadFromFile(tilePath.ToStdString()))
                     {
                         tile->SetState(TerrainTile::State::Loaded);
                         return true;
@@ -285,7 +292,7 @@ namespace OloEngine
                 tile->SetState(TerrainTile::State::Unloaded);
                 return false; }, Tasks::ETaskPriority::BackgroundNormal);
 
-        m_PendingLoads.push_back({ coord, std::move(loadTask), tile });
+        m_PendingLoads.Add({ coord, std::move(loadTask), tile });
     }
 
     void TerrainStreamer::EvictOverBudget()
@@ -300,20 +307,20 @@ namespace OloEngine
         }
 
         // Collect tiles sorted by LRU timestamp
-        std::vector<std::pair<TileCoord, u64>> sortedTiles;
-        sortedTiles.reserve(m_Tiles.size());
+        TArray<TerrainTileAge> sortedTiles;
+        sortedTiles.Reserve(m_Tiles.size());
         for (auto& [coord, tile] : m_Tiles)
         {
-            sortedTiles.push_back({ coord, tile->LastUsedFrame });
+            sortedTiles.Add({ coord, tile->LastUsedFrame });
         }
 
-        std::ranges::sort(sortedTiles,
+        std::ranges::sort(std::span(sortedTiles.GetData(), static_cast<sizet>(sortedTiles.Num())),
                           [](const auto& a, const auto& b)
                           { return a.second < b.second; });
 
         // Evict oldest tiles until under budget
         sizet toEvict = m_Tiles.size() - m_Config.MaxLoadedTiles;
-        for (sizet i = 0; i < toEvict && i < sortedTiles.size(); ++i)
+        for (sizet i = 0; i < toEvict && i < sortedTiles.Num(); ++i)
         {
             auto it = m_Tiles.find(sortedTiles[i].first);
             if (it != m_Tiles.end())

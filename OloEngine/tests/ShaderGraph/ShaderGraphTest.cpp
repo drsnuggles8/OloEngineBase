@@ -22,7 +22,7 @@ TEST_F(ShaderGraphTest, AddNodeAndFindIt)
     graph.AddNode(std::move(node));
 
     EXPECT_NE(graph.FindNode(id), nullptr);
-    EXPECT_EQ(graph.GetNodes().size(), 1u);
+    EXPECT_EQ(graph.GetNodes().Num(), 1u);
 }
 
 TEST_F(ShaderGraphTest, RemoveNodeCleansUpLinks)
@@ -36,10 +36,10 @@ TEST_F(ShaderGraphTest, RemoveNodeCleansUpLinks)
     graph.AddNode(std::move(floatNode));
     graph.AddNode(std::move(addNode));
     graph.AddLink(floatOutPinID, addInPinID);
-    EXPECT_EQ(graph.GetLinks().size(), 1u);
+    EXPECT_EQ(graph.GetLinks().Num(), 1u);
 
     graph.RemoveNode(floatID);
-    EXPECT_EQ(graph.GetLinks().size(), 0u);
+    EXPECT_EQ(graph.GetLinks().Num(), 0u);
     EXPECT_EQ(graph.FindNode(floatID), nullptr);
 }
 
@@ -105,7 +105,7 @@ TEST_F(ShaderGraphTest, InputPinCanOnlyHaveOneLink)
     // Second link to same input replaces the first
     auto* link2 = graph.AddLink(out2, inA);
     ASSERT_NE(link2, nullptr);
-    EXPECT_EQ(graph.GetLinks().size(), 1u);
+    EXPECT_EQ(graph.GetLinks().Num(), 1u);
     EXPECT_EQ(graph.GetLinkForInputPin(inA)->OutputPinID, out2);
 }
 
@@ -149,7 +149,7 @@ TEST_F(ShaderGraphTest, ValidateEmptyGraphIsInvalid)
 {
     auto result = graph.Validate();
     EXPECT_FALSE(result.IsValid);
-    EXPECT_FALSE(result.Errors.empty());
+    EXPECT_FALSE(result.Errors.IsEmpty());
 }
 
 TEST_F(ShaderGraphTest, ValidateGraphWithOutputNodeIsValid)
@@ -191,8 +191,8 @@ TEST_F(ShaderGraphTest, TopologicalOrderPutsOutputLast)
     graph.AddLink(addOut, outputMetallic);
 
     auto sorted = graph.GetTopologicalOrder();
-    ASSERT_FALSE(sorted.empty());
-    EXPECT_EQ(sorted.back()->TypeName, ShaderGraphNodeTypes::PBROutput);
+    ASSERT_FALSE(sorted.IsEmpty());
+    EXPECT_EQ(sorted.Last()->TypeName, ShaderGraphNodeTypes::PBROutput);
 }
 
 // ── Node Factory ──
@@ -200,12 +200,12 @@ TEST_F(ShaderGraphTest, TopologicalOrderPutsOutputLast)
 TEST_F(ShaderGraphTest, NodeFactoryCreatesAllRegisteredTypes)
 {
     auto allTypes = GetAllNodeTypeNames();
-    EXPECT_FALSE(allTypes.empty());
+    EXPECT_FALSE(allTypes.IsEmpty());
 
     for (const auto& typeName : allTypes)
     {
         auto node = CreateShaderGraphNode(typeName);
-        ASSERT_NE(node, nullptr) << "Failed to create node: " << typeName;
+        ASSERT_NE(node, nullptr) << "Failed to create node: " << typeName.ToView();
         EXPECT_EQ(node->TypeName, typeName);
     }
 }
@@ -263,13 +263,13 @@ TEST_F(ShaderGraphTest, ComputeBufferNodeCreation)
     ASSERT_NE(input, nullptr);
     EXPECT_EQ(input->Category, ShaderGraphNodeCategory::Compute);
     EXPECT_EQ(input->BufferBinding, 0);
-    EXPECT_FALSE(input->Outputs.empty());
+    EXPECT_FALSE(input->Outputs.IsEmpty());
 
     auto store = CreateShaderGraphNode(ShaderGraphNodeTypes::ComputeBufferStore);
     ASSERT_NE(store, nullptr);
     EXPECT_EQ(store->Category, ShaderGraphNodeCategory::Compute);
     EXPECT_EQ(store->BufferBinding, 1);
-    EXPECT_FALSE(store->Inputs.empty());
+    EXPECT_FALSE(store->Inputs.IsEmpty());
 }
 
 TEST_F(ShaderGraphTest, ComputeInvocationIDNodes)
@@ -277,7 +277,7 @@ TEST_F(ShaderGraphTest, ComputeInvocationIDNodes)
     auto global = CreateShaderGraphNode(ShaderGraphNodeTypes::GlobalInvocationID);
     ASSERT_NE(global, nullptr);
     EXPECT_EQ(global->Category, ShaderGraphNodeCategory::Compute);
-    EXPECT_FALSE(global->Outputs.empty());
+    EXPECT_FALSE(global->Outputs.IsEmpty());
     EXPECT_EQ(global->Outputs[0].Type, ShaderGraphPinType::Vec3);
 
     auto local = CreateShaderGraphNode(ShaderGraphNodeTypes::LocalInvocationID);
@@ -315,4 +315,35 @@ TEST_F(ShaderGraphTest, FindOutputNodeReturnsComputeOutput)
     ASSERT_NE(found, nullptr);
     EXPECT_EQ(found->ID, id);
     EXPECT_EQ(found->TypeName, ShaderGraphNodeTypes::ComputeOutput);
+}
+
+TEST_F(ShaderGraphTest, NodeAddressesAndPinValuesSurviveOwnedStorageGrowth)
+{
+    auto first = CreateShaderGraphNode(ShaderGraphNodeTypes::CustomFunction);
+    ShaderGraphNode* const address = first.get();
+    const UUID firstID = first->ID;
+    graph.AddNode(std::move(first));
+    for (i32 i = 0; i < 130; ++i)
+        graph.AddNode(CreateShaderGraphNode(ShaderGraphNodeTypes::FloatConstant));
+    EXPECT_EQ(graph.FindNode(firstID), address);
+
+    const ShaderGraphPinValue values[] = { std::monostate{}, 4.5f, glm::vec2(2.0f, 3.0f),
+                                           glm::vec3(1.0f, 2.0f, 3.0f), glm::vec4(1.0f, 2.0f, 3.0f, 4.0f), true };
+    address->Inputs.Reset();
+    for (i32 i = 0; i < 130; ++i)
+    {
+        ShaderGraphPin pin(UUID(), FString("owned_pin_" + std::to_string(i)), ShaderGraphPinType::Vec4,
+                           ShaderGraphPinDirection::Input, firstID);
+        pin.DefaultValue = values[i % 6];
+        address->Inputs.Add(std::move(pin));
+    }
+    auto copied = address->Inputs;
+    address->Inputs.Reset();
+    auto moved = std::move(copied);
+    for (i32 i = 0; i < moved.Num(); ++i)
+    {
+        EXPECT_EQ(moved[i].Name, FString("owned_pin_" + std::to_string(i)));
+        EXPECT_EQ(moved[i].NodeID, firstID);
+        EXPECT_EQ(moved[i].DefaultValue, values[i % 6]);
+    }
 }

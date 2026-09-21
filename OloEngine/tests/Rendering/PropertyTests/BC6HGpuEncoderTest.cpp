@@ -134,15 +134,15 @@ namespace
     }
 
     // Peak-normalized PSNR of a block buffer against the source, decoded via bcdec.
-    double DecodedPSNR(const std::vector<u8>& blocks, const std::vector<f32>& source, bool isSigned, f32 peak)
+    double DecodedPSNR(const TArray64<u8>& blocks, const std::vector<f32>& source, bool isSigned, f32 peak)
     {
         CompressedTextureImage image;
         image.Format = isSigned ? TextureCompressionFormat::BC6HSigned : TextureCompressionFormat::BC6H;
         image.Width = kDim;
         image.Height = kDim;
-        image.Mips.push_back(blocks);
+        image.Mips.Add(blocks);
 
-        std::vector<f32> decoded;
+        TArray64<f32> decoded;
         u32 dw = 0;
         u32 dh = 0;
         if (!TextureCompression::DecodeToRGBAFloat(image, 0, decoded, dw, dh))
@@ -165,25 +165,25 @@ namespace
         return mse < 1e-12 ? 99.0 : 10.0 * std::log10((static_cast<double>(peak) * peak) / mse);
     }
 
-    std::vector<u8> EncodeOnCpu(const std::vector<f32>& source, bool isSigned)
+    TArray64<u8> EncodeOnCpu(const std::vector<f32>& source, bool isSigned)
     {
         const CompressedTextureImage image =
             TextureCompression::EncodeBC6H(source.data(), kDim, kDim, 3, isSigned, /*mips*/ false);
         EXPECT_TRUE(image.IsValid());
-        return image.IsValid() ? image.Mips[0] : std::vector<u8>{};
+        return image.IsValid() ? image.Mips[0] : TArray64<u8>{};
     }
 
     void CompareGpuAgainstCpu(const std::vector<f32>& source, bool isSigned, f32 peak, const char* label)
     {
-        std::vector<u8> gpuBlocks;
+        TArray64<u8> gpuBlocks;
         ASSERT_TRUE(BC6HGpu::EncodeLevel(source.data(), kDim, kDim, isSigned, gpuBlocks))
             << "GPU encode failed for " << label;
-        const std::vector<u8> cpuBlocks = EncodeOnCpu(source, isSigned);
-        ASSERT_EQ(gpuBlocks.size(), cpuBlocks.size());
-        ASSERT_FALSE(cpuBlocks.empty());
+        const TArray64<u8> cpuBlocks = EncodeOnCpu(source, isSigned);
+        ASSERT_EQ(gpuBlocks.Num(), cpuBlocks.Num());
+        ASSERT_FALSE(cpuBlocks.IsEmpty());
 
         sizet identicalBlocks = 0;
-        const sizet blockCount = cpuBlocks.size() / 16;
+        const sizet blockCount = cpuBlocks.Num() / 16;
         for (sizet b = 0; b < blockCount; ++b)
         {
             if (std::equal(cpuBlocks.begin() + static_cast<std::ptrdiff_t>(b * 16),
@@ -260,14 +260,14 @@ TEST(BC6HGpuEncoder, HandlesAPartialEdgeBlock)
         }
     }
 
-    std::vector<u8> gpuBlocks;
+    TArray64<u8> gpuBlocks;
     ASSERT_TRUE(BC6HGpu::EncodeLevel(source.data(), kW, kH, /*isSigned*/ false, gpuBlocks));
-    EXPECT_EQ(gpuBlocks.size(), TextureCompression::MipByteSize(TextureCompressionFormat::BC6H, kW, kH));
+    EXPECT_EQ(gpuBlocks.Num(), TextureCompression::MipByteSize(TextureCompressionFormat::BC6H, kW, kH));
 
     const CompressedTextureImage cpu =
         TextureCompression::EncodeBC6H(source.data(), kW, kH, 3, /*isSigned*/ false, /*mips*/ false);
     ASSERT_TRUE(cpu.IsValid());
-    EXPECT_EQ(gpuBlocks.size(), cpu.Mips[0].size());
+    EXPECT_EQ(gpuBlocks.Num(), cpu.Mips[0].Num());
 }
 
 TEST(BC6HGpuEncoder, TheRegisteredHookRoutesEncodeBC6HThroughTheGpuAndIsCounted)
@@ -301,7 +301,7 @@ TEST(BC6HGpuEncoder, TheRegisteredHookRoutesEncodeBC6HThroughTheGpuAndIsCounted)
     EXPECT_EQ(counts.CpuLevels, 0u);
 
     // And the result must still be a decodable, good-quality chain.
-    std::vector<f32> decoded;
+    TArray64<f32> decoded;
     u32 dw = 0;
     u32 dh = 0;
     ASSERT_TRUE(TextureCompression::DecodeToRGBAFloat(image, 0, decoded, dw, dh));
@@ -339,12 +339,12 @@ TEST(BC6HGpuEncoder, ReportsTheEncodeTimeOfBothPaths)
 
     // Warm the GPU path once so shader compilation and the first allocation are not
     // counted as encode time.
-    std::vector<u8> warm;
+    TArray64<u8> warm;
     ASSERT_TRUE(BC6HGpu::EncodeLevel(source.data(), kSide, kSide, false, warm));
 
     using Clock = std::chrono::steady_clock;
     const auto gpuStart = Clock::now();
-    std::vector<u8> gpuBlocks;
+    TArray64<u8> gpuBlocks;
     ASSERT_TRUE(BC6HGpu::EncodeLevel(source.data(), kSide, kSide, false, gpuBlocks));
     const auto gpuMs = std::chrono::duration<double, std::milli>(Clock::now() - gpuStart).count();
 
@@ -360,7 +360,7 @@ TEST(BC6HGpuEncoder, ReportsTheEncodeTimeOfBothPaths)
     ::testing::Test::RecordProperty("EncodeCpu_ms", std::to_string(cpuMs));
     ::testing::Test::RecordProperty("EncodeGpu_ms", std::to_string(gpuMs));
 
-    EXPECT_EQ(gpuBlocks.size(), cpuImage.Mips[0].size());
+    EXPECT_EQ(gpuBlocks.Num(), cpuImage.Mips[0].Num());
 }
 
 TEST(BC6HGpuEncoder, AWorkerThreadsEncodeIsMarshalledToTheContextThread)
@@ -422,7 +422,7 @@ TEST(BC6HGpuEncoder, AWorkerThreadsEncodeIsMarshalledToTheContextThread)
     EXPECT_GT(pumped, 0u) << "nothing was ever drained — the job never reached the queue";
 
     // And the marshalled result must be the same encode, not merely a valid one.
-    std::vector<u8> direct;
+    TArray64<u8> direct;
     ASSERT_TRUE(BC6HGpu::EncodeLevel(source.data(), kDim, kDim, false, direct));
     EXPECT_EQ(image.Mips[0], direct) << "marshalled blocks differ from the same encode run inline";
 }

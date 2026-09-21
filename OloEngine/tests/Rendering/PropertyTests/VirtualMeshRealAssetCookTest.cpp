@@ -107,10 +107,10 @@ namespace OloEngine::Tests
 
             std::cout << "\n=== COOK " << label << " ===\n"
                       << "  source triangles : " << sourceTriangles << '\n'
-                      << "  parts            : " << built.Parts.size() << '\n'
+                      << "  parts            : " << static_cast<sizet>(built.Parts.Num()) << '\n'
                       << "  clusters         : " << built.TotalClusters() << '\n'
                       << "  max DAG levels   : " << maxLevels << '\n'
-                      << "  flat (1-level)   : " << flatParts << " of " << built.Parts.size() << '\n'
+                      << "  flat (1-level)   : " << flatParts << " of " << static_cast<sizet>(built.Parts.Num()) << '\n'
                       << "  blob size (KB)   : " << (blob.size() / 1024) << '\n'
                       << "  COOK MS          : " << ms << '\n'
                       << std::endl;

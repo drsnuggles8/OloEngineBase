@@ -373,13 +373,13 @@ namespace OloEngine
         ar << e.InitialColor;
         SerializeEmissionShape(ar, e.Shape);
 
-        u32 burstCount = static_cast<u32>(e.Bursts.size());
+        u32 burstCount = static_cast<u32>(e.Bursts.Num());
         ar << burstCount;
         if (ar.IsLoading())
         {
             u32 fileCount = burstCount;
             u32 clampedCount = std::min(fileCount, 1024u);
-            e.Bursts.resize(clampedCount);
+            e.Bursts.SetNum(clampedCount, EAllowShrinking::No);
             for (u32 i = 0; i < fileCount; ++i)
             {
                 if (i < clampedCount)
@@ -481,12 +481,12 @@ namespace OloEngine
     static void SerializeModuleSubEmitter(FArchive& ar, ModuleSubEmitter& m)
     {
         ar << m.Enabled;
-        u32 count = static_cast<u32>(m.Entries.size());
+        u32 count = static_cast<u32>(m.Entries.Num());
         ar << count;
         if (ar.IsLoading())
         {
             u32 clampedCount = std::min(count, 1024u);
-            m.Entries.resize(clampedCount);
+            m.Entries.SetNum(clampedCount, EAllowShrinking::No);
             for (u32 i = 0; i < clampedCount; ++i)
             {
                 SerializeSubEmitterEntry(ar, m.Entries[i]);
@@ -898,7 +898,7 @@ namespace OloEngine
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, RelationshipComponent& c)
     {
-        ar << c.m_Children;
+        SerializeOwnedArray(ar, c.m_Children);
         ar << c.m_ParentHandle;
     }
 
@@ -1290,7 +1290,7 @@ namespace OloEngine
             // path" (empty points, motor off, hard Free rotation).
             if (ar.AtEnd())
             {
-                c.m_PathPoints.clear();
+                c.m_PathPoints.Reset();
                 c.m_PathIsLooping = false;
                 c.m_PathRotationMode = JointPathRotationMode::Free;
                 c.m_PathMotorMode = JointMotorMode::Off;
@@ -1301,7 +1301,7 @@ namespace OloEngine
             }
             else
             {
-                ar << c.m_PathPoints;
+                SerializeOwnedArray(ar, c.m_PathPoints);
                 ar << c.m_PathIsLooping;
                 ar << c.m_PathRotationMode;
                 ar << c.m_PathMotorMode;
@@ -1312,8 +1312,8 @@ namespace OloEngine
             // Sanitize untrusted path data: drop non-finite control points; clamp
             // the rotation/motor modes to valid enum ranges; target velocity is
             // signed, target fraction non-negative, max force/friction magnitudes.
-            std::erase_if(c.m_PathPoints, [](const glm::vec3& p)
-                          { return !std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z); });
+            c.m_PathPoints.RemoveAll([](const glm::vec3& p)
+                                     { return !std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z); });
             if (const auto v = static_cast<int>(c.m_PathRotationMode); v < 0 || v > static_cast<int>(JointPathRotationMode::FullyConstrained))
                 c.m_PathRotationMode = JointPathRotationMode::Free;
             clampMode(c.m_PathMotorMode);
@@ -1341,7 +1341,7 @@ namespace OloEngine
             ar << c.m_PulleyFixedPointA << c.m_PulleyFixedPointB
                << c.m_PulleyRatio << c.m_PulleyMinLength << c.m_PulleyMaxLength;
             ar << c.m_ConnectedAxis << c.m_GearRatio;
-            ar << c.m_PathPoints;
+            SerializeOwnedArray(ar, c.m_PathPoints);
             ar << c.m_PathIsLooping;
             ar << c.m_PathRotationMode;
             ar << c.m_PathMotorMode;
@@ -1500,7 +1500,7 @@ namespace OloEngine
     {
         // vector<UUID> round-trips directly through FArchive, same as
         // RelationshipComponent::m_Children.
-        ar << c.m_Discovered;
+        SerializeOwnedArray(ar, c.m_Discovered);
     }
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, AircraftComponent& c)
@@ -1713,7 +1713,7 @@ namespace OloEngine
         {
             auto type = mat.GetType();
             ar << type;
-            auto name = mat.GetName();
+            auto name = mat.GetName().ToStdString();
             ar << name;
             auto flags = mat.GetFlags();
             ar << flags;
@@ -2409,12 +2409,12 @@ namespace OloEngine
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, UIDropdownComponent& c)
     {
-        u32 optCount = static_cast<u32>(c.m_Options.size());
+        u32 optCount = static_cast<u32>(c.m_Options.Num());
         ar << optCount;
         if (ar.IsLoading())
         {
             u32 clampedOpt = std::min(optCount, 1024u);
-            c.m_Options.resize(clampedOpt);
+            c.m_Options.SetNum(clampedOpt, EAllowShrinking::No);
             for (u32 i = 0; i < clampedOpt; ++i)
             {
                 SerializeUIDropdownOption(ar, c.m_Options[i]);
@@ -2444,13 +2444,13 @@ namespace OloEngine
         ar << c.m_SelectedIndex;
         if (ar.IsLoading())
         {
-            if (c.m_Options.empty())
+            if (c.m_Options.IsEmpty())
             {
                 c.m_SelectedIndex = -1;
             }
-            else if (c.m_SelectedIndex >= static_cast<i32>(c.m_Options.size()))
+            else if (c.m_SelectedIndex >= static_cast<i32>(c.m_Options.Num()))
             {
-                c.m_SelectedIndex = static_cast<i32>(c.m_Options.size()) - 1;
+                c.m_SelectedIndex = static_cast<i32>(c.m_Options.Num()) - 1;
             }
             else
             {
@@ -2506,12 +2506,12 @@ namespace OloEngine
         SerializeModuleCollision(ar, ps.CollisionModule);
 
         // ForceFields (vector of modules)
-        u32 ffCount = static_cast<u32>(ps.ForceFields.size());
+        u32 ffCount = static_cast<u32>(ps.ForceFields.Num());
         ar << ffCount;
         if (ar.IsLoading())
         {
             u32 clampedFF = std::min(ffCount, 1024u);
-            ps.ForceFields.resize(clampedFF);
+            ps.ForceFields.SetNum(clampedFF, EAllowShrinking::No);
             for (u32 i = 0; i < clampedFF; ++i)
             {
                 SerializeModuleForceField(ar, ps.ForceFields[i]);
@@ -2571,12 +2571,12 @@ namespace OloEngine
             ar << c.m_HeightShaping.TerraceSteps << c.m_HeightShaping.TerraceSharpness << c.m_HeightShaping.HeightExponent;
             ar << c.m_AutoMaterial << c.m_SplatmapGenResolution;
 
-            u32 ruleCount = static_cast<u32>(c.m_LayerRules.size());
+            u32 ruleCount = static_cast<u32>(c.m_LayerRules.Num());
             ar << ruleCount;
             if (ar.IsLoading())
             {
                 u32 clampedRules = std::min(ruleCount, 256u);
-                c.m_LayerRules.resize(clampedRules);
+                c.m_LayerRules.SetNum(clampedRules, EAllowShrinking::No);
                 for (u32 i = 0; i < clampedRules; ++i)
                 {
                     SerializeTerrainLayerRule(ar, c.m_LayerRules[i]);
@@ -2722,12 +2722,12 @@ namespace OloEngine
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, FoliageComponent& c)
     {
-        u32 layerCount = static_cast<u32>(c.m_Layers.size());
+        u32 layerCount = static_cast<u32>(c.m_Layers.Num());
         ar << layerCount;
         if (ar.IsLoading())
         {
             u32 clampedLayers = std::min(layerCount, 1024u);
-            c.m_Layers.resize(clampedLayers);
+            c.m_Layers.SetNum(clampedLayers, EAllowShrinking::No);
             for (u32 i = 0; i < clampedLayers; ++i)
             {
                 SerializeFoliageLayer(ar, c.m_Layers[i]);
@@ -3985,14 +3985,14 @@ namespace OloEngine
         // scene load just regenerated with the live one. Writing zero levels is the
         // whole mechanism — the loader then keeps whatever the scene produced.
         const bool derived = c.m_AutoGenerated;
-        u32 levelCount = derived ? 0u : static_cast<u32>(c.m_LODGroup.Levels.size());
+        u32 levelCount = derived ? 0u : static_cast<u32>(c.m_LODGroup.Levels.Num());
         ar << levelCount;
 
-        std::vector<LODLevel> loadedLevels;
+        TArray<LODLevel> loadedLevels;
         if (ar.IsLoading())
         {
             u32 clampedLevels = std::min(levelCount, 1024u);
-            loadedLevels.resize(clampedLevels);
+            loadedLevels.SetNum(static_cast<i32>(clampedLevels));
             for (u32 i = 0; i < clampedLevels; ++i)
             {
                 SerializeLODLevel(ar, loadedLevels[i]);
@@ -4142,14 +4142,14 @@ namespace OloEngine
     {
         // TileMesh is a runtime Ref — rebuilt from MaterialIDs/Materials on load.
         ar << c.Width << c.Height << c.TileSize;
-        ar << c.MaterialIDs;
+        SerializeOwnedArray(ar, c.MaterialIDs);
 
         // Materials: serialize base PBR factors only (full Material has runtime
         // texture / shader state that the renderer rebuilds from MaterialIDs).
-        u64 materialCount = c.Materials.size();
+        u64 materialCount = c.Materials.Num();
         ar << materialCount;
         if (ar.IsLoading())
-            c.Materials.resize(materialCount);
+            c.Materials.SetNum(materialCount, EAllowShrinking::No);
         for (u64 i = 0; i < materialCount; ++i)
         {
             if (ar.IsSaving())
@@ -4294,13 +4294,13 @@ namespace OloEngine
             ar << link.m_Bidirectional;
         };
 
-        u32 linkCount = static_cast<u32>(c.m_Links.size());
+        u32 linkCount = static_cast<u32>(c.m_Links.Num());
         ar << linkCount;
         if (ar.IsLoading())
         {
             constexpr u32 kMaxLinks = 4096u;
             u32 clampedLinks = std::min(linkCount, kMaxLinks);
-            c.m_Links.assign(clampedLinks, OffMeshLink{});
+            c.m_Links.Init(OffMeshLink{}, static_cast<i32>(clampedLinks));
             for (u32 i = 0; i < clampedLinks; ++i)
             {
                 serializeLink(c.m_Links[i]);
@@ -5374,10 +5374,15 @@ namespace OloEngine
         }
 
         // Inline placement list — round-trip the per-instance transforms.
-        u64 instanceCount = c.Instances.size();
+        u64 instanceCount = static_cast<u64>(c.Instances.Num());
         ar << instanceCount;
+        if (ar.IsError() || instanceCount > static_cast<u64>(std::numeric_limits<i32>::max()))
+        {
+            ar.SetError();
+            return;
+        }
         if (ar.IsLoading())
-            c.Instances.resize(instanceCount);
+            c.Instances.SetNum(static_cast<i32>(instanceCount), EAllowShrinking::No);
         for (u64 i = 0; i < instanceCount; ++i)
         {
             auto& inst = c.Instances[i];

@@ -124,13 +124,13 @@ TEST(GroomBodyCollider, FitsTheLimbAxisAndRadius)
     body.FinishIndices();
     body.Palette.assign(1, glm::mat4(1.0f));
 
-    std::vector<GroomColliderBinding> bindings;
+    TArray<GroomColliderBinding> bindings;
     const GroomColliderBuildStats stats =
         BuildGroomBodyColliders(body.Surface(), body.Skinning(), GroomColliderBuildSettings{}, bindings);
 
     ASSERT_EQ(stats.CollidersBuilt, 1u);
-    ASSERT_EQ(bindings.size(), 1u);
-    const GroomColliderBinding& capsule = bindings.front();
+    ASSERT_EQ(bindings.Num(), 1u);
+    const GroomColliderBinding& capsule = bindings.First();
     EXPECT_EQ(capsule.BoneIndex, 0u);
 
     // Along the limb, both ends within a ring of the true extremes. The
@@ -158,11 +158,11 @@ TEST(GroomBodyCollider, FitsOneCapsulePerBone)
     body.FinishIndices();
     body.Palette.assign(2, glm::mat4(1.0f));
 
-    std::vector<GroomColliderBinding> bindings;
+    TArray<GroomColliderBinding> bindings;
     const GroomColliderBuildStats stats =
         BuildGroomBodyColliders(body.Surface(), body.Skinning(), GroomColliderBuildSettings{}, bindings);
     ASSERT_EQ(stats.CollidersBuilt, 2u);
-    ASSERT_EQ(bindings.size(), 2u);
+    ASSERT_EQ(bindings.Num(), 2u);
     // Sorted by bone, so this is the contract and not an accident of iteration.
     EXPECT_EQ(bindings[0].BoneIndex, 0u);
     EXPECT_EQ(bindings[1].BoneIndex, 1u);
@@ -186,12 +186,12 @@ TEST(GroomBodyCollider, AStrayVertexDoesNotStretchTheCapsule)
     strayed.AddVertex(glm::vec3(0.0f, 20.0f, 0.0f), 0u); // one finger tip, far away
     strayed.FinishIndices();
 
-    std::vector<GroomColliderBinding> cleanFit;
-    std::vector<GroomColliderBinding> strayedFit;
+    TArray<GroomColliderBinding> cleanFit;
+    TArray<GroomColliderBinding> strayedFit;
     (void)BuildGroomBodyColliders(clean.Surface(), clean.Skinning(), GroomColliderBuildSettings{}, cleanFit);
     (void)BuildGroomBodyColliders(strayed.Surface(), strayed.Skinning(), GroomColliderBuildSettings{}, strayedFit);
-    ASSERT_EQ(cleanFit.size(), 1u);
-    ASSERT_EQ(strayedFit.size(), 1u);
+    ASSERT_EQ(cleanFit.Num(), 1u);
+    ASSERT_EQ(strayedFit.Num(), 1u);
 
     const f32 cleanLength = glm::length(cleanFit[0].PointB - cleanFit[0].PointA);
     const f32 strayedLength = glm::length(strayedFit[0].PointB - strayedFit[0].PointA);
@@ -216,7 +216,7 @@ TEST(GroomBodyCollider, BonesWithTooFewVerticesAreSkippedAndCounted)
     body.FinishIndices();
     body.Palette.assign(2, glm::mat4(1.0f));
 
-    std::vector<GroomColliderBinding> bindings;
+    TArray<GroomColliderBinding> bindings;
     const GroomColliderBuildStats stats =
         BuildGroomBodyColliders(body.Surface(), body.Skinning(), GroomColliderBuildSettings{}, bindings);
     EXPECT_EQ(stats.BonesConsidered, 2u);
@@ -239,11 +239,11 @@ TEST(GroomBodyCollider, TheCapKeepsTheLargestAndSaysSo)
     GroomColliderBuildSettings settings;
     settings.MaxColliders = 2;
 
-    std::vector<GroomColliderBinding> bindings;
+    TArray<GroomColliderBinding> bindings;
     const GroomColliderBuildStats stats =
         BuildGroomBodyColliders(body.Surface(), body.Skinning(), settings, bindings);
     EXPECT_TRUE(stats.Truncated);
-    ASSERT_EQ(bindings.size(), 2u);
+    ASSERT_EQ(bindings.Num(), 2u);
     EXPECT_EQ(bindings[0].BoneIndex, 0u);
     EXPECT_EQ(bindings[1].BoneIndex, 1u);
 }
@@ -258,11 +258,11 @@ TEST(GroomBodyCollider, AnUnskinnedBodyProducesNoColliders)
     body.FinishIndices();
     body.Palette.clear(); // no palette: a static or morph-only target
 
-    std::vector<GroomColliderBinding> bindings;
+    TArray<GroomColliderBinding> bindings;
     const GroomColliderBuildStats stats =
         BuildGroomBodyColliders(body.Surface(), body.Skinning(), GroomColliderBuildSettings{}, bindings);
     EXPECT_EQ(stats.CollidersBuilt, 0u);
-    EXPECT_TRUE(bindings.empty());
+    EXPECT_TRUE(bindings.IsEmpty());
 }
 
 TEST(GroomBodyCollider, IsDeterministic)
@@ -273,8 +273,8 @@ TEST(GroomBodyCollider, IsDeterministic)
     body.FinishIndices();
     body.Palette.assign(2, glm::mat4(1.0f));
 
-    std::vector<GroomColliderBinding> a;
-    std::vector<GroomColliderBinding> b;
+    TArray<GroomColliderBinding> a;
+    TArray<GroomColliderBinding> b;
     const GroomColliderBuildStats statsA =
         BuildGroomBodyColliders(body.Surface(), body.Skinning(), GroomColliderBuildSettings{}, a);
     const GroomColliderBuildStats statsB =
@@ -298,9 +298,9 @@ TEST(GroomBodyCollider, ResolveCarriesTheCapsuleByItsBoneMatrix)
     std::vector<glm::mat4> palette(2, glm::mat4(1.0f));
     palette[1] = glm::translate(glm::mat4(1.0f), glm::vec3(3.0f, 0.0f, 0.0f));
 
-    std::vector<GroomCollider> resolved;
+    TArray<GroomCollider> resolved;
     ResolveGroomBodyColliders({ &binding, 1 }, palette, glm::mat4(1.0f), 1.0f, resolved);
-    ASSERT_EQ(resolved.size(), 1u);
+    ASSERT_EQ(resolved.Num(), 1u);
     EXPECT_EQ(resolved[0].PointA, glm::vec3(3.0f, 0.0f, 0.0f));
     EXPECT_EQ(resolved[0].PointB, glm::vec3(3.0f, 1.0f, 0.0f));
     EXPECT_EQ(resolved[0].Radius, 0.25f);
@@ -317,15 +317,15 @@ TEST(GroomBodyCollider, ResolveScalesTheRadiusWithTheBone)
     binding.BoneIndex = 0u;
 
     const std::vector<glm::mat4> palette{ glm::scale(glm::mat4(1.0f), glm::vec3(2.0f)) };
-    std::vector<GroomCollider> resolved;
+    TArray<GroomCollider> resolved;
     ResolveGroomBodyColliders({ &binding, 1 }, palette, glm::mat4(1.0f), 1.0f, resolved);
-    ASSERT_EQ(resolved.size(), 1u);
+    ASSERT_EQ(resolved.Num(), 1u);
     EXPECT_NEAR(resolved[0].Radius, 0.5f, 1.0e-5f);
 
     // And the authored scale multiplies on top, which is the lever that stands
     // in for a hand-placed proxy rig.
     ResolveGroomBodyColliders({ &binding, 1 }, palette, glm::mat4(1.0f), 3.0f, resolved);
-    ASSERT_EQ(resolved.size(), 1u);
+    ASSERT_EQ(resolved.Num(), 1u);
     EXPECT_NEAR(resolved[0].Radius, 1.5f, 1.0e-5f);
 }
 
@@ -340,7 +340,7 @@ TEST(GroomBodyCollider, ABindingNamingAMissingBoneIsDropped)
     binding.BoneIndex = 9u;
 
     const std::vector<glm::mat4> palette(2, glm::mat4(1.0f));
-    std::vector<GroomCollider> resolved;
+    TArray<GroomCollider> resolved;
     ResolveGroomBodyColliders({ &binding, 1 }, palette, glm::mat4(1.0f), 1.0f, resolved);
-    EXPECT_TRUE(resolved.empty());
+    EXPECT_TRUE(resolved.IsEmpty());
 }

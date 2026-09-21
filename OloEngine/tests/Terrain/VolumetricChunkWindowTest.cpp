@@ -11,11 +11,15 @@
 
 #include "OloEngine/Terrain/ChunkRingBuffer3D.h"
 #include "OloEngine/Terrain/VolumetricChunkWindow.h"
+#include "OloEngine/Containers/String.h"
 
 #include <set>
 #include <unordered_set>
 
 using namespace OloEngine;
+
+static_assert(TIsTriviallyRelocatable_V<TVolumetricChunkSlot<FString>>);
+static_assert(!TIsTriviallyRelocatable_V<TVolumetricChunkSlot<std::string>>);
 
 namespace
 {

@@ -1,14 +1,16 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Algo/BinarySearch.h"
 #include "OloEngine/Core/FastRandom.h"
+#include "OloEngine/Containers/Array.h"
 
 #include <algorithm>
 #include <cmath>
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 #include <variant>
-#include <vector>
+#include <utility>
 
 namespace OloEngine
 {
@@ -64,20 +66,20 @@ namespace OloEngine
             glm::vec3 Normal;
         };
 
-        std::vector<Triangle> Triangles;
-        std::vector<f32> CumulativeAreas;
+        TArray<Triangle> Triangles;
+        TArray<f32> CumulativeAreas;
         f32 TotalArea = 0.0f;
         i32 PrimitiveType = 0; // For serialization: index into primitive mesh list
 
         bool IsValid() const
         {
-            return !Triangles.empty();
+            return !Triangles.IsEmpty();
         }
 
         void Build(const glm::vec3* positions, u32 vertexCount, const u32* indices, u32 indexCount)
         {
-            Triangles.clear();
-            CumulativeAreas.clear();
+            Triangles.Reset();
+            CumulativeAreas.Reset();
             TotalArea = 0.0f;
 
             if (!positions || vertexCount == 0 || !indices || indexCount < 3)
@@ -86,8 +88,8 @@ namespace OloEngine
             }
 
             u32 triCount = indexCount / 3;
-            Triangles.reserve(triCount);
-            CumulativeAreas.reserve(triCount);
+            Triangles.Reserve(triCount);
+            CumulativeAreas.Reserve(triCount);
 
             for (u32 i = 0; i < triCount; ++i)
             {
@@ -115,13 +117,43 @@ namespace OloEngine
                 }
 
                 TotalArea += area;
-                Triangles.push_back({ v0, v1, v2, glm::normalize(crossProd) });
-                CumulativeAreas.push_back(TotalArea);
+                Triangles.Add({ v0, v1, v2, glm::normalize(crossProd) });
+                CumulativeAreas.Add(TotalArea);
             }
         }
     };
 
+    // Mesh geometry lives in independent heap allocations; the two scalars have
+    // no address identity. Keep this fold aligned with every owned field.
+    template<>
+    struct TIsTriviallyRelocatable<EmitMesh>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(EmitMesh::Triangles)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(EmitMesh::CumulativeAreas)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(EmitMesh::TotalArea)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(EmitMesh::PrimitiveType)>::Value;
+    };
+
     using EmissionShape = std::variant<EmitPoint, EmitSphere, EmitBox, EmitCone, EmitRing, EmitEdge, EmitMesh>;
+
+    // This concrete variant is an inline union plus an integer discriminator on
+    // the supported libraries: MSVC STL _Variant_storage/_Variant_base::_Which
+    // (14.51), and libstdc++ _Variant_storage::_M_u/_M_index (GCC 14).
+    // Neither stores an address into itself. Do not generalize this to variants
+    // containing strings, callbacks or other unreviewed alternatives.
+    template<>
+    struct TIsTriviallyRelocatable<EmissionShape>
+    {
+#if defined(_MSVC_STL_VERSION) || defined(__GLIBCXX__)
+        static constexpr bool Value = []<sizet... I>(std::index_sequence<I...>)
+        {
+            return (TIsTriviallyRelocatable<std::variant_alternative_t<I, EmissionShape>>::Value && ...);
+        }(std::make_index_sequence<std::variant_size_v<EmissionShape>>{});
+#else
+        // A new standard library needs the same representation audit first.
+        static constexpr bool Value = false;
+#endif
+    };
 
     // Convert EmissionShape variant to EmissionShapeType enum (for serialization)
     inline EmissionShapeType GetEmissionShapeType(const EmissionShape& shape)
@@ -204,10 +236,9 @@ namespace OloEngine
 
                 // Weighted random triangle selection via CDF
                 f32 r = rng.GetFloat32InRange(0.0f, s.TotalArea);
-                auto it = std::ranges::lower_bound(s.CumulativeAreas, r);
-                u32 triIdx = static_cast<u32>(std::distance(s.CumulativeAreas.begin(), it));
-                if (triIdx >= static_cast<u32>(s.Triangles.size()))
-                    triIdx = static_cast<u32>(s.Triangles.size()) - 1;
+                u32 triIdx = static_cast<u32>(Algo::LowerBound(s.CumulativeAreas, r));
+                if (triIdx >= static_cast<u32>(s.Triangles.Num()))
+                    triIdx = static_cast<u32>(s.Triangles.Num()) - 1;
 
                 const auto& tri = s.Triangles[triIdx];
 
@@ -292,10 +323,9 @@ namespace OloEngine
 
                 // Pick a random triangle weighted by area and use its face normal
                 f32 r = rng.GetFloat32InRange(0.0f, s.TotalArea);
-                auto it = std::ranges::lower_bound(s.CumulativeAreas, r);
-                u32 triIdx = static_cast<u32>(std::distance(s.CumulativeAreas.begin(), it));
-                if (triIdx >= static_cast<u32>(s.Triangles.size()))
-                    triIdx = static_cast<u32>(s.Triangles.size()) - 1;
+                u32 triIdx = static_cast<u32>(Algo::LowerBound(s.CumulativeAreas, r));
+                if (triIdx >= static_cast<u32>(s.Triangles.Num()))
+                    triIdx = static_cast<u32>(s.Triangles.Num()) - 1;
 
                 return s.Triangles[triIdx].Normal;
             }
@@ -322,10 +352,9 @@ namespace OloEngine
         if (auto* mesh = std::get_if<EmitMesh>(&shape); mesh && mesh->IsValid())
         {
             f32 r = rng.GetFloat32InRange(0.0f, mesh->TotalArea);
-            auto it = std::ranges::lower_bound(mesh->CumulativeAreas, r);
-            u32 triIdx = static_cast<u32>(std::distance(mesh->CumulativeAreas.begin(), it));
-            if (triIdx >= static_cast<u32>(mesh->Triangles.size()))
-                triIdx = static_cast<u32>(mesh->Triangles.size()) - 1;
+            u32 triIdx = static_cast<u32>(Algo::LowerBound(mesh->CumulativeAreas, r));
+            if (triIdx >= static_cast<u32>(mesh->Triangles.Num()))
+                triIdx = static_cast<u32>(mesh->Triangles.Num()) - 1;
 
             const auto& tri = mesh->Triangles[triIdx];
 

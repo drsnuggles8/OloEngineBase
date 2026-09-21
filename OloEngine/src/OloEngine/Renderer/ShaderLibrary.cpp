@@ -29,7 +29,7 @@ namespace OloEngine
 
     void ShaderLibrary::Add(const Ref<Shader>& shader)
     {
-        auto& name = shader->GetName();
+        const auto name = shader->GetName();
         Add(name, shader);
     }
 
@@ -66,10 +66,14 @@ namespace OloEngine
 
         const sizet count = filepaths.size();
         PreparedShaderBatch batch;
-        batch.m_FilePaths = filepaths;
-        batch.m_Prepared.resize(count);
-        batch.m_IsPackLoaded.assign(count, false);
-        batch.m_PackEntries.resize(count);
+        batch.m_FilePaths.Reserve(static_cast<i32>(count));
+        for (const auto& path : filepaths)
+        {
+            batch.m_FilePaths.Emplace(path);
+        }
+        batch.m_Prepared.SetNum(static_cast<i32>(count));
+        batch.m_IsPackLoaded.Init(false, static_cast<i32>(count));
+        batch.m_PackEntries.SetNum(static_cast<i32>(count));
 
         // Shader packs are pre-compiled SPIR-V — a lookup + decode, not a
         // compile — so resolve them sequentially up front; only what's left
@@ -78,16 +82,16 @@ namespace OloEngine
         // whole loop stays safe on whatever thread PrepareParallel() runs on
         // — the actual GL program is materialized later, in
         // FinalizeParallel(), which is contractually the render thread.
-        std::vector<std::string> toCompile;
-        std::vector<sizet> toCompileIndices;
-        toCompile.reserve(count);
-        toCompileIndices.reserve(count);
+        TArray<FString> toCompile;
+        TArray<sizet> toCompileIndices;
+        toCompile.Reserve(static_cast<i32>(count));
+        toCompileIndices.Reserve(static_cast<i32>(count));
 
         for (sizet i = 0; i < count; ++i)
         {
             if (auto entry = TryReadPackEntry(filepaths[i]))
             {
-                batch.m_PackEntries[i] = std::move(entry);
+                batch.m_PackEntries[i] = std::move(*entry);
                 batch.m_IsPackLoaded[i] = true;
                 if (progressCounter != nullptr)
                 {
@@ -96,15 +100,15 @@ namespace OloEngine
             }
             else
             {
-                toCompile.push_back(filepaths[i]);
-                toCompileIndices.push_back(i);
+                toCompile.Emplace(filepaths[i]);
+                toCompileIndices.Emplace(i);
             }
         }
 
-        if (!toCompile.empty())
+        if (!toCompile.IsEmpty())
         {
-            std::vector<Ref<Shader>> prepared = Shader::PrepareBatch(toCompile, progressCounter);
-            const sizet preparedCount = prepared.size();
+            TArray<Ref<Shader>> prepared = Shader::PrepareBatch(std::span{ toCompile.GetData(), static_cast<sizet>(toCompile.Num()) }, progressCounter);
+            const sizet preparedCount = static_cast<sizet>(prepared.Num());
             for (sizet j = 0; j < preparedCount; ++j)
             {
                 batch.m_Prepared[toCompileIndices[j]] = prepared[j];
@@ -114,7 +118,7 @@ namespace OloEngine
         return batch;
     }
 
-    std::vector<Ref<Shader>> ShaderLibrary::FinalizeParallel(PreparedShaderBatch batch)
+    TArray<Ref<Shader>> ShaderLibrary::FinalizeParallel(PreparedShaderBatch batch)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -124,16 +128,16 @@ namespace OloEngine
         // see PackEntryCPUData) before handing the batch to
         // Shader::FinalizeBatch, which skips indices already marked
         // m_IsPackLoaded and passes them through untouched.
-        const sizet count = batch.m_Prepared.size();
+        const sizet count = static_cast<sizet>(batch.m_Prepared.Num());
         for (sizet i = 0; i < count; ++i)
         {
             if (batch.m_IsPackLoaded[i])
             {
-                batch.m_Prepared[i] = CreateShaderFromPackEntry(std::move(*batch.m_PackEntries[i]));
+                batch.m_Prepared[i] = CreateShaderFromPackEntry(std::move(batch.m_PackEntries[i]));
             }
         }
 
-        std::vector<Ref<Shader>> finalized = Shader::FinalizeBatch(batch.m_FilePaths, std::move(batch.m_Prepared), batch.m_IsPackLoaded);
+        TArray<Ref<Shader>> finalized = Shader::FinalizeBatch(std::span{ batch.m_FilePaths.GetData(), static_cast<sizet>(batch.m_FilePaths.Num()) }, std::move(batch.m_Prepared), std::span{ batch.m_IsPackLoaded.GetData(), static_cast<sizet>(batch.m_IsPackLoaded.Num()) });
 
         // A null entry means PrepareBatch() caught an exception for that
         // shader (OpenGLShader::PrepareBatch) — dropping it silently is not
@@ -144,7 +148,7 @@ namespace OloEngine
         // broken shader stays a visible magenta mesh instead of a startup
         // assert or a null dereference (issue #568's contract, extended to
         // this batch path).
-        const sizet finalizedCount = finalized.size();
+        const sizet finalizedCount = static_cast<sizet>(finalized.Num());
         for (sizet i = 0; i < finalizedCount; ++i)
         {
             if (finalized[i])
@@ -153,7 +157,7 @@ namespace OloEngine
                 continue;
             }
 
-            const std::string name = std::filesystem::path(batch.m_FilePaths[i]).stem().string();
+            const std::string name = std::filesystem::path(batch.m_FilePaths[i].ToStdString()).stem().string();
             OLO_CORE_ERROR("[ShaderLibrary] '{}' failed CPU preparation — registering the fallback shader", name);
             if (auto fallback = GetFallbackShader(); fallback && !Exists(name))
             {
@@ -164,7 +168,7 @@ namespace OloEngine
         return finalized;
     }
 
-    std::vector<Ref<Shader>> ShaderLibrary::LoadParallel(const std::vector<std::string>& filepaths)
+    TArray<Ref<Shader>> ShaderLibrary::LoadParallel(const std::vector<std::string>& filepaths)
     {
         return FinalizeParallel(PrepareParallel(filepaths));
     }
@@ -504,45 +508,24 @@ void main()
         }
 
         auto entry = m_ShaderPack->LoadEntry(filepath);
-        if (!entry || entry->Stages.empty())
+        if (!entry || entry->Stages.IsEmpty())
         {
             OLO_CORE_WARN("[ShaderLibrary] Pack entry '{}' loaded but empty", filepath);
             return std::nullopt;
         }
 
-        // Convert pack stage data (u8-encoded stages) back to GLenum-keyed maps
         PackEntryCPUData data;
         data.m_Name = entry->Name;
         data.m_FilePath = filepath;
-
-        for (auto& stageData : entry->Stages)
+        for (const auto& stage : entry->Stages)
         {
-            u32 glStage = 0;
-            switch (stageData.Stage)
+            if (stage.Stage < 1 || stage.Stage > 5)
             {
-                case 1:
-                    glStage = 0x8B31;
-                    break; // GL_VERTEX_SHADER
-                case 2:
-                    glStage = 0x8B30;
-                    break; // GL_FRAGMENT_SHADER
-                case 3:
-                    glStage = 0x8E88;
-                    break; // GL_TESS_CONTROL_SHADER
-                case 4:
-                    glStage = 0x8E87;
-                    break; // GL_TESS_EVALUATION_SHADER
-                case 5:
-                    glStage = 0x91B9;
-                    break; // GL_COMPUTE_SHADER
-                default:
-                    OLO_CORE_ERROR("[ShaderLibrary] Unknown stage {} in pack entry '{}'", stageData.Stage, filepath);
-                    return std::nullopt;
+                OLO_CORE_ERROR("[ShaderLibrary] Unknown stage {} in pack entry '{}'", stage.Stage, filepath);
+                return std::nullopt;
             }
-
-            data.m_VulkanSPIRV[glStage] = std::move(stageData.VulkanSPIRV);
-            data.m_OpenGLSPIRV[glStage] = std::move(stageData.OpenGLSPIRV);
         }
+        data.m_Stages = std::move(entry->Stages);
 
         OLO_CORE_TRACE("[ShaderLibrary] Read '{}' from shader pack", filepath);
         return data;
@@ -551,9 +534,18 @@ void main()
     // GL-touching: MUST run on the render thread.
     Ref<Shader> ShaderLibrary::CreateShaderFromPackEntry(PackEntryCPUData entry)
     {
-        OLO_CORE_TRACE("[ShaderLibrary] Loading '{}' from shader pack", entry.m_FilePath);
-        return OpenGLShader::CreateFromPackData(entry.m_Name, entry.m_FilePath,
-                                                std::move(entry.m_VulkanSPIRV),
-                                                std::move(entry.m_OpenGLSPIRV));
+        OLO_CORE_TRACE("[ShaderLibrary] Loading '{}' from shader pack", entry.m_FilePath.ToView());
+        // Map the packed stage codes to backend stage keys, transferring the
+        // owned word arrays without copying their compiled payloads.
+        std::unordered_map<u32, TArray<u32>> vulkan;
+        std::unordered_map<u32, TArray<u32>> openGL;
+        constexpr u32 stages[]{ 0, 0x8B31, 0x8B30, 0x8E88, 0x8E87, 0x91B9 };
+        for (auto& stage : entry.m_Stages)
+        {
+            vulkan[stages[stage.Stage]] = std::move(stage.VulkanSPIRV);
+            openGL[stages[stage.Stage]] = std::move(stage.OpenGLSPIRV);
+        }
+        return OpenGLShader::CreateFromPackData(entry.m_Name.ToStdString(), entry.m_FilePath.ToStdString(),
+                                                std::move(vulkan), std::move(openGL));
     }
 } // namespace OloEngine

@@ -694,44 +694,31 @@ namespace OloEngine
     // by using memcpy instead of calling their move constructor and destructor.
     // This is a significant optimization for containers.
     //
-    // By default, types are assumed to be trivially relocatable. If your type
-    // contains pointers/references to itself (e.g., std::list nodes), you should
-    // specialize this to false.
-    //
-    // @note UE assumes all types are trivially relocatable by default for performance.
+    // Non-trivial types must opt in after auditing every member and address escape.
+    // In particular, aggregates containing std::string must fail closed on every
+    // toolchain, including MSVC where its different SSO layout can hide the bug.
+    // Unlike UE, OloEngine does not assume arbitrary user types are relocatable.
     template<typename T>
     struct TIsTriviallyRelocatable
     {
-        enum
-        {
-            Value = true
-        };
+        static constexpr bool Value = std::is_trivially_copyable_v<T>;
     };
 
     // Handle cv-qualifiers
     template<typename T>
     struct TIsTriviallyRelocatable<const T>
     {
-        enum
-        {
-            Value = TIsTriviallyRelocatable<T>::Value
-        };
+        static constexpr bool Value = TIsTriviallyRelocatable<T>::Value;
     };
     template<typename T>
     struct TIsTriviallyRelocatable<volatile T>
     {
-        enum
-        {
-            Value = TIsTriviallyRelocatable<T>::Value
-        };
+        static constexpr bool Value = TIsTriviallyRelocatable<T>::Value;
     };
     template<typename T>
     struct TIsTriviallyRelocatable<const volatile T>
     {
-        enum
-        {
-            Value = TIsTriviallyRelocatable<T>::Value
-        };
+        static constexpr bool Value = TIsTriviallyRelocatable<T>::Value;
     };
 
     template<typename T>
@@ -742,10 +729,7 @@ namespace OloEngine
     template<typename CharT, typename Traits, typename Alloc>
     struct TIsTriviallyRelocatable<std::basic_string<CharT, Traits, Alloc>>
     {
-        enum
-        {
-            Value = false
-        };
+        static constexpr bool Value = false;
     };
 
     // TTuple (and TPair alias) is only trivially relocatable if ALL its element types are.
@@ -755,10 +739,7 @@ namespace OloEngine
     template<typename... Types>
     struct TIsTriviallyRelocatable<TTuple<Types...>>
     {
-        enum
-        {
-            Value = (TIsTriviallyRelocatable<Types>::Value && ...)
-        };
+        static constexpr bool Value = (TIsTriviallyRelocatable<Types>::Value && ...);
     };
 
     // Helper for OLO_STATIC_ASSERT_WARN below. Ported from UE's

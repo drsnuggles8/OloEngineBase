@@ -72,7 +72,7 @@ namespace
     // Bilinear sample of a normalized [0,1] row-major height field — mirrors
     // TerrainData::GetHeightAt so the test's expectation matches the field the
     // collision shape was built from.
-    f32 SampleHeight01(const std::vector<f32>& heights, u32 resolution, f32 nx, f32 nz)
+    f32 SampleHeight01(const TArray<f32>& heights, u32 resolution, f32 nx, f32 nz)
     {
         nx = std::clamp(nx, 0.0f, 1.0f);
         nz = std::clamp(nz, 0.0f, 1.0f);
@@ -211,12 +211,12 @@ class TerrainCollisionProceduralTest : public FunctionalTest
 
     Entity m_Terrain;
     Entity m_Ball;
-    std::vector<f32> m_Heights;
+    TArray<f32> m_Heights;
 };
 
 TEST_F(TerrainCollisionProceduralTest, DynamicBodyRestsOnProceduralSurface)
 {
-    ASSERT_FALSE(m_Heights.empty()) << "height field reconstruction failed";
+    ASSERT_FALSE(m_Heights.IsEmpty()) << "height field reconstruction failed";
 
     const auto BallPos = [this]
     { return m_Ball.GetComponent<TransformComponent>().Translation; };
@@ -240,7 +240,7 @@ TEST_F(TerrainCollisionProceduralTest, DynamicBodyRestsOnProceduralSurface)
 
 TEST_F(TerrainCollisionProceduralTest, RaycastHitsTerrainSurface)
 {
-    ASSERT_FALSE(m_Heights.empty()) << "height field reconstruction failed";
+    ASSERT_FALSE(m_Heights.IsEmpty()) << "height field reconstruction failed";
 
     auto* joltScene = GetScene().GetPhysicsScene();
     ASSERT_NE(joltScene, nullptr) << "scene has no JoltScene after EnablePhysics3D";

@@ -239,13 +239,13 @@ namespace OloEngine::Tests
         // Contract 2 (behaviour cross-check, driver-independent): the cape is live and
         // FOLLOWED the character to its parked +X position — its pinned top edge sits well
         // to the +X side of the origin, and the free part still hangs below that edge.
-        const std::vector<glm::vec3>* verts = GetScene().GetClothVertexPositions(m_Cape.GetUUID());
+        const TArray<glm::vec3>* verts = GetScene().GetClothVertexPositions(m_Cape.GetUUID());
         ASSERT_NE(verts, nullptr) << "cape has no live soft body";
         glm::vec3 topSum(0.0f);
         f32 minY = std::numeric_limits<f32>::max();
         bool allFinite = true;
         const u32 columns = 24;
-        for (std::size_t i = 0; i < verts->size(); ++i)
+        for (std::size_t i = 0; i < verts->Num(); ++i)
         {
             const glm::vec3& p = (*verts)[i];
             if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z))

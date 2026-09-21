@@ -8,7 +8,6 @@
 #include "OloEngine/UI/UINavigationSystem.h"
 
 #include <algorithm>
-#include <vector>
 
 namespace OloEngine
 {
@@ -79,14 +78,14 @@ namespace OloEngine
             {
                 return;
             }
-            std::vector<Entity> children;
+            TArray<Entity> children;
             if (root.HasComponent<RelationshipComponent>())
             {
                 for (const UUID childUUID : root.GetComponent<RelationshipComponent>().m_Children)
                 {
                     if (const auto childOpt = scene.TryGetEntityWithUUID(childUUID))
                     {
-                        children.emplace_back(static_cast<entt::entity>(*childOpt), &scene);
+                        children.Emplace(static_cast<entt::entity>(*childOpt), &scene);
                     }
                 }
             }
@@ -168,7 +167,7 @@ namespace OloEngine
         ctxt.m_Alignment = UITextAlignment::MiddleCenter;
         caption.SetParent(e);
 
-        m_AllButtons.push_back(e);
+        m_AllButtons.Add(e);
         return e;
     }
 
@@ -183,9 +182,9 @@ namespace OloEngine
         m_Controller.SetTargetContext(ctx);
         m_SavePath = std::move(savePath);
         m_CloseRequested = false;
-        m_AllButtons.clear();
+        m_AllButtons.Reset();
         m_PrevButtonState.clear();
-        m_Rows.clear();
+        m_Rows.Reset();
 
         // Root canvas covering the whole screen, drawn above gameplay UI.
         m_Canvas = m_Scene->CreateEntity("RebindMenuCanvas");
@@ -201,18 +200,19 @@ namespace OloEngine
         canvasRT.m_Pivot = { 0.0f, 0.0f };
 
         // Collect and sort the action names for a stable layout.
-        std::vector<std::string> actionNames;
+        TArray<FString> actionNames;
         {
             const InputActionMap& map = m_Controller.TargetMap();
-            actionNames.reserve(map.Actions.size());
+            actionNames.Reserve(static_cast<i32>(map.Actions.size()));
             for (const auto& [name, _] : map.Actions)
             {
-                actionNames.push_back(name);
+                actionNames.Add(FString(name));
             }
         }
-        std::ranges::sort(actionNames);
+        if (actionNames.Num() > 1)
+            std::sort(actionNames.GetData(), actionNames.GetData() + actionNames.Num());
 
-        const f32 panelHeight = kHeaderHeight + static_cast<f32>(actionNames.size()) * kRowHeight + kFooterHeight;
+        const f32 panelHeight = kHeaderHeight + static_cast<f32>(actionNames.Num()) * kRowHeight + kFooterHeight;
 
         // The centred panel is deliberately opaque enough to stand on its own.
         // Do not add a transient full-screen dim quad here: the UI composite target
@@ -224,23 +224,23 @@ namespace OloEngine
         m_StatusLabel = MakeText(panel, "", { kPad, 46.0f }, { kPanelWidth - 2.0f * kPad, 22.0f }, 15.0f, kStatusColor);
 
         // One row per action.
-        for (sizet i = 0; i < actionNames.size(); ++i)
+        for (i32 i = 0; i < actionNames.Num(); ++i)
         {
             const f32 rowY = kHeaderHeight + static_cast<f32>(i) * kRowHeight;
             const f32 btnY = rowY + (kRowHeight - kButtonHeight) * 0.5f;
 
             Row row;
             row.Action = actionNames[i];
-            MakeText(panel, actionNames[i], { kActionX, rowY }, { kActionW, kRowHeight }, 17.0f, kLabelColor);
+            MakeText(panel, actionNames[i].ToStdString(), { kActionX, rowY }, { kActionW, kRowHeight }, 17.0f, kLabelColor);
             row.BindingsLabel = MakeText(panel, "", { kBindingsX, rowY }, { kBindingsW, kRowHeight }, 15.0f, kBindingsColor);
             row.RebindButton = MakeButton(panel, "Rebind", { kRebindX, btnY }, { kRebindW, kButtonHeight });
             row.PadButton = MakeButton(panel, "Pad", { kPadX, btnY }, { kPadW, kButtonHeight });
             row.ResetButton = MakeButton(panel, "Reset", { kResetX, btnY }, { kResetW, kButtonHeight });
-            m_Rows.push_back(row);
+            m_Rows.Add(MoveTemp(row));
         }
 
         // Footer buttons.
-        const f32 footerY = kHeaderHeight + static_cast<f32>(actionNames.size()) * kRowHeight + 16.0f;
+        const f32 footerY = kHeaderHeight + static_cast<f32>(actionNames.Num()) * kRowHeight + 16.0f;
         m_ResetAllButton = MakeButton(panel, "Reset All to Default", { kActionX, footerY }, { 200.0f, 36.0f });
         m_SaveButton = MakeButton(panel, "Save", { 236.0f, footerY }, { 120.0f, 36.0f });
         m_CloseButton = MakeButton(panel, "Close", { kResetX - 20.0f, footerY }, { 105.0f, 36.0f });
@@ -284,8 +284,8 @@ namespace OloEngine
             m_Scene->GetUINavigation().SetInputSuppressed(false);
         }
         m_Canvas = {};
-        m_Rows.clear();
-        m_AllButtons.clear();
+        m_Rows.Reset();
+        m_AllButtons.Reset();
         m_PrevButtonState.clear();
         m_Controller.CancelCapture();
         m_Open = false;
@@ -326,7 +326,7 @@ namespace OloEngine
             // Normal interaction: rows + footer.
             for (const Row& row : m_Rows)
             {
-                const InputAction* action = m_Controller.TargetMap().GetAction(row.Action);
+                const InputAction* action = m_Controller.TargetMap().GetAction(row.Action.ToStdString());
                 const bool hasBinding = action && !action->Bindings.empty();
 
                 if (Clicked(row.RebindButton))
@@ -334,21 +334,21 @@ namespace OloEngine
                     // Rebind the primary binding, or start a fresh one if none.
                     if (hasBinding)
                     {
-                        m_Controller.BeginRebind(row.Action, 0, /*gamepad=*/false);
+                        m_Controller.BeginRebind(row.Action.ToStdString(), 0, /*gamepad=*/false);
                     }
                     else
                     {
-                        m_Controller.BeginCaptureNew(row.Action, /*gamepad=*/false);
+                        m_Controller.BeginCaptureNew(row.Action.ToStdString(), /*gamepad=*/false);
                     }
                 }
                 else if (Clicked(row.PadButton))
                 {
-                    m_Controller.BeginCaptureNew(row.Action, /*gamepad=*/true);
+                    m_Controller.BeginCaptureNew(row.Action.ToStdString(), /*gamepad=*/true);
                 }
                 else if (Clicked(row.ResetButton))
                 {
-                    m_Controller.ResetActionToDefault(row.Action);
-                    m_StatusLabel.GetComponent<UITextComponent>().m_Text = "Reset '" + row.Action + "' to default.";
+                    m_Controller.ResetActionToDefault(row.Action.ToStdString());
+                    m_StatusLabel.GetComponent<UITextComponent>().m_Text = "Reset '" + row.Action.ToStdString() + "' to default.";
                 }
 
                 // A rebind/pad click begins capture; stop here so a second click this frame
@@ -453,7 +453,7 @@ namespace OloEngine
             {
                 continue;
             }
-            const InputAction* action = map.GetAction(row.Action);
+            const InputAction* action = map.GetAction(row.Action.ToStdString());
             label.GetComponent<UITextComponent>().m_Text = action ? SummariseBindings(*action) : "(removed)";
         }
     }

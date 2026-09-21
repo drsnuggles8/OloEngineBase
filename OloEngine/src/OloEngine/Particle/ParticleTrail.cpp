@@ -6,7 +6,7 @@ namespace OloEngine
     void ParticleTrailData::Resize(u32 maxParticles, u32 maxTrailPoints)
     {
         m_MaxTrailPoints = maxTrailPoints;
-        m_Trails.resize(maxParticles);
+        m_Trails.SetNum(maxParticles, EAllowShrinking::No);
         for (auto& trail : m_Trails)
         {
             trail.Resize(maxTrailPoints);
@@ -15,7 +15,7 @@ namespace OloEngine
 
     void ParticleTrailData::RecordPoint(u32 particleIndex, const glm::vec3& position, f32 width, const glm::vec4& color, f32 minVertexDistance)
     {
-        if (particleIndex >= m_Trails.size())
+        if (particleIndex >= m_Trails.Num())
         {
             return;
         }
@@ -44,7 +44,7 @@ namespace OloEngine
 
     void ParticleTrailData::SwapParticles(u32 a, u32 b)
     {
-        if (a >= m_Trails.size() || b >= m_Trails.size())
+        if (a >= m_Trails.Num() || b >= m_Trails.Num())
         {
             return;
         }
@@ -53,7 +53,7 @@ namespace OloEngine
 
     void ParticleTrailData::ClearTrail(u32 particleIndex)
     {
-        if (particleIndex < m_Trails.size())
+        if (particleIndex < m_Trails.Num())
         {
             m_Trails[particleIndex].Clear();
         }

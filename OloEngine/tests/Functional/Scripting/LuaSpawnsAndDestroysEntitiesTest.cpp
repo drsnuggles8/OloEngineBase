@@ -338,7 +338,7 @@ return script
     EXPECT_FLOAT_EQ(transform.Scale.x, 2.0f)
         << "the requested spawn scale was not applied.";
 
-    ASSERT_EQ(root.Children().size(), 1u);
+    ASSERT_EQ(root.Children().Num(), 1u);
     EXPECT_TRUE(root.HasComponent<PrefabComponent>())
         << "the spawned root is not marked as a prefab instance.";
 }

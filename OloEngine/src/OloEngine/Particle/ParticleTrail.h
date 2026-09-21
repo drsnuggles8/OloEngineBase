@@ -1,9 +1,9 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Containers/Array.h"
 
 #include <glm/glm.hpp>
-#include <vector>
 
 namespace OloEngine
 {
@@ -20,15 +20,15 @@ namespace OloEngine
     // Fixed-size ring buffer for a single particle's trail points (O(1) insert and age)
     struct TrailRingBuffer
     {
-        std::vector<TrailPoint> m_Points; // Fixed-size storage
-        u32 m_Head = 0;                   // Index of the newest point
-        u32 m_Count = 0;                  // Number of active points
+        TArray<TrailPoint> m_Points; // Fixed-size storage
+        u32 m_Head = 0;              // Index of the newest point
+        u32 m_Count = 0;             // Number of active points
         u32 m_Capacity = 0;
 
         void Resize(u32 maxPoints)
         {
             m_Capacity = maxPoints;
-            m_Points.resize(maxPoints);
+            m_Points.SetNum(maxPoints, EAllowShrinking::No);
             m_Head = 0;
             m_Count = 0;
         }
@@ -78,6 +78,17 @@ namespace OloEngine
         }
     };
 
+    // The ring indexes its separately allocated array and retains no pointer
+    // into the ring itself.
+    template<>
+    struct TIsTriviallyRelocatable<TrailRingBuffer>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(TrailRingBuffer::m_Points)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TrailRingBuffer::m_Head)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TrailRingBuffer::m_Count)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TrailRingBuffer::m_Capacity)>::Value;
+    };
+
     // Per-particle trail data stored as SOA alongside ParticlePool
     class ParticleTrailData
     {
@@ -99,7 +110,7 @@ namespace OloEngine
         // Get trail ring buffer for a particle (iterate 0..m_Count-1 via Get())
         [[nodiscard]] const TrailRingBuffer& GetTrail(u32 particleIndex) const
         {
-            OLO_CORE_ASSERT(particleIndex < m_Trails.size(), "ParticleTrailData::GetTrail index out of range!");
+            OLO_CORE_ASSERT(particleIndex < static_cast<u32>(m_Trails.Num()), "ParticleTrailData::GetTrail index out of range!");
             return m_Trails[particleIndex];
         }
         [[nodiscard]] u32 GetMaxTrailPoints() const
@@ -108,8 +119,16 @@ namespace OloEngine
         }
 
       private:
-        std::vector<TrailRingBuffer> m_Trails;
+        friend struct TIsTriviallyRelocatable<ParticleTrailData>;
+        TArray<TrailRingBuffer> m_Trails;
         u32 m_MaxTrailPoints = 16;
+    };
+
+    template<>
+    struct TIsTriviallyRelocatable<ParticleTrailData>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(ParticleTrailData::m_Trails)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleTrailData::m_MaxTrailPoints)>::Value;
     };
 
     // Trail rendering configuration.

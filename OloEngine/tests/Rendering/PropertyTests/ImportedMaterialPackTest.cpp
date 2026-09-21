@@ -412,7 +412,7 @@ TEST(ImportedMaterialWarmCacheTest, WarmCacheLoadKeepsTheMaterialsWithoutReimpor
         {
             sawAnyTexture = true;
             EXPECT_TRUE(warmMaterials[i]->GetAlbedoMap())
-                << "material '" << coldMaterials[i]->GetName() << "' lost its albedo texture on the warm load";
+                << "material '" << coldMaterials[i]->GetName().ToView() << "' lost its albedo texture on the warm load";
         }
     }
     EXPECT_TRUE(sawAnyTexture) << "fixture no longer ships albedo textures — this test proves nothing";

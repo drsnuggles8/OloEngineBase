@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/UUID.h"
+#include "OloEngine/Containers/String.h"
 
 #include <string>
 #include <unordered_map>
@@ -12,6 +13,9 @@
 
 namespace OloEngine
 {
+    // Shared YAML/editor property DTO: these alternatives are dispatched by
+    // yaml-cpp conversion and the editor's std::get_if<std::string> controls.
+    // Runtime variable storage uses its own FString alternative instead.
     using DialoguePropertyValue = std::variant<bool, i32, f32, std::string>;
 
     // Plain data-transfer structs: members intentionally use PascalCase without m_ prefix
@@ -19,31 +23,53 @@ namespace OloEngine
     struct DialogueNodeData
     {
         UUID ID;
-        std::string Type; // "dialogue", "choice", "condition", "action"
-        std::string Name;
+        FString Type; // "dialogue", "choice", "condition", "action"
+        FString Name;
         std::unordered_map<std::string, DialoguePropertyValue> Properties;
         glm::vec2 EditorPosition{ 0.0f, 0.0f };
     };
 
     struct DialogueChoice
     {
-        std::string Text;
+        FString Text;
         UUID TargetNodeID = 0;
-        std::string Condition; // optional condition name (empty = always available)
+        FString Condition; // optional condition name (empty = always available)
+    };
+
+    // Both strings own separate heap buffers; the remaining UUID is a scalar.
+    // No member points into the choice, so container growth may relocate it.
+    template<>
+    struct TIsTriviallyRelocatable<DialogueChoice>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(DialogueChoice::Text)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(DialogueChoice::TargetNodeID)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(DialogueChoice::Condition)>::Value;
     };
 
     struct DialogueConnection
     {
         UUID SourceNodeID;
         UUID TargetNodeID;
-        std::string SourcePort;
-        std::string TargetPort;
+        FString SourcePort;
+        FString TargetPort;
+    };
+
+    // IDs are scalars and port names own independent heap storage.
+    template<>
+    struct TIsTriviallyRelocatable<DialogueConnection>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(DialogueConnection::SourceNodeID)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(DialogueConnection::TargetNodeID)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(DialogueConnection::SourcePort)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(DialogueConnection::TargetPort)>::Value;
     };
 
     struct DialogueEditorSnapshot
     {
+        // Editor undo DTO: nodes contain standard property maps and must be
+        // copied normally, not bitwise-relocated. Runtime owns stable list nodes.
         std::vector<DialogueNodeData> Nodes;
-        std::vector<DialogueConnection> Connections;
+        TArray<DialogueConnection> Connections;
         UUID RootNodeID = 0;
     };
 

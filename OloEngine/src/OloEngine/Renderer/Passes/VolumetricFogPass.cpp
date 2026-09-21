@@ -221,10 +221,10 @@ namespace OloEngine
         const auto integratedID = m_IntegratedVolume->GetRHIHandle();
         RGPreparedPass prepared;
         prepared.Resources = { { csmID, false }, { atlasID, false }, { densityVolumeID, false }, { historyID, false }, { scatterID, true }, { integratedID, true }, { m_RecordingFroxelUBO->GetRHIHandle(), false }, { m_RecordingForwardPlusUBO->GetRHIHandle(), false } };
-        prepared.Resources.push_back({ m_FroxelUBO->GetRHIHandle(), true });
+        prepared.Resources.Add({ m_FroxelUBO->GetRHIHandle(), true });
         for (const auto& buffer : lighting.Buffers)
             if (buffer)
-                prepared.Resources.push_back({ buffer->GetRHIHandle(), false });
+                prepared.Resources.Add({ buffer->GetRHIHandle(), false });
         prepared.Record = [this, csmID, atlasID, densityVolumeID, scatterID, historyID, integratedID, lighting](RGCommandContext&)
         {
             m_RecordingFroxelUBO->Bind();

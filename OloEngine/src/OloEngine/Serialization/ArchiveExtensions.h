@@ -11,6 +11,7 @@
 #include "OloEngine/Serialization/Archive.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Asset/Asset.h"
+#include "OloEngine/Containers/String.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -125,12 +126,63 @@ namespace OloEngine
 
     // AssetHandle is a typedef for UUID, so the UUID overload covers it.
 
+    // Preserve the signed byte-length/string encoding (no NUL terminator).
+    template<std::derived_from<FArchive> Ar>
+    Ar& operator<<(Ar& ar, FString& value)
+    {
+        auto wireValue = value.ToStdString();
+        static_cast<FArchive&>(ar) << wireValue;
+        if (ar.IsLoading() && !ar.IsError())
+            value = wireValue;
+        return ar;
+    }
+
     // ========================================================================
     // Container Types
     // ========================================================================
 
     // Sanity cap for container deserialization to prevent huge allocations from corrupt data
     static constexpr u32 kMaxContainerDeserializeCount = 10'000'000;
+
+    // Component arrays keep the legacy std::vector framing, validation and
+    // transactional read. Native TArray archive serialization has a different contract.
+    template<std::derived_from<FArchive> Ar, typename T, typename Allocator>
+    Ar& SerializeOwnedArray(Ar& ar, TArray<T, Allocator>& values)
+    {
+        const auto rawCount = static_cast<u64>(values.Num());
+        if (!ar.IsLoading() && rawCount > kMaxContainerDeserializeCount)
+        {
+            ar.SetError();
+            return ar;
+        }
+        auto count = static_cast<u32>(rawCount);
+        static_cast<FArchive&>(ar) << count;
+        if (ar.IsError())
+            return ar;
+        if (count > kMaxContainerDeserializeCount || count > static_cast<u64>(std::numeric_limits<typename TArray<T, Allocator>::SizeType>::max()))
+        {
+            ar.SetError();
+            return ar;
+        }
+        if (ar.IsLoading())
+        {
+            TArray<T, Allocator> temporary;
+            temporary.SetNum(static_cast<typename TArray<T, Allocator>::SizeType>(count));
+            for (auto& value : temporary)
+            {
+                ar << value;
+                if (ar.IsError())
+                    return ar;
+            }
+            values = MoveTemp(temporary);
+        }
+        else
+        {
+            for (auto& value : values)
+                ar << value;
+        }
+        return ar;
+    }
 
     template<std::derived_from<FArchive> Ar, typename T>
     Ar& operator<<(Ar& ar, std::vector<T>& vec)

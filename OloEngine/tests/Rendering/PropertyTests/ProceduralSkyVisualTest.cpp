@@ -106,7 +106,7 @@ namespace OloEngine::Tests
         constexpr u32 kCell = 128;
         const u32 imgW = kCols * kCell;
         const u32 imgH = 2 * kCell; // skybox row + irradiance row
-        std::vector<u8> img(static_cast<sizet>(imgW) * imgH * 4, 0);
+        TArray64<u8> img(static_cast<sizet>(imgW) * imgH * 4, 0);
 
         f32 meanLuma = 0.0f;
         u32 sampleCount = 0;
@@ -120,10 +120,10 @@ namespace OloEngine::Tests
 
             for (u32 faceIdx = 0; faceIdx < 6; ++faceIdx)
             {
-                std::vector<u8> bytes;
+                TArray64<u8> bytes;
                 ASSERT_TRUE(cubemap->GetFaceData(faceIdx, bytes, 0))
                     << "GetFaceData failed for " << sources[s].Label << " face " << faceIdx;
-                ASSERT_GE(bytes.size(), static_cast<sizet>(face) * face * 16);
+                ASSERT_GE(bytes.Num(), static_cast<sizet>(face) * face * 16);
 
                 const u32 ox = faceIdx * kCell;
                 const u32 oy = s * kCell;
@@ -136,7 +136,7 @@ namespace OloEngine::Tests
                         const u32 sx = (x * face) / kCell;
                         const u32 sy = (y * face) / kCell;
                         f32 rgb[4];
-                        std::memcpy(rgb, bytes.data() + (static_cast<sizet>(sy) * face + sx) * 16, sizeof(rgb));
+                        std::memcpy(rgb, bytes.GetData() + (static_cast<sizet>(sy) * face + sx) * 16, sizeof(rgb));
                         glm::vec3 linear(rgb[0], rgb[1], rgb[2]);
                         meanLuma += (linear.r + linear.g + linear.b) / 3.0f;
                         ++sampleCount;
@@ -159,7 +159,7 @@ namespace OloEngine::Tests
 
         const int ok = stbi_write_png(outPath.string().c_str(),
                                       static_cast<int>(imgW), static_cast<int>(imgH), 4,
-                                      img.data(), static_cast<int>(imgW * 4));
+                                      img.GetData(), static_cast<int>(imgW * 4));
         EXPECT_NE(ok, 0) << "Failed to write " << outPath.string();
         OLO_CORE_INFO("ProceduralSky visual evidence written to {}", fs::absolute(outPath).string());
 

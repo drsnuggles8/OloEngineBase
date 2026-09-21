@@ -128,7 +128,7 @@ TEST(BenchmarkCapture, RunWhenRequested)
 
     if (!manifest->SupportsBackend("opengl"))
     {
-        GTEST_SKIP() << "manifest '" << manifest->Id
+        GTEST_SKIP() << "manifest '" << manifest->Id.ToView()
                      << "' does not declare the opengl backend; run it through the editor front door";
     }
 
@@ -165,7 +165,7 @@ TEST(BenchmarkCapture, RunWhenRequested)
     } assetManagerShutdown{ assetManager };
 
     // -- Scene --------------------------------------------------------------
-    const fs::path scenePath = Project::GetAssetDirectory() / manifest->ScenePath;
+    const fs::path scenePath = Project::GetAssetDirectory() / manifest->ScenePath.ToStdString();
     ASSERT_TRUE(fs::exists(scenePath)) << "manifest Scene not found: " << scenePath.string();
     auto scene = Scene::Create();
     SceneSerializer serializer(scene);
@@ -230,7 +230,7 @@ TEST(BenchmarkCapture, RunWhenRequested)
     const Timestep ts{ dt };
     const f32 aspect = static_cast<f32>(width) / static_cast<f32>(height);
     u32 frameIndex = 0;
-    std::vector<Benchmark::CameraCaptureSet> cameraSets;
+    TArray<Benchmark::CameraCaptureSet> cameraSets;
 
     for (const auto& cameraSpec : manifest->Cameras)
     {
@@ -257,13 +257,13 @@ TEST(BenchmarkCapture, RunWhenRequested)
         }
 
         const Benchmark::CaptureContext captureContext{ cameraSpec.NearClip, cameraSpec.FarClip };
-        auto set = Benchmark::CaptureCameraSet(*manifest, cameraSpec.Id, frameIndex, "opengl", captureContext);
+        auto set = Benchmark::CaptureCameraSet(*manifest, cameraSpec.Id.ToView(), frameIndex, "opengl", captureContext);
         for (const auto& attachment : set.Attachments)
         {
-            EXPECT_TRUE(attachment.Error.empty()) << "camera '" << cameraSpec.Id << "' attachment '"
-                                                  << attachment.Spec.Name << "': " << attachment.Error;
+            EXPECT_TRUE(attachment.Error.IsEmpty()) << "camera '" << cameraSpec.Id.ToView() << "' attachment '"
+                                                    << attachment.Spec.Name.ToView() << "': " << attachment.Error.ToView();
         }
-        cameraSets.push_back(std::move(set));
+        cameraSets.Add(std::move(set));
     }
 
     // -- Provenance + result directory --------------------------------------
@@ -292,9 +292,9 @@ TEST(BenchmarkCapture, RunWhenRequested)
 
     const fs::path outDir = !opts.CaptureOutDir.empty()
                                 ? fs::path(opts.CaptureOutDir)
-                                : fs::path("assets") / "benchmark" / "captures" / manifest->Id;
+                                : fs::path("assets") / "benchmark" / "captures" / manifest->Id.ToStdString();
     std::string writeError;
-    ASSERT_TRUE(Benchmark::WriteResultDirectory(*manifest, manifestPath, outDir, cameraSets, runInfo, writeError))
+    ASSERT_TRUE(Benchmark::WriteResultDirectory(*manifest, manifestPath, outDir, std::span{ cameraSets.GetData(), static_cast<sizet>(cameraSets.Num()) }, runInfo, writeError))
         << writeError;
 
     // -- Restore the process-wide renderer configuration (every block this
@@ -310,6 +310,6 @@ TEST(BenchmarkCapture, RunWhenRequested)
     Renderer3D::ApplyRendererSettings();
     Renderer3D::SetRenderScale(1.0f);
 
-    OLO_CORE_INFO("[BenchmarkCapture] '{}' captured {} camera(s) over {} frame(s) into '{}'", manifest->Id,
-                  cameraSets.size(), frameIndex, outDir.string());
+    OLO_CORE_INFO("[BenchmarkCapture] '{}' captured {} camera(s) over {} frame(s) into '{}'", manifest->Id.ToView(),
+                  cameraSets.Num(), frameIndex, outDir.string());
 }

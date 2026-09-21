@@ -54,10 +54,10 @@ namespace
         return points;
     }
 
-    std::vector<u64> ToSortedU64(std::vector<UUID> ids)
+    std::vector<u64> ToSortedU64(const TArray<UUID>& ids)
     {
         std::vector<u64> out;
-        out.reserve(ids.size());
+        out.reserve(ids.Num());
         for (UUID id : ids)
         {
             out.push_back(static_cast<u64>(id));
@@ -96,9 +96,26 @@ TEST(SpatialAccelerationTest, EmptyIndexReturnsNothing)
 {
     SceneSpatialIndex index;
     EXPECT_EQ(index.GetEntityCount(), 0u);
-    EXPECT_TRUE(index.QueryRadius({ 0, 0, 0 }, 100.0f).empty());
-    EXPECT_TRUE(index.QueryAABB({ -1, -1, -1 }, { 1, 1, 1 }).empty());
-    EXPECT_TRUE(index.NearestN({ 0, 0, 0 }, 5).empty());
+    EXPECT_TRUE(index.QueryRadius({ 0, 0, 0 }, 100.0f).IsEmpty());
+    EXPECT_TRUE(index.QueryAABB({ -1, -1, -1 }, { 1, 1, 1 }).IsEmpty());
+    EXPECT_TRUE(index.NearestN({ 0, 0, 0 }, 5).IsEmpty());
+}
+
+TEST(SpatialAccelerationTest, AppendQueriesPreserveExistingResults)
+{
+    SceneSpatialIndex index;
+    index.Insert(UUID(1), { 0, 0, 0 });
+    index.Insert(UUID(2), { 10, 0, 0 });
+    TArray<UUID> results{ UUID(99) };
+
+    index.QueryRadius({ 0, 0, 0 }, 1.0f, results);
+    index.QueryAABB({ 9, -1, -1 }, { 11, 1, 1 }, results);
+    EXPECT_EQ(ToSortedU64(results), (std::vector<u64>{ 1, 2, 99 }));
+
+    // Rejected or empty queries leave the caller's accumulated results intact.
+    index.QueryRadius({ 0, 0, 0 }, -1.0f, results);
+    index.QueryAABB({ 100, 100, 100 }, { 101, 101, 101 }, results);
+    EXPECT_EQ(ToSortedU64(results), (std::vector<u64>{ 1, 2, 99 }));
 }
 
 TEST(SpatialAccelerationTest, GetEntityCountTracksInserts)
@@ -128,7 +145,7 @@ TEST(SpatialAccelerationTest, QueryRadiusBoundaryIsInclusive)
     SceneSpatialIndex index(10.0f);
     index.Insert(UUID(1), { 5, 0, 0 }); // exactly on the radius
     const auto got = index.QueryRadius({ 0, 0, 0 }, 5.0f);
-    ASSERT_EQ(got.size(), 1u);
+    ASSERT_EQ(got.Num(), 1u);
     EXPECT_EQ(static_cast<u64>(got[0]), 1u);
 }
 
@@ -136,7 +153,7 @@ TEST(SpatialAccelerationTest, QueryRadiusNegativeRadiusReturnsNothing)
 {
     SceneSpatialIndex index;
     index.Insert(UUID(1), { 0, 0, 0 });
-    EXPECT_TRUE(index.QueryRadius({ 0, 0, 0 }, -1.0f).empty());
+    EXPECT_TRUE(index.QueryRadius({ 0, 0, 0 }, -1.0f).IsEmpty());
 }
 
 TEST(SpatialAccelerationTest, QueryAABBInclusiveBoundsAndExclusion)
@@ -156,7 +173,7 @@ TEST(SpatialAccelerationTest, QueryAABBInvertedBoxReturnsNothing)
     SceneSpatialIndex index;
     index.Insert(UUID(1), { 0, 0, 0 });
     // min > max on one axis → empty.
-    EXPECT_TRUE(index.QueryAABB({ 1, -1, -1 }, { -1, 1, 1 }).empty());
+    EXPECT_TRUE(index.QueryAABB({ 1, -1, -1 }, { -1, 1, 1 }).IsEmpty());
 }
 
 TEST(SpatialAccelerationTest, NearestNReturnsClosestSortedByDistance)
@@ -168,7 +185,7 @@ TEST(SpatialAccelerationTest, NearestNReturnsClosestSortedByDistance)
     index.Insert(UUID(40), { 50, 0, 0 }); // far
 
     const auto got = index.NearestN({ 0, 0, 0 }, 3);
-    ASSERT_EQ(got.size(), 3u);
+    ASSERT_EQ(got.Num(), 3u);
     EXPECT_EQ(static_cast<u64>(got[0]), 10u);
     EXPECT_EQ(static_cast<u64>(got[1]), 20u);
     EXPECT_EQ(static_cast<u64>(got[2]), 30u);
@@ -181,7 +198,7 @@ TEST(SpatialAccelerationTest, NearestNRespectsMaxRadius)
     index.Insert(UUID(2), { 20, 0, 0 }); // outside 5
 
     const auto got = index.NearestN({ 0, 0, 0 }, 5, 5.0f);
-    ASSERT_EQ(got.size(), 1u);
+    ASSERT_EQ(got.Num(), 1u);
     EXPECT_EQ(static_cast<u64>(got[0]), 1u);
 }
 
@@ -191,8 +208,8 @@ TEST(SpatialAccelerationTest, NearestNCountClampsToSizeAndZeroIsEmpty)
     index.Insert(UUID(1), { 1, 0, 0 });
     index.Insert(UUID(2), { 2, 0, 0 });
 
-    EXPECT_TRUE(index.NearestN({ 0, 0, 0 }, 0).empty());
-    EXPECT_EQ(index.NearestN({ 0, 0, 0 }, 100).size(), 2u); // clamped to available
+    EXPECT_TRUE(index.NearestN({ 0, 0, 0 }, 0).IsEmpty());
+    EXPECT_EQ(index.NearestN({ 0, 0, 0 }, 100).Num(), 2u); // clamped to available
 }
 
 TEST(SpatialAccelerationTest, RejectsNonFinitePositions)
@@ -206,7 +223,7 @@ TEST(SpatialAccelerationTest, RejectsNonFinitePositions)
 
     EXPECT_EQ(index.GetEntityCount(), 1u);
     const auto got = index.QueryRadius({ 0, 0, 0 }, 1000.0f);
-    ASSERT_EQ(got.size(), 1u);
+    ASSERT_EQ(got.Num(), 1u);
     EXPECT_EQ(static_cast<u64>(got[0]), 3u);
 }
 
@@ -283,7 +300,7 @@ TEST(SpatialAccelerationTest, NearestNMatchesBruteForceOrdering)
               { return a.first != b.first ? a.first < b.first : a.second < b.second; });
 
     const auto got = index.NearestN(center, kN);
-    ASSERT_EQ(got.size(), kN);
+    ASSERT_EQ(got.Num(), kN);
     for (u32 i = 0; i < kN; ++i)
     {
         EXPECT_EQ(static_cast<u64>(got[i]), ranked[i].second) << "rank " << i;
@@ -303,21 +320,21 @@ TEST(SpatialAccelerationTest, NonFiniteQueryInputsReturnEmpty)
     const f32 inf = std::numeric_limits<f32>::infinity();
 
     // QueryRadius: bad center, bad radius.
-    EXPECT_TRUE(index.QueryRadius({ nan, 0, 0 }, 100.0f).empty());
-    EXPECT_TRUE(index.QueryRadius({ 0, inf, 0 }, 100.0f).empty());
-    EXPECT_TRUE(index.QueryRadius({ 0, 0, 0 }, inf).empty());
-    EXPECT_TRUE(index.QueryRadius({ 0, 0, 0 }, nan).empty());
+    EXPECT_TRUE(index.QueryRadius({ nan, 0, 0 }, 100.0f).IsEmpty());
+    EXPECT_TRUE(index.QueryRadius({ 0, inf, 0 }, 100.0f).IsEmpty());
+    EXPECT_TRUE(index.QueryRadius({ 0, 0, 0 }, inf).IsEmpty());
+    EXPECT_TRUE(index.QueryRadius({ 0, 0, 0 }, nan).IsEmpty());
 
     // QueryAABB: bad bounds.
-    EXPECT_TRUE(index.QueryAABB({ nan, -1, -1 }, { 1, 1, 1 }).empty());
-    EXPECT_TRUE(index.QueryAABB({ -1, -1, -1 }, { 1, inf, 1 }).empty());
+    EXPECT_TRUE(index.QueryAABB({ nan, -1, -1 }, { 1, 1, 1 }).IsEmpty());
+    EXPECT_TRUE(index.QueryAABB({ -1, -1, -1 }, { 1, inf, 1 }).IsEmpty());
 
     // NearestN: bad center, bad maxRadius.
-    EXPECT_TRUE(index.NearestN({ nan, 0, 0 }, 5).empty());
-    EXPECT_TRUE(index.NearestN({ 0, 0, 0 }, 5, nan).empty());
+    EXPECT_TRUE(index.NearestN({ nan, 0, 0 }, 5).IsEmpty());
+    EXPECT_TRUE(index.NearestN({ 0, 0, 0 }, 5, nan).IsEmpty());
 
     // A finite query still works after the rejected ones (no corrupted state).
-    EXPECT_EQ(index.QueryRadius({ 0, 0, 0 }, 100.0f).size(), 2u);
+    EXPECT_EQ(index.QueryRadius({ 0, 0, 0 }, 100.0f).Num(), 2u);
 }
 
 // A literal +inf maxRadius means "search everything", same as the FLT_MAX
@@ -331,10 +348,10 @@ TEST(SpatialAccelerationTest, NearestNInfiniteRadiusSearchesAll)
     index.Insert(UUID(3), { -50, 30, 10 });
 
     const f32 inf = std::numeric_limits<f32>::infinity();
-    EXPECT_EQ(index.NearestN({ 0, 0, 0 }, 10, inf).size(), 3u);
+    EXPECT_EQ(index.NearestN({ 0, 0, 0 }, 10, inf).Num(), 3u);
     // Nearest is still correctly ranked.
     const auto got = index.NearestN({ 0, 0, 0 }, 1, inf);
-    ASSERT_EQ(got.size(), 1u);
+    ASSERT_EQ(got.Num(), 1u);
     EXPECT_EQ(static_cast<u64>(got[0]), 1u);
 }
 
@@ -365,10 +382,10 @@ TEST(SpatialAccelerationTest, RepeatedRebuildStaysCorrectAsEntitiesRoam)
         EXPECT_LE(index.GetCellCount(), index.GetEntityCount());
 
         const auto near1 = index.QueryRadius({ t * 13.0f, 0, 0 }, 1.0f);
-        ASSERT_EQ(near1.size(), 1u) << "tick " << tick;
+        ASSERT_EQ(near1.Num(), 1u) << "tick " << tick;
         EXPECT_EQ(static_cast<u64>(near1[0]), 1u);
         // The other entity is far away and must not appear in this query.
-        EXPECT_TRUE(index.QueryRadius({ 9999.0f, 9999.0f, 9999.0f }, 1.0f).empty());
+        EXPECT_TRUE(index.QueryRadius({ 9999.0f, 9999.0f, 9999.0f }, 1.0f).IsEmpty());
     }
 }
 
@@ -400,7 +417,7 @@ TEST(SpatialAccelerationTest, HugeQueryOnFineGridUsesFallbackAndMatchesBruteForc
 
     // NearestN with a large finite maxRadius → bounded path takes the fallback.
     const auto nearest = index.NearestN(center, 2, 5000.0f);
-    ASSERT_EQ(nearest.size(), 2u);
+    ASSERT_EQ(nearest.Num(), 2u);
     EXPECT_EQ(static_cast<u64>(nearest[0]), 1u); // origin point is closest
     EXPECT_EQ(static_cast<u64>(nearest[1]), 4u); // (100,100,100) next
 }
@@ -428,7 +445,7 @@ TEST(SpatialAccelerationTest, InvalidCellSizeIsClampedOrIgnored)
         SceneSpatialIndex clamped(tiny);
         clamped.Insert(UUID(1), { 1, 1, 1 });
         EXPECT_EQ(clamped.GetEntityCount(), 1u);
-        EXPECT_EQ(clamped.QueryRadius({ 1, 1, 1 }, 1.0f).size(), 1u);
+        EXPECT_EQ(clamped.QueryRadius({ 1, 1, 1 }, 1.0f).Num(), 1u);
     }
 
     SceneSpatialIndex index(10.0f);
@@ -440,7 +457,7 @@ TEST(SpatialAccelerationTest, InvalidCellSizeIsClampedOrIgnored)
     index.SetCellSize(tiny);
     EXPECT_FLOAT_EQ(index.GetCellSize(), 10.0f);
     // The index is still healthy after the rejected resizes.
-    EXPECT_EQ(index.QueryRadius({ 1, 1, 1 }, 1.0f).size(), 1u);
+    EXPECT_EQ(index.QueryRadius({ 1, 1, 1 }, 1.0f).Num(), 1u);
 }
 
 // A finite but enormous coordinate makes coord/cellSize exceed the i32 range, so
@@ -463,12 +480,12 @@ TEST(SpatialAccelerationTest, ExtremeFiniteCoordinatesAreHandledSafely)
     EXPECT_EQ(ToSortedU64(index.QueryRadius({ 0, 0, 0 }, huge)),
               (std::vector<u64>{ 2, 3 }));
     // Centered at an extreme coordinate → fallback, nothing in range, no UB.
-    EXPECT_TRUE(index.QueryRadius({ huge, huge, huge }, 1.0f).empty());
+    EXPECT_TRUE(index.QueryRadius({ huge, huge, huge }, 1.0f).IsEmpty());
     // Extreme AABB bounds → fallback scan.
     EXPECT_EQ(ToSortedU64(index.QueryAABB({ -huge, -huge, -huge }, { huge, huge, huge })),
               (std::vector<u64>{ 2, 3 }));
     // Extreme finite maxRadius in the bounded NearestN path → fallback.
-    EXPECT_EQ(index.NearestN({ 0, 0, 0 }, 5, huge).size(), 2u);
+    EXPECT_EQ(index.NearestN({ 0, 0, 0 }, 5, huge).Num(), 2u);
 }
 
 // Squared-distance overflow guard. A faraway-but-representable entity is inserted
@@ -504,7 +521,7 @@ TEST(SpatialAccelerationTest, OverflowingSquaredDistanceDoesNotFalsePositive)
 
     // Same overflowing finite maxRadius in the bounded NearestN path.
     const auto nearest = index.NearestN({ 0, 0, 0 }, 5, radius);
-    ASSERT_EQ(nearest.size(), 1u);
+    ASSERT_EQ(nearest.Num(), 1u);
     EXPECT_EQ(static_cast<u64>(nearest[0]), 1u);
 }
 
@@ -516,6 +533,6 @@ TEST(SpatialAccelerationTest, ClearAllowsRebuildWithFreshContents)
     index.Insert(UUID(2), { 1, 0, 0 });
 
     const auto got = index.QueryRadius({ 0, 0, 0 }, 100.0f);
-    ASSERT_EQ(got.size(), 1u);
+    ASSERT_EQ(got.Num(), 1u);
     EXPECT_EQ(static_cast<u64>(got[0]), 2u) << "stale entry survived Clear()";
 }

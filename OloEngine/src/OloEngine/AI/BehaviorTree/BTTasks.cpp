@@ -97,7 +97,7 @@ namespace OloEngine
             nav.m_HasTarget = false;
             nav.m_HasPath = false;
             nav.m_TargetUnreachable = false;
-            nav.m_PathCorners.clear();
+            nav.m_PathCorners.Reset();
             nav.m_CurrentCornerIndex = 0;
             return BTStatus::Failure;
         }

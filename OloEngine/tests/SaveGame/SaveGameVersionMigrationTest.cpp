@@ -276,7 +276,7 @@ namespace OloEngine::Tests
 
         // Fields introduced in v3/v5/v6/v15 must stay at their constructor defaults.
         TerrainComponent freshDefault;
-        EXPECT_TRUE(loaded.m_LayerRules.empty());
+        EXPECT_TRUE(loaded.m_LayerRules.IsEmpty());
         EXPECT_EQ(loaded.m_AutoMaterial, freshDefault.m_AutoMaterial);
         EXPECT_EQ(loaded.m_SplatmapGenResolution, freshDefault.m_SplatmapGenResolution);
         EXPECT_EQ(loaded.m_ProceduralErosionIterations, freshDefault.m_ProceduralErosionIterations);
@@ -502,7 +502,7 @@ namespace OloEngine::Tests
         EXPECT_FLOAT_EQ(loadedTerrain.m_WorldSizeZ, 1024.0f);
 
         TerrainComponent freshDefault;
-        EXPECT_TRUE(loadedTerrain.m_LayerRules.empty());
+        EXPECT_TRUE(loadedTerrain.m_LayerRules.IsEmpty());
         EXPECT_EQ(loadedTerrain.m_AutoMaterial, freshDefault.m_AutoMaterial);
         EXPECT_EQ(loadedTerrain.m_ProceduralErosionIterations, freshDefault.m_ProceduralErosionIterations);
         EXPECT_EQ(loadedTerrain.m_CollisionEnabled, freshDefault.m_CollisionEnabled);
@@ -526,7 +526,7 @@ namespace OloEngine::Tests
             FMemoryWriter w(buf);
             w.ArIsSaveGame = true;
 
-            u32 levelCount = static_cast<u32>(c.m_LODGroup.Levels.size());
+            u32 levelCount = static_cast<u32>(c.m_LODGroup.Levels.Num());
             w << levelCount;
             for (const auto& level : c.m_LODGroup.Levels)
             {
@@ -547,9 +547,9 @@ namespace OloEngine::Tests
         LODGroupComponent seed;
         seed.m_Enabled = false;
         seed.m_LODGroup.Bias = 2.5f;
-        seed.m_LODGroup.Levels.emplace_back(AssetHandle(0xAAAAull), 10.0f, 900u, 0.0f);
-        seed.m_LODGroup.Levels.emplace_back(AssetHandle(0xBBBBull), 50.0f, 450u, 0.0f);
-        seed.m_LODGroup.Levels.emplace_back(AssetHandle(0xCCCCull), 200.0f, 100u, 0.0f);
+        seed.m_LODGroup.Levels.Emplace(AssetHandle(0xAAAAull), 10.0f, 900u, 0.0f);
+        seed.m_LODGroup.Levels.Emplace(AssetHandle(0xBBBBull), 50.0f, 450u, 0.0f);
+        seed.m_LODGroup.Levels.Emplace(AssetHandle(0xCCCCull), 200.0f, 100u, 0.0f);
 
         std::vector<u8> payload = BuildPreV21LODGroupPayload(seed);
 
@@ -563,7 +563,7 @@ namespace OloEngine::Tests
         EXPECT_FALSE(reader.IsError());
         EXPECT_TRUE(reader.AtEnd()) << "Reader did not consume exactly the pre-v21 payload -- desync";
 
-        ASSERT_EQ(loaded.m_LODGroup.Levels.size(), 3u);
+        ASSERT_EQ(loaded.m_LODGroup.Levels.Num(), 3u);
         EXPECT_EQ(static_cast<u64>(loaded.m_LODGroup.Levels[2].MeshHandle), 0xCCCCull);
         EXPECT_FLOAT_EQ(loaded.m_LODGroup.Levels[2].MaxDistance, 200.0f);
         EXPECT_EQ(loaded.m_LODGroup.Levels[2].TriangleCount, 100u);
@@ -585,9 +585,9 @@ namespace OloEngine::Tests
         // error must survive, so the pre-v21 test cannot pass merely because
         // nothing writes the field.
         LODGroupComponent seed;
-        seed.m_LODGroup.Levels.emplace_back(AssetHandle(0xAAAAull), 10.0f, 900u, 0.0f);
-        seed.m_LODGroup.Levels.emplace_back(AssetHandle(0xBBBBull), 50.0f, 450u, 0.0125f);
-        seed.m_LODGroup.Levels.emplace_back(AssetHandle(0xCCCCull), 200.0f, 100u, 0.0625f);
+        seed.m_LODGroup.Levels.Emplace(AssetHandle(0xAAAAull), 10.0f, 900u, 0.0f);
+        seed.m_LODGroup.Levels.Emplace(AssetHandle(0xBBBBull), 50.0f, 450u, 0.0125f);
+        seed.m_LODGroup.Levels.Emplace(AssetHandle(0xCCCCull), 200.0f, 100u, 0.0625f);
 
         std::vector<u8> buffer;
         {
@@ -607,7 +607,7 @@ namespace OloEngine::Tests
         EXPECT_FALSE(reader.IsError());
         EXPECT_TRUE(reader.AtEnd()) << "Reader did not consume exactly the payload -- desync";
 
-        ASSERT_EQ(loaded.m_LODGroup.Levels.size(), 3u);
+        ASSERT_EQ(loaded.m_LODGroup.Levels.Num(), 3u);
         EXPECT_FLOAT_EQ(loaded.m_LODGroup.Levels[0].Error, 0.0f);
         EXPECT_FLOAT_EQ(loaded.m_LODGroup.Levels[1].Error, 0.0125f);
         EXPECT_FLOAT_EQ(loaded.m_LODGroup.Levels[2].Error, 0.0625f);

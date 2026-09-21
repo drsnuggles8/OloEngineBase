@@ -188,17 +188,17 @@ namespace OloEngine::Tests
         const BleedRoom room = MakeBleedRoom();
         const BakedRoom baked = BakeRoom(room, /*sharedMesh=*/true);
 
-        ASSERT_TRUE(baked.Result.Success) << baked.Result.Error;
+        ASSERT_TRUE(baked.Result.Success) << baked.Result.Error.ToStdString();
         ASSERT_TRUE(baked.Result.Asset);
         EXPECT_EQ(baked.Result.BakedEntityCount, 4u);
         EXPECT_EQ(baked.Result.SkippedEntityCount, 0u);
         EXPECT_TRUE(baked.Result.Asset->Validate());
         EXPECT_EQ(baked.Result.Asset->GetBakeKey(), baked.Settings.BakeKey);
-        EXPECT_EQ(baked.Result.Asset->GetEntries().size(), 4u);
+        EXPECT_EQ(baked.Result.Asset->GetEntries().Num(), 4u);
 
         const auto& texels = baked.Result.Asset->GetTexelData();
         u32 bakedTexelCount = 0;
-        for (sizet t = 0; t < texels.size(); t += 4)
+        for (sizet t = 0; t < texels.Num(); t += 4)
         {
             // Validate() already checked finiteness; irradiance must also be
             // non-negative (a negative estimate means broken transport math).
@@ -216,7 +216,7 @@ namespace OloEngine::Tests
     {
         const BleedRoom room = MakeBleedRoom();
         const BakedRoom baked = BakeRoom(room, /*sharedMesh=*/true);
-        ASSERT_TRUE(baked.Result.Success) << baked.Result.Error;
+        ASSERT_TRUE(baked.Result.Success) << baked.Result.Error.ToStdString();
 
         PathTracing::PathTracerSettings tracer;
         tracer.SamplesPerPixel = baked.Settings.SamplesPerTexel;
@@ -229,9 +229,9 @@ namespace OloEngine::Tests
 
         // A spread of jobs across the atlas: the same seed must reproduce the
         // stored value bit-exactly — this pins the raster→estimate→store path.
-        const sizet stride = std::max<sizet>(baked.Prepared.Jobs.size() / 16, 1);
+        const sizet stride = std::max<sizet>(baked.Prepared.Jobs.Num() / 16, 1);
         u32 checked = 0;
-        for (sizet j = 0; j < baked.Prepared.Jobs.size(); j += stride)
+        for (sizet j = 0; j < baked.Prepared.Jobs.Num(); j += stride)
         {
             const LightmapTexelJob& job = baked.Prepared.Jobs[j];
             const u32 seed = PathTracing::MakePixelSeed(job.AtlasX, job.AtlasY, baked.Settings.Seed);
@@ -251,7 +251,7 @@ namespace OloEngine::Tests
     {
         const BleedRoom room = MakeBleedRoom();
         const BakedRoom baked = BakeRoom(room, /*sharedMesh=*/true);
-        ASSERT_TRUE(baked.Result.Success) << baked.Result.Error;
+        ASSERT_TRUE(baked.Result.Success) << baked.Result.Error.ToStdString();
 
         PathTracing::PathTracerSettings tracer;
         tracer.SamplesPerPixel = 160; // more samples than the bake: the re-estimate is the better estimate
@@ -268,8 +268,8 @@ namespace OloEngine::Tests
         glm::vec3 storedSum(0.0f);
         glm::vec3 freshSum(0.0f);
         u32 count = 0;
-        const sizet stride = std::max<sizet>(baked.Prepared.Jobs.size() / 24, 1);
-        for (sizet j = 0; j < baked.Prepared.Jobs.size() && count < 24; j += stride)
+        const sizet stride = std::max<sizet>(baked.Prepared.Jobs.Num() / 24, 1);
+        for (sizet j = 0; j < baked.Prepared.Jobs.Num() && count < 24; j += stride)
         {
             const LightmapTexelJob& job = baked.Prepared.Jobs[j];
             const u32 seed = PathTracing::MakePixelSeed(job.AtlasX, job.AtlasY, tracer.Seed);
@@ -296,7 +296,7 @@ namespace OloEngine::Tests
     {
         const BleedRoom room = MakeBleedRoom();
         const BakedRoom baked = BakeRoom(room, /*sharedMesh=*/true);
-        ASSERT_TRUE(baked.Result.Success) << baked.Result.Error;
+        ASSERT_TRUE(baked.Result.Success) << baked.Result.Error.ToStdString();
 
         const auto& texels = baked.Result.Asset->GetTexelData();
         const u32 atlasSize = baked.Prepared.AtlasSize;
@@ -344,18 +344,18 @@ namespace OloEngine::Tests
         const BleedRoom room = MakeBleedRoom();
         const BakedRoom first = BakeRoom(room, /*sharedMesh=*/true);
         const BakedRoom second = BakeRoom(room, /*sharedMesh=*/true);
-        ASSERT_TRUE(first.Result.Success) << first.Result.Error;
-        ASSERT_TRUE(second.Result.Success) << second.Result.Error;
+        ASSERT_TRUE(first.Result.Success) << first.Result.Error.ToStdString();
+        ASSERT_TRUE(second.Result.Success) << second.Result.Error.ToStdString();
 
         const auto& a = first.Result.Asset->GetTexelData();
         const auto& b = second.Result.Asset->GetTexelData();
-        ASSERT_EQ(a.size(), b.size());
+        ASSERT_EQ(a.Num(), b.Num());
         // memcmp, deliberately: the determinism contract is bit-identity.
-        EXPECT_EQ(std::memcmp(a.data(), b.data(), a.size() * sizeof(f32)), 0)
+        EXPECT_EQ(std::memcmp(a.GetData(), b.GetData(), a.Num() * sizeof(f32)), 0)
             << "two bakes of an identical room diverged — the bake is not deterministic";
 
-        ASSERT_EQ(first.Result.Asset->GetEntries().size(), second.Result.Asset->GetEntries().size());
-        for (sizet i = 0; i < first.Result.Asset->GetEntries().size(); ++i)
+        ASSERT_EQ(first.Result.Asset->GetEntries().Num(), second.Result.Asset->GetEntries().Num());
+        for (sizet i = 0; i < first.Result.Asset->GetEntries().Num(); ++i)
         {
             EXPECT_EQ(std::memcmp(&first.Result.Asset->GetEntries()[i], &second.Result.Asset->GetEntries()[i],
                                   sizeof(LightmapEntityEntry)),
@@ -436,8 +436,8 @@ namespace OloEngine::Tests
         LightmapBakePrepared prepared;
         std::string error;
         ASSERT_TRUE(LightmapBaker::Prepare(inputs, settings, prepared, error)) << error;
-        ASSERT_EQ(prepared.Entries.size(), 2u);
-        ASSERT_EQ(prepared.Regions.size(), 2u);
+        ASSERT_EQ(prepared.Entries.Num(), 2u);
+        ASSERT_EQ(prepared.Regions.Num(), 2u);
         // `insideRegion` below compares X/Y/Size only and the texel scan is
         // `(y * atlasSize + x) * 4` — both ignore LightmapAtlasRegion::Page, so
         // two regions at the same coordinates on different pages would read as
@@ -447,7 +447,7 @@ namespace OloEngine::Tests
             << "the region-ownership scan below ignores Page and needs a single-page atlas";
 
         const LightmapBakeResult result = LightmapBaker::BakeTexels(prepared, world, settings);
-        ASSERT_TRUE(result.Success) << result.Error;
+        ASSERT_TRUE(result.Success) << result.Error.ToStdString();
 
         const auto& texels = result.Asset->GetTexelData();
         const u32 atlasSize = prepared.AtlasSize;
@@ -469,7 +469,7 @@ namespace OloEngine::Tests
                 // 1. Region-restricted dilation: data may only exist inside a
                 //    baked entity's own rect.
                 i32 owner = -1;
-                for (sizet e = 0; e < prepared.Regions.size(); ++e)
+                for (sizet e = 0; e < prepared.Regions.Num(); ++e)
                 {
                     if (insideRegion(prepared.Regions[e], x, y))
                         owner = static_cast<i32>(e);

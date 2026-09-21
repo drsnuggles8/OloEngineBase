@@ -24,41 +24,90 @@
 
 #include <filesystem>
 #include <string>
-#include <vector>
+#include <span>
 
 namespace OloEngine::Benchmark
 {
     struct CapturedAttachment
     {
         ManifestAttachment Spec;
-        std::string FileName;      // "<Name>.png" / "<Name>.hdr" (empty when skipped/failed)
-        std::vector<u8> FileBytes; // encoded file content
+        FString FileName;     // "<Name>.png" / "<Name>.hdr" (empty when skipped/failed)
+        TArray<u8> FileBytes; // encoded file content
         u32 Width = 0;
         u32 Height = 0;
-        std::string FormatName; // source render-graph format
+        FString FormatName; // source render-graph format
         bool IsDepth = false;
         bool Normalized = false;
         f32 MinValue = 0.0f;
         f32 MaxValue = 0.0f;
         bool SkippedUnsupported = false; // skipped by declaration, not failure
-        std::string SkipReason;          // recorded when SkippedUnsupported (defaulted
+        FString SkipReason;              // recorded when SkippedUnsupported (defaulted
                                          // to the backend declaration by the writer)
-        std::string Error;               // non-empty on capture failure
+        FString Error;                   // non-empty on capture failure
     };
 
+} // namespace OloEngine::Benchmark
+
+namespace OloEngine
+{
+    template<>
+    struct TIsTriviallyRelocatable<Benchmark::CapturedAttachment>
+    {
+        using Record = Benchmark::CapturedAttachment;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::Spec)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::FileName)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::FileBytes)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Width)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Height)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::FormatName)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::IsDepth)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Normalized)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::MinValue)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::MaxValue)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::SkippedUnsupported)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::SkipReason)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Error)>;
+    };
+} // namespace OloEngine
+
+namespace OloEngine::Benchmark
+{
     struct CameraCaptureSet
     {
-        std::string CameraId;
+        FString CameraId;
         u32 CaptureFrameIndex = 0; // frames rendered when this capture was taken
-        std::vector<CapturedAttachment> Attachments;
+        TArray<CapturedAttachment> Attachments;
     };
 
     struct PassTimingRecord
     {
-        std::string Name;
+        FString Name;
         f64 GpuMs = 0.0;
     };
 
+} // namespace OloEngine::Benchmark
+
+namespace OloEngine
+{
+    template<>
+    struct TIsTriviallyRelocatable<Benchmark::CameraCaptureSet>
+    {
+        using Record = Benchmark::CameraCaptureSet;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::CameraId)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::CaptureFrameIndex)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Attachments)>;
+    };
+    template<>
+    struct TIsTriviallyRelocatable<Benchmark::PassTimingRecord>
+    {
+        using Record = Benchmark::PassTimingRecord;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::Name)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::GpuMs)>;
+    };
+} // namespace OloEngine
+
+namespace OloEngine::Benchmark
+{
     // Frame-level renderer counters recorded into result.json ("renderer
     // timings and memory counters" — the issue-#974 metadata requirement).
     struct RendererCounters
@@ -72,12 +121,12 @@ namespace OloEngine::Benchmark
     // Host-supplied provenance for result.json.
     struct RunInfo
     {
-        std::string Backend; // "opengl" | "vulkan"
-        std::string GpuVendor;
-        std::string GpuRenderer;
-        std::string CommitSha; // "unknown" when unavailable
-        std::string MachineTag;
-        std::string Host; // "test-binary" | "editor-mcp"
+        FString Backend; // "opengl" | "vulkan"
+        FString GpuVendor;
+        FString GpuRenderer;
+        FString CommitSha; // "unknown" when unavailable
+        FString MachineTag;
+        FString Host; // "test-binary" | "editor-mcp"
         u32 TotalFramesRendered = 0;
         // Set when a host could not confirm the declared warm-up frames
         // actually rendered (the editor host counts live frames and can time
@@ -88,7 +137,7 @@ namespace OloEngine::Benchmark
         // back.
         bool WarmupTimedOut = false;
         f32 FinalMockTimeSeconds = 0.0f;
-        std::vector<PassTimingRecord> PassTimings;
+        TArray<PassTimingRecord> PassTimings;
         RendererCounters Counters;
     };
 
@@ -123,7 +172,7 @@ namespace OloEngine::Benchmark
                                                     const CaptureContext& context);
 
     /// The per-pass GPU timings of the most recently resolved frame.
-    [[nodiscard]] std::vector<PassTimingRecord> SnapshotPassTimings();
+    [[nodiscard]] TArray<PassTimingRecord> SnapshotPassTimings();
 
     /// Frame-level draw/triangle/instance counters + tracked GPU memory.
     [[nodiscard]] RendererCounters SnapshotRendererCounters();
@@ -144,7 +193,7 @@ namespace OloEngine::Benchmark
     [[nodiscard]] bool WriteResultDirectory(const BenchmarkManifest& manifest,
                                             const std::filesystem::path& manifestSourcePath,
                                             const std::filesystem::path& outDir,
-                                            const std::vector<CameraCaptureSet>& cameraSets,
+                                            std::span<const CameraCaptureSet> cameraSets,
                                             const RunInfo& runInfo,
                                             std::string& outError);
 } // namespace OloEngine::Benchmark

@@ -516,3 +516,21 @@ namespace OloEngine::Tasks
     // be a `CVars::CVar<i64>` (or a pair of them) read through
     // `CVars::AddChangeCallback`, not a bespoke type that mirrors UE's.
 } // namespace OloEngine::Tasks
+
+namespace OloEngine
+{
+    // Result/callable state lives in the heap task. Relocation transfers the sole
+    // intrusive pointer without changing the pointee or reference count.
+    template<>
+    struct TIsTriviallyRelocatable<Tasks::Private::FTaskHandle>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(Tasks::Private::FTaskHandle::Pimpl)>::Value;
+    };
+
+    // Typed handles add no fields; their result remains in the heap task.
+    template<typename R>
+    struct TIsTriviallyRelocatable<Tasks::TTask<R>>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<Tasks::Private::FTaskHandle>::Value;
+    };
+} // namespace OloEngine

@@ -1,11 +1,11 @@
 #pragma once
 
+#include "OloEngine/Containers/Array.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Memory/Platform.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Threading/Mutex.h"
 #include <glm/glm.hpp>
-#include <vector>
 #include <atomic>
 #include <array>
 #include <cstring>
@@ -37,11 +37,11 @@ namespace OloEngine
     struct alignas(OLO_PLATFORM_CACHE_LINE_SIZE) WorkerScratchBuffer
     {
         // Bone matrices scratch
-        std::vector<glm::mat4> bones;
+        TArray64<glm::mat4> bones;
         u32 boneCount = 0;
 
         // Transform matrices scratch
-        std::vector<glm::mat4> transforms;
+        TArray64<glm::mat4> transforms;
         u32 transformCount = 0;
 
         // Offset mapping: local offset -> global offset (set after merge)
@@ -50,8 +50,8 @@ namespace OloEngine
 
         WorkerScratchBuffer()
         {
-            bones.reserve(WORKER_SCRATCH_BONE_CAPACITY);
-            transforms.reserve(WORKER_SCRATCH_TRANSFORM_CAPACITY);
+            bones.Reserve(WORKER_SCRATCH_BONE_CAPACITY);
+            transforms.Reserve(WORKER_SCRATCH_TRANSFORM_CAPACITY);
         }
 
         void Reset()
@@ -213,7 +213,7 @@ namespace OloEngine
         }
         sizet GetEntityIDCapacity() const
         {
-            return m_EntityIDs.size();
+            return static_cast<sizet>(m_EntityIDs.Num());
         }
 
         // ====================================================================
@@ -257,11 +257,11 @@ namespace OloEngine
         }
         sizet GetBoneMatrixCapacity() const
         {
-            return m_BoneMatrices.size();
+            return static_cast<sizet>(m_BoneMatrices.Num());
         }
         sizet GetTransformCapacity() const
         {
-            return m_Transforms.size();
+            return static_cast<sizet>(m_Transforms.Num());
         }
 
         // ====================================================================
@@ -397,12 +397,12 @@ namespace OloEngine
         u32 GetGlobalTransformOffset(u32 workerIndex, u32 localOffset) const;
 
       private:
-        std::vector<glm::mat4> m_BoneMatrices;
-        std::vector<glm::mat4> m_Transforms;
-        std::vector<i32> m_EntityIDs;
-        std::vector<glm::vec4> m_Colors;
-        std::vector<f32> m_Customs;
-        std::vector<glm::uvec4> m_GPUSceneRefs;
+        TArray64<glm::mat4> m_BoneMatrices;
+        TArray64<glm::mat4> m_Transforms;
+        TArray64<i32> m_EntityIDs;
+        TArray64<glm::vec4> m_Colors;
+        TArray64<f32> m_Customs;
+        TArray64<glm::uvec4> m_GPUSceneRefs;
 
         u32 m_BoneMatrixOffset = 0; // Current allocation offset
         u32 m_TransformOffset = 0;  // Current allocation offset
@@ -438,7 +438,7 @@ namespace OloEngine
         // MaterialData Table Storage
         // ====================================================================
 
-        std::vector<PODMaterialData> m_MaterialData;
+        TArray64<PODMaterialData> m_MaterialData;
         u16 m_MaterialDataCount = 0;
         mutable FMutex m_MaterialDataMutex;
         bool m_MaterialDataOverflowLogged = false; // Once-per-frame overflow warning

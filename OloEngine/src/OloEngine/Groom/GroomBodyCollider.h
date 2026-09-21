@@ -1,5 +1,7 @@
 #pragma once
 
+#include "OloEngine/Containers/Array.h"
+
 // =============================================================================
 // GroomBodyCollider.h — the body a coat is not allowed inside. Issue #1250.
 //
@@ -127,7 +129,7 @@ namespace OloEngine
     GroomColliderBuildStats BuildGroomBodyColliders(const GroomSurfaceView& surface,
                                                     const GroomSkinningView& skinning,
                                                     const GroomColliderBuildSettings& settings,
-                                                    std::vector<GroomColliderBinding>& outBindings);
+                                                    TArray<GroomColliderBinding>& outBindings);
 
     /**
      * @brief Carry the fitted capsules into this frame's pose, in WORLD space.
@@ -150,5 +152,5 @@ namespace OloEngine
      */
     void ResolveGroomBodyColliders(std::span<const GroomColliderBinding> bindings,
                                    std::span<const glm::mat4> palette, const glm::mat4& bindingToWorld,
-                                   f32 radiusScale, std::vector<GroomCollider>& outColliders);
+                                   f32 radiusScale, TArray<GroomCollider>& outColliders);
 } // namespace OloEngine

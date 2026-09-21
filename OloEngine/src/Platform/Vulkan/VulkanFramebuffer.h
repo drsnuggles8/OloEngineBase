@@ -134,7 +134,7 @@ namespace OloEngine
         [[nodiscard]] Ref<VulkanTexture2D> GetColorAttachmentImage(u32 index) const;
         [[nodiscard]] u32 GetColorAttachmentCount() const
         {
-            return static_cast<u32>(m_ColorAttachments.size());
+            return static_cast<u32>(m_ColorAttachments.Num());
         }
         [[nodiscard]] Ref<VulkanTexture2D> GetDepthAttachmentImage() const
         {
@@ -177,10 +177,10 @@ namespace OloEngine
 
         FramebufferSpecification m_Specification;
 
-        std::vector<FramebufferTextureSpecification> m_ColorAttachmentSpecifications;
+        TArray<FramebufferTextureSpecification> m_ColorAttachmentSpecifications;
         FramebufferTextureSpecification m_DepthAttachmentSpecification = FramebufferTextureFormat::None;
 
-        std::vector<Ref<VulkanTexture2D>> m_ColorAttachments;
+        TArray<Ref<VulkanTexture2D>> m_ColorAttachments;
         Ref<VulkanTexture2D> m_DepthAttachment;
 
         // The framebuffer's OWN identity. Native = 0: under dynamic rendering

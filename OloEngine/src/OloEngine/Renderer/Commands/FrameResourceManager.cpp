@@ -120,7 +120,7 @@ namespace OloEngine
             auto& deletionQueue = m_FrameResources[currentIndex].DeletionQueue;
             for (const auto& fn : deletionQueue)
                 fn();
-            deletionQueue.clear();
+            deletionQueue.Reset();
         }
 
         return currentIndex;
@@ -252,7 +252,7 @@ namespace OloEngine
         return m_CurrentFrameIndex.load(std::memory_order_acquire);
     }
 
-    void FrameResourceManager::SubmitForDeletion(std::function<void()>&& deletionFunc)
+    void FrameResourceManager::SubmitForDeletion(TFunction<void()>&& deletionFunc)
     {
         if (!m_Initialized)
         {
@@ -263,7 +263,7 @@ namespace OloEngine
             return;
         }
         u32 currentIndex = m_CurrentFrameIndex.load(std::memory_order_acquire);
-        m_FrameResources[currentIndex].DeletionQueue.push_back(std::move(deletionFunc));
+        m_FrameResources[currentIndex].DeletionQueue.Add(std::move(deletionFunc));
     }
 
     void FrameResourceManager::FlushAllDeletionQueues()
@@ -273,7 +273,7 @@ namespace OloEngine
             auto& deletionQueue = m_FrameResources[i].DeletionQueue;
             for (const auto& fn : deletionQueue)
                 fn();
-            deletionQueue.clear();
+            deletionQueue.Reset();
         }
     }
 

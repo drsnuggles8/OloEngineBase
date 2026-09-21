@@ -6,9 +6,10 @@
 #include "OloEngine/Threading/UniqueLock.h"
 
 #include <functional>
-#include <queue>
+#include "OloEngine/Containers/LinkedList.h"
 #include <variant>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/String.h"
 #include <memory>
 
 namespace OloEngine
@@ -73,18 +74,18 @@ namespace OloEngine
      */
     struct RawTextureData
     {
-        std::vector<u8> PixelData; ///< Decoded pixel data (RGBA, RGB, etc.)
+        TArray64<u8> PixelData; ///< Decoded pixel data (RGBA, RGB, etc.)
         u32 Width = 0;
         u32 Height = 0;
         u32 Channels = 0; ///< 1=R, 2=RG, 3=RGB, 4=RGBA
         bool GenerateMipmaps = true;
         bool SRGB = false;      ///< True for diffuse/albedo textures
-        std::string DebugName;  ///< For GPU debugging tools
+        FString DebugName;      ///< For GPU debugging tools
         AssetHandle Handle = 0; ///< Associated asset handle
 
         [[nodiscard]] bool IsValid() const
         {
-            return !PixelData.empty() && Width > 0 && Height > 0 && Channels > 0;
+            return !PixelData.IsEmpty() && Width > 0 && Height > 0 && Channels > 0;
         }
 
         [[nodiscard]] sizet GetDataSize() const
@@ -98,16 +99,16 @@ namespace OloEngine
      */
     struct RawShaderData
     {
-        std::string VertexSource;
-        std::string FragmentSource;
-        std::string GeometrySource; // Optional
-        std::string ComputeSource;  // Optional (for compute shaders)
-        std::string Name;
+        FString VertexSource;
+        FString FragmentSource;
+        FString GeometrySource; // Optional
+        FString ComputeSource;  // Optional (for compute shaders)
+        FString Name;
         AssetHandle Handle = 0;
 
         [[nodiscard]] bool IsValid() const
         {
-            return !VertexSource.empty() || !ComputeSource.empty();
+            return !VertexSource.IsEmpty() || !ComputeSource.IsEmpty();
         }
     };
 
@@ -215,7 +216,7 @@ namespace OloEngine
     {
       public:
         explicit CustomGPUCommand(std::function<void()> callback, std::string debugName = "Custom")
-            : m_Callback(std::move(callback)), m_DebugName(std::move(debugName))
+            : m_Callback(std::move(callback)), m_DebugName(debugName)
         {
         }
 
@@ -230,14 +231,14 @@ namespace OloEngine
             return GPUResourceCommandType::Custom;
         }
 
-        const std::string& GetDebugName() const
+        const FString& GetDebugName() const
         {
             return m_DebugName;
         }
 
       private:
         std::function<void()> m_Callback;
-        std::string m_DebugName;
+        FString m_DebugName;
     };
 
     // ========================================================================
@@ -297,7 +298,7 @@ namespace OloEngine
             auto cmd = std::make_unique<T>(std::forward<Args>(args)...);
 
             TUniqueLock<FMutex> lock(s_QueueMutex);
-            s_CommandQueue.push(std::move(cmd));
+            s_CommandQueue.AddTail(std::move(cmd));
             s_QueuedCount.fetch_add(1, std::memory_order_relaxed);
         }
 
@@ -306,7 +307,7 @@ namespace OloEngine
          */
         static void EnqueueCustom(std::function<void()> callback, std::string debugName = "Custom")
         {
-            Enqueue<CustomGPUCommand>(std::move(callback), std::move(debugName));
+            Enqueue<CustomGPUCommand>(std::move(callback), debugName);
         }
 
         /**
@@ -332,7 +333,7 @@ namespace OloEngine
         static bool HasPending()
         {
             TUniqueLock<FMutex> lock(s_QueueMutex);
-            return !s_CommandQueue.empty();
+            return s_CommandQueue.Num() != 0;
         }
 
         /**
@@ -341,7 +342,7 @@ namespace OloEngine
         static u32 GetPendingCount()
         {
             TUniqueLock<FMutex> lock(s_QueueMutex);
-            return static_cast<u32>(s_CommandQueue.size());
+            return static_cast<u32>(s_CommandQueue.Num());
         }
 
         /**
@@ -362,7 +363,7 @@ namespace OloEngine
             stats.TotalQueued = s_QueuedCount.load(std::memory_order_relaxed);
             stats.TotalProcessed = s_ProcessedCount.load(std::memory_order_relaxed);
             stats.TotalFailed = s_FailedCount.load(std::memory_order_relaxed);
-            stats.CurrentPending = static_cast<u32>(s_CommandQueue.size());
+            stats.CurrentPending = static_cast<u32>(s_CommandQueue.Num());
             return stats;
         }
 
@@ -372,12 +373,11 @@ namespace OloEngine
         static void Clear()
         {
             TUniqueLock<FMutex> lock(s_QueueMutex);
-            while (!s_CommandQueue.empty())
-                s_CommandQueue.pop();
+            s_CommandQueue.Empty();
         }
 
       private:
-        static std::queue<std::unique_ptr<GPUResourceCommand>> s_CommandQueue;
+        static TDoubleLinkedList<std::unique_ptr<GPUResourceCommand>> s_CommandQueue;
         static FMutex s_QueueMutex;
         static std::atomic<u64> s_QueuedCount;
         static std::atomic<u64> s_ProcessedCount;

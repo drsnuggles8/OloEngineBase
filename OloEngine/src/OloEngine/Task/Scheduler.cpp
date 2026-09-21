@@ -441,7 +441,7 @@ namespace OloEngine::LowLevelTasks
             TUniqueLock<FRecursiveMutex> Lock(m_WorkerThreadsCS);
 
             OLO_CORE_ASSERT(!m_WorkerThreads, "WorkerThreads should be null");
-            OLO_CORE_ASSERT(m_WorkerLocalQueues.IsEmpty(), "WorkerLocalQueues should be empty");
+            OLO_CORE_ASSERT(!m_WorkerLocalQueues, "WorkerLocalQueues should be empty");
             OLO_CORE_ASSERT(m_WorkerEvents.IsEmpty(), "WorkerEvents should be empty");
             OLO_CORE_ASSERT(m_NextWorkerId == 0, "NextWorkerId should be 0");
 
@@ -461,7 +461,8 @@ namespace OloEngine::LowLevelTasks
             FSchedulerTls::GetTlsValuesRef().LocalQueue = m_GameThreadLocalQueue.get();
 
             m_WorkerEvents.SetNum(MaxWorkers);
-            m_WorkerLocalQueues.SetNum(MaxWorkers);
+            m_WorkerLocalQueues = std::make_unique<FSchedulerTls::FLocalQueueType[]>(MaxWorkers);
+            m_MaxWorkers = MaxWorkers;
             m_WorkerThreads.reset(new std::atomic<OloEngine::FThread*>[static_cast<sizet>(MaxWorkers)]());
 
             auto CreateThread = [this, IsForkable](Private::ELocalQueueType LocalQueueType, const char* Prefix,
@@ -627,7 +628,7 @@ namespace OloEngine::LowLevelTasks
 
             // We wait on threads to exit, once we're done with that
             // it means no more threads can possibly get created.
-            for (i32 i = 0; i < m_WorkerLocalQueues.Num(); ++i)
+            for (u32 i = 0; i < m_MaxWorkers; ++i)
             {
                 if (OloEngine::FThread* Thread = m_WorkerThreads[i].exchange(nullptr))
                 {
@@ -652,7 +653,8 @@ namespace OloEngine::LowLevelTasks
 
             m_NextWorkerId = 0;
             m_WorkerThreads.reset();
-            m_WorkerLocalQueues.Reset();
+            m_WorkerLocalQueues.reset();
+            m_MaxWorkers = 0;
             for (i32 i = 0; i < m_WorkerEvents.Num(); ++i)
             {
             }

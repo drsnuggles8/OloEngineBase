@@ -25,6 +25,8 @@
 // =============================================================================
 
 #include "OloEnginePCH.h"
+#include <span>
+#include "OloEngine/Containers/Array.h"
 
 #include <gtest/gtest.h>
 
@@ -85,7 +87,7 @@ namespace OloEngine::Tests
             std::vector<u8> SplitMap; // one entry per node, level-major
         };
 
-        DescentResult RunDescent_GLSLEquivalent(const std::vector<glm::vec2>& nodeMinMaxY,
+        DescentResult RunDescent_GLSLEquivalent(const TArray<glm::vec2>& nodeMinMaxY,
                                                 u32 maxDepth,
                                                 f32 worldSizeX, f32 worldSizeZ,
                                                 const std::array<glm::vec4, 6>& planes,
@@ -268,9 +270,9 @@ namespace OloEngine::Tests
         // one would fault on a null GL entry point whenever it happened to run
         // without a suite that brings a context up first. The crack, seam and
         // LOD-map proofs below are pure arithmetic and must not depend on that.
-        std::vector<f32> MakeHeightField(u32 resolution)
+        TArray<f32> MakeHeightField(u32 resolution)
         {
-            std::vector<f32> heights(static_cast<sizet>(resolution) * resolution);
+            TArray<f32> heights(static_cast<sizet>(resolution) * resolution);
             for (u32 z = 0; z < resolution; ++z)
             {
                 for (u32 x = 0; x < resolution; ++x)
@@ -296,10 +298,10 @@ namespace OloEngine::Tests
         constexpr u32 kTestDepth = 5;
         constexpr f32 kViewportHeight = 1080.0f;
 
-        std::vector<glm::vec2> MakeTestPyramid(u32 maxDepth = kTestDepth)
+        TArray<glm::vec2> MakeTestPyramid(u32 maxDepth = kTestDepth)
         {
-            const std::vector<f32> heights = MakeHeightField(kTestResolution);
-            return TerrainQuadtree::BuildHeightPyramid(heights, kTestResolution, kHeightScale, maxDepth);
+            const TArray<f32> heights = MakeHeightField(kTestResolution);
+            return TerrainQuadtree::BuildHeightPyramid(std::span(heights.GetData(), static_cast<sizet>(heights.Num())), kTestResolution, kHeightScale, maxDepth);
         }
 
         // Split thresholds swept alongside the camera poses. The shipped default
@@ -431,8 +433,8 @@ namespace OloEngine::Tests
 
     TEST(TerrainGPUQuadtree, HeightPyramidBoundsEveryChildsRange)
     {
-        const std::vector<glm::vec2> pyramid = MakeTestPyramid();
-        ASSERT_EQ(pyramid.size(), TerrainGPUQuadtree::TotalNodeCount(kTestDepth));
+        const TArray<glm::vec2> pyramid = MakeTestPyramid();
+        ASSERT_EQ(pyramid.Num(), TerrainGPUQuadtree::TotalNodeCount(kTestDepth));
 
         f32 widestRange = 0.0f;
         f32 narrowestRange = std::numeric_limits<f32>::max();
@@ -470,7 +472,7 @@ namespace OloEngine::Tests
 
     TEST(TerrainGPUQuadtree, GpuDescentSelectsTheSameNodesAsTheCpuQuadtree)
     {
-        const std::vector<glm::vec2> pyramid = MakeTestPyramid();
+        const TArray<glm::vec2> pyramid = MakeTestPyramid();
 
         u32 posesWithSplit = 0;
         u32 comparisons = 0;
@@ -524,7 +526,7 @@ namespace OloEngine::Tests
 
     TEST(TerrainGPUQuadtree, LodMapReportsTheLevelOfTheFirstUnsplitAncestor)
     {
-        const std::vector<glm::vec2> pyramid = MakeTestPyramid();
+        const TArray<glm::vec2> pyramid = MakeTestPyramid();
         const auto poses = MakeCameraPoses(kWorldSizeX, kWorldSizeZ);
         const auto& [eye, viewProjection] = poses.front();
         const Frustum frustum(viewProjection);
@@ -555,7 +557,7 @@ namespace OloEngine::Tests
 
     TEST(TerrainGPUQuadtree, SeamDeltasStayWithinWhatAPatchEdgeCanExpress)
     {
-        const std::vector<glm::vec2> pyramid = MakeTestPyramid();
+        const TArray<glm::vec2> pyramid = MakeTestPyramid();
 
         u32 nonZeroDeltas = 0;
         for (const auto& [eye, viewProjection] : MakeCameraPoses(kWorldSizeX, kWorldSizeZ))
@@ -589,7 +591,7 @@ namespace OloEngine::Tests
 
     TEST(TerrainGPUQuadtree, AdjacentPatchEdgesShareExactlyTheSameVertexPositions)
     {
-        const std::vector<glm::vec2> pyramid = MakeTestPyramid();
+        const TArray<glm::vec2> pyramid = MakeTestPyramid();
 
         // Both axes. The seam kernel packs +X/-X and +Z/-Z through separate
         // code paths, and the vertex stage snaps them in two separate branches,

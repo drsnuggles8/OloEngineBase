@@ -550,7 +550,7 @@ namespace OloEngine::Tests
             inputs.Skinning = skinning;
             inputs.HasHistory = true;
 
-            std::vector<GroomRootTransform> transforms;
+            TArray<GroomRootTransform> transforms;
             (void)EvaluateGroomRootTransforms(*m_Groom, *m_Binding, inputs, std::nullopt, transforms);
 
             const auto& authored = m_Groom->GetPoints();

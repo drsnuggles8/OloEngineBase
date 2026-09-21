@@ -530,10 +530,10 @@ TEST(MeshOptimization, GenerateMeshletsProducesOutput)
 
     auto meshlets = MeshOptimization::GenerateMeshlets(*mesh);
 
-    EXPECT_FALSE(meshlets.Meshlets.empty());
-    EXPECT_FALSE(meshlets.MeshletVertices.empty());
-    EXPECT_FALSE(meshlets.MeshletTriangles.empty());
-    EXPECT_EQ(meshlets.Bounds.size(), meshlets.Meshlets.size());
+    EXPECT_FALSE(meshlets.Meshlets.IsEmpty());
+    EXPECT_FALSE(meshlets.MeshletVertices.IsEmpty());
+    EXPECT_FALSE(meshlets.MeshletTriangles.IsEmpty());
+    EXPECT_EQ(static_cast<sizet>(meshlets.Bounds.Num()), static_cast<sizet>(meshlets.Meshlets.Num()));
 }
 
 TEST(MeshOptimization, GenerateMeshletsRespectsLimits)
@@ -557,7 +557,7 @@ TEST(MeshOptimization, GenerateMeshletsHandlesEmptyMesh)
     auto mesh = Ref<MeshSource>::Create();
     auto meshlets = MeshOptimization::GenerateMeshlets(*mesh);
 
-    EXPECT_TRUE(meshlets.Meshlets.empty());
+    EXPECT_TRUE(meshlets.Meshlets.IsEmpty());
 }
 
 TEST(MeshOptimization, MeshletBoundsHavePositiveRadius)
@@ -614,8 +614,8 @@ TEST(MeshOptimization, EncodeDecodeVertexBufferRoundTrip)
 
     auto encoded = MeshOptimization::EncodeVertexBuffer(verts.GetData(), vertCount, sizeof(Vertex));
 
-    EXPECT_FALSE(encoded.Data.empty());
-    EXPECT_LT(encoded.Data.size(), encoded.OriginalSize); // Should compress
+    EXPECT_FALSE(encoded.Data.IsEmpty());
+    EXPECT_LT(static_cast<sizet>(encoded.Data.Num()), encoded.OriginalSize); // Should compress
 
     std::vector<Vertex> decoded(vertCount);
     bool ok = MeshOptimization::DecodeVertexBuffer(decoded.data(), vertCount, sizeof(Vertex), encoded);
@@ -644,8 +644,8 @@ TEST(MeshOptimization, EncodeDecodeIndexBufferRoundTrip)
 
     auto encoded = MeshOptimization::EncodeIndexBuffer(indices.GetData(), indexCount, vertCount);
 
-    EXPECT_FALSE(encoded.Data.empty());
-    EXPECT_LT(encoded.Data.size(), encoded.OriginalSize); // Should compress
+    EXPECT_FALSE(encoded.Data.IsEmpty());
+    EXPECT_LT(static_cast<sizet>(encoded.Data.Num()), encoded.OriginalSize); // Should compress
 
     std::vector<u32> decoded(indexCount);
     bool ok = MeshOptimization::DecodeIndexBuffer(decoded.data(), indexCount, encoded);
@@ -673,7 +673,7 @@ TEST(MeshOptimization, EncodeVertexBufferCompresses)
     auto encoded = MeshOptimization::EncodeVertexBuffer(verts.GetData(), vertCount, sizeof(Vertex));
 
     // Encoded should be meaningfully smaller than raw data
-    f32 ratio = static_cast<f32>(encoded.Data.size()) / static_cast<f32>(encoded.OriginalSize);
+    f32 ratio = static_cast<f32>(static_cast<sizet>(encoded.Data.Num())) / static_cast<f32>(encoded.OriginalSize);
     EXPECT_LT(ratio, 0.95f); // At least 5% reduction
 }
 
@@ -962,12 +962,12 @@ TEST(MeshOptimization, AutoLODChainProducesMultipleLevels)
     auto mesh = MakeWavyGridMesh(64); // 8192 triangles
     const auto chain = MeshOptimization::BuildAutoLODChain(*mesh);
 
-    ASSERT_GE(chain.size(), 4u) << "a dense wavy grid must support several halvings";
+    ASSERT_GE(static_cast<sizet>(chain.Num()), 4u) << "a dense wavy grid must support several halvings";
     EXPECT_FALSE(chain[0].Source) << "entry 0 is the source mesh itself";
     EXPECT_EQ(chain[0].TriangleCount, static_cast<u32>(mesh->GetIndices().Num() / 3));
     EXPECT_FLOAT_EQ(chain[0].Error, 0.0f);
 
-    for (sizet i = 1; i < chain.size(); ++i)
+    for (sizet i = 1; i < static_cast<sizet>(chain.Num()); ++i)
     {
         ASSERT_TRUE(chain[i].Source) << "level " << i;
         EXPECT_GT(chain[i].TriangleCount, 0u) << "level " << i;
@@ -980,9 +980,9 @@ TEST(MeshOptimization, AutoLODChainRoughlyHalvesTrianglesPerLevel)
 {
     auto mesh = MakeWavyGridMesh(64);
     const auto chain = MeshOptimization::BuildAutoLODChain(*mesh);
-    ASSERT_GE(chain.size(), 3u);
+    ASSERT_GE(static_cast<sizet>(chain.Num()), 3u);
 
-    for (sizet i = 1; i < chain.size(); ++i)
+    for (sizet i = 1; i < static_cast<sizet>(chain.Num()); ++i)
     {
         const u32 previous = chain[i - 1].TriangleCount;
         const u32 current = chain[i].TriangleCount;
@@ -998,9 +998,9 @@ TEST(MeshOptimization, AutoLODChainErrorsStrictlyIncrease)
 {
     auto mesh = MakeWavyGridMesh(64);
     const auto chain = MeshOptimization::BuildAutoLODChain(*mesh);
-    ASSERT_GE(chain.size(), 3u);
+    ASSERT_GE(static_cast<sizet>(chain.Num()), 3u);
 
-    for (sizet i = 1; i < chain.size(); ++i)
+    for (sizet i = 1; i < static_cast<sizet>(chain.Num()); ++i)
     {
         EXPECT_GT(chain[i].Error, chain[i - 1].Error)
             << "level " << i << " error must exceed its parent, or the selector can never prefer the finer one";
@@ -1009,7 +1009,7 @@ TEST(MeshOptimization, AutoLODChainErrorsStrictlyIncrease)
 
     // Accumulated error is a fraction of the model extent; a chain that ends past
     // 1.0 has levels that no longer resemble the source at all.
-    EXPECT_LT(chain.back().Error, 1.0f);
+    EXPECT_LT(chain.Last().Error, 1.0f);
 }
 
 // The consistency property the design turns on. Error is relative to the model
@@ -1026,8 +1026,8 @@ TEST(MeshOptimization, AutoLODChainIsInvariantToModelScale)
     const auto smallChain = MeshOptimization::BuildAutoLODChain(*small);
     const auto largeChain = MeshOptimization::BuildAutoLODChain(*large);
 
-    ASSERT_GE(smallChain.size(), 3u);
-    ASSERT_EQ(smallChain.size(), largeChain.size()) << "a 100x scale change must not change the chain length";
+    ASSERT_GE(static_cast<sizet>(smallChain.Num()), 3u);
+    ASSERT_EQ(static_cast<sizet>(smallChain.Num()), static_cast<sizet>(largeChain.Num())) << "a 100x scale change must not change the chain length";
 
     // Tolerances, and which half of this test actually discriminates.
     //
@@ -1066,7 +1066,7 @@ TEST(MeshOptimization, AutoLODChainIsInvariantToModelScale)
     constexpr f32 kStalledErrorTolerance = 0.5f; // 50%, levels that did not (tie-break dominated)
 
     u32 halvedLevels = 0;
-    for (sizet i = 0; i < smallChain.size(); ++i)
+    for (sizet i = 0; i < static_cast<sizet>(smallChain.Num()); ++i)
     {
         const auto smallTris = static_cast<f32>(smallChain[i].TriangleCount);
         const auto largeTris = static_cast<f32>(largeChain[i].TriangleCount);
@@ -1107,14 +1107,14 @@ TEST(MeshOptimization, NormalWeightMustBeNormalizedByModelExtent)
     auto mesh = MakeScaledWavyGridMesh(48, 1.0f);
 
     const auto baseline = MeshOptimization::BuildAutoLODChain(*mesh);
-    ASSERT_GE(baseline.size(), 3u);
+    ASSERT_GE(static_cast<sizet>(baseline.Num()), 3u);
 
     MeshOptimization::AutoLODSettings unnormalized;
     unnormalized.NormalImportance *= 100.0f; // what the missing division would produce
     const auto skewed = MeshOptimization::BuildAutoLODChain(*mesh, unnormalized);
-    ASSERT_GE(skewed.size(), 3u);
+    ASSERT_GE(static_cast<sizet>(skewed.Num()), 3u);
 
-    const sizet common = std::min(baseline.size(), skewed.size());
+    const sizet common = std::min(static_cast<sizet>(baseline.Num()), static_cast<sizet>(skewed.Num()));
 
     bool geometryDiffers = false;
     for (sizet i = 1; i < common && !geometryDiffers; ++i)
@@ -1160,7 +1160,7 @@ TEST(MeshOptimization, AutoLODChainHonoursMaxLevels)
     // that this same mesh reaches four or more levels uncapped, so anything shorter
     // means generation stopped for an unrelated reason and the cap was never the
     // binding limit this test claims to exercise.
-    EXPECT_EQ(chain.size(), 3u);
+    EXPECT_EQ(static_cast<sizet>(chain.Num()), 3u);
 }
 
 TEST(MeshOptimization, AutoLODChainStopsAtTheTriangleFloor)
@@ -1173,11 +1173,11 @@ TEST(MeshOptimization, AutoLODChainStopsAtTheTriangleFloor)
     settings.MaxStepError = 1.0f; // take the floor out of the error condition's way
     const auto chain = MeshOptimization::BuildAutoLODChain(*mesh, settings);
 
-    ASSERT_GE(chain.size(), 2u);
+    ASSERT_GE(static_cast<sizet>(chain.Num()), 2u);
     // The floor bounds where the chain STOPS, not each level: the last level is
     // allowed to land below it, but no level may be generated from a parent that
     // was already at or under the floor.
-    EXPECT_GT(chain[chain.size() - 2].TriangleCount, settings.MinTriangleCount)
+    EXPECT_GT(chain[static_cast<sizet>(chain.Num()) - 2].TriangleCount, settings.MinTriangleCount)
         << "the chain kept simplifying a level that was already at the floor";
 }
 
@@ -1193,7 +1193,7 @@ TEST(MeshOptimization, AutoLODChainStopsWhenTheStepErrorGetsTooLarge)
     loose.MaxStepError = 0.5f;
     const auto looseChain = MeshOptimization::BuildAutoLODChain(*mesh, loose);
 
-    EXPECT_LT(tightChain.size(), looseChain.size())
+    EXPECT_LT(static_cast<sizet>(tightChain.Num()), static_cast<sizet>(looseChain.Num()))
         << "a near-zero error budget must cut the chain shorter than the default one";
 }
 
@@ -1202,14 +1202,14 @@ TEST(MeshOptimization, AutoLODChainRejectsUnsimplifiableInput)
     // A quad has 2 triangles — below any useful floor, so nothing is generated.
     auto quad = MakeQuadMesh();
     const auto quadChain = MeshOptimization::BuildAutoLODChain(*quad);
-    ASSERT_EQ(quadChain.size(), 1u);
+    ASSERT_EQ(static_cast<sizet>(quadChain.Num()), 1u);
     EXPECT_EQ(quadChain[0].TriangleCount, 2u);
 
     // An empty source yields no chain at all.
     TArray<Vertex> noVertices;
     TArray<u32> noIndices;
     auto empty = Ref<MeshSource>::Create(MoveTemp(noVertices), MoveTemp(noIndices));
-    EXPECT_TRUE(MeshOptimization::BuildAutoLODChain(*empty).empty());
+    EXPECT_TRUE(MeshOptimization::BuildAutoLODChain(*empty).IsEmpty());
 }
 
 TEST(MeshOptimization, AutoLODChainSanitizesNonFiniteSettings)
@@ -1222,7 +1222,7 @@ TEST(MeshOptimization, AutoLODChainSanitizesNonFiniteSettings)
     broken.TexCoordWeight = std::numeric_limits<f32>::infinity();
 
     const auto chain = MeshOptimization::BuildAutoLODChain(*mesh, broken);
-    ASSERT_GE(chain.size(), 2u) << "bad settings must fall back to the defaults, not disable generation";
+    ASSERT_GE(static_cast<sizet>(chain.Num()), 2u) << "bad settings must fall back to the defaults, not disable generation";
     for (const auto& entry : chain)
     {
         EXPECT_TRUE(std::isfinite(entry.Error));
@@ -1237,10 +1237,10 @@ TEST(MeshOptimization, AutoLODChainCompactsEachLevelsVertexBuffer)
 {
     auto mesh = MakeWavyGridMesh(64);
     const auto chain = MeshOptimization::BuildAutoLODChain(*mesh);
-    ASSERT_GE(chain.size(), 3u);
+    ASSERT_GE(static_cast<sizet>(chain.Num()), 3u);
 
     const i32 sourceVertexCount = mesh->GetVertices().Num();
-    for (sizet i = 1; i < chain.size(); ++i)
+    for (sizet i = 1; i < static_cast<sizet>(chain.Num()); ++i)
     {
         EXPECT_LT(chain[i].Source->GetVertices().Num(), sourceVertexCount)
             << "level " << i << " still carries the full source vertex buffer";
@@ -1489,11 +1489,11 @@ TEST(MeshOptimization, AutoLODChainRemapsBothStreamsTogether)
     MeshOptimization::AutoLODSettings settings;
     settings.MaxLevels = 4;
     const auto chain = MeshOptimization::BuildAutoLODChain(*mesh, settings);
-    ASSERT_GT(chain.size(), 1u)
+    ASSERT_GT(static_cast<sizet>(chain.Num()), 1u)
         << "the auto-LOD chain produced no simplified level for a skinned + morphing source";
 
     // From 1: entry 0 IS the source mesh and carries a null Source by contract.
-    for (sizet level = 1; level < chain.size(); ++level)
+    for (sizet level = 1; level < static_cast<sizet>(chain.Num()); ++level)
     {
         const auto& entry = chain[level];
         ASSERT_NE(entry.Source, nullptr);

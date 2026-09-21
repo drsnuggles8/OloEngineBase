@@ -1,11 +1,12 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Containers/Array.h"
 #include "CapturedFrameData.h"
 #include "OloEngine/Threading/Mutex.h"
 
 #include <atomic>
-#include <deque>
+#include "OloEngine/Containers/LinkedList.h"
 #include <optional>
 #include <string_view>
 
@@ -106,7 +107,7 @@ namespace OloEngine
         void OnFrameEnd(u32 frameNumber, f64 sortTimeMs, f64 batchTimeMs, f64 executeTimeMs);
 
         // Access captured data (thread-safe copies for UI consumption)
-        std::deque<CapturedFrameData> GetCapturedFramesCopy() const;
+        TArray<CapturedFrameData> GetCapturedFramesCopy() const;
         sizet GetCapturedFrameCount() const;
         u64 GetCaptureGeneration() const
         {
@@ -132,7 +133,7 @@ namespace OloEngine
         FrameCaptureManager& operator=(const FrameCaptureManager&) = delete;
 
         // Deep-copy all commands from a bucket into a vector
-        void DeepCopyCommands(const CommandBucket& bucket, std::vector<CapturedCommandData>& outCommands, bool useSortedOrder) const;
+        void DeepCopyCommands(const CommandBucket& bucket, TArray<CapturedCommandData>& outCommands, bool useSortedOrder) const;
 
         // Locate the pending frame's source pass (SourcePassName match, else the
         // first captured pass). Null when nothing was captured.
@@ -141,7 +142,7 @@ namespace OloEngine
         // Write per-command GPU times (execution order) onto the source pass's
         // final command list. Must run BEFORE CommitPendingFrame copies the
         // source lists into the top-level view.
-        void ApplyGpuTimingsToSource(const std::vector<f64>& resultsMs);
+        void ApplyGpuTimingsToSource(const TArray<f64>& resultsMs);
 
         // Return the current per-pass entry being built, creating an implicit one
         // when no BeginPass() has run yet (the legacy single-pass direct-API path).
@@ -171,7 +172,8 @@ namespace OloEngine
         static constexpr u32 kMaxGpuResolveWaitFrames = 8;
         u32 m_GpuResolveWaitFrames = 0;
 
-        std::deque<CapturedFrameData> m_CapturedFrames;
+        // Stable nodes retain frame addresses while the ring grows and evicts its oldest entry.
+        TDoubleLinkedList<CapturedFrameData> m_CapturedFrames;
 
         mutable FMutex m_Mutex;
     };

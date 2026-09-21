@@ -311,7 +311,7 @@ namespace OloEngine
 
         // Hierarchy snapshot — restored via SetParent() to maintain invariants
         UUID m_ParentUUID{};
-        std::vector<UUID> m_ChildrenUUIDs;
+        TArray<UUID> m_ChildrenUUIDs;
     };
 
     // Undo/Redo for entity renaming

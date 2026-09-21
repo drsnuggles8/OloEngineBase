@@ -96,6 +96,39 @@ namespace OloEngine
         class AudioCommandRegistry;
     } // namespace Audio
 
+    struct ScenePendingEntityCommand
+    {
+        enum class Kind : u8
+        {
+            CreateEntity,
+            InstantiatePrefab,
+            DestroyEntity
+        };
+
+        Kind m_Kind = Kind::CreateEntity;
+        // Spawns: the UUID handed back to the script at request time.
+        // Destroys: the target.
+        UUID m_EntityID{ 0 };
+        AssetHandle m_PrefabHandle{ 0 };
+        FString m_Name;
+        glm::vec3 m_Translation{ 0.0f };
+        glm::vec3 m_RotationEuler{ 0.0f };
+        glm::vec3 m_Scale{ 1.0f };
+    };
+
+    // Commands own only independent string storage and scalar transform/ID fields.
+    template<>
+    struct TIsTriviallyRelocatable<ScenePendingEntityCommand>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(ScenePendingEntityCommand::m_Kind)> &&
+                                      TIsTriviallyRelocatable_V<decltype(ScenePendingEntityCommand::m_EntityID)> &&
+                                      TIsTriviallyRelocatable_V<decltype(ScenePendingEntityCommand::m_PrefabHandle)> &&
+                                      TIsTriviallyRelocatable_V<decltype(ScenePendingEntityCommand::m_Name)> &&
+                                      TIsTriviallyRelocatable_V<decltype(ScenePendingEntityCommand::m_Translation)> &&
+                                      TIsTriviallyRelocatable_V<decltype(ScenePendingEntityCommand::m_RotationEuler)> &&
+                                      TIsTriviallyRelocatable_V<decltype(ScenePendingEntityCommand::m_Scale)>;
+    };
+
     class Scene : public Asset
     {
       public:
@@ -422,8 +455,8 @@ namespace OloEngine
             // SetPendingSceneLoad).
             if (pending)
             {
-                m_PendingSceneLoad.clear();
-                m_PendingSceneLoadSaveSlot.clear();
+                m_PendingSceneLoad.Reset();
+                m_PendingSceneLoadSaveSlot.Reset();
             }
         }
 
@@ -445,21 +478,21 @@ namespace OloEngine
         // during a tick is the one that happens.
         [[nodiscard("Store this!")]] bool HasPendingSceneLoad() const
         {
-            return !m_PendingSceneLoad.empty();
+            return !m_PendingSceneLoad.IsEmpty();
         }
-        [[nodiscard("Store this!")]] const std::string& GetPendingSceneLoad() const
+        [[nodiscard("Store this!")]] std::string GetPendingSceneLoad() const
         {
-            return m_PendingSceneLoad;
+            return m_PendingSceneLoad.ToStdString();
         }
-        [[nodiscard("Store this!")]] const std::string& GetPendingSceneLoadSaveSlot() const
+        [[nodiscard("Store this!")]] std::string GetPendingSceneLoadSaveSlot() const
         {
-            return m_PendingSceneLoadSaveSlot;
+            return m_PendingSceneLoadSaveSlot.ToStdString();
         }
         void SetPendingSceneLoad(std::string_view path)
         {
-            m_PendingSceneLoad.assign(path);
-            m_PendingSceneLoadSaveSlot.clear();
-            if (!m_PendingSceneLoad.empty())
+            m_PendingSceneLoad = path;
+            m_PendingSceneLoadSaveSlot.Reset();
+            if (!m_PendingSceneLoad.IsEmpty())
             {
                 m_PendingReload = false;
             }
@@ -475,22 +508,22 @@ namespace OloEngine
             {
                 return;
             }
-            m_PendingSceneLoad.assign(path);
-            m_PendingSceneLoadSaveSlot.assign(saveSlot);
+            m_PendingSceneLoad = path;
+            m_PendingSceneLoadSaveSlot = saveSlot;
             m_PendingReload = false;
         }
         void ClearPendingSceneLoad()
         {
-            m_PendingSceneLoad.clear();
-            m_PendingSceneLoadSaveSlot.clear();
+            m_PendingSceneLoad.Reset();
+            m_PendingSceneLoadSaveSlot.Reset();
         }
 
         void Step(int frames = 1);
 
         void SetName(std::string_view name);
-        [[nodiscard("Store this!")]] const std::string& GetName() const
+        [[nodiscard("Store this!")]] std::string GetName() const
         {
-            return m_Name;
+            return m_Name.ToStdString();
         }
 
         template<typename... Components>
@@ -536,7 +569,7 @@ namespace OloEngine
         // Jolt soft body (GPU-free), so it is readable headless. Returns nullptr when the
         // entity has no live cloth body (edit mode, no ClothComponent, or cloth disabled).
         // Backs the cloth functional tests and any gameplay query of the draped shape.
-        const std::vector<glm::vec3>* GetClothVertexPositions(UUID entityID) const;
+        const TArray<glm::vec3>* GetClothVertexPositions(UUID entityID) const;
 
         // Physics lifecycle (public for external scene setup)
         void OnPhysics3DStart();
@@ -940,16 +973,16 @@ namespace OloEngine
         // the registry, so a query reflects positions as of the previous
         // UpdateSpatialIndex (i.e. this tick's, when called from a system that
         // runs after it).
-        [[nodiscard]] std::vector<UUID> QueryEntitiesInRadius(const glm::vec3& center, f32 radius) const
+        [[nodiscard]] TArray<UUID> QueryEntitiesInRadius(const glm::vec3& center, f32 radius) const
         {
             return m_SpatialIndex.QueryRadius(center, radius);
         }
-        [[nodiscard]] std::vector<UUID> QueryEntitiesInAABB(const glm::vec3& min, const glm::vec3& max) const
+        [[nodiscard]] TArray<UUID> QueryEntitiesInAABB(const glm::vec3& min, const glm::vec3& max) const
         {
             return m_SpatialIndex.QueryAABB(min, max);
         }
-        [[nodiscard]] std::vector<UUID> QueryNearestEntities(const glm::vec3& center, u32 count,
-                                                             f32 maxRadius = std::numeric_limits<f32>::max()) const
+        [[nodiscard]] TArray<UUID> QueryNearestEntities(const glm::vec3& center, u32 count,
+                                                        f32 maxRadius = std::numeric_limits<f32>::max()) const
         {
             return m_SpatialIndex.NearestN(center, count, maxRadius);
         }
@@ -1236,7 +1269,7 @@ namespace OloEngine
 
         // The derived gameplay-system execution order, for tests / diagnostics.
         // Proves the scheduler reproduces the historical hard-coded sequence.
-        static const std::vector<std::string>& GetGameplaySystemOrderForTesting();
+        static const TArray<FString>& GetGameplaySystemOrderForTesting();
 
       private:
       private:
@@ -1249,10 +1282,10 @@ namespace OloEngine
         bool m_IsPaused = false;
         bool m_PendingReload = false;
         // Script-requested scene to switch to, unresolved. Empty = no request.
-        std::string m_PendingSceneLoad;
+        FString m_PendingSceneLoad;
         // Optional save slot restored into the loaded scene before runtime
         // startup. Empty means an ordinary authored-scene transition.
-        std::string m_PendingSceneLoadSaveSlot;
+        FString m_PendingSceneLoadSaveSlot;
         int m_StepFrames = 0;
         u64 m_TerrainFrameCounter = 0;
         u64 m_StreamingFrameCounter = 0;
@@ -1371,8 +1404,8 @@ namespace OloEngine
         struct ClothRuntimeState
         {
             Ref<MeshSource> m_RenderMesh;
-            std::vector<glm::vec3> m_Positions;
-            std::vector<glm::vec3> m_Normals;
+            TArray<glm::vec3> m_Positions;
+            TArray<glm::vec3> m_Normals;
             u32 m_Columns = 0;
             u32 m_Rows = 0;
 
@@ -1380,12 +1413,12 @@ namespace OloEngine
             // from ClothComponent::m_AttachmentEntity / m_AttachmentBone. When inactive the
             // cloth's pinned vertices stay welded to the world (pre-cape behaviour).
             bool m_AttachmentActive = false;
-            UUID m_AttachEntity = 0;             // entity carrying the SkeletonComponent to follow
-            i32 m_AttachBoneIndex = -1;          // -1 = use m_AttachEntity's own world transform
-            std::vector<u32> m_AttachedVertices; // pinned particle indices, into m_Positions order
+            UUID m_AttachEntity = 0;        // entity carrying the SkeletonComponent to follow
+            i32 m_AttachBoneIndex = -1;     // -1 = use m_AttachEntity's own world transform
+            TArray<u32> m_AttachedVertices; // pinned particle indices, into m_Positions order
             // Each pinned vertex's rest position expressed in the resolved bone's local
             // frame at bind time. target_world = boneWorld_now * m_AttachedLocalOffsets[i].
-            std::vector<glm::vec3> m_AttachedLocalOffsets;
+            TArray<glm::vec3> m_AttachedLocalOffsets;
         };
         std::unordered_map<UUID, ClothRuntimeState> m_ClothRuntime;
 
@@ -1413,8 +1446,8 @@ namespace OloEngine
             // Scratch, reused across frames so a bound groom does not allocate
             // per frame. SelectedCurves is the strand budget's selection;
             // Transforms is one entry per curve of the groom.
-            std::vector<u32> m_SelectedCurves;
-            std::vector<GroomRootTransform> m_Transforms;
+            TArray<u32> m_SelectedCurves;
+            TArray<GroomRootTransform> m_Transforms;
 
             // ── History identity ───────────────────────────────
 
@@ -1525,25 +1558,25 @@ namespace OloEngine
             /// in ascending slot order, and the inverse map the strand build
             /// reads. Kept as a pair rather than re-derived per frame because
             /// the strand build indexes the inverse one per strand per point.
-            std::vector<u32> m_SlotOfGuide; ///< guide index -> table slot
-            std::vector<u32> m_GuideOfSlot; ///< table slot -> guide index, or GroomNoGuide
+            TArray<u32> m_SlotOfGuide; ///< guide index -> table slot
+            TArray<u32> m_GuideOfSlot; ///< table slot -> guide index, or GroomNoGuide
 
             /// The groomed rest shape of every simulated guide point, WORLD
             /// space. Scratch, refilled every frame; held so a bound groom does
             /// not allocate per frame.
-            std::vector<glm::vec3> m_Targets;
+            TArray<glm::vec3> m_Targets;
 
             /// This frame's and last frame's OBJECT-space offset from that rest
             /// shape. The pair is what makes a simulated coat's motion vectors
             /// real: the previous position of a moving strand is not recoverable
             /// from any matrix, exactly as #1249 found for the binding.
-            std::vector<glm::vec3> m_Displacements;
-            std::vector<glm::vec3> m_PrevDisplacements;
+            TArray<glm::vec3> m_Displacements;
+            TArray<glm::vec3> m_PrevDisplacements;
 
             /// The fitted body proxy, in the body's REST object space, and this
             /// frame's resolution of it into world space.
-            std::vector<GroomColliderBinding> m_ColliderBindings;
-            std::vector<GroomCollider> m_Colliders;
+            TArray<GroomColliderBinding> m_ColliderBindings;
+            TArray<GroomCollider> m_Colliders;
             GroomColliderBuildStats m_ColliderStats;
 
             /// The identity the fitted proxy was built against. The proxy is a
@@ -1724,7 +1757,7 @@ namespace OloEngine
         [[nodiscard]] bool SelectGroomSimulationGuides(Entity groomEntity, const GroomAsset& groom,
                                                        const GroomCoatContext& coat,
                                                        const GroomStrandRequest& request,
-                                                       std::vector<u32>& selectedCurves);
+                                                       TArray<u32>& selectedCurves);
 
         /// Step this entity's guide simulation and fill in `request`'s
         /// simulation half. Called from DeformGroomAgainstSurface, AFTER the
@@ -1859,9 +1892,9 @@ namespace OloEngine
         // across ticks and .clear()ed at the top of each call instead of being
         // reconstructed/reserved from scratch, so the flat BFS sweep doesn't
         // pay a fresh heap allocation for every tick.
-        std::vector<entt::entity> m_TransformOrder;
+        TArray<entt::entity> m_TransformOrder;
         std::unordered_set<entt::entity> m_TransformVisited;
-        std::vector<entt::entity> m_TransformQueue;
+        TArray<entt::entity> m_TransformQueue;
 
         // Audio Events
         std::unique_ptr<Audio::AudioCommandRegistry> m_AudioCommandRegistry;
@@ -1885,25 +1918,7 @@ namespace OloEngine
         // ── Deferred script spawn/destroy queue (issue #643) ─────────────────
         // See the ScriptCreateEntity / FlushPendingEntityCommands block in the
         // public section for the contract.
-        struct PendingEntityCommand
-        {
-            enum class Kind : u8
-            {
-                CreateEntity,
-                InstantiatePrefab,
-                DestroyEntity
-            };
-
-            Kind m_Kind = Kind::CreateEntity;
-            // Spawns: the UUID handed back to the script at request time.
-            // Destroys: the target.
-            UUID m_EntityID{ 0 };
-            AssetHandle m_PrefabHandle{ 0 };
-            std::string m_Name;
-            glm::vec3 m_Translation{ 0.0f };
-            glm::vec3 m_RotationEuler{ 0.0f };
-            glm::vec3 m_Scale{ 1.0f };
-        };
+        using PendingEntityCommand = ScenePendingEntityCommand;
 
         // Screen a caller-supplied entity UUID against the live entity map,
         // returning either it or a freshly generated replacement. Mandatory
@@ -1932,7 +1947,7 @@ namespace OloEngine
         // marking the Scripts node Parallelizable can never silently corrupt
         // the queue.
         mutable std::mutex m_EntityCommandMutex;
-        std::vector<PendingEntityCommand> m_PendingEntityCommands;
+        TArray<PendingEntityCommand> m_PendingEntityCommands;
         std::unordered_set<UUID> m_PendingSpawnIDs;
         std::unordered_set<UUID> m_PendingDestroyIDs;
         // Re-entrancy guard for FlushPendingEntityCommands: a spawned entity's
@@ -1949,7 +1964,7 @@ namespace OloEngine
         // never blocking the frame.
         static constexpr u32 kMaxEntityCommandDrainRounds = 8;
 
-        std::string m_Name = "Untitled";
+        FString m_Name = "Untitled";
 
         friend class Entity;
         friend class SceneSerializer;

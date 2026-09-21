@@ -68,8 +68,8 @@ namespace OloEngine::MCP
                 {
                     if (!info.m_HasErrors && info.m_LastCompilation.m_Success)
                         continue;
-                    arr.push_back(Json{ { "name", info.m_Name },
-                                        { "errorMessage", info.m_LastCompilation.m_ErrorMessage } });
+                    arr.push_back(Json{ { "name", info.m_Name.ToStdString() },
+                                        { "errorMessage", info.m_LastCompilation.m_ErrorMessage.ToStdString() } });
                 }
                 return Json{ { "available", true },
                              { "status", "ready" },
@@ -117,26 +117,31 @@ namespace OloEngine::MCP
                     return Json{ { "__error", "Shader not found." } };
 
                 Json o;
-                o["name"] = found->m_Name;
-                o["filePath"] = found->m_FilePath;
+                o["name"] = found->m_Name.ToStdString();
+                o["filePath"] = found->m_FilePath.ToStdString();
                 o["hasErrors"] = found->m_HasErrors;
                 o["instructionCount"] = found->m_LastCompilation.m_InstructionCount;
                 o["compileTimeMs"] = Round2(found->m_LastCompilation.m_CompileTimeMs);
-                o["reloadCount"] = static_cast<int>(found->m_ReloadHistory.size());
+                o["reloadCount"] = static_cast<int>(found->m_ReloadHistory.Num());
 
                 Json ubos = Json::array();
                 for (const auto& b : found->m_UniformBuffers)
-                    ubos.push_back(Json{ { "name", b.m_Name }, { "binding", b.m_Binding }, { "size", b.m_Size }, { "members", b.m_Members } });
+                {
+                    Json members = Json::array();
+                    for (const auto& member : b.m_Members)
+                        members.push_back(member.ToStdString());
+                    ubos.push_back(Json{ { "name", b.m_Name.ToStdString() }, { "binding", b.m_Binding }, { "size", b.m_Size }, { "members", std::move(members) } });
+                }
                 o["uniformBuffers"] = std::move(ubos);
 
                 Json samplers = Json::array();
                 for (const auto& s : found->m_Samplers)
-                    samplers.push_back(Json{ { "name", s.m_Name }, { "binding", s.m_Binding }, { "type", s.m_Type } });
+                    samplers.push_back(Json{ { "name", s.m_Name.ToStdString() }, { "binding", s.m_Binding }, { "type", s.m_Type.ToStdString() } });
                 o["samplers"] = std::move(samplers);
 
                 Json uniforms = Json::array();
                 for (const auto& u : found->m_Uniforms)
-                    uniforms.push_back(Json{ { "name", u.m_Name }, { "location", u.m_Location }, { "size", u.m_Size } });
+                    uniforms.push_back(Json{ { "name", u.m_Name.ToStdString() }, { "location", u.m_Location }, { "size", u.m_Size } });
                 o["uniforms"] = std::move(uniforms);
 
                 if (includeGlsl)
@@ -190,9 +195,9 @@ namespace OloEngine::MCP
                 for (const auto& [id, info] : shaders)
                 {
                     arr.push_back(Json{ { "id", id },
-                                        { "name", info.m_Name },
+                                        { "name", info.m_Name.ToStdString() },
                                         { "hasErrors", info.m_HasErrors },
-                                        { "reloadable", registry.Contains(info.m_Name) },
+                                        { "reloadable", registry.Contains(info.m_Name.ToStdString()) },
                                         { "instructionCount", info.m_LastCompilation.m_InstructionCount } });
                 }
                 return Json{ { "available", true },
@@ -222,7 +227,7 @@ namespace OloEngine::MCP
                 if (best == nullptr || info.m_HasErrors)
                     best = &info;
             }
-            return best != nullptr ? best->m_LastCompilation.m_ErrorMessage : std::string{};
+            return best != nullptr ? best->m_LastCompilation.m_ErrorMessage.ToStdString() : std::string{};
         }
 
         // ---- olo_shader_reload (main-marshaled; recompiles a shader from disk) --

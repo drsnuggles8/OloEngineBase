@@ -86,7 +86,7 @@ namespace OloEngine
 
         // Declares NOTHING when disabled or no fluid was submitted — the
         // pipeline fingerprint must hash this gate (issue #530 class).
-        if (!m_Enabled || m_FrameDraws.empty())
+        if (!m_Enabled || m_FrameDraws.IsEmpty())
             return;
 
         if (blackboard.Scene.SceneDepthAttachment.IsValid())
@@ -133,20 +133,20 @@ namespace OloEngine
 
         m_RanThisFrame = false;
 
-        if (m_FrameDraws.empty())
+        if (m_FrameDraws.IsEmpty())
             return;
 
         // One-shot: consume the draw list regardless of the guards below so a
         // skipped frame can never replay stale draws.
-        std::vector<FluidRenderData> draws = std::move(m_FrameDraws);
-        m_FrameDraws.clear();
+        TArray64<FluidRenderData> draws = std::move(m_FrameDraws);
+        m_FrameDraws.Reset();
 
         // Drop invalid submissions (missing buffers, zero instances, broken radius).
-        std::erase_if(draws, [](const FluidRenderData& draw)
-                      { return !draw.PositionsSSBOId.IsValid() || !draw.VelocitiesSSBOId.IsValid() ||
-                               !draw.CountersSSBOId.IsValid() || draw.ParticleUpperBound == 0 ||
-                               !std::isfinite(draw.ParticleRadius) || draw.ParticleRadius <= 0.0f; });
-        if (draws.empty())
+        draws.RemoveAll([](const FluidRenderData& draw)
+                        { return !draw.PositionsSSBOId.IsValid() || !draw.VelocitiesSSBOId.IsValid() ||
+                                 !draw.CountersSSBOId.IsValid() || draw.ParticleUpperBound == 0 ||
+                                 !std::isfinite(draw.ParticleRadius) || draw.ParticleRadius <= 0.0f; });
+        if (draws.IsEmpty())
             return;
 
         if (!m_Enabled || !IsReadyForExecution() ||
@@ -166,9 +166,9 @@ namespace OloEngine
         f32 cameraNear = 0.1f;
         f32 cameraFar = 1000.0f;
         ClusteredLighting::ExtractClipPlanes(Renderer3D::GetProjectionMatrix(), cameraNear, cameraFar);
-        const u32 itemCount = std::clamp(static_cast<u32>(draws.size() / 32), 1u, MAX_RENDER_WORKERS);
-        while (m_RecordingUploads.size() < itemCount)
-            m_RecordingUploads.push_back(UniformBuffer::Create(UBOStructures::FluidRenderUBO::GetSize(), ShaderBindingLayout::UBO_FLUID_RENDER));
+        const u32 itemCount = std::clamp(static_cast<u32>(static_cast<sizet>(draws.Num()) / 32), 1u, MAX_RENDER_WORKERS);
+        while (static_cast<sizet>(m_RecordingUploads.Num()) < itemCount)
+            m_RecordingUploads.Add(UniformBuffer::Create(UBOStructures::FluidRenderUBO::GetSize(), ShaderBindingLayout::UBO_FLUID_RENDER));
 
         // The pass renders into raw pass-owned FBOs, so the viewport must be
         // set (and restored) by hand — engine Framebuffer::Bind() would
@@ -189,8 +189,8 @@ namespace OloEngine
         {
             RenderCommand::RecordParallel(itemCount, [&](u32 itemIndex)
                                           {
-                const sizet end = draws.size() * (itemIndex + 1) / itemCount;
-                for (sizet i = draws.size() * itemIndex / itemCount; i < end; ++i)
+                const sizet end = static_cast<sizet>(draws.Num()) * (itemIndex + 1) / itemCount;
+                for (sizet i = static_cast<sizet>(draws.Num()) * itemIndex / itemCount; i < end; ++i)
                 {
                     const auto& draw = draws[i];
                     UploadDrawUBO(draw, cameraNear, cameraFar, *m_RecordingUploads[itemIndex]);
@@ -245,7 +245,7 @@ namespace OloEngine
         // --- 3. Bilateral smooth: A -> B -> A ------------------------------
         // Publish the final draw's SmoothParams on the caller after joining;
         // this preserves the existing multi-fluid appearance policy.
-        UploadDrawUBO(draws.back(), cameraNear, cameraFar, *m_FluidRenderUBO);
+        UploadDrawUBO(draws.Last(), cameraNear, cameraFar, *m_FluidRenderUBO);
         m_SmoothShader->Bind();
         const u32 groupsX = (m_Width + kSmoothLocalSize - 1) / kSmoothLocalSize;
         const u32 groupsY = (m_Height + kSmoothLocalSize - 1) / kSmoothLocalSize;
@@ -292,7 +292,7 @@ namespace OloEngine
         RenderCommand::SetViewport(previousViewport.x, previousViewport.y,
                                    previousViewport.width, previousViewport.height);
 
-        m_LastAppearance = draws.front();
+        m_LastAppearance = draws[0];
         m_RanThisFrame = true;
     }
 

@@ -12,7 +12,7 @@
 #include <glm/glm.hpp>
 
 #include <array>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine::Ocean
 {
@@ -206,8 +206,8 @@ namespace OloEngine::Ocean
             /// into H0 rather than a regeneration, and so repeated changes
             /// rescale from the original each time instead of accumulating
             /// float error through an in-place ratio.
-            std::vector<Complex> H0Unit;
-            std::vector<Complex> H0; ///< H0Unit * the current amplitude scale
+            TArray<Complex> H0Unit;
+            TArray<Complex> H0;      ///< H0Unit * the current amplitude scale
             DisplacementField Field; ///< retained CPU copy (the physics proxy)
             Ref<OceanFFTGpu> Gpu;    ///< GPU producer for this band
             bool GpuH0Dirty = false;
@@ -219,11 +219,11 @@ namespace OloEngine::Ocean
             /// Independent of wind / amplitude / spectrum type — only the
             /// per-bin sqrt(Phi(k)) factor depends on those — so an easing sea
             /// state reuses these instead of re-running mt19937 every frame.
-            std::vector<glm::vec2> Noise;
+            TArray<glm::vec2> Noise;
             u32 NoiseSeed = 0u;
             u32 NoiseResolution = 0u;
-            std::vector<Complex> PhysicsH0Unit; ///< the proxy band of H0Unit
-            std::vector<Complex> PhysicsH0;     ///< PhysicsH0Unit * the amplitude scale
+            TArray<Complex> PhysicsH0Unit; ///< the proxy band of H0Unit
+            TArray<Complex> PhysicsH0;     ///< PhysicsH0Unit * the amplitude scale
             u32 PhysicsResolution = 0u;
             f32 CosRotation = 1.0f; ///< cos/sin of the band's sampling-domain rotation
             f32 SinRotation = 0.0f;
@@ -257,7 +257,7 @@ namespace OloEngine::Ocean
 
         Ref<Texture2DArray> m_DisplacementTex; // per layer: rgb = (dx, h, dz), a = foam
         Ref<Texture2DArray> m_DerivativesTex;  // per layer: rgb = normal,      a = jacobian
-        std::vector<glm::vec4> m_DisplacementScratch;
-        std::vector<glm::vec4> m_DerivativesScratch;
+        TArray<glm::vec4> m_DisplacementScratch;
+        TArray<glm::vec4> m_DerivativesScratch;
     };
 } // namespace OloEngine::Ocean

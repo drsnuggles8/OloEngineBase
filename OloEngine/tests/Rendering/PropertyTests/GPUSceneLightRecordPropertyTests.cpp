@@ -76,7 +76,7 @@ namespace OloEngine::Tests
         ASSERT_NE(record, nullptr);
         EXPECT_EQ(record->Generation, 1u) << "no light edit is incompatible in place";
         EXPECT_NE(record->Flags & GPUSceneLightFlagCastShadows, 0u);
-        EXPECT_TRUE(extract().m_LightDirtyRanges.empty());
+        EXPECT_TRUE(extract().m_LightDirtyRanges.IsEmpty());
     }
 
     TEST(GPUScene, LightTypeChangeRetiresTheOldSlotAndReuseAdvancesTheGeneration)
@@ -168,7 +168,7 @@ namespace OloEngine::Tests
         {
             EXPECT_EQ(scene.FindLight(keyOrder[i]), handles[i]);
         }
-        EXPECT_TRUE(scene.GetLastFrameUpdate().m_LightDirtyRanges.empty());
+        EXPECT_TRUE(scene.GetLastFrameUpdate().m_LightDirtyRanges.IsEmpty());
     }
 
     TEST(GPUScene, LightRecordsAreRenderRelativeAndFollowTheOrigin)
@@ -220,7 +220,7 @@ namespace OloEngine::Tests
         record = scene.GetLightRecord(spotHandle);
         ASSERT_NE(record, nullptr);
         EXPECT_FLOAT_EQ(record->PositionAndRange.x, 5.0f);
-        EXPECT_TRUE(extract(1005.0f).m_LightDirtyRanges.empty());
+        EXPECT_TRUE(extract(1005.0f).m_LightDirtyRanges.IsEmpty());
     }
 
     TEST(GPUScene, LightRecordCarriesEveryAuthoredFieldOfEachType)

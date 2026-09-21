@@ -201,13 +201,13 @@ TEST(GroomBindingRoundTrip, ACookedBindingDeformsIdenticallyToTheOneItWasCookedF
     inputs.Skinning = grid.Skinning(palette, palette, true);
     inputs.HasHistory = true;
 
-    std::vector<GroomRootTransform> fromMemory;
-    std::vector<GroomRootTransform> fromDisk;
+    TArray<GroomRootTransform> fromMemory;
+    TArray<GroomRootTransform> fromDisk;
     (void)EvaluateGroomRootTransforms(*cooked.Groom, *cooked.Binding, inputs, std::nullopt, fromMemory);
     (void)EvaluateGroomRootTransforms(*cooked.Groom, *decoded, inputs, std::nullopt, fromDisk);
 
-    ASSERT_EQ(fromMemory.size(), fromDisk.size());
-    for (sizet i = 0; i < fromMemory.size(); ++i)
+    ASSERT_EQ(fromMemory.Num(), fromDisk.Num());
+    for (sizet i = 0; i < fromMemory.Num(); ++i)
     {
         EXPECT_EQ(fromMemory[i], fromDisk[i]) << "curve " << i;
     }

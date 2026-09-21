@@ -1,5 +1,8 @@
 #pragma once
 
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/String.h"
+
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
@@ -117,7 +120,7 @@ namespace OloEngine
         // decisions actually live. `olo_render_transient_plan` reports both.
         struct BucketInfo
         {
-            std::string Kind;    ///< "texture" | "framebuffer" | "buffer"
+            FString Kind;        ///< "texture" | "framebuffer" | "buffer"
             u64 Key = 0;         ///< the bucket's descriptor hash (fb / buffer) or texture-key hash
             u32 Width = 0;       ///< texture buckets only (0 elsewhere)
             u32 Height = 0;      ///< texture buckets only
@@ -133,7 +136,7 @@ namespace OloEngine
         // physical id appears here; two entries sharing an id shared an object.
         struct AcquiredInfo
         {
-            std::string Kind; ///< "texture" | "framebuffer" | "buffer"
+            FString Kind; ///< "texture" | "framebuffer" | "buffer"
             u32 RendererID = 0;
             /// The IDENTITY of the same object (issue #691).
             ///
@@ -151,7 +154,7 @@ namespace OloEngine
             u32 SizeBytes = 0; ///< buffer only
         };
 
-        [[nodiscard]] std::vector<BucketInfo> GetBucketReport() const;
+        [[nodiscard]] TArray64<BucketInfo> GetBucketReport() const;
 
         // The acquisition order. ReleaseAll() empties the live acquired lists at
         // end of frame, so ANY caller that runs between frames — every MCP read,
@@ -161,7 +164,7 @@ namespace OloEngine
         // returns the live list mid-frame or the last COMPLETED frame's snapshot
         // between frames. `IsLiveFrame` says which, so a reader never mistakes
         // last frame's layout for this one's.
-        [[nodiscard]] std::vector<AcquiredInfo> GetAcquireOrder(bool* isLiveFrame = nullptr) const;
+        [[nodiscard]] TArray64<AcquiredInfo> GetAcquireOrder(bool* isLiveFrame = nullptr) const;
 
       private:
         // Descriptor key for texture/framebuffer pooling (format + dimensions + flags)
@@ -207,21 +210,21 @@ namespace OloEngine
         [[nodiscard]] static u64 EstimateTextureBytes(const TextureSpecification& spec);
 
         // Pool entries for each resource type
-        std::unordered_map<TextureDescriptorKey, std::vector<Ref<Texture>>, TextureDescriptorKeyHash>
+        std::unordered_map<TextureDescriptorKey, TArray64<Ref<Texture>>, TextureDescriptorKeyHash>
             m_TexturePool;
-        std::unordered_map<u64, std::vector<Ref<Framebuffer>>> m_FramebufferPool;
-        std::unordered_map<u32, std::vector<Ref<StorageBuffer>>> m_BufferPool;
+        std::unordered_map<u64, TArray64<Ref<Framebuffer>>> m_FramebufferPool;
+        std::unordered_map<u32, TArray64<Ref<StorageBuffer>>> m_BufferPool;
 
-        [[nodiscard]] std::vector<AcquiredInfo> BuildAcquireOrder() const;
+        [[nodiscard]] TArray64<AcquiredInfo> BuildAcquireOrder() const;
 
         // Track which objects are currently acquired (for debugging/validation)
-        std::vector<Ref<Texture>> m_AcquiredTextures;
-        std::vector<Ref<Framebuffer>> m_AcquiredFramebuffers;
-        std::vector<Ref<StorageBuffer>> m_AcquiredBuffers;
+        TArray64<Ref<Texture>> m_AcquiredTextures;
+        TArray64<Ref<Framebuffer>> m_AcquiredFramebuffers;
+        TArray64<Ref<StorageBuffer>> m_AcquiredBuffers;
 
         // Last COMPLETED frame's acquisition order, snapshotted by ReleaseAll()
         // just before it empties the lists above — see GetAcquireOrder().
-        std::vector<AcquiredInfo> m_LastFrameAcquireOrder;
+        TArray64<AcquiredInfo> m_LastFrameAcquireOrder;
 
         // How many objects each bucket handed out in the last frame ReleaseAll()
         // closed that acquired anything at all. Trim() keeps at least that many
@@ -232,4 +235,32 @@ namespace OloEngine
         std::unordered_map<u32, u32> m_LastFrameBufferDemand;
     };
 
+    // Owned heap string plus scalar/resource identity fields; no self-relative state.
+    template<>
+    struct TIsTriviallyRelocatable<TransientPool::BucketInfo>
+    {
+        using Record = TransientPool::BucketInfo;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::Kind)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Key)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Width)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Height)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Format)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::MipLevels)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Samples)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::SizeBytes)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::PooledCount)>;
+    };
+
+    // Owned heap string plus scalar/resource identity fields; no self-relative state.
+    template<>
+    struct TIsTriviallyRelocatable<TransientPool::AcquiredInfo>
+    {
+        using Record = TransientPool::AcquiredInfo;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::Kind)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::RendererID)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Handle)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Width)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Height)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::SizeBytes)>;
+    };
 } // namespace OloEngine

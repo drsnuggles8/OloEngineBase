@@ -1,5 +1,7 @@
 #pragma once
 
+#include "OloEngine/Containers/Array.h"
+
 // =============================================================================
 // GroomStrandMesh.h — the cooked groom's curves as ribbon geometry. Issue #1246.
 //
@@ -343,9 +345,9 @@ namespace OloEngine
     // groom when the budget will draw 20k of them is the difference between a
     // frame cost and a frame. `outCurves` is cleared first.
     void SelectGroomStrandCurves(const GroomBuildSource& source, const GroomStrandBuildSettings& settings,
-                                 std::vector<u32>& outCurves, const GroomCoatContext* coat = nullptr);
+                                 TArray<u32>& outCurves, const GroomCoatContext* coat = nullptr);
     void SelectGroomStrandCurves(const GroomAsset& groom, const GroomStrandBuildSettings& settings,
-                                 std::vector<u32>& outCurves, const GroomCoatContext* coat = nullptr);
+                                 TArray<u32>& outCurves, const GroomCoatContext* coat = nullptr);
 
     // The stats a build WOULD produce, without building anything. Pure and
     // cheap, so the editor's inspector can show the budget's effect on every

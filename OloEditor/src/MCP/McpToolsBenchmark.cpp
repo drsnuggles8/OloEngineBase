@@ -96,7 +96,7 @@ namespace OloEngine::MCP
             const std::string backend = isVulkan ? "vulkan" : "opengl";
             if (!manifest->SupportsBackend(backend))
             {
-                return ToolResult::Error("Manifest '" + manifest->Id + "' does not declare backend '" + backend +
+                return ToolResult::Error("Manifest '" + manifest->Id.ToStdString() + "' does not declare backend '" + backend +
                                          "' in Backends.Supported.");
             }
 
@@ -110,7 +110,7 @@ namespace OloEngine::MCP
             }
 
             // ---- Open the manifest's scene (same seam as olo_scene_open) ----
-            const std::string scenePath = manifest->ScenePath;
+            const std::string scenePath = manifest->ScenePath.ToStdString();
             const Json opened = host.MarshalRead(
                 [&host, scenePath]() -> Json
                 {
@@ -142,8 +142,8 @@ namespace OloEngine::MCP
                 RendererSettings PriorRendererSettings;
                 PostProcessSettings PriorPostProcessSettings;
                 f32 PriorRenderScale = 1.0f;
-                std::string GpuVendor;
-                std::string GpuRenderer;
+                FString GpuVendor;
+                FString GpuRenderer;
             };
             auto applied = std::make_shared<AppliedState>();
             const auto manifestCopy = std::make_shared<Benchmark::BenchmarkManifest>(*manifest);
@@ -272,9 +272,9 @@ namespace OloEngine::MCP
             // skipped with the reason recorded instead; the test-binary front
             // door builds its camera from the manifest clips and is the metric
             // product.
-            auto cameraSets = std::make_shared<std::vector<Benchmark::CameraCaptureSet>>();
-            auto passTimings = std::make_shared<std::vector<Benchmark::PassTimingRecord>>();
-            const std::string backendCopy = backend;
+            auto cameraSets = std::make_shared<TArray<Benchmark::CameraCaptureSet>>();
+            auto passTimings = std::make_shared<TArray<Benchmark::PassTimingRecord>>();
+            const FString backendCopy = backend;
             u32 totalWarmFrames = 0;
             bool warmupTimedOut = false;
 
@@ -329,7 +329,7 @@ namespace OloEngine::MCP
                     }
                 }
 
-                const std::string cameraId = cameraSpec.Id;
+                const FString cameraId = cameraSpec.Id;
                 const Benchmark::CaptureContext captureContext{ cameraSpec.NearClip, cameraSpec.FarClip };
                 host.MarshalRead(
                     [&host, cameraSets, manifestCopy, cameraId, backendCopy, captureContext]() -> Json
@@ -337,7 +337,7 @@ namespace OloEngine::MCP
                         const u32 captureFrame = host.Context().GetFrameIndex
                                                      ? static_cast<u32>(host.Context().GetFrameIndex())
                                                      : 0u;
-                        auto set = Benchmark::CaptureCameraSet(*manifestCopy, cameraId, captureFrame, backendCopy,
+                        auto set = Benchmark::CaptureCameraSet(*manifestCopy, cameraId.ToView(), captureFrame, backendCopy.ToView(),
                                                                captureContext);
                         // See the loop-header comment: linear-depth derives are
                         // not metric in this host.
@@ -356,7 +356,7 @@ namespace OloEngine::MCP
                                 attachment = std::move(skipped);
                             }
                         }
-                        cameraSets->push_back(std::move(set));
+                        cameraSets->Add(std::move(set));
                         return Json{ { "ok", true } };
                     },
                     kBenchmarkMarshalTimeout);
@@ -428,15 +428,15 @@ namespace OloEngine::MCP
             const fs::path outDir = args.contains("outDir") && args["outDir"].is_string()
                                         ? fs::path(args["outDir"].get<std::string>())
                                         : fs::path("assets") / "benchmark" / "captures" /
-                                              (manifest->Id + "-editor-" + backend);
+                                              (manifest->Id.ToStdString() + "-editor-" + backend);
             std::string writeError;
-            if (!Benchmark::WriteResultDirectory(*manifest, manifestPath, outDir, *cameraSets, runInfo, writeError))
+            if (!Benchmark::WriteResultDirectory(*manifest, manifestPath, outDir, std::span{ cameraSets->GetData(), static_cast<sizet>(cameraSets->Num()) }, runInfo, writeError))
             {
                 return ToolResult::Error("Result directory write failed: " + writeError);
             }
 
             Json summary;
-            summary["id"] = manifest->Id;
+            summary["id"] = manifest->Id.ToStdString();
             summary["backend"] = backend;
             summary["host"] = "editor-mcp";
             summary["outDir"] = outDir.generic_string();
@@ -445,24 +445,24 @@ namespace OloEngine::MCP
             for (const auto& set : *cameraSets)
             {
                 Json cameraJson;
-                cameraJson["id"] = set.CameraId;
+                cameraJson["id"] = set.CameraId.ToStdString();
                 cameraJson["attachments"] = Json::array();
                 for (const auto& attachment : set.Attachments)
                 {
                     Json a;
-                    a["name"] = attachment.Spec.Name;
+                    a["name"] = attachment.Spec.Name.ToStdString();
                     if (attachment.SkippedUnsupported)
                     {
                         a["skipped"] = true;
                     }
-                    else if (!attachment.Error.empty())
+                    else if (!attachment.Error.IsEmpty())
                     {
-                        a["error"] = attachment.Error;
+                        a["error"] = attachment.Error.ToStdString();
                         ++failures;
                     }
                     else
                     {
-                        a["file"] = attachment.FileName;
+                        a["file"] = attachment.FileName.ToStdString();
                         a["width"] = attachment.Width;
                         a["height"] = attachment.Height;
                     }

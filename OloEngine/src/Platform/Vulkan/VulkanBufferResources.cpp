@@ -955,7 +955,7 @@ namespace OloEngine
     void VulkanVertexArray::AddVertexBuffer(const Ref<VertexBuffer>& vertexBuffer)
     {
         OLO_CORE_ASSERT(vertexBuffer != nullptr, "VulkanVertexArray::AddVertexBuffer: null buffer");
-        m_VertexBuffers.push_back(vertexBuffer);
+        m_VertexBuffers.Add(vertexBuffer);
     }
 
     void VulkanVertexArray::AddInstanceBuffer(const Ref<VertexBuffer>& vertexBuffer)
@@ -965,7 +965,7 @@ namespace OloEngine
         // SSBO (glsl-shaders.md §6a). GetPullVertexBuffer() ignores it by
         // taking the FIRST buffer.
         OLO_CORE_ASSERT(vertexBuffer != nullptr, "VulkanVertexArray::AddInstanceBuffer: null buffer");
-        m_VertexBuffers.push_back(vertexBuffer);
+        m_VertexBuffers.Add(vertexBuffer);
     }
 
     void VulkanVertexArray::SetIndexBuffer(const Ref<IndexBuffer>& indexBuffer)
@@ -980,7 +980,7 @@ namespace OloEngine
 
     const VulkanVertexBuffer* VulkanVertexArray::GetPullVertexBuffer(sizet streamIndex) const
     {
-        if (streamIndex >= m_VertexBuffers.size())
+        if (streamIndex >= m_VertexBuffers.Num())
         {
             return nullptr;
         }

@@ -51,7 +51,7 @@
 #include <glm/glm.hpp>
 
 #include <span>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -121,7 +121,7 @@ namespace OloEngine
         // the mip-0 data. `mip0` must hold resolution*resolution*6 floats in
         // the face-major layout above; `resolution` must be a power of two.
         // Returns nullptr on malformed input.
-        static Ref<ReflectionProbeDistanceField> Create(std::vector<f32>&& mip0, u32 resolution);
+        static Ref<ReflectionProbeDistanceField> Create(TArray<f32>&& mip0, u32 resolution);
 
         [[nodiscard]] u32 GetResolution() const
         {
@@ -129,7 +129,7 @@ namespace OloEngine
         }
         [[nodiscard]] u32 GetMipCount() const
         {
-            return static_cast<u32>(m_Mips.size());
+            return static_cast<u32>(m_Mips.Num());
         }
         [[nodiscard]] f32 GetMaxFiniteDistance() const
         {
@@ -147,7 +147,7 @@ namespace OloEngine
       private:
         u32 m_Resolution = 0;
         f32 m_MaxFiniteDistance = 0.0f;
-        std::vector<std::vector<f32>> m_Mips; // [mip][face * res * res + y * res + x]
+        TArray<TArray<f32>> m_Mips; // [mip][face * res * res + y * res + x]
     };
 
     // ---- Pure helpers (unit-tested headlessly) ----
@@ -155,7 +155,7 @@ namespace OloEngine
     // 2x2 MAX-downsample of one face-major mip level (6 faces). `resolution`
     // is the SOURCE mip's face size (must be >= 2 and even). Returns the
     // next mip in the same layout at half resolution.
-    [[nodiscard]] std::vector<f32> BuildNextMaxMip(std::span<const f32> source, u32 resolution);
+    [[nodiscard]] TArray<f32> BuildNextMaxMip(std::span<const f32> source, u32 resolution);
 
     // Max over texels strictly below the miss threshold; kProbeDistanceFar
     // when every texel is sky (a probe floating in empty sky still gets a

@@ -52,7 +52,7 @@ namespace OloEngine
                     rel.m_ParentHandle = canvasEnt.GetUUID();
                     if (!canvasEnt.HasComponent<RelationshipComponent>())
                         canvasEnt.AddComponent<RelationshipComponent>();
-                    canvasEnt.GetComponent<RelationshipComponent>().m_Children.push_back(panelEntity.GetUUID());
+                    canvasEnt.GetComponent<RelationshipComponent>().m_Children.Add(panelEntity.GetUUID());
                 }
             }
 
@@ -79,7 +79,7 @@ namespace OloEngine
                 if (panelEnt)
                 {
                     rel.m_ParentHandle = panelEnt.GetUUID();
-                    panelEnt.GetComponent<RelationshipComponent>().m_Children.push_back(speakerEntity.GetUUID());
+                    panelEnt.GetComponent<RelationshipComponent>().m_Children.Add(speakerEntity.GetUUID());
                 }
             }
 
@@ -106,7 +106,7 @@ namespace OloEngine
                 if (panelEnt)
                 {
                     rel.m_ParentHandle = panelEnt.GetUUID();
-                    panelEnt.GetComponent<RelationshipComponent>().m_Children.push_back(bodyEntity.GetUUID());
+                    panelEnt.GetComponent<RelationshipComponent>().m_Children.Add(bodyEntity.GetUUID());
                 }
             }
 
@@ -242,7 +242,7 @@ namespace OloEngine
         else if (state.m_State == DialogueState::WaitingForChoice)
         {
             // Arrow keys to navigate choices
-            if (i32 const choiceCount = static_cast<i32>(state.m_AvailableChoices.size()); choiceCount > 0)
+            if (i32 const choiceCount = static_cast<i32>(state.m_AvailableChoices.Num()); choiceCount > 0)
             {
                 if (Input::IsKeyPressed(Key::Up) && !m_ArrowKeyWasPressed)
                 {
@@ -334,11 +334,11 @@ namespace OloEngine
         auto& state = npcEntity.GetComponent<DialogueStateComponent>();
 
         // Ensure we have the right number of choice entities
-        while (m_ChoiceEntities.size() < state.m_AvailableChoices.size())
+        while (m_ChoiceEntities.Num() < state.m_AvailableChoices.Num())
         {
-            Entity choiceEntity = scene.CreateEntity("DialogueChoice_" + std::to_string(m_ChoiceEntities.size()));
+            Entity choiceEntity = scene.CreateEntity("DialogueChoice_" + std::to_string(m_ChoiceEntities.Num()));
             auto& rect = choiceEntity.AddComponent<UIRectTransformComponent>();
-            f32 const index = static_cast<f32>(m_ChoiceEntities.size());
+            f32 const index = static_cast<f32>(m_ChoiceEntities.Num());
             rect.m_AnchorMin = { 0.1f, 0.0f };
             rect.m_AnchorMax = { 0.9f, 0.0f };
             rect.m_AnchoredPosition = { 0.0f, -30.0f - index * 35.0f };
@@ -362,22 +362,22 @@ namespace OloEngine
                     rel.m_ParentHandle = panelEnt.GetUUID();
                     if (!panelEnt.HasComponent<RelationshipComponent>())
                         panelEnt.AddComponent<RelationshipComponent>();
-                    panelEnt.GetComponent<RelationshipComponent>().m_Children.push_back(choiceEntity.GetUUID());
+                    panelEnt.GetComponent<RelationshipComponent>().m_Children.Add(choiceEntity.GetUUID());
                 }
             }
 
-            m_ChoiceEntities.push_back(choiceEntity.GetUUID());
+            m_ChoiceEntities.Add(choiceEntity.GetUUID());
         }
 
         // Update text and state for each choice
-        for (size_t i = 0; i < state.m_AvailableChoices.size(); ++i)
+        for (size_t i = 0; i < state.m_AvailableChoices.Num(); ++i)
         {
             Entity choiceEnt = scene.GetEntityByUUID(m_ChoiceEntities[i]);
             if (!choiceEnt)
                 continue;
             if (choiceEnt.HasComponent<UITextComponent>())
             {
-                choiceEnt.GetComponent<UITextComponent>().m_Text = state.m_AvailableChoices[i].Text;
+                choiceEnt.GetComponent<UITextComponent>().m_Text = state.m_AvailableChoices[i].Text.ToStdString();
             }
             if (choiceEnt.HasComponent<UIButtonComponent>())
             {
@@ -387,13 +387,13 @@ namespace OloEngine
         }
 
         // Destroy excess choice entities
-        for (size_t i = state.m_AvailableChoices.size(); i < m_ChoiceEntities.size(); ++i)
+        for (size_t i = state.m_AvailableChoices.Num(); i < m_ChoiceEntities.Num(); ++i)
         {
             Entity choiceEnt = scene.GetEntityByUUID(m_ChoiceEntities[i]);
             if (choiceEnt)
                 scene.DestroyEntity(choiceEnt);
         }
-        m_ChoiceEntities.resize(state.m_AvailableChoices.size());
+        m_ChoiceEntities.SetNum(state.m_AvailableChoices.Num(), EAllowShrinking::No);
     }
 
     void DialogueUIController::ClearChoiceEntities(Scene& scene)
@@ -406,7 +406,7 @@ namespace OloEngine
             if (ent)
                 scene.DestroyEntity(ent);
         }
-        m_ChoiceEntities.clear();
+        m_ChoiceEntities.Reset();
     }
 
 } // namespace OloEngine

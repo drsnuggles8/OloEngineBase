@@ -4,7 +4,7 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
-#include <vector>
+#include <span>
 
 namespace OloEngine
 {
@@ -24,9 +24,9 @@ namespace OloEngine
         void Shutdown();
 
         // Upload light arrays to GPU SSBOs
-        void Update(const std::vector<GPUPointLight>& pointLights,
-                    const std::vector<GPUSpotLight>& spotLights,
-                    const std::vector<GPUSphereAreaLight>& sphereAreaLights);
+        void Update(std::span<const GPUPointLight> pointLights,
+                    std::span<const GPUSpotLight> spotLights,
+                    std::span<const GPUSphereAreaLight> sphereAreaLights);
 
         void Bind() const;
         void Unbind() const;

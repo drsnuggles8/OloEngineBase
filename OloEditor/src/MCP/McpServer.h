@@ -1,5 +1,7 @@
 #pragma once
 
+#include <span>
+
 // Read-only MCP (Model Context Protocol) diagnostics server hosted inside OloEditor.
 //
 // Strategy is "expose, don't embed" (issue #285): OloEditor is a long-running
@@ -94,7 +96,7 @@ namespace OloEngine::MCP
     // inline `image` content blocks (McpTools*.cpp) and resources/read's binary
     // `blob` contents variant (issue #673) — which is why it lives here
     // rather than in the editor-internal McpToolsCommon.h.
-    inline std::string Base64Encode(const std::vector<u8>& data)
+    inline std::string Base64Encode(std::span<const u8> data)
     {
         static constexpr char kTable[] =
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";

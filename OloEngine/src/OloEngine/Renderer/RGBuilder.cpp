@@ -8,20 +8,20 @@ namespace OloEngine
 {
     void RGBuilder::BeginPass(std::string_view passName)
     {
-        m_CurrentPassName = std::string(passName);
-        m_DeclaredReads.clear();
-        m_DeclaredWrites.clear();
-        m_DeclaredAccesses.clear();
-        m_DeclaredFeedbacks.clear();
-        m_DeclaredPassDependencies.clear();
-        m_DeclaredLifetimeExtensions.clear();
+        m_CurrentPassName = passName;
+        m_DeclaredReads.Reset();
+        m_DeclaredWrites.Reset();
+        m_DeclaredAccesses.Reset();
+        m_DeclaredFeedbacks.Reset();
+        m_DeclaredPassDependencies.Reset();
+        m_DeclaredLifetimeExtensions.Reset();
         m_NextVersionOrdinalByResource.clear();
     }
 
     std::string RGBuilder::BuildVersionedResourceName(std::string_view resourceName,
                                                       std::string_view versionTag)
     {
-        auto stableTag = !versionTag.empty() ? std::string(versionTag) : m_CurrentPassName;
+        auto stableTag = !versionTag.empty() ? std::string(versionTag) : m_CurrentPassName.ToStdString();
         if (stableTag.empty())
             stableTag = "Version";
 
@@ -53,7 +53,7 @@ namespace OloEngine
         if (const auto existingIt = std::ranges::find_if(m_DeclaredFeedbacks,
                                                          [resourceName, &sameRange](const RGFeedbackDeclaration& declaration)
                                                          {
-                                                             return declaration.ResourceName == resourceName &&
+                                                             return declaration.ResourceName.ToView() == resourceName &&
                                                                     sameRange(declaration);
                                                          });
             existingIt != m_DeclaredFeedbacks.end())
@@ -61,8 +61,8 @@ namespace OloEngine
             return;
         }
 
-        m_DeclaredFeedbacks.push_back(RGFeedbackDeclaration{
-            .ResourceName = std::string(resourceName),
+        m_DeclaredFeedbacks.Add(RGFeedbackDeclaration{
+            .ResourceName = resourceName,
             .Range = range,
         });
     }
@@ -72,10 +72,11 @@ namespace OloEngine
         if (passName.empty())
             return;
 
-        if (const auto alreadyDeclared = std::ranges::find(m_DeclaredPassDependencies, passName);
+        if (const auto alreadyDeclared = std::ranges::find_if(m_DeclaredPassDependencies, [&](const FString& name)
+                                                              { return name.ToView() == passName; });
             alreadyDeclared == m_DeclaredPassDependencies.end())
         {
-            m_DeclaredPassDependencies.emplace_back(passName);
+            m_DeclaredPassDependencies.Emplace(passName);
         }
     }
 
@@ -85,10 +86,10 @@ namespace OloEngine
             return;
 
         const auto& previousWriter = m_Graph.GetLastWriterPassName(resourceName);
-        if (previousWriter.empty() || previousWriter == m_CurrentPassName)
+        if (previousWriter.IsEmpty() || previousWriter == m_CurrentPassName)
             return;
 
-        DependsOnPass(previousWriter);
+        DependsOnPass(previousWriter.ToView());
     }
 
     void RGBuilder::RecordRead(std::string_view resourceName, const RGReadUsage usage, const RGSubresourceRange& range)
@@ -98,11 +99,13 @@ namespace OloEngine
         if (resourceName.empty())
             return;
 
-        if (const auto alreadyDeclared = std::ranges::find(m_DeclaredReads, resourceName); alreadyDeclared == m_DeclaredReads.end())
-            m_DeclaredReads.emplace_back(resourceName);
+        if (const auto alreadyDeclared = std::ranges::find_if(m_DeclaredReads, [&](const FString& name)
+                                                              { return name.ToView() == resourceName; });
+            alreadyDeclared == m_DeclaredReads.end())
+            m_DeclaredReads.Emplace(resourceName);
 
-        m_DeclaredAccesses.push_back(RGAccessDeclaration{
-            .ResourceName = std::string(resourceName),
+        m_DeclaredAccesses.Add(RGAccessDeclaration{
+            .ResourceName = resourceName,
             .IsWrite = false,
             .ReadUsage = usage,
             .WriteUsage = RGWriteUsage::RenderTarget,
@@ -117,11 +120,13 @@ namespace OloEngine
         if (resourceName.empty())
             return;
 
-        if (const auto alreadyDeclared = std::ranges::find(m_DeclaredWrites, resourceName); alreadyDeclared == m_DeclaredWrites.end())
-            m_DeclaredWrites.emplace_back(resourceName);
+        if (const auto alreadyDeclared = std::ranges::find_if(m_DeclaredWrites, [&](const FString& name)
+                                                              { return name.ToView() == resourceName; });
+            alreadyDeclared == m_DeclaredWrites.end())
+            m_DeclaredWrites.Emplace(resourceName);
 
-        m_DeclaredAccesses.push_back(RGAccessDeclaration{
-            .ResourceName = std::string(resourceName),
+        m_DeclaredAccesses.Add(RGAccessDeclaration{
+            .ResourceName = resourceName,
             .IsWrite = true,
             .ReadUsage = RGReadUsage::ShaderSample,
             .WriteUsage = usage,
@@ -134,10 +139,11 @@ namespace OloEngine
         if (resourceName.empty())
             return;
 
-        if (const auto alreadyDeclared = std::ranges::find(m_DeclaredLifetimeExtensions, resourceName);
+        if (const auto alreadyDeclared = std::ranges::find_if(m_DeclaredLifetimeExtensions, [&](const FString& name)
+                                                              { return name.ToView() == resourceName; });
             alreadyDeclared == m_DeclaredLifetimeExtensions.end())
         {
-            m_DeclaredLifetimeExtensions.emplace_back(resourceName);
+            m_DeclaredLifetimeExtensions.Emplace(resourceName);
         }
     }
 
@@ -155,14 +161,14 @@ namespace OloEngine
         // full implementation will populate m_Graph's dependency DAG.
         OLO_CORE_ASSERT(handle.IsValid(), "Cannot read an invalid texture handle");
 
-        if (const auto resourceName = m_Graph.GetResourceName(handle); resourceName.empty())
+        if (const auto resourceName = m_Graph.GetResourceName(handle); resourceName.IsEmpty())
         {
             OLO_CORE_ERROR("RGBuilder::Read: pass='{}' texture handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
-                           m_CurrentPassName, handle.Index, handle.Generation);
+                           m_CurrentPassName.ToView(), handle.Index, handle.Generation);
         }
         else
         {
-            RecordRead(resourceName, usage, range);
+            RecordRead(resourceName.ToView(), usage, range);
 
             // When the read targets a framebuffer attachment view, also record
             // the access against the parent framebuffer. The transient planner
@@ -173,10 +179,10 @@ namespace OloEngine
             // alias the parent's storage onto another transient (e.g. the
             // next pass's output) — producing a same-FB feedback loop when
             // the reading pass also writes the aliased downstream resource.
-            if (auto parent = m_Graph.FindAttachmentViewParent(resourceName);
-                !parent.empty() && parent != resourceName)
+            if (auto parent = m_Graph.FindAttachmentViewParent(resourceName.ToView());
+                !parent.IsEmpty() && parent != resourceName)
             {
-                RecordRead(parent, usage, range);
+                RecordRead(parent.ToView(), usage, range);
             }
         }
 
@@ -191,14 +197,14 @@ namespace OloEngine
     {
         OLO_CORE_ASSERT(handle.IsValid(), "Cannot read an invalid framebuffer handle");
 
-        if (const auto resourceName = m_Graph.GetResourceName(handle); resourceName.empty())
+        if (const auto resourceName = m_Graph.GetResourceName(handle); resourceName.IsEmpty())
         {
             OLO_CORE_ERROR("RGBuilder::Read: pass='{}' framebuffer handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
-                           m_CurrentPassName, handle.Index, handle.Generation);
+                           m_CurrentPassName.ToView(), handle.Index, handle.Generation);
         }
         else
         {
-            RecordRead(resourceName, usage, RGSubresourceRange::Full());
+            RecordRead(resourceName.ToView(), usage, RGSubresourceRange::Full());
         }
 
         (void)usage;
@@ -211,14 +217,14 @@ namespace OloEngine
     {
         OLO_CORE_ASSERT(handle.IsValid(), "Cannot read an invalid buffer handle");
 
-        if (const auto resourceName = m_Graph.GetResourceName(handle); resourceName.empty())
+        if (const auto resourceName = m_Graph.GetResourceName(handle); resourceName.IsEmpty())
         {
             OLO_CORE_ERROR("RGBuilder::Read: pass='{}' buffer handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
-                           m_CurrentPassName, handle.Index, handle.Generation);
+                           m_CurrentPassName.ToView(), handle.Index, handle.Generation);
         }
         else
         {
-            RecordRead(resourceName, usage, RGSubresourceRange::Full());
+            RecordRead(resourceName.ToView(), usage, RGSubresourceRange::Full());
         }
 
         (void)usage;
@@ -236,14 +242,14 @@ namespace OloEngine
     {
         OLO_CORE_ASSERT(handle.IsValid(), "Cannot write an invalid texture handle");
 
-        if (const auto resourceName = m_Graph.GetResourceName(handle); resourceName.empty())
+        if (const auto resourceName = m_Graph.GetResourceName(handle); resourceName.IsEmpty())
         {
             OLO_CORE_ERROR("RGBuilder::Write: pass='{}' texture handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
-                           m_CurrentPassName, handle.Index, handle.Generation);
+                           m_CurrentPassName.ToView(), handle.Index, handle.Generation);
         }
         else
         {
-            RecordWrite(resourceName, usage, range);
+            RecordWrite(resourceName.ToView(), usage, range);
 
             // When the write targets a framebuffer attachment view, also
             // extend the parent framebuffer's transient lifetime back to
@@ -274,10 +280,10 @@ namespace OloEngine
             // RecordLifetimeExtension sidesteps both by feeding only the
             // transient planner, not hazard validation or the view-expansion
             // pass.
-            if (auto parent = m_Graph.FindAttachmentViewParent(resourceName);
-                !parent.empty() && parent != resourceName)
+            if (auto parent = m_Graph.FindAttachmentViewParent(resourceName.ToView());
+                !parent.IsEmpty() && parent != resourceName)
             {
-                RecordLifetimeExtension(parent);
+                RecordLifetimeExtension(parent.ToView());
             }
         }
 
@@ -292,14 +298,14 @@ namespace OloEngine
     {
         OLO_CORE_ASSERT(handle.IsValid(), "Cannot write an invalid framebuffer handle");
 
-        if (const auto resourceName = m_Graph.GetResourceName(handle); resourceName.empty())
+        if (const auto resourceName = m_Graph.GetResourceName(handle); resourceName.IsEmpty())
         {
             OLO_CORE_ERROR("RGBuilder::Write: pass='{}' framebuffer handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
-                           m_CurrentPassName, handle.Index, handle.Generation);
+                           m_CurrentPassName.ToView(), handle.Index, handle.Generation);
         }
         else
         {
-            RecordWrite(resourceName, usage, RGSubresourceRange::Full());
+            RecordWrite(resourceName.ToView(), usage, RGSubresourceRange::Full());
         }
 
         (void)usage;
@@ -311,14 +317,14 @@ namespace OloEngine
     {
         OLO_CORE_ASSERT(handle.IsValid(), "Cannot write an invalid buffer handle");
 
-        if (const auto resourceName = m_Graph.GetResourceName(handle); resourceName.empty())
+        if (const auto resourceName = m_Graph.GetResourceName(handle); resourceName.IsEmpty())
         {
             OLO_CORE_ERROR("RGBuilder::Write: pass='{}' buffer handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
-                           m_CurrentPassName, handle.Index, handle.Generation);
+                           m_CurrentPassName.ToView(), handle.Index, handle.Generation);
         }
         else
         {
-            RecordWrite(resourceName, usage, RGSubresourceRange::Full());
+            RecordWrite(resourceName.ToView(), usage, RGSubresourceRange::Full());
         }
 
         (void)usage;
@@ -333,19 +339,19 @@ namespace OloEngine
         OLO_CORE_ASSERT(sourceHandle.IsValid(), "Cannot create a new version from an invalid texture handle");
 
         const auto sourceResource = m_Graph.GetResourceName(sourceHandle);
-        if (sourceResource.empty())
+        if (sourceResource.IsEmpty())
         {
             OLO_CORE_ERROR("RGBuilder::WriteNewVersion: pass='{}' texture handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
-                           m_CurrentPassName, sourceHandle.Index, sourceHandle.Generation);
+                           m_CurrentPassName.ToView(), sourceHandle.Index, sourceHandle.Generation);
             return {};
         }
 
-        const auto versionedName = BuildVersionedResourceName(sourceResource, versionTag);
-        auto versionHandle = m_Graph.CreateVersionedTextureHandle(sourceHandle, versionedName, m_CurrentPassName);
+        const auto versionedName = BuildVersionedResourceName(sourceResource.ToView(), versionTag);
+        auto versionHandle = m_Graph.CreateVersionedTextureHandle(sourceHandle, versionedName, m_CurrentPassName.ToView());
         if (!versionHandle.IsValid())
         {
             OLO_CORE_ERROR("RGBuilder::WriteNewVersion: pass='{}' failed to create texture version '{}' from '{}'",
-                           m_CurrentPassName, versionedName, sourceResource);
+                           m_CurrentPassName.ToView(), versionedName, sourceResource.ToView());
             return {};
         }
 
@@ -361,19 +367,19 @@ namespace OloEngine
         OLO_CORE_ASSERT(sourceHandle.IsValid(), "Cannot create a new version from an invalid framebuffer handle");
 
         const auto sourceResource = m_Graph.GetResourceName(sourceHandle);
-        if (sourceResource.empty())
+        if (sourceResource.IsEmpty())
         {
             OLO_CORE_ERROR("RGBuilder::WriteNewVersion: pass='{}' framebuffer handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
-                           m_CurrentPassName, sourceHandle.Index, sourceHandle.Generation);
+                           m_CurrentPassName.ToView(), sourceHandle.Index, sourceHandle.Generation);
             return {};
         }
 
-        const auto versionedName = BuildVersionedResourceName(sourceResource, versionTag);
-        auto versionHandle = m_Graph.CreateVersionedFramebufferHandle(sourceHandle, versionedName, m_CurrentPassName);
+        const auto versionedName = BuildVersionedResourceName(sourceResource.ToView(), versionTag);
+        auto versionHandle = m_Graph.CreateVersionedFramebufferHandle(sourceHandle, versionedName, m_CurrentPassName.ToView());
         if (!versionHandle.IsValid())
         {
             OLO_CORE_ERROR("RGBuilder::WriteNewVersion: pass='{}' failed to create framebuffer version '{}' from '{}'",
-                           m_CurrentPassName, versionedName, sourceResource);
+                           m_CurrentPassName.ToView(), versionedName, sourceResource.ToView());
             return {};
         }
 
@@ -389,19 +395,19 @@ namespace OloEngine
         OLO_CORE_ASSERT(sourceHandle.IsValid(), "Cannot create a new version from an invalid buffer handle");
 
         const auto sourceResource = m_Graph.GetResourceName(sourceHandle);
-        if (sourceResource.empty())
+        if (sourceResource.IsEmpty())
         {
             OLO_CORE_ERROR("RGBuilder::WriteNewVersion: pass='{}' buffer handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
-                           m_CurrentPassName, sourceHandle.Index, sourceHandle.Generation);
+                           m_CurrentPassName.ToView(), sourceHandle.Index, sourceHandle.Generation);
             return {};
         }
 
-        const auto versionedName = BuildVersionedResourceName(sourceResource, versionTag);
-        auto versionHandle = m_Graph.CreateVersionedBufferHandle(sourceHandle, versionedName, m_CurrentPassName);
+        const auto versionedName = BuildVersionedResourceName(sourceResource.ToView(), versionTag);
+        auto versionHandle = m_Graph.CreateVersionedBufferHandle(sourceHandle, versionedName, m_CurrentPassName.ToView());
         if (!versionHandle.IsValid())
         {
             OLO_CORE_ERROR("RGBuilder::WriteNewVersion: pass='{}' failed to create buffer version '{}' from '{}'",
-                           m_CurrentPassName, versionedName, sourceResource);
+                           m_CurrentPassName.ToView(), versionedName, sourceResource.ToView());
             return {};
         }
 
@@ -431,14 +437,14 @@ namespace OloEngine
         OLO_CORE_ASSERT(handle.IsValid(), "Cannot declare same-pass read/write for an invalid texture handle");
 
         const auto resourceName = m_Graph.GetResourceName(handle);
-        if (resourceName.empty())
+        if (resourceName.IsEmpty())
         {
             OLO_CORE_ERROR("RGBuilder::AllowSamePassReadWrite: pass='{}' texture handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
-                           m_CurrentPassName, handle.Index, handle.Generation);
+                           m_CurrentPassName.ToView(), handle.Index, handle.Generation);
             return;
         }
 
-        RecordFeedback(resourceName, range);
+        RecordFeedback(resourceName.ToView(), range);
     }
 
     void RGBuilder::AllowSamePassReadWrite(
@@ -447,14 +453,14 @@ namespace OloEngine
         OLO_CORE_ASSERT(handle.IsValid(), "Cannot declare same-pass read/write for an invalid framebuffer handle");
 
         const auto resourceName = m_Graph.GetResourceName(handle);
-        if (resourceName.empty())
+        if (resourceName.IsEmpty())
         {
             OLO_CORE_ERROR("RGBuilder::AllowSamePassReadWrite: pass='{}' framebuffer handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
-                           m_CurrentPassName, handle.Index, handle.Generation);
+                           m_CurrentPassName.ToView(), handle.Index, handle.Generation);
             return;
         }
 
-        RecordFeedback(resourceName, RGSubresourceRange::Full());
+        RecordFeedback(resourceName.ToView(), RGSubresourceRange::Full());
     }
 
     void RGBuilder::AllowSamePassReadWrite(
@@ -464,14 +470,14 @@ namespace OloEngine
         OLO_CORE_ASSERT(handle.IsValid(), "Cannot declare same-pass read/write for an invalid buffer handle");
 
         const auto resourceName = m_Graph.GetResourceName(handle);
-        if (resourceName.empty())
+        if (resourceName.IsEmpty())
         {
             OLO_CORE_ERROR("RGBuilder::AllowSamePassReadWrite: pass='{}' buffer handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
-                           m_CurrentPassName, handle.Index, handle.Generation);
+                           m_CurrentPassName.ToView(), handle.Index, handle.Generation);
             return;
         }
 
-        RecordFeedback(resourceName, range);
+        RecordFeedback(resourceName.ToView(), range);
     }
 
     // -------------------------------------------------------------------
@@ -570,10 +576,10 @@ namespace OloEngine
     {
         OLO_CORE_ASSERT(sourceHandle.IsValid(), "Cannot register an external sink from an invalid texture handle");
 
-        if (const auto resourceName = m_Graph.GetResourceName(sourceHandle); resourceName.empty())
+        if (const auto resourceName = m_Graph.GetResourceName(sourceHandle); resourceName.IsEmpty())
         {
             OLO_CORE_ERROR("RGBuilder::RegisterExternalTextureSink: pass='{}' texture handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
-                           m_CurrentPassName, sourceHandle.Index, sourceHandle.Generation);
+                           m_CurrentPassName.ToView(), sourceHandle.Index, sourceHandle.Generation);
             return;
         }
 
@@ -590,10 +596,10 @@ namespace OloEngine
     {
         OLO_CORE_ASSERT(sourceHandle.IsValid(), "Cannot register an external sink from an invalid framebuffer handle");
 
-        if (const auto resourceName = m_Graph.GetResourceName(sourceHandle); resourceName.empty())
+        if (const auto resourceName = m_Graph.GetResourceName(sourceHandle); resourceName.IsEmpty())
         {
             OLO_CORE_ERROR("RGBuilder::RegisterExternalTextureSink: pass='{}' framebuffer handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
-                           m_CurrentPassName, sourceHandle.Index, sourceHandle.Generation);
+                           m_CurrentPassName.ToView(), sourceHandle.Index, sourceHandle.Generation);
             return;
         }
 
@@ -606,10 +612,10 @@ namespace OloEngine
     {
         OLO_CORE_ASSERT(sourceHandle.IsValid(), "Cannot extract history from an invalid texture handle");
 
-        if (const auto resourceName = m_Graph.GetResourceName(sourceHandle); resourceName.empty())
+        if (const auto resourceName = m_Graph.GetResourceName(sourceHandle); resourceName.IsEmpty())
         {
             OLO_CORE_ERROR("RGBuilder::ExtractHistoryTexture: pass='{}' texture handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
-                           m_CurrentPassName, sourceHandle.Index, sourceHandle.Generation);
+                           m_CurrentPassName.ToView(), sourceHandle.Index, sourceHandle.Generation);
             return;
         }
 
@@ -623,10 +629,10 @@ namespace OloEngine
     {
         OLO_CORE_ASSERT(sourceHandle.IsValid(), "Cannot extract history from an invalid framebuffer handle");
 
-        if (const auto resourceName = m_Graph.GetResourceName(sourceHandle); resourceName.empty())
+        if (const auto resourceName = m_Graph.GetResourceName(sourceHandle); resourceName.IsEmpty())
         {
             OLO_CORE_ERROR("RGBuilder::ExtractHistoryTexture: pass='{}' framebuffer handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
-                           m_CurrentPassName, sourceHandle.Index, sourceHandle.Generation);
+                           m_CurrentPassName.ToView(), sourceHandle.Index, sourceHandle.Generation);
             return;
         }
 

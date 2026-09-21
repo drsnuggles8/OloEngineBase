@@ -5,7 +5,7 @@
 
 namespace OloEngine
 {
-    void ModuleCollision::Apply([[maybe_unused]] f32 dt, ParticlePool& pool, std::vector<CollisionEvent>* outEvents) const
+    void ModuleCollision::Apply([[maybe_unused]] f32 dt, ParticlePool& pool, TArray<CollisionEvent>* outEvents, ParticleSwapObserver observer) const
     {
         if (!Enabled || Mode != CollisionMode::WorldPlane)
         {
@@ -24,12 +24,12 @@ namespace OloEngine
                 // Record collision event before potential kill
                 if (outEvents)
                 {
-                    outEvents->push_back({ pool.m_Positions[i], pool.m_Velocities[i] });
+                    outEvents->Add({ pool.m_Positions[i], pool.m_Velocities[i] });
                 }
 
                 if (KillOnCollide)
                 {
-                    pool.Kill(i);
+                    pool.Kill(i, observer);
                     count = pool.GetAliveCount();
                     continue;
                 }
@@ -53,7 +53,7 @@ namespace OloEngine
         }
     }
 
-    void ModuleCollision::ApplyWithRaycasts(f32 dt, ParticlePool& pool, JoltScene* joltScene, std::vector<CollisionEvent>* outEvents) const
+    void ModuleCollision::ApplyWithRaycasts(f32 dt, ParticlePool& pool, JoltScene* joltScene, TArray<CollisionEvent>* outEvents, ParticleSwapObserver observer) const
     {
         if (!Enabled || Mode != CollisionMode::SceneRaycast || !joltScene)
         {
@@ -88,12 +88,12 @@ namespace OloEngine
                 // Record collision event before potential kill
                 if (outEvents)
                 {
-                    outEvents->push_back({ pool.m_Positions[i], pool.m_Velocities[i] });
+                    outEvents->Add({ pool.m_Positions[i], pool.m_Velocities[i] });
                 }
 
                 if (KillOnCollide)
                 {
-                    pool.Kill(i);
+                    pool.Kill(i, observer);
                     count = pool.GetAliveCount();
                     continue;
                 }

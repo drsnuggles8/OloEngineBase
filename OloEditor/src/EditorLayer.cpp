@@ -4871,7 +4871,7 @@ namespace OloEngine
         auto loaded = SceneTransition::LoadSceneFile(resolved, /*requirePrimaryCamera=*/true, saveSlot);
         if (!loaded)
         {
-            OLO_CORE_ERROR("[Editor] Scene switch failed: {}", loaded.Error);
+            OLO_CORE_ERROR("[Editor] Scene switch failed: {}", loaded.Error.ToView());
             return false;
         }
 
@@ -5687,12 +5687,12 @@ namespace OloEngine
         SceneSerializer serializer(m_EditorScene);
         auto createdUUIDs = serializer.DeserializeAdditive(entities);
 
-        if (!createdUUIDs.empty())
+        if (!createdUUIDs.IsEmpty())
         {
             // Create undo: wrap compound delete in DuplicateUndoCommand
             // Undo (user presses Ctrl+Z) → inner.Execute → delete pasted entities
             // Redo (user presses Ctrl+Y) → inner.Undo → restore pasted entities
-            if (createdUUIDs.size() == 1)
+            if (createdUUIDs.Num() == 1)
             {
                 auto entityOpt = m_EditorScene->TryGetEntityWithUUID(createdUUIDs[0]);
                 if (entityOpt)
@@ -6135,15 +6135,15 @@ namespace OloEngine
         // receiver is (entity, sub-key): one per MeshComponent, one PER INSTANCE
         // of an InstancedMeshComponent, and one per distinct MeshSource of a
         // ModelComponent.
-        const std::vector<LightmapReceiver> receivers = GatherLightmapReceivers(*scene);
-        if (receivers.empty())
+        const TArray<LightmapReceiver> receivers = GatherLightmapReceivers(*scene);
+        if (receivers.IsEmpty())
         {
             OLO_CORE_WARN("Lightmap bake: no entities are marked Lightmap Static — nothing to bake");
             return;
         }
 
         std::vector<LightmapBakeInput> inputs;
-        inputs.reserve(receivers.size());
+        inputs.reserve(receivers.Num());
         for (const LightmapReceiver& receiver : receivers)
         {
             LightmapBakeInput input;
@@ -6227,7 +6227,7 @@ namespace OloEngine
         // streams deterministically before ITS key check).
         // Over the SAME receiver list, not a fresh gather: the two must agree,
         // and re-walking would also repeat the O(scene) instance scan.
-        bakeSettings.BakeKey = SceneLightmapRuntime::ComputeBakeKey(*scene, lmSettings, receivers);
+        bakeSettings.BakeKey = SceneLightmapRuntime::ComputeBakeKey(*scene, lmSettings, { receivers.GetData(), static_cast<sizet>(receivers.Num()) });
 
         // ── Capture the reference world (game thread — reads ECS + mesh data) ──
         //
@@ -6243,7 +6243,7 @@ namespace OloEngine
         // that follows touches no GPU. A parity fixture would leave both out;
         // a bake's output is consumed rather than compared, so it takes them.
         PathTracing::ReferenceSceneBuilder builder;
-        builder.AddLightmapReceivers(*scene, receivers);
+        builder.AddLightmapReceivers(*scene, { receivers.GetData(), static_cast<sizet>(receivers.Num()) });
 
         PathTracing::ReferenceTextureCaptor captor;
         const PathTracing::CapturedSky sky = PathTracing::CaptureSceneSky(*scene);
@@ -6276,7 +6276,7 @@ namespace OloEngine
         m_LightmapBakeScenePath = m_EditorScenePath;
 
         OLO_CORE_INFO("Lightmap bake started: {} entities, {} texels, {} spp, {} atlas page(s) of {}px",
-                      inputs.size(), prepared->Jobs.size(), bakeSettings.SamplesPerTexel,
+                      inputs.size(), prepared->Jobs.Num(), bakeSettings.SamplesPerTexel,
                       prepared->PageCount, bakeSettings.AtlasSize);
 
         Tasks::Launch("BakeLightmaps", [this, prepared, world, bakeSettings, bakeDone]()
@@ -6373,9 +6373,9 @@ namespace OloEngine
             {
                 m_McpLightmapBakeSnapshot.State = MCP::LightmapBake::Status::Failed;
                 m_McpLightmapBakeSnapshot.Progress = m_LightmapBakeProgress.load();
-                m_McpLightmapBakeSnapshot.Error = result.Error;
+                m_McpLightmapBakeSnapshot.Error = result.Error.ToStdString();
             }
-            OLO_CORE_ERROR("Lightmap bake failed: {}", result.Error);
+            OLO_CORE_ERROR("Lightmap bake failed: {}", result.Error.ToView());
             return;
         }
 

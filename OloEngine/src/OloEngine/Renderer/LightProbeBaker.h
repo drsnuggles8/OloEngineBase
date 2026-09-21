@@ -5,7 +5,8 @@
 #include "OloEngine/Renderer/LightProbeVolumeAsset.h"
 
 #include <functional>
-#include <vector>
+#include <span>
+#include "OloEngine/Containers/Array.h"
 #include <glm/glm.hpp>
 
 namespace OloEngine
@@ -60,7 +61,7 @@ namespace OloEngine
         // the L2 SH basis. Reusable by IBL irradiance generation, scene-baked
         // light probes, and any future SH-based ambient path.
         static SHCoefficients ProjectToSH(
-            const std::vector<glm::vec3>& cubemapPixels,
+            std::span<const glm::vec3> cubemapPixels,
             u32 resolution);
 
         // ---- path-traced bake (issue #439) ----------------------------------
@@ -111,6 +112,6 @@ namespace OloEngine
             Ref<Scene>& scene,
             const glm::vec3& position,
             u32 resolution,
-            std::vector<glm::vec3>& outPixels);
+            TArray<glm::vec3>& outPixels);
     };
 } // namespace OloEngine

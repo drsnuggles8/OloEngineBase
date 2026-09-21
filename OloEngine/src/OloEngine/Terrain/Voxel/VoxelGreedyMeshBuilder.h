@@ -15,7 +15,7 @@
 #include <glm/glm.hpp>
 #include <memory>
 #include <unordered_map>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -98,7 +98,7 @@ namespace OloEngine
         struct MeshJob
         {
             VoxelNeighbourhood Neighbourhood;
-            std::vector<PackedQuad> Quads;
+            TArray<PackedQuad> Quads;
         };
 
         // Keyed by chunk coordinate in m_Pending, so the coord is the map key
@@ -111,7 +111,7 @@ namespace OloEngine
 
         void DispatchDirty(VoxelOverride& voxels);
         void CollectCompleted(f32 voxelSize, const VoxelOverride& voxels);
-        void UploadMesh(const VoxelCoord& coord, const std::vector<PackedQuad>& quads,
+        void UploadMesh(const VoxelCoord& coord, const TArray<PackedQuad>& quads,
                         f32 voxelSize, const VoxelOverride& voxels);
         void EnsureSharedGeometry();
         void PruneMissing(const VoxelOverride& voxels);

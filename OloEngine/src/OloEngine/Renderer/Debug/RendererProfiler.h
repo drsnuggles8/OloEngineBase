@@ -5,13 +5,271 @@
 #include "OloEngine/Renderer/RendererAPI.h" // ParallelRecordingFrameStats (issue #806)
 #include <imgui.h>
 #include <string>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/String.h"
 #include <unordered_map>
 #include <chrono>
 #include <array>
 
 namespace OloEngine
 {
+    struct RendererProfilerFrameData
+    {
+        f64 m_FrameTime = 0.0;
+        f64 m_CPUTime = 0.0;
+        f64 m_GPUTime = 0.0;
+        f64 m_GPUWaitTime = 0.0;
+        u32 m_DrawCalls = 0;
+        u32 m_StateChanges = 0;
+        u32 m_ShaderBinds = 0;
+        u32 m_TextureBinds = 0;
+        u32 m_BufferBinds = 0;
+        u32 m_VerticesRendered = 0;
+        u32 m_TrianglesRendered = 0;
+        u32 m_CommandPackets = 0;
+        f64 m_SortingTime = 0.0;
+        f64 m_CullingTime = 0.0;
+        u32 m_InstancedDrawCalls = 0;
+        u32 m_InstancesRendered = 0;
+        u32 m_InstancesBatched = 0;
+        GPUSceneFrameStats m_GPUScene;
+        // This frame's GPU Scene draw links (issue #994), in two pairs
+        // because they answer different questions.
+        //
+        // Resolved/unresolved is EXTRACTION health: how many links found a
+        // committed record. Consumed/fallback is CONSUMPTION: how many
+        // draws actually rendered through one. They are not the same
+        // number — a resolved link is dropped when CommandBucket
+        // auto-batches the draw, and a draw submitted to several passes
+        // consumes once per pass. A migrated path that silently stops
+        // consuming records still renders correctly, so the consumption
+        // pair is what has to be visible for the migration to stay
+        // migrated.
+        u32 m_GPUSceneLinkedDraws = 0;
+        u32 m_GPUSceneUnlinkedDraws = 0;
+        u32 m_GPUSceneConsumedDraws = 0;
+        u32 m_GPUSceneFallbackDraws = 0;
+        // The parallel command recorder's telemetry for this frame (issue
+        // #806, ADR 0011 amendment (92)). Pulled from the backend once per
+        // frame in EndFrame(). All zero on OpenGL, whose facade default
+        // reports nothing; on Vulkan with OLO_VK_PARALLEL_RECORDING off
+        // only InlineRegions counts.
+        RendererAPI::ParallelRecordingFrameStats m_ParallelRecording;
+        // The async-compute queue's telemetry for this frame (issue #808),
+        // pulled at the same point and for the same reason. All zero on
+        // OpenGL and on a Vulkan device with no compute-only queue family;
+        // there, BatchesDeclined counts the batches that stayed on the
+        // graphics queue and DeclineReason says why.
+        RendererAPI::AsyncComputeFrameStats m_AsyncCompute;
+
+        void Reset();
+    };
+
+    // Each owned allocation moves independently; records hold no interior pointers.
+    template<>
+    struct TIsTriviallyRelocatable<RendererProfilerFrameData>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_FrameTime)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_CPUTime)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_GPUTime)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_GPUWaitTime)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_DrawCalls)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_StateChanges)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_ShaderBinds)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_TextureBinds)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_BufferBinds)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_VerticesRendered)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_TrianglesRendered)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_CommandPackets)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_SortingTime)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_CullingTime)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_InstancedDrawCalls)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_InstancesRendered)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_InstancesBatched)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_GPUScene)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_GPUSceneLinkedDraws)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_GPUSceneUnlinkedDraws)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_GPUSceneConsumedDraws)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_GPUSceneFallbackDraws)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_ParallelRecording)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_AsyncCompute)>::Value;
+    };
+
+    struct RendererProfilerBottleneckInfo
+    {
+        enum Type
+        {
+            CPU_Bound,
+            GPU_Bound,
+            Memory_Bound,
+            IO_Bound,
+            Balanced
+        } m_Type;
+        f32 m_Confidence = 0.0f; // 0.0 to 1.0
+        FString m_Description;
+        TArray<FString> m_Recommendations;
+    };
+
+    // Each owned allocation moves independently; records hold no interior pointers.
+    template<>
+    struct TIsTriviallyRelocatable<RendererProfilerBottleneckInfo>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(RendererProfilerBottleneckInfo::m_Type)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerBottleneckInfo::m_Confidence)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerBottleneckInfo::m_Description)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerBottleneckInfo::m_Recommendations)>::Value;
+    };
+
+    struct RendererProfilerDrawCallInfo
+    {
+        FString m_Name;
+        FString m_ShaderName;
+        u32 m_VertexCount = 0;
+        u32 m_IndexCount = 0;
+        f64 m_CPUTime = 0.0;
+        f64 m_GPUTime = 0.0;
+        sizet m_TextureMemory = 0;
+        sizet m_BufferMemory = 0;
+        bool m_IsCulled = false;
+    };
+
+    // Each owned allocation moves independently; records hold no interior pointers.
+    template<>
+    struct TIsTriviallyRelocatable<RendererProfilerDrawCallInfo>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(RendererProfilerDrawCallInfo::m_Name)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerDrawCallInfo::m_ShaderName)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerDrawCallInfo::m_VertexCount)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerDrawCallInfo::m_IndexCount)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerDrawCallInfo::m_CPUTime)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerDrawCallInfo::m_GPUTime)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerDrawCallInfo::m_TextureMemory)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerDrawCallInfo::m_BufferMemory)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerDrawCallInfo::m_IsCulled)>::Value;
+    };
+
+    struct RendererProfilerInstancedDrawRecord
+    {
+        u64 m_MeshHandle = 0;
+        u32 m_VertexArrayID = 0;
+        u32 m_IndexCount = 0;
+        u32 m_InstanceCount = 0;
+        TArray<i32> m_EntityIDs;         // Per-instance source entity IDs (size == m_InstanceCount when populated).
+        bool m_FromAutoBatching = false; // true: collapsed by CommandBucket from N DrawMeshCommands;
+                                         // false: explicit InstancedMeshComponent submission.
+        // Free-form label for *which* renderer pipeline emitted this
+        // draw — lets the UI / clipboard report distinguish "Scene"
+        // (main CommandDispatch::DrawMeshInstanced) from "Scene (GPU
+        // cull)" (the indirect-draw branch) or "Shadow CSM cascade 0"
+        // (ShadowRenderPass auto-batched casters). Defaults to "Scene"
+        // so the existing call sites stay unchanged.
+        FString m_Source = "Scene";
+    };
+
+    // Each owned allocation moves independently; records hold no interior pointers.
+    template<>
+    struct TIsTriviallyRelocatable<RendererProfilerInstancedDrawRecord>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(RendererProfilerInstancedDrawRecord::m_MeshHandle)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerInstancedDrawRecord::m_VertexArrayID)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerInstancedDrawRecord::m_IndexCount)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerInstancedDrawRecord::m_InstanceCount)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerInstancedDrawRecord::m_EntityIDs)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerInstancedDrawRecord::m_FromAutoBatching)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerInstancedDrawRecord::m_Source)>::Value;
+    };
+
+    struct RendererProfilerRenderPassInfo
+    {
+        FString m_Name;
+        f64 m_StartTime = 0.0;
+        f64 m_Duration = 0.0;
+        u32 m_DrawCallCount = 0;
+        TArray<RendererProfilerDrawCallInfo> m_DrawCalls;
+        sizet m_MemoryUsed = 0;
+    };
+
+    // Each owned allocation moves independently; records hold no interior pointers.
+    template<>
+    struct TIsTriviallyRelocatable<RendererProfilerRenderPassInfo>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(RendererProfilerRenderPassInfo::m_Name)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerRenderPassInfo::m_StartTime)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerRenderPassInfo::m_Duration)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerRenderPassInfo::m_DrawCallCount)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerRenderPassInfo::m_DrawCalls)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerRenderPassInfo::m_MemoryUsed)>::Value;
+    };
+
+    struct RendererProfilerCapturedFrame
+    {
+        u32 m_FrameNumber = 0;
+        f64 m_Timestamp = 0.0;
+        RendererProfilerFrameData m_FrameData;
+        TArray<RendererProfilerRenderPassInfo> m_RenderPasses;
+        RendererProfilerBottleneckInfo m_BottleneckAnalysis;
+        FString m_Notes; // User can add notes about why this frame was captured
+    };
+
+    // Each owned allocation moves independently; records hold no interior pointers.
+    template<>
+    struct TIsTriviallyRelocatable<RendererProfilerCapturedFrame>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(RendererProfilerCapturedFrame::m_FrameNumber)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerCapturedFrame::m_Timestamp)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerCapturedFrame::m_FrameData)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerCapturedFrame::m_RenderPasses)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerCapturedFrame::m_BottleneckAnalysis)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerCapturedFrame::m_Notes)>::Value;
+    };
+
+    struct RendererProfilerOptimizationPriority
+    {
+        enum Severity
+        {
+            Critical,
+            High,
+            Medium,
+            Low
+        };
+        Severity m_Severity;
+        FString m_Issue;
+        FString m_Solution;
+        f32 m_ExpectedGain; // Estimated FPS improvement
+    };
+
+    // Each owned allocation moves independently; records hold no interior pointers.
+    template<>
+    struct TIsTriviallyRelocatable<RendererProfilerOptimizationPriority>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(RendererProfilerOptimizationPriority::m_Severity)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerOptimizationPriority::m_Issue)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerOptimizationPriority::m_Solution)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerOptimizationPriority::m_ExpectedGain)>::Value;
+    };
+
+    struct RendererProfilerShipReadinessReport
+    {
+        f32 m_OverallScore; // 0-100
+        bool m_ReadyForShipping;
+        TArray<FString> m_CriticalIssues;
+        TArray<FString> m_Recommendations;
+        f32 m_AverageFrameRate;
+        f32 m_WorstCaseFrameRate;
+    };
+
+    // Each owned allocation moves independently; records hold no interior pointers.
+    template<>
+    struct TIsTriviallyRelocatable<RendererProfilerShipReadinessReport>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(RendererProfilerShipReadinessReport::m_OverallScore)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerShipReadinessReport::m_ReadyForShipping)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerShipReadinessReport::m_CriticalIssues)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerShipReadinessReport::m_Recommendations)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerShipReadinessReport::m_AverageFrameRate)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerShipReadinessReport::m_WorstCaseFrameRate)>::Value;
+    };
+
     // @brief Performance profiler specifically for renderer operations
     //
     // Tracks frame timing, draw calls, state changes, and provides
@@ -50,7 +308,7 @@ namespace OloEngine
             ~ProfileScope();
 
           private:
-            std::string m_Name;
+            FString m_Name;
             MetricType m_Type;
             std::chrono::high_resolution_clock::time_point m_StartTime;
         };
@@ -65,7 +323,7 @@ namespace OloEngine
 
             // Ring buffer for history (2 seconds at 60fps)
             static constexpr u32 OLO_HISTORY_SIZE = 120;
-            std::vector<f32> m_History;
+            TArray<f32> m_History;
             u32 m_HistoryIndex = 0;
             u32 m_HistoryCount = 0; // Tracks how many valid samples we have
 
@@ -74,131 +332,33 @@ namespace OloEngine
 
             // Helper method to get history in chronological order (oldest to newest)
             // Useful for display purposes like ImGui::PlotLines
-            void GetHistoryInOrder(std::vector<f32>& outHistory) const;
+            void GetHistoryInOrder(TArray<f32>& outHistory) const;
         };
 
         // Frame performance data
-        struct FrameData
-        {
-            f64 m_FrameTime = 0.0;
-            f64 m_CPUTime = 0.0;
-            f64 m_GPUTime = 0.0;
-            f64 m_GPUWaitTime = 0.0;
-            u32 m_DrawCalls = 0;
-            u32 m_StateChanges = 0;
-            u32 m_ShaderBinds = 0;
-            u32 m_TextureBinds = 0;
-            u32 m_BufferBinds = 0;
-            u32 m_VerticesRendered = 0;
-            u32 m_TrianglesRendered = 0;
-            u32 m_CommandPackets = 0;
-            f64 m_SortingTime = 0.0;
-            f64 m_CullingTime = 0.0;
-            u32 m_InstancedDrawCalls = 0;
-            u32 m_InstancesRendered = 0;
-            u32 m_InstancesBatched = 0;
-            GPUSceneFrameStats m_GPUScene;
-            // This frame's GPU Scene draw links (issue #994), in two pairs
-            // because they answer different questions.
-            //
-            // Resolved/unresolved is EXTRACTION health: how many links found a
-            // committed record. Consumed/fallback is CONSUMPTION: how many
-            // draws actually rendered through one. They are not the same
-            // number — a resolved link is dropped when CommandBucket
-            // auto-batches the draw, and a draw submitted to several passes
-            // consumes once per pass. A migrated path that silently stops
-            // consuming records still renders correctly, so the consumption
-            // pair is what has to be visible for the migration to stay
-            // migrated.
-            u32 m_GPUSceneLinkedDraws = 0;
-            u32 m_GPUSceneUnlinkedDraws = 0;
-            u32 m_GPUSceneConsumedDraws = 0;
-            u32 m_GPUSceneFallbackDraws = 0;
-            // The parallel command recorder's telemetry for this frame (issue
-            // #806, ADR 0011 amendment (92)). Pulled from the backend once per
-            // frame in EndFrame(). All zero on OpenGL, whose facade default
-            // reports nothing; on Vulkan with OLO_VK_PARALLEL_RECORDING off
-            // only InlineRegions counts.
-            RendererAPI::ParallelRecordingFrameStats m_ParallelRecording;
-            // The async-compute queue's telemetry for this frame (issue #808),
-            // pulled at the same point and for the same reason. All zero on
-            // OpenGL and on a Vulkan device with no compute-only queue family;
-            // there, BatchesDeclined counts the batches that stayed on the
-            // graphics queue and DeclineReason says why.
-            RendererAPI::AsyncComputeFrameStats m_AsyncCompute;
-
-            void Reset();
-        };
+        using FrameData = RendererProfilerFrameData;
 
         // Bottleneck analysis
-        struct BottleneckInfo
-        {
-            enum Type
-            {
-                CPU_Bound,
-                GPU_Bound,
-                Memory_Bound,
-                IO_Bound,
-                Balanced
-            } m_Type;
-            f32 m_Confidence = 0.0f; // 0.0 to 1.0
-            std::string m_Description;
-            std::vector<std::string> m_Recommendations;
-        };
+        using BottleneckInfo = RendererProfilerBottleneckInfo;
 
         // Frame capture for detailed analysis
-        struct DrawCallInfo
-        {
-            std::string m_Name;
-            std::string m_ShaderName;
-            u32 m_VertexCount = 0;
-            u32 m_IndexCount = 0;
-            f64 m_CPUTime = 0.0;
-            f64 m_GPUTime = 0.0;
-            sizet m_TextureMemory = 0;
-            sizet m_BufferMemory = 0;
-            bool m_IsCulled = false;
-        };
+        using DrawCallInfo = RendererProfilerDrawCallInfo;
 
         // Per-draw record of an instanced submission — what mesh, how many
         // instances, which entity IDs collapsed into that single call. Populated
         // by the dispatcher when `m_RecordInstancedDraws` is on and cleared at
         // BeginFrame. Lets the UI answer "which entities batched together this
         // frame?" without touching the heavier frame-capture state machine.
-        struct InstancedDrawRecord
-        {
-            u64 m_MeshHandle = 0;
-            u32 m_VertexArrayID = 0;
-            u32 m_IndexCount = 0;
-            u32 m_InstanceCount = 0;
-            std::vector<i32> m_EntityIDs;    // Per-instance source entity IDs (size == m_InstanceCount when populated).
-            bool m_FromAutoBatching = false; // true: collapsed by CommandBucket from N DrawMeshCommands;
-                                             // false: explicit InstancedMeshComponent submission.
-            // Free-form label for *which* renderer pipeline emitted this
-            // draw — lets the UI / clipboard report distinguish "Scene"
-            // (main CommandDispatch::DrawMeshInstanced) from "Scene (GPU
-            // cull)" (the indirect-draw branch) or "Shadow CSM cascade 0"
-            // (ShadowRenderPass auto-batched casters). Defaults to "Scene"
-            // so the existing call sites stay unchanged.
-            std::string m_Source = "Scene";
-        };
+        using InstancedDrawRecord = RendererProfilerInstancedDrawRecord;
 
-        struct RenderPassInfo
-        {
-            std::string m_Name;
-            f64 m_StartTime = 0.0;
-            f64 m_Duration = 0.0;
-            u32 m_DrawCallCount = 0;
-            std::vector<DrawCallInfo> m_DrawCalls;
-            sizet m_MemoryUsed = 0;
-        };
+        using RenderPassInfo = RendererProfilerRenderPassInfo;
 
         // Workers only append to their own record. The render thread publishes
         // counters and records in item order after every worker has joined.
         struct RecordingStats
         {
             std::array<u32, static_cast<sizet>(MetricType::COUNT)> Counters{};
-            std::vector<InstancedDrawRecord> InstancedDraws;
+            TArray<InstancedDrawRecord> InstancedDraws;
             void Reset();
             void Publish();
         };
@@ -215,15 +375,7 @@ namespace OloEngine
             RecordingStats* m_Previous;
         };
 
-        struct CapturedFrame
-        {
-            u32 m_FrameNumber = 0;
-            f64 m_Timestamp = 0.0;
-            FrameData m_FrameData;
-            std::vector<RenderPassInfo> m_RenderPasses;
-            BottleneckInfo m_BottleneckAnalysis;
-            std::string m_Notes; // User can add notes about why this frame was captured
-        };
+        using CapturedFrame = RendererProfilerCapturedFrame;
 
       public:
         static RendererProfiler& GetInstance();
@@ -356,13 +508,13 @@ namespace OloEngine
         {
             return m_RecordInstancedDraws;
         }
-        [[nodiscard]] const std::vector<InstancedDrawRecord>& GetInstancedDrawRecords() const
+        [[nodiscard]] const TArray<InstancedDrawRecord>& GetInstancedDrawRecords() const
         {
             return m_InstancedDrawRecords;
         }
 
         // @brief Get captured frames for analysis
-        const std::vector<CapturedFrame>& GetCapturedFrames() const
+        const TArray<CapturedFrame>& GetCapturedFrames() const
         {
             return m_CapturedFrames;
         }
@@ -372,24 +524,24 @@ namespace OloEngine
         // slot, i.e. the oldest entry), so rotate it the same way RenderUI does.
         // Returns a copy so callers reading off the render thread (e.g. the MCP
         // diagnostics server, #285, via a main-thread marshal) get a stable snapshot.
-        [[nodiscard]] std::vector<FrameData> GetFrameHistoryCopy() const
+        [[nodiscard]] TArray<FrameData> GetFrameHistoryCopy() const
         {
-            const std::size_t n = m_FrameHistory.size();
-            std::vector<FrameData> ordered;
-            ordered.reserve(n);
+            const std::size_t n = m_FrameHistory.Num();
+            TArray<FrameData> ordered;
+            ordered.Reserve(static_cast<i32>(n));
             for (std::size_t i = 0; i < n; ++i)
-                ordered.push_back(m_FrameHistory[(m_HistoryIndex + i) % n]);
+                ordered.Add(m_FrameHistory[(m_HistoryIndex + i) % n]);
             return ordered;
         }
 
         // @brief Clear captured frames
         void ClearCapturedFrames()
         {
-            m_CapturedFrames.clear();
+            m_CapturedFrames.Reset();
         }
 
         // @brief Compare two captured frames
-        std::string CompareFrames(const CapturedFrame& frame1, const CapturedFrame& frame2) const;
+        FString CompareFrames(const CapturedFrame& frame1, const CapturedFrame& frame2) const;
 
         // @brief Export performance data to CSV
         bool ExportToCSV(const std::string& filePath) const;
@@ -401,32 +553,11 @@ namespace OloEngine
         f32 GetPerformanceHealthScore() const;
 
         // @brief Get optimization priority list for game developers
-        struct OptimizationPriority
-        {
-            enum Severity
-            {
-                Critical,
-                High,
-                Medium,
-                Low
-            };
-            Severity m_Severity;
-            std::string m_Issue;
-            std::string m_Solution;
-            f32 m_ExpectedGain; // Estimated FPS improvement
-        };
-        std::vector<OptimizationPriority> GetOptimizationPriorities() const;
+        using OptimizationPriority = RendererProfilerOptimizationPriority;
+        TArray<OptimizationPriority> GetOptimizationPriorities() const;
 
         // @brief Generate ship readiness report
-        struct ShipReadinessReport
-        {
-            f32 m_OverallScore; // 0-100
-            bool m_ReadyForShipping;
-            std::vector<std::string> m_CriticalIssues;
-            std::vector<std::string> m_Recommendations;
-            f32 m_AverageFrameRate;
-            f32 m_WorstCaseFrameRate;
-        };
+        using ShipReadinessReport = RendererProfilerShipReadinessReport;
         ShipReadinessReport GenerateShipReadinessReport() const;
 
       private:
@@ -443,13 +574,13 @@ namespace OloEngine
         void RenderInstancedDrawsTab();
 
         // Helper methods
-        std::string GetMetricTypeName(MetricType type) const;
-        std::string GetMetricTypeUnit(MetricType type) const;
+        std::string_view GetMetricTypeName(MetricType type) const;
+        std::string_view GetMetricTypeUnit(MetricType type) const;
         ImVec4 GetMetricTypeColor(MetricType type) const;
         f32 CalculateFrameRate() const;
         f32 CalculateAverageFrameTime() const;
         // Frame capture state
-        std::vector<CapturedFrame> m_CapturedFrames;
+        TArray<CapturedFrame> m_CapturedFrames;
         bool m_CapturingFrame = false;
         RenderPassInfo* m_CurrentRenderPass = nullptr;
         u32 m_FrameNumber = 0;
@@ -460,7 +591,7 @@ namespace OloEngine
         // here per glDrawElementsInstanced — the UI then shows the entity ID
         // list per call so authors can see exactly which entities batched
         // together. Cleared every BeginFrame() to bound memory.
-        std::vector<InstancedDrawRecord> m_InstancedDrawRecords;
+        TArray<InstancedDrawRecord> m_InstancedDrawRecords;
         bool m_RecordInstancedDraws = false;
 
         // Data storage
@@ -472,7 +603,7 @@ namespace OloEngine
 
         // History tracking
         static constexpr u32 OLO_FRAME_HISTORY_SIZE = 300; // 5 seconds at 60fps
-        std::vector<FrameData> m_FrameHistory;
+        TArray<FrameData> m_FrameHistory;
         u32 m_HistoryIndex = 0;
         u32 m_LastWrittenHistoryIndex = 0; // slot EndFrame() last wrote; patched in place by the next BeginFrame()
 

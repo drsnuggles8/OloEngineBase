@@ -209,12 +209,13 @@ namespace OloEngine
 
         // Nodes
         out << YAML::Key << "Nodes" << YAML::Value << YAML::BeginSeq;
-        for (const auto& node : dialogueAsset->m_Nodes)
+        for (auto* entry = dialogueAsset->m_Nodes.GetHead(); entry; entry = entry->GetNextNode())
         {
+            const auto& node = entry->GetValue();
             out << YAML::BeginMap;
             out << YAML::Key << "ID" << YAML::Value << node.ID;
-            out << YAML::Key << "Type" << YAML::Value << node.Type;
-            out << YAML::Key << "Name" << YAML::Value << node.Name;
+            out << YAML::Key << "Type" << YAML::Value << node.Type.ToStdString();
+            out << YAML::Key << "Name" << YAML::Value << node.Name.ToStdString();
             out << YAML::Key << "EditorPosition" << YAML::Value << YAML::Flow << YAML::BeginSeq
                 << node.EditorPosition.x << node.EditorPosition.y << YAML::EndSeq;
 
@@ -242,8 +243,8 @@ namespace OloEngine
             out << YAML::BeginMap;
             out << YAML::Key << "SourceNodeID" << YAML::Value << conn.SourceNodeID;
             out << YAML::Key << "TargetNodeID" << YAML::Value << conn.TargetNodeID;
-            out << YAML::Key << "SourcePort" << YAML::Value << conn.SourcePort;
-            out << YAML::Key << "TargetPort" << YAML::Value << conn.TargetPort;
+            out << YAML::Key << "SourcePort" << YAML::Value << conn.SourcePort.ToStdString();
+            out << YAML::Key << "TargetPort" << YAML::Value << conn.TargetPort.ToStdString();
             out << YAML::EndMap;
         }
         out << YAML::EndSeq;
@@ -284,8 +285,8 @@ namespace OloEngine
         }
 
         UUID localRootID;
-        std::vector<DialogueNodeData> localNodes;
-        std::vector<DialogueConnection> localConnections;
+        TDoubleLinkedList<DialogueNodeData> localNodes;
+        TArray<DialogueConnection> localConnections;
 
         try
         {
@@ -365,7 +366,7 @@ namespace OloEngine
                             else
                             {
                                 OLO_CORE_WARN("DialogueTreeSerializer - Skipping property '{}' on node {} ('{}'): unexpected value shape (expected a scalar or a map with 'type'/'value' keys)",
-                                              propKey, static_cast<u64>(node.ID), node.Name);
+                                              propKey, static_cast<u64>(node.ID), node.Name.ToView());
                             }
                         }
                         catch (const YAML::Exception& e)
@@ -375,7 +376,7 @@ namespace OloEngine
                     }
                 }
 
-                localNodes.push_back(std::move(node));
+                localNodes.AddTail(std::move(node));
             }
         }
 
@@ -422,7 +423,7 @@ namespace OloEngine
                     return false;
                 }
 
-                localConnections.push_back(std::move(conn));
+                localConnections.Add(std::move(conn));
             }
         }
 

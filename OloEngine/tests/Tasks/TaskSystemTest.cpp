@@ -10,6 +10,7 @@
 
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
+#include <vector>
 
 #include "OloEngine/Task/Task.h"
 #include "OloEngine/Task/Pipe.h"
@@ -1181,14 +1182,15 @@ TEST_F(LowLevelTaskUserDataTest, ConcurrencyLimiterSimulation)
     std::atomic<bool> AnyFailure{ false };
 
     TLockFreePointerListFIFO<LowLevelTasks::FTask, OLO_PLATFORM_CACHE_LINE_SIZE> WorkQueue;
-    TArray<TSharedPtr<LowLevelTasks::FTask>> Tasks;
-    Tasks.Reserve(NumTasks);
+    // TSharedPtr wraps std::shared_ptr and requires normal move construction.
+    std::vector<TSharedPtr<LowLevelTasks::FTask>> Tasks;
+    Tasks.reserve(NumTasks);
 
     // Create and queue all tasks (similar to Push)
     for (u32 i = 0; i < NumTasks; ++i)
     {
         TSharedPtr<LowLevelTasks::FTask> Task = MakeShared<LowLevelTasks::FTask>();
-        Tasks.Add(Task);
+        Tasks.push_back(Task);
 
         Task->Init("SimTask", LowLevelTasks::ETaskPriority::Default,
                    [&CompletedCount, &AnyFailure, Task, MaxConcurrency]()

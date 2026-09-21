@@ -1,9 +1,9 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Containers/Array.h"
 
 #include <glm/glm.hpp>
-#include <vector>
 
 namespace OloEngine
 {
@@ -29,7 +29,14 @@ namespace OloEngine
     struct ModuleSubEmitter
     {
         bool Enabled = false;
-        std::vector<SubEmitterEntry> Entries;
+        TArray<SubEmitterEntry> Entries;
+    };
+
+    template<>
+    struct TIsTriviallyRelocatable<ModuleSubEmitter>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(ModuleSubEmitter::Enabled)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ModuleSubEmitter::Entries)>::Value;
     };
 
     // Structure to pass from parent to child when a sub-emitter triggers

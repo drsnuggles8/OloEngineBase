@@ -161,8 +161,8 @@ namespace OloEngine
         ~TDeque()
         {
             // UE guards TDeque with the same assert (Containers/Deque.h).
-            OLO_STATIC_ASSERT_WARN(TIsTriviallyRelocatable_V<InElementType>,
-                                   "This container can only be used with trivially relocatable types");
+            static_assert(TIsTriviallyRelocatable_V<InElementType>,
+                          "This container can only be used with trivially relocatable types");
 
             Empty();
         }
@@ -688,4 +688,14 @@ namespace OloEngine
         SizeType m_Tail = 0;
     };
 
+} // namespace OloEngine
+
+namespace OloEngine
+{
+    // No pointer into the container object; inline storage is checked by policy.
+    template<typename T, typename A>
+    struct TIsTriviallyRelocatable<TDeque<T, A>>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable_V<T> && TIsContainerAllocatorRelocatable<A>::Value;
+    };
 } // namespace OloEngine

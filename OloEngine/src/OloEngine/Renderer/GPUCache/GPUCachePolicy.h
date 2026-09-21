@@ -5,7 +5,7 @@
 #include <concepts>
 #include <limits>
 #include <utility>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -47,8 +47,8 @@ namespace OloEngine
 
         explicit LRUPolicy(u32 capacity)
         {
-            m_Nodes.reserve(capacity);
-            m_FreeList.reserve(capacity);
+            m_Nodes.Reserve(capacity);
+            m_FreeList.Reserve(capacity);
         }
 
         void OnAccess(Handle& handle) noexcept
@@ -75,7 +75,7 @@ namespace OloEngine
                 return;
             }
             RemoveNode(handle.m_Index);
-            m_FreeList.push_back(handle.m_Index);
+            m_FreeList.Add(handle.m_Index);
             handle.m_Index = kNullIndex;
         }
 
@@ -102,19 +102,19 @@ namespace OloEngine
 
         [[nodiscard]] bool IsValid(Index i) const noexcept
         {
-            return i != kNullIndex && i < m_Nodes.size();
+            return i != kNullIndex && i < static_cast<sizet>(m_Nodes.Num());
         }
 
         [[nodiscard]] Index AllocateNode() noexcept
         {
-            if (!m_FreeList.empty())
+            if (!m_FreeList.IsEmpty())
             {
-                const Index idx = m_FreeList.back();
-                m_FreeList.pop_back();
+                const Index idx = m_FreeList.Last();
+                m_FreeList.Pop(EAllowShrinking::No);
                 return idx;
             }
-            m_Nodes.emplace_back();
-            return static_cast<Index>(m_Nodes.size() - 1);
+            m_Nodes.Emplace();
+            return static_cast<Index>(static_cast<sizet>(m_Nodes.Num()) - 1);
         }
 
         void InsertFront(Index idx) noexcept
@@ -166,8 +166,8 @@ namespace OloEngine
             InsertFront(idx);
         }
 
-        std::vector<Node> m_Nodes;
-        std::vector<Index> m_FreeList;
+        TArray<Node> m_Nodes;
+        TArray<Index> m_FreeList;
         Index m_Head = kNullIndex;
         Index m_Tail = kNullIndex;
     };
@@ -219,13 +219,13 @@ namespace OloEngine
 
         explicit ClockPolicy(u32 capacity)
         {
-            m_Entries.reserve(capacity);
-            m_FreeList.reserve(capacity);
+            m_Entries.Reserve(capacity);
+            m_FreeList.Reserve(capacity);
         }
 
         void OnAccess(Handle& handle) noexcept
         {
-            OLO_CORE_ASSERT(handle.m_Index != kNullIndex && handle.m_Index < m_Entries.size() &&
+            OLO_CORE_ASSERT(handle.m_Index != kNullIndex && handle.m_Index < static_cast<sizet>(m_Entries.Num()) &&
                                 m_Entries[handle.m_Index].m_Live,
                             "ClockPolicy::OnAccess on an invalid handle");
             m_Entries[handle.m_Index].m_Referenced = true;
@@ -234,15 +234,15 @@ namespace OloEngine
         [[nodiscard]] Handle OnInsert(const ObjectID& id) noexcept
         {
             Index idx;
-            if (!m_FreeList.empty())
+            if (!m_FreeList.IsEmpty())
             {
-                idx = m_FreeList.back();
-                m_FreeList.pop_back();
+                idx = m_FreeList.Last();
+                m_FreeList.Pop(EAllowShrinking::No);
             }
             else
             {
-                m_Entries.emplace_back();
-                idx = static_cast<Index>(m_Entries.size() - 1);
+                m_Entries.Emplace();
+                idx = static_cast<Index>(static_cast<sizet>(m_Entries.Num()) - 1);
             }
             Entry& entry = m_Entries[idx];
             entry.m_Id = id;
@@ -254,27 +254,27 @@ namespace OloEngine
 
         void OnRemove(Handle& handle) noexcept
         {
-            if (handle.m_Index == kNullIndex || handle.m_Index >= m_Entries.size() ||
+            if (handle.m_Index == kNullIndex || handle.m_Index >= static_cast<sizet>(m_Entries.Num()) ||
                 !m_Entries[handle.m_Index].m_Live)
             {
                 return;
             }
             m_Entries[handle.m_Index].m_Live = false;
-            m_FreeList.push_back(handle.m_Index);
+            m_FreeList.Add(handle.m_Index);
             --m_LiveCount;
             handle.m_Index = kNullIndex;
         }
 
         [[nodiscard]] bool TrySelectVictim(const ObjectID& exclude, ObjectID& outVictim) noexcept
         {
-            if (m_LiveCount == 0 || m_Entries.empty())
+            if (m_LiveCount == 0 || m_Entries.IsEmpty())
             {
                 return false;
             }
             // Two full sweeps suffice: the first clears every referenced bit the
             // hand passes, so the second must find an unreferenced entry —
             // unless every live entry is the excluded object.
-            const sizet entryCount = m_Entries.size();
+            const sizet entryCount = static_cast<sizet>(m_Entries.Num());
             for (sizet step = 0; step < entryCount * 2; ++step)
             {
                 Entry& entry = m_Entries[m_Hand];
@@ -302,8 +302,8 @@ namespace OloEngine
             bool m_Live = false;
         };
 
-        std::vector<Entry> m_Entries;
-        std::vector<Index> m_FreeList;
+        TArray<Entry> m_Entries;
+        TArray<Index> m_FreeList;
         sizet m_Hand = 0;
         sizet m_LiveCount = 0;
     };

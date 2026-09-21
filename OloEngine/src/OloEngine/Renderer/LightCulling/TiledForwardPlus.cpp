@@ -58,9 +58,9 @@ namespace OloEngine
         }
     }
 
-    void TiledForwardPlus::SetLights(const std::vector<GPUPointLight>& pointLights,
-                                     const std::vector<GPUSpotLight>& spotLights,
-                                     const std::vector<GPUSphereAreaLight>& sphereAreaLights)
+    void TiledForwardPlus::SetLights(std::span<const GPUPointLight> pointLights,
+                                     std::span<const GPUSpotLight> spotLights,
+                                     std::span<const GPUSphereAreaLight> sphereAreaLights)
     {
         OLO_PROFILE_FUNCTION();
 

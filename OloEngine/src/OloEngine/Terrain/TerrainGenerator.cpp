@@ -13,10 +13,16 @@
 #include <cmath>
 #include <limits>
 #include <utility>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
+    struct TerrainMaskedFloor
+    {
+        sizet first;
+        f32 second;
+    };
+
     // Upper bound on heightmap / splatmap edge length — guards against a
     // corrupt resolution from a save file or scene triggering a huge allocation.
     static constexpr u32 kMaxTerrainResolution = 4096u;
@@ -203,7 +209,7 @@ namespace OloEngine
         return std::clamp((base + stepped) / s, 0.0f, 1.0f);
     }
 
-    void TerrainGenerator::GenerateHeightField(std::vector<f32>& outHeights, const HeightParams& params)
+    void TerrainGenerator::GenerateHeightField(TArray<f32>& outHeights, const HeightParams& params)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -211,7 +217,7 @@ namespace OloEngine
         // can't trigger a multi-GB allocation.
         const u32 resolution = std::clamp(params.Resolution, 2u, kMaxTerrainResolution);
         const sizet totalPixels = static_cast<sizet>(resolution) * resolution;
-        outHeights.resize(totalPixels);
+        outHeights.SetNum(totalPixels, EAllowShrinking::No);
 
         const TerrainHeightShaping& sh = params.Shaping;
         // Derive bounded noise offsets from the seed. A naive `seed * k` offset
@@ -286,7 +292,7 @@ namespace OloEngine
         }
         else
         {
-            std::fill(outHeights.begin(), outHeights.end(), 0.0f);
+            std::fill(outHeights.GetData(), outHeights.GetData() + outHeights.Num(), 0.0f);
         }
 
         // Radial island mask (issue #880) — applied on the normalized field and
@@ -369,7 +375,7 @@ namespace OloEngine
             // Only where the mask is zero. The ramp and the interior are
             // deliberately left as erosion left them: reshaping a slope is what
             // erosion is for.
-            std::vector<std::pair<sizet, f32>> maskedFloor;
+            TArray<TerrainMaskedFloor> maskedFloor;
             if (applyIslandMask)
             {
                 for (u32 z = 0; z < resolution; ++z)
@@ -379,7 +385,7 @@ namespace OloEngine
                         if (islandMaskAt(x, z) > 0.0f)
                             continue;
                         const sizet idx = static_cast<sizet>(z) * resolution + x;
-                        maskedFloor.emplace_back(idx, outHeights[idx]);
+                        maskedFloor.Emplace(idx, outHeights[idx]);
                     }
                 }
             }
@@ -396,11 +402,11 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         const u32 resolution = std::max(params.Resolution, 2u);
-        std::vector<f32> heights;
+        TArray<f32> heights;
         GenerateHeightField(heights, params);
-        const auto [minIt, maxIt] = std::minmax_element(heights.begin(), heights.end());
-        const f32 hMin = heights.empty() ? 0.0f : *minIt;
-        const f32 hMax = heights.empty() ? 0.0f : *maxIt;
+        const auto [minIt, maxIt] = std::minmax_element(heights.GetData(), heights.GetData() + heights.Num());
+        const f32 hMin = heights.IsEmpty() ? 0.0f : *minIt;
+        const f32 hMax = heights.IsEmpty() ? 0.0f : *maxIt;
         data.SetHeights(resolution, std::move(heights));
 
         OLO_CORE_INFO("TerrainGenerator: Generated {}x{} terrain (seed={}, octaves={}, ridge={:.2f}, warp={:.2f}, terrace={}, island={:.2f}@{:.2f}, erosion={}, height=[{:.2f},{:.2f}])",
@@ -409,17 +415,17 @@ namespace OloEngine
                       params.Shaping.IslandFalloffRadius, params.ErosionIterations, hMin, hMax);
     }
 
-    void TerrainGenerator::ApplyErosion(std::vector<f32>& heights, u32 resolution, u32 iterations,
+    void TerrainGenerator::ApplyErosion(TArray<f32>& heights, u32 resolution, u32 iterations,
                                         const ErosionParams& params, i32 seed)
     {
         OLO_PROFILE_FUNCTION();
 
         if (iterations == 0 || resolution < 2)
             return;
-        if (heights.size() != static_cast<sizet>(resolution) * resolution)
+        if (heights.Num() != static_cast<sizet>(resolution) * resolution)
         {
             OLO_CORE_ERROR("TerrainGenerator::ApplyErosion - height buffer ({}) does not match resolution {}x{}",
-                           heights.size(), resolution, resolution);
+                           heights.Num(), resolution, resolution);
             return;
         }
 
@@ -470,7 +476,7 @@ namespace OloEngine
         // Pre-compute the radial erosion brush once (depends only on radius):
         // weight falls off linearly to 0 at the radius, normalized to sum to 1.
         const i32 radius = std::clamp(static_cast<i32>(params.ErosionRadius), 1, 16);
-        std::vector<ErosionBrushPoint> brush;
+        TArray<ErosionBrushPoint> brush;
         {
             f32 weightSum = 0.0f;
             for (i32 dy = -radius; dy <= radius; ++dy)
@@ -482,7 +488,7 @@ namespace OloEngine
                         continue;
                     const f32 w = std::max(0.0f, static_cast<f32>(radius) - dist);
                     weightSum += w;
-                    brush.push_back({ dx, dy, w });
+                    brush.Add({ dx, dy, w });
                 }
             }
             if (weightSum > 1e-6f)
@@ -493,7 +499,7 @@ namespace OloEngine
             }
             else
             {
-                brush.assign(1, { 0, 0, 1.0f });
+                brush.Init(ErosionBrushPoint{ 0, 0, 1.0f }, 1);
             }
         }
 
@@ -620,7 +626,7 @@ namespace OloEngine
     }
 
     void TerrainGenerator::EvaluateLayerWeights(f32 height01, f32 slopeDeg,
-                                                const std::vector<TerrainLayerRule>& rules,
+                                                const TArray<TerrainLayerRule>& rules,
                                                 std::array<f32, MAX_TERRAIN_LAYERS>& outWeights)
     {
         outWeights.fill(0.0f);
@@ -659,12 +665,12 @@ namespace OloEngine
     }
 
     void TerrainGenerator::GenerateSplatmap(TerrainMaterial& material, const TerrainData& data,
-                                            const std::vector<TerrainLayerRule>& rules, u32 splatmapResolution,
+                                            const TArray<TerrainLayerRule>& rules, u32 splatmapResolution,
                                             f32 worldSizeX, f32 worldSizeZ, f32 heightScale)
     {
         OLO_PROFILE_FUNCTION();
 
-        if (rules.empty() || data.GetResolution() == 0)
+        if (rules.IsEmpty() || data.GetResolution() == 0)
         {
             OLO_CORE_WARN("TerrainGenerator::GenerateSplatmap - no rules or empty terrain; skipping");
             return;
@@ -673,9 +679,9 @@ namespace OloEngine
         const u32 res = std::clamp(splatmapResolution, 2u, kMaxTerrainResolution);
         material.InitializeCPUSplatmaps(res);
 
-        std::vector<u8>& splat0 = material.GetSplatmapData(0);
-        std::vector<u8>& splat1 = material.GetSplatmapData(1);
-        if (splat0.size() != static_cast<sizet>(res) * res * 4 || splat1.size() != static_cast<sizet>(res) * res * 4)
+        TArray<u8>& splat0 = material.GetSplatmapData(0);
+        TArray<u8>& splat1 = material.GetSplatmapData(1);
+        if (splat0.Num() != static_cast<sizet>(res) * res * 4 || splat1.Num() != static_cast<sizet>(res) * res * 4)
         {
             OLO_CORE_ERROR("TerrainGenerator::GenerateSplatmap - splatmap buffers not allocated");
             return;
@@ -708,66 +714,66 @@ namespace OloEngine
         material.UploadSplatmapRegion(0, 0, 0, res, res);
         material.UploadSplatmapRegion(1, 0, 0, res, res);
 
-        OLO_CORE_INFO("TerrainGenerator: Auto-assigned splatmap ({}x{}, {} rules)", res, res, rules.size());
+        OLO_CORE_INFO("TerrainGenerator: Auto-assigned splatmap ({}x{}, {} rules)", res, res, rules.Num());
     }
 
-    std::vector<TerrainLayer> TerrainGenerator::MakeDefaultLayers()
+    TArray<TerrainLayer> TerrainGenerator::MakeDefaultLayers()
     {
-        std::vector<TerrainLayer> layers;
-        layers.reserve(4);
+        TArray<TerrainLayer> layers;
+        layers.Reserve(4);
 
         TerrainLayer sand;
         sand.Name = "Sand";
         sand.BaseColor = { 0.76f, 0.70f, 0.50f };
         sand.Roughness = 0.95f;
         sand.TilingScale = 16.0f;
-        layers.push_back(sand);
+        layers.Add(sand);
 
         TerrainLayer grass;
         grass.Name = "Grass";
         grass.BaseColor = { 0.28f, 0.45f, 0.17f };
         grass.Roughness = 0.9f;
         grass.TilingScale = 20.0f;
-        layers.push_back(grass);
+        layers.Add(grass);
 
         TerrainLayer rock;
         rock.Name = "Rock";
         rock.BaseColor = { 0.42f, 0.40f, 0.38f };
         rock.Roughness = 0.8f;
         rock.TilingScale = 12.0f;
-        layers.push_back(rock);
+        layers.Add(rock);
 
         TerrainLayer snow;
         snow.Name = "Snow";
         snow.BaseColor = { 0.92f, 0.93f, 0.96f };
         snow.Roughness = 0.6f;
         snow.TilingScale = 18.0f;
-        layers.push_back(snow);
+        layers.Add(snow);
 
         return layers;
     }
 
-    std::vector<TerrainLayerRule> TerrainGenerator::MakeDefaultRules()
+    TArray<TerrainLayerRule> TerrainGenerator::MakeDefaultRules()
     {
-        std::vector<TerrainLayerRule> rules;
-        rules.reserve(4);
+        TArray<TerrainLayerRule> rules;
+        rules.Reserve(4);
 
         // 0: Sand — beaches / low flats.
-        rules.push_back({ 0, 0.0f, 0.12f, 0.06f, 0.0f, 35.0f, 8.0f, 1.0f });
+        rules.Add({ 0, 0.0f, 0.12f, 0.06f, 0.0f, 35.0f, 8.0f, 1.0f });
         // 1: Grass — low-to-mid gentle slopes.
-        rules.push_back({ 1, 0.08f, 0.55f, 0.14f, 0.0f, 28.0f, 8.0f, 1.0f });
+        rules.Add({ 1, 0.08f, 0.55f, 0.14f, 0.0f, 28.0f, 8.0f, 1.0f });
         // 2: Rock — any steep slope (cliffs) at any altitude.
-        rules.push_back({ 2, 0.0f, 1.0f, 0.0f, 32.0f, 90.0f, 10.0f, 1.0f });
+        rules.Add({ 2, 0.0f, 1.0f, 0.0f, 32.0f, 90.0f, 10.0f, 1.0f });
         // 3: Snow — high altitude, not too steep.
-        rules.push_back({ 3, 0.62f, 1.0f, 0.14f, 0.0f, 50.0f, 10.0f, 1.0f });
+        rules.Add({ 3, 0.62f, 1.0f, 0.14f, 0.0f, 50.0f, 10.0f, 1.0f });
 
         return rules;
     }
 
-    std::vector<FoliageLayer> TerrainGenerator::MakeFoliageLayersFromRules(const std::vector<TerrainLayerRule>& rules)
+    TArray<FoliageLayer> TerrainGenerator::MakeFoliageLayersFromRules(const TArray<TerrainLayerRule>& rules)
     {
-        std::vector<FoliageLayer> layers;
-        layers.reserve(kDefaultFoliageProfiles.size());
+        TArray<FoliageLayer> layers;
+        layers.Reserve(kDefaultFoliageProfiles.size());
 
         for (const FoliageProfile& profile : kDefaultFoliageProfiles)
         {
@@ -834,13 +840,13 @@ namespace OloEngine
             // been placed before, so nothing moves and no id retires.
             layer.DecorrelatedVariation = true;
 
-            layers.push_back(std::move(layer));
+            layers.Add(std::move(layer));
         }
 
         return layers;
     }
 
-    std::vector<FoliageLayer> TerrainGenerator::MakeDefaultFoliageLayers()
+    TArray<FoliageLayer> TerrainGenerator::MakeDefaultFoliageLayers()
     {
         return MakeFoliageLayersFromRules(MakeDefaultRules());
     }

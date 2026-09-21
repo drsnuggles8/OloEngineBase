@@ -119,7 +119,7 @@ namespace OloEngine
         // allocate. The spatial index (rebuilt earlier this tick in
         // Scene::OnUpdateRuntime) lets each perceiver inspect only entities
         // within its sight range instead of scanning every perceptible entity.
-        std::vector<UUID> candidates;
+        TArray<UUID> candidates;
 
         for (auto perceiverId : perceivers)
         {
@@ -145,7 +145,7 @@ namespace OloEngine
             // around the eye returns a superset of the visible candidates —
             // identical results to the old full scan, but bounded by local
             // density instead of the total perceptible-entity count.
-            candidates.clear();
+            candidates.Reset();
             scene->GetSpatialIndex().QueryRadius(eye, pc.SightRange, candidates);
 
             for (UUID candidateUUID : candidates)

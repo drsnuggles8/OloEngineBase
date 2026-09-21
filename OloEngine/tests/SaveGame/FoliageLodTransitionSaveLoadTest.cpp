@@ -116,7 +116,7 @@ namespace OloEngine::Tests
             auto scene = Scene::Create();
             Entity ground = scene->CreateEntity("Meadow");
             ground.AddComponent<TerrainComponent>();
-            ground.AddComponent<FoliageComponent>().m_Layers.push_back(authored);
+            ground.AddComponent<FoliageComponent>().m_Layers.Add(authored);
             yaml = SceneSerializer(scene).SerializeToYAML();
         }
         ASSERT_FALSE(yaml.empty());
@@ -129,7 +129,7 @@ namespace OloEngine::Tests
         ASSERT_TRUE(static_cast<bool>(restored));
         ASSERT_TRUE(restored.HasComponent<FoliageComponent>());
         const auto& layers = restored.GetComponent<FoliageComponent>().m_Layers;
-        ASSERT_EQ(layers.size(), 1u);
+        ASSERT_EQ(layers.Num(), 1u);
         ExpectLodEqual(layers[0], authored);
 
         // And undo equality sees every one of them, or an inspector edit is
@@ -187,7 +187,7 @@ Entities:
         ASSERT_TRUE(static_cast<bool>(ground));
         ASSERT_TRUE(ground.HasComponent<FoliageComponent>());
         const auto& layers = ground.GetComponent<FoliageComponent>().m_Layers;
-        ASSERT_EQ(layers.size(), 1u);
+        ASSERT_EQ(layers.Num(), 1u);
         ExpectLodEqual(layers[0], FoliageLayer{});
     }
 
@@ -217,7 +217,7 @@ Entities:
           DensityLodMaxScale: .inf
 )";
         ASSERT_TRUE(SceneSerializer(scene).DeserializeFromYAML(yaml));
-        const auto& l = FindByTag(*scene, "Meadow").GetComponent<FoliageComponent>().m_Layers.at(0);
+        const auto& l = FindByTag(*scene, "Meadow").GetComponent<FoliageComponent>().m_Layers[0];
 
         EXPECT_TRUE(std::isfinite(l.LodTransitionSpread));
         EXPECT_GE(l.LodTransitionSpread, 0.0f);
@@ -234,7 +234,7 @@ Entities:
     TEST(FoliageLodTransitionSaveLoad, SaveGameRoundTripsEveryFieldAndSanitizesHostileBytes)
     {
         FoliageComponent authored;
-        authored.m_Layers.push_back(MakeAuthoredLayer());
+        authored.m_Layers.Add(MakeAuthoredLayer());
 
         std::vector<u8> bytes;
         {
@@ -251,7 +251,7 @@ Entities:
             EXPECT_FALSE(reader.IsError());
             EXPECT_TRUE(reader.AtEnd()) << "the reader and the writer disagree about the v38 band's length";
         }
-        ASSERT_EQ(loaded.m_Layers.size(), 1u);
+        ASSERT_EQ(loaded.m_Layers.Num(), 1u);
         ExpectLodEqual(loaded.m_Layers[0], authored.m_Layers[0]);
 
         // A save file is no more trusted than a .olo: the same bounds.
@@ -266,7 +266,7 @@ Entities:
             l.DensityLodMinFraction = std::numeric_limits<f32>::quiet_NaN();
             l.DensityLodFadeFraction = 42.0f;
             l.DensityLodMaxScale = -3.0f;
-            hostile.m_Layers.push_back(l);
+            hostile.m_Layers.Add(l);
         }
         std::vector<u8> poison;
         {
@@ -278,7 +278,7 @@ Entities:
         FMemoryReader reader(poison);
         reader.SetArchiveVersion(kSaveGameFormatVersion);
         SaveGameComponentSerializer::Serialize(reader, recovered);
-        ASSERT_EQ(recovered.m_Layers.size(), 1u);
+        ASSERT_EQ(recovered.m_Layers.Num(), 1u);
         const auto& r = recovered.m_Layers[0];
         EXPECT_TRUE(std::isfinite(r.LodTransitionSpread));
         EXPECT_LE(r.LodHysteresis, 0.5f);
@@ -310,7 +310,7 @@ Entities:
         SaveGameComponentSerializer::Serialize(reader, loaded);
         EXPECT_FALSE(reader.IsError());
         EXPECT_TRUE(reader.AtEnd()) << "the v38 band consumed bytes a v37 save does not contain";
-        ASSERT_EQ(loaded.m_Layers.size(), 1u);
+        ASSERT_EQ(loaded.m_Layers.Num(), 1u);
         EXPECT_FLOAT_EQ(loaded.m_Layers[0].MeshViewDistance, 44.0f);
         ExpectLodEqual(loaded.m_Layers[0], FoliageLayer{});
         EXPECT_TRUE(loaded.m_Enabled);

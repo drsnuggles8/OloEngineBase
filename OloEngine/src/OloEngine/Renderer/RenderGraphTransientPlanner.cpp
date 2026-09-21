@@ -20,7 +20,7 @@ namespace OloEngine::RenderGraphTransientPlanner
                           ":s" + std::to_string(desc.Samples) + ":q" + std::to_string(static_cast<u32>(std::to_underlying(desc.Queue)));
         // MRT: append each attachment format so MRT layouts don't alias with
         // single-attachment FBs or with each other.
-        if (!desc.Attachments.empty())
+        if (!desc.Attachments.IsEmpty())
         {
             key += ":mrt";
             for (const auto fmt : desc.Attachments)
@@ -54,7 +54,7 @@ namespace OloEngine::RenderGraphTransientPlanner
         mix(static_cast<u64>(std::to_underlying(desc.Queue)));
         // MRT formats — order matters and a sentinel separates from a non-MRT
         // descriptor that happens to have one trailing attachment.
-        if (!desc.Attachments.empty())
+        if (!desc.Attachments.IsEmpty())
         {
             mix(0xDEADBEEFCAFEBABEULL); // MRT marker
             for (const auto fmt : desc.Attachments)
@@ -97,7 +97,7 @@ namespace OloEngine::RenderGraphTransientPlanner
         const auto sampleCount = std::max(desc.Samples, 1u);
 
         // MRT: sum bytes across all attachment layers.
-        if (!desc.Attachments.empty())
+        if (!desc.Attachments.IsEmpty())
         {
             u64 total = 0;
             for (const auto fmt : desc.Attachments)
@@ -143,7 +143,7 @@ namespace OloEngine::RenderGraphTransientPlanner
                 // channel the whole pass exists for — had no attachment at all).
                 // Refusing to allocate makes the pass fail to resolve loudly
                 // instead.
-                if (!desc.Attachments.empty())
+                if (!desc.Attachments.IsEmpty())
                 {
                     return desc.Width > 0 &&
                            desc.Height > 0 &&
@@ -191,7 +191,7 @@ namespace OloEngine::RenderGraphTransientPlanner
                 if (desc.Width == 0 || desc.Height == 0)
                     return "missing-dimensions";
                 // MRT path: a non-empty Attachments list replaces Format.
-                if (!desc.Attachments.empty())
+                if (!desc.Attachments.IsEmpty())
                 {
                     // Mirrors IsAllocatable: ALL attachments must be
                     // representable, so one unsupported entry names the reason
@@ -225,9 +225,9 @@ namespace OloEngine::RenderGraphTransientPlanner
         }
     }
 
-    auto ComputePlan(const PlanInput& input) -> std::vector<RenderGraph::TransientPlanEntry>
+    auto ComputePlan(const PlanInput& input) -> TArray64<RenderGraph::TransientPlanEntry>
     {
-        std::vector<RenderGraph::TransientPlanEntry> plan;
+        TArray64<RenderGraph::TransientPlanEntry> plan;
         if (input.TransientResourceDescs.empty())
             return plan;
 
@@ -242,7 +242,7 @@ namespace OloEngine::RenderGraphTransientPlanner
             std::string LastPass;
         };
 
-        std::unordered_map<std::string, Lifetime> lifetimes;
+        RGTransparentStringMap<Lifetime> lifetimes;
         lifetimes.reserve(input.TransientResourceDescs.size());
 
         // Canonicalize a WriteNewVersion rename to the base resource it
@@ -251,28 +251,28 @@ namespace OloEngine::RenderGraphTransientPlanner
         // shares the base's physical, so the base must stay live until the
         // last version reader has executed. The depth guard only protects
         // against a malformed self-referencing map; real chains are short.
-        const auto canonicalResourceName = [&input](const std::string& resourceName) -> const std::string&
+        const auto canonicalResourceName = [&input](std::string_view resourceName) -> std::string_view
         {
-            const std::string* current = &resourceName;
+            std::string_view current = resourceName;
             for (u32 depth = 0; depth < 16u; ++depth)
             {
-                const auto aliasIt = input.VersionAliasTargets.find(*current);
+                const auto aliasIt = input.VersionAliasTargets.find(current);
                 if (aliasIt == input.VersionAliasTargets.end())
-                    return *current;
-                current = &aliasIt->second;
+                    return current;
+                current = aliasIt->second.ToView();
             }
-            return *current;
+            return current;
         };
 
-        const auto touchResource = [&input, &lifetimes, &canonicalResourceName](const std::string& rawResourceName,
+        const auto touchResource = [&input, &lifetimes, &canonicalResourceName](std::string_view rawResourceName,
                                                                                 u32 passIndex,
-                                                                                const std::string& passName)
+                                                                                std::string_view passName)
         {
             const auto& resourceName = canonicalResourceName(rawResourceName);
-            if (!input.TransientResourceDescs.contains(resourceName))
+            if (!input.TransientResourceDescs.contains(std::string(resourceName)))
                 return;
 
-            auto& lifetime = lifetimes[resourceName];
+            auto& lifetime = lifetimes[std::string(resourceName)];
             if (!input.IsPassReachable(passName))
                 return;
 
@@ -292,11 +292,11 @@ namespace OloEngine::RenderGraphTransientPlanner
         for (u32 passIndex = 0; passIndex < static_cast<u32>(input.ExecutionOrder.size()); ++passIndex)
         {
             const auto& passName = input.ExecutionOrder[passIndex];
-            if (const auto accessIt = input.PassAccessDeclarations.find(passName);
+            if (const auto accessIt = input.PassAccessDeclarations.find(passName.ToView());
                 accessIt != input.PassAccessDeclarations.end())
             {
                 for (const auto& access : accessIt->second)
-                    touchResource(access.ResourceName, passIndex, passName);
+                    touchResource(access.ResourceName.ToView(), passIndex, passName.ToView());
             }
 
             // Attachment-view writes extend their parent framebuffer's
@@ -304,11 +304,11 @@ namespace OloEngine::RenderGraphTransientPlanner
             // RGBuilder::Write) — fold those touches in too so a pass that
             // seeds an MRT purely through attachment views (e.g.
             // OITPreparePass) isn't excluded from the parent's FirstPassIndex.
-            if (const auto lifetimeIt = input.PassLifetimeExtensions.find(passName);
+            if (const auto lifetimeIt = input.PassLifetimeExtensions.find(passName.ToView());
                 lifetimeIt != input.PassLifetimeExtensions.end())
             {
                 for (const auto& resourceName : lifetimeIt->second)
-                    touchResource(resourceName, passIndex, passName);
+                    touchResource(resourceName.ToView(), passIndex, passName.ToView());
             }
         }
 
@@ -330,7 +330,7 @@ namespace OloEngine::RenderGraphTransientPlanner
                 if (lifetime.Last >= lastIndex)
                     continue;
                 lifetime.Last = lastIndex;
-                lifetime.LastPass = lastPass;
+                lifetime.LastPass = std::string(lastPass);
             }
         }
 
@@ -340,12 +340,12 @@ namespace OloEngine::RenderGraphTransientPlanner
         //    and the slot-assignment lookups below — string compares would
         //    cost O(L) per touch otherwise. The string form survives only
         //    for JSON output via `TransientPlanEntry::AliasGroup`.
-        plan.reserve(input.TransientResourceDescs.size());
+        plan.Reserve(input.TransientResourceDescs.size());
         // Sidecar map: resourceName → hashed alias group. The key uses the
         // owned std::string in the input map (stable through this function),
         // not a string_view into entry.Resource which gets moved-from when we
         // push_back below.
-        std::unordered_map<std::string, u64> aliasGroupHashByResource;
+        RGTransparentStringMap<u64> aliasGroupHashByResource;
         aliasGroupHashByResource.reserve(input.TransientResourceDescs.size());
         for (const auto& [resourceName, desc] : input.TransientResourceDescs)
         {
@@ -365,7 +365,7 @@ namespace OloEngine::RenderGraphTransientPlanner
             // lifetime as the physical it actually shares. Skip reason and
             // WillAllocate are unaffected: the version-alias branch below is
             // checked first and never sets WillAllocate.
-            if (const auto ltIt = lifetimes.find(canonicalResourceName(resourceName)); ltIt != lifetimes.end())
+            if (const auto ltIt = lifetimes.find(std::string(canonicalResourceName(resourceName))); ltIt != lifetimes.end())
             {
                 const auto& lt = ltIt->second;
                 entry.Reachable = lt.Reachable;
@@ -400,7 +400,7 @@ namespace OloEngine::RenderGraphTransientPlanner
                 entry.WillAllocate = true;
             }
 
-            plan.push_back(std::move(entry));
+            plan.Add(std::move(entry));
         }
 
         // 3. Canonical sort: by alias-group hash, then by first-use pass
@@ -409,8 +409,8 @@ namespace OloEngine::RenderGraphTransientPlanner
         std::ranges::sort(plan,
                           [&aliasGroupHashByResource](const RenderGraph::TransientPlanEntry& lhs, const RenderGraph::TransientPlanEntry& rhs)
                           {
-                              const auto lhsHash = aliasGroupHashByResource.at(lhs.Resource);
-                              if (const auto rhsHash = aliasGroupHashByResource.at(rhs.Resource); lhsHash != rhsHash)
+                              const auto lhsHash = aliasGroupHashByResource.at(lhs.Resource.ToStdString());
+                              if (const auto rhsHash = aliasGroupHashByResource.at(rhs.Resource.ToStdString()); lhsHash != rhsHash)
                                   return lhsHash < rhsHash;
                               if (lhs.FirstPassIndex != rhs.FirstPassIndex)
                                   return lhs.FirstPassIndex < rhs.FirstPassIndex;
@@ -427,17 +427,17 @@ namespace OloEngine::RenderGraphTransientPlanner
         };
 
         std::unordered_map<u64, std::vector<ActiveSlot>> activeByGroup;
-        activeByGroup.reserve(plan.size());
+        activeByGroup.reserve(plan.Num());
 
         std::unordered_map<u64, u32> nextSlotByGroup;
-        nextSlotByGroup.reserve(plan.size());
+        nextSlotByGroup.reserve(plan.Num());
 
         for (auto& entry : plan)
         {
             if (!entry.WillAllocate)
                 continue;
 
-            const auto groupHash = aliasGroupHashByResource.at(entry.Resource);
+            const auto groupHash = aliasGroupHashByResource.at(entry.Resource.ToStdString());
             auto& active = activeByGroup[groupHash];
             auto slotAssigned = std::numeric_limits<u32>::max();
 

@@ -15,19 +15,19 @@ namespace OloEngine
         m_MaxParticles = maxParticles;
         m_AliveCount = 0;
 
-        m_Positions.resize(maxParticles);
-        m_PrevPositions.resize(maxParticles);
-        m_Velocities.resize(maxParticles);
-        m_Colors.resize(maxParticles);
-        m_Sizes.resize(maxParticles);
-        m_Rotations.resize(maxParticles);
-        m_PrevRotations.resize(maxParticles);
-        m_PrevSizes.resize(maxParticles);
-        m_Lifetimes.resize(maxParticles);
-        m_MaxLifetimes.resize(maxParticles);
-        m_InitialColors.resize(maxParticles);
-        m_InitialSizes.resize(maxParticles);
-        m_InitialVelocities.resize(maxParticles);
+        m_Positions.SetNum(maxParticles, EAllowShrinking::No);
+        m_PrevPositions.SetNum(maxParticles, EAllowShrinking::No);
+        m_Velocities.SetNum(maxParticles, EAllowShrinking::No);
+        m_Colors.SetNum(maxParticles, EAllowShrinking::No);
+        m_Sizes.SetNum(maxParticles, EAllowShrinking::No);
+        m_Rotations.SetNum(maxParticles, EAllowShrinking::No);
+        m_PrevRotations.SetNum(maxParticles, EAllowShrinking::No);
+        m_PrevSizes.SetNum(maxParticles, EAllowShrinking::No);
+        m_Lifetimes.SetNum(maxParticles, EAllowShrinking::No);
+        m_MaxLifetimes.SetNum(maxParticles, EAllowShrinking::No);
+        m_InitialColors.SetNum(maxParticles, EAllowShrinking::No);
+        m_InitialSizes.SetNum(maxParticles, EAllowShrinking::No);
+        m_InitialVelocities.SetNum(maxParticles, EAllowShrinking::No);
     }
 
     u32 ParticlePool::Emit(u32 count)
@@ -43,7 +43,7 @@ namespace OloEngine
         return toEmit;
     }
 
-    void ParticlePool::Kill(u32 index)
+    void ParticlePool::Kill(u32 index, ParticleSwapObserver observer)
     {
         if (index >= m_AliveCount)
         {
@@ -52,12 +52,12 @@ namespace OloEngine
 
         if (u32 last = m_AliveCount - 1; index != last)
         {
-            SwapParticles(index, last);
+            SwapParticles(index, last, observer);
         }
         --m_AliveCount;
     }
 
-    void ParticlePool::UpdateLifetimes(f32 dt)
+    void ParticlePool::UpdateLifetimes(f32 dt, ParticleSwapObserver observer)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -67,7 +67,7 @@ namespace OloEngine
             m_Lifetimes[i] -= dt;
             if (m_Lifetimes[i] <= 0.0f)
             {
-                Kill(i);
+                Kill(i, observer);
                 // Don't increment — the swapped-in particle now occupies index i
             }
             else
@@ -87,7 +87,7 @@ namespace OloEngine
         return 1.0f - (m_Lifetimes[index] / m_MaxLifetimes[index]);
     }
 
-    void ParticlePool::SwapParticles(u32 a, u32 b)
+    void ParticlePool::SwapParticles(u32 a, u32 b, ParticleSwapObserver observer)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -105,9 +105,6 @@ namespace OloEngine
         std::swap(m_InitialSizes[a], m_InitialSizes[b]);
         std::swap(m_InitialVelocities[a], m_InitialVelocities[b]);
 
-        if (m_OnSwapCallback)
-        {
-            m_OnSwapCallback(a, b);
-        }
+        observer(a, b);
     }
 } // namespace OloEngine

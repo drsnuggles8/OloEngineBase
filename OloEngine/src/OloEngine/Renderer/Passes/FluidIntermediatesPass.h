@@ -1,5 +1,7 @@
 #pragma once
 
+#include "OloEngine/Containers/Array.h"
+
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/ComputeShader.h"
@@ -86,7 +88,7 @@ namespace OloEngine
         // consumed (cleared) by Execute — one-shot like the particle render
         // callback. Invalid entries (zero SSBO ids / zero count / non-finite
         // radius) are dropped at Execute time.
-        void SetFrameDraws(std::vector<FluidRenderData> draws)
+        void SetFrameDraws(TArray64<FluidRenderData> draws)
         {
             m_FrameDraws = std::move(draws);
         }
@@ -97,7 +99,7 @@ namespace OloEngine
         // fingerprint must hash the same condition.
         [[nodiscard]] bool HasPendingDraws() const noexcept
         {
-            return !m_FrameDraws.empty();
+            return !m_FrameDraws.IsEmpty();
         }
 
         // Identity of the smoothed R32F view-depth texture (null until targets
@@ -146,14 +148,14 @@ namespace OloEngine
         bool m_Enabled = true;
         bool m_RanThisFrame = false;
 
-        std::vector<FluidRenderData> m_FrameDraws;
+        TArray64<FluidRenderData> m_FrameDraws;
         FluidRenderData m_LastAppearance{};
 
         Ref<Shader> m_DepthSplatShader;
         Ref<Shader> m_ThicknessShader;
         Ref<ComputeShader> m_SmoothShader;
         Ref<UniformBuffer> m_FluidRenderUBO;
-        std::vector<Ref<UniformBuffer>> m_RecordingUploads;
+        TArray64<Ref<UniformBuffer>> m_RecordingUploads;
         Ref<VertexArray> m_SplatVAO;
 
         RGTextureHandle m_SelectedSceneDepthTexture{};

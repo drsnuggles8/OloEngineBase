@@ -2,6 +2,9 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Timestep.h"
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/String.h"
+#include "OloEngine/Templates/Function.h"
 
 #include <functional>
 #include <stdexcept>
@@ -140,7 +143,7 @@ namespace OloEngine
         static bool IsParallelExecutionEnabled();
 
         // Derived order as system names, for tests / diagnostics. Builds if needed.
-        const std::vector<std::string>& GetOrderedNames();
+        const TArray<FString>& GetOrderedNames();
 
         // True when `system` transitively depends on `ancestor` in the derived
         // graph — i.e. an edge path ancestor -> … -> system exists, so `system`
@@ -155,7 +158,7 @@ namespace OloEngine
 
         sizet SystemCount() const
         {
-            return m_Systems.size();
+            return static_cast<sizet>(m_Systems.Num());
         }
 
         // ---- graph export (issue #607) -----------------------------------
@@ -207,27 +210,41 @@ namespace OloEngine
       private:
         struct SystemNode
         {
-            std::string Name;
-            std::vector<std::string> Reads;
-            std::vector<std::string> Writes;
-            std::vector<std::string> After;
-            std::vector<std::string> Before;
-            ExecFn Exec;
+            FString Name;
+            TArray<FString> Reads;
+            TArray<FString> Writes;
+            TArray<FString> After;
+            TArray<FString> Before;
+            TFunction<void(Scene&, Timestep)> Exec;
             bool Parallel = false;
         };
+        friend struct TIsTriviallyRelocatable<SystemNode>;
 
         // Topologically sort m_Systems into m_Order (indices) + m_OrderedNames,
         // persisting the derived adjacency for DependsOn / the executor.
         void DeriveOrder();
 
-        std::vector<SystemNode> m_Systems;
-        std::vector<u32> m_Order;                // indices into m_Systems, in exec order
-        std::vector<std::string> m_OrderedNames; // cache of the names in exec order
+        TArray<SystemNode> m_Systems;
+        TArray<u32> m_Order;            // indices into m_Systems, in exec order
+        TArray<FString> m_OrderedNames; // cache of the names in exec order
         // Derived DAG, filled by DeriveOrder (indices into m_Systems):
-        std::vector<std::vector<u32>> m_Successors;   // edge from -> to
-        std::vector<std::vector<u32>> m_Predecessors; // inverse of m_Successors
+        TArray<TArray<u32>> m_Successors;   // edge from -> to
+        TArray<TArray<u32>> m_Predecessors; // inverse of m_Successors
         std::unordered_map<std::string, u32> m_NameToIndex;
         bool m_AnyParallel = false; // cached: any system marked Parallelizable
         bool m_Built = false;
+    };
+
+    template<>
+    struct TIsTriviallyRelocatable<SystemScheduler::SystemNode>
+    {
+        using Node = SystemScheduler::SystemNode;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Node::Name)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Node::Reads)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Node::Writes)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Node::After)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Node::Before)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Node::Exec)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Node::Parallel)>;
     };
 } // namespace OloEngine

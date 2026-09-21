@@ -3,7 +3,6 @@
 
 #include <algorithm>
 #include <limits>
-#include <vector>
 
 namespace OloEngine
 {
@@ -17,8 +16,8 @@ namespace OloEngine
             return data;
         }
 
-        data.Clusters.reserve(mesh.Clusters.size());
-        data.Groups.reserve(mesh.Groups.size());
+        data.Clusters.Reserve(static_cast<sizet>(mesh.Clusters.Num()));
+        data.Groups.Reserve(static_cast<sizet>(mesh.Groups.Num()));
         {
             sizet totalVertices = 0;
             sizet totalIndices = 0;
@@ -27,16 +26,16 @@ namespace OloEngine
                 totalVertices += cluster.VertexCount;
                 totalIndices += static_cast<sizet>(cluster.TriangleCount) * 3;
             }
-            data.Vertices.reserve(totalVertices);
-            if (!mesh.LightmapUVs.empty())
+            data.Vertices.Reserve(totalVertices);
+            if (!mesh.LightmapUVs.IsEmpty())
             {
-                data.LightmapUVs.reserve(totalVertices);
+                data.LightmapUVs.Reserve(totalVertices);
             }
             if (mesh.IsSkinned())
             {
-                data.Skinning.reserve(totalVertices);
+                data.Skinning.Reserve(totalVertices);
             }
-            data.Indices.reserve(totalIndices);
+            data.Indices.Reserve(totalIndices);
         }
 
         for (const VirtualCluster& cluster : mesh.Clusters)
@@ -44,8 +43,8 @@ namespace OloEngine
             VirtualClusterGpuRecord record;
             record.CullSphere = { cluster.BoundsCenter, cluster.BoundsRadius };
             record.Cone = { cluster.ConeAxis, cluster.ConeCutoff };
-            record.VertexBase = static_cast<u32>(data.Vertices.size());
-            record.IndexBase = static_cast<u32>(data.Indices.size());
+            record.VertexBase = static_cast<u32>(data.Vertices.Num());
+            record.IndexBase = static_cast<u32>(data.Indices.Num());
             record.IndexCount = cluster.TriangleCount * 3;
             record.VertexCount = cluster.VertexCount;
             record.GroupIndex = static_cast<u32>(cluster.GroupIndex);
@@ -53,11 +52,11 @@ namespace OloEngine
                                                             : VirtualClusterGpuRecord::kNoRefinedGroup;
             // DAG level of the member group, for the debug LOD visualization.
             record.Lod = mesh.Groups[static_cast<sizet>(cluster.GroupIndex)].Depth;
-            data.Clusters.push_back(record);
+            data.Clusters.Add(record);
 
             // Expand the cluster's vertex window into cluster-owned packed vertices
-            const bool hasLightmapUVs = mesh.LightmapUVs.size() == mesh.Vertices.size();
-            const bool hasSkinning = mesh.Skinning.size() == mesh.Vertices.size();
+            const bool hasLightmapUVs = mesh.LightmapUVs.Num() == mesh.Vertices.Num();
+            const bool hasSkinning = mesh.Skinning.Num() == mesh.Vertices.Num();
             for (u32 v = 0; v < cluster.VertexCount; ++v)
             {
                 const u32 sourceVertex = mesh.ClusterVertexRefs[cluster.VertexOffset + v];
@@ -65,20 +64,20 @@ namespace OloEngine
                 VirtualGpuVertex packed;
                 packed.PositionU = { vertex.Position, vertex.TexCoord.x };
                 packed.NormalV = { vertex.Normal, vertex.TexCoord.y };
-                data.Vertices.push_back(packed);
+                data.Vertices.Add(packed);
                 // Same cluster-local slot, same expansion order (issue #867) —
                 // the parallel stream is only addressable because the two are
                 // pushed in lockstep here.
                 if (hasLightmapUVs)
                 {
-                    data.LightmapUVs.push_back(mesh.LightmapUVs[sourceVertex]);
+                    data.LightmapUVs.Add(mesh.LightmapUVs[sourceVertex]);
                 }
                 // Ditto for the skin binding (issue #1150): cluster-owned, so a
                 // vertex duplicated into two clusters carries its binding into
                 // both and a page can be streamed without a shared indirection.
                 if (hasSkinning)
                 {
-                    data.Skinning.push_back(mesh.Skinning[sourceVertex]);
+                    data.Skinning.Add(mesh.Skinning[sourceVertex]);
                 }
             }
 
@@ -86,7 +85,7 @@ namespace OloEngine
             u32 const indexCount = cluster.TriangleCount * 3;
             for (u32 i = 0; i < indexCount; ++i)
             {
-                data.Indices.push_back(mesh.ClusterTriangles[cluster.TriangleOffset + i]);
+                data.Indices.Add(mesh.ClusterTriangles[cluster.TriangleOffset + i]);
             }
         }
 
@@ -103,14 +102,14 @@ namespace OloEngine
             VirtualGroupGpuRecord record;
             record.LODSphere = { group.LODBounds.Center, group.LODBounds.Radius };
             record.Error = group.LODBounds.Error;
-            data.Groups.push_back(record);
+            data.Groups.Add(record);
         }
 
         // Streamable pages: one per group, spanning its member clusters'
         // contiguous geometry ranges. Terminal groups (never refined away) are
         // pinned so a drawable fallback always exists under any budget.
-        data.Pages.reserve(mesh.Groups.size());
-        for (sizet g = 0; g < mesh.Groups.size(); ++g)
+        data.Pages.Reserve(static_cast<sizet>(mesh.Groups.Num()));
+        for (sizet g = 0; g < static_cast<sizet>(mesh.Groups.Num()); ++g)
         {
             const VirtualClusterGroup& group = mesh.Groups[g];
             u32 const firstCluster = group.FirstCluster;
@@ -127,7 +126,7 @@ namespace OloEngine
             page.IndexOffset = firstPacked.IndexBase;
             page.IndexCount = (lastPacked.IndexBase - firstPacked.IndexBase) + lastPacked.IndexCount;
             page.Pinned = group.LODBounds.Error >= std::numeric_limits<f32>::max();
-            data.Pages.push_back(page);
+            data.Pages.Add(page);
         }
 
         return data;

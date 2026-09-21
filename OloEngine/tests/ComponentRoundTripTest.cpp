@@ -2791,7 +2791,7 @@ namespace OloEngine::Tests
         // Parent must list both children, in the order they were attached.
         ASSERT_TRUE(restoredParent.HasComponent<RelationshipComponent>());
         const auto& parentRel = restoredParent.GetComponent<RelationshipComponent>();
-        ASSERT_EQ(parentRel.m_Children.size(), 2u);
+        ASSERT_EQ(parentRel.m_Children.Num(), 2u);
         EXPECT_EQ(parentRel.m_Children[0], expectedChild1UUID);
         EXPECT_EQ(parentRel.m_Children[1], expectedChild2UUID);
     }
@@ -3503,7 +3503,7 @@ Entities:
                 data.EntityID = expectedIDs[inst];
                 data.StableID = expectedStableIDs[inst];
                 data.Custom = expectedCustoms[inst];
-                imc.Instances.push_back(data);
+                imc.Instances.Add(data);
             }
 
             yaml = SceneSerializer(scene).SerializeToYAML();
@@ -3520,7 +3520,7 @@ Entities:
             << "InstancedMeshComponent was dropped during round-trip.";
 
         const auto& imc = restored.GetComponent<InstancedMeshComponent>();
-        ASSERT_EQ(imc.Instances.size(), 2u) << "Instance count changed across the round-trip.";
+        ASSERT_EQ(imc.Instances.Num(), 2u) << "Instance count changed across the round-trip.";
 
         for (sizet inst = 0; inst < 2; ++inst)
         {
@@ -3557,7 +3557,7 @@ Entities:
             data.Transform = glm::mat4(2.0f); // distinctive finite values
             data.Color = glm::vec4(0.25f, 0.5f, 0.75f, 1.0f);
             data.Custom = 3.0f;
-            imc.Instances.push_back(data);
+            imc.Instances.Add(data);
             yaml = SceneSerializer(scene).SerializeToYAML();
         }
 
@@ -3578,7 +3578,7 @@ Entities:
         ASSERT_TRUE(restored.HasComponent<InstancedMeshComponent>());
 
         const auto& imc = restored.GetComponent<InstancedMeshComponent>();
-        ASSERT_EQ(imc.Instances.size(), 1u);
+        ASSERT_EQ(imc.Instances.Num(), 1u);
 
         // Non-finite transform → reset to identity; non-finite color → white.
         const auto& d = imc.Instances[0];
@@ -3782,10 +3782,10 @@ Entities:
             auto& nmb = entity.AddComponent<NavMeshBoundsComponent>();
             nmb.m_Min = { -7.0f, -2.0f, -7.0f };
             nmb.m_Max = { 7.0f, 12.0f, 7.0f };
-            nmb.m_Links.emplace_back(glm::vec3{ -3.0f, 0.25f, 1.0f }, glm::vec3{ 3.5f, 0.5f, -1.5f },
-                                     /*radius=*/0.8f, /*bidirectional=*/false);
-            nmb.m_Links.emplace_back(glm::vec3{ 1.0f, 0.0f, 2.0f }, glm::vec3{ -1.0f, 1.0f, -2.0f },
-                                     /*radius=*/1.25f, /*bidirectional=*/true);
+            nmb.m_Links.Emplace_GetRef(glm::vec3{ -3.0f, 0.25f, 1.0f }, glm::vec3{ 3.5f, 0.5f, -1.5f },
+                                       /*radius=*/0.8f, /*bidirectional=*/false);
+            nmb.m_Links.Emplace_GetRef(glm::vec3{ 1.0f, 0.0f, 2.0f }, glm::vec3{ -1.0f, 1.0f, -2.0f },
+                                       /*radius=*/1.25f, /*bidirectional=*/true);
             yaml = SceneSerializer(scene).SerializeToYAML();
         }
 
@@ -3798,7 +3798,7 @@ Entities:
             << "NavMeshBoundsComponent was dropped during round-trip.";
 
         const auto& nmb = restored.GetComponent<NavMeshBoundsComponent>();
-        ASSERT_EQ(nmb.m_Links.size(), 2u) << "off-mesh link list lost entries during round-trip.";
+        ASSERT_EQ(nmb.m_Links.Num(), 2u) << "off-mesh link list lost entries during round-trip.";
 
         EXPECT_NEAR(nmb.m_Links[0].m_Start.x, -3.0f, kFloatEpsilon);
         EXPECT_NEAR(nmb.m_Links[0].m_End.z, -1.5f, kFloatEpsilon);
@@ -4615,9 +4615,9 @@ Entities:
             auto& lod = entity.AddComponent<LODGroupComponent>();
             lod.m_Enabled = false; // non-default
             lod.m_LODGroup.Bias = 1.75f;
-            lod.m_LODGroup.Levels.emplace_back(AssetHandle(0x1111ull), 12.5f, 8000u, 0.0f);
-            lod.m_LODGroup.Levels.emplace_back(AssetHandle(0x2222ull), 40.0f, 4000u, 0.0125f);
-            lod.m_LODGroup.Levels.emplace_back(AssetHandle(0x3333ull), 160.0f, 1000u, 0.0625f);
+            lod.m_LODGroup.Levels.Emplace(AssetHandle(0x1111ull), 12.5f, 8000u, 0.0f);
+            lod.m_LODGroup.Levels.Emplace(AssetHandle(0x2222ull), 40.0f, 4000u, 0.0125f);
+            lod.m_LODGroup.Levels.Emplace(AssetHandle(0x3333ull), 160.0f, 1000u, 0.0625f);
 
             yaml = SceneSerializer(scene).SerializeToYAML();
         }
@@ -4635,7 +4635,7 @@ Entities:
         const auto& lod = restored.GetComponent<LODGroupComponent>();
         EXPECT_FALSE(lod.m_Enabled);
         EXPECT_NEAR(lod.m_LODGroup.Bias, 1.75f, kFloatEpsilon);
-        ASSERT_EQ(lod.m_LODGroup.Levels.size(), 3u);
+        ASSERT_EQ(lod.m_LODGroup.Levels.Num(), 3u);
 
         EXPECT_EQ(static_cast<u64>(lod.m_LODGroup.Levels[1].MeshHandle), 0x2222ull);
         EXPECT_EQ(lod.m_LODGroup.Levels[1].TriangleCount, 4000u);
@@ -4663,8 +4663,8 @@ Entities:
             auto& lod = entity.AddComponent<LODGroupComponent>();
             lod.m_AutoGenerated = true;
             lod.m_LODGroup.Bias = 1.25f;
-            lod.m_LODGroup.Levels.emplace_back(AssetHandle(0x9001ull), 10.0f, 900u, 0.0f);
-            lod.m_LODGroup.Levels.emplace_back(AssetHandle(0x9002ull), 40.0f, 450u, 0.02f);
+            lod.m_LODGroup.Levels.Emplace(AssetHandle(0x9001ull), 10.0f, 900u, 0.0f);
+            lod.m_LODGroup.Levels.Emplace(AssetHandle(0x9002ull), 40.0f, 450u, 0.02f);
 
             yaml = SceneSerializer(scene).SerializeToYAML();
         }
@@ -4691,7 +4691,7 @@ Entities:
         ASSERT_TRUE(restored.HasComponent<LODGroupComponent>());
         const auto& restoredLod = restored.GetComponent<LODGroupComponent>();
         EXPECT_TRUE(restoredLod.m_AutoGenerated);
-        EXPECT_TRUE(restoredLod.m_LODGroup.Levels.empty());
+        EXPECT_TRUE(restoredLod.m_LODGroup.Levels.IsEmpty());
         EXPECT_NEAR(restoredLod.m_LODGroup.Bias, 1.25f, kFloatEpsilon);
 
         // An empty group is inert: re-saving must still carry the marker forward.
@@ -4710,8 +4710,8 @@ Entities:
             auto scene = Scene::Create();
             Entity entity = scene->CreateEntity(kTestTag);
             auto& lod = entity.AddComponent<LODGroupComponent>();
-            lod.m_LODGroup.Levels.emplace_back(AssetHandle(0x1111ull), 12.5f, 8000u, 0.25f);
-            lod.m_LODGroup.Levels.emplace_back(AssetHandle(0x2222ull), 40.0f, 4000u, 0.5f);
+            lod.m_LODGroup.Levels.Emplace(AssetHandle(0x1111ull), 12.5f, 8000u, 0.25f);
+            lod.m_LODGroup.Levels.Emplace(AssetHandle(0x2222ull), 40.0f, 4000u, 0.5f);
             yaml = SceneSerializer(scene).SerializeToYAML();
         }
 
@@ -4750,7 +4750,7 @@ Entities:
         Entity restored = FindByTag(*reloaded, kTestTag);
         ASSERT_TRUE(static_cast<bool>(restored));
         const auto& lod = restored.GetComponent<LODGroupComponent>();
-        ASSERT_EQ(lod.m_LODGroup.Levels.size(), 2u);
+        ASSERT_EQ(lod.m_LODGroup.Levels.Num(), 2u);
         EXPECT_FLOAT_EQ(lod.m_LODGroup.Levels[0].Error, 0.0f);
         EXPECT_FLOAT_EQ(lod.m_LODGroup.Levels[1].Error, 0.0f);
         EXPECT_FALSE(lod.m_LODGroup.HasErrorData());

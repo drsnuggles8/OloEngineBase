@@ -278,7 +278,7 @@ namespace OloEngine::Tests
 
         i32 const totalProbes = baked.Room.Volume.GetTotalProbeCount();
         ASSERT_EQ(totalProbes, 18);
-        ASSERT_EQ(baked.Asset->CoefficientData.size(),
+        ASSERT_EQ(baked.Asset->CoefficientData.Num(),
                   static_cast<size_t>(totalProbes) * SH_COEFFICIENT_COUNT);
 
         // Progress reported once per probe, ending at (total, total).
@@ -557,7 +557,7 @@ namespace OloEngine::Tests
         settings.MaxBounces = 2;
         ASSERT_TRUE(LightProbeBaker::BakeVolumePathTraced(world, volume, asset, settings));
 
-        ASSERT_EQ(asset->CoefficientData.size(), static_cast<size_t>(SH_COEFFICIENT_COUNT));
+        ASSERT_EQ(asset->CoefficientData.Num(), static_cast<size_t>(SH_COEFFICIENT_COUNT));
         // Written as a literal 0.0f — bit-exact by contract, hence float ==.
         EXPECT_EQ(asset->CoefficientData[0].w, 0.0f) << "a sealed probe must be flagged invalid";
     }
@@ -572,12 +572,12 @@ namespace OloEngine::Tests
 
         const auto& a = first.Asset->CoefficientData;
         const auto& b = second.Asset->CoefficientData;
-        ASSERT_EQ(a.size(), b.size());
-        ASSERT_FALSE(a.empty());
+        ASSERT_EQ(a.Num(), b.Num());
+        ASSERT_FALSE(a.IsEmpty());
         // memcmp, deliberately: the determinism contract is bit-identity
         // (stateless per-probe seeds + fixed ascending accumulation order),
         // the same contract the path tracer and lightmap bake assert.
-        EXPECT_EQ(std::memcmp(a.data(), b.data(), a.size() * sizeof(glm::vec4)), 0)
+        EXPECT_EQ(std::memcmp(a.GetData(), b.GetData(), a.Num() * sizeof(glm::vec4)), 0)
             << "two path-traced probe bakes of an identical room diverged — the bake is not deterministic";
     }
 
@@ -596,6 +596,6 @@ namespace OloEngine::Tests
         PathTracing::ReferenceScene unbuilt;
         auto asset = Ref<LightProbeVolumeAsset>::Create();
         EXPECT_FALSE(LightProbeBaker::BakeVolumePathTraced(unbuilt, room.Volume, asset, settings));
-        EXPECT_TRUE(asset->CoefficientData.empty()) << "a rejected bake must not write coefficients";
+        EXPECT_TRUE(asset->CoefficientData.IsEmpty()) << "a rejected bake must not write coefficients";
     }
 } // namespace OloEngine::Tests

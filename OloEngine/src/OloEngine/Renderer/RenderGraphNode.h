@@ -83,9 +83,9 @@ namespace OloEngine
 
         ~RenderGraphNode() override = default;
 
-        [[nodiscard]] virtual const std::string& GetName() const
+        [[nodiscard]] virtual std::string_view GetName() const
         {
-            return m_Name;
+            return m_Name.ToView();
         }
 
         void SetName(std::string_view name)
@@ -323,7 +323,7 @@ namespace OloEngine
         }
 
       protected:
-        std::string m_Name = "RenderGraphNode";
+        FString m_Name = "RenderGraphNode";
         Ref<Framebuffer> m_Target;
         FramebufferSpecification m_FramebufferSpec;
 

@@ -9,9 +9,7 @@
 #include "StreamingRegion.h"
 
 #include <glm/glm.hpp>
-#include <string>
 #include <unordered_map>
-#include <vector>
 
 namespace OloEngine
 {
@@ -21,10 +19,19 @@ namespace OloEngine
 
     struct SceneStreamerConfig
     {
-        f32 LoadRadius = 200.0f;     // Distance to start loading
-        f32 UnloadRadius = 250.0f;   // Distance to trigger unload (hysteresis)
-        u32 MaxLoadedRegions = 16;   // LRU budget
-        std::string RegionDirectory; // Path to .oloregion files
+        f32 LoadRadius = 200.0f;   // Distance to start loading
+        f32 UnloadRadius = 250.0f; // Distance to trigger unload (hysteresis)
+        u32 MaxLoadedRegions = 16; // LRU budget
+        FString RegionDirectory;   // Path to .oloregion files
+    };
+
+    template<>
+    struct TIsTriviallyRelocatable<SceneStreamerConfig>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(SceneStreamerConfig::LoadRadius)> &&
+                                      TIsTriviallyRelocatable_V<decltype(SceneStreamerConfig::UnloadRadius)> &&
+                                      TIsTriviallyRelocatable_V<decltype(SceneStreamerConfig::MaxLoadedRegions)> &&
+                                      TIsTriviallyRelocatable_V<decltype(SceneStreamerConfig::RegionDirectory)>;
     };
 
     class SceneStreamer
@@ -68,7 +75,7 @@ namespace OloEngine
         void RequestRegionLoad(RegionID id);
         void ProcessCompletedLoads();
         void EvictOverBudget();
-        void InitializeStreamedEntities(const std::vector<UUID>& entityUUIDs) const;
+        void InitializeStreamedEntities(const TArray<UUID>& entityUUIDs) const;
 
         Scene* m_Scene = nullptr;
         SceneStreamerConfig m_Config;
@@ -83,10 +90,19 @@ namespace OloEngine
             Tasks::TTask<bool> Task;
             Ref<StreamingRegion> Region;
         };
-        std::vector<PendingLoad> m_PendingLoads;
+        friend struct TIsTriviallyRelocatable<PendingLoad>;
+        TArray<PendingLoad> m_PendingLoads;
 
         mutable FMutex m_RegionMutex; // Protects m_Regions
         u64 m_CurrentFrame = 0;
         UUID m_ActivationEntityId{}; // 0 = use primary camera
+    };
+    template<>
+    struct TIsTriviallyRelocatable<SceneStreamer::PendingLoad>
+    {
+        using Load = SceneStreamer::PendingLoad;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Load::RegionId)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Load::Task)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Load::Region)>;
     };
 } // namespace OloEngine

@@ -92,25 +92,25 @@ namespace OloEngine
         static void MirrorRead(RGBuilder& builder, const RGResourceHandle& resource)
         {
             const auto kind = NormalizeKind(resource.Type);
-            const auto desc = MakeMirrorDesc(kind, resource.Name);
+            const auto desc = MakeMirrorDesc(kind, resource.Name.ToView());
             switch (kind)
             {
                 case RGResourceHandle::Kind::Framebuffer:
                 {
-                    auto handle = builder.CreateFramebuffer(resource.Name, desc);
+                    auto handle = builder.CreateFramebuffer(resource.Name.ToView(), desc);
                     [[maybe_unused]] const auto readHandle = builder.Read(handle, RGReadUsage::RenderTargetRead);
                     break;
                 }
                 case RGResourceHandle::Kind::UniformBuffer:
                 case RGResourceHandle::Kind::StorageBuffer:
                 {
-                    auto handle = builder.CreateBuffer(resource.Name, desc);
+                    auto handle = builder.CreateBuffer(resource.Name.ToView(), desc);
                     [[maybe_unused]] const auto readHandle = builder.Read(handle, RGReadUsage::ShaderStorage);
                     break;
                 }
                 default:
                 {
-                    auto handle = builder.CreateTexture(resource.Name, desc);
+                    auto handle = builder.CreateTexture(resource.Name.ToView(), desc);
                     [[maybe_unused]] const auto readHandle = builder.Read(handle, RGReadUsage::ShaderSample);
                     break;
                 }
@@ -120,12 +120,12 @@ namespace OloEngine
         static void MirrorWrite(RGBuilder& builder, const RGResourceHandle& resource, bool allowFeedback = false)
         {
             const auto kind = NormalizeKind(resource.Type);
-            const auto desc = MakeMirrorDesc(kind, resource.Name);
+            const auto desc = MakeMirrorDesc(kind, resource.Name.ToView());
             switch (kind)
             {
                 case RGResourceHandle::Kind::Framebuffer:
                 {
-                    auto handle = builder.CreateFramebuffer(resource.Name, desc);
+                    auto handle = builder.CreateFramebuffer(resource.Name.ToView(), desc);
                     if (allowFeedback)
                         builder.AllowSamePassReadWrite(handle);
                     builder.Write(handle, RGWriteUsage::RenderTarget);
@@ -134,7 +134,7 @@ namespace OloEngine
                 case RGResourceHandle::Kind::UniformBuffer:
                 case RGResourceHandle::Kind::StorageBuffer:
                 {
-                    auto handle = builder.CreateBuffer(resource.Name, desc);
+                    auto handle = builder.CreateBuffer(resource.Name.ToView(), desc);
                     if (allowFeedback)
                         builder.AllowSamePassReadWrite(handle);
                     builder.Write(handle, RGWriteUsage::ShaderStorage);
@@ -142,7 +142,7 @@ namespace OloEngine
                 }
                 default:
                 {
-                    auto handle = builder.CreateTexture(resource.Name, desc);
+                    auto handle = builder.CreateTexture(resource.Name.ToView(), desc);
                     if (allowFeedback)
                         builder.AllowSamePassReadWrite(handle);
                     builder.Write(handle, RGWriteUsage::RenderTarget);

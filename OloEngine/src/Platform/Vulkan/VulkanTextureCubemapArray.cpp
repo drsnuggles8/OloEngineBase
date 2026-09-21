@@ -149,9 +149,9 @@ namespace OloEngine
         return false;
     }
 
-    bool VulkanTextureCubemapArray::GetData(std::vector<u8>& outData, u32 /*mipLevel*/) const
+    bool VulkanTextureCubemapArray::GetData(TArray64<u8>& outData, u32 /*mipLevel*/) const
     {
-        outData.clear();
+        outData.Reset();
         WarnCubemapArrayCpuPathOnce("GetData");
         return false;
     }

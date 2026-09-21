@@ -113,29 +113,29 @@ namespace OloEngine
         // every layer, and the shader indexes the tail densely, so the two need
         // a translation rather than a filter.
         const auto& groups = registry.GetGroups();
-        std::vector<u32> globalToLocal(groups.size(), kUnmappedRow);
-        std::vector<u32> localToGlobal;
-        localToGlobal.reserve(groups.size());
-        for (u32 g = 0; g < static_cast<u32>(groups.size()); ++g)
+        TArray<u32> globalToLocal(groups.Num(), kUnmappedRow);
+        TArray<u32> localToGlobal;
+        localToGlobal.Reserve(groups.Num());
+        for (u32 g = 0; g < static_cast<u32>(groups.Num()); ++g)
         {
             if (groups[g].m_LayerIndex != layerIndex)
                 continue;
-            globalToLocal[g] = static_cast<u32>(localToGlobal.size());
-            localToGlobal.push_back(g);
+            globalToLocal[g] = static_cast<u32>(localToGlobal.Num());
+            localToGlobal.Add(g);
         }
 
-        const auto groupCount = static_cast<u32>(localToGlobal.size());
+        const auto groupCount = static_cast<u32>(localToGlobal.Num());
         if (groupCount == 0)
         {
             return refuse();
         }
 
-        std::vector<u32> rowGroup(instanceCount, kUnmappedRow);
+        TArray<u32> rowGroup(instanceCount, kUnmappedRow);
         for (const auto& record : registry.GetRecords())
         {
             if (record.m_LayerIndex != layerIndex || record.m_BufferIndex >= instanceCount)
                 continue;
-            if (record.m_GroupIndex >= globalToLocal.size())
+            if (record.m_GroupIndex >= globalToLocal.Num())
                 continue;
             rowGroup[record.m_BufferIndex] = globalToLocal[record.m_GroupIndex];
         }
@@ -145,7 +145,7 @@ namespace OloEngine
         // stops drawing. Refusing the whole layer keeps it on the uncompacted
         // path — every plant still drawn — and says why, which is the only
         // honest response to "the canonical records and the buffer disagree".
-        const auto unmapped = static_cast<u32>(std::count(rowGroup.begin(), rowGroup.end(), kUnmappedRow));
+        const auto unmapped = static_cast<u32>(std::count(rowGroup.GetData(), rowGroup.GetData() + rowGroup.Num(), kUnmappedRow));
         if (unmapped != 0)
         {
             OLO_CORE_ERROR("FoliageGPUCuller: layer {} has {} of {} instance rows with no canonical record — GPU "
@@ -161,7 +161,7 @@ namespace OloEngine
         const u32 tailWords = boundsWords + instanceCount;
         const u32 sizeBytes = static_cast<u32>(sizeof(FoliageCullLayerHeader)) + tailWords * 4u;
 
-        std::vector<u32> scratch(sizeBytes / 4u, 0u);
+        TArray<u32> scratch(sizeBytes / 4u, 0u);
 
         FoliageCullLayerHeader header{};
         header.GroupCount = groupCount;
@@ -173,7 +173,7 @@ namespace OloEngine
         header.MaxY = profile.m_MaxY;
         header.WindDisplacement = profile.m_WindDisplacement;
         header.InteractionDisplacement = profile.m_InteractionDisplacement;
-        std::memcpy(scratch.data(), &header, sizeof(header));
+        std::memcpy(scratch.GetData(), &header, sizeof(header));
 
         const u32 tailBase = static_cast<u32>(sizeof(FoliageCullLayerHeader)) / 4u;
         glm::vec3 unionMin(std::numeric_limits<f32>::max());
@@ -195,7 +195,7 @@ namespace OloEngine
             unionMin = glm::min(unionMin, box.Min);
             unionMax = glm::max(unionMax, box.Max);
         }
-        std::memcpy(scratch.data() + tailBase + boundsWords, rowGroup.data(), instanceCount * sizeof(u32));
+        std::memcpy(scratch.GetData() + tailBase + boundsWords, rowGroup.GetData(), instanceCount * sizeof(u32));
 
         if (!out.LayerBuffer || out.LayerBuffer->GetSize() != sizeBytes)
         {
@@ -208,7 +208,7 @@ namespace OloEngine
             return refuse();
         }
 
-        out.LayerBuffer->SetData(scratch.data(), sizeBytes, 0);
+        out.LayerBuffer->SetData(scratch.GetData(), sizeBytes, 0);
         out.LocalBounds = BoundingBox(unionMin, unionMax);
         out.GroupCount = groupCount;
         out.InstanceCount = instanceCount;
@@ -427,15 +427,15 @@ namespace OloEngine
             return true;
         }
 
-        out.SourceRows.resize(out.Submitted);
+        out.SourceRows.SetNum(out.Submitted, EAllowShrinking::No);
         const u32 rowByteOffset =
             static_cast<u32>(sizeof(FoliageCullStateHeader)) + header.SourceRowOffset * 4u;
-        view.State->GetData(out.SourceRows.data(), out.Submitted * 4u, rowByteOffset);
+        view.State->GetData(out.SourceRows.GetData(), out.Submitted * 4u, rowByteOffset);
 
-        out.Compacted.resize(out.Submitted);
+        out.Compacted.SetNum(out.Submitted, EAllowShrinking::No);
         RenderCommand::ReadBufferSubData(view.Compacted->GetRHIHandle(), 0,
                                          out.Submitted * static_cast<u32>(sizeof(FoliageInstanceData)),
-                                         out.Compacted.data());
+                                         out.Compacted.GetData());
         return true;
     }
 } // namespace OloEngine

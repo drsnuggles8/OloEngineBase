@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <fstream>
+#include <limits>
 
 namespace OloEngine
 {
@@ -63,7 +64,7 @@ namespace OloEngine
             return in.good();
         }
 
-        void WriteString(std::ofstream& out, const std::string& str)
+        void WriteString(std::ofstream& out, std::string_view str)
         {
             u32 len = static_cast<u32>(str.size());
             WriteRaw(out, len);
@@ -73,7 +74,7 @@ namespace OloEngine
             }
         }
 
-        bool ReadString(std::ifstream& in, std::string& str)
+        bool ReadString(std::ifstream& in, FString& str)
         {
             u32 len = 0;
             if (!ReadRaw(in, len))
@@ -85,12 +86,17 @@ namespace OloEngine
             {
                 return false;
             }
-            str.resize(len);
+            std::string bytes(len, '\0');
             if (len > 0)
             {
-                in.read(str.data(), len);
+                in.read(bytes.data(), len);
             }
-            return in.good();
+            if (!in.good())
+            {
+                return false;
+            }
+            str = FString(bytes);
+            return true;
         }
     } // namespace
 
@@ -140,17 +146,22 @@ namespace OloEngine
 
             if (!ReadString(in, entry.ContentHash))
             {
-                OLO_CORE_ERROR("[ShaderPack] Failed to read content hash for '{}'", entry.Name);
+                OLO_CORE_ERROR("[ShaderPack] Failed to read content hash for '{}'", entry.Name.ToView());
                 return;
             }
 
             if (!ReadRaw(in, entry.StageCount))
             {
-                OLO_CORE_ERROR("[ShaderPack] Failed to read stage count for '{}'", entry.Name);
+                OLO_CORE_ERROR("[ShaderPack] Failed to read stage count for '{}'", entry.Name.ToView());
                 return;
             }
 
-            entry.StageRefs.resize(entry.StageCount);
+            if (entry.StageCount > static_cast<u32>(std::numeric_limits<i32>::max()))
+            {
+                OLO_CORE_ERROR("[ShaderPack] Stage count exceeds array capacity for '{}'", entry.Name.ToView());
+                return;
+            }
+            entry.StageRefs.SetNum(static_cast<i32>(entry.StageCount));
             for (u32 s = 0; s < entry.StageCount; ++s)
             {
                 auto& ref = entry.StageRefs[s];
@@ -160,12 +171,12 @@ namespace OloEngine
                     !ReadRaw(in, ref.OpenGLOffset) ||
                     !ReadRaw(in, ref.OpenGLSizeWords))
                 {
-                    OLO_CORE_ERROR("[ShaderPack] Failed to read stage ref for '{}' stage {}", entry.Name, s);
+                    OLO_CORE_ERROR("[ShaderPack] Failed to read stage ref for '{}' stage {}", entry.Name.ToView(), s);
                     return;
                 }
             }
 
-            m_Index[entry.Name] = std::move(entry);
+            m_Index[entry.Name.ToStdString()] = std::move(entry);
         }
 
         m_Loaded = true;
@@ -184,7 +195,7 @@ namespace OloEngine
         {
             return std::nullopt;
         }
-        return it->second.ContentHash;
+        return it->second.ContentHash.ToStdString();
     }
 
     std::vector<std::string> ShaderPack::GetShaderNames() const
@@ -215,19 +226,25 @@ namespace OloEngine
 
         auto entry = std::make_unique<ShaderPackEntry>();
         entry->Name = it->second.Name;
-        entry->Stages.reserve(it->second.StageCount);
+        entry->Stages.Reserve(static_cast<i32>(it->second.StageCount));
 
         for (const auto& ref : it->second.StageRefs)
         {
+            if (ref.VulkanSizeWords > static_cast<u64>(std::numeric_limits<i32>::max()) ||
+                ref.OpenGLSizeWords > static_cast<u64>(std::numeric_limits<i32>::max()))
+            {
+                OLO_CORE_ERROR("[ShaderPack] SPIR-V word count exceeds array capacity for '{}'", name);
+                return nullptr;
+            }
             ShaderPackStageData stage;
             stage.Stage = ref.Stage;
 
             // Read Vulkan SPIR-V
             in.seekg(static_cast<std::streamoff>(ref.VulkanOffset));
-            stage.VulkanSPIRV.resize(static_cast<size_t>(ref.VulkanSizeWords));
+            stage.VulkanSPIRV.SetNum(static_cast<i32>(ref.VulkanSizeWords));
             if (ref.VulkanSizeWords > 0)
             {
-                in.read(reinterpret_cast<char*>(stage.VulkanSPIRV.data()),
+                in.read(reinterpret_cast<char*>(stage.VulkanSPIRV.GetData()),
                         static_cast<std::streamsize>(ref.VulkanSizeWords * sizeof(u32)));
                 if (!in.good())
                 {
@@ -238,10 +255,10 @@ namespace OloEngine
 
             // Read OpenGL SPIR-V
             in.seekg(static_cast<std::streamoff>(ref.OpenGLOffset));
-            stage.OpenGLSPIRV.resize(static_cast<size_t>(ref.OpenGLSizeWords));
+            stage.OpenGLSPIRV.SetNum(static_cast<i32>(ref.OpenGLSizeWords));
             if (ref.OpenGLSizeWords > 0)
             {
-                in.read(reinterpret_cast<char*>(stage.OpenGLSPIRV.data()),
+                in.read(reinterpret_cast<char*>(stage.OpenGLSPIRV.GetData()),
                         static_cast<std::streamsize>(ref.OpenGLSizeWords * sizeof(u32)));
                 if (!in.good())
                 {
@@ -250,7 +267,7 @@ namespace OloEngine
                 }
             }
 
-            entry->Stages.push_back(std::move(stage));
+            entry->Stages.Add(std::move(stage));
         }
 
         return entry;
@@ -261,7 +278,7 @@ namespace OloEngine
     // =========================================================================
     bool ShaderPack::CreateFromLibraries(ShaderLibrary& lib2D, ShaderLibrary& lib3D, const std::filesystem::path& outputPath)
     {
-        std::vector<PackShaderInfo> shaders;
+        TArray<PackShaderInfo> shaders;
 
         auto collectShaders = [&shaders](ShaderLibrary& lib)
         {
@@ -294,8 +311,8 @@ namespace OloEngine
                     continue;
                 }
 
-                shaders.push_back({ shader->GetFilePath(), contentHash,
-                                    &glShader->GetVulkanSPIRV(), &glShader->GetOpenGLSPIRV() });
+                shaders.Add(PackShaderInfo{ shader->GetFilePath(), contentHash,
+                                            &glShader->GetVulkanSPIRV(), &glShader->GetOpenGLSPIRV() });
             }
         };
 
@@ -318,14 +335,20 @@ namespace OloEngine
 
         // CPU-only: read, preprocess, shaderc, SPIRV-Cross. No GL call anywhere
         // in this call chain — see Shader::PrepareBatch / OpenGLShader::PrepareCPU.
-        std::vector<Ref<Shader>> prepared = Shader::PrepareBatch(filepaths, nullptr);
+        TArray<FString> ownedPaths;
+        ownedPaths.Reserve(static_cast<i32>(filepaths.size()));
+        for (const auto& path : filepaths)
+        {
+            ownedPaths.Emplace(path);
+        }
+        TArray<Ref<Shader>> prepared = Shader::PrepareBatch(std::span{ ownedPaths.GetData(), static_cast<sizet>(ownedPaths.Num()) }, nullptr);
 
-        std::vector<PackShaderInfo> shaders;
-        shaders.reserve(filepaths.size());
+        TArray<PackShaderInfo> shaders;
+        shaders.Reserve(static_cast<i32>(filepaths.size()));
 
         for (sizet i = 0; i < filepaths.size(); ++i)
         {
-            Ref<Shader> shader = (i < prepared.size()) ? prepared[i] : nullptr;
+            Ref<Shader> shader = (i < static_cast<sizet>(prepared.Num())) ? prepared[i] : nullptr;
             if (!shader)
             {
                 OLO_CORE_WARN("[ShaderPack] Skipping '{}' (CPU prepare failed)", filepaths[i]);
@@ -353,7 +376,7 @@ namespace OloEngine
                 continue;
             }
 
-            shaders.push_back({ filepaths[i], contentHash, &glShader->GetVulkanSPIRV(), &glShader->GetOpenGLSPIRV() });
+            shaders.Add(PackShaderInfo{ filepaths[i], contentHash, &glShader->GetVulkanSPIRV(), &glShader->GetOpenGLSPIRV() });
         }
 
         return WritePackFile(shaders, outputPath);
@@ -401,9 +424,9 @@ namespace OloEngine
     // =========================================================================
     // ShaderPack — shared binary writer
     // =========================================================================
-    bool ShaderPack::WritePackFile(const std::vector<PackShaderInfo>& shaders, const std::filesystem::path& outputPath)
+    bool ShaderPack::WritePackFile(const TArray<PackShaderInfo>& shaders, const std::filesystem::path& outputPath)
     {
-        if (shaders.empty())
+        if (shaders.IsEmpty())
         {
             OLO_CORE_WARN("[ShaderPack] No shaders to pack");
             return false;
@@ -424,7 +447,7 @@ namespace OloEngine
 
         // Write header
         FileHeader header{};
-        header.ShaderCount = static_cast<u32>(shaders.size());
+        header.ShaderCount = static_cast<u32>(shaders.Num());
         WriteRaw(out, header);
 
         // Phase 1: Write placeholder index (compute sizes but use dummy offsets)
@@ -437,9 +460,9 @@ namespace OloEngine
         u64 indexSize = 0;
         for (const auto& info : shaders)
         {
-            indexSize += sizeof(u32) + info.Name.size();        // name
-            indexSize += sizeof(u32) + info.ContentHash.size(); // content hash
-            indexSize += sizeof(u32);                           // stageCount
+            indexSize += sizeof(u32) + info.Name.Len();        // name
+            indexSize += sizeof(u32) + info.ContentHash.Len(); // content hash
+            indexSize += sizeof(u32);                          // stageCount
             u32 stageCount = static_cast<u32>(info.VulkanSPIRV->size());
             indexSize += stageCount * (sizeof(u8) + 4 * sizeof(u64)); // per-stage refs
         }
@@ -457,17 +480,12 @@ namespace OloEngine
             u64 OpenGLSizeWords = 0;
         };
 
-        struct ShaderOffsets
-        {
-            std::vector<StageOffset> Stages;
-        };
-
-        std::vector<ShaderOffsets> allOffsets;
-        allOffsets.reserve(shaders.size());
+        TArray<TArray<StageOffset>> allOffsets;
+        allOffsets.Reserve(shaders.Num());
 
         for (const auto& info : shaders)
         {
-            ShaderOffsets offsets;
+            TArray<StageOffset> offsets;
 
             for (const auto& [glStage, vulkanData] : *info.VulkanSPIRV)
             {
@@ -476,47 +494,47 @@ namespace OloEngine
 
                 // Write Vulkan SPIR-V
                 so.VulkanOffset = static_cast<u64>(out.tellp());
-                so.VulkanSizeWords = vulkanData.size();
-                if (!vulkanData.empty())
+                so.VulkanSizeWords = vulkanData.Num();
+                if (!vulkanData.IsEmpty())
                 {
-                    out.write(reinterpret_cast<const char*>(vulkanData.data()),
-                              static_cast<std::streamsize>(vulkanData.size() * sizeof(u32)));
+                    out.write(reinterpret_cast<const char*>(vulkanData.GetData()),
+                              static_cast<std::streamsize>(vulkanData.Num() * sizeof(u32)));
                 }
 
                 // Write OpenGL SPIR-V for same stage
                 auto openGLIt = info.OpenGLSPIRV->find(glStage);
                 so.OpenGLOffset = static_cast<u64>(out.tellp());
-                if (openGLIt != info.OpenGLSPIRV->end() && !openGLIt->second.empty())
+                if (openGLIt != info.OpenGLSPIRV->end() && !openGLIt->second.IsEmpty())
                 {
-                    so.OpenGLSizeWords = openGLIt->second.size();
-                    out.write(reinterpret_cast<const char*>(openGLIt->second.data()),
-                              static_cast<std::streamsize>(openGLIt->second.size() * sizeof(u32)));
+                    so.OpenGLSizeWords = openGLIt->second.Num();
+                    out.write(reinterpret_cast<const char*>(openGLIt->second.GetData()),
+                              static_cast<std::streamsize>(openGLIt->second.Num() * sizeof(u32)));
                 }
                 else
                 {
                     so.OpenGLSizeWords = 0;
                 }
 
-                offsets.Stages.push_back(so);
+                offsets.Add(so);
             }
 
-            allOffsets.push_back(std::move(offsets));
+            allOffsets.Add(std::move(offsets));
         }
 
         // Phase 3: Backfill index with actual offsets
         out.seekp(indexStartPos);
 
-        for (size_t i = 0; i < shaders.size(); ++i)
+        for (i32 i = 0; i < shaders.Num(); ++i)
         {
             const auto& info = shaders[i];
             const auto& offsets = allOffsets[i];
 
-            WriteString(out, info.Name);
-            WriteString(out, info.ContentHash);
-            u32 stageCount = static_cast<u32>(offsets.Stages.size());
+            WriteString(out, info.Name.ToView());
+            WriteString(out, info.ContentHash.ToView());
+            u32 stageCount = static_cast<u32>(offsets.Num());
             WriteRaw(out, stageCount);
 
-            for (const auto& so : offsets.Stages)
+            for (const auto& so : offsets)
             {
                 WriteRaw(out, so.Stage);
                 WriteRaw(out, so.VulkanOffset);
@@ -530,7 +548,7 @@ namespace OloEngine
 
         const auto fileSize = std::filesystem::file_size(outputPath);
         OLO_CORE_INFO("[ShaderPack] Created '{}' — {} shaders, {:.1f} KB",
-                      outputPath.string(), shaders.size(),
+                      outputPath.string(), shaders.Num(),
                       static_cast<f64>(fileSize) / 1024.0);
 
         return true;

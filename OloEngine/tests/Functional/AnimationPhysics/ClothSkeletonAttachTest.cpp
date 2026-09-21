@@ -53,11 +53,11 @@ namespace
 {
     // The pinned set for ClothAttachment::TopEdge is grid row 0 — particle indices
     // [0, columns). Average their world position to track the cape's attached edge.
-    glm::vec3 TopEdgeAverage(const std::vector<glm::vec3>& positions, u32 columns)
+    glm::vec3 TopEdgeAverage(const TArray<glm::vec3>& positions, u32 columns)
     {
         glm::vec3 sum(0.0f);
         u32 n = 0;
-        const u32 count = std::min<u32>(columns, static_cast<u32>(positions.size()));
+        const u32 count = std::min<u32>(columns, static_cast<u32>(positions.Num()));
         for (u32 i = 0; i < count; ++i)
         {
             sum += positions[i];
@@ -66,7 +66,7 @@ namespace
         return (n > 0) ? sum / static_cast<f32>(n) : glm::vec3(0.0f);
     }
 
-    f32 MinY(const std::vector<glm::vec3>& positions)
+    f32 MinY(const TArray<glm::vec3>& positions)
     {
         f32 minY = std::numeric_limits<f32>::max();
         for (const glm::vec3& p : positions)
@@ -74,7 +74,7 @@ namespace
         return minY;
     }
 
-    bool AllFinite(const std::vector<glm::vec3>& positions)
+    bool AllFinite(const TArray<glm::vec3>& positions)
     {
         for (const glm::vec3& p : positions)
             if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z))
@@ -144,7 +144,7 @@ TEST_F(ClothSkeletonAttachTest, PinnedEdgeFollowsMovingBoneWhileFreePartSags)
     // Settle briefly so the free part drapes and the pinned edge welds to its rest.
     TickFor(0.5f);
 
-    const std::vector<glm::vec3>* rest = GetScene().GetClothVertexPositions(capeID);
+    const TArray<glm::vec3>* rest = GetScene().GetClothVertexPositions(capeID);
     ASSERT_NE(rest, nullptr) << "cape soft body was not created";
     const glm::vec3 restTop = TopEdgeAverage(*rest, 10);
     const f32 restMinY = MinY(*rest);
@@ -165,7 +165,7 @@ TEST_F(ClothSkeletonAttachTest, PinnedEdgeFollowsMovingBoneWhileFreePartSags)
     // Let the cape catch up + re-settle at the new bone pose.
     TickFor(0.75f);
 
-    const std::vector<glm::vec3>* moved = GetScene().GetClothVertexPositions(capeID);
+    const TArray<glm::vec3>* moved = GetScene().GetClothVertexPositions(capeID);
     ASSERT_NE(moved, nullptr);
     EXPECT_TRUE(AllFinite(*moved)) << "cape vertices contain NaN/Inf after following the bone";
 
@@ -200,7 +200,7 @@ TEST_F(ClothSkeletonAttachTest, UnattachedClothPinnedEdgeIgnoresBoneMotion)
     EnablePhysics3D();
     TickFor(0.5f);
 
-    const std::vector<glm::vec3>* rest = GetScene().GetClothVertexPositions(clothID);
+    const TArray<glm::vec3>* rest = GetScene().GetClothVertexPositions(clothID);
     ASSERT_NE(rest, nullptr);
     const glm::vec3 restTop = TopEdgeAverage(*rest, 10);
 
@@ -213,7 +213,7 @@ TEST_F(ClothSkeletonAttachTest, UnattachedClothPinnedEdgeIgnoresBoneMotion)
     }
     TickFor(0.75f);
 
-    const std::vector<glm::vec3>* after = GetScene().GetClothVertexPositions(clothID);
+    const TArray<glm::vec3>* after = GetScene().GetClothVertexPositions(clothID);
     ASSERT_NE(after, nullptr);
     EXPECT_TRUE(AllFinite(*after));
     const glm::vec3 afterTop = TopEdgeAverage(*after, 10);

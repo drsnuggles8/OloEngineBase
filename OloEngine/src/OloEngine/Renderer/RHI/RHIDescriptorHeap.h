@@ -57,7 +57,7 @@
 
 #include <mutex>
 #include <unordered_map>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine::RHI
 {
@@ -704,11 +704,11 @@ namespace OloEngine::RHI
         // hands out from sub-ring m_TransientFrame (HeapDesc::FrameTransientRingFrames).
         // Fixed at Initialize and never resized, so a `ViewSlot`'s address is
         // stable and the vector never reallocates under a reader.
-        std::vector<ViewSlot> m_Slots;
-        std::vector<u64> m_Mirror; ///< CPU shadow of the GPU-visible table
+        TArray<ViewSlot> m_Slots;
+        TArray<u64> m_Mirror; ///< CPU shadow of the GPU-visible table
         u32 m_PersistentCapacity = 0u;
         u32 m_TransientCapacity = 0u;
-        std::vector<u32> m_PersistentFreeList;
+        TArray<u32> m_PersistentFreeList;
         u32 m_TransientCursor = 0u;
         u32 m_TransientFrames = 1u; ///< sub-rings (frames in flight)
         u32 m_TransientFrame = 0u;  ///< the sub-ring this frame allocates from
@@ -722,13 +722,13 @@ namespace OloEngine::RHI
             SamplerDesc Desc;
             u32 RefCount = 0u;
         };
-        std::vector<SamplerSlot> m_SamplerSlots;
+        TArray<SamplerSlot> m_SamplerSlots;
 
         // Reverse index for InvalidateResource: resource slot index -> view
         // indices. Keyed on `ResourceHandle::Index` rather than the whole handle
         // so a reload (which preserves the handle) and a recreate (which does
         // not) both find their views.
-        std::unordered_map<u32, std::vector<u32>> m_ViewsByResource;
+        std::unordered_map<u32, TArray<u32>> m_ViewsByResource;
 
         // Memoisation for GetOrCreateView's persistent case. The key carries the
         // resource's GENERATION as well as its index, so a destroy/recreate that

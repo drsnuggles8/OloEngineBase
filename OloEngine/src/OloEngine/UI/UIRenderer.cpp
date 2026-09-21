@@ -313,8 +313,8 @@ namespace OloEngine
         const f32 lineHeightScreen = lineHeightLocal * scale + text.m_LineSpacing;
 
         // Split text into lines and measure each line's width
-        std::vector<std::string> lines;
-        std::vector<f32> lineWidths;
+        TArray<FString> lines;
+        TArray<f32> lineWidths;
         {
             std::string_view sv(text.m_Text);
             sizet start = 0;
@@ -331,14 +331,14 @@ namespace OloEngine
                 {
                     line = line.substr(0, line.size() - 1);
                 }
-                lines.emplace_back(line);
-                lineWidths.push_back(fontAsset->MeasureLine(line, static_cast<f32>(fsScale), text.m_Kerning) * scale);
+                lines.Emplace(line);
+                lineWidths.Add(fontAsset->MeasureLine(line, static_cast<f32>(fsScale), text.m_Kerning) * scale);
                 start = end + 1;
             }
         }
 
         // Total height: N lines × lineHeightScreen minus the trailing spacing after the last line
-        const f32 totalHeight = static_cast<f32>(lines.size()) * lineHeightScreen - text.m_LineSpacing;
+        const f32 totalHeight = static_cast<f32>(lines.Num()) * lineHeightScreen - text.m_LineSpacing;
 
         // Compute vertical start of text block
         f32 blockY = position.y;
@@ -374,9 +374,9 @@ namespace OloEngine
         // intended top of each line.
         const f32 ascenderScreen = static_cast<f32>(metrics.AscenderY * fsScale) * scale;
 
-        for (sizet i = 0; i < lines.size(); ++i)
+        for (sizet i = 0; i < lines.Num(); ++i)
         {
-            if (lines[i].empty())
+            if (lines[i].IsEmpty())
             {
                 continue; // Skip empty lines (vertical space is still accounted for by blockY + i * lineHeight)
             }
@@ -399,7 +399,7 @@ namespace OloEngine
 
             glm::mat4 transform = glm::translate(glm::mat4(1.0f), { lineX, lineY, 0.0f }) * glm::scale(glm::mat4(1.0f), { scale, -scale, 1.0f });
 
-            Renderer2D::DrawString(lines[i], fontAsset, transform, params, entityID);
+            Renderer2D::DrawString(lines[i].ToStdString(), fontAsset, transform, params, entityID);
         }
     }
 
@@ -604,7 +604,7 @@ namespace OloEngine
         DrawRect(position, size, dropdown.m_BackgroundColor, entityID);
 
         // Selected text
-        if (dropdown.m_SelectedIndex >= 0 && dropdown.m_SelectedIndex < static_cast<i32>(dropdown.m_Options.size()))
+        if (dropdown.m_SelectedIndex >= 0 && dropdown.m_SelectedIndex < static_cast<i32>(dropdown.m_Options.Num()))
         {
             // Global accessibility text scale (issue #458).
             const f32 scale = Accessibility::ResolveFontSize(dropdown.m_FontSize) / kTextTransformEmSize;
@@ -614,7 +614,7 @@ namespace OloEngine
             params.Color = dropdown.m_TextColor;
             if (dropdown.m_FontAsset)
             {
-                Renderer2D::DrawString(dropdown.m_Options[static_cast<sizet>(dropdown.m_SelectedIndex)].m_Label, dropdown.m_FontAsset, transform, params, entityID);
+                Renderer2D::DrawString(dropdown.m_Options[static_cast<sizet>(dropdown.m_SelectedIndex)].m_Label.ToStdString(), dropdown.m_FontAsset, transform, params, entityID);
             }
         }
 
@@ -624,17 +624,17 @@ namespace OloEngine
         DrawRect(arrowPos, { arrowSize, arrowSize }, dropdown.m_TextColor, entityID);
 
         // Popup list when open
-        if (dropdown.m_IsOpen && !dropdown.m_Options.empty())
+        if (dropdown.m_IsOpen && !dropdown.m_Options.IsEmpty())
         {
             // Hoisted: dropdown.m_FontSize does not change across options, so
             // resolving the scale per option was redundant work in the loop.
             const f32 optionScale = Accessibility::ResolveFontSize(dropdown.m_FontSize) / kTextTransformEmSize;
-            const f32 listHeight = static_cast<f32>(dropdown.m_Options.size()) * dropdown.m_ItemHeight;
+            const f32 listHeight = static_cast<f32>(dropdown.m_Options.Num()) * dropdown.m_ItemHeight;
             const glm::vec2 listPos = { position.x, position.y + size.y };
 
             DrawRect(listPos, { size.x, listHeight }, dropdown.m_BackgroundColor, entityID);
 
-            for (sizet i = 0; i < dropdown.m_Options.size(); ++i)
+            for (sizet i = 0; i < dropdown.m_Options.Num(); ++i)
             {
                 const f32 itemY = listPos.y + static_cast<f32>(i) * dropdown.m_ItemHeight;
 
@@ -649,7 +649,7 @@ namespace OloEngine
                 params.Color = dropdown.m_TextColor;
                 if (dropdown.m_FontAsset)
                 {
-                    Renderer2D::DrawString(dropdown.m_Options[i].m_Label, dropdown.m_FontAsset, transform, params, entityID);
+                    Renderer2D::DrawString(dropdown.m_Options[i].m_Label.ToStdString(), dropdown.m_FontAsset, transform, params, entityID);
                 }
             }
         }

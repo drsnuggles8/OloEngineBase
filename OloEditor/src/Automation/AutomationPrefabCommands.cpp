@@ -1652,13 +1652,13 @@ namespace OloEngine::Automation
             out.emplace_back(source, copy.GetUUID());
             const auto& sourceChildren = source.Children();
             const auto& copyChildren = copy.Children();
-            if (sourceChildren.size() != copyChildren.size())
+            if (sourceChildren.Num() != copyChildren.Num())
             {
                 return "The prefab copy of entity " + Identity(source.GetUUID()) + " has " +
-                       std::to_string(copyChildren.size()) + " children where the source has " +
-                       std::to_string(sourceChildren.size()) + "; the source entity cannot be linked to the prefab.";
+                       std::to_string(copyChildren.Num()) + " children where the source has " +
+                       std::to_string(sourceChildren.Num()) + "; the source entity cannot be linked to the prefab.";
             }
-            for (sizet index = 0; index < sourceChildren.size(); ++index)
+            for (sizet index = 0; index < sourceChildren.Num(); ++index)
             {
                 auto sourceChild = sourceScene->TryGetEntityWithUUID(sourceChildren[index]);
                 auto copyChild = prefabScene->TryGetEntityWithUUID(copyChildren[index]);

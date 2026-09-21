@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <memory>
+
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/TaskTag.h"
 #include "OloEngine/Task/LowLevelTask.h"
@@ -229,13 +231,14 @@ namespace OloEngine
                     CaptureInheritedContext();
 
                     IncompleteBatches.store(NumBatches, std::memory_order_relaxed);
-                    Tasks.SetNum(InNumWorkers);
+                    Tasks = std::make_unique<LowLevelTasks::FTask[]>(InNumWorkers);
+                    NumWorkers = InNumWorkers;
                 }
 
                 i32 GetNextWorkerIndexToLaunch()
                 {
                     const i32 WorkerIndex = LaunchedWorkers.fetch_add(1, std::memory_order_relaxed);
-                    return WorkerIndex >= Tasks.Num() ? -1 : WorkerIndex;
+                    return WorkerIndex >= NumWorkers ? -1 : WorkerIndex;
                 }
 
                 const char* DebugName;
@@ -249,7 +252,8 @@ namespace OloEngine
                 const BodyType& Body;
                 FEventRef& FinishedSignal;
                 LowLevelTasks::ETaskPriority Priority;
-                TArray<LowLevelTasks::FTask> Tasks;
+                std::unique_ptr<LowLevelTasks::FTask[]> Tasks;
+                i32 NumWorkers = 0;
             };
             using FDataHandle = TRefCountPtr<FParallelForData>;
 

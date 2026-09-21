@@ -137,10 +137,10 @@ namespace OloEngine::Tests
         for (const auto& d : before.DiffAgainst(after))
         {
             const bool isPerSlotBinding =
-                d.starts_with("Texture2D[") || d.starts_with("Texture2DArray[") ||
-                d.starts_with("TextureCubeMap[") || d.starts_with("UBO[");
+                d.ToView().starts_with("Texture2D[") || d.ToView().starts_with("Texture2DArray[") ||
+                d.ToView().starts_with("TextureCubeMap[") || d.ToView().starts_with("UBO[");
             if (!isPerSlotBinding)
-                coreDiffs.push_back(d);
+                coreDiffs.push_back(d.ToStdString());
         }
 
         if (!coreDiffs.empty())

@@ -7,7 +7,7 @@
 
 #include <array>
 #include <span>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine::GaussianSplat
 {
@@ -82,7 +82,7 @@ namespace OloEngine::GaussianSplat
 
         [[nodiscard]] auto LevelCount() const -> u32
         {
-            return static_cast<u32>(m_Levels.size());
+            return static_cast<u32>(m_Levels.Num());
         }
         [[nodiscard]] auto Level(u32 index) const -> const SplatCloud&
         {
@@ -90,7 +90,7 @@ namespace OloEngine::GaussianSplat
         }
         [[nodiscard]] auto Empty() const -> bool
         {
-            return m_Levels.empty();
+            return m_Levels.IsEmpty();
         }
 
         // The FINEST level that fits `maxSplats`, or the coarsest level if none
@@ -111,7 +111,7 @@ namespace OloEngine::GaussianSplat
         }
 
       private:
-        std::vector<SplatCloud> m_Levels;
+        TArray<SplatCloud> m_Levels;
         u32 m_DroppedClusters = 0;
     };
 
@@ -124,6 +124,6 @@ namespace OloEngine::GaussianSplat
     // many equal coordinates still produces one answer.
     void BuildClusters(std::span<const GpuSplat> splats,
                        u32 clusterSize,
-                       std::vector<u32>& orderOut,
-                       std::vector<u32>& offsetsOut);
+                       TArray<u32>& orderOut,
+                       TArray<u32>& offsetsOut);
 } // namespace OloEngine::GaussianSplat

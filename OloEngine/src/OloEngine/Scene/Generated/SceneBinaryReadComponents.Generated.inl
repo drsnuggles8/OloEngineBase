@@ -383,13 +383,13 @@ case 4028072432u: // DiscoveredSetComponent
     {
         u32 bn0 = 0;
         if (!SceneBinIO::ReadU32(reader, bn0) || bn0 > SceneBinIO::MaxContainerElements) return false;
-        comp.m_Discovered.clear();
-        comp.m_Discovered.reserve(bn0);
+        comp.m_Discovered.Empty();
+        comp.m_Discovered.Reserve(bn0);
         for (u32 bi0 = 0; bi0 < bn0; ++bi0)
         {
-            decltype(comp.m_Discovered)::value_type bv0{};
+            decltype(comp.m_Discovered)::ElementType bv0{};
             if (!SceneBinIO::Read(reader, bv0)) return false;
-            comp.m_Discovered.push_back(std::move(bv0));
+            comp.m_Discovered.Add(std::move(bv0));
         }
     }
     break;
@@ -1033,13 +1033,13 @@ case 3765764758u: // RelationshipComponent
     {
         u32 bn0 = 0;
         if (!SceneBinIO::ReadU32(reader, bn0) || bn0 > SceneBinIO::MaxContainerElements) return false;
-        comp.m_Children.clear();
-        comp.m_Children.reserve(bn0);
+        comp.m_Children.Empty();
+        comp.m_Children.Reserve(bn0);
         for (u32 bi0 = 0; bi0 < bn0; ++bi0)
         {
-            decltype(comp.m_Children)::value_type bv0{};
+            decltype(comp.m_Children)::ElementType bv0{};
             if (!SceneBinIO::Read(reader, bv0)) return false;
-            comp.m_Children.push_back(std::move(bv0));
+            comp.m_Children.Add(std::move(bv0));
         }
     }
     break;

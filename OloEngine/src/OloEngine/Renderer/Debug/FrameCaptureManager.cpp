@@ -65,29 +65,36 @@ namespace OloEngine
     std::optional<CapturedFrameData> FrameCaptureManager::GetSelectedFrame() const
     {
         TUniqueLock<FMutex> lock(m_Mutex);
-        if (i32 idx = m_SelectedFrameIndex.load(std::memory_order_acquire); idx >= 0 && idx < static_cast<i32>(m_CapturedFrames.size()))
+        if (i32 idx = m_SelectedFrameIndex.load(std::memory_order_acquire); idx >= 0 && idx < static_cast<i32>(m_CapturedFrames.Num()))
         {
-            return m_CapturedFrames[idx];
+            auto* node = m_CapturedFrames.GetHead();
+            while (idx-- > 0)
+                node = node->GetNextNode();
+            return node->GetValue();
         }
         return std::nullopt;
     }
 
-    std::deque<CapturedFrameData> FrameCaptureManager::GetCapturedFramesCopy() const
+    TArray<CapturedFrameData> FrameCaptureManager::GetCapturedFramesCopy() const
     {
         TUniqueLock<FMutex> lock(m_Mutex);
-        return m_CapturedFrames;
+        TArray<CapturedFrameData> frames;
+        frames.Reserve(m_CapturedFrames.Num());
+        for (auto* node = m_CapturedFrames.GetHead(); node != nullptr; node = node->GetNextNode())
+            frames.Add(node->GetValue());
+        return frames;
     }
 
     sizet FrameCaptureManager::GetCapturedFrameCount() const
     {
         TUniqueLock<FMutex> lock(m_Mutex);
-        return m_CapturedFrames.size();
+        return m_CapturedFrames.Num();
     }
 
     void FrameCaptureManager::ClearCaptures()
     {
         TUniqueLock<FMutex> lock(m_Mutex);
-        m_CapturedFrames.clear();
+        m_CapturedFrames.Empty();
         m_CaptureGeneration.fetch_add(1, std::memory_order_release);
     }
 
@@ -96,15 +103,15 @@ namespace OloEngine
         if (!IsCapturing())
             return;
 
-        m_PendingFrame.SourcePassName = passName;
+        m_PendingFrame.SourcePassName = FString(passName);
     }
 
     CapturedPassData& FrameCaptureManager::EnsureCurrentPass()
     {
-        if (m_CurrentPassIndex < 0 || m_CurrentPassIndex >= static_cast<i32>(m_PendingFrame.Passes.size()))
+        if (m_CurrentPassIndex < 0 || m_CurrentPassIndex >= static_cast<i32>(m_PendingFrame.Passes.Num()))
         {
-            m_PendingFrame.Passes.emplace_back();
-            m_CurrentPassIndex = static_cast<i32>(m_PendingFrame.Passes.size()) - 1;
+            m_PendingFrame.Passes.Emplace();
+            m_CurrentPassIndex = static_cast<i32>(m_PendingFrame.Passes.Num()) - 1;
         }
         return m_PendingFrame.Passes[static_cast<sizet>(m_CurrentPassIndex)];
     }
@@ -114,9 +121,9 @@ namespace OloEngine
         if (!IsCapturing())
             return;
 
-        m_PendingFrame.Passes.emplace_back();
-        m_CurrentPassIndex = static_cast<i32>(m_PendingFrame.Passes.size()) - 1;
-        m_PendingFrame.Passes[static_cast<sizet>(m_CurrentPassIndex)].PassName = passName;
+        m_PendingFrame.Passes.Emplace();
+        m_CurrentPassIndex = static_cast<i32>(m_PendingFrame.Passes.Num()) - 1;
+        m_PendingFrame.Passes[static_cast<sizet>(m_CurrentPassIndex)].PassName = FString(passName);
     }
 
     void FrameCaptureManager::OnPreSort(const CommandBucket& bucket)
@@ -126,7 +133,7 @@ namespace OloEngine
             return;
 
         CapturedPassData& pass = EnsureCurrentPass();
-        pass.PreSortCommands.clear();
+        pass.PreSortCommands.Reset();
         DeepCopyCommands(bucket, pass.PreSortCommands, false);
         pass.HasPreSort = true;
     }
@@ -138,7 +145,7 @@ namespace OloEngine
             return;
 
         CapturedPassData& pass = EnsureCurrentPass();
-        pass.PostSortCommands.clear();
+        pass.PostSortCommands.Reset();
         DeepCopyCommands(bucket, pass.PostSortCommands, true);
         pass.HasPostSort = true;
     }
@@ -150,7 +157,7 @@ namespace OloEngine
             return;
 
         CapturedPassData& pass = EnsureCurrentPass();
-        pass.PostBatchCommands.clear();
+        pass.PostBatchCommands.Reset();
         DeepCopyCommands(bucket, pass.PostBatchCommands, true);
         pass.HasPostBatch = true;
     }
@@ -169,7 +176,7 @@ namespace OloEngine
 
     CapturedPassData* FrameCaptureManager::FindSourcePass()
     {
-        if (!m_PendingFrame.SourcePassName.empty())
+        if (!m_PendingFrame.SourcePassName.IsEmpty())
         {
             for (auto& pass : m_PendingFrame.Passes)
             {
@@ -177,12 +184,12 @@ namespace OloEngine
                     return &pass;
             }
         }
-        return m_PendingFrame.Passes.empty() ? nullptr : &m_PendingFrame.Passes.front();
+        return m_PendingFrame.Passes.IsEmpty() ? nullptr : &m_PendingFrame.Passes[0];
     }
 
-    void FrameCaptureManager::ApplyGpuTimingsToSource(const std::vector<f64>& resultsMs)
+    void FrameCaptureManager::ApplyGpuTimingsToSource(const TArray<f64>& resultsMs)
     {
-        if (resultsMs.empty())
+        if (resultsMs.IsEmpty())
             return;
 
         CapturedPassData* source = FindSourcePass();
@@ -195,7 +202,7 @@ namespace OloEngine
         auto& timedCommands = source->HasPostBatch
                                   ? source->PostBatchCommands
                                   : (source->HasPostSort ? source->PostSortCommands : source->PreSortCommands);
-        const u32 count = std::min(static_cast<u32>(timedCommands.size()), static_cast<u32>(resultsMs.size()));
+        const u32 count = std::min(static_cast<u32>(timedCommands.Num()), static_cast<u32>(resultsMs.Num()));
         for (u32 i = 0; i < count; ++i)
             timedCommands[i].SetGpuTimeMs(resultsMs[i]);
     }
@@ -223,7 +230,7 @@ namespace OloEngine
             case CaptureState::AwaitingGpuResults:
             {
                 const auto& gpuTimer = GPUTimerQueryPool::GetInstance();
-                std::vector<f64> resultsMs;
+                TArray<f64> resultsMs;
                 bool resolved = false;
                 if (gpuTimer.IsInitialized())
                 {
@@ -252,7 +259,8 @@ namespace OloEngine
                 const auto& gpuTimer = GPUTimerQueryPool::GetInstance();
                 if (gpuTimer.IsInitialized() && gpuTimer.GetReadableQueryCount() > 0)
                 {
-                    std::vector<f64> resultsMs(gpuTimer.GetReadableQueryCount());
+                    TArray<f64> resultsMs;
+                    resultsMs.SetNum(static_cast<i32>(gpuTimer.GetReadableQueryCount()), EAllowShrinking::No);
                     for (u32 i = 0; i < gpuTimer.GetReadableQueryCount(); ++i)
                         resultsMs[i] = gpuTimer.GetQueryResultMs(i);
                     ApplyGpuTimingsToSource(resultsMs);
@@ -278,7 +286,8 @@ namespace OloEngine
         RecordPassTimings(sortTimeMs, batchTimeMs, executeTimeMs);
         if (const auto& gpuTimer = GPUTimerQueryPool::GetInstance(); gpuTimer.IsInitialized() && gpuTimer.GetReadableQueryCount() > 0)
         {
-            std::vector<f64> resultsMs(gpuTimer.GetReadableQueryCount());
+            TArray<f64> resultsMs;
+            resultsMs.SetNum(static_cast<i32>(gpuTimer.GetReadableQueryCount()), EAllowShrinking::No);
             for (u32 i = 0; i < gpuTimer.GetReadableQueryCount(); ++i)
                 resultsMs[i] = gpuTimer.GetQueryResultMs(i);
             ApplyGpuTimingsToSource(resultsMs);
@@ -314,7 +323,7 @@ namespace OloEngine
 
             // Legacy implicit pass (no BeginPass/SetSourcePass): adopt its name so
             // the breakdown still labels the bucket.
-            if (m_PendingFrame.SourcePassName.empty())
+            if (m_PendingFrame.SourcePassName.IsEmpty())
                 m_PendingFrame.SourcePassName = source->PassName;
         }
 
@@ -322,7 +331,7 @@ namespace OloEngine
         m_PendingFrame.TimestampSeconds =
             std::chrono::duration<f64>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
 
-        m_PendingFrame.Stats.TotalCommands = static_cast<u32>(m_PendingFrame.PreSortCommands.size());
+        m_PendingFrame.Stats.TotalCommands = static_cast<u32>(m_PendingFrame.PreSortCommands.Num());
         m_PendingFrame.Stats.SortTimeMs = sourceStats.SortTimeMs;
         m_PendingFrame.Stats.BatchTimeMs = sourceStats.BatchTimeMs;
         m_PendingFrame.Stats.ExecuteTimeMs = sourceStats.ExecuteTimeMs;
@@ -352,7 +361,7 @@ namespace OloEngine
         // Count batched commands (difference between post-sort and post-batch)
         if (hasPostSort && hasPostBatch)
         {
-            i32 diff = static_cast<i32>(m_PendingFrame.PostSortCommands.size()) - static_cast<i32>(m_PendingFrame.PostBatchCommands.size());
+            i32 diff = static_cast<i32>(m_PendingFrame.PostSortCommands.Num()) - static_cast<i32>(m_PendingFrame.PostBatchCommands.Num());
             m_PendingFrame.Stats.BatchedCommands = diff > 0 ? static_cast<u32>(diff) : 0;
         }
 
@@ -361,12 +370,12 @@ namespace OloEngine
         {
             const auto& fdb = FrameDataBufferManager::Get();
             u16 rsCount = fdb.GetRenderStateCount();
-            m_PendingFrame.RenderStateSnapshot.resize(rsCount);
+            m_PendingFrame.RenderStateSnapshot.SetNum(rsCount, EAllowShrinking::No);
             for (u16 i = 0; i < rsCount; ++i)
                 m_PendingFrame.RenderStateSnapshot[i] = fdb.GetRenderState(i);
 
             u16 mdCount = fdb.GetMaterialDataCount();
-            m_PendingFrame.MaterialDataSnapshot.resize(mdCount);
+            m_PendingFrame.MaterialDataSnapshot.SetNum(mdCount, EAllowShrinking::No);
             for (u16 i = 0; i < mdCount; ++i)
                 m_PendingFrame.MaterialDataSnapshot[i] = fdb.GetMaterialData(i);
         }
@@ -374,12 +383,12 @@ namespace OloEngine
         // Push the completed frame (lock protects concurrent UI reads)
         {
             TUniqueLock<FMutex> lock(m_Mutex);
-            m_CapturedFrames.push_back(std::move(m_PendingFrame));
+            m_CapturedFrames.AddTail(std::move(m_PendingFrame));
 
             // Trim to max
-            while (m_CapturedFrames.size() > m_MaxCapturedFrames.load(std::memory_order_relaxed))
+            while (m_CapturedFrames.Num() > m_MaxCapturedFrames.load(std::memory_order_relaxed))
             {
-                m_CapturedFrames.pop_front();
+                m_CapturedFrames.RemoveNode(m_CapturedFrames.GetHead());
                 i32 sel = m_SelectedFrameIndex.load(std::memory_order_relaxed);
                 if (sel > 0)
                     m_SelectedFrameIndex.fetch_sub(1, std::memory_order_relaxed);
@@ -388,7 +397,7 @@ namespace OloEngine
             // Auto-select the latest frame if nothing is selected
             if (m_SelectedFrameIndex.load(std::memory_order_relaxed) < 0)
             {
-                m_SelectedFrameIndex.store(static_cast<i32>(m_CapturedFrames.size()) - 1, std::memory_order_relaxed);
+                m_SelectedFrameIndex.store(static_cast<i32>(m_CapturedFrames.Num()) - 1, std::memory_order_relaxed);
             }
 
             m_CaptureGeneration.fetch_add(1, std::memory_order_release);
@@ -410,16 +419,16 @@ namespace OloEngine
     }
 
     void FrameCaptureManager::DeepCopyCommands(const CommandBucket& bucket,
-                                               std::vector<CapturedCommandData>& outCommands,
+                                               TArray<CapturedCommandData>& outCommands,
                                                bool useSortedOrder) const
     {
         OLO_PROFILE_FUNCTION();
-        outCommands.clear();
+        outCommands.Reset();
 
         if (useSortedOrder)
         {
             const auto& sorted = bucket.GetSortedCommands();
-            outCommands.reserve(sorted.size());
+            outCommands.Reserve(sorted.size());
 
             for (u32 i = 0; i < static_cast<u32>(sorted.size()); ++i)
             {
@@ -428,7 +437,7 @@ namespace OloEngine
                     continue;
 
                 const auto& meta = packet->GetMetadata();
-                outCommands.emplace_back(
+                outCommands.Emplace(
                     packet->GetCommandType(),
                     packet->GetRawCommandData(),
                     packet->GetCommandSize(),
@@ -445,7 +454,7 @@ namespace OloEngine
         {
             // Iterate flat packet array (submission order before sorting)
             const auto& packets = bucket.GetPackets();
-            outCommands.reserve(packets.size());
+            outCommands.Reserve(packets.size());
 
             for (u32 i = 0; i < static_cast<u32>(packets.size()); ++i)
             {
@@ -454,7 +463,7 @@ namespace OloEngine
                     continue;
 
                 const auto& meta = packet->GetMetadata();
-                outCommands.emplace_back(
+                outCommands.Emplace(
                     packet->GetCommandType(),
                     packet->GetRawCommandData(),
                     packet->GetCommandSize(),

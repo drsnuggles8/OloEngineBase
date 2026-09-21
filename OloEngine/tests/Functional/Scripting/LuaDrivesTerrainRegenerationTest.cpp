@@ -141,9 +141,9 @@ TEST_F(LuaDrivesTerrainRegenerationTest, LuaSetsSeedAndRegeneratesChangingTheHei
 
     // Baseline: the editor-authored seed, and the height field it produces.
     ASSERT_EQ(terrain.m_ProceduralSeed, kInitialSeed);
-    std::vector<f32> fieldBefore;
+    TArray<f32> fieldBefore;
     TerrainGenerator::GenerateHeightField(fieldBefore, ParamsFromComponent(terrain));
-    ASSERT_FALSE(fieldBefore.empty());
+    ASSERT_FALSE(fieldBefore.IsEmpty());
 
     // Prime the runtime cache the way a first render tick would: a non-null
     // TerrainData that a naive flag-only "regenerate" would wrongly reuse, with
@@ -177,14 +177,14 @@ TEST_F(LuaDrivesTerrainRegenerationTest, LuaSetsSeedAndRegeneratesChangingTheHei
     // (3) The script-driven param change deterministically changes the height
     // field, and regenerating with identical params is bit-stable. This is the
     // CPU half of the Scene's GPU rebuild (GenerateHeightmap → GenerateHeightField).
-    std::vector<f32> fieldAfter;
+    TArray<f32> fieldAfter;
     TerrainGenerator::GenerateHeightField(fieldAfter, ParamsFromComponent(terrain));
-    ASSERT_EQ(fieldAfter.size(), fieldBefore.size());
+    ASSERT_EQ(fieldAfter.Num(), fieldBefore.Num());
     EXPECT_NE(fieldAfter, fieldBefore)
         << "the script-set seed/octaves produced an identical height field — the "
            "params aren't actually feeding generation.";
 
-    std::vector<f32> fieldAfterRepeat;
+    TArray<f32> fieldAfterRepeat;
     TerrainGenerator::GenerateHeightField(fieldAfterRepeat, ParamsFromComponent(terrain));
     EXPECT_EQ(fieldAfter, fieldAfterRepeat)
         << "same params produced different fields — generation isn't deterministic.";

@@ -385,7 +385,7 @@ namespace OloEngine::PathTracing
     {
         m_Width = width;
         m_Height = height;
-        m_Pixels.assign(static_cast<sizet>(width) * height, glm::vec3(0.0f));
+        m_Pixels.Init(glm::vec3(0.0f), static_cast<i64>(width) * height);
     }
 
     void ReferenceFilm::Clear()
@@ -425,10 +425,10 @@ namespace OloEngine::PathTracing
         return glm::vec3(sum / static_cast<f64>(count));
     }
 
-    void ReferenceFilm::EncodeRgba8(std::vector<u8>& outRgba, i32 tonemap, f32 exposure, bool applyGamma) const
+    void ReferenceFilm::EncodeRgba8(TArray64<u8>& outRgba, i32 tonemap, f32 exposure, bool applyGamma) const
     {
-        outRgba.assign(static_cast<sizet>(m_Width) * m_Height * 4, 0);
-        for (sizet i = 0; i < m_Pixels.size(); ++i)
+        outRgba.Init(0, static_cast<i64>(m_Width) * m_Height * 4);
+        for (sizet i = 0; i < m_Pixels.Num(); ++i)
         {
             glm::vec3 color = m_Pixels[i] * exposure;
 
@@ -663,7 +663,7 @@ namespace OloEngine::PathTracing
         }
 
         film.Clear();
-        std::vector<glm::vec3>& pixels = film.GetPixels();
+        const auto pixels = film.GetPixels();
 
         const f32 invWidth = 1.0f / static_cast<f32>(width);
         const f32 invHeight = 1.0f / static_cast<f32>(height);

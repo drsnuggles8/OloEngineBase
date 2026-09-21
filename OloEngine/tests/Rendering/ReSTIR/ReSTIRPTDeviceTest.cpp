@@ -425,7 +425,7 @@ namespace OloEngine::Tests
                                                  StorageBufferUsage::DynamicCopy);
             ASSERT_TRUE(rig.Counters);
             rig.Counters->ClearData();
-            std::vector<EmissiveTriangleRecord> emitters;
+            TArray<EmissiveTriangleRecord> emitters;
             f32 emitterArea = 0.0f;
             for (const auto& instance : rig.Scene.GetInstances())
             {
@@ -444,13 +444,13 @@ namespace OloEngine::Tests
             }
             EmissiveTriangleTable::Finalize(emitters, emitterArea);
             rig.EmptyEmitter = StorageBuffer::Create(
-                static_cast<u32>(std::max<sizet>(emitters.size(), 1u) * sizeof(EmissiveTriangleRecord)), StorageBuffer::kNoBinding);
+                static_cast<u32>(std::max<sizet>(emitters.Num(), 1u) * sizeof(EmissiveTriangleRecord)), StorageBuffer::kNoBinding);
             ASSERT_TRUE(rig.EmptyEmitter);
             const EmissiveTriangleRecord noEmitter{};
-            if (emitters.empty())
+            if (emitters.IsEmpty())
                 rig.EmptyEmitter->SetData(&noEmitter, sizeof(noEmitter));
             else
-                rig.EmptyEmitter->SetData(emitters.data(), static_cast<u32>(emitters.size() * sizeof(EmissiveTriangleRecord)));
+                rig.EmptyEmitter->SetData(emitters.GetData(), static_cast<u32>(emitters.Num() * sizeof(EmissiveTriangleRecord)));
 
             const f32 triangle[] = { -1, -1, 0, 0, 0, 3, -1, 0, 2, 0, -1, 3, 0, 0, 2 };
             u32 triangleIndices[] = { 0, 1, 2 };
@@ -530,7 +530,7 @@ namespace OloEngine::Tests
             rig.Values.TlasAddressAndFrame = glm::uvec4(tlas, RT::kInstanceMaskAll, 1u);
             rig.Values.SlotCounts = glm::uvec4(static_cast<u32>(instances.size()), static_cast<u32>(geometries.size()),
                                                static_cast<u32>(gpuMaterials.size()), 0u);
-            rig.Values.EmissiveTable = glm::uvec4(emitter, static_cast<u32>(emitters.size()), 0u);
+            rig.Values.EmissiveTable = glm::uvec4(emitter, static_cast<u32>(emitters.Num()), 0u);
             rig.Values.MaterialTable = glm::uvec4(0u, 0u, 0u, RHI::HeapOffset::Invalid);
             rig.Values.Counts = glm::uvec4(64u, 0u, 7u, 0x12345u);
             rig.Values.Params = glm::vec4(1.0e-3f, 1.0e-3f, 1.0e4f, 0.25f);
@@ -608,11 +608,11 @@ namespace OloEngine::Tests
             const auto* framebuffer = static_cast<const VulkanFramebuffer*>(rig.Target.Raw());
             const auto image = framebuffer->GetColorAttachmentImage(0u);
             ASSERT_TRUE(image);
-            std::vector<u8> bytes;
+            TArray64<u8> bytes;
             ASSERT_TRUE(image->GetData(bytes, 0u));
-            ASSERT_EQ(bytes.size(), kPixels * sizeof(glm::vec4));
+            ASSERT_EQ(bytes.Num(), kPixels * sizeof(glm::vec4));
             output.resize(kPixels);
-            std::memcpy(output.data(), bytes.data(), bytes.size());
+            std::memcpy(output.data(), bytes.GetData(), bytes.Num());
         }
 
         static void ExpectFinitePaths(const std::vector<PT::PathRecord>& paths)

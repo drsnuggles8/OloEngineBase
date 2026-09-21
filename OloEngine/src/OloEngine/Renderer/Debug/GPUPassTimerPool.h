@@ -5,10 +5,25 @@
 
 #include <array>
 #include <string>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/String.h"
 
 namespace OloEngine
 {
+    struct GPUPassTiming
+    {
+        FString Name;
+        f64 GpuMs = 0.0;
+    };
+
+    // Names own independent string storage; timing is a scalar.
+    template<>
+    struct TIsTriviallyRelocatable<GPUPassTiming>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(GPUPassTiming::Name)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GPUPassTiming::GpuMs)>;
+    };
+
     /// @brief Always-on GPU timing for the whole frame and each render-graph pass.
     ///
     /// Ring-buffered timestamp query pairs (RHI::QueryType::Timestamp through the
@@ -25,11 +40,7 @@ namespace OloEngine
     class GPUPassTimerPool
     {
       public:
-        struct PassTiming
-        {
-            std::string Name;
-            f64 GpuMs = 0.0;
-        };
+        using PassTiming = GPUPassTiming;
 
         // 4 slots: results are read back 1-3 frames after issue without ever
         // blocking; a slot still pending when its turn comes again (GPU >3
@@ -87,7 +98,7 @@ namespace OloEngine
         /// @brief Per-pass GPU times of the most recently resolved frame, in
         /// execution order. Returns a copy so callers reading via a main-thread
         /// marshal (e.g. the MCP diagnostics server) get a stable snapshot.
-        [[nodiscard]] std::vector<PassTiming> GetLastPassTimingsCopy() const
+        [[nodiscard]] TArray<PassTiming> GetLastPassTimingsCopy() const
         {
             return m_LastPassTimings;
         }
@@ -119,8 +130,8 @@ namespace OloEngine
             // sub-pass pair sits between its parent's begin and end stamps
             // (parent-first allocation order is what the MCP shaping relies on
             // to attach "Parent/Sub" entries to their parent).
-            std::vector<RHI::ResourceHandle> Queries;
-            std::vector<std::string> PassNames;
+            TArray<RHI::ResourceHandle> Queries;
+            TArray<FString> PassNames;
             u32 PassCount = 0;
             u64 FrameNumber = 0;
             bool Pending = false; // stamped and awaiting readback
@@ -144,7 +155,7 @@ namespace OloEngine
         u32 m_CurrentSubPassIndex = 0;
 
         // Published results (most recently resolved frame).
-        std::vector<PassTiming> m_LastPassTimings;
+        TArray<PassTiming> m_LastPassTimings;
         f64 m_LastFrameGpuMs = 0.0;
         u64 m_LastResolvedFrame = 0;
     };

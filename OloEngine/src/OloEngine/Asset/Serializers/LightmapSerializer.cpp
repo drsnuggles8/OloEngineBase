@@ -74,10 +74,10 @@ namespace OloEngine
                                sourceName, lightmap.GetPageCount(), OLmapFormat::MaxPageCount);
                 return false;
             }
-            if (lightmap.GetEntries().size() > OLmapFormat::MaxEntryCount)
+            if (static_cast<u64>(lightmap.GetEntries().Num()) > OLmapFormat::MaxEntryCount)
             {
                 OLO_CORE_ERROR("LightmapSerializer: '{}' entity entry count {} exceeds the format cap {}",
-                               sourceName, lightmap.GetEntries().size(), OLmapFormat::MaxEntryCount);
+                               sourceName, lightmap.GetEntries().Num(), OLmapFormat::MaxEntryCount);
                 return false;
             }
             return true;
@@ -107,7 +107,7 @@ namespace OloEngine
         }
 
         u64 const texelBytes = lightmap.GetExpectedTexelCount() * sizeof(f32);
-        u64 const entryBytes = static_cast<u64>(lightmap.GetEntries().size()) * sizeof(LightmapEntityEntry);
+        u64 const entryBytes = static_cast<u64>(lightmap.GetEntries().Num()) * sizeof(LightmapEntityEntry);
         u64 const payloadSize = 3u * sizeof(OLmapFormat::SectionFrame) +
                                 sizeof(OLmapFormat::InfoSection) +
                                 texelBytes +
@@ -144,7 +144,7 @@ namespace OloEngine
             frame.SectionId = std::to_underlying(OLmapFormat::SectionType::Texels);
             frame.ByteCount = texelBytes;
             AppendBytes(payload, &frame, sizeof(frame));
-            AppendBytes(payload, lightmap.GetTexelData().data(), static_cast<sizet>(texelBytes));
+            AppendBytes(payload, lightmap.GetTexelData().GetData(), static_cast<sizet>(texelBytes));
         }
 
         // Section 2: EntityTable
@@ -155,11 +155,11 @@ namespace OloEngine
             AppendBytes(payload, &frame, sizeof(frame));
 
             OLmapFormat::EntityTableHeader tableHeader;
-            tableHeader.EntryCount = static_cast<u32>(lightmap.GetEntries().size());
+            tableHeader.EntryCount = static_cast<u32>(lightmap.GetEntries().Num());
             AppendBytes(payload, &tableHeader, sizeof(tableHeader));
             if (entryBytes > 0)
             {
-                AppendBytes(payload, lightmap.GetEntries().data(), static_cast<sizet>(entryBytes));
+                AppendBytes(payload, lightmap.GetEntries().GetData(), static_cast<sizet>(entryBytes));
             }
         }
 
@@ -317,8 +317,8 @@ namespace OloEngine
                            sourceName, expectedTexelBytes, reader.Remaining());
             return false;
         }
-        std::vector<f32> texels(static_cast<sizet>(expectedTexelBytes / sizeof(f32)));
-        if (!reader.Read(texels.data(), static_cast<sizet>(expectedTexelBytes)))
+        TArray<f32> texels(static_cast<i32>(expectedTexelBytes / sizeof(f32)));
+        if (!reader.Read(texels.GetData(), static_cast<sizet>(expectedTexelBytes)))
         {
             OLO_CORE_ERROR("LightmapSerializer: '{}' is truncated inside the Texels section", sourceName);
             return false;
@@ -366,8 +366,8 @@ namespace OloEngine
                            sourceName, entryBytes, reader.Remaining());
             return false;
         }
-        std::vector<LightmapEntityEntry> entries(tableHeader.EntryCount);
-        if (entryBytes > 0 && !reader.Read(entries.data(), static_cast<sizet>(entryBytes)))
+        TArray<LightmapEntityEntry> entries(static_cast<i32>(tableHeader.EntryCount));
+        if (entryBytes > 0 && !reader.Read(entries.GetData(), static_cast<sizet>(entryBytes)))
         {
             OLO_CORE_ERROR("LightmapSerializer: '{}' is truncated inside the EntityTable section", sourceName);
             return false;
@@ -450,7 +450,7 @@ namespace OloEngine
 
         OLO_CORE_TRACE("LightmapSerializer: wrote '{}' ({} bytes, {}x{} x{} pages, {} entries)",
                        path.filename().string(), bytes.size(), lightmap->GetWidth(), lightmap->GetHeight(),
-                       lightmap->GetPageCount(), lightmap->GetEntries().size());
+                       lightmap->GetPageCount(), lightmap->GetEntries().Num());
         return true;
     }
 

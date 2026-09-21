@@ -286,13 +286,13 @@ namespace
         const u32 available = base.GetCurveCount();
         settings.MaxStrands = std::max(1u, targetCount);
 
-        std::vector<u32> curves;
+        TArray<u32> curves;
         SelectGroomStrandCurves(base, settings, curves, nullptr);
-        out.AchievedFraction = available > 0u ? static_cast<f32>(curves.size()) / static_cast<f32>(available) : 0.0f;
+        out.AchievedFraction = available > 0u ? static_cast<f32>(curves.Num()) / static_cast<f32>(available) : 0.0f;
         out.Compensation = GroomLodWidthCompensation(out.AchievedFraction, maxCompensation);
 
         std::string reason;
-        out.Groom = Tests::GroomLodFixture::MakeSubsetGroom(base, curves, reason);
+        out.Groom = Tests::GroomLodFixture::MakeSubsetGroom(base, std::span{ curves.GetData(), static_cast<sizet>(curves.Num()) }, reason);
         EXPECT_TRUE(out.Groom) << "thinning to " << targetCount << " failed: " << reason;
         return out;
     }

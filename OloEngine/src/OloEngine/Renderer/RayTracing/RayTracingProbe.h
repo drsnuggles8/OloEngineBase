@@ -10,7 +10,8 @@
 #include <array>
 #include <glm/glm.hpp>
 #include <string>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/String.h"
 
 namespace OloEngine
 {
@@ -105,7 +106,7 @@ namespace OloEngine::RayTracing
 
         struct Batch
         {
-            std::vector<Ray> Rays;
+            TArray<Ray> Rays;
             u32 RayFlags = 0;
             u32 InstanceMask = 0xFFu;
             // MUST BE NON-ZERO. 0 is reserved as "no batch" by
@@ -124,8 +125,8 @@ namespace OloEngine::RayTracing
             // same bytes.
             bool Valid = false;
             u32 BatchId = 0;
-            std::vector<Ray> Rays; ///< the rays this answer belongs to
-            std::vector<Hit> Hits;
+            TArray<Ray> Rays; ///< the rays this answer belongs to
+            TArray<Hit> Hits;
             u32 RayFlags = 0;
             u32 InstanceMask = 0xFFu;
             u64 FrameIndex = 0; ///< the frame the batch was DISPATCHED on
@@ -203,7 +204,7 @@ namespace OloEngine::RayTracing
         // missing one. The tool above serializes its calls as well; this pairing
         // is what keeps the invariant local to the probe instead of depending on
         // that lock.
-        [[nodiscard]] const std::string& GetUnavailableReason() const
+        [[nodiscard]] const FString& GetUnavailableReason() const
         {
             return m_UnavailableReason;
         }
@@ -289,7 +290,7 @@ namespace OloEngine::RayTracing
         Batch m_PendingBatch{};
         bool m_HasPendingBatch = false;
         Result m_Latest{};
-        std::string m_UnavailableReason;
+        FString m_UnavailableReason;
         u32 m_UnavailableBatchId = 0;
     };
 

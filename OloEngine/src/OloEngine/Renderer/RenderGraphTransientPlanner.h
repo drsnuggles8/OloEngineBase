@@ -40,15 +40,15 @@ namespace OloEngine::RenderGraphTransientPlanner
     // ----------------------------------------------------------------
     struct PlanInput
     {
-        const std::unordered_map<std::string, RGResourceDesc>& TransientResourceDescs;
-        std::span<const std::string> ExecutionOrder;
-        const std::unordered_map<std::string, std::vector<RGAccessDeclaration>>& PassAccessDeclarations;
+        const RGTransparentStringMap<RGResourceDesc>& TransientResourceDescs;
+        std::span<const FString> ExecutionOrder;
+        const RGTransparentStringMap<TArray64<RGAccessDeclaration>>& PassAccessDeclarations;
         // Parent framebuffers whose lifetime a pass extends via an
         // attachment-view write, without a hazard-tracked access declaration
         // (RGBuilder::GetDeclaredLifetimeExtensions — see the comment in
         // RGBuilder::Write for why this is kept separate from
         // PassAccessDeclarations).
-        const std::unordered_map<std::string, std::vector<std::string>>& PassLifetimeExtensions;
+        const RGTransparentStringMap<TArray64<FString>>& PassLifetimeExtensions;
         // WriteNewVersion renames: versioned name → source resource name
         // (RenderGraph::m_VersionAliasTargets). A version is dependency
         // bookkeeping over the SAME physical resource, so its accesses fold
@@ -57,8 +57,8 @@ namespace OloEngine::RenderGraphTransientPlanner
         // got its own pool object, and RMW seams where the producer rendered
         // via the base handle left consumers reading a never-written orphan
         // (the one-frame black-square artifact on transient-plan rebuilds).
-        const std::unordered_map<std::string, std::string>& VersionAliasTargets;
-        std::function<bool(const std::string&)> IsPassReachable;
+        const RGTransparentStringMap<FString>& VersionAliasTargets;
+        std::function<bool(std::string_view)> IsPassReachable;
         std::function<bool(std::string_view)> IsExternallyBackedTransientResource;
         // Resources copied out AFTER the last pass has executed — today that is
         // the temporal-history sinks (RenderGraph::FlushExtractions). Their
@@ -73,5 +73,5 @@ namespace OloEngine::RenderGraphTransientPlanner
         std::function<bool(std::string_view)> IsExtractedAfterExecution;
     };
 
-    [[nodiscard]] auto ComputePlan(const PlanInput& input) -> std::vector<RenderGraph::TransientPlanEntry>;
+    [[nodiscard]] auto ComputePlan(const PlanInput& input) -> TArray64<RenderGraph::TransientPlanEntry>;
 } // namespace OloEngine::RenderGraphTransientPlanner

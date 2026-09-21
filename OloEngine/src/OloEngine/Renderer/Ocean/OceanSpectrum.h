@@ -5,7 +5,7 @@
 
 #include <glm/glm.hpp>
 
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine::Ocean
 {
@@ -90,7 +90,7 @@ namespace OloEngine::Ocean
     /// Initial frequency-domain heightfield h0(k) — FFT-ordered, row-major
     /// N×N. h0(k) = (1/√2)(ξr + iξi)·√(Phillips(k)) with ξ ~ N(0,1).
     /// Deterministic for a fixed seed/params.
-    [[nodiscard]] std::vector<Complex> GenerateH0(const SpectrumParams& params);
+    [[nodiscard]] TArray<Complex> GenerateH0(const SpectrumParams& params);
 
     /// Zero every bin of a GenerateH0()-layout spectrum whose wave-vector
     /// magnitude falls outside the half-open band [kMin, kMax) — the operation
@@ -103,7 +103,7 @@ namespace OloEngine::Ocean
     /// Half-open on purpose: two adjacent bands sharing an endpoint then hand
     /// that endpoint's bin to exactly one of them, so no wave vector is either
     /// dropped at the handoff or counted in both cascades.
-    void ApplyBandLimit(std::vector<Complex>& h0, u32 resolution, f32 patchSize, f32 kMin, f32 kMax);
+    void ApplyBandLimit(TArray<Complex>& h0, u32 resolution, f32 patchSize, f32 kMin, f32 kMax);
 
     /// The deterministic Gaussian draws GenerateH0 uses, for one seed and
     /// resolution: 2 unit normals per bin, in the same row-major order.
@@ -114,14 +114,14 @@ namespace OloEngine::Ocean
     /// therefore re-ran a full mt19937 + normal_distribution sweep every frame
     /// to arrive at exactly the same numbers, which in a Debug build is the
     /// dominant cost of a regeneration.
-    [[nodiscard]] std::vector<glm::vec2> GenerateSpectrumNoise(u32 seed, u32 resolution);
+    [[nodiscard]] TArray<glm::vec2> GenerateSpectrumNoise(u32 seed, u32 resolution);
 
     /// GenerateH0 with the draws supplied — identical output, no RNG. `noise`
     /// must be GenerateSpectrumNoise(params.m_Seed, params.m_Resolution).
     /// Pinned against the RNG form by
     /// OceanCascadeTest.CachedNoiseReproducesGenerateH0Exactly.
-    [[nodiscard]] std::vector<Complex> GenerateH0FromNoise(const SpectrumParams& params,
-                                                           const std::vector<glm::vec2>& noise);
+    [[nodiscard]] TArray<Complex> GenerateH0FromNoise(const SpectrumParams& params,
+                                                      const TArray<glm::vec2>& noise);
 
     /// Extract the low-|k| band of a full-resolution h0 into a
     /// targetResolution² spectrum (same patch size ⇒ same wave vectors per
@@ -135,8 +135,8 @@ namespace OloEngine::Ocean
     /// the low-res CPU physics proxy that keeps SampleHeight() working while
     /// the GPU owns the rendered field.
     /// Returns a copy when targetResolution >= the source resolution.
-    [[nodiscard]] std::vector<Complex> ExtractBandLimitedH0(const std::vector<Complex>& h0, u32 resolution,
-                                                            u32 targetResolution);
+    [[nodiscard]] TArray<Complex> ExtractBandLimitedH0(const TArray<Complex>& h0, u32 resolution,
+                                                       u32 targetResolution);
 
     /// Height RMS the t=0 field of `h0` would have, WITHOUT running the
     /// inverse FFT — Parseval's theorem on the same construction
@@ -152,27 +152,27 @@ namespace OloEngine::Ocean
     /// ran EVERY FRAME: measured at 41 ms per frame on a 128 grid with one
     /// cascade, 108 with three. Pinned by
     /// OceanCascadeTest.AnalyticReferenceRmsMatchesTheEvaluatedField.
-    [[nodiscard]] f32 ReferenceHeightRms(const std::vector<Complex>& h0, u32 resolution);
+    [[nodiscard]] f32 ReferenceHeightRms(const TArray<Complex>& h0, u32 resolution);
 
     /// One fully-evaluated ocean tile at a given time. All grids are row-major
     /// N×N (index = y*N + x); x/y step PatchSize/N metres in world XZ.
     struct DisplacementField
     {
         u32 m_Resolution = 0u;
-        std::vector<f32> m_Height;                       ///< vertical displacement (metres)
-        std::vector<glm::vec2> m_HorizontalDisplacement; ///< (dx, dz) choppy displacement (metres)
-        std::vector<glm::vec3> m_Normal;                 ///< unit surface normal
-        std::vector<f32> m_Jacobian;                     ///< folding determinant (<1 ⇒ compression/foam)
+        TArray<f32> m_Height;                       ///< vertical displacement (metres)
+        TArray<glm::vec2> m_HorizontalDisplacement; ///< (dx, dz) choppy displacement (metres)
+        TArray<glm::vec3> m_Normal;                 ///< unit surface normal
+        TArray<f32> m_Jacobian;                     ///< folding determinant (<1 ⇒ compression/foam)
 
         [[nodiscard]] bool IsValid() const noexcept
         {
-            return m_Resolution > 0u && m_Height.size() == static_cast<sizet>(m_Resolution) * m_Resolution;
+            return m_Resolution > 0u && static_cast<sizet>(m_Height.Num()) == static_cast<sizet>(m_Resolution) * m_Resolution;
         }
     };
 
     /// Time-evolve `h0` to `time` seconds and inverse-FFT to a spatial tile.
     /// `h0` must be the GenerateH0() output for the same params.
-    [[nodiscard]] DisplacementField EvaluateField(const SpectrumParams& params, const std::vector<Complex>& h0, f32 time);
+    [[nodiscard]] DisplacementField EvaluateField(const SpectrumParams& params, const TArray<Complex>& h0, f32 time);
 
     /// Bilinearly sample a field's height at world XZ, wrapping by PatchSize.
     /// Convenience for CPU consumers (e.g. buoyancy) — returns 0 for an empty

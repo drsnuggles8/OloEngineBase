@@ -357,7 +357,7 @@ namespace OloEngine::Tests
                 {
                     if (history.Key.Effect == TemporalHistoryEffect::SSGI)
                     {
-                        std::cout << "[SSGI registry] " << history.DebugName
+                        std::cout << "[SSGI registry] " << history.DebugName.ToView()
                                   << " generation=" << history.Token.Generation
                                   << " valid=" << history.Valid
                                   << " texture=" << history.HasTexture

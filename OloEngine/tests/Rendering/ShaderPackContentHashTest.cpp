@@ -93,7 +93,7 @@ TEST(ShaderPackContentHashTest, MatchingHashIsServedFromThePack)
     ASSERT_TRUE(lib.HasShaderPack());
 
     auto batch = lib.PrepareParallel({ filepathStr });
-    ASSERT_EQ(batch.m_IsPackLoaded.size(), 1u);
+    ASSERT_EQ(batch.m_IsPackLoaded.Num(), 1u);
     EXPECT_TRUE(batch.m_IsPackLoaded[0]) << "an unmutated source must hit the pack it was baked from";
 }
 
@@ -114,9 +114,9 @@ TEST(ShaderPackContentHashTest, MutatedSourceMissesAndFallsBackToCompile)
     lib.LoadShaderPack(packPath);
 
     auto batch = lib.PrepareParallel({ filepathStr });
-    ASSERT_EQ(batch.m_IsPackLoaded.size(), 1u);
+    ASSERT_EQ(batch.m_IsPackLoaded.Num(), 1u);
     EXPECT_FALSE(batch.m_IsPackLoaded[0]) << "a mutated source must miss the now-stale pack entry";
-    ASSERT_EQ(batch.m_Prepared.size(), 1u);
+    ASSERT_EQ(batch.m_Prepared.Num(), 1u);
     EXPECT_NE(batch.m_Prepared[0], nullptr) << "a miss must still fall back to a CPU compile, not drop the shader";
 }
 
@@ -164,8 +164,9 @@ TEST(ShaderPackContentHashTest, PrepareBatchProducesADestructibleShaderWithNoGLC
     WriteFile(shaderPath, kMinimalShaderSource);
     const std::string filepathStr = shaderPath.generic_string();
 
-    auto prepared = Shader::PrepareBatch({ filepathStr }, nullptr);
-    ASSERT_EQ(prepared.size(), 1u);
+    const FString filepath(filepathStr);
+    auto prepared = Shader::PrepareBatch(std::span{ &filepath, sizet{ 1 } }, nullptr);
+    ASSERT_EQ(prepared.Num(), 1u);
     ASSERT_NE(prepared[0], nullptr);
     // `prepared` destructs here — the crash, when present, happened after
     // this test body returned, inside the resulting ~OpenGLShader() call.

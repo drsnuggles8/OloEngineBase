@@ -7,7 +7,7 @@
 #include <bit>
 #include <limits>
 #include <memory>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -113,7 +113,7 @@ namespace OloEngine
         // (VirtualMeshRegistry's slot assignment reproduces its pre-#704
         // free-list order because of it), and a test pins it. An optimisation
         // that reorders the scan is a behaviour change.
-        [[nodiscard]] u32 ReserveUpToPages(u32 count, std::vector<u32>& outPages)
+        [[nodiscard]] u32 ReserveUpToPages(u32 count, TArray<u32>& outPages)
         {
             OLO_CORE_ASSERT(m_FreePages != nullptr, "GPUPagedBuffer used before Create");
 
@@ -148,7 +148,7 @@ namespace OloEngine
                                                    std::memory_order_relaxed))
                     {
                         m_FreePageCount.fetch_sub(1, std::memory_order_relaxed);
-                        outPages.push_back(static_cast<u32>(i * kWordBits + static_cast<sizet>(bit)));
+                        outPages.Add(static_cast<u32>(i * kWordBits + static_cast<sizet>(bit)));
                         --remaining;
                     }
                 }

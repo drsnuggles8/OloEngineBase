@@ -85,10 +85,7 @@ namespace OloEngine
     template<typename T>
     struct TIsTriviallyRelocatable<TSparseSetElement<T>>
     {
-        enum
-        {
-            Value = TIsTriviallyRelocatable<T>::Value
-        };
+        static constexpr bool Value = TIsTriviallyRelocatable<T>::Value;
     };
 
     // ============================================================================

@@ -47,11 +47,11 @@ class DialogueTreeAssetTest : public ::testing::Test
         responseFalse.Name = "GoAway";
         responseFalse.Properties["text"] = std::string("Move along.");
 
-        asset->GetNodesWritable().push_back(std::move(dialogueNode));
-        asset->GetNodesWritable().push_back(std::move(choiceNode));
-        asset->GetNodesWritable().push_back(std::move(conditionNode));
-        asset->GetNodesWritable().push_back(std::move(responseTrue));
-        asset->GetNodesWritable().push_back(std::move(responseFalse));
+        asset->GetNodesWritable().AddTail(std::move(dialogueNode));
+        asset->GetNodesWritable().AddTail(std::move(choiceNode));
+        asset->GetNodesWritable().AddTail(std::move(conditionNode));
+        asset->GetNodesWritable().AddTail(std::move(responseTrue));
+        asset->GetNodesWritable().AddTail(std::move(responseFalse));
 
         // Connections: dialogue -> choice -> condition -> true/false branches
         DialogueConnection conn1;
@@ -78,10 +78,10 @@ class DialogueTreeAssetTest : public ::testing::Test
         conn4.SourcePort = "false";
         conn4.TargetPort = "input";
 
-        asset->GetConnectionsWritable().push_back(std::move(conn1));
-        asset->GetConnectionsWritable().push_back(std::move(conn2));
-        asset->GetConnectionsWritable().push_back(std::move(conn3));
-        asset->GetConnectionsWritable().push_back(std::move(conn4));
+        asset->GetConnectionsWritable().Add(std::move(conn1));
+        asset->GetConnectionsWritable().Add(std::move(conn2));
+        asset->GetConnectionsWritable().Add(std::move(conn3));
+        asset->GetConnectionsWritable().Add(std::move(conn4));
 
         asset->SetRootNodeID(UUID(100));
         asset->RebuildNodeIndex();
@@ -110,13 +110,35 @@ TEST_F(DialogueTreeAssetTest, FindNodeReturnsNullForMissing)
     EXPECT_EQ(tree->FindNode(UUID(9999)), nullptr);
 }
 
+TEST_F(DialogueTreeAssetTest, NodeAddressesAndPropertyMapsSurviveAppendingAndReindexing)
+{
+    auto tree = CreateSampleTree();
+    const auto* greeting = tree->FindNode(UUID(100));
+    ASSERT_NE(greeting, nullptr);
+    for (u64 i = 0; i < 256; ++i)
+    {
+        DialogueNodeData node;
+        node.ID = UUID(1000 + i);
+        node.Type = "dialogue";
+        node.Name = std::string(80, 'n') + std::to_string(i);
+        node.Properties["text"] = std::string(80, 't') + std::to_string(i);
+        tree->GetNodesWritable().AddTail(std::move(node));
+    }
+    tree->RebuildNodeIndex();
+    EXPECT_EQ(tree->FindNode(UUID(100)), greeting);
+    EXPECT_EQ(greeting->Name.ToStdString(), "Greeting");
+    EXPECT_EQ(std::get<std::string>(greeting->Properties.at("text")), "Halt!");
+    ASSERT_NE(tree->FindNode(UUID(1255)), nullptr);
+    EXPECT_EQ(tree->FindNode(UUID(1255))->Name.ToStdString(), std::string(80, 'n') + "255");
+}
+
 TEST_F(DialogueTreeAssetTest, GetConnectionsFromReturnsAll)
 {
     auto tree = CreateSampleTree();
 
     // Condition node (300) has two outgoing connections (true/false)
     auto connections = tree->GetConnectionsFrom(UUID(300));
-    EXPECT_EQ(connections.size(), 2u);
+    EXPECT_EQ(connections.Num(), 2u);
 }
 
 TEST_F(DialogueTreeAssetTest, GetConnectionsFromWithPort)
@@ -124,11 +146,11 @@ TEST_F(DialogueTreeAssetTest, GetConnectionsFromWithPort)
     auto tree = CreateSampleTree();
 
     auto trueConns = tree->GetConnectionsFrom(UUID(300), "true");
-    ASSERT_EQ(trueConns.size(), 1u);
+    ASSERT_EQ(trueConns.Num(), 1u);
     EXPECT_EQ(static_cast<u64>(trueConns[0].TargetNodeID), 400u);
 
     auto falseConns = tree->GetConnectionsFrom(UUID(300), "false");
-    ASSERT_EQ(falseConns.size(), 1u);
+    ASSERT_EQ(falseConns.Num(), 1u);
     EXPECT_EQ(static_cast<u64>(falseConns[0].TargetNodeID), 500u);
 }
 
@@ -138,7 +160,7 @@ TEST_F(DialogueTreeAssetTest, GetConnectionsFromEmptyForLeafNode)
 
     // Node 400 (a leaf dialogue node) has no outgoing connections
     auto connections = tree->GetConnectionsFrom(UUID(400));
-    EXPECT_TRUE(connections.empty());
+    EXPECT_TRUE(connections.IsEmpty());
 }
 
 TEST_F(DialogueTreeAssetTest, RootNodeIDAccessor)
@@ -221,6 +243,30 @@ TEST(DialogueComponentTest, AssignmentDoesNotCopyHasTriggered)
 // DialogueConnectionTest::ConnectionDataStructure retired -- both were
 // pure POD field-assignment smoke (a = "x"; EXPECT_EQ(a, "x")). See
 // docs/testing.md section 4.1.
+
+TEST(DialogueChoiceTest, ShortAndLongStringsSurviveArrayGrowthAndIndependentCopies)
+{
+    TArray<DialogueChoice> choices;
+    for (u64 i = 0; i < 128; ++i)
+    {
+        const std::string text = (i % 2 == 0 ? std::string("yes") : std::string(80, 'x')) + std::to_string(i);
+        const std::string condition = std::string("a\0b", 3) + std::to_string(i);
+        choices.Add({ text, UUID(i + 1), condition });
+    }
+
+    auto copied = choices;
+    choices.Reserve(1024);
+    copied[0].Text = "changed";
+    for (u64 i = 0; i < 128; ++i)
+    {
+        const auto& choice = choices[static_cast<i32>(i)];
+        const std::string text = (i % 2 == 0 ? std::string("yes") : std::string(80, 'x')) + std::to_string(i);
+        EXPECT_EQ(choice.Text.ToStdString(), text);
+        EXPECT_EQ(choice.Condition.ToStdString(), std::string("a\0b", 3) + std::to_string(i));
+        EXPECT_EQ(static_cast<u64>(choice.TargetNodeID), i + 1);
+    }
+    EXPECT_EQ(copied[0].Text.ToStdString(), "changed");
+}
 
 // ============================================================================
 // DialogueSystem integration tests

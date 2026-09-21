@@ -29,11 +29,11 @@ namespace OloEngine
             }
 
             m_Resolution = static_cast<u32>(width);
-            m_Heights.resize(static_cast<sizet>(width) * static_cast<sizet>(height));
+            m_Heights.SetNum(static_cast<sizet>(width) * static_cast<sizet>(height), EAllowShrinking::No);
 
             // Normalize 16-bit [0, 65535] → [0, 1]
             constexpr f32 inv65535 = 1.0f / 65535.0f;
-            for (sizet i = 0; i < m_Heights.size(); ++i)
+            for (sizet i = 0; i < m_Heights.Num(); ++i)
             {
                 m_Heights[i] = static_cast<f32>(data16[i]) * inv65535;
             }
@@ -55,10 +55,10 @@ namespace OloEngine
             }
 
             m_Resolution = static_cast<u32>(width);
-            m_Heights.resize(static_cast<sizet>(width) * static_cast<sizet>(height));
+            m_Heights.SetNum(static_cast<sizet>(width) * static_cast<sizet>(height), EAllowShrinking::No);
 
             constexpr f32 inv255 = 1.0f / 255.0f;
-            for (sizet i = 0; i < m_Heights.size(); ++i)
+            for (sizet i = 0; i < m_Heights.Num(); ++i)
             {
                 m_Heights[i] = static_cast<f32>(data8[i]) * inv255;
             }
@@ -78,7 +78,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         m_Resolution = resolution;
-        m_Heights.assign(static_cast<sizet>(resolution) * static_cast<sizet>(resolution), defaultHeight);
+        m_Heights.Init(defaultHeight, static_cast<sizet>(resolution) * resolution);
         UploadToGPU();
     }
 
@@ -90,7 +90,7 @@ namespace OloEngine
 
         m_Resolution = resolution;
         sizet totalPixels = static_cast<sizet>(resolution) * resolution;
-        m_Heights.resize(totalPixels);
+        m_Heights.SetNum(totalPixels, EAllowShrinking::No);
 
         f32 seedOffset = static_cast<f32>(seed) * 13.37f;
         f32 minH = std::numeric_limits<f32>::max();
@@ -138,14 +138,14 @@ namespace OloEngine
                       resolution, resolution, seed, octaves, frequency);
     }
 
-    void TerrainData::SetHeights(u32 resolution, std::vector<f32> heights)
+    void TerrainData::SetHeights(u32 resolution, TArray<f32> heights)
     {
         OLO_PROFILE_FUNCTION();
 
-        if (resolution == 0 || heights.size() != static_cast<sizet>(resolution) * resolution)
+        if (resolution == 0 || heights.Num() != static_cast<sizet>(resolution) * resolution)
         {
             OLO_CORE_ERROR("TerrainData::SetHeights - height count {} does not match resolution {}x{}",
-                           heights.size(), resolution, resolution);
+                           heights.Num(), resolution, resolution);
             return;
         }
 
@@ -154,11 +154,11 @@ namespace OloEngine
         UploadToGPU();
     }
 
-    f32 TerrainData::SampleHeight(const std::vector<f32>& heights, u32 resolution,
+    f32 TerrainData::SampleHeight(const TArray<f32>& heights, u32 resolution,
                                   f32 normalizedX, f32 normalizedZ)
     {
-        if (heights.empty() || resolution == 0 ||
-            heights.size() != static_cast<sizet>(resolution) * resolution)
+        if (heights.IsEmpty() || resolution == 0 ||
+            heights.Num() != static_cast<sizet>(resolution) * resolution)
         {
             return 0.0f;
         }
@@ -184,7 +184,7 @@ namespace OloEngine
         return h0 + fracZ * (h1 - h0);
     }
 
-    glm::vec3 TerrainData::SampleNormal(const std::vector<f32>& heights, u32 resolution,
+    glm::vec3 TerrainData::SampleNormal(const TArray<f32>& heights, u32 resolution,
                                         f32 normalizedX, f32 normalizedZ, f32 worldSizeX,
                                         f32 worldSizeZ, f32 heightScale)
     {
@@ -212,7 +212,7 @@ namespace OloEngine
         return glm::normalize(normal);
     }
 
-    f32 TerrainData::SampleSlopeDegrees(const std::vector<f32>& heights, u32 resolution,
+    f32 TerrainData::SampleSlopeDegrees(const TArray<f32>& heights, u32 resolution,
                                         f32 normalizedX, f32 normalizedZ, f32 worldSizeX,
                                         f32 worldSizeZ, f32 heightScale)
     {
@@ -256,7 +256,7 @@ namespace OloEngine
         spec.GenerateMips = true;
 
         m_GPUHeightmap = Texture2D::Create(spec);
-        m_GPUHeightmap->SetData(m_Heights.data(), static_cast<u32>(m_Heights.size() * sizeof(f32)));
+        m_GPUHeightmap->SetData(m_Heights.GetData(), static_cast<u32>(m_Heights.Num() * sizeof(f32)));
     }
 
     void TerrainData::UploadRegionToGPU(u32 x, u32 y, u32 width, u32 height)
@@ -292,12 +292,12 @@ namespace OloEngine
             // no backend-neutral partial-mip regeneration command, so refresh the
             // complete base image and let SetData rebuild the chain on both APIs.
             // Terrain sculpt uploads happen before the frame is recorded.
-            m_GPUHeightmap->SetData(m_Heights.data(), static_cast<u32>(m_Heights.size() * sizeof(f32)));
+            m_GPUHeightmap->SetData(m_Heights.GetData(), static_cast<u32>(m_Heights.Num() * sizeof(f32)));
             return;
         }
 
         // Extract the sub-region into a contiguous buffer.
-        std::vector<f32> regionData(static_cast<sizet>(width) * height);
+        TArray<f32> regionData(static_cast<sizet>(width) * height);
         for (u32 row = 0; row < height; ++row)
         {
             sizet srcOffset = static_cast<sizet>(y + row) * m_Resolution + x;
@@ -307,7 +307,7 @@ namespace OloEngine
 
         // Single-level textures can retain the cheap partial upload.
         u32 dataSize = width * height * static_cast<u32>(sizeof(f32));
-        m_GPUHeightmap->SubImage(x, y, width, height, regionData.data(), dataSize);
+        m_GPUHeightmap->SubImage(x, y, width, height, regionData.GetData(), dataSize);
     }
 
     void TerrainData::SyncFromGPU() const
@@ -331,7 +331,7 @@ namespace OloEngine
             return;
         }
 
-        std::vector<u8> rawData;
+        TArray64<u8> rawData;
         if (!m_GPUHeightmap->GetData(rawData))
         {
             OLO_CORE_ERROR("TerrainData::SyncFromGPU - Failed to read back the GPU heightmap");
@@ -339,15 +339,15 @@ namespace OloEngine
         }
 
         const sizet expectedBytes = static_cast<sizet>(m_Resolution) * m_Resolution * sizeof(f32);
-        if (rawData.size() != expectedBytes)
+        if (rawData.Num() != expectedBytes)
         {
             OLO_CORE_ERROR("TerrainData::SyncFromGPU - Readback size mismatch: got {} bytes, expected {}",
-                           rawData.size(), expectedBytes);
+                           rawData.Num(), expectedBytes);
             return;
         }
 
-        m_Heights.resize(static_cast<sizet>(m_Resolution) * m_Resolution);
-        std::memcpy(m_Heights.data(), rawData.data(), rawData.size());
+        m_Heights.SetNum(static_cast<sizet>(m_Resolution) * m_Resolution, EAllowShrinking::No);
+        std::memcpy(m_Heights.GetData(), rawData.GetData(), rawData.Num());
         // The GPU is authoritative during sculpting, so this memcpy is where a
         // brush stroke becomes visible to every CPU consumer — and it lands at
         // the SAME address every time. Bumping here is the only signal a cache
@@ -360,7 +360,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         SyncFromGPU();
-        if (m_Heights.empty() || m_Resolution == 0)
+        if (m_Heights.IsEmpty() || m_Resolution == 0)
         {
             OLO_CORE_ERROR("TerrainData::ExportRawR32F - No heightmap data to export");
             return false;
@@ -373,7 +373,7 @@ namespace OloEngine
             return false;
         }
 
-        file.write(reinterpret_cast<const char*>(m_Heights.data()), static_cast<std::streamsize>(m_Heights.size() * sizeof(f32)));
+        file.write(reinterpret_cast<const char*>(m_Heights.GetData()), static_cast<std::streamsize>(m_Heights.Num() * sizeof(f32)));
         OLO_CORE_INFO("TerrainData: Exported R32F heightmap ({0}x{0}) to {1}", m_Resolution, path);
         return file.good();
     }
@@ -383,7 +383,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         SyncFromGPU();
-        if (m_Heights.empty() || m_Resolution == 0)
+        if (m_Heights.IsEmpty() || m_Resolution == 0)
         {
             OLO_CORE_ERROR("TerrainData::ExportRawR16 - No heightmap data to export");
             return false;
@@ -396,14 +396,14 @@ namespace OloEngine
             return false;
         }
 
-        std::vector<u16> quantized(m_Heights.size());
-        for (sizet i = 0; i < m_Heights.size(); ++i)
+        TArray<u16> quantized(m_Heights.Num());
+        for (sizet i = 0; i < m_Heights.Num(); ++i)
         {
             f32 clamped = glm::clamp(m_Heights[i], 0.0f, 1.0f);
             quantized[i] = static_cast<u16>(clamped * 65535.0f + 0.5f);
         }
 
-        file.write(reinterpret_cast<const char*>(quantized.data()), static_cast<std::streamsize>(quantized.size() * sizeof(u16)));
+        file.write(reinterpret_cast<const char*>(quantized.GetData()), static_cast<std::streamsize>(quantized.Num() * sizeof(u16)));
         OLO_CORE_INFO("TerrainData: Exported R16 heightmap ({0}x{0}) to {1}", m_Resolution, path);
         return file.good();
     }

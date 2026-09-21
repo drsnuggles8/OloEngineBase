@@ -39,14 +39,14 @@ TEST_F(ShaderGraphCompilerTest, EmptyGraphFailsCompilation)
 {
     auto result = compiler.Compile(graph);
     EXPECT_FALSE(result.Success);
-    EXPECT_FALSE(result.ErrorLog.empty());
+    EXPECT_FALSE(result.ErrorLog.IsEmpty());
 }
 
 TEST_F(ShaderGraphCompilerTest, MinimalGraphCompiles)
 {
     BuildMinimalGraph();
     auto result = compiler.Compile(graph);
-    EXPECT_TRUE(result.Success) << result.ErrorLog;
+    EXPECT_TRUE(result.Success) << result.ErrorLog.ToView();
     EXPECT_FALSE(result.ShaderSource.empty());
 }
 
@@ -54,7 +54,7 @@ TEST_F(ShaderGraphCompilerTest, OutputContainsVertexAndFragmentSections)
 {
     BuildMinimalGraph();
     auto result = compiler.Compile(graph);
-    ASSERT_TRUE(result.Success) << result.ErrorLog;
+    ASSERT_TRUE(result.Success) << result.ErrorLog.ToView();
     EXPECT_NE(result.ShaderSource.find("#type vertex"), std::string::npos);
     EXPECT_NE(result.ShaderSource.find("#type fragment"), std::string::npos);
 }
@@ -63,7 +63,7 @@ TEST_F(ShaderGraphCompilerTest, OutputContainsMRTLayout)
 {
     BuildMinimalGraph();
     auto result = compiler.Compile(graph);
-    ASSERT_TRUE(result.Success) << result.ErrorLog;
+    ASSERT_TRUE(result.Success) << result.ErrorLog.ToView();
     EXPECT_NE(result.ShaderSource.find("o_Color"), std::string::npos);
     EXPECT_NE(result.ShaderSource.find("o_EntityID"), std::string::npos);
     EXPECT_NE(result.ShaderSource.find("o_ViewNormal"), std::string::npos);
@@ -73,8 +73,8 @@ TEST_F(ShaderGraphCompilerTest, FloatParameterExposed)
 {
     BuildFloatParameterGraph();
     auto result = compiler.Compile(graph);
-    ASSERT_TRUE(result.Success) << result.ErrorLog;
-    EXPECT_FALSE(result.ExposedParameters.empty());
+    ASSERT_TRUE(result.Success) << result.ErrorLog.ToView();
+    EXPECT_FALSE(result.ExposedParameters.IsEmpty());
 
     bool foundMetallic = false;
     for (const auto& param : result.ExposedParameters)
@@ -92,7 +92,7 @@ TEST_F(ShaderGraphCompilerTest, UBOBlockGenerated)
 {
     BuildFloatParameterGraph();
     auto result = compiler.Compile(graph);
-    ASSERT_TRUE(result.Success) << result.ErrorLog;
+    ASSERT_TRUE(result.Success) << result.ErrorLog.ToView();
     // Scalar params should be in a UBO block (SPIR-V requirement)
     EXPECT_NE(result.ShaderSource.find("uniform ShaderGraphParams"), std::string::npos);
     EXPECT_NE(result.ShaderSource.find("u_Metallic"), std::string::npos);
@@ -125,7 +125,7 @@ TEST_F(ShaderGraphCompilerTest, MathNodeGeneratesCode)
     graph.AddLink(addOut, metallicIn);
 
     auto result = compiler.Compile(graph);
-    ASSERT_TRUE(result.Success) << result.ErrorLog;
+    ASSERT_TRUE(result.Success) << result.ErrorLog.ToView();
     // The generated code should contain an addition expression
     EXPECT_NE(result.ShaderSource.find("+"), std::string::npos);
 }
@@ -150,7 +150,7 @@ TEST_F(ShaderGraphCompilerTest, TextureSamplerBindingGenerated)
     graph.AddLink(rgbOut, albedoIn);
 
     auto result = compiler.Compile(graph);
-    ASSERT_TRUE(result.Success) << result.ErrorLog;
+    ASSERT_TRUE(result.Success) << result.ErrorLog.ToView();
     EXPECT_NE(result.ShaderSource.find("sampler2D u_AlbedoTex"), std::string::npos);
     EXPECT_NE(result.ShaderSource.find("texture("), std::string::npos);
 }
@@ -162,7 +162,7 @@ TEST_F(ShaderGraphCompilerTest, MinimalComputeGraphCompiles)
     graph.AddNode(CreateShaderGraphNode(ShaderGraphNodeTypes::ComputeOutput));
 
     auto result = compiler.Compile(graph);
-    ASSERT_TRUE(result.Success) << result.ErrorLog;
+    ASSERT_TRUE(result.Success) << result.ErrorLog.ToView();
     EXPECT_TRUE(result.IsCompute);
     EXPECT_NE(result.ShaderSource.find("local_size_x"), std::string::npos);
     EXPECT_NE(result.ShaderSource.find("void main()"), std::string::npos);
@@ -188,7 +188,7 @@ TEST_F(ShaderGraphCompilerTest, ComputeGraphWithBuffersCompiles)
     graph.AddLink(bufOut, storeIn);
 
     auto result = compiler.Compile(graph);
-    ASSERT_TRUE(result.Success) << result.ErrorLog;
+    ASSERT_TRUE(result.Success) << result.ErrorLog.ToView();
     EXPECT_TRUE(result.IsCompute);
     EXPECT_NE(result.ShaderSource.find("srcData"), std::string::npos);
     EXPECT_NE(result.ShaderSource.find("dstData"), std::string::npos);
@@ -203,7 +203,7 @@ TEST_F(ShaderGraphCompilerTest, ComputeGraphCustomWorkgroupSize)
     graph.AddNode(std::move(outputNode));
 
     auto result = compiler.Compile(graph);
-    ASSERT_TRUE(result.Success) << result.ErrorLog;
+    ASSERT_TRUE(result.Success) << result.ErrorLog.ToView();
     EXPECT_NE(result.ShaderSource.find("local_size_x = 64"), std::string::npos);
     EXPECT_NE(result.ShaderSource.find("local_size_y = 1"), std::string::npos);
 }
@@ -213,7 +213,7 @@ TEST_F(ShaderGraphCompilerTest, ComputeGraphIsNotPBR)
     graph.AddNode(CreateShaderGraphNode(ShaderGraphNodeTypes::ComputeOutput));
 
     auto result = compiler.Compile(graph);
-    ASSERT_TRUE(result.Success) << result.ErrorLog;
+    ASSERT_TRUE(result.Success) << result.ErrorLog.ToView();
     EXPECT_TRUE(result.IsCompute);
     EXPECT_EQ(result.ShaderSource.find("#type vertex"), std::string::npos);
     EXPECT_EQ(result.ShaderSource.find("#type fragment"), std::string::npos);
@@ -223,6 +223,6 @@ TEST_F(ShaderGraphCompilerTest, PBRGraphIsNotCompute)
 {
     BuildMinimalGraph();
     auto result = compiler.Compile(graph);
-    ASSERT_TRUE(result.Success) << result.ErrorLog;
+    ASSERT_TRUE(result.Success) << result.ErrorLog.ToView();
     EXPECT_FALSE(result.IsCompute);
 }

@@ -71,7 +71,7 @@ namespace OloEngine
 
         // Slurp the whole sidecar into memory once — reads become bounded memcpys
         // and a truncated file is caught by the bounds check, not a desync.
-        std::vector<u8> buffer;
+        TArray64<u8> buffer;
         {
             std::ifstream in(sidecar, std::ios::binary | std::ios::ate);
             if (!in)
@@ -79,14 +79,14 @@ namespace OloEngine
             const std::streamoff end = in.tellg();
             if (end < static_cast<std::streamoff>(sizeof(OSceneFormat::FileHeader)))
                 return false;
-            buffer.resize(static_cast<sizet>(end));
+            buffer.SetNumUninitialized(static_cast<i64>(end));
             in.seekg(0);
-            if (!in.read(reinterpret_cast<char*>(buffer.data()), end))
+            if (!in.read(reinterpret_cast<char*>(buffer.GetData()), end))
                 return false;
         }
 
         OSceneFormat::FileHeader header{};
-        std::memcpy(&header, buffer.data(), sizeof(header));
+        std::memcpy(&header, buffer.GetData(), sizeof(header));
 
         // ── Header validity + version range (reject anything newer than this
         //    build understands; see docs/agent-rules/binary-format-versioning.md) ──
@@ -108,7 +108,7 @@ namespace OloEngine
         if (header.SourceFileSize != srcSize || header.SourceTimestamp != srcTimestamp)
             return false;
 
-        SceneBinIO::Reader reader{ buffer.data(), buffer.size(), sizeof(OSceneFormat::FileHeader) };
+        SceneBinIO::Reader reader{ buffer.GetData(), static_cast<sizet>(buffer.Num()), sizeof(OSceneFormat::FileHeader) };
 
         std::string sceneName;
         std::string settingsYaml;
@@ -138,8 +138,8 @@ namespace OloEngine
         // Decode entities, tracking every one created so the whole attempt can be
         // rolled back cleanly on any failure (leaving the scene pristine for the
         // YAML fallback). Settings are applied only after a fully-successful decode.
-        std::vector<Entity> created;
-        created.reserve(entityCount);
+        TArray<Entity> created;
+        created.Reserve(static_cast<i32>(entityCount));
         bool ok = true;
         {
             DiagnosticsEventLog::SuppressScope suppressSpawnFlood;
@@ -159,7 +159,7 @@ namespace OloEngine
                 if (kind == OSceneFormat::kBinary)
                 {
                     Entity entity = m_Scene->CreateEntityWithUUID(UUID(uuid), tag);
-                    created.push_back(entity);
+                    created.Add(entity);
                     if (!ReadEntityComponentsBinary(reader, entity))
                     {
                         ok = false;
@@ -184,7 +184,7 @@ namespace OloEngine
                         }
                         // DeserializeEntity destroys its own half-built entity and
                         // rethrows on failure, so a throw here never leaves a stray.
-                        created.push_back(DeserializeEntity(uuid, tag, node));
+                        created.Add(DeserializeEntity(uuid, tag, node));
                     }
                     catch (const std::exception&)
                     {
@@ -283,9 +283,9 @@ namespace OloEngine
 
         // Collect entities sorted by UUID — deterministic, matching the YAML
         // serialize order so re-saves are byte-stable.
-        std::vector<entt::entity> sorted;
+        TArray<entt::entity> sorted;
         registry.view<entt::entity>().each([&sorted](auto entityID)
-                                           { sorted.push_back(entityID); });
+                                           { sorted.Add(entityID); });
         std::ranges::sort(sorted, [&registry](entt::entity a, entt::entity b)
                           {
                               const u64 ua = static_cast<u64>(registry.get<IDComponent>(a).ID);
@@ -307,7 +307,7 @@ namespace OloEngine
             header.SceneSchemaVersion = SceneSerializer::CurrentVersion;
             header.SourceFileSize = srcSize;
             header.SourceTimestamp = srcTimestamp;
-            header.EntityCount = static_cast<u32>(sorted.size());
+            header.EntityCount = static_cast<u32>(sorted.Num());
             out.write(reinterpret_cast<const char*>(&header), sizeof(header));
 
             SceneBinIO::Write(out, m_Scene->GetName());
@@ -356,7 +356,7 @@ namespace OloEngine
             return;
         }
 
-        OLO_CORE_TRACE("SceneSerializer: wrote binary sidecar '{}' ({} entities)", sidecar.string(), sorted.size());
+        OLO_CORE_TRACE("SceneSerializer: wrote binary sidecar '{}' ({} entities)", sidecar.string(), sorted.Num());
     }
 
 } // namespace OloEngine

@@ -9,7 +9,8 @@
 #include <cstddef>
 #include <type_traits>
 #include <utility>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
+#include <limits>
 
 namespace OloEngine
 {
@@ -96,7 +97,7 @@ namespace OloEngine
         // straight in, so the first Serialize already writes real data (the
         // serializer refuses an empty/invalid asset by design).
         LightmapAsset(u32 width, u32 height, u32 pageCount, u64 bakeKey,
-                      std::vector<f32>&& texelData, std::vector<LightmapEntityEntry>&& entries)
+                      TArray<f32>&& texelData, TArray<LightmapEntityEntry>&& entries)
             : m_Width(width), m_Height(height), m_PageCount(pageCount), m_BakeKey(bakeKey),
               m_TexelData(std::move(texelData)), m_Entries(std::move(entries))
         {
@@ -143,28 +144,28 @@ namespace OloEngine
             m_BakeKey = bakeKey;
         }
 
-        [[nodiscard]] const std::vector<f32>& GetTexelData() const noexcept
+        [[nodiscard]] const TArray<f32>& GetTexelData() const noexcept
         {
             return m_TexelData;
         }
-        [[nodiscard]] std::vector<f32>& GetTexelData() noexcept
+        [[nodiscard]] TArray<f32>& GetTexelData() noexcept
         {
             return m_TexelData;
         }
-        void SetTexelData(std::vector<f32>&& texelData)
+        void SetTexelData(TArray<f32>&& texelData)
         {
             m_TexelData = std::move(texelData);
         }
 
-        [[nodiscard]] const std::vector<LightmapEntityEntry>& GetEntries() const noexcept
+        [[nodiscard]] const TArray<LightmapEntityEntry>& GetEntries() const noexcept
         {
             return m_Entries;
         }
-        [[nodiscard]] std::vector<LightmapEntityEntry>& GetEntries() noexcept
+        [[nodiscard]] TArray<LightmapEntityEntry>& GetEntries() noexcept
         {
             return m_Entries;
         }
-        void SetEntries(std::vector<LightmapEntityEntry>&& entries)
+        void SetEntries(TArray<LightmapEntityEntry>&& entries)
         {
             m_Entries = std::move(entries);
         }
@@ -178,7 +179,7 @@ namespace OloEngine
 
         [[nodiscard]] bool HasBakedData() const noexcept
         {
-            return !m_TexelData.empty();
+            return !m_TexelData.IsEmpty();
         }
 
         // Resize the texel buffer to the expected count, zero-filled (alpha 0
@@ -186,11 +187,12 @@ namespace OloEngine
         void AllocateTexels()
         {
             u64 const count = GetExpectedTexelCount();
-            if (count == 0)
+            if (count == 0 || count > static_cast<u64>(std::numeric_limits<i32>::max()))
             {
                 return;
             }
-            m_TexelData.assign(static_cast<sizet>(count), 0.0f);
+            m_TexelData.Reset();
+            m_TexelData.SetNumZeroed(static_cast<i32>(count));
         }
 
         // Internal-consistency check the loader (and the writer) rely on:
@@ -208,7 +210,7 @@ namespace OloEngine
             {
                 return false;
             }
-            if (static_cast<u64>(m_TexelData.size()) != GetExpectedTexelCount())
+            if (static_cast<u64>(m_TexelData.Num()) != GetExpectedTexelCount())
             {
                 return false;
             }
@@ -259,7 +261,7 @@ namespace OloEngine
         u64 m_BakeKey = 0;   // FNV-1a hash of the baked scene state; 0 = unset
 
         // Raw RGBA f32, PageCount*Width*Height*4 floats, linear irradiance E.
-        std::vector<f32> m_TexelData;
-        std::vector<LightmapEntityEntry> m_Entries;
+        TArray<f32> m_TexelData;
+        TArray<LightmapEntityEntry> m_Entries;
     };
 } // namespace OloEngine

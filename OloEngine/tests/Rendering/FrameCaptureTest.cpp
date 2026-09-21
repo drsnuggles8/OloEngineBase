@@ -208,10 +208,10 @@ TEST(CapturedFrameData, CanStoreCommandsAtMultipleStages)
 
     // Add pre-sort commands
     auto cmd = MakeSyntheticDrawMeshCommand(1, 1, 0.5f);
-    frame.PreSortCommands.emplace_back(
+    frame.PreSortCommands.Emplace(
         CommandType::DrawMesh, &cmd, sizeof(cmd),
         MakeSyntheticOpaqueKey(), 0, 0, false, false, nullptr, 0);
-    frame.PreSortCommands.emplace_back(
+    frame.PreSortCommands.Emplace(
         CommandType::DrawMesh, &cmd, sizeof(cmd),
         MakeSyntheticOpaqueKey(), 0, 1, false, false, nullptr, 1);
 
@@ -222,8 +222,8 @@ TEST(CapturedFrameData, CanStoreCommandsAtMultipleStages)
     frame.Stats.TotalCommands = 2;
     frame.Stats.DrawCalls = 2;
 
-    EXPECT_EQ(frame.PreSortCommands.size(), 2u);
-    EXPECT_EQ(frame.PostSortCommands.size(), 2u);
+    EXPECT_EQ(frame.PreSortCommands.Num(), 2u);
+    EXPECT_EQ(frame.PostSortCommands.Num(), 2u);
     EXPECT_EQ(frame.Stats.TotalCommands, 2u);
 }
 
@@ -285,7 +285,7 @@ TEST(FrameCaptureManager, ClearCaptures)
 
     EXPECT_EQ(mgr.GetCapturedFrameCount(), 0u);
     auto frames = mgr.GetCapturedFramesCopy();
-    EXPECT_TRUE(frames.empty());
+    EXPECT_TRUE(frames.IsEmpty());
 }
 
 TEST(FrameCaptureManager, SelectedFrameIndex)
@@ -396,17 +396,17 @@ TEST_F(FrameCapturePipelineTest, CaptureNextFrameRecordsSingleFrame)
     EXPECT_EQ(mgr.GetCapturedFrameCount(), 1u);
 
     auto frames = mgr.GetCapturedFramesCopy();
-    ASSERT_EQ(frames.size(), 1u);
+    ASSERT_EQ(frames.Num(), 1u);
 
     const auto& frame = frames[0];
     EXPECT_EQ(frame.FrameNumber, 1u);
     EXPECT_GT(frame.TimestampSeconds, 0.0);
 
     // Pre-sort commands should be in submission order (linked list traversal)
-    EXPECT_EQ(frame.PreSortCommands.size(), 6u); // 5 draw + 1 clear
+    EXPECT_EQ(frame.PreSortCommands.Num(), 6u); // 5 draw + 1 clear
 
     // Post-sort commands should be present
-    EXPECT_EQ(frame.PostSortCommands.size(), 6u);
+    EXPECT_EQ(frame.PostSortCommands.Num(), 6u);
 
     // Stats should be populated
     EXPECT_EQ(frame.Stats.TotalCommands, 6u);
@@ -428,7 +428,7 @@ TEST_F(FrameCapturePipelineTest, CapturedCommandsPreserveTypes)
     mgr.OnFrameEnd(42, 0.1, 0.0, 0.2);
 
     auto frames = mgr.GetCapturedFramesCopy();
-    ASSERT_EQ(frames.size(), 1u);
+    ASSERT_EQ(frames.Num(), 1u);
 
     const auto& preSortCmds = frames[0].PreSortCommands;
 
@@ -492,7 +492,7 @@ TEST_F(FrameCapturePipelineTest, RecordingCapturesMultipleFrames)
     for (u32 f = 0; f < NUM_FRAMES; ++f)
     {
         EXPECT_EQ(frames[f].FrameNumber, f + 1);
-        EXPECT_EQ(frames[f].PreSortCommands.size(), 4u); // 3 draw + 1 clear
+        EXPECT_EQ(frames[f].PreSortCommands.Num(), 4u); // 3 draw + 1 clear
     }
 }
 
@@ -554,15 +554,15 @@ TEST_F(FrameCapturePipelineTest, PostSortOrderDiffersFromPreSort)
     mgr.OnFrameEnd(1, 0.1, 0.0, 0.2);
 
     auto frames = mgr.GetCapturedFramesCopy();
-    ASSERT_EQ(frames.size(), 1u);
+    ASSERT_EQ(frames.Num(), 1u);
 
     const auto& pre = frames[0].PreSortCommands;
     const auto& post = frames[0].PostSortCommands;
 
-    EXPECT_EQ(pre.size(), post.size());
+    EXPECT_EQ(pre.Num(), post.Num());
 
     // Post-sort should be in ascending DrawKey order
-    for (sizet i = 1; i < post.size(); ++i)
+    for (sizet i = 1; i < post.Num(); ++i)
     {
         EXPECT_LE(post[i - 1].GetSortKey().GetKey(), post[i].GetSortKey().GetKey())
             << "Post-sort commands should be in ascending DrawKey order at index " << i;
@@ -571,7 +571,7 @@ TEST_F(FrameCapturePipelineTest, PostSortOrderDiffersFromPreSort)
     // Pre-sort and post-sort shouldn't be in the same order (unless by luck)
     // since we interleaved shaders
     bool orderDiffers = false;
-    for (sizet i = 0; i < pre.size(); ++i)
+    for (sizet i = 0; i < pre.Num(); ++i)
     {
         if (pre[i].GetSortKey().GetKey() != post[i].GetSortKey().GetKey())
         {
@@ -614,7 +614,7 @@ TEST_F(FrameCapturePipelineTest, DrawCallAndStateChangeStats)
     mgr.OnFrameEnd(1, 0.5, 0.0, 1.0);
 
     auto frames = mgr.GetCapturedFramesCopy();
-    ASSERT_EQ(frames.size(), 1u);
+    ASSERT_EQ(frames.Num(), 1u);
 
     EXPECT_EQ(frames[0].Stats.DrawCalls, 3u);
     EXPECT_EQ(frames[0].Stats.StateChanges, 2u);

@@ -142,7 +142,7 @@ namespace OloEngine::Tests
             imc.MeshSource = cube->GetMeshSource();
             imc.CastShadows = false;
             constexpr i32 kGrid = 34; // 34*34 = 1156 > 1024
-            imc.Instances.reserve(static_cast<sizet>(kGrid) * kGrid);
+            imc.Instances.Reserve(static_cast<sizet>(kGrid) * kGrid);
             for (i32 gy = 0; gy < kGrid; ++gy)
             {
                 for (i32 gx = 0; gx < kGrid; ++gx)
@@ -154,7 +154,7 @@ namespace OloEngine::Tests
                         glm::translate(glm::mat4(1.0f), glm::vec3(x, y, -20.0f)),
                         glm::vec3(0.15f));
                     inst.PrevTransform = inst.Transform;
-                    imc.Instances.push_back(inst);
+                    imc.Instances.Add(inst);
                 }
             }
 
@@ -172,7 +172,7 @@ namespace OloEngine::Tests
                         glm::vec3(0.3f));
                     inst.PrevTransform = inst.Transform;
                     inst.Color = glm::vec4(1.0f, 0.3f, 0.2f, 1.0f);
-                    imc.Instances.push_back(inst);
+                    imc.Instances.Add(inst);
                 }
             }
 

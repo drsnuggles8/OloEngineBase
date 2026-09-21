@@ -277,6 +277,119 @@ TEST(ArchiveExtensionsTest, VectorOfStringsRoundtrip)
     EXPECT_FALSE(reader.IsError());
 }
 
+TEST(ArchiveExtensionsTest, FStringPreservesLegacyStringBytesAndReadsBothDirections)
+{
+    const std::vector<std::string> cases{
+        "", "short", std::string("a\0b", 3), "Gr\xC3\xBC\xC3\x9F"
+                                             "e \xE6\xA3\xAE",
+        std::string(96, 'x')
+    };
+    for (auto legacy : cases)
+    {
+        SCOPED_TRACE(legacy.size());
+        FString owned(legacy);
+        std::vector<u8> oldBytes, newBytes;
+        FMemoryWriter oldWriter(oldBytes), newWriter(newBytes);
+        oldWriter << legacy;
+        newWriter << owned;
+        ASSERT_FALSE(oldWriter.IsError());
+        ASSERT_FALSE(newWriter.IsError());
+        EXPECT_EQ(newBytes, oldBytes);
+
+        FString loaded("keep until success");
+        FMemoryReader oldReader(oldBytes);
+        oldReader << loaded;
+        ASSERT_FALSE(oldReader.IsError());
+        EXPECT_EQ(loaded.ToStdString(), legacy);
+        EXPECT_EQ(oldReader.Tell(), static_cast<i64>(oldBytes.size()));
+
+        std::string legacyLoaded;
+        FMemoryReader newReader(newBytes);
+        newReader << legacyLoaded;
+        ASSERT_FALSE(newReader.IsError());
+        EXPECT_EQ(legacyLoaded, legacy);
+    }
+}
+
+TEST(ArchiveExtensionsTest, OwnedStringArrayPreservesLegacyVectorBytesAndReadsBothDirections)
+{
+    const std::vector<std::vector<std::string>> cases{
+        {}, { "", "short", std::string("a\0b", 3), "Gr\xC3\xBC\xC3\x9F"
+                                                   "e \xE6\xA3\xAE",
+              std::string(96, 'x') }
+    };
+    for (auto legacy : cases)
+    {
+        SCOPED_TRACE(legacy.size());
+        TArray<FString> owned;
+        for (const auto& value : legacy)
+            owned.Add(FString(value));
+
+        std::vector<u8> oldBytes, newBytes;
+        FMemoryWriter oldWriter(oldBytes), newWriter(newBytes);
+        oldWriter << legacy;
+        SerializeOwnedArray(newWriter, owned);
+        ASSERT_FALSE(oldWriter.IsError());
+        ASSERT_FALSE(newWriter.IsError());
+        EXPECT_EQ(newBytes, oldBytes);
+
+        TArray<FString> loaded{ FString("replace on success") };
+        FMemoryReader oldReader(oldBytes);
+        SerializeOwnedArray(oldReader, loaded);
+        ASSERT_FALSE(oldReader.IsError());
+        ASSERT_EQ(static_cast<sizet>(loaded.Num()), legacy.size());
+        for (i32 i = 0; i < loaded.Num(); ++i)
+            EXPECT_EQ(loaded[i].ToStdString(), legacy[static_cast<sizet>(i)]);
+        EXPECT_EQ(oldReader.Tell(), static_cast<i64>(oldBytes.size()));
+
+        std::vector<std::string> legacyLoaded{ "replace on success" };
+        FMemoryReader newReader(newBytes);
+        newReader << legacyLoaded;
+        ASSERT_FALSE(newReader.IsError());
+        EXPECT_EQ(legacyLoaded, legacy);
+    }
+}
+
+TEST(ArchiveExtensionsTest, EveryTruncatedOwnedArrayPrefixKeepsTheDestination)
+{
+    std::vector<std::string> legacy{ "first", std::string("a\0b", 3) };
+    std::vector<u8> bytes;
+    FMemoryWriter writer(bytes);
+    writer << legacy;
+    ASSERT_FALSE(writer.IsError());
+
+    // Includes a short count, a short string length, and failure after an entire
+    // first element was decoded. None may partially replace the destination.
+    for (sizet length = 0; length < bytes.size(); ++length)
+    {
+        SCOPED_TRACE(length);
+        std::vector<u8> truncated(bytes.begin(), bytes.begin() + static_cast<std::ptrdiff_t>(length));
+        TArray<FString> loaded{ FString("keep"), FString("both") };
+        FMemoryReader reader(truncated);
+        SerializeOwnedArray(reader, loaded);
+        EXPECT_TRUE(reader.IsError());
+        ASSERT_EQ(loaded.Num(), 2);
+        EXPECT_EQ(loaded[0].ToStdString(), "keep");
+        EXPECT_EQ(loaded[1].ToStdString(), "both");
+    }
+}
+
+TEST(ArchiveExtensionsTest, OversizedOwnedArrayCountKeepsTheDestination)
+{
+    std::vector<u8> bytes;
+    FMemoryWriter writer(bytes);
+    u32 count = kMaxContainerDeserializeCount + 1;
+    writer << count;
+
+    TArray<u32> loaded{ 42u, 99u };
+    FMemoryReader reader(bytes);
+    SerializeOwnedArray(reader, loaded);
+    EXPECT_TRUE(reader.IsError());
+    ASSERT_EQ(loaded.Num(), 2);
+    EXPECT_EQ(loaded[0], 42u);
+    EXPECT_EQ(loaded[1], 99u);
+}
+
 TEST(ArchiveExtensionsTest, UnorderedMapRoundtrip)
 {
     std::unordered_map<std::string, f32> original{

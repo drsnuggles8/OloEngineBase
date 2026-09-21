@@ -53,14 +53,14 @@ namespace OloEngine::RayTracing
 
     bool RayTracingProbe::SubmitBatch(const Batch& batch, std::string& outError)
     {
-        if (batch.Rays.empty())
+        if (batch.Rays.IsEmpty())
         {
             outError = "No rays to trace.";
             return false;
         }
-        if (batch.Rays.size() > static_cast<sizet>(kMaxRays))
+        if (static_cast<u32>(batch.Rays.Num()) > kMaxRays)
         {
-            outError = "Too many rays: " + std::to_string(batch.Rays.size()) + " (the probe traces at most " +
+            outError = "Too many rays: " + std::to_string(batch.Rays.Num()) + " (the probe traces at most " +
                        std::to_string(kMaxRays) + " per call).";
             return false;
         }
@@ -88,7 +88,7 @@ namespace OloEngine::RayTracing
             return false;
         }
 
-        for (sizet i = 0; i < normalized.Rays.size(); ++i)
+        for (sizet i = 0; i < static_cast<sizet>(normalized.Rays.Num()); ++i)
         {
             Ray& ray = normalized.Rays[i];
             const std::string which = "ray " + std::to_string(i) + ": ";
@@ -235,7 +235,7 @@ namespace OloEngine::RayTracing
         m_PendingBatch = {};
         m_Latest = {};
         m_FrameIndex = 0;
-        m_UnavailableReason.clear();
+        m_UnavailableReason.Reset();
         m_UnavailableBatchId = 0;
     }
 
@@ -270,10 +270,10 @@ namespace OloEngine::RayTracing
                 continue;
             }
 
-            const sizet rayCount = slot.Dispatched.Rays.size();
-            std::vector<GpuHit> gpuHits(rayCount);
+            const sizet rayCount = slot.Dispatched.Rays.Num();
+            TArray<GpuHit> gpuHits(rayCount);
             RenderCommand::ReadBufferSubData(slot.Buffer, 0, static_cast<u32>(rayCount * sizeof(GpuHit)),
-                                             gpuHits.data());
+                                             gpuHits.GetData());
 
             RenderCommand::DestroyFence(slot.Fence);
             slot.Fence = 0;
@@ -289,7 +289,7 @@ namespace OloEngine::RayTracing
             m_Latest.FrameIndex = slot.FrameIndex;
             m_Latest.Latency = static_cast<u32>(m_FrameIndex - slot.FrameIndex);
             m_Latest.Rays = slot.Dispatched.Rays;
-            m_Latest.Hits.assign(rayCount, Hit{});
+            m_Latest.Hits.Init(Hit{}, static_cast<i32>(rayCount));
 
             for (sizet i = 0; i < rayCount; ++i)
             {
@@ -348,7 +348,7 @@ namespace OloEngine::RayTracing
         // refusal can say WHOSE it is. A reason without an owner gets reported
         // against whatever batch asks next.
         const u32 pendingBatchId = m_PendingBatch.BatchId;
-        const auto refuse = [this, pendingBatchId](std::string reason)
+        const auto refuse = [this, pendingBatchId](FString reason)
         {
             m_UnavailableReason = std::move(reason);
             m_UnavailableBatchId = pendingBatchId;
@@ -378,15 +378,15 @@ namespace OloEngine::RayTracing
         const Batch batch = std::move(m_PendingBatch);
         m_PendingBatch = {};
         m_HasPendingBatch = false;
-        const u32 rayCount = static_cast<u32>(batch.Rays.size());
+        const u32 rayCount = static_cast<u32>(batch.Rays.Num());
 
-        std::vector<GpuRay> gpuRays(rayCount);
+        TArray<GpuRay> gpuRays(rayCount);
         for (u32 i = 0; i < rayCount; ++i)
         {
             gpuRays[i].OriginAndTMin = glm::vec4(batch.Rays[i].Origin, batch.Rays[i].TMin);
             gpuRays[i].DirectionAndTMax = glm::vec4(batch.Rays[i].Direction, batch.Rays[i].TMax);
         }
-        m_RayBuffer->SetData(gpuRays.data(), rayCount * static_cast<u32>(sizeof(GpuRay)));
+        m_RayBuffer->SetData(gpuRays.GetData(), rayCount * static_cast<u32>(sizeof(GpuRay)));
 
         // COMMAND-ORDERED addresses, not GetDeviceAddress(). A CPU write into a
         // live buffer installs a frame snapshot on the Vulkan backend, and the
@@ -430,7 +430,7 @@ namespace OloEngine::RayTracing
         m_Shader->Bind();
         RenderCommand::DispatchCompute((rayCount + kWorkgroupSize - 1u) / kWorkgroupSize, 1u, 1u);
 
-        m_UnavailableReason.clear();
+        m_UnavailableReason.Reset();
         m_UnavailableBatchId = 0;
         // A staged capture is what makes this batch answerable. If the ring had
         // no free slot, or the driver refused a fence, the dispatch still RAN
@@ -467,7 +467,7 @@ namespace OloEngine::RayTracing
         // against them — both, because dropping either makes the copy read a
         // value that is right most of the time.
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::BufferUpdate);
-        const u32 bytes = static_cast<u32>(batch.Rays.size() * sizeof(GpuHit));
+        const u32 bytes = static_cast<u32>(batch.Rays.Num() * sizeof(GpuHit));
         RenderCommand::CopyBufferSubData(m_HitBuffer->GetRHIHandle(), slot.Buffer, 0, 0, bytes);
 
         slot.Fence = RenderCommand::CreateFence();

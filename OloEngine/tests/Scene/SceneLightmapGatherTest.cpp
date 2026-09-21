@@ -57,7 +57,7 @@ namespace OloEngine::Tests
             return instance;
         }
 
-        [[nodiscard]] const LightmapReceiver* Find(const std::vector<LightmapReceiver>& receivers, UUID uuid, u64 subKey)
+        [[nodiscard]] const LightmapReceiver* Find(const TArray<LightmapReceiver>& receivers, UUID uuid, u64 subKey)
         {
             const auto it = std::find_if(receivers.begin(), receivers.end(),
                                          [uuid, subKey](const LightmapReceiver& r)
@@ -76,7 +76,7 @@ namespace OloEngine::Tests
         mesh.m_LightmapStatic = true;
 
         const auto receivers = GatherLightmapReceivers(*scene);
-        ASSERT_EQ(receivers.size(), 1u);
+        ASSERT_EQ(receivers.Num(), 1u);
         EXPECT_EQ(receivers[0].EntityUUID, wall.GetUUID());
         // Sub-key 0 is "the whole entity" — the value every pre-#867 bake wrote,
         // which is what keeps the classic path's bakes valid across this change.
@@ -90,7 +90,7 @@ namespace OloEngine::Tests
         Entity wall = scene->CreateEntity("Wall");
         wall.AddComponent<MeshComponent>(MakeCubeSource()); // m_LightmapStatic defaults to false
 
-        EXPECT_TRUE(GatherLightmapReceivers(*scene).empty());
+        EXPECT_TRUE(GatherLightmapReceivers(*scene).IsEmpty());
     }
 
     // ── InstancedMeshComponent: one region PER INSTANCE ──────────────────────
@@ -102,12 +102,12 @@ namespace OloEngine::Tests
         auto& imc = rocks.AddComponent<InstancedMeshComponent>();
         imc.MeshSource = MakeCubeSource();
         imc.LightmapStatic = true;
-        imc.Instances.push_back(MakeInstance({ 0.0f, 0.0f, 0.0f }, 7));
-        imc.Instances.push_back(MakeInstance({ 5.0f, 0.0f, 0.0f }, 9));
-        imc.Instances.push_back(MakeInstance({ 0.0f, 0.0f, 5.0f }, 11));
+        imc.Instances.Add(MakeInstance({ 0.0f, 0.0f, 0.0f }, 7));
+        imc.Instances.Add(MakeInstance({ 5.0f, 0.0f, 0.0f }, 9));
+        imc.Instances.Add(MakeInstance({ 0.0f, 0.0f, 5.0f }, 11));
 
         const auto receivers = GatherLightmapReceivers(*scene);
-        ASSERT_EQ(receivers.size(), 3u);
+        ASSERT_EQ(receivers.Num(), 3u);
 
         for (u64 stableID : { 7ull, 9ull, 11ull })
         {
@@ -136,10 +136,10 @@ namespace OloEngine::Tests
         auto& imc = rocks.AddComponent<InstancedMeshComponent>();
         imc.MeshSource = MakeCubeSource();
         imc.LightmapStatic = true;
-        imc.Instances.push_back(MakeInstance({ 4.0f, 0.0f, 0.0f }, 1));
+        imc.Instances.Add(MakeInstance({ 4.0f, 0.0f, 0.0f }, 1));
 
         const auto receivers = GatherLightmapReceivers(*scene);
-        ASSERT_EQ(receivers.size(), 1u);
+        ASSERT_EQ(receivers.Num(), 1u);
         EXPECT_FLOAT_EQ(receivers[0].WorldTransform[3].x, 4.0f);
         EXPECT_FLOAT_EQ(receivers[0].WorldTransform[3].y, 0.0f);
     }
@@ -151,11 +151,11 @@ namespace OloEngine::Tests
         auto& imc = rocks.AddComponent<InstancedMeshComponent>();
         imc.MeshSource = MakeCubeSource();
         imc.LightmapStatic = true;
-        imc.Instances.push_back(MakeInstance({ 0.0f, 0.0f, 0.0f }, 0));
-        imc.Instances.push_back(MakeInstance({ 5.0f, 0.0f, 0.0f }, 0));
+        imc.Instances.Add(MakeInstance({ 0.0f, 0.0f, 0.0f }, 0));
+        imc.Instances.Add(MakeInstance({ 5.0f, 0.0f, 0.0f }, 0));
 
         const auto receivers = GatherLightmapReceivers(*scene);
-        ASSERT_EQ(receivers.size(), 2u);
+        ASSERT_EQ(receivers.Num(), 2u);
         // EnsureStableIDs runs inside the gather, so unassigned ids become real
         // ones. If it ever stopped doing so, both instances would land on
         // sub-key 0 — the "whole entity" key — and share one region.
@@ -180,7 +180,7 @@ namespace OloEngine::Tests
         modelComponent.m_Model = Ref<Model>::Create();
         modelComponent.m_LightmapStatic = true;
 
-        EXPECT_TRUE(GatherLightmapReceivers(*scene).empty());
+        EXPECT_TRUE(GatherLightmapReceivers(*scene).IsEmpty());
     }
 
     TEST(SceneLightmapGather, ModelSubKeyIsTotalAndNeverInventsARegion)
@@ -209,7 +209,7 @@ namespace OloEngine::Tests
         auto& virtualMesh = vm.AddComponent<VirtualMeshComponent>();
         virtualMesh.m_Enabled = true;
 
-        EXPECT_TRUE(GatherLightmapReceivers(*scene).empty());
+        EXPECT_TRUE(GatherLightmapReceivers(*scene).IsEmpty());
     }
 
     // ── Determinism ──────────────────────────────────────────────────────────
@@ -227,18 +227,18 @@ namespace OloEngine::Tests
         imc.MeshSource = MakeCubeSource();
         imc.LightmapStatic = true;
         // Deliberately out of order on the way in.
-        imc.Instances.push_back(MakeInstance({ 0.0f, 0.0f, 0.0f }, 40));
-        imc.Instances.push_back(MakeInstance({ 5.0f, 0.0f, 0.0f }, 10));
-        imc.Instances.push_back(MakeInstance({ 0.0f, 0.0f, 5.0f }, 25));
+        imc.Instances.Add(MakeInstance({ 0.0f, 0.0f, 0.0f }, 40));
+        imc.Instances.Add(MakeInstance({ 5.0f, 0.0f, 0.0f }, 10));
+        imc.Instances.Add(MakeInstance({ 0.0f, 0.0f, 5.0f }, 25));
 
         const auto receivers = GatherLightmapReceivers(*scene);
-        ASSERT_EQ(receivers.size(), 4u);
+        ASSERT_EQ(receivers.Num(), 4u);
 
         // Registry iteration order is not a contract; the atlas layout is. The
         // packing plan sorts on (size desc, UUID asc, SubKey asc), and SubKey is
         // load-bearing there — UUID alone stopped being a total order the moment
         // one entity could emit N receivers.
-        for (sizet i = 1; i < receivers.size(); ++i)
+        for (sizet i = 1; i < receivers.Num(); ++i)
         {
             const bool ordered = std::tie(receivers[i - 1].EntityUUID, receivers[i - 1].SubKey) <
                                  std::tie(receivers[i].EntityUUID, receivers[i].SubKey);
@@ -255,13 +255,13 @@ namespace OloEngine::Tests
         imc.LightmapStatic = true;
         for (u64 i = 1; i <= 16; ++i)
         {
-            imc.Instances.push_back(MakeInstance({ static_cast<f32>(i), 0.0f, 0.0f }, i));
+            imc.Instances.Add(MakeInstance({ static_cast<f32>(i), 0.0f, 0.0f }, i));
         }
 
         const auto first = GatherLightmapReceivers(*scene);
         const auto second = GatherLightmapReceivers(*scene);
-        ASSERT_EQ(first.size(), second.size());
-        for (sizet i = 0; i < first.size(); ++i)
+        ASSERT_EQ(first.Num(), second.Num());
+        for (sizet i = 0; i < first.Num(); ++i)
         {
             EXPECT_EQ(first[i].EntityUUID, second[i].EntityUUID);
             EXPECT_EQ(first[i].SubKey, second[i].SubKey);
@@ -287,11 +287,11 @@ namespace OloEngine::Tests
         auto& imc = rocks.AddComponent<InstancedMeshComponent>();
         imc.MeshSource = MakeCubeSource();
         imc.LightmapStatic = true;
-        imc.Instances.push_back(MakeInstance({ 0.0f, 0.0f, 0.0f }, 1));
-        imc.Instances.push_back(MakeInstance({ 5.0f, 0.0f, 0.0f }, 2));
+        imc.Instances.Add(MakeInstance({ 0.0f, 0.0f, 0.0f }, 1));
+        imc.Instances.Add(MakeInstance({ 5.0f, 0.0f, 0.0f }, 2));
 
         const auto receivers = GatherLightmapReceivers(*scene);
-        ASSERT_EQ(receivers.size(), 2u);
+        ASSERT_EQ(receivers.Num(), 2u);
         EXPECT_EQ(receivers[0].Mesh.Raw(), receivers[1].Mesh.Raw())
             << "every instance of one batch bakes the same mesh, so an unwrap is attempted once";
     }

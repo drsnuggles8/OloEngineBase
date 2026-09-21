@@ -2,6 +2,7 @@
 
 #include "OloEngine/Renderer/SkinProfile.h"
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Containers/Array.h"
 #include "OloEngine/Renderer/LightCommon.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 
@@ -14,7 +15,6 @@
 #include <limits>
 #include <type_traits>
 #include <utility>
-#include <vector>
 
 // The canonical GPU Scene record contract (issues #991, #992, #993).
 //
@@ -756,11 +756,11 @@ namespace OloEngine
 
     struct GPUSceneFrameUpdate
     {
-        std::vector<GPUSceneDirtyRange> m_InstanceDirtyRanges;
-        std::vector<GPUSceneDirtyRange> m_GeometryDirtyRanges;
-        std::vector<GPUSceneDirtyRange> m_MaterialDirtyRanges;
-        std::vector<GPUSceneDirtyRange> m_LightDirtyRanges;
-        std::vector<GPUSceneDirtyRange> m_EnvironmentDirtyRanges;
+        TArray<GPUSceneDirtyRange> m_InstanceDirtyRanges;
+        TArray<GPUSceneDirtyRange> m_GeometryDirtyRanges;
+        TArray<GPUSceneDirtyRange> m_MaterialDirtyRanges;
+        TArray<GPUSceneDirtyRange> m_LightDirtyRanges;
+        TArray<GPUSceneDirtyRange> m_EnvironmentDirtyRanges;
         GPUSceneFrameStats m_Stats;
     };
 

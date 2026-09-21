@@ -57,19 +57,19 @@ namespace
         if (!image.IsValid())
             return result;
 
-        std::vector<f32> decoded;
+        TArray64<f32> decoded;
         u32 dw = 0;
         u32 dh = 0;
         EXPECT_TRUE(TextureCompression::DecodeToRGBAFloat(image, 0, decoded, dw, dh));
-        if (decoded.size() != static_cast<sizet>(kDim) * kDim * 4)
+        if (decoded.Num() != static_cast<sizet>(kDim) * kDim * 4)
             return result;
 
         // Record which mode won each block. The mode field is re-read straight from the
         // packed bytes, so this reports what a decoder will see rather than what the
         // encoder believes it wrote.
-        for (sizet offset = 0; offset + 16 <= image.Mips[0].size(); offset += 16)
+        for (sizet offset = 0; offset + 16 <= image.Mips[0].Num(); offset += 16)
         {
-            const i32 mode = Tests::ReadBC6HModeIndex(image.Mips[0].data() + offset);
+            const i32 mode = Tests::ReadBC6HModeIndex(image.Mips[0].GetData() + offset);
             EXPECT_GE(mode, 0) << "a packed block carries a reserved BC6H mode pattern";
             if (mode >= 0 && mode < static_cast<i32>(BC6H::kModeCount))
                 ++result.ModeHistogram[static_cast<u32>(mode)];

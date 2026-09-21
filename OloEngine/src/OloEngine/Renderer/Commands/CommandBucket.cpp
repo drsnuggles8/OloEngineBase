@@ -98,18 +98,18 @@ namespace OloEngine
         constexpr sizet RADIX_SIZE = 1 << RADIX_BITS;          // 256 buckets
         constexpr sizet NUM_PASSES = sizeof(u64) / sizeof(u8); // 8 passes for 64-bit
 
-        void RadixSort64(std::vector<u64>& keys, std::vector<CommandPacket*>& packets)
+        void RadixSort64(TArray64<u64>& keys, TArray64<CommandPacket*>& packets)
         {
             OLO_PROFILE_FUNCTION();
 
-            if (keys.size() <= 1)
+            if (static_cast<sizet>(keys.Num()) <= 1)
                 return;
 
-            sizet count = keys.size();
+            sizet count = static_cast<sizet>(keys.Num());
 
             // Temporary buffers for swapping
-            std::vector<CommandPacket*> tempPackets(count);
-            std::vector<u64> tempKeys(count);
+            TArray64<CommandPacket*> tempPackets(count);
+            TArray64<u64> tempKeys(count);
 
             // Process each byte from LSB to MSB
             for (sizet pass = 0; pass < NUM_PASSES; ++pass)
@@ -158,14 +158,14 @@ namespace OloEngine
         constexpr sizet PARALLEL_SORT_THRESHOLD = 1024; // Min elements for parallel sort
         constexpr i32 PARALLEL_SORT_BATCH_SIZE = 256;   // Elements per chunk for parallel radix sort
 
-        void ParallelRadixSort64(std::vector<u64>& keys, std::vector<CommandPacket*>& packets)
+        void ParallelRadixSort64(TArray64<u64>& keys, TArray64<CommandPacket*>& packets)
         {
             OLO_PROFILE_FUNCTION();
 
-            if (keys.size() <= 1)
+            if (static_cast<sizet>(keys.Num()) <= 1)
                 return;
 
-            sizet count = keys.size();
+            sizet count = static_cast<sizet>(keys.Num());
 
             // Fall back to single-threaded for small arrays
             if (count < PARALLEL_SORT_THRESHOLD)
@@ -180,14 +180,14 @@ namespace OloEngine
             i32 numChunks = static_cast<i32>((count + PARALLEL_SORT_BATCH_SIZE - 1) / PARALLEL_SORT_BATCH_SIZE);
 
             // Temporary buffers for swapping
-            std::vector<CommandPacket*> tempPackets(count);
-            std::vector<u64> tempKeys(count);
+            TArray64<CommandPacket*> tempPackets(count);
+            TArray64<u64> tempKeys(count);
 
             // Per-chunk histograms (indexed by chunk ID, deterministic)
-            std::vector<std::array<sizet, RADIX_SIZE>> chunkHistograms(numChunks);
+            TArray64<std::array<sizet, RADIX_SIZE>> chunkHistograms(numChunks);
 
             // Per-chunk scatter offsets
-            std::vector<std::array<sizet, RADIX_SIZE>> chunkOffsets(numChunks);
+            TArray64<std::array<sizet, RADIX_SIZE>> chunkOffsets(numChunks);
 
             // Process each byte from LSB to MSB
             for (sizet pass = 0; pass < NUM_PASSES; ++pass)
@@ -322,9 +322,9 @@ namespace OloEngine
         std::memset(m_TLSSlots, 0, sizeof(m_TLSSlots));
 
         // Pre-allocate flat arrays and parallel command array
-        m_Keys.reserve(config.InitialCapacity);
-        m_Packets.reserve(config.InitialCapacity);
-        m_ParallelCommands.reserve(config.InitialCapacity);
+        m_Keys.Reserve(config.InitialCapacity);
+        m_Packets.Reserve(config.InitialCapacity);
+        m_ParallelCommands.Reserve(config.InitialCapacity);
     }
 
     CommandBucket::~CommandBucket()
@@ -378,8 +378,8 @@ namespace OloEngine
 
         TUniqueLock<FMutex> lock(m_Mutex);
 
-        m_Keys.push_back(packet->GetMetadata().m_SortKey.GetKey());
-        m_Packets.push_back(packet);
+        m_Keys.Add(packet->GetMetadata().m_SortKey.GetKey());
+        m_Packets.Add(packet);
 
         ++m_CommandCount;
         ++m_Stats.TotalCommands;
@@ -419,7 +419,7 @@ namespace OloEngine
 
         // Check if any commands have dependency ordering
         bool hasDependencies = false;
-        for (sizet i = 0; i < m_Packets.size(); ++i)
+        for (sizet i = 0; i < static_cast<sizet>(m_Packets.Num()); ++i)
         {
             if (m_Packets[i]->GetMetadata().m_DependsOnPrevious)
             {
@@ -436,17 +436,17 @@ namespace OloEngine
         else
         {
             // Dependency-aware path: split into groups, sort each group
-            std::vector<std::pair<sizet, sizet>> groupRanges; // [start, end) ranges
+            TArray64<std::array<sizet, 2>> groupRanges; // [start, end) ranges
             sizet groupStart = 0;
-            for (sizet i = 1; i < m_Packets.size(); ++i)
+            for (sizet i = 1; i < static_cast<sizet>(m_Packets.Num()); ++i)
             {
                 if (m_Packets[i]->GetMetadata().m_DependsOnPrevious)
                 {
-                    groupRanges.push_back({ groupStart, i });
+                    groupRanges.Add({ groupStart, i });
                     groupStart = i;
                 }
             }
-            groupRanges.push_back({ groupStart, m_Packets.size() });
+            groupRanges.Add({ groupStart, static_cast<sizet>(m_Packets.Num()) });
 
             // Sort each group independently
             for (const auto& [start, end] : groupRanges)
@@ -455,14 +455,16 @@ namespace OloEngine
                     continue;
 
                 // Create temporary sub-arrays for the group
-                std::vector<u64> groupKeys(m_Keys.begin() + start, m_Keys.begin() + end);
-                std::vector<CommandPacket*> groupPackets(m_Packets.begin() + start, m_Packets.begin() + end);
+                TArray64<u64> groupKeys;
+                groupKeys.Append(m_Keys.GetData() + start, static_cast<i64>(end - start));
+                TArray64<CommandPacket*> groupPackets;
+                groupPackets.Append(m_Packets.GetData() + start, static_cast<i64>(end - start));
 
                 ParallelRadixSort64(groupKeys, groupPackets);
 
                 // Copy sorted results back
-                std::ranges::copy(groupKeys, m_Keys.begin() + start);
-                std::ranges::copy(groupPackets, m_Packets.begin() + start);
+                std::copy_n(groupKeys.GetData(), groupKeys.Num(), m_Keys.GetData() + start);
+                std::copy_n(groupPackets.GetData(), groupPackets.Num(), m_Packets.GetData() + start);
             }
         }
 
@@ -665,18 +667,18 @@ namespace OloEngine
 
         // ── Phase 1: Build instance groups via hash table ──────────────
         // O(n) scan — groups ALL matching DrawMesh commands, not just adjacent.
-        std::unordered_map<InstanceGroupKey, std::vector<sizet>, InstanceGroupKeyHash> groups;
+        std::unordered_map<InstanceGroupKey, TArray64<sizet>, InstanceGroupKeyHash> groups;
 
         // Skinned draws are collected separately and partitioned by pose
         // (issue #1031) before they join `groups` — see PartitionSkinnedGroups.
         const u32 unremappedBefore = m_Stats.SkinnedBatchUnremapped;
-        std::unordered_map<InstanceGroupKey, std::vector<sizet>, InstanceGroupKeyHash> skinnedCandidates;
+        std::unordered_map<InstanceGroupKey, TArray64<sizet>, InstanceGroupKeyHash> skinnedCandidates;
 
         // Collect predecessors of dependency-constrained packets so they are
         // not merged/nulled during instancing — their dependent follower
         // relies on them staying in place.
         std::unordered_set<sizet> protectedPredecessors;
-        for (sizet i = 1; i < m_Packets.size(); ++i)
+        for (sizet i = 1; i < static_cast<sizet>(m_Packets.Num()); ++i)
         {
             if (m_Packets[i] && m_Packets[i]->GetMetadata().m_DependsOnPrevious)
             {
@@ -684,7 +686,7 @@ namespace OloEngine
             }
         }
 
-        for (sizet i = 0; i < m_Packets.size(); ++i)
+        for (sizet i = 0; i < static_cast<sizet>(m_Packets.Num()); ++i)
         {
             if (!m_Packets[i])
                 continue;
@@ -724,10 +726,10 @@ namespace OloEngine
                     ++m_Stats.SkinnedBatchUnremapped;
                     continue;
                 }
-                skinnedCandidates[key].push_back(i);
+                skinnedCandidates[key].Add(i);
                 continue;
             }
-            groups[key].push_back(i);
+            groups[key].Add(i);
         }
 
         PartitionSkinnedGroups(skinnedCandidates, groups);
@@ -761,19 +763,19 @@ namespace OloEngine
 
         for (auto& [key, indices] : groups)
         {
-            if (indices.size() <= 1)
+            if (static_cast<sizet>(indices.Num()) <= 1)
                 continue;
 
-            if (indices.size() > m_Config.MaxMeshInstances && !truncationLogged)
+            if (static_cast<sizet>(indices.Num()) > m_Config.MaxMeshInstances && !truncationLogged)
             {
                 OLO_CORE_WARN("CommandBucket::BatchCommands: Instance group of {} exceeds MaxMeshInstances ({}); "
                               "truncating to the cap. Subsequent truncations this frame will be silent.",
-                              indices.size(), m_Config.MaxMeshInstances);
+                              static_cast<sizet>(indices.Num()), m_Config.MaxMeshInstances);
                 truncationLogged = true;
             }
 
             u32 totalInstances = static_cast<u32>(
-                std::min(indices.size(), static_cast<sizet>(m_Config.MaxMeshInstances)));
+                std::min(static_cast<sizet>(indices.Num()), static_cast<sizet>(m_Config.MaxMeshInstances)));
 
             // A group that survives the cap with fewer than two members is not a
             // batch: emitting an instanced command for it would draw zero or one
@@ -1005,7 +1007,7 @@ namespace OloEngine
 
         // ── Phase 3: Compact — remove null entries ────────────────────
         sizet write = 0;
-        for (sizet read = 0; read < m_Packets.size(); ++read)
+        for (sizet read = 0; read < static_cast<sizet>(m_Packets.Num()); ++read)
         {
             if (m_Packets[read] != nullptr)
             {
@@ -1017,8 +1019,8 @@ namespace OloEngine
                 ++write;
             }
         }
-        m_Packets.resize(write);
-        m_Keys.resize(write);
+        m_Packets.SetNum(static_cast<i64>(write), EAllowShrinking::No);
+        m_Keys.SetNum(static_cast<i64>(write), EAllowShrinking::No);
         m_CommandCount = write;
 
         m_IsBatched = true;
@@ -1035,8 +1037,8 @@ namespace OloEngine
 
     CommandBucket::Statistics CommandBucket::ReplayRange(RendererAPI& rendererAPI, sizet begin, sizet end) const
     {
-        OLO_CORE_ASSERT(begin <= end && end <= m_Packets.size(), "Invalid replay range");
-        return ReplayPackets(rendererAPI, std::span<CommandPacket* const>(m_Packets).subspan(begin, end - begin), m_ViewState);
+        OLO_CORE_ASSERT(begin <= end && end <= static_cast<sizet>(m_Packets.Num()), "Invalid replay range");
+        return ReplayPackets(rendererAPI, std::span<CommandPacket* const>(m_Packets.GetData(), static_cast<sizet>(m_Packets.Num())).subspan(begin, end - begin), m_ViewState);
     }
 
     CommandBucket::Statistics CommandBucket::ReplayPackets(RendererAPI& rendererAPI, std::span<CommandPacket* const> packets, const std::optional<BucketViewState>& view)
@@ -1103,7 +1105,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         const auto start = std::chrono::steady_clock::now();
-        const auto stats = ReplayRange(rendererAPI, 0, m_Packets.size());
+        const auto stats = ReplayRange(rendererAPI, 0, static_cast<sizet>(m_Packets.Num()));
         m_Stats.DrawCalls = stats.DrawCalls;
         m_Stats.StateChanges = stats.StateChanges;
         m_LastExecuteTimeMs = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - start).count();
@@ -1154,7 +1156,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         const auto start = std::chrono::steady_clock::now();
-        const auto stats = RecordPackets(rendererAPI, m_Packets, m_ViewState, minCommandsPerItem);
+        const auto stats = RecordPackets(rendererAPI, GetPackets(), m_ViewState, minCommandsPerItem);
         m_Stats.DrawCalls = stats.DrawCalls;
         m_Stats.StateChanges = stats.StateChanges;
         m_LastExecuteTimeMs = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - start).count();
@@ -1255,16 +1257,16 @@ namespace OloEngine
 
     void CommandBucket::Clear()
     {
-        m_Keys.clear();
-        m_Packets.clear();
+        m_Keys.Reset();
+        m_Packets.Reset();
         m_CommandCount = 0;
 
         // Important: clear transform buffers to prevent memory leaks
-        m_TransformBuffers.clear();
+        m_TransformBuffers.Empty();
         m_PacketToBufferIndex.clear();
 
         // Reset parallel submission state
-        m_ParallelCommands.clear();
+        m_ParallelCommands.Reset();
         m_NextBatchStart.store(0, std::memory_order_relaxed);
         m_ParallelCommandCount.store(0, std::memory_order_relaxed);
         m_ParallelSubmissionActive = false;
@@ -1287,8 +1289,8 @@ namespace OloEngine
         TUniqueLock<FMutex> lock(m_Mutex);
 
         // Reset parallel command array with sufficient capacity
-        m_ParallelCommands.clear();
-        m_ParallelCommands.resize(m_Config.InitialCapacity, nullptr);
+        m_ParallelCommands.Reset();
+        m_ParallelCommands.SetNumZeroed(static_cast<i64>(m_Config.InitialCapacity));
 
         // Reset atomic counters
         m_NextBatchStart.store(0, std::memory_order_relaxed);
@@ -1327,16 +1329,16 @@ namespace OloEngine
         u32 batchStart = m_NextBatchStart.fetch_add(TLS_BATCH_SIZE, std::memory_order_relaxed);
 
         // Grow the parallel commands array if needed
-        if (u32 requiredCapacity = batchStart + TLS_BATCH_SIZE; requiredCapacity > m_ParallelCommands.size())
+        if (u32 requiredCapacity = batchStart + TLS_BATCH_SIZE; requiredCapacity > static_cast<sizet>(m_ParallelCommands.Num()))
         {
             TUniqueLock<FMutex> lock(m_Mutex);
-            if (requiredCapacity > m_ParallelCommands.size())
+            if (requiredCapacity > static_cast<sizet>(m_ParallelCommands.Num()))
             {
                 // Double the capacity or grow to required size
                 sizet newCapacity = std::max(
-                    m_ParallelCommands.size() * 2,
+                    static_cast<sizet>(m_ParallelCommands.Num()) * 2,
                     static_cast<sizet>(requiredCapacity));
-                m_ParallelCommands.resize(newCapacity, nullptr);
+                m_ParallelCommands.SetNumZeroed(static_cast<i64>(newCapacity));
             }
         }
 
@@ -1394,18 +1396,18 @@ namespace OloEngine
         }
 
         // Compact the parallel commands array into the flat arrays
-        m_Keys.clear();
-        m_Packets.clear();
+        m_Keys.Reset();
+        m_Packets.Reset();
         m_CommandCount = 0;
 
         sizet maxIndex = m_NextBatchStart.load(std::memory_order_relaxed);
-        for (sizet i = 0; i < maxIndex && i < m_ParallelCommands.size(); ++i)
+        for (sizet i = 0; i < maxIndex && i < static_cast<sizet>(m_ParallelCommands.Num()); ++i)
         {
             CommandPacket* packet = m_ParallelCommands[i];
             if (packet != nullptr)
             {
-                m_Keys.push_back(packet->GetMetadata().m_SortKey.GetKey());
-                m_Packets.push_back(packet);
+                m_Keys.Add(packet->GetMetadata().m_SortKey.GetKey());
+                m_Packets.Add(packet);
                 ++m_CommandCount;
             }
         }
@@ -1431,20 +1433,20 @@ namespace OloEngine
         // static group carries.
         u64 nextPaletteID = 1;
 
-        std::vector<SkinnedBatching::PalettePair> pairs;
-        std::unordered_map<u64, std::vector<sizet>> byHash; // palette hash -> indices into `pairs`
-        std::vector<std::vector<sizet>> partitions;         // exact-match partitions, indices into `pairs`
+        TArray64<SkinnedBatching::PalettePair> pairs;
+        std::unordered_map<u64, TArray64<sizet>> byHash; // palette hash -> indices into `pairs`
+        TArray64<TArray64<sizet>> partitions;            // exact-match partitions, indices into `pairs`
 
         for (auto const& [geometryKey, indices] : candidates)
         {
             // One actor of this mesh and material has nobody to share a pose
             // with. Leaving early here is what makes the single-character case
             // free: no palette is ever read, let alone hashed.
-            if (indices.size() <= 1)
+            if (static_cast<sizet>(indices.Num()) <= 1)
                 continue;
 
-            pairs.clear();
-            pairs.reserve(indices.size());
+            pairs.Reset();
+            pairs.Reserve(static_cast<sizet>(indices.Num()));
             for (sizet packetIndex : indices)
             {
                 auto const* cmd = m_Packets[packetIndex]->GetCommandData<DrawMeshCommand>();
@@ -1464,53 +1466,53 @@ namespace OloEngine
                 if (!prev)
                     prev = current;
 
-                pairs.push_back({ packetIndex, current, prev, cmd->boneCount });
+                pairs.Add({ packetIndex, current, prev, cmd->boneCount });
             }
 
-            if (pairs.size() <= 1)
+            if (static_cast<sizet>(pairs.Num()) <= 1)
                 continue;
 
             byHash.clear();
-            for (sizet p = 0; p < pairs.size(); ++p)
-                byHash[SkinnedBatching::HashPalettes(pairs[p])].push_back(p);
+            for (sizet p = 0; p < static_cast<sizet>(pairs.Num()); ++p)
+                byHash[SkinnedBatching::HashPalettes(pairs[p])].Add(p);
 
             for (auto const& [hash, bucket] : byHash)
             {
-                if (bucket.size() <= 1)
+                if (static_cast<sizet>(bucket.Num()) <= 1)
                     continue;
 
                 // Inside one hash bucket, confirm by comparison. Collisions are
                 // rare enough that this is normally a single partition, but it
                 // is the comparison and not the hash that decides.
-                partitions.clear();
+                partitions.Reset();
                 for (sizet p : bucket)
                 {
                     bool placed = false;
                     for (auto& partition : partitions)
                     {
-                        if (SkinnedBatching::SamePose(pairs[partition.front()], pairs[p]))
+                        if (SkinnedBatching::SamePose(pairs[partition[0]], pairs[p]))
                         {
-                            partition.push_back(p);
+                            partition.Add(p);
                             placed = true;
                             break;
                         }
                     }
                     if (!placed)
-                        partitions.push_back({ p });
+                        partitions.Add({ p });
                 }
 
                 for (auto const& partition : partitions)
                 {
-                    if (partition.size() <= 1)
+                    if (static_cast<sizet>(partition.Num()) <= 1)
                         continue;
 
                     InstanceGroupKey poseKey = geometryKey;
                     poseKey.bonePaletteID = nextPaletteID++;
 
-                    std::vector<sizet>& target = groups[poseKey];
-                    target.reserve(partition.size());
+                    TArray64<sizet>& target = groups[poseKey];
+                    target.Reserve(static_cast<sizet>(partition.Num()));
                     for (sizet p : partition)
-                        target.push_back(pairs[p].m_PacketIndex);
+                        target.Add(pairs[p].m_PacketIndex);
 
                     // Merge phase 2 walks `indices` in order and keeps the
                     // first as the surviving packet. Submission order is the
@@ -1519,7 +1521,7 @@ namespace OloEngine
                     // reorders its own instances would move per-instance entity
                     // IDs relative to the transforms they belong to across
                     // frames for no reason, and makes any capture diff noise.
-                    std::sort(target.begin(), target.end());
+                    target.Sort();
                 }
             }
         }
@@ -1571,7 +1573,7 @@ namespace OloEngine
         Clear();
 
         // Clear transform buffers
-        m_TransformBuffers.clear();
+        m_TransformBuffers.Empty();
         m_PacketToBufferIndex.clear();
 
         // Reset the allocator to free memory

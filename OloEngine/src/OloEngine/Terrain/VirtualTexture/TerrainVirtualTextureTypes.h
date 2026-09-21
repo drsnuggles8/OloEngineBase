@@ -11,10 +11,16 @@
 #include <span>
 #include <unordered_map>
 #include <utility>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
+    struct VTMappedPage
+    {
+        u32 first;
+        u32 second;
+    };
+
     // @brief The CPU half of terrain virtual texturing (issue #715): every
     // packing, every coordinate transform, the feedback reduction, and the
     // adaptive image sizing/remap policy — with no GPU dependency at all.
@@ -570,7 +576,7 @@ namespace OloEngine
 
         [[nodiscard]] u32 MipCount() const
         {
-            return static_cast<u32>(m_PerMip.size());
+            return static_cast<u32>(m_PerMip.Num());
         }
         [[nodiscard]] u32 Size() const
         {
@@ -583,7 +589,7 @@ namespace OloEngine
 
         // Valid after Finalize(). The window for `mip` is
         // [GetMipBase(mip), GetMipBase(mip) + GetMipCountAt(mip)).
-        [[nodiscard]] const std::vector<VTIndirectionUpdate>& GetUpdates() const
+        [[nodiscard]] const TArray<VTIndirectionUpdate>& GetUpdates() const
         {
             return m_Combined;
         }
@@ -606,17 +612,17 @@ namespace OloEngine
         void Write(u32 mip, u32 pageX, u32 pageY, u32 packed);
 
         u32 m_PagesWide = 0;
-        std::vector<std::vector<VTIndirectionUpdate>> m_PerMip;
+        TArray<TArray<VTIndirectionUpdate>> m_PerMip;
         // Page key -> index within ITS mip's list. A page key carries the mip, so
         // one key can only ever appear in one of those lists. An unordered_map
         // rather than the analyzer's open-addressed vector because the delta is
         // three orders of magnitude smaller than a feedback buffer — the
         // allocation it avoids is not worth the hand-rolled probe.
         std::unordered_map<u32, u32> m_Index;
-        std::vector<VTIndirectionUpdate> m_Combined;
-        std::vector<u32> m_MipOffsets;
-        std::vector<Rect> m_ChangeBounds; // per mip, bbox of the texels written
-        std::vector<Rect> m_FillRects;    // per mip, after the coarse→fine walk
+        TArray<VTIndirectionUpdate> m_Combined;
+        TArray<u32> m_MipOffsets;
+        TArray<Rect> m_ChangeBounds; // per mip, bbox of the texels written
+        TArray<Rect> m_FillRects;    // per mip, after the coarse→fine walk
         u32 m_Size = 0;
         bool m_FullRebuild = false;
     };
@@ -712,13 +718,13 @@ namespace OloEngine
         // to something the current config can express at all.
         void Analyze(std::span<const u32> feedback, std::span<const VTSectorSnapshot> sectors, u32 atlasMaxMip);
 
-        [[nodiscard]] const std::vector<VTPageRequest>& GetRequests() const
+        [[nodiscard]] const TArray<VTPageRequest>& GetRequests() const
         {
             return m_Requests;
         }
         // Per-sector aggregates, index-matched to the snapshot. What the
         // sizing policy runs on.
-        [[nodiscard]] const std::vector<VTSectorFeedback>& GetSectorFeedback() const
+        [[nodiscard]] const TArray<VTSectorFeedback>& GetSectorFeedback() const
         {
             return m_SectorFeedback;
         }
@@ -746,12 +752,12 @@ namespace OloEngine
         // identical scheme at ~10x over a cold scan).
         [[nodiscard]] std::optional<u32> FindSector(std::span<const VTSectorSnapshot> sectors, u32 mip0X, u32 mip0Y);
 
-        std::vector<VTPageRequest> m_Requests;
+        TArray<VTPageRequest> m_Requests;
         // Open-addressed pageKey -> index into m_Requests. A plain vector keyed
         // by a mask of the key: the request count per frame is bounded by the
         // feedback texel count (a few thousand), so this never grows.
-        std::vector<u32> m_Slots;
-        std::vector<VTSectorFeedback> m_SectorFeedback;
+        TArray<u32> m_Slots;
+        TArray<VTSectorFeedback> m_SectorFeedback;
         u32 m_LastSectorHit = 0;
         u32 m_WrittenTexels = 0;
         u32 m_StaleTexels = 0;
@@ -764,7 +770,7 @@ namespace OloEngine
     {
         // (page key, physical tile index) for the pages newly mapped this frame.
         // These are exactly the tiles that need compositing.
-        std::vector<std::pair<u32, u32>> m_Mapped;
+        TArray<VTMappedPage> m_Mapped;
         u32 m_Touched = 0;  // requested pages that were already resident
         u32 m_Deferred = 0; // requested pages left for a later frame
         // True when the camera wants more pages than the cache can hold at once.
@@ -803,15 +809,15 @@ namespace OloEngine
     // cannot prevent that, because every ALLOCATION also moves to the front, so
     // enough allocations push anything to the tail.
     template<typename Cache>
-    VTServiceOutcome VTServicePageRequests(Cache& cache, const std::vector<VTPageRequest>& requests,
+    VTServiceOutcome VTServicePageRequests(Cache& cache, const TArray<VTPageRequest>& requests,
                                            u32 cacheTileCount, u32 maxAllocations)
     {
         VTServiceOutcome outcome;
-        if (requests.empty() || cacheTileCount == 0)
+        if (requests.IsEmpty() || cacheTileCount == 0)
         {
             return outcome;
         }
-        outcome.m_WorkingSetExceedsCache = requests.size() > cacheTileCount;
+        outcome.m_WorkingSetExceedsCache = static_cast<u32>(requests.Num()) > cacheTileCount;
 
         for (auto it = requests.rbegin(); it != requests.rend(); ++it)
         {
@@ -845,7 +851,7 @@ namespace OloEngine
                 // spin — the caller reports it once.
                 break;
             }
-            outcome.m_Mapped.emplace_back(request.m_PageKey, allocation.m_StartPage);
+            outcome.m_Mapped.Emplace(request.m_PageKey, allocation.m_StartPage);
             --budget;
         }
         return outcome;

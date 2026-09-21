@@ -1116,7 +1116,7 @@ namespace OloEngine::Tests
                 }
                 const u32 matIdx = submesh->GetSubmesh().m_MaterialIndex;
                 const Material* imported = (matIdx < materials.size() && materials[matIdx]) ? materials[matIdx].get() : nullptr;
-                names.push_back(imported != nullptr ? ResolveSubmeshMaterial(nullptr, imported, engineDefault).GetName()
+                names.push_back(imported != nullptr ? ResolveSubmeshMaterial(nullptr, imported, engineDefault).GetName().ToStdString()
                                                     : "<engine default>");
             }
             return names;
@@ -1134,7 +1134,7 @@ namespace OloEngine::Tests
             for (i32 i = 0; i < combined.GetSubmeshes().Num(); ++i)
             {
                 Ref<Material> const imported = combined.GetImportedMaterialForSubmesh(static_cast<u32>(i));
-                names.push_back(imported ? ResolveSubmeshMaterial(nullptr, imported.get(), engineDefault).GetName()
+                names.push_back(imported ? ResolveSubmeshMaterial(nullptr, imported.get(), engineDefault).GetName().ToStdString()
                                          : "<engine default>");
             }
             return names;

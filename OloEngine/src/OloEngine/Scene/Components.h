@@ -1182,7 +1182,7 @@ namespace OloEngine
         // a non-looping path when there are fewer than three points. The points
         // vector is not OLO_PROPERTY-annotated (variable length); scripts author
         // it through the Lua `pathPoints` table accessor instead.
-        std::vector<glm::vec3> m_PathPoints;
+        TArray<glm::vec3> m_PathPoints;
         OLO_PROPERTY()
         bool m_PathIsLooping = false;
 
@@ -1227,8 +1227,8 @@ namespace OloEngine
 
         auto operator==(const PhysicsJoint3DComponent& other) const -> bool
         {
-            return m_Type == other.m_Type && m_ConnectedEntity == other.m_ConnectedEntity && Math::BitwiseEqual(m_LocalAnchorA, other.m_LocalAnchorA) && Math::BitwiseEqual(m_LocalAnchorB, other.m_LocalAnchorB) && Math::BitwiseEqual(m_Axis, other.m_Axis) && Math::BitwiseEqual(m_MinDistance, other.m_MinDistance) && Math::BitwiseEqual(m_MaxDistance, other.m_MaxDistance) && Math::BitwiseEqual(m_HingeMinAngleDeg, other.m_HingeMinAngleDeg) && Math::BitwiseEqual(m_HingeMaxAngleDeg, other.m_HingeMaxAngleDeg) && Math::BitwiseEqual(m_SliderMinLimit, other.m_SliderMinLimit) && Math::BitwiseEqual(m_SliderMaxLimit, other.m_SliderMaxLimit) && Math::BitwiseEqual(m_ConeHalfAngleDeg, other.m_ConeHalfAngleDeg) && Math::BitwiseEqual(m_BreakForce, other.m_BreakForce) && Math::BitwiseEqual(m_BreakTorque, other.m_BreakTorque) && m_HingeMotorMode == other.m_HingeMotorMode && Math::BitwiseEqual(m_HingeMotorTargetVelocityDeg, other.m_HingeMotorTargetVelocityDeg) && Math::BitwiseEqual(m_HingeMotorTargetAngleDeg, other.m_HingeMotorTargetAngleDeg) && Math::BitwiseEqual(m_HingeMaxMotorTorque, other.m_HingeMaxMotorTorque) && Math::BitwiseEqual(m_HingeMaxFrictionTorque, other.m_HingeMaxFrictionTorque) && Math::BitwiseEqual(m_HingeLimitSpringFrequency, other.m_HingeLimitSpringFrequency) && Math::BitwiseEqual(m_HingeLimitSpringDamping, other.m_HingeLimitSpringDamping) && m_SliderMotorMode == other.m_SliderMotorMode && Math::BitwiseEqual(m_SliderMotorTargetVelocity, other.m_SliderMotorTargetVelocity) && Math::BitwiseEqual(m_SliderMotorTargetPosition, other.m_SliderMotorTargetPosition) && Math::BitwiseEqual(m_SliderMaxMotorForce, other.m_SliderMaxMotorForce) && Math::BitwiseEqual(m_SliderMaxFrictionForce, other.m_SliderMaxFrictionForce) && Math::BitwiseEqual(m_SliderLimitSpringFrequency, other.m_SliderLimitSpringFrequency) && Math::BitwiseEqual(m_SliderLimitSpringDamping, other.m_SliderLimitSpringDamping) && Math::BitwiseEqual(m_SwingNormalHalfAngleDeg, other.m_SwingNormalHalfAngleDeg) && Math::BitwiseEqual(m_SwingPlaneHalfAngleDeg, other.m_SwingPlaneHalfAngleDeg) && Math::BitwiseEqual(m_TwistMinAngleDeg, other.m_TwistMinAngleDeg) && Math::BitwiseEqual(m_TwistMaxAngleDeg, other.m_TwistMaxAngleDeg) && m_SixDOFTransXMode == other.m_SixDOFTransXMode && m_SixDOFTransYMode == other.m_SixDOFTransYMode && m_SixDOFTransZMode == other.m_SixDOFTransZMode && m_SixDOFRotXMode == other.m_SixDOFRotXMode && m_SixDOFRotYMode == other.m_SixDOFRotYMode && m_SixDOFRotZMode == other.m_SixDOFRotZMode && Math::BitwiseEqual(m_SixDOFTranslationMin, other.m_SixDOFTranslationMin) && Math::BitwiseEqual(m_SixDOFTranslationMax, other.m_SixDOFTranslationMax) && Math::BitwiseEqual(m_SixDOFRotationMinDeg, other.m_SixDOFRotationMinDeg) && Math::BitwiseEqual(m_SixDOFRotationMaxDeg, other.m_SixDOFRotationMaxDeg) && m_CollideConnected == other.m_CollideConnected && Math::BitwiseEqual(m_PulleyFixedPointA, other.m_PulleyFixedPointA) && Math::BitwiseEqual(m_PulleyFixedPointB, other.m_PulleyFixedPointB) && Math::BitwiseEqual(m_PulleyRatio, other.m_PulleyRatio) && Math::BitwiseEqual(m_PulleyMinLength, other.m_PulleyMinLength) && Math::BitwiseEqual(m_PulleyMaxLength, other.m_PulleyMaxLength) && Math::BitwiseEqual(m_ConnectedAxis, other.m_ConnectedAxis) && Math::BitwiseEqual(m_GearRatio, other.m_GearRatio) && m_PathPoints.size() == other.m_PathPoints.size() && std::equal(m_PathPoints.begin(), m_PathPoints.end(), other.m_PathPoints.begin(), [](const glm::vec3& a, const glm::vec3& b)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            { return Math::BitwiseEqual(a, b); }) &&
+            return m_Type == other.m_Type && m_ConnectedEntity == other.m_ConnectedEntity && Math::BitwiseEqual(m_LocalAnchorA, other.m_LocalAnchorA) && Math::BitwiseEqual(m_LocalAnchorB, other.m_LocalAnchorB) && Math::BitwiseEqual(m_Axis, other.m_Axis) && Math::BitwiseEqual(m_MinDistance, other.m_MinDistance) && Math::BitwiseEqual(m_MaxDistance, other.m_MaxDistance) && Math::BitwiseEqual(m_HingeMinAngleDeg, other.m_HingeMinAngleDeg) && Math::BitwiseEqual(m_HingeMaxAngleDeg, other.m_HingeMaxAngleDeg) && Math::BitwiseEqual(m_SliderMinLimit, other.m_SliderMinLimit) && Math::BitwiseEqual(m_SliderMaxLimit, other.m_SliderMaxLimit) && Math::BitwiseEqual(m_ConeHalfAngleDeg, other.m_ConeHalfAngleDeg) && Math::BitwiseEqual(m_BreakForce, other.m_BreakForce) && Math::BitwiseEqual(m_BreakTorque, other.m_BreakTorque) && m_HingeMotorMode == other.m_HingeMotorMode && Math::BitwiseEqual(m_HingeMotorTargetVelocityDeg, other.m_HingeMotorTargetVelocityDeg) && Math::BitwiseEqual(m_HingeMotorTargetAngleDeg, other.m_HingeMotorTargetAngleDeg) && Math::BitwiseEqual(m_HingeMaxMotorTorque, other.m_HingeMaxMotorTorque) && Math::BitwiseEqual(m_HingeMaxFrictionTorque, other.m_HingeMaxFrictionTorque) && Math::BitwiseEqual(m_HingeLimitSpringFrequency, other.m_HingeLimitSpringFrequency) && Math::BitwiseEqual(m_HingeLimitSpringDamping, other.m_HingeLimitSpringDamping) && m_SliderMotorMode == other.m_SliderMotorMode && Math::BitwiseEqual(m_SliderMotorTargetVelocity, other.m_SliderMotorTargetVelocity) && Math::BitwiseEqual(m_SliderMotorTargetPosition, other.m_SliderMotorTargetPosition) && Math::BitwiseEqual(m_SliderMaxMotorForce, other.m_SliderMaxMotorForce) && Math::BitwiseEqual(m_SliderMaxFrictionForce, other.m_SliderMaxFrictionForce) && Math::BitwiseEqual(m_SliderLimitSpringFrequency, other.m_SliderLimitSpringFrequency) && Math::BitwiseEqual(m_SliderLimitSpringDamping, other.m_SliderLimitSpringDamping) && Math::BitwiseEqual(m_SwingNormalHalfAngleDeg, other.m_SwingNormalHalfAngleDeg) && Math::BitwiseEqual(m_SwingPlaneHalfAngleDeg, other.m_SwingPlaneHalfAngleDeg) && Math::BitwiseEqual(m_TwistMinAngleDeg, other.m_TwistMinAngleDeg) && Math::BitwiseEqual(m_TwistMaxAngleDeg, other.m_TwistMaxAngleDeg) && m_SixDOFTransXMode == other.m_SixDOFTransXMode && m_SixDOFTransYMode == other.m_SixDOFTransYMode && m_SixDOFTransZMode == other.m_SixDOFTransZMode && m_SixDOFRotXMode == other.m_SixDOFRotXMode && m_SixDOFRotYMode == other.m_SixDOFRotYMode && m_SixDOFRotZMode == other.m_SixDOFRotZMode && Math::BitwiseEqual(m_SixDOFTranslationMin, other.m_SixDOFTranslationMin) && Math::BitwiseEqual(m_SixDOFTranslationMax, other.m_SixDOFTranslationMax) && Math::BitwiseEqual(m_SixDOFRotationMinDeg, other.m_SixDOFRotationMinDeg) && Math::BitwiseEqual(m_SixDOFRotationMaxDeg, other.m_SixDOFRotationMaxDeg) && m_CollideConnected == other.m_CollideConnected && Math::BitwiseEqual(m_PulleyFixedPointA, other.m_PulleyFixedPointA) && Math::BitwiseEqual(m_PulleyFixedPointB, other.m_PulleyFixedPointB) && Math::BitwiseEqual(m_PulleyRatio, other.m_PulleyRatio) && Math::BitwiseEqual(m_PulleyMinLength, other.m_PulleyMinLength) && Math::BitwiseEqual(m_PulleyMaxLength, other.m_PulleyMaxLength) && Math::BitwiseEqual(m_ConnectedAxis, other.m_ConnectedAxis) && Math::BitwiseEqual(m_GearRatio, other.m_GearRatio) && m_PathPoints.Num() == other.m_PathPoints.Num() && std::equal(m_PathPoints.begin(), m_PathPoints.end(), other.m_PathPoints.begin(), [](const glm::vec3& a, const glm::vec3& b)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          { return Math::BitwiseEqual(a, b); }) &&
                    m_PathIsLooping == other.m_PathIsLooping && m_PathRotationMode == other.m_PathRotationMode && m_PathMotorMode == other.m_PathMotorMode && Math::BitwiseEqual(m_PathMotorTargetVelocity, other.m_PathMotorTargetVelocity) && Math::BitwiseEqual(m_PathMotorTargetFraction, other.m_PathMotorTargetFraction) && Math::BitwiseEqual(m_PathMaxMotorForce, other.m_PathMaxMotorForce) && Math::BitwiseEqual(m_PathMaxFrictionForce, other.m_PathMaxFrictionForce);
         }
     };
@@ -1979,7 +1979,7 @@ namespace OloEngine
     // push a phantom "Property Change" undo entry.
     struct DiscoveredSetComponent
     {
-        std::vector<UUID> m_Discovered;
+        TArray<UUID> m_Discovered;
 
         DiscoveredSetComponent() = default;
         DiscoveredSetComponent(const DiscoveredSetComponent&) = default;
@@ -4008,7 +4008,7 @@ namespace OloEngine
     {
         // UUID{} generates an identity; a relationship starts at the root.
         UUID m_ParentHandle{ 0 };
-        std::vector<UUID> m_Children;
+        TArray<UUID> m_Children;
 
         RelationshipComponent() = default;
         RelationshipComponent(const RelationshipComponent&) = default;
@@ -4023,9 +4023,9 @@ namespace OloEngine
         {
             if (static_cast<u64>(m_ParentHandle) != static_cast<u64>(other.m_ParentHandle))
                 return false;
-            if (m_Children.size() != other.m_Children.size())
+            if (m_Children.Num() != other.m_Children.Num())
                 return false;
-            for (sizet i = 0; i < m_Children.size(); ++i)
+            for (i32 i = 0; i < m_Children.Num(); ++i)
             {
                 if (static_cast<u64>(m_Children[i]) != static_cast<u64>(other.m_Children[i]))
                     return false;
@@ -4356,14 +4356,21 @@ namespace OloEngine
 
     struct UIDropdownOption
     {
-        std::string m_Label;
+        FString m_Label;
 
         auto operator==(const UIDropdownOption&) const -> bool = default;
     };
 
+    // Only an externally allocated UTF-8 string; no address escapes from the option.
+    template<>
+    struct TIsTriviallyRelocatable<UIDropdownOption>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable_V<FString>;
+    };
+
     struct UIDropdownComponent
     {
-        std::vector<UIDropdownOption> m_Options;
+        TArray<UIDropdownOption> m_Options;
         OLO_PROPERTY()
         i32 m_SelectedIndex = -1;
         glm::vec4 m_BackgroundColor = { 0.2f, 0.2f, 0.2f, 1.0f };
@@ -4448,8 +4455,8 @@ namespace OloEngine
         Ref<Mesh> ParticleMesh = nullptr; // Mesh for ParticleRenderMode::Mesh
 
         // Child particle systems for sub-emitters (each has independent settings)
-        std::vector<ParticleSystem> ChildSystems;
-        std::vector<Ref<Texture2D>> ChildTextures;
+        TArray<ParticleSystem> ChildSystems;
+        TArray<Ref<Texture2D>> ChildTextures;
 
         ParticleSystemComponent() = default;
         ParticleSystemComponent(const ParticleSystemComponent&) = default;
@@ -4530,7 +4537,7 @@ namespace OloEngine
         // by height/slope each rebuild instead of being hand-painted.
         OLO_PROPERTY(Name = "AutoMaterial")
         bool m_AutoMaterial = false;
-        std::vector<TerrainLayerRule> m_LayerRules;
+        TArray<TerrainLayerRule> m_LayerRules;
         OLO_PROPERTY(Name = "SplatmapGenResolution")
         u32 m_SplatmapGenResolution = 512;
 
@@ -4790,7 +4797,7 @@ namespace OloEngine
     struct FoliageComponent
     {
         // Serialized
-        std::vector<FoliageLayer> m_Layers;
+        TArray<FoliageLayer> m_Layers;
         bool m_Enabled = true;
 
         // Runtime (not serialized)
@@ -7356,7 +7363,7 @@ namespace OloEngine
     {
         LODGroup m_LODGroup;
         OLO_SERIALIZE(Skip)
-        std::vector<AssetHandle> m_GeneratedLODHandles; // Transient — excluded from copy & equality
+        TArray<AssetHandle> m_GeneratedLODHandles; // Transient — excluded from copy & equality
         bool m_Enabled = true;
         // True when the chain came from MeshOptimization::GenerateAutoLODGroup rather
         // than from an author (issue #711). Its levels reference MEMORY-ONLY Mesh
@@ -7432,13 +7439,13 @@ namespace OloEngine
         u32 Width = 16;
         u32 Height = 16;
         f32 TileSize = 1.0f;
-        std::vector<Material> Materials;
-        std::vector<u8> MaterialIDs;
+        TArray<Material> Materials;
+        TArray<u8> MaterialIDs;
 
         TileRendererComponent()
         {
-            MaterialIDs.resize(Width * Height, 0);
-            Materials.emplace_back();
+            MaterialIDs.SetNumZeroed(Width * Height);
+            Materials.Emplace_GetRef();
         }
         TileRendererComponent(const TileRendererComponent&) = default;
 
@@ -7450,13 +7457,15 @@ namespace OloEngine
             if (newWidth == Width && newHeight == Height)
                 return;
 
-            std::vector<u8> newIDs(static_cast<sizet>(newWidth) * newHeight, 0);
+            TArray<u8> newIDs;
+            newIDs.SetNumZeroed(static_cast<i32>(newWidth * newHeight));
             u32 copyW = std::min(Width, newWidth);
             u32 copyH = std::min(Height, newHeight);
             for (u32 row = 0; row < copyH; ++row)
             {
                 sizet srcRowStart = static_cast<sizet>(row) * Width;
-                sizet available = (srcRowStart < MaterialIDs.size()) ? (MaterialIDs.size() - srcRowStart) : 0;
+                sizet numIDs = static_cast<sizet>(MaterialIDs.Num());
+                sizet available = (srcRowStart < numIDs) ? (numIDs - srcRowStart) : 0;
                 sizet bytesToCopy = std::min<sizet>(copyW, available);
                 if (bytesToCopy > 0)
                     std::memcpy(&newIDs[row * newWidth], &MaterialIDs[srcRowStart], bytesToCopy);
@@ -7476,10 +7485,10 @@ namespace OloEngine
                 return false;
             if (!Math::BitwiseEqual(TileSize, other.TileSize))
                 return false;
-            const auto materialCount = Materials.size();
-            if (materialCount != other.Materials.size())
+            const auto materialCount = Materials.Num();
+            if (materialCount != other.Materials.Num())
                 return false;
-            for (sizet i = 0; i < materialCount; ++i)
+            for (i32 i = 0; i < materialCount; ++i)
             {
                 if (!Math::BitwiseEqual(Materials[i].GetBaseColorFactor(), other.Materials[i].GetBaseColorFactor()))
                     return false;
@@ -7688,7 +7697,7 @@ namespace OloEngine
         DialogueState m_State = DialogueState::Inactive;
         std::string m_CurrentText;
         std::string m_CurrentSpeaker;
-        std::vector<DialogueChoice> m_AvailableChoices;
+        TArray<DialogueChoice> m_AvailableChoices;
         i32 m_SelectedChoiceIndex = -1;
         i32 m_HoveredChoiceIndex = -1;
         f32 m_TextRevealProgress = 0.0f; // 0..1 for typewriter effect
@@ -7711,7 +7720,7 @@ namespace OloEngine
         // Detour navmesh so agents can cross gaps the walkable surface can't
         // span. Not OLO_PROPERTY-annotated — a vector-of-structs isn't a
         // scriptable scalar; scene/save serialization carries it instead.
-        std::vector<OffMeshLink> m_Links;
+        TArray<OffMeshLink> m_Links;
 
         NavMeshBoundsComponent() = default;
         NavMeshBoundsComponent(const NavMeshBoundsComponent&) = default;
@@ -7753,7 +7762,7 @@ namespace OloEngine
         OLO_SERIALIZE(Skip)
         bool m_HasPath = false;
         OLO_SERIALIZE(Skip)
-        std::vector<glm::vec3> m_PathCorners;
+        TArray<glm::vec3> m_PathCorners;
         OLO_SERIALIZE(Skip)
         u32 m_CurrentCornerIndex = 0;
         OLO_SERIALIZE(Skip)
@@ -7785,7 +7794,7 @@ namespace OloEngine
                 m_TargetPosition = {};
                 m_HasTarget = false;
                 m_HasPath = false;
-                m_PathCorners.clear();
+                m_PathCorners.Reset();
                 m_CurrentCornerIndex = 0;
                 m_CrowdAgentId = -1;
                 m_TargetUnreachable = false;
@@ -7812,7 +7821,7 @@ namespace OloEngine
                 m_TargetPosition = {};
                 m_HasTarget = false;
                 m_HasPath = false;
-                m_PathCorners.clear();
+                m_PathCorners.Reset();
                 m_CurrentCornerIndex = 0;
                 m_CrowdAgentId = -1;
                 m_TargetUnreachable = false;

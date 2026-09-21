@@ -107,7 +107,19 @@ namespace OloEngine
         // in-place hot reload being the easy way) made every element but [0]
         // sample an unrelated slot.
         u32 ArrayCount = 1;
-        std::string Name;
+        FString Name;
+    };
+
+    template<>
+    struct TIsTriviallyRelocatable<VulkanShaderBinding>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(VulkanShaderBinding::Set)> &&
+                                      TIsTriviallyRelocatable_V<decltype(VulkanShaderBinding::Binding)> &&
+                                      TIsTriviallyRelocatable_V<decltype(VulkanShaderBinding::BindingKind)> &&
+                                      TIsTriviallyRelocatable_V<decltype(VulkanShaderBinding::ImageDim)> &&
+                                      TIsTriviallyRelocatable_V<decltype(VulkanShaderBinding::Stages)> &&
+                                      TIsTriviallyRelocatable_V<decltype(VulkanShaderBinding::ArrayCount)> &&
+                                      TIsTriviallyRelocatable_V<decltype(VulkanShaderBinding::Name)>;
     };
 
     class VulkanShader final : public Shader
@@ -143,13 +155,13 @@ namespace OloEngine
             return m_RHIHandle.Get();
         }
 
-        [[nodiscard]] const std::string& GetName() const override
+        [[nodiscard]] std::string GetName() const override
         {
-            return m_Name;
+            return m_Name.ToStdString();
         }
-        [[nodiscard]] const std::string& GetFilePath() const override
+        [[nodiscard]] std::string GetFilePath() const override
         {
-            return m_FilePath;
+            return m_FilePath.ToStdString();
         }
 
         bool Reload() override;
@@ -182,7 +194,7 @@ namespace OloEngine
         {
             return m_HasMeshStage;
         }
-        [[nodiscard]] const std::vector<VulkanShaderBinding>& GetBindings() const
+        [[nodiscard]] const TArray<VulkanShaderBinding>& GetBindings() const
         {
             return m_Bindings;
         }
@@ -192,7 +204,7 @@ namespace OloEngine
         // assembles root structs against — one owner, so the writer and the
         // pipeline's mapping array cannot drift (#691).
         [[nodiscard]] const VulkanRootDataLayout& GetRootDataLayout();
-        [[nodiscard]] const std::unordered_map<VkShaderStageFlagBits, std::vector<u32>>& GetSPIRV() const
+        [[nodiscard]] const std::unordered_map<VkShaderStageFlagBits, TArray<u32>>& GetSPIRV() const
         {
             return m_SPIRV;
         }
@@ -232,19 +244,19 @@ namespace OloEngine
         [[nodiscard]] bool BuildFromSources(const std::unordered_map<VkShaderStageFlagBits, std::string>& sources,
                                             bool useCache, bool readsMaterialHeapOffsets);
         void DestroyModules();
-        void ReflectStage(VkShaderStageFlagBits stage, const std::vector<u32>& spirv);
+        void ReflectStage(VkShaderStageFlagBits stage, const TArray<u32>& spirv);
 
         // |contentHash| is the preprocessed stage source + the shaderc option
         // set hashed together (issue #906) — content-addressed, so existence
         // alone is validity and no separate staleness check is needed.
         [[nodiscard("Store this!")]] std::filesystem::path CachePathForStage(VkShaderStageFlagBits stage, const std::string& contentHash) const;
 
-        std::string m_Name;
-        std::string m_FilePath;
-        std::unordered_map<VkShaderStageFlagBits, std::vector<u32>> m_SPIRV;
+        FString m_Name;
+        FString m_FilePath;
+        std::unordered_map<VkShaderStageFlagBits, TArray<u32>> m_SPIRV;
         std::unordered_map<VkShaderStageFlagBits, VkShaderModule> m_Modules;
         bool m_HasMeshStage = false; // mirrors m_Modules at commit time (#813)
-        std::vector<VulkanShaderBinding> m_Bindings;
+        TArray<VulkanShaderBinding> m_Bindings;
         // Lazily-built root layout (see GetRootDataLayout); reset whenever a
         // rebuild replaces m_Bindings. unique_ptr of a forward-declared type
         // — the out-of-line dtor already exists.

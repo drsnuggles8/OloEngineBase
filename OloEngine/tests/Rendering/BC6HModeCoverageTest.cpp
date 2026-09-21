@@ -44,7 +44,7 @@ namespace
         image.Format = isSigned ? TextureCompressionFormat::BC6HSigned : TextureCompressionFormat::BC6H;
         image.Width = 4;
         image.Height = 4;
-        image.Mips.emplace_back(block.begin(), block.end());
+        image.Mips.Emplace(block.data(), static_cast<i64>(block.size()));
         return image;
     }
 
@@ -95,11 +95,11 @@ namespace
         EXPECT_EQ(Tests::ReadBC6HModeIndex(block.data()), static_cast<i32>(modeIndex))
             << "packed block does not carry the mode it was encoded for";
 
-        std::vector<f32> decoded;
+        TArray64<f32> decoded;
         u32 dw = 0;
         u32 dh = 0;
         ASSERT_TRUE(TextureCompression::DecodeToRGBAFloat(AsSingleBlockImage(block, isSigned), 0, decoded, dw, dh));
-        ASSERT_EQ(decoded.size(), 4u * 4u * 4u);
+        ASSERT_EQ(decoded.Num(), 4u * 4u * 4u);
 
         for (u32 t = 0; t < 16; ++t)
         {
@@ -151,7 +151,7 @@ TEST(BC6HModeCoverage, TheAutomaticEncoderPicksAModeThatBeatsModeTenAlone)
 
     const auto blockError = [&source](const std::array<u8, 16>& block) -> double
     {
-        std::vector<f32> decoded;
+        TArray64<f32> decoded;
         u32 dw = 0;
         u32 dh = 0;
         EXPECT_TRUE(TextureCompression::DecodeToRGBAFloat(AsSingleBlockImage(block, false), 0, decoded, dw, dh));
@@ -196,7 +196,7 @@ TEST(BC6HModeCoverage, NegativeZeroDoesNotDecodeAsWhiteInTheUnsignedVariant)
     std::array<u8, 16> packed{};
     BC6H::EncodeBlock(packed.data(), block.data(), /*isSigned*/ false);
 
-    std::vector<f32> decoded;
+    TArray64<f32> decoded;
     u32 dw = 0;
     u32 dh = 0;
     ASSERT_TRUE(TextureCompression::DecodeToRGBAFloat(AsSingleBlockImage(packed, false), 0, decoded, dw, dh));
@@ -226,7 +226,7 @@ TEST(BC6HModeCoverage, EveryHalfValueSurvivesAFlatBlockExactly)
         std::array<u8, 16> packed{};
         BC6H::EncodeBlock(packed.data(), block.data(), /*isSigned*/ false);
 
-        std::vector<f32> decoded;
+        TArray64<f32> decoded;
         u32 dw = 0;
         u32 dh = 0;
         ASSERT_TRUE(TextureCompression::DecodeToRGBAFloat(AsSingleBlockImage(packed, false), 0, decoded, dw, dh));

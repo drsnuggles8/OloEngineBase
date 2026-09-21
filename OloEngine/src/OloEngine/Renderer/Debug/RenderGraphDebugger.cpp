@@ -56,9 +56,9 @@ namespace OloEngine
             }
         }
 
-        std::unordered_set<std::string> BuildCulledPassSet(const Ref<RenderGraph>& graph)
+        RGTransparentStringSet BuildCulledPassSet(const Ref<RenderGraph>& graph)
         {
-            std::unordered_set<std::string> culled;
+            RGTransparentStringSet culled;
             if (!graph)
                 return culled;
 
@@ -66,72 +66,72 @@ namespace OloEngine
             culled.reserve(culledPasses.size());
             for (const auto& passName : culledPasses)
             {
-                culled.insert(passName);
+                culled.insert(passName.ToStdString());
             }
             return culled;
         }
 
-        std::vector<Ref<RenderGraphNode>> GetVisibleNodes(const Ref<RenderGraph>& graph)
+        TArray<Ref<RenderGraphNode>> GetVisibleNodes(const Ref<RenderGraph>& graph)
         {
-            std::vector<Ref<RenderGraphNode>> visible;
+            TArray<Ref<RenderGraphNode>> visible;
             if (!graph)
                 return visible;
 
             const auto allEntries = graph->GetNodeSubmissionInfo();
-            std::unordered_map<std::string, Ref<RenderGraphNode>> nodeByName;
-            nodeByName.reserve(allEntries.size());
+            RGTransparentStringMap<Ref<RenderGraphNode>> nodeByName;
+            nodeByName.reserve(allEntries.Num());
             for (const auto& entry : allEntries)
             {
-                if (const auto node = graph->GetNode<RenderGraphNode>(entry.NodeName))
+                if (const auto node = graph->GetNode<RenderGraphNode>(entry.NodeName.ToView()))
                 {
                     nodeByName.emplace(entry.NodeName, node);
                 }
             }
 
             const auto culled = BuildCulledPassSet(graph);
-            std::unordered_set<std::string> appended;
+            RGTransparentStringSet appended;
             appended.reserve(nodeByName.size());
 
-            const auto appendIfVisible = [&culled, &appended, &nodeByName, &visible](const std::string& passName)
+            const auto appendIfVisible = [&culled, &appended, &nodeByName, &visible](std::string_view passName)
             {
                 if (culled.contains(passName) || appended.contains(passName))
                     return;
 
                 if (const auto nodeIt = nodeByName.find(passName); nodeIt != nodeByName.end() && nodeIt->second)
                 {
-                    visible.push_back(nodeIt->second);
-                    appended.insert(passName);
+                    visible.Add(nodeIt->second);
+                    appended.insert(std::string(passName));
                 }
             };
 
             for (const auto& passName : graph->GetExecutionOrder())
             {
-                appendIfVisible(passName);
+                appendIfVisible(passName.ToView());
             }
 
             // Before the first frame graph build, GetExecutionOrder() can be empty.
             // Fall back to all registered wrapped pass nodes so the debugger still has a view.
             for (const auto& entry : allEntries)
             {
-                appendIfVisible(entry.NodeName);
+                appendIfVisible(entry.NodeName.ToView());
             }
 
             return visible;
         }
 
-        std::unordered_set<std::string> BuildVisibleNodeNameSet(const std::vector<Ref<RenderGraphNode>>& nodes)
+        RGTransparentStringSet BuildVisibleNodeNameSet(const TArray<Ref<RenderGraphNode>>& nodes)
         {
-            std::unordered_set<std::string> names;
-            names.reserve(nodes.size());
+            RGTransparentStringSet names;
+            names.reserve(nodes.Num());
             for (const auto& node : nodes)
             {
                 if (node)
-                    names.insert(node->GetName());
+                    names.emplace(node->GetName());
             }
             return names;
         }
 
-        std::string BuildVisibleNodeDigest(const std::vector<Ref<RenderGraphNode>>& nodes)
+        std::string BuildVisibleNodeDigest(const TArray<Ref<RenderGraphNode>>& nodes)
         {
             std::string digest;
             for (const auto& node : nodes)
@@ -145,29 +145,29 @@ namespace OloEngine
             return digest;
         }
 
-        std::string MakeConnectionKey(const std::string& outputPass, const std::string& inputPass)
+        std::string MakeConnectionKey(std::string_view outputPass, std::string_view inputPass)
         {
-            std::string key = outputPass;
+            std::string key{ outputPass };
             key += "->";
             key += inputPass;
             return key;
         }
 
-        std::unordered_map<std::string, std::string> BuildConnectionResourceLabels(const Ref<RenderGraph>& graph)
+        RGTransparentStringMap<FString> BuildConnectionResourceLabels(const Ref<RenderGraph>& graph)
         {
-            std::unordered_map<std::string, std::string> labels;
+            RGTransparentStringMap<FString> labels;
             if (!graph)
                 return labels;
 
             for (const auto& transition : graph->GetResourceTransitions())
             {
-                if (transition.ProducerPass.empty() || transition.ConsumerPass.empty())
+                if (transition.ProducerPass.IsEmpty() || transition.ConsumerPass.IsEmpty())
                     continue;
 
-                auto& label = labels[MakeConnectionKey(transition.ProducerPass, transition.ConsumerPass)];
-                if (!label.empty())
+                auto& label = labels[MakeConnectionKey(transition.ProducerPass.ToView(), transition.ConsumerPass.ToView())];
+                if (!label.IsEmpty())
                     label += ", ";
-                label += transition.ResourceName;
+                label += FString(transition.ResourceName);
             }
 
             return labels;
@@ -198,12 +198,12 @@ namespace OloEngine
             if (!graph)
                 return {};
             const auto& finalName = graph->GetFinalPassName();
-            if (finalName.empty())
+            if (finalName.IsEmpty())
                 return {};
-            const auto finalNode = graph->GetNode<RenderGraphNode>(finalName);
+            const auto finalNode = graph->GetNode<RenderGraphNode>(finalName.ToStdString());
             if (!finalNode)
                 return {};
-            return graph->ReverseResolveFramebufferName(finalNode->GetPrimaryInputFramebufferHandle());
+            return graph->ReverseResolveFramebufferName(finalNode->GetPrimaryInputFramebufferHandle()).ToStdString();
         }
 
         // Derives a short, human-readable reason a pass was culled. Strategy:
@@ -215,23 +215,24 @@ namespace OloEngine
         // The classification reads from GetRegisteredResources()'s
         // Producers/Consumers lists, which the graph populates during build.
         std::string DeriveCullReason(const Ref<RenderGraph>& graph, const std::string& passName,
-                                     const std::unordered_set<std::string>& culledSet)
+                                     const RGTransparentStringSet& culledSet)
         {
             if (!graph)
                 return "unknown";
 
             const auto& resources = graph->GetRegisteredResources();
 
-            std::vector<const RenderGraph::ResourceInfo*> writtenResources;
+            TArray<const RenderGraph::ResourceInfo*> writtenResources;
             for (const auto& info : resources)
             {
-                if (std::ranges::find(info.Producers, passName) != info.Producers.end())
+                if (info.Producers.ContainsByPredicate([&](const FString& producer)
+                                                       { return producer.ToView() == passName; }))
                 {
-                    writtenResources.push_back(&info);
+                    writtenResources.Add(&info);
                 }
             }
 
-            if (writtenResources.empty())
+            if (writtenResources.IsEmpty())
                 return "no declared outputs";
 
             bool hasNonCulledConsumer = false;
@@ -239,7 +240,7 @@ namespace OloEngine
             {
                 for (const auto& consumer : info->Consumers)
                 {
-                    if (!culledSet.contains(consumer))
+                    if (!culledSet.contains(consumer.ToStdString()))
                     {
                         hasNonCulledConsumer = true;
                         break;
@@ -323,13 +324,17 @@ namespace OloEngine
                 }
                 else
                 {
-                    std::unordered_set<std::string> culledSet(culledPasses.begin(), culledPasses.end());
-                    std::vector<std::string> sortedCulled(culledPasses.begin(), culledPasses.end());
-                    std::ranges::sort(sortedCulled);
+                    RGTransparentStringSet culledSet(culledPasses.begin(), culledPasses.end());
+                    TArray<FString> sortedCulled;
+                    sortedCulled.Reserve(static_cast<i32>(culledPasses.size()));
+                    for (const auto& pass : culledPasses)
+                        sortedCulled.Emplace(pass);
+                    sortedCulled.Sort([](const FString& a, const FString& b)
+                                      { return a.ToView() < b.ToView(); });
                     for (const auto& passName : sortedCulled)
                     {
-                        const auto reason = DeriveCullReason(graph, passName, culledSet);
-                        ImGui::BulletText("%s", passName.c_str());
+                        const auto reason = DeriveCullReason(graph, passName.ToStdString(), culledSet);
+                        ImGui::BulletText("%s", passName.GetData());
                         ImGui::SameLine();
                         ImGui::TextColored(ImVec4(0.9f, 0.7f, 0.4f, 1.0f), "\xE2\x80\x94 %s", reason.c_str());
                     }
@@ -362,16 +367,16 @@ namespace OloEngine
         }
 
         auto nodes = GetVisibleNodes(graph);
-        if (nodes.empty())
+        if (nodes.IsEmpty())
         {
             ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "Render graph has no nodes to visualize");
             ImGui::End();
             return;
         }
 
-        if (const std::string visibleDigest = BuildVisibleNodeDigest(nodes); visibleDigest != m_VisiblePassDigest)
+        if (const std::string visibleDigest = BuildVisibleNodeDigest(nodes); visibleDigest != m_VisiblePassDigest.ToView())
         {
-            m_VisiblePassDigest = visibleDigest;
+            m_VisiblePassDigest = FString(visibleDigest);
             m_NeedsLayout = true;
         }
 
@@ -388,7 +393,7 @@ namespace OloEngine
 
         // Controls group
         ImGui::BeginGroup();
-        ImGui::TextDisabled("Active nodes: %zu  Culled/hidden: %zu", nodes.size(), graph->GetCulledPasses().size());
+        ImGui::TextDisabled("Active nodes: %d  Culled/hidden: %zu", nodes.Num(), graph->GetCulledPasses().size());
 
         bool resetViewRequested = false;
         if (ImGui::Button("Reset View"))
@@ -555,7 +560,7 @@ namespace OloEngine
                             }
                         }
                         if (leftClicked)
-                            m_SelectedPassName = passName;
+                            m_SelectedPassName = FString(passName);
                         break;
                     }
                 }
@@ -621,9 +626,9 @@ namespace OloEngine
                     dotFile << "\\n"
                             << spec.Width << "x" << spec.Height;
 
-                    if (!spec.Attachments.Attachments.empty())
+                    if (!spec.Attachments.Attachments.IsEmpty())
                     {
-                        dotFile << "\\nAttachments: " << spec.Attachments.Attachments.size();
+                        dotFile << "\\nAttachments: " << spec.Attachments.Attachments.Num();
                     }
                 }
                 else
@@ -644,10 +649,10 @@ namespace OloEngine
         const auto& connections = graph->GetConnections();
         for (const auto& connection : connections)
         {
-            if (!visibleNames.contains(connection.OutputPass) || !visibleNames.contains(connection.InputPass))
+            if (!visibleNames.contains(connection.OutputPass.ToView()) || !visibleNames.contains(connection.InputPass.ToView()))
                 continue;
 
-            dotFile << "  \"" << connection.OutputPass << "\" -> \"" << connection.InputPass << "\";\n";
+            dotFile << "  \"" << connection.OutputPass.ToView() << "\" -> \"" << connection.InputPass.ToView() << "\";\n";
         }
 
         // Close DOT file
@@ -660,7 +665,7 @@ namespace OloEngine
 
     void RenderGraphDebugger::DrawNode(const Ref<RenderGraphNode>& node, ImDrawList* drawList, const ImVec2& offset, f32& maxWidth)
     {
-        const std::string& passName = node->GetName();
+        const std::string_view passName = node->GetName();
 
         if (!m_NodePositions.contains(passName))
         {
@@ -669,7 +674,7 @@ namespace OloEngine
             return;
         }
 
-        const NodeData& nodeData = m_NodePositions[passName];
+        const NodeData& nodeData = m_NodePositions[std::string(passName)];
 
         auto nodePos = ImVec2(offset.x + nodeData.Position.x, offset.y + nodeData.Position.y);
         ImVec2 nodeSize = nodeData.Size;
@@ -694,11 +699,11 @@ namespace OloEngine
             m_Settings.NodeBorderThickness);
 
         // Draw node title
-        ImVec2 textSize = ImGui::CalcTextSize(passName.c_str());
+        ImVec2 textSize = ImGui::CalcTextSize(passName.data(), passName.data() + passName.size());
         drawList->AddText(
             ImVec2(nodePos.x + (nodeSize.x - textSize.x) * 0.5f, nodePos.y + 10.0f),
             IM_COL32_WHITE,
-            passName.c_str());
+            passName.data(), passName.data() + passName.size());
 
         // Draw framebuffer info if available
         if (const auto renderPass = node.As<RenderGraphNode>())
@@ -740,16 +745,16 @@ namespace OloEngine
         const auto resourceLabels = BuildConnectionResourceLabels(graph);
         for (const auto& connection : connections)
         {
-            const std::string& outputName = connection.OutputPass;
-            const std::string& inputName = connection.InputPass;
+            const FString& outputName = connection.OutputPass;
+            const FString& inputName = connection.InputPass;
 
             if (!m_NodePositions.contains(inputName) || !m_NodePositions.contains(outputName))
             {
                 continue;
             }
 
-            const NodeData& inputNode = m_NodePositions[inputName];
-            const NodeData& outputNode = m_NodePositions[outputName];
+            const NodeData& inputNode = m_NodePositions[inputName.ToStdString()];
+            const NodeData& outputNode = m_NodePositions[outputName.ToStdString()];
 
             // Calculate connection points with proper offset
             ImVec2 start(
@@ -785,10 +790,10 @@ namespace OloEngine
 
             drawList->AddTriangleFilled(end, p1, p2, m_Settings.ConnectionColor);
 
-            if (const auto labelIt = resourceLabels.find(MakeConnectionKey(outputName, inputName)); labelIt != resourceLabels.end())
+            if (const auto labelIt = resourceLabels.find(MakeConnectionKey(outputName.ToView(), inputName.ToView())); labelIt != resourceLabels.end())
             {
                 const ImVec2 mid((start.x + end.x) * 0.5f, (start.y + end.y) * 0.5f);
-                drawList->AddText(ImVec2(mid.x + 4.0f, mid.y - 10.0f), IM_COL32(180, 210, 255, 220), labelIt->second.c_str());
+                drawList->AddText(ImVec2(mid.x + 4.0f, mid.y - 10.0f), IM_COL32(180, 210, 255, 220), labelIt->second.GetData());
             }
         }
     }
@@ -796,7 +801,7 @@ namespace OloEngine
     void RenderGraphDebugger::DrawTooltip(const Ref<RenderGraphNode>& node) const
     {
         ImGui::BeginTooltip();
-        ImGui::Text("Node: %s", node->GetName().c_str());
+        ImGui::Text("Node: %.*s", static_cast<int>(node->GetName().size()), node->GetName().data());
         ImGui::Text("Work: %s", WorkTypeToString(node->GetPassWorkType()));
 
         if (const auto renderPass = node.As<RenderGraphNode>())
@@ -808,7 +813,7 @@ namespace OloEngine
                 ImGui::Text("Samples: %d", spec.Samples);
 
                 ImGui::Text("Attachments:");
-                auto attachmentCount = spec.Attachments.Attachments.size();
+                auto attachmentCount = spec.Attachments.Attachments.Num();
                 for (sizet i = 0; i < attachmentCount; ++i)
                 {
                     const auto& format = spec.Attachments.Attachments[i].TextureFormat;
@@ -837,60 +842,60 @@ namespace OloEngine
         auto nodes = GetVisibleNodes(graph);
 
         // Step 1: Create a dependency graph
-        std::unordered_map<std::string, std::vector<std::string>> dependsOn;  // pass -> passes it depends on
-        std::unordered_map<std::string, std::vector<std::string>> dependedBy; // pass -> passes that depend on it
-        std::unordered_map<std::string, int> inDegree;                        // Number of dependencies
+        RGTransparentStringMap<TArray<FString>> dependsOn;  // pass -> passes it depends on
+        RGTransparentStringMap<TArray<FString>> dependedBy; // pass -> passes that depend on it
+        RGTransparentStringMap<int> inDegree;               // Number of dependencies
 
         // Initialize maps for all passes first
         for (const auto& node : nodes)
         {
-            const std::string& passName = node->GetName();
-            dependsOn[passName] = {};
-            dependedBy[passName] = {};
-            inDegree[passName] = 0;
+            const std::string_view passName = node->GetName();
+            dependsOn[std::string(passName)] = {};
+            dependedBy[std::string(passName)] = {};
+            inDegree[std::string(passName)] = 0;
         }
 
         // Now process the connections
         const auto& connections = graph->GetConnections();
         for (const auto& connection : connections)
         {
-            const std::string& outputName = connection.OutputPass;
-            const std::string& inputName = connection.InputPass;
+            const FString& outputName = connection.OutputPass;
+            const FString& inputName = connection.InputPass;
 
-            dependsOn[inputName].push_back(outputName);
-            dependedBy[outputName].push_back(inputName);
-            ++inDegree[inputName];
+            dependsOn[inputName.ToStdString()].Emplace(outputName);
+            dependedBy[outputName.ToStdString()].Emplace(inputName);
+            ++inDegree[inputName.ToStdString()];
         }
 
         // Step 2: Assign layers using topological sorting
-        std::unordered_map<std::string, int> layers;
-        std::queue<std::string> queue;
+        RGTransparentStringMap<int> layers;
+        TArray<FString> queue;
+        i32 queueReadIndex = 0;
 
         // Find nodes with no dependencies (sources)
         for (const auto& [passName, deps] : inDegree)
         {
             if (deps == 0)
             {
-                queue.push(passName);
+                queue.Emplace(passName);
                 layers[passName] = 0; // Source nodes are at layer 0
             }
         }
 
-        while (!queue.empty())
+        while (queueReadIndex < queue.Num())
         {
-            std::string current = queue.front();
-            queue.pop();
+            const std::string current = queue[queueReadIndex++].ToStdString();
 
             for (const auto& dependent : dependedBy[current])
             {
                 // Update layer of dependent
-                layers[dependent] = std::max(layers[dependent], layers[current] + 1);
+                layers[dependent.ToStdString()] = std::max(layers[dependent.ToStdString()], layers[current] + 1);
 
                 // Decrease in-degree and check if ready
-                --inDegree[dependent];
-                if (inDegree[dependent] == 0)
+                --inDegree[dependent.ToStdString()];
+                if (inDegree[dependent.ToStdString()] == 0)
                 {
-                    queue.push(dependent);
+                    queue.Add(dependent);
                 }
             }
         }
@@ -910,8 +915,8 @@ namespace OloEngine
 
         for (const auto& node : nodes)
         {
-            const std::string& passName = node->GetName();
-            int layer = layers[passName];
+            const std::string_view passName = node->GetName();
+            int layer = layers[std::string(passName)];
 
             if (!layerCounts.contains(layer))
             {
@@ -940,7 +945,7 @@ namespace OloEngine
                 nodeData.Color = m_Settings.NodeFillColor;
             }
 
-            m_NodePositions[passName] = nodeData;
+            m_NodePositions[std::string(passName)] = nodeData;
 
             // Increment counter for this layer
             ++layerCounts[layer];
@@ -1001,7 +1006,7 @@ namespace OloEngine
         if (ImGui::Begin("Render Graph Per-Pass Capture", &m_CaptureWindowOpen))
         {
             const auto& captures = m_FrameCapture.GetCaptures();
-            if (captures.empty())
+            if (captures.IsEmpty())
             {
                 ImGui::TextColored(ImVec4(0.9f, 0.7f, 0.3f, 1.0f),
                                    "No captures yet. Click \"Capture Frame\" and render at least one frame "
@@ -1009,16 +1014,16 @@ namespace OloEngine
             }
             else
             {
-                ImGui::TextWrapped("%zu capture(s). Click a thumbnail to enlarge. SceneColor is captured as a timeline; "
+                ImGui::TextWrapped("%d capture(s). Click a thumbnail to enlarge. SceneColor is captured as a timeline; "
                                    "G-Buffer, AO, post-chain, UIComposite, and Backbuffer captures are recorded after their owning pass writes them.",
-                                   captures.size());
+                                   captures.Num());
                 ImGui::Separator();
 
                 // Scrollable thumbnail strip on the left, viewer on the right.
                 const f32 thumbWidth = 196.0f;
                 if (const f32 listWidth = thumbWidth + 36.0f; ImGui::BeginChild("##captures_list", ImVec2(listWidth, 0), true))
                 {
-                    for (i32 i = 0; i < static_cast<i32>(captures.size()); ++i)
+                    for (i32 i = 0; i < static_cast<i32>(captures.Num()); ++i)
                     {
                         const auto& entry = captures[static_cast<sizet>(i)];
                         ImGui::PushID(i);
@@ -1026,11 +1031,11 @@ namespace OloEngine
                         const f32 aspect = entry.Height > 0 ? static_cast<f32>(entry.Width) / static_cast<f32>(entry.Height) : 1.0f;
                         const f32 thumbHeight = thumbWidth / std::max(0.001f, aspect);
 
-                        const std::string label = std::format("{} | {}", entry.PassName, RenderGraphFrameCapture::SourceName(entry.SourceKind));
+                        const std::string label = std::format("{} | {}", entry.PassName.ToView(), RenderGraphFrameCapture::SourceName(entry.SourceKind));
                         ImGui::TextUnformatted(label.c_str());
-                        if (!entry.ResourceName.empty())
+                        if (!entry.ResourceName.IsEmpty())
                         {
-                            ImGui::TextDisabled("%s", entry.ResourceName.c_str());
+                            ImGui::TextDisabled("%s", entry.ResourceName.GetData());
                         }
 
                         if (entry.NonBlackSamples == 0)
@@ -1064,16 +1069,16 @@ namespace OloEngine
 
                 if (ImGui::BeginChild("##capture_viewer", ImVec2(0, 0), true))
                 {
-                    if (m_SelectedCaptureIndex < 0 || m_SelectedCaptureIndex >= static_cast<i32>(captures.size()))
+                    if (m_SelectedCaptureIndex < 0 || m_SelectedCaptureIndex >= static_cast<i32>(captures.Num()))
                     {
                         ImGui::TextDisabled("Select a thumbnail on the left to view it full size.");
                     }
                     else
                     {
                         const auto& entry = captures[static_cast<sizet>(m_SelectedCaptureIndex)];
-                        ImGui::Text("Pass:   %s", entry.PassName.c_str());
+                        ImGui::Text("Pass:   %s", entry.PassName.GetData());
                         ImGui::Text("Source: %s", RenderGraphFrameCapture::SourceName(entry.SourceKind));
-                        ImGui::Text("Resource: %s", entry.ResourceName.empty() ? "<unknown>" : entry.ResourceName.c_str());
+                        ImGui::Text("Resource: %s", entry.ResourceName.IsEmpty() ? "<unknown>" : entry.ResourceName.GetData());
                         ImGui::Text("Size:   %u x %u", entry.Width, entry.Height);
                         ImGui::Text("GL IDs: sourceTex=%u  sourceFB=%u  captureTex=%u",
                                     entry.SourceTextureID, entry.SourceFramebufferID, entry.TextureID);
@@ -1125,27 +1130,27 @@ namespace OloEngine
 
     void RenderGraphDebugger::DrawPassInspector(const Ref<RenderGraph>& graph)
     {
-        if (m_SelectedPassName.empty() || !graph)
+        if (m_SelectedPassName.IsEmpty() || !graph)
             return;
 
         ImGui::Spacing();
-        if (const std::string header = "Inspector: " + m_SelectedPassName; !ImGui::CollapsingHeader(header.c_str(), ImGuiTreeNodeFlags_DefaultOpen))
+        if (const std::string header = "Inspector: " + m_SelectedPassName.ToStdString(); !ImGui::CollapsingHeader(header.c_str(), ImGuiTreeNodeFlags_DefaultOpen))
             return;
 
         ImGui::Indent();
 
-        const auto node = graph->GetNode<RenderGraphNode>(m_SelectedPassName);
+        const auto node = graph->GetNode<RenderGraphNode>(m_SelectedPassName.ToStdString());
         if (!node)
         {
             ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.5f, 1.0f),
                                "Pass '%s' is not registered (was it culled before BuildFrameGraph?).",
-                               m_SelectedPassName.c_str());
+                               m_SelectedPassName.GetData());
             ImGui::Unindent();
             return;
         }
 
         const auto& culledPasses = graph->GetCulledPasses();
-        const bool culled = std::ranges::find(culledPasses, m_SelectedPassName) != culledPasses.end();
+        const bool culled = std::ranges::find(culledPasses, m_SelectedPassName.ToView()) != culledPasses.end();
         const bool enabled = node->IsEnabled();
         const bool ready = node->IsReadyForExecution();
 
@@ -1164,8 +1169,8 @@ namespace OloEngine
 
         if (culled)
         {
-            std::unordered_set<std::string> culledSet(culledPasses.begin(), culledPasses.end());
-            const auto reason = DeriveCullReason(graph, m_SelectedPassName, culledSet);
+            RGTransparentStringSet culledSet(culledPasses.begin(), culledPasses.end());
+            const auto reason = DeriveCullReason(graph, m_SelectedPassName.ToStdString(), culledSet);
             ImGui::TextDisabled("Cull reason: %s", reason.c_str());
         }
         else if (!enabled)
@@ -1192,13 +1197,13 @@ namespace OloEngine
         const auto outTex = node->GetPrimaryOutputTextureHandle();
 
         ImGui::Text("Primary input  framebuffer: %s",
-                    inFb.IsValid() ? graph->ReverseResolveFramebufferName(inFb).c_str() : "<none>");
+                    inFb.IsValid() ? graph->ReverseResolveFramebufferName(inFb).GetData() : "<none>");
         ImGui::Text("Primary input  texture:     %s",
-                    inTex.IsValid() ? graph->ReverseResolveTextureName(inTex).c_str() : "<none>");
+                    inTex.IsValid() ? graph->ReverseResolveTextureName(inTex).GetData() : "<none>");
         ImGui::Text("Primary output framebuffer: %s",
-                    outFb.IsValid() ? graph->ReverseResolveFramebufferName(outFb).c_str() : "<none>");
+                    outFb.IsValid() ? graph->ReverseResolveFramebufferName(outFb).GetData() : "<none>");
         ImGui::Text("Primary output texture:     %s",
-                    outTex.IsValid() ? graph->ReverseResolveTextureName(outTex).c_str() : "<none>");
+                    outTex.IsValid() ? graph->ReverseResolveTextureName(outTex).GetData() : "<none>");
 
         ImGui::Spacing();
         ImGui::Separator();
@@ -1207,39 +1212,43 @@ namespace OloEngine
         // lists. The graph populates these during BuildFrameGraph using each
         // pass's Setup-time RGBuilder accesses, so the inspector reflects
         // exactly what the scheduler saw.
-        std::vector<std::string> reads;
-        std::vector<std::string> writes;
+        TArray<FString> reads;
+        TArray<FString> writes;
         for (const auto& res : graph->GetRegisteredResources())
         {
-            if (std::ranges::find(res.Producers, m_SelectedPassName) != res.Producers.end())
-                writes.push_back(res.Name);
-            if (std::ranges::find(res.Consumers, m_SelectedPassName) != res.Consumers.end())
-                reads.push_back(res.Name);
+            if (res.Producers.ContainsByPredicate([&](const FString& producer)
+                                                  { return producer.ToView() == m_SelectedPassName.ToView(); }))
+                writes.Emplace(res.Name);
+            if (res.Consumers.ContainsByPredicate([&](const FString& consumer)
+                                                  { return consumer.ToView() == m_SelectedPassName.ToView(); }))
+                reads.Emplace(res.Name);
         }
-        std::ranges::sort(reads);
-        std::ranges::sort(writes);
+        reads.Sort([](const FString& a, const FString& b)
+                   { return a.ToView() < b.ToView(); });
+        writes.Sort([](const FString& a, const FString& b)
+                    { return a.ToView() < b.ToView(); });
 
-        if (const std::string readsHeader = "Reads (" + std::to_string(reads.size()) + ")"; ImGui::TreeNodeEx(readsHeader.c_str(), reads.empty() ? ImGuiTreeNodeFlags_Leaf : ImGuiTreeNodeFlags_DefaultOpen))
+        if (const std::string readsHeader = "Reads (" + std::to_string(reads.Num()) + ")"; ImGui::TreeNodeEx(readsHeader.c_str(), reads.IsEmpty() ? ImGuiTreeNodeFlags_Leaf : ImGuiTreeNodeFlags_DefaultOpen))
         {
-            if (reads.empty())
+            if (reads.IsEmpty())
                 ImGui::TextDisabled("(no declared reads)");
             for (const auto& r : reads)
-                ImGui::BulletText("%s", r.c_str());
+                ImGui::BulletText("%s", r.GetData());
             ImGui::TreePop();
         }
 
-        if (const std::string writesHeader = "Writes (" + std::to_string(writes.size()) + ")"; ImGui::TreeNodeEx(writesHeader.c_str(), writes.empty() ? ImGuiTreeNodeFlags_Leaf : ImGuiTreeNodeFlags_DefaultOpen))
+        if (const std::string writesHeader = "Writes (" + std::to_string(writes.Num()) + ")"; ImGui::TreeNodeEx(writesHeader.c_str(), writes.IsEmpty() ? ImGuiTreeNodeFlags_Leaf : ImGuiTreeNodeFlags_DefaultOpen))
         {
-            if (writes.empty())
+            if (writes.IsEmpty())
                 ImGui::TextDisabled("(no declared writes)");
             for (const auto& w : writes)
-                ImGui::BulletText("%s", w.c_str());
+                ImGui::BulletText("%s", w.GetData());
             ImGui::TreePop();
         }
 
         ImGui::Spacing();
         if (ImGui::SmallButton("Clear selection"))
-            m_SelectedPassName.clear();
+            m_SelectedPassName.Reset();
 
         ImGui::Unindent();
     }
@@ -1247,11 +1256,11 @@ namespace OloEngine
     void RenderGraphDebugger::DrawCaptureThumbnailStrip()
     {
         const auto& captures = m_FrameCapture.GetCaptures();
-        if (captures.empty())
+        if (captures.IsEmpty())
             return;
 
         ImGui::Spacing();
-        if (const std::string header = "Pass output strip (" + std::to_string(captures.size()) + ")"; !ImGui::CollapsingHeader(header.c_str(), ImGuiTreeNodeFlags_DefaultOpen))
+        if (const std::string header = "Pass output strip (" + std::to_string(captures.Num()) + ")"; !ImGui::CollapsingHeader(header.c_str(), ImGuiTreeNodeFlags_DefaultOpen))
             return;
 
         ImGui::TextDisabled("Click a thumbnail to open it in the full capture viewer.");
@@ -1259,7 +1268,7 @@ namespace OloEngine
         if (constexpr f32 thumbHeight = 96.0f; ImGui::BeginChild("##capture_strip", ImVec2(0, thumbHeight + 56.0f), true,
                                                                  ImGuiWindowFlags_HorizontalScrollbar))
         {
-            for (i32 i = 0; i < static_cast<i32>(captures.size()); ++i)
+            for (i32 i = 0; i < static_cast<i32>(captures.Num()); ++i)
             {
                 const auto& entry = captures[static_cast<sizet>(i)];
                 ImGui::PushID(i);
@@ -1277,7 +1286,7 @@ namespace OloEngine
                     m_CaptureWindowOpen = true;
                 }
 
-                ImGui::TextUnformatted(entry.PassName.c_str());
+                ImGui::TextUnformatted(entry.PassName.GetData());
                 if (entry.NonBlackSamples == 0)
                     ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.45f, 1.0f), "BLACK");
                 else if (entry.NonTransparentSamples == 0)

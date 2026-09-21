@@ -170,9 +170,9 @@ namespace OloEngine
 
     void VTFeedbackAnalyzer::Clear()
     {
-        m_Requests.clear();
-        m_Slots.clear();
-        m_SectorFeedback.clear();
+        m_Requests.Reset();
+        m_Slots.Reset();
+        m_SectorFeedback.Reset();
         m_LastSectorHit = 0;
         m_WrittenTexels = 0;
         m_StaleTexels = 0;
@@ -204,15 +204,15 @@ namespace OloEngine
 
     void VTFeedbackAnalyzer::AddRequest(u32 pageKey, u32 count)
     {
-        const u32 mask = static_cast<u32>(m_Slots.size()) - 1u;
+        const u32 mask = static_cast<u32>(m_Slots.Num()) - 1u;
         u32 slot = (pageKey * 2654435761u) & mask;
         while (true)
         {
             const u32 stored = m_Slots[slot];
             if (stored == std::numeric_limits<u32>::max())
             {
-                m_Slots[slot] = static_cast<u32>(m_Requests.size());
-                m_Requests.push_back(VTPageRequest{ pageKey, count });
+                m_Slots[slot] = static_cast<u32>(m_Requests.Num());
+                m_Requests.Add(VTPageRequest{ pageKey, count });
                 return;
             }
             if (m_Requests[stored].m_PageKey == pageKey)
@@ -235,11 +235,11 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        m_Requests.clear();
+        m_Requests.Reset();
         m_WrittenTexels = 0;
         m_StaleTexels = 0;
         m_LastSectorHit = 0;
-        m_SectorFeedback.assign(sectors.size(), VTSectorFeedback{});
+        m_SectorFeedback.Init(VTSectorFeedback{}, static_cast<i32>(sectors.size()));
 
         // Two entries per written texel (the page and its parent), plus one
         // pin per sector, at load factor 0.5. Sized once from the input so
@@ -250,10 +250,10 @@ namespace OloEngine
         {
             capacity <<= 1u;
         }
-        m_Slots.assign(capacity, std::numeric_limits<u32>::max());
+        m_Slots.Init(std::numeric_limits<u32>::max(), static_cast<i32>(capacity));
         // Two possible requests per word (the page and its parent) plus the
         // pins — the same figure the slot table above is sized from.
-        m_Requests.reserve(feedback.size() * 2u + sectors.size());
+        m_Requests.Reserve(feedback.size() * 2u + sectors.size());
 
         const u32 clampedAtlasMaxMip = std::min(atlasMaxMip, kVTMaxMipCount - 1u);
 
@@ -315,7 +315,7 @@ namespace OloEngine
             }
         }
 
-        std::ranges::sort(m_Requests,
+        std::ranges::sort(std::span(m_Requests.GetData(), static_cast<sizet>(m_Requests.Num())),
                           [](const VTPageRequest& a, const VTPageRequest& b)
                           {
                               // Pins first, regardless of mip: a 1-page image's
@@ -509,16 +509,16 @@ namespace OloEngine
         const u32 mipCount = config.MipCount();
         m_PagesWide = config.VirtualPagesWide;
 
-        m_PerMip.resize(mipCount);
+        m_PerMip.SetNum(mipCount, EAllowShrinking::No);
         for (auto& list : m_PerMip)
         {
-            list.clear();
+            list.Reset();
         }
         m_Index.clear();
-        m_Combined.clear();
-        m_MipOffsets.assign(static_cast<sizet>(mipCount) + 1u, 0u);
-        m_ChangeBounds.assign(mipCount, Rect{});
-        m_FillRects.assign(mipCount, Rect{});
+        m_Combined.Reset();
+        m_MipOffsets.Init(0u, static_cast<i32>(mipCount) + 1);
+        m_ChangeBounds.Init(Rect{}, mipCount);
+        m_FillRects.Init(Rect{}, mipCount);
         m_Size = 0u;
         m_FullRebuild = false;
     }
@@ -548,7 +548,7 @@ namespace OloEngine
         // shrink the map while a page from the old shape is still in the cache.
         // Dropping the update is right: the whole map is rebuilt on a reconfigure
         // anyway.
-        if (mip >= m_PerMip.size())
+        if (mip >= m_PerMip.Num())
         {
             return;
         }
@@ -574,8 +574,8 @@ namespace OloEngine
         }
         else
         {
-            m_Index.emplace(key, static_cast<u32>(list.size()));
-            list.push_back(update);
+            m_Index.emplace(key, static_cast<u32>(list.Num()));
+            list.Add(update);
             ++m_Size;
         }
 
@@ -591,14 +591,14 @@ namespace OloEngine
             return;
         }
 
-        m_Combined.clear();
-        m_Combined.reserve(m_Size);
+        m_Combined.Reset();
+        m_Combined.Reserve(m_Size);
         for (u32 mip = 0; mip < mipCount; ++mip)
         {
-            m_MipOffsets[mip] = static_cast<u32>(m_Combined.size());
-            m_Combined.insert(m_Combined.end(), m_PerMip[mip].begin(), m_PerMip[mip].end());
+            m_MipOffsets[mip] = static_cast<u32>(m_Combined.Num());
+            m_Combined.Append(m_PerMip[mip]);
         }
-        m_MipOffsets[mipCount] = static_cast<u32>(m_Combined.size());
+        m_MipOffsets[mipCount] = static_cast<u32>(m_Combined.Num());
 
         if (m_FullRebuild)
         {
