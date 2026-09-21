@@ -201,6 +201,7 @@ add_executable(OloEngine-Tests
 
 		# Rendering subsystem tests (Tiers 1-5)
 		Rendering/DrawKeyTest.cpp
+		Rendering/TransparentDepthOrderingTest.cpp
 		Rendering/TextureCompressionTest.cpp
 		Rendering/BC6HBlockModeReader.h
 		Rendering/BC6HQualityTest.cpp
@@ -633,6 +634,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/StarNestSkyVisualTest.cpp
 		Rendering/PropertyTests/StarNestReflectionEvidenceTest.cpp
 		Rendering/PropertyTests/TransmissionVisualEvidenceTest.cpp
+		Rendering/PropertyTests/TransparentBlendOrderVisualEvidenceTest.cpp
 		Rendering/PropertyTests/MorphDeformationVisualEvidenceTest.cpp
 		Rendering/PropertyTests/WaterVisualEvidenceTest.cpp
 		Rendering/PropertyTests/TilemapVisualEvidenceTest.cpp
