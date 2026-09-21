@@ -631,14 +631,29 @@ namespace OloEngine
                 constexpr sizet vis = static_cast<sizet>(AnimalWorkAxis::Visibility);
                 const u32 visCap = std::min(item.MaxStep[vis], kMaxBudgetSteps);
                 const u32 visDesired = std::min(item.DesiredStep[vis], kMaxBudgetSteps);
-                // BOTH conditions, and the second is the one that makes the
-                // counter mean its name: at the cap because the BUDGET pushed
-                // it there. An animal whose own distance ladder happens to land
-                // on the cap is not being held off the floor by anything, and
-                // counting it would make this number rise with distance rather
-                // than with pressure -- which is the opposite of the signal.
+                // TWO ROUTES TO THE FLOOR, AND BOTH COUNT. An earlier version
+                // required `step > desired` — "the BUDGET pushed it here" — and
+                // was blind to the route that matters most:
+                //
+                //   the LADDER was refused   cap < desired, so step == cap. The
+                //                            coat's own distance ladder asked to
+                //                            thin past MinVisibleStrands and the
+                //                            floor said no. This IS the
+                //                            "invisible distant coats" guarantee
+                //                            firing, and it happens with no
+                //                            budget pressure at all.
+                //   the BUDGET was capped    step > desired and step == cap: the
+                //                            allocation coarsened this animal as
+                //                            far as it is allowed to go.
+                //
+                // Measured on the live population scene: 41 animals were held by
+                // the first route and the counter read 0, while the axis totals
+                // showed the scheduled cost sitting ABOVE the desired cost —
+                // which is only possible when something refused to coarsen.
+                const bool ladderRefused = visCap < visDesired;
+                const bool budgetCapped = schedule.Step[vis] > visDesired && schedule.Step[vis] >= visCap;
                 if (item.Visible && item.StrandCount > 0u && policy.MinVisibleStrands > 0u &&
-                    schedule.Step[vis] >= visCap && schedule.Step[vis] > visDesired)
+                    (ladderRefused || budgetCapped))
                 {
                     stats.AnimalsAtVisibilityFloor += 1u;
                 }

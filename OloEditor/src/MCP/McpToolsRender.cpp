@@ -19,6 +19,7 @@
 #include "MCP/McpRenderProbePixel.h"
 #include "OloEngine/Animation/SkeletalDeformation.h"
 #include "MCP/McpRenderLODStats.h"
+#include "MCP/McpGroomBudgetStats.h"
 #include "MCP/McpSkeletalDeformationStats.h"
 #include "MCP/McpRayTracingStats.h"
 
@@ -69,6 +70,7 @@
 #include "OloEngine/Renderer/Debug/RenderGraphResourceIdentity.h"
 #include "OloEngine/Renderer/TransientPool.h"
 #include "OloEngine/Renderer/Renderer2D.h"
+#include "OloEngine/Renderer/Passes/GroomRenderPass.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 // For SkinProfileTable::GetAssignedSlotCount, which is how the skindiffusion
 // toggle can say "nothing in this scene uses a skin profile" rather than leave
@@ -90,6 +92,8 @@
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshRegistry.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
+#include "OloEngine/Core/FrameTimeTail.h"
+#include "OloEngine/Scene/AnimalScheduler.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Terrain/VirtualTexture/TerrainVirtualTexture.h"
 
@@ -6587,6 +6591,106 @@ namespace OloEngine::MCP
             return ToolResult::Structured(result);
         }
 
+        Json BuildGroomBudgetStatsReport(const Ref<Scene>& scene)
+        {
+            GroomBudgetStats::Snapshot snapshot;
+
+            const GroomRenderPass* pass = Renderer3D::GetGroomRenderPass();
+            // AVAILABILITY IS THE PASS, NOT THE SCENE. The scheduler runs at the
+            // frame boundary and would have numbers even with no renderer, but
+            // the groom half of this report is the pass's own counters — so a
+            // process without one has nothing to say here and says so, rather
+            // than returning a block of zeroes that reads like a quiet frame.
+            snapshot.State.Available = pass != nullptr;
+            snapshot.State.Enabled = pass != nullptr;
+            snapshot.State.HasData = pass != nullptr;
+            snapshot.State.Freshness = StatsSnapshot::FreshnessModel::PreviousFrame;
+            if (pass == nullptr)
+                return GroomBudgetStats::BuildReport(snapshot);
+
+            const GroomRenderStats& groom = pass->GetStats();
+            snapshot.GroomsSubmitted = groom.GroomsSubmitted;
+            snapshot.StrandsDrawn = groom.StrandsDrawn;
+            snapshot.SegmentsDrawn = groom.SegmentsDrawn;
+            snapshot.GroomsOnSelectedTier = groom.Lod.GroomsOnSelectedTier;
+            snapshot.GroomsFellBack = groom.Lod.GroomsFellBack;
+            snapshot.RepresentationChanges = groom.Lod.RepresentationChanges;
+            snapshot.GroomsAtCompensationCap = groom.Lod.GroomsAtCompensationCap;
+            snapshot.MaxWidthCompensation = groom.Lod.MaxWidthCompensation;
+            snapshot.DominantFallbackReason = std::string(ToString(groom.Lod.DominantFallbackReason()));
+
+            for (sizet r = 0; r < GroomRepresentationCount; ++r)
+            {
+                GroomBudgetStats::RepresentationRow row;
+                row.Name = std::string(ToString(static_cast<GroomRepresentation>(r)));
+                row.Grooms = groom.Lod.ByRepresentation[r];
+                row.Strands = groom.Lod.StrandsByRepresentation[r];
+                row.Bytes = groom.Lod.BytesByRepresentation[r];
+                snapshot.Representations.push_back(std::move(row));
+            }
+
+            if (scene)
+            {
+                const AnimalSchedulerStats& budget = scene->GetAnimalSchedulerStats();
+                snapshot.BudgetEnabled = Renderer3D::GetRendererSettings().AnimalSchedulingEnabled;
+                snapshot.AnimalsConsidered = budget.AnimalsConsidered;
+                snapshot.AnimalsAtDesired = budget.AnimalsAtDesired;
+                snapshot.AnimalsCoarsened = budget.AnimalsCoarsened;
+                snapshot.AnimalsCapHeld = budget.AnimalsCapHeld;
+                snapshot.AnimalsHeldByHysteresis = budget.AnimalsHeldByHysteresis;
+                snapshot.HeroesConsidered = budget.ConsideredByRole[static_cast<sizet>(AnimalRole::Hero)];
+                snapshot.HeroesCoarsened = budget.CoarsenedByRole[static_cast<sizet>(AnimalRole::Hero)];
+                snapshot.MaxStarvedFrames = budget.MaxStarvedFrames;
+                snapshot.AnimalsAtVisibilityFloor = budget.AnimalsAtVisibilityFloor;
+                snapshot.AnimalsAtPoseStepCap = budget.AnimalsAtPoseStepCap;
+                snapshot.StepChanges = budget.StepChanges;
+                snapshot.DrawCalls = budget.DrawCalls;
+                snapshot.DrawCallCostUnits = budget.DrawCallCostUnits;
+                snapshot.EstimatedCostUnits = budget.EstimatedCostUnits;
+                snapshot.FrameBudgetUnits = budget.FrameBudgetUnits;
+                snapshot.BudgetExceeded = budget.BudgetExceeded;
+
+                for (sizet a = 0; a < AnimalWorkAxisCount; ++a)
+                {
+                    GroomBudgetStats::AnimalAxisRow row;
+                    row.Name = std::string(ToString(static_cast<AnimalWorkAxis>(a)));
+                    row.DesiredCostUnits = budget.DesiredCostUnits[a];
+                    row.ScheduledCostUnits = budget.ScheduledCostUnits[a];
+                    row.BudgetUnits = budget.AxisBudgetUnits[a];
+                    row.ShareOfScheduled = budget.AxisShareOfScheduled[a];
+                    snapshot.Axes.push_back(std::move(row));
+                }
+
+                // 60 Hz, so overBudgetFrames answers the question a reader
+                // actually has ("how many frames missed the refresh"), not an
+                // arbitrary one. The exact percentiles are budget-independent.
+                constexpr f32 kSixtyHzMs = 1000.0f / 60.0f;
+                const FrameTimeTailStats tail = scene->GetFrameTimeTail(kSixtyHzMs);
+                snapshot.FrameSamples = tail.SampleCount;
+                snapshot.MeanMs = tail.MeanMs;
+                snapshot.P50Ms = tail.P50Ms;
+                snapshot.P95Ms = tail.P95Ms;
+                snapshot.P99Ms = tail.P99Ms;
+                snapshot.MaxMs = tail.MaxMs;
+                snapshot.OverBudgetFrames = tail.OverBudgetFrames;
+                snapshot.FrameBudgetMs = tail.BudgetMs;
+            }
+
+            return GroomBudgetStats::BuildReport(snapshot);
+        }
+
+        ToolResult Handle_GroomBudgetStats(IAutomationHost& host, const Json& /*args*/)
+        {
+            const Json result = host.MarshalRead(
+                [&host]() -> Json
+                {
+                    Ref<Scene> scene = host.Context().GetActiveScene ? host.Context().GetActiveScene() : nullptr;
+                    return BuildGroomBudgetStatsReport(scene);
+                });
+
+            return ToolResult::Structured(result);
+        }
+
         Json BuildSkeletalDeformationStatsReport()
         {
             SkeletalDeformationStats::Snapshot snapshot;
@@ -8879,6 +8983,102 @@ namespace OloEngine::MCP
                                     .Required({ "availability", "freshness" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_RenderLODStats;
+            registry.Register(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_groom_budget_stats";
+            tool.Toolset = "render";
+            tool.Title = "Groom render + multi-animal budget statistics";
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "Return what the groom pass DREW this frame beside what the multi-animal budget DECIDED before it "
+                "(issue #1258). Before this tool the only way to see either from outside the process was to grep "
+                "OloEngine.log for 'built strand geometry ... (stride N)' lines -- which only appear on a geometry "
+                "CACHE MISS, so a steady-state frame logs nothing and the numbers you get depend on how long the "
+                "session has run. `groom` is the frame's strand/segment counts plus the #1252 representation split "
+                "(grooms, strands and GPU bytes per tier, the fallback reason, and representationChanges -- a counter "
+                "that stays near groomsSubmitted IS thrashing). `animalBudget` is the scheduler's own answer, and "
+                "`enabled` is the first field to read: false means nothing below was decided by the population budget "
+                "at all and a thinned coat is its own distance ladder's doing, which has a completely different fix. "
+                "heroesCoarsened must be 0 while AnimalProtectHero is set -- that is the hero contract as a number "
+                "rather than a claim. budgetExceeded means every animal that could give way is at its cap and the "
+                "frame still does not fit, with the hero deliberately left at full rate; it is the only way that "
+                "state is visible from outside. maxStarvedFrames measures PRESSURE, not unfairness -- it grows for "
+                "every animal when nothing can be served, and the unfairness condition is relative (a same-role peer "
+                "sitting at its desired step while this one is below it). `frameTime` is the rolling 600-frame window "
+                "against a 60 Hz target: the TAIL is the point, because amortising a population's work across frames "
+                "does not remove it and badly phased it makes p99 worse while every average improves. overBudgetFrames "
+                "sits beside the percentiles because at a 600-sample window p99 is six frames, so the percentile alone "
+                "cannot tell one bad frame from six. Every count describes the LAST FRAME; there are no session "
+                "totals. Availability follows the GROOM PASS -- a process without one reports unavailable rather than "
+                "a block of zeroes that would read like a quiet frame.";
+            tool.InputSchema = Schema::EmptyObject();
+            tool.OutputSchema =
+                Schema::Object()
+                    .Prop("availability", Schema::Object()
+                                              .Prop("available", Schema::Bool())
+                                              .Prop("enabled", Schema::Bool())
+                                              .Prop("hasData", Schema::Bool())
+                                              .Prop("status", Schema::String().Enum({ "unavailable", "disabled", "noData", "ready" }))
+                                              .Required({ "available", "enabled", "hasData", "status" }))
+                    .Prop("freshness", Schema::Object()
+                                           .Prop("model", Schema::String().Enum({ "previousFrame" }))
+                                           .Prop("stale", Schema::Bool())
+                                           .Prop("sampleAgeFrames", Schema::Raw(Json{ { "type", Json::array({ "integer", "null" }) }, { "minimum", 0 } }))
+                                           .Required({ "model", "stale", "sampleAgeFrames" }))
+                    .Prop("groom", Schema::Object()
+                                       .Prop("groomsSubmitted", Schema::Int().Min(0))
+                                       .Prop("strandsDrawn", Schema::Int().Min(0))
+                                       .Prop("segmentsDrawn", Schema::Int().Min(0))
+                                       .Prop("groomsOnSelectedTier", Schema::Int().Min(0))
+                                       .Prop("groomsFellBack", Schema::Int().Min(0))
+                                       .Prop("representationChanges", Schema::Int().Min(0))
+                                       .Prop("groomsAtCompensationCap", Schema::Int().Min(0))
+                                       .Prop("maxWidthCompensation", Schema::Number())
+                                       .Prop("dominantFallbackReason", Schema::String())
+                                       .Prop("byRepresentation", Schema::Array(Schema::Object()
+                                                                                   .Prop("representation", Schema::String())
+                                                                                   .Prop("grooms", Schema::Int().Min(0))
+                                                                                   .Prop("strands", Schema::Int().Min(0))
+                                                                                   .Prop("bytes", Schema::Int().Min(0)))))
+                    .Prop("animalBudget", Schema::Object()
+                                              .Prop("enabled", Schema::Bool())
+                                              .Prop("animalsConsidered", Schema::Int().Min(0))
+                                              .Prop("animalsAtDesired", Schema::Int().Min(0))
+                                              .Prop("animalsCoarsened", Schema::Int().Min(0))
+                                              .Prop("animalsCapHeld", Schema::Int().Min(0))
+                                              .Prop("animalsHeldByHysteresis", Schema::Int().Min(0))
+                                              .Prop("heroesConsidered", Schema::Int().Min(0))
+                                              .Prop("heroesCoarsened", Schema::Int().Min(0))
+                                              .Prop("maxStarvedFrames", Schema::Int().Min(0))
+                                              .Prop("animalsAtVisibilityFloor", Schema::Int().Min(0))
+                                              .Prop("animalsAtPoseStepCap", Schema::Int().Min(0))
+                                              .Prop("stepChanges", Schema::Int().Min(0))
+                                              .Prop("drawCalls", Schema::Int().Min(0))
+                                              .Prop("drawCallCostUnits", Schema::Number())
+                                              .Prop("estimatedCostUnits", Schema::Number())
+                                              .Prop("frameBudgetUnits", Schema::Number())
+                                              .Prop("budgetExceeded", Schema::Bool())
+                                              .Prop("byAxis", Schema::Array(Schema::Object()
+                                                                                .Prop("axis", Schema::String())
+                                                                                .Prop("desiredCostUnits", Schema::Number())
+                                                                                .Prop("scheduledCostUnits", Schema::Number())
+                                                                                .Prop("budgetUnits", Schema::Number())
+                                                                                .Prop("shareOfScheduled", Schema::Number()))))
+                    .Prop("frameTime", Schema::Object()
+                                           .Prop("samples", Schema::Int().Min(0))
+                                           .Prop("meanMs", Schema::Number())
+                                           .Prop("p50Ms", Schema::Number())
+                                           .Prop("p95Ms", Schema::Number())
+                                           .Prop("p99Ms", Schema::Number())
+                                           .Prop("maxMs", Schema::Number())
+                                           .Prop("overBudgetFrames", Schema::Int().Min(0))
+                                           .Prop("budgetMs", Schema::Number()))
+                    .Required({ "availability", "freshness" });
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_GroomBudgetStats;
             registry.Register(std::move(tool));
         }
 

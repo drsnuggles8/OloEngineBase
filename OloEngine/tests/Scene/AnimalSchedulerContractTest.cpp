@@ -499,6 +499,46 @@ TEST(AnimalSchedulerFloor, NoVisibleCoatIsEverBuiltWithFewerStrandsThanTheFloor)
         << "a visible coat was thinned below the floor: the budget reached past MinVisibleStrands";
 }
 
+TEST(AnimalSchedulerFloor, TheFloorCounterSeesTheLadderBeingRefusedAndNotOnlyTheBudget)
+{
+    // THE ROUTE THAT MATTERS MOST WAS THE ONE THE COUNTER MISSED. An earlier
+    // version only counted an animal as "at the visibility floor" when the
+    // BUDGET had pushed it to its cap (step > desired). But the headline
+    // guarantee — "invisible distant coats" — fires on the OTHER route: the
+    // coat's own distance ladder asks to thin past MinVisibleStrands and the
+    // floor refuses, which happens with no budget pressure at all.
+    //
+    // Found on the live population scene through olo_groom_budget_stats: 41
+    // animals were being held by the floor and the counter read 0, while the
+    // axis totals showed the SCHEDULED cost above the DESIRED cost — which is
+    // only possible when something refused to coarsen.
+    constexpr u32 kStrands = 1000u;
+    constexpr u32 kFloor = 256u;
+
+    AnimalBudgetPolicy policy = TightPolicy();
+    policy.MinVisibleStrands = kFloor;
+    policy.FrameBudgetUnits = 1.0e8f; // no pressure whatsoever
+
+    AnimalWorkItem item = MakeAnimal(7u, AnimalRole::Background, 6.0f, kStrands);
+    item.DesiredStep[kVis] = 6u; // the ladder wants a sixty-fourth: 15 strands
+    item.MaxStep[kVis] = MaxVisibilityStepForStrandFloor(kStrands, kFloor, 8u);
+    ASSERT_LT(item.MaxStep[kVis], item.DesiredStep[kVis]) << "the fixture must actually put the floor below the ladder";
+
+    PopulationRun run({ item }, policy);
+    AnimalSchedulerStats stats;
+    const std::vector<AnimalSchedule> schedules = run.Step(&stats);
+
+    ASSERT_EQ(schedules.size(), 1u);
+    EXPECT_EQ(stats.AnimalsCoarsened, 0u) << "there is no budget pressure here at all";
+    EXPECT_EQ(stats.AnimalsAtVisibilityFloor, 1u)
+        << "the floor refused the distance ladder and the counter did not notice — which is the exact blind spot "
+           "that made a live scene report 0 while 41 coats were being held";
+
+    // And the tell that exposed it: refusing to coarsen leaves the SCHEDULED
+    // cost above the DESIRED cost, which nothing else in the scheduler can do.
+    EXPECT_GT(stats.ScheduledCostUnits[kVis], stats.DesiredCostUnits[kVis]);
+}
+
 TEST(AnimalSchedulerFloor, ACoatAuthoredBelowTheFloorIsNotForcedUpToIt)
 {
     // The floor stops the BUDGET thinning a coat to nothing. It is not a

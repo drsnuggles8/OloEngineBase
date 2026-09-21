@@ -195,6 +195,37 @@ Realtime GI is a whole feature to shed, so Low turns it off; the population budg
 herd affordable at all, so the weakest tier needs it most and the small allowance is the point.
 `SchedulingIsOnAtEveryTierIncludingLow` pins that so a future tier edit cannot quietly invert it.
 
+## 7b. What the live editor said, and the bug it found
+
+`olo_groom_budget_stats` was added to read the pass's counters and the scheduler's decisions from a
+running editor, because the alternative — grepping `OloEngine.log` for `built strand geometry ...
+(stride N)` — only shows geometry-cache MISSES, so a steady-state frame reports nothing.
+
+On `AnimalPopulation.olo`, Vulkan, Deferred, 41 animals:
+
+| | value |
+|---|---|
+| `animalsConsidered` / `heroesCoarsened` | 41 / **0** |
+| `animalsCoarsened`, `budgetExceeded` | 0, false — the population FITS the 6 000-unit High tier (1 192 units) |
+| visibility `desiredCostUnits` → `scheduledCostUnits` | 184.9 → **245.7** |
+| `animalsAtVisibilityFloor` | **18** |
+| frame time p50 / p95 / p99 / max | 17.6 / 21.9 / 24.4 / 27.9 ms |
+
+**The scheduled cost sitting ABOVE the desired cost is the tell**, and it exposed a real bug. Higher
+cost means *finer*, and nothing in the scheduler can refuse to coarsen except a floor — so the
+strand floor was holding coats against their own distance ladder, which is the "invisible distant
+coats" guarantee firing. `AnimalsAtVisibilityFloor` reported **0** anyway.
+
+The counter required `step > desired` — "the BUDGET pushed it to its cap" — and was blind to the
+route that matters most: the ladder asking to thin past `MinVisibleStrands` and the floor refusing,
+which needs no budget pressure at all. Both routes now count, and
+`TheFloorCounterSeesTheLadderBeingRefusedAndNotOnlyTheBudget` pins it. The same scene now reports
+18.
+
+This is the second time on this issue that a counter looked right and was measuring the wrong
+population — the first was `MaxStarvedFrames`. Both were found by reading a real frame rather than
+the code.
+
 ## 8. The frame-time tail
 
 `Scene` records every frame's delta into a 600-sample window (ten seconds at 60 Hz — the shortest

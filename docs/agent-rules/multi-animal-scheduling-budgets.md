@@ -141,7 +141,7 @@ quietly breaking the picture.
 | The herd never coarsens however large it gets | no animal carries an `AnimalBudgetComponent`; `AnimalsConsidered` is 0 |
 | The hero is soft in a crowded shot | `CoarsenedByRole[Hero]` non-zero — `AnimalProtectHero` is off |
 | The frame is over budget and nothing is being cut | `BudgetExceeded` with `AnimalsCapHeld` high: the population has outgrown the caps, not the budget |
-| Distant animals are bald | `AnimalsAtVisibilityFloor` is 0 while coats vanish — the floor is not reaching `MaxStep` |
+| Distant animals are bald | `AnimalsAtVisibilityFloor` is 0 while coats vanish — the floor is not reaching `MaxStep`. Note the counter has TWO routes: the ladder being refused (`cap < desired`, no budget pressure needed) and the budget hitting the cap. A version that counted only the second read 0 on a live scene while 18 coats were being held |
 | One animal is permanently coarse while its neighbours are sharp | NOT `MaxStarvedFrames` — it measures PRESSURE and grows for everybody when nothing can be served. The unfairness condition is relative: a same-role peer sitting AT its desired step on that axis while this one is below it. Copy `AnimalSchedulerStarvation.NoAnimalIsPassedOverWhileAPeerSitsAtItsDesiredStep` |
 | The population flickers between quality levels | `StepChanges` staying near `AnimalsConsidered * 4` |
 | A distant animal judders | `AnimalsAtPoseStepCap` is 0 — `m_FullRateMotionMetres` is authored too low for its fastest clip |
@@ -163,6 +163,19 @@ quietly breaking the picture.
   registry are generated; the save-game `Serialize` overload plus `RegisterAll`, and the editor
   inspector, are hand-written. Lua is deliberately skipped, matching `GroomComponent` and
   `GroomLodComponent` — say so rather than leaving it as an omission.
+
+## Reading it on a live editor
+
+`olo_groom_budget_stats` (MCP, read-only) is the front door: `groom` is what the pass DREW this
+frame, `animalBudget` is what the scheduler DECIDED before it, and `frameTime` is the rolling
+600-frame window. Read `animalBudget.enabled` first — `false` means the population budget is not
+involved at all and a thinned coat is its own distance ladder's doing, which has a completely
+different fix.
+
+**Do not go back to grepping the log for `built strand geometry ... (stride N)`.** Those lines only
+appear on a geometry CACHE MISS, so a steady-state frame logs nothing and what you get depends on
+how long the session has run. It is how this feature was first verified, and it is what hid the
+`AnimalsAtVisibilityFloor` bug below.
 
 ## Where the numbers are
 
