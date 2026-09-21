@@ -70,7 +70,6 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/Passes/FluidIntermediatesPass.h"
 #include "OloEngine/Renderer/Passes/FogRenderPass.h"
 #include "OloEngine/Renderer/Passes/GTAORenderPass.h"
-#include "OloEngine/Groom/GroomStrandCache.h"
 #include "OloEngine/Renderer/Passes/GroomRenderPass.h"
 #include "OloEngine/Renderer/GBuffer.h"
 #include "OloEngine/Renderer/Buffer.h"
@@ -95,7 +94,6 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/Passes/OITPrepareRenderPass.h"
 #include "OloEngine/Renderer/Passes/OITResolveRenderPass.h"
 #include "OloEngine/Renderer/Passes/OverdrawRenderPass.h"
-#include "OloEngine/Renderer/Passes/GBufferDebugPass.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Passes/PrecipitationRenderPass.h"
 #include "OloEngine/Renderer/Passes/SSAORenderPass.h"
@@ -7954,16 +7952,6 @@ TEST_F(VulkanPassSuite, GroomStrandCoatCoversPixelsUnderTheVulkanClipConvention)
 
         auto groomPass = Ref<GroomRenderPass>::Create();
         groomPass->Init(sceneSpec);
-        // THE STRAND CACHE IS NO LONGER THE PASS'S (#1323). RenderPipeline owns
-        // it and hands the SAME instance to ShadowRenderPass, because the shadow
-        // map is rasterised before this pass runs and a groom caster needs its
-        // buffers to already exist. A harness that drives the pass directly
-        // therefore supplies one, exactly as it supplies the framebuffer — and
-        // the pass refuses to draw without it rather than building a private
-        // cache the shadow pass could never see.
-        auto groomCache = Ref<GroomStrandCache>::Create();
-        groomCache->BeginFrame();
-        groomPass->SetStrandCache(groomCache.Raw());
 
         groomPass->SetRequests({ request });
         GroomFrameState frameState;
@@ -9620,26 +9608,18 @@ TEST_F(VulkanPassSuite, OcclusionQueriesCountSamplesAndGateConditionalRendering)
 // wants CommandDispatch::UploadMaterialForDirectDraw. Documented, not faked.
 //
 // What this tenant DOES run is the rest of SceneRenderPass::Execute, unmodified
-// and in the real graph, on the Deferred path with DebugChannel 3, plus the
-// node that now owns the debug extraction:
+// and in the real graph, on the Deferred path with DebugChannel 3:
 //   * the deferred resource preparation — a real 6-attachment GBuffer created
 //     by the pass itself at the Init spec's size;
 //   * BOTH clears the pass owes (the scene FB's, which exists so a Forward ->
 //     Deferred switch cannot leave stale entity-ID / normal attachments, and
 //     the G-Buffer's);
-//   * GBufferDebugPass's RMA channel (issue #1329) — a REAL fullscreen draw
-//     (DebugGBuffer_RMA.glsl) narrowed onto attachment 0 by
-//     SetFramebufferDrawAttachments, followed by
-//     RestoreAllFramebufferDrawAttachments and a depth BlitFramebuffer from
-//     the G-Buffer;
-//   * that pass's shader/VAO unbind hygiene (BindShaderProgram(NullResource)).
-//
-// THE SECOND NODE IS THE POINT, not scaffolding. The extraction used to be a
-// tail of SceneRenderPass::Execute, where it ran before the late G-Buffer
-// writers the scheduler had not reached yet (issue #1329). Driving it as its
-// own graph node here is what keeps this floor honest about where the draw
-// comes from on Vulkan — and it is the only Vulkan coverage the moved pass has,
-// since the headless evidence fixtures need a real GL 4.6 context.
+//   * BlitGBufferDebug(3) — the RMA channel, which is a REAL fullscreen draw
+//     (DebugGBuffer_RMA.glsl, whose V3 pull branch is this batch's sibling
+//     change) narrowed onto attachment 0 by SetFramebufferDrawAttachments,
+//     followed by RestoreAllFramebufferDrawAttachments and a depth
+//     BlitFramebuffer from the G-Buffer;
+//   * the pass's shader/VAO unbind hygiene (BindShaderProgram(NullResource)).
 //
 // The contract is arithmetic, not "it drew something": the RMA shader gathers
 // (RT1.z, RT0.a, RT1.w) = (roughness, metallic, ao), and the G-Buffer clear the
@@ -9647,7 +9627,7 @@ TEST_F(VulkanPassSuite, OcclusionQueriesCountSamplesAndGateConditionalRendering)
 // (0.1, 1.0, 1.0) exactly. A narrowing that failed to restore, a blit that hit
 // the wrong attachment, or a G-Buffer that was never cleared all move it.
 // =============================================================================
-TEST_F(VulkanPassSuite, ScenePassDeferredFloorClearsTheGBufferAndGBufferDebugPassBlitsTheRmaChannel)
+TEST_F(VulkanPassSuite, ScenePassDeferredFloorClearsTheGBufferAndBlitsTheRmaDebugChannel)
 {
     constexpr u32 kSize = 128;
     VulkanFrameArena::Get().BeginFrame(0);
@@ -9703,24 +9683,7 @@ TEST_F(VulkanPassSuite, ScenePassDeferredFloorClearsTheGBufferAndGBufferDebugPas
     // the graph's production shape and a separate concern from this floor.
 
     graph.AddNode(scenePass);
-
-    // The debug extraction node (issue #1329). Its G-Buffer has to be in hand
-    // before Setup runs, and ScenePass only creates it lazily inside Execute —
-    // so materialise it here, exactly as Renderer3D::ConfigureRenderGraph does
-    // before it wires the pass each frame.
-    scenePass->PrepareDeferredResources(1u);
-    ASSERT_TRUE(scenePass->GetGBuffer()) << "PrepareDeferredResources did not create a G-Buffer";
-    auto debugPass = Ref<GBufferDebugPass>::Create();
-    debugPass->Init(initSpec);
-    debugPass->SetGBuffer(scenePass->GetGBuffer());
-    debugPass->SetDebugChannel(3);
-    debugPass->SetPerSampleLighting(false);
-    graph.AddNode(debugPass);
-    // An explicit edge, because in this floor ScenePass declares no resource
-    // the debug node reads (the G-Buffer blackboard slots are deliberately
-    // unset here), so reachability has nothing else to walk.
-    graph.AddExecutionDependency("SceneRenderPass", "GBufferDebugPass");
-    graph.SetFinalPass("GBufferDebugPass");
+    graph.SetFinalPass("SceneRenderPass");
     graph.BuildFrameGraph();
 
     SubmitFrame(
@@ -9744,9 +9707,6 @@ TEST_F(VulkanPassSuite, ScenePassDeferredFloorClearsTheGBufferAndGBufferDebugPas
     EXPECT_TRUE(scenePass->GetTarget()) << "the pass early-returned before resolving its target";
     ASSERT_TRUE(scenePass->GetGBuffer()) << "the Deferred path must have created a G-Buffer";
     EXPECT_EQ(scenePass->GetGBuffer()->GetWidth(), kSize);
-    EXPECT_TRUE(debugPass->GetTarget())
-        << "GBufferDebugPass early-returned before resolving the scene framebuffer, so the RMA "
-           "gather below is measuring whatever the clear left behind";
     for (const auto& failure : graph.GetResolveFailures())
     {
         ADD_FAILURE() << "ScenePass resolve failure: pass='" << failure.PassName << "' reason='" << failure.Reason
@@ -9778,94 +9738,6 @@ TEST_F(VulkanPassSuite, ScenePassDeferredFloorClearsTheGBufferAndGBufferDebugPas
     settings.Deferred.DebugChannel = prevDebugChannel;
     settings.Deferred.MSAASampleCount = prevSamples;
     settings.Deferred.PerSampleLighting = prevPerSample;
-}
-
-// =============================================================================
-// THE FORMAT-CONVERTING COLOUR BLIT (issue #1329).
-//
-// GL's glBlitFramebuffer CONVERTS between formats. vkCmdCopyImage reinterprets
-// bits, so the Vulkan lowering refused a format mismatch outright -- a
-// warn-once and a no-op -- and said so in its own comment, naming "deferred
-// debug channels into RGBA16F" as the case it did not cover.
-//
-// That case is not hypothetical: G-Buffer RT0 is RGBA8 and RT3 is RG16F while
-// the scene colour target is RGBA16F, so on Vulkan the albedo and velocity
-// debug views left the scene target at its clear. The viewport showed a flat
-// 85/85/85 -- the 0.1 clear through the post chain -- which reads as a
-// renderer that drew nothing rather than as a blit that was skipped.
-//
-// vkCmdBlitImage is the converting primitive, and this pins it BY VALUE rather
-// than by "something changed": an RGBA8 source cleared to a known colour has to
-// arrive in an RGBA16F destination as the same NUMBERS. Three different
-// failures land somewhere else -- a skipped blit leaves the destination clear,
-// a reinterpreting copy produces garbage from the byte pattern, and a channel
-// swap moves the three distinct values around.
-// =============================================================================
-TEST_F(VulkanPassSuite, BlitFramebufferConvertsAnRgba8ColourIntoAnRgba16FTarget)
-{
-    constexpr u32 kSize = 64;
-    VulkanFrameArena::Get().BeginFrame(0);
-
-    FramebufferSpecification srcSpec;
-    srcSpec.Width = kSize;
-    srcSpec.Height = kSize;
-    srcSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
-    Ref<Framebuffer> srcFB = Framebuffer::Create(srcSpec);
-    ASSERT_TRUE(srcFB);
-
-    FramebufferSpecification dstSpec;
-    dstSpec.Width = kSize;
-    dstSpec.Height = kSize;
-    dstSpec.Attachments = { FramebufferTextureFormat::RGBA16F };
-    Ref<Framebuffer> dstFB = Framebuffer::Create(dstSpec);
-    ASSERT_TRUE(dstFB);
-
-    // Three distinct channels, none of them 0 or 1, and a destination clear
-    // that is none of them: every way this can fail produces a different
-    // number rather than a coincidence.
-    const glm::vec4 kSource{ 0.8f, 0.4f, 0.2f, 1.0f };
-    const glm::vec4 kDestinationClear{ 0.0f, 0.0f, 0.0f, 0.0f };
-
-    SubmitFrame(
-        [&]()
-        {
-            srcFB->Bind();
-            srcFB->ClearAllAttachments(kSource, -1);
-            srcFB->Unbind();
-            dstFB->Bind();
-            dstFB->ClearAllAttachments(kDestinationClear, -1);
-            dstFB->Unbind();
-
-            RenderCommand::SetFramebufferReadAttachment(srcFB->GetRHIHandle(), 0u);
-            RenderCommand::SetFramebufferDrawAttachments(dstFB->GetRHIHandle(), std::array<u32, 1>{ 0u });
-            RenderCommand::BlitFramebuffer(srcFB->GetRHIHandle(), dstFB->GetRHIHandle(),
-                                           0, 0, static_cast<i32>(kSize), static_cast<i32>(kSize),
-                                           0, 0, static_cast<i32>(kSize), static_cast<i32>(kSize),
-                                           RHI::BlitAspect::Color, RHI::Filter::Nearest);
-        });
-
-    std::vector<u8> bytes;
-    auto* vkDst = static_cast<VulkanFramebuffer*>(dstFB.Raw());
-    ASSERT_TRUE(vkDst->GetColorAttachmentImage(0)->GetData(bytes, 0));
-    ASSERT_EQ(bytes.size(), static_cast<sizet>(kSize) * kSize * 4u * sizeof(u16));
-    const auto* halves = reinterpret_cast<const u16*>(bytes.data());
-
-    // An RGBA8 clear quantises to round(v * 255) / 255 before the blit ever
-    // runs, so the tolerance covers that step and half-float rounding, and
-    // nothing else: 1/255 is 0.0039.
-    constexpr f32 kTolerance = 0.006f;
-    for (const auto& [x, y] : { std::pair<u32, u32>{ 0, 0 }, { 31, 17 }, { 63, 63 } })
-    {
-        const sizet base = (static_cast<sizet>(y) * kSize + x) * 4u;
-        const f32 r = HalfToFloat(halves[base + 0]);
-        const f32 g = HalfToFloat(halves[base + 1]);
-        const f32 b = HalfToFloat(halves[base + 2]);
-        EXPECT_NEAR(r, kSource.r, kTolerance)
-            << "the converting blit did not land the red channel at (" << x << "," << y
-            << "); 0.0 means it was skipped and the destination kept its clear";
-        EXPECT_NEAR(g, kSource.g, kTolerance) << "green at (" << x << "," << y << ")";
-        EXPECT_NEAR(b, kSource.b, kTolerance) << "blue at (" << x << "," << y << ")";
-    }
 }
 
 // =============================================================================

@@ -88,6 +88,47 @@ if (auto node = entity["AircraftComponent"]; node)
         comp.m_YawInput = std::clamp(v, static_cast<f32>(-1.0f), static_cast<f32>(1.0f));
 }
 
+if (auto node = entity["AnimalBudgetComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<AnimalBudgetComponent>();
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["FullRateMotionMetres"], v))
+        comp.m_FullRateMotionMetres = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    comp.m_MaxDeformationSteps = std::clamp(node["MaxDeformationSteps"].as<u32>(comp.m_MaxDeformationSteps), static_cast<u32>(0), static_cast<u32>(16));
+    comp.m_MaxSimulationSteps = std::clamp(node["MaxSimulationSteps"].as<u32>(comp.m_MaxSimulationSteps), static_cast<u32>(0), static_cast<u32>(16));
+    comp.m_MaxVisibilitySteps = std::clamp(node["MaxVisibilitySteps"].as<u32>(comp.m_MaxVisibilitySteps), static_cast<u32>(0), static_cast<u32>(16));
+    comp.m_MaxShadowSteps = std::clamp(node["MaxShadowSteps"].as<u32>(comp.m_MaxShadowSteps), static_cast<u32>(0), static_cast<u32>(16));
+    comp.m_Role = std::clamp(node["Role"].as<decltype(comp.m_Role)>(comp.m_Role), static_cast<decltype(comp.m_Role)>(0), static_cast<decltype(comp.m_Role)>(2));
+    comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
+}
+
+if (auto node = entity["AnimalPathComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<AnimalPathComponent>();
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["RadiusX"], v))
+        comp.m_RadiusX = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(10000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["RadiusZ"], v))
+        comp.m_RadiusZ = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(10000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["RateX"], v))
+        comp.m_RateX = std::clamp(v, static_cast<f32>(-100.0f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["RateZ"], v))
+        comp.m_RateZ = std::clamp(v, static_cast<f32>(-100.0f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["PhaseX"], v))
+        comp.m_PhaseX = std::clamp(v, static_cast<f32>(-1000.0f), static_cast<f32>(1000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["PhaseZ"], v))
+        comp.m_PhaseZ = std::clamp(v, static_cast<f32>(-1000.0f), static_cast<f32>(1000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["OriginX"], v))
+        comp.m_OriginX = std::clamp(v, static_cast<f32>(-1000000.0f), static_cast<f32>(1000000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["OriginY"], v))
+        comp.m_OriginY = std::clamp(v, static_cast<f32>(-1000000.0f), static_cast<f32>(1000000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["OriginZ"], v))
+        comp.m_OriginZ = std::clamp(v, static_cast<f32>(-1000000.0f), static_cast<f32>(1000000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ElapsedSeconds"], v))
+        comp.m_ElapsedSeconds = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1000000000.0f));
+    comp.m_HasOrigin = node["HasOrigin"].as<bool>(comp.m_HasOrigin);
+    comp.m_FaceAlongMotion = node["FaceAlongMotion"].as<bool>(comp.m_FaceAlongMotion);
+    comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
+}
+
 if (auto node = entity["BoatComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<BoatComponent>();
@@ -656,15 +697,6 @@ if (auto node = entity["GroomLodComponent"]; node)
     comp.m_SimulationSteps = std::clamp(node["SimulationSteps"].as<u32>(comp.m_SimulationSteps), static_cast<u32>(0), static_cast<u32>(16));
     comp.m_ShadowSteps = std::clamp(node["ShadowSteps"].as<u32>(comp.m_ShadowSteps), static_cast<u32>(0), static_cast<u32>(16));
     comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
-}
-
-if (auto node = entity["GroomSceneShadowComponent"]; node)
-{
-    auto& comp = deserializedEntity.AddComponent<GroomSceneShadowComponent>();
-    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ShadowWidthTexels"], v))
-        comp.m_ShadowWidthTexels = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(16.0f));
-    comp.m_CastShadows = node["CastShadows"].as<bool>(comp.m_CastShadows);
-    comp.m_ReceiveShadows = node["ReceiveShadows"].as<bool>(comp.m_ReceiveShadows);
 }
 
 if (auto node = entity["GroomSimulationComponent"]; node)

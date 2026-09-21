@@ -180,38 +180,6 @@ namespace OloEngine
         /// docs/analysis/groom-coat-self-shadowing-1248.md.
         f32 CoatStepVoxels = 3.0f;
 
-        // ── Scene shadow routing (#1323) ─────────────────────────────
-        //
-        // Whether this groom takes part in the engine's shadow TECHNIQUES, in
-        // each direction. Both default OFF and the absence of
-        // GroomSceneShadowComponent leaves them off, which is the #1252
-        // behaviour — so a scene authored before this existed renders exactly
-        // as it did, and every capture the earlier groom issues committed still
-        // means what it meant. Same rule, same reason, as the coat, the binding
-        // and the LOD above.
-        //
-        // THE TWO ARE INDEPENDENT ON PURPOSE. They are different mechanisms
-        // that fail differently: casting is a sixth caster family in
-        // ShadowRenderPass and shows up as a shadow on the BODY; receiving is a
-        // cascade lookup in GroomStrand.glsl and shows up as a coat that goes
-        // dark in shade. Being able to turn one off is what makes an A/B of the
-        // other a measurement rather than a picture of both.
-
-        /// Rasterise this groom from the light, into every directional
-        /// technique the frame is running plus the local-light atlas.
-        bool CastsSceneShadow = false;
-
-        /// Sample the scene's shadow term in the strand shader.
-        bool ReceivesSceneShadow = false;
-
-        /// The width floor, in TEXELS of the shadow target, a strand is
-        /// rasterised at from the light. One texel is the default and the
-        /// derivation: below it a strand crosses a texel centre essentially
-        /// never and the coat casts nothing at all. Above it the coat's shadow
-        /// thickens, which is an authoring lever for a coat that reads too thin
-        /// at distance and not a quality knob. See Groom/GroomShadowWidening.h.
-        f32 ShadowWidthTexels = 1.0f;
-
         // ── Coat authoring (#1251) ───────────────────────────────────
         //
         // Disabled by default, so a groom with no GroomCoatComponent builds

@@ -4,6 +4,7 @@
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Math/Math.h"
+#include "OloEngine/Scene/AnimalScheduler.h"
 #include "OloEngine/Groom/GroomCoat.h"
 #include "OloEngine/Groom/GroomGuideSimulation.h"
 #include "OloEngine/Groom/GroomCoatShadow.h"
@@ -6288,104 +6289,6 @@ namespace OloEngine
     static_assert(sizeof(GroomLodComponent) == 48,
                   "GroomLodComponent must have no padding: see BitwiseEqualLayoutTest");
 
-    // ── Groom scene-shadow routing (issue #1323) ─────────────────
-    //
-    // Whether this groom takes part in the engine's shadow TECHNIQUES, in each
-    // direction: hair casting onto the body and the scene, and the body and the
-    // scene casting onto hair.
-    //
-    // A SEPARATE COMPONENT, for the three reasons GroomBindingComponent lists
-    // and with the same one deciding it: GroomComponent's layout is PINNED at
-    // 48 bytes with a whole-object memcmp equality, and widening it revs the
-    // save-game format for every scene that has a groom in it, routed or not.
-    //
-    // ITS ABSENCE IS THE PRE-#1323 BEHAVIOUR — a coat that casts no shadow and
-    // is lit as if it stood in the open — so a scene authored before this
-    // existed renders exactly as it did, and every capture #1246 through #1252
-    // committed still means what it meant. That is the same rule the coat, the
-    // binding, the simulation and the LOD components follow, and here it is
-    // load-bearing rather than polite: a groom that started casting on load
-    // would change every committed groom evidence PNG at once.
-    //
-    // THE TWO DIRECTIONS ARE INDEPENDENT FIELDS ON PURPOSE. They are different
-    // mechanisms that fail differently — casting is a caster family in
-    // ShadowRenderPass and shows up as a shadow on the BODY, receiving is a
-    // cascade lookup in GroomStrand.glsl and shows up as a coat that goes dark
-    // in shade — so being able to turn one off is what makes an A/B of the
-    // other a measurement rather than a picture of both.
-    //
-    // Not annotated OLO_PROPERTY and not registered in LuaScriptGlue, matching
-    // every other groom component. Whether a coat casts is authoring state; a
-    // script flipping it mid-frame would add or remove a caster family between
-    // the shadow pass and the strand pass of the same frame. Stated as a
-    // decision rather than left as an omission, because the next reader's
-    // question is "was this forgotten?".
-    struct GroomSceneShadowComponent
-    {
-        // Members ordered 4-byte then 1-byte so the layout has no alignment
-        // holes (issue #1019): operator== below is a whole-object memcmp.
-
-        /// The width floor, in TEXELS of the shadow target, a strand is
-        /// rasterised at from the light.
-        ///
-        /// ONE TEXEL IS THE DERIVATION, NOT A TASTE. A 70 um hair against a
-        /// cascade texel of a few centimetres projects to about a thousandth of
-        /// a texel, so rasterised honestly it crosses a texel centre
-        /// essentially never and an animal's whole coat casts nothing at all.
-        /// The same argument groom-strand-visibility.md rule 2 makes for the
-        /// main pass, three orders of magnitude coarser.
-        ///
-        /// ABOVE ONE IT IS AN AUTHORING LEVER for a coat whose shadow reads too
-        /// thin at distance, and it costs occlusion: a widened strand casts an
-        /// OPAQUE shadow, because a depth target has no alpha to weight and a
-        /// hashed discard would be a stochastic technique with nothing to
-        /// converge it. See Groom/GroomShadowWidening.h.
-        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 16.0f)
-        f32 m_ShadowWidthTexels = 1.0f;
-
-        /// Rasterise this groom from the light — into the CSM cascades, the
-        /// Virtual Shadow Map's clip levels and the local-light atlas alike.
-        bool m_CastShadows = true;
-
-        /// Sample the scene's shadow term in the strand shader, so a character
-        /// standing in shade has a coat that is in shade too.
-        bool m_ReceiveShadows = true;
-
-        OLO_SERIALIZE(Skip)
-        u8 Pad0 = 0;
-        OLO_SERIALIZE(Skip)
-        u8 Pad1 = 0;
-
-        GroomSceneShadowComponent() = default;
-        GroomSceneShadowComponent(const GroomSceneShadowComponent&) = default;
-        GroomSceneShadowComponent& operator=(const GroomSceneShadowComponent&) = default;
-        GroomSceneShadowComponent(GroomSceneShadowComponent&&) noexcept = default;
-        GroomSceneShadowComponent& operator=(GroomSceneShadowComponent&&) noexcept = default;
-
-        auto operator==(const GroomSceneShadowComponent& other) const -> bool
-        {
-            return Math::BitwiseEqual(*this, other);
-        }
-    };
-    static_assert(sizeof(GroomSceneShadowComponent) == 8,
-                  "GroomSceneShadowComponent must have no padding: see BitwiseEqualLayoutTest");
-
-    /// The authored width floor, sanitised. The ONE place this component's
-    /// field becomes renderer input, for the reason MakeGroomCoatLodPolicy
-    /// exists: OLO_SERIALIZE guards scene YAML and the deserialisers but NOT a
-    /// direct MCP or native write, and this is the boundary those cross on the
-    /// way to a DIVISOR in the shader's widening. A non-finite floor makes the
-    /// half width NaN and the coat vanishes from every shadow map with nothing
-    /// logged.
-    [[nodiscard]] inline f32 MakeGroomShadowWidthTexels(const GroomSceneShadowComponent& component) noexcept
-    {
-        if (!std::isfinite(component.m_ShadowWidthTexels) || component.m_ShadowWidthTexels < 0.0f)
-        {
-            return GroomSceneShadowComponent{}.m_ShadowWidthTexels;
-        }
-        return std::min(component.m_ShadowWidthTexels, 16.0f);
-    }
-
     /// The authored fields as GroomLod wants them. The ONE place the component
     /// becomes policy input, so the renderer, a test and the editor cannot each
     /// interpret the fields slightly differently — the same reason
@@ -6940,6 +6843,273 @@ namespace OloEngine
                 break;
         }
         return 0u;
+    }
+
+    // ── Multi-animal scheduling and budgets (issue #1258) ────────────────
+    //
+    // NEITHER IS REGISTERED WITH LUA, and that is a decision rather than an
+    // omission. It matches GroomComponent, GroomLodComponent and
+    // GroomSimulationComponent, and for their reason: these are RENDERER BUDGET
+    // surfaces whose fields are consumed once per frame by the scheduler, and a
+    // script writing one mid-tick would change an allocation the frame has
+    // already partly spent — the half-budgeted frame being exactly the state
+    // the hysteresis and the hold exist to prevent. A script that wants to
+    // promote an animal should do it through a role change at a scene seam, and
+    // when something needs that, it is one registration in
+    // LuaScriptGlue.cpp::RegisterAllTypes rather than a redesign.
+    //
+    // TWO COMPONENTS AND NOT ONE, and the split is the feature rather than a
+    // filing choice. AnimalBudgetComponent says what an animal is WORTH, which
+    // is a rendering decision that has to survive the animal standing still.
+    // AnimalPathComponent says where it GOES, which is a population decision
+    // that has to reproduce bit for bit. A hero usually has the first and not
+    // the second; a background animal has both; and merging them would make
+    // "give this animal a role" imply "and also move it", which is how a
+    // hand-placed hero ends up on a circle.
+
+    /// What an animal is worth to the frame, and how far its work may be cut.
+    ///
+    /// The presence of this component is what makes an entity a candidate for
+    /// the population budget at all. An animated, groomed entity WITHOUT one is
+    /// scheduled exactly as #1252 left it — its own distance ladder, no
+    /// arbitration — so nothing authored before this feature changes.
+    struct AnimalBudgetComponent
+    {
+        // Members ordered 4-byte then 1-byte so the layout has no alignment
+        // holes (issue #1019): operator== below is a whole-object memcmp.
+
+        /// How far this animal's FASTEST BONE travels, in metres, during one
+        /// full-rate frame at 60 Hz.
+        ///
+        /// AUTHORED RATHER THAN MEASURED, and that is deliberate twice over.
+        /// Measuring it needs the pose evaluated, which is the very work the
+        /// deformation budget exists to skip — so a measured value would be
+        /// available only for animals that were not being budgeted. And it is a
+        /// property of the CLIP SET rather than of the frame: a sprint cycle is
+        /// the bound whether or not the animal is sprinting right now, and
+        /// budgeting on the current gait would let an animal that happened to
+        /// be idle earn a tick rate it cannot keep when it starts to run.
+        ///
+        /// The scheduler projects this to pixels and derives the coarsest
+        /// deformation step that keeps a single pose update under
+        /// RendererSettings::AnimalMaxPoseStepPixels. Zero means "never moves",
+        /// which lets the rate drop as far as the caps allow.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 100.0f)
+        f32 m_FullRateMotionMetres = 0.05f;
+
+        /// Halvings each axis may take for THIS animal, on top of whatever the
+        /// population budget and the floors allow. Four numbers rather than
+        /// one, for GroomLodComponent's reason: the axes degrade differently
+        /// and are noticed differently, so an author who will accept a coarse
+        /// coat on a distant yak but not a coarse gait must be able to say so.
+        OLO_SERIALIZE(Clamp, Min = 0, Max = 16)
+        u32 m_MaxDeformationSteps = 3;
+        OLO_SERIALIZE(Clamp, Min = 0, Max = 16)
+        u32 m_MaxSimulationSteps = 4;
+        OLO_SERIALIZE(Clamp, Min = 0, Max = 16)
+        u32 m_MaxVisibilitySteps = 4;
+        OLO_SERIALIZE(Clamp, Min = 0, Max = 16)
+        u32 m_MaxShadowSteps = 3;
+
+        /// What this animal is FOR, as an AnimalRole. Hero is protected: while
+        /// RendererSettings::AnimalProtectHero is set it is never coarsened at
+        /// all, and a population that cannot be served with the hero at full
+        /// rate is REPORTED rather than absorbed by quietly degrading it.
+        ///
+        /// A u8 rather than the enum so the generated serialisers and the MCP
+        /// field registry see a plain integer, matching
+        /// GroomComponent::m_CompositionMode. Read it through MakeAnimalRole,
+        /// never by a raw cast.
+        OLO_SERIALIZE(Clamp, Min = 0, Max = 2)
+        u8 m_Role = 2; // AnimalRole::Background
+
+        /// False removes this animal from the population budget entirely: it
+        /// then runs at whatever its own ladders ask for, which is the
+        /// pre-#1258 frame. The per-entity half of the A/B control.
+        bool m_Enabled = true;
+
+        OLO_SERIALIZE(Skip)
+        u8 Pad0 = 0;
+        OLO_SERIALIZE(Skip)
+        u8 Pad1 = 0;
+
+        AnimalBudgetComponent() = default;
+        AnimalBudgetComponent(const AnimalBudgetComponent&) = default;
+        AnimalBudgetComponent& operator=(const AnimalBudgetComponent&) = default;
+        AnimalBudgetComponent(AnimalBudgetComponent&&) noexcept = default;
+        AnimalBudgetComponent& operator=(AnimalBudgetComponent&&) noexcept = default;
+
+        auto operator==(const AnimalBudgetComponent& other) const -> bool
+        {
+            return Math::BitwiseEqual(*this, other);
+        }
+    };
+    static_assert(sizeof(AnimalBudgetComponent) == 24,
+                  "AnimalBudgetComponent must have no padding: see BitwiseEqualLayoutTest");
+
+    /// The component's role, validated. The ONE place the stored integer
+    /// becomes an AnimalRole, so a corrupt scene, a save game and an MCP write
+    /// cannot each be interpreted slightly differently — MakeGroomLodPolicy's
+    /// boundary and its reason: OLO_SERIALIZE guards scene YAML and the
+    /// deserialisers but NOT a direct native or MCP write.
+    ///
+    /// An out-of-range value takes Background rather than Hero. The safe
+    /// default for a broken number is the animal that gives way, not the one
+    /// that is protected: a scene full of accidental heroes would make the
+    /// budget unservable and report BudgetExceeded forever.
+    [[nodiscard]] inline AnimalRole MakeAnimalRole(const AnimalBudgetComponent& component) noexcept
+    {
+        return IsValidAnimalRole(static_cast<i32>(component.m_Role)) ? static_cast<AnimalRole>(component.m_Role)
+                                                                     : AnimalRole::Background;
+    }
+
+    /// The per-animal step caps as the scheduler wants them, in axis order.
+    [[nodiscard]] inline std::array<u32, AnimalWorkAxisCount> MakeAnimalMaxSteps(
+        const AnimalBudgetComponent& component) noexcept
+    {
+        std::array<u32, AnimalWorkAxisCount> steps{};
+        steps[static_cast<sizet>(AnimalWorkAxis::Deformation)] = component.m_MaxDeformationSteps;
+        steps[static_cast<sizet>(AnimalWorkAxis::Simulation)] = component.m_MaxSimulationSteps;
+        steps[static_cast<sizet>(AnimalWorkAxis::Visibility)] = component.m_MaxVisibilitySteps;
+        steps[static_cast<sizet>(AnimalWorkAxis::Shadow)] = component.m_MaxShadowSteps;
+        return steps;
+    }
+
+    /// A seeded, closed-form trajectory — the reproducible half of criterion 1.
+    ///
+    /// CLOSED FORM IN THE FRAME INDEX, NEVER AN ACCUMULATION, and that is the
+    /// whole reason this exists rather than a script or a physics body. An
+    /// accumulated path drifts with the frame rate, so the same scene captured
+    /// at a different dt puts the animals somewhere else and every measurement
+    /// downstream is comparing two different populations. The position at time
+    /// t is a pure function of the authored figure and t, exactly as
+    /// BenchmarkManifest::CameraPoseAtFrame is — and for the same reason: the
+    /// test binary steps a mock clock while the editor counts live frames, and
+    /// the two have to trace the same path without drifting apart.
+    ///
+    /// The path is a LISSAJOUS FIGURE rather than a circle. A herd on circles
+    /// keeps every animal at a constant distance from the camera, so the
+    /// distance ladders never move and the budget is never exercised — the
+    /// population would look busy and measure nothing.
+    struct AnimalPathComponent
+    {
+        // Members ordered 4-byte then 1-byte so the layout has no alignment
+        // holes (issue #1019): operator== below is a whole-object memcmp.
+
+        /// Metres. The two half-axes of the figure.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 10000.0f)
+        f32 m_RadiusX = 12.0f;
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 10000.0f)
+        f32 m_RadiusZ = 8.0f;
+
+        /// Radians per second on each axis. Their RATIO is what makes the
+        /// figure close or not; unequal ratios keep the population from
+        /// re-synchronising into a line, which is what a herd on one frequency
+        /// does after a few laps.
+        OLO_SERIALIZE(Clamp, Min = -100.0f, Max = 100.0f)
+        f32 m_RateX = 0.35f;
+        OLO_SERIALIZE(Clamp, Min = -100.0f, Max = 100.0f)
+        f32 m_RateZ = 0.52f;
+
+        /// Radians. The per-animal offset that makes a herd a herd rather than
+        /// one animal drawn N times. Written by the scene generator from the
+        /// population seed, so a regenerated scene reproduces exactly.
+        OLO_SERIALIZE(Clamp, Min = -1000.0f, Max = 1000.0f)
+        f32 m_PhaseX = 0.0f;
+        OLO_SERIALIZE(Clamp, Min = -1000.0f, Max = 1000.0f)
+        f32 m_PhaseZ = 0.0f;
+
+        /// The centre the figure is traced around, in world metres. Captured
+        /// from the entity's authored translation on first tick when
+        /// m_HasOrigin is false, so an artist can place a herd by dragging it.
+        OLO_SERIALIZE(Clamp, Min = -1000000.0f, Max = 1000000.0f)
+        f32 m_OriginX = 0.0f;
+        OLO_SERIALIZE(Clamp, Min = -1000000.0f, Max = 1000000.0f)
+        f32 m_OriginY = 0.0f;
+        OLO_SERIALIZE(Clamp, Min = -1000000.0f, Max = 1000000.0f)
+        f32 m_OriginZ = 0.0f;
+
+        /// Seconds elapsed on this path. ADVANCED BY THE FIXED TICK and stored
+        /// so a save game resumes where it paused, but never used as an
+        /// accumulator for the POSITION — the position is computed from it in
+        /// closed form, so a dropped or doubled frame moves the animal to where
+        /// that time says rather than compounding an error.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1000000000.0f)
+        f32 m_ElapsedSeconds = 0.0f;
+
+        /// True once m_Origin* has been captured from the authored transform.
+        /// A flag and not a sentinel origin, because (0,0,0) is a perfectly
+        /// ordinary place to put a herd.
+        bool m_HasOrigin = false;
+
+        /// Whether the animal faces along its own velocity. Off leaves the
+        /// authored rotation alone, which is what a hero being posed by hand
+        /// wants.
+        ///
+        /// NOT NAMED `m_OrientToPath`, and the reason is a test rather than a
+        /// preference: AssetContentValidity treats any scene-YAML key ENDING IN
+        /// "Path" as a file reference and fails the whole suite when it does not
+        /// resolve on disk. A bool called OrientToPath serialises to exactly
+        /// that and took the asset-validity suite down on CI while building
+        /// clean locally.
+        bool m_FaceAlongMotion = true;
+
+        /// False freezes the animal at its current position. The control arm
+        /// for a capture that needs a still frame of a moving population.
+        bool m_Enabled = true;
+
+        OLO_SERIALIZE(Skip)
+        u8 Pad0 = 0;
+
+        AnimalPathComponent() = default;
+        AnimalPathComponent(const AnimalPathComponent&) = default;
+        AnimalPathComponent& operator=(const AnimalPathComponent&) = default;
+        AnimalPathComponent(AnimalPathComponent&&) noexcept = default;
+        AnimalPathComponent& operator=(AnimalPathComponent&&) noexcept = default;
+
+        auto operator==(const AnimalPathComponent& other) const -> bool
+        {
+            return Math::BitwiseEqual(*this, other);
+        }
+    };
+    static_assert(sizeof(AnimalPathComponent) == 44,
+                  "AnimalPathComponent must have no padding: see BitwiseEqualLayoutTest");
+
+    /// Where this path puts the animal at `seconds`, relative to its origin.
+    ///
+    /// PURE AND CLOSED FORM: no state, no clock, no accumulation. That is what
+    /// makes the offset at 2t the same point however many frames were used to
+    /// get there, which is criterion 1's "reproducible trajectories" stated as
+    /// a property rather than as a hope.
+    [[nodiscard]] inline glm::vec3 AnimalPathOffsetAt(const AnimalPathComponent& path, f32 seconds) noexcept
+    {
+        const f32 t = std::isfinite(seconds) ? seconds : 0.0f;
+        const f32 rx = std::isfinite(path.m_RadiusX) ? path.m_RadiusX : 0.0f;
+        const f32 rz = std::isfinite(path.m_RadiusZ) ? path.m_RadiusZ : 0.0f;
+        const f32 wx = std::isfinite(path.m_RateX) ? path.m_RateX : 0.0f;
+        const f32 wz = std::isfinite(path.m_RateZ) ? path.m_RateZ : 0.0f;
+        const f32 px = std::isfinite(path.m_PhaseX) ? path.m_PhaseX : 0.0f;
+        const f32 pz = std::isfinite(path.m_PhaseZ) ? path.m_PhaseZ : 0.0f;
+        return glm::vec3{ rx * std::sin(wx * t + px), 0.0f, rz * std::sin(wz * t + pz) };
+    }
+
+    /// The tangent of the path at `seconds` — the analytic derivative, not a
+    /// finite difference between two sampled points.
+    ///
+    /// The derivative and not a difference, because a difference is undefined
+    /// at dt == 0 (a paused frame) and noisy at small dt, and this is what the
+    /// animal's facing is built from: an orientation that jittered at low speed
+    /// would be a visible spin on an animal standing still.
+    [[nodiscard]] inline glm::vec3 AnimalPathTangentAt(const AnimalPathComponent& path, f32 seconds) noexcept
+    {
+        const f32 t = std::isfinite(seconds) ? seconds : 0.0f;
+        const f32 rx = std::isfinite(path.m_RadiusX) ? path.m_RadiusX : 0.0f;
+        const f32 rz = std::isfinite(path.m_RadiusZ) ? path.m_RadiusZ : 0.0f;
+        const f32 wx = std::isfinite(path.m_RateX) ? path.m_RateX : 0.0f;
+        const f32 wz = std::isfinite(path.m_RateZ) ? path.m_RateZ : 0.0f;
+        const f32 px = std::isfinite(path.m_PhaseX) ? path.m_PhaseX : 0.0f;
+        const f32 pz = std::isfinite(path.m_PhaseZ) ? path.m_PhaseZ : 0.0f;
+        return glm::vec3{ rx * wx * std::cos(wx * t + px), 0.0f, rz * wz * std::cos(wz * t + pz) };
     }
 
     // ── GPU Fluid Simulation (Position-Based Fluids, issue #630) ─────────

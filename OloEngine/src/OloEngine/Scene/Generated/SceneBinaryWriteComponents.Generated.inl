@@ -44,6 +44,38 @@ if (entity.HasComponent<AircraftComponent>())
     SceneBinIO::Write(out, comp.m_YawInput);
 }
 
+if (entity.HasComponent<AnimalBudgetComponent>())
+{
+    SceneBinIO::WriteU32(out, 3098555439u); // AnimalBudgetComponent
+    auto const& comp = entity.GetComponent<AnimalBudgetComponent>();
+    SceneBinIO::Write(out, comp.m_FullRateMotionMetres);
+    SceneBinIO::Write(out, comp.m_MaxDeformationSteps);
+    SceneBinIO::Write(out, comp.m_MaxSimulationSteps);
+    SceneBinIO::Write(out, comp.m_MaxVisibilitySteps);
+    SceneBinIO::Write(out, comp.m_MaxShadowSteps);
+    SceneBinIO::Write(out, comp.m_Role);
+    SceneBinIO::Write(out, comp.m_Enabled);
+}
+
+if (entity.HasComponent<AnimalPathComponent>())
+{
+    SceneBinIO::WriteU32(out, 37445965u); // AnimalPathComponent
+    auto const& comp = entity.GetComponent<AnimalPathComponent>();
+    SceneBinIO::Write(out, comp.m_RadiusX);
+    SceneBinIO::Write(out, comp.m_RadiusZ);
+    SceneBinIO::Write(out, comp.m_RateX);
+    SceneBinIO::Write(out, comp.m_RateZ);
+    SceneBinIO::Write(out, comp.m_PhaseX);
+    SceneBinIO::Write(out, comp.m_PhaseZ);
+    SceneBinIO::Write(out, comp.m_OriginX);
+    SceneBinIO::Write(out, comp.m_OriginY);
+    SceneBinIO::Write(out, comp.m_OriginZ);
+    SceneBinIO::Write(out, comp.m_ElapsedSeconds);
+    SceneBinIO::Write(out, comp.m_HasOrigin);
+    SceneBinIO::Write(out, comp.m_FaceAlongMotion);
+    SceneBinIO::Write(out, comp.m_Enabled);
+}
+
 if (entity.HasComponent<BoatComponent>())
 {
     SceneBinIO::WriteU32(out, 2678681430u); // BoatComponent
@@ -484,15 +516,6 @@ if (entity.HasComponent<GroomLodComponent>())
     SceneBinIO::Write(out, comp.m_SimulationSteps);
     SceneBinIO::Write(out, comp.m_ShadowSteps);
     SceneBinIO::Write(out, comp.m_Enabled);
-}
-
-if (entity.HasComponent<GroomSceneShadowComponent>())
-{
-    SceneBinIO::WriteU32(out, 774689478u); // GroomSceneShadowComponent
-    auto const& comp = entity.GetComponent<GroomSceneShadowComponent>();
-    SceneBinIO::Write(out, comp.m_ShadowWidthTexels);
-    SceneBinIO::Write(out, comp.m_CastShadows);
-    SceneBinIO::Write(out, comp.m_ReceiveShadows);
 }
 
 if (entity.HasComponent<GroomSimulationComponent>())

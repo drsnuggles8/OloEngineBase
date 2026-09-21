@@ -14,6 +14,8 @@
 using AllComponents = ComponentGroup<
     AbilityComponent,
     AircraftComponent,
+    AnimalBudgetComponent,
+    AnimalPathComponent,
     AnimationGraphComponent,
     AnimationStateComponent,
     AudioListenerComponent,
@@ -60,7 +62,6 @@ using AllComponents = ComponentGroup<
     GroomComponent,
     GroomFibreComponent,
     GroomLodComponent,
-    GroomSceneShadowComponent,
     GroomSimulationComponent,
     IKTargetComponent,
     InstancePortalComponent,

@@ -1086,18 +1086,10 @@ namespace OloEngine
         // Non-per-sample MSAA drew straight into the resolved FBO, so no resolve.
         // Resolve() mutates, but we borrow the G-Buffer as a const ref — take a
         // non-const Ref copy (cheap refcount bump) to call it.
+        if (perSampleMSAA)
         {
-            Ref<GBuffer> writeTarget = gbuffer;
-            // Content version (issue #1329), taken before the resolve and
-            // gated on there having been something to raster. An empty frame
-            // reaches here too, and bumping the version for it would make the
-            // capture record name this pass as the G-Buffer's last writer on a
-            // frame it wrote nothing — a diagnostic that misattributes is the
-            // failure mode the record exists to remove, not add.
-            if (instanceCount > 0u && frameClusterCount > 0u)
-                writeTarget->MarkWritten("VirtualGeometryPass");
-            if (perSampleMSAA)
-                writeTarget->Resolve();
+            Ref<GBuffer> resolveTarget = gbuffer;
+            resolveTarget->Resolve();
         }
 
         // Re-export the scene/G-Buffer textures so lighting / GTAO / SSR / TAA

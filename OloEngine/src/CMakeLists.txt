@@ -284,18 +284,6 @@
 		"OloEngine/Groom/GroomLod.cpp"
 		"OloEngine/Groom/GroomLodBuilder.h"
 		"OloEngine/Groom/GroomLodBuilder.cpp"
-		# The per-(asset, settings) strand geometry, lifted out of
-		# GroomRenderPass so ShadowRenderPass can reach it too (#1323). NOT
-		# GPU-free, unlike the rest of Groom/ above: it owns the vertex, index
-		# and 3D-texture objects, which is precisely why it had to become a
-		# thing of its own rather than stay private to a pass.
-		"OloEngine/Groom/GroomStrandCache.h"
-		"OloEngine/Groom/GroomStrandCache.cpp"
-		# The light-space one-texel width floor (#1323), CPU twin of
-		# include/GroomShadowWidening.glsl. Header-only, no renderer headers, so
-		# the claim "a 70 um hair is far below a cascade texel" is assertable in
-		# CI on a machine with no GPU.
-		"OloEngine/Groom/GroomShadowWidening.h"
 		# Build pipeline
 		"OloEngine/Build/GameBuildSettings.h"
 		"OloEngine/Build/GameBuildSettings.cpp"
@@ -457,6 +445,8 @@
 		"OloEngine/Core/FilesystemUtils.h"
 		"OloEngine/Core/FramePacer.cpp"
 		"OloEngine/Core/FramePacer.h"
+		"OloEngine/Core/FrameTimeTail.cpp"
+		"OloEngine/Core/FrameTimeTail.h"
 		"OloEngine/Core/IInputProvider.h"
 		"OloEngine/Core/Input.h"
 		"OloEngine/Core/InputAction.h"
@@ -1050,8 +1040,6 @@
 		"OloEngine/Renderer/Debug/DebugUtils.cpp"
 		"OloEngine/Renderer/Debug/GLStateGuard.h"
 		"OloEngine/Renderer/Debug/GLStateGuard.cpp"
-		"OloEngine/Renderer/Debug/DebugViewProvenance.h"
-		"OloEngine/Renderer/Debug/DebugViewProvenance.cpp"
 		"OloEngine/Renderer/Debug/StateGuardBackend.h"
 		"OloEngine/Renderer/Debug/RendererValidate.h"
 		"OloEngine/Renderer/Debug/RendererValidate.cpp"
@@ -1119,8 +1107,6 @@
 		"OloEngine/Renderer/Passes/ForwardOverlayRenderPass.cpp"
 		"OloEngine/Renderer/Passes/GPUDrivenOcclusionPass.h"
 		"OloEngine/Renderer/Passes/GPUDrivenOcclusionPass.cpp"
-		"OloEngine/Renderer/Passes/GBufferDebugPass.h"
-		"OloEngine/Renderer/Passes/GBufferDebugPass.cpp"
 		"OloEngine/Renderer/Passes/PlanarReflectionRenderPass.h"
 		"OloEngine/Renderer/Passes/PlanarReflectionRenderPass.cpp"
 		"OloEngine/Renderer/Passes/WaterRenderPass.h"
@@ -1439,6 +1425,8 @@
 		"OloEngine/Tilemap/TilemapColliderBuilder.h"
 		"OloEngine/Tilemap/TilemapColliderBuilder.cpp"
 
+		"OloEngine/Scene/AnimalScheduler.cpp"
+		"OloEngine/Scene/AnimalScheduler.h"
 		"OloEngine/Scene/Components.h"
 		"OloEngine/Scene/TransformComponent.cpp"
 		"OloEngine/Scene/Entity.cpp"

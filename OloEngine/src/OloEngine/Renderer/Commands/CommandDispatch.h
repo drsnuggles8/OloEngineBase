@@ -63,19 +63,6 @@ namespace OloEngine
         // Tell the redundant-bind cache that `slot` was clobbered by a raw glBindTextureUnit
         // outside this dispatcher, so the next tracked bind for that slot actually happens.
         static void InvalidateTextureSlot(u32 slot);
-
-        // The frame's shadow inputs — the CSM array, the local-light atlas,
-        // their comparison-off raw views for the PCSS blocker search, and the
-        // Virtual Shadow Map's sampling publish — for a pass that draws OUTSIDE
-        // the command queue (issue #1323).
-        //
-        // EXPOSED RATHER THAN RE-IMPLEMENTED. The four units carry a specific
-        // sampler state and a specific typed null kind, and every site that
-        // stages a shadow-map offset has to agree about both or whichever pass
-        // ran last silently wins (issue #691). GroomRenderPass is the first
-        // consumer that is a render-graph node rather than a queued draw, and a
-        // second copy of these binds is exactly the drift this comment is about.
-        static void BindSceneShadowTextures();
         static void SetDepthPrepassActive(bool active);
         static void SetDepthPrepassColorPassActive(bool active);
         // Overdraw debug view (#519): when active, ApplyPODRenderState forces

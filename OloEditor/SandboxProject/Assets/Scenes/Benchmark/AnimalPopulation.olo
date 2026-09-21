@@ -1,0 +1,2561 @@
+Scene: AnimalPopulation
+# MIXED-DISTANCE ANIMAL POPULATION (issue #1258).
+#
+# GENERATED — edit OloEngine/tests/scripts/generate_animal_population_scene.py,
+# never this file.
+#
+# What this scene is for: it is the first scene in the repository that puts
+# many simultaneously groomed, LOD-enabled, independently moving animals in
+# one frame. #1239's AnimalShortCoat / AnimalLongCoat fixtures are single
+# subjects and are deliberately frozen as limitation baselines, so neither
+# can exercise a population budget.
+#
+# The population, per criterion 1:
+#   1 close-up HERO        long coat, full strand budget, hand-posed (no path)
+#   4 FEATURED animals    long coat, mid distance
+#   36 BACKGROUND animals  alternating short and long coats, receding
+#
+# Every animal carries an AnimalPathComponent whose position is a CLOSED
+# FORM of elapsed time, so the population is in the same place at the same
+# simulated time whatever the frame rate. The paths are LISSAJOUS FIGURES
+# and not circles, deliberately: a herd on circles holds every animal at a
+# constant distance from the camera, so the distance ladders never move and
+# the budget is never exercised — the scene would look busy and measure
+# nothing.
+#
+# The HERO has no path. A hero is hand-placed by definition; giving it one
+# would make its apparent size a function of the clock and the hero-quality
+# assertions unrepeatable.
+#
+# The herd is sized (36 background animals) so the default High-tier
+# budget is genuinely over-subscribed. A population that fits exercises
+# nothing, and one that cannot be served at any step exercises only the
+# refusal path.
+#
+# Seed: 1258. Every placement, phase and rate below comes from it through
+# the fixed LCG in the generator — not Python's `random`, whose stream is an
+# interpreter implementation detail.
+#
+# KNOWN LIMITATION, STATED RATHER THAN HIDDEN. The grooms here are drawn at
+# each animal's own transform, NOT bound to the fox body: there is no cooked
+# GroomBindingComponent binding for the Fox rig, and building one is #1249's
+# surface rather than #1258's. The Fox is authored in centimetres and placed
+# at a scale of ~0.012, so each coat renders as a small blob at the animal's
+# origin instead of sitting on its back.
+#
+# That does not affect what this scene is FOR. The budget is measured on the
+# work each animal submits — strand counts, guide counts, bone counts — and
+# the editor log shows the scheduler assigning different strides (1, 2, 3, 4)
+# across this population, which is the whole point. But this is a SCHEDULING
+# fixture, not a finished groomed herd, and it should not be cited as one.
+# The budget's visual evidence lives in
+# OloEngine/tests/Rendering/PropertyTests/AnimalBudgetVisualEvidenceTest.cpp,
+# whose grooms are correctly scaled.
+Entities:
+  # ── Camera (scene camera; capture manifests pose the EDITOR camera) ──
+  - Entity: 1258000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 1.6, 9]
+      Rotation: [-0.06, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.7854
+        PerspectiveNear: 0.05
+        PerspectiveFar: 400
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  # ── Key light: raking enough to read a coat silhouette at distance ──
+  - Entity: 1258000000000002
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.5, -0.55, -0.67]
+      Color: [1, 0.95, 0.86]
+      Intensity: 5
+      CastShadows: true
+      ShadowDepthBiasTexels: 2
+      ShadowNormalBias: 0.01
+      MaxShadowDistance: 220
+      CascadeSplitLambda: 0.9
+      CascadeDebugVisualization: false
+  # ── THE HERO: close-up, full coat, protected by the budget ──
+  - Entity: 1258000000000003
+    TagComponent:
+      Tag: Hero
+    TransformComponent:
+      Translation: [0, 0, 5.6]
+      Rotation: [0, 3.1416, 0]
+      Scale: [0.014, 0.014, 0.014]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936287
+      RenderStrands: true
+      MaxRenderStrands: 60000
+      WidthScale: 1
+      StrandColor: [0.58, 0.44, 0.31]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.06
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 0
+      Enabled: true
+  # ── Featured animals: mid distance, long coats ──
+  - Entity: 1258000000000004
+    TagComponent:
+      Tag: Featured 0
+    TransformComponent:
+      Translation: [6, 0, -2]
+      Rotation: [0, 4.5466, 0]
+      Scale: [0.012, 0.012, 0.012]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936287
+      RenderStrands: true
+      MaxRenderStrands: 24000
+      WidthScale: 1
+      StrandColor: [0.54, 0.41, 0.29]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0592
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 1
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 3.5476
+      RadiusZ: 2.5861
+      RateX: 0.3078
+      RateZ: 0.3033
+      PhaseX: 3.6965
+      PhaseZ: 1.0082
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000005
+    TagComponent:
+      Tag: Featured 1
+    TransformComponent:
+      Translation: [0, 0, 2]
+      Rotation: [0, 2.962, 0]
+      Scale: [0.012, 0.012, 0.012]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936287
+      RenderStrands: true
+      MaxRenderStrands: 24000
+      WidthScale: 1
+      StrandColor: [0.54, 0.41, 0.29]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0826
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 1
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 4.7508
+      RadiusZ: 2.5782
+      RateX: 0.2608
+      RateZ: 0.3098
+      PhaseX: 1.5187
+      PhaseZ: 5.4195
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000006
+    TagComponent:
+      Tag: Featured 2
+    TransformComponent:
+      Translation: [-6, 0, -2]
+      Rotation: [0, 2.3608, 0]
+      Scale: [0.012, 0.012, 0.012]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936287
+      RenderStrands: true
+      MaxRenderStrands: 24000
+      WidthScale: 1
+      StrandColor: [0.54, 0.41, 0.29]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0617
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 1
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 3.0089
+      RadiusZ: 2.5371
+      RateX: 0.326
+      RateZ: 0.3777
+      PhaseX: 3.4748
+      PhaseZ: 2.8753
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000007
+    TagComponent:
+      Tag: Featured 3
+    TransformComponent:
+      Translation: [0, 0, -6]
+      Rotation: [0, 4.3904, 0]
+      Scale: [0.012, 0.012, 0.012]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936287
+      RenderStrands: true
+      MaxRenderStrands: 24000
+      WidthScale: 1
+      StrandColor: [0.54, 0.41, 0.29]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0432
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 1
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 5.8108
+      RadiusZ: 3.482
+      RateX: 0.2197
+      RateZ: 0.4067
+      PhaseX: 3.4472
+      PhaseZ: 1.0431
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  # ── The herd: alternating short and long coats, receding ──
+  - Entity: 1258000000000008
+    TagComponent:
+      Tag: Herd 0
+    TransformComponent:
+      Translation: [-14.6711, 0, -8]
+      Rotation: [0, 1.3732, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936285
+      RenderStrands: true
+      MaxRenderStrands: 4000
+      WidthScale: 1
+      StrandColor: [0.62, 0.47, 0.33]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0921
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 8.436
+      RadiusZ: 4.2574
+      RateX: 0.205
+      RateZ: 0.2924
+      PhaseX: 5.5523
+      PhaseZ: 4.4735
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000009
+    TagComponent:
+      Tag: Herd 1
+    TransformComponent:
+      Translation: [-13.6357, 0, -9.9444]
+      Rotation: [0, 3.4733, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936287
+      RenderStrands: true
+      MaxRenderStrands: 24000
+      WidthScale: 1
+      StrandColor: [0.52, 0.4, 0.28]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0985
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 12.2875
+      RadiusZ: 3.3022
+      RateX: 0.272
+      RateZ: 0.5065
+      PhaseX: 0.0653
+      PhaseZ: 6.0293
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000010
+    TagComponent:
+      Tag: Herd 2
+    TransformComponent:
+      Translation: [-21.9861, 0, -11.8889]
+      Rotation: [0, 5.156, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936285
+      RenderStrands: true
+      MaxRenderStrands: 4000
+      WidthScale: 1
+      StrandColor: [0.62, 0.47, 0.33]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0547
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 11.489
+      RadiusZ: 5.1604
+      RateX: 0.3573
+      RateZ: 0.4335
+      PhaseX: 4.1957
+      PhaseZ: 2.3092
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000011
+    TagComponent:
+      Tag: Herd 3
+    TransformComponent:
+      Translation: [-21.5434, 0, -13.8333]
+      Rotation: [0, 0.5658, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936287
+      RenderStrands: true
+      MaxRenderStrands: 24000
+      WidthScale: 1
+      StrandColor: [0.52, 0.4, 0.28]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.078
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 9.9691
+      RadiusZ: 9.1242
+      RateX: 0.353
+      RateZ: 0.34
+      PhaseX: 2.9482
+      PhaseZ: 1.82
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000012
+    TagComponent:
+      Tag: Herd 4
+    TransformComponent:
+      Translation: [-12.5842, 0, -15.7778]
+      Rotation: [0, 0.0072, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936285
+      RenderStrands: true
+      MaxRenderStrands: 4000
+      WidthScale: 1
+      StrandColor: [0.62, 0.47, 0.33]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0699
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 12.3323
+      RadiusZ: 6.8831
+      RateX: 0.2121
+      RateZ: 0.2122
+      PhaseX: 0.3631
+      PhaseZ: 1.4314
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000013
+    TagComponent:
+      Tag: Herd 5
+    TransformComponent:
+      Translation: [-18.3981, 0, -17.7222]
+      Rotation: [0, 5.4819, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936287
+      RenderStrands: true
+      MaxRenderStrands: 24000
+      WidthScale: 1
+      StrandColor: [0.52, 0.4, 0.28]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0665
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 9.7904
+      RadiusZ: 9.124
+      RateX: 0.3171
+      RateZ: 0.4509
+      PhaseX: 2.2056
+      PhaseZ: 4.2129
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000014
+    TagComponent:
+      Tag: Herd 6
+    TransformComponent:
+      Translation: [19.6094, 0, -19.6667]
+      Rotation: [0, 2.0721, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936285
+      RenderStrands: true
+      MaxRenderStrands: 4000
+      WidthScale: 1
+      StrandColor: [0.62, 0.47, 0.33]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0575
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 13.3272
+      RadiusZ: 8.905
+      RateX: 0.2189
+      RateZ: 0.3405
+      PhaseX: 2.0345
+      PhaseZ: 0.2061
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000015
+    TagComponent:
+      Tag: Herd 7
+    TransformComponent:
+      Translation: [11.3368, 0, -21.6111]
+      Rotation: [0, 4.1108, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936287
+      RenderStrands: true
+      MaxRenderStrands: 24000
+      WidthScale: 1
+      StrandColor: [0.52, 0.4, 0.28]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0377
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 5.1283
+      RadiusZ: 5.6168
+      RateX: 0.2146
+      RateZ: 0.3848
+      PhaseX: 1.7075
+      PhaseZ: 3.3071
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000016
+    TagComponent:
+      Tag: Herd 8
+    TransformComponent:
+      Translation: [-17.634, 0, -23.5556]
+      Rotation: [0, 4.7417, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936285
+      RenderStrands: true
+      MaxRenderStrands: 4000
+      WidthScale: 1
+      StrandColor: [0.62, 0.47, 0.33]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0349
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 7.0653
+      RadiusZ: 3.372
+      RateX: 0.3551
+      RateZ: 0.3877
+      PhaseX: 0.5806
+      PhaseZ: 2.5326
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000017
+    TagComponent:
+      Tag: Herd 9
+    TransformComponent:
+      Translation: [-23.6432, 0, -25.5]
+      Rotation: [0, 0.0534, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936287
+      RenderStrands: true
+      MaxRenderStrands: 24000
+      WidthScale: 1
+      StrandColor: [0.52, 0.4, 0.28]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0586
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 8.7823
+      RadiusZ: 6.4048
+      RateX: 0.1483
+      RateZ: 0.2778
+      PhaseX: 4.2291
+      PhaseZ: 2.7115
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000018
+    TagComponent:
+      Tag: Herd 10
+    TransformComponent:
+      Translation: [12.9973, 0, -27.4444]
+      Rotation: [0, 2.7494, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936285
+      RenderStrands: true
+      MaxRenderStrands: 4000
+      WidthScale: 1
+      StrandColor: [0.62, 0.47, 0.33]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.097
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 6.861
+      RadiusZ: 5.6865
+      RateX: 0.3324
+      RateZ: 0.4835
+      PhaseX: 2.495
+      PhaseZ: 3.2661
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000019
+    TagComponent:
+      Tag: Herd 11
+    TransformComponent:
+      Translation: [-25.9779, 0, -29.3889]
+      Rotation: [0, 4.1447, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936287
+      RenderStrands: true
+      MaxRenderStrands: 24000
+      WidthScale: 1
+      StrandColor: [0.52, 0.4, 0.28]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0628
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 11.3361
+      RadiusZ: 6.0335
+      RateX: 0.1614
+      RateZ: 0.4067
+      PhaseX: 5.5763
+      PhaseZ: 4.8256
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000020
+    TagComponent:
+      Tag: Herd 12
+    TransformComponent:
+      Translation: [-10.603, 0, -31.3333]
+      Rotation: [0, 4.158, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936285
+      RenderStrands: true
+      MaxRenderStrands: 4000
+      WidthScale: 1
+      StrandColor: [0.62, 0.47, 0.33]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0819
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 4.3398
+      RadiusZ: 7.8619
+      RateX: 0.3779
+      RateZ: 0.4942
+      PhaseX: 3.1404
+      PhaseZ: 2.8218
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000021
+    TagComponent:
+      Tag: Herd 13
+    TransformComponent:
+      Translation: [-17.3698, 0, -33.2778]
+      Rotation: [0, 1.9639, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936287
+      RenderStrands: true
+      MaxRenderStrands: 24000
+      WidthScale: 1
+      StrandColor: [0.52, 0.4, 0.28]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0715
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 8.4059
+      RadiusZ: 8.7066
+      RateX: 0.2667
+      RateZ: 0.5363
+      PhaseX: 2.9241
+      PhaseZ: 3.5307
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000022
+    TagComponent:
+      Tag: Herd 14
+    TransformComponent:
+      Translation: [-2.9665, 0, -35.2222]
+      Rotation: [0, 2.7549, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936285
+      RenderStrands: true
+      MaxRenderStrands: 4000
+      WidthScale: 1
+      StrandColor: [0.62, 0.47, 0.33]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0987
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 10.9783
+      RadiusZ: 9.3496
+      RateX: 0.186
+      RateZ: 0.547
+      PhaseX: 3.9246
+      PhaseZ: 0.8029
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000023
+    TagComponent:
+      Tag: Herd 15
+    TransformComponent:
+      Translation: [24.8414, 0, -37.1667]
+      Rotation: [0, 1.6437, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936287
+      RenderStrands: true
+      MaxRenderStrands: 24000
+      WidthScale: 1
+      StrandColor: [0.52, 0.4, 0.28]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0684
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 10.1709
+      RadiusZ: 7.816
+      RateX: 0.293
+      RateZ: 0.4143
+      PhaseX: 2.0861
+      PhaseZ: 2.0157
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000024
+    TagComponent:
+      Tag: Herd 16
+    TransformComponent:
+      Translation: [2.9182, 0, -39.1111]
+      Rotation: [0, 3.1782, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936285
+      RenderStrands: true
+      MaxRenderStrands: 4000
+      WidthScale: 1
+      StrandColor: [0.62, 0.47, 0.33]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0429
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 4.3312
+      RadiusZ: 3.8278
+      RateX: 0.2717
+      RateZ: 0.2187
+      PhaseX: 4.461
+      PhaseZ: 0.5255
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000025
+    TagComponent:
+      Tag: Herd 17
+    TransformComponent:
+      Translation: [16.2707, 0, -41.0556]
+      Rotation: [0, 2.9617, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936287
+      RenderStrands: true
+      MaxRenderStrands: 24000
+      WidthScale: 1
+      StrandColor: [0.52, 0.4, 0.28]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0463
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 4.7924
+      RadiusZ: 6.2781
+      RateX: 0.2099
+      RateZ: 0.4928
+      PhaseX: 1.1273
+      PhaseZ: 0.4566
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000026
+    TagComponent:
+      Tag: Herd 18
+    TransformComponent:
+      Translation: [-25.6264, 0, -43]
+      Rotation: [0, 3.8568, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936285
+      RenderStrands: true
+      MaxRenderStrands: 4000
+      WidthScale: 1
+      StrandColor: [0.62, 0.47, 0.33]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0801
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 8.0063
+      RadiusZ: 5.7434
+      RateX: 0.2794
+      RateZ: 0.2218
+      PhaseX: 5.1676
+      PhaseZ: 2.718
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000027
+    TagComponent:
+      Tag: Herd 19
+    TransformComponent:
+      Translation: [0.7953, 0, -44.9444]
+      Rotation: [0, 1.2772, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936287
+      RenderStrands: true
+      MaxRenderStrands: 24000
+      WidthScale: 1
+      StrandColor: [0.52, 0.4, 0.28]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0811
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 5.9341
+      RadiusZ: 5.6621
+      RateX: 0.3951
+      RateZ: 0.3647
+      PhaseX: 6.2778
+      PhaseZ: 5.1575
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000028
+    TagComponent:
+      Tag: Herd 20
+    TransformComponent:
+      Translation: [-0.9913, 0, -46.8889]
+      Rotation: [0, 0.843, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936285
+      RenderStrands: true
+      MaxRenderStrands: 4000
+      WidthScale: 1
+      StrandColor: [0.62, 0.47, 0.33]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0465
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 10.3622
+      RadiusZ: 5.6647
+      RateX: 0.2003
+      RateZ: 0.2597
+      PhaseX: 1.8418
+      PhaseZ: 4.0324
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000029
+    TagComponent:
+      Tag: Herd 21
+    TransformComponent:
+      Translation: [7.8189, 0, -48.8333]
+      Rotation: [0, 1.1705, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936287
+      RenderStrands: true
+      MaxRenderStrands: 24000
+      WidthScale: 1
+      StrandColor: [0.52, 0.4, 0.28]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0385
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 4.2123
+      RadiusZ: 4.1262
+      RateX: 0.1578
+      RateZ: 0.4782
+      PhaseX: 5.5857
+      PhaseZ: 0.5452
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000030
+    TagComponent:
+      Tag: Herd 22
+    TransformComponent:
+      Translation: [-14.0789, 0, -50.7778]
+      Rotation: [0, 2.752, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936285
+      RenderStrands: true
+      MaxRenderStrands: 4000
+      WidthScale: 1
+      StrandColor: [0.62, 0.47, 0.33]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0382
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 8.5098
+      RadiusZ: 6.6649
+      RateX: 0.3745
+      RateZ: 0.2297
+      PhaseX: 4.7331
+      PhaseZ: 3.3478
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000031
+    TagComponent:
+      Tag: Herd 23
+    TransformComponent:
+      Translation: [-21.1687, 0, -52.7222]
+      Rotation: [0, 5.3614, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936287
+      RenderStrands: true
+      MaxRenderStrands: 24000
+      WidthScale: 1
+      StrandColor: [0.52, 0.4, 0.28]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0881
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 8.6681
+      RadiusZ: 5.6476
+      RateX: 0.315
+      RateZ: 0.3958
+      PhaseX: 4.9271
+      PhaseZ: 2.6916
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000032
+    TagComponent:
+      Tag: Herd 24
+    TransformComponent:
+      Translation: [0.0399, 0, -54.6667]
+      Rotation: [0, 6.0151, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936285
+      RenderStrands: true
+      MaxRenderStrands: 4000
+      WidthScale: 1
+      StrandColor: [0.62, 0.47, 0.33]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0946
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 4.6423
+      RadiusZ: 7.4555
+      RateX: 0.1612
+      RateZ: 0.5004
+      PhaseX: 2.3036
+      PhaseZ: 0.5421
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000033
+    TagComponent:
+      Tag: Herd 25
+    TransformComponent:
+      Translation: [-16.6453, 0, -56.6111]
+      Rotation: [0, 5.3669, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936287
+      RenderStrands: true
+      MaxRenderStrands: 24000
+      WidthScale: 1
+      StrandColor: [0.52, 0.4, 0.28]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0739
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 7.8752
+      RadiusZ: 8.6057
+      RateX: 0.1682
+      RateZ: 0.5676
+      PhaseX: 3.9626
+      PhaseZ: 3.8209
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000034
+    TagComponent:
+      Tag: Herd 26
+    TransformComponent:
+      Translation: [-21.0483, 0, -58.5556]
+      Rotation: [0, 4.4166, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936285
+      RenderStrands: true
+      MaxRenderStrands: 4000
+      WidthScale: 1
+      StrandColor: [0.62, 0.47, 0.33]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0785
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 9.1066
+      RadiusZ: 8.7612
+      RateX: 0.346
+      RateZ: 0.5605
+      PhaseX: 3.1343
+      PhaseZ: 2.259
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000035
+    TagComponent:
+      Tag: Herd 27
+    TransformComponent:
+      Translation: [22.0301, 0, -60.5]
+      Rotation: [0, 6.1005, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936287
+      RenderStrands: true
+      MaxRenderStrands: 24000
+      WidthScale: 1
+      StrandColor: [0.52, 0.4, 0.28]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0925
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 6.7156
+      RadiusZ: 3.6711
+      RateX: 0.1409
+      RateZ: 0.5626
+      PhaseX: 1.8949
+      PhaseZ: 4.7342
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000036
+    TagComponent:
+      Tag: Herd 28
+    TransformComponent:
+      Translation: [-16.2457, 0, -62.4444]
+      Rotation: [0, 0.3941, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936285
+      RenderStrands: true
+      MaxRenderStrands: 4000
+      WidthScale: 1
+      StrandColor: [0.62, 0.47, 0.33]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0944
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 12.1046
+      RadiusZ: 8.9107
+      RateX: 0.3806
+      RateZ: 0.4484
+      PhaseX: 0.879
+      PhaseZ: 1.9346
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000037
+    TagComponent:
+      Tag: Herd 29
+    TransformComponent:
+      Translation: [-0.5879, 0, -64.3889]
+      Rotation: [0, 1.6626, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936287
+      RenderStrands: true
+      MaxRenderStrands: 24000
+      WidthScale: 1
+      StrandColor: [0.52, 0.4, 0.28]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.055
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 4.787
+      RadiusZ: 6.825
+      RateX: 0.2358
+      RateZ: 0.5713
+      PhaseX: 1.9817
+      PhaseZ: 1.3642
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000038
+    TagComponent:
+      Tag: Herd 30
+    TransformComponent:
+      Translation: [15.7261, 0, -66.3333]
+      Rotation: [0, 1.6659, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936285
+      RenderStrands: true
+      MaxRenderStrands: 4000
+      WidthScale: 1
+      StrandColor: [0.62, 0.47, 0.33]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.095
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 11.5821
+      RadiusZ: 9.7517
+      RateX: 0.2384
+      RateZ: 0.503
+      PhaseX: 2.6086
+      PhaseZ: 0.4077
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000039
+    TagComponent:
+      Tag: Herd 31
+    TransformComponent:
+      Translation: [5.2637, 0, -68.2778]
+      Rotation: [0, 5.2747, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936287
+      RenderStrands: true
+      MaxRenderStrands: 24000
+      WidthScale: 1
+      StrandColor: [0.52, 0.4, 0.28]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0482
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 11.4758
+      RadiusZ: 8.3944
+      RateX: 0.1555
+      RateZ: 0.2929
+      PhaseX: 4.482
+      PhaseZ: 1.3577
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000040
+    TagComponent:
+      Tag: Herd 32
+    TransformComponent:
+      Translation: [8.1149, 0, -70.2222]
+      Rotation: [0, 4.8415, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936285
+      RenderStrands: true
+      MaxRenderStrands: 4000
+      WidthScale: 1
+      StrandColor: [0.62, 0.47, 0.33]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0464
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 11.8684
+      RadiusZ: 9.2128
+      RateX: 0.3804
+      RateZ: 0.468
+      PhaseX: 5.0254
+      PhaseZ: 2.2396
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000041
+    TagComponent:
+      Tag: Herd 33
+    TransformComponent:
+      Translation: [5.0219, 0, -72.1667]
+      Rotation: [0, 3.6413, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936287
+      RenderStrands: true
+      MaxRenderStrands: 24000
+      WidthScale: 1
+      StrandColor: [0.52, 0.4, 0.28]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0989
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 11.5701
+      RadiusZ: 5.9138
+      RateX: 0.2635
+      RateZ: 0.488
+      PhaseX: 2.213
+      PhaseZ: 3.2746
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000042
+    TagComponent:
+      Tag: Herd 34
+    TransformComponent:
+      Translation: [-21.5969, 0, -74.1111]
+      Rotation: [0, 2.3112, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936285
+      RenderStrands: true
+      MaxRenderStrands: 4000
+      WidthScale: 1
+      StrandColor: [0.62, 0.47, 0.33]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0785
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 4.0832
+      RadiusZ: 5.0794
+      RateX: 0.3636
+      RateZ: 0.3393
+      PhaseX: 6.2784
+      PhaseZ: 4.7477
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  - Entity: 1258000000000043
+    TagComponent:
+      Tag: Herd 35
+    TransformComponent:
+      Translation: [11.889, 0, -76.0556]
+      Rotation: [0, 4.1373, 0]
+      Scale: [0.011, 0.011, 0.011]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 1
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+    SkeletonComponent:
+      {}
+    GroomComponent:
+      Groom: 15952688685437936287
+      RenderStrands: true
+      MaxRenderStrands: 24000
+      WidthScale: 1
+      StrandColor: [0.52, 0.4, 0.28]
+      ShowPreview: false
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0666
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    AnimalPathComponent:
+      RadiusX: 9.5146
+      RadiusZ: 8.5994
+      RateX: 0.3408
+      RateZ: 0.457
+      PhaseX: 5.8618
+      PhaseZ: 4.9886
+      OriginX: 0
+      OriginY: 0
+      OriginZ: 0
+      ElapsedSeconds: 0
+      HasOrigin: false
+      FaceAlongMotion: true
+      Enabled: true
+  # ── Ground: matte earth ──
+  - Entity: 1258000000000044
+    TagComponent:
+      Tag: Ground
+    TransformComponent:
+      Translation: [0, -0.02, 0]
+      Rotation: [0, 0, 0]
+      Scale: [240, 0.04, 240]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.24, 0.26, 0.18]
+      Metallic: 0
+      Roughness: 0.92
+PostProcessSettings:
+  Tonemapping: 2
+  Exposure: 1
+  BloomEnabled: true
+  BloomIntensity: 0.25
+  SSAOEnabled: true
+  FXAAEnabled: false

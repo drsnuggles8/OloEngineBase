@@ -63,6 +63,42 @@ if (entity.HasComponent<AircraftComponent>())
     out << YAML::EndMap; // AircraftComponent
 }
 
+if (entity.HasComponent<AnimalBudgetComponent>())
+{
+    out << YAML::Key << "AnimalBudgetComponent";
+    out << YAML::BeginMap; // AnimalBudgetComponent
+    auto const& comp = entity.GetComponent<AnimalBudgetComponent>();
+    out << YAML::Key << "FullRateMotionMetres" << YAML::Value << comp.m_FullRateMotionMetres;
+    out << YAML::Key << "MaxDeformationSteps" << YAML::Value << comp.m_MaxDeformationSteps;
+    out << YAML::Key << "MaxSimulationSteps" << YAML::Value << comp.m_MaxSimulationSteps;
+    out << YAML::Key << "MaxVisibilitySteps" << YAML::Value << comp.m_MaxVisibilitySteps;
+    out << YAML::Key << "MaxShadowSteps" << YAML::Value << comp.m_MaxShadowSteps;
+    out << YAML::Key << "Role" << YAML::Value << static_cast<u32>(comp.m_Role);
+    out << YAML::Key << "Enabled" << YAML::Value << comp.m_Enabled;
+    out << YAML::EndMap; // AnimalBudgetComponent
+}
+
+if (entity.HasComponent<AnimalPathComponent>())
+{
+    out << YAML::Key << "AnimalPathComponent";
+    out << YAML::BeginMap; // AnimalPathComponent
+    auto const& comp = entity.GetComponent<AnimalPathComponent>();
+    out << YAML::Key << "RadiusX" << YAML::Value << comp.m_RadiusX;
+    out << YAML::Key << "RadiusZ" << YAML::Value << comp.m_RadiusZ;
+    out << YAML::Key << "RateX" << YAML::Value << comp.m_RateX;
+    out << YAML::Key << "RateZ" << YAML::Value << comp.m_RateZ;
+    out << YAML::Key << "PhaseX" << YAML::Value << comp.m_PhaseX;
+    out << YAML::Key << "PhaseZ" << YAML::Value << comp.m_PhaseZ;
+    out << YAML::Key << "OriginX" << YAML::Value << comp.m_OriginX;
+    out << YAML::Key << "OriginY" << YAML::Value << comp.m_OriginY;
+    out << YAML::Key << "OriginZ" << YAML::Value << comp.m_OriginZ;
+    out << YAML::Key << "ElapsedSeconds" << YAML::Value << comp.m_ElapsedSeconds;
+    out << YAML::Key << "HasOrigin" << YAML::Value << comp.m_HasOrigin;
+    out << YAML::Key << "FaceAlongMotion" << YAML::Value << comp.m_FaceAlongMotion;
+    out << YAML::Key << "Enabled" << YAML::Value << comp.m_Enabled;
+    out << YAML::EndMap; // AnimalPathComponent
+}
+
 if (entity.HasComponent<BoatComponent>())
 {
     out << YAML::Key << "BoatComponent";
@@ -563,17 +599,6 @@ if (entity.HasComponent<GroomLodComponent>())
     out << YAML::Key << "ShadowSteps" << YAML::Value << comp.m_ShadowSteps;
     out << YAML::Key << "Enabled" << YAML::Value << comp.m_Enabled;
     out << YAML::EndMap; // GroomLodComponent
-}
-
-if (entity.HasComponent<GroomSceneShadowComponent>())
-{
-    out << YAML::Key << "GroomSceneShadowComponent";
-    out << YAML::BeginMap; // GroomSceneShadowComponent
-    auto const& comp = entity.GetComponent<GroomSceneShadowComponent>();
-    out << YAML::Key << "ShadowWidthTexels" << YAML::Value << comp.m_ShadowWidthTexels;
-    out << YAML::Key << "CastShadows" << YAML::Value << comp.m_CastShadows;
-    out << YAML::Key << "ReceiveShadows" << YAML::Value << comp.m_ReceiveShadows;
-    out << YAML::EndMap; // GroomSceneShadowComponent
 }
 
 if (entity.HasComponent<GroomSimulationComponent>())

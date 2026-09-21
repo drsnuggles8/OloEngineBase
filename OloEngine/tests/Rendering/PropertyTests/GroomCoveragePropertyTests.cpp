@@ -33,7 +33,6 @@
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Groom/GroomCoverage.h"
 #include "OloEngine/Groom/GroomStrandMesh.h"
-#include "OloEngine/Groom/GroomStrandCache.h"
 #include "OloEngine/Renderer/Passes/GroomRenderPass.h"
 #include "OloEngine/Groom/GroomVisibility.h"
 
@@ -153,6 +152,8 @@ namespace
         Row StochasticSingleFrame;
         Row StochasticConverged; // 8 frames, TAA's effective history
         Row Oit;
+        TemporalStability OpaqueStability;
+        TemporalStability StochasticStability;
     };
 
     [[nodiscard]] CaseResult RunCase(const char* caseName, const GroomAsset& groom, const glm::mat4& model,
@@ -211,21 +212,21 @@ namespace
         PrintRow(result.Oit);
         Record(caseName, result.Oit);
 
-        // NO TEMPORAL STABILITY HERE. RunCase used to measure it for every
-        // case -- two eight-frame sweeps, so sixteen extra rasterisations of
-        // the case's coat -- and no assertion in this file ever read the
-        // result: it was printed and recorded, nothing more. The claim it
-        // looks like it is making is owned by
-        // GroomCoverageStability.StochasticNoiseIsTemporalAndCutoffErrorIsNot,
-        // which measures it on its own calibrated framing and asserts it, and
-        // that is the measurement the analysis doc's temporal table quotes.
-        //
-        // Worth 4.3 s of the near-silhouette case's 42.2 s locally (10%), not
-        // the bulk of it -- the reference coverage's 16x16 supersample is the
-        // dominant term and stays. Measured, because the guess was that it
-        // would be most of it: cost scales with the projected pixel FOOTPRINT,
-        // so the sixteen frames were most expensive exactly where they bought
-        // least, but the reference pays that footprint 256 times over.
+        result.OpaqueStability = MeasureTemporalStability(result.Segments, width, height,
+                                                          GroomCompositionMode::OpaqueRibbon, parameters, 8,
+                                                          result.Reference);
+        result.StochasticStability = MeasureTemporalStability(result.Segments, width, height,
+                                                              GroomCompositionMode::StochasticAlpha, parameters, 8,
+                                                              result.Reference);
+        std::printf("[groom-coverage] %-26s frame-to-frame delta %.5f (opaque) vs %.5f (stochastic); "
+                    "stochastic converges to mean|e| %.5f\n",
+                    "temporal", result.OpaqueStability.MeanFrameToFrameDelta,
+                    result.StochasticStability.MeanFrameToFrameDelta,
+                    result.StochasticStability.ConvergedMeanAbsolute);
+        ::testing::Test::RecordProperty(std::string(caseName) + "_stochastic_frame_delta",
+                                        std::format("{:.6f}", result.StochasticStability.MeanFrameToFrameDelta));
+        ::testing::Test::RecordProperty(std::string(caseName) + "_opaque_frame_delta",
+                                        std::format("{:.6f}", result.OpaqueStability.MeanFrameToFrameDelta));
         return result;
     }
 } // namespace
@@ -780,13 +781,13 @@ TEST(GroomStrandCacheKey, SeparatesDifferentSettingsAndIgnoresPadding)
         return request;
     };
 
-    const u64 base = GroomStrandCache::CacheKey(makeRequest(7u, 1000u, 50000u, false));
+    const u64 base = GroomRenderPass::CacheKey(makeRequest(7u, 1000u, 50000u, false));
 
     // Every field separates.
-    EXPECT_NE(base, GroomStrandCache::CacheKey(makeRequest(8u, 1000u, 50000u, false))) << "handle";
-    EXPECT_NE(base, GroomStrandCache::CacheKey(makeRequest(7u, 1001u, 50000u, false))) << "MaxStrands";
-    EXPECT_NE(base, GroomStrandCache::CacheKey(makeRequest(7u, 1000u, 50001u, false))) << "MaxSegments";
-    EXPECT_NE(base, GroomStrandCache::CacheKey(makeRequest(7u, 1000u, 50000u, true))) << "GuidesOnly";
+    EXPECT_NE(base, GroomRenderPass::CacheKey(makeRequest(8u, 1000u, 50000u, false))) << "handle";
+    EXPECT_NE(base, GroomRenderPass::CacheKey(makeRequest(7u, 1001u, 50000u, false))) << "MaxStrands";
+    EXPECT_NE(base, GroomRenderPass::CacheKey(makeRequest(7u, 1000u, 50001u, false))) << "MaxSegments";
+    EXPECT_NE(base, GroomRenderPass::CacheKey(makeRequest(7u, 1000u, 50000u, true))) << "GuidesOnly";
 
     // And identical settings agree, across independently constructed objects
     // whose padding bytes are whatever the stack happened to hold. Buffers of
@@ -801,7 +802,7 @@ TEST(GroomStrandCacheKey, SeparatesDifferentSettingsAndIgnoresPadding)
         dirty->Build.MaxStrands = 1000u;
         dirty->Build.MaxSegments = 50000u;
         dirty->Build.GuidesOnly = false;
-        EXPECT_EQ(GroomStrandCache::CacheKey(*dirty), base)
+        EXPECT_EQ(GroomRenderPass::CacheKey(*dirty), base)
             << "the key changed with the padding bytes (fill 0x" << std::hex << static_cast<int>(fill) << ")";
         std::destroy_at(dirty);
     }

@@ -10,6 +10,8 @@ void VisitComponentTypes(Visitor&& visitor)
 {
     visitor.template operator()<AbilityComponent, true>("AbilityComponent");
     visitor.template operator()<AircraftComponent, true>("AircraftComponent");
+    visitor.template operator()<AnimalBudgetComponent, true>("AnimalBudgetComponent");
+    visitor.template operator()<AnimalPathComponent, true>("AnimalPathComponent");
     visitor.template operator()<AnimationGraphComponent, true>("AnimationGraphComponent");
     visitor.template operator()<AnimationStateComponent, true>("AnimationStateComponent");
     visitor.template operator()<AudioListenerComponent, true>("AudioListenerComponent");
@@ -58,7 +60,6 @@ void VisitComponentTypes(Visitor&& visitor)
     visitor.template operator()<GroomComponent, true>("GroomComponent");
     visitor.template operator()<GroomFibreComponent, true>("GroomFibreComponent");
     visitor.template operator()<GroomLodComponent, true>("GroomLodComponent");
-    visitor.template operator()<GroomSceneShadowComponent, true>("GroomSceneShadowComponent");
     visitor.template operator()<GroomSimulationComponent, true>("GroomSimulationComponent");
     visitor.template operator()<IDComponent, false>("IDComponent");
     visitor.template operator()<IKTargetComponent, true>("IKTargetComponent");

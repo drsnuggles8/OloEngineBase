@@ -110,12 +110,6 @@ namespace
         "assets/shaders/InfiniteGrid_GBuffer.glsl",
         "assets/shaders/ShadowDepth.glsl",
         "assets/shaders/ShadowDepthSkinned.glsl",
-        // The groom caster family (#1323). Preloaded with the other depth
-        // shaders rather than created by the pass, because ShaderLibrary::Get
-        // is a non-const map operator[] — an item of a parallel shadow region
-        // must not call it, so ShadowRenderPass resolves it on the render
-        // thread from a library that already has it.
-        "assets/shaders/GroomStrandDepth.glsl",
         "assets/shaders/DepthPrepass.glsl",
         "assets/shaders/DepthPrepass_Skinned.glsl",
         "assets/shaders/DepthPrepass_Mask.glsl",

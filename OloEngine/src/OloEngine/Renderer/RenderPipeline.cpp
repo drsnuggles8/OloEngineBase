@@ -2023,17 +2023,6 @@ namespace OloEngine
                 deferred ? data.PostProcess.MaterialDebug : MaterialDebugView::None);
         }
 
-        // Wire the G-Buffer debug extraction (#1329). Its Setup declarations
-        // deliberately do NOT depend on the channel -- only Execute does -- so
-        // flipping the channel needs no graph rebuild and cannot cull the node.
-        if (SceneCompositePasses.GBufferDebug && FrameCorePasses.Scene)
-        {
-            const bool deferred = (data.Settings.Path == RenderingPath::Deferred);
-            SceneCompositePasses.GBufferDebug->SetGBuffer(deferred ? FrameCorePasses.Scene->GetGBuffer() : nullptr);
-            SceneCompositePasses.GBufferDebug->SetDebugChannel(deferred ? data.Settings.Deferred.DebugChannel : 0);
-            SceneCompositePasses.GBufferDebug->SetPerSampleLighting(deferred && data.Settings.Deferred.PerSampleLighting);
-        }
-
         // Wire the opaque-decal graph shim: in Deferred mode it drains the
         // DecalRenderPass bucket into the G-Buffer between ScenePass and
         // DeferredLightingPass. Safe to update unconditionally — the pass
@@ -2118,17 +2107,6 @@ namespace OloEngine
                 groomFrame.OITTargetsAvailable = oitEnabled;
                 RenderStreamPasses.Groom->SetFrameState(groomFrame);
                 RenderStreamPasses.Groom->SetRequests(Renderer3D::GetGroomStrandRequests());
-            }
-            // The shared cache's frame boundary (#1323): evict to budget, then
-            // advance the tick. ONCE per frame and HERE, before the graph
-            // executes, because two nodes now acquire from it — ShadowRenderPass
-            // first and GroomRenderPass second — and neither may own the
-            // boundary. Unconditional on the groom pass existing, so a frame
-            // that renders shadows with the strand pass culled still retires
-            // stale entries.
-            if (GroomCache)
-            {
-                GroomCache->BeginFrame();
             }
             if (SceneCompositePasses.Particle)
                 SceneCompositePasses.Particle->SetOITEnabled(oitEnabled);
@@ -3206,7 +3184,6 @@ namespace OloEngine
             HashU64(h, RHI::HashKey(ddgiPass.GetProbeDataTextureID()));
         }
         HashPassState(h, SceneCompositePasses.DeferredLighting);
-        HashPassState(h, SceneCompositePasses.GBufferDebug);
         HashPassState(h, SceneCompositePasses.DeferredOpaqueDecal);
         HashPassState(h, SceneCompositePasses.DeferredGPUOcclusion);
         HashPassState(h, SceneCompositePasses.SSAO);
@@ -5804,7 +5781,6 @@ namespace OloEngine
         inputs.Passes.SkeletalDeform = FrameCorePasses.SkeletalDeform.Raw();
         inputs.Passes.RayTracingScene = FrameCorePasses.RayTracingScene.Raw();
         inputs.Passes.DeferredLighting = SceneCompositePasses.DeferredLighting.Raw();
-        inputs.Passes.GBufferDebug = SceneCompositePasses.GBufferDebug.Raw();
         inputs.Passes.DeferredOpaqueDecal = SceneCompositePasses.DeferredOpaqueDecal.Raw();
         inputs.Passes.DeferredGPUOcclusion = SceneCompositePasses.DeferredGPUOcclusion.Raw();
         inputs.Passes.PlanarReflection = SceneCompositePasses.PlanarReflection.Raw();
@@ -5869,22 +5845,10 @@ namespace OloEngine
                                                        const FramebufferSpecification& finalPassSpec)
     {
         // Shadow pass (renders before scene, doesn't need scene framebuffer dimensions)
-        // The shared strand-geometry cache (#1323), created BEFORE the shadow
-        // pass because that pass is its first consumer of the frame. It is
-        // owned by the pipeline and pointed at by both groom consumers: the
-        // shadow map is rasterised before GroomRenderPass runs, so a groom
-        // caster's buffers have to exist by then, and a cache private to either
-        // pass is one the other could never see. See Groom/GroomStrandCache.h.
-        if (!GroomCache)
-        {
-            GroomCache = Ref<GroomStrandCache>::Create();
-        }
-
         FrameCorePasses.Shadow = Ref<ShadowRenderPass>::Create();
         FrameCorePasses.Shadow->SetName("ShadowPass");
         FrameCorePasses.Shadow->Init(shadowPassSpec);
         FrameCorePasses.Shadow->SetShadowMap(&data.Shadow);
-        FrameCorePasses.Shadow->SetGroomCache(GroomCache.Raw());
 
         // Virtual Shadow Map page marking (#702). Registered late in the graph
         // (see RegisterSceneAndLightingNodes) because it needs the finished scene
@@ -5939,14 +5903,6 @@ namespace OloEngine
         // the G-Buffer between ScenePass and DeferredLightingPass (was
         // previously a synchronous call inside SceneRenderPass::Execute,
         // now a proper graph node with declared resource edges).
-        // G-Buffer debug extraction (#1329). Runs after every late G-Buffer
-        // writer and immediately before DeferredLightingPass, which early-outs
-        // while a debug channel is selected -- so this pass's blit is what the
-        // viewport shows.
-        SceneCompositePasses.GBufferDebug = Ref<GBufferDebugPass>::Create();
-        SceneCompositePasses.GBufferDebug->SetName("GBufferDebugPass");
-        SceneCompositePasses.GBufferDebug->Init(scenePassSpec);
-
         SceneCompositePasses.DeferredOpaqueDecal = Ref<DeferredOpaqueDecalPass>::Create();
         SceneCompositePasses.DeferredOpaqueDecal->SetName("DeferredOpaqueDecalPass");
         SceneCompositePasses.DeferredOpaqueDecal->Init(scenePassSpec);
@@ -5999,7 +5955,6 @@ namespace OloEngine
         RenderStreamPasses.Groom = Ref<GroomRenderPass>::Create();
         RenderStreamPasses.Groom->SetName("GroomPass");
         RenderStreamPasses.Groom->Init(finalPassSpec);
-        RenderStreamPasses.Groom->SetStrandCache(GroomCache.Raw());
 
         RenderStreamPasses.Water = Ref<WaterRenderPass>::Create();
         RenderStreamPasses.Water->SetName("WaterPass");

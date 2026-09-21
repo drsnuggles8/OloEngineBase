@@ -2,6 +2,7 @@
 #include <gtest/gtest.h>
 
 #include "OloEngine/Renderer/QualityTiering.h"
+#include "OloEngine/Renderer/RenderingPath.h" // RendererSettings, for the tier-to-renderer copy below
 
 using namespace OloEngine; // NOLINT(google-build-using-namespace) — test file
 
@@ -140,4 +141,58 @@ TEST(QualityTiering, UnknownStringDefaultsToHigh)
 {
     EXPECT_EQ(QualityPresetFromString("garbage"), QualityPreset::High);
     EXPECT_EQ(QualityPresetFromString(""), QualityPreset::High);
+}
+
+// =============================================================================
+// Multi-animal scheduling budget across tiers (issue #1258, criterion 4)
+// =============================================================================
+
+TEST(QualityTiering, TheAnimalFrameBudgetIsOrderedByTier)
+{
+    // A TIER IS A BUDGET HERE, NOT A FEATURE SWITCH, and the ordering is what
+    // makes "tested across quality tiers" mean anything: the same population
+    // is scheduled against a different allowance on each tier, so the tiers
+    // differ by how much work the herd may spend rather than by something
+    // being turned off. A flat ladder would make every per-tier capture the
+    // same picture.
+    const auto low = GetPresetSettings(QualityPreset::Low);
+    const auto med = GetPresetSettings(QualityPreset::Medium);
+    const auto high = GetPresetSettings(QualityPreset::High);
+    const auto ultra = GetPresetSettings(QualityPreset::Ultra);
+
+    EXPECT_LT(low.AnimalFrameBudgetUnits, med.AnimalFrameBudgetUnits);
+    EXPECT_LT(med.AnimalFrameBudgetUnits, high.AnimalFrameBudgetUnits);
+    EXPECT_LT(high.AnimalFrameBudgetUnits, ultra.AnimalFrameBudgetUnits);
+}
+
+TEST(QualityTiering, SchedulingIsOnAtEveryTierIncludingLow)
+{
+    // NOT the DDGI rule, and the difference is worth stating. Realtime GI is a
+    // whole feature to shed, so Low turns it off. The population budget is the
+    // opposite kind of knob: it is what makes a herd affordable at all, so the
+    // weakest tier is the one that needs it MOST. Turning it off on Low would
+    // run every animal at full rate on the machine least able to.
+    for (const auto preset :
+         { QualityPreset::Low, QualityPreset::Medium, QualityPreset::High, QualityPreset::Ultra })
+    {
+        EXPECT_TRUE(GetPresetSettings(preset).AnimalSchedulingEnabled)
+            << QualityPresetToString(preset) << " leaves the population unbudgeted";
+    }
+}
+
+TEST(QualityTiering, TheAnimalBudgetReachesRendererSettings)
+{
+    // ApplyTieringToRendererSettings is a hand-written field-by-field copy, so
+    // a field added to the tier struct and not to that function is a slider
+    // that does nothing — silently, and only for the fields nobody checked.
+    // Same failure the DDGI knobs above are guarded against.
+    RendererSettings renderer;
+    ApplyTieringToRendererSettings(GetPresetSettings(QualityPreset::Ultra), renderer);
+    EXPECT_FLOAT_EQ(renderer.AnimalFrameBudgetUnits,
+                    GetPresetSettings(QualityPreset::Ultra).AnimalFrameBudgetUnits);
+    EXPECT_TRUE(renderer.AnimalSchedulingEnabled);
+
+    ApplyTieringToRendererSettings(GetPresetSettings(QualityPreset::Low), renderer);
+    EXPECT_FLOAT_EQ(renderer.AnimalFrameBudgetUnits,
+                    GetPresetSettings(QualityPreset::Low).AnimalFrameBudgetUnits);
 }

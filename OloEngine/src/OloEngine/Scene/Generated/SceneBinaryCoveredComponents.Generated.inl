@@ -6,6 +6,8 @@
 // (std::unordered_set<entt::id_type>&) is in scope.
 
 ids.insert(entt::type_hash<AircraftComponent>::value());
+ids.insert(entt::type_hash<AnimalBudgetComponent>::value());
+ids.insert(entt::type_hash<AnimalPathComponent>::value());
 ids.insert(entt::type_hash<BoatComponent>::value());
 ids.insert(entt::type_hash<BoidComponent>::value());
 ids.insert(entt::type_hash<BoidObstacleComponent>::value());
@@ -35,7 +37,6 @@ ids.insert(entt::type_hash<GroomCoatShadowComponent>::value());
 ids.insert(entt::type_hash<GroomComponent>::value());
 ids.insert(entt::type_hash<GroomFibreComponent>::value());
 ids.insert(entt::type_hash<GroomLodComponent>::value());
-ids.insert(entt::type_hash<GroomSceneShadowComponent>::value());
 ids.insert(entt::type_hash<GroomSimulationComponent>::value());
 ids.insert(entt::type_hash<InstancePortalComponent>::value());
 ids.insert(entt::type_hash<LocalizedTextComponent>::value());

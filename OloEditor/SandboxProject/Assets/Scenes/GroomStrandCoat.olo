@@ -161,16 +161,6 @@ Entities:
       GuidesOnly: false
       RenderStrands: true
       CompositionMode: 1
-    # Scene-shadow routing, both directions (#1323). THIS is the entity the
-    # one-texel width floor is visible on: WidthScale 1 means the strands are
-    # a real 70 um, which is about a thousandth of a cascade texel -- so
-    # rasterised honestly this coat casts NOTHING, and the whole shadow you see
-    # under it is the floor doing its job. Drag Width Floor to 0 to watch it
-    # vanish.
-    GroomSceneShadowComponent:
-      ShadowWidthTexels: 1
-      CastShadows: true
-      ReceiveShadows: true
     GroomLodComponent:
       CardPixelSize: 220
       MeshPixelSize: 8
@@ -221,14 +211,6 @@ Entities:
       GuidesOnly: false
       RenderStrands: true
       CompositionMode: 1
-    # Scene-shadow routing (#1323). At WidthScale 25 these strands are already
-    # around a shadow texel across, so this coat casts with or without the
-    # floor -- it is the legible arm, and the HairCoat beside it is the one
-    # that says what the floor buys.
-    GroomSceneShadowComponent:
-      ShadowWidthTexels: 1
-      CastShadows: true
-      ReceiveShadows: true
     GroomLodComponent:
       CardPixelSize: 220
       MeshPixelSize: 8

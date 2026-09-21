@@ -16,6 +16,8 @@
 
 SAVE_COMPONENT(AbilityComponent, entity, writer);
 SAVE_COMPONENT(AircraftComponent, entity, writer);
+SAVE_COMPONENT(AnimalBudgetComponent, entity, writer);
+SAVE_COMPONENT(AnimalPathComponent, entity, writer);
 SAVE_COMPONENT(AnimationGraphComponent, entity, writer);
 SAVE_COMPONENT(AnimationStateComponent, entity, writer);
 SAVE_COMPONENT(AudioListenerComponent, entity, writer);
@@ -60,7 +62,6 @@ SAVE_COMPONENT(GroomCoatShadowComponent, entity, writer);
 SAVE_COMPONENT(GroomComponent, entity, writer);
 SAVE_COMPONENT(GroomFibreComponent, entity, writer);
 SAVE_COMPONENT(GroomLodComponent, entity, writer);
-SAVE_COMPONENT(GroomSceneShadowComponent, entity, writer);
 SAVE_COMPONENT(GroomSimulationComponent, entity, writer);
 SAVE_COMPONENT(IDComponent, entity, writer);
 SAVE_COMPONENT(IKTargetComponent, entity, writer);

@@ -328,6 +328,12 @@ TEST(SystemSchedulerTest, GameplayScheduleMatchesCanonicalOrder)
         // into WaterDisturbanceSystem's process-wide splat queue.
         "BoatWake",
         "BoidMovement",
+        // Animal paths (issue #1258): a transform WRITER with the same
+        // resource profile as BoidMovement, registered immediately after it,
+        // so the registration-order tie-break lands it here. Unmarked — a
+        // closed-form sine per animal is not worth the thread-safety audit and
+        // the EnTT storage pre-warm that Parallelizable() requires.
+        "AnimalPaths",
         // Camera rig (issue #645) is registered dead last: it must see the
         // target's FINAL pose for the tick, so it sits behind the physics
         // fence, the world-matrix compose, and every post-propagate transform

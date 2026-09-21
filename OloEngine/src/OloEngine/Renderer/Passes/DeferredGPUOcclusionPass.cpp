@@ -161,11 +161,6 @@ namespace OloEngine
 
             targetFB->Unbind();
 
-            // Content version (issue #1329) — the disoccluded statics are a
-            // late G-Buffer write, so anything extracting the attachments has
-            // to come after this.
-            m_GBuffer->MarkWritten("DeferredGPUOcclusionPass");
-
             // Per-sample MSAA drew into the multisample FBO — resolve so the
             // single-sample export copies below (and AO / SSR) see the phase-2
             // texels. Non-per-sample drew straight into the resolved FBO, so no

@@ -1,0 +1,237 @@
+# Mixed-distance animal population — diagnostic capture (issue #1258).
+#
+# WHAT THIS CAPTURES THAT #1239'S FIXTURES CANNOT. animal-short-coat and
+# animal-long-coat are SINGLE SUBJECTS, and they are deliberately frozen as
+# limitation baselines. Neither can show what happens when forty groomed,
+# LOD-enabled animals ask for full rate at once — which is the only condition
+# under which a population budget does anything at all.
+#
+# THIS IS NOT ONE OF THE FIVE REFERENCE FIXTURES, and it does not claim to be.
+# It declares its own camera set rather than the four standard sequences,
+# because the sequences that matter here are by DEPTH: the budget's behaviour
+# is a function of how the population is spread through the frame, and a
+# frontal/grazing/backlit trio of one subject does not vary that.
+#
+# The cameras are chosen so each one puts a DIFFERENT mix of the population in
+# frame:
+#   herd-wide   — the whole depth range at once; the budget's normal case
+#   hero-closeup — the hero filling the frame with the herd behind it; the
+#                  shot the "preserve hero quality" criterion is about
+#   far-herd    — only the distant half, where the strand floor and the card
+#                 hand-over decide whether a coat is visible at all
+#   moving      — the camera travelling through the herd, so animals cross the
+#                 distance thresholds during the capture. THE ONLY sequence
+#                 that can show a hand-over, and therefore the only one where a
+#                 thrashing hysteresis would be visible.
+#
+# Camera convention (EditorCamera): YawDegrees 0 looks -Z, +90 looks +X;
+# positive PitchDegrees looks DOWN.
+ManifestVersion: 2
+Id: animal-population
+Product: diagnostic
+Scene: Scenes/Benchmark/AnimalPopulation.olo
+Description: >-
+  Forty-one groomed, independently moving animals spread through 80 m of depth,
+  with a close-up hero. The population #1258's budget is measured against.
+
+Backends:
+  # BOTH BACKENDS ARE CLAIMED BECAUSE BOTH WERE RUN, not because the scene is
+  # backend-agnostic in principle. The Vulkan capture was executed through
+  # `olo_benchmark_capture` against a live editor started with `--rhi=vulkan`
+  # (`[RHI] Backend: Vulkan (source: --rhi flag)` in the log): all four cameras,
+  # `attachmentFailures: 0`, 0 VUIDs.
+  Supported: [opengl, vulkan]
+  Features:
+    vulkan:
+      # DECLARED BECAUSE IT WAS MEASURED. That Vulkan run skipped LinearDepth on
+      # every one of the four cameras — the `Derive: linear-depth` transform has
+      # no Vulkan path — so an empty list here would be a claim the capture
+      # itself contradicts, and a reader counting attachments would take 8 of 9
+      # for a complete set.
+      UnsupportedAttachments: [LinearDepth]
+
+Cameras:
+  # 1) HERD-WIDE. The budget's normal case: the whole depth range in one frame,
+  #    so every rung of the distance ladder is occupied simultaneously. This is
+  #    the shot the cost census describes.
+  - Id: herd-wide
+    Position: [0.00, 3.40, 16.00]
+    YawDegrees: 0.0
+    PitchDegrees: 6.0
+    FovDegrees: 50.0
+    Near: 0.05
+    Far: 400.0
+  # 2) HERO CLOSE-UP. The hero fills the frame with the herd behind it — the
+  #    framing "preserve hero quality" is actually about, and the one where a
+  #    budget that softened the hero to fit the herd would be unmissable.
+  - Id: hero-closeup
+    Position: [0.00, 0.85, 7.20]
+    YawDegrees: 0.0
+    PitchDegrees: 3.0
+    FovDegrees: 35.0
+    Near: 0.05
+    Far: 400.0
+    WarmupFrames: 32
+  # 3) FAR HERD. Only the distant half. Where MinVisibleStrands and the card
+  #    hand-over decide whether a coat exists at all — and where an
+  #    "invisible distant coat" would show as bare geometry rather than as a
+  #    cheaper coat.
+  - Id: far-herd
+    Position: [0.00, 5.20, -22.00]
+    YawDegrees: 180.0
+    PitchDegrees: 8.0
+    FovDegrees: 50.0
+    Near: 0.05
+    Far: 400.0
+    WarmupFrames: 32
+  # 4) MOVING. The camera travels INTO the herd, so animals cross the ladder's
+  #    thresholds during the capture. The only sequence that can show a
+  #    representation hand-over, and therefore the only one in which a
+  #    thrashing hysteresis is visible rather than merely counted.
+  - Id: moving
+    Position: [0.00, 3.00, 22.00]
+    YawDegrees: 0.0
+    PitchDegrees: 5.0
+    FovDegrees: 50.0
+    Near: 0.05
+    Far: 400.0
+    WarmupFrames: 48
+    Motion:
+      VelocityPerSecond: [0.0, 0.0, -7.5]
+      YawRateDegreesPerSecond: 0.0
+      PitchRateDegreesPerSecond: 0.0
+
+Output:
+  Resolution: [1920, 1080]
+  RenderScale: 1.0
+
+RendererSettings:
+  # DEFERRED, and it is not a preference: the groom and animal sample scenes
+  # need the deferred path, and a forward capture of this scene is a different
+  # measurement rather than the same one cheaper.
+  Path: Deferred
+  EnableDDGI: false
+  TAAEnabled: true
+
+Exposure:
+  Mode: Manual
+  Exposure: 1.0
+
+Determinism:
+  Seed: 1258
+  StartTimeSeconds: 12.0
+  FixedDtSeconds: 0.016666666
+
+Warmup:
+  # 64 frames is a second of simulated time, which is what the POPULATION needs
+  # rather than what the renderer does: the budget's hold is four frames and its
+  # starvation bound is eight, so a capture taken before both have had room to
+  # act would photograph a transient and call it the steady state.
+  Frames: 64
+  PerFeature:
+    TAA: 8
+    SSAO: 4
+    Exposure: 30
+
+Attachments:
+  - Name: Beauty
+    Source: UIComposite
+    Format: png
+  - Name: SceneColorHDR
+    Source: SceneColor
+    Format: hdr
+  - Name: Albedo
+    Source: GBufferAlbedo
+    Format: png
+  - Name: Normals
+    Source: GBufferNormal
+    Format: png
+    Normalize: none
+  - Name: Velocity
+    Source: Velocity
+    Format: png
+    # NORMALIZED, for animal-long-coat's reason: screen-space velocity at these
+    # speeds quantises to 0 or 1 of 255 unnormalized, and the moving sequence's
+    # headline AOV reads as a black frame. The absolute floats stay in
+    # result.json's per-attachment min/max.
+    #
+    # It matters more here than in the single-subject fixtures: the deformation
+    # budget's whole visible effect is in this buffer. An animal whose pose was
+    # HELD this frame emits zero velocity, so a staggered population shows as a
+    # velocity field that is sparse rather than uniform — which is the picture
+    # of the stagger working.
+    Normalize: on
+  - Name: AOBuffer
+    Source: AOBuffer
+    Format: png
+  - Name: SceneDepth
+    Source: SceneDepth
+    Format: png
+    Normalize: auto
+  - Name: ShadowMapCSMCascade0
+    Source: ShadowMapCSMCascade0
+    Format: png
+    Normalize: auto
+  - Name: LinearDepth
+    Source: SceneDepth
+    Format: hdr
+    Derive: linear-depth
+
+Tolerance:
+  # Expected to be byte-exact for the reason animal-long-coat's note gives: the
+  # camera pose is a closed form of the frame index, and — new here — so is
+  # every ANIMAL's pose. The population is a closed form of elapsed simulated
+  # time, so two capture processes place it identically by construction rather
+  # than by luck.
+  #
+  # If this ever fails, something became genuinely nondeterministic. The first
+  # suspect is the scheduler having acquired a clock read: the budget is spent
+  # in calibrated units precisely so that it cannot. Do not widen this to make
+  # a run pass.
+  RepeatRmse: 0.0
+
+Assets:
+  - Path: SandboxProject/Assets/Grooms/reference-longcoat-animal.ologroom
+    Origin: generated in-repo, cooked from reference-longcoat-animal.abc (issues #1232, #1252)
+    License: repository license (no third-party rights)
+    Redistribution: committed
+    LicenseVerified: in-repo-file
+    Version: generated
+    Sha256: 64d67aee6715e00f8c1d9f688f1b119ef97ccbc4c28228348cf2796b7a60c503
+    Units: metres
+    UpAxis: +Y
+    ColorSpace: n/a
+    Acquisition: re-import OloEditor/SandboxProject/Assets/Grooms/reference-longcoat-animal.abc in the editor
+  - Path: SandboxProject/Assets/Grooms/reference-shortcoat-animal.ologroom
+    Origin: generated in-repo, cooked from reference-shortcoat-animal.abc (issues #1232, #1252)
+    License: repository license (no third-party rights)
+    Redistribution: committed
+    LicenseVerified: in-repo-file
+    Version: generated
+    Sha256: 6625c253547eb8ec14d44ea99e6de8c52043d0da66127c2f23ec693401c7e3ee
+    Units: metres
+    UpAxis: +Y
+    ColorSpace: n/a
+    Acquisition: re-import OloEditor/SandboxProject/Assets/Grooms/reference-shortcoat-animal.abc in the editor
+  - Path: assets/models/Fox/Fox.gltf
+    Origin: KhronosGroup glTF-Sample-Assets — "Fox" (model PixelMannen, rig/animation @tomkranis, conversion AsoboStudio)
+    License: CC0-1.0 AND CC-BY-4.0
+    Redistribution: committed
+    LicenseVerified: upstream-declared
+    Version: glTF-Sample-Assets Models/Fox (in-repo copy; upstream revision not recorded)
+    Sha256: 681ae12c7eba99a68a1f8071889cadea95d01ade3b62816c3134bd63eead06c3
+    Units: centimetres
+    UpAxis: +Y
+    ColorSpace: srgb
+    Acquisition: https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/Fox
+  - Path: assets/models/Fox/Fox.bin
+    Origin: KhronosGroup glTF-Sample-Assets — "Fox" geometry + animation buffer
+    License: CC0-1.0 AND CC-BY-4.0
+    Redistribution: committed
+    LicenseVerified: upstream-declared
+    Version: glTF-Sample-Assets Models/Fox (in-repo copy)
+    Sha256: c7d0d8de28a84d5b25623037f88e063e1502495a2ee6c55f182c61161ad12f80
+    Units: centimetres
+    UpAxis: +Y
+    ColorSpace: n/a
+    Acquisition: https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/Fox

@@ -17,7 +17,6 @@
 
 #include <cmath>
 #include <limits>
-#include <map>
 #include <string>
 
 namespace
@@ -211,88 +210,6 @@ TEST(McpRenderOverrides, DebugViewResultNotePresentWhenPassDisabled)
     EXPECT_FALSE(j.at("passEnabled").get<bool>());
     ASSERT_TRUE(j.contains("note"));
     EXPECT_NE(std::string::npos, j.at("note").get<std::string>().find("not active"));
-}
-
-// ---- G-Buffer channel views (issue #1329) --------------------------------
-
-TEST(McpRenderOverrides, GBufferViewsMapToTheirDeferredDebugChannel)
-{
-    // The mapping the editor's Renderer Settings combo uses: 0 = off,
-    // 1 = Albedo, 2 = Normal, 3 = RMA, 4 = Emissive, 5 = Velocity.
-    EXPECT_EQ(1u, RO::GBufferDebugChannelForDebugView(RO::DebugView::GBufferAlbedo));
-    EXPECT_EQ(2u, RO::GBufferDebugChannelForDebugView(RO::DebugView::GBufferNormal));
-    EXPECT_EQ(3u, RO::GBufferDebugChannelForDebugView(RO::DebugView::GBufferRMA));
-    EXPECT_EQ(4u, RO::GBufferDebugChannelForDebugView(RO::DebugView::GBufferEmissive));
-    EXPECT_EQ(5u, RO::GBufferDebugChannelForDebugView(RO::DebugView::GBufferVelocity));
-}
-
-// The one-view-at-a-time rule, from the other side: EVERY mode's channel is
-// checked against an EXPLICIT table, not against the predicate derived from the
-// same function — a filter written as `if (IsGBufferChannelView(x)) continue;`
-// reduces to `0 == 0` for everything it lets through and skips exactly the
-// case that would be wrong (a new enumerator mis-mapped to a nonzero channel).
-// A mode missing from the table fails too, so adding one forces a decision.
-TEST(McpRenderOverrides, EveryDebugViewMapsToItsExpectedDebugChannel)
-{
-    const std::map<std::string, u32> expected = {
-        { "none", 0u },
-        { "ssao", 0u },
-        { "gtao", 0u },
-        { "ssr", 0u },
-        { "ssgi", 0u },
-        { "overdraw", 0u },
-        { "vgclusterid", 0u },
-        { "vglod", 0u },
-        { "vgoverdraw", 0u },
-        { "materialdiffuse", 0u },
-        { "materialspecular", 0u },
-        { "skinprofileid", 0u },
-        { "skinmask", 0u },
-        { "materialtransmission", 0u },
-        { "gbufferalbedo", 1u },
-        { "gbuffernormal", 2u },
-        { "gbufferrma", 3u },
-        { "gbufferemissive", 4u },
-        { "gbuffervelocity", 5u },
-    };
-    ASSERT_EQ(expected.size(), RO::kDebugViews.size())
-        << "a debug view was added or removed without updating this table; decide what "
-           "DeferredSettings::DebugChannel it should select (0 = clear it).";
-
-    for (const auto& info : RO::kDebugViews)
-    {
-        const auto it = expected.find(std::string(info.Token));
-        ASSERT_NE(expected.end(), it) << "mode: " << info.Token;
-        EXPECT_EQ(it->second, RO::GBufferDebugChannelForDebugView(info.Id)) << "mode: " << info.Token;
-    }
-}
-
-// The same exclusivity across the two families that share the frame: a
-// G-Buffer view must not also request a material debug view, and vice versa.
-TEST(McpRenderOverrides, GBufferAndMaterialViewsAreMutuallyExclusive)
-{
-    for (const auto& info : RO::kDebugViews)
-    {
-        const bool gbuffer = RO::IsGBufferChannelView(info.Id);
-        const bool material = RO::MaterialDebugForDebugView(info.Id) != OloEngine::MaterialDebugView::None;
-        EXPECT_FALSE(gbuffer && material) << "mode: " << info.Token;
-        const bool virtualGeometry = RO::IsVirtualGeometryView(info.Id);
-        EXPECT_FALSE(gbuffer && virtualGeometry) << "mode: " << info.Token;
-    }
-}
-
-TEST(McpRenderOverrides, DebugViewResultCarriesTheCaptureProvenance)
-{
-    RO::DebugViewResult r;
-    r.Mode = "gbufferalbedo";
-    r.PassEnabled = true;
-    r.GBufferDebugChannel = 1u;
-    r.Capture = "current (frame 42) | pass GBufferDebugPass | channel 1 | G-Buffer v4 (final)";
-
-    const Json j = RO::ToJson(r);
-    EXPECT_EQ(1u, j.at("gbufferDebugChannel").get<u32>());
-    ASSERT_TRUE(j.contains("capture"));
-    EXPECT_NE(std::string::npos, j.at("capture").get<std::string>().find("GBufferDebugPass"));
 }
 
 TEST(McpRenderOverrides, DebugViewModesCoversEveryModeAndDescribeMatches)

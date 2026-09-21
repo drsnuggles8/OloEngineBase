@@ -59,6 +59,7 @@ add_executable(OloEngine-Tests
 		# new lever from being added as a bare Env:: read again.
 		Core/CVarTest.cpp
 		Core/DebugLeversTest.cpp
+		Core/FrameTimeTailTest.cpp
 		ContainerTest.cpp
 		SnowSettingsTest.cpp
 		WindSettingsTest.cpp
@@ -139,10 +140,6 @@ add_executable(OloEngine-Tests
 		Groom/GroomGuideSimulationTest.cpp
 		Groom/GroomGuideInfluenceTest.cpp
 		Groom/GroomBodyColliderTest.cpp
-		# Scene-shadow routing (#1323). The light-space one-texel width floor and
-		# its authoring boundary: pure arithmetic, so the machine with no GPU is
-		# the machine that pins the measurement the caster family rests on.
-		Groom/GroomShadowWideningTest.cpp
 		ComponentSerializerCoverageTest.cpp
 		ComponentTupleCoverageTest.cpp
 		ComponentHandlerCoverageTest.cpp
@@ -671,13 +668,6 @@ add_executable(OloEngine-Tests
 		# Deferred} cells plus the MSAA and non-native-resolution ones, and the
 		# rebuild counters that answer criterion 4 as a number rather than a look.
 		Rendering/PropertyTests/GroomCoatShadowVisualEvidenceTest.cpp
-		# Scene-shadow routing, both directions (#1323). The GL x {Forward,
-		# Forward+, Deferred} cells, with the coat's own footprint DERIVED by
-		# toggling the strands rather than typed as a rectangle -- so "the coat's
-		# shadow landed on the ground" and "the ground's shadow landed on the
-		# coat" are measurements of two disjoint regions instead of of the
-		# background.
-		Rendering/PropertyTests/GroomSceneShadowVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomBindingVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomSimulationVisualEvidenceTest.cpp
 		# Criterion 4's pictures: both reference animals under front/side/backlight,
@@ -758,7 +748,6 @@ add_executable(OloEngine-Tests
 		# the two paths' top ambient rung must stay the same rung. Headless text
 		# scans in front of the GPU parity test.
 		Rendering/PropertyTests/GBufferBakedGIContractTest.cpp
-		Rendering/PropertyTests/GBufferDebugFinalWriterEvidenceTest.cpp
 		Rendering/PropertyTests/GBufferFlagsResolveEvidenceTest.cpp
 		Rendering/PropertyTests/OITPropertyTests.cpp
 		# Strand visibility (#1246). This file IS the criterion-1 comparison:
@@ -775,6 +764,7 @@ add_executable(OloEngine-Tests
 		# rendering path, the compensation's A/B, and the two hysteresis bounds
 		# driven as CAMERA MOTION, which is the only shape in which "does not
 		# thrash" has a truth value.
+		Rendering/PropertyTests/AnimalBudgetVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomLodVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomFibrePropertyTests.cpp
 		# The #1248 bake-off itself. Every number in
@@ -994,6 +984,8 @@ add_executable(OloEngine-Tests
 		# System scheduler dependency-graph derivation (issue #453)
 		Scene/SceneLightmapGatherTest.cpp
 		Scene/SceneLightmapStalenessTest.cpp
+		Scene/AnimalSchedulerContractTest.cpp
+		Scene/AnimalSchedulingCensusTest.cpp
 		Scene/SystemSchedulerTest.cpp
 		# Floating-origin / origin-rebasing math (issue #429)
 		Scene/WorldOriginRebaseTest.cpp
@@ -1564,6 +1556,7 @@ add_executable(OloEngine-Tests
 		Functional/AI/BehaviorTreeSequenceShortCircuitsOnFailureTest.cpp
 		Functional/AI/PerceptionMatchesBruteForceViaSpatialIndexTest.cpp
 		Functional/AI/FlockingViaSceneTickTest.cpp
+		Functional/Rendering/AnimalPopulationViaSceneTickTest.cpp
 		Functional/Scripting/LuaReadsTransformOfAnotherEntityTest.cpp
 		Functional/SaveGame/InventoryComponentSceneYAMLRoundTripTest.cpp
 		Functional/SaveGame/HierarchyPreservedAcrossSaveLoadTest.cpp
@@ -1774,38 +1767,8 @@ set(OLO_MESH_CACHE_TESTS
 #
 # The memory ceiling in the test binary (--olo-rss-ceiling-mb, default 6 GiB)
 # is the backstop for a case that grows past what this weighting assumes.
-#
-# THE GROOM CPU COMPARISONS BELONG HERE, and the reason is the sentence above:
-# "the ones over 10 s are all in the suites below" stopped being true of them.
-# They are pure-CPU rasterisation sweeps -- no GPU, no model load -- so nothing
-# about their shape said "heavy", and they were registered per SUITE, where the
-# whole suite shares ONE 600 s ctest entry. Measured on the ASan+LSan job of
-# issue #1329 (2026-09-21), the nine slowest ctest entries in the entire
-# 1 982-entry run were all of them:
-#
-#   GroomCoverageComparison.*        600.1 s  TIMED OUT  (one case alone: 558.9 s)
-#   GroomFibreEnergyTest.*           541.2 s  90% of the budget
-#   GroomCoverageStability.*         387.2 s  65%
-#   GroomCoatShadowComparison.*      330.3 s  55%
-#   GroomLodComparisonHumanScalp.*   248.5 s  41%
-#   GroomLodComparisonLongCoat.*     193.4 s  32%
-#   GroomLodShellTier.*              180.5 s  30%
-#   GroomLodComparisonShortCoat.*    125.8 s  21%
-#   GroomCoatShadowReference.*       121.4 s  20%
-#
-# By contrast the heaviest PER-CASE entry in the same run was 93 s against its
-# 1500 s default -- 6% -- because a per-case entry gets ctest's default timeout
-# rather than the 600 s the per-suite pass sets.
-#
-# So this was never a groom bug to be fixed one test at a time. #1252 split
-# GroomLodComparison into three suites to get under the ceiling, and three
-# entries at 21-41% is what that bought; the ceiling was still there and
-# GroomFibreEnergyTest at 90% was next. Listing the families here moves all 31
-# cases onto their own entries, each with the 1500 s default, and weights them
-# PROCESSORS 2 -- which they earn on CPU time the same way the GPU families
-# earn it on memory.
 set(OLO_HEAVY_TESTS
-	"*VisualEvidence*:*Evidence*:*VisualTest*:*GpuContract*:*GPUContract*:*Benchmark*:*PerfProbe*:*Perf.*:PathTracer*:ReSTIRDIOracle.*:ReSTIRGIOracle.*:DDGIReferenceParity*:DriftSailingTest.*:SailTest.*:CPUFluidSolver.*:FluidCouplingTest.*:GaussianSplat*:VulkanPassSuite.*:VulkanParallelRecordingDevice.*:AssetSceneLoad.*:RuntimeAssetPackTest.*:ProceduralSkyBake*:StarNestSkyBake*:ModelLoadDeterminism.*:VirtualGeometry*:OceanFFT*:LightmapBleedRoom.*:LightmapInstancedBleedRoom.*:AutoMeshLODScene.*:DeferredOccludedInstanceFieldScene.*:ModelComponentGPUSceneScene.*:GPUSceneRasterMigrationScene.*:SubmeshMaterialPathParity.*:ShaderDebugDraw*:TerrainGPUPick*:TerrainGPUQuadtree*:TwoSidedShadowCast.*:McpHeadlessAttachTest.*:SceneRenders3D.*:WorldTransformPropagation*:RenderPathDrift.*:BindlessShaderPipeline.*:GPUScene.*:GPUSceneAntiDuplicationRatchet.*:DebugLevers.*:FunctionalTestFixtureCoverage.*:FlockingViaSceneTickTest.*:ShaderUBOSizeConsistency.*:ShaderReflectionBinding.*:ShaderCrossConsistency.*:GroomCoverageComparison.*:GroomCoverageStability.*:GroomFibreEnergyTest.*:GroomCoatShadowComparison.*:GroomCoatShadowReference.*:GroomLodComparison*:GroomLodShellTier.*:CoatTransportReference.*")
+	"*VisualEvidence*:*Evidence*:*VisualTest*:*GpuContract*:*GPUContract*:*Benchmark*:*PerfProbe*:*Perf.*:PathTracer*:ReSTIRDIOracle.*:ReSTIRGIOracle.*:DDGIReferenceParity*:DriftSailingTest.*:SailTest.*:CPUFluidSolver.*:FluidCouplingTest.*:GaussianSplat*:VulkanPassSuite.*:VulkanParallelRecordingDevice.*:AssetSceneLoad.*:RuntimeAssetPackTest.*:ProceduralSkyBake*:StarNestSkyBake*:ModelLoadDeterminism.*:VirtualGeometry*:OceanFFT*:LightmapBleedRoom.*:LightmapInstancedBleedRoom.*:AutoMeshLODScene.*:DeferredOccludedInstanceFieldScene.*:ModelComponentGPUSceneScene.*:GPUSceneRasterMigrationScene.*:SubmeshMaterialPathParity.*:ShaderDebugDraw*:TerrainGPUPick*:TerrainGPUQuadtree*:TwoSidedShadowCast.*:McpHeadlessAttachTest.*:SceneRenders3D.*:WorldTransformPropagation*:RenderPathDrift.*:BindlessShaderPipeline.*:GPUScene.*:GPUSceneAntiDuplicationRatchet.*:DebugLevers.*:FunctionalTestFixtureCoverage.*:FlockingViaSceneTickTest.*:ShaderUBOSizeConsistency.*:ShaderReflectionBinding.*:ShaderCrossConsistency.*")
 
 # --olo-* flags for every ctest-launched test process (a CMake list, so
 # `-DOLO_TESTS_CTEST_ARGS=--olo-gl-backend=none` is one flag and

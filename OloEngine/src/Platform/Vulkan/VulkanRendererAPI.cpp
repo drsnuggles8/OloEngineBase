@@ -152,22 +152,6 @@ namespace OloEngine
         }
     } // namespace
 
-    // Does this device's optimal tiling allow `format` as a vkCmdBlitImage
-    // source or destination? Both are OPTIONAL format features, and a blit that
-    // ignores them is undefined rather than merely slow.
-    bool VulkanRendererAPI::SupportsOptimalTilingBlit(VkFormat format, bool asSource)
-    {
-        auto* device = VulkanDevice::Get();
-        if (device == nullptr)
-        {
-            return false;
-        }
-        VkFormatProperties props{};
-        vkGetPhysicalDeviceFormatProperties(device->GetPhysicalDevice(), format, &props);
-        const VkFormatFeatureFlags required = asSource ? VK_FORMAT_FEATURE_BLIT_SRC_BIT : VK_FORMAT_FEATURE_BLIT_DST_BIT;
-        return (props.optimalTilingFeatures & required) == required;
-    }
-
     void VulkanRendererAPI::UnimplementedStub(const char* entryPoint, StubKind kind) const
     {
         const std::scoped_lock lock(m_StubMutex);
@@ -5143,49 +5127,17 @@ namespace OloEngine
                 UnimplementedStub("BlitFramebuffer(requested aspect missing)", StubKind::PreconditionFailure);
                 return;
             }
+            // This lowering copies values in matching formats; it does not
+            // implement GL's colour conversion (e.g. deferred debug channels
+            // into RGBA16F). Even size-compatible colour copies reinterpret
+            // bits rather than convert values, so refuse that unsupported arm.
+            if (srcInfo->Format != dstInfo->Format)
+            {
+                UnimplementedStub("BlitFramebuffer(format conversion not lowered)", StubKind::PreconditionFailure);
+                return;
+            }
             const VkImageAspectFlags operationMask = requestedMask;
             const bool resolving = srcInfo->Samples > 1u && dstInfo->Samples == 1u;
-            // GL's glBlitFramebuffer CONVERTS between formats; vkCmdCopyImage
-            // reinterprets bits, which is why the copy arm below cannot take a
-            // format mismatch. vkCmdBlitImage is the converting primitive, and
-            // for the 1:1 zero-origin rectangle this function already restricts
-            // itself to, the filter is a no-op -- so the conversion is the only
-            // thing it adds.
-            //
-            // The arm exists because the engine's DEFERRED DEBUG CHANNELS are
-            // exactly this shape: G-Buffer RT0 is RGBA8 and RT3 is RG16F, the
-            // scene colour target is RGBA16F, and on GL the blit converts
-            // silently. Without this the albedo and velocity views were a
-            // warn-once and a no-op on Vulkan -- the viewport kept the scene
-            // target's clear and looked like a renderer that had drawn nothing
-            // (issue #1329).
-            const bool converting = srcInfo->Format != dstInfo->Format;
-            if (converting)
-            {
-                // Colour only. A depth or stencil aspect has no format
-                // conversion to perform and vkCmdBlitImage forbids it outright.
-                if (operationMask != VK_IMAGE_ASPECT_COLOR_BIT)
-                {
-                    UnimplementedStub("BlitFramebuffer(format-converting depth/stencil)", StubKind::PreconditionFailure);
-                    return;
-                }
-                // A converting MULTISAMPLE resolve is two operations and
-                // vkCmdBlitImage does neither of them for a multisample source.
-                if (srcInfo->Samples != 1u || dstInfo->Samples != 1u)
-                {
-                    UnimplementedStub("BlitFramebuffer(format-converting resolve)", StubKind::PreconditionFailure);
-                    return;
-                }
-                // BLIT_SRC/BLIT_DST are optional format features, so ask rather
-                // than assume: refusing loudly beats a validation error or a
-                // silently wrong image on a device that does not offer them.
-                if (!SupportsOptimalTilingBlit(srcInfo->Format, true) ||
-                    !SupportsOptimalTilingBlit(dstInfo->Format, false))
-                {
-                    UnimplementedStub("BlitFramebuffer(device cannot blit these formats)", StubKind::PreconditionFailure);
-                    return;
-                }
-            }
             if (srcInfo->Samples != dstInfo->Samples && !resolving)
             {
                 UnimplementedStub("BlitFramebuffer(unsupported sample counts)", StubKind::PreconditionFailure);
@@ -5248,14 +5200,6 @@ namespace OloEngine
             if (resolving)
                 for (auto& barrier : toTransfer)
                     barrier.dstStageMask = VK_PIPELINE_STAGE_2_RESOLVE_BIT;
-            // vkCmdBlitImage executes at BLIT, not COPY. StageTransferTransition
-            // stages the COPY default that vkCmdCopyImage below wants, and sync
-            // validation reports the mismatch as a READ_AFTER_WRITE on the
-            // source and a WRITE_AFTER_WRITE on the destination rather than as
-            // anything about stages -- which is how this was found.
-            if (converting)
-                for (auto& barrier : toTransfer)
-                    barrier.dstStageMask = VK_PIPELINE_STAGE_2_BLIT_BIT;
             VkDependencyInfo dep{};
             dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
             dep.imageMemoryBarrierCount = static_cast<u32>(toTransfer.size());
@@ -5270,21 +5214,6 @@ namespace OloEngine
                 region.extent = { static_cast<u32>(width), static_cast<u32>(height), 1u };
                 vkCmdResolveImage(ctx.Cmd, srcVk, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstVk,
                                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
-                MemoryBarrier(MemoryBarrierFlags::TextureUpdate);
-                return;
-            }
-            if (converting)
-            {
-                VkImageBlit region{};
-                region.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u };
-                region.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u };
-                // Zero-origin 1:1 rectangles -- everything else was refused far
-                // above -- so source and destination bounds are the same box and
-                // VK_FILTER_NEAREST samples texel centres exactly.
-                region.srcOffsets[1] = { static_cast<i32>(width), static_cast<i32>(height), 1 };
-                region.dstOffsets[1] = { static_cast<i32>(width), static_cast<i32>(height), 1 };
-                vkCmdBlitImage(ctx.Cmd, srcVk, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstVk,
-                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region, VK_FILTER_NEAREST);
                 MemoryBarrier(MemoryBarrierFlags::TextureUpdate);
                 return;
             }

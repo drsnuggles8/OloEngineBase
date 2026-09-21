@@ -143,31 +143,6 @@ namespace OloEngine
             // No additional handling required.
         }
 
-        // Content version (issue #1329): decals are the LAST G-Buffer writer
-        // in the deferred chain, so a debug extraction that did not see this
-        // bump is showing pre-decal attachments.
-        if (hasDecalWork)
-            m_GBuffer->MarkWritten("DeferredOpaqueDecalPass");
-
-        // THE PER-SAMPLE COLOUR RESOLVE, and it lives here because this is the
-        // last pass that WRITES the G-Buffer (issue #1329). The per-sample path
-        // leaves the colour attachments multisample for DeferredLighting_MSAA,
-        // so the single-sample resolve target every other consumer reads — AO,
-        // SSR, the G-Buffer debug extraction — is only current if somebody
-        // refreshes it after the last write. ScenePass's resolve runs before
-        // virtual geometry, occlusion phase 2 and these decals, so it is not
-        // that somebody.
-        //
-        // Unconditional in this mode rather than gated on an export having been
-        // requested: a resolve target that no longer describes the G-Buffer is
-        // wrong for every reader, and which readers are enabled this frame is
-        // not something the writer should have to know. Doing it in the reader
-        // instead is what the L5 hazard validator rejects — a pass that writes
-        // these handles has to be one that DECLARES writing them, and this one
-        // does.
-        if (m_PerSampleLighting && m_GBuffer->GetSampleCount() > 1u)
-            m_GBuffer->Resolve();
-
         const bool anySingleSampleExportRequested = m_SelectedSceneNormalsExport.IsValid() ||
                                                     m_SelectedGBufferAlbedoExport.IsValid() ||
                                                     m_SelectedGBufferNormalExport.IsValid() ||
@@ -179,6 +154,11 @@ namespace OloEngine
                                                    m_SelectedSceneDepthMSExport.IsValid();
         if (!anySingleSampleExportRequested && !anyMultisampleExportRequested)
             return;
+
+        if (anySingleSampleExportRequested && hasDecalWork && m_PerSampleLighting && m_GBuffer->GetSampleCount() > 1u)
+        {
+            m_GBuffer->Resolve();
+        }
 
         const auto copyGBufferExport = [this, &context](const RGTextureHandle handle, const RHI::ResourceHandle sourceTextureID)
         {

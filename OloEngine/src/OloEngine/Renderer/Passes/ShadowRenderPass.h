@@ -19,7 +19,6 @@
 namespace OloEngine
 {
     class FoliageRenderer;
-    class GroomStrandCache; // #1323, held by pointer only -- see SetGroomCache
     class Shader;
 
     // Indicates which shadow target is being rendered in the current invocation
@@ -81,38 +80,6 @@ namespace OloEngine
         glm::mat4 transform = glm::mat4(1.0f);
     };
 
-    // A groom, rasterised from the light as widened ribbons (issue #1323).
-    //
-    // THE SIXTH CASTER FAMILY, and the one that needed a refactor rather than a
-    // list. The other five submit during Scene's entity traversal because their
-    // geometry already exists by then; a groom's does not — it is built from
-    // cooked curves into a vertex buffer, and that build used to live inside
-    // GroomRenderPass::Execute, which runs AFTER this pass. So these are
-    // gathered by ShadowRenderPass itself, at the top of Execute, out of the
-    // shared GroomStrandCache — see Groom/GroomStrandCache.h.
-    //
-    // GATHERED ON THE RENDER THREAD, BEFORE ANY FORK, and that is a hard
-    // requirement rather than a convenience: acquiring from the cache CREATES
-    // vertex and index buffers on a miss, and amendment (92) rule 7 refuses
-    // resource creation inside a parallel-recording item. The cascade items
-    // then only read this list. The issue calls this trap out by name — it is
-    // silent on OpenGL and a fault on Vulkan.
-    struct ShadowGroomCaster
-    {
-        RHI::ResourceHandle vaoID{};
-        u32 indexCount = 0;
-        glm::mat4 transform = glm::mat4(1.0f);
-        BoundingBox WorldBounds = NoBounds; // World-space AABB; NoBounds = always include
-        // The width the coat is DRAWN at — the authoring scale times the
-        // representation LOD's coverage compensation — and the transform's mean
-        // axis length. Both come from GroomStrandCache so the caster is exactly
-        // as thick as the ribbons the strand pass will draw.
-        f32 widthScale = 1.0f;
-        f32 objectScale = 1.0f;
-        // The width floor in TEXELS of whatever target this is rasterised into.
-        f32 minWidthTexels = 1.0f;
-    };
-
     struct ShadowFoliageCaster
     {
         FoliageRenderer* renderer = nullptr;
@@ -122,9 +89,7 @@ namespace OloEngine
 
     // @brief Render pass for shadow map generation.
     //
-    // Executes before SceneRenderPass — which is also why a groom caster's
-    // geometry has to be lifted out of GroomRenderPass to be reachable here
-    // (issue #1323; see Groom/GroomStrandCache.h). For each shadow-casting light,
+    // Executes before SceneRenderPass. For each shadow-casting light,
     // renders scene geometry from the light's perspective into the
     // appropriate shadow map texture layer.
     //
@@ -146,12 +111,6 @@ namespace OloEngine
     //     one object would interleave. The pass therefore owns a camera UBO, an
     //     animation UBO and an instance buffer PER ITEM (ItemResources), created
     //     on the render thread before the fork — never inside an item (rule 7).
-    //   * GROOMS (issue #1323) ARE ITEM-SAFE, and they are the sixth family.
-    //     The only object one writes is ItemResources::Groom, so they record in
-    //     the parallel half. Their GEOMETRY, however, is built by
-    //     CollectGroomCasters on the render thread before any region opens —
-    //     acquiring from GroomStrandCache can CREATE buffers, and rule 7
-    //     refuses that on an item context.
     //   * NOT EVERY CASTER IS ITEM-SAFE. Terrain (HeapBinding's one process-wide
     //     offset table, the shared terrain UBO), foliage (the FoliageRenderer's
     //     own shared buffers) and virtual geometry (compute dispatches, file
@@ -183,14 +142,6 @@ namespace OloEngine
             m_ShadowMap = shadowMap;
         }
 
-        /// The shared strand-geometry cache (#1323). NOT owned: RenderPipeline
-        /// owns it and hands the same instance to GroomRenderPass. Null means
-        /// no groom casts, which is exactly the pre-#1323 behaviour.
-        void SetGroomCache(GroomStrandCache* cache) noexcept
-        {
-            m_GroomCache = cache;
-        }
-
         // Shadow caster submission — called during Scene entity traversal.
         // Pass worldBounds (world-space AABB) when available; it enables per-cascade
         // frustum culling in Execute() so empty cascades skip all GPU work.
@@ -208,45 +159,6 @@ namespace OloEngine
         void AddFoliageCaster(FoliageRenderer* renderer, const Ref<Shader>& depthShader, f32 time);
 
       private:
-        // Fills m_GroomCasters from this frame's published groom requests.
-        //
-        // NOT a Scene-side submit like the other five families: the VAO a groom
-        // caster draws does not exist until the strand geometry is built, and
-        // that build is what #1323 lifted into GroomStrandCache so this pass can
-        // reach it. Runs on the render thread at the top of Execute, before any
-        // parallel region opens, because acquiring can CREATE buffers.
-        void CollectGroomCasters();
-
-        // One texel of the COARSEST CSM cascade, in world metres: the largest
-        // the light-space width floor can be for any view a groom caster is
-        // tested against, and therefore the right pad for its cull bounds.
-        // Zero when no cascade matrix is usable yet.
-        [[nodiscard]] f32 WidestShadowTexelMetres() const;
-
-        // Draws every groom caster of one view. Shared by the cascade region,
-        // the atlas region and (through a different shader and projection
-        // source) the Virtual Shadow Map route, so the three techniques cannot
-        // drift apart in how a strand is widened.
-        // THE CALLER BINDS THE PROGRAM, not this function, and the split is
-        // load-bearing for the VSM route: VirtualShadowMap::BindPhysicalPoolImage
-        // forks on whether the program CURRENTLY IN FLIGHT is bindless, so it has
-        // to run between the program bind and the draws. A version of this that
-        // bound the shader itself would leave the pool bind either before the
-        // program (wrong fork) or nowhere it could be expressed.
-        void RenderGroomCasters(const Frustum* cullFrustum, const glm::vec3& renderOrigin,
-                                f32 resolutionTexels, i32 clipLevel, UniformBuffer& paramsUBO) const;
-
-        // The groom half of the Virtual Shadow Map route (#1323), invoked
-        // INSIDE the VSM raster scope through the ExternalCasterRenderer seam
-        // #1149 opened. Returns the number of level draws it issued.
-        //
-        // It re-binds the physical pool image after binding its own program,
-        // which is not optional: BindPhysicalPoolImage forks on whether the
-        // program currently in flight is bindless, so it cannot be hoisted out
-        // of a shader switch — the failure is a silently unshadowed frame with
-        // no error anywhere (virtual-geometry-into-a-second-shadow-technique.md
-        // §2).
-        u32 RenderGroomVirtualShadowLevels(VirtualShadowMap& vsm);
         // The GPU objects one item writes (amendment (92) rule 6): created by
         // EnsureItemResources on the render thread, indexed by item, shared by
         // the CSM region and the atlas region of one Execute (the two regions
@@ -256,7 +168,6 @@ namespace OloEngine
             Ref<UniformBuffer> Camera;     // ShaderBindingLayout::UBO_CAMERA — this item's light VP
             Ref<UniformBuffer> Animation;  // ShaderBindingLayout::UBO_ANIMATION — bones of the skinned caster in flight
             Ref<InstanceBuffer> Instances; // SSBO_INSTANCE_DATA — the transforms of the batch / caster in flight
-            Ref<UniformBuffer> Groom;      // UBO_USER_0 — the groom caster in flight (#1323)
         };
 
         // One auto-batched shadow draw, as RendererProfiler::RecordInstancedDraw
@@ -286,7 +197,6 @@ namespace OloEngine
             Ref<Shader> Voxel;     // Renderer3D::GetVoxelDepthShader()
             Ref<Shader> VoxelQuad; // Renderer3D::GetVoxelGreedyDepthShader()
             Ref<Shader> Terrain;
-            Ref<Shader> Groom; // "GroomStrandDepth" — null when no groom casts
         };
 
         // One cascade or atlas entry that will actually render this frame —
@@ -373,15 +283,6 @@ namespace OloEngine
         std::vector<ShadowTerrainCaster> m_TerrainCasters;
         std::vector<ShadowVoxelCaster> m_VoxelCasters;
         std::vector<ShadowFoliageCaster> m_FoliageCasters;
-        // Rebuilt every frame from the published groom requests (#1323), not
-        // submitted into. Cleared with the other five at the end of Execute.
-        std::vector<ShadowGroomCaster> m_GroomCasters;
-        GroomStrandCache* m_GroomCache = nullptr;
-        // One params UBO for the VSM route, which is SEQUENTIAL and therefore
-        // needs only one — the same reason m_VsmVirtualResources is a single
-        // object while m_VirtualItemResources is a vector.
-        Ref<UniformBuffer> m_GroomVsmParamsUBO;
-        Ref<Shader> m_GroomVsmDepthShader;
 
         // Per-item state of the parallel regions (issue #806). Grown lazily to
         // the largest region seen; never resized while a region is open, so

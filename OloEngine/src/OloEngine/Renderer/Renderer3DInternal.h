@@ -14,7 +14,6 @@
 #include "OloEngine/Renderer/Passes/DeferredOpaqueDecalPass.h"
 #include "OloEngine/Renderer/Passes/FinalRenderPass.h"
 #include "OloEngine/Renderer/Passes/FogRenderPass.h"
-#include "OloEngine/Renderer/Passes/GBufferDebugPass.h"
 #include "OloEngine/Renderer/Passes/FluidCompositePass.h"
 #include "OloEngine/Renderer/Passes/FluidIntermediatesPass.h"
 #include "OloEngine/Renderer/Passes/FoliageRenderPass.h"
@@ -157,10 +156,6 @@ namespace OloEngine
     struct Renderer3D::SceneCompositionPassSet
     {
         Ref<DeferredLightingPass> DeferredLighting;
-        // G-Buffer debug extraction (#1329). Registered after the last
-        // G-Buffer writer and immediately before DeferredLightingPass, which
-        // early-outs while a debug channel is selected.
-        Ref<GBufferDebugPass> GBufferDebug;
         Ref<DeferredOpaqueDecalPass> DeferredOpaqueDecal;
         Ref<DeferredGPUOcclusionPass> DeferredGPUOcclusion;
         Ref<PlanarReflectionRenderPass> PlanarReflection;
@@ -189,7 +184,6 @@ namespace OloEngine
         void Reset()
         {
             DeferredLighting.Reset();
-            GBufferDebug.Reset();
             DeferredOpaqueDecal.Reset();
             DeferredGPUOcclusion.Reset();
             PlanarReflection.Reset();
@@ -275,12 +269,6 @@ namespace OloEngine
         SceneCompositionPassSet SceneCompositePasses;
         RenderStreamPassSet RenderStreamPasses;
         PostProcessPassChain PostProcessPasses;
-        // The shared strand-geometry cache (#1323). Owned HERE, by neither
-        // pass, because ShadowRenderPass rasterises the shadow map BEFORE
-        // GroomRenderPass runs and a groom caster needs its buffers to already
-        // exist. Both passes hold a raw pointer to this one instance; see
-        // Groom/GroomStrandCache.h.
-        Ref<GroomStrandCache> GroomCache;
         Ref<Texture2D> TAAHistoryTexture;
         bool TAAHistoryValid = false;
         // Half-resolution cloudscape resolve history (issue #633) — same
@@ -348,15 +336,6 @@ namespace OloEngine
             SceneCompositePasses.Reset();
             RenderStreamPasses.Reset();
             PostProcessPasses.Reset();
-            // Dropped ONCE, here, rather than by each of the two passes that
-            // point at it: the buffers it holds belong to a device that is
-            // going away, and two owners of one reset is how one of them ends
-            // up rebuilding against a dead context.
-            if (GroomCache)
-            {
-                GroomCache->Clear();
-            }
-            GroomCache.Reset();
             TAAHistoryTexture.Reset();
             TAAHistoryValid = false;
             CloudsHistoryTexture.Reset();

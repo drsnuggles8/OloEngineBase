@@ -235,24 +235,6 @@ namespace OloEngine::RenderPipelineBuilderInternal
             graph.AddNode(PrepareGraphNode("ReSTIRGIPass", inputs.Passes->ReSTIRGI));
         }
 
-        // G-Buffer debug extraction (#1329), LAST before lighting. Every
-        // G-Buffer writer registered above -- ScenePass, VirtualGeometryPass,
-        // DeferredGPUOcclusionPass and DeferredOpaqueDecalPass -- has run by
-        // the time this node executes, which is the whole point: the blit used
-        // to sit at the tail of ScenePass::Execute, where three of those four
-        // had not happened yet, so an albedo view showed no decals and a
-        // normal view showed no clusters. Registering it there now fails the
-        // L5 hazard validator outright (six WAR hazards naming the late
-        // writers), which is the defect stated as a graph fact.
-        //
-        // Registered unconditionally on the deferred path (topology is cached;
-        // a channel-gated registration would cull the node for the session)
-        // and self-disabling in Execute when DebugChannel is 0.
-        if (inputs.Passes->GBufferDebug)
-        {
-            graph.AddNode(PrepareGraphNode("GBufferDebugPass", inputs.Passes->GBufferDebug));
-        }
-
         graph.AddNode(PrepareGraphNode("DeferredLightingPass", inputs.Passes->DeferredLighting));
     }
 } // namespace OloEngine::RenderPipelineBuilderInternal

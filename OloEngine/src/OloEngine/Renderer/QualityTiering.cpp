@@ -40,6 +40,13 @@ namespace OloEngine
                 s.ChromaticAberrationEnabled = false;
                 s.DDGIEnabled = false; // realtime GI is the first cost to shed on Low
                 s.DDGIBudgetScale = 0.5f;
+                // ON, and tightest, on the weakest tier. DDGI above is turned
+                // OFF on Low because realtime GI is a whole feature to shed;
+                // the population budget is the opposite kind of knob — it is
+                // what makes a herd affordable at all, so the low tier is the
+                // one that needs it most and the small allowance is the point.
+                s.AnimalSchedulingEnabled = true;
+                s.AnimalFrameBudgetUnits = 2000.0f;
                 break;
 
             case QualityPreset::Medium:
@@ -62,6 +69,8 @@ namespace OloEngine
                 s.ChromaticAberrationEnabled = false;
                 s.DDGIEnabled = true;
                 s.DDGIBudgetScale = 0.5f; // halved capture/relight budgets
+                s.AnimalSchedulingEnabled = true;
+                s.AnimalFrameBudgetUnits = 4000.0f;
                 break;
 
             case QualityPreset::High:
@@ -82,6 +91,8 @@ namespace OloEngine
                 s.MotionBlurEnabled = false;
                 s.VignetteEnabled = false;
                 s.ChromaticAberrationEnabled = false;
+                s.AnimalSchedulingEnabled = true;
+                s.AnimalFrameBudgetUnits = 6000.0f;
                 break;
 
             case QualityPreset::Ultra:
@@ -106,6 +117,8 @@ namespace OloEngine
                 s.ChromaticAberrationEnabled = true;
                 s.DDGIEnabled = true;
                 s.DDGIBudgetScale = 2.0f; // faster capture convergence on Ultra
+                s.AnimalSchedulingEnabled = true;
+                s.AnimalFrameBudgetUnits = 12000.0f;
                 break;
 
             case QualityPreset::Custom:
@@ -167,6 +180,8 @@ namespace OloEngine
 
         renderer.EnableDDGI = tiering.DDGIEnabled;
         renderer.DDGIBudgetScale = tiering.DDGIBudgetScale;
+        renderer.AnimalSchedulingEnabled = tiering.AnimalSchedulingEnabled;
+        renderer.AnimalFrameBudgetUnits = tiering.AnimalFrameBudgetUnits;
     }
 
     std::string_view QualityPresetToString(QualityPreset preset)

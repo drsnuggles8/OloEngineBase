@@ -11,6 +11,7 @@
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Physics3D/ColliderMaterial.h"
 #include "OloEngine/Renderer/GPUScene/GPUSceneTypes.h"
+#include "OloEngine/Scene/AnimalScheduler.h"
 #include "OloEngine/Scene/Components.h"
 
 #include <cstddef>
@@ -80,57 +81,67 @@ namespace
 
     // One entry per type whose operator== (or an engine call) compares the
     // whole object through Math::BitwiseEqual. Keep sorted by header.
-#define OLO_BITWISE_EQUAL_TYPES(X)                                \
-    /* Animation */                                               \
-    X(OloEngine::FootIKComponent)                                 \
-    X(OloEngine::IKTargetComponent)                               \
-    X(OloEngine::NoiseAnimationComponent)                         \
-    X(OloEngine::SpringBoneComponent)                             \
-    /* Audio (nested in AudioSourceColdData::operator==) */       \
-    X(OloEngine::AudioSourceConfig)                               \
-    /* Audio (nested in AudioListenerComponent) */                \
-    X(OloEngine::AudioListenerConfig)                             \
-    /* Physics3D */                                               \
-    X(OloEngine::ColliderMaterial)                                \
-    /* Renderer/GPUScene (GPUScene::RecordsEqual) */              \
-    X(OloEngine::GPUSceneGeometry)                                \
-    X(OloEngine::GPUSceneInstance)                                \
-    X(OloEngine::GPUSceneMaterial)                                \
-    X(OloEngine::GPUSceneLight)                                   \
-    X(OloEngine::GPUSceneEnvironment)                             \
-    /* Scene/Components.h */                                      \
-    X(OloEngine::BoxCollider3DComponent)                          \
-    X(OloEngine::SphereCollider3DComponent)                       \
-    X(OloEngine::CapsuleCollider3DComponent)                      \
-    X(OloEngine::MeshCollider3DComponent)                         \
-    X(OloEngine::ConvexMeshCollider3DComponent)                   \
-    X(OloEngine::TriangleMeshCollider3DComponent)                 \
-    X(OloEngine::CharacterController3DComponent)                  \
-    X(OloEngine::DebrisComponent)                                 \
-    X(OloEngine::DirectionalLightComponent)                       \
-    X(OloEngine::PointLightComponent)                             \
-    X(OloEngine::SpotLightComponent)                              \
-    X(OloEngine::SphereAreaLightComponent)                        \
-    X(OloEngine::WeatherPreset)                                   \
-    X(OloEngine::LightProbeComponent)                             \
-    X(OloEngine::SnowDeformerComponent)                           \
-    X(OloEngine::FoliageInteractionComponent)                     \
-    X(OloEngine::VirtualMeshComponent)                            \
-    X(OloEngine::FluidComponent)                                  \
-    X(OloEngine::FluidEmitterComponent)                           \
-    X(OloEngine::FluidKillVolumeComponent)                        \
-    X(OloEngine::FogVolumeComponent)                              \
-    X(OloEngine::NetworkInterestComponent)                        \
-    X(OloEngine::NameplateComponent)                              \
-    /* Groom/GroomLod.h (#1252). The component, plus the three */ \
-    /* value types its policy and decision travel as: all four */ \
-    /* implement operator== as BitwiseEqual(*this, other), and */ \
-    /* GroomLodState is compared in a test's assertion. */        \
-    X(OloEngine::GroomLodComponent)                               \
-    X(OloEngine::GroomLodBudgetCurve)                             \
-    X(OloEngine::GroomLodPolicy)                                  \
-    X(OloEngine::GroomLodDecision)                                \
-    X(OloEngine::GroomLodState)
+#define OLO_BITWISE_EQUAL_TYPES(X)                                 \
+    /* Animation */                                                \
+    X(OloEngine::FootIKComponent)                                  \
+    X(OloEngine::IKTargetComponent)                                \
+    X(OloEngine::NoiseAnimationComponent)                          \
+    X(OloEngine::SpringBoneComponent)                              \
+    /* Audio (nested in AudioSourceColdData::operator==) */        \
+    X(OloEngine::AudioSourceConfig)                                \
+    /* Audio (nested in AudioListenerComponent) */                 \
+    X(OloEngine::AudioListenerConfig)                              \
+    /* Physics3D */                                                \
+    X(OloEngine::ColliderMaterial)                                 \
+    /* Renderer/GPUScene (GPUScene::RecordsEqual) */               \
+    X(OloEngine::GPUSceneGeometry)                                 \
+    X(OloEngine::GPUSceneInstance)                                 \
+    X(OloEngine::GPUSceneMaterial)                                 \
+    X(OloEngine::GPUSceneLight)                                    \
+    X(OloEngine::GPUSceneEnvironment)                              \
+    /* Scene/Components.h */                                       \
+    X(OloEngine::BoxCollider3DComponent)                           \
+    X(OloEngine::SphereCollider3DComponent)                        \
+    X(OloEngine::CapsuleCollider3DComponent)                       \
+    X(OloEngine::MeshCollider3DComponent)                          \
+    X(OloEngine::ConvexMeshCollider3DComponent)                    \
+    X(OloEngine::TriangleMeshCollider3DComponent)                  \
+    X(OloEngine::CharacterController3DComponent)                   \
+    X(OloEngine::DebrisComponent)                                  \
+    X(OloEngine::DirectionalLightComponent)                        \
+    X(OloEngine::PointLightComponent)                              \
+    X(OloEngine::SpotLightComponent)                               \
+    X(OloEngine::SphereAreaLightComponent)                         \
+    X(OloEngine::WeatherPreset)                                    \
+    X(OloEngine::LightProbeComponent)                              \
+    X(OloEngine::SnowDeformerComponent)                            \
+    X(OloEngine::FoliageInteractionComponent)                      \
+    X(OloEngine::VirtualMeshComponent)                             \
+    X(OloEngine::FluidComponent)                                   \
+    X(OloEngine::FluidEmitterComponent)                            \
+    X(OloEngine::FluidKillVolumeComponent)                         \
+    X(OloEngine::FogVolumeComponent)                               \
+    X(OloEngine::NetworkInterestComponent)                         \
+    X(OloEngine::NameplateComponent)                               \
+    /* Groom/GroomLod.h (#1252). The component, plus the three */  \
+    /* value types its policy and decision travel as: all four */  \
+    /* implement operator== as BitwiseEqual(*this, other), and */  \
+    /* GroomLodState is compared in a test's assertion. */         \
+    X(OloEngine::GroomLodComponent)                                \
+    X(OloEngine::GroomLodBudgetCurve)                              \
+    X(OloEngine::GroomLodPolicy)                                   \
+    X(OloEngine::GroomLodDecision)                                 \
+    X(OloEngine::GroomLodState)                                    \
+    /* Scene/AnimalScheduler.h (#1258). The population budget's */ \
+    /* five value types, each implementing operator== as        */ \
+    /* BitwiseEqual(*this, other). AnimalWorkItem is not here:  */ \
+    /* it has no operator==, so padding-free would be a         */ \
+    /* constraint nothing depends on.                           */ \
+    X(OloEngine::AnimalCostModel)                                  \
+    X(OloEngine::AnimalBudgetPolicy)                               \
+    X(OloEngine::AnimalScheduleState)                              \
+    X(OloEngine::AnimalSchedule)                                   \
+    X(OloEngine::AnimalSchedulerStats)
 
 #define OLO_STATIC_ASSERT_TRIVIAL(T) static_assert(std::is_trivially_copyable_v<T>, #T " must stay trivially copyable for Math::BitwiseEqual");
     OLO_BITWISE_EQUAL_TYPES(OLO_STATIC_ASSERT_TRIVIAL)
