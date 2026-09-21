@@ -9,6 +9,7 @@
 #include "OloEngine/Physics3D/BoatWakeSystem.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
+#include "OloEngine/Core/FrameTimeTail.h"
 #include "OloEngine/Scene/AnimalScheduler.h"
 #include "OloEngine/Scene/Streaming/StreamingSettings.h"
 #include "OloEngine/Scene/WorldOriginSettings.h"
@@ -245,6 +246,27 @@ namespace OloEngine
         [[nodiscard]] const std::unordered_map<UUID, AnimalSchedule>& GetAnimalSchedules() const noexcept
         {
             return m_AnimalSchedules;
+        }
+
+        /// The rolling frame-time distribution — p50/p95/p99/max plus a count
+        /// of frames over `budgetMs` (#1258, criterion 4).
+        ///
+        /// THE TAIL IS THE POINT, not the mean. Amortising a population's work
+        /// across frames does not remove it, and badly phased it makes the 99th
+        /// percentile WORSE while every average improves — so this is the
+        /// statistic the budget has to be judged on. Accumulated whether or not
+        /// the budget is enabled, so the off arm is a usable control.
+        [[nodiscard]] FrameTimeTailStats GetFrameTimeTail(f32 budgetMs = 0.0f) const
+        {
+            return m_FrameTimeTail.Query(budgetMs);
+        }
+
+        /// Drop the frame-time window. Called across a discontinuity — a scene
+        /// load, a play-mode transition, a resolution change — because a window
+        /// spanning two different configurations describes neither.
+        void ResetFrameTimeTail()
+        {
+            m_FrameTimeTail.Reset();
         }
 
         // Deterministic simulation clock (seconds since OnRuntimeStart), advanced
@@ -1632,7 +1654,17 @@ namespace OloEngine
         /// frame boundary, beside SelectAnimatedSurfaceLOD and for its reason:
         /// it must run BEFORE the tick that poses the bodies and before the
         /// submission that draws their coats.
-        void ScheduleAnimalPopulationForFrame();
+        void ScheduleAnimalPopulationForFrame(Timestep ts);
+
+        /// The rolling frame-time window (#1258, criterion 4).
+        ///
+        /// HERE RATHER THAN ON Application, because it has to be readable from
+        /// a headless test and from OloServer, neither of which has one — and
+        /// because what this feature needs to compare is two runs of the SAME
+        /// scene with the budget on and off, which is a scene-scoped question.
+        /// Ten seconds at 60 Hz: the shortest window in which a 99th percentile
+        /// means anything (see FrameTimeTail.h).
+        FrameTimeTail m_FrameTimeTail{ FrameTimeTail::kDefaultCapacity };
 
         /// This frame's schedule for `id`, or null when the animal is not
         /// budgeted. Null is not an error: it is the answer for every entity

@@ -1475,6 +1475,12 @@ namespace OloEngine
     {
         m_IsRunning = true;
 
+        // Entering Play is a frame-pacing discontinuity too: the edit-mode
+        // frames in the window describe a different workload entirely, and a
+        // percentile taken across the seam describes neither side (#1258).
+        // Same rule, same reason, as the deformation history reset below.
+        m_FrameTimeTail.Reset();
+
         // Entering Play is a deformation discontinuity: whatever previous pose
         // the skeletons carried from edit-mode preview describes a different
         // session. Dropping it explicitly makes the first runtime frame emit
@@ -2694,7 +2700,7 @@ namespace OloEngine
         // (#1258). At EVERY frame entry point, for the AdvanceHistory pairing's
         // reason: a scheduler wired into only some of them leaves the others
         // spending last frame's allocation, which is invisible in every test.
-        ScheduleAnimalPopulationForFrame();
+        ScheduleAnimalPopulationForFrame(ts);
 
         UpdateStreaming();
 
@@ -2756,7 +2762,11 @@ namespace OloEngine
         // (#1258). At EVERY frame entry point, for the AdvanceHistory pairing's
         // reason: a scheduler wired into only some of them leaves the others
         // spending last frame's allocation, which is invisible in every test.
-        ScheduleAnimalPopulationForFrame();
+        // frameTs, NOT fixedDt: this is the REAL frame delta, and the
+        // frame-time window is a statement about frames. The fixed step is
+        // what the simulation advances by and can run several times inside
+        // one of these.
+        ScheduleAnimalPopulationForFrame(frameTs);
 
         UpdateStreaming();
 
@@ -4645,9 +4655,19 @@ namespace OloEngine
         }
     }
 
-    void Scene::ScheduleAnimalPopulationForFrame()
+    void Scene::ScheduleAnimalPopulationForFrame(Timestep ts)
     {
         OLO_PROFILE_FUNCTION();
+
+        // THE FRAME-TIME WINDOW IS RECORDED FIRST, before any early-out. A
+        // scene with no budgeted animals is exactly the A/B control arm, and a
+        // tail that only accumulated while the feature was ON could not be
+        // compared against anything (criterion 4).
+        //
+        // Milliseconds, and the frame's OWN delta rather than a wall-clock read
+        // here: under a mock clock the two differ, and every capture in this
+        // feature's evidence runs under one.
+        m_FrameTimeTail.Push(ts.GetSeconds() * 1000.0f);
 
         ++m_AnimalFrameCounter;
         m_AnimalSchedules.clear();
@@ -5646,7 +5666,7 @@ namespace OloEngine
         // (#1258). At EVERY frame entry point, for the AdvanceHistory pairing's
         // reason: a scheduler wired into only some of them leaves the others
         // spending last frame's allocation, which is invisible in every test.
-        ScheduleAnimalPopulationForFrame();
+        ScheduleAnimalPopulationForFrame(ts);
 
         if (!m_IsPaused || m_StepFrames-- > 0)
         {
@@ -5801,7 +5821,7 @@ namespace OloEngine
         // (#1258). At EVERY frame entry point, for the AdvanceHistory pairing's
         // reason: a scheduler wired into only some of them leaves the others
         // spending last frame's allocation, which is invisible in every test.
-        ScheduleAnimalPopulationForFrame();
+        ScheduleAnimalPopulationForFrame(ts);
 
         // Update animations so they preview in the editor (IK responds to target movement).
         // Reuses the AnimationStateComponent + SkeletonComponent owning group (issue #443).

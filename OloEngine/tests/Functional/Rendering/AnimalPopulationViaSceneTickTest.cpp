@@ -448,6 +448,35 @@ namespace OloEngine::Functional
         EXPECT_GT(maxTicks, 0u) << "every animal stopped ticking entirely, which is not a budget but a bug";
     }
 
+    TEST_F(AnimalPopulationFixture, TheFrameTimeWindowIsFilledByTheRealSceneTick)
+    {
+        // CRITERION 4'S TAIL, WIRED. FrameTimeTailTest pins the statistic; this
+        // pins that anything FEEDS it. A percentile class that no frame loop
+        // pushes into is the "isolated data structure left as completion" the
+        // delivery contract names, and it would report a clean window forever.
+        EXPECT_EQ(GetScene().GetFrameTimeTail().SampleCount, 0u) << "the window should start empty";
+
+        RunFrames(90u, 1.0f / 60.0f);
+
+        const FrameTimeTailStats tail = GetScene().GetFrameTimeTail(16.6f);
+        EXPECT_EQ(tail.SampleCount, 90u) << "the scene tick is not recording frames into the window";
+        // The harness feeds a fixed dt, so every sample is the same 16.67 ms and
+        // the whole distribution collapses onto it. That is the point: it means
+        // the window is carrying the CALLER's delta rather than a wall-clock
+        // read, which is what makes a capture under a mock clock reproducible.
+        EXPECT_NEAR(tail.P50Ms, 1000.0f / 60.0f, 0.01f);
+        EXPECT_NEAR(tail.P99Ms, 1000.0f / 60.0f, 0.01f);
+        EXPECT_NEAR(tail.MaxMs, 1000.0f / 60.0f, 0.01f);
+        // THE COUNTER IS EXACT, AND 16.667 IS OVER 16.6. Asserted both ways
+        // round because the first draft of this case asserted zero against a
+        // 16.6 ms budget "because a 60 Hz tick is not over 60 Hz" — which is
+        // wrong by two thirds of a millisecond, every frame. A boundary
+        // comparison that is off by a rounding error is exactly the kind of
+        // thing an over-budget COUNT is there to make visible.
+        EXPECT_EQ(tail.OverBudgetFrames, 90u) << "every 16.667 ms frame is over a 16.6 ms budget";
+        EXPECT_EQ(GetScene().GetFrameTimeTail(20.0f).OverBudgetFrames, 0u) << "and none of them is over 20 ms";
+    }
+
     TEST_F(AnimalPopulationFixture, TheExpensiveFramesAreStaggeredRatherThanAligned)
     {
         // THE TAIL, NOT THE MEAN, expressed as the property that produces it.

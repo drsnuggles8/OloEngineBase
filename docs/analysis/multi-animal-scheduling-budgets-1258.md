@@ -176,7 +176,30 @@ Realtime GI is a whole feature to shed, so Low turns it off; the population budg
 herd affordable at all, so the weakest tier needs it most and the small allowance is the point.
 `SchedulingIsOnAtEveryTierIncludingLow` pins that so a future tier edit cannot quietly invert it.
 
-The frame-time tail across tiers is the live-only half of this criterion and is reported in the PR's
-verification matrix; `FrameTimeTail` is the mechanism, and its unit tests pin the statistic
-(nearest-rank, matching `perf_trend.py`) and the property that matters — that a window with the same
-mean and a stutter is distinguishable from one without.
+## 8. The frame-time tail
+
+`Scene` records every frame's delta into a 600-sample window (ten seconds at 60 Hz — the shortest
+window in which a 99th percentile means anything; at 120 samples p99 *is* the second-worst frame
+wearing a percentile's name). `Scene::GetFrameTimeTail(budgetMs)` returns p50/p95/p99/max, the mean,
+and a **count** of frames over the budget, and the editor shows all of it beside the scheduler's own
+counters.
+
+Three deliberate choices:
+
+* **The window fills whether or not the budget is enabled**, recorded before the early-out. A tail
+  that only accumulated while the feature was on could not be compared against anything, and the
+  off arm is the control for every measurement here.
+* **It carries the caller's delta, not a wall-clock read.** Under a mock clock — which every capture
+  in this feature's evidence runs under — the two differ, and a wall-clock tail would make a
+  deterministic capture non-deterministic. `TheFrameTimeWindowIsFilledByTheRealSceneTick` asserts a
+  fixed-dt run collapses the whole distribution onto the tick, which is what that guarantees.
+* **It resets at a play-mode transition**, because a window spanning edit-mode and runtime frames
+  describes neither.
+
+The count sits beside the percentiles because they answer different questions: at a 600-frame
+window p99 is six frames, so the percentile alone cannot tell one bad frame from six — and six is a
+visible stutter while one is not. `ASingleSpikeIsInvisibleToP99AndVisibleToMaxAndTheOverBudgetCount`
+pins that limit rather than leaving it to be rediscovered.
+
+Per-tier tail numbers under a real workload are live-only and are reported in the PR's verification
+matrix; what ships here is the instrument and the guarantee that something feeds it.

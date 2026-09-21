@@ -9707,6 +9707,37 @@ namespace OloEngine
                     ImGui::TextDisabled("%u animal(s) refused a rate reduction by the pose-step bound.",
                                         stats.AnimalsAtPoseStepCap);
                 }
+
+                // ── The frame-time TAIL, not the mean (criterion 4) ───────
+                //
+                // Shown here, beside the budget that moves it, because the two
+                // are only meaningful together: amortising a population's work
+                // across frames does not remove it, and badly phased it makes
+                // p99 WORSE while every average improves. A reader watching the
+                // mean would call that an improvement.
+                ImGui::SeparatorText("Frame time (last 10 s)");
+                constexpr f32 kSixtyHzMs = 1000.0f / 60.0f;
+                const FrameTimeTailStats tail = scene->GetFrameTimeTail(kSixtyHzMs);
+                if (tail.SampleCount == 0u)
+                {
+                    ImGui::TextDisabled("No frames recorded yet.");
+                }
+                else
+                {
+                    ImGui::Text("p50 %.2f   p95 %.2f   p99 %.2f   max %.2f ms", static_cast<double>(tail.P50Ms),
+                                static_cast<double>(tail.P95Ms), static_cast<double>(tail.P99Ms),
+                                static_cast<double>(tail.MaxMs));
+                    ImGui::Text("mean %.2f ms over %u frames   %u over %.1f ms", static_cast<double>(tail.MeanMs),
+                                tail.SampleCount, tail.OverBudgetFrames, static_cast<double>(tail.BudgetMs));
+                    if (ImGui::IsItemHovered())
+                    {
+                        ImGui::SetTooltip("The COUNT is beside the percentiles on purpose: at a 600-frame window
+"
+                                          "p99 is six frames, so the percentile alone cannot tell one bad frame
+"
+                                          "from six -- and six is a visible stutter while one is not.");
+                    }
+                }
             } });
 
         DrawComponent<AnimalPathComponent>("Animal Path", entity, [](auto& component)
