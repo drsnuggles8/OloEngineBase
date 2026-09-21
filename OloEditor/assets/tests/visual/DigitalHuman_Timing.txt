@@ -1,0 +1,11 @@
+DigitalHuman_Timing — issue #1222 epic acceptance, 384x384 offscreen, wall clock per frame.
+Subject: procedural stand-in head — cranium (#1241/#1242/#1243) + two ocular surfaces
+(#1244) + lips and enamel (#1245), morph-driven expression at 0.65, hard side light.
+
+NOT A BENCHMARK: this box also hosts CI runners for another repo, so the absolute
+figures move. The RELATIVE column is the measurement — the two arms are captured
+back to back under identical conditions.
+
+Forward       full stack   7.460 ms   split-only   3.741 ms   (the digital human costs +99.4%)
+ForwardPlus   full stack   8.118 ms   split-only   4.156 ms   (the digital human costs +95.3%)
+Deferred      full stack   7.389 ms   split-only   4.122 ms   (the digital human costs +79.3%)

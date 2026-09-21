@@ -1,0 +1,490 @@
+Scene: DigitalHuman.olo
+# -----------------------------------------------------------------------------
+# DIGITAL HUMAN fixture (issue #1222, the epic's own acceptance).
+#
+# The first scene in this project on which the SKIN, EYE and ORAL children run
+# at the same time on one subject: #1241 on the cranium and the ears, #1244 on
+# the globes and tear lines, #1245 on the lips, gums, teeth and tongue.
+#
+# WHAT THE CRANIUM DOES NOT DO, AND WHY IT IS SAID HERE RATHER THAN DISCOVERED.
+# ReferenceHead.oloskin — the profile the cranium and both ears carry, and the
+# one ReferenceHead.olo and Eyes.olo also name — is authored at TRANSPORT
+# VERSION 1 (ScreenSpaceDiffusion). The ladder is cumulative, so version 1 is
+# diffusion and NOTHING ABOVE IT: no #1242 thin-region transmission, no #1243
+# layered specular. #1239 wrote that feature owners would upgrade the fixtures
+# they landed against, and for those two issues that upgrade never happened.
+#
+# The practical consequence, measured in this scene: under the backlight rig
+# the material-transmission debug view is essentially black over the cranium
+# and both ears, because the term is not enabled on their profile rather than
+# because it is broken. The ears are still built as a thin region (1.5 mm
+# against the cheek's 6 mm) so that they become the subject the moment the
+# profile moves past version 1 — which is a one-field edit to that .oloskin.
+#
+# The oral and ocular parts DO exercise the upper ladder: OralLip, OralGum,
+# OralTongue and OralEnamel are version 4 and EyeIris and EyeTearLine are
+# version 5, all with a transmission strength authored. Reported on #1222.
+#
+# THIS SCENE SPENDS THE ENTIRE SKIN-PROFILE SLOT BUDGET, and that is a finding
+# rather than a detail. Seven distinct .oloskin profiles are named here
+# (ReferenceHead, EyeIris, EyeTearLine, OralLip, OralTongue, OralGum,
+# OralEnamel) and the G-Buffer's slot field is THREE BITS with the all-ones
+# pattern reserved for "no profile" — so kMaxSkinProfileSlots is 7
+# (Renderer/SkinProfile.h) and a complete face fills it exactly. An EIGHTH
+# profile anywhere in a scene containing this head does not fail loudly: it
+# resolves to kSkinProfileSlotNone with SlotBudgetFull, logs once, and renders
+# as not-skin. A second character, a different eye colour, or a freckled
+# variant of this head would each be that eighth. Reported on #1222 rather than
+# worked around here.
+#
+# WHY A NEW SCENE AND NOT AN EDIT TO ReferenceHead.olo. That fixture is a PINNED
+# BENCHMARK whose captures are golden and whose manifest is asserted
+# (ReferenceFixtureManifestTest); adding geometry to it would invalidate every
+# number measured against it. #1244's Eyes.olo and #1245's OralSurfaces.olo each
+# made that same call and each stayed additive. This scene is the third and last
+# in that family, and it is the one that puts the other two together — which is
+# precisely the epic criterion neither of them could satisfy alone.
+#
+# WHY PRIMITIVES, STILL. Every claim these features support is a claim about the
+# MATERIAL, and a material does not know what mesh it is on. What the profiles
+# need from geometry is a uniformly scaled sphere for each globe, a thin region
+# for the transmission to cross, and a cavity for the oral occlusion to darken —
+# all of which primitives give without a licensed asset. A scanned head dropped
+# in here changes the subject and nothing else. That head remains a genuine
+# external dependency; see docs/guides/benchmark-reference-fixtures.md.
+#
+# WHAT THIS SCENE IS FOR, AND WHAT IT IS NOT FOR.
+#   FOR: the LIVE half of the epic's verification grid. The material debug views
+#        (diffuse / specular / transmission / profile identity) are deferred-only
+#        and are reachable here through the MCP renderer tools, which is how the
+#        Vulkan rows of that grid get captured at all — the headless fixtures
+#        need a real GL 4.6 context and skip without one.
+#   NOT FOR: the tone ladder or the expression. Several skin tones need several
+#        authored profiles and an expression needs a morph target, and both are
+#        measured headlessly and assertively by
+#        OloEngine/tests/Rendering/PropertyTests/SkinDigitalHumanEvidenceTest.cpp.
+#        Duplicating them here as a static pose would look like coverage and
+#        assert nothing.
+#
+# THE THREE RIGS ARE ALL PRESENT AND ONLY ONE IS STRONG. Criterion 2 asks for
+# soft, hard side and backlight, and a scene can only be authored in one of them
+# — so all three lights exist and the other two are dimmed rather than deleted.
+# Moving between rigs is then an INTENSITY edit on lights that are already
+# placed, which keeps the geometry, the exposure and the shadow settings fixed
+# across a rig change. Changing the rig by adding a light would change two
+# things and make the comparison unreadable.
+#
+# THE EARS ARE BUILT FOR THE BACKLIGHT, and are waiting on a profile. Thin
+# ellipsoids with a real ThicknessFactor, standing proud of the cranium:
+# #1242's transmission is a thin-region term and a head with no thin region
+# backlit is just a dark head. They do not glow today for the version-1 reason
+# above, not for a geometric one.
+#
+# EVERY PART IS PROUD OF THE CRANIUM ON PURPOSE. The head is a solid ellipsoid
+# with no mouth aperture, so anything authored *inside* it is simply invisible
+# — the first version of this scene buried both globes, both gum strips, both
+# tooth blocks and the tongue, and rendered a bald sphere with lips. Each
+# part's z is now set so its front face clears the cranium surface at that
+# (x, y), in the order lips > teeth > gums > tongue > throat.
+# -----------------------------------------------------------------------------
+PostProcessSettings:
+  TonemapOperator: 2
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: true
+  # Low threshold, modest intensity — same reasoning as Eyes.olo: the corneal
+  # catchlight is the brightest thing here by a wide margin, and a little bloom
+  # is what makes it read as wet rather than as a white dot.
+  BloomThreshold: 1.1
+  BloomIntensity: 0.18
+  BloomIterations: 5
+  VignetteEnabled: false
+  # FXAA OFF, like every measurement fixture in this project: a pixel A/B
+  # against an anti-aliased frame measures the filter as much as the feature.
+  FXAAEnabled: false
+  SSAOEnabled: true
+  SSAORadius: 0.2
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 32
+  # SSR OFF. A wet coat and a cornea are the two most reflective things in the
+  # scene, and a screen-space reflection on top of them would make "is that the
+  # coat or the SSR?" unanswerable from a capture.
+  SSREnabled: false
+  SSGIEnabled: false
+  AutoExposureEnabled: false
+FogSettings:
+  Enabled: false
+WindSettings:
+  Enabled: false
+Entities:
+  # -- Camera: a three-quarter head-and-shoulders, not a dead-on portrait. A
+  #    head-on view is the one pose where the corneal refraction and a painted
+  #    iris coincide by symmetry, and where a grazing-angle specular is
+  #    smallest. Both features are judged off-axis. --
+  - Entity: 1222000001000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0.17, 0.03, 0.30]
+      Rotation: [-0.05, 0.52, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.7854
+        PerspectiveNear: 0.01
+        PerspectiveFar: 100
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  # -- SOFT KEY (the authored rig). Broad, front-above, shadows ON so the
+  #    terminator across the cheek is real. This is the rig the scene opens in.
+  #    To switch rigs: raise one of the two below and drop this one. --
+  - Entity: 1222000001000002
+    TagComponent:
+      Tag: Soft Key
+    TransformComponent:
+      Translation: [0.22, 0.30, 0.42]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.97, 0.93]
+      Intensity: 6
+      Range: 3
+      CastShadows: true
+  # -- HARD SIDE (dimmed). Almost in the head's own plane, which is where the
+  #    layered specular of #1243 and the pore band are legible. Raise to ~9 and
+  #    drop the soft key to ~0.5 for the hard-side cell. --
+  - Entity: 1222000001000003
+    TagComponent:
+      Tag: Hard Side
+    TransformComponent:
+      Translation: [-0.46, 0.04, 0.06]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.96, 0.90]
+      Intensity: 0.6
+      Range: 3
+      CastShadows: true
+  # -- BACKLIGHT (dimmed). Behind and slightly above, pointing back at the lens.
+  #    Raise to ~11 and drop the other two to ~0.3 for the backlight cell: this
+  #    is the only rig under which #1242's transmission through the ears is what
+  #    the picture is made of. --
+  - Entity: 1222000001000004
+    TagComponent:
+      Tag: Backlight
+    TransformComponent:
+      Translation: [0.05, 0.16, -0.40]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.94, 0.95, 1]
+      Intensity: 0.8
+      Range: 3
+      CastShadows: false
+  # ---------------------------------------------------------------------------
+  # THE CRANIUM — #1241 diffusion, #1242 transmission, #1243 layered specular,
+  # all from ReferenceHead.oloskin. The same profile handle ReferenceHead.olo
+  # and Eyes.olo name, deliberately: the epic's claim is that these features
+  # compose, and re-authoring the skin for this scene would have tested a
+  # different material than the one the other two fixtures measure.
+  # ---------------------------------------------------------------------------
+  - Entity: 1222000001000010
+    TagComponent:
+      Tag: Cranium
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.098, 0.115, 0.105]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.66, 0.49, 0.42]
+      Metallic: 0
+      Roughness: 0.42
+      MaterialKind: 2
+      SkinProfile: 15952688685437936278
+      # 6 mm: a cheek. Not the ears' thickness — a uniform head-wide value would
+      # make the ears stop being the thin region and the backlight cell stop
+      # showing anything the rest of the head does not.
+      ThicknessFactor: 0.006
+  # ---------------------------------------------------------------------------
+  # THE EARS. Thin slabs, standing proud, at 1.5 mm — a quarter of the cheek's
+  # thickness, which is roughly the real ratio. These are what the backlight
+  # rig is aimed at.
+  # ---------------------------------------------------------------------------
+  - Entity: 1222000001000011
+    TagComponent:
+      Tag: LeftEar
+    TransformComponent:
+      Translation: [-0.096, 0.012, -0.008]
+      Rotation: [0, 0.22, 0.12]
+      Scale: [0.012, 0.038, 0.026]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.70, 0.50, 0.44]
+      Metallic: 0
+      Roughness: 0.40
+      MaterialKind: 2
+      SkinProfile: 15952688685437936278
+      ThicknessFactor: 0.0015
+  - Entity: 1222000001000012
+    TagComponent:
+      Tag: RightEar
+    TransformComponent:
+      Translation: [0.096, 0.012, -0.008]
+      Rotation: [0, -0.22, -0.12]
+      Scale: [0.012, 0.038, 0.026]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.70, 0.50, 0.44]
+      Metallic: 0
+      Roughness: 0.40
+      MaterialKind: 2
+      SkinProfile: 15952688685437936278
+      ThicknessFactor: 0.0015
+  # ---------------------------------------------------------------------------
+  # THE GLOBES — #1244, EyeIris.oloskin. Same profile, UNIFORMLY SCALED, and
+  # converged on a point just in front of the lens: unequal non-zero yaws so one
+  # capture shows the refraction at two strengths. All three of those are that
+  # fixture's stated requirements, honoured here rather than re-derived.
+  # ---------------------------------------------------------------------------
+  - Entity: 1222000001000020
+    TagComponent:
+      Tag: LeftEye
+    TransformComponent:
+      Translation: [-0.031, 0.021, 0.092]
+      Rotation: [0, 0.10, 0]
+      Scale: [0.0123, 0.0123, 0.0123]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.78, 0.74, 0.71]
+      Metallic: 0
+      Roughness: 0.09
+      MaterialKind: 2
+      SkinProfile: 1244000000000000001
+      ThicknessFactor: 0.004
+  - Entity: 1222000001000021
+    TagComponent:
+      Tag: RightEye
+    TransformComponent:
+      Translation: [0.031, 0.021, 0.092]
+      Rotation: [0, -0.16, 0]
+      Scale: [0.0123, 0.0123, 0.0123]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.78, 0.74, 0.71]
+      Metallic: 0
+      Roughness: 0.09
+      MaterialKind: 2
+      SkinProfile: 1244000000000000001
+      ThicknessFactor: 0.004
+  # -- The tear lines: EyeTearLine.oloskin, version 5 with the eye OFF. Flattened
+  #    in Y, which is what makes the highlight a LINE and not a second
+  #    catchlight. --
+  - Entity: 1222000001000022
+    TagComponent:
+      Tag: LeftTearLine
+    TransformComponent:
+      Translation: [-0.031, 0.011, 0.099]
+      Rotation: [0, 0, 0]
+      Scale: [0.011, 0.0013, 0.004]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.74, 0.58, 0.53]
+      Metallic: 0
+      Roughness: 0.06
+      MaterialKind: 2
+      SkinProfile: 1244000000000000002
+      ThicknessFactor: 0.0004
+  - Entity: 1222000001000023
+    TagComponent:
+      Tag: RightTearLine
+    TransformComponent:
+      Translation: [0.031, 0.011, 0.099]
+      Rotation: [0, 0, 0]
+      Scale: [0.011, 0.0013, 0.004]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.74, 0.58, 0.53]
+      Metallic: 0
+      Roughness: 0.06
+      MaterialKind: 2
+      SkinProfile: 1244000000000000002
+      ThicknessFactor: 0.0004
+  # ---------------------------------------------------------------------------
+  # THE ORAL REGION — #1245. Four profiles, and the reason there are four rather
+  # than one is that issue's own criterion: teeth and mucosa must not be
+  # assigned identical skin response. Enamel differs from gum by its coat index
+  # (1.63 against saliva's 1.33), which is one authored field and no second code
+  # path.
+  #
+  # THE MOUTH IS AUTHORED SLIGHTLY PARTED. A closed mouth hides the gums, the
+  # teeth and the tongue behind the lips, so the default screenshot of this
+  # scene would show one of the four oral profiles and the other three would be
+  # present, shading, and invisible.
+  # ---------------------------------------------------------------------------
+  - Entity: 1222000001000030
+    TagComponent:
+      Tag: UpperLip
+    TransformComponent:
+      Translation: [0, -0.038, 0.095]
+      Rotation: [0.12, 0, 0]
+      Scale: [0.030, 0.0072, 0.010]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.62, 0.32, 0.31]
+      Metallic: 0
+      Roughness: 0.26
+      MaterialKind: 2
+      SkinProfile: 1245000000000000001
+      ThicknessFactor: 0.004
+  - Entity: 1222000001000031
+    TagComponent:
+      Tag: LowerLip
+    TransformComponent:
+      Translation: [0, -0.057, 0.095]
+      Rotation: [-0.10, 0, 0]
+      Scale: [0.030, 0.0085, 0.011]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.64, 0.33, 0.32]
+      Metallic: 0
+      Roughness: 0.26
+      MaterialKind: 2
+      SkinProfile: 1245000000000000001
+      ThicknessFactor: 0.004
+  # -- The throat: the CAVITY the occlusion term exists to darken. Set back
+  #    behind the teeth, so a coat that brightened the diffuse half would show
+  #    up here as an interior that glows — which is the failure #1245's cavity
+  #    weight was added to prevent, and the one thing this scene can show at a
+  #    glance. --
+  - Entity: 1222000001000032
+    TagComponent:
+      Tag: Throat
+    TransformComponent:
+      Translation: [0, -0.047, 0.086]
+      Rotation: [0, 0, 0]
+      Scale: [0.020, 0.008, 0.012]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.40, 0.17, 0.16]
+      Metallic: 0
+      Roughness: 0.34
+      MaterialKind: 2
+      SkinProfile: 1245000000000000002
+      ThicknessFactor: 0.006
+  - Entity: 1222000001000033
+    TagComponent:
+      Tag: Tongue
+    TransformComponent:
+      Translation: [0, -0.050, 0.090]
+      Rotation: [0, 0, 0]
+      Scale: [0.015, 0.0045, 0.010]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.58, 0.28, 0.27]
+      Metallic: 0
+      Roughness: 0.22
+      MaterialKind: 2
+      SkinProfile: 1245000000000000002
+      ThicknessFactor: 0.005
+  - Entity: 1222000001000034
+    TagComponent:
+      Tag: UpperGum
+    TransformComponent:
+      Translation: [0, -0.0425, 0.0955]
+      Rotation: [0, 0, 0]
+      Scale: [0.019, 0.0028, 0.007]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.60, 0.29, 0.29]
+      Metallic: 0
+      Roughness: 0.30
+      MaterialKind: 2
+      SkinProfile: 1245000000000000003
+      ThicknessFactor: 0.003
+  - Entity: 1222000001000035
+    TagComponent:
+      Tag: LowerGum
+    TransformComponent:
+      Translation: [0, -0.0535, 0.0955]
+      Rotation: [0, 0, 0]
+      Scale: [0.019, 0.0028, 0.007]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.60, 0.29, 0.29]
+      Metallic: 0
+      Roughness: 0.30
+      MaterialKind: 2
+      SkinProfile: 1245000000000000003
+      ThicknessFactor: 0.003
+  # -- The teeth: OralEnamel.oloskin. The ONE authored field that makes these
+  #    not gums is the coat index, and it lives in the profile rather than here.
+  #    Their albedo is barely brighter than the gums' on purpose — if the two
+  #    read differently in a capture it must be the MATERIAL doing it. --
+  - Entity: 1222000001000036
+    TagComponent:
+      Tag: UpperTeeth
+    TransformComponent:
+      Translation: [0, -0.0455, 0.0975]
+      Rotation: [0, 0, 0]
+      Scale: [0.018, 0.0032, 0.0062]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.88, 0.86, 0.82]
+      Metallic: 0
+      Roughness: 0.14
+      MaterialKind: 2
+      SkinProfile: 1245000000000000004
+      ThicknessFactor: 0.002
+  - Entity: 1222000001000037
+    TagComponent:
+      Tag: LowerTeeth
+    TransformComponent:
+      Translation: [0, -0.0505, 0.0975]
+      Rotation: [0, 0, 0]
+      Scale: [0.018, 0.0032, 0.0062]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.88, 0.86, 0.82]
+      Metallic: 0
+      Roughness: 0.14
+      MaterialKind: 2
+      SkinProfile: 1245000000000000004
+      ThicknessFactor: 0.002
+  # -- A matte backdrop, well behind the subject. Not a skybox: a visible
+  #    environment turned the first capture of ReferenceHead.olo into a photo of
+  #    the Newport Loft with a head in front of it, and the backlit cell is
+  #    exactly where that mistake is most expensive. --
+  - Entity: 1222000001000040
+    TagComponent:
+      Tag: Backdrop
+    TransformComponent:
+      Translation: [0, 0, -0.55]
+      Rotation: [0, 0, 0]
+      Scale: [2, 2, 0.02]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.14, 0.14, 0.15]
+      Metallic: 0
+      Roughness: 0.85
