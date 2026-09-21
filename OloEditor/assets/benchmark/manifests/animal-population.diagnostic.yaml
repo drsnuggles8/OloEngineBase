@@ -35,10 +35,20 @@ Description: >-
   with a close-up hero. The population #1258's budget is measured against.
 
 Backends:
+  # BOTH BACKENDS ARE CLAIMED BECAUSE BOTH WERE RUN, not because the scene is
+  # backend-agnostic in principle. The Vulkan capture was executed through
+  # `olo_benchmark_capture` against a live editor started with `--rhi=vulkan`
+  # (`[RHI] Backend: Vulkan (source: --rhi flag)` in the log): all four cameras,
+  # `attachmentFailures: 0`, 0 VUIDs.
   Supported: [opengl, vulkan]
   Features:
     vulkan:
-      UnsupportedAttachments: []
+      # DECLARED BECAUSE IT WAS MEASURED. That Vulkan run skipped LinearDepth on
+      # every one of the four cameras — the `Derive: linear-depth` transform has
+      # no Vulkan path — so an empty list here would be a claim the capture
+      # itself contradicts, and a reader counting attachments would take 8 of 9
+      # for a complete set.
+      UnsupportedAttachments: [LinearDepth]
 
 Cameras:
   # 1) HERD-WIDE. The budget's normal case: the whole depth range in one frame,

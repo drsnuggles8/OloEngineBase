@@ -32,6 +32,8 @@
 #include "OloEngine/Scene/AnimalScheduler.h"
 
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
 #include <array>
 #include <cmath>
 #include <limits>
@@ -41,6 +43,8 @@
 #include <vector>
 
 using namespace OloEngine;
+
+namespace fs = std::filesystem;
 
 namespace
 {
@@ -508,8 +512,8 @@ TEST(AnimalSchedulerFloor, TheFloorCounterSeesTheLadderBeingRefusedAndNotOnlyThe
     // coat's own distance ladder asks to thin past MinVisibleStrands and the
     // floor refuses, which happens with no budget pressure at all.
     //
-    // Found on the live population scene through olo_groom_budget_stats: 41
-    // animals were being held by the floor and the counter read 0, while the
+    // Found on the live population scene through olo_groom_budget_stats: 18 of
+    // 41 animals were held by the floor and the counter read 0, while the
     // axis totals showed the SCHEDULED cost above the DESIRED cost — which is
     // only possible when something refused to coarsen.
     constexpr u32 kStrands = 1000u;
@@ -532,7 +536,7 @@ TEST(AnimalSchedulerFloor, TheFloorCounterSeesTheLadderBeingRefusedAndNotOnlyThe
     EXPECT_EQ(stats.AnimalsCoarsened, 0u) << "there is no budget pressure here at all";
     EXPECT_EQ(stats.AnimalsAtVisibilityFloor, 1u)
         << "the floor refused the distance ladder and the counter did not notice — which is the exact blind spot "
-           "that made a live scene report 0 while 41 coats were being held";
+           "that made a live scene report 0 while 18 of its 41 coats were being held";
 
     // And the tell that exposed it: refusing to coarsen leaves the SCHEDULED
     // cost above the DESIRED cost, which nothing else in the scheduler can do.
@@ -1036,4 +1040,77 @@ TEST(AnimalSchedulerStarvation, WhenEveryCandidateIsAtTheBoundTheRuleIsDroppedRa
     EXPECT_TRUE(anythingCoarsened)
         << "every candidate was over the starvation bound and the allocator refused to coarsen any of them, so the "
            "axis stays over budget forever";
+}
+
+// -----------------------------------------------------------------------------
+// The pose clock is advanced at EVERY animation site — a source scan
+// -----------------------------------------------------------------------------
+
+TEST(AnimalSchedulerStability, AnimalPoseTickIsAdvancedAtEveryAnimationSite)
+{
+    // A SOURCE SCAN, for SkeletalDeformationContract's reason: a clock wired
+    // into only some entry points is invisible in every test that drives the
+    // others, and this exact bug has now happened twice.
+    //
+    // ShouldPoseAnimalThisFrame's gate runs inside the per-entity animation
+    // loop. There are two such loops in Scene.cpp — the runtime one in
+    // UpdateAnimation and the preview one in OnUpdateEditor — and the tick must
+    // advance immediately above BOTH. Advancing it in UpdateAnimation alone
+    // froze the clock in edit mode: every animal whose UUID-derived phase did
+    // not satisfy the congruence was skipped on every frame forever, while the
+    // scheduler reported it scheduled and nothing logged.
+    //
+    // Scanning the SOURCE rather than the behaviour because the failure is a
+    // missing call at a site no unit test reaches: a behavioural test would
+    // have to drive OnUpdateEditor with a real clip and a real skeleton, which
+    // is the visual-evidence fixture's job, and it would still only cover the
+    // sites somebody remembered to drive.
+    const fs::path repoRoot = fs::path{ OLO_TEST_EDITOR_ROOT }.parent_path();
+    const fs::path path = repoRoot / "OloEngine/src/OloEngine/Scene/Scene.cpp";
+
+    std::ifstream file(path);
+    ASSERT_TRUE(file.is_open()) << "could not read " << path.string();
+    std::vector<std::string> lines;
+    for (std::string line; std::getline(file, line);)
+    {
+        lines.push_back(line);
+    }
+    ASSERT_FALSE(lines.empty());
+
+    // Every line that opens a per-entity animation loop over the
+    // (AnimationStateComponent, SkeletonComponent) group.
+    constexpr std::string_view kLoop = "m_Registry.group<AnimationStateComponent, SkeletonComponent>()";
+    constexpr std::string_view kTick = "++m_AnimalPoseTick;";
+
+    u32 sites = 0;
+    for (sizet i = 0; i < lines.size(); ++i)
+    {
+        if (lines[i].find(kLoop) == std::string::npos)
+        {
+            continue;
+        }
+        ++sites;
+
+        // The increment sits just above, allowing for the comment block that
+        // explains why — the same tolerance SkeletalDeformationContract uses.
+        const sizet lo = i >= 24u ? i - 24u : 0u;
+        bool advanced = false;
+        for (sizet j = lo; j < i && !advanced; ++j)
+        {
+            advanced = lines[j].find(kTick) != std::string::npos;
+        }
+
+        EXPECT_TRUE(advanced)
+            << "Scene.cpp:" << (i + 1)
+            << " opens an animation loop whose body evaluates ShouldPoseAnimalThisFrame, with no nearby "
+               "'++m_AnimalPoseTick;'. The deformation stagger's clock must advance at EVERY animation site: left "
+               "out of one, the gate there sees a frozen tick and every animal whose phase does not satisfy the "
+               "congruence is skipped forever, in that mode only, silently.";
+    }
+
+    // A guard nobody reaches is the failure this scan exists to catch, so it
+    // also has to fail when the sites themselves move or are renamed.
+    EXPECT_GE(sites, 2u)
+        << "fewer than two animation loops found in Scene.cpp — either a site was removed, or this scan stopped "
+           "matching and is now passing vacuously";
 }

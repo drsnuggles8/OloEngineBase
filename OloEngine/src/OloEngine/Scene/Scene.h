@@ -1625,28 +1625,28 @@ namespace OloEngine
 
         AnimalSchedulerStats m_AnimalSchedulerStats;
 
-        /// Frames since the scene started running, used ONLY to phase the
-        /// staggered deformation ticks. Its absolute value is never read — only
-        /// `(counter + phase) % period` — so a wrap is harmless.
-        ///
-        /// THE STAGGER IS THE WHOLE POINT of this counter, and it is what makes
-        /// the frame-time TAIL fall rather than only the mean. Forty animals at
-        /// a quarter rate all ticking on the same frame is the same peak cost
-        /// as forty animals at full rate, once every four frames; spread across
-        /// the period it is a quarter of the peak. A scheduler without the
-        /// phase improves every average and leaves the stutter exactly where it
-        /// was.
-        u64 m_AnimalFrameCounter = 0;
-
         /// The clock the deformation stagger is phased on, advanced once per
-        /// UpdateAnimation — which is the function the gate's body runs in.
+        /// ANIMATION PASS — immediately above each of the two loops whose body
+        /// evaluates the gate, and nowhere else.
         ///
-        /// A SECOND COUNTER AND NOT m_AnimalFrameCounter, because the two count
-        /// different events: UpdateAnimation runs from SimulateRuntimeStep,
-        /// which the fixed-timestep accumulator calls zero or more times per
-        /// rendered frame. Phasing on the frame counter freezes animals outright
-        /// whenever the display rate is a multiple of the fixed step — see
-        /// ShouldPoseAnimalThisFrame.
+        /// THE STAGGER IS THE WHOLE POINT, and it is what makes the frame-time
+        /// TAIL fall rather than only the mean. Forty animals at a quarter rate
+        /// all ticking on the same frame is the same peak cost as forty at full
+        /// rate, once every four frames; spread across the period it is a
+        /// quarter of the peak. A scheduler without the phase improves every
+        /// average and leaves the stutter exactly where it was.
+        ///
+        /// IT COUNTS ANIMATION PASSES, NOT FRAMES, and the distinction has
+        /// already produced two freezes. A per-frame counter is wrong because
+        /// UpdateAnimation runs from SimulateRuntimeStep, which the fixed-step
+        /// accumulator calls zero or more times per rendered frame — at 120 Hz
+        /// against a 60 Hz step the sim ticks land only on even frames and a
+        /// period-2 animal with an odd phase is never posed. And advancing it
+        /// in UpdateAnimation alone is wrong because OnUpdateEditor runs its own
+        /// preview loop, which froze the clock outright in edit mode.
+        ///
+        /// Its absolute value is never read — only `(tick + phase) % period` —
+        /// so a wrap is harmless.
         u64 m_AnimalPoseTick = 0;
 
         /// Gather every animal, share the frame out between them, and publish

@@ -9623,10 +9623,25 @@ namespace OloEngine
             }
 
             ImGui::SeparatorText("Caps (halvings this animal will accept)");
-            ImGui::DragInt("Deformation", reinterpret_cast<int*>(&component.m_MaxDeformationSteps), 0.1f, 0, 16);
-            ImGui::DragInt("Simulation", reinterpret_cast<int*>(&component.m_MaxSimulationSteps), 0.1f, 0, 16);
-            ImGui::DragInt("Visibility", reinterpret_cast<int*>(&component.m_MaxVisibilitySteps), 0.1f, 0, 16);
-            ImGui::DragInt("Shadow", reinterpret_cast<int*>(&component.m_MaxShadowSteps), 0.1f, 0, 16);
+            // THROUGH A LOCAL int AND std::clamp, never a reinterpret_cast of
+            // the u32. DragInt does NOT clamp Ctrl+click text entry without
+            // ImGuiSliderFlags_AlwaysClamp, so typing -1 into a field aliased
+            // onto a u32 stores 4294967295 — which the scheduler then clamps to
+            // its MAXIMUM step. Entering the smallest possible value would
+            // select the largest possible cap, which is the exact opposite of
+            // what the author asked for and looks like the budget ignoring them.
+            const auto dragStep = [](const char* label, u32& value)
+            {
+                int scratch = static_cast<int>(value);
+                if (ImGui::DragInt(label, &scratch, 0.1f, 0, 16))
+                {
+                    value = static_cast<u32>(std::clamp(scratch, 0, 16));
+                }
+            };
+            dragStep("Deformation", component.m_MaxDeformationSteps);
+            dragStep("Simulation", component.m_MaxSimulationSteps);
+            dragStep("Visibility", component.m_MaxVisibilitySteps);
+            dragStep("Shadow", component.m_MaxShadowSteps);
             if (ImGui::IsItemHovered())
             {
                 ImGui::SetTooltip("Four numbers rather than one because the axes degrade differently and are\n"

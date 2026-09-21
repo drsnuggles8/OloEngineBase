@@ -83,6 +83,23 @@ namespace OloEngine::Functional
     class AnimalPopulationFixture : public FunctionalTest
     {
       protected:
+        // RendererSettings IS PROCESS-WIDE, and this fixture writes it. Without
+        // a restore, every later case in the same binary inherits a 700-unit
+        // animal budget and an enabled scheduler — which is invisible until
+        // some unrelated test starts failing depending on gtest's ordering.
+        // Captured before BuildScene runs and put back in TearDown.
+        void SetUp() override
+        {
+            m_SavedSettings = Renderer3D::GetRendererSettings();
+            FunctionalTest::SetUp();
+        }
+
+        void TearDown() override
+        {
+            Renderer3D::GetRendererSettings() = m_SavedSettings;
+            FunctionalTest::TearDown();
+        }
+
         void BuildScene() override
         {
             EnableAnimation();
@@ -177,6 +194,7 @@ namespace OloEngine::Functional
         Entity m_Hero;
         std::vector<Entity> m_Herd;
         Ref<AnimationClip> m_Clip;
+        RendererSettings m_SavedSettings;
     };
 
     /// A second, independently built population — the comparison arm for the

@@ -4195,17 +4195,27 @@ namespace OloEngine
 
     void Scene::UpdateAnimation(Timestep ts)
     {
-        // The deformation stagger's clock (#1258), advanced HERE because this
-        // is the function whose body the gate runs in. Incrementing it at a
-        // frame boundary instead would count a different event than the one it
-        // phases — see ShouldPoseAnimalThisFrame. Its absolute value is never
-        // read, only `(tick + phase) % period`, so a wrap is harmless.
-        ++m_AnimalPoseTick;
 
         // Update animations. Full-owning group over AnimationStateComponent +
         // SkeletonComponent (neither is shared with the physics/particle hot
         // loops, so both pools are owned — issue #443 ownership map).
         {
+            // THE DEFORMATION STAGGER'S CLOCK (#1258), advanced immediately
+            // above the loop whose body evaluates the gate — at BOTH animation
+            // sites, which is the whole of the contract.
+            //
+            // OnUpdateEditor runs its OWN preview loop and never calls
+            // UpdateAnimation, so an increment living only in the latter left
+            // this clock FROZEN in edit mode: every animal whose UUID-derived
+            // phase did not satisfy the congruence was skipped on every frame
+            // forever, which reads as a herd stuck in its bind pose while the
+            // scheduler cheerfully reports it scheduled. Nothing logs.
+            //
+            // AnimalPoseTickIsAdvancedAtEveryAnimationSite scans for this
+            // pairing, for the reason SkeletalDeformationContract scans the
+            // AdvanceHistory pairing: a clock wired into only some entry
+            // points is invisible in every test that drives the others.
+            ++m_AnimalPoseTick;
             auto animView = m_Registry.group<AnimationStateComponent, SkeletonComponent>();
             for (auto e : animView)
             {
@@ -4669,7 +4679,6 @@ namespace OloEngine
         // feature's evidence runs under one.
         m_FrameTimeTail.Push(ts.GetSeconds() * 1000.0f);
 
-        ++m_AnimalFrameCounter;
         m_AnimalSchedules.clear();
         m_AnimalSchedulerStats = AnimalSchedulerStats{};
 
@@ -5826,6 +5835,22 @@ namespace OloEngine
         // Update animations so they preview in the editor (IK responds to target movement).
         // Reuses the AnimationStateComponent + SkeletonComponent owning group (issue #443).
         {
+            // THE DEFORMATION STAGGER'S CLOCK (#1258), advanced immediately
+            // above the loop whose body evaluates the gate — at BOTH animation
+            // sites, which is the whole of the contract.
+            //
+            // OnUpdateEditor runs its OWN preview loop and never calls
+            // UpdateAnimation, so an increment living only in the latter left
+            // this clock FROZEN in edit mode: every animal whose UUID-derived
+            // phase did not satisfy the congruence was skipped on every frame
+            // forever, which reads as a herd stuck in its bind pose while the
+            // scheduler cheerfully reports it scheduled. Nothing logs.
+            //
+            // AnimalPoseTickIsAdvancedAtEveryAnimationSite scans for this
+            // pairing, for the reason SkeletalDeformationContract scans the
+            // AdvanceHistory pairing: a clock wired into only some entry
+            // points is invisible in every test that drives the others.
+            ++m_AnimalPoseTick;
             auto animView = m_Registry.group<AnimationStateComponent, SkeletonComponent>();
             for (auto e : animView)
             {

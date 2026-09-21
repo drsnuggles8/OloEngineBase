@@ -646,12 +646,22 @@ namespace OloEngine
                 //                            allocation coarsened this animal as
                 //                            far as it is allowed to go.
                 //
-                // Measured on the live population scene: 41 animals were held by
-                // the first route and the counter read 0, while the axis totals
-                // showed the scheduled cost sitting ABOVE the desired cost —
-                // which is only possible when something refused to coarsen.
-                const bool ladderRefused = visCap < visDesired;
-                const bool budgetCapped = schedule.Step[vis] > visDesired && schedule.Step[vis] >= visCap;
+                // Measured on the live population scene: 18 of 41 animals were
+                // held by the first route and the counter read 0, while the axis
+                // totals showed the scheduled cost sitting ABOVE the desired
+                // cost — which is only possible when something refused to
+                // coarsen.
+                // AGAINST THE FLOOR-ONLY CAP, not against the item's combined
+                // one. MaxStep carries the AUTHORED per-animal cap as well, and
+                // an animal whose author set m_MaxVisibilitySteps below the
+                // floor's answer is held by the AUTHOR, not by the floor —
+                // counting it would inflate this number with a value that has
+                // nothing to do with MinVisibleStrands.
+                const u32 floorOnlyCap =
+                    MaxVisibilityStepForStrandFloor(item.StrandCount, policy.MinVisibleStrands, kMaxBudgetSteps);
+                const bool ladderRefused = floorOnlyCap < visDesired;
+                const bool budgetCapped =
+                    schedule.Step[vis] > visDesired && schedule.Step[vis] >= visCap && visCap <= floorOnlyCap;
                 if (item.Visible && item.StrandCount > 0u && policy.MinVisibleStrands > 0u &&
                     (ladderRefused || budgetCapped))
                 {
