@@ -85,6 +85,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -438,6 +439,37 @@ namespace OloEngine::Tests
                     ++populated;
             }
             return populated;
+        }
+
+        // GL reads back BOTTOM-UP; stbi_write_png writes TOP-DOWN. Without this
+        // every evidence PNG in this file came out vertically mirrored — the
+        // eyes below the mouth — which is how the first revision of PR #1388
+        // shipped and how a reviewer spotted it. The sibling evidence tests
+        // (AtmosphereVisualEvidenceTest) each do this same row swap after
+        // ReadbackRgba8; this file simply did not.
+        //
+        // NO ASSERTION in this file was affected, which is exactly why it
+        // survived: the measurement disc is centred and flip-symmetric, the hue
+        // histogram is whole-frame, and every Diff compares two captures that
+        // were flipped identically. Only the pictures were wrong — and in a
+        // change whose entire subject is what the screen looks like, the
+        // pictures are the deliverable.
+        void FlipRowsInPlace(std::vector<u8>& rgba, u32 width, u32 height)
+        {
+            if (width == 0u || height < 2u)
+                return;
+            const std::size_t rowBytes = static_cast<std::size_t>(width) * 4u;
+            if (rgba.size() < rowBytes * height)
+                return;
+            std::vector<u8> tmp(rowBytes);
+            for (u32 y = 0; y < height / 2u; ++y)
+            {
+                u8* top = rgba.data() + static_cast<std::size_t>(y) * rowBytes;
+                u8* bot = rgba.data() + static_cast<std::size_t>(height - 1u - y) * rowBytes;
+                std::memcpy(tmp.data(), top, rowBytes);
+                std::memcpy(top, bot, rowBytes);
+                std::memcpy(bot, tmp.data(), rowBytes);
+            }
         }
 
         [[nodiscard]] fs::path VisualOutputPath(const std::string& name)
@@ -1025,6 +1057,8 @@ namespace OloEngine::Tests
                 return false;
             if (!out.Valid())
                 return false;
+            // Bottom-up out of GL, top-down into the PNG. See FlipRowsInPlace.
+            FlipRowsInPlace(out.Pixels, out.Width, out.Height);
 
             if (!name.empty())
             {

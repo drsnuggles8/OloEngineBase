@@ -2,28 +2,27 @@ Scene: DigitalHuman.olo
 # -----------------------------------------------------------------------------
 # DIGITAL HUMAN fixture (issue #1222, the epic's own acceptance).
 #
-# The first scene in this project on which the SKIN, EYE and ORAL children run
-# at the same time on one subject: #1241 on the cranium and the ears, #1244 on
-# the globes and tear lines, #1245 on the lips, gums, teeth and tongue.
+# THE SUBJECT IS A REAL HUMAN HEAD: assets/models/InfiniteScanHead/Head.fbx, a
+# photogrammetry scan by Lee Perry-Smith, CC BY 3.0 — attribution chain in that
+# directory's README.md, and it is an attribution licence, so the chain has to
+# travel with the file. It is the head the subsurface-scattering literature
+# uses, and it is here because there was no human head in this repository:
+# Suzanne is a chimpanzee and Khronos glTF-Sample-Assets has no face.
 #
-# WHAT THE CRANIUM DOES NOT DO, AND WHY IT IS SAID HERE RATHER THAN DISCOVERED.
-# ReferenceHead.oloskin — the profile the cranium and both ears carry, and the
-# one ReferenceHead.olo and Eyes.olo also name — is authored at TRANSPORT
-# VERSION 1 (ScreenSpaceDiffusion). The ladder is cumulative, so version 1 is
-# diffusion and NOTHING ABOVE IT: no #1242 thin-region transmission, no #1243
-# layered specular. #1239 wrote that feature owners would upgrade the fixtures
-# they landed against, and for those two issues that upgrade never happened.
+# It carries ReferenceHead.oloskin and is the subject for the SKIN children
+# (#1241 diffusion, #1242 transmission, #1243 layered specular).
 #
-# The practical consequence, measured in this scene: under the backlight rig
-# the material-transmission debug view is essentially black over the cranium
-# and both ears, because the term is not enabled on their profile rather than
-# because it is broken. The ears are still built as a thin region (1.5 mm
-# against the cheek's 6 mm) so that they become the subject the moment the
-# profile moves past version 1 — which is a one-field edit to that .oloskin.
+# WHAT IT CANNOT DEMONSTRATE, and why the swatch row exists. The scan has
+# CLOSED EYELIDS and its own lips and ears, so #1244's globes and #1245's oral
+# surfaces have nothing to attach to — bolting eyeballs onto a scanned face
+# produced exactly the result you would expect, and the attempt is not worth
+# repeating. Those parts are therefore laid out as a MATERIAL SWATCH ROW below
+# and behind the head, outside the portrait framing.
 #
-# The oral and ocular parts DO exercise the upper ladder: OralLip, OralGum,
-# OralTongue and OralEnamel are version 4 and EyeIris and EyeTearLine are
-# version 5, all with a transmission strength authored. Reported on #1222.
+# The row is not decoration and it is not hidden: every part still submits, so
+# all SEVEN .oloskin profiles still resolve a G-Buffer slot and the budget
+# finding below is still measured by this scene. #1244 and #1245 keep their own
+# fixtures (Eyes.olo, OralSurfaces.olo) as the place their geometry is judged.
 #
 # THIS SCENE SPENDS THE ENTIRE SKIN-PROFILE SLOT BUDGET, and that is a finding
 # rather than a detail. Seven distinct .oloskin profiles are named here
@@ -33,59 +32,41 @@ Scene: DigitalHuman.olo
 # (Renderer/SkinProfile.h) and a complete face fills it exactly. An EIGHTH
 # profile anywhere in a scene containing this head does not fail loudly: it
 # resolves to kSkinProfileSlotNone with SlotBudgetFull, logs once, and renders
-# as not-skin. A second character, a different eye colour, or a freckled
-# variant of this head would each be that eighth. Reported on #1222 rather than
-# worked around here.
+# as not-skin. Reported on #1222 rather than worked around here.
+#
+# WHAT THE CRANIUM STILL DOES NOT DO. ReferenceHead.oloskin is authored at
+# TRANSPORT VERSION 1 (ScreenSpaceDiffusion). The ladder is cumulative, so the
+# head gets diffusion and NOTHING ABOVE IT: no #1242 thin-region transmission,
+# no #1243 layered specular. Under the backlight rig the material-transmission
+# debug view is essentially black over it — because the term is not enabled on
+# its profile, not because it is broken. #1239 wrote that feature owners would
+# upgrade the fixtures they landed against; for those two issues that never
+# happened. Tracked as #1394.
 #
 # WHY A NEW SCENE AND NOT AN EDIT TO ReferenceHead.olo. That fixture is a PINNED
 # BENCHMARK whose captures are golden and whose manifest is asserted
 # (ReferenceFixtureManifestTest); adding geometry to it would invalidate every
 # number measured against it. #1244's Eyes.olo and #1245's OralSurfaces.olo each
-# made that same call and each stayed additive. This scene is the third and last
-# in that family, and it is the one that puts the other two together — which is
-# precisely the epic criterion neither of them could satisfy alone.
+# made that same call and each stayed additive. This scene is the third in that
+# family, and the one that puts the others together.
 #
-# WHY PRIMITIVES, STILL. Every claim these features support is a claim about the
-# MATERIAL, and a material does not know what mesh it is on. What the profiles
-# need from geometry is a uniformly scaled sphere for each globe, a thin region
-# for the transmission to cross, and a cavity for the oral occlusion to darken —
-# all of which primitives give without a licensed asset. A scanned head dropped
-# in here changes the subject and nothing else. That head remains a genuine
-# external dependency; see docs/guides/benchmark-reference-fixtures.md.
+# PLACING ANYTHING AGAINST THE FACE: the scan is authored ~1.4 units tall for
+# the whole bust with its origin at the BASE OF THE NECK, so this scene scales
+# it 0.38 and drops it 0.285 to put the head on the origin. Coordinates written
+# for the 0.2 m sphere this fixture used to use are meaningless against it.
 #
-# WHAT THIS SCENE IS FOR, AND WHAT IT IS NOT FOR.
-#   FOR: the LIVE half of the epic's verification grid. The material debug views
-#        (diffuse / specular / transmission / profile identity) are deferred-only
-#        and are reachable here through the MCP renderer tools, which is how the
-#        Vulkan rows of that grid get captured at all — the headless fixtures
-#        need a real GL 4.6 context and skip without one.
-#   NOT FOR: the tone ladder or the expression. Several skin tones need several
-#        authored profiles and an expression needs a morph target, and both are
-#        measured headlessly and assertively by
-#        OloEngine/tests/Rendering/PropertyTests/SkinDigitalHumanEvidenceTest.cpp.
-#        Duplicating them here as a static pose would look like coverage and
-#        assert nothing.
+# WHAT THIS SCENE IS FOR: the LIVE half of the epic's verification grid. The
+# material debug views are deferred-only and reachable here through the MCP
+# renderer tools, which is how the Vulkan rows get captured at all — the
+# headless fixtures need a real GL 4.6 context and skip without one. The tone
+# ladder and the expression are measured headlessly instead, by
+# OloEngine/tests/Rendering/PropertyTests/SkinDigitalHumanEvidenceTest.cpp.
 #
 # THE THREE RIGS ARE ALL PRESENT AND ONLY ONE IS STRONG. Criterion 2 asks for
-# soft, hard side and backlight, and a scene can only be authored in one of them
-# — so all three lights exist and the other two are dimmed rather than deleted.
-# Moving between rigs is then an INTENSITY edit on lights that are already
-# placed, which keeps the geometry, the exposure and the shadow settings fixed
-# across a rig change. Changing the rig by adding a light would change two
-# things and make the comparison unreadable.
-#
-# THE EARS ARE BUILT FOR THE BACKLIGHT, and are waiting on a profile. Thin
-# ellipsoids with a real ThicknessFactor, standing proud of the cranium:
-# #1242's transmission is a thin-region term and a head with no thin region
-# backlit is just a dark head. They do not glow today for the version-1 reason
-# above, not for a geometric one.
-#
-# EVERY PART IS PROUD OF THE CRANIUM ON PURPOSE. The head is a solid ellipsoid
-# with no mouth aperture, so anything authored *inside* it is simply invisible
-# — the first version of this scene buried both globes, both gum strips, both
-# tooth blocks and the tongue, and rendered a bald sphere with lips. Each
-# part's z is now set so its front face clears the cranium surface at that
-# (x, y), in the order lips > teeth > gums > tongue > throat.
+# soft, hard side and backlight, and a scene can only be authored in one of
+# them — so all three lights exist and the other two are dimmed rather than
+# deleted. Switching rig is then an INTENSITY edit on lights that are already
+# placed, which keeps geometry, exposure and shadow settings fixed.
 # -----------------------------------------------------------------------------
 PostProcessSettings:
   TonemapOperator: 2
@@ -197,11 +178,12 @@ Entities:
     TagComponent:
       Tag: Cranium
     TransformComponent:
-      Translation: [0, 0, 0]
+      Translation: [0, -0.285, 0]
       Rotation: [0, 0, 0]
-      Scale: [0.098, 0.115, 0.105]
-    MeshComponent:
-      Primitive: 2
+      Scale: [0.38, 0.38, 0.38]
+    ModelComponent:
+      FilePath: assets/models/InfiniteScanHead/Head.fbx
+      Visible: true
     MaterialComponent:
       AlbedoColor: [0.66, 0.49, 0.42]
       Metallic: 0
@@ -221,9 +203,9 @@ Entities:
     TagComponent:
       Tag: LeftEar
     TransformComponent:
-      Translation: [-0.096, 0.012, -0.008]
-      Rotation: [0, 0.22, 0.12]
-      Scale: [0.012, 0.038, 0.026]
+      Translation: [-0.38, -0.30, 0.0]
+      Rotation: [0, 0, 0]
+      Scale: [0.010, 0.026, 0.017]
     MeshComponent:
       Primitive: 2
     MaterialComponent:
@@ -237,9 +219,9 @@ Entities:
     TagComponent:
       Tag: RightEar
     TransformComponent:
-      Translation: [0.096, 0.012, -0.008]
-      Rotation: [0, -0.22, -0.12]
-      Scale: [0.012, 0.038, 0.026]
+      Translation: [-0.34, -0.30, 0.0]
+      Rotation: [0, 0, 0]
+      Scale: [0.010, 0.026, 0.017]
     MeshComponent:
       Primitive: 2
     MaterialComponent:
@@ -259,9 +241,9 @@ Entities:
     TagComponent:
       Tag: LeftEye
     TransformComponent:
-      Translation: [-0.031, 0.021, 0.092]
+      Translation: [-0.3, -0.30, 0.0]
       Rotation: [0, 0.10, 0]
-      Scale: [0.0123, 0.0123, 0.0123]
+      Scale: [0.009, 0.009, 0.009]
     MeshComponent:
       Primitive: 2
     MaterialComponent:
@@ -275,9 +257,9 @@ Entities:
     TagComponent:
       Tag: RightEye
     TransformComponent:
-      Translation: [0.031, 0.021, 0.092]
+      Translation: [-0.26, -0.30, 0.0]
       Rotation: [0, -0.16, 0]
-      Scale: [0.0123, 0.0123, 0.0123]
+      Scale: [0.009, 0.009, 0.009]
     MeshComponent:
       Primitive: 2
     MaterialComponent:
@@ -294,9 +276,9 @@ Entities:
     TagComponent:
       Tag: LeftTearLine
     TransformComponent:
-      Translation: [-0.031, 0.011, 0.099]
+      Translation: [-0.22, -0.30, 0.0]
       Rotation: [0, 0, 0]
-      Scale: [0.011, 0.0013, 0.004]
+      Scale: [0.008, 0.0010, 0.003]
     MeshComponent:
       Primitive: 1
     MaterialComponent:
@@ -310,9 +292,9 @@ Entities:
     TagComponent:
       Tag: RightTearLine
     TransformComponent:
-      Translation: [0.031, 0.011, 0.099]
+      Translation: [-0.18, -0.30, 0.0]
       Rotation: [0, 0, 0]
-      Scale: [0.011, 0.0013, 0.004]
+      Scale: [0.008, 0.0010, 0.003]
     MeshComponent:
       Primitive: 1
     MaterialComponent:
@@ -338,9 +320,9 @@ Entities:
     TagComponent:
       Tag: UpperLip
     TransformComponent:
-      Translation: [0, -0.038, 0.095]
-      Rotation: [0.12, 0, 0]
-      Scale: [0.030, 0.0072, 0.010]
+      Translation: [-0.14, -0.30, 0.0]
+      Rotation: [0.10, 0, 0]
+      Scale: [0.016, 0.0040, 0.006]
     MeshComponent:
       Primitive: 2
     MaterialComponent:
@@ -354,9 +336,9 @@ Entities:
     TagComponent:
       Tag: LowerLip
     TransformComponent:
-      Translation: [0, -0.057, 0.095]
-      Rotation: [-0.10, 0, 0]
-      Scale: [0.030, 0.0085, 0.011]
+      Translation: [0.18, -0.30, 0.0]
+      Rotation: [-0.08, 0, 0]
+      Scale: [0.016, 0.0050, 0.006]
     MeshComponent:
       Primitive: 2
     MaterialComponent:
@@ -375,9 +357,9 @@ Entities:
     TagComponent:
       Tag: Throat
     TransformComponent:
-      Translation: [0, -0.047, 0.086]
+      Translation: [0.42, -0.30, 0.0]
       Rotation: [0, 0, 0]
-      Scale: [0.020, 0.008, 0.012]
+      Scale: [0.010, 0.0040, 0.006]
     MeshComponent:
       Primitive: 2
     MaterialComponent:
@@ -391,9 +373,9 @@ Entities:
     TagComponent:
       Tag: Tongue
     TransformComponent:
-      Translation: [0, -0.050, 0.090]
+      Translation: [0.38, -0.30, 0.0]
       Rotation: [0, 0, 0]
-      Scale: [0.015, 0.0045, 0.010]
+      Scale: [0.009, 0.0020, 0.005]
     MeshComponent:
       Primitive: 2
     MaterialComponent:
@@ -407,9 +389,9 @@ Entities:
     TagComponent:
       Tag: UpperGum
     TransformComponent:
-      Translation: [0, -0.0425, 0.0955]
+      Translation: [0.3, -0.30, 0.0]
       Rotation: [0, 0, 0]
-      Scale: [0.019, 0.0028, 0.007]
+      Scale: [0.011, 0.0015, 0.003]
     MeshComponent:
       Primitive: 1
     MaterialComponent:
@@ -423,9 +405,9 @@ Entities:
     TagComponent:
       Tag: LowerGum
     TransformComponent:
-      Translation: [0, -0.0535, 0.0955]
+      Translation: [0.34, -0.30, 0.0]
       Rotation: [0, 0, 0]
-      Scale: [0.019, 0.0028, 0.007]
+      Scale: [0.011, 0.0015, 0.003]
     MeshComponent:
       Primitive: 1
     MaterialComponent:
@@ -443,9 +425,9 @@ Entities:
     TagComponent:
       Tag: UpperTeeth
     TransformComponent:
-      Translation: [0, -0.0455, 0.0975]
+      Translation: [0.22, -0.30, 0.0]
       Rotation: [0, 0, 0]
-      Scale: [0.018, 0.0032, 0.0062]
+      Scale: [0.011, 0.0020, 0.003]
     MeshComponent:
       Primitive: 1
     MaterialComponent:
@@ -459,9 +441,9 @@ Entities:
     TagComponent:
       Tag: LowerTeeth
     TransformComponent:
-      Translation: [0, -0.0505, 0.0975]
+      Translation: [0.26, -0.30, 0.0]
       Rotation: [0, 0, 0]
-      Scale: [0.018, 0.0032, 0.0062]
+      Scale: [0.011, 0.0020, 0.003]
     MeshComponent:
       Primitive: 1
     MaterialComponent:

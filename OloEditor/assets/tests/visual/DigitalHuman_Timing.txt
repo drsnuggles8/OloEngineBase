@@ -16,6 +16,6 @@ free. A real per-pass budget needs GPU timer queries on a quiet box and a scene
 with enough skin in it to dominate the frame. What this file can resolve, and
 therefore all it claims, is that the stack does not cost an order of magnitude.
 
-Forward       full stack   4.515 ms   split-only   4.735 ms   (the digital human costs -4.6%)
-ForwardPlus   full stack   5.840 ms   split-only   4.042 ms   (the digital human costs +44.5%)
-Deferred      full stack   7.320 ms   split-only   8.844 ms   (the digital human costs -17.2%)
+Forward       full stack   4.396 ms   split-only   3.514 ms   (the digital human costs +25.1%)
+ForwardPlus   full stack   3.598 ms   split-only   3.735 ms   (the digital human costs -3.7%)
+Deferred      full stack   4.167 ms   split-only   4.214 ms   (the digital human costs -1.1%)
