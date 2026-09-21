@@ -166,6 +166,28 @@ velocity write that does not cover four channels, because that mistake compiles 
 warn, and produces whatever the previous tile left in memory — stable enough on one driver to pass
 every capture you take.
 
+## MSAA sharpens the coverage signal rather than damaging it
+
+An MSAA resolve averages every colour attachment, including RT3, so a partially-covered edge pixel
+resolves its coverage against the cleared 0 of the samples nothing wrote. Measured live on
+`FoliageMeadowToWoodland`, OpenGL Deferred, the coverage range widens with sample count:
+
+| MSAA | coverage range | total GPU |
+|---|---|---|
+| 1x | `[0.50, 0.996]` | 4.04 ms |
+| 2x | `[0.50, 0.996]` | 5.18 ms |
+| 4x | `[0.25, 0.996]` | 7.88 ms |
+| 8x | `[0.07, 0.996]` | 11.40 ms |
+
+That is the right direction: a leaf covering two of eight samples genuinely covers a quarter of the
+pixel, and at 1x the same pixel could only answer "covered" or "not". Do not "fix" the widening
+range by excluding RT3 from the resolve — averaging coverage with the cleared value IS the
+sub-pixel measurement, the same reasoning `GBuffer.h` gives for RT5's irradiance-and-coverage pair.
+
+**Confirm MSAA actually applied before trusting any of this.** The renderer-settings tool
+acknowledges an `msaa` change without necessarily applying it; the GPU cost scaling 4 -> 11 ms
+across the sweep is the evidence that it took, not the ack.
+
 ## The consumer, and the double-counting trap
 
 TAA reads last frame's RT3 through a `SurfaceGeometry` history plane and feeds the coverage and
