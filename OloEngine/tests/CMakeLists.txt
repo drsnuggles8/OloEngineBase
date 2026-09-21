@@ -486,6 +486,11 @@ add_executable(OloEngine-Tests
 		Rendering/RayTracing/DeformedSurfaceCacheTest.cpp
 		Rendering/RayTracing/RayHitNormalTransformTest.cpp
 		Rendering/RayTracing/RayTracingSceneTest.cpp
+		# The device-free half of RayTracingProbe (#607): SubmitBatch's gate on
+		# what ever reaches the GPU. Dispatch/Poll need a Vulkan device and are
+		# covered live, but SubmitBatch needs nothing -- and it owns the BatchId 0
+		# refusal that makes GetUnavailableBatchId()'s "no batch" sentinel sound.
+		Rendering/RayTracing/RayTracingProbeSubmitTest.cpp
 		Rendering/RayTracing/VegetationPolicyTest.cpp
 		Rendering/RayTracing/RayTracingDeviceTest.cpp
 		# #1055: the GPU reference path tracer against the CPU reference on a

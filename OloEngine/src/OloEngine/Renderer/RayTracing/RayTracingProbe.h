@@ -108,6 +108,12 @@ namespace OloEngine::RayTracing
             std::vector<Ray> Rays;
             u32 RayFlags = 0;
             u32 InstanceMask = 0xFFu;
+            // MUST BE NON-ZERO. 0 is reserved as "no batch" by
+            // GetUnavailableBatchId(), so a batch carrying it would own a
+            // refusal reason that reads as ownerless — and a reader applying
+            // the documented pairing strictly would then downgrade a definitive
+            // refusal to "pending". SubmitBatch refuses it rather than letting
+            // the default value through silently.
             u32 BatchId = 0;
         };
 
@@ -202,7 +208,9 @@ namespace OloEngine::RayTracing
             return m_UnavailableReason;
         }
 
-        // The batch GetUnavailableReason() describes. 0 when there is none.
+        // The batch GetUnavailableReason() describes. 0 when there is none —
+        // which is sound only because SubmitBatch refuses a zero BatchId, so no
+        // real batch can ever collide with the sentinel.
         [[nodiscard]] u32 GetUnavailableBatchId() const
         {
             return m_UnavailableBatchId;

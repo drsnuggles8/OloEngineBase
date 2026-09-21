@@ -65,6 +65,16 @@ namespace OloEngine::RayTracing
             return false;
         }
 
+        if (batch.BatchId == 0u)
+        {
+            // Not a caller-facing error so much as a contract violation, but it
+            // is reported rather than asserted: 0 is the "no batch" sentinel
+            // GetUnavailableBatchId() returns, so accepting it would make a real
+            // refusal indistinguishable from no refusal at all.
+            outError = "BatchId must be non-zero (0 is reserved for 'no batch').";
+            return false;
+        }
+
         Batch normalized = batch;
         // The instance mask is ANDed with each instance's own mask and the
         // shader takes the low byte; a zero mask makes EVERY instance

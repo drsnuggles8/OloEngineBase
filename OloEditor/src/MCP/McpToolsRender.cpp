@@ -6699,11 +6699,25 @@ namespace OloEngine::MCP
         // be read by the first as ITS reason. Both are confidently wrong
         // answers, which is the one thing a diagnostic must never produce.
         //
-        // Serializing costs a second caller its wait (bounded by the 8 s settle
-        // budget) and buys a correct answer for both. Safe to hold across
-        // MarshalRead: the main thread never takes this lock — RayTracingScenePass
-        // only calls into the probe, which knows nothing about it.
-        std::mutex s_RayTraceMutex;
+        // Serializing costs a second caller its wait and buys a correct answer
+        // for both. Safe to hold across MarshalRead: the main thread never takes
+        // this lock — RayTracingScenePass only calls into the probe, which knows
+        // nothing about it.
+        //
+        // TIMED, and polled against cancellation, because an httplib worker must
+        // never be pinned indefinitely (McpServer.h's CallTimeout carries the
+        // same rule for a hung bridged child). An unconditional lock() would
+        // ignore notifications/cancelled and, against an ICONIFIED editor —
+        // where frames stop but MarshalRead keeps working, so every call spends
+        // its whole settle budget — N queued callers would hold N workers for
+        // 8N seconds, out of the same pool that serves the SSE stream.
+        std::timed_mutex s_RayTraceMutex;
+
+        // How long a queued caller waits for the one in front of it before
+        // giving up. Two settle budgets: enough for one call ahead to finish
+        // honestly, short enough that a queue cannot outlive the client's
+        // patience. Returning "busy" is a true answer; blocking is not.
+        constexpr auto kRayTraceQueueBudget = std::chrono::seconds(20);
 
         // Read the probe's latest answer and shape it, matching on batch id.
         Json PollRayTraceResult(const RayTraceRay::Request& request, u32 batchId)
@@ -6784,9 +6798,32 @@ namespace OloEngine::MCP
             }
 
             // Held for the whole call, not just the submit — see s_RayTraceMutex.
-            const std::scoped_lock<std::mutex> traceLock(s_RayTraceMutex);
+            // Acquired in short slices so a cancelled call stops waiting instead
+            // of pinning its worker until the holder finishes.
+            std::unique_lock<std::timed_mutex> traceLock(s_RayTraceMutex, std::defer_lock);
+            {
+                const auto deadline = std::chrono::steady_clock::now() + kRayTraceQueueBudget;
+                while (!traceLock.try_lock_for(std::chrono::milliseconds(100)))
+                {
+                    if (host.IsCurrentCallCancelled())
+                        return ToolResult::Error("Cancelled while waiting for another olo_rt_trace_ray call to finish.");
+                    if (std::chrono::steady_clock::now() >= deadline)
+                    {
+                        return ToolResult::Error(
+                            "Another olo_rt_trace_ray call is still in flight and did not finish within "
+                            "20 s. Traces are serialized so each caller gets its own answer rather than a "
+                            "neighbour's — retry, and check olo_perf_snapshot's liveness block if this "
+                            "persists, because a stalled editor makes every trace spend its full settle "
+                            "budget.");
+                    }
+                }
+            }
 
-            const u32 batchId = s_RayTraceBatchId.fetch_add(1u, std::memory_order_relaxed) + 1u;
+            // Never 0: that is the probe's "no batch" sentinel, and after 2^32
+            // traces the naive +1 would hand it out as a real id.
+            u32 batchId = s_RayTraceBatchId.fetch_add(1u, std::memory_order_relaxed) + 1u;
+            if (batchId == 0u)
+                batchId = s_RayTraceBatchId.fetch_add(1u, std::memory_order_relaxed) + 1u;
 
             // 1. Submit. The availability checks run here as well as inside the
             // probe so an unusable device answers in ONE round trip instead of
