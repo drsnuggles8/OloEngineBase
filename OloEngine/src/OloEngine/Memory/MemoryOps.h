@@ -377,7 +377,7 @@ namespace OloEngine
     // @param Count     The number of elements to compare
     // @return true if all elements are equal
     template<typename ElementType, typename SizeType>
-        requires(sizeof(ElementType) > 0 && TTypeTraits<ElementType>::IsBytewiseComparable)
+        requires(sizeof(ElementType) > 0 && (TTypeTraits<ElementType>::IsBytewiseComparable != 0))
     OLO_FINLINE bool CompareItems(const ElementType* A, const ElementType* B, SizeType Count)
     {
         return !Count || !FMemory::Memcmp(A, B, sizeof(ElementType) * Count);
