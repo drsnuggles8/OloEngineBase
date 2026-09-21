@@ -143,14 +143,22 @@ namespace OloEngine::Tests
             EXPECT_FALSE(error.empty()) << what << " gave no reason";
         };
 
-        refuses([&](auto& r) { r.Origin.x = nan; }, "NaN origin");
-        refuses([&](auto& r) { r.Origin.y = inf; }, "infinite origin");
-        refuses([&](auto& r) { r.Direction.z = nan; }, "NaN direction");
-        refuses([&](auto& r) { r.Direction = { 0.0f, 0.0f, 0.0f }; }, "zero-length direction");
-        refuses([&](auto& r) { r.TMin = nan; }, "NaN tMin");
-        refuses([&](auto& r) { r.TMax = inf; }, "infinite tMax");
-        refuses([&](auto& r) { r.TMin = -1.0f; }, "negative tMin");
-        refuses([&](auto& r) { r.TMin = 10.0f; r.TMax = 1.0f; }, "tMin > tMax");
+        refuses([&](auto& r)
+                { r.Origin.x = nan; }, "NaN origin");
+        refuses([&](auto& r)
+                { r.Origin.y = inf; }, "infinite origin");
+        refuses([&](auto& r)
+                { r.Direction.z = nan; }, "NaN direction");
+        refuses([&](auto& r)
+                { r.Direction = { 0.0f, 0.0f, 0.0f }; }, "zero-length direction");
+        refuses([&](auto& r)
+                { r.TMin = nan; }, "NaN tMin");
+        refuses([&](auto& r)
+                { r.TMax = inf; }, "infinite tMax");
+        refuses([&](auto& r)
+                { r.TMin = -1.0f; }, "negative tMin");
+        refuses([&](auto& r)
+                { r.TMin = 10.0f; r.TMax = 1.0f; }, "tMin > tMax");
     }
 
     TEST(RayTracingProbeSubmit, ADegenerateButWellFormedIntervalIsAccepted)
