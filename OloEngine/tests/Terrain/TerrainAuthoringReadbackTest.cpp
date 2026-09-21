@@ -76,10 +76,23 @@ namespace OloEngine
             return firstNonSpace != std::string::npos && line.compare(firstNonSpace, 2, "//") == 0;
         }
 
+        // `GetData(` alone is ambiguous since the UE container adoption (#738):
+        // the READBACK is Texture::GetData(TArray64<u8>& out, u32 mip) and always
+        // passes arguments, while TArray/FString expose a zero-argument
+        // GetData() that just hands back the CPU-side pointer. Matching the bare
+        // token flagged every `m_Entries.GetData()` in the undo stack, which
+        // touches no GPU resource at all. Require a non-empty argument list so
+        // this keeps catching the readback and stops catching container access.
         [[nodiscard]] bool NamesAReadback(const std::string& line)
         {
-            return line.find("GetData(") != std::string::npos ||
-                   line.find("glGetTexImage") != std::string::npos ||
+            if (const auto at = line.find("GetData("); at != std::string::npos)
+            {
+                const auto argStart = at + std::string_view("GetData(").size();
+                const auto firstArg = line.find_first_not_of(" \t", argStart);
+                if (firstArg != std::string::npos && line[firstArg] != ')')
+                    return true;
+            }
+            return line.find("glGetTexImage") != std::string::npos ||
                    line.find("ReadPixels") != std::string::npos;
         }
 

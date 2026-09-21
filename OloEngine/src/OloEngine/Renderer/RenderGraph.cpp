@@ -4179,7 +4179,8 @@ namespace OloEngine
 
                 // All dependencies processed — emit this node in post-order.
                 visited.insert(std::string(nodeName));
-                inProgress.erase(nodeName);
+                if (const auto inProgressIt = inProgress.find(nodeName); inProgressIt != inProgress.end())
+                    inProgress.erase(inProgressIt);
                 m_ExecutionOrder.Add(nodeName);
                 stack.pop_back();
             }
@@ -4242,7 +4243,7 @@ namespace OloEngine
         std::unordered_set<std::string_view> passSet;
         passSet.reserve(m_ExecutionOrder.Num());
         for (const auto& name : m_ExecutionOrder)
-            passSet.insert(name.ToStdString());
+            passSet.insert(name.ToView());
 
         RGTransparentStringMap<u32> inDegree;
         RGTransparentStringMap<TArray64<FString>> successors;
@@ -4356,8 +4357,12 @@ namespace OloEngine
         };
         while (!computeReady.empty() || !graphicsReady.empty())
         {
-            std::vector<std::string> ready(computeReady.begin(), computeReady.end());
-            ready.insert(ready.end(), graphicsReady.begin(), graphicsReady.end());
+            std::vector<std::string> ready;
+            ready.reserve(computeReady.size() + graphicsReady.size());
+            for (const auto& readyName : computeReady)
+                ready.emplace_back(readyName.ToView());
+            for (const auto& readyName : graphicsReady)
+                ready.emplace_back(readyName.ToView());
             std::vector<std::string> group;
             for (const auto& first : ready)
             {

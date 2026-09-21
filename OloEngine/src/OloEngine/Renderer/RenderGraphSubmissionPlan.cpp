@@ -195,7 +195,7 @@ namespace OloEngine::RenderGraphSubmissionPlan
         std::unordered_set<std::string_view> passSet;
         passSet.reserve(input.ExecutionOrder.size());
         for (const auto& name : input.ExecutionOrder)
-            passSet.insert(name.ToStdString());
+            passSet.insert(name.ToView());
 
         RGTransparentStringMap<TArray64<FString>> successors;
         successors.reserve(input.ExecutionOrder.size());

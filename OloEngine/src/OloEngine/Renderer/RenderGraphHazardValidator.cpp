@@ -70,7 +70,8 @@ namespace OloEngine::RenderGraphHazardValidator
             std::vector<std::string> frontier;
             if (auto depsIt = input.Dependencies.find(passName.ToView()); depsIt != input.Dependencies.end())
             {
-                frontier.insert(frontier.end(), depsIt->second.begin(), depsIt->second.end());
+                for (const auto& dep : depsIt->second)
+                    frontier.emplace_back(dep.ToView());
             }
             while (!frontier.empty())
             {

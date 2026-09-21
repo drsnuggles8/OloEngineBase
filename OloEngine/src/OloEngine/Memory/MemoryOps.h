@@ -68,7 +68,14 @@ namespace OloEngine
         ElementType* Element = static_cast<ElementType*>(Address);
         while (Count)
         {
-            ::new (static_cast<void*>(Element)) ElementType;
+            // VALUE-initialise, not default-initialise. The whitelist above already
+            // zeroes scalars, so a bare `new T;` left only AGGREGATES of scalars
+            // (glm::vec3, POD structs) holding garbage — while std::vector::resize,
+            // which every converted call site previously used, value-initialises.
+            // The mismatch corrupted TArray<glm::vec3> particle velocities silently.
+            // A class type with a real default constructor is unaffected: for it,
+            // value-init and default-init both run that constructor.
+            ::new (static_cast<void*>(Element)) ElementType();
             ++Element;
             --Count;
         }
