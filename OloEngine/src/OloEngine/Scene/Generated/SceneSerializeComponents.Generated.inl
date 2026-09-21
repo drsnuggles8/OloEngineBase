@@ -565,6 +565,17 @@ if (entity.HasComponent<GroomLodComponent>())
     out << YAML::EndMap; // GroomLodComponent
 }
 
+if (entity.HasComponent<GroomSceneShadowComponent>())
+{
+    out << YAML::Key << "GroomSceneShadowComponent";
+    out << YAML::BeginMap; // GroomSceneShadowComponent
+    auto const& comp = entity.GetComponent<GroomSceneShadowComponent>();
+    out << YAML::Key << "ShadowWidthTexels" << YAML::Value << comp.m_ShadowWidthTexels;
+    out << YAML::Key << "CastShadows" << YAML::Value << comp.m_CastShadows;
+    out << YAML::Key << "ReceiveShadows" << YAML::Value << comp.m_ReceiveShadows;
+    out << YAML::EndMap; // GroomSceneShadowComponent
+}
+
 if (entity.HasComponent<GroomSimulationComponent>())
 {
     out << YAML::Key << "GroomSimulationComponent";

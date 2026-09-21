@@ -44,6 +44,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Groom/GroomCoatShadowTechnique.h"
+#include "OloEngine/Groom/GroomStrandCache.h"
 #include "OloEngine/Groom/GroomStrandMesh.h"
 #include "OloEngine/Groom/GroomStrandRequest.h"
 #include "OloEngine/Groom/GroomVisibility.h"
@@ -51,7 +52,6 @@
 #include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 
-#include <unordered_map>
 #include <vector>
 
 namespace OloEngine
@@ -192,6 +192,15 @@ namespace OloEngine
         // inspector's readout on GroomLodComponent.
         GroomLodStats Lod;
 
+        // ── Scene shadow routing (#1323) ─────────────────────
+        //
+        // The CASTING half, measured by ShadowRenderPass and carried here
+        // through the shared cache. It is in this struct rather than on the
+        // shadow pass because the editor has exactly ONE groom readout, and a
+        // coat that casts no shadow has to be explicable from the same panel
+        // that asked for the shadow.
+        GroomShadowCasterStats SceneShadow;
+
         void Reset() noexcept
         {
             *this = GroomRenderStats{};
@@ -228,13 +237,17 @@ namespace OloEngine
             return m_Stats;
         }
 
-        /// Upper bound on the strand-buffer cache, in bytes. Exceeding it
-        /// evicts least-recently-used entries at the END of a frame, never
-        /// during one — an entry evicted while its draw was pending would
-        /// leave the frame drawing from a freed buffer.
+        /// Upper bound on the SHARED strand-buffer cache, in bytes. Exceeding
+        /// it evicts least-recently-used entries at the TOP of a frame, never
+        /// during one — an entry evicted while a draw was pending would leave
+        /// the frame drawing from a freed buffer, and since #1323 two passes
+        /// record draws against these buffers rather than one.
         void SetCacheBudgetBytes(u64 bytes) noexcept
         {
-            m_CacheBudgetBytes = bytes;
+            if (m_Cache != nullptr)
+            {
+                m_Cache->SetBudgetBytes(bytes);
+            }
         }
 
         /// The decision this pass WOULD make for `requested`, given the frame
@@ -243,143 +256,29 @@ namespace OloEngine
         /// what it asked for should be answerable from the panel that sets it.
         [[nodiscard]] GroomCompositionDecision DecideComposition(GroomCompositionMode requested) const noexcept;
 
-        /// Strand-geometry cache key: the asset handle AND the build settings.
-        /// Keying on the handle alone made two entities sharing one groom at
-        /// different budgets evict each other every frame, rebuilding the CPU
-        /// mesh and both GPU buffers — the cost the cache exists to remove.
-        ///
-        /// Public because it is a pure function and the cache's correctness
-        /// rests on it: it is hashed FIELD BY FIELD rather than over the object
-        /// representation, because GroomStrandBuildSettings carries
-        /// uninitialised padding, and that distinction is only defensible if
-        /// something tests it.
-        [[nodiscard]] static u64 CacheKey(const GroomStrandRequest& request) noexcept;
-
-        /// Whether this request's geometry is per-ENTITY rather than per-asset.
-        ///
-        /// A bound groom's vertices depend on a body's pose, so two entities
-        /// sharing one groom asset cannot share one buffer — the same reason
-        /// RayTracing::DeformedSurfaceCache keys its surfaces per entity. Named
-        /// and public because the cache key and the rebuild path must agree
-        /// about it, and a disagreement would hand one character's coat to
-        /// another.
-        [[nodiscard]] static bool IsDeformed(const GroomStrandRequest& request) noexcept;
+        /// The shared strand-geometry cache this pass draws from (#1323).
+        /// Set once by RenderPipeline, which hands the SAME instance to
+        /// ShadowRenderPass — see GroomStrandCache.h for why the cache cannot
+        /// live in either pass.
+        void SetStrandCache(GroomStrandCache* cache) noexcept
+        {
+            m_Cache = cache;
+        }
 
       private:
-        // One groom's GPU geometry, keyed by asset handle.
-        struct CacheEntry
-        {
-            Ref<VertexArray> Array;
-            Ref<VertexBuffer> Vertices;
-            Ref<IndexBuffer> Indices;
-            GroomStrandBuildSettings Settings;
-            GroomStrandMeshStats Stats;
-            u64 Bytes = 0;
-            u32 LastUsedFrame = 0;
-
-            /// True when the buffers were created for repeated refills, which is
-            /// what a bound groom needs: its vertices change every frame with
-            /// the body's pose. A static entry's buffers are immutable and must
-            /// never be handed to the refill path.
-            bool Dynamic = false;
-
-            // ── Coat self-shadowing (#1248) ─────────────────────────
-
-            // The bake lives in the GEOMETRY cache, keyed the same way, because
-            // it is a function of the same two things the geometry is: the
-            // groom asset and the build settings. Keeping it anywhere else
-            // would need a second eviction policy that could disagree with this
-            // one about when a coat is still in use.
-
-            /// The packed RGBA16F volume: xyz = the voxel's mean fibre
-            /// direction times its coherence, w = fibre areal density. Null
-            /// until the first successful bake.
-            Ref<Texture3D> CoatVolume;
-            /// The volume's object-space box, needed to map a shading point
-            /// into it.
-            glm::vec3 CoatBoundsMin{ 0.0f };
-            glm::vec3 CoatBoundsMax{ 0.0f };
-            /// Voxels on the longest axis of the bake actually resident.
-            u32 CoatResolution = 0;
-            /// The bake's REAL voxel size, carried rather than re-derived. Only
-            /// the longest axis gets `CoatResolution` voxels, so
-            /// extent/resolution is that axis's voxel size and nobody else's.
-            f32 CoatVoxelSize = 0.0f;
-            /// The width scale the bake was made at. It multiplies the cooked
-            /// diameters and therefore the density stored, so it invalidates.
-            f32 CoatWidthScale = 0.0f;
-            /// GPU bytes the volume occupies.
-            u64 CoatBytes = 0;
-            /// The LOD step the resident bake was made at, the step the policy
-            /// is currently ASKING for, and how many consecutive frames it has
-            /// asked for it. The three together are the hysteresis state: a
-            /// coat straddling a LOD boundary must not rebuild every frame,
-            /// which is the flicker criterion's failure mode showing up as a
-            /// counter before it shows up as a picture.
-            u32 CoatLodStep = 0;
-            u32 CoatRequestedLodStep = 0;
-            u32 CoatLodStableFrames = 0;
-            /// The cache tick the volume was last rebuilt at, so staleness is a
-            /// number rather than an impression.
-            u64 CoatBuiltTick = 0;
-
-            /// The cache tick this entry's GEOMETRY bytes were last counted
-            /// against a representation (#1252).
-            ///
-            /// Two unbound entities sharing one groom asset at one budget share
-            /// ONE entry, so adding its bytes per DRAW reports the same
-            /// allocation twice — and GroomLodStats::BytesByRepresentation is
-            /// displayed as RESIDENT bytes, so it would overstate memory and
-            /// could exceed CachedBytes, which is the one number it should
-            /// never exceed. The strand COUNT stays per draw, because two
-            /// entities really do draw those strands twice.
-            u64 BytesCountedTick = 0;
-            /// The mode the resident bake serves. A volume baked for one mode
-            /// serves both volume modes — the isotropic arm simply does not
-            /// read the direction channel — so this exists to detect a switch
-            /// TO or FROM a per-light representation, not between the two
-            /// volume modes.
-            GroomCoatShadowTechnique CoatMode = GroomCoatShadowTechnique::None;
-        };
-
-        [[nodiscard]] CacheEntry* AcquireGeometry(const GroomStrandRequest& request);
-        void EvictToBudget();
-
         std::vector<GroomStrandRequest> m_Requests;
         GroomFrameState m_FrameState;
         GroomRenderStats m_Stats;
 
-        std::unordered_map<u64, CacheEntry> m_Cache;
-        u64 m_CacheBudgetBytes = 256ull * 1024ull * 1024ull;
-        u64 m_CacheBytes = 0;
-
-        /// The cache's OWN monotonic tick, not GroomFrameState::FrameIndex.
-        /// That one is the stochastic sample index and is deliberately wrapped
-        /// (`& 0xFFFFF` in RenderPipeline), so an entry used just before the
-        /// wrap reads as a million frames old and is evicted, while one from
-        /// the previous cycle reads as newly used and stays. A 64-bit counter
-        /// that only this pass advances cannot do either.
-        u64 m_CacheTick = 0;
-
-        /// Rebuilds `entry`'s coat volume if the request needs one and the
-        /// resident bake is not already right. Returns the decision, so the
-        /// caller records the reason rather than re-deriving it.
-        [[nodiscard]] GroomCoatShadowDecision AcquireCoatVolume(const GroomStrandRequest& request, CacheEntry& entry,
-                                                                u32& residentVolumes);
-
-        /// Coat volumes currently held across the WHOLE cache, not just the
-        /// ones drawn this frame. Counting live draws instead let the resident
-        /// set exceed its cap: a groom that stopped being visible kept its
-        /// volume, was not counted, and the next newcomer was still granted a
-        /// slot — so alternating groups of eight coats retained more than
-        /// kMaxResidentCoatVolumes textures indefinitely.
-        [[nodiscard]] u32 CountResidentCoatVolumes() const noexcept;
-
-        /// Frees the least-recently-used coat volume that is NOT in use this
-        /// frame, so a newly visible coat can take its slot. Returns false when
-        /// every resident volume belongs to a groom drawn this frame, which is
-        /// the honest "budget really is full" case.
-        bool ReclaimLeastRecentlyUsedCoatVolume();
+        /// The shared strand-geometry cache (#1323). NOT owned: RenderPipeline
+        /// owns it and hands the same instance to ShadowRenderPass, because the
+        /// shadow map is rasterised BEFORE this pass runs and a caster needs the
+        /// buffers to already exist. Null in a unit-test harness that never went
+        /// through RenderPipeline, in which case this pass draws nothing and
+        /// says so once rather than building a second, private cache that the
+        /// shadow pass could never see.
+        GroomStrandCache* m_Cache = nullptr;
+        bool m_WarnedNoCache = false;
 
         Ref<Shader> m_Shader;
         Ref<UniformBuffer> m_ParamsUBO;
@@ -395,5 +294,16 @@ namespace OloEngine
         // Last reported dominant fallback, so the log line fires on a CHANGE
         // of reason rather than once per frame.
         GroomCompositionFallbackReason m_LastReportedReason = GroomCompositionFallbackReason::None;
+
+        /// The last scene-shadow tally this pass logged (#1323), so the line
+        /// fires on a CHANGE rather than once per frame.
+        ///
+        /// IT IS LOGGED AT ALL because the inspector cannot answer every
+        /// question the counters exist for. "Which technique drew the coat" has
+        /// to be readable from a HEADLESS or a scripted session too — an
+        /// unwired technique is a zero next to a non-zero caster count, and a
+        /// zero nobody can read is the gap
+        /// virtual-geometry-into-a-second-shadow-technique.md is about.
+        GroomShadowCasterStats m_LastReportedShadowStats;
     };
 } // namespace OloEngine

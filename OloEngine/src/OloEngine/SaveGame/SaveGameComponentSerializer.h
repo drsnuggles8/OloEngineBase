@@ -98,6 +98,7 @@ namespace OloEngine
     struct GroomCoatComponent;
     struct GroomSimulationComponent;
     struct GroomLodComponent;
+    struct GroomSceneShadowComponent;
     struct FluidComponent;
     struct FluidEmitterComponent;
     struct FluidKillVolumeComponent;
@@ -246,6 +247,7 @@ namespace OloEngine
         static void Serialize(FArchive& ar, GroomCoatComponent& c);
         static void Serialize(FArchive& ar, GroomSimulationComponent& c);
         static void Serialize(FArchive& ar, GroomLodComponent& c);
+        static void Serialize(FArchive& ar, GroomSceneShadowComponent& c);
         static void Serialize(FArchive& ar, FluidComponent& c);
         static void Serialize(FArchive& ar, FluidEmitterComponent& c);
         static void Serialize(FArchive& ar, FluidKillVolumeComponent& c);

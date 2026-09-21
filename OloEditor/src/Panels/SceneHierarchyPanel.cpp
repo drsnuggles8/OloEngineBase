@@ -2242,6 +2242,7 @@ namespace OloEngine
             DisplayAddComponentEntry<GroomFibreComponent>("Groom Fibre Material");
             DisplayAddComponentEntry<GroomCoatShadowComponent>("Groom Coat Shadow");
             DisplayAddComponentEntry<GroomLodComponent>("Groom LOD");
+            DisplayAddComponentEntry<GroomSceneShadowComponent>("Groom Scene Shadow");
             DisplayAddComponentEntry<GroomCoatComponent>("Groom Coat");
             DisplayAddComponentEntry<GroomSimulationComponent>("Groom Simulation");
             DisplayAddComponentEntry<FogVolumeComponent>("Fog Volume");
@@ -9559,6 +9560,116 @@ namespace OloEngine
                     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
                     ImGui::TextWrapped("%s", Describe(reason).data());
                     ImGui::PopStyleColor();
+                }
+            }
+            else
+            {
+                ImGui::TextDisabled("The groom pass has not run yet.");
+            } });
+
+        DrawComponent<GroomSceneShadowComponent>("Groom Scene Shadow", entity, [entity](auto& component)
+                                                 {
+            if (!entity.HasComponent<GroomComponent>())
+            {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                ImGui::TextWrapped("This entity has no Groom component, so there is no coat to route into the "
+                                   "scene's shadows. Add a Groom first, or remove this component.");
+                ImGui::PopStyleColor();
+                return;
+            }
+            if (!entity.GetComponent<GroomComponent>().m_RenderStrands)
+            {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                ImGui::TextWrapped("The Groom component has Render Strands off, so this is authored but the "
+                                   "coat neither casts nor receives. Turn Render Strands on to see it.");
+                ImGui::PopStyleColor();
+            }
+
+            ImGui::SeparatorText("Directions");
+            ImGui::Checkbox("Cast shadows", &component.m_CastShadows);
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Hair -> body and scene. Rasterises the coat from the light into every\n"
+                                  "technique the frame is running: the CSM cascades, the Virtual Shadow\n"
+                                  "Map's clip levels and the local-light atlas.");
+            }
+            ImGui::Checkbox("Receive shadows", &component.m_ReceiveShadows);
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Body and scene -> hair. Samples the scene's shadow term in the strand\n"
+                                  "shader, at the coat's LIGHT-EXIT point rather than at the fragment, so a\n"
+                                  "coat that is also a caster is not shadowed by itself twice.\n"
+                                  "\n"
+                                  "The two are separate switches so an A/B of one is a measurement of that\n"
+                                  "one rather than a picture of both.");
+            }
+
+            ImGui::SeparatorText("Light-space width");
+            ImGui::DragFloat("Width floor (texels)", &component.m_ShadowWidthTexels, 0.05f, 0.0f, 16.0f, "%.2f");
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("How wide a strand is rasterised from the light, at minimum, in texels of\n"
+                                  "the shadow target.\n"
+                                  "\n"
+                                  "ONE TEXEL IS THE DERIVATION, not a taste: a 70 um hair against a cascade\n"
+                                  "texel of a few centimetres is about a thousandth of a texel wide, so\n"
+                                  "rasterised honestly it crosses a texel centre essentially never and the\n"
+                                  "whole coat casts nothing.\n"
+                                  "\n"
+                                  "Zero turns the floor off, which is the A/B control that shows what is\n"
+                                  "being bought. Above one thickens the shadow -- and costs occlusion,\n"
+                                  "because a widened strand casts an OPAQUE shadow: a depth target has no\n"
+                                  "alpha to weight, and a hashed discard would be a stochastic technique\n"
+                                  "with nothing to converge it.");
+            }
+
+            // ── What the renderer ACTUALLY did ──────────────────────────
+            //
+            // A caster family reaches a technique only if somebody wired it
+            // there, and NOTHING detects the gap -- the frame renders, every
+            // other caster keeps its shadow, and the missing one reads as a
+            // lighting or bias problem. A per-technique draw count next to the
+            // caster count is what detects it, and it has to be here rather
+            // than in a log because the question is asked in front of the
+            // viewport.
+            ImGui::SeparatorText("Live");
+            if (const GroomRenderPass* pass = Renderer3D::GetGroomRenderPass())
+            {
+                const GroomShadowCasterStats& stats = pass->GetStats().SceneShadow;
+                if (stats.GroomsAskedToCast == 0u)
+                {
+                    ImGui::TextDisabled("No groom asked to cast this frame.");
+                }
+                else
+                {
+                    ImGui::Text("Casting: %u of %u groom(s) that asked", stats.GroomsCasting,
+                                stats.GroomsAskedToCast);
+                    if (stats.GroomsWithoutGeometry > 0u)
+                    {
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                        ImGui::Text("%u groom(s) asked to cast and produced NO geometry -- an empty build "
+                                    "or a budget that selected nothing.",
+                                    stats.GroomsWithoutGeometry);
+                        ImGui::PopStyleColor();
+                    }
+                    ImGui::Text("Draws: %u cascade, %u virtual-shadow level, %u atlas", stats.CascadeDraws,
+                                stats.VirtualShadowLevelDraws, stats.AtlasDraws);
+
+                    // THE ZERO THAT MATTERS. Which directional technique owns
+                    // the sun this frame decides which of the two counters is
+                    // allowed to be zero; the other being zero is a hole.
+                    const bool directionalDrawn =
+                        stats.VirtualShadowMapActive ? stats.VirtualShadowLevelDraws > 0u : stats.CascadeDraws > 0u;
+                    if (stats.GroomsCasting > 0u && !directionalDrawn)
+                    {
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.3f, 1.0f));
+                        ImGui::TextWrapped("%u groom(s) are casters and the frame's directional technique (%s) "
+                                           "drew none of them. Either every cascade culled the coat, or the "
+                                           "family is not wired into that technique.",
+                                           stats.GroomsCasting,
+                                           stats.VirtualShadowMapActive ? "Virtual Shadow Map" : "CSM cascades");
+                        ImGui::PopStyleColor();
+                    }
                 }
             }
             else

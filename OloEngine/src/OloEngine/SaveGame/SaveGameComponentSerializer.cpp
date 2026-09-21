@@ -3548,6 +3548,43 @@ namespace OloEngine
         }
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, GroomSceneShadowComponent& c)
+    {
+        // NO VERSION GATE, and none is possible: the component is new in #1323
+        // and a save's components are keyed by an FNV hash of the type name, so
+        // a save written before it existed does not contain the key and the
+        // load never reaches this function. That is also why this band did NOT
+        // take a kSaveGameFormatVersion number -- spending one would have
+        // collided with whatever another branch is appending to an EXISTING
+        // component, for no benefit here. Same reasoning as GroomLodComponent
+        // and GroomCoatShadowComponent above.
+        ar << c.m_ShadowWidthTexels << c.m_CastShadows << c.m_ReceiveShadows;
+
+        if (ar.IsLoading())
+        {
+            // A save file is untrusted input like any other, and the
+            // OLO_SERIALIZE annotation on the field reaches scene YAML and the
+            // live-write registries, NOT this archive -- so the bound is
+            // restated here or a corrupt save is the one route that bypasses
+            // it.
+            //
+            // A NON-FINITE FLOOR IS THE DANGEROUS ONE. It reaches a DIVISOR in
+            // the light-space widening, makes every strand's half width a NaN
+            // and removes the whole coat from every shadow map, with nothing in
+            // any log -- the silent fallback this repo forbids, arriving
+            // through a save file.
+            //
+            // The repair comes from a default-constructed component rather than
+            // from a literal, so a later change to the default reaches this
+            // path too.
+            if (!std::isfinite(c.m_ShadowWidthTexels) || c.m_ShadowWidthTexels < 0.0f)
+            {
+                c.m_ShadowWidthTexels = GroomSceneShadowComponent{}.m_ShadowWidthTexels;
+            }
+            c.m_ShadowWidthTexels = std::min(c.m_ShadowWidthTexels, 16.0f);
+        }
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, GroomLodComponent& c)
     {
         // NO VERSION GATE, and none is possible: the component is new in #1252
@@ -5818,6 +5855,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(GroomCoatComponent);
         REGISTER_SAVE_COMPONENT(GroomSimulationComponent);
         REGISTER_SAVE_COMPONENT(GroomLodComponent);
+        REGISTER_SAVE_COMPONENT(GroomSceneShadowComponent);
         REGISTER_SAVE_COMPONENT(FluidComponent);
         REGISTER_SAVE_COMPONENT(FluidEmitterComponent);
         REGISTER_SAVE_COMPONENT(FluidKillVolumeComponent);

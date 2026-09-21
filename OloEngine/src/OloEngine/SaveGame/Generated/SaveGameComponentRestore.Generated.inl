@@ -60,6 +60,7 @@ TRY_LOAD_COMPONENT(GroomCoatShadowComponent);
 TRY_LOAD_COMPONENT(GroomComponent);
 TRY_LOAD_COMPONENT(GroomFibreComponent);
 TRY_LOAD_COMPONENT(GroomLodComponent);
+TRY_LOAD_COMPONENT(GroomSceneShadowComponent);
 TRY_LOAD_COMPONENT(GroomSimulationComponent);
 TRY_LOAD_COMPONENT(IDComponent);
 TRY_LOAD_COMPONENT(IKTargetComponent);

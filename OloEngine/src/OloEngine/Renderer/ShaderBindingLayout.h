@@ -1619,6 +1619,15 @@ namespace OloEngine
             // never the requested one. An int lane because the shader compares
             // it against integer constants, and a float lane would make an exact
             // comparison a rounding question.
+            //
+            // y = this groom samples the SCENE shadow (#1323).
+            // z = the object-space box in CoatBoundsMin / CoatInvExtent is
+            //     valid for the receiver OFFSET. Separate from x because the
+            //     offset is gated on this groom being a CASTER while the march
+            //     is gated on a volume existing, and the two are independent:
+            //     a caster with no volume still has to move its receiver past
+            //     its own strands, or the map occludes the coat with itself and
+            //     it renders black.
             glm::ivec4 CoatModes{ 0, 0, 0, 0 };
 
             static constexpr u32 GetSize()
@@ -1637,6 +1646,51 @@ namespace OloEngine
         // one side and not the other.
         static_assert(sizeof(GroomStrandParamsUBO) == 400,
                       "GroomStrandParamsUBO std140 size drifted from GLSL expectation (400 B)");
+
+        // @brief One groom shadow-caster draw (issue #1323), uploaded at
+        // UBO_USER_0 (7). GLSL twin: the GroomShadowParams block, declared
+        // identically by GroomStrandDepth.glsl (CSM cascades + the local-light
+        // atlas) and VSM_GroomDepth.glsl (the Virtual Shadow Map clip levels).
+        //
+        // A SEPARATE, SMALL BLOCK rather than reusing GroomStrandParamsUBO, and
+        // the reason is the parallel-recording contract rather than tidiness:
+        // ShadowRenderPass owns one of these PER ITEM (amendment (92) rule 6 —
+        // one writer per resource object per region), so its size is paid once
+        // per cascade and once per atlas entry. The strand pass's 400-byte
+        // block carries a fibre material and a coat-shadow volume transform,
+        // none of which a depth-only raster reads.
+        //
+        // THE CLIP-LEVEL LANE IS THE VSM ROUTE'S ONLY EXTRA. It is an int lane
+        // because the shader indexes an array with it and clamps it; a float
+        // lane would make an exact index a rounding question.
+        struct GroomShadowParamsUBO
+        {
+            /// Render-relative model matrix (issue #429), matching the space
+            /// the shadow camera UBO's light VP was shifted into.
+            glm::mat4 Model{ 1.0f };
+            /// x = width scale (authoring scale times the LOD's coverage
+            /// compensation, so the caster is as thick as the drawn coat),
+            /// y = the transform's mean axis length,
+            /// z = the target's resolution in texels,
+            /// w = the width floor in texels. See Groom/GroomShadowWidening.h.
+            glm::vec4 Width{ 1.0f, 1.0f, 1024.0f, 1.0f };
+            /// x = VSM clip level; unread by the cascade/atlas route.
+            glm::ivec4 Modes{ 0, 0, 0, 0 };
+
+            static constexpr u32 GetSize()
+            {
+                return static_cast<u32>(sizeof(GroomShadowParamsUBO));
+            }
+        };
+
+        static_assert(sizeof(GroomShadowParamsUBO) % 16 == 0,
+                      "GroomShadowParamsUBO must be 16-byte aligned for std140");
+        // 96 B: one mat4 (64) plus two vec4-sized lanes (32). Every lane is
+        // vec4-sized or a mat4, so the std140 layout is the C++ layout and the
+        // number is a plain sum — which is what lets this catch a lane added to
+        // one side and not the other.
+        static_assert(sizeof(GroomShadowParamsUBO) == 96,
+                      "GroomShadowParamsUBO std140 size drifted from GLSL expectation (96 B)");
 
         // @brief Auto-exposure metering/adaptation parameters (issue #691),
         // uploaded at UBO_AUTO_EXPOSURE (58). GLSL twin: the

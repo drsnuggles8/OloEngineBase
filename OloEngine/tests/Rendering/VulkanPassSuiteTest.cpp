@@ -70,6 +70,7 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/Passes/FluidIntermediatesPass.h"
 #include "OloEngine/Renderer/Passes/FogRenderPass.h"
 #include "OloEngine/Renderer/Passes/GTAORenderPass.h"
+#include "OloEngine/Groom/GroomStrandCache.h"
 #include "OloEngine/Renderer/Passes/GroomRenderPass.h"
 #include "OloEngine/Renderer/GBuffer.h"
 #include "OloEngine/Renderer/Buffer.h"
@@ -7952,6 +7953,16 @@ TEST_F(VulkanPassSuite, GroomStrandCoatCoversPixelsUnderTheVulkanClipConvention)
 
         auto groomPass = Ref<GroomRenderPass>::Create();
         groomPass->Init(sceneSpec);
+        // THE STRAND CACHE IS NO LONGER THE PASS'S (#1323). RenderPipeline owns
+        // it and hands the SAME instance to ShadowRenderPass, because the shadow
+        // map is rasterised before this pass runs and a groom caster needs its
+        // buffers to already exist. A harness that drives the pass directly
+        // therefore supplies one, exactly as it supplies the framebuffer — and
+        // the pass refuses to draw without it rather than building a private
+        // cache the shadow pass could never see.
+        auto groomCache = Ref<GroomStrandCache>::Create();
+        groomCache->BeginFrame();
+        groomPass->SetStrandCache(groomCache.Raw());
 
         groomPass->SetRequests({ request });
         GroomFrameState frameState;

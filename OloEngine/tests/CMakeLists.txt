@@ -139,6 +139,10 @@ add_executable(OloEngine-Tests
 		Groom/GroomGuideSimulationTest.cpp
 		Groom/GroomGuideInfluenceTest.cpp
 		Groom/GroomBodyColliderTest.cpp
+		# Scene-shadow routing (#1323). The light-space one-texel width floor and
+		# its authoring boundary: pure arithmetic, so the machine with no GPU is
+		# the machine that pins the measurement the caster family rests on.
+		Groom/GroomShadowWideningTest.cpp
 		ComponentSerializerCoverageTest.cpp
 		ComponentTupleCoverageTest.cpp
 		ComponentHandlerCoverageTest.cpp
@@ -667,6 +671,13 @@ add_executable(OloEngine-Tests
 		# Deferred} cells plus the MSAA and non-native-resolution ones, and the
 		# rebuild counters that answer criterion 4 as a number rather than a look.
 		Rendering/PropertyTests/GroomCoatShadowVisualEvidenceTest.cpp
+		# Scene-shadow routing, both directions (#1323). The GL x {Forward,
+		# Forward+, Deferred} cells, with the coat's own footprint DERIVED by
+		# toggling the strands rather than typed as a rectangle -- so "the coat's
+		# shadow landed on the ground" and "the ground's shadow landed on the
+		# coat" are measurements of two disjoint regions instead of of the
+		# background.
+		Rendering/PropertyTests/GroomSceneShadowVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomBindingVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomSimulationVisualEvidenceTest.cpp
 		# Criterion 4's pictures: both reference animals under front/side/backlight,

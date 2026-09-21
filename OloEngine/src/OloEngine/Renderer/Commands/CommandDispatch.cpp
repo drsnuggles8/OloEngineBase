@@ -1264,6 +1264,13 @@ namespace OloEngine
         ++Data().Stats.TextureBinds;
     }
 
+    static void BindShadowTextures(RendererAPI& api);
+
+    void CommandDispatch::BindSceneShadowTextures()
+    {
+        BindShadowTextures(RenderCommand::GetRendererAPI());
+    }
+
     // Helper: Bind per-frame shadow and snow depth textures (only relevant for PBR paths).
     // Relies on BoundTextureIDs tracking to avoid redundant binds.
     static void BindShadowTextures(RendererAPI& api)

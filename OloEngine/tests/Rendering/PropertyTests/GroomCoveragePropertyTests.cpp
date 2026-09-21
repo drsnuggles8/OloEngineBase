@@ -33,6 +33,7 @@
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Groom/GroomCoverage.h"
 #include "OloEngine/Groom/GroomStrandMesh.h"
+#include "OloEngine/Groom/GroomStrandCache.h"
 #include "OloEngine/Renderer/Passes/GroomRenderPass.h"
 #include "OloEngine/Groom/GroomVisibility.h"
 
@@ -781,13 +782,13 @@ TEST(GroomStrandCacheKey, SeparatesDifferentSettingsAndIgnoresPadding)
         return request;
     };
 
-    const u64 base = GroomRenderPass::CacheKey(makeRequest(7u, 1000u, 50000u, false));
+    const u64 base = GroomStrandCache::CacheKey(makeRequest(7u, 1000u, 50000u, false));
 
     // Every field separates.
-    EXPECT_NE(base, GroomRenderPass::CacheKey(makeRequest(8u, 1000u, 50000u, false))) << "handle";
-    EXPECT_NE(base, GroomRenderPass::CacheKey(makeRequest(7u, 1001u, 50000u, false))) << "MaxStrands";
-    EXPECT_NE(base, GroomRenderPass::CacheKey(makeRequest(7u, 1000u, 50001u, false))) << "MaxSegments";
-    EXPECT_NE(base, GroomRenderPass::CacheKey(makeRequest(7u, 1000u, 50000u, true))) << "GuidesOnly";
+    EXPECT_NE(base, GroomStrandCache::CacheKey(makeRequest(8u, 1000u, 50000u, false))) << "handle";
+    EXPECT_NE(base, GroomStrandCache::CacheKey(makeRequest(7u, 1001u, 50000u, false))) << "MaxStrands";
+    EXPECT_NE(base, GroomStrandCache::CacheKey(makeRequest(7u, 1000u, 50001u, false))) << "MaxSegments";
+    EXPECT_NE(base, GroomStrandCache::CacheKey(makeRequest(7u, 1000u, 50000u, true))) << "GuidesOnly";
 
     // And identical settings agree, across independently constructed objects
     // whose padding bytes are whatever the stack happened to hold. Buffers of
@@ -802,7 +803,7 @@ TEST(GroomStrandCacheKey, SeparatesDifferentSettingsAndIgnoresPadding)
         dirty->Build.MaxStrands = 1000u;
         dirty->Build.MaxSegments = 50000u;
         dirty->Build.GuidesOnly = false;
-        EXPECT_EQ(GroomRenderPass::CacheKey(*dirty), base)
+        EXPECT_EQ(GroomStrandCache::CacheKey(*dirty), base)
             << "the key changed with the padding bytes (fill 0x" << std::hex << static_cast<int>(fill) << ")";
         std::destroy_at(dirty);
     }

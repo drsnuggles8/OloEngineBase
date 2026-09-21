@@ -668,6 +668,15 @@ case 2274947583u: // GroomLodComponent
     if (!SceneBinIO::Read(reader, comp.m_Enabled)) return false;
     break;
 }
+case 774689478u: // GroomSceneShadowComponent
+{
+    auto& comp = deserializedEntity.AddComponent<GroomSceneShadowComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_ShadowWidthTexels)) return false;
+    comp.m_ShadowWidthTexels = std::clamp(comp.m_ShadowWidthTexels, static_cast<f32>(0.0f), static_cast<f32>(16.0f));
+    if (!SceneBinIO::Read(reader, comp.m_CastShadows)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_ReceiveShadows)) return false;
+    break;
+}
 case 3851266605u: // GroomSimulationComponent
 {
     auto& comp = deserializedEntity.AddComponent<GroomSimulationComponent>();
