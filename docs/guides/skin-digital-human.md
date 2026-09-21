@@ -97,6 +97,19 @@ forward is not.
   Cross-talk survives tone mapping — if the specular view moves when the *transmission* strength is
   re-authored, the two terms are not separated.
 
+## What the cost numbers can and cannot tell you
+
+`DigitalHuman_Timing.txt` records the full skin stack against a version-0 split-only control, per
+raster path, each arm captured after a **discarded warm-up** so neither pays for the frame-graph
+reconfigure a path switch forces. Timing the first capture after that switch is how an earlier
+version of this fixture reported a uniform ~+95% that was the rebuild rather than the skin.
+
+With the warm-up removed the measured differences come out **within noise and sometimes negative**.
+The full stack cannot really be cheaper than the control, so a negative percentage means the cost
+is below this fixture's noise floor at 384×384 with one head on screen — not that the stack is
+free. Establishing a real per-pass budget needs GPU timer queries on a quiet box and a scene with
+enough skin to dominate the frame. Do not quote these figures as a budget.
+
 ## Limits
 
 - **The subject is a procedural stand-in, not a scanned head.** A scanned AAA head remains a genuine

@@ -3,9 +3,19 @@ Subject: procedural stand-in head — cranium (#1241/#1242/#1243) + two ocular s
 (#1244) + lips and enamel (#1245), morph-driven expression at 0.65, hard side light.
 
 NOT A BENCHMARK: this box also hosts CI runners for another repo, so the absolute
-figures move. The RELATIVE column is the measurement — the two arms are captured
-back to back under identical conditions.
+figures move. The two arms are captured back to back, each after a DISCARDED
+warm-up capture, so neither pays for the frame-graph reconfigure that a path
+switch forces. An earlier version of this file timed the first capture after
+that switch and reported a uniform +95% that was the rebuild, not the skin.
 
-Forward       full stack   7.460 ms   split-only   3.741 ms   (the digital human costs +99.4%)
-ForwardPlus   full stack   8.118 ms   split-only   4.156 ms   (the digital human costs +95.3%)
-Deferred      full stack   7.389 ms   split-only   4.122 ms   (the digital human costs +79.3%)
+HOW TO READ A NEGATIVE NUMBER. The full stack cannot really be cheaper than the
+split-only control. Where the percentage comes out negative, or flips sign
+between runs, the honest reading is that THE COST OF THE SKIN STACK IS BELOW
+THIS FIXTURE'S NOISE FLOOR at 384x384 with one head on screen — not that it is
+free. A real per-pass budget needs GPU timer queries on a quiet box and a scene
+with enough skin in it to dominate the frame. What this file can resolve, and
+therefore all it claims, is that the stack does not cost an order of magnitude.
+
+Forward       full stack   4.515 ms   split-only   4.735 ms   (the digital human costs -4.6%)
+ForwardPlus   full stack   5.840 ms   split-only   4.042 ms   (the digital human costs +44.5%)
+Deferred      full stack   7.320 ms   split-only   8.844 ms   (the digital human costs -17.2%)

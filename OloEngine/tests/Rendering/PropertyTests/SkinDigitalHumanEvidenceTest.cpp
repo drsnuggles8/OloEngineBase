@@ -459,6 +459,11 @@ namespace OloEngine::Tests
         void BuildScene() override
         {
             SetUpScratchProject();
+            // ASSERT_* inside a helper returns from THAT helper, not from here,
+            // so without this check a failed Project::Load would fall straight
+            // through into AddMemoryOnlyAsset with no asset manager set. The
+            // sibling ocular fixture guards the same seam the same way.
+            ASSERT_FALSE(HasFatalFailure()) << "the scratch project never came up";
 
             // Three tone profiles, each at the TOP of the version ladder
             // (OcularSurface, 5). The ladder is cumulative — version 5 does
@@ -488,9 +493,40 @@ namespace OloEngine::Tests
             dirLight.m_Intensity = kRigs[0].Intensity;
             dirLight.m_CastShadows = kRigs[0].CastShadows;
 
+            // TWO PUNCTUAL FILLS, and they are here to make the Forward+ cell
+            // mean something. Forward+ differs from Forward by CLUSTERED LIGHT
+            // CULLING, and with a single directional light there is nothing to
+            // cluster: the first version of this fixture produced nine
+            // Forward+ captures that were BYTE-IDENTICAL to their Forward
+            // counterparts, so that row of the matrix proved only that the path
+            // ran. Two point lights inside the cluster grid give the two paths
+            // different work to do while leaving the directional key — which
+            // every lighting-rig claim above is written against — untouched.
+            //
+            // Deliberately dim and off-axis: they must not become the subject
+            // of the rigs, only populate the grid.
+            {
+                Entity fillLeft = GetScene().CreateEntity("FillLeft");
+                fillLeft.GetComponent<TransformComponent>().Translation = { -2.1f, 0.9f, 1.6f };
+                auto& left = fillLeft.AddComponent<PointLightComponent>();
+                left.m_Color = { 0.82f, 0.88f, 1.0f };
+                left.m_Intensity = 1.4f;
+                left.m_Range = 6.0f;
+
+                Entity fillRight = GetScene().CreateEntity("FillRight");
+                fillRight.GetComponent<TransformComponent>().Translation = { 2.3f, -0.7f, 1.2f };
+                auto& right = fillRight.AddComponent<PointLightComponent>();
+                right.m_Color = { 1.0f, 0.90f, 0.80f };
+                right.m_Intensity = 1.1f;
+                right.m_Range = 6.0f;
+            }
+
             BuildCranium();
+            ASSERT_FALSE(HasFatalFailure()) << "the cranium never got built";
             BuildEyes();
+            ASSERT_FALSE(HasFatalFailure()) << "the eyes never got built";
             BuildOralRegion();
+            ASSERT_FALSE(HasFatalFailure()) << "the oral region never got built";
 
             EnableRendering(kSize, kSize);
         }
@@ -1006,12 +1042,24 @@ namespace OloEngine::Tests
         // this rather than a constant, because deferred is jittery here and
         // forward is not — one constant would either flake on deferred or be
         // meaningless on forward.
-        [[nodiscard]] Difference MeasureRepeatFloor(RenderingPath path, u32 frames = 2)
+        // ASSERT, not EXPECT. A failed readback here returns an ALL-ZERO
+        // floor, and every threshold downstream is a multiple of it — so the
+        // whole battery silently degrades to "> 0" and reports its failures
+        // against a floor that was never measured. Aborting is the only honest
+        // answer; the caller's own ASSERT_* propagation stops the test.
+        [[nodiscard]] Difference MeasureRepeatFloor(RenderingPath path, u32 frames = 4)
         {
             Capture first;
             Capture second;
-            EXPECT_TRUE(CaptureFrame(path, std::string(), first, MaterialDebugView::None, frames));
-            EXPECT_TRUE(CaptureFrame(path, std::string(), second, MaterialDebugView::None, frames));
+            Difference floor{};
+            if (!CaptureFrame(path, std::string(), first, MaterialDebugView::None, frames) ||
+                !CaptureFrame(path, std::string(), second, MaterialDebugView::None, frames))
+            {
+                ADD_FAILURE() << PathName(path)
+                              << ": the repeat-floor readback failed, so no threshold below this point "
+                                 "would have meant anything.";
+                return floor;
+            }
             return Diff(first, second);
         }
 
@@ -1092,7 +1140,10 @@ namespace OloEngine::Tests
         const SkinProfileParameters teeth = table.GetParametersForSlot(slots[3]);
 
         EXPECT_GT(eyes.Ocular.OcularStrength, 0.0f) << "the eye slot carries no ocular strength — #1244 is not on this subject";
-        EXPECT_EQ(cranium.Ocular.OcularStrength, 0.0f) << "the CRANIUM acquired an eye";
+        // NOT EXPECT_EQ against 0.0f: CLAUDE.md bans float equality outright,
+        // and this file makes that argument itself in CountDistinctHues. The
+        // claim is "no meaningful eye", which is a magnitude claim.
+        EXPECT_LT(std::abs(cranium.Ocular.OcularStrength), 1.0e-6f) << "the CRANIUM acquired an eye";
         EXPECT_GT(lips.Oral.CoatStrength, 0.0f) << "the lip slot carries no wet coat — #1245 is not on this subject";
         EXPECT_GT(cranium.Specular.LobeMix, 0.0f) << "the cranium slot carries no second lobe — #1243 is not on this subject";
         EXPECT_GT(cranium.Transmission.Strength, 0.0f) << "the cranium slot cannot transmit — #1242 is not on this subject";
@@ -1299,15 +1350,18 @@ namespace OloEngine::Tests
             // expression changes" is not a separate capture bolted on at the end
             // — every tone in every rig is captured on an expressing face.
             SetExpression(0.65f);
-            // The floor is measured AFTER the pose is set and at the SAME frame
-            // count the grid captures with. A floor taken in a different
-            // configuration is a number from a different scene, and every
-            // threshold below is a multiple of it.
-            const Difference floor = MeasureRepeatFloor(path, /*frames=*/4);
-
             for (const LightingRig& rig : kRigs)
             {
                 SetRig(rig);
+
+                // THE FLOOR IS MEASURED PER RIG, after the rig is set and at the
+                // same frame count the grid captures with. Not once for the
+                // whole path: these rigs differ in whether they cast shadows at
+                // all and by 2.5x in intensity, and shadow jitter is the largest
+                // contributor to the repeat floor here. A floor borrowed from the
+                // shadowless Soft rig would let the HardSide and Backlight
+                // "these tones are tellable apart" checks pass on shadow noise.
+                const Difference floor = MeasureRepeatFloor(path, /*frames=*/4);
 
                 std::vector<f32> meanLuma;
                 std::vector<f32> diffusionInfluence;
@@ -1565,10 +1619,18 @@ namespace OloEngine::Tests
             << sideLitStats.MeanLuma
             << "). A term that does not care where the light is is not a transmission term, and a view that "
                "does not track it is not inspecting one.";
-        captures.push_back(std::move(transmissionBacklit));
-
         // AND THE VIEWS ARE NOT EACH OTHER. Four views that all returned the
         // composite would pass every check above.
+        //
+        // THE SIDE-LIT TRANSMISSION IS THE ONE THAT GOES IN, not the backlit
+        // one, and that is the whole point of keeping it. Every other capture
+        // in `captures` was taken under HardSide; appending the BACKLIT
+        // transmission would make three of the six pairs differ because the
+        // RIG changed, which is exactly the free pass this check exists to
+        // deny. Comparing same-rig captures means a difference can only come
+        // from the view.
+        captures.push_back(std::move(transmissionSideLit));
+
         const MaterialDebugView allViews[] = { MaterialDebugView::Diffuse, MaterialDebugView::Specular,
                                                MaterialDebugView::ScatteringMask,
                                                MaterialDebugView::Transmission };
@@ -1704,8 +1766,17 @@ namespace OloEngine::Tests
         report += "Subject: procedural stand-in head — cranium (#1241/#1242/#1243) + two ocular surfaces\n";
         report += "(#1244) + lips and enamel (#1245), morph-driven expression at 0.65, hard side light.\n\n";
         report += "NOT A BENCHMARK: this box also hosts CI runners for another repo, so the absolute\n";
-        report += "figures move. The RELATIVE column is the measurement — the two arms are captured\n";
-        report += "back to back under identical conditions.\n\n";
+        report += "figures move. The two arms are captured back to back, each after a DISCARDED\n";
+        report += "warm-up capture, so neither pays for the frame-graph reconfigure that a path\n";
+        report += "switch forces. An earlier version of this file timed the first capture after\n";
+        report += "that switch and reported a uniform +95% that was the rebuild, not the skin.\n\n";
+        report += "HOW TO READ A NEGATIVE NUMBER. The full stack cannot really be cheaper than the\n";
+        report += "split-only control. Where the percentage comes out negative, or flips sign\n";
+        report += "between runs, the honest reading is that THE COST OF THE SKIN STACK IS BELOW\n";
+        report += "THIS FIXTURE'S NOISE FLOOR at 384x384 with one head on screen — not that it is\n";
+        report += "free. A real per-pass budget needs GPU timer queries on a quiet box and a scene\n";
+        report += "with enough skin in it to dominate the frame. What this file can resolve, and\n";
+        report += "therefore all it claims, is that the stack does not cost an order of magnitude.\n\n";
 
         for (const RenderingPath path : kPaths)
         {
@@ -1713,10 +1784,19 @@ namespace OloEngine::Tests
             f64 fullMs = 0.0;
             f64 plainMs = 0.0;
 
+            // A DISCARDED WARM-UP FIRST, and it is the difference between a
+            // measurement and a fiction. Switching `path` forces a frame-graph
+            // reconfigure, and whichever arm is captured first pays for it —
+            // which was always the full-stack arm, so the first version of this
+            // file reported a near-uniform +95% on all three paths that was the
+            // rebuild rather than the skin. Timing the SECOND capture of each
+            // arm leaves both measuring steady state.
             m_Cranium.GetComponent<MaterialComponent>().m_Material.SetSkinProfileHandle(m_ToneProfiles[1]);
+            ASSERT_TRUE(CaptureFrame(path, std::string(), scratch, MaterialDebugView::None, 4));
             ASSERT_TRUE(CaptureFrame(path, std::string(), scratch, MaterialDebugView::None, 8, &fullMs));
 
             m_Cranium.GetComponent<MaterialComponent>().m_Material.SetSkinProfileHandle(plainProfile);
+            ASSERT_TRUE(CaptureFrame(path, std::string(), scratch, MaterialDebugView::None, 4));
             ASSERT_TRUE(CaptureFrame(path, std::string(), scratch, MaterialDebugView::None, 8, &plainMs));
 
             char line[320];
