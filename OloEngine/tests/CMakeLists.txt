@@ -725,6 +725,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/TerrainVirtualTextureVisualEvidenceTest.cpp
 		Rendering/PropertyTests/FoliageAuthoredMeshEvidenceTest.cpp
 		Rendering/PropertyTests/FoliageLodCoverageEvidenceTest.cpp
+		Rendering/PropertyTests/FloraTraversalEvidenceTest.cpp
         Rendering/PropertyTests/FoliageGPUCullEvidenceTest.cpp
         Rendering/PropertyTests/FoliageWindEvidenceTest.cpp
 		Rendering/PropertyTests/FoliageLeafMaterialTest.cpp
