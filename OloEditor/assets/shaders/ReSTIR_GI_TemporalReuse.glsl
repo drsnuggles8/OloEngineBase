@@ -140,6 +140,13 @@ OloSurfaceHistoryRecord MakeReSTIRGISurface(vec4 packed, vec2 motion)
     result.GeometricNormal = OloGBufferOctDecode(packed.xy);
     result.ShadingNormal = result.GeometricNormal;
     result.Roughness = packed.z;
+    // This consumer reads an opaque surface and carries no coverage or
+    // profile signal, so both #1256 channels take their inert values.
+    // Set explicitly rather than left alone: an unassigned GLSL struct
+    // field is UNDEFINED, so the next person to add
+    // OLO_SURFACE_TEST_COVERAGE to this pass would be reading garbage.
+    result.Coverage = 1.0;
+    result.MaterialProfile = 0.0;
     result.MaterialClass = 0u;
     result.Motion = motion;
     result.Instance = uvec2(0u, 1u);
@@ -235,6 +242,10 @@ void main()
     validity.RoughnessThreshold = 0.2;
     validity.MotionThresholdPixels = 64.0;
     validity.RelativeHitDistanceThreshold = 0.1;
+    // Assigned even though this pass does not set OLO_SURFACE_TEST_COVERAGE:
+    // an unassigned GLSL struct field is UNDEFINED, so leaving it out
+    // would arm a latent bad read for whoever enables the bit.
+    validity.CoverageRejectThreshold = 0.5;
     validity.PixelSize = u_ScreenParams.zw;
 
     const uint rejections = OloEvaluateSurfaceHistory(MakeReSTIRGISurface(currentSurfacePacked, velocity),

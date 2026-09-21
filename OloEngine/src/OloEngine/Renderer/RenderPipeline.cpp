@@ -61,6 +61,17 @@ namespace OloEngine
             .Resolution = TemporalHistoryResolution::Scene,
             .Plane = TemporalHistoryPlane::Signal,
         };
+        // TAA's surface plane (#1256): last frame's G-Buffer RT3, so the
+        // resolve can compare this pixel's COVERAGE and MATERIAL PROFILE
+        // against the frame it is blending with. Display band, because TAA
+        // runs after any upscale.
+        constexpr u32 kTAASurfaceHistoryLayoutVersion = 1u;
+        constexpr TemporalHistoryKey kTAASurfaceHistoryKey{
+            .Effect = TemporalHistoryEffect::TAA,
+            .View = 0,
+            .Resolution = TemporalHistoryResolution::Display,
+            .Plane = TemporalHistoryPlane::SurfaceGeometry,
+        };
         constexpr TemporalHistoryKey kSSGISurfaceHistoryKey{
             .Effect = TemporalHistoryEffect::SSGI,
             .View = 0,
@@ -3060,6 +3071,18 @@ namespace OloEngine
             HashBool(h, data.RGraph->GetTemporalHistoryRegistry().IsValid(firstMomentsToken));
             HashU32(h, secondMomentsToken.Generation);
             HashBool(h, data.RGraph->GetTemporalHistoryRegistry().IsValid(secondMomentsToken));
+            // ...TAA's surface plane (#1256), which needs BOTH halves for a
+            // reason the validity bit alone does not cover. TAA additionally
+            // carries the legacy `TAAHistoryValid` bool, hashed elsewhere, and
+            // the two are independent: an InvalidateTemporalHistories on a
+            // projection change clears the registry token while that bool stays
+            // true. Hashing only IsValid would also miss a REGENERATION — an
+            // invalidate and re-acquire between two populates leaves validity
+            // reading true both times while the plane underneath is a different
+            // one, which is what Generation is for.
+            const auto taaSurfaceToken = data.RGraph->GetTemporalHistoryRegistry().Find(kTAASurfaceHistoryKey);
+            HashU32(h, taaSurfaceToken.Generation);
+            HashBool(h, data.RGraph->GetTemporalHistoryRegistry().IsValid(taaSurfaceToken));
             // ...and the ray-traced shadow denoiser's three (issue #1056), for
             // exactly the same reason: PopulateBlackboard imports them behind
             // `Scratch.RayTracedShadowResolved.IsValid()`, and each binding's
@@ -3438,7 +3461,8 @@ namespace OloEngine
                     RGResourceFormat::RGBA16Float,
                     RGResourceFormat::R32Int,
                     RGResourceFormat::RG16Float,
-                    RGResourceFormat::RG16Float,
+                    // [3] velocity + coverage + profile (#1256).
+                    RGResourceFormat::RGBA16Float,
                     // [4] the skin diffusion hand-off (issue #1241).
                     RGResourceFormat::RGBA16Float,
                     RGResourceFormat::Depth24Stencil8,
@@ -3522,7 +3546,8 @@ namespace OloEngine
                     RGResourceFormat::RGBA8UNorm,
                     RGResourceFormat::RGBA16Float,
                     RGResourceFormat::RGBA16Float,
-                    RGResourceFormat::RG16Float,
+                    // [3] velocity + coverage + profile (#1256).
+                    RGResourceFormat::RGBA16Float,
                     RGResourceFormat::R32Int,
                     // Index 5 (RGBA16Float) is the baked-lightmap irradiance +
                     // coverage target the G-Buffer pass fills and
@@ -3634,7 +3659,7 @@ namespace OloEngine
             {
                 RGResourceDesc velocityDesc;
                 velocityDesc.Kind = RGResourceHandle::Kind::Texture2D;
-                velocityDesc.Format = RGResourceFormat::RG16Float;
+                velocityDesc.Format = RGResourceFormat::RGBA16Float;
                 velocityDesc.Width = sceneSpec.Width;
                 velocityDesc.Height = sceneSpec.Height;
                 velocityDesc.DebugName = std::string(ResourceNames::Velocity);
@@ -4851,7 +4876,7 @@ namespace OloEngine
                 dvDesc.Kind = RGResourceHandle::Kind::Framebuffer;
                 dvDesc.Width = postProcessWidth;
                 dvDesc.Height = postProcessHeight;
-                dvDesc.Attachments = { RGResourceFormat::R32Float, RGResourceFormat::RG16Float };
+                dvDesc.Attachments = { RGResourceFormat::R32Float, RGResourceFormat::RGBA16Float };
                 dvDesc.DebugName = std::string(ResourceNames::UpscaledDepthVelocity);
                 // Only declare the FBO here; DepthVelocityUpscalePass creates the
                 // RT0/RT1 attachment views (and publishes them to board.Post) in
@@ -5370,6 +5395,28 @@ namespace OloEngine
         {
             board.Temporal.TAAHistory = graph.ImportHistoryHandle(
                 ResourceNames::TAAHistory, pipeline.TAAHistoryTexture->GetRHIHandle());
+        }
+
+        // TAA's surface plane (#1256). Gated on the pass running AND on a
+        // velocity target existing: without RT3 there is nothing to snapshot,
+        // and the forward paths that reconstruct velocity from depth carry no
+        // coverage at all. The shader's own u_HasSurfaceHistory gate means an
+        // absent plane costs the term nothing rather than reading garbage.
+        if (pipeline.PostProcessPasses.TAA && board.GBuffer.Velocity.IsValid())
+        {
+            const auto& taaSurfaceSpec = pipeline.PostProcessPasses.TAA->GetFramebufferSpecification();
+            if (taaSurfaceSpec.Width > 0u && taaSurfaceSpec.Height > 0u)
+            {
+                TemporalHistoryDescriptor descriptor;
+                descriptor.Width = taaSurfaceSpec.Width;
+                descriptor.Height = taaSurfaceSpec.Height;
+                descriptor.Format = kTemporalHistoryFormat;
+                descriptor.LayoutVersion = kTAASurfaceHistoryLayoutVersion;
+                const auto surfaceBinding = graph.AcquireTemporalHistory(
+                    kTAASurfaceHistoryKey, descriptor, kSSGIHistoryDependencies,
+                    ResourceNames::TAASurfaceHistory);
+                board.Temporal.TAASurfaceHistory = surfaceBinding.Previous;
+            }
         }
 
         // CloudsHistory (issue #633): half-resolution resolved-cloud

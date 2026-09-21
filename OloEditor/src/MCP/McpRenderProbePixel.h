@@ -256,7 +256,7 @@ namespace OloEngine::MCP::ProbePixel
         TexelSample Albedo;     // RT0 RGBA8   — albedo.rgb + metallic.a
         TexelSample Normal;     // RT1 RGBA16F — octNormal.xy + roughness.z + ao.w
         TexelSample Emissive;   // RT2 RGBA16F — emissive.rgb + flags.a
-        TexelSample Velocity;   // RT3 RG16F   — screen-space motion vector
+        TexelSample Velocity;   // RT3 RGBA16F — motion.rg + coverage.b + material profile.a (#1256)
         TexelSample EntityId;   // RT4 R32I    — picking id
         TexelSample BakedGI;    // RT5 RGBA16F — baked irradiance.rgb + coverage.a
         TexelSample Depth;      // depth attachment
@@ -392,10 +392,24 @@ namespace OloEngine::MCP::ProbePixel
             note("emissive");
         }
 
-        // RT3 — screen-space velocity in [-1,1] NDC units.
+        // RT3 — screen-space velocity in [-1,1] NDC units, plus the two
+        // temporal-reconstruction lanes #1256 added.
+        //
+        // Reported SEPARATELY rather than as one four-component vector: they
+        // are three unrelated quantities that happen to share a target, and a
+        // caller diagnosing why a strand lost its history wants to read
+        // `coverage` by name. This is also the only per-pixel path to those
+        // lanes — olo_render_capture_target forces a four-channel capture's
+        // alpha opaque so the image stays viewable, which erases .a there.
         if (in.Velocity.Available && in.Velocity.Channels >= 2)
         {
             channels["velocity"] = Detail::Present(in.Velocity, "rg", Detail::Vec(in.Velocity.F.data(), 2));
+            if (in.Velocity.Channels >= 4)
+            {
+                channels["coverage"] = Detail::Present(in.Velocity, "b", Detail::Vec(in.Velocity.F.data() + 2, 1));
+                channels["materialProfile"] =
+                    Detail::Present(in.Velocity, "a", Detail::Vec(in.Velocity.F.data() + 3, 1));
+            }
         }
         else
         {

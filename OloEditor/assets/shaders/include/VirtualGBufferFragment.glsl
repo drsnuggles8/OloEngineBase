@@ -227,7 +227,7 @@ layout(location = 8) flat in vec4 v_LightmapScaleOffset; // its atlas region; al
 layout(location = 0) out vec4 o_GBufferAlbedo;    // RGBA8       albedo + metallic
 layout(location = 1) out vec4 o_GBufferNormal;    // RGBA16F     octNormal + roughness + ao
 layout(location = 2) out vec4 o_GBufferEmissive;  // RGBA16F     emissive + flags
-layout(location = 3) out vec2 o_GBufferVelocity;  // RG16F       screen-space velocity
+layout(location = 3) out vec4 o_GBufferVelocity;  // RG16F       screen-space velocity
 layout(location = 4) out int  o_GBufferEntityID;  // RED_INTEGER picking entity ID
 // Baked lightmap irradiance target (G-Buffer RT5, issue #865). This shader
 // draws no lightmapped receiver, but an MRT output it never writes is
@@ -285,7 +285,7 @@ void main()
     o_GBufferAlbedo   = vec4(albedo, metallic);
     o_GBufferNormal   = vec4(octEncodeGB(N), roughness, ao);
     o_GBufferEmissive = vec4(emissive, oloEncodeGBufferPbrFlagsEx(u_PBRModel, u_MaterialKind, u_SkinProfileSlot)); // flag-lane layout: see oloEncodeGBufferPbrFlagsEx (#975, #1231)
-    o_GBufferVelocity = velocity;
+    o_GBufferVelocity = vec4(velocity, 1.0, 0.0);
     o_GBufferEntityID = v_EntityID;
     // Baked lightmap irradiance into RT5 (issues #865, #867). This is the last
     // stage that still holds BOTH the uv2 and the per-instance atlas region —

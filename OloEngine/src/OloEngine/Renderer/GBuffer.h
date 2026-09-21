@@ -20,7 +20,18 @@ namespace OloEngine
     //                       Roughness (z) + AO (w)
     //                       (GTAO converts to view-space at runtime via u_ViewMatrix)
     //   RT2 (RGBA16F)     — Emissive RGB + packed material-flags A
-    //   RT3 (RG16F)       — Screen-space velocity (previous→current)
+    //   RT3 (RGBA16F)     — Screen-space velocity (previous→current) in .rg,
+    //                       plus the two temporal-reconstruction channels
+    //                       issue #1256 added: .b = COVERAGE, the fraction of
+    //                       the pixel the subject occupies (1 for an opaque
+    //                       surface), and .a = MATERIAL PROFILE, the position
+    //                       along the material's continuous profile axis.
+    //                       Widened from RG16F rather than given its own
+    //                       attachment because every writer had to be visited
+    //                       either way (an unwritten MRT output is undefined),
+    //                       and this way costs no new slot or binding.
+    //                       Cleared to 0: an untouched pixel has no surface,
+    //                       so its coverage is genuinely zero.
     //   RT4 (R32I)        — Picking entity ID (cleared to -1 each frame).
     //                       Blitted into SceneColor RT1 by DeferredLightingPass
     //                       so the SelectionOutline JFA Init sees per-pixel
@@ -54,7 +65,7 @@ namespace OloEngine
             Albedo = 0,   // RGBA8       — base colour + metallic
             Normal = 1,   // RGBA16F     — octahedral normal + roughness + AO
             Emissive = 2, // RGBA16F     — emissive + material flags
-            Velocity = 3, // RG16F       — screen-space velocity
+            Velocity = 3, // RGBA16F     — velocity (rg) + coverage (b) + profile (a)
             EntityID = 4, // RED_INTEGER — per-pixel picking entity ID (cleared to -1)
             BakedGI = 5,  // RGBA16F     — baked lightmap irradiance + coverage (issue #865)
             Count = 6
@@ -69,7 +80,7 @@ namespace OloEngine
             FramebufferTextureFormat::RGBA8,
             FramebufferTextureFormat::RGBA16F,
             FramebufferTextureFormat::RGBA16F,
-            FramebufferTextureFormat::RG16F,
+            FramebufferTextureFormat::RGBA16F,
             FramebufferTextureFormat::RED_INTEGER,
             FramebufferTextureFormat::RGBA16F,
         };

@@ -4417,6 +4417,11 @@ namespace OloEngine
                            name == "u_FirstMomentsHistory" ||
                            // Slot 3 is reused as the fog-history input slot for the fog pass.
                            name == "u_FogHistory" ||
+                           // TAA's surface plane (issue #1256): last frame's
+                           // G-Buffer RT3, read for its COVERAGE and MATERIAL
+                           // PROFILE channels. Pass-local fullscreen reuse with
+                           // no material bound, like the entries around it.
+                           name == "u_PrevSurface" ||
                            // GPU path tracer (issue #1055): last frame's first-hit
                            // albedo sum. Pass-local fullscreen reuse with no
                            // material bound, like the entries around it.

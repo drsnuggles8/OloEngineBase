@@ -181,6 +181,13 @@ OloSurfaceHistoryRecord MakeShadowSurface(float viewDepth, vec4 packedSurface, v
     result.GeometricNormal = OctDecode(packedSurface.xy);
     result.ShadingNormal = result.GeometricNormal;
     result.Roughness = packedSurface.z;
+    // This consumer reads an opaque surface and carries no coverage or
+    // profile signal, so both #1256 channels take their inert values.
+    // Set explicitly rather than left alone: an unassigned GLSL struct
+    // field is UNDEFINED, so the next person to add
+    // OLO_SURFACE_TEST_COVERAGE to this pass would be reading garbage.
+    result.Coverage = 1.0;
+    result.MaterialProfile = 0.0;
     result.MaterialClass = 0u;
     result.Motion = motion;
     result.Instance = uvec2(0xffffffffu, 0u);
@@ -276,6 +283,10 @@ void main()
     validitySettings.RoughnessThreshold = 0.15;
     validitySettings.MotionThresholdPixels = 64.0;
     validitySettings.RelativeHitDistanceThreshold = RT_SHADOW_HIT_DISTANCE_TOLERANCE;
+    // Assigned even though this pass does not set OLO_SURFACE_TEST_COVERAGE:
+    // an unassigned GLSL struct field is UNDEFINED, so leaving it out
+    // would arm a latent bad read for whoever enables the bit.
+    validitySettings.CoverageRejectThreshold = 0.5;
     validitySettings.PixelSize = texel;
     uint rejectionReasons =
         OloEvaluateSurfaceHistory(currentSurface, previousSurface, prevUV, historyAvailable, validitySettings);

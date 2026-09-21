@@ -844,6 +844,8 @@
 		"OloEngine/Renderer/SurfaceHistory.h"
 		"OloEngine/Renderer/TemporalHistoryRegistry.cpp"
 		"OloEngine/Renderer/TemporalHistoryRegistry.h"
+		"OloEngine/Renderer/TemporalSequenceMetrics.cpp"
+		"OloEngine/Renderer/TemporalSequenceMetrics.h"
 		"OloEngine/Renderer/Shader.cpp"
 				"OloEngine/Renderer/TransientPool.cpp"
 				"OloEngine/Renderer/TransientPool.h"

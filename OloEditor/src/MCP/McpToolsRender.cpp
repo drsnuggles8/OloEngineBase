@@ -1169,6 +1169,23 @@ namespace OloEngine::MCP
                 }
                 pixels8 = std::move(widened);
             }
+            else if (readChannels == 4)
+            {
+                // The PNG's alpha is a DISPLAY channel; on several targets the
+                // fourth component is DATA. G-Buffer RT3 carries the material
+                // profile there since #1256, and it is 0 almost everywhere —
+                // so encoding it as opacity produced a FULLY TRANSPARENT image
+                // while the tool cheerfully reported a healthy value range.
+                // A capture nobody can see is worse than no capture: it looks
+                // like the target is blank.
+                //
+                // Forced opaque rather than dropped to RGB so the channel count
+                // still matches what the caller reads back; the actual numbers
+                // remain available from the reported min/max and, per pixel,
+                // from olo_render_probe_pixel.
+                for (sizet i = 0; i < texelCount; ++i)
+                    pixels8[(i * 4u) + 3u] = 255u;
+            }
 
             const sizet rowBytes = static_cast<sizet>(region.Width) * outChannels;
             std::vector<u8> flipped;

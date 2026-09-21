@@ -67,7 +67,7 @@ layout(location = 0) in vec3 v_TexCoords;
 layout(location = 0) out vec4 o_GBufferAlbedo;    // RGBA8
 layout(location = 1) out vec4 o_GBufferNormal;    // RGBA16F
 layout(location = 2) out vec4 o_GBufferEmissive;  // RGBA16F — carries unlit flag in .a
-layout(location = 3) out vec2 o_GBufferVelocity;  // RG16F
+layout(location = 3) out vec4 o_GBufferVelocity;  // RG16F
 layout(location = 4) out int  o_GBufferEntityID;  // RED_INTEGER — skybox is not pickable
 // Baked lightmap irradiance target (G-Buffer RT5, issue #865). This shader
 // draws no lightmapped receiver, but an MRT output it never writes is
@@ -100,7 +100,7 @@ void main()
     // flag (.a = 1.0) so `ComputeDeferredLit` returns the colour unshaded.
     o_GBufferEmissive = vec4(skyColor, 1.0);
     // Skybox is rigidly attached to the camera — no screen-space velocity.
-    o_GBufferVelocity = vec2(0.0);
+    o_GBufferVelocity = vec4(0.0, 0.0, 1.0, 0.0);
     o_GBufferEntityID = -1;
     o_GBufferBakedGI = vec4(0.0); // no baked lightmap on this surface (issue #865)
 }

@@ -116,7 +116,7 @@ layout(location = 2) flat in uint v_Material;
 layout(location = 0) out vec4 o_GBufferAlbedo;
 layout(location = 1) out vec4 o_GBufferNormal;
 layout(location = 2) out vec4 o_GBufferEmissive;
-layout(location = 3) out vec2 o_GBufferVelocity;
+layout(location = 3) out vec4 o_GBufferVelocity;
 layout(location = 4) out int  o_GBufferEntityID;
 // Baked lightmap irradiance target (G-Buffer RT5, issue #865). This shader
 // draws no lightmapped receiver, but an MRT output it never writes is
@@ -224,7 +224,7 @@ void main()
     o_GBufferAlbedo   = vec4(albedo, metallic);
     o_GBufferNormal   = vec4(octEncodeGB(N), roughness, ao);
     o_GBufferEmissive = vec4(0.0, 0.0, 0.0, 0.0);
-    o_GBufferVelocity = vec2(0.0);
+    o_GBufferVelocity = vec4(0.0, 0.0, 1.0, 0.0);
     o_GBufferEntityID = u_EntityID;
     o_GBufferBakedGI = vec4(0.0); // no baked lightmap on this surface (issue #865)
 }

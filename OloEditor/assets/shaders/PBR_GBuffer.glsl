@@ -373,7 +373,7 @@ layout(location = 5) in vec2 v_TexCoord2;
 layout(location = 0) out vec4 o_GBufferAlbedo;    // RGBA8       albedo + metallic
 layout(location = 1) out vec4 o_GBufferNormal;    // RGBA16F     octNormal + roughness + ao
 layout(location = 2) out vec4 o_GBufferEmissive;  // RGBA16F     emissive + flags
-layout(location = 3) out vec2 o_GBufferVelocity;  // RG16F       screen-space velocity
+layout(location = 3) out vec4 o_GBufferVelocity;  // RG16F       screen-space velocity
 layout(location = 4) out int  o_GBufferEntityID;  // RED_INTEGER picking entity ID (blitted to SceneColor RT1 by DeferredLightingPass)
 layout(location = 5) out vec4 o_GBufferBakedGI;  // RGBA16F     baked lightmap irradiance E + coverage (issue #865)
 
@@ -561,7 +561,7 @@ void main()
     // 1=ClosureV2. RGBA16F represents small integers exactly, and the
     // deferred lighting pass reads it back with a round().
     o_GBufferEmissive = vec4(emissive, oloEncodeGBufferPbrFlagsEx(matPBRModel, matMaterialKind, matSkinProfileSlot)); // flag-lane layout: see oloEncodeGBufferPbrFlagsEx (#975, #1231)
-    o_GBufferVelocity = velocity;
+    o_GBufferVelocity = vec4(velocity, 1.0, 0.0);
     o_GBufferEntityID = u_EntityID;
     // vec4(0) whenever the scene kill switch is off, this draw has no atlas
     // region, or the texel was never baked — the deferred ambient ladder then
