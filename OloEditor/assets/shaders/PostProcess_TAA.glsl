@@ -227,6 +227,50 @@ void main()
         vec4 currentSurface = texture(u_Velocity, uv);
         vec4 previousSurface = texture(u_PrevSurface, prevUV);
 
+        // COMPARE COVERAGE AGAINST A NEIGHBOURHOOD, NOT A POINT.
+        //
+        // A point-vs-point coverage delta is unusable here, and measurably so:
+        // on a STATIC camera 54.8 % of coverage-bearing foliage pixels exceeded
+        // the 0.12 dead band (median 0.149). Disabling TAA's jitter halved that
+        // to 0.067 / 39.4 %, which identifies the two culprits — neither of
+        // which is the subject changing:
+        //
+        //   * JITTER. TAA jitters the projection, so RT3 is rasterised at a
+        //     different sub-pixel offset every frame and `prevUV` lands
+        //     off-texel-centre. `texture()` then bilinearly mixes four texels
+        //     of a high-frequency coverage field, which at a blade edge is a
+        //     completely different number from the point sample at `uv`.
+        //   * MOTION. Wind moves a leaf, so the reprojected fetch legitimately
+        //     lands on different coverage — but motion is ALREADY handled by
+        //     `effectiveFeedback`, so letting it through here is the same
+        //     double-count MotionMaxReactivity = 0 exists to prevent, arriving
+        //     through a second door.
+        //
+        // So the question is not "did the number change" but "is this pixel's
+        // coverage still WITHIN the range the neighbourhood held last frame".
+        // A resample — from jitter or from motion — lands inside that range by
+        // construction. A genuine LOD step or an alpha flip moves the whole
+        // neighbourhood and lands outside it.
+        //
+        // Clamping the CURRENT coverage into the previous 3x3 range and handing
+        // the clamp back as `previousSurface.b` keeps the shared evaluator's
+        // definition intact: |current - previous| becomes exactly the distance
+        // OUTSIDE the range, and zero inside it. The screen-space resampling
+        // concern stays here, in the pass that owns the reprojection, instead
+        // of being baked into the model every other consumer shares.
+        float prevCoverageMin = 1.0;
+        float prevCoverageMax = 0.0;
+        for (int cy = -1; cy <= 1; ++cy)
+        {
+            for (int cx = -1; cx <= 1; ++cx)
+            {
+                float c = texture(u_PrevSurface, prevUV + vec2(float(cx), float(cy)) * u_TexelSize).b;
+                prevCoverageMin = min(prevCoverageMin, c);
+                prevCoverageMax = max(prevCoverageMax, c);
+            }
+        }
+        previousSurface.b = clamp(currentSurface.b, prevCoverageMin, prevCoverageMax);
+
         OloSurfaceHistoryRecord currentRecord;
         currentRecord.LinearDepth = 0.0;
         currentRecord.GeometricNormal = vec3(0.0, 0.0, 1.0);

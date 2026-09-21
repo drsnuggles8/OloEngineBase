@@ -78,7 +78,13 @@ namespace OloEngine::Tests
 
         // `o_Velocity` (forward scene FB) and `o_GBufferVelocity` (deferred)
         // are the two names the engine uses for this attachment.
-        const std::regex kDeclaration{ R"(layout\(location = 3\) out\s+(\w+)\s+o_(?:GBuffer)?Velocity\s*;)" };
+        //
+        // Matched by NAME at any location, not at `location = 3`. The upscale
+        // pass declares its copy at location 1 — it writes RT1 of the FSR1
+        // depth+velocity FBO — so anchoring on 3 skipped the one shader whose
+        // own comment warns that dropping `.ba` "would silently kill the
+        // coverage term at every non-native resolution".
+        const std::regex kDeclaration{ R"(layout\(location = \d+\) out\s+(\w+)\s+o_(?:GBuffer)?Velocity\s*;)" };
         const std::regex kAssignment{ R"(o_(?:GBuffer)?Velocity\s*=\s*([^;]+);)" };
     } // namespace
 
@@ -104,15 +110,26 @@ namespace OloEngine::Tests
     TEST(GBufferCoverageChannelContract, EveryVelocityOutputIsDeclaredVec4)
     {
         std::vector<std::string> offenders;
+        u32 declarationsChecked = 0u;
         for (const auto& path : AllShaderFiles())
         {
             const std::string src = ReadWholeFile(path);
             for (std::sregex_iterator it{ src.begin(), src.end(), kDeclaration }, end; it != end; ++it)
             {
+                ++declarationsChecked;
                 if ((*it)[1].str() != "vec4")
                     offenders.push_back(path.filename().string() + " declares " + (*it)[1].str());
             }
         }
+
+        // A floor, because every assertion in this file is over a SCAN: if
+        // AllShaderFiles() came back empty — a moved shader root, a swallowed
+        // filesystem error — the loop body never runs and the test passes
+        // having checked nothing. The sibling GBufferBakedGIContractTest guards
+        // its own scan the same way.
+        EXPECT_GE(declarationsChecked, 25u)
+            << "only " << declarationsChecked << " velocity declarations found; the shader scan is not "
+                                                 "reaching the tree (expected ~30). This test cannot pass by finding nothing.";
 
         std::string message;
         for (const auto& offender : offenders)

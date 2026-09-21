@@ -3142,6 +3142,15 @@ namespace OloEngine
             const auto& historyRegistry = data.RGraph->GetTemporalHistoryRegistry();
             HashBool(h, historyRegistry.IsValid(historyRegistry.Find(kReSTIRDIReservoirSampleHistoryKey)));
             HashBool(h, historyRegistry.IsValid(historyRegistry.Find(kReSTIRGIReservoirSampleHistoryKey)));
+            // TAA's surface plane (#1256), for the same reason and with one
+            // extra wrinkle: TAA ALSO has the legacy `TAAHistoryValid` bool
+            // hashed above, and the two are independent. An
+            // InvalidateTemporalHistories(ProjectionChanged) — an FOV change
+            // with the viewport unchanged — clears the registry token while
+            // that bool stays true, so without this hash the fingerprint does
+            // not move, PopulateBlackboard short-circuits, and the pass keeps
+            // reading a plane the engine has already declared invalid.
+            HashBool(h, historyRegistry.IsValid(historyRegistry.Find(kTAASurfaceHistoryKey)));
         }
         // ...and the volumetric shadow volume (issue #723), for the third time
         // in a row, because the trap does not care that the PRODUCER dodged it.

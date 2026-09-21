@@ -104,17 +104,21 @@ namespace OloEngine::TemporalSequenceMetrics
         if (frames.empty() || target.empty())
             return result;
 
-        // Walk the sequence backwards to find the first frame from which
-        // EVERY later frame is within tolerance. Scanning forwards for the
-        // first frame under tolerance would report a resolve that dips
-        // through the target and comes back out as settled on the dip —
-        // which is precisely what an overshooting history does.
-        std::vector<f64> residuals;
-        residuals.reserve(frames.size());
+        // Validated BEFORE anything accumulates. Returning from the middle of
+        // the loop would hand back a half-summed ResidualArea and a
+        // FramesEvaluated that counted only the frames before the ragged one —
+        // numbers that look computed rather than refused, which is the same
+        // failure MeasureShimmer's SequenceIsWellFormed guard exists to avoid.
         for (const auto& frame : frames)
         {
             if (frame.size() != target.size())
                 return result;
+        }
+
+        std::vector<f64> residuals;
+        residuals.reserve(frames.size());
+        for (const auto& frame : frames)
+        {
             const FieldDifference difference = CompareFields(frame, target);
             residuals.push_back(difference.Mean);
             result.PeakResidual = std::max(result.PeakResidual, difference.Mean);
@@ -125,6 +129,11 @@ namespace OloEngine::TemporalSequenceMetrics
 
         result.FinalResidual = residuals.back();
 
+        // Walk the sequence BACKWARDS to find the first frame from which every
+        // later frame is within tolerance. Scanning forwards for the first
+        // frame under tolerance would report a resolve that dips through the
+        // target and comes back out as settled on the dip — which is precisely
+        // what an overshooting history does.
         result.SettlingFrames = kNeverSettled;
         for (std::size_t i = residuals.size(); i-- > 0u;)
         {
