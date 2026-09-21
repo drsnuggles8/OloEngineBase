@@ -59,6 +59,49 @@ endfunction()
 # needs a fresh tree -- see docs/agent-rules/build-trees-and-windows-asan.md).
 function(olo_check_lto_support out_var out_output)
     if(NOT DEFINED OLO_LTO_SUPPORTED)
+        # GIVE THE PROBE THE SAME LINKER THE BUILD USES. check_ipo_supported()
+        # configures and links its own generated `_CMakeLTOTest-<lang>` project,
+        # and CheckIPOSupported.cmake forwards only CMAKE_<LANG>_FLAGS into it
+        # (and only under CMP0138 NEW -- we are on cmake_minimum_required 3.25,
+        # so it is). CMAKE_EXE_LINKER_FLAGS is NOT forwarded. Every Linux
+        # configure line in this repo selects the linker there, as
+        # `-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld`, so the probe alone ignored it
+        # and fell back to clang's default /usr/bin/ld.
+        #
+        # That is not a cosmetic difference on the self-hosted box. BFD ld with
+        # -flto needs the gold plugin, and the official LLVM release tarball at
+        # /opt/llvm-23.1.0 does not ship one, so the probe died on
+        #
+        #     /usr/bin/ld: /opt/llvm-23.1.0/bin/../lib/LLVMgold.so:
+        #     error loading plugin: cannot open shared object file
+        #
+        # -- cached NO, and every configure then printed that linker error
+        # through the message(WARNING) below. Nothing was actually broken: those
+        # jobs are all -DCMAKE_BUILD_TYPE=Debug and olo_enable_lto() only sets
+        # INTERPROCEDURAL_OPTIMIZATION for Release/Dist. But it reads exactly
+        # like a broken toolchain, it has already cost one wrong diagnosis
+        # ("re-provision the runner"), and it silently denied LTO to any
+        # Release/Dist build on that box. See
+        # docs/ops/self-hosted-linux-toolchain.md, which documents the missing
+        # LLVMgold.so as a property of the tarball.
+        #
+        # Forwarding the linker flags through CMAKE_<LANG>_FLAGS is the channel
+        # that IS propagated. Scoped to this function, so the real build's flags
+        # are untouched (verified: the parent's CMAKE_CXX_FLAGS is unchanged
+        # after this call). -Wno-unused-command-line-argument because -fuse-ld=
+        # is a link-only flag and the probe compiles with these flags too --
+        # harmless today, and it keeps this from becoming a compile error if
+        # -Werror is ever added.
+        if(NOT MSVC AND CMAKE_EXE_LINKER_FLAGS)
+            get_property(_olo_probe_langs GLOBAL PROPERTY ENABLED_LANGUAGES)
+            foreach(_olo_probe_lang IN LISTS _olo_probe_langs)
+                if(_olo_probe_lang STREQUAL "C" OR _olo_probe_lang STREQUAL "CXX")
+                    string(APPEND CMAKE_${_olo_probe_lang}_FLAGS
+                        " ${CMAKE_EXE_LINKER_FLAGS} -Wno-unused-command-line-argument")
+                endif()
+            endforeach()
+        endif()
+
         check_ipo_supported(RESULT _olo_lto_supported OUTPUT _olo_lto_output)
         set(OLO_LTO_SUPPORTED "${_olo_lto_supported}" CACHE INTERNAL
             "Whether the toolchain supports IPO/LTO (check_ipo_supported, run once per build tree)")
