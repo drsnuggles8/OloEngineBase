@@ -5691,8 +5691,13 @@ namespace OloEngine::MCP
             j["indirectionPublishes"] = stats.m_IndirectionPublishes;
             j["indirectionFullRebuilds"] = stats.m_IndirectionFullRebuilds;
             j["framesUpdated"] = stats.m_FramesUpdated;
-            j["indirectionRebuildGpuMs"] = stats.m_IndirectionRebuildGpuMs;
-            j["indirectionDeltaGpuMs"] = stats.m_IndirectionDeltaGpuMs;
+            // The millisecond value NEVER travels without its status (#1337):
+            // "no sample resolved yet" and "the publish cost nothing" used to be
+            // the same 0.0 here, and a caller had no way to tell them apart.
+            j["indirectionRebuildGpuMs"] = stats.m_IndirectionRebuild.RawMsForSerialization();
+            j["indirectionRebuildStatus"] = std::string(ToString(stats.m_IndirectionRebuild.Status));
+            j["indirectionDeltaGpuMs"] = stats.m_IndirectionDelta.RawMsForSerialization();
+            j["indirectionDeltaStatus"] = std::string(ToString(stats.m_IndirectionDelta.Status));
             j["sectorCount"] = stats.m_SectorCount;
             j["sectorsReady"] = stats.m_SectorsReady;
             j["imageResizesTotal"] = stats.m_ImageResizesTotal;
@@ -9518,8 +9523,7 @@ namespace OloEngine::MCP
                                        .Prop("tlasUpdates", Schema::Int().Min(0))
                                        .Prop("instancesTraced", Schema::Int().Min(0))
                                        .Prop("instancesSkipped", Schema::Int().Min(0))
-                                       .Prop("blasBuildGpuNs", Schema::Int().Min(0).Desc("Nanoseconds; 0 means no sample has resolved yet, not that it was free."))
-                                       .Prop("tlasBuildGpuNs", Schema::Int().Min(0)))
+                                       .Prop("blasBuildGpuTimeChannel", Schema::String().Desc("Where the AS build's GPU time actually lives. The former blasBuildGpuNs/tlasBuildGpuNs counters were never written by anything and reported 0 forever, so they are gone (#1337).")))
                     .Prop("vegetation", Schema::Object()
                                             .Prop("ready", Schema::Bool())
                                             .Prop("complete", Schema::Bool())
@@ -9554,7 +9558,7 @@ namespace OloEngine::MCP
                                         .Prop("trianglesBuilt", Schema::Int().Min(0).Desc("Triangles converted THIS FRAME. Correctly zero in a still scene — use residentTriangles for what the TLAS holds."))
                                         .Prop("residentBytes", Schema::Int().Min(0))
                                         .Prop("residentTriangles", Schema::Int().Min(0).Desc("Triangles resident across every proxy. The figure to read for what the ray-traced scene contains; trianglesBuilt is this frame's WORK."))
-                                        .Prop("updateMicroseconds", Schema::Int().Min(0).Desc("CPU conversion + upload this frame. The producer's whole cost; device build time is under frame.blasBuildGpuNs."))
+                                        .Prop("updateMicroseconds", Schema::Int().Min(0).Desc("CPU conversion + upload this frame. The producer's whole cost; device build time comes from olo_perf_pass_timings' AccelerationStructureBuild sub-pass."))
                                         .Prop("maxWidthCompensation", Schema::Number().Desc("The widest radius compensation any RESIDENT coat carries, read against widthCompensationCap. AT the cap means that coat is thinner in ray space than on screen, which is the one way this representation loses coverage."))
                                         .Prop("widthCompensationCap", Schema::Number())
                                         .Prop("dominantRefusalReason", Schema::String().Desc("First reason in enum order that any coat was refused, skipping 'nobody asked'. 'None' when nothing was refused."))

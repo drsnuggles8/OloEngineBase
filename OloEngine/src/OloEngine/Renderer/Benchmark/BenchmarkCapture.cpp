@@ -494,13 +494,45 @@ namespace OloEngine::Benchmark
     std::vector<PassTimingRecord> SnapshotPassTimings()
     {
         std::vector<PassTimingRecord> records;
-        const auto timings = GPUPassTimerPool::GetInstance().GetLastPassTimingsCopy();
-        records.reserve(timings.size());
-        for (const auto& timing : timings)
+        const GPUPassTimerPool::FrameTimings frame = GPUPassTimerPool::GetInstance().GetLastFrameTimings();
+        records.reserve(frame.Passes.size());
+        for (const auto& timing : frame.Passes)
         {
-            records.push_back({ timing.Name, timing.GpuMs });
+            records.push_back({ timing.Name, timing.Sample, timing.IsSubPass, timing.ParentName });
         }
         return records;
+    }
+
+    TimingValidity SnapshotTimingValidity()
+    {
+        const GPUPassTimerPool::FrameTimings frame = GPUPassTimerPool::GetInstance().GetLastFrameTimings();
+        TimingValidity validity;
+        validity.MeasurementFrameId = frame.FrameNumber;
+        validity.CurrentFrameId = frame.CurrentFrameNumber;
+        validity.AgeFrames = frame.AgeFrames;
+        validity.DroppedSlots = frame.DroppedSlots;
+        validity.UnstampedFrames = frame.UnstampedFrames;
+        validity.Stale = frame.IsStale();
+        validity.FrameStatus = frame.Frame.Status;
+        return validity;
+    }
+
+    ResolutionRecord SnapshotResolution()
+    {
+        ResolutionRecord record;
+        // The live graph is the only thing that knows the render scale actually
+        // in force; the manifest carries the request, which is not the same
+        // number once anything has touched the scale.
+        if (const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph())
+        {
+            record.RenderWidth = graph->GetRenderWidth();
+            record.RenderHeight = graph->GetRenderHeight();
+            record.DisplayWidth = graph->GetPhysicalWidth();
+            record.DisplayHeight = graph->GetPhysicalHeight();
+            record.RenderScale = graph->GetRenderScale();
+            record.Measured = true;
+        }
+        return record;
     }
 
     RendererCounters SnapshotRendererCounters()
@@ -564,7 +596,19 @@ namespace OloEngine::Benchmark
         }
 
         nlohmann::json json;
-        json["resultSchemaVersion"] = 1;
+        // v2 (#1337): pass timings gained `gpuMs: null` + `status`, the export
+        // gained `timingValidity` and actual render/display dimensions, and
+        // `units` names what every number is in. See
+        // docs/guides/renderer-benchmarks.md for the compatibility story — a v1
+        // reader sees the same keys it always did, with `gpuMs` sometimes null.
+        json["resultSchemaVersion"] = 2;
+        // Spelled out rather than implied. A persisted export is read months
+        // later by something that was not there when it was written.
+        json["units"] = { { "gpuMs", "milliseconds" },
+                          { "cpuMs", "milliseconds" },
+                          { "bytes", "bytes" },
+                          { "dimensions", "pixels" },
+                          { "frameIds", "GPUPassTimerPool frame counter, monotonic from renderer init" } };
         json["manifest"] = { { "id", manifest.Id },
                              { "version", manifest.ManifestVersion },
                              { "sourceHashFnv1a64", manifest.SourceHash },
@@ -578,9 +622,28 @@ namespace OloEngine::Benchmark
                                { "commitSha", runInfo.CommitSha },
                                { "machineTag", runInfo.MachineTag },
                                { "host", runInfo.Host } };
+        // The manifest's numbers are the REQUEST; `actual` is what the render
+        // graph did with it (#1337 criterion 4). They differ whenever anything
+        // has touched the render scale, and a record carrying only the request
+        // cannot be compared against one taken at a different scale.
         json["output"] = { { "width", manifest.Width },
                            { "height", manifest.Height },
-                           { "renderScale", manifest.RenderScale } };
+                           { "renderScale", manifest.RenderScale },
+                           { "requested", { { "width", manifest.Width }, { "height", manifest.Height }, { "renderScale", manifest.RenderScale } } } };
+        if (runInfo.Resolution.Measured)
+        {
+            json["output"]["actual"] = { { "renderWidth", runInfo.Resolution.RenderWidth },
+                                         { "renderHeight", runInfo.Resolution.RenderHeight },
+                                         { "displayWidth", runInfo.Resolution.DisplayWidth },
+                                         { "displayHeight", runInfo.Resolution.DisplayHeight },
+                                         { "renderScale", runInfo.Resolution.RenderScale } };
+        }
+        else
+        {
+            // No live graph to ask. Null rather than an echo of the request,
+            // which would assert a measurement that was never taken.
+            json["output"]["actual"] = nullptr;
+        }
         json["determinism"] = { { "seed", manifest.Seed },
                                 { "startTimeSeconds", manifest.StartTimeSeconds },
                                 { "fixedDtSeconds", manifest.FixedDtSeconds },
@@ -730,11 +793,39 @@ namespace OloEngine::Benchmark
             json["assets"].push_back(std::move(a));
         }
 
+        // Each entry is a number-or-null plus the status that says which
+        // (#1337). `gpuMs: 0` used to mean both "free" and "never measured",
+        // and in a file that outlives the run there is no way to ask afterwards.
         json["passTimingsMs"] = nlohmann::json::array();
         for (const auto& timing : runInfo.PassTimings)
         {
-            json["passTimingsMs"].push_back({ { "pass", timing.Name }, { "gpuMs", timing.GpuMs } });
+            nlohmann::json entry{ { "pass", timing.Name },
+                                  { "status", std::string(ToString(timing.Sample.Status)) },
+                                  { "isSubPass", timing.IsSubPass } };
+            if (timing.Sample.IsValid())
+            {
+                entry["gpuMs"] = timing.Sample.GpuMs;
+            }
+            else
+            {
+                entry["gpuMs"] = nullptr;
+            }
+            if (timing.IsSubPass)
+            {
+                entry["parent"] = timing.ParentName;
+            }
+            json["passTimingsMs"].push_back(std::move(entry));
         }
+        // Which frame the timings above describe, how old they were when taken,
+        // and how many frames the ring lost outright. Without this the export
+        // records numbers with no way to judge them later.
+        json["timingValidity"] = { { "measurementFrameId", runInfo.Timing.MeasurementFrameId },
+                                   { "currentFrameId", runInfo.Timing.CurrentFrameId },
+                                   { "ageFrames", runInfo.Timing.AgeFrames },
+                                   { "droppedSlots", runInfo.Timing.DroppedSlots },
+                                   { "unstampedFrames", runInfo.Timing.UnstampedFrames },
+                                   { "stale", runInfo.Timing.Stale },
+                                   { "frameStatus", std::string(ToString(runInfo.Timing.FrameStatus)) } };
         json["rendererCounters"] = { { "drawCalls", runInfo.Counters.DrawCalls },
                                      { "trianglesRendered", runInfo.Counters.TrianglesRendered },
                                      { "instancesRendered", runInfo.Counters.InstancesRendered },

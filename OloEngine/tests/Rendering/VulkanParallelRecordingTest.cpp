@@ -870,7 +870,7 @@ TEST_F(VulkanParallelRecordingDevice, GraphRecordsSharedUnboundUniformAndTimesOr
     EXPECT_EQ(stats.MergeConflicts, 0u);
     ASSERT_EQ(stats.RegionTimings.size(), 1u);
     EXPECT_EQ(stats.RegionTimings[0].ItemPassNames, order);
-    const auto gpu = timers.GetLastPassTimingsCopy();
+    const auto gpu = timers.GetLastFrameTimings().Passes;
     ASSERT_EQ(gpu.size(), 2u);
     EXPECT_EQ(gpu[0].Name, first.GetName());
     EXPECT_EQ(gpu[1].Name, second.GetName());

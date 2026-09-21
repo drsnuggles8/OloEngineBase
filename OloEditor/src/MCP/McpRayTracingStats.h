@@ -313,8 +313,11 @@ namespace OloEngine::MCP::RayTracingStats
             // Nanoseconds, resolved a frame or more late. Zero means "no
             // sample resolved yet", which is normal for the frames right after
             // a build — not "it was free".
-            { "blasBuildGpuNs", frame.BlasBuildGpuNs },
-            { "tlasBuildGpuNs", frame.TlasBuildGpuNs },
+            // AS build GPU time is NOT here. It never was, in the sense that
+            // mattered: the two fields this replaced were declared and never
+            // written, so this block reported 0 ns forever (#1337 criterion 3).
+            // The real channel is named instead of faked.
+            { "blasBuildGpuTimeChannel", "olo_perf_pass_timings -> AccelerationStructureBuild sub-pass" },
         };
         out["lastTlasReason"] = std::string(RT::ToString(snapshot.Stats.LastTlasReason));
         return out;

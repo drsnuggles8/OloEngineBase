@@ -1176,6 +1176,9 @@ add_executable(OloEngine-Tests
 		# (#316: split whole-frame GPU time by render-graph pass). Header-only
 		# (MCP/McpPassTimings.h), no extra editor TU pulled in.
 		MCP/McpPassTimingsTest.cpp
+		Rendering/GpuTimingValidityTest.cpp
+		Rendering/BenchmarkExportValidityTest.cpp
+		Rendering/PropertyTests/GpuTimingPoolEvidenceTest.cpp
 		# Pure per-scope CPU timings shaping behind olo_perf_cpu_scopes (#519,
 		# first slice: expose PerformanceProfiler's per-scope CPU timings, incl.
 		# the Distribution-build "unavailable" degradation). Header-only

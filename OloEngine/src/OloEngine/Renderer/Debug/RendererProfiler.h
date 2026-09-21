@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/Debug/GPUTimingStatus.h"
 #include "OloEngine/Renderer/GPUScene/GPUSceneTypes.h"
 #include "OloEngine/Renderer/RendererAPI.h" // ParallelRecordingFrameStats (issue #806)
 #include <imgui.h>
@@ -83,7 +84,23 @@ namespace OloEngine
             f64 m_FrameTime = 0.0;
             f64 m_CPUTime = 0.0;
             f64 m_GPUTime = 0.0;
+            // Whether m_GPUTime is a measurement (#1337). GPUPassTimerPool can
+            // fail to produce one for several distinct reasons — the ring
+            // wrapped, the backend refused the stamps, the pair came back out
+            // of order, the device has no timestamp queries — and every one of
+            // them used to arrive here as 0.0, which reads as the fastest frame
+            // of the session. Anything that REPORTS m_GPUTime checks this
+            // first; the history plot and the CSV carry it alongside.
+            GpuTimingStatus m_GPUTimeStatus = GpuTimingStatus::Unavailable;
+            // CPU time blocked on GPU/present synchronisation. Kept as the SUM
+            // of the two below so existing readers are unchanged, while the
+            // two causes are separately answerable: criterion 2 of #1337 calls
+            // for fence waits and present waits to stop being conflated,
+            // because they say opposite things — a fence wait means the GPU is
+            // behind, a present wait means the display is pacing you.
             f64 m_GPUWaitTime = 0.0;
+            f64 m_FenceWaitTime = 0.0;   // blocked on a frame fence (FrameResourceManager)
+            f64 m_PresentWaitTime = 0.0; // blocked in SwapBuffers / vsync
             u32 m_DrawCalls = 0;
             u32 m_StateChanges = 0;
             u32 m_ShaderBinds = 0;
@@ -275,6 +292,23 @@ namespace OloEngine
         void AddGPUWaitTime(f64 timeMs)
         {
             m_CurrentFrame.m_GPUWaitTime += timeMs;
+            m_CurrentFrame.m_FenceWaitTime += timeMs;
+        }
+
+        // @brief Publish the whole-frame GPU time AND its validity together
+        // (#1337). The pair is set in one call so a caller cannot update the
+        // number and leave a stale status beside it.
+        void SetFrameGpuSample(const GpuTimingSample& sample)
+        {
+            m_CurrentFrame.m_GPUTime = sample.RawMsForSerialization();
+            m_CurrentFrame.m_GPUTimeStatus = sample.Status;
+        }
+
+        // @brief The whole-frame GPU time of the last completed frame, with its
+        // validity. The only sanctioned way to read it for reporting.
+        [[nodiscard]] GpuTimingSample GetLastCompletedFrameGpuSample() const
+        {
+            return GpuTimingSample{ m_LastCompletedFrame.m_GPUTime, m_LastCompletedFrame.m_GPUTimeStatus };
         }
 
         // @brief Accumulate CPU time spent blocked on GPU/present sync that

@@ -1784,6 +1784,9 @@ namespace OloEngine::Tests
         constexpr u32 kMeasure = 24;
         RunEditorFrames(camera, kWarmup);
 
+        // -1.0 for "no entry" AND for "the entry carries no measurement"
+        // (#1337): an unmeasured bracket must not enter the statistics as a
+        // 0.0 ms one, which would drag every minimum to zero.
         const auto bracketMs = [](const std::vector<GPUPassTimerPool::PassTiming>& timings,
                                   std::string_view suffix) -> f64
         {
@@ -1791,7 +1794,7 @@ namespace OloEngine::Tests
             {
                 if (timing.Name.size() >= suffix.size() &&
                     std::string_view(timing.Name).substr(timing.Name.size() - suffix.size()) == suffix)
-                    return timing.GpuMs;
+                    return timing.IsValid() ? timing.Sample.GpuMs : -1.0;
             }
             return -1.0;
         };
@@ -1803,7 +1806,7 @@ namespace OloEngine::Tests
         for (u32 i = 0; i < kMeasure; ++i)
         {
             RunEditorFrames(camera, 1);
-            const auto timings = GPUPassTimerPool::GetInstance().GetLastPassTimingsCopy();
+            const auto timings = GPUPassTimerPool::GetInstance().GetLastFrameTimings().Passes;
             const f64 sw = bracketMs(timings, "/SwRaster");
             const f64 resolve = bracketMs(timings, "/Resolve");
             if (sw > 0.0)
@@ -2016,10 +2019,14 @@ namespace OloEngine::Tests
             for (u32 i = 0; i < 40u; ++i)
             {
                 RunEditorFrames(camera, 1);
-                for (const auto& timing : pool.GetLastPassTimingsCopy())
+                for (const auto& timing : pool.GetLastFrameTimings().Passes)
                 {
-                    if (timing.Name == "FSR2Pass" && timing.GpuMs > 0.0)
-                        best = std::min(best, timing.GpuMs);
+                    // IsValid() rather than `> 0.0` (#1337): the old predicate
+                    // treated an unmeasured bracket as a zero and skipped it
+                    // for the right answer by accident, and would have accepted
+                    // a bogus positive from a stale query pair.
+                    if (timing.Name == "FSR2Pass" && timing.IsValid())
+                        best = std::min(best, timing.Sample.GpuMs);
                 }
             }
             return (best == std::numeric_limits<f64>::max()) ? 0.0 : best;
@@ -2294,11 +2301,11 @@ namespace OloEngine::Tests
             for (u32 i = 0; i < kSampleFrames; ++i)
             {
                 RunEditorFrames(camera, 1);
-                for (const auto& timing : GPUPassTimerPool::GetInstance().GetLastPassTimingsCopy())
+                for (const auto& timing : GPUPassTimerPool::GetInstance().GetLastFrameTimings().Passes)
                 {
-                    if (timing.Name == "ScenePass/LightCulling" && timing.GpuMs > 0.0)
+                    if (timing.Name == "ScenePass/LightCulling" && timing.IsValid())
                     {
-                        samples.push_back(timing.GpuMs);
+                        samples.push_back(timing.Sample.GpuMs);
                         break;
                     }
                 }
@@ -2516,8 +2523,10 @@ namespace OloEngine::Tests
                     u32 samples = 0;
                     auto& timer = GPUPassTimerPool::GetInstance();
                     u64 lastResolvedFrame = timer.GetCurrentFrameNumber();
-                    // Preserve the minimum of 20 samples. Query publication can
-                    // lag or report zero; collect fresh reports within a bound.
+                    // Preserve the minimum of 20 samples. Query publication
+                    // lags by design, and since #1337 a lagging or failed
+                    // readback arrives as a non-Valid status rather than as a
+                    // zero; collect fresh MEASURED reports within a bound.
                     for (u32 frame = 0; frame < 80 && samples < 20; ++frame)
                     {
                         RunEditorFrames(camera, 1);
@@ -2526,10 +2535,11 @@ namespace OloEngine::Tests
                         if (resolvedFrame <= lastResolvedFrame)
                             continue;
                         lastResolvedFrame = resolvedFrame;
-                        for (const auto& timing : timer.GetLastPassTimingsCopy())
-                            if (timing.Name == pass && std::isfinite(timing.GpuMs) && timing.GpuMs > 0.0)
+                        for (const auto& timing : timer.GetLastFrameTimings().Passes)
+                            if (timing.Name == pass && timing.IsValid() && std::isfinite(timing.Sample.GpuMs) &&
+                                timing.Sample.GpuMs > 0.0)
                             {
-                                minimum = std::min(minimum, static_cast<f64>(timing.GpuMs));
+                                minimum = std::min(minimum, static_cast<f64>(timing.Sample.GpuMs));
                                 ++samples;
                                 break; // at most one report from this resolved frame
                             }

@@ -582,6 +582,12 @@ namespace OloEngine
         }
         m_NextTimingSlot = 0;
         m_TimingQueriesReady = true;
+        // The instrument is running now, so "no sample yet" is Pending rather
+        // than Unavailable (#1337). The default-constructed GpuTimingSample is
+        // Unavailable, which reads as "GPU timing is not running on this device
+        // or session" — true before this point and a lie after it.
+        m_Stats.m_IndirectionRebuild = GpuTimingSample::Absent(GpuTimingStatus::Pending);
+        m_Stats.m_IndirectionDelta = GpuTimingSample::Absent(GpuTimingStatus::Pending);
     }
 
     void TerrainVirtualTexture::DestroyTimingQueries()
@@ -626,25 +632,38 @@ namespace OloEngine
             {
                 continue;
             }
-            const u64 begin = RenderCommand::GetQueryResultU64(slot.m_Begin);
-            const u64 end = RenderCommand::GetQueryResultU64(slot.m_End);
+
+            // Classified through the shared #1337 decision rather than by an
+            // inline guard. Timestamps are NANOSECONDS on both backends
+            // (RHI::QueryType docs), and every way this pair can fail to be a
+            // measurement — a stamp the backend refused, a result that will
+            // not read, a pair that came back backwards — used to leave the
+            // published minimum untouched at 0.0, which the panel then showed
+            // as a 0.000 ms rebuild.
+            GpuTimingPairReadout readout;
+            readout.BeginStamped = slot.m_BeginStamped;
+            readout.EndStamped = slot.m_EndStamped;
+            if (readout.BeginStamped)
+                readout.BeginReadable = RenderCommand::TryGetQueryResultU64(slot.m_Begin, readout.BeginNs);
+            if (readout.EndStamped)
+                readout.EndReadable = RenderCommand::TryGetQueryResultU64(slot.m_End, readout.EndNs);
+
+            const GpuTimingSample sample = ResolveGpuTimingPair(readout);
             slot.m_Pending = false;
-            // Timestamps are NANOSECONDS on both backends (RHI::QueryType docs).
-            // The guard is not paranoia: a driver that reorders the two stamps
-            // would otherwise wrap the unsigned subtraction into a plausible
-            // multi-second reading.
-            if (end >= begin)
+            if (!sample.IsValid())
             {
-                const f64 ms = static_cast<f64>(end - begin) / 1.0e6;
-                f64& best = slot.m_WasFullRebuild ? m_Stats.m_IndirectionRebuildGpuMs
-                                                  : m_Stats.m_IndirectionDeltaGpuMs;
-                // Minimum, not latest — see the field's note. `!(best > 0.0)` is
-                // "no sample yet"; an equality test against 0.0 is forbidden here
-                // (cpp-coding-quality.md §2) and would read worse anyway.
-                if (!(best > 0.0) || ms < best)
-                {
-                    best = ms;
-                }
+                continue;
+            }
+
+            GpuTimingSample& best = slot.m_WasFullRebuild ? m_Stats.m_IndirectionRebuild
+                                                          : m_Stats.m_IndirectionDelta;
+            // Minimum, not latest — see the field's note. The status now carries
+            // "no sample yet" instead of a zero standing in for it, so this is a
+            // plain validity test rather than a comparison against 0.0
+            // (forbidden on floats here, cpp-coding-quality.md §2).
+            if (!best.IsValid() || sample.GpuMs < best.GpuMs)
+            {
+                best = sample;
             }
         }
     }
@@ -662,7 +681,8 @@ namespace OloEngine
             // measurement rather than stall for it; the number is diagnostics.
             return kTimingSlots;
         }
-        RenderCommand::WriteTimestamp(m_TimingSlots[slot].m_Begin);
+        m_TimingSlots[slot].m_BeginStamped = RenderCommand::WriteTimestamp(m_TimingSlots[slot].m_Begin);
+        m_TimingSlots[slot].m_EndStamped = false;
         return slot;
     }
 
@@ -672,7 +692,7 @@ namespace OloEngine
         {
             return;
         }
-        RenderCommand::WriteTimestamp(m_TimingSlots[slot].m_End);
+        m_TimingSlots[slot].m_EndStamped = RenderCommand::WriteTimestamp(m_TimingSlots[slot].m_End);
         m_TimingSlots[slot].m_Pending = true;
         m_TimingSlots[slot].m_WasFullRebuild = wasFullRebuild;
         m_NextTimingSlot = (slot + 1u) % kTimingSlots;

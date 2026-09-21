@@ -453,11 +453,18 @@ namespace OloEngine::Tests
         // around a handful of small dispatches can honestly say (see the Stats
         // field's note). Printed because a claim about cost with no number
         // attached is exactly what this slice was told not to make.
+        // A sample that never resolved prints its reason rather than the
+        // number 0, which is what this evidence line used to show (#1337).
+        const auto DescribeVtSample = [](const GpuTimingSample& sample)
+        {
+            return sample.IsValid() ? std::to_string(sample.GpuMs) + " ms"
+                                    : std::string("no sample (") + std::string(ToString(sample.Status)) + ")";
+        };
         std::cout << "[ vt-cost  ] indirection publish, last publish of each run:\n"
                   << "[ vt-cost  ]   delta   " << deltaTexels << " texels; best GPU sample "
-                  << afterDelta.m_IndirectionDeltaGpuMs << " ms\n"
+                  << DescribeVtSample(afterDelta.m_IndirectionDelta) << "\n"
                   << "[ vt-cost  ]   rebuild " << rebuildTexels << " texels; best GPU sample "
-                  << afterRebuild.m_IndirectionRebuildGpuMs << " ms\n"
+                  << DescribeVtSample(afterRebuild.m_IndirectionRebuild) << "\n"
                   << "[ vt-cost  ] published on " << afterRebuild.m_IndirectionPublishes << " of "
                   << afterRebuild.m_FramesUpdated << " frames\n";
     }

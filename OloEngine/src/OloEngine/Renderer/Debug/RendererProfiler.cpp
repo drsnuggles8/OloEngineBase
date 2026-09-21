@@ -136,13 +136,19 @@ namespace OloEngine
         if (m_HasCompletedFrame)
         {
             const f64 patchedWait = m_PreviousFrame.m_GPUWaitTime + m_PendingPostFrameGPUWaitTime;
+            const f64 patchedPresent = m_PreviousFrame.m_PresentWaitTime + m_PendingPostFrameGPUWaitTime;
             m_PreviousFrame.m_FrameTime = frameTime;
             m_PreviousFrame.m_GPUWaitTime = patchedWait;
+            // The post-frame wait is a PRESENT wait specifically (SwapBuffers /
+            // vsync), so it lands in that half rather than inflating the fence
+            // figure it has nothing to do with (#1337 criterion 2).
+            m_PreviousFrame.m_PresentWaitTime = patchedPresent;
 
             if (!m_FrameHistory.empty())
             {
                 m_FrameHistory[m_LastWrittenHistoryIndex].m_FrameTime = frameTime;
                 m_FrameHistory[m_LastWrittenHistoryIndex].m_GPUWaitTime = patchedWait;
+                m_FrameHistory[m_LastWrittenHistoryIndex].m_PresentWaitTime = patchedPresent;
             }
 
             m_Counters[MetricType::FrameTime].AddSample(frameTime);
@@ -161,6 +167,8 @@ namespace OloEngine
 
         // Reset frame counters
         m_CurrentFrame.m_GPUWaitTime = 0.0;
+        m_CurrentFrame.m_FenceWaitTime = 0.0;
+        m_CurrentFrame.m_PresentWaitTime = 0.0;
         m_CurrentFrame.m_DrawCalls = 0;
         m_CurrentFrame.m_StateChanges = 0;
         m_CurrentFrame.m_ShaderBinds = 0;
@@ -254,7 +262,19 @@ namespace OloEngine
 
         // Update performance counters
         m_Counters[MetricType::CPUTime].AddSample(m_CurrentFrame.m_CPUTime);
-        m_Counters[MetricType::GPUTime].AddSample(m_CurrentFrame.m_GPUTime);
+        // Only a MEASURED frame becomes a sample (#1337). Feeding an unmeasured
+        // frame's 0.0 into the counter poisons the aggregate for the rest of
+        // the session: Min sticks at 0.00 ms after the first Pending frame and
+        // never recovers, because nothing will ever beat it. The history plot
+        // is fed from m_FrameHistory below and has the same hole; it is left
+        // alone deliberately, because a trend line with a gap at the unmeasured
+        // frames is what an honest trend line looks like, and the plot has no
+        // way to draw "no data" (see the GPUTimeStatus column in the CSV
+        // export for the per-frame truth).
+        if (m_CurrentFrame.m_GPUTimeStatus == GpuTimingStatus::Valid)
+        {
+            m_Counters[MetricType::GPUTime].AddSample(m_CurrentFrame.m_GPUTime);
+        }
         m_Counters[MetricType::DrawCalls].AddSample(m_CurrentFrame.m_DrawCalls);
         m_Counters[MetricType::StateChanges].AddSample(m_CurrentFrame.m_StateChanges);
         m_Counters[MetricType::ShaderBinds].AddSample(m_CurrentFrame.m_ShaderBinds);
@@ -347,7 +367,10 @@ namespace OloEngine
         switch (type)
         {
             case MetricType::GPUTime:
+                // A caller that sets a bare number is asserting it is a real
+                // one; the validity-carrying path is SetFrameGpuSample.
                 m_CurrentFrame.m_GPUTime = value;
+                m_CurrentFrame.m_GPUTimeStatus = GpuTimingStatus::Valid;
                 break;
             case MetricType::GPUWaitTime:
                 m_CurrentFrame.m_GPUWaitTime = value;
@@ -468,7 +491,22 @@ namespace OloEngine
 
         if (m_EnableGPUTiming)
         {
-            ImGui::Text("GPU Time: %.2f ms", m_CurrentFrame.m_GPUTime);
+            // An unmeasured frame shows the REASON, not "0.00 ms" and a 0%
+            // utilization bar (#1337). Both of those read as a GPU sitting
+            // idle, which is the opposite of what a dropped readback means.
+            const bool gpuTimeValid = m_CurrentFrame.m_GPUTimeStatus == GpuTimingStatus::Valid;
+            if (!gpuTimeValid)
+            {
+                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "GPU Time: unavailable (%s)",
+                                   std::string(ToString(m_CurrentFrame.m_GPUTimeStatus)).c_str());
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("%s",
+                                      std::string(DescribeGpuTimingStatus(m_CurrentFrame.m_GPUTimeStatus)).c_str());
+            }
+            else
+            {
+                ImGui::Text("GPU Time: %.2f ms", m_CurrentFrame.m_GPUTime);
+            }
 
             // CPU vs GPU utilization
             f32 cpuPercent = (f32)(m_CurrentFrame.m_CPUTime / m_CurrentFrame.m_FrameTime * 100.0);
@@ -478,8 +516,21 @@ namespace OloEngine
             ImGui::Text("CPU Utilization: %.1f%%", cpuPercent);
             ImGui::ProgressBar(cpuPercent / 100.0f, ImVec2(0.0f, 0.0f));
 
-            ImGui::Text("GPU Utilization: %.1f%%", gpuPercent);
-            ImGui::ProgressBar(gpuPercent / 100.0f, ImVec2(0.0f, 0.0f));
+            if (!gpuTimeValid)
+            {
+                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "GPU Utilization: unknown");
+            }
+            else
+            {
+                ImGui::Text("GPU Utilization: %.1f%%", gpuPercent);
+                ImGui::ProgressBar(gpuPercent / 100.0f, ImVec2(0.0f, 0.0f));
+            }
+
+            // Fence waits and present waits say opposite things — the GPU is
+            // behind, versus the display is pacing you — so they are shown
+            // apart (#1337 criterion 2).
+            ImGui::Text("GPU wait: %.2f ms fence / %.2f ms present", m_CurrentFrame.m_FenceWaitTime,
+                        m_CurrentFrame.m_PresentWaitTime);
         }
 
         ImGui::Separator();
@@ -797,6 +848,23 @@ namespace OloEngine
             return info;
         }
 
+        // Without a GPU time there is no CPU-vs-GPU comparison to make (#1337).
+        // The old code read the unmeasured frame's 0.0 as "the GPU did nothing"
+        // and declared the frame CPU-bound with high confidence — the most
+        // actively misleading verdict this analysis can produce, because it
+        // sends a reader optimizing the wrong side.
+        if (m_CurrentFrame.m_GPUTimeStatus != GpuTimingStatus::Valid)
+        {
+            info.m_Type = BottleneckInfo::Balanced;
+            info.m_Confidence = 0.0f;
+            info.m_Description = std::string("No GPU time for this frame — ") +
+                                 std::string(DescribeGpuTimingStatus(m_CurrentFrame.m_GPUTimeStatus)) +
+                                 ". CPU/GPU balance cannot be judged.";
+            info.m_Recommendations.emplace_back(
+                "Check olo_perf_pass_timings: gpuResultsStatus says why the timings are missing.");
+            return info;
+        }
+
         const f64 cpuUtilization = cpuTime / frameTime;
         const f64 gpuUtilization = gpuTime / frameTime;
         const f64 waitShare = gpuWait / frameTime;
@@ -992,7 +1060,11 @@ namespace OloEngine
                 return false;
 
             // CSV header
-            file << "Frame,FrameTime,CPUTime,GPUTime,GPUWaitTime,DrawCalls,StateChanges,ShaderBinds,TextureBinds,BufferBinds,Vertices,Triangles,CommandPackets,SortingTime,CullingTime\n";
+            // GPUTimeStatus, FenceWaitTime and PresentWaitTime are columns of
+            // their own (#1337): a GPUTime cell is a measurement only when its
+            // status says so, and a GPUWaitTime that mixes fence and present
+            // waits cannot be read as either.
+            file << "Frame,FrameTime,CPUTime,GPUTime,GPUTimeStatus,GPUWaitTime,FenceWaitTime,PresentWaitTime,DrawCalls,StateChanges,ShaderBinds,TextureBinds,BufferBinds,Vertices,Triangles,CommandPackets,SortingTime,CullingTime\n";
 
             // Export frame history
             for (u32 i = 0; i < OLO_FRAME_HISTORY_SIZE; ++i)
@@ -1004,7 +1076,10 @@ namespace OloEngine
                      << frame.m_FrameTime << ","
                      << frame.m_CPUTime << ","
                      << frame.m_GPUTime << ","
+                     << ToString(frame.m_GPUTimeStatus) << ","
                      << frame.m_GPUWaitTime << ","
+                     << frame.m_FenceWaitTime << ","
+                     << frame.m_PresentWaitTime << ","
                      << frame.m_DrawCalls << ","
                      << frame.m_StateChanges << ","
                      << frame.m_ShaderBinds << ","
@@ -1106,6 +1181,9 @@ namespace OloEngine
         m_FrameTime = 0.0;
         m_CPUTime = 0.0;
         m_GPUTime = 0.0;
+        m_GPUTimeStatus = GpuTimingStatus::Unavailable;
+        m_FenceWaitTime = 0.0;
+        m_PresentWaitTime = 0.0;
         m_DrawCalls = 0;
         m_StateChanges = 0;
         m_ShaderBinds = 0;

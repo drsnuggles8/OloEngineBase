@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/Debug/GPUTimingStatus.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 
 #include <array>
@@ -22,18 +23,120 @@ namespace OloEngine
     /// TimeElapsed brackets: elapsed-time query scopes must not nest, and the
     /// frame-capture path (GPUTimerQueryPool) already owns per-draw TimeElapsed
     /// scopes *inside* the pass brackets this pool times. Timestamps coexist.
+    ///
+    /// **Every published number carries a GpuTimingStatus (#1337).** The pool
+    /// used to publish 0.0 for a dropped slot, an unstamped bracket and a
+    /// backwards timestamp pair alike, which is indistinguishable from a pass
+    /// that cost nothing. It now tracks, per query, whether the backend
+    /// accepted the stamp and whether the result came back, and reports the
+    /// specific reason a number is missing. See GPUTimingStatus.h.
     class GPUPassTimerPool
     {
       public:
+        /// @brief One timed interval of the resolved frame.
         struct PassTiming
         {
             std::string Name;
+
+            /// The measurement and its validity. `Sample.GpuMs` is meaningful
+            /// only when `Sample.IsValid()`.
+            GpuTimingSample Sample{};
+
+            /// True for a bracket opened with BeginSubPass: its interval sits
+            /// INSIDE its parent's and is published as "<Parent>/<name>".
+            ///
+            /// Carried as a flag rather than re-derived from a '/' in the name,
+            /// which is what consumers used to do — a pass whose own name
+            /// contains a slash would be misread as somebody's sub-pass, and
+            /// its time then silently dropped from the frame total. Criterion 2
+            /// of #1337 is precisely "duplicate/nested intervals are not summed
+            /// as elapsed frame time", so the nesting is a fact the producer
+            /// states, not one the consumer infers.
+            bool IsSubPass = false;
+
+            /// The name of the enclosing pass when IsSubPass; empty otherwise.
+            std::string ParentName;
+
+            [[nodiscard]] bool IsValid() const
+            {
+                return Sample.IsValid();
+            }
+        };
+
+        /// @brief Everything the pool published for one resolved frame, as one
+        /// internally consistent snapshot.
+        ///
+        /// The frame identity travels WITH the numbers. Reading the passes and
+        /// the age through two separate calls let a consumer pair a pass list
+        /// with an age from a different frame; one struct cannot.
+        struct FrameTimings
+        {
+            /// The frame counter value these timings describe. 0 means nothing
+            /// has ever resolved, in which case every sample is non-Valid.
+            u64 FrameNumber = 0;
+
+            /// The frame counter value when this snapshot was taken.
+            u64 CurrentFrameNumber = 0;
+
+            /// How many frames old the numbers are. 1-3 is the designed resolve
+            /// latency; kSlotCount or more means the ring wrapped and nothing
+            /// newer could be resolved.
+            u64 AgeFrames = 0;
+
+            /// Whole-frame GPU time (frame-begin to frame-end timestamp span).
+            GpuTimingSample Frame{};
+
+            /// Per-pass times in execution order, sub-pass entries included and
+            /// flagged.
+            std::vector<PassTiming> Passes;
+
+            /// Slots discarded since Initialize() because the GPU fell more
+            /// than a ring behind. Non-zero means some frames were never
+            /// measured at all — the published numbers skip them.
+            u32 DroppedSlots = 0;
+
+            /// Frames the backend declined to stamp. A separate count from
+            /// DroppedSlots because they are separate faults: this one says the
+            /// instrument is not working, that one says the GPU is behind.
+            u32 UnstampedFrames = 0;
+
+            /// True when the numbers are older than the ring can explain.
+            [[nodiscard]] bool IsStale() const
+            {
+                return FrameNumber == 0 || AgeFrames >= kSlotCount;
+            }
+        };
+
+        /// @brief The result of totalling a pass list, with its own holes named.
+        ///
+        /// A bare sum silently treats an unmeasured pass as a free one, so the
+        /// count of what could not be added travels with the total.
+        struct PassTotal
+        {
+            /// Sum of the VALID top-level intervals only.
             f64 GpuMs = 0.0;
+            /// Top-level passes that contributed.
+            u32 ValidPasses = 0;
+            /// Top-level passes that carried no number, so are missing from
+            /// GpuMs. Non-zero means the total is a LOWER BOUND.
+            u32 UnmeasuredPasses = 0;
+            /// Sub-pass intervals deliberately excluded: their time is already
+            /// inside a parent's bracket and adding it would double-count.
+            u32 ExcludedSubPasses = 0;
+
+            /// @brief True when every top-level pass contributed, so the total
+            /// is complete rather than a floor.
+            [[nodiscard]] bool IsComplete() const
+            {
+                return UnmeasuredPasses == 0;
+            }
         };
 
         // 4 slots: results are read back 1-3 frames after issue without ever
         // blocking; a slot still pending when its turn comes again (GPU >3
-        // frames behind — pathological) is dropped instead of waited on.
+        // frames behind — pathological) is dropped instead of waited on. The
+        // drop is COUNTED and the affected frame is reported as Dropped rather
+        // than as a zero (#1337).
         // Public so callers (e.g. the MCP olo_perf_pass_timings staleness
         // flag) can statically pin their own "results are stale" threshold
         // to this ring size instead of duplicating the number.
@@ -77,19 +180,30 @@ namespace OloEngine
             return m_Initialized;
         }
 
-        /// @brief Whole-frame GPU time of the most recently resolved frame in ms
-        /// (frame-begin to frame-end timestamp span on the GPU timeline).
-        [[nodiscard]] f64 GetLastFrameGpuMs() const
-        {
-            return m_LastFrameGpuMs;
-        }
+        /// @brief The most recently resolved frame's timings, frame identity and
+        /// age, as one consistent snapshot. Returns a copy so callers reading
+        /// via a main-thread marshal (e.g. the MCP diagnostics server) get a
+        /// stable view.
+        ///
+        /// An uninitialized pool returns a snapshot whose samples are all
+        /// `Unavailable` and whose pass list is empty — never a zero-filled one.
+        [[nodiscard]] FrameTimings GetLastFrameTimings() const;
 
-        /// @brief Per-pass GPU times of the most recently resolved frame, in
-        /// execution order. Returns a copy so callers reading via a main-thread
-        /// marshal (e.g. the MCP diagnostics server) get a stable snapshot.
-        [[nodiscard]] std::vector<PassTiming> GetLastPassTimingsCopy() const
+        /// @brief Sum the valid top-level intervals of a pass list, excluding
+        /// sub-passes and naming what could not be added.
+        ///
+        /// Free-standing and static so every consumer — the MCP shaping, the
+        /// benchmark export, the editor panels — totals a pass list the same
+        /// way instead of each writing its own loop. The three previous loops
+        /// differed in whether they excluded sub-passes.
+        [[nodiscard]] static PassTotal SumTopLevel(const std::vector<PassTiming>& passes);
+
+        /// @brief Whole-frame GPU time of the most recently resolved frame, with
+        /// its validity. Prefer GetLastFrameTimings() when the passes or the age
+        /// are wanted too.
+        [[nodiscard]] GpuTimingSample GetLastFrameGpuSample() const
         {
-            return m_LastPassTimings;
+            return m_Initialized ? m_LastFrameSample : GpuTimingSample::Absent(GpuTimingStatus::Unavailable);
         }
 
         /// @brief Frame counter value of the most recently resolved frame (0 when
@@ -103,6 +217,22 @@ namespace OloEngine
         [[nodiscard]] u64 GetCurrentFrameNumber() const
         {
             return m_FrameCounter;
+        }
+
+        /// @brief How many slots have been discarded because the GPU fell more
+        /// than a ring behind. Each one is a frame that was never measured.
+        [[nodiscard]] u32 GetDroppedSlotCount() const
+        {
+            return m_DroppedSlots;
+        }
+
+        /// @brief How many frames the backend declined to stamp at all, which
+        /// is a different fault from a ring wrap and deliberately a different
+        /// counter: a device that refuses timestamps would otherwise report a
+        /// permanent, growing GPU backlog that never happened.
+        [[nodiscard]] u32 GetUnstampedFrameCount() const
+        {
+            return m_UnstampedFrames;
         }
 
       private:
@@ -120,17 +250,48 @@ namespace OloEngine
             // (parent-first allocation order is what the MCP shaping relies on
             // to attach "Parent/Sub" entries to their parent).
             std::vector<RHI::ResourceHandle> Queries;
+
+            // Per-query record of whether the BACKEND accepted the stamp, as
+            // reported by RenderCommand::WriteTimestamp. Without it a query
+            // that was never stamped reads back as 0 and subtracts to a
+            // perfectly plausible 0.0 ms — the #1337 defect. GL in particular
+            // reports a never-used query object's result as AVAILABLE with
+            // value 0, so availability alone cannot stand in for this.
+            // u8 rather than bool so the storage is addressable per element.
+            std::vector<u8> Stamped;
+
             std::vector<std::string> PassNames;
+            std::vector<u8> PassIsSubPass;
+            std::vector<std::string> PassParentNames;
             u32 PassCount = 0;
             u64 FrameNumber = 0;
             bool Pending = false; // stamped and awaiting readback
+            // Passes that executed while the per-frame pair budget was already
+            // full. They are published as NotTimed rather than omitted, so a
+            // reader sees that the pass list is short of the graph.
+            u32 UntimedPasses = 0;
         };
 
         // Reads the slot's results if the GPU has finished them (checked via the
         // frame-end query — the last one stamped) and publishes them. When
         // `dropIfUnavailable` is set the slot is cleared even if unresolvable,
-        // so it can be rewritten.
+        // and the drop is counted and published rather than left as silence.
         void TryResolveSlot(FrameSlot& slot, bool dropIfUnavailable);
+
+        // Marks every query pair in `slot` unstamped and resets its per-frame
+        // bookkeeping. Called when a slot starts a new frame.
+        void ResetSlotForFrame(FrameSlot& slot, u64 frameNumber);
+
+        // Stamps `queryIndex` and records whether the backend accepted it.
+        void StampQuery(FrameSlot& slot, u32 queryIndex);
+
+        // Resolves one begin/end query pair into a sample. Probes availability
+        // before reading, so it can never block the render thread.
+        [[nodiscard]] GpuTimingSample ResolvePair(const FrameSlot& slot, u32 beginIndex, u32 endIndex) const;
+
+        // Says once per session that a frame's timings were lost, and why. The
+        // per-frame signal is GetDroppedSlotCount(), not the log.
+        void WarnOnceAboutLostFrame(u64 frameNumber, const char* reason);
 
         std::array<FrameSlot, kSlotCount> m_Slots;
         u32 m_WriteSlot = 0;
@@ -145,7 +306,12 @@ namespace OloEngine
 
         // Published results (most recently resolved frame).
         std::vector<PassTiming> m_LastPassTimings;
-        f64 m_LastFrameGpuMs = 0.0;
+        GpuTimingSample m_LastFrameSample{};
         u64 m_LastResolvedFrame = 0;
+        u32 m_DroppedSlots = 0;    // the ring wrapped on an unfinished slot
+        u32 m_UnstampedFrames = 0; // the backend never recorded the frame-end stamp
+        // Rate-limits the drop warning: a GPU this far behind drops every
+        // frame, and one line per frame is 60 lines a second.
+        bool m_DropWarningIssued = false;
     };
 } // namespace OloEngine
