@@ -83,7 +83,7 @@ layout(binding = 7) uniform sampler2D u_LeafThicknessMap;  // TEX_METALLIC (repu
 layout(location = 0) out vec4 o_GBufferAlbedo;
 layout(location = 1) out vec4 o_GBufferNormal;
 layout(location = 2) out vec4 o_GBufferEmissive;
-layout(location = 3) out vec2 o_GBufferVelocity;
+layout(location = 3) out vec4 o_GBufferVelocity;
 layout(location = 4) out int  o_GBufferEntityID;
 // Baked lightmap irradiance target (G-Buffer RT5, issue #865). This shader
 // draws no lightmapped receiver, but an MRT output it never writes is
@@ -187,7 +187,11 @@ void main()
     vec4 clipPrev = u_PrevViewProjection * vec4(v_PrevWorldPos, 1.0);
     vec2 ndcCurr = clipCurr.xy / clipCurr.w;
     vec2 ndcPrev = clipPrev.xy / clipPrev.w;
-    o_GBufferVelocity = (ndcCurr - ndcPrev) * 0.5;
+    // .b is this leaf's COVERAGE (#1256): the cutout alpha times the LOD
+    // fade. A density LOD step moves this while the instance, primitive,
+    // material and depth all stay put, which is precisely the change no
+    // other history channel can see.
+    o_GBufferVelocity = vec4((ndcCurr - ndcPrev) * 0.5, clamp(alpha, 0.0, 1.0), 0.0);
 
     o_GBufferEntityID = u_EntityID;
 

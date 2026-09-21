@@ -8825,7 +8825,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        TDoubleLinkedList<GroomStrandRequest> groomRequests;
+        TArray64<GroomStrandRequest> groomRequests;
         // Every root-UV map handle a groom asked for this frame; the tail of this
         // function evicts the cached pixels of every map that is not in it.
         std::unordered_set<AssetHandle> liveRegionMaps;
@@ -8960,24 +8960,33 @@ namespace OloEngine
             // shadow LOD in the pass. Deciding it in each would mean three
             // evaluations of a HYSTERETIC function, and three sets of counters
             // that drift apart by construction.
-            if (const auto* lod = m_Registry.try_get<GroomLodComponent>(entity); lod != nullptr)
+            // THE ENGINE'S LOD VIEW, not a camera built here. It is the
+            // CULLING camera (issue #726, so a frozen cut keeps its LODs) at
+            // the RENDER resolution, projected orientation-independently — so a
+            // camera that merely rotates in place cannot make a coat pop, which
+            // a camera-plane projection would. Every other LOD in this engine
+            // reads the same struct; a groom computing its own would be the one
+            // that disagreed.
+            //
+            // MEASURED FOR EVERY GROOM, opted into representation LOD or not:
+            // the ray-tracing proxy (#1253) picks a tier for all of them, and
+            // a groom with no GroomLodComponent has no decision to read one
+            // off. One measurement feeds both, so the two can never disagree
+            // about how big this coat is.
             {
-                request.LodPolicy = MakeGroomLodPolicy(*lod);
-
-                // THE ENGINE'S LOD VIEW, not a camera built here. It is the
-                // CULLING camera (issue #726, so a frozen cut keeps its LODs)
-                // at the RENDER resolution, projected orientation-independently
-                // — so a camera that merely rotates in place cannot make a coat
-                // pop, which a camera-plane projection would. Every other LOD
-                // in this engine reads the same struct; a groom computing its
-                // own would be the one that disagreed.
                 const LODViewParams& lodView = Renderer3D::GetLODViewParams();
                 BoundingBox localBounds;
                 localBounds.Min = groom->GetBoundsMin();
                 localBounds.Max = groom->GetBoundsMax();
+                request.ApparentPixelSize = EstimateProjectedPixelSize(localBounds, worldTransform, lodView);
+            }
+
+            if (const auto* lod = m_Registry.try_get<GroomLodComponent>(entity); lod != nullptr)
+            {
+                request.LodPolicy = MakeGroomLodPolicy(*lod);
 
                 GroomLodInputs lodInputs;
-                lodInputs.PixelSize = EstimateProjectedPixelSize(localBounds, worldTransform, lodView);
+                lodInputs.PixelSize = request.ApparentPixelSize;
                 lodInputs.CardLevelAvailable = groom->FindLodLevel(GroomRepresentation::Card) != nullptr;
                 lodInputs.MeshLevelAvailable = groom->FindLodLevel(GroomRepresentation::Mesh) != nullptr;
                 // The shell tier is not one this engine draws. Measured, not
@@ -9068,7 +9077,7 @@ namespace OloEngine
             liveGrooms.insert(groomComponent.m_Groom);
             DeformGroomAgainstSurface(groomEntity, *groom, request);
 
-            groomRequests.AddTail(std::move(request));
+            groomRequests.Add(std::move(request));
         }
 
         // Drop the CPU copy of any root-UV map no groom asked for this frame.

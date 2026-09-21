@@ -18,6 +18,7 @@
 
 #include "MCP/McpStatsSnapshot.h"
 #include "OloEngine/Renderer/RayTracing/DeformedSurfaceCache.h"
+#include "OloEngine/Renderer/RayTracing/GroomSurfaceCache.h"
 #include "OloEngine/Renderer/RayTracing/VegetationSurfaceCache.h"
 
 #include "OloEngine/Renderer/GPUScene/GPUSceneTypes.h"
@@ -50,6 +51,8 @@ namespace OloEngine::MCP::RayTracingStats
         OloEngine::RayTracing::DeformedSurfaceStats Deformed;
         OloEngine::RayTracing::VegetationSurfaceStats Vegetation;
         bool VegetationReady = true;
+        /// Groom coat proxies (issue #1253).
+        OloEngine::GroomProxyStats Grooms;
     };
 
     // The JSON key for each diagnostics category.
@@ -202,6 +205,33 @@ namespace OloEngine::MCP::RayTracingStats
             { "reused", vegetation.SnapshotsReused },
             { "refused", vegetation.Refused },
             { "historyReset", vegetation.HistoryReset },
+        };
+
+        // Also before the readiness early-return, and for the same reason:
+        // a coat that could not be represented is one of the things that
+        // makes the RT scene incomplete, so its counters have to outlive
+        // that status rather than be hidden by it.
+        const auto& grooms = snapshot.Grooms;
+        out["grooms"] = Json{
+            { "complete", grooms.Complete },
+            { "considered", grooms.GroomsConsidered },
+            { "represented", grooms.GroomsRepresented },
+            { "refused", grooms.GroomsRefused },
+            { "detailedCoats", grooms.ByTier[static_cast<sizet>(OloEngine::GroomProxyTier::Detailed)] },
+            { "proxyCoats", grooms.ByTier[static_cast<sizet>(OloEngine::GroomProxyTier::Proxy)] },
+            { "tierChanges", grooms.TierChanges },
+            { "rebuilds", grooms.Rebuilds },
+            { "reused", grooms.Reused },
+            { "refreshDeferred", grooms.RefreshDeferred },
+            { "segmentsConverted", grooms.SegmentsConverted },
+            { "trianglesBuilt", grooms.TrianglesBuilt },
+            { "residentBytes", grooms.ResidentBytes },
+            { "residentTriangles", grooms.ResidentTriangles },
+            { "updateMicroseconds", grooms.UpdateMicroseconds },
+            { "maxWidthCompensation", grooms.MaxWidthCompensation },
+            { "widthCompensationCap", grooms.WidthCompensationCap },
+            { "dominantRefusalReason", std::string(OloEngine::ToString(grooms.DominantRefusalReason())) },
+            { "dominantRefusalDetail", std::string(OloEngine::Describe(grooms.DominantRefusalReason())) },
         };
 
         if (StatsSnapshot::Status(snapshot.State) != "ready")

@@ -665,6 +665,12 @@ namespace OloEngine
         s_Data.VegetationSurfaces.Shutdown();
         s_Data.VegetationSurfaces.SetEnabled(s_Data.SceneRT.IsAvailable());
         s_Data.SceneRT.SetVegetationReady(false);
+        // The groom proxies go the same way and for the same reason: their
+        // buffers ARE what the coats' BLASes were built over, so a reset that
+        // dropped the GPU Scene records and left these resident would leave
+        // acceleration structures naming storage nothing refills.
+        s_Data.GroomSurfaces.Shutdown();
+        s_Data.GroomSurfaces.SetEnabled(s_Data.SceneRT.IsAvailable());
         s_Data.SceneGPU.Reset();
         s_Data.GPUSceneExtractionActive = false;
         // A reload or backend switch tombstones every record, so every link
@@ -718,6 +724,21 @@ namespace OloEngine
         return s_Data.GPUSceneExtractionActive && s_Data.SceneRT.IsAvailable() &&
                s_Data.Settings.Path == RenderingPath::Deferred &&
                (!s_Data.RayTracedShadowLightRequests.IsEmpty() || s_Data.PostProcess.RayTracedReflection.Enabled);
+    }
+
+    RayTracing::GroomSurfaceCache& Renderer3D::GetGroomSurfaceCache()
+    {
+        return s_Data.GroomSurfaces;
+    }
+
+    bool Renderer3D::WantsRayTracingGrooms()
+    {
+        // Deliberately the SAME predicate as WantsRayTracingVegetation rather
+        // than a copy that could drift: both producers exist to feed the two
+        // hybrid consumers, both consumers are Deferred-only, and a groom that
+        // entered the TLAS on a path with no consumer would be conversion work
+        // and acceleration-structure memory that no ray ever reads.
+        return WantsRayTracingVegetation();
     }
 
     const GPUSceneFrameStats& Renderer3D::GetGPUSceneStats()

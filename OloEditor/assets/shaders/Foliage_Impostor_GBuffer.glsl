@@ -40,7 +40,7 @@
 layout(location = 0) out vec4 o_GBufferAlbedo;
 layout(location = 1) out vec4 o_GBufferNormal;
 layout(location = 2) out vec4 o_GBufferEmissive;
-layout(location = 3) out vec2 o_GBufferVelocity;
+layout(location = 3) out vec4 o_GBufferVelocity;
 layout(location = 4) out int  o_GBufferEntityID;
 // RT5 coverage flag — an MRT output this shader never writes is UNDEFINED in
 // that attachment, and undefined there reads as "this pixel has baked GI"
@@ -143,7 +143,11 @@ void main()
     vec4 clipPrev = u_PrevViewProjection * vec4(v_PrevCardWorld, 1.0);
     vec2 ndcCurr = clipCurr.xy / clipCurr.w;
     vec2 ndcPrev = clipPrev.xy / clipPrev.w;
-    o_GBufferVelocity = (ndcCurr - ndcPrev) * 0.5;
+    // .b is the card's blended atlas coverage times its distance fade
+    // (#1256) — the impostor's equivalent of the near card's leaf alpha,
+    // so a plant's coverage does not jump as it crosses the hand-over.
+    o_GBufferVelocity = vec4((ndcCurr - ndcPrev) * 0.5,
+                             clamp(card.Coverage * card.DistFade, 0.0, 1.0), 0.0);
 
     o_GBufferEntityID = u_EntityID;
     // RT5's red channel is the THICKNESS LANE for a foliage pixel (issue

@@ -32,6 +32,7 @@
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/ShaderLibrary.h"
+#include "OloEngine/Renderer/SurfaceHistory.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
 
@@ -1290,6 +1291,7 @@ namespace OloEngine::Tests
             std::array<f32, 4> First{};
             std::array<f32, 4> Second{};
             std::array<f32, 4> Metadata{};
+            std::array<f32, 4> CoverageReactivity{};
         };
 
         ScopedBuffer output(sizeof(ProbeOutput), GL_DYNAMIC_STORAGE_BIT | GL_MAP_READ_BIT);
@@ -1322,6 +1324,50 @@ namespace OloEngine::Tests
         EXPECT_FLOAT_EQ(result.Metadata[0], 1.0f);
         EXPECT_FLOAT_EQ(result.Metadata[1], 0.0f);
         EXPECT_FLOAT_EQ(result.Metadata[2], 0.0f);
+
+        // #1256 — the coverage channel and the three separated reactive
+        // causes, checked against the C++ twin rather than against constants.
+        // Hard-coding the expected reactivity here would let a retune of the
+        // shipping dead bands drift the two implementations apart while both
+        // still passed; running the CPU model on the same inputs cannot.
+        constexpr u32 kRejectCoverage = 1u << 15u;
+        const auto coverageReasons = static_cast<u32>(result.CoverageReactivity[0]);
+        EXPECT_NE(coverageReasons & kRejectCoverage, 0u);
+        EXPECT_EQ(coverageReasons & ~kRejectCoverage, 0u)
+            << "a coverage collapse must raise the coverage bit and nothing else";
+
+        SurfaceHistoryRecord reactiveCurrent{};
+        reactiveCurrent.LinearDepth = 5.0f;
+        reactiveCurrent.GeometricNormal = { 0.0f, 0.0f, 1.0f };
+        reactiveCurrent.ShadingNormal = reactiveCurrent.GeometricNormal;
+        reactiveCurrent.Roughness = 0.4f;
+        reactiveCurrent.MaterialClass = 3u;
+        reactiveCurrent.Instance = { 7u, 2u };
+        reactiveCurrent.Primitive = { 11u, 4u };
+        reactiveCurrent.Material = { 13u, 5u };
+        reactiveCurrent.PrimitiveLocalIndex = 1u;
+        SurfaceHistoryRecord reactivePrevious = reactiveCurrent;
+        reactiveCurrent.Coverage = 0.85f;
+        reactiveCurrent.MaterialProfile = 0.09f;
+        reactiveCurrent.Motion = { 0.0015f, 0.0f };
+
+        TemporalReactivitySettings reactivitySettings{};
+        reactivitySettings.PixelSize = { 1.0f / 1280.0f, 1.0f / 720.0f };
+        const TemporalReactivity expected =
+            EvaluateTemporalReactivity(reactiveCurrent, reactivePrevious, reactivitySettings);
+
+        EXPECT_NEAR(result.CoverageReactivity[1], expected.SurfaceMotion, 1.0e-5f);
+        EXPECT_NEAR(result.CoverageReactivity[2], expected.CoverageChange, 1.0e-5f);
+        EXPECT_NEAR(result.CoverageReactivity[3], expected.MaterialChange, 1.0e-5f);
+
+        // All three must be strictly between 0 and 1, or the product that
+        // combines them is being exercised against a saturated input and the
+        // parity above would hold for the wrong reason.
+        for (std::size_t cause = 1u; cause < 4u; ++cause)
+        {
+            EXPECT_GT(result.CoverageReactivity[cause], 0.0f);
+            EXPECT_LT(result.CoverageReactivity[cause], 1.0f);
+        }
     }
 
     TEST(ShaderUnitDepthAwareClusterTest, TileDepthAndPixelBoundaryHelpersMatchTheirContract)

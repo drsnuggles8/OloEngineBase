@@ -513,7 +513,12 @@ namespace OloEngine::ResourceNames
     // output, consumed by TAA. (The fog's 2D history died with the
     // screen-space raymarch; the froxel fog's temporal accumulation lives in
     // VolumetricFogPass's own 3D scatter volume — issue #435.)
-    inline constexpr std::string_view TAAHistory = "TAAHistory";                 // Previous TAA accumulation buffer
+    inline constexpr std::string_view TAAHistory = "TAAHistory"; // Previous TAA accumulation buffer
+    // Previous frame's G-Buffer RT3 (#1256): velocity .rg, COVERAGE .b,
+    // MATERIAL PROFILE .a. Extracted from the velocity target rather than
+    // written by TAA, so TAA stays a single-attachment pass — the same trick
+    // RayTracedShadowPass uses to keep its own surface plane.
+    inline constexpr std::string_view TAASurfaceHistory = "TAASurfaceHistory";
     inline constexpr std::string_view CloudsHistory = "CloudsHistory";           // Previous cloudscape resolve buffer (half-res, issue #633)
     inline constexpr std::string_view SSGIHistory = "SSGIHistory";               // Previous resolved SSGI signal (issue #902)
     inline constexpr std::string_view SSGISurfaceHistory = "SSGISurfaceHistory"; // Previous normal/roughness surface plane (#976)

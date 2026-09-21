@@ -1180,6 +1180,23 @@ namespace OloEngine::MCP
                 }
                 pixels8 = std::move(widened);
             }
+            else if (readChannels == 4)
+            {
+                // The PNG's alpha is a DISPLAY channel; on several targets the
+                // fourth component is DATA. G-Buffer RT3 carries the material
+                // profile there since #1256, and it is 0 almost everywhere —
+                // so encoding it as opacity produced a FULLY TRANSPARENT image
+                // while the tool cheerfully reported a healthy value range.
+                // A capture nobody can see is worse than no capture: it looks
+                // like the target is blank.
+                //
+                // Forced opaque rather than dropped to RGB so the channel count
+                // still matches what the caller reads back; the actual numbers
+                // remain available from the reported min/max and, per pixel,
+                // from olo_render_probe_pixel.
+                for (sizet i = 0; i < texelCount; ++i)
+                    pixels8[(i * 4u) + 3u] = 255u;
+            }
 
             const sizet rowBytes = static_cast<sizet>(region.Width) * outChannels;
             std::vector<u8> flipped;
@@ -6772,6 +6789,7 @@ namespace OloEngine::MCP
                 snapshot.Deformed = Renderer3D::GetDeformedSurfaceCache().GetStats();
                 snapshot.Vegetation = Renderer3D::GetVegetationSurfaceCache().GetStats();
                 snapshot.VegetationReady = Renderer3D::GetRayTracingScene().IsVegetationReady();
+                snapshot.Grooms = Renderer3D::GetGroomSurfaceCache().GetStats();
             }
             snapshot.State.Freshness = StatsSnapshot::FreshnessModel::PreviousFrame;
             return RayTracingStats::BuildReport(snapshot);
@@ -9527,6 +9545,30 @@ namespace OloEngine::MCP
                                             .Prop("reused", Schema::Int().Min(0))
                                             .Prop("refused", Schema::Int().Min(0))
                                             .Prop("historyReset", Schema::Bool()))
+                    // Groom coat proxies (issue #1253). Emitted for EVERY status, like
+                    // gpuScene and vegetation and for the same reason: a coat that could
+                    // not be represented is one of the things that makes the RT scene
+                    // incomplete, so its counters have to outlive that status.
+                    .Prop("grooms", Schema::Object()
+                                        .Prop("complete", Schema::Bool().Desc("False when a coat asked for a representation and did not get one. A coat that never asked (no hybrid consumer this frame) does NOT clear this — that is not a failure."))
+                                        .Prop("considered", Schema::Int().Min(0))
+                                        .Prop("represented", Schema::Int().Min(0).Desc("Coats in the ray-traced scene. Includes the refreshDeferred ones, which are still resident and still occluding."))
+                                        .Prop("refused", Schema::Int().Min(0).Desc("Coats NOT in the ray-traced scene. The raster tier still draws them; see dominantRefusalReason."))
+                                        .Prop("detailedCoats", Schema::Int().Min(0))
+                                        .Prop("proxyCoats", Schema::Int().Min(0))
+                                        .Prop("tierChanges", Schema::Int().Min(0).Desc("Tier hand-overs this frame. A number that stays at the coat count IS thrashing."))
+                                        .Prop("rebuilds", Schema::Int().Min(0).Desc("Conversions that RAN this frame. A bound coat rebuilds every frame by construction; a static one should settle at zero."))
+                                        .Prop("reused", Schema::Int().Min(0))
+                                        .Prop("refreshDeferred", Schema::Int().Min(0).Desc("Coats that wanted a refresh, could not have one (per-frame budget spent), and KEPT the structure they had. Represented, not refused — but one of them may be a deforming coat a frame behind its raster twin."))
+                                        .Prop("segmentsConverted", Schema::Int().Min(0))
+                                        .Prop("trianglesBuilt", Schema::Int().Min(0).Desc("Triangles converted THIS FRAME. Correctly zero in a still scene — use residentTriangles for what the TLAS holds."))
+                                        .Prop("residentBytes", Schema::Int().Min(0))
+                                        .Prop("residentTriangles", Schema::Int().Min(0).Desc("Triangles resident across every proxy. The figure to read for what the ray-traced scene contains; trianglesBuilt is this frame's WORK."))
+                                        .Prop("updateMicroseconds", Schema::Int().Min(0).Desc("CPU conversion + upload this frame. The producer's whole cost; device build time is under frame.blasBuildGpuNs."))
+                                        .Prop("maxWidthCompensation", Schema::Number().Desc("The widest radius compensation any RESIDENT coat carries, read against widthCompensationCap. AT the cap means that coat is thinner in ray space than on screen, which is the one way this representation loses coverage."))
+                                        .Prop("widthCompensationCap", Schema::Number())
+                                        .Prop("dominantRefusalReason", Schema::String().Desc("First reason in enum order that any coat was refused, skipping 'nobody asked'. 'None' when nothing was refused."))
+                                        .Prop("dominantRefusalDetail", Schema::String().Desc("The same reason as a sentence a user can act on.")))
                     .Prop("lastTlasReason", Schema::String())
                     .Prop("gpuScene", Schema::Object()
                                           .Prop("available", Schema::Bool().Desc("False when the renderer is not up — NOT 'the scene is empty'."))
@@ -9537,7 +9579,7 @@ namespace OloEngine::MCP
                                           .Prop("notStagedTotal", Schema::Int().Min(0).Desc("Renderable geometry this frame that produced NO canonical instance. Large next to a small 'instances' means the ray tracer is tracing a fraction of the scene (issue #1065)."))
                                           .Prop("notStagedByCategory", Schema::Object().Desc("The same total split by diagnostics category; 'notExtractable' is geometry that was offered and rejected, the rest is geometry a path knows it cannot represent."))
                                           .Required({ "available" }))
-                    .Required({ "availability", "freshness", "capability", "gpuScene", "vegetation" });
+                    .Required({ "availability", "freshness", "capability", "gpuScene", "vegetation", "grooms" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_RayTracingStats;
             registry.Register(std::move(tool));

@@ -377,6 +377,27 @@ namespace OloEngine
         }
     };
 
+    // Reaches a TArray via GroomStrandRequest::Coat, so growth relocates it
+    // BITWISE. Not trivially copyable only because of the two Ref<> handles,
+    // which own separately allocated region maps; nothing points back into
+    // the settings. Derived member-by-member so a future field that is not
+    // relocatable fails here rather than corrupting a groom build.
+    template<>
+    struct TIsTriviallyRelocatable<GroomCoatSettings>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(GroomCoatSettings::Enabled)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomCoatSettings::RoleVisibilityMask)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomCoatSettings::Undercoat)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomCoatSettings::Guard)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomCoatSettings::LengthJitter)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomCoatSettings::WidthJitter)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomCoatSettings::ShadeJitter)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomCoatSettings::ClumpCellSize)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomCoatSettings::Seed)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomCoatSettings::RegionMap)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomCoatSettings::ColorMap)>;
+    };
+
     /// The per-group table plus the settings, resolved once per build.
     ///
     /// A VIEW, not an owner: `Groups` points at the asset's own table for the

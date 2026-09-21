@@ -282,6 +282,8 @@
 		# fallback arms are the ones a GPU-less CI runner covers best.
 		"OloEngine/Groom/GroomLod.h"
 		"OloEngine/Groom/GroomLod.cpp"
+		"OloEngine/Groom/GroomRayTracingProxy.h"
+		"OloEngine/Groom/GroomRayTracingProxy.cpp"
 		"OloEngine/Groom/GroomLodBuilder.h"
 		"OloEngine/Groom/GroomLodBuilder.cpp"
 		# Build pipeline
@@ -844,6 +846,8 @@
 		"OloEngine/Renderer/SurfaceHistory.h"
 		"OloEngine/Renderer/TemporalHistoryRegistry.cpp"
 		"OloEngine/Renderer/TemporalHistoryRegistry.h"
+		"OloEngine/Renderer/TemporalSequenceMetrics.cpp"
+		"OloEngine/Renderer/TemporalSequenceMetrics.h"
 		"OloEngine/Renderer/Shader.cpp"
 				"OloEngine/Renderer/TransientPool.cpp"
 				"OloEngine/Renderer/TransientPool.h"
@@ -940,6 +944,9 @@
 		"OloEngine/Renderer/RayTracing/VegetationDiagnostics.h"
 		"OloEngine/Renderer/RayTracing/VegetationSurfaceCache.h"
 		"OloEngine/Renderer/RayTracing/VegetationSurfaceCache.cpp"
+		"OloEngine/Renderer/RayTracing/GroomProxyDiagnostics.h"
+		"OloEngine/Renderer/RayTracing/GroomSurfaceCache.h"
+		"OloEngine/Renderer/RayTracing/GroomSurfaceCache.cpp"
 		"OloEngine/Renderer/RayTracing/RayTracingScene.cpp"
 		# The live-frame ray probe behind olo_rt_trace_ray (#607). Runs #978's
 		# RayTracingProbe.comp against the SCENE's TLAS and reads the hits back

@@ -1,0 +1,21 @@
+DigitalHuman_Timing — issue #1222 epic acceptance, 384x384 offscreen, wall clock per frame.
+Subject: procedural stand-in head — cranium (#1241/#1242/#1243) + two ocular surfaces
+(#1244) + lips and enamel (#1245), morph-driven expression at 0.65, hard side light.
+
+NOT A BENCHMARK: this box also hosts CI runners for another repo, so the absolute
+figures move. The two arms are captured back to back, each after a DISCARDED
+warm-up capture, so neither pays for the frame-graph reconfigure that a path
+switch forces. An earlier version of this file timed the first capture after
+that switch and reported a uniform +95% that was the rebuild, not the skin.
+
+HOW TO READ A NEGATIVE NUMBER. The full stack cannot really be cheaper than the
+split-only control. Where the percentage comes out negative, or flips sign
+between runs, the honest reading is that THE COST OF THE SKIN STACK IS BELOW
+THIS FIXTURE'S NOISE FLOOR at 384x384 with one head on screen — not that it is
+free. A real per-pass budget needs GPU timer queries on a quiet box and a scene
+with enough skin in it to dominate the frame. What this file can resolve, and
+therefore all it claims, is that the stack does not cost an order of magnitude.
+
+Forward       full stack   3.381 ms   split-only   3.486 ms   (the digital human costs -3.0%)
+ForwardPlus   full stack   3.584 ms   split-only   3.372 ms   (the digital human costs +6.3%)
+Deferred      full stack   4.252 ms   split-only   3.650 ms   (the digital human costs +16.5%)

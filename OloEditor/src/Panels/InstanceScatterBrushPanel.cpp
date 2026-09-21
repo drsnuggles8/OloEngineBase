@@ -31,8 +31,8 @@ namespace OloEngine
         {
           public:
             ScatterStrokeCommand(Ref<Scene> scene, UUID entityUUID,
-                                 std::vector<InstanceData> preSnapshot,
-                                 std::vector<InstanceData> postSnapshot,
+                                 TArray<InstanceData> preSnapshot,
+                                 TArray<InstanceData> postSnapshot,
                                  std::string description)
                 : m_Scene(std::move(scene)),
                   m_EntityUUID(entityUUID),
@@ -57,7 +57,7 @@ namespace OloEngine
             }
 
           private:
-            void ApplySnapshot(const std::vector<InstanceData>& snapshot)
+            void ApplySnapshot(const TArray<InstanceData>& snapshot)
             {
                 if (!m_Scene)
                     return;
@@ -76,8 +76,8 @@ namespace OloEngine
 
             Ref<Scene> m_Scene;
             UUID m_EntityUUID;
-            std::vector<InstanceData> m_PreSnapshot;
-            std::vector<InstanceData> m_PostSnapshot;
+            TArray<InstanceData> m_PreSnapshot;
+            TArray<InstanceData> m_PostSnapshot;
             std::string m_Description;
         };
     } // namespace
@@ -119,7 +119,7 @@ namespace OloEngine
                                   : s_Unnamed; // never executed; HasComponent<Tag> always true on real entities
             ImGui::Text("Target: %s", tag.c_str());
             const auto& imc = m_TargetEntity.GetComponent<InstancedMeshComponent>();
-            ImGui::Text("Inline placements: %zu", imc.Instances.size());
+            ImGui::Text("Inline placements: %zu", imc.Instances.Num());
         }
         else
         {
@@ -164,7 +164,7 @@ namespace OloEngine
         ImGui::InputText("##BakePath", m_BakePathBuf.data(), m_BakePathBuf.size());
         ImGui::SameLine();
         const bool canBake = m_TargetEntity && m_TargetEntity.HasComponent<InstancedMeshComponent>() &&
-                             !m_TargetEntity.GetComponent<InstancedMeshComponent>().Instances.empty();
+                             !m_TargetEntity.GetComponent<InstancedMeshComponent>().Instances.IsEmpty();
         ImGui::BeginDisabled(!canBake);
         if (ImGui::Button("Bake"))
         {
@@ -177,7 +177,7 @@ namespace OloEngine
 
             // Snapshot for undo: before-state covers both the inline list
             // and the placement-handle slot (both change after the bake).
-            std::vector<InstanceData> preSnapshot = imc.Instances;
+            TArray<InstanceData> preSnapshot = imc.Instances;
             AssetHandle prePlacementHandle = imc.PlacementAssetHandle;
 
             auto editorMgr = Project::GetAssetManager().As<EditorAssetManager>();
@@ -190,12 +190,16 @@ namespace OloEngine
                 // CreateOrReplaceAsset forwards ctor args; the new
                 // InstancePlacementAsset(vector) ctor lets it serialise the
                 // painted placements to disk in one shot.
+                // InstancePlacementAsset is a serialised asset and still holds a
+                // std::vector (binding surface, ADR 0012), so the engine-owned
+                // TArray is materialised here rather than at the asset.
+                std::vector<InstanceData> placements(imc.Instances.begin(), imc.Instances.end());
                 auto asset = editorMgr->CreateOrReplaceAsset<InstancePlacementAsset>(
-                    fullPath, imc.Instances);
+                    fullPath, std::move(placements));
                 if (asset)
                 {
                     imc.PlacementAssetHandle = asset->GetHandle();
-                    imc.Instances.clear();
+                    imc.Instances.Reset();
                     imc.InvalidateMergedCache();
 
                     if (m_CommandHistory)
@@ -210,7 +214,7 @@ namespace OloEngine
                         {
                           public:
                             BakeCommand(Ref<Scene> scene, UUID entityUUID,
-                                        std::vector<InstanceData> preInstances,
+                                        TArray<InstanceData> preInstances,
                                         AssetHandle prePlacementHandle,
                                         AssetHandle postPlacementHandle)
                                 : m_Scene(std::move(scene)), m_EntityUUID(entityUUID),
@@ -243,14 +247,14 @@ namespace OloEngine
                                 auto& imc = e.GetComponent<InstancedMeshComponent>();
                                 imc.PlacementAssetHandle = handle;
                                 if (clearInline)
-                                    imc.Instances.clear();
+                                    imc.Instances.Reset();
                                 else
                                     imc.Instances = m_PreInstances;
                                 imc.InvalidateMergedCache();
                             }
                             Ref<Scene> m_Scene;
                             UUID m_EntityUUID;
-                            std::vector<InstanceData> m_PreInstances;
+                            TArray<InstanceData> m_PreInstances;
                             AssetHandle m_PrePlacementHandle, m_PostPlacementHandle;
                         };
                         m_CommandHistory->PushAlreadyExecuted(
@@ -329,15 +333,15 @@ namespace OloEngine
         if (!m_CommandHistory || !m_TargetEntity || !m_TargetEntity.HasComponent<InstancedMeshComponent>())
             return;
         const auto& imc = m_TargetEntity.GetComponent<InstancedMeshComponent>();
-        if (m_StrokePreSnapshot.size() == imc.Instances.size())
+        if (m_StrokePreSnapshot.Num() == imc.Instances.Num())
             return; // nothing deposited (e.g. slope filter rejected everything) — skip the undo entry
 
-        std::vector<InstanceData> postSnapshot = imc.Instances;
+        TArray<InstanceData> postSnapshot = imc.Instances;
         m_CommandHistory->PushAlreadyExecuted(std::make_unique<ScatterStrokeCommand>(
             m_Context, m_TargetEntity.GetUUID(),
             std::move(m_StrokePreSnapshot), std::move(postSnapshot),
             "Scatter Brush Stroke"));
-        m_StrokePreSnapshot.clear();
+        m_StrokePreSnapshot.Reset();
     }
 
     void InstanceScatterBrushPanel::DepositStrokeTick(const glm::vec3& centre, const glm::vec3& surfaceNormal)
@@ -420,7 +424,7 @@ namespace OloEngine
             const i32 variantClamped = std::clamp(variantIdx, 0, std::max(0, m_VariantCount - 1));
             inst.Custom = (m_VariantCount > 1) ? static_cast<f32>(variantClamped) / static_cast<f32>(m_VariantCount - 1)
                                                : 0.0f;
-            imc.Instances.push_back(inst);
+            imc.Instances.Add(inst);
         }
         imc.InvalidateMergedCache();
     }

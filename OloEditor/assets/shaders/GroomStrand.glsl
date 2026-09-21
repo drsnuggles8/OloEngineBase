@@ -298,7 +298,7 @@ layout(binding = 75) uniform sampler3D u_GroomCoatVolume; // TEX_GROOM_COAT_VOLU
 layout(location = 0) out vec4 o_Color;
 layout(location = 1) out int o_EntityID;
 layout(location = 2) out vec2 o_ViewNormal;
-layout(location = 3) out vec2 o_Velocity;
+layout(location = 3) out vec4 o_Velocity;
 layout(location = 4) out vec4 o_SkinDiffuse;
 
 layout(location = 0) in vec2 v_Coords;
@@ -654,7 +654,12 @@ void main()
 
 	vec2 ndcCurr = v_ClipCurr.xy / max(v_ClipCurr.w, 1e-6);
 	vec2 ndcPrev = v_ClipPrev.xy / max(v_ClipPrev.w, 1e-6);
-	o_Velocity = (ndcCurr - ndcPrev) * 0.5;
+	// .b is the strand's WIDENED alpha — the fraction of this pixel the
+	// strand covers (#1256). A sub-pixel strand is widened to one pixel and
+	// pays for it in alpha, so this is coverage by construction; see
+	// Groom/GroomCoverage.h. Under StochasticAlpha it is also the value that
+	// moves every frame, which the reactive term's dead band must ignore.
+	o_Velocity = vec4((ndcCurr - ndcPrev) * 0.5, alpha, 0.0);
 
 	// "No skin diffusion here." Attachment 4 is undefined unless written, and
 	// an unwritten one is blurred into scene colour by SkinDiffusion.glsl.

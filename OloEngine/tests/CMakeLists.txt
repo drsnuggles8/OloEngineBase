@@ -124,6 +124,7 @@ add_executable(OloEngine-Tests
 		# its two anti-thrash mechanisms, the coverage compensation's linear rule,
 		# and the card cook's determinism and density conservation.
 		Groom/GroomLodContractTest.cpp
+		Groom/GroomRayTracingProxyTest.cpp
 		# ...and the cooked format's half: the level survives the cook byte for
 		# byte, the cook stays deterministic, a file from before the version bump
 		# is refused by name, and a hostile level header is refused before it
@@ -368,6 +369,7 @@ add_executable(OloEngine-Tests
 		Rendering/ScreenSpaceGIMathTest.cpp
 		Rendering/StochasticSamplerTest.cpp
 		Rendering/SurfaceHistoryTest.cpp
+		Rendering/TemporalReconstructionSequenceTest.cpp
 		Rendering/TemporalHistoryRegistryTest.cpp
 		Rendering/ContactShadowMathTest.cpp
 		Rendering/OverdrawHeatmapMathTest.cpp
@@ -626,6 +628,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/SkinOralSurfaceEvidenceTest.cpp
 		Rendering/PropertyTests/SkinOcularSurfaceParityTest.cpp
 		Rendering/PropertyTests/SkinOcularSurfaceEvidenceTest.cpp
+		Rendering/PropertyTests/SkinDigitalHumanEvidenceTest.cpp
 		Rendering/PropertyTests/ProceduralSkyBakeTest.cpp
 		Rendering/PropertyTests/ProceduralSkyVisualTest.cpp
 		Rendering/PropertyTests/StarNestSkyBakeTest.cpp
@@ -727,6 +730,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/TerrainVirtualTextureVisualEvidenceTest.cpp
 		Rendering/PropertyTests/FoliageAuthoredMeshEvidenceTest.cpp
 		Rendering/PropertyTests/FoliageLodCoverageEvidenceTest.cpp
+		Rendering/PropertyTests/FloraTraversalEvidenceTest.cpp
         Rendering/PropertyTests/FoliageGPUCullEvidenceTest.cpp
         Rendering/PropertyTests/FoliageWindEvidenceTest.cpp
 		Rendering/PropertyTests/FoliageLeafMaterialTest.cpp
@@ -750,6 +754,8 @@ add_executable(OloEngine-Tests
 		# the two paths' top ambient rung must stay the same rung. Headless text
 		# scans in front of the GPU parity test.
 		Rendering/PropertyTests/GBufferBakedGIContractTest.cpp
+		Rendering/PropertyTests/CoverageChannelEvidenceTest.cpp
+		Rendering/PropertyTests/GBufferCoverageChannelContractTest.cpp
 		Rendering/PropertyTests/GBufferFlagsResolveEvidenceTest.cpp
 		Rendering/PropertyTests/OITPropertyTests.cpp
 		# Strand visibility (#1246). This file IS the criterion-1 comparison:

@@ -75,5 +75,7 @@ namespace OloEngine
         RGTextureHandle m_SelectedSceneDepthTexture{};
         RGTextureHandle m_SelectedVelocityTexture{};
         RGTextureHandle m_SelectedHistoryTexture{};
+        // Last frame's G-Buffer RT3 (#1256) — coverage and material profile.
+        RGTextureHandle m_SelectedSurfaceHistoryTexture{};
     };
 } // namespace OloEngine

@@ -105,6 +105,11 @@ namespace OloEngine::RayTracing
         u32 IndexCount = 0;
         i32 BaseVertex = 0;
         bool Vegetation = false;
+        /// A groom coat's ray-space proxy (issue #1253). Its own flag, not
+        /// Vegetation's, because the two carry SEPARATE device AS-memory
+        /// budgets: shared, a forest could evict an animal's coat from the
+        /// ray-traced world (or the reverse) with no counter able to say so.
+        bool Groom = false;
 
         [[nodiscard]] u32 TriangleCount() const
         {

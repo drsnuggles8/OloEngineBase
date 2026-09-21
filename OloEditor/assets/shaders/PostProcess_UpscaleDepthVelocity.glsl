@@ -57,7 +57,13 @@ void main()
 // =============================================================================
 
 layout(location = 0) out float o_Depth;    // R32F  — reduced depth, nearest-upscaled
-layout(location = 1) out vec2 o_Velocity;  // RG16F — reduced velocity, nearest-upscaled
+layout(location = 1) out vec4 o_Velocity;  // RGBA16F — reduced velocity (rg) plus the
+                                          // #1256 coverage (b) and material-profile (a)
+                                          // channels, nearest-upscaled. All four are
+                                          // carried through: dropping .ba here would
+                                          // silently kill the coverage term at every
+                                          // non-native resolution, which is exactly the
+                                          // dynamic-resolution case #1256 asks about.
 
 layout(location = 0) in vec2 v_TexCoord;
 
@@ -102,5 +108,5 @@ void main()
 {
     vec2 uv = NearestUV(v_TexCoord);
     o_Depth = texture(u_Depth, uv).r;
-    o_Velocity = texture(u_Velocity, uv).rg;
+    o_Velocity = texture(u_Velocity, uv);
 }

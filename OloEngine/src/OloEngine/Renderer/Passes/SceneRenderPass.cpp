@@ -221,7 +221,7 @@ namespace OloEngine
         if (m_Target)
         {
             const auto& attachments = m_Target->GetSpecification().Attachments.Attachments;
-            if (attachments.Num() > 3 && attachments[3].TextureFormat == FramebufferTextureFormat::RG16F)
+            if (attachments.Num() > 3 && attachments[3].TextureFormat == FramebufferTextureFormat::RGBA16F)
                 m_Target->ClearAttachment(3, glm::vec4(0.0f));
         }
 
@@ -808,7 +808,7 @@ namespace OloEngine
         // bail — the caller already checks deferred state, but defensive.
         const auto& attachments = m_Target->GetSpecification().Attachments.Attachments;
         if (attachments.Num() <= 3 ||
-            attachments[3].TextureFormat != FramebufferTextureFormat::RG16F)
+            attachments[3].TextureFormat != FramebufferTextureFormat::RGBA16F)
             return;
 
         // RAII guard — pure DSA blit, no shader/VAO mutations. Only the

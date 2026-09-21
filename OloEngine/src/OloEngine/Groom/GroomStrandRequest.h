@@ -270,6 +270,20 @@ namespace OloEngine
         // in the pass's cache: a pass runs once per CAMERA, so a split-screen
         // scene would advance the hold twice per frame and halve it.
 
+        /// This groom's apparent size, in pixels of the render target's
+        /// HEIGHT, from EstimateProjectedPixelSize against the engine's LOD
+        /// view. Zero when the frame resolved no usable view.
+        ///
+        /// CARRIED SEPARATELY FROM `Lod.PixelSize`, which is the same number
+        /// but only for a groom that opted into representation LOD: a groom
+        /// with no GroomLodComponent gets IdentityGroomLodDecision, whose
+        /// PixelSize is zero because no decision was made at one. The
+        /// ray-tracing proxy (#1253) has to pick a tier for EVERY groom,
+        /// opted in or not, so it needs the measurement rather than the
+        /// decision's record of it. Computed once, by the producer, and fed
+        /// to both.
+        f32 ApparentPixelSize = 0.0f;
+
         /// The authored policy, sanitised. Carried rather than re-read from the
         /// component because the panel that shows a decision must show the
         /// contract it was taken against, and because the pass needs the
@@ -325,5 +339,52 @@ namespace OloEngine
             simulation.Displacements.SlotOfGuide = std::span{ SimulationSlotOfGuide.GetData(), static_cast<sizet>(SimulationSlotOfGuide.Num()) };
             return simulation;
         }
+    };
+
+    // Published per frame into a TArray, so growth relocates it BITWISE.
+    // Every member is a Ref, a TArray, a POD or an enum: the owning ones all
+    // point at separately allocated blocks and nothing points back into the
+    // request. Derived member-by-member rather than asserted, so a field that
+    // is not relocatable breaks the build here instead of corrupting a frame.
+    template<>
+    struct TIsTriviallyRelocatable<GroomStrandRequest>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::Groom)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::Handle)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::Transform)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::PreviousTransform)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::Color)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::Lit)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::Fibre)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::FibreDebug)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::RampFloor)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::WidthScale)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::AlphaCutoff)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::RequestedMode)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::EntityID)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::Build)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::Binding)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::RootTransforms)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::DeformationStats)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::BindingReject)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::CoatShadow)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::CoatKappa)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::CoatLod)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::CoatStepVoxels)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::Coat)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::Influence)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::SimulationDisplacements)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::SimulationPrevDisplacements)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::SimulationGuideOffsets)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::SimulationGuideOfSlot)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::SimulationSlotOfGuide)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::SimulationStats)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::SimulationStretchTolerance)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::SimulationColliders)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::SimulationDebug)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::ApparentPixelSize)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::LodPolicy)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::Lod)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::LodLevel)>;
     };
 } // namespace OloEngine

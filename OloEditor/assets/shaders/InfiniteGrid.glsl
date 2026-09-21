@@ -75,7 +75,7 @@ layout(location = 0) out vec4 FragColor;
 layout(location = 1) out int EntityID;
 layout(location = 2) out vec2 o_ViewNormal;
 // Scene FB RT3 velocity — grid is world-static, so NDC delta = camera motion.
-layout(location = 3) out vec2 o_Velocity;
+layout(location = 3) out vec4 o_Velocity;
 // Scene FB RT4: the diffuse half of a SKIN pixel's lighting, for the screen-space
 // diffusion pass (issue #1241). This surface never shades skin, so it writes the
 // "no diffusion here" code -- but it must WRITE it: an MRT output a shader leaves
@@ -219,7 +219,7 @@ void main() {
         vec4 clipPrev = u_PrevViewProjection * vec4(fragPos3D, 1.0);
         vec2 ndcCurr = clipCurr.xy / clipCurr.w;
         vec2 ndcPrev = clipPrev.xy / clipPrev.w;
-        o_Velocity = (ndcCurr - ndcPrev) * 0.5;
+        o_Velocity = vec4((ndcCurr - ndcPrev) * 0.5, 1.0, 0.0);
     } else {
         discard;
     }

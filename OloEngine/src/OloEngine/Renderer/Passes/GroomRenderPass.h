@@ -219,15 +219,13 @@ namespace OloEngine
         /// Set once per frame by RenderPipeline, before Setup.
         void SetRequests(std::span<const GroomStrandRequest> requests)
         {
-            m_Requests.Empty();
+            m_Requests.Empty(static_cast<i64>(requests.size()));
             for (const auto& request : requests)
-                m_Requests.AddTail(request);
+                m_Requests.Add(request);
         }
-        void SetRequests(const TDoubleLinkedList<GroomStrandRequest>& requests)
+        void SetRequests(const TArray64<GroomStrandRequest>& requests)
         {
-            m_Requests.Empty();
-            for (auto* node = requests.GetHead(); node; node = node->GetNextNode())
-                m_Requests.AddTail(node->GetValue());
+            m_Requests = requests;
         }
         void SetFrameState(const GroomFrameState& state) noexcept
         {
@@ -357,7 +355,7 @@ namespace OloEngine
         void EvictToBudget();
 
         // Root-transform ownership is not bitwise relocatable; stable nodes preserve it.
-        TDoubleLinkedList<GroomStrandRequest> m_Requests;
+        TArray64<GroomStrandRequest> m_Requests;
         GroomFrameState m_FrameState;
         GroomRenderStats m_Stats;
 

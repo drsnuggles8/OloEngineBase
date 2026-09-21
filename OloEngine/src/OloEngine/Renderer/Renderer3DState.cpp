@@ -196,14 +196,15 @@ namespace OloEngine
 
     void Renderer3D::SetGroomStrandRequests(std::span<const GroomStrandRequest> requests)
     {
-        s_Data.GroomStrandRequests.Empty();
+        s_Data.GroomStrandRequests.Reset();
+        s_Data.GroomStrandRequests.Reserve(static_cast<i64>(requests.size()));
         for (const auto& request : requests)
-            s_Data.GroomStrandRequests.AddTail(request);
+            s_Data.GroomStrandRequests.Add(request);
     }
 
-    void Renderer3D::SetGroomStrandRequests(TDoubleLinkedList<GroomStrandRequest>&& requests) noexcept
+    void Renderer3D::SetGroomStrandRequests(TArray64<GroomStrandRequest>&& requests) noexcept
     {
-        // Transfer node ownership without copying per-groom root/simulation buffers.
+        // Move the storage without copying per-groom root/simulation buffers.
         s_Data.GroomStrandRequests = std::move(requests);
     }
 

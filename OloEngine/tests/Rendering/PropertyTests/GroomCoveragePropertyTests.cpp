@@ -843,7 +843,7 @@ TEST(GroomStrandSubmission, MovingRequestsPreservesOwnedBufferAddresses)
     {
         ~ResetRequests()
         {
-            Renderer3D::SetGroomStrandRequests(TDoubleLinkedList<GroomStrandRequest>{});
+            Renderer3D::SetGroomStrandRequests(TArray64<GroomStrandRequest>{});
         }
     } resetRequests;
 
@@ -864,19 +864,17 @@ TEST(GroomStrandSubmission, MovingRequestsPreservesOwnedBufferAddresses)
     const auto* slotOfGuide = request.SimulationSlotOfGuide.GetData();
     const auto* colliders = request.SimulationColliders.GetData();
 
-    // Match Scene::PublishGroomStrandRequests: move into the producer list,
-    // then publish the whole list. Neither step may copy the groom buffers.
-    TDoubleLinkedList<GroomStrandRequest> requests;
-    requests.AddTail(std::move(request));
-    const auto* producerNode = requests.GetHead();
+    // Match Scene::PublishGroomStrandRequests: move into the producer array,
+    // then publish the whole array. Neither step may copy the groom buffers —
+    // the pointer identity checks below are what actually pins that.
+    TArray64<GroomStrandRequest> requests;
+    requests.Add(std::move(request));
     Renderer3D::SetGroomStrandRequests(std::move(requests));
 
     EXPECT_EQ(requests.Num(), 0);
-    EXPECT_EQ(requests.GetHead(), nullptr);
     const auto& submitted = Renderer3D::GetGroomStrandRequests();
     ASSERT_EQ(submitted.Num(), 1);
-    ASSERT_EQ(submitted.GetHead(), producerNode);
-    const auto& actual = submitted.GetHead()->GetValue();
+    const auto& actual = submitted[0];
     EXPECT_EQ(actual.RootTransforms.GetData(), roots);
     EXPECT_EQ(actual.SimulationDisplacements.GetData(), displacement);
     EXPECT_EQ(actual.SimulationPrevDisplacements.GetData(), previous);
