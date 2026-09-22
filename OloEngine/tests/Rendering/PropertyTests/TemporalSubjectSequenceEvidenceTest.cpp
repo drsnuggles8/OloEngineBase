@@ -1112,7 +1112,7 @@ namespace OloEngine::Tests
         // honest headline: a meadow crossed by a moving camera costs about a
         // quarter of its spatial variance to the resolve, and the post-TAA
         // sharpen this test disables exists to put some of that back. (The
-        // same shot held still measures ~0.93, so most of that quarter is the
+        // same shot held still measures ~0.90, so most of that quarter is the
         // price of MOTION rather than of the resolve idling.) 0.65 sits below
         // the measurement and above the over-blurred control, so it catches a
         // future change that blurs substantially more without pinning today's
