@@ -71,6 +71,16 @@ Alpha Cutoff slider. Read that warning before hunting a see-through plant in the
 glTF puts UV (0,0) at the **top-left**, v increasing downward. Wavefront OBJ puts it at the
 bottom-left, v increasing upward. Convert exactly once, in one place, and say where.
 
+**The engine is that place, for OBJ.** `Model::LoadModel` flips the v of every OBJ it imports
+(because legacy atlases such as the LearnOpenGL backpack need it), and `Texture2D` flips rows on
+upload. So an OBJ that renders correctly here carries **top-down** v, which is not the OBJ standard.
+The importer therefore writes glTF v unchanged, and each OBJ says so in its second header line.
+#1398's OBJs had standard bottom-up v, so every plant sampled its atlas upside down. Grass blades
+that cover 92% of their surface as authored passed 45% as drawn, and that looked like plausible
+grass. #1399's coverage measurement caught it.
+[VegetationAssetContractTest](../../OloEngine/tests/Rendering/VegetationAssetContractTest.cpp) now
+checks that the engine's mapping never measures worse than its mirror image.
+
 This is not a subtle shading difference. `pine_tree_01`'s twig atlas has needle strips in the lower
 half and pine cones in the upper, so a flipped v bakes **brown cones onto every foliage card**. The
 tell is that the result looks entirely plausible — a dead or autumnal tree — and every geometric

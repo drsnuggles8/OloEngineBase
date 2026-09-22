@@ -30,17 +30,17 @@
 //
 // The fraction is taken over the texels the draw actually samples, weighted by
 // how much surface samples them — not over the whole image. The two differ by
-// a factor of 2.5 on the assets that ship: `fern_fronds.png` passes 17.7% of
-// its SHEET and 45.0% of the mesh SURFACE that samples it, because much of
-// that atlas is unused space. A sheet-level check would flag the fern as a
-// see-through plant and teach authors to ignore the warning
+// up to a factor of eight on the assets that ship: `grass_dry_blades.png`
+// passes 11.7% of its SHEET and 87.6% of the mesh SURFACE that samples it,
+// because most of that atlas is unused space. A sheet-level check would flag
+// every plant in the repository and teach authors to ignore the warning
 // (docs/agent-rules/vegetation-asset-import.md rule 3).
 //
-// Every figure in this file is measured the way the ENGINE samples, which is
-// not always the way the asset was authored: Model flips the v of every OBJ it
-// imports (for legacy OBJ atlases), so an OBJ written with standard v-up UVs is
-// sampled upside down. The diagnostic follows the engine on purpose — it
-// reports what is drawn — and the difference is tracked as its own defect.
+// It is measured the way the ENGINE samples — at the vertex UVs Model produced,
+// through the row order Texture2D uploads — not the way a file format says UVs
+// run. Model flips the v of every OBJ, so an OBJ written with standard
+// bottom-up v is sampled upside down, and this is the measurement that caught
+// the #1398 vegetation doing exactly that (rule 4 of the same guide).
 //
 // For the flat card the sheet IS the surface — the quad maps the whole image
 // once — so the card is measured over every texel. A mesh is measured at
@@ -63,7 +63,7 @@
 //   AuthoredMesh  >= 30% of the part's surface. Plant meshes here are built
 //                 from cross-cards baked out of real geometry, so their
 //                 transparency is real coverage: the shipped foliage parts
-//                 pass 41.2% (dry grass) to 56.3% (shrub), trunks and bark
+//                 pass 44.8% (broadleaf) to 92.8% (shrub), trunks and bark
 //                 100%. The stand-in art #1398 replaced — `grass.png` on the
 //                 procedural pine — passes 19.4% of the pine's surface, and
 //                 that tree was visibly see-through. 30% sits between them.

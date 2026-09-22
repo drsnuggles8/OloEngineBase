@@ -141,9 +141,9 @@ def render(groups, textures, size, azimuth, elevation, cutoff=0.5, background=(0
                 u = b0 * tri_uv[t, 0, 0] + b1 * tri_uv[t, 1, 0] + b2 * tri_uv[t, 2, 0]
                 v = b0 * tri_uv[t, 0, 1] + b1 * tri_uv[t, 1, 1] + b2 * tri_uv[t, 2, 1]
                 th, tw = texture.shape[:2]
-                # OBJ v is bottom-up; the image is top-down.
+                # These OBJs carry top-down (glTF) v, as the engine samples it.
                 sx = np.clip((u % 1.0) * (tw - 1), 0, tw - 1).astype(np.int32)
-                sy = np.clip((1.0 - (v % 1.0)) * (th - 1), 0, th - 1).astype(np.int32)
+                sy = np.clip((v % 1.0) * (th - 1), 0, th - 1).astype(np.int32)
                 texel = texture[sy, sx]
                 mask &= texel[..., 3] >= cutoff
                 if not mask.any():

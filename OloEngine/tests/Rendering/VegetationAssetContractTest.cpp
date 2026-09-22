@@ -27,6 +27,15 @@
 //      which is the failure mode of pointing a card at a source UV atlas —
 //      scanned plants ship those, and their unused space is opaque.
 //
+//   5. THE UVS FACE THE WAY THE ENGINE READS THEM (issue #1399). Model flips
+//      the v of every OBJ and Texture2D flips rows on upload, so an OBJ's raw v
+//      indexes the image TOP-DOWN. #1398 wrote standard bottom-up v, and every
+//      plant sampled its atlas upside down: grass blades that cover 92% of
+//      their surface as authored passed 45% as drawn — still over the 30%
+//      floor, so case 3 could not see it. A baked atlas puts opaque texels
+//      where the geometry is, so the engine's mapping must not measure worse
+//      than its own mirror image.
+//
 // Pure CPU: parses the committed OBJ/MTL and decodes the committed PNGs. No GL
 // context, so it runs everywhere the suite does.
 //
@@ -302,7 +311,12 @@ namespace OloEngine::Tests
         /// area-weighted. Deliberately not the texture's flat average: a UV atlas
         /// has unused space, and on a scanned plant that space is opaque, so the
         /// flat figure describes a canopy that does not exist.
-        [[nodiscard]] f32 SurfaceCoverage(const Obj& obj, const ObjGroup& group, const Image& image)
+        ///
+        /// Sampled the way the ENGINE samples: Model flips every OBJ's v and
+        /// Texture2D flips rows on upload, so the raw OBJ v indexes the image
+        /// top-down. `mirrored` flips it back — only case 5 asks for that.
+        [[nodiscard]] f32 SurfaceCoverage(const Obj& obj, const ObjGroup& group, const Image& image,
+                                          bool mirrored = false)
         {
             // Fixed barycentric taps rather than random ones: a contract test that
             // reports a different number each run cannot be reasoned about.
@@ -338,8 +352,7 @@ namespace OloEngine::Tests
                 for (const glm::vec3& tap : kTaps)
                 {
                     const glm::vec2 uv = tap.x * obj.m_UVs[ti[0]] + tap.y * obj.m_UVs[ti[1]] + tap.z * obj.m_UVs[ti[2]];
-                    // OBJ v runs upward from the bottom; image rows run downward.
-                    if (image.AlphaAt(uv.x, 1.0f - uv.y) >= kAlphaCutoff)
+                    if (image.AlphaAt(uv.x, mirrored ? 1.0f - uv.y : uv.y) >= kAlphaCutoff)
                         ++passed;
                 }
                 weighted += area * (static_cast<f64>(passed) / static_cast<f64>(std::size(kTaps)));
@@ -527,6 +540,37 @@ namespace OloEngine::Tests
             EXPECT_GT(cutoutSubmeshes, 0u)
                 << name << " declares no alpha-tested submesh at all; every plant here has foliage";
         }
+    }
+
+    TEST(VegetationAssetContract, UVsSampleTheAtlasTheWayTheEngineReadsThem)
+    {
+        // Case 5. A symmetric atlas (the pine's) measures the same either way
+        // up, which is why the tolerance is not zero; an upside-down blade atlas
+        // loses half its coverage, which is why a few points is plenty.
+        constexpr f32 kMirrorTolerance = 3.0f;
+        u32 compared = 0;
+        for (const fs::path& dir : SpeciesDirectories())
+        {
+            const std::string name = dir.filename().string();
+            const Obj obj = ParseObj(dir / (name + ".obj"));
+            const auto maps = ParseMtl(dir / obj.m_MtlLib);
+            for (const ObjGroup& group : obj.m_Groups)
+            {
+                const auto entry = maps.find(group.m_Material);
+                if (entry == maps.end() || entry->second.m_Albedo.empty() || !entry->second.m_IsCutout)
+                    continue;
+                const Image image = LoadImage(dir / entry->second.m_Albedo);
+                ASSERT_TRUE(image.Valid()) << name << ": cannot decode " << entry->second.m_Albedo;
+                const f32 asDrawn = SurfaceCoverage(obj, group, image);
+                const f32 mirrored = SurfaceCoverage(obj, group, image, /*mirrored=*/true);
+                EXPECT_GE(asDrawn, mirrored - kMirrorTolerance)
+                    << name << "/" << group.m_Material << ": " << asDrawn << "% of the surface passes as the engine "
+                    << "draws it, " << mirrored << "% with v flipped. The atlas is sampled upside down — was the OBJ "
+                    << "written with bottom-up (standard OBJ) v? Model flips every OBJ's v itself.";
+                ++compared;
+            }
+        }
+        EXPECT_GT(compared, 0u) << "no cutout submesh compared — the guard would pass vacuously";
     }
 
     TEST(VegetationAssetContract, BillboardIsAPictureOfThePlant)

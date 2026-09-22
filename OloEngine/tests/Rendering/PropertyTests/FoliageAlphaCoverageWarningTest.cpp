@@ -13,7 +13,10 @@
 //   * a correctly authored grass card stays quiet, and an opaque texture on a
 //     card warns as a solid rectangle;
 //   * a slider dragged within an implausible range does not repeat the line,
-//     and dragging back into it after leaving does.
+//     and dragging back into it after leaving does;
+//   * the shipped grass, imported by the real Model path, passes ~92% of its
+//     blade surface — the end-to-end guard for the OBJ v convention (#1399
+//     found the #1398 plants sampling their atlases upside down at ~45%).
 //
 // The expected fractions are an INDEPENDENT measurement: a NumPy sampler over
 // the OBJ files, run while writing this test, with the engine's own UV
@@ -61,6 +64,7 @@ namespace OloEngine::Tests
         constexpr const char* kPineCard = "SandboxProject/Assets/Models/Vegetation/pine/Textures/pine_card.png";
         constexpr const char* kPineBark = "SandboxProject/Assets/Models/Vegetation/pine/Textures/pine_bark.png";
         constexpr const char* kGrassCard = "SandboxProject/Assets/Models/Vegetation/grass/Textures/grass_card.png";
+        constexpr const char* kGrassMesh = "SandboxProject/Assets/Models/Vegetation/grass/grass.obj";
 
         enum LayerSlot : u32
         {
@@ -68,6 +72,7 @@ namespace OloEngine::Tests
             kWoodlandSlot,
             kMeadowSlot,
             kSolidCardSlot,
+            kGrassMeshSlot,
             kSlotCount
         };
 
@@ -172,6 +177,14 @@ namespace OloEngine::Tests
             solid.AlbedoPath = kPineBark;
             solid.AlphaCutoff = 0.5f;
 
+            // Scenes/FoliageMeadowToWoodland.olo's Meadow Grass mesh, as shipped.
+            FoliageLayer& grass = foliage.m_Layers[kGrassMeshSlot];
+            grass.Name = "MeadowGrassMesh";
+            grass.MeshPath = kGrassMesh;
+            grass.AlbedoPath = kGrassCard;
+            grass.UseAuthoredMesh = true;
+            grass.AlphaCutoff = 0.5f;
+
             for (auto& layer : foliage.m_Layers)
             {
                 layer.Density = 0.01f;
@@ -263,7 +276,7 @@ namespace OloEngine::Tests
             const AC::Entry* impostor = FindEntry(entries, AC::Role::ImpostorBake);
             ASSERT_NE(impostor, nullptr) << "no impostor was baked, so its coverage could not be judged";
             ASSERT_TRUE(impostor->Measured);
-            EXPECT_NEAR(impostor->Coverage.PassFraction(0.3f), 0.113f, 0.02f)
+            EXPECT_NEAR(impostor->Coverage.PassFraction(0.3f), 0.120f, 0.02f)
                 << "the billboard painted over the pine's atlas UVs";
             EXPECT_EQ(FindEntry(entries, AC::Role::Card), nullptr)
                 << "the impostor rides the card draw, so the flat card is never drawn and must not be judged";
@@ -284,6 +297,20 @@ namespace OloEngine::Tests
             EXPECT_FLOAT_EQ(solid->Coverage.PassFraction(0.5f), 1.0f);
             EXPECT_EQ(warnings.Count("layer 'SolidCard' draws its card"), 1u);
             EXPECT_EQ(warnings.Count("solid rectangle"), 1u);
+        }
+
+        // ── The OBJ v convention, through the real import ────────────────────
+        {
+            const AC::Entry* blades = FindEntry(Coverage(kGrassMeshSlot), AC::Role::AuthoredMesh, "grass_blades.png");
+            ASSERT_NE(blades, nullptr) << "the grass mesh's own blade texture was not measured";
+            ASSERT_TRUE(blades->Measured);
+            // 92.4% as authored (tools/vegetation-import/measure_coverage.py);
+            // 45% when the atlas is sampled upside down, which is what a
+            // standard bottom-up OBJ v gives once Model flips it.
+            EXPECT_GT(blades->Coverage.PassFraction(0.5f), 0.85f)
+                << "the grass blades sample their atlas upside down: was grass.obj written with standard OBJ v? "
+                   "Model flips every OBJ's v (vegetation-asset-import.md rule 4)";
+            EXPECT_EQ(warnings.Count("layer 'MeadowGrassMesh'"), 0u);
         }
     }
 

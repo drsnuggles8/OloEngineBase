@@ -146,17 +146,18 @@ namespace OloEngine::Tests
 
     TEST(FoliageAlphaCoverage, AMeshHasAFloorAndNoCeiling)
     {
-        // Shipped foliage parts, as the engine samples them: dry grass 41.2%,
-        // grass 44.8%, pine 54.4%, shrub 56.3%; trunks and bark are fully
-        // opaque. The stand-in grass-on-pine the issue was found on passes
-        // 19.4% of the pine's surface, and the pine impostor bake 11.3%.
-        for (const f32 shipped : { 0.412f, 0.448f, 0.544f, 0.563f, 1.0f })
+        // Shipped foliage parts, as the engine samples them: broadleaf 44.8%,
+        // fern 52.5%, pine 54.4%, dry grass 87.6%, shrub 92.8%; trunks and
+        // bark are fully opaque. The stand-in grass-on-pine the issue was found
+        // on passes 19.4% of the pine's surface, and the pine impostor bake
+        // 12.0%.
+        for (const f32 shipped : { 0.448f, 0.525f, 0.544f, 0.876f, 0.928f, 1.0f })
         {
             EXPECT_EQ(AC::Judge(AC::Role::AuthoredMesh, shipped), AC::Verdict::Plausible) << shipped;
             EXPECT_EQ(AC::Judge(AC::Role::ImpostorBake, shipped), AC::Verdict::Plausible) << shipped;
         }
         EXPECT_EQ(AC::Judge(AC::Role::AuthoredMesh, 0.194f), AC::Verdict::TooSparse);
-        EXPECT_EQ(AC::Judge(AC::Role::ImpostorBake, 0.113f), AC::Verdict::TooSparse);
+        EXPECT_EQ(AC::Judge(AC::Role::ImpostorBake, 0.120f), AC::Verdict::TooSparse);
     }
 
     TEST(FoliageAlphaCoverage, BandEdgesAreInclusive)

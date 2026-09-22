@@ -7,15 +7,26 @@ through Material::GetAlbedoMap() to give each submesh its own texture - and
 because a text mesh stays diffable, so a future change to a committed plant shows
 up in review as something a human can read.
 
-THE V FLIP HAPPENS HERE, EXACTLY ONCE. Everything upstream in this package works
-in glTF convention (v = 0 at the TOP of the image, increasing downward). OBJ puts
-v = 0 at the bottom. `write_obj` therefore emits `1 - v`, and no other module in
-this package may flip. See gltf.py for what a double flip costs.
+UVS ARE WRITTEN TOP-DOWN, AS THEY ARE. Everything in this package works in glTF
+convention (v = 0 at the TOP of the image, increasing downward), and so does the
+OBJ this module writes - which is NOT the OBJ standard (v = 0 at the bottom).
+That is deliberate: OloEngine's Model flips the v of EVERY OBJ it imports (for
+legacy atlases such as the LearnOpenGL backpack), and Texture2D flips rows on
+upload, so a top-down v is what samples the right texel. The engine is the one
+place the flip happens; no module here may flip. Issue #1399 found that the
+earlier standard-OBJ output sampled every plant's atlas upside down: grass blades
+that cover 93% of their surface as authored passed only 45% as drawn. Each file
+states its convention in its second header line.
 """
 
 import os
 
 import numpy as np
+
+UV_CONVENTION_NOTE = (
+    "# UVs are TOP-DOWN (glTF convention: v = 0 at the top of the image). OloEngine's Model flips "
+    "the v of every OBJ it imports, so this is what renders correctly; see "
+    "docs/agent-rules/vegetation-asset-import.md rule 4.")
 
 
 def write_obj(path, name, groups, mtl_name=None):
@@ -32,6 +43,7 @@ def write_obj(path, name, groups, mtl_name=None):
     """
     mtl_name = mtl_name or (os.path.splitext(os.path.basename(path))[0] + ".mtl")
     chunks = [f"# {name} - imported by tools/vegetation-import. Do not hand-edit.\n",
+              UV_CONVENTION_NOTE + "\n",
               f"mtllib {mtl_name}\n", f"o {name}\n"]
 
     vertex_base = 0
@@ -40,7 +52,7 @@ def write_obj(path, name, groups, mtl_name=None):
         if len(tris) == 0:
             continue
         chunks.append(_format_rows("v", positions))
-        chunks.append(_format_rows("vt", np.stack([uvs[:, 0], 1.0 - uvs[:, 1]], axis=1)))
+        chunks.append(_format_rows("vt", uvs))
         chunks.append(_format_rows("vn", normals))
         face = (tris + vertex_base + 1).astype(np.int64)
         block = [f"usemtl {material}\n", "s off\n"]
