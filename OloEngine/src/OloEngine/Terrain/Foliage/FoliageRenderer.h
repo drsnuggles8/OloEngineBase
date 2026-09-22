@@ -216,13 +216,12 @@ namespace OloEngine
         glm::vec3 BaseColor{ 1.0f };
         f32 AlphaCutoff = 0.5f;
         Ref<Texture2D> AlbedoTexture;
+        FString LoadedAlbedoPath; // What AlbedoTexture was opened from
 
         // The leaf material (issue #1234). The maps are cached BY PATH —
         // `Loaded*Path` records what each Ref was opened from, so editing
         // the path in the inspector re-opens it and NOT editing it does not
-        // re-open anything. (The albedo above predates this and reloads
-        // only when its Ref is null, which is a separate pre-existing
-        // limitation, not one these three inherit.)
+        // re-open anything. The albedo above follows the same rule.
         Ref<Texture2D> LeafNormalTexture;
         Ref<Texture2D> LeafRoughnessTexture;
         Ref<Texture2D> LeafThicknessTexture;
@@ -316,6 +315,7 @@ namespace OloEngine
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::BaseColor)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::AlphaCutoff)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::AlbedoTexture)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::LoadedAlbedoPath)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::LeafNormalTexture)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::LeafRoughnessTexture)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::LeafThicknessTexture)>::Value &&

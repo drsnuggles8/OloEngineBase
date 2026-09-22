@@ -744,11 +744,18 @@ namespace OloEngine
                 renderData.MeshFadeStartDistance = 0.0f;
             }
 
-            // Load albedo texture if needed — foliage albedo is authored
-            // colour and needs sRGB->linear conversion on sample.
-            if (!layer.AlbedoPath.IsEmpty() && !renderData.AlbedoTexture)
+            // Load the albedo — foliage albedo is authored colour and needs
+            // sRGB->linear conversion on sample. Keyed on the PATH, the same
+            // rule as the leaf maps below: it used to load only while the Ref
+            // was null, so editing Albedo Path in the inspector kept drawing
+            // the first texture forever — and re-baked the impostor with that
+            // old texture while recording the new path as baked.
+            if (renderData.LoadedAlbedoPath != layer.AlbedoPath)
             {
-                renderData.AlbedoTexture = Texture2D::Create(layer.AlbedoPath.ToStdString(), /*srgb=*/true);
+                renderData.LoadedAlbedoPath = layer.AlbedoPath;
+                renderData.AlbedoTexture = layer.AlbedoPath.IsEmpty()
+                                               ? nullptr
+                                               : Texture2D::Create(layer.AlbedoPath.ToStdString(), /*srgb=*/true);
             }
 
             // ── The leaf material (issue #1234) ─────────────────────────────
