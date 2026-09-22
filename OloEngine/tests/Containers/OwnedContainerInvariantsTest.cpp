@@ -43,6 +43,7 @@
 #include "OloEngine/Containers/Array.h"
 #include "OloEngine/Containers/String.h"
 #include "OloEngine/Templates/UnrealTypeTraits.h"
+#include "OloEngine/Scene/Components.h"
 
 #include <filesystem>
 #include <fstream>
@@ -273,4 +274,107 @@ namespace OloEngine::Tests
                 << relative << " has no static_assert at all; the relocation gate is gone.";
         }
     }
+
+    // -------------------------------------------------------------------------
+    // 4. Editor undo tier — Axis C.
+    //
+    // SceneHierarchyPanel::DrawComponent<T> picks change detection in three
+    // tiers: trivially copyable -> memcmp; else equality_comparable ->
+    // operator==; else NO UNDO AT ALL, silently. A component holding a
+    // std::vector was already past tier 1, so the question the migration turns
+    // on is whether TArray still satisfies std::equality_comparable where
+    // std::vector did. If it does not, all twelve components below drop to the
+    // no-undo tier and the editor stops recording their edits, with nothing to
+    // see until a user loses work.
+    //
+    // This mirrors the panel's own `if constexpr` chain rather than testing
+    // equality_comparable directly, so it keeps tracking if the tiers change.
+    // -------------------------------------------------------------------------
+    namespace
+    {
+        enum class EUndoTier
+        {
+            Memcmp = 1,     // trivially copyable
+            EqualityOp = 2, // std::equality_comparable
+            None = 3,       // no undo recorded, silently
+        };
+
+        template<typename T>
+        constexpr EUndoTier UndoTierOf()
+        {
+            if constexpr (std::is_trivially_copyable_v<T>)
+            {
+                return EUndoTier::Memcmp;
+            }
+            else if constexpr (std::equality_comparable<T>)
+            {
+                return EUndoTier::EqualityOp;
+            }
+            else
+            {
+                return EUndoTier::None;
+            }
+        }
+
+        template<typename T>
+        void ExpectComponentKeepsUndo(const char* name)
+        {
+            EXPECT_NE(static_cast<int>(UndoTierOf<T>()), static_cast<int>(EUndoTier::None))
+                << name << " has dropped to DrawComponent's no-undo tier. It holds a converted "
+                << "TArray field, so the likely cause is that its element type lost operator== "
+                << "(TArray's is constrained on the element's). Give the element "
+                << "`auto operator==(const T&) const -> bool = default;` in the trailing-return "
+                << "form, per cpp-coding-quality.md section 7 — otherwise the editor silently "
+                << "stops recording edits to this component and undo misses them.";
+        }
+
+        // The two components that have NO undo, measured on origin/master
+        // (6d29f8269) as well as here, so neither is this migration's doing:
+        //
+        //   DiscoveredSetComponent   — no operator== on the component itself.
+        //   ParticleSystemComponent  — holds TArray<Ref<Texture2D>>; a defaulted
+        //                              operator== is the wrong fix for a component
+        //                              carrying Ref<T> runtime state (CLAUDE.md,
+        //                              cross-binding table).
+        //   DialogueStateComponent   — DialogueChoice has no operator==; this one
+        //                              is a one-liner, but it is not this PR's bug.
+        //
+        // Tracked in #1412. THIS LIST MAY ONLY SHRINK: a fourth entry means the
+        // migration silently cost a component its undo, which is the Axis C
+        // regression no other test here can see.
+        template<typename T>
+        void ExpectComponentHasNoUndoYet(const char* name)
+        {
+            EXPECT_EQ(static_cast<int>(UndoTierOf<T>()), static_cast<int>(EUndoTier::None))
+                << name << " now HAS an editor undo tier. That is good news: delete it from the "
+                << "known-exception list, move it to ExpectComponentKeepsUndo above, and note it "
+                << "on #1412. The list is a ratchet and only holds if it follows the progress down.";
+        }
+    } // namespace
+
+    TEST(OwnedContainerInvariants, EveryConvertedComponentKeepsAnEditorUndoTier)
+    {
+        // Every component whose sequence field step 6 converted to TArray.
+        ExpectComponentKeepsUndo<PhysicsJoint3DComponent>("PhysicsJoint3DComponent");
+        ExpectComponentKeepsUndo<RelationshipComponent>("RelationshipComponent");
+        ExpectComponentKeepsUndo<UIDropdownComponent>("UIDropdownComponent");
+        ExpectComponentKeepsUndo<TerrainComponent>("TerrainComponent");
+        ExpectComponentKeepsUndo<FoliageComponent>("FoliageComponent");
+        ExpectComponentKeepsUndo<LODGroupComponent>("LODGroupComponent");
+        ExpectComponentKeepsUndo<TileRendererComponent>("TileRendererComponent");
+        ExpectComponentKeepsUndo<NavMeshBoundsComponent>("NavMeshBoundsComponent");
+        ExpectComponentKeepsUndo<NavAgentComponent>("NavAgentComponent");
+
+        // Known exceptions, pre-existing on master. See the note above.
+        ExpectComponentHasNoUndoYet<DiscoveredSetComponent>("DiscoveredSetComponent");
+        ExpectComponentHasNoUndoYet<ParticleSystemComponent>("ParticleSystemComponent");
+        ExpectComponentHasNoUndoYet<DialogueStateComponent>("DialogueStateComponent");
+
+        // The container itself is the load-bearing part: TArray's operator== is
+        // constrained on the element's, so this is what carries all twelve.
+        static_assert(std::equality_comparable<TArray<i32>>,
+                      "TArray lost operator==; every component holding one drops to the no-undo tier");
+        static_assert(std::equality_comparable<FString>, "FString lost operator==");
+    }
+
 } // namespace OloEngine::Tests

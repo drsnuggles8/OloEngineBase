@@ -383,3 +383,111 @@ following is sufficient cause to re-open:
 
 Absent one of those, the ratios in §0 are not on their own grounds to re-open
 this — they are the starting condition this ADR exists to explain.
+
+## 8. Measured outcome (2026-09-22)
+
+Step 8 of [#738](https://github.com/drsnuggles8/OloEngineBase/issues/738), recorded here because
+it changes two of this ADR's projections. Delivered in PR #1385.
+
+### Cost
+
+| | |
+|---|---|
+| In scope (Renderer, Terrain, Dialogue, Scene, UI) | 290 KLOC, 352 files touched |
+| Changed within scope | +10,533 / −8,225 → **≈36 changed lines per KLOC**, ≈8 net |
+| Whole PR incl. tests, tooling, docs | 710 files, +18,793 / −13,501 |
+| Mechanical share | 57% of removed lines pair one-for-one with an added line once container vocabulary is normalised (`std::vector`↔`TArray`, `push_back`↔`Add`, `size()`↔`Num()`) |
+
+The breadth is not the depth: half the touched files change ten lines or fewer, and only ten files
+are new.
+
+### Defects: seven, and the trait caught none of them
+
+That reads worse than it is, and the reason matters more than the number.
+
+| # | Defect | Caught by | Trait's scope? |
+|---|---|---|---|
+| 1 | `passSet.insert(name.ToStdString())` stored a `string_view` into a temporary — twice. Every set entry dangled, `inDegree`/`successors` were built from freed memory, and modified-Kahn emitted FoliagePass at the end of the frame | a gtest assert 567 tests into a run | no — lifetime, not relocation |
+| 2 | heterogeneous `erase(string_view)` — an MSVC extension | Linux CI | no |
+| 3 | `FString` → `std::vector<std::string>` range construction — libstdc++ copy-**assigns** and needs an implicit conversion; twice | Linux CI | no |
+| 4 | `DefaultConstructItems` default-initialised where `std::vector::resize` value-initialises, so 227 converted `SetNum` sites left aggregates of scalars holding garbage. Particle velocities integrated to −2.2e7 | **looking at a rendered frame** — no test failed | no |
+| 5 | the #716 terrain readback guard matched a bare `GetData(`, which containers made ambiguous | the guard itself | no |
+| 6 | a bare `TEST` in a `TEST_F` suite | CI | no |
+| 7 | the RHI ratchet counted `decltype(Record::RendererID)` inside a trait specialisation as raw OpenGL | CI | no |
+
+**None of the seven is a relocation defect**, and that is the finding. Section 3 assumed
+relocation was the hazard the migration would keep producing. It was not — because the flipped
+trait moved that hazard to compile time completely. A 2×2 probe against the real build flags:
+
+| element member | specialisation | result |
+|---|---|---|
+| `std::string` | none | rejected |
+| `std::string` | derived, member by member | **rejected** |
+| `FString` | none | rejected |
+| `FString` | derived, member by member | compiles |
+
+The unsafe shape — which is precisely what all four step-5 element types looked like before
+conversion — is refused *even when the sanctioned derived specialisation is written for it*, because
+the derivation evaluates to `false`. The trait cannot be talked into it, which is what separates a
+gate from a speed bump. Its guarded hazard class produced zero escapes.
+
+What did produce escapes: **toolchain divergence** (2 defects, 3 occurrences, every one invisible
+on this box — section 6 called this "the single largest ongoing hazard" and was right), **an API
+semantic difference the trait says nothing about** (1, and only a rendered frame revealed it),
+**object lifetime** (1 defect at 2 call sites), **text-matching collateral in guards** (2), and **a gtest rule** (1).
+
+> **Reversal condition 1 is triggered on the letter**: the migration produced defects the trait and
+> the audit did not catch. The remedy that condition prescribes — *"stop and reconsider rather than
+> continue by momentum"* — is what the decision below does. It is not a case for deleting
+> the port: every defect was found and fixed, and the hazard the port exists to manage never
+> escaped.
+
+### Against the projection
+
+Section 6 expected **"roughly 15–20 opt-in specialisations… concentrated in `Task/` and the async
+asset system… i.e. in internal plumbing rather than in the data the migration is actually for."**
+
+Actual: **7 → 184**, so 177 added. Distribution:
+
+| Renderer | Terrain | Particle | Containers | Scene | Templates | Task | other |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 113 | 16 | 14 | 9 | 8 | 8 | **4** | 12 |
+
+Roughly nine times the estimate, and inverted: the prediction's named home, `Task/`, took four.
+
+The projection was wrong because it modelled specialisations as a property of *pre-existing*
+plumbing. They are a **consequence of each conversion**. Converting `Material::m_Name` to `FString`
+makes `Material` non-trivially-copyable, so every `TArray<Material>` now needs `Material`
+specialised — and so on outward. The count scales with conversions, not with `Task/`. Anyone
+planning a further tranche should budget roughly **one derived specialisation per 1.6 KLOC of
+subsystem brought into scope** — about one per 60 changed lines — not a fixed 15–20.
+
+Cost per specialisation is low (about ten lines, copied from the nearest one) and each is a real
+safety assertion. The estimate was wrong; the decision it supported was not.
+
+### Benefit
+
+- `render_graph_fence_execute_32_edges`: **36,515 → 27,721 ns (0.759×)**. Negative controls
+  (`bloom_threshold`, `bloom_downsample`, `tone_map`) bit-identical at 1.000×, so this is not drift.
+- 465 free borrows (`ToView()`) against 304 owning conversions (`ToStdString()`).
+- Wire format unchanged, verified by running an identical harness in this tree and an
+  `origin/master` tree: **124/124 scene YAML, 124/124 `.scenebin` sidecars and 124/124 save-game
+  payloads byte-identical** once the run's own filesystem paths are normalised.
+
+### Decision: stop at four subsystems
+
+Do not continue by momentum, per step 8's own instruction.
+
+- Roughly 860 `std::vector` members remain engine-wide, most in subsystems this ADR never scoped
+  (Gameplay, Scripting, Groom, Audio, Physics3D, Navigation, Asset, Networking, Fluid). Converting
+  them is not an obligation anyone has inherited.
+- The measured win is confined to one hot path. The cheap part of it — removing the per-lookup
+  `std::string` allocation — came from transparent comparators, which do not require `TMap`.
+- Three of seven defects were visible only on a toolchain that cannot be run locally. That cost is
+  paid per tranche, not once.
+- `TMap` / `TSet` adoption is abandoned under reversal condition 2;
+  [#1411](https://github.com/drsnuggles8/OloEngineBase/issues/1411) owns any reopening.
+
+New engine-owned data should still be written as `TArray` / `FString`
+([engine-owned-containers.md](../agent-rules/engine-owned-containers.md)); that is a convention for
+new code, not a standing migration obligation.
