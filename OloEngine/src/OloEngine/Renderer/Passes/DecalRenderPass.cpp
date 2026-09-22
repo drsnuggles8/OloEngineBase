@@ -28,7 +28,7 @@ namespace OloEngine
         m_SelectedOITFramebuffer = {};
         m_SelectedSceneDepthTexture = {};
 
-        if (m_CommandBucket.GetCommandCount() == 0)
+        if (!HasSubmittedCommands())
             return;
 
         const bool hasProjectionDepth = board.Scene.SceneDepth.IsValid();

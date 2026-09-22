@@ -50,6 +50,11 @@ namespace OloEngine
         SetName("ShadowRenderPass");
     }
 
+    void ShadowRenderPass::AppendDeclarationInputs(RGDeclarationKey& key) const
+    {
+        key.Add(m_ShadowMap && m_ShadowMap->IsEnabled());
+    }
+
     void ShadowRenderPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
     {
         RenderGraphNode::Setup(builder, blackboard);

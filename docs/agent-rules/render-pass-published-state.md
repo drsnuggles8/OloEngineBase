@@ -68,9 +68,9 @@ To make a pass-owned raw GL texture visible to the render graph (and so to
 `olo_render_list_targets` / `olo_render_capture_target`), `ImportTexture` it
 from the pass's **`Setup()`** (never Execute — the resource must be resolvable
 the same rebuild that registers it) and hash **both the gate and the raw
-texture ids** into `ComputeBlackboardFingerprint`, because imports are wiped by
-every non-cached `PopulateBlackboard` and Setup only reruns on a fingerprint
-miss. Two refinements learned in the #607 batch (DDGI atlases, froxel-fog
+texture identities** into the declaration key (the pass's
+`AppendDeclarationInputs`, since #1333), because imports are wiped by every
+non-cached `PopulateBlackboard` and Setup only reruns when the key moves. Two refinements learned in the #607 batch (DDGI atlases, froxel-fog
 volumes; precedents: VirtualGeometryDebug, FluidIntermediates):
 
 - **Ping-pong resources import BOTH pings under stable per-ping names**

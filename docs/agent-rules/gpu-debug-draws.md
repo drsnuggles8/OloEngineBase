@@ -124,14 +124,15 @@ through a `DeviceToHost` staging copy issued at the end of the debug pass and re
 at the *next* `BeginFrame` — one frame of latency, no stall. Same trap, same fix,
 as `VirtualMeshRegistry::ReadFrameCullStats`.
 
-**An enable that gates a graph DECLARATION must be hashed into
-`ComputeBlackboardFingerprint` — and `HashPassState` does NOT do it for you.**
-`HashPassState` hashes the pass pointer and `IsReadyForExecution()`, never
-`IsEnabled()`; per-pass enables are expected to be hashed separately (as
-`PostProcess.OverdrawDebugView` is). `ShaderDebugDrawPass::Setup` returns before
-any declaration while disabled, so without `HashBool(h,
-data.Settings.ShaderDebugDrawEnabled)` the blackboard + frame-graph caches
-short-circuit and the pass stays undeclared. The symptom is nastier than "never
+**An enable that gates a graph DECLARATION must reach the declaration key.**
+Since #1333 it does by construction when the pass exposes it through
+`IsEnabled()`: `RenderPipeline::CaptureDeclarationConfig` folds every pass's
+`IsEnabled()`, `IsReadyForExecution()` and `AppendDeclarationInputs` into the
+key ([render-graph-declaration-config.md](render-graph-declaration-config.md)).
+Before that, the hand-written fingerprint hashed readiness but not the enable,
+and `ShaderDebugDrawPass::Setup` returns before any declaration while disabled,
+so the blackboard + frame-graph caches short-circuited and the pass stayed
+undeclared. The symptom is nastier than "never
 works": it works the moment you *also* load a scene or switch rendering path, so
 it reads as intermittent. Pinned by
 `ShaderDebugDrawVisualTest.EnablingAfterTheGraphCacheIsWarmStillDeclaresThePass`,

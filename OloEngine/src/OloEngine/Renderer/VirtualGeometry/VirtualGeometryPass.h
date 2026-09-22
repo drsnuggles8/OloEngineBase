@@ -63,6 +63,10 @@ namespace OloEngine
 
         void Init(const FramebufferSpecification& spec) override;
         void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
+
+        // Setup() imports the debug target only while a debug mode is on, and by
+        // identity, so both are declaration inputs (issues #629, #607).
+        void AppendDeclarationInputs(RGDeclarationKey& key) const override;
         void Execute(RGCommandContext& context) override;
 
         // The G-Buffer is owned by SceneRenderPass; this pass borrows it.

@@ -17,7 +17,7 @@ namespace OloEngine
         RenderGraphNode::Setup(builder, blackboard);
         m_SelectedOITFramebuffer = {};
 
-        if (!m_RenderCallback)
+        if (!HasRenderCallback())
             return;
 
         if (m_OITEnabled)

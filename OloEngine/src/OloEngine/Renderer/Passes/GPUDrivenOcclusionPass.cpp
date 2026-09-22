@@ -27,7 +27,7 @@ namespace OloEngine
 
         // Forward / Forward+ only — the instanced batches are forward-lit PBR.
         // In Deferred they stay on the SceneRenderPass G-Buffer path.
-        if (Renderer3D::GetRendererSettings().Path == RenderingPath::Deferred)
+        if (board.Config.Path == RenderingPath::Deferred)
             return;
 
         // Re-export SceneDepth / SceneNormals after our draws so the AO / SSR

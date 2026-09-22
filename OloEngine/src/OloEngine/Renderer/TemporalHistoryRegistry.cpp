@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 
 #include "OloEngine/Renderer/TemporalHistoryRegistry.h"
+#include "OloEngine/Renderer/RenderGraphDeclarationKey.h"
 
 namespace OloEngine
 {
@@ -113,6 +114,13 @@ namespace OloEngine
         return { it->second, m_Entries[it->second].Generation };
     }
 
+    TemporalHistoryToken TemporalHistoryRegistry::Current(TemporalHistoryToken token) const
+    {
+        if (!token.IsValid() || token.Index >= static_cast<u32>(m_Entries.Num()))
+            return {};
+        return { token.Index, m_Entries[token.Index].Generation };
+    }
+
     const TemporalHistoryDescriptor* TemporalHistoryRegistry::GetDescriptor(TemporalHistoryToken token) const
     {
         const Entry* entry = Resolve(token);
@@ -217,6 +225,23 @@ namespace OloEngine
         m_Indices.clear();
         m_DebugNameOwners.clear();
         m_Entries.Reset();
+    }
+
+    u64 TemporalHistoryRegistry::ComputeValidityKey() const
+    {
+        RGDeclarationKey key;
+        key.Add(static_cast<u64>(m_Entries.Num()));
+        for (const Entry& entry : m_Entries)
+        {
+            key.Add(entry.Key.Effect);
+            key.Add(entry.Key.View);
+            key.Add(entry.Key.Resolution);
+            key.Add(entry.Key.Plane);
+            // Valid implies a texture (MarkProduced refuses without one), so the
+            // texture's creation inside a populate adds nothing but a rebuild.
+            key.Add(entry.Valid);
+        }
+        return key.Get();
     }
 
     TArray<TemporalHistorySnapshot> TemporalHistoryRegistry::Snapshot() const

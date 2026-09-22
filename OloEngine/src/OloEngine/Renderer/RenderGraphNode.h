@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/RenderGraphDeclarationKey.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/RGPreparedPass.h"
 
@@ -240,6 +241,32 @@ namespace OloEngine
         [[nodiscard]] virtual bool IsReadyForExecution() const noexcept
         {
             return true;
+        }
+
+        // Whether IsEnabled() decides what this pass's Setup() declares. The
+        // pipeline keys every pass's IsEnabled() by default (issue #1333); a
+        // pass that declares UNCONDITIONALLY and gates only its Execute() on a
+        // per-frame enable returns false here, or every flip of that enable
+        // rebuilds the whole frame graph for a plan that did not change.
+        [[nodiscard]] virtual bool IsEnableADeclarationInput() const noexcept
+        {
+            return true;
+        }
+
+        // Everything THIS pass's Setup() branches on, sizes a declaration from
+        // or latches for Execute(), beyond IsEnabled(), IsReadyForExecution()
+        // and the blackboard (issue #1333). The pipeline folds it into the
+        // declaration key every frame, and Setup() is only re-run when that key
+        // moves, so an input left out of here freezes whatever the last build
+        // decided: a pass that declared nothing stays culled while its bucket
+        // fills (#1315).
+        //
+        // Read the value through the SAME accessor in Setup() and here, so the
+        // gate and the key cannot drift apart. Execution-only state (UBO values,
+        // counts, matrices) does not belong here: every change rebuilds the graph.
+        virtual void AppendDeclarationInputs(RGDeclarationKey& key) const
+        {
+            (void)key;
         }
 
         [[nodiscard]] virtual bool IsSideEffecting() const

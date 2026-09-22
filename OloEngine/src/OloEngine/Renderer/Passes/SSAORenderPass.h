@@ -24,6 +24,12 @@ namespace OloEngine
         static constexpr const char* kNoiseTargetName = "SSAONoise";
 
         void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
+
+        // Setup() gates on the enable and the technique.
+        void AppendDeclarationInputs(RGDeclarationKey& key) const override
+        {
+            key.Add(m_Settings.SSAOEnabled && m_Settings.ActiveAOTechnique == AOTechnique::SSAO);
+        }
         void Init(const FramebufferSpecification& spec) override;
         void Execute(RGCommandContext& context) override;
         [[nodiscard]] bool SupportsWholePassRecording() const noexcept override

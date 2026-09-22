@@ -161,6 +161,14 @@ namespace OloEngine
         SetName("DeferredLightingPass");
     }
 
+    void DeferredLightingPass::AppendDeclarationInputs(RGDeclarationKey& key) const
+    {
+        key.Add(static_cast<bool>(m_GBuffer));
+        key.Add(m_PerSampleLighting);
+        key.Add(m_GBuffer ? m_GBuffer->GetSampleCount() : 0u);
+        key.Add(static_cast<bool>(m_ShaderMSAA));
+    }
+
     void DeferredLightingPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
     {
         RenderGraphNode::Setup(builder, blackboard);

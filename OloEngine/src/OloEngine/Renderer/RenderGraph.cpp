@@ -27,6 +27,7 @@
 #include <fstream>
 #include <limits>
 #include <mutex>
+#include <tuple>
 #include <unordered_set>
 
 namespace OloEngine
@@ -405,6 +406,12 @@ namespace OloEngine
 
     } // namespace
 
+    u64 RenderGraph::NextTopologyGeneration()
+    {
+        static std::atomic<u64> s_NextGeneration{ 1u };
+        return s_NextGeneration.fetch_add(1u, std::memory_order_relaxed);
+    }
+
     void RenderGraph::Init(u32 width, u32 height)
     {
         OLO_PROFILE_FUNCTION();
@@ -496,7 +503,7 @@ namespace OloEngine
 
         // See ResetTopology(): a full teardown also wipes the blackboard, so
         // advance the generation to invalidate external populate caches.
-        ++m_TopologyGeneration;
+        m_TopologyGeneration = NextTopologyGeneration();
 
         m_ResourceRegistryDirty = true;
     }
@@ -599,7 +606,7 @@ namespace OloEngine
         // keyed off blackboard contents (RenderPipeline's populate fingerprint)
         // must observe a new generation so it repopulates next frame even when
         // every other hashed input is identical — the #530 reentry-cull bug.
-        ++m_TopologyGeneration;
+        m_TopologyGeneration = NextTopologyGeneration();
 
         m_ResourceRegistryDirty = true;
     }
@@ -2304,6 +2311,22 @@ namespace OloEngine
                                                  std::optional<TemporalHistoryEffect> effect)
     {
         return m_TemporalHistoryRegistry.Invalidate(cause, effect);
+    }
+
+    void RenderGraph::RefreshHistorySinkTokens()
+    {
+        for (auto& [historyResource, sink] : m_HistoryTextureSinks)
+        {
+            (void)historyResource;
+            if (!sink.Token.IsValid())
+                continue;
+            const TemporalHistoryToken current = m_TemporalHistoryRegistry.Current(sink.Token);
+            if (!current.IsValid() || current == sink.Token)
+                continue;
+            const Ref<Texture2D> texture = m_TemporalHistoryRegistry.GetTexture(current);
+            if (texture && texture->GetRHIHandle() == sink.Texture)
+                sink.Token = current;
+        }
     }
 
     void RenderGraph::DeclareHistoryTextureExtraction(std::string_view historyResource,
@@ -7071,6 +7094,7 @@ namespace OloEngine
             m_HasValidBuildFrameGraphCache &&
             cacheFingerprint == m_LastBuildFrameGraphFingerprint)
         {
+            ++m_BuildCacheCounters.CacheHits;
             return;
         }
 
@@ -8029,6 +8053,8 @@ namespace OloEngine
         }
         LogSubmissionPlanIfChanged();
 
+        ++m_BuildCacheCounters.Compiles;
+
         // Cache the fingerprint of this successful build so subsequent calls
         // with the same caller-supplied fingerprint can short-circuit the
         // whole function.
@@ -8041,6 +8067,230 @@ namespace OloEngine
         {
             m_HasValidBuildFrameGraphCache = false;
         }
+    }
+
+    // -------------------------------------------------------------------
+    // Compiled-plan digest (issue #1333)
+    // -------------------------------------------------------------------
+
+    u64 RenderGraph::ComputeCompiledPlanDigest(std::vector<PlanDigestEntry>* entries) const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        std::vector<PlanDigestEntry> localEntries;
+        std::vector<PlanDigestEntry>& out = entries ? *entries : localEntries;
+        out.clear();
+
+        const auto addRange = [](RGDeclarationKey& key, const RGSubresourceRange& range)
+        {
+            key.Add(range.BaseMip);
+            key.Add(range.MipCount);
+            key.Add(range.BaseLayer);
+            key.Add(range.LayerCount);
+            key.Add(range.BaseSlice);
+            key.Add(range.SliceCount);
+        };
+        const auto addDesc = [](RGDeclarationKey& key, const RGResourceDesc& desc)
+        {
+            key.Add(desc.Kind);
+            key.Add(desc.Format);
+            key.Add(desc.Queue);
+            key.Add(desc.Width);
+            key.Add(desc.Height);
+            key.Add(desc.DepthOrLayers);
+            key.Add(desc.MipLevels);
+            key.Add(desc.Samples);
+            key.Add(static_cast<u64>(desc.Attachments.Num()));
+            for (const RGResourceFormat attachment : desc.Attachments)
+                key.Add(attachment);
+            key.Add(desc.Imported);
+            key.Add(desc.IsPlaceholder);
+        };
+        const auto isExternallyBacked = [this](const std::unordered_set<u32>& names, std::string_view name)
+        {
+            const u32 nameId = m_ResourceNames.Find(name);
+            return nameId != 0u && names.contains(nameId);
+        };
+
+        // Passes: what each declared, where it runs, and whether it survived
+        // culling. Declarations are sorted, so the digest describes WHAT was
+        // declared rather than the order Setup() happened to declare it in.
+        std::unordered_map<std::string_view, u32> executionIndex;
+        executionIndex.reserve(static_cast<sizet>(m_ExecutionOrder.Num()));
+        for (u32 i = 0; i < static_cast<u32>(m_ExecutionOrder.Num()); ++i)
+            executionIndex.emplace(m_ExecutionOrder[i].ToView(), i);
+        std::unordered_set<std::string_view> culled;
+        for (const FString& name : m_CulledPasses)
+            culled.insert(name.ToView());
+
+        for (const FString& passName : m_InsertionOrder)
+        {
+            const std::string_view name = passName.ToView();
+            RGDeclarationKey key;
+            const auto indexIt = executionIndex.find(name);
+            key.Add(indexIt != executionIndex.end() ? indexIt->second : ~0u);
+            key.Add(culled.contains(name));
+
+            if (const auto accessIt = m_PassAccessDeclarations.find(name); accessIt != m_PassAccessDeclarations.end())
+            {
+                std::vector<const RGAccessDeclaration*> accesses;
+                accesses.reserve(static_cast<sizet>(accessIt->second.Num()));
+                for (const RGAccessDeclaration& access : accessIt->second)
+                    accesses.push_back(&access);
+                std::ranges::sort(accesses, [](const RGAccessDeclaration* a, const RGAccessDeclaration* b)
+                                  { return std::tuple(a->ResourceName.ToView(), a->IsWrite, a->ReadUsage, a->WriteUsage,
+                                                      a->Range.BaseMip, a->Range.BaseLayer, a->Range.BaseSlice) <
+                                           std::tuple(b->ResourceName.ToView(), b->IsWrite, b->ReadUsage, b->WriteUsage,
+                                                      b->Range.BaseMip, b->Range.BaseLayer, b->Range.BaseSlice); });
+                key.Add(static_cast<u64>(accesses.size()));
+                for (const RGAccessDeclaration* access : accesses)
+                {
+                    key.Add(access->ResourceName.ToView());
+                    key.Add(access->IsWrite);
+                    key.Add(access->ReadUsage);
+                    key.Add(access->WriteUsage);
+                    addRange(key, access->Range);
+                }
+            }
+            if (const auto feedbackIt = m_PassFeedbackDeclarations.find(name); feedbackIt != m_PassFeedbackDeclarations.end())
+            {
+                std::vector<std::string_view> feedbacks;
+                for (const RGFeedbackDeclaration& feedback : feedbackIt->second)
+                    feedbacks.push_back(feedback.ResourceName.ToView());
+                std::ranges::sort(feedbacks);
+                key.Add(static_cast<u64>(feedbacks.size()));
+                for (const std::string_view feedback : feedbacks)
+                    key.Add(feedback);
+            }
+            if (const auto dependencyIt = m_Dependencies.find(name); dependencyIt != m_Dependencies.end())
+            {
+                std::vector<std::string_view> dependencies;
+                for (const FString& dependency : dependencyIt->second)
+                    dependencies.push_back(dependency.ToView());
+                std::ranges::sort(dependencies);
+                key.Add(static_cast<u64>(dependencies.size()));
+                for (const std::string_view dependency : dependencies)
+                    key.Add(dependency);
+            }
+            out.push_back({ std::string("pass:").append(name), key.Get() });
+        }
+
+        // Resources: the descriptor each was declared or imported with and,
+        // for anything not backed by the transient pool, the identity it is
+        // bound to. Pool-backed transients are deliberately NOT hashed by
+        // physical identity: the pool hands out a different object from one
+        // frame to the next without the plan changing.
+        std::vector<std::string_view> resourceNames;
+        resourceNames.reserve(m_TransientResourceDescs.size() + m_ImportedResources.size());
+        for (const auto& [name, desc] : m_TransientResourceDescs)
+            resourceNames.emplace_back(name);
+        for (const auto& [name, desc] : m_ImportedResources)
+        {
+            if (!m_TransientResourceDescs.contains(name))
+                resourceNames.emplace_back(name);
+        }
+        std::ranges::sort(resourceNames);
+
+        for (const std::string_view name : resourceNames)
+        {
+            RGDeclarationKey key;
+            const auto transientIt = m_TransientResourceDescs.find(name);
+            const auto importedIt = m_ImportedResources.find(name);
+            key.Add(transientIt != m_TransientResourceDescs.end());
+            if (transientIt != m_TransientResourceDescs.end())
+                addDesc(key, transientIt->second);
+            key.Add(importedIt != m_ImportedResources.end());
+            if (importedIt != m_ImportedResources.end())
+                addDesc(key, importedIt->second);
+
+            const bool importedOrBacked = importedIt != m_ImportedResources.end() ||
+                                          isExternallyBacked(m_ExternallyBackedTransientTextures, name) ||
+                                          isExternallyBacked(m_ExternallyBackedTransientFramebuffers, name);
+            if (importedOrBacked)
+            {
+                if (const auto textureIt = m_TextureHandlesByName.find(name);
+                    textureIt != m_TextureHandlesByName.end() &&
+                    textureIt->second.Index < static_cast<u32>(m_TextureHandleSlots.Num()) &&
+                    m_TextureHandleSlots[textureIt->second.Index].Alive &&
+                    textureIt->second.Index < static_cast<u32>(m_PhysicalTextures.Num()))
+                {
+                    const PhysicalTexture& physical = m_PhysicalTextures[textureIt->second.Index];
+                    key.Add(physical.TextureID);
+                    key.Add(physical.Handle);
+                    key.Add(physical.IsHistory);
+                }
+                if (const auto framebufferIt = m_FramebufferHandlesByName.find(name);
+                    framebufferIt != m_FramebufferHandlesByName.end() &&
+                    framebufferIt->second.Index < static_cast<u32>(m_FramebufferHandleSlots.Num()) &&
+                    m_FramebufferHandleSlots[framebufferIt->second.Index].Alive &&
+                    framebufferIt->second.Index < static_cast<u32>(m_PhysicalFramebuffers.Num()))
+                {
+                    // By the attachments' identities, not the object's address: an
+                    // address can be reused by a recreated framebuffer, which is
+                    // the reissued-name hole of #691 in another currency.
+                    const Ref<Framebuffer>& framebuffer = m_PhysicalFramebuffers[framebufferIt->second.Index].FB;
+                    key.Add(static_cast<bool>(framebuffer));
+                    if (framebuffer)
+                    {
+                        const auto& spec = framebuffer->GetSpecification();
+                        key.Add(spec.Width);
+                        key.Add(spec.Height);
+                        u32 colorAttachments = 0;
+                        bool hasDepth = false;
+                        for (const auto& attachment : spec.Attachments.Attachments)
+                        {
+                            const bool isDepth = attachment.TextureFormat == FramebufferTextureFormat::DEPTH24STENCIL8 ||
+                                                 attachment.TextureFormat == FramebufferTextureFormat::DEPTH_COMPONENT32F;
+                            hasDepth = hasDepth || isDepth;
+                            if (!isDepth && attachment.TextureFormat != FramebufferTextureFormat::None)
+                                ++colorAttachments;
+                        }
+                        for (u32 attachment = 0; attachment < colorAttachments; ++attachment)
+                            key.Add(framebuffer->GetColorAttachmentHandle(attachment));
+                        if (hasDepth)
+                            key.Add(framebuffer->GetDepthAttachmentHandle());
+                    }
+                }
+            }
+            if (const auto sinkIt = m_HistoryTextureSinks.find(name); sinkIt != m_HistoryTextureSinks.end())
+            {
+                key.Add(sinkIt->second.Texture);
+                key.Add(sinkIt->second.Width);
+                key.Add(sinkIt->second.Height);
+            }
+            out.push_back({ std::string("resource:").append(name), key.Get() });
+        }
+
+        {
+            std::vector<const TemporalHistoryContract*> contracts;
+            contracts.reserve(static_cast<sizet>(m_TemporalHistoryContracts.Num()));
+            for (const TemporalHistoryContract& contract : m_TemporalHistoryContracts)
+                contracts.push_back(&contract);
+            std::ranges::sort(contracts, [](const TemporalHistoryContract* a, const TemporalHistoryContract* b)
+                              { return std::tuple(a->HistoryResource.ToView(), a->SourceResource.ToView(), a->ColorAttachmentIndex) <
+                                       std::tuple(b->HistoryResource.ToView(), b->SourceResource.ToView(), b->ColorAttachmentIndex); });
+            RGDeclarationKey key;
+            key.Add(static_cast<u64>(contracts.size()));
+            for (const TemporalHistoryContract* contract : contracts)
+            {
+                key.Add(contract->HistoryResource.ToView());
+                key.Add(contract->SourceResource.ToView());
+                key.Add(contract->Kind);
+                key.Add(contract->ColorAttachmentIndex);
+                key.Add(contract->HistoryImported);
+                key.Add(contract->SourceReachable);
+            }
+            out.push_back({ "history-contracts", key.Get() });
+        }
+
+        std::ranges::sort(out, {}, &PlanDigestEntry::Label);
+        RGDeclarationKey total;
+        for (const PlanDigestEntry& entry : out)
+        {
+            total.Add(std::string_view(entry.Label));
+            total.Add(entry.Digest);
+        }
+        return total.Get();
     }
 
 } // namespace OloEngine

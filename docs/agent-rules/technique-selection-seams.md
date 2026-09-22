@@ -99,10 +99,12 @@ topology in which the node declared nothing — so the node stays **culled**, `E
 never runs, and the counters that were supposed to explain all this report a truthful,
 useless zero. The feature does not fail; it is simply absent.
 
-This is not hypothetical, and the near-miss is instructive: `HashPassState` looks like it
-covers a pass, and it does hash the pass pointer *and* `IsReadyForExecution()` — enough
-to make the mistake invisible in review. Its own comment says per-pass **enabled** state
-is folded in separately, next to the other feature flags. A technique living on
+This is not hypothetical, and the near-miss is instructive: the old `HashPassState` looked
+like it covered a pass, and it did hash the pass pointer *and* `IsReadyForExecution()` —
+enough to make the mistake invisible in review — but not its **enabled** state. Since
+#1333 the pass's `IsEnabled()` is keyed for every pass; a gate that is anything else must
+be reported from `AppendDeclarationInputs`
+([render-graph-declaration-config.md](render-graph-declaration-config.md)). A technique living on
 `ShadowSettings` rather than on `PostProcessSettings` reaches none of that by default.
 
 Symptom to recognise: the lever reads back "on", the pass appears in the frame breakdown,

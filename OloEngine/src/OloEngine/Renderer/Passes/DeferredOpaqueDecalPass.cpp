@@ -13,6 +13,12 @@ namespace OloEngine
         SetName("DeferredOpaqueDecalPass");
     }
 
+    void DeferredOpaqueDecalPass::AppendDeclarationInputs(RGDeclarationKey& key) const
+    {
+        key.Add(static_cast<bool>(m_GBuffer));
+        key.Add(m_DecalPass && m_DecalPass->HasSubmittedCommands());
+    }
+
     void DeferredOpaqueDecalPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
     {
         RenderGraphNode::Setup(builder, blackboard);
@@ -29,7 +35,7 @@ namespace OloEngine
         if (!m_GBuffer)
             return;
 
-        const bool hasDecalWork = m_DecalPass && m_DecalPass->GetCommandBucket().GetCommandCount() > 0;
+        const bool hasDecalWork = m_DecalPass && m_DecalPass->HasSubmittedCommands();
 
         // The decal shader reconstructs world position from the scene depth, so
         // this pass samples the DEPTH attachment while writing the COLOUR ones.
@@ -123,7 +129,7 @@ namespace OloEngine
         if (!m_GBuffer)
             return;
 
-        const bool hasDecalWork = m_DecalPass && m_DecalPass->GetCommandBucket().GetCommandCount() > 0;
+        const bool hasDecalWork = m_DecalPass && m_DecalPass->HasSubmittedCommands();
 
         // Mirror the original synchronous call that used to live inline in
         // SceneRenderPass::Execute(). The MSAA per-sample path writes into

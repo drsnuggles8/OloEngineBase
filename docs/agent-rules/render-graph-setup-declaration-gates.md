@@ -1,9 +1,12 @@
-# A pass whose `Setup()` gates on "do I have work?" must put that gate in the fingerprint
+# A pass whose `Setup()` gates on "do I have work?" must put that gate in the declaration key
 
 If a render-graph pass returns from `Setup()` without declaring anything when it
-has nothing to draw, the emptiness it branched on is a **fingerprint input**. Add
-it to `ComputeBlackboardFingerprint`, or the pass renders nothing for as long as
-the cached build survives — with no error, no warning and a plausible frame.
+has nothing to draw, the emptiness it branched on is a **declaration input**.
+Report it from the pass's `AppendDeclarationInputs`, through the same accessor
+`Setup()` gates on, or the pass renders nothing for as long as the cached build
+survives — with no error, no warning and a plausible frame. Since #1333 the
+mechanism is [render-graph-declaration-config.md](render-graph-declaration-config.md);
+this page is the worked example that motivated it.
 
 This is the other half of
 [virtual-shadow-map-page-cache.md §5](virtual-shadow-map-page-cache.md#5-a-render-graph-passs-setup-is-cached--it-must-not-branch-on-a-setting).
@@ -75,54 +78,49 @@ your pass empty.
 
 ## The two ways to fix it, and when each is right
 
-**Hash the gate** (what #1315 did) when the pass's declarations are a real
+**Key the gate** (what #1315 did, and since #1333 through `AppendDeclarationInputs`) when the pass's declarations are a real
 topology change that most frames should not pay for. Foliage, decals and the
 deferred forward overlay all declare a SceneColor read-modify-write with a
 version rename; declaring that unconditionally would add a graph edge and a
 rename to every frame in every scene, including ones with no such geometry at
-all. Water was already hashed this way, one line above where the others now sit,
-which also makes the file self-consistent.
+all. 
 
-Hash a **boolean**, never the count. The declaration branches on emptiness; a
+Report a **boolean**, never the count. The declaration branches on emptiness; a
 count rebuilds the whole frame graph every time one plant comes into view.
 
 **Declare unconditionally** (§5's rule) when the declarations are cheap and
 unconditional anyway — a pass that always reads the same input and writes the
 same target, and only the *work* is conditional. That is strictly safer and
-needs no fingerprint maintenance, so prefer it for anything new.
+needs no declaration-input maintenance, so prefer it for anything new.
 
 ## The passes that branch today
 
-Seven, and every live gate is hashed in `ComputeBlackboardFingerprint`:
+Every gate below reaches the key through the pass itself, so nothing depends on
+a central list remembering it (#1333):
 
-| pass | gate | hashed |
+| pass | gate | reported by |
 |---|---|---|
-| `WaterRenderPass` | command bucket empty | yes, before #1315 |
-| `GroomRenderPass` | request list empty | yes, by #1246 |
-| `FoliageRenderPass` | command bucket empty | **#1315** |
-| `DecalRenderPass` | command bucket empty | **#1315** |
-| `ForwardOverlayRenderPass` | command bucket empty (plus the path, hashed already) | **#1315** |
-| `FluidIntermediatesPass` | `!m_Enabled \|\| m_FrameDraws.empty()` | the draws half only |
-| `FluidCompositePass` | `!m_Enabled \|\| !intermediates->HasPendingDraws()` | the draws half only |
+| `WaterRenderPass` | command bucket empty | `HasSubmittedCommands()` in `AppendDeclarationInputs` |
+| `FoliageRenderPass` | command bucket empty | same |
+| `DecalRenderPass` | command bucket empty, OIT on | same, plus `m_OITEnabled` |
+| `ForwardOverlayRenderPass` | command bucket empty (the path is a config field) | same |
+| `GroomRenderPass` | request list empty | `m_Requests.Num() != 0` |
+| `FluidIntermediatesPass` | `!m_Enabled \|\| !HasPendingDraws()` | `IsEnabled()` + `HasPendingDraws()` |
+| `FluidCompositePass` | `!m_Enabled \|\| !intermediates->HasPendingDraws()` | `IsEnabled()` + the sibling's draws |
+| `ParticleRenderPass` | no render callback | `HasRenderCallback()` |
+| `OITPrepare/ResolveRenderPass` | no contributor | `m_HasContributors` |
 
-The count is the point: water was hashed, then groom was hashed for its own
-issue, and the three in between were left. Each fix saw only its own pass.
-
-**The two fluid rows are a live trap with the fuse pulled.** Their `m_Enabled`
-half is *not* in the fingerprint, and it cannot bite today only because
-`SetEnabled` has no caller anywhere in the engine — `m_Enabled` is stuck at its
-`true` default, so the gate reduces to the draws half, which is hashed. Wire
-that setter up and you have this bug again, in a pass whose own comment already
-says "the pipeline fingerprint must hash this gate". Hash it in the same commit.
+The count is why the mechanism changed: water was hashed, then groom was hashed
+for its own issue, and the three in between were left, because each fix saw only
+its own pass. The particle callback and the OIT contributors were still missing
+when #1333 took the inventory. The fluid pair's `m_Enabled` half was an unhashed
+trap waiting for a caller of `SetEnabled`; it is keyed through `IsEnabled()` now.
 
 `RenderGraphFingerprint.EveryBucketGatedStreamPassChangesFingerprintOnFirstDraw`
-pins the four bucket-gated passes by accounting — a pure-CPU assertion that the
-fingerprint moves when a bucket gains its first draw — so the next pass to adopt
-this shape fails a named test rather than a golden. Groom and the fluid pair are
-gated on state that does not live on the pass (a `Renderer3D` static, a sibling
-pass's draw list), so they are covered by the fingerprint lines and not by that
-loop. Give one of them a bucket and it belongs in the loop.
+pins the four bucket-gated passes by accounting, and
+`RenderGraphFingerprint.ParticleCallbackAndOITContributorsMoveTheKey` the rest.
+For a gate nobody wrote a test for, the verifier
+(`OLO_RG_VERIFY_DECLARATION_CACHE`) reports the pass by name.
 
-**Adding a pass that branches in `Setup()`? Add its gate to both.** A gate in
-the fingerprint with no test entry is the state this class keeps coming back
-from.
+**Adding a pass that branches in `Setup()`? Report the gate from its
+`AppendDeclarationInputs`, and read it through the same accessor in both.**

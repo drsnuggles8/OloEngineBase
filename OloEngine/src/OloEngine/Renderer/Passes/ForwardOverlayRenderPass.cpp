@@ -23,9 +23,9 @@ namespace OloEngine
     {
         RenderGraphNode::Setup(builder, board);
 
-        if (Renderer3D::GetRendererSettings().Path != RenderingPath::Deferred)
+        if (board.Config.Path != RenderingPath::Deferred)
             return;
-        if (m_CommandBucket.GetCommandCount() == 0)
+        if (!HasSubmittedCommands())
             return;
 
         if (board.Scene.SceneColor.IsValid())

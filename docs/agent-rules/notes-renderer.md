@@ -283,7 +283,8 @@ DRS is broken for the deferred path (`DeferredLightingPass`/`SSAORenderPass` set
 full-size spec and ignore the override; graph-owned FB passes are never reached by
 `ApplyRenderViewport`), and making it work needs ~15 scene-path passes made render-scale-aware.
 
-> **Two wiring gotchas.** `ComputeBlackboardFingerprint` must hash `data.PostProcess.Upscale`, or
+> **Two wiring gotchas.** The declaration key must carry `data.PostProcess.Upscale` (it is a
+> `FrameGraphDeclarationConfig` field since #1333), or
 > toggling upscale never re-declares `EASUColor` / re-sizes the scene band. And EASU's input
 > candidate list must **not** include `PostProcessColor` — that alias points at `EASUColor` once
 > EASU runs, so EASU would read its own output.
@@ -1103,10 +1104,11 @@ signal's alpha never was.
 read** — and when you take one, say so where the next person will look, or the next reuse silently
 clobbers a live value.
 
-**A new tier's enable flag MUST go into the render-graph fingerprint.** Whether the flag is set
-decides whether `PopulateBlackboard` declares the tier's target, which is a TOPOLOGY change, and
-`HashPassState` deliberately does not cover per-pass enabled state — its own comment says the
-`data.PostProcess.*` flags carry that. Miss the line and the checkbox arms the pass while the cached
+**A new tier's enable flag MUST reach the render-graph declaration key.** Whether the flag is set
+decides whether `PopulateBlackboard` declares the tier's target, which is a TOPOLOGY change. Since
+#1333 the pass's `IsEnabled()` is keyed for every pass automatically; a gate that is NOT the pass's
+`IsEnabled()` must be reported from `AppendDeclarationInputs` or be a `FrameGraphDeclarationConfig`
+field ([render-graph-declaration-config.md](render-graph-declaration-config.md)). Miss it and the checkbox arms the pass while the cached
 graph still holds the version where the node declared nothing: the node stays culled, `Execute`
 never runs, every counter reads a truthful zero, and the feature looks simply absent until some
 unrelated resize happens to invalidate the graph. #1056 left a comment warning about exactly this

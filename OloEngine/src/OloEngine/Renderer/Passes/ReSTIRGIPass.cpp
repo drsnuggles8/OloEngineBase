@@ -136,9 +136,9 @@ namespace OloEngine
         {
             builder.ExtractHistoryTexture(ResourceNames::ReSTIRGISurfaceHistory, m_SelectedInitial, 3u);
         }
-        const u32 spatialPasses = std::max(m_Settings.SpatialPasses, 1u);
+        const u32 extractionSource = ReservoirExtractionSource();
         const RGFramebufferHandle finalReservoir =
-            m_Settings.SpatialReuse ? m_SelectedSpatial[(spatialPasses - 1u) % 2u] : m_SelectedTemporal;
+            extractionSource == 0u ? m_SelectedTemporal : m_SelectedSpatial[extractionSource - 1u];
         if (finalReservoir.IsValid())
         {
             builder.ExtractHistoryTexture(ResourceNames::ReSTIRGIReservoirSampleHistory, finalReservoir, 0u);

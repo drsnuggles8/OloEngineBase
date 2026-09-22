@@ -252,6 +252,23 @@ namespace OloEngine
         OLO_CORE_INFO("DDGIProbeUpdatePass: Initialized (atlases created lazily on first submitted volume)");
     }
 
+    void DDGIProbeUpdatePass::AppendDeclarationInputs(RGDeclarationKey& key) const
+    {
+        key.Add(m_VolumeSubmitted);
+        for (u32 ping = 0; ping < 2u; ++ping)
+        {
+            key.Add(GetIrradianceAtlasHandle(ping));
+            key.Add(GetVisibilityAtlasHandle(ping));
+        }
+        key.Add(m_ProbeDataTexture);
+        // The probe-data import descriptor is sized from these, not from the
+        // texture, so they are inputs in their own right (the #1333 inventory, U9).
+        key.Add(m_ResourceResolution.x);
+        key.Add(m_ResourceResolution.y);
+        key.Add(m_ResourceResolution.z);
+        key.Add(m_ResourceCascadeCount);
+    }
+
     void DDGIProbeUpdatePass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
     {
         RenderGraphNode::Setup(builder, blackboard);
@@ -299,7 +316,7 @@ namespace OloEngine
         // Both ping-pong atlases are imported under stable per-ping names —
         // "current" flips every blended frame and must not churn the
         // fingerprint (see the header comment on GetIrradianceAtlasID(ping)).
-        // The raw ids are hashed into ComputeBlackboardFingerprint so a
+        // AppendDeclarationInputs reports their identities, so a
         // Resolution/HitCacheTexels/CascadeCount recreate re-imports instead of
         // keeping a dangling id.
         if (m_VolumeSubmitted)

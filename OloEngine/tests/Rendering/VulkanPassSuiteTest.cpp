@@ -8133,6 +8133,10 @@ TEST_F(VulkanPassSuite, ForwardOverlayEmptyBucketFloorLeavesTheSceneUntouched)
     RenderGraph graph;
     graph.SetTransientMaterializationEnabled(true);
     auto& blackboard = graph.GetBlackboard();
+    // Setup() reads the path from the configuration the blackboard was
+    // populated from (issue #1333), not from the global settings; this graph
+    // is populated by hand, so the path is set here as well.
+    blackboard.Config.Path = RenderingPath::Deferred;
 
     RGResourceDesc sceneDesc;
     sceneDesc.Kind = RGResourceHandle::Kind::Framebuffer;
@@ -9689,6 +9693,10 @@ TEST_F(VulkanPassSuite, ScenePassDeferredFloorClearsTheGBufferAndBlitsTheRmaDebu
     RenderGraph graph;
     graph.SetTransientMaterializationEnabled(true);
     auto& blackboard = graph.GetBlackboard();
+    // Setup() reads the path from the configuration the blackboard was
+    // populated from (issue #1333), not from the global settings; this graph
+    // is populated by hand, so the path is set here as well.
+    blackboard.Config.Path = RenderingPath::Deferred;
 
     RGResourceDesc sceneDesc;
     sceneDesc.Kind = RGResourceHandle::Kind::Framebuffer;

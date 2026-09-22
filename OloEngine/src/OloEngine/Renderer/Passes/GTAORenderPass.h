@@ -31,6 +31,16 @@ namespace OloEngine
         ~GTAORenderPass() override;
 
         void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
+
+        // Setup() gates on the enable and technique, reads TAA history for VRCS, and
+        // declares the denoise pong only when the denoise chain runs. The last one was
+        // missing from the old fingerprint: turning denoise on left GTAO without AO.
+        void AppendDeclarationInputs(RGDeclarationKey& key) const override
+        {
+            key.Add(m_Settings.GTAOEnabled && m_Settings.ActiveAOTechnique == AOTechnique::GTAO);
+            key.Add(m_Settings.VRCSEnabled && m_Settings.VRCSGTAO);
+            key.Add(WillDispatchDenoise());
+        }
         void Init(const FramebufferSpecification& spec) override;
         void Execute(RGCommandContext& context) override;
         bool SupportsWholePassRecording() const noexcept override
@@ -153,6 +163,14 @@ namespace OloEngine
         Ref<UniformBuffer> m_GTAOUBO;
         Ref<UniformBuffer> m_RecordingGTAOUBO;
         UBOStructures::GTAOUBO* m_GPUData = nullptr;
+
+        // The denoise chain runs, and Setup() declares the pong target it ends
+        // in, only when this holds. Setup(), Execute() and the declaration key
+        // all ask here, so they cannot disagree (issue #1333).
+        [[nodiscard]] bool WillDispatchDenoise() const noexcept
+        {
+            return m_Settings.GTAODenoiseEnabled && m_Settings.GTAODenoisePasses > 0;
+        }
 
         PostProcessSettings m_Settings;
         glm::mat4 m_Projection{ 1.0f };
