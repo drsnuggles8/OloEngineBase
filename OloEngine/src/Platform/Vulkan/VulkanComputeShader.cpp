@@ -71,7 +71,7 @@ namespace OloEngine
         const std::string raw = ReadWholeFile(filepath);
         if (raw.empty())
         {
-            OLO_CORE_ERROR("VulkanComputeShader '{}': cannot read '{}'", m_Name, filepath);
+            OLO_CORE_ERROR("VulkanComputeShader '{}': cannot read '{}'", GetName(), filepath);
             return;
         }
 
@@ -112,12 +112,12 @@ namespace OloEngine
         auto* device = VulkanDevice::Get();
         if (device == nullptr)
         {
-            OLO_CORE_ERROR("VulkanComputeShader '{}': no live VulkanDevice", m_Name);
+            OLO_CORE_ERROR("VulkanComputeShader '{}': no live VulkanDevice", GetName());
             return false;
         }
         if (preprocessedSource.empty())
         {
-            OLO_CORE_ERROR("VulkanComputeShader '{}': empty source", m_Name);
+            OLO_CORE_ERROR("VulkanComputeShader '{}': empty source", GetName());
             return false;
         }
 
@@ -129,12 +129,12 @@ namespace OloEngine
                                      Hash::FNV1a64(kOptionsDescriptor.data(), kOptionsDescriptor.size())));
         const std::filesystem::path cachePath =
             CacheDirectory() /
-            (std::filesystem::path(m_FilePath.empty() ? m_Name : m_FilePath).filename().string() + "." +
+            (std::filesystem::path(GetFilePath().empty() ? GetName() : GetFilePath()).filename().string() + "." +
              contentHash + kComputeCacheExtension);
 
-        std::vector<u32> spirv;
+        TArray<u32> spirv;
         bool loaded = false;
-        if (useCache && !m_FilePath.empty())
+        if (useCache && !GetFilePath().empty())
         {
             std::error_code ec;
             std::filesystem::create_directories(CacheDirectory(), ec); // best-effort
@@ -143,15 +143,15 @@ namespace OloEngine
             if (in)
             {
                 const auto size = static_cast<sizet>(in.tellg());
-                if (size > 0 && size % sizeof(u32) == 0)
+                if (size > 0 && size % sizeof(u32) == 0 && size / sizeof(u32) <= static_cast<sizet>(std::numeric_limits<i32>::max()))
                 {
-                    spirv.resize(size / sizeof(u32));
+                    spirv.SetNum(static_cast<i32>(size / sizeof(u32)));
                     in.seekg(0);
                     loaded = static_cast<bool>(
-                        in.read(reinterpret_cast<char*>(spirv.data()), static_cast<std::streamsize>(size)));
+                        in.read(reinterpret_cast<char*>(spirv.GetData()), static_cast<std::streamsize>(size)));
                     if (!loaded)
                     {
-                        spirv.clear();
+                        spirv.Reset();
                     }
                 }
             }
@@ -163,7 +163,7 @@ namespace OloEngine
             // (issue #1139, amendment (97)): after the cache, and only for a
             // source that declares one of the required extensions.
             if (ShaderToolchainFloor::RefuseIfBelowFloor(preprocessedSource,
-                                                         m_FilePath.empty() ? m_Name : m_FilePath))
+                                                         GetFilePath().empty() ? GetName() : GetFilePath()))
             {
                 return false;
             }
@@ -190,22 +190,22 @@ namespace OloEngine
             options.AddMacroDefinition("OLO_VULKAN", "1");
 
             const auto result = compiler.CompileGlslToSpv(preprocessedSource, shaderc_glsl_compute_shader,
-                                                          m_FilePath.empty() ? m_Name.c_str() : m_FilePath.c_str(),
+                                                          GetFilePath().empty() ? GetName().c_str() : GetFilePath().c_str(),
                                                           options);
             if (result.GetCompilationStatus() != shaderc_compilation_status_success)
             {
-                OLO_CORE_ERROR("VulkanComputeShader '{}': {}", m_Name, result.GetErrorMessage());
+                OLO_CORE_ERROR("VulkanComputeShader '{}': {}", GetName(), result.GetErrorMessage());
                 return false;
             }
-            spirv.assign(result.cbegin(), result.cend());
+            spirv = TArray<u32>(result.cbegin(), static_cast<i32>(result.cend() - result.cbegin()));
 
-            if (useCache && !m_FilePath.empty())
+            if (useCache && !GetFilePath().empty())
             {
                 std::ofstream out(cachePath, std::ios::out | std::ios::binary | std::ios::trunc);
                 if (out)
                 {
-                    out.write(reinterpret_cast<const char*>(spirv.data()),
-                              static_cast<std::streamsize>(spirv.size() * sizeof(u32)));
+                    out.write(reinterpret_cast<const char*>(spirv.GetData()),
+                              static_cast<std::streamsize>(spirv.Num() * sizeof(u32)));
                 }
             }
         }
@@ -215,23 +215,23 @@ namespace OloEngine
         // rule; the root layout derives from m_Bindings).
         VkShaderModuleCreateInfo moduleInfo{};
         moduleInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-        moduleInfo.codeSize = spirv.size() * sizeof(u32);
-        moduleInfo.pCode = spirv.data();
+        moduleInfo.codeSize = spirv.Num() * sizeof(u32);
+        moduleInfo.pCode = spirv.GetData();
         VkShaderModule newModule = VK_NULL_HANDLE;
         if (vkCreateShaderModule(device->GetDevice(), &moduleInfo, nullptr, &newModule) != VK_SUCCESS)
         {
-            OLO_CORE_ERROR("VulkanComputeShader '{}': vkCreateShaderModule failed", m_Name);
+            OLO_CORE_ERROR("VulkanComputeShader '{}': vkCreateShaderModule failed", GetName());
             return false;
         }
         // Name this module for a device-fault report (issue #1198); no-op
         // unless Aftermath crash dumps are armed.
-        VulkanAftermath::RegisterShaderBinary((m_Name + ":compute").c_str(), moduleInfo.pCode,
+        VulkanAftermath::RegisterShaderBinary((GetName() + ":compute").c_str(), moduleInfo.pCode,
                                               moduleInfo.codeSize);
 
-        std::vector<VulkanShaderBinding> newBindings;
+        TArray<VulkanShaderBinding> newBindings;
         try
         {
-            const spirv_cross::Compiler reflector(spirv);
+            const spirv_cross::Compiler reflector(spirv.GetData(), static_cast<sizet>(spirv.Num()));
             const spirv_cross::ShaderResources resources = reflector.get_shader_resources();
             const auto append = [&](const spirv_cross::Resource& resource, VulkanShaderBinding::Kind kind)
             {
@@ -262,14 +262,14 @@ namespace OloEngine
                 // array takes the scalar adjacency mapping and reads the wrong
                 // resource for every element past [0].
                 const u32 arrayCount =
-                    VulkanReflection::ReflectBindingArrayCount(reflector, resource, m_Name.c_str());
-                newBindings.push_back({ .Set = reflector.get_decoration(resource.id, spv::DecorationDescriptorSet),
-                                        .Binding = reflector.get_decoration(resource.id, spv::DecorationBinding),
-                                        .BindingKind = kind,
-                                        .ImageDim = imageDim,
-                                        .Stages = VK_SHADER_STAGE_COMPUTE_BIT,
-                                        .ArrayCount = arrayCount,
-                                        .Name = resource.name });
+                    VulkanReflection::ReflectBindingArrayCount(reflector, resource, GetName().c_str());
+                newBindings.Add(VulkanShaderBinding{ .Set = reflector.get_decoration(resource.id, spv::DecorationDescriptorSet),
+                                                     .Binding = reflector.get_decoration(resource.id, spv::DecorationBinding),
+                                                     .BindingKind = kind,
+                                                     .ImageDim = imageDim,
+                                                     .Stages = VK_SHADER_STAGE_COMPUTE_BIT,
+                                                     .ArrayCount = arrayCount,
+                                                     .Name = resource.name });
             };
             for (const auto& resource : resources.uniform_buffers)
             {
@@ -296,7 +296,7 @@ namespace OloEngine
             // COMMITTED state must survive untouched — the graphics twin has
             // had this guard since #691; this path never did, so an exception
             // here leaked a VkShaderModule and propagated out of the build.
-            OLO_CORE_ERROR("VulkanComputeShader '{}': reflection failed ({})", m_Name, e.what());
+            OLO_CORE_ERROR("VulkanComputeShader '{}': reflection failed ({})", GetName(), e.what());
             vkDestroyShaderModule(device->GetDevice(), newModule, nullptr);
             return false;
         }
@@ -327,24 +327,24 @@ namespace OloEngine
 
     void VulkanComputeShader::Reload()
     {
-        if (m_FilePath.empty())
+        if (GetFilePath().empty())
         {
             return; // source-born shaders have nothing to re-read
         }
-        const std::string raw = ReadWholeFile(m_FilePath);
+        const std::string raw = ReadWholeFile(GetFilePath());
         if (raw.empty())
         {
-            OLO_CORE_ERROR("VulkanComputeShader '{}': reload cannot read '{}'", m_Name, m_FilePath);
+            OLO_CORE_ERROR("VulkanComputeShader '{}': reload cannot read '{}'", GetName(), GetFilePath());
             return;
         }
-        const auto dirEnd = m_FilePath.find_last_of("/\\");
-        const std::string directory = (dirEnd != std::string::npos) ? m_FilePath.substr(0, dirEnd) : "";
+        const auto dirEnd = GetFilePath().find_last_of("/\\");
+        const std::string directory = (dirEnd != std::string::npos) ? GetFilePath().substr(0, dirEnd) : "";
         const std::string source = OpenGLShader::ProcessIncludes(raw, directory);
 
         if (BuildFromSource(source, /*useCache=*/true))
         {
             const sizet invalidated = VulkanPipelineBuilder::Get().InvalidateShader(GetPipelineIndexKey());
-            OLO_CORE_INFO("VulkanComputeShader '{}': reloaded ({} dependent pipeline(s) invalidated)", m_Name,
+            OLO_CORE_INFO("VulkanComputeShader '{}': reloaded ({} dependent pipeline(s) invalidated)", GetName(),
                           invalidated);
         }
     }
@@ -395,7 +395,7 @@ namespace OloEngine
             const std::scoped_lock lock(m_RootLayoutMutex);
             if (!m_RootLayoutBuilt.load(std::memory_order_relaxed))
             {
-                m_RootLayout = std::make_unique<VulkanRootDataLayout>(VulkanRootDataLayout::Build(m_Bindings));
+                m_RootLayout = std::make_unique<VulkanRootDataLayout>(VulkanRootDataLayout::Build(std::span{ m_Bindings.GetData(), static_cast<sizet>(m_Bindings.Num()) }));
                 m_RootLayoutBuilt.store(true, std::memory_order_release);
             }
         }

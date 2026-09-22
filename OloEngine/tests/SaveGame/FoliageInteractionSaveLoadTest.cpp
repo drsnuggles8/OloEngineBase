@@ -93,7 +93,7 @@ namespace OloEngine::Tests
             actor.AddComponent<FoliageInteractionComponent>(authored);
             Entity ground = scene->CreateEntity("Meadow");
             ground.AddComponent<TerrainComponent>();
-            ground.AddComponent<FoliageComponent>().m_Layers.push_back(layer);
+            ground.AddComponent<FoliageComponent>().m_Layers.Add(layer);
             yaml = SceneSerializer(scene).SerializeToYAML();
         }
         ASSERT_FALSE(yaml.empty());
@@ -111,7 +111,7 @@ namespace OloEngine::Tests
         ASSERT_TRUE(static_cast<bool>(restoredGround));
         ASSERT_TRUE(restoredGround.HasComponent<FoliageComponent>());
         const auto& foliage = restoredGround.GetComponent<FoliageComponent>();
-        ASSERT_EQ(foliage.m_Layers.size(), 1u);
+        ASSERT_EQ(foliage.m_Layers.Num(), 1u);
         EXPECT_TRUE(Math::BitwiseEqual(foliage.m_Layers[0].InteractionResponse, layer.InteractionResponse));
         // And undo equality sees it, or an inspector edit is unrevertable.
         FoliageLayer mutated = foliage.m_Layers[0];
@@ -137,7 +137,7 @@ namespace OloEngine::Tests
             actor.AddComponent<FoliageInteractionComponent>(authored);
             Entity ground = scene->CreateEntity("Meadow");
             ground.AddComponent<TerrainComponent>();
-            ground.AddComponent<FoliageComponent>().m_Layers.push_back(layer);
+            ground.AddComponent<FoliageComponent>().m_Layers.Add(layer);
         }
         const auto yaml = SceneSerializer(scene).SerializeToYAML();
         ASSERT_FALSE(yaml.empty());
@@ -189,7 +189,7 @@ namespace OloEngine::Tests
         {
             Entity e{ id, packed.get() };
             const auto& layers = e.GetComponent<FoliageComponent>().m_Layers;
-            ASSERT_EQ(layers.size(), 1u);
+            ASSERT_EQ(layers.Num(), 1u);
             EXPECT_TRUE(Math::BitwiseEqual(layers[0].InteractionResponse, layer.InteractionResponse));
             ++meadows;
         }
@@ -224,7 +224,7 @@ Entities:
         Entity restored = FindByTag(*reloaded, "Meadow");
         ASSERT_TRUE(static_cast<bool>(restored));
         const auto& foliage = restored.GetComponent<FoliageComponent>();
-        ASSERT_EQ(foliage.m_Layers.size(), 1u);
+        ASSERT_EQ(foliage.m_Layers.Num(), 1u);
         EXPECT_FLOAT_EQ(foliage.m_Layers[0].InteractionResponse, 1.0f);
         // The keys it DID carry are intact, so this measures the new key's
         // absence rather than a load that failed quietly.
@@ -292,7 +292,7 @@ Entities:
         Entity ground = FindByTag(*reloaded, "Meadow");
         ASSERT_TRUE(static_cast<bool>(ground));
         const auto& foliage = ground.GetComponent<FoliageComponent>();
-        ASSERT_EQ(foliage.m_Layers.size(), 2u);
+        ASSERT_EQ(foliage.m_Layers.Num(), 2u);
         EXPECT_TRUE(std::isfinite(foliage.m_Layers[0].InteractionResponse));
         EXPECT_LE(foliage.m_Layers[1].InteractionResponse, 8.0f);
         // And the bound derived from it stays finite, which is what the
@@ -394,7 +394,7 @@ Entities:
         SaveGameComponentSerializer::Serialize(reader, loaded);
         EXPECT_FALSE(reader.IsError());
         EXPECT_TRUE(reader.AtEnd()) << "the v37 band consumed bytes a v36 save does not contain";
-        ASSERT_EQ(loaded.m_Layers.size(), 1u);
+        ASSERT_EQ(loaded.m_Layers.Num(), 1u);
         EXPECT_FLOAT_EQ(loaded.m_Layers[0].InteractionResponse, 1.0f);
         EXPECT_FLOAT_EQ(loaded.m_Layers[0].WindStiffness, 0.25f);
         EXPECT_TRUE(loaded.m_Enabled);

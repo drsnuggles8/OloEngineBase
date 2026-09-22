@@ -62,7 +62,7 @@ namespace OloEngine::Tests
         }
 
         const GPUSceneFrameUpdate second = extract({ imported0, defaultKey, override0, imported1 });
-        EXPECT_TRUE(second.m_MaterialDirtyRanges.empty()) << "an unchanged material is not re-uploaded";
+        EXPECT_TRUE(second.m_MaterialDirtyRanges.IsEmpty()) << "an unchanged material is not re-uploaded";
         for (sizet i = 0, count = keyOrder.size(); i < count; ++i)
         {
             EXPECT_EQ(scene.FindMaterial(keyOrder[i]), handles[i]);
@@ -102,7 +102,7 @@ namespace OloEngine::Tests
             SCOPED_TRACE(edit);
             const GPUSceneFrameUpdate update = extract();
             EXPECT_TRUE(DirtyRangesAre(update.m_MaterialDirtyRanges, { { 1, 1 } }));
-            EXPECT_TRUE(update.m_InstanceDirtyRanges.empty())
+            EXPECT_TRUE(update.m_InstanceDirtyRanges.IsEmpty())
                 << "the generation is unchanged, so the instance's MaterialGeneration is too";
             EXPECT_EQ(scene.FindMaterial(keyB), handleB);
             const GPUSceneMaterial* record = scene.GetMaterialRecord(handleB);
@@ -136,12 +136,12 @@ namespace OloEngine::Tests
         EXPECT_NE(record->Flags & GPUSceneMaterialFlagTransmission, 0u);
         EXPECT_EQ(record->AlbedoHeapOffset, 9u) << "a heap re-resolve is stored without touching identity";
         EXPECT_NE(record->Flags & GPUSceneMaterialFlagAlbedoMap, 0u);
-        EXPECT_TRUE(extract().m_MaterialDirtyRanges.empty());
+        EXPECT_TRUE(extract().m_MaterialDirtyRanges.IsEmpty());
 
         // An invalid texture handle encodes as absent whatever heap offset rides
         // with it, so this is not even a dirty record.
         materialB.m_Normal = TextureRef(RHI::ResourceHandle::InvalidIndex, 0, 3);
-        EXPECT_TRUE(extract().m_MaterialDirtyRanges.empty());
+        EXPECT_TRUE(extract().m_MaterialDirtyRanges.IsEmpty());
         record = scene.GetMaterialRecord(handleB);
         ASSERT_NE(record, nullptr);
         EXPECT_EQ(record->NormalHeapOffset, GPUSceneHeapOffsetUnresolved);

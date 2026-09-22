@@ -1,5 +1,7 @@
 #pragma once
 
+#include "OloEngine/Templates/UnrealTypeTraits.h"
+
 #include "OloEngine/Core/Base.h" // u32 typedef used in this header
 
 #include <atomic>
@@ -417,4 +419,14 @@ namespace OloEngine
     template<typename T>
     using WeakAssetPtr = WeakRef<T>;
 
+} // namespace OloEngine
+
+namespace OloEngine
+{
+    // Owns an external intrusive pointer; bookkeeping never retains the wrapper address.
+    template<typename T>
+    struct TIsTriviallyRelocatable<Ref<T>>
+    {
+        static constexpr bool Value = true;
+    };
 } // namespace OloEngine

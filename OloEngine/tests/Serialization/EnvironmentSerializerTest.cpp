@@ -123,11 +123,11 @@ TEST_F(EnvironmentSerializerTest, TryLoadDataPopulatesSpecFilePath)
 
     // The core regression: pre-fix this came back empty because the serializer
     // constructed the spec from {} instead of from the resolved path.
-    EXPECT_FALSE(loaded->GetSpecification().FilePath.empty())
+    EXPECT_FALSE(loaded->GetSpecification().FilePath.IsEmpty())
         << "EnvironmentSerializer dropped the file path before constructing the EnvironmentMap "
            "— any HDR cubemap loaded through the asset registry would be hollow.";
 
-    EXPECT_EQ(fs::path(loaded->GetSpecification().FilePath), absolute)
+    EXPECT_EQ(fs::path(loaded->GetSpecification().FilePath.ToView()), absolute)
         << "spec.FilePath should be the absolute project-resolved path so EnvironmentMap "
            "passes it straight to stb_image";
 

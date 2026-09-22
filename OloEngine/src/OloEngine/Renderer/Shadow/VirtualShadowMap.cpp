@@ -305,14 +305,14 @@ namespace OloEngine
         // redrawn, which is a permanently blank shadow for that light.
         m_LocalPool.Clear();
         m_LocalLayers.fill(VSM::LocalLight{});
-        m_LocalHeads.clear();
+        m_LocalHeads.Reset();
         m_LocalLayerHighWater = 0;
         m_LocalLightsStarved = 0;
     }
 
     void VirtualShadowMap::DestroyResources()
     {
-        m_RasterItems.clear();
+        m_RasterItems.Reset();
         // Free the staging buffer HERE, while the context is alive, not from
         // ~StagedBufferReadback. This VirtualShadowMap lives inside
         // Renderer3D::s_Data, a process static destroyed at atexit — by which
@@ -379,7 +379,7 @@ namespace OloEngine
         // a layer that reads as fully cached and is never redrawn.
         m_LocalPool.Clear();
         m_LocalLayers.fill(VSM::LocalLight{});
-        m_LocalHeads.clear();
+        m_LocalHeads.Reset();
         m_LocalLayerHighWater = 0;
         m_LocalLightsStarved = 0;
     }
@@ -774,7 +774,7 @@ namespace OloEngine
 
     void VirtualShadowMap::LocalLayerPool::InvalidateSlot(u32 slotIndex)
     {
-        if (slotIndex >= Slots.size())
+        if (slotIndex >= static_cast<sizet>(Slots.Num()))
             return;
         const Slot& slot = Slots[slotIndex];
         for (u32 i = 0; i < slot.Count && (slot.Base + i) < VSM::kMaxLocalLayers; ++i)
@@ -783,7 +783,7 @@ namespace OloEngine
 
     void VirtualShadowMap::LocalLayerPool::Release(u32 slotIndex)
     {
-        if (slotIndex >= Slots.size())
+        if (slotIndex >= static_cast<sizet>(Slots.Num()))
             return;
 
         // Flag the pages BEFORE the layers stop pointing at the slot — the flush
@@ -876,7 +876,7 @@ namespace OloEngine
 
     void VirtualShadowMap::LocalLayerPool::Clear()
     {
-        Slots.clear();
+        Slots.Reset();
         ByLight.clear();
         Owner.fill(0);
         Invalidate.fill(0);
@@ -906,7 +906,7 @@ namespace OloEngine
             // reshuffled pool.
             u32 victim = kNoLocalSlot;
             u64 oldest = ~0ull;
-            for (u32 i = 0; i < Slots.size(); ++i)
+            for (u32 i = 0; i < static_cast<sizet>(Slots.Num()); ++i)
             {
                 const Slot& slot = Slots[i];
                 if (slot.Count == 0 || slot.InUse)
@@ -926,7 +926,7 @@ namespace OloEngine
         }
 
         u32 slotIndex = kNoLocalSlot;
-        for (u32 i = 0; i < Slots.size(); ++i)
+        for (u32 i = 0; i < static_cast<sizet>(Slots.Num()); ++i)
         {
             if (Slots[i].Count == 0)
             {
@@ -936,8 +936,8 @@ namespace OloEngine
         }
         if (slotIndex == kNoLocalSlot)
         {
-            slotIndex = static_cast<u32>(Slots.size());
-            Slots.emplace_back();
+            slotIndex = static_cast<u32>(Slots.Num());
+            Slots.Emplace_GetRef();
         }
 
         Slot& slot = Slots[slotIndex];
@@ -968,7 +968,7 @@ namespace OloEngine
             return;
 
         m_LocalPool.BeginFrame();
-        m_LocalHeads.clear();
+        m_LocalHeads.Reset();
         m_LocalLightsStarved = 0;
     }
 
@@ -1033,7 +1033,7 @@ namespace OloEngine
             }
         }
 
-        m_LocalHeads.push_back((slot.Base << 1) | (desc.IsPoint ? 1u : 0u));
+        m_LocalHeads.Add((slot.Base << 1) | (desc.IsPoint ? 1u : 0u));
         return static_cast<i32>(slot.Base);
     }
 
@@ -1059,7 +1059,7 @@ namespace OloEngine
         }
 
         m_LocalLayerHighWater = m_LocalPool.LayerHighWater();
-        m_Globals.Params4.y = static_cast<i32>(m_LocalHeads.size());
+        m_Globals.Params4.y = static_cast<i32>(m_LocalHeads.Num());
         m_Globals.Params4.z = static_cast<i32>(m_LocalLayerHighWater);
 
         UploadLocalLights();
@@ -1083,7 +1083,7 @@ namespace OloEngine
                                kLocalRasterMipOffset);
 
         std::array<u32, VSM::kMaxLocalLayers> heads{};
-        const auto headCount = static_cast<u32>(std::min<sizet>(m_LocalHeads.size(), VSM::kMaxLocalLayers));
+        const auto headCount = static_cast<u32>(std::min<sizet>(static_cast<sizet>(m_LocalHeads.Num()), VSM::kMaxLocalLayers));
         std::copy_n(m_LocalHeads.begin(), headCount, heads.begin());
         m_LocalLights->SetData(heads.data(), static_cast<u32>(heads.size() * sizeof(u32)), kLocalHeadOffset);
 
@@ -1098,14 +1098,14 @@ namespace OloEngine
 
     void VirtualShadowMap::AddDynamicInvalidation(const glm::vec3& boundsMin, const glm::vec3& boundsMax)
     {
-        if (!IsActive() || m_PendingInvalidations.size() >= 2 * kMaxInvalidations)
+        if (!IsActive() || static_cast<sizet>(m_PendingInvalidations.Num()) >= 2 * kMaxInvalidations)
             return;
-        m_PendingInvalidations.emplace_back(boundsMin, 0.0f);
-        m_PendingInvalidations.emplace_back(boundsMax, 0.0f);
+        m_PendingInvalidations.Emplace_GetRef(boundsMin, 0.0f);
+        m_PendingInvalidations.Emplace_GetRef(boundsMax, 0.0f);
     }
 
-    void VirtualShadowMap::SubmitDynamicInvalidations(const std::vector<ShadowMeshCaster>& meshCasters,
-                                                      const std::vector<ShadowSkinnedCaster>& skinnedCasters,
+    void VirtualShadowMap::SubmitDynamicInvalidations(std::span<const ShadowMeshCaster> meshCasters,
+                                                      std::span<const ShadowSkinnedCaster> skinnedCasters,
                                                       const glm::vec3& renderOrigin)
     {
         OLO_PROFILE_FUNCTION();
@@ -1143,7 +1143,7 @@ namespace OloEngine
             glm::vec3 boundsMax{};
             const bool hasBounds = boundsOf(caster.WorldBounds, boundsMin, boundsMax);
 
-            const bool isNew = i >= m_PrevCasterPoses.size();
+            const bool isNew = i >= static_cast<sizet>(m_PrevCasterPoses.Num());
             const bool moved = isNew || std::memcmp(&m_PrevCasterPoses[i].Transform, &caster.transform,
                                                     sizeof(glm::mat4)) != 0;
             if (moved && hasBounds)
@@ -1169,14 +1169,14 @@ namespace OloEngine
         // removing a caster from the middle shifts every later one and those
         // already read as moved. Trimming without invalidating is the one case
         // that leaves no trace at all.
-        for (sizet i = meshCasters.size(); i < m_PrevCasterPoses.size(); ++i)
+        for (sizet i = meshCasters.size(); i < static_cast<sizet>(m_PrevCasterPoses.Num()); ++i)
         {
             const auto& gone = m_PrevCasterPoses[i];
             if (gone.HasBounds)
                 AddDynamicInvalidation(gone.BoundsMin, gone.BoundsMax);
         }
 
-        m_PrevCasterPoses.resize(meshCasters.size());
+        m_PrevCasterPoses.SetNum(static_cast<i64>(meshCasters.size()), EAllowShrinking::No);
         for (sizet i = 0; i < meshCasters.size(); ++i)
         {
             auto& pose = m_PrevCasterPoses[i];
@@ -1257,18 +1257,18 @@ namespace OloEngine
 
         // Dynamic-caster bounds gathered since the last shadow pass.
         const auto invalidationCount =
-            static_cast<u32>(std::min<sizet>(m_PendingInvalidations.size() / 2, kMaxInvalidations));
+            static_cast<u32>(std::min<sizet>(static_cast<sizet>(m_PendingInvalidations.Num()) / 2, kMaxInvalidations));
         {
             const glm::uvec4 header(invalidationCount, 0u, 0u, 0u);
             m_Invalidations->SetData(&header, sizeof(header), 0);
             if (invalidationCount > 0)
             {
-                m_Invalidations->SetData(m_PendingInvalidations.data(),
+                m_Invalidations->SetData(m_PendingInvalidations.GetData(),
                                          invalidationCount * 2 * static_cast<u32>(sizeof(glm::vec4)),
                                          static_cast<u32>(sizeof(glm::vec4)));
             }
         }
-        m_PendingInvalidations.clear();
+        m_PendingInvalidations.Reset();
 
         BindWorkingSet();
 
@@ -1390,8 +1390,8 @@ namespace OloEngine
     // Step 7 — cull + raster
     // -------------------------------------------------------------------------
 
-    bool VirtualShadowMap::RenderCasters(const std::vector<ShadowMeshCaster>& meshCasters,
-                                         const std::vector<ShadowSkinnedCaster>& skinnedCasters,
+    bool VirtualShadowMap::RenderCasters(std::span<const ShadowMeshCaster> meshCasters,
+                                         std::span<const ShadowSkinnedCaster> skinnedCasters,
                                          const glm::vec3& renderOrigin,
                                          const BoneUploader& uploadBones,
                                          const ExternalCasterRenderer& renderExternalCasters)
@@ -1412,8 +1412,8 @@ namespace OloEngine
         // ---- Batch the static casters by (VAO, index range, cull mode) --------
         // Same key as ShadowRenderPass's CSM path: casters sharing it read the
         // same submesh, so they collapse into one instanced indirect draw.
-        m_Batches.clear();
-        m_CullInput.clear();
+        m_Batches.Reset();
+        m_CullInput.Reset();
         m_BatchLookup.clear();
 
         const auto batchKeyOf = [](const ShadowMeshCaster& caster, RHI::ResourceHandle drawVao)
@@ -1437,22 +1437,22 @@ namespace OloEngine
                 continue;
 
             const auto [slot, inserted] =
-                m_BatchLookup.try_emplace(batchKeyOf(caster, drawVao), static_cast<u32>(m_Batches.size()));
+                m_BatchLookup.try_emplace(batchKeyOf(caster, drawVao), static_cast<u32>(m_Batches.Num()));
             if (inserted)
             {
-                if (m_Batches.size() >= batchCap)
+                if (static_cast<sizet>(m_Batches.Num()) >= batchCap)
                 {
                     // Over budget: forget the tentative mapping so the second
                     // pass skips this caster, exactly as the old scan did.
                     m_BatchLookup.erase(slot->first);
                     continue;
                 }
-                m_Batches.push_back({ drawVao, caster.indexCount, caster.baseIndex, caster.twoSided, 0, 0 });
+                m_Batches.Add({ drawVao, caster.indexCount, caster.baseIndex, caster.twoSided, 0, 0 });
             }
             m_Batches[slot->second].CasterCount += 1;
         }
 
-        if (m_Batches.empty() && skinnedCasters.empty() && !haveExternal)
+        if (m_Batches.IsEmpty() && skinnedCasters.empty() && !haveExternal)
             return false;
 
         // Each batch's compacted run is sized EXACTLY casterCount * clipLevels, so
@@ -1497,9 +1497,9 @@ namespace OloEngine
             // cull, the batch rasters and the skinned run all index the same
             // over-subscribed buffer, so anything short of clearing all three
             // leaves one of them reading a run it does not own.
-            m_Batches.clear();
+            m_Batches.Reset();
             m_BatchLookup.clear();
-            m_CullInput.clear();
+            m_CullInput.Reset();
             runCursor = 0;
             skinnedReserve = 0;
         }
@@ -1560,10 +1560,11 @@ namespace OloEngine
         // Two commands per batch when local lights are on: [0, batchCount) are
         // the directional draws and [batchCount, 2*batchCount) the local ones.
         // One buffer, disjoint ranges — the cull kernels never write each other's.
-        const auto batchCount = static_cast<u32>(m_Batches.size());
+        const auto batchCount = static_cast<u32>(m_Batches.Num());
         const u32 commandCount = localFits ? (batchCount * 2u) : batchCount;
-        m_CullInput.reserve(meshCasters.size());
-        m_DrawCommandStaging.assign(commandCount, VSM::DrawCommand{});
+        m_CullInput.Reserve(meshCasters.size());
+        m_DrawCommandStaging.Reset();
+        m_DrawCommandStaging.AddDefaulted(commandCount);
         for (u32 i = 0; i < batchCount; ++i)
         {
             m_DrawCommandStaging[i].IndexCount = m_Batches[i].IndexCount;
@@ -1602,10 +1603,10 @@ namespace OloEngine
             // directional block — see the two-commands-per-batch note above.
             entry.LocalBatch = glm::uvec4(batchCount + batchIndex, batch.LocalRunBase,
                                           batch.LocalRunCapacity, 0u);
-            m_CullInput.push_back(entry);
+            m_CullInput.Add(entry);
         }
 
-        if (m_CullInput.size() > VSM::kMaxCasters)
+        if (static_cast<sizet>(m_CullInput.Num()) > VSM::kMaxCasters)
         {
             // Same contract as the batch and draw-instance budgets above: a
             // budget may drop work, but it says so. Silent truncation here is a
@@ -1614,36 +1615,36 @@ namespace OloEngine
             {
                 OLO_CORE_WARN("VirtualShadowMap: caster budget exhausted ({} submitted, {} kept) — "
                               "raise VSM::kMaxCasters or reduce shadow casters",
-                              m_CullInput.size(), VSM::kMaxCasters);
+                              static_cast<sizet>(m_CullInput.Num()), VSM::kMaxCasters);
                 m_LoggedCasterBudgetExhausted = true;
             }
-            m_CullInput.resize(VSM::kMaxCasters);
+            m_CullInput.SetNum(static_cast<i64>(VSM::kMaxCasters), EAllowShrinking::No);
         }
 
-        if (!m_CullInput.empty())
+        if (!m_CullInput.IsEmpty())
         {
-            m_CullInstances->SetData(m_CullInput.data(),
-                                     static_cast<u32>(m_CullInput.size() * sizeof(VSM::CullInstance)));
+            m_CullInstances->SetData(m_CullInput.GetData(),
+                                     static_cast<u32>(static_cast<sizet>(m_CullInput.Num()) * sizeof(VSM::CullInstance)));
         }
-        if (!m_DrawCommandStaging.empty())
+        if (!m_DrawCommandStaging.IsEmpty())
         {
-            m_DrawCommands->SetData(m_DrawCommandStaging.data(),
-                                    static_cast<u32>(m_DrawCommandStaging.size() * sizeof(VSM::DrawCommand)));
+            m_DrawCommands->SetData(m_DrawCommandStaging.GetData(),
+                                    static_cast<u32>(static_cast<sizet>(m_DrawCommandStaging.Num()) * sizeof(VSM::DrawCommand)));
         }
 
         BindWorkingSet();
 
         // ---- The cull ---------------------------------------------------------
-        if (!m_CullInput.empty() && m_CullShader)
+        if (!m_CullInput.IsEmpty() && m_CullShader)
         {
             VSM::PassUBO pass{};
-            pass.Params.x = static_cast<u32>(m_CullInput.size());
+            pass.Params.x = static_cast<u32>(m_CullInput.Num());
             m_PassUBO->SetData(&pass, VSM::PassUBO::GetSize());
             m_PassUBO->Bind();
 
             m_CullShader->Bind();
             RenderCommand::DispatchCompute(
-                DivideRoundUp(static_cast<u32>(m_CullInput.size()) * VSM::kClipLevels, 64), 1, 1);
+                DivideRoundUp(static_cast<u32>(m_CullInput.Num()) * VSM::kClipLevels, 64), 1, 1);
             // The two culls write disjoint commands and disjoint instance runs,
             // so they only need to be ordered against the DRAWS, not against each
             // other — but they do share b_CullInstances and b_DrawCommands, so
@@ -1652,14 +1653,14 @@ namespace OloEngine
             if (localFits && m_CullLocalShader)
             {
                 VSM::PassUBO localPass{};
-                localPass.Params.x = static_cast<u32>(m_CullInput.size());
+                localPass.Params.x = static_cast<u32>(m_CullInput.Num());
                 localPass.Params.z = m_LocalLayerHighWater;
                 m_PassUBO->SetData(&localPass, VSM::PassUBO::GetSize());
                 m_PassUBO->Bind();
 
                 m_CullLocalShader->Bind();
                 RenderCommand::DispatchCompute(
-                    DivideRoundUp(static_cast<u32>(m_CullInput.size()) * m_LocalLayerHighWater, 64), 1, 1);
+                    DivideRoundUp(static_cast<u32>(m_CullInput.Num()) * m_LocalLayerHighWater, 64), 1, 1);
             }
             // The indirect commands the cull just wrote are consumed by the draw
             // path, so the barrier has to cover Command as well as ShaderStorage —
@@ -1744,9 +1745,9 @@ namespace OloEngine
 
     void VirtualShadowMap::PrepareRasterItems(u32 count)
     {
-        while (m_RasterItems.size() < count)
+        while (static_cast<sizet>(m_RasterItems.Num()) < count)
         {
-            auto& item = m_RasterItems.emplace_back();
+            auto& item = m_RasterItems.Emplace_GetRef();
             item.Pass = UniformBuffer::Create(VSM::PassUBO::GetSize(), ShaderBindingLayout::UBO_VIRTUAL_SHADOW_DRAW);
             item.Animation = UniformBuffer::Create(ShaderBindingLayout::AnimationUBO::GetSize(), ShaderBindingLayout::UBO_ANIMATION);
             item.Instances = StorageBuffer::Create(
@@ -1758,9 +1759,9 @@ namespace OloEngine
     u32 VirtualShadowMap::RenderBatches(bool local)
     {
         const auto& shader = local ? m_DepthLocalShader : m_DepthShader;
-        if (!shader || m_Batches.empty())
+        if (!shader || m_Batches.IsEmpty())
             return 0;
-        const u32 count = std::clamp(static_cast<u32>(m_Batches.size() / 32), 1u, MAX_RENDER_WORKERS);
+        const u32 count = std::clamp(static_cast<u32>(static_cast<sizet>(m_Batches.Num()) / 32), 1u, MAX_RENDER_WORKERS);
         PrepareRasterItems(count);
         shader->Bind();
         BindPhysicalPoolImage();
@@ -1774,8 +1775,8 @@ namespace OloEngine
             RenderCommand::EnableCulling();
             RenderCommand::FrontCull();
             bool cullingDisabled = false;
-            const sizet end = m_Batches.size() * (itemIndex + 1) / count;
-            for (sizet i = m_Batches.size() * itemIndex / count; i < end; ++i)
+            const sizet end = static_cast<sizet>(m_Batches.Num()) * (itemIndex + 1) / count;
+            for (sizet i = static_cast<sizet>(m_Batches.Num()) * itemIndex / count; i < end; ++i)
             {
                 const auto& batch = m_Batches[i];
                 if (local && batch.LocalRunCapacity == 0)
@@ -1797,7 +1798,7 @@ namespace OloEngine
                 params->Bind();
                 // The cull owns instance counts. The draw-count source remains
                 // constant one, with no CPU readback of culling results.
-                const sizet command = local ? m_Batches.size() + i : i;
+                const sizet command = local ? static_cast<sizet>(m_Batches.Num()) + i : i;
                 RenderCommand::MultiDrawElementsIndirectCountRaw(
                     batch.Vao, m_DrawCommands->GetRHIHandle(),
                     static_cast<u32>(command * sizeof(VSM::DrawCommand)),
@@ -1812,22 +1813,22 @@ namespace OloEngine
         return total;
     }
 
-    u32 VirtualShadowMap::RecordSkinnedDraws(const std::vector<ShadowSkinnedCaster>& casters,
+    u32 VirtualShadowMap::RecordSkinnedDraws(std::span<const ShadowSkinnedCaster> casters,
                                              const BoneUploader& uploadBones)
     {
-        if (m_PreparedSkinnedDraws.empty())
+        if (m_PreparedSkinnedDraws.IsEmpty())
             return 0;
-        const u32 count = std::clamp(static_cast<u32>(m_PreparedSkinnedDraws.size() / 32), 1u, MAX_RENDER_WORKERS);
+        const u32 count = std::clamp(static_cast<u32>(static_cast<sizet>(m_PreparedSkinnedDraws.Num()) / 32), 1u, MAX_RENDER_WORKERS);
         PrepareRasterItems(count);
         RenderCommand::RecordParallel(count, [&](u32 itemIndex)
                                       {
             auto& item = m_RasterItems[itemIndex];
-            const sizet end = m_PreparedSkinnedDraws.size() * (itemIndex + 1) / count;
-            for (sizet i = m_PreparedSkinnedDraws.size() * itemIndex / count; i < end; ++i)
+            const sizet end = static_cast<sizet>(m_PreparedSkinnedDraws.Num()) * (itemIndex + 1) / count;
+            for (sizet i = static_cast<sizet>(m_PreparedSkinnedDraws.Num()) * itemIndex / count; i < end; ++i)
             {
                 const auto& draw = m_PreparedSkinnedDraws[i];
                 const auto& caster = casters[draw.CasterIndex];
-                item.Instances->SetData(m_PreparedSkinnedInstances.data() + draw.InstanceOffset,
+                item.Instances->SetData(m_PreparedSkinnedInstances.GetData() + draw.InstanceOffset,
                                         draw.InstanceCount * sizeof(VSM::DrawInstance));
                 item.Instances->Bind();
                 // Each item reuses a small private instance upload at offset zero.
@@ -1838,10 +1839,10 @@ namespace OloEngine
                     continue; // no palette: this caster would cast someone else's pose
                 RenderCommand::DrawIndexedInstancedRaw(caster.vaoID, caster.indexCount, caster.baseIndex, draw.InstanceCount);
             } });
-        return static_cast<u32>(m_PreparedSkinnedDraws.size());
+        return static_cast<u32>(m_PreparedSkinnedDraws.Num());
     }
 
-    u32 VirtualShadowMap::RenderSkinnedCasters(const std::vector<ShadowSkinnedCaster>& skinnedCasters,
+    u32 VirtualShadowMap::RenderSkinnedCasters(std::span<const ShadowSkinnedCaster> skinnedCasters,
                                                const glm::vec3& renderOrigin, u32 instanceBase,
                                                const BoneUploader& uploadBones)
     {
@@ -1859,10 +1860,10 @@ namespace OloEngine
         // imageAtomicMin here a no-op with no diagnostic.
         BindPhysicalPoolImage();
 
-        m_PreparedSkinnedDraws.clear();
-        m_PreparedSkinnedInstances.clear();
+        m_PreparedSkinnedDraws.Reset();
+        m_PreparedSkinnedInstances.Reset();
         u32 cursor = instanceBase;
-        m_SkinnedInstanceStaging.clear();
+        m_SkinnedInstanceStaging.Reset();
 
         for (const auto& caster : skinnedCasters)
         {
@@ -1872,7 +1873,7 @@ namespace OloEngine
             const glm::mat4 transform = MakeModelRelative(caster.transform, renderOrigin);
             const bool unbounded = caster.WorldBounds.Min.x >= std::numeric_limits<f32>::max();
 
-            m_SkinnedInstanceStaging.clear();
+            m_SkinnedInstanceStaging.Reset();
             for (u32 level = 0; level < VSM::kClipLevels; ++level)
             {
                 if (!unbounded)
@@ -1903,27 +1904,26 @@ namespace OloEngine
                 VSM::DrawInstance record{};
                 record.Transform = transform;
                 record.ClipLevel = level;
-                m_SkinnedInstanceStaging.push_back(record);
+                m_SkinnedInstanceStaging.Add(record);
             }
 
-            if (m_SkinnedInstanceStaging.empty())
+            if (m_SkinnedInstanceStaging.IsEmpty())
                 continue;
 
-            const auto instanceCount = static_cast<u32>(m_SkinnedInstanceStaging.size());
+            const auto instanceCount = static_cast<u32>(m_SkinnedInstanceStaging.Num());
             if (cursor + instanceCount > VSM::kMaxDrawInstances)
                 break;
 
-            m_PreparedSkinnedDraws.push_back({ static_cast<u32>(&caster - skinnedCasters.data()),
-                                               static_cast<u32>(m_PreparedSkinnedInstances.size()), instanceCount });
-            m_PreparedSkinnedInstances.insert(m_PreparedSkinnedInstances.end(),
-                                              m_SkinnedInstanceStaging.begin(), m_SkinnedInstanceStaging.end());
+            m_PreparedSkinnedDraws.Add({ static_cast<u32>(&caster - skinnedCasters.data()),
+                                         static_cast<u32>(m_PreparedSkinnedInstances.Num()), instanceCount });
+            m_PreparedSkinnedInstances.Append(m_SkinnedInstanceStaging);
             cursor += instanceCount;
         }
 
         return RecordSkinnedDraws(skinnedCasters, uploadBones);
     }
 
-    u32 VirtualShadowMap::RenderLocalCasters(const std::vector<ShadowSkinnedCaster>& skinnedCasters,
+    u32 VirtualShadowMap::RenderLocalCasters(std::span<const ShadowSkinnedCaster> skinnedCasters,
                                              const glm::vec3& renderOrigin, u32 instanceBase,
                                              const BoneUploader& uploadBones)
     {
@@ -1941,8 +1941,8 @@ namespace OloEngine
             m_DepthLocalSkinnedShader->Bind();
             BindPhysicalPoolImage();
 
-            m_PreparedSkinnedDraws.clear();
-            m_PreparedSkinnedInstances.clear();
+            m_PreparedSkinnedDraws.Reset();
+            m_PreparedSkinnedInstances.Reset();
             u32 cursor = instanceBase;
             for (const auto& caster : skinnedCasters)
             {
@@ -1954,7 +1954,7 @@ namespace OloEngine
                 const glm::vec3 boundsMin = caster.WorldBounds.Min - renderOrigin;
                 const glm::vec3 boundsMax = caster.WorldBounds.Max - renderOrigin;
 
-                m_LocalSkinnedStaging.clear();
+                m_LocalSkinnedStaging.Reset();
                 for (u32 layer = 0; layer < m_LocalLayerHighWater; ++layer)
                 {
                     const VSM::LocalLight& light = m_LocalLayers[layer];
@@ -1975,22 +1975,21 @@ namespace OloEngine
                     VSM::DrawInstance record{};
                     record.Transform = transform;
                     record.LocalLayer = layer;
-                    m_LocalSkinnedStaging.push_back(record);
-                    if (m_LocalSkinnedStaging.size() >= VSM::kLocalLayersPerCaster)
+                    m_LocalSkinnedStaging.Add(record);
+                    if (static_cast<sizet>(m_LocalSkinnedStaging.Num()) >= VSM::kLocalLayersPerCaster)
                         break;
                 }
 
-                if (m_LocalSkinnedStaging.empty())
+                if (m_LocalSkinnedStaging.IsEmpty())
                     continue;
 
-                const auto instanceCount = static_cast<u32>(m_LocalSkinnedStaging.size());
+                const auto instanceCount = static_cast<u32>(m_LocalSkinnedStaging.Num());
                 if (cursor + instanceCount > instanceBase + m_LocalInstanceCapacity)
                     break;
 
-                m_PreparedSkinnedDraws.push_back({ static_cast<u32>(&caster - skinnedCasters.data()),
-                                                   static_cast<u32>(m_PreparedSkinnedInstances.size()), instanceCount });
-                m_PreparedSkinnedInstances.insert(m_PreparedSkinnedInstances.end(),
-                                                  m_LocalSkinnedStaging.begin(), m_LocalSkinnedStaging.end());
+                m_PreparedSkinnedDraws.Add({ static_cast<u32>(&caster - skinnedCasters.data()),
+                                             static_cast<u32>(m_PreparedSkinnedInstances.Num()), instanceCount });
+                m_PreparedSkinnedInstances.Append(m_LocalSkinnedStaging);
                 cursor += instanceCount;
             }
             drawn += RecordSkinnedDraws(skinnedCasters, uploadBones);
@@ -2073,7 +2072,7 @@ namespace OloEngine
         // The marker writes page/request/diagnostic atomics. Other working-set
         // buffers are not referenced by this kernel and need no bind here.
         for (const auto& buffer : { m_PageTable, m_MetaTable, m_Requests, m_StatsBuffers[m_StatsWriteIndex] })
-            prepared.Resources.push_back({ buffer->GetRHIHandle(), true });
+            prepared.Resources.Add({ buffer->GetRHIHandle(), true });
         prepared.Record = [this, sceneDepth, depthWidth, depthHeight](RGCommandContext&)
         {
             m_MarkGlobalsUBO->Bind();

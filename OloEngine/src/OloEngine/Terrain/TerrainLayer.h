@@ -3,7 +3,7 @@
 #include "OloEngine/Core/Base.h"
 
 #include <glm/glm.hpp>
-#include <string>
+#include "OloEngine/Containers/String.h"
 
 namespace OloEngine
 {
@@ -12,9 +12,9 @@ namespace OloEngine
     struct TerrainLayer
     {
         // Texture paths (relative to asset directory)
-        std::string AlbedoPath; // Albedo/diffuse texture
-        std::string NormalPath; // Normal map
-        std::string ARMPath;    // AO(R) + Roughness(G) + Metallic(B) packed
+        FString AlbedoPath; // Albedo/diffuse texture
+        FString NormalPath; // Normal map
+        FString ARMPath;    // AO(R) + Roughness(G) + Metallic(B) packed
 
         // Tiling and blending
         f32 TilingScale = 10.0f;         // UV tiling factor for this layer
@@ -27,7 +27,23 @@ namespace OloEngine
         f32 Metallic = 0.0f;
 
         // Layer name for editor display
-        std::string Name = "Unnamed";
+        FString Name = "Unnamed";
+    };
+
+    // Four FStrings own external buffers; remaining members are scalar values and glm vectors.
+    template<>
+    struct TIsTriviallyRelocatable<TerrainLayer>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(TerrainLayer::AlbedoPath)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TerrainLayer::NormalPath)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TerrainLayer::ARMPath)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TerrainLayer::TilingScale)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TerrainLayer::HeightBlendSharpness)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TerrainLayer::TriplanarSharpness)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TerrainLayer::BaseColor)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TerrainLayer::Roughness)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TerrainLayer::Metallic)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TerrainLayer::Name)>::Value;
     };
 
     // Maximum layers supported by the splatmap system

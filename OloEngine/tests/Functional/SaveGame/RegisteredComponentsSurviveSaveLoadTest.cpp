@@ -144,7 +144,7 @@ class RegisteredComponentsSurviveSaveLoadTest : public FunctionalTest
             tiles.ResizeGrid(4, 3);
             tiles.TileSize = 2.5f;
             tiles.MaterialIDs[5] = 1;
-            tiles.Materials.emplace_back();
+            tiles.Materials.Emplace();
             tiles.Materials[1].SetBaseColorFactor({ 1.0f, 0.0f, 0.0f, 1.0f });
             tiles.Materials[1].SetMetallicFactor(0.25f);
             tiles.Materials[1].SetRoughnessFactor(0.5f);
@@ -156,7 +156,7 @@ class RegisteredComponentsSurviveSaveLoadTest : public FunctionalTest
             instanced.FrustumCullPerInstance = false;
             instanced.CastShadows = false;
             instanced.CullDistance = 42.0f;
-            instanced.Instances.resize(2);
+            instanced.Instances.SetNum(2);
             instanced.Instances[0].Transform = glm::translate(glm::mat4(1.0f), { 1.0f, 2.0f, 3.0f });
             instanced.Instances[1].Transform = glm::translate(glm::mat4(1.0f), { 4.0f, 5.0f, 6.0f });
         }
@@ -191,8 +191,8 @@ class RegisteredComponentsSurviveSaveLoadTest : public FunctionalTest
             auto& bounds = make("NavMeshBoundsComponent").AddComponent<NavMeshBoundsComponent>();
             bounds.m_Min = { -5.0f, -1.0f, -5.0f };
             bounds.m_Max = { 5.0f, 9.0f, 5.0f };
-            bounds.m_Links.emplace_back(glm::vec3{ -3.0f, 0.5f, 1.0f }, glm::vec3{ 3.0f, 0.5f, -1.0f },
-                                        /*radius=*/0.75f, /*bidirectional=*/false);
+            bounds.m_Links.Emplace_GetRef(glm::vec3{ -3.0f, 0.5f, 1.0f }, glm::vec3{ 3.0f, 0.5f, -1.0f },
+                                          /*radius=*/0.75f, /*bidirectional=*/false);
         }
         {
             auto& agent = make("NavAgentComponent").AddComponent<NavAgentComponent>();
@@ -466,9 +466,9 @@ TEST_F(RegisteredComponentsSurviveSaveLoadTest, PreviouslyDroppedComponentsRound
                                       EXPECT_EQ(tiles.Width, 4u);
                                       EXPECT_EQ(tiles.Height, 3u);
                                       EXPECT_FLOAT_EQ(tiles.TileSize, 2.5f);
-                                      ASSERT_EQ(tiles.MaterialIDs.size(), 12u);
+                                      ASSERT_EQ(tiles.MaterialIDs.Num(), 12u);
                                       EXPECT_EQ(tiles.MaterialIDs[5], 1);
-                                      ASSERT_EQ(tiles.Materials.size(), 2u);
+                                      ASSERT_EQ(tiles.Materials.Num(), 2u);
                                       EXPECT_FLOAT_EQ(tiles.Materials[1].GetBaseColorFactor().r, 1.0f);
                                       EXPECT_FLOAT_EQ(tiles.Materials[1].GetMetallicFactor(), 0.25f);
                                       EXPECT_FLOAT_EQ(tiles.Materials[1].GetRoughnessFactor(), 0.5f);
@@ -482,7 +482,7 @@ TEST_F(RegisteredComponentsSurviveSaveLoadTest, PreviouslyDroppedComponentsRound
                                        EXPECT_FALSE(instanced.FrustumCullPerInstance);
                                        EXPECT_FALSE(instanced.CastShadows);
                                        EXPECT_FLOAT_EQ(instanced.CullDistance, 42.0f);
-                                       ASSERT_EQ(instanced.Instances.size(), 2u);
+                                       ASSERT_EQ(instanced.Instances.Num(), 2u);
                                        EXPECT_FLOAT_EQ(instanced.Instances[0].Transform[3][2], 3.0f);
                                        EXPECT_FLOAT_EQ(instanced.Instances[1].Transform[3][0], 4.0f);
                                    });
@@ -519,8 +519,8 @@ TEST_F(RegisteredComponentsSurviveSaveLoadTest, PreviouslyDroppedComponentsRound
                                    {
                                        EXPECT_FLOAT_EQ(bounds.m_Min.x, -5.0f);
                                        EXPECT_FLOAT_EQ(bounds.m_Max.y, 9.0f);
-                                       ASSERT_EQ(bounds.m_Links.size(), 1u);
-                                       const auto& link = bounds.m_Links.front();
+                                       ASSERT_EQ(bounds.m_Links.Num(), 1u);
+                                       const auto& link = bounds.m_Links.First();
                                        EXPECT_FLOAT_EQ(link.m_Start.x, -3.0f);
                                        EXPECT_FLOAT_EQ(link.m_End.z, -1.0f);
                                        EXPECT_FLOAT_EQ(link.m_Radius, 0.75f);

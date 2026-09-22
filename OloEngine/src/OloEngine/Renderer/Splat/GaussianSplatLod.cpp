@@ -169,18 +169,18 @@ namespace OloEngine::GaussianSplat
 
     void BuildClusters(std::span<const GpuSplat> splats,
                        u32 clusterSize,
-                       std::vector<u32>& orderOut,
-                       std::vector<u32>& offsetsOut)
+                       TArray<u32>& orderOut,
+                       TArray<u32>& offsetsOut)
     {
         OLO_PROFILE_FUNCTION();
 
-        orderOut.resize(splats.size());
+        orderOut.SetNum(splats.size(), EAllowShrinking::No);
         std::iota(orderOut.begin(), orderOut.end(), 0u);
-        offsetsOut.clear();
+        offsetsOut.Reset();
 
         if (splats.empty())
         {
-            offsetsOut.push_back(0u);
+            offsetsOut.Add(0u);
             return;
         }
 
@@ -194,19 +194,19 @@ namespace OloEngine::GaussianSplat
             u32 Begin;
             u32 End;
         };
-        std::vector<Range> pending;
-        pending.push_back({ 0u, static_cast<u32>(splats.size()) });
+        TArray<Range> pending;
+        pending.Add({ 0u, static_cast<u32>(splats.size()) });
 
-        std::vector<Range> leaves;
-        while (!pending.empty())
+        TArray<Range> leaves;
+        while (!pending.IsEmpty())
         {
-            const Range range = pending.back();
-            pending.pop_back();
+            const Range range = pending.Last();
+            pending.Pop(EAllowShrinking::No);
 
             const u32 count = range.End - range.Begin;
             if (count <= target)
             {
-                leaves.push_back(range);
+                leaves.Add(range);
                 continue;
             }
 
@@ -243,8 +243,8 @@ namespace OloEngine::GaussianSplat
                                  return a < b;
                              });
 
-            pending.push_back({ range.Begin, middle });
-            pending.push_back({ middle, range.End });
+            pending.Add({ range.Begin, middle });
+            pending.Add({ middle, range.End });
         }
 
         // nth_element leaves the leaves in stack order; sorting by start offset
@@ -252,67 +252,67 @@ namespace OloEngine::GaussianSplat
         std::sort(leaves.begin(), leaves.end(), [](const Range& a, const Range& b)
                   { return a.Begin < b.Begin; });
 
-        offsetsOut.reserve(leaves.size() + 1);
+        offsetsOut.Reserve(leaves.Num() + 1);
         for (const Range& leaf : leaves)
-            offsetsOut.push_back(leaf.Begin);
-        offsetsOut.push_back(static_cast<u32>(splats.size()));
+            offsetsOut.Add(leaf.Begin);
+        offsetsOut.Add(static_cast<u32>(splats.size()));
     }
 
     void SplatLodChain::Build(const SplatCloud& base, const LodSettings& settings)
     {
         OLO_PROFILE_FUNCTION();
 
-        m_Levels.clear();
+        m_Levels.Reset();
         m_DroppedClusters = 0;
-        m_Levels.push_back(base);
+        m_Levels.Add(base);
         if (base.Empty())
             return;
 
-        std::vector<u32> order;
-        std::vector<u32> offsets;
-        std::vector<glm::vec3> positions;
-        std::vector<glm::vec3> shDc;
-        std::vector<f32> opacity;
-        std::vector<glm::vec3> logScale;
-        std::vector<glm::vec4> rotation;
+        TArray<u32> order;
+        TArray<u32> offsets;
+        TArray<glm::vec3> positions;
+        TArray<glm::vec3> shDc;
+        TArray<f32> opacity;
+        TArray<glm::vec3> logScale;
+        TArray<glm::vec4> rotation;
 
-        while (m_Levels.size() < settings.MaxLevels)
+        while (m_Levels.Num() < settings.MaxLevels)
         {
-            const SplatCloud& previous = m_Levels.back();
+            const SplatCloud& previous = m_Levels.Last();
             if (previous.Count() <= settings.MinLevelSplats)
                 break;
 
             BuildClusters(previous.Splats(), settings.ClusterSize, order, offsets);
-            const sizet clusterCount = offsets.empty() ? 0 : offsets.size() - 1;
+            const sizet clusterCount = offsets.IsEmpty() ? 0 : offsets.Num() - 1;
             if (clusterCount == 0 || clusterCount >= previous.Count())
                 break; // no coarsening happened; another level would loop
 
-            std::vector<GpuSplat> merged;
-            merged.reserve(clusterCount);
-            std::vector<GpuSplat> members;
+            TArray<GpuSplat> merged;
+            merged.Reserve(clusterCount);
+            TArray<GpuSplat> members;
             for (sizet c = 0; c < clusterCount; ++c)
             {
-                members.clear();
+                members.Reset();
                 for (u32 i = offsets[c]; i < offsets[c + 1]; ++i)
-                    members.push_back(previous.Splats()[order[i]]);
+                    members.Add(previous.Splats()[order[i]]);
 
                 GpuSplat mergedSplat;
-                if (MergeCluster(members, mergedSplat))
-                    merged.push_back(mergedSplat);
+                if (MergeCluster({ members.GetData(), static_cast<sizet>(members.Num()) }, mergedSplat))
+                    merged.Add(mergedSplat);
                 else
                     ++m_DroppedClusters;
             }
-            if (merged.empty())
+            if (merged.IsEmpty())
                 break;
 
-            m_Levels.push_back(SplatCloud{});
-            m_Levels.back().Adopt(std::move(merged));
+            m_Levels.Add(SplatCloud{});
+            m_Levels.Last().Adopt(std::move(merged));
         }
     }
 
     auto SplatLodChain::SelectLevel(u32 maxSplats) const -> u32
     {
-        if (m_Levels.empty())
+        if (m_Levels.IsEmpty())
             return 0;
         for (u32 level = 0; level < LevelCount(); ++level)
         {

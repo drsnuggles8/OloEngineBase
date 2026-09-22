@@ -86,8 +86,8 @@ namespace OloEngine::GaussianSplat
         return 3.0f * worldSigma * focalPixels / viewDepth;
     }
 
-    void RadixSortDescending(std::span<u32> keys, std::span<u32> indices, std::vector<u32>& keyScratch,
-                             std::vector<u32>& indexScratch)
+    void RadixSortDescending(std::span<u32> keys, std::span<u32> indices, TArray<u32>& keyScratch,
+                             TArray<u32>& indexScratch)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -96,8 +96,8 @@ namespace OloEngine::GaussianSplat
         if (count < 2)
             return;
 
-        keyScratch.resize(count);
-        indexScratch.resize(count);
+        keyScratch.SetNum(count, EAllowShrinking::No);
+        indexScratch.SetNum(count, EAllowShrinking::No);
 
         // DESCENDING BY COMPLEMENT, NOT BY REVERSING. An LSD radix sort is
         // naturally ascending, and the obvious way to flip it -- emit the last
@@ -112,8 +112,8 @@ namespace OloEngine::GaussianSplat
 
         std::span<u32> srcKeys = keys;
         std::span<u32> srcIndices = indices;
-        std::span<u32> dstKeys(keyScratch);
-        std::span<u32> dstIndices(indexScratch);
+        std::span<u32> dstKeys(keyScratch.GetData(), static_cast<sizet>(keyScratch.Num()));
+        std::span<u32> dstIndices(indexScratch.GetData(), static_cast<sizet>(indexScratch.Num()));
 
         std::array<u32, 256> histogram{};
         for (u32 shift = 0; shift < 32; shift += 8)
@@ -168,7 +168,7 @@ namespace OloEngine::GaussianSplat
     {
         OLO_PROFILE_FUNCTION();
 
-        out.Indices.clear();
+        out.Indices.Reset();
         out.Stats = ViewStats{};
 
         const std::span<const GpuSplat> splats = cloud.Splats();
@@ -194,8 +194,8 @@ namespace OloEngine::GaussianSplat
             u32 Key = 0;
             f32 Score = 0.0f; // screen area x alpha: what the budget ranks on
         };
-        std::vector<Candidate> candidates;
-        candidates.reserve(splats.size());
+        TArray<Candidate> candidates;
+        candidates.Reserve(splats.size());
 
         for (u32 i = 0; i < static_cast<u32>(splats.size()); ++i)
         {
@@ -245,14 +245,14 @@ namespace OloEngine::GaussianSplat
                 continue;
             }
 
-            candidates.push_back({ i, DepthSortKey(depth), extent * extent * alpha });
+            candidates.Add({ i, DepthSortKey(depth), extent * extent * alpha });
         }
 
         // Budget. Ranking on screen area x alpha keeps the splats a viewer can
         // actually see; ties break on cloud index so the same camera always
         // yields the same set (a budget that flickers between two equal-scoring
         // splats is a shimmer the eye picks up immediately).
-        if (settings.MaxSplats > 0 && candidates.size() > settings.MaxSplats)
+        if (settings.MaxSplats > 0 && candidates.Num() > settings.MaxSplats)
         {
             const auto keep = static_cast<std::ptrdiff_t>(settings.MaxSplats);
             std::nth_element(candidates.begin(), candidates.begin() + keep, candidates.end(),
@@ -267,13 +267,13 @@ namespace OloEngine::GaussianSplat
                                      return false;
                                  return a.Index < b.Index;
                              });
-            out.Stats.OverBudget = static_cast<u32>(candidates.size()) - settings.MaxSplats;
-            candidates.resize(settings.MaxSplats);
+            out.Stats.OverBudget = static_cast<u32>(candidates.Num()) - settings.MaxSplats;
+            candidates.SetNum(settings.MaxSplats, EAllowShrinking::No);
         }
 
-        const sizet drawn = candidates.size();
-        std::vector<u32> keys(drawn);
-        out.Indices.resize(drawn);
+        const sizet drawn = candidates.Num();
+        TArray<u32> keys(drawn);
+        out.Indices.SetNum(drawn, EAllowShrinking::No);
         for (sizet i = 0; i < drawn; ++i)
         {
             keys[i] = candidates[i].Key;
@@ -285,26 +285,27 @@ namespace OloEngine::GaussianSplat
         // is what makes equal-depth ties deterministic.
         if (out.Stats.OverBudget > 0)
         {
-            std::vector<sizet> order(drawn);
+            TArray<sizet> order(drawn);
             for (sizet i = 0; i < drawn; ++i)
                 order[i] = i;
             std::sort(order.begin(), order.end(),
                       [&](sizet a, sizet b)
                       { return out.Indices[a] < out.Indices[b]; });
-            std::vector<u32> sortedKeys(drawn);
-            std::vector<u32> sortedIndices(drawn);
+            TArray<u32> sortedKeys(drawn);
+            TArray<u32> sortedIndices(drawn);
             for (sizet i = 0; i < drawn; ++i)
             {
                 sortedKeys[i] = keys[order[i]];
                 sortedIndices[i] = out.Indices[order[i]];
             }
-            keys.swap(sortedKeys);
-            out.Indices.swap(sortedIndices);
+            std::swap(keys, sortedKeys);
+            std::swap(out.Indices, sortedIndices);
         }
 
-        std::vector<u32> keyScratch;
-        std::vector<u32> indexScratch;
-        RadixSortDescending(keys, out.Indices, keyScratch, indexScratch);
+        TArray<u32> keyScratch;
+        TArray<u32> indexScratch;
+        RadixSortDescending({ keys.GetData(), static_cast<sizet>(keys.Num()) },
+                            { out.Indices.GetData(), static_cast<sizet>(out.Indices.Num()) }, keyScratch, indexScratch);
 
         out.Stats.Drawn = static_cast<u32>(drawn);
     }

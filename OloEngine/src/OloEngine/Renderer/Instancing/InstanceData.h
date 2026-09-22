@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Templates/UnrealTypeTraits.h"
 
 #include <glm/glm.hpp>
 
@@ -60,6 +61,21 @@ namespace OloEngine
         // fall back to the per-draw UBO it read before; unsupported geometry
         // must never disappear because its link is absent.
         glm::uvec4 GPUSceneRef = glm::uvec4(GPUSceneDrawRefUnlinked);
+    };
+
+    // GPU payload owns only numerical values and carries no interior pointers.
+    template<>
+    struct TIsTriviallyRelocatable<InstanceData>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(InstanceData::Transform)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(InstanceData::Normal)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(InstanceData::PrevTransform)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(InstanceData::Color)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(InstanceData::EntityID)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(InstanceData::Custom)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(InstanceData::StableID)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(InstanceData::LightmapScaleOffset)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(InstanceData::GPUSceneRef)>::Value;
     };
 
     // std430 size assertion. Layout (offset, size):

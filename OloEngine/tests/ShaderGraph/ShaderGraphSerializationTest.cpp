@@ -66,7 +66,7 @@ TEST_F(ShaderGraphSerializationTest, RoundTripPreservesNodeCount)
 
     auto deserialized = Ref<ShaderGraphAsset>::Create();
     ASSERT_TRUE(serializer.TestDeserializeFromYAML(yaml, deserialized));
-    EXPECT_EQ(deserialized->GetGraph().GetNodes().size(), original->GetGraph().GetNodes().size());
+    EXPECT_EQ(deserialized->GetGraph().GetNodes().Num(), original->GetGraph().GetNodes().Num());
 }
 
 TEST_F(ShaderGraphSerializationTest, RoundTripPreservesLinkCount)
@@ -76,7 +76,7 @@ TEST_F(ShaderGraphSerializationTest, RoundTripPreservesLinkCount)
 
     auto deserialized = Ref<ShaderGraphAsset>::Create();
     ASSERT_TRUE(serializer.TestDeserializeFromYAML(yaml, deserialized));
-    EXPECT_EQ(deserialized->GetGraph().GetLinks().size(), original->GetGraph().GetLinks().size());
+    EXPECT_EQ(deserialized->GetGraph().GetLinks().Num(), original->GetGraph().GetLinks().Num());
 }
 
 TEST_F(ShaderGraphSerializationTest, RoundTripPreservesParameterName)
@@ -94,7 +94,7 @@ TEST_F(ShaderGraphSerializationTest, RoundTripPreservesParameterName)
         {
             EXPECT_EQ(node->ParameterName, "u_Metallic");
             // Verify pin default value survives round-trip
-            ASSERT_FALSE(node->Outputs.empty());
+            ASSERT_FALSE(node->Outputs.IsEmpty());
             auto* val = std::get_if<f32>(&node->Outputs[0].DefaultValue);
             ASSERT_NE(val, nullptr);
             EXPECT_FLOAT_EQ(*val, 0.5f);
@@ -114,9 +114,9 @@ TEST_F(ShaderGraphSerializationTest, RoundTripPreservesNodeTypes)
 
     std::set<std::string> originalTypes, deserializedTypes;
     for (const auto& node : original->GetGraph().GetNodes())
-        originalTypes.insert(node->TypeName);
+        originalTypes.insert(node->TypeName.ToStdString());
     for (const auto& node : deserialized->GetGraph().GetNodes())
-        deserializedTypes.insert(node->TypeName);
+        deserializedTypes.insert(node->TypeName.ToStdString());
 
     EXPECT_EQ(originalTypes, deserializedTypes);
 }
@@ -152,7 +152,7 @@ TEST_F(ShaderGraphSerializationTest, DeserializedGraphCanCompile)
     ASSERT_TRUE(serializer.TestDeserializeFromYAML(yaml, deserialized));
 
     const auto& result = deserialized->Compile();
-    EXPECT_TRUE(result.Success) << result.ErrorLog;
+    EXPECT_TRUE(result.Success) << result.ErrorLog.ToView();
 }
 
 // ── Compute Serialization ──

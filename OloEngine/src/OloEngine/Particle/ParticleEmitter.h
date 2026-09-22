@@ -7,7 +7,6 @@
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
-#include <vector>
 
 namespace OloEngine
 {
@@ -35,7 +34,7 @@ namespace OloEngine
 
         EmissionShape Shape;
 
-        std::vector<BurstEntry> Bursts;
+        TArray<BurstEntry> Bursts;
 
         // Emit particles for this frame, returns number emitted. Draws all
         // randomness (burst probability, spawn jitter, emission-shape sampling)
@@ -47,10 +46,32 @@ namespace OloEngine
         void Reset();
 
       private:
+        friend struct TIsTriviallyRelocatable<ParticleEmitter>;
         void InitializeParticle(u32 index, ParticlePool& pool, const glm::vec3& emitterPosition, const glm::quat& emitterRotation, FastRandomPCG& rng) const;
 
         f32 m_EmitAccumulator = 0.0f;
         f32 m_LoopTime = 0.0f;
         u32 m_NextBurstIndex = 0;
+    };
+    // Owned arrays/resources use independent heap storage; the remaining fields
+    // are values or external pointers. No member retains the enclosing address.
+    template<>
+    struct TIsTriviallyRelocatable<ParticleEmitter>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(ParticleEmitter::RateOverTime)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleEmitter::InitialSpeed)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleEmitter::SpeedVariance)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleEmitter::LifetimeMin)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleEmitter::LifetimeMax)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleEmitter::InitialSize)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleEmitter::SizeVariance)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleEmitter::InitialRotation)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleEmitter::RotationVariance)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleEmitter::InitialColor)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleEmitter::Shape)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleEmitter::Bursts)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleEmitter::m_EmitAccumulator)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleEmitter::m_LoopTime)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleEmitter::m_NextBurstIndex)>::Value;
     };
 } // namespace OloEngine

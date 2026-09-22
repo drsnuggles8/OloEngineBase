@@ -58,7 +58,7 @@ namespace OloEngine::Benchmark
         // The one resolve every render diagnostic uses (mirrors the editor's
         // ResolveTargetHandle, McpToolsRender.cpp — graph texture first, then
         // framebuffer colour attachment 0, then the depth attachment).
-        RHI::ResourceHandle ResolveTargetHandle(const std::string& name, bool& outDepthFromFramebuffer)
+        RHI::ResourceHandle ResolveTargetHandle(std::string_view name, bool& outDepthFromFramebuffer)
         {
             outDepthFromFramebuffer = false;
 
@@ -85,20 +85,21 @@ namespace OloEngine::Benchmark
             return handle;
         }
 
-        void AppendToVector(void* context, void* data, int size)
+        void AppendEncodedBytes(void* context, void* data, int size)
         {
-            auto* out = static_cast<std::vector<u8>*>(context);
+            auto* out = static_cast<TArray<u8>*>(context);
             const auto* bytes = static_cast<const u8*>(data);
-            out->insert(out->end(), bytes, bytes + static_cast<sizet>(size));
+            out->Append(bytes, size);
         }
 
         // Neither PNG (comp=2 is grey+alpha) nor Radiance .hdr has a meaningful
         // 2-component layout — widen RG to RGB with a zeroed blue lane, once,
         // for both encode paths.
         template<typename T>
-        void WidenRGToRGB(std::vector<T>& data, sizet texels)
+        void WidenRGToRGB(TArray<T>& data, sizet texels)
         {
-            std::vector<T> widened(texels * 3u, T{});
+            TArray<T> widened;
+            widened.SetNum(static_cast<i32>(texels * 3u));
             for (sizet i = 0; i < texels; ++i)
             {
                 widened[i * 3 + 0] = data[i * 2 + 0];
@@ -121,7 +122,7 @@ namespace OloEngine::Benchmark
         }
 
         bool depthFromFramebuffer = false;
-        const RHI::ResourceHandle handle = ResolveTargetHandle(spec.Source, depthFromFramebuffer);
+        const RHI::ResourceHandle handle = ResolveTargetHandle(spec.Source.ToView(), depthFromFramebuffer);
         if (!handle.IsValid())
         {
             result.Error = "unknown render-graph resource or no GPU backing this frame: " + spec.Source;
@@ -133,7 +134,7 @@ namespace OloEngine::Benchmark
         // outside the registry defaults to a 4-channel float read).
         i32 channels = 4;
         bool isDepth = depthFromFramebuffer;
-        const auto* resource = graph->FindRegisteredResource(spec.Source);
+        const auto* resource = graph->FindRegisteredResource(spec.Source.ToView());
         const RGResourceFormat rgFormat = resource != nullptr ? resource->Desc.Format : RGResourceFormat::Unknown;
         switch (rgFormat)
         {
@@ -182,10 +183,19 @@ namespace OloEngine::Benchmark
         // Exactly the channel count destFormat encodes, by construction.
         const i32 readChannels = isDepth ? 1 : channels;
 
+        // Native array indexing is signed; reject unrepresentable readbacks,
+        // including the possible two-channel to RGB expansion, before allocation.
+        if (static_cast<u64>(width) * height >
+            static_cast<u64>(std::numeric_limits<i32>::max()) / static_cast<u64>(std::max(3, readChannels)))
+        {
+            result.Error = "capture dimensions exceed native array capacity";
+            return result;
+        }
         sizet valueCount = static_cast<sizet>(width) * height * static_cast<sizet>(readChannels);
-        std::vector<f32> values(valueCount);
+        TArray<f32> values;
+        values.SetNum(static_cast<i32>(valueCount));
         if (!RenderCommand::ReadTextureSubImage(handle, 0, 0, 0, 0, width, height, 1u, destFormat,
-                                                values.size() * sizeof(f32), values.data()))
+                                                values.Num() * sizeof(f32), values.GetData()))
         {
             result.Error = "readback failed (format " + result.FormatName + "): " + spec.Source;
             return result;
@@ -200,7 +210,8 @@ namespace OloEngine::Benchmark
         if (spec.Derive != AttachmentDerive::None)
         {
             const sizet texels = static_cast<sizet>(width) * height;
-            std::vector<f32> derived(texels);
+            TArray<f32> derived;
+            derived.SetNum(static_cast<i32>(texels));
             if (spec.Derive == AttachmentDerive::LinearDepth)
             {
                 if (!isDepth)
@@ -272,21 +283,22 @@ namespace OloEngine::Benchmark
         // In place with a single row of scratch — a full-buffer copy would
         // transiently double the capture's peak heap (a 4K RGBA32F attachment
         // is ~132 MB, and this runs on the render thread in the editor host).
-        const auto flipFloatRows = [&](std::vector<f32>& data, i32 comps)
+        const auto flipFloatRows = [&](TArray<f32>& data, i32 comps)
         {
             if (!flipRows)
             {
                 return;
             }
             const sizet rowValues = static_cast<sizet>(width) * comps;
-            std::vector<f32> scratch(rowValues);
+            TArray<f32> scratch;
+            scratch.SetNum(static_cast<i32>(rowValues));
             for (sizet y = 0; y < static_cast<sizet>(height) / 2u; ++y)
             {
-                f32* top = data.data() + y * rowValues;
-                f32* bottom = data.data() + (static_cast<sizet>(height) - 1 - y) * rowValues;
-                std::memcpy(scratch.data(), top, rowValues * sizeof(f32));
+                f32* top = data.GetData() + y * rowValues;
+                f32* bottom = data.GetData() + (static_cast<sizet>(height) - 1 - y) * rowValues;
+                std::memcpy(scratch.GetData(), top, rowValues * sizeof(f32));
                 std::memcpy(top, bottom, rowValues * sizeof(f32));
-                std::memcpy(bottom, scratch.data(), rowValues * sizeof(f32));
+                std::memcpy(bottom, scratch.GetData(), rowValues * sizeof(f32));
             }
         };
 
@@ -304,9 +316,9 @@ namespace OloEngine::Benchmark
                 outChannels = 3;
             }
             flipFloatRows(values, outChannels);
-            std::vector<u8> encoded;
-            if (stbi_write_hdr_to_func(AppendToVector, &encoded, static_cast<int>(width), static_cast<int>(height),
-                                       outChannels, values.data()) == 0)
+            TArray<u8> encoded;
+            if (stbi_write_hdr_to_func(AppendEncodedBytes, &encoded, static_cast<int>(width), static_cast<int>(height),
+                                       outChannels, values.GetData()) == 0)
             {
                 result.Error = "HDR encode failed: " + spec.Source;
                 return result;
@@ -327,7 +339,8 @@ namespace OloEngine::Benchmark
 
         flipFloatRows(values, readChannelsAfterDerive);
 
-        std::vector<u8> pixels8(valueCount);
+        TArray<u8> pixels8;
+        pixels8.SetNum(static_cast<i32>(valueCount));
         for (sizet i = 0; i < valueCount; ++i)
         {
             const f32 safe = std::isnan(values[i]) ? 0.0f : values[i];
@@ -342,9 +355,9 @@ namespace OloEngine::Benchmark
             outChannels = 3;
         }
 
-        std::vector<u8> encoded;
-        if (stbi_write_png_to_func(AppendToVector, &encoded, static_cast<int>(width), static_cast<int>(height),
-                                   outChannels, pixels8.data(), static_cast<int>(width) * outChannels) == 0)
+        TArray<u8> encoded;
+        if (stbi_write_png_to_func(AppendEncodedBytes, &encoded, static_cast<int>(width), static_cast<int>(height),
+                                   outChannels, pixels8.GetData(), static_cast<int>(width) * outChannels) == 0)
         {
             result.Error = "PNG encode failed: " + spec.Source;
             return result;
@@ -412,7 +425,7 @@ namespace OloEngine::Benchmark
         CameraCaptureSet set;
         set.CameraId = std::string(cameraId);
         set.CaptureFrameIndex = captureFrameIndex;
-        const std::vector<std::string>* unsupported = manifest.UnsupportedFor(backend);
+        const TArray<FString>* unsupported = manifest.UnsupportedFor(backend);
         for (const auto& spec : manifest.Attachments)
         {
             if (unsupported != nullptr && std::ranges::find(*unsupported, spec.Name) != unsupported->end())
@@ -420,10 +433,10 @@ namespace OloEngine::Benchmark
                 CapturedAttachment skipped;
                 skipped.Spec = spec;
                 skipped.SkippedUnsupported = true;
-                set.Attachments.push_back(std::move(skipped));
+                set.Attachments.Add(std::move(skipped));
                 continue;
             }
-            set.Attachments.push_back(CaptureAttachment(spec, context));
+            set.Attachments.Add(CaptureAttachment(spec, context));
         }
         return set;
     }
@@ -491,14 +504,14 @@ namespace OloEngine::Benchmark
         return tag;
     }
 
-    std::vector<PassTimingRecord> SnapshotPassTimings()
+    TArray<PassTimingRecord> SnapshotPassTimings()
     {
-        std::vector<PassTimingRecord> records;
+        TArray<PassTimingRecord> records;
         const GPUPassTimerPool::FrameTimings frame = GPUPassTimerPool::GetInstance().GetLastFrameTimings();
-        records.reserve(frame.Passes.size());
+        records.Reserve(frame.Passes.Num());
         for (const auto& timing : frame.Passes)
         {
-            records.push_back({ timing.Name, timing.Sample, timing.IsSubPass, timing.ParentName });
+            records.Add(PassTimingRecord{ timing.Name, timing.Sample, timing.IsSubPass, timing.ParentName });
         }
         return records;
     }
@@ -547,7 +560,7 @@ namespace OloEngine::Benchmark
     }
 
     bool WriteResultDirectory(const BenchmarkManifest& manifest, const std::filesystem::path& manifestSourcePath,
-                              const std::filesystem::path& outDir, const std::vector<CameraCaptureSet>& cameraSets,
+                              const std::filesystem::path& outDir, std::span<const CameraCaptureSet> cameraSets,
                               const RunInfo& runInfo, std::string& outError)
     {
         outError.clear();
@@ -571,7 +584,7 @@ namespace OloEngine::Benchmark
         const bool multiCamera = cameraSets.size() > 1;
         for (const auto& set : cameraSets)
         {
-            const std::filesystem::path cameraDir = multiCamera ? outDir / set.CameraId : outDir;
+            const std::filesystem::path cameraDir = multiCamera ? outDir / set.CameraId.ToStdString() : outDir;
             std::filesystem::create_directories(cameraDir, ec);
             if (ec)
             {
@@ -580,16 +593,16 @@ namespace OloEngine::Benchmark
             }
             for (const auto& attachment : set.Attachments)
             {
-                if (attachment.FileName.empty())
+                if (attachment.FileName.IsEmpty())
                 {
                     continue; // skipped or failed — recorded in result.json instead
                 }
-                std::ofstream file(cameraDir / attachment.FileName, std::ios::binary | std::ios::trunc);
+                std::ofstream file(cameraDir / attachment.FileName.ToStdString(), std::ios::binary | std::ios::trunc);
                 if (!file ||
-                    !file.write(reinterpret_cast<const char*>(attachment.FileBytes.data()),
-                                static_cast<std::streamsize>(attachment.FileBytes.size())))
+                    !file.write(reinterpret_cast<const char*>(attachment.FileBytes.GetData()),
+                                static_cast<std::streamsize>(attachment.FileBytes.Num())))
                 {
-                    outError = "cannot write " + (cameraDir / attachment.FileName).string();
+                    outError = "cannot write " + (cameraDir / attachment.FileName.ToStdString()).string();
                     return false;
                 }
             }
@@ -609,19 +622,19 @@ namespace OloEngine::Benchmark
                           { "bytes", "bytes" },
                           { "dimensions", "pixels" },
                           { "frameIds", "GPUPassTimerPool frame counter, monotonic from renderer init" } };
-        json["manifest"] = { { "id", manifest.Id },
+        json["manifest"] = { { "id", manifest.Id.ToStdString() },
                              { "version", manifest.ManifestVersion },
                              { "sourceHashFnv1a64", manifest.SourceHash },
-                             { "scene", manifest.ScenePath },
+                             { "scene", manifest.ScenePath.ToStdString() },
                              { "product", manifest.Product == ManifestProduct::Golden       ? "golden"
                                           : manifest.Product == ManifestProduct::Diagnostic ? "diagnostic"
                                                                                             : "hero" } };
-        json["provenance"] = { { "backend", runInfo.Backend },
-                               { "gpuVendor", runInfo.GpuVendor },
-                               { "gpuRenderer", runInfo.GpuRenderer },
-                               { "commitSha", runInfo.CommitSha },
-                               { "machineTag", runInfo.MachineTag },
-                               { "host", runInfo.Host } };
+        json["provenance"] = { { "backend", runInfo.Backend.ToStdString() },
+                               { "gpuVendor", runInfo.GpuVendor.ToStdString() },
+                               { "gpuRenderer", runInfo.GpuRenderer.ToStdString() },
+                               { "commitSha", runInfo.CommitSha.ToStdString() },
+                               { "machineTag", runInfo.MachineTag.ToStdString() },
+                               { "host", runInfo.Host.ToStdString() } };
         // The manifest's numbers are the REQUEST; `actual` is what the render
         // graph did with it (#1337 criterion 4). They differ whenever anything
         // has touched the render scale, and a record carrying only the request
@@ -663,7 +676,7 @@ namespace OloEngine::Benchmark
         for (const auto& set : cameraSets)
         {
             nlohmann::json cameraJson;
-            cameraJson["id"] = set.CameraId;
+            cameraJson["id"] = set.CameraId.ToStdString();
             cameraJson["captureFrameIndex"] = set.CaptureFrameIndex;
             // The pose the CAPTURED frame was actually rendered from. For a
             // still camera that is the declared pose; for a moving one it is
@@ -708,24 +721,24 @@ namespace OloEngine::Benchmark
             for (const auto& attachment : set.Attachments)
             {
                 nlohmann::json a;
-                a["name"] = attachment.Spec.Name;
-                a["source"] = attachment.Spec.Source;
+                a["name"] = attachment.Spec.Name.ToStdString();
+                a["source"] = attachment.Spec.Source.ToStdString();
                 if (attachment.SkippedUnsupported)
                 {
-                    a["skipped"] = !attachment.SkipReason.empty()
-                                       ? attachment.SkipReason
-                                       : "declared unsupported for backend " + runInfo.Backend;
+                    a["skipped"] = !attachment.SkipReason.IsEmpty()
+                                       ? attachment.SkipReason.ToStdString()
+                                       : "declared unsupported for backend " + runInfo.Backend.ToStdString();
                 }
-                else if (!attachment.Error.empty())
+                else if (!attachment.Error.IsEmpty())
                 {
-                    a["error"] = attachment.Error;
+                    a["error"] = attachment.Error.ToStdString();
                 }
                 else
                 {
-                    a["file"] = (cameraSets.size() > 1 ? set.CameraId + "/" : "") + attachment.FileName;
+                    a["file"] = (cameraSets.size() > 1 ? set.CameraId.ToStdString() + "/" : "") + attachment.FileName.ToStdString();
                     a["width"] = attachment.Width;
                     a["height"] = attachment.Height;
-                    a["sourceFormat"] = attachment.FormatName;
+                    a["sourceFormat"] = attachment.FormatName.ToStdString();
                     a["isDepth"] = attachment.IsDepth;
                     a["normalized"] = attachment.Normalized;
                     a["minValue"] = attachment.MinValue;
@@ -744,9 +757,9 @@ namespace OloEngine::Benchmark
         for (const auto& asset : manifest.Assets)
         {
             nlohmann::json a;
-            a["path"] = asset.Path;
-            a["origin"] = asset.Origin;
-            a["license"] = asset.License;
+            a["path"] = asset.Path.ToStdString();
+            a["origin"] = asset.Origin.ToStdString();
+            a["license"] = asset.License.ToStdString();
             if (asset.Redistribution)
             {
                 a["redistribution"] = *asset.Redistribution == AssetRedistribution::Committed ? "committed"
@@ -778,17 +791,17 @@ namespace OloEngine::Benchmark
                                   : *asset.ColorSpace == AssetColorSpace::Linear ? "linear"
                                                                                  : "n/a";
             }
-            if (!asset.Version.empty())
+            if (!asset.Version.IsEmpty())
             {
-                a["version"] = asset.Version;
+                a["version"] = asset.Version.ToStdString();
             }
-            if (!asset.Sha256.empty())
+            if (!asset.Sha256.IsEmpty())
             {
-                a["sha256"] = asset.Sha256;
+                a["sha256"] = asset.Sha256.ToStdString();
             }
-            if (!asset.Acquisition.empty())
+            if (!asset.Acquisition.IsEmpty())
             {
-                a["acquisition"] = asset.Acquisition;
+                a["acquisition"] = asset.Acquisition.ToStdString();
             }
             json["assets"].push_back(std::move(a));
         }
@@ -799,7 +812,7 @@ namespace OloEngine::Benchmark
         json["passTimingsMs"] = nlohmann::json::array();
         for (const auto& timing : runInfo.PassTimings)
         {
-            nlohmann::json entry{ { "pass", timing.Name },
+            nlohmann::json entry{ { "pass", timing.Name.ToStdString() },
                                   { "status", std::string(ToString(timing.Sample.Status)) },
                                   { "isSubPass", timing.IsSubPass } };
             if (timing.Sample.IsValid())
@@ -812,7 +825,7 @@ namespace OloEngine::Benchmark
             }
             if (timing.IsSubPass)
             {
-                entry["parent"] = timing.ParentName;
+                entry["parent"] = timing.ParentName.ToStdString();
             }
             json["passTimingsMs"].push_back(std::move(entry));
         }

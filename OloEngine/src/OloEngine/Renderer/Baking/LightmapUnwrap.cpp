@@ -56,15 +56,15 @@ namespace OloEngine
         // Validates that the submeshes' index ranges exactly partition [0, totalIndexCount):
         // no gap (an uncovered index range would be silently dropped by the rebuild) and no
         // overlap (a shared range would be duplicated). Empty submeshes are allowed and skipped.
-        [[nodiscard]] bool SubmeshRangesPartitionIndexBuffer(const std::vector<SubmeshRange>& ranges, u32 totalIndexCount)
+        [[nodiscard]] bool SubmeshRangesPartitionIndexBuffer(const TArray<SubmeshRange>& ranges, u32 totalIndexCount)
         {
-            std::vector<SubmeshRange> sorted;
-            sorted.reserve(ranges.size());
+            TArray<SubmeshRange> sorted;
+            sorted.Reserve(ranges.Num());
             for (const SubmeshRange& range : ranges)
             {
                 if (range.m_IndexCount > 0)
                 {
-                    sorted.push_back(range);
+                    sorted.Add(range);
                 }
             }
             std::sort(sorted.begin(), sorted.end(),
@@ -134,14 +134,14 @@ namespace OloEngine
         const TArray<Submesh>& submeshes = source.GetSubmeshes();
 
         // ── Collect + validate ranges ────────────────────────────────────────
-        std::vector<SubmeshRange> ranges;
+        TArray<SubmeshRange> ranges;
         if (submeshes.IsEmpty())
         {
-            ranges.push_back(SubmeshRange{ 0, 0, totalIndexCount, totalVertexCount });
+            ranges.Add(SubmeshRange{ 0, 0, totalIndexCount, totalVertexCount });
         }
         else
         {
-            ranges.reserve(static_cast<sizet>(submeshes.Num()));
+            ranges.Reserve(static_cast<sizet>(submeshes.Num()));
             for (i32 s = 0; s < submeshes.Num(); ++s)
             {
                 const Submesh& sub = submeshes[s];
@@ -165,7 +165,7 @@ namespace OloEngine
                                   s, sub.m_BaseVertex, sub.m_VertexCount, totalVertexCount);
                     return false;
                 }
-                ranges.push_back(SubmeshRange{ sub.m_BaseVertex, sub.m_BaseIndex, sub.m_IndexCount, sub.m_VertexCount });
+                ranges.Add(SubmeshRange{ sub.m_BaseVertex, sub.m_BaseIndex, sub.m_IndexCount, sub.m_VertexCount });
             }
             if (!SubmeshRangesPartitionIndexBuffer(ranges, totalIndexCount))
             {
@@ -178,7 +178,7 @@ namespace OloEngine
         // Every global index must sit inside its submesh's declared vertex window — the
         // same contract AnimatedModel enforces — because the xatlas input is the
         // submesh-relative slice.
-        for (sizet r = 0; r < ranges.size(); ++r)
+        for (sizet r = 0; r < ranges.Num(); ++r)
         {
             const SubmeshRange& range = ranges[r];
             for (u32 i = 0; i < range.m_IndexCount; ++i)
@@ -232,10 +232,10 @@ namespace OloEngine
         // Submesh-relative index buffers. Kept alive until xatlas::Generate returns —
         // xatlas documents that MeshDecl data is copied by AddMesh, but with async
         // AddMesh processing the storage is cheap insurance.
-        std::vector<std::vector<u32>> relativeIndexStorage;
-        relativeIndexStorage.reserve(ranges.size());
+        TArray<TArray<u32>> relativeIndexStorage;
+        relativeIndexStorage.Reserve(ranges.Num());
 
-        for (sizet r = 0; r < ranges.size(); ++r)
+        for (sizet r = 0; r < ranges.Num(); ++r)
         {
             const SubmeshRange& range = ranges[r];
             if (range.m_IndexCount == 0)
@@ -243,8 +243,8 @@ namespace OloEngine
                 continue;
             }
 
-            std::vector<u32>& relativeIndices = relativeIndexStorage.emplace_back();
-            relativeIndices.resize(range.m_IndexCount);
+            TArray<u32>& relativeIndices = relativeIndexStorage.Emplace_GetRef();
+            relativeIndices.SetNum(range.m_IndexCount, EAllowShrinking::No);
             for (u32 i = 0; i < range.m_IndexCount; ++i)
             {
                 relativeIndices[i] = indices[static_cast<i32>(range.m_BaseIndex + i)] - range.m_BaseVertex;
@@ -258,7 +258,7 @@ namespace OloEngine
             meshDecl.vertexNormalData = &firstVertex->Normal.x;
             meshDecl.vertexNormalStride = sizeof(Vertex);
             meshDecl.vertexCount = range.m_VertexCount;
-            meshDecl.indexData = relativeIndices.data();
+            meshDecl.indexData = relativeIndices.GetData();
             meshDecl.indexCount = range.m_IndexCount;
             meshDecl.indexFormat = xatlas::IndexFormat::UInt32;
 
@@ -321,7 +321,7 @@ namespace OloEngine
         TArray<Submesh> newSubmeshes = submeshes; // copy; Base/Count fields patched below
 
         u32 xatlasMeshIndex = 0;
-        for (sizet r = 0; r < ranges.size(); ++r)
+        for (sizet r = 0; r < ranges.Num(); ++r)
         {
             const SubmeshRange& range = ranges[r];
             const u32 newBaseVertex = static_cast<u32>(newVertices.Num());
@@ -412,7 +412,7 @@ namespace OloEngine
         // that never had the stream keeps not having it.
         if (!meshSource.GetBoneInfluences().IsEmpty())
         {
-            meshSource.GetBoneInfluences().SetNum(static_cast<i32>(committedVertexCount));
+            meshSource.GetBoneInfluences().SetNum(static_cast<i32>(committedVertexCount), EAllowShrinking::No);
         }
         meshSource.SetLightmapUVs(MoveTemp(newLightmapUVs));
         // SetSubmeshes marks the source un-Built and recalculates mesh + submesh bounds

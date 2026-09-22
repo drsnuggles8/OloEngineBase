@@ -31,6 +31,7 @@
 #include "../../Groom/GroomStrandFixture.h"
 
 #include "OloEngine/Groom/GroomAsset.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Groom/GroomCoverage.h"
 #include "OloEngine/Groom/GroomStrandMesh.h"
 #include "OloEngine/Renderer/Passes/GroomRenderPass.h"
@@ -68,16 +69,16 @@ namespace
     // sits next to the table it is derived from.
     constexpr u32 kGBufferBytesPerSamplePerPixel = 40;
 
-    struct Camera
+    struct CoverageCamera
     {
         glm::mat4 View{ 1.0f };
         glm::mat4 Projection{ 1.0f };
     };
 
-    [[nodiscard]] Camera MakeCamera(const glm::vec3& eye, const glm::vec3& target, u32 width, u32 height,
-                                    f32 fovYDegrees = 45.0f)
+    [[nodiscard]] CoverageCamera MakeCamera(const glm::vec3& eye, const glm::vec3& target, u32 width, u32 height,
+                                            f32 fovYDegrees = 45.0f)
     {
-        Camera camera;
+        CoverageCamera camera;
         camera.View = glm::lookAt(eye, target, glm::vec3{ 0.0f, 1.0f, 0.0f });
         camera.Projection = glm::perspective(glm::radians(fovYDegrees),
                                              static_cast<f32>(width) / static_cast<f32>(height), 0.01f, 100.0f);
@@ -157,7 +158,7 @@ namespace
     };
 
     [[nodiscard]] CaseResult RunCase(const char* caseName, const GroomAsset& groom, const glm::mat4& model,
-                                     const Camera& camera, u32 width, u32 height)
+                                     const CoverageCamera& camera, u32 width, u32 height)
     {
         CaseResult result;
         result.Projection =
@@ -250,7 +251,7 @@ TEST(GroomCoverageComparison, NearSilhouette)
 
     constexpr u32 kWidth = 480;
     constexpr u32 kHeight = 270;
-    const Camera camera = MakeCamera({ 0.0f, 0.02f, 0.30f }, { 0.0f, 0.0f, 0.0f }, kWidth, kHeight);
+    const CoverageCamera camera = MakeCamera({ 0.0f, 0.02f, 0.30f }, { 0.0f, 0.0f, 0.0f }, kWidth, kHeight);
     const CaseResult result = RunCase("NearSilhouette", *coat.Groom, glm::mat4(1.0f), camera, kWidth, kHeight);
     ASSERT_FALSE(result.Reference.empty());
     ASSERT_GT(result.Opaque.Error.ReferenceCoveredPixels, 1000u) << "the scalp barely covers the frame";
@@ -285,7 +286,7 @@ TEST(GroomCoverageComparison, DenseOverlapExposesAlphaToCoverageSaturation)
 
     constexpr u32 kWidth = 480;
     constexpr u32 kHeight = 270;
-    const Camera camera = MakeCamera({ 0.0f, 0.0f, 0.3f }, { 0.0f, 0.0f, 0.0f }, kWidth, kHeight);
+    const CoverageCamera camera = MakeCamera({ 0.0f, 0.0f, 0.3f }, { 0.0f, 0.0f, 0.0f }, kWidth, kHeight);
     const CaseResult result = RunCase("DenseOverlap", *coat.Groom, glm::mat4(1.0f), camera, kWidth, kHeight);
     ASSERT_FALSE(result.Reference.empty());
 
@@ -318,7 +319,7 @@ TEST(GroomCoverageComparison, SubPixelStrandsDefeatTheHardCutoff)
 
     constexpr u32 kWidth = 480;
     constexpr u32 kHeight = 270;
-    const Camera camera = MakeCamera({ 0.0f, 0.0f, 2.5f }, { 0.0f, 0.0f, 0.0f }, kWidth, kHeight);
+    const CoverageCamera camera = MakeCamera({ 0.0f, 0.0f, 2.5f }, { 0.0f, 0.0f, 0.0f }, kWidth, kHeight);
     const CaseResult result = RunCase("SubPixel", *coat.Groom, glm::mat4(1.0f), camera, kWidth, kHeight);
     ASSERT_FALSE(result.Reference.empty());
 
@@ -379,7 +380,7 @@ TEST(GroomCoverageStability, StochasticNoiseIsTemporalAndCutoffErrorIsNot)
 
     constexpr u32 kWidth = 320;
     constexpr u32 kHeight = 180;
-    const Camera camera = MakeCamera({ 0.0f, 0.0f, 1.2f }, { 0.0f, 0.0f, 0.0f }, kWidth, kHeight);
+    const CoverageCamera camera = MakeCamera({ 0.0f, 0.0f, 1.2f }, { 0.0f, 0.0f, 0.0f }, kWidth, kHeight);
 
     std::vector<ScreenSegment> segments;
     const ProjectionStats projection =
@@ -441,8 +442,8 @@ TEST(GroomCoverageStability, SilhouetteAreaFractionIsStableAcrossResolutions)
     for (sizet i = 0; i < kResolutions.size(); ++i)
     {
         const Resolution& resolution = kResolutions[i];
-        const Camera camera = MakeCamera({ 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f, 0.0f }, resolution.Width,
-                                         resolution.Height);
+        const CoverageCamera camera = MakeCamera({ 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f, 0.0f }, resolution.Width,
+                                                 resolution.Height);
         std::vector<ScreenSegment> segments;
         const ProjectionStats projection = ProjectGroom(*coat.Groom, glm::mat4(1.0f), camera.View, camera.Projection,
                                                         resolution.Width, resolution.Height, 1.0f, segments);
@@ -604,7 +605,7 @@ TEST(GroomCoverageModel, ProjectionDropsRatherThanClampsWhatItCannotSee)
     constexpr u32 kHeight = 128;
     // The camera is INSIDE the scalp looking out, so a large share of the
     // groom is behind the near plane.
-    const Camera camera = MakeCamera({ 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, kWidth, kHeight);
+    const CoverageCamera camera = MakeCamera({ 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, kWidth, kHeight);
 
     std::vector<ScreenSegment> segments;
     const ProjectionStats stats =
@@ -631,7 +632,7 @@ TEST(GroomCoverageModel, EveryModeIsIndependentOfSubmissionOrder)
 
     constexpr u32 kWidth = 200;
     constexpr u32 kHeight = 200;
-    const Camera camera = MakeCamera({ 0.0f, 0.0f, 0.35f }, { 0.0f, 0.0f, 0.0f }, kWidth, kHeight);
+    const CoverageCamera camera = MakeCamera({ 0.0f, 0.0f, 0.35f }, { 0.0f, 0.0f, 0.0f }, kWidth, kHeight);
 
     std::vector<ScreenSegment> segments;
     ASSERT_GT(ProjectGroom(*coat.Groom, glm::mat4(1.0f), camera.View, camera.Projection, kWidth, kHeight, 1.0f,
@@ -677,7 +678,7 @@ TEST(GroomCoverageModel, SegmentIdentityAgreesWithTheGpuStrandMesh)
 
     constexpr u32 kWidth = 256;
     constexpr u32 kHeight = 256;
-    const Camera camera = MakeCamera({ 0.0f, 0.0f, 0.6f }, { 0.0f, 0.0f, 0.0f }, kWidth, kHeight);
+    const CoverageCamera camera = MakeCamera({ 0.0f, 0.0f, 0.6f }, { 0.0f, 0.0f, 0.0f }, kWidth, kHeight);
 
     std::vector<ScreenSegment> segments;
     const ProjectionStats projection = ProjectGroom(*coat.Groom, glm::mat4(1.0f), camera.View, camera.Projection,
@@ -834,4 +835,51 @@ TEST(GroomCoverageModel, MemoryCostIsAPropertyOfTheModeAndTheResolution)
     std::printf("[groom-coverage] memory at 1920x1080: WB-OIT %.1f MiB, A2C x4 %.1f MiB, A2C x8 %.1f MiB\n",
                 static_cast<f64>(pixels * 12ull) / (1024.0 * 1024.0), static_cast<f64>(a2c4) / (1024.0 * 1024.0),
                 static_cast<f64>(a2c8) / (1024.0 * 1024.0));
+}
+
+TEST(GroomStrandSubmission, MovingRequestsPreservesOwnedBufferAddresses)
+{
+    struct ResetRequests
+    {
+        ~ResetRequests()
+        {
+            Renderer3D::SetGroomStrandRequests(TArray64<GroomStrandRequest>{});
+        }
+    } resetRequests;
+
+    GroomStrandRequest request;
+    request.RootTransforms.SetNum(2);
+    request.SimulationDisplacements.SetNum(3);
+    request.SimulationPrevDisplacements.SetNum(3);
+    request.SimulationGuideOffsets = { 0u, 3u };
+    request.SimulationGuideOfSlot = { 0u };
+    request.SimulationSlotOfGuide = { 0u };
+    request.SimulationColliders.SetNum(1);
+
+    const auto* roots = request.RootTransforms.GetData();
+    const auto* displacement = request.SimulationDisplacements.GetData();
+    const auto* previous = request.SimulationPrevDisplacements.GetData();
+    const auto* offsets = request.SimulationGuideOffsets.GetData();
+    const auto* guideOfSlot = request.SimulationGuideOfSlot.GetData();
+    const auto* slotOfGuide = request.SimulationSlotOfGuide.GetData();
+    const auto* colliders = request.SimulationColliders.GetData();
+
+    // Match Scene::PublishGroomStrandRequests: move into the producer array,
+    // then publish the whole array. Neither step may copy the groom buffers —
+    // the pointer identity checks below are what actually pins that.
+    TArray64<GroomStrandRequest> requests;
+    requests.Add(std::move(request));
+    Renderer3D::SetGroomStrandRequests(std::move(requests));
+
+    EXPECT_EQ(requests.Num(), 0);
+    const auto& submitted = Renderer3D::GetGroomStrandRequests();
+    ASSERT_EQ(submitted.Num(), 1);
+    const auto& actual = submitted[0];
+    EXPECT_EQ(actual.RootTransforms.GetData(), roots);
+    EXPECT_EQ(actual.SimulationDisplacements.GetData(), displacement);
+    EXPECT_EQ(actual.SimulationPrevDisplacements.GetData(), previous);
+    EXPECT_EQ(actual.SimulationGuideOffsets.GetData(), offsets);
+    EXPECT_EQ(actual.SimulationGuideOfSlot.GetData(), guideOfSlot);
+    EXPECT_EQ(actual.SimulationSlotOfGuide.GetData(), slotOfGuide);
+    EXPECT_EQ(actual.SimulationColliders.GetData(), colliders);
 }

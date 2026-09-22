@@ -7,7 +7,8 @@
 #include <string>
 #include <unordered_set>
 #include <utility>
-#include <vector>
+#include <span>
+#include <string_view>
 
 namespace OloEngine
 {
@@ -115,7 +116,7 @@ namespace OloEngine
         // Instantiate / apply / revert all copy exactly this set, so a component
         // outside it is silently absent from every prefab. Callers that report
         // divergence need the set to say which components they cannot speak for.
-        [[nodiscard]] static const std::vector<std::string>& CopyableComponentNames();
+        [[nodiscard]] static std::span<const std::string_view> CopyableComponentNames();
 
         // --- Nested prefab utilities ---
 
@@ -124,7 +125,7 @@ namespace OloEngine
 
         // @brief The prefab handles this prefab's scene nests, excluding its own.
         // Sorted ascending so a refusal message naming them is deterministic.
-        [[nodiscard]] std::vector<AssetHandle> NestedPrefabHandles() const;
+        [[nodiscard]] TArray<AssetHandle> NestedPrefabHandles() const;
 
         // @brief Check for cycles: would adding prefabHandle as a nested instance create a cycle?
         // @param prefabHandle The prefab asset handle to test.

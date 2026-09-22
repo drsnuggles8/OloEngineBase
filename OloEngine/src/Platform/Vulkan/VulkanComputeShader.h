@@ -1,4 +1,5 @@
 #pragma once
+#include "OloEngine/Containers/String.h"
 
 #include "OloEngine/Core/Base.h"
 
@@ -83,13 +84,13 @@ namespace OloEngine
         {
             return m_RHIHandle.Get();
         }
-        [[nodiscard]] const std::string& GetName() const override
+        [[nodiscard]] std::string GetName() const override
         {
-            return m_Name;
+            return m_Name.ToStdString();
         }
-        [[nodiscard]] const std::string& GetFilePath() const override
+        [[nodiscard]] std::string GetFilePath() const override
         {
-            return m_FilePath;
+            return m_FilePath.ToStdString();
         }
 
         void Reload() override;
@@ -105,7 +106,7 @@ namespace OloEngine
         {
             return m_Module;
         }
-        [[nodiscard]] const std::vector<VulkanShaderBinding>& GetBindings() const
+        [[nodiscard]] const TArray<VulkanShaderBinding>& GetBindings() const
         {
             return m_Bindings;
         }
@@ -125,11 +126,11 @@ namespace OloEngine
         [[nodiscard]] bool BuildFromSource(const std::string& preprocessedSource, bool useCache);
         void DestroyModule();
 
-        std::string m_Name;
-        std::string m_FilePath;
-        std::vector<u32> m_SPIRV;
+        FString m_Name;
+        FString m_FilePath;
+        TArray<u32> m_SPIRV;
         VkShaderModule m_Module = VK_NULL_HANDLE;
-        std::vector<VulkanShaderBinding> m_Bindings;
+        TArray<VulkanShaderBinding> m_Bindings;
         std::unique_ptr<VulkanRootDataLayout> m_RootLayout;
         // The build is lazy and every draw asks for it, so RecordParallel
         // items race on the first ask (#806): double-checked behind the

@@ -121,7 +121,7 @@ namespace OloEngine
                             CalculateMemory(info.GPUBytesPerTexel, mipLevels),
                             RendererMemoryTracker::ResourceType::TextureCubemap,
                             "OpenGL TextureCubemapArray");
-        GPUResourceInspector::GetInstance().RegisterTextureCubemap(m_RendererID, m_Path, "TextureCubemapArray");
+        GPUResourceInspector::GetInstance().RegisterTextureCubemap(m_RendererID, m_Path.ToStdString(), "TextureCubemapArray");
 
         m_IsLoaded = true;
     }
@@ -286,7 +286,7 @@ namespace OloEngine
         return true;
     }
 
-    bool OpenGLTextureCubemapArray::GetData(std::vector<u8>& outData, u32 mipLevel) const
+    bool OpenGLTextureCubemapArray::GetData(TArray64<u8>& outData, u32 mipLevel) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -301,7 +301,7 @@ namespace OloEngine
             OLO_CORE_ERROR("OpenGLTextureCubemapArray::GetData: {} bytes exceeds the GLsizei readback limit", totalBytes);
             return false;
         }
-        outData.resize(totalBytes);
+        outData.SetNum(totalBytes, EAllowShrinking::No);
 
         // Tight packing to match the tightly-packed buffer the caller gets —
         // the default 4-byte row alignment would skew R8 rows at odd widths
@@ -316,7 +316,7 @@ namespace OloEngine
 
         Utils::DrainGLErrors();
         glGetTextureImage(m_RendererID, static_cast<GLint>(mipLevel), m_DataFormat, m_DataType,
-                          static_cast<GLsizei>(totalBytes), outData.data());
+                          static_cast<GLsizei>(totalBytes), outData.GetData());
 
         if (needAlignment)
         {

@@ -7,7 +7,8 @@
 #include <atomic>
 #include <functional>
 #include <memory>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Templates/Function.h"
 
 namespace OloEngine
 {
@@ -48,7 +49,7 @@ namespace OloEngine
             bool FenceSignaled = true;
 
             // Deferred GPU resource deletion queue
-            std::vector<std::function<void()>> DeletionQueue;
+            TArray<TFunction<void()>> DeletionQueue;
 
             void Reset()
             {
@@ -119,7 +120,7 @@ namespace OloEngine
 
         // Defer a GPU resource deletion until the GPU has finished using it.
         // The lambda should capture resource IDs by value and call glDelete*.
-        void SubmitForDeletion(std::function<void()>&& deletionFunc);
+        void SubmitForDeletion(TFunction<void()>&& deletionFunc);
 
         // Execute all pending deletion queues immediately (used during shutdown).
         void FlushAllDeletionQueues();

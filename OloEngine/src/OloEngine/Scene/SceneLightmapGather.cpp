@@ -36,11 +36,11 @@ namespace OloEngine
         }
     } // namespace
 
-    std::vector<LightmapReceiver> GatherLightmapReceivers(Scene& scene)
+    TArray<LightmapReceiver> GatherLightmapReceivers(Scene& scene)
     {
         OLO_PROFILE_FUNCTION();
 
-        std::vector<LightmapReceiver> receivers;
+        TArray<LightmapReceiver> receivers;
 
         // -- MeshComponent (issue #439) - one entity, one region, sub-key 0 --
         //
@@ -61,13 +61,13 @@ namespace OloEngine
                 {
                     continue;
                 }
-                receivers.push_back(LightmapReceiver{ view.get<IDComponent>(handle).ID,
-                                                      0,
-                                                      handle,
-                                                      mesh.m_MeshSource,
-                                                      scene.GetWorldTransform(handle),
-                                                      EntityMaterialOverride(scene, handle),
-                                                      LightmapReceiverKind::Mesh });
+                receivers.Add(LightmapReceiver{ view.get<IDComponent>(handle).ID,
+                                                0,
+                                                handle,
+                                                mesh.m_MeshSource,
+                                                scene.GetWorldTransform(handle),
+                                                EntityMaterialOverride(scene, handle),
+                                                LightmapReceiverKind::Mesh });
             }
         }
 
@@ -103,7 +103,7 @@ namespace OloEngine
                 // one asset instance share a sub-key: the bake writes one region
                 // for two surfaces sitting in different places, and the second
                 // shades from the first's charts.
-                const auto addInstances = [&](std::vector<InstanceData>& instances, u64 sourceNamespace)
+                const auto addInstances = [&](std::span<InstanceData> instances, u64 sourceNamespace)
                 {
                     (void)InstancedMeshComponent::EnsureStableIDs(instances);
                     for (const InstanceData& instance : instances)
@@ -115,13 +115,13 @@ namespace OloEngine
                         {
                             continue;
                         }
-                        receivers.push_back(LightmapReceiver{ uuid, instance.StableID | sourceNamespace, handle,
-                                                              imc.MeshSource, instance.Transform, overrideMaterial,
-                                                              LightmapReceiverKind::Instance });
+                        receivers.Add(LightmapReceiver{ uuid, instance.StableID | sourceNamespace, handle,
+                                                        imc.MeshSource, instance.Transform, overrideMaterial,
+                                                        LightmapReceiverKind::Instance });
                     }
                 };
 
-                addInstances(imc.Instances, 0);
+                addInstances({ imc.Instances.GetData(), static_cast<sizet>(imc.Instances.Num()) }, 0);
                 if (imc.PlacementAssetHandle != 0)
                 {
                     if (auto placement = AssetManager::GetAsset<InstancePlacementAsset>(imc.PlacementAssetHandle))
@@ -182,8 +182,8 @@ namespace OloEngine
                     {
                         continue;
                     }
-                    receivers.push_back(LightmapReceiver{ uuid, static_cast<u64>(i), handle, source, worldTransform,
-                                                          overrideMaterial, LightmapReceiverKind::ModelMesh });
+                    receivers.Add(LightmapReceiver{ uuid, static_cast<u64>(i), handle, source, worldTransform,
+                                                    overrideMaterial, LightmapReceiverKind::ModelMesh });
                 }
             }
         }
@@ -228,9 +228,9 @@ namespace OloEngine
                 {
                     continue;
                 }
-                receivers.push_back(LightmapReceiver{ uuid, 0, handle, source, scene.GetWorldTransform(handle),
-                                                      EntityMaterialOverride(scene, handle),
-                                                      LightmapReceiverKind::Virtual });
+                receivers.Add(LightmapReceiver{ uuid, 0, handle, source, scene.GetWorldTransform(handle),
+                                                EntityMaterialOverride(scene, handle),
+                                                LightmapReceiverKind::Virtual });
             }
         }
 

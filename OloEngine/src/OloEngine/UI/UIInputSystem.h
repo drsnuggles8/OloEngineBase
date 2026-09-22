@@ -1,10 +1,9 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Containers/Array.h"
 
 #include <glm/glm.hpp>
-
-#include <vector>
 
 namespace OloEngine
 {
@@ -17,13 +16,13 @@ namespace OloEngine
     // (just-pressed this frame), so holding a key acts once unless re-pressed.
     struct UIKeyboardInput
     {
-        std::vector<u32> m_TypedCharacters; // Unicode codepoints typed this frame (text entry)
-        bool m_Backspace = false;           // delete the codepoint before the cursor
-        bool m_Delete = false;              // delete the codepoint at the cursor
-        bool m_CursorLeft = false;          // move cursor one codepoint left
-        bool m_CursorRight = false;         // move cursor one codepoint right
-        bool m_Home = false;                // move cursor to the start of the text
-        bool m_End = false;                 // move cursor to the end of the text
+        TArray<u32> m_TypedCharacters; // Unicode codepoints typed this frame (text entry)
+        bool m_Backspace = false;      // delete the codepoint before the cursor
+        bool m_Delete = false;         // delete the codepoint at the cursor
+        bool m_CursorLeft = false;     // move cursor one codepoint left
+        bool m_CursorRight = false;    // move cursor one codepoint right
+        bool m_Home = false;           // move cursor to the start of the text
+        bool m_End = false;            // move cursor to the end of the text
     };
 
     class UIInputSystem

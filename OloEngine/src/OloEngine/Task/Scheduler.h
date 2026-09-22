@@ -295,7 +295,8 @@ namespace OloEngine::LowLevelTasks
         FSchedulerTls::FQueueRegistry m_QueueRegistry;
         FRecursiveMutex m_WorkerThreadsCS;
         std::unique_ptr<std::atomic<OloEngine::FThread*>[]> m_WorkerThreads;
-        TAlignedArray<FSchedulerTls::FLocalQueueType> m_WorkerLocalQueues;
+        std::unique_ptr<FSchedulerTls::FLocalQueueType[]> m_WorkerLocalQueues;
+        u32 m_MaxWorkers = 0;
         std::unique_ptr<FSchedulerTls::FLocalQueueType> m_GameThreadLocalQueue;
         std::atomic_uint m_ActiveWorkers{ 0 };
         std::atomic_uint m_NextWorkerId{ 0 };
@@ -335,7 +336,7 @@ namespace OloEngine::LowLevelTasks
     // Return the maximum number of worker threads, including Standby Workers
     OLO_FINLINE u32 FScheduler::GetMaxNumWorkers() const
     {
-        return static_cast<u32>(m_WorkerLocalQueues.Num());
+        return m_MaxWorkers;
     }
 
     OLO_FINLINE bool FScheduler::WakeUpWorker(bool bBackgroundWorker)

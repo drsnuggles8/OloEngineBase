@@ -38,7 +38,7 @@ namespace OloEngine
         out << YAML::Key << "ResolutionZ" << YAML::Value << probeVolume->Resolution.z;
         out << YAML::Key << "Spacing" << YAML::Value << probeVolume->Spacing;
         out << YAML::Key << "ProbeCount" << YAML::Value << probeVolume->GetTotalProbeCount();
-        out << YAML::Key << "CoefficientCount" << YAML::Value << static_cast<u64>(probeVolume->CoefficientData.size());
+        out << YAML::Key << "CoefficientCount" << YAML::Value << static_cast<u64>(probeVolume->CoefficientData.Num());
         out << YAML::EndMap;
         out << YAML::EndMap;
 
@@ -56,10 +56,10 @@ namespace OloEngine
         fout.write(reinterpret_cast<const char*>(&yamlLen), sizeof(u64));
         fout.write(yamlStr.data(), static_cast<std::streamsize>(yamlStr.size()));
 
-        if (!probeVolume->CoefficientData.empty())
+        if (!probeVolume->CoefficientData.IsEmpty())
         {
-            auto dataSize = static_cast<std::streamsize>(probeVolume->CoefficientData.size() * sizeof(glm::vec4));
-            fout.write(reinterpret_cast<const char*>(probeVolume->CoefficientData.data()), dataSize);
+            auto dataSize = static_cast<std::streamsize>(probeVolume->CoefficientData.Num() * sizeof(glm::vec4));
+            fout.write(reinterpret_cast<const char*>(probeVolume->CoefficientData.GetData()), dataSize);
         }
 
         fout.close();
@@ -148,9 +148,9 @@ namespace OloEngine
                 return false;
             }
 
-            probeVolume->CoefficientData.resize(static_cast<size_t>(coeffCount));
+            probeVolume->CoefficientData.SetNum(static_cast<size_t>(coeffCount));
             auto dataSize = static_cast<std::streamsize>(coeffCount * sizeof(glm::vec4));
-            fin.read(reinterpret_cast<char*>(probeVolume->CoefficientData.data()), dataSize);
+            fin.read(reinterpret_cast<char*>(probeVolume->CoefficientData.GetData()), dataSize);
             if (!fin.good())
             {
                 OLO_CORE_ERROR("Failed to read coefficient data from: {}", filepath.string());
@@ -179,12 +179,12 @@ namespace OloEngine
         stream.WriteData(reinterpret_cast<const char*>(&asset->Resolution), sizeof(glm::ivec3));
         stream.WriteData(reinterpret_cast<const char*>(&asset->Spacing), sizeof(f32));
 
-        auto coeffCount = static_cast<u64>(asset->CoefficientData.size());
+        auto coeffCount = static_cast<u64>(asset->CoefficientData.Num());
         stream.WriteData(reinterpret_cast<const char*>(&coeffCount), sizeof(u64));
 
         if (coeffCount > 0)
         {
-            stream.WriteData(reinterpret_cast<const char*>(asset->CoefficientData.data()),
+            stream.WriteData(reinterpret_cast<const char*>(asset->CoefficientData.GetData()),
                              static_cast<size_t>(coeffCount * sizeof(glm::vec4)));
         }
 
@@ -206,8 +206,8 @@ namespace OloEngine
 
         if (coeffCount > 0)
         {
-            probeVolume->CoefficientData.resize(static_cast<size_t>(coeffCount));
-            stream.ReadData(reinterpret_cast<char*>(probeVolume->CoefficientData.data()),
+            probeVolume->CoefficientData.SetNum(static_cast<size_t>(coeffCount));
+            stream.ReadData(reinterpret_cast<char*>(probeVolume->CoefficientData.GetData()),
                             static_cast<size_t>(coeffCount * sizeof(glm::vec4)));
         }
 

@@ -24,6 +24,7 @@
 #include "OloEngine/Templates/TypeHash.h"
 #include "OloEngine/Templates/UnrealTypeTraits.h"
 #include <algorithm>
+#include <compare>
 #include <initializer_list>
 #include <iterator>
 #include <type_traits>
@@ -73,12 +74,17 @@ namespace OloEngine
     template<typename ElementType, typename SizeType, bool bReverse = false>
     struct TCheckedPointerIterator
     {
-        // This iterator type only supports the minimal functionality needed to support
-        // C++ ranged-for syntax. For example, it does not provide post-increment ++ nor ==.
-        // We do add an operator-- to help with some implementations
+        using iterator_category = std::random_access_iterator_tag;
+        using iterator_concept = std::random_access_iterator_tag;
+        using value_type = std::remove_cv_t<ElementType>;
+        using difference_type = std::ptrdiff_t;
+        using pointer = ElementType*;
+        using reference = ElementType&;
+
+        TCheckedPointerIterator() = default;
 
         [[nodiscard]] explicit TCheckedPointerIterator(const SizeType& InNum, ElementType* InPtr)
-            : Ptr(InPtr), CurrentNum(InNum), InitialNum(InNum)
+            : Ptr(InPtr), CurrentNum(&InNum), InitialNum(InNum)
         {
         }
 
@@ -132,6 +138,68 @@ namespace OloEngine
             return *this;
         }
 
+        TCheckedPointerIterator operator++(int)
+        {
+            auto previous = *this;
+            ++*this;
+            return previous;
+        }
+
+        TCheckedPointerIterator operator--(int)
+        {
+            auto previous = *this;
+            --*this;
+            return previous;
+        }
+
+        TCheckedPointerIterator& operator+=(difference_type offset)
+        {
+            if (offset != 0)
+                Ptr += bReverse ? -offset : offset;
+            return *this;
+        }
+
+        TCheckedPointerIterator& operator-=(difference_type offset)
+        {
+            return *this += -offset;
+        }
+
+        friend TCheckedPointerIterator operator+(TCheckedPointerIterator iterator, difference_type offset)
+        {
+            return iterator += offset;
+        }
+
+        friend TCheckedPointerIterator operator+(difference_type offset, TCheckedPointerIterator iterator)
+        {
+            return iterator += offset;
+        }
+
+        friend TCheckedPointerIterator operator-(TCheckedPointerIterator iterator, difference_type offset)
+        {
+            return iterator -= offset;
+        }
+
+        difference_type operator-(const TCheckedPointerIterator& other) const
+        {
+            CheckUnchanged();
+            other.CheckUnchanged();
+            if (Ptr == other.Ptr)
+                return 0;
+            return bReverse ? other.Ptr - Ptr : Ptr - other.Ptr;
+        }
+
+        reference operator[](difference_type offset) const
+        {
+            return *(*this + offset);
+        }
+
+        auto operator<=>(const TCheckedPointerIterator& other) const
+        {
+            CheckUnchanged();
+            other.CheckUnchanged();
+            return bReverse ? other.Ptr <=> Ptr : Ptr <=> other.Ptr;
+        }
+
         [[nodiscard]] OLO_FINLINE bool operator!=(const TCheckedPointerIterator& Rhs) const
         {
             // We only need to do the check in this operator, because no other operator will be
@@ -139,7 +207,7 @@ namespace OloEngine
             //
             // Also, we should only need to check one side of this comparison - if the other iterator isn't
             // even from the same array then the compiler has generated bad code.
-            OLO_CORE_ASSERT(CurrentNum == InitialNum, "Array has changed during ranged-for iteration!");
+            CheckUnchanged();
             return Ptr != Rhs.Ptr;
         }
 
@@ -149,9 +217,14 @@ namespace OloEngine
         }
 
       private:
-        ElementType* Ptr;
-        const SizeType& CurrentNum;
-        SizeType InitialNum;
+        void CheckUnchanged() const
+        {
+            OLO_CORE_ASSERT(!CurrentNum || *CurrentNum == InitialNum, "Array has changed during iteration!");
+        }
+
+        ElementType* Ptr = nullptr;
+        const SizeType* CurrentNum = nullptr;
+        SizeType InitialNum = 0;
     };
 #endif
 
@@ -582,19 +655,9 @@ namespace OloEngine
             // silently corrupted — libstdc++'s std::string does exactly that
             // under SSO, which aborted with "free(): invalid pointer".
             //
-            // Ported verbatim in spirit from UE's ~TArray (Array.h), including
-            // its placement in the destructor and its warning-not-error level:
-            //
-            //   UE_STATIC_ASSERT_WARN(TIsTriviallyRelocatable_V<InElementType>,
-            //       "TArray can only be used with trivially relocatable types");
-            //
-            // A warning rather than a hard assert because the trait defaults to
-            // true and is opt-out, so this only fires for types someone has
-            // explicitly marked non-relocatable — exactly the cases that are
-            // already broken. Upgrading to a hard error is the right end state
-            // once the flagged types are fixed.
-            OLO_STATIC_ASSERT_WARN(TIsTriviallyRelocatable_V<InElementType>,
-                                   "TArray can only be used with trivially relocatable types");
+            // ADR 0012: fail closed for non-trivial, unaudited element types.
+            static_assert(TIsTriviallyRelocatable_V<InElementType>,
+                          "TArray can only be used with trivially relocatable types");
 
             DestructItems(GetData(), m_ArrayNum);
             // Allocator destructor handles freeing memory
@@ -1445,21 +1508,6 @@ namespace OloEngine
             return INDEX_NONE;
         }
 
-        /** Find index of element by predicate */
-        template<typename Predicate>
-        [[nodiscard]] SizeType FindByPredicate(Predicate Pred) const
-        {
-            const ElementType* Data = GetData();
-            for (SizeType i = 0; i < m_ArrayNum; ++i)
-            {
-                if (Pred(Data[i]))
-                {
-                    return i;
-                }
-            }
-            return INDEX_NONE;
-        }
-
         /** Check if element exists */
         [[nodiscard]] bool Contains(const ElementType& Item) const
         {
@@ -1470,7 +1518,7 @@ namespace OloEngine
         template<typename Predicate>
         [[nodiscard]] bool ContainsByPredicate(Predicate Pred) const
         {
-            return FindByPredicate(Pred) != INDEX_NONE;
+            return IndexOfByPredicate(Pred) != INDEX_NONE;
         }
 
         /**
@@ -1934,8 +1982,8 @@ namespace OloEngine
 #else
         using RangedForIteratorType = ElementType*;
         using RangedForConstIteratorType = const ElementType*;
-        using RangedForReverseIteratorType = TReversePointerIterator<ElementType>;
-        using RangedForConstReverseIteratorType = TReversePointerIterator<const ElementType>;
+        using RangedForReverseIteratorType = std::reverse_iterator<ElementType*>;
+        using RangedForConstReverseIteratorType = std::reverse_iterator<const ElementType*>;
 #endif
 
       public:
@@ -2758,3 +2806,13 @@ inline void* operator new(size_t Size, OloEngine::TArray<T, AllocatorType>& Arra
     Array.InsertUninitialized(Index, 1);
     return Array.GetData() + Index;
 }
+
+namespace OloEngine
+{
+    // No pointer into the container object; inline storage is checked by policy.
+    template<typename T, typename A>
+    struct TIsTriviallyRelocatable<TArray<T, A>>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable_V<T> && TIsContainerAllocatorRelocatable<A>::Value;
+    };
+} // namespace OloEngine

@@ -18,9 +18,9 @@ namespace OloEngine
 
     void EmissiveTriangleTable::BeginFrame(const glm::vec3& renderOrigin, bool gather)
     {
-        m_Pending.clear();
+        m_Pending.Reset();
         m_EmissiveMaterials.clear();
-        m_Records.clear();
+        m_Records.Reset();
         m_RenderOrigin = renderOrigin;
         m_TotalArea = 0.0f;
         m_Gathering = gather;
@@ -39,7 +39,7 @@ namespace OloEngine
     {
         if (!m_Gathering || !meshSource || !m_EmissiveMaterials.contains(materialKey))
             return;
-        m_Pending.push_back(PendingSubmesh{
+        m_Pending.Add(PendingSubmesh{
             .m_MeshSource = meshSource,
             .m_SubmeshIndex = submeshIndex,
             .m_WorldTransform = worldTransform,
@@ -48,7 +48,7 @@ namespace OloEngine
     }
 
     f32 EmissiveTriangleTable::AppendTriangles(const TriangleRange& range, const Emitter& emitter, f32 runningArea,
-                                               std::vector<EmissiveTriangleRecord>& out)
+                                               TArray<EmissiveTriangleRecord>& out)
     {
         const std::span<const Vertex> vertices = range.Vertices;
         const std::span<const u32> indices = range.Indices;
@@ -108,14 +108,14 @@ namespace OloEngine
             record.RadianceAndFlags = glm::vec4(radiance, twoSided ? 1.0f : 0.0f);
             record.Uv01 = glm::vec4(uv0, uv1);
             record.Texture = glm::uvec4(emissiveTexture, 0u, 0u, 0u);
-            out.push_back(record);
+            out.Add(record);
         }
         return runningArea;
     }
 
-    void EmissiveTriangleTable::Finalize(std::vector<EmissiveTriangleRecord>& records, f32 totalArea)
+    void EmissiveTriangleTable::Finalize(TArray<EmissiveTriangleRecord>& records, f32 totalArea)
     {
-        if (records.empty())
+        if (records.IsEmpty())
             return;
         const f32 invTotal = totalArea > 0.0f ? 1.0f / totalArea : 0.0f;
         for (auto& record : records)
@@ -123,12 +123,12 @@ namespace OloEngine
         // Forced exactly, as the CPU reference does: rounding can leave the
         // last running fraction a few ulps under 1, and a selection value in
         // that gap would otherwise index past the end.
-        records.back().NormalAndCdf.w = 1.0f;
+        records.Last().NormalAndCdf.w = 1.0f;
     }
 
     u32 EmissiveTriangleTable::EndFrame(const GPUScene& scene, const MaterialTextureTable& textures)
     {
-        m_Records.clear();
+        m_Records.Reset();
         m_TotalArea = 0.0f;
         m_UploadedCount = 0;
 
@@ -174,13 +174,13 @@ namespace OloEngine
                 },
                 m_TotalArea, m_Records);
         }
-        m_Pending.clear();
+        m_Pending.Reset();
 
         Finalize(m_Records, m_TotalArea);
-        if (m_Records.empty())
+        if (m_Records.IsEmpty())
             return 0;
 
-        const auto requiredBytes = static_cast<u32>(m_Records.size() * sizeof(EmissiveTriangleRecord));
+        const auto requiredBytes = static_cast<u32>(m_Records.Num() * sizeof(EmissiveTriangleRecord));
 
         // Written only when the bytes changed, and then into a FRESH buffer.
         // The previous frame's draw may still be reading the old allocation
@@ -194,11 +194,11 @@ namespace OloEngine
         // new address every change is why the pass resolves it every frame.
         // In a static scene the table is identical every frame and nothing is
         // allocated or written.
-        const bool unchanged = m_Buffer && m_Uploaded.size() == m_Records.size() &&
-                               std::memcmp(m_Uploaded.data(), m_Records.data(), requiredBytes) == 0;
+        const bool unchanged = m_Buffer && m_Uploaded.Num() == m_Records.Num() &&
+                               std::memcmp(m_Uploaded.GetData(), m_Records.GetData(), requiredBytes) == 0;
         if (!unchanged)
         {
-            const u32 capacityRecords = std::max<u32>(kMinimumRecordCapacity, static_cast<u32>(m_Records.size()));
+            const u32 capacityRecords = std::max<u32>(kMinimumRecordCapacity, static_cast<u32>(m_Records.Num()));
             const auto capacityBytes = static_cast<u32>(capacityRecords * sizeof(EmissiveTriangleRecord));
             // By device address only, never by slot: the shader reaches it
             // through GL_EXT_buffer_reference, so it publishes nowhere.
@@ -211,14 +211,14 @@ namespace OloEngine
             m_ChangedThisFrame = true;
             if (!m_Buffer)
             {
-                m_Uploaded.clear();
+                m_Uploaded.Reset();
                 m_UploadedCount = 0;
                 return 0;
             }
-            m_Buffer->SetData(m_Records.data(), requiredBytes);
+            m_Buffer->SetData(m_Records.GetData(), requiredBytes);
             m_Uploaded = m_Records;
         }
-        m_UploadedCount = static_cast<u32>(m_Records.size());
+        m_UploadedCount = static_cast<u32>(m_Records.Num());
         return m_UploadedCount;
     }
 
@@ -231,13 +231,13 @@ namespace OloEngine
 
     void EmissiveTriangleTable::Shutdown()
     {
-        m_Pending.clear();
-        m_Pending.shrink_to_fit();
+        m_Pending.Reset();
+        m_Pending.Shrink();
         m_EmissiveMaterials.clear();
-        m_Records.clear();
-        m_Records.shrink_to_fit();
-        m_Uploaded.clear();
-        m_Uploaded.shrink_to_fit();
+        m_Records.Reset();
+        m_Records.Shrink();
+        m_Uploaded.Reset();
+        m_Uploaded.Shrink();
         m_TotalArea = 0.0f;
         m_UploadedCount = 0;
         m_Gathering = false;

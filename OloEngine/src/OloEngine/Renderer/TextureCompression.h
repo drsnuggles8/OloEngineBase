@@ -1,6 +1,8 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/String.h"
 
 #include <span>
 #include <string>
@@ -58,20 +60,20 @@ namespace OloEngine
                                // BC7 albedo isn't mis-sorted into the transparent pass.
         // One entry per mip level (mip 0 = full resolution). Each holds the tightly
         // packed BCn blocks for that level: ceil(w/4) * ceil(h/4) * BlockSizeBytes.
-        std::vector<std::vector<u8>> Mips;
+        TArray<TArray64<u8>> Mips;
         // Runtime-only: the source .olotex path, set by the asset loader (NOT persisted
         // by SerializeToBlob). Lets the GPU texture report GetPath() so the asset-pack
         // serializer can re-read + embed the container. Empty for test/procedural images.
-        std::string SourcePath;
+        FString SourcePath;
 
         [[nodiscard]] bool IsValid() const
         {
-            return Format != TextureCompressionFormat::None && Width > 0 && Height > 0 && !Mips.empty();
+            return Format != TextureCompressionFormat::None && Width > 0 && Height > 0 && !Mips.IsEmpty();
         }
 
         [[nodiscard]] u32 MipLevels() const
         {
-            return static_cast<u32>(Mips.size());
+            return static_cast<u32>(Mips.Num());
         }
     };
 
@@ -134,7 +136,7 @@ namespace OloEngine
         // Signature of a GPU BC6H level encoder: fills `outBlocks` with the tightly
         // packed blocks for one mip level, or returns false having logged why.
         using Bc6hGpuEncodeFn = bool (*)(const f32* rgb, u32 width, u32 height, bool isSigned,
-                                         std::vector<u8>& outBlocks);
+                                         TArray64<u8>& outBlocks);
 
         // Hand EncodeBC6H a GPU encoder, or nullptr to take it away. Registered by
         // Renderer/BC6HGpuEncoder.h, which owns the compute pass; this header stays
@@ -187,7 +189,7 @@ namespace OloEngine
         // Used by tests and the no-BPTC-hardware fallback upload path. Rejects BC6H
         // (an HDR format cannot be represented in 8-bit) — use DecodeToRGBAFloat for it.
         [[nodiscard]] bool DecodeToRGBA8(const CompressedTextureImage& image, u32 mipLevel,
-                                         std::vector<u8>& outRGBA8, u32& outWidth, u32& outHeight);
+                                         TArray64<u8>& outRGBA8, u32& outWidth, u32& outHeight);
 
         // Decompress one BC6H mip level (either variant) to RGBA float (4 floats/texel:
         // R,G,B and A=1), via the vendored bcdec reference decoder. Used by the BC6H
@@ -195,7 +197,7 @@ namespace OloEngine
         // HDR fallback upload (which uploads the result as RGBA16F). Returns false for
         // non-BC6H formats.
         [[nodiscard]] bool DecodeToRGBAFloat(const CompressedTextureImage& image, u32 mipLevel,
-                                             std::vector<f32>& outRGBA, u32& outWidth, u32& outHeight);
+                                             TArray64<f32>& outRGBA, u32& outWidth, u32& outHeight);
 
         // ---- Container (.olotex) ---------------------------------------------
         [[nodiscard]] std::vector<u8> SerializeToBlob(const CompressedTextureImage& image);

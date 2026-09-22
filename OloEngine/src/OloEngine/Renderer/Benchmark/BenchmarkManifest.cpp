@@ -171,28 +171,28 @@ namespace OloEngine::Benchmark
                 // v1 manifests may carry the fields but are not held to them —
                 // still validate the Sha256 FORMAT when one is present, since a
                 // malformed hash is useless in either version.
-                if (!record.Sha256.empty() && !IsSha256Hex(record.Sha256))
+                if (!record.Sha256.IsEmpty() && !IsSha256Hex(record.Sha256.ToView()))
                 {
                     errors.Add(context + ": Sha256 must be 64 lowercase hex characters");
                 }
                 return;
             }
 
-            if (record.Origin.empty())
+            if (record.Origin.IsEmpty())
             {
                 errors.Add(context + ": Origin is required in ManifestVersion 2");
             }
-            if (record.Version.empty())
+            if (record.Version.IsEmpty())
             {
                 errors.Add(context + ": Version is required in ManifestVersion 2 "
                                      "(upstream tag/commit, or 'generated' for in-repo output)");
             }
-            if (!IsSha256Hex(record.Sha256))
+            if (!IsSha256Hex(record.Sha256.ToView()))
             {
                 errors.Add(context + ": Sha256 must be 64 lowercase hex characters "
                                      "(tools/benchmark/reference_assets.py --write-hashes fills these in)");
             }
-            if (record.Acquisition.empty())
+            if (record.Acquisition.IsEmpty())
             {
                 errors.Add(context + ": Acquisition is required in ManifestVersion 2 "
                                      "(the reproducible local acquisition path — a URL, or the procedure for a "
@@ -297,7 +297,7 @@ namespace OloEngine::Benchmark
 
             ManifestCamera camera;
             camera.Id = node["Id"].as<std::string>("");
-            if (!IsPlainId(camera.Id))
+            if (!IsPlainId(camera.Id.ToView()))
             {
                 errors.Add(context + ": Id must be non-empty [a-z0-9-]");
             }
@@ -376,7 +376,7 @@ namespace OloEngine::Benchmark
         return std::ranges::find(SupportedBackends, backend) != SupportedBackends.end();
     }
 
-    const std::vector<std::string>* BenchmarkManifest::UnsupportedFor(std::string_view backend) const
+    const TArray<FString>* BenchmarkManifest::UnsupportedFor(std::string_view backend) const
     {
         const auto it = UnsupportedAttachments.find(std::string(backend));
         return it != UnsupportedAttachments.end() ? &it->second : nullptr;
@@ -436,7 +436,7 @@ namespace OloEngine::Benchmark
         }
 
         manifest.Id = root["Id"].as<std::string>("");
-        if (!IsPlainId(manifest.Id))
+        if (!IsPlainId(manifest.Id.ToView()))
         {
             errors.Add("Id must be non-empty [a-z0-9-] (it names the result directory)");
         }
@@ -459,7 +459,7 @@ namespace OloEngine::Benchmark
         }
 
         manifest.ScenePath = root["Scene"].as<std::string>("");
-        if (manifest.ScenePath.empty())
+        if (manifest.ScenePath.IsEmpty())
         {
             errors.Add("Scene is required (project-relative .olo path)");
         }
@@ -474,7 +474,7 @@ namespace OloEngine::Benchmark
                 {
                     errors.Add("Backends.Supported entries must be opengl | vulkan (got '" + name + "')");
                 }
-                manifest.SupportedBackends.push_back(name);
+                manifest.SupportedBackends.Add(name);
             }
             if (const auto features = backends["Features"]; features && features.IsMap())
             {
@@ -486,12 +486,12 @@ namespace OloEngine::Benchmark
                     auto& list = manifest.UnsupportedAttachments[backendName];
                     for (const auto& att : kv.second["UnsupportedAttachments"])
                     {
-                        list.push_back(att.as<std::string>(""));
+                        list.Add(att.as<std::string>(""));
                     }
                 }
             }
         }
-        if (manifest.SupportedBackends.empty())
+        if (manifest.SupportedBackends.IsEmpty())
         {
             errors.Add("Backends.Supported must list at least one backend");
         }
@@ -504,7 +504,7 @@ namespace OloEngine::Benchmark
         {
             if (auto parsed = ParseCamera(camera, errors, 0, manifest.ManifestVersion))
             {
-                manifest.Cameras.push_back(std::move(*parsed));
+                manifest.Cameras.Add(std::move(*parsed));
             }
         }
         else if (const auto cameras = root["Cameras"]; cameras && cameras.IsSequence())
@@ -514,21 +514,21 @@ namespace OloEngine::Benchmark
             {
                 if (auto parsed = ParseCamera(entry, errors, index++, manifest.ManifestVersion))
                 {
-                    manifest.Cameras.push_back(std::move(*parsed));
+                    manifest.Cameras.Add(std::move(*parsed));
                 }
             }
         }
-        if (manifest.Cameras.empty())
+        if (manifest.Cameras.IsEmpty())
         {
             errors.Add("at least one camera is required (Camera: or Cameras:)");
         }
-        for (sizet i = 0; i < manifest.Cameras.size(); ++i)
+        for (sizet i = 0; i < manifest.Cameras.Num(); ++i)
         {
-            for (sizet j = i + 1; j < manifest.Cameras.size(); ++j)
+            for (sizet j = i + 1; j < manifest.Cameras.Num(); ++j)
             {
                 if (manifest.Cameras[i].Id == manifest.Cameras[j].Id)
                 {
-                    errors.Add("duplicate camera Id '" + manifest.Cameras[i].Id + "'");
+                    errors.Add("duplicate camera Id '" + manifest.Cameras[i].Id.ToStdString() + "'");
                 }
             }
         }
@@ -735,11 +735,11 @@ namespace OloEngine::Benchmark
                 ManifestAttachment attachment;
                 attachment.Name = entry["Name"].as<std::string>("");
                 attachment.Source = entry["Source"].as<std::string>("");
-                if (!IsPlainFileStem(attachment.Name))
+                if (!IsPlainFileStem(attachment.Name.ToView()))
                 {
                     errors.Add(context + ": Name must be a plain file stem [A-Za-z0-9_-]");
                 }
-                if (attachment.Source.empty())
+                if (attachment.Source.IsEmpty())
                 {
                     errors.Add(context + ": Source (render-graph resource name) is required");
                 }
@@ -800,20 +800,20 @@ namespace OloEngine::Benchmark
                     errors.Add(context +
                                ": Derive must be none | linear-depth | channel-r | channel-g | channel-b | channel-a");
                 }
-                manifest.Attachments.push_back(std::move(attachment));
+                manifest.Attachments.Add(std::move(attachment));
             }
         }
-        if (manifest.Attachments.empty())
+        if (manifest.Attachments.IsEmpty())
         {
             errors.Add("Attachments must list at least one output (the Beauty capture)");
         }
-        for (sizet i = 0; i < manifest.Attachments.size(); ++i)
+        for (sizet i = 0; i < manifest.Attachments.Num(); ++i)
         {
-            for (sizet j = i + 1; j < manifest.Attachments.size(); ++j)
+            for (sizet j = i + 1; j < manifest.Attachments.Num(); ++j)
             {
                 if (manifest.Attachments[i].Name == manifest.Attachments[j].Name)
                 {
-                    errors.Add("duplicate attachment Name '" + manifest.Attachments[i].Name + "'");
+                    errors.Add("duplicate attachment Name '" + manifest.Attachments[i].Name.ToStdString() + "'");
                 }
             }
         }
@@ -850,13 +850,13 @@ namespace OloEngine::Benchmark
                 record.Path = entry["Path"].as<std::string>("");
                 record.Origin = entry["Origin"].as<std::string>("");
                 record.License = entry["License"].as<std::string>("");
-                if (record.Path.empty() || record.License.empty())
+                if (record.Path.IsEmpty() || record.License.IsEmpty())
                 {
                     errors.Add(context + ": Path and License are required "
                                          "(recording asset origin/license is an issue-#974 acceptance criterion)");
                 }
                 ParseAssetProvenance(entry, context, requireProvenance, record, errors);
-                manifest.Assets.push_back(std::move(record));
+                manifest.Assets.Add(std::move(record));
             }
         }
         else if (manifest.ManifestVersion >= 2u)

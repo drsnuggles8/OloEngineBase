@@ -37,9 +37,9 @@ class DialogueTreeSerializationTest : public ::testing::Test
         responseNode.Properties["text"] = std::string("Move along.");
         responseNode.EditorPosition = { 500.0f, 200.0f };
 
-        asset->GetNodesWritable().push_back(std::move(rootNode));
-        asset->GetNodesWritable().push_back(std::move(choiceNode));
-        asset->GetNodesWritable().push_back(std::move(responseNode));
+        asset->GetNodesWritable().AddTail(std::move(rootNode));
+        asset->GetNodesWritable().AddTail(std::move(choiceNode));
+        asset->GetNodesWritable().AddTail(std::move(responseNode));
 
         DialogueConnection conn1;
         conn1.SourceNodeID = UUID(1001);
@@ -53,8 +53,8 @@ class DialogueTreeSerializationTest : public ::testing::Test
         conn2.SourcePort = "I'm a friend.";
         conn2.TargetPort = "input";
 
-        asset->GetConnectionsWritable().push_back(std::move(conn1));
-        asset->GetConnectionsWritable().push_back(std::move(conn2));
+        asset->GetConnectionsWritable().Add(std::move(conn1));
+        asset->GetConnectionsWritable().Add(std::move(conn2));
 
         asset->SetRootNodeID(UUID(1001));
         asset->RebuildNodeIndex();
@@ -75,7 +75,7 @@ TEST_F(DialogueTreeSerializationTest, SerializeAndDeserializeRoundTrip)
     ASSERT_TRUE(serializer.TestDeserializeFromYAML(yaml, deserialized));
 
     // Verify nodes
-    EXPECT_EQ(deserialized->GetNodes().size(), 3u);
+    EXPECT_EQ(deserialized->GetNodes().Num(), 3u);
     EXPECT_EQ(static_cast<u64>(deserialized->GetRootNodeID()), static_cast<u64>(original->GetRootNodeID()));
 
     auto* root = deserialized->FindNode(UUID(1001));
@@ -97,7 +97,7 @@ TEST_F(DialogueTreeSerializationTest, SerializeAndDeserializeRoundTrip)
     EXPECT_EQ(std::get<std::string>(textIt->second), "Move along.");
 
     // Verify connections (order-independent)
-    ASSERT_EQ(deserialized->GetConnections().size(), 2u);
+    ASSERT_EQ(deserialized->GetConnections().Num(), 2u);
     const auto& conns = deserialized->GetConnections();
     bool hasOutputConn = std::ranges::any_of(conns, [](const auto& c)
                                              { return c.SourceNodeID == UUID(1001) && c.TargetNodeID == UUID(1002) && c.SourcePort == "output" && c.TargetPort == "input"; });
@@ -176,7 +176,7 @@ TEST_F(DialogueTreeSerializationTest, SingleNodeNoConnections)
     rootNode.Properties["text"] = std::string("Hello.");
     rootNode.EditorPosition = { 0.0f, 0.0f };
 
-    asset->GetNodesWritable().push_back(std::move(rootNode));
+    asset->GetNodesWritable().AddTail(std::move(rootNode));
     asset->SetRootNodeID(UUID(5000));
     asset->RebuildNodeIndex();
 
@@ -186,8 +186,8 @@ TEST_F(DialogueTreeSerializationTest, SingleNodeNoConnections)
     auto deserialized = Ref<DialogueTreeAsset>::Create();
     ASSERT_TRUE(serializer.TestDeserializeFromYAML(yaml, deserialized));
 
-    EXPECT_EQ(deserialized->GetNodes().size(), 1u);
-    EXPECT_TRUE(deserialized->GetConnections().empty());
+    EXPECT_EQ(deserialized->GetNodes().Num(), 1u);
+    EXPECT_TRUE(deserialized->GetConnections().IsEmpty());
 }
 
 TEST_F(DialogueTreeSerializationTest, RoundTripPreservesAllPropertyTypes)
@@ -204,7 +204,7 @@ TEST_F(DialogueTreeSerializationTest, RoundTripPreservesAllPropertyTypes)
     node.Properties["floatProp"] = f32(3.14f);
     node.EditorPosition = { 10.0f, 20.0f };
 
-    asset->GetNodesWritable().push_back(std::move(node));
+    asset->GetNodesWritable().AddTail(std::move(node));
     asset->SetRootNodeID(UUID(7000));
     asset->RebuildNodeIndex();
 

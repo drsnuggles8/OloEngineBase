@@ -48,7 +48,7 @@ namespace OloEngine
         auto newState = CaptureSnapshot();
 
         // Skip no-op commands (quick structural comparison)
-        if (oldState.RootNodeID == newState.RootNodeID && oldState.Nodes.size() == newState.Nodes.size() && oldState.Connections.size() == newState.Connections.size())
+        if (oldState.RootNodeID == newState.RootNodeID && oldState.Nodes.size() == newState.Nodes.size() && oldState.Connections.Num() == newState.Connections.Num())
         {
             // Check if node IDs and connection endpoints match
             bool same = true;
@@ -56,7 +56,7 @@ namespace OloEngine
             {
                 same = (static_cast<u64>(oldState.Nodes[i].ID) == static_cast<u64>(newState.Nodes[i].ID) && oldState.Nodes[i].Name == newState.Nodes[i].Name && oldState.Nodes[i].Type == newState.Nodes[i].Type && oldState.Nodes[i].Properties == newState.Nodes[i].Properties && oldState.Nodes[i].EditorPosition == newState.Nodes[i].EditorPosition);
             }
-            for (sizet i = 0; i < oldState.Connections.size() && same; ++i)
+            for (sizet i = 0; i < oldState.Connections.Num() && same; ++i)
             {
                 same = (static_cast<u64>(oldState.Connections[i].SourceNodeID) == static_cast<u64>(newState.Connections[i].SourceNodeID) && static_cast<u64>(oldState.Connections[i].TargetNodeID) == static_cast<u64>(newState.Connections[i].TargetNodeID) && oldState.Connections[i].SourcePort == newState.Connections[i].SourcePort && oldState.Connections[i].TargetPort == newState.Connections[i].TargetPort);
             }
@@ -215,10 +215,10 @@ namespace OloEngine
 
         // Node body
         f32 const rounding = 6.0f * zoom;
-        drawList->AddRectFilled(nodePos, nodeEnd, GetNodeColor(node.Type), rounding);
+        drawList->AddRectFilled(nodePos, nodeEnd, GetNodeColor(node.Type.ToStdString()), rounding);
 
         // Header
-        drawList->AddRectFilled(nodePos, headerEnd, GetNodeHeaderColor(node.Type), rounding, ImDrawFlags_RoundCornersTop);
+        drawList->AddRectFilled(nodePos, headerEnd, GetNodeHeaderColor(node.Type.ToStdString()), rounding, ImDrawFlags_RoundCornersTop);
 
         // Selection outline
         if (isSelected)
@@ -237,14 +237,14 @@ namespace OloEngine
 
         // Header text
         f32 const fontSize = 13.0f * zoom;
-        std::string headerText = node.Name.empty() ? node.Type : node.Name;
+        std::string headerText = node.Name.IsEmpty() ? node.Type.ToStdString() : node.Name.ToStdString();
         ImVec2 const textPos = ImVec2(nodePos.x + s_NodePadding * zoom, nodePos.y + 4.0f * zoom);
         drawList->AddText(nullptr, fontSize, textPos, IM_COL32(255, 255, 255, 240), headerText.c_str());
 
         // Type badge (small text)
-        if (!node.Name.empty())
+        if (!node.Name.IsEmpty())
         {
-            std::string typeLabel = "[" + node.Type + "]";
+            std::string typeLabel = "[" + node.Type.ToStdString() + "]";
             ImVec2 const badgeSize = ImGui::CalcTextSize(typeLabel.c_str());
             ImVec2 const badgePos = ImVec2(
                 nodeEnd.x - (badgeSize.x + s_NodePadding) * zoom,
@@ -468,7 +468,7 @@ namespace OloEngine
             {
                 if (conn.SourceNodeID == node.ID)
                 {
-                    choiceLabels.push_back(conn.SourcePort.empty() ? ("choice " + std::to_string(portIndex + 1)) : conn.SourcePort);
+                    choiceLabels.push_back(conn.SourcePort.IsEmpty() ? ("choice " + std::to_string(portIndex + 1)) : conn.SourcePort.ToStdString());
                     ++portIndex;
                 }
             }
@@ -511,7 +511,7 @@ namespace OloEngine
 
     void DialogueEditorPanel::DrawConnections()
     {
-        for (size_t ci = 0; ci < m_Connections.size(); ++ci)
+        for (size_t ci = 0; ci < m_Connections.Num(); ++ci)
         {
             const auto& conn = m_Connections[ci];
 
@@ -546,7 +546,7 @@ namespace OloEngine
                     startPos = port.Position;
                     break;
                 }
-                if (port.IsOutput && conn.SourcePort.empty() && port.Name == "out")
+                if (port.IsOutput && conn.SourcePort.IsEmpty() && port.Name == "out")
                 {
                     startPos = port.Position;
                     break;
@@ -651,7 +651,7 @@ namespace OloEngine
             f32 const ny = mmOrigin.y + 4.0f + (node.EditorPosition.y - minY) * mmScale;
             ImU32 const color = (node.ID == m_SelectedNodeID)
                                     ? IM_COL32(255, 200, 50, 255)
-                                    : GetNodeHeaderColor(node.Type);
+                                    : GetNodeHeaderColor(node.Type.ToStdString());
             drawList->AddRectFilled(ImVec2(nx, ny), ImVec2(nx + 4.0f, ny + 3.0f), color);
         }
     }
@@ -869,7 +869,7 @@ namespace OloEngine
                                                                  { return c.SourceNodeID == conn.SourceNodeID && c.SourcePort == conn.SourcePort && c.TargetNodeID == conn.TargetNodeID && c.TargetPort == conn.TargetPort; });
                             if (!duplicate)
                             {
-                                m_Connections.push_back(conn);
+                                m_Connections.Add(conn);
                                 m_IsDirty = true;
                             }
                             connected = true;
@@ -886,7 +886,7 @@ namespace OloEngine
                                                                  { return c.SourceNodeID == conn.SourceNodeID && c.SourcePort == conn.SourcePort && c.TargetNodeID == conn.TargetNodeID && c.TargetPort == conn.TargetPort; });
                             if (!duplicate)
                             {
-                                m_Connections.push_back(conn);
+                                m_Connections.Add(conn);
                                 m_IsDirty = true;
                             }
                             connected = true;
@@ -1018,7 +1018,7 @@ namespace OloEngine
         bool anyChanged = false;
         // Node name
         char nameBuf[256];
-        std::snprintf(nameBuf, sizeof(nameBuf), "%s", node.Name.c_str());
+        std::snprintf(nameBuf, sizeof(nameBuf), "%s", node.Name.GetData());
         if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf)))
         {
             node.Name = nameBuf;
@@ -1027,7 +1027,7 @@ namespace OloEngine
         }
 
         // Node type (read-only display)
-        ImGui::Text("Type: %s", node.Type.c_str());
+        ImGui::Text("Type: %s", node.Type.GetData());
 
         // Node ID
         ImGui::Text("ID: %llu", static_cast<unsigned long long>(node.ID));
@@ -1160,7 +1160,7 @@ namespace OloEngine
                     continue;
 
                 char labelBuf[256];
-                std::snprintf(labelBuf, sizeof(labelBuf), "%s", conn.SourcePort.c_str());
+                std::snprintf(labelBuf, sizeof(labelBuf), "%s", conn.SourcePort.GetData());
                 if (std::string inputLabel = "##choice_" + std::to_string(static_cast<u64>(conn.TargetNodeID)); ImGui::InputText(inputLabel.c_str(), labelBuf, sizeof(labelBuf)))
                 {
                     conn.SourcePort = labelBuf;
@@ -1173,7 +1173,7 @@ namespace OloEngine
                 if (ImGui::SmallButton(delBtn.c_str()))
                 {
                     // Find and remove this connection
-                    for (size_t i = 0; i < m_Connections.size(); ++i)
+                    for (size_t i = 0; i < m_Connections.Num(); ++i)
                     {
                         if (m_Connections[i].SourceNodeID == conn.SourceNodeID &&
                             m_Connections[i].TargetNodeID == conn.TargetNodeID)
@@ -1204,7 +1204,7 @@ namespace OloEngine
         ImGui::Separator();
         ImGui::Text("Connections:");
         i32 connIdx = 0;
-        for (size_t i = 0; i < m_Connections.size(); ++i)
+        for (size_t i = 0; i < m_Connections.Num(); ++i)
         {
             const auto& conn = m_Connections[i];
             if (conn.SourceNodeID == node.ID || conn.TargetNodeID == node.ID)
@@ -1221,9 +1221,9 @@ namespace OloEngine
                 }
 
                 std::string label = isSource ? "->" : "<-";
-                label += " " + (other ? other->Name : "???");
-                if (!conn.SourcePort.empty())
-                    label += " [" + conn.SourcePort + "]";
+                label += " " + (other ? other->Name.ToStdString() : "???");
+                if (!conn.SourcePort.IsEmpty())
+                    label += " [" + conn.SourcePort.ToStdString() + "]";
 
                 ImGui::Text("%s", label.c_str());
                 ImGui::SameLine();
@@ -1309,7 +1309,7 @@ namespace OloEngine
             ImGui::Text("Choices:");
             for (i32 i = 0; i < static_cast<i32>(m_PreviewChoices.size()); ++i)
             {
-                std::string btnLabel = std::to_string(i + 1) + ". " + m_PreviewChoices[i].Text;
+                std::string btnLabel = std::to_string(i + 1) + ". " + m_PreviewChoices[i].Text.ToStdString();
                 if (ImGui::Button(btnLabel.c_str(), ImVec2(-1, 0)))
                 {
                     PreviewSelectChoice(i);
@@ -1405,7 +1405,7 @@ namespace OloEngine
 
                 DialogueChoice choice;
                 choice.TargetNodeID = conn.TargetNodeID;
-                choice.Text = conn.SourcePort.empty() ? "..." : conn.SourcePort;
+                choice.Text = conn.SourcePort.IsEmpty() ? "..." : conn.SourcePort;
                 m_PreviewChoices.push_back(std::move(choice));
             }
         }
@@ -1584,8 +1584,8 @@ namespace OloEngine
         {
             out << YAML::BeginMap;
             out << YAML::Key << "ID" << YAML::Value << static_cast<u64>(node.ID);
-            out << YAML::Key << "Type" << YAML::Value << node.Type;
-            out << YAML::Key << "Name" << YAML::Value << node.Name;
+            out << YAML::Key << "Type" << YAML::Value << node.Type.ToStdString();
+            out << YAML::Key << "Name" << YAML::Value << node.Name.ToStdString();
             out << YAML::Key << "EditorPosition" << YAML::Value << YAML::Flow
                 << YAML::BeginSeq << node.EditorPosition.x << node.EditorPosition.y << YAML::EndSeq;
 
@@ -1637,8 +1637,8 @@ namespace OloEngine
             out << YAML::BeginMap;
             out << YAML::Key << "SourceNodeID" << YAML::Value << static_cast<u64>(conn.SourceNodeID);
             out << YAML::Key << "TargetNodeID" << YAML::Value << static_cast<u64>(conn.TargetNodeID);
-            out << YAML::Key << "SourcePort" << YAML::Value << conn.SourcePort;
-            out << YAML::Key << "TargetPort" << YAML::Value << conn.TargetPort;
+            out << YAML::Key << "SourcePort" << YAML::Value << conn.SourcePort.ToStdString();
+            out << YAML::Key << "TargetPort" << YAML::Value << conn.TargetPort.ToStdString();
             out << YAML::EndMap;
         }
         out << YAML::EndSeq;
@@ -1678,7 +1678,7 @@ namespace OloEngine
     void DialogueEditorPanel::LoadDialogue(const std::filesystem::path& path)
     {
         m_Nodes.clear();
-        m_Connections.clear();
+        m_Connections.Reset();
         m_SelectedNodeID = 0;
         m_RootNodeID = 0;
         m_IsDirty = false;
@@ -1762,7 +1762,7 @@ namespace OloEngine
                     conn.TargetNodeID = connYaml["TargetNodeID"].as<u64>();
                     conn.SourcePort = connYaml["SourcePort"].as<std::string>("");
                     conn.TargetPort = connYaml["TargetPort"].as<std::string>("");
-                    m_Connections.push_back(std::move(conn));
+                    m_Connections.Add(std::move(conn));
                 }
             }
 
@@ -1780,7 +1780,7 @@ namespace OloEngine
     void DialogueEditorPanel::NewDialogue()
     {
         m_Nodes.clear();
-        m_Connections.clear();
+        m_Connections.Reset();
         m_SelectedNodeID = 0;
         m_IsDirty = false;
         m_NextNodeID = 1000;
@@ -1863,13 +1863,8 @@ namespace OloEngine
         auto oldSnapshot = CaptureSnapshot();
 
         // Remove connections
-        m_Connections.erase(
-            std::remove_if(m_Connections.begin(), m_Connections.end(),
-                           [nodeID](const DialogueConnection& c)
-                           {
-                               return c.SourceNodeID == nodeID || c.TargetNodeID == nodeID;
-                           }),
-            m_Connections.end());
+        m_Connections.RemoveAll([nodeID](const DialogueConnection& c)
+                                { return c.SourceNodeID == nodeID || c.TargetNodeID == nodeID; });
 
         // Remove node
         m_Nodes.erase(
@@ -1887,10 +1882,10 @@ namespace OloEngine
 
     void DialogueEditorPanel::DeleteConnection(size_t index)
     {
-        if (index < m_Connections.size())
+        if (index < m_Connections.Num())
         {
             auto oldSnapshot = CaptureSnapshot();
-            m_Connections.erase(m_Connections.begin() + static_cast<ptrdiff_t>(index));
+            m_Connections.RemoveAt(static_cast<i32>(index));
             m_IsDirty = true;
             PushDialogueUndoCommand(oldSnapshot, "Delete Connection");
         }
@@ -1906,9 +1901,9 @@ namespace OloEngine
         auto oldSnapshot = CaptureSnapshot();
 
         // Copy data before CreateNode, which may reallocate m_Nodes and invalidate srcNode
-        std::string srcType = srcNode->Type;
+        std::string srcType = srcNode->Type.ToStdString();
         glm::vec2 srcPos = srcNode->EditorPosition + glm::vec2(30.0f, 30.0f);
-        std::string srcName = srcNode->Name + " (copy)";
+        std::string srcName = srcNode->Name.ToStdString() + " (copy)";
         auto srcProperties = srcNode->Properties;
 
         // Temporarily disable CommandHistory to avoid double-push from CreateNode
@@ -1977,9 +1972,9 @@ namespace OloEngine
             i32 maxIndex = 0;
             for (const auto& c : m_Connections)
             {
-                if (c.SourceNodeID == sourceNodeID && c.SourcePort.starts_with("choice "))
+                if (c.SourceNodeID == sourceNodeID && c.SourcePort.ToView().starts_with("choice "))
                 {
-                    auto suffix = c.SourcePort.substr(7);
+                    auto suffix = c.SourcePort.ToStdString().substr(7);
                     try
                     {
                         i32 const idx = std::stoi(suffix);
@@ -1997,9 +1992,9 @@ namespace OloEngine
         // Deterministic ports (out, true, false) — replace existing connection
         if (portName == "out" || portName == "true" || portName == "false")
         {
-            std::erase_if(m_Connections,
-                          [&sourceNodeID, &portName](const DialogueConnection& c)
-                          { return c.SourceNodeID == sourceNodeID && c.SourcePort == portName; });
+            m_Connections.RemoveAll(
+                [&sourceNodeID, &portName](const DialogueConnection& c)
+                { return c.SourceNodeID == sourceNodeID && c.SourcePort == portName; });
         }
 
         return portName;

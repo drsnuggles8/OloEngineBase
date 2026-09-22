@@ -146,8 +146,8 @@ TEST_F(GpuTimingPoolEvidence, EveryRenderingPathPublishesValidityRatherThanZeros
                 // >= 0, not > 0: a pass that issued no GPU commands on this
                 // path legitimately measures zero (see
                 // NoPassPublishesANumberWithoutAMeasurementBehindIt).
-                EXPECT_GE(pass.Sample.GpuMs, 0.0) << pathCase.Name << ": " << pass.Name << " is Valid but negative";
-                EXPECT_TRUE(std::isfinite(pass.Sample.GpuMs)) << pathCase.Name << ": " << pass.Name;
+                EXPECT_GE(pass.Sample.GpuMs, 0.0) << pathCase.Name << ": " << pass.Name.ToView() << " is Valid but negative";
+                EXPECT_TRUE(std::isfinite(pass.Sample.GpuMs)) << pathCase.Name << ": " << pass.Name.ToView();
                 ++measured;
             }
             else
@@ -157,13 +157,13 @@ TEST_F(GpuTimingPoolEvidence, EveryRenderingPathPublishesValidityRatherThanZeros
             }
         }
         EXPECT_GT(measured, 0u) << pathCase.Name << ": no pass produced a measurement out of "
-                                << snapshot.Passes.size();
+                                << snapshot.Passes.Num();
 
         const GPUPassTimerPool::PassTotal total = GPUPassTimerPool::SumTopLevel(snapshot.Passes);
         EXPECT_LE(total.GpuMs, snapshot.Frame.GpuMs * 1.05 + 0.05)
             << pathCase.Name << ": the top-level pass total exceeds the frame span it nests in";
 
-        std::cout << "[ gpu-timing ] " << pathCase.Name << ": " << snapshot.Passes.size() << " pass(es), " << measured
+        std::cout << "[ gpu-timing ] " << pathCase.Name << ": " << snapshot.Passes.Num() << " pass(es), " << measured
                   << " measured, " << absent << " unmeasured; total " << total.GpuMs << " ms of frame "
                   << snapshot.Frame.GpuMs << " ms; age " << snapshot.AgeFrames << ", dropped " << snapshot.DroppedSlots
                   << "\n";
@@ -195,12 +195,13 @@ TEST_F(GpuTimingPoolEvidence, RealFramesPublishMeasuredPassesWithFrameIdentity)
     // nothing in it".
     const auto measured = std::ranges::count_if(snapshot.Passes, [](const GPUPassTimerPool::PassTiming& pass)
                                                 { return pass.IsValid(); });
-    EXPECT_GT(measured, 0) << "no pass produced a measurement out of " << snapshot.Passes.size() << " published";
+    EXPECT_GT(measured, 0) << "no pass produced a measurement out of " << snapshot.Passes.Num() << " published";
 
     std::string report;
     for (const GPUPassTimerPool::PassTiming& pass : snapshot.Passes)
     {
-        report += "  " + pass.Name + (pass.IsSubPass ? " [sub of " + pass.ParentName + "]" : "") + " = " +
+        report += "  " + pass.Name.ToStdString() +
+                  (pass.IsSubPass ? " [sub of " + pass.ParentName.ToStdString() + "]" : "") + " = " +
                   (pass.IsValid() ? std::to_string(pass.Sample.GpuMs) + " ms"
                                   : std::string(ToString(pass.Sample.Status))) +
                   "\n";
@@ -245,17 +246,17 @@ TEST_F(GpuTimingPoolEvidence, NoPassPublishesANumberWithoutAMeasurementBehindIt)
     {
         if (!pass.IsValid())
         {
-            EXPECT_NE(pass.Sample.Status, GpuTimingStatus::Valid) << pass.Name;
+            EXPECT_NE(pass.Sample.Status, GpuTimingStatus::Valid) << pass.Name.ToView();
             continue;
         }
-        EXPECT_TRUE(std::isfinite(pass.Sample.GpuMs)) << pass.Name << " is Valid but not finite";
-        EXPECT_GE(pass.Sample.GpuMs, 0.0) << pass.Name << " is Valid but negative";
+        EXPECT_TRUE(std::isfinite(pass.Sample.GpuMs)) << pass.Name.ToView() << " is Valid but not finite";
+        EXPECT_GE(pass.Sample.GpuMs, 0.0) << pass.Name.ToView() << " is Valid but negative";
         if (pass.Sample.GpuMs > 0.0)
         {
             ++positive;
         }
     }
-    EXPECT_GT(positive, 0u) << "not one pass measured any GPU time at all, over " << snapshot.Passes.size()
+    EXPECT_GT(positive, 0u) << "not one pass measured any GPU time at all, over " << snapshot.Passes.Num()
                             << " published — this frame rendered nothing, so nothing above was tested";
 }
 
@@ -277,9 +278,9 @@ TEST_F(GpuTimingPoolEvidence, SubPassesAreFlaggedAndNestInsideTheirParent)
         {
             continue;
         }
-        EXPECT_FALSE(pass.ParentName.empty()) << pass.Name << " is flagged as a sub-pass with no parent named";
-        EXPECT_TRUE(pass.Name.starts_with(pass.ParentName + "/"))
-            << pass.Name << " does not carry its declared parent " << pass.ParentName;
+        EXPECT_FALSE(pass.ParentName.IsEmpty()) << pass.Name.ToView() << " is flagged as a sub-pass with no parent named";
+        EXPECT_TRUE(pass.Name.StartsWith((pass.ParentName + "/").ToView()))
+            << pass.Name.ToView() << " does not carry its declared parent " << pass.ParentName.ToView();
 
         const auto parent = std::ranges::find_if(snapshot.Passes,
                                                  [&pass](const GPUPassTimerPool::PassTiming& candidate)
@@ -287,7 +288,7 @@ TEST_F(GpuTimingPoolEvidence, SubPassesAreFlaggedAndNestInsideTheirParent)
         if (parent != snapshot.Passes.end() && parent->IsValid())
         {
             EXPECT_LE(pass.Sample.GpuMs, parent->Sample.GpuMs + 1e-6)
-                << pass.Name << " (" << pass.Sample.GpuMs << " ms) outlasted " << pass.ParentName << " ("
+                << pass.Name.ToView() << " (" << pass.Sample.GpuMs << " ms) outlasted " << pass.ParentName.ToView() << " ("
                 << parent->Sample.GpuMs << " ms) — the bracket it nests in";
             ++checked;
         }
@@ -343,9 +344,9 @@ TEST_F(GpuTimingPoolEvidence, ResizingTheRenderTargetDoesNotProduceAMeasuredZero
                 // A legitimate zero is still legitimate here; a negative or
                 // non-finite one never is.
                 EXPECT_GE(pass.Sample.GpuMs, 0.0)
-                    << "frame " << snapshot.FrameNumber << ": " << pass.Name << " is Valid but negative";
+                    << "frame " << snapshot.FrameNumber << ": " << pass.Name.ToView() << " is Valid but negative";
                 EXPECT_TRUE(std::isfinite(pass.Sample.GpuMs))
-                    << "frame " << snapshot.FrameNumber << ": " << pass.Name << " is Valid but not finite";
+                    << "frame " << snapshot.FrameNumber << ": " << pass.Name.ToView() << " is Valid but not finite";
             }
         }
         if (snapshot.Frame.IsValid())
@@ -445,13 +446,13 @@ TEST_F(GpuTimingPoolEvidence, MsaaChangesThePassSetWithoutChangingTheValidityCon
     {
         if (pass.IsValid())
         {
-            EXPECT_GE(pass.Sample.GpuMs, 0.0) << pass.Name;
-            EXPECT_TRUE(std::isfinite(pass.Sample.GpuMs)) << pass.Name;
+            EXPECT_GE(pass.Sample.GpuMs, 0.0) << pass.Name.ToView();
+            EXPECT_TRUE(std::isfinite(pass.Sample.GpuMs)) << pass.Name.ToView();
             ++measured;
         }
         else
         {
-            EXPECT_NE(pass.Sample.Status, GpuTimingStatus::Valid) << pass.Name;
+            EXPECT_NE(pass.Sample.Status, GpuTimingStatus::Valid) << pass.Name.ToView();
         }
     }
     EXPECT_GT(measured, 0u) << applied << "x MSAA: no pass produced a measurement";
@@ -461,6 +462,6 @@ TEST_F(GpuTimingPoolEvidence, MsaaChangesThePassSetWithoutChangingTheValidityCon
         << applied << "x MSAA: the pass total exceeds the frame span";
 
     std::cout << "[ gpu-timing ] MSAA " << applied << "x (requested " << requested << ", driver max "
-              << Renderer3D::GetMaxMSAASamples() << "): " << snapshot.Passes.size() << " pass(es), " << measured
+              << Renderer3D::GetMaxMSAASamples() << "): " << snapshot.Passes.Num() << " pass(es), " << measured
               << " measured; total " << total.GpuMs << " ms of frame " << snapshot.Frame.GpuMs << " ms\n";
 }

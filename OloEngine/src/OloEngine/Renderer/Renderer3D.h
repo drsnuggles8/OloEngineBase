@@ -1,5 +1,8 @@
 #pragma once
 
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/LinkedList.h"
+
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 
 // Self-containment: the inline template at CreateRenderStreamDrawCall uses
@@ -162,7 +165,7 @@ namespace OloEngine
         u32 CommandsSubmitted = 0;
         u32 MeshesCulled = 0;
         u32 LODSwitches = 0;
-        std::vector<u32> ObjectsPerLODLevel;
+        TArray64<u32> ObjectsPerLODLevel;
     };
 
     // @brief High-level 3D rendering API with scene and material management
@@ -217,7 +220,7 @@ namespace OloEngine
             u32 LODSwitches = 0;
             u32 TotalEmitters = 0;
             u32 CulledEmitters = 0;
-            std::vector<u32> ObjectsPerLODLevel;
+            TArray64<u32> ObjectsPerLODLevel;
 
             void Reset()
             {
@@ -232,7 +235,7 @@ namespace OloEngine
                 LODSwitches = 0;
                 TotalEmitters = 0;
                 CulledEmitters = 0;
-                ObjectsPerLODLevel.clear();
+                ObjectsPerLODLevel.Reset();
             }
         };
 
@@ -509,7 +512,7 @@ namespace OloEngine
         // re-deriving the resolution and risking a confidently wrong answer.
         static auto CreatePODMaterialDataForMaterial(const Material& material, RHI::ResourceHandle shaderRendererID) -> PODMaterialData;
         // Animated drawing commands
-        static CommandPacket* DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic = false, i32 entityID = -1, u32 gpuSceneDrawLink = GPUSceneDrawLinkNone);
+        static CommandPacket* DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, std::span<const glm::mat4> boneMatrices, bool isStatic = false, i32 entityID = -1, u32 gpuSceneDrawLink = GPUSceneDrawLinkNone);
         // Same as DrawAnimatedMesh but also carries the previous-frame bone matrices used by the
         // Deferred G-Buffer path to compute per-bone motion vectors. Pass empty prevBoneMatrices
         // (or the same data as boneMatrices) to indicate zero per-bone motion.
@@ -521,14 +524,14 @@ namespace OloEngine
         // rather than from the per-entity previous-transform cache -- which is
         // keyed on the entity alone and therefore gave every submesh after the
         // first a zero velocity.
-        static CommandPacket* DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, const std::vector<glm::mat4>& prevBoneMatrices, bool isStatic = false, i32 entityID = -1, u32 gpuSceneDrawLink = GPUSceneDrawLinkNone);
+        static CommandPacket* DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, std::span<const glm::mat4> boneMatrices, std::span<const glm::mat4> prevBoneMatrices, bool isStatic = false, i32 entityID = -1, u32 gpuSceneDrawLink = GPUSceneDrawLinkNone);
         static CommandPacket* DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture);
         // `ownerKey` lets callers produce stable per-instance motion vectors
         // when multiple submission sources (entities / emitters / foliage
         // chunks) render the same mesh with independent instance arrays --
         // see GetAndRecordPrevInstanceTransforms. Leaving it at 0 preserves
         // the legacy mesh-handle-only cache key.
-        static CommandPacket* DrawMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic = true, u64 ownerKey = 0);
+        static CommandPacket* DrawMeshInstanced(const Ref<Mesh>& mesh, std::span<const glm::mat4> transforms, const Material& material, bool isStatic = true, u64 ownerKey = 0);
 
         // InstanceData overload — propagates per-instance Color, Custom, and
         // EntityID through FrameDataBuffer's parallel streams so shaders that
@@ -834,7 +837,7 @@ namespace OloEngine
          * @param minBatchSize Minimum number of meshes per batch (default: 16)
          * @return Total number of commands submitted
          */
-        static u32 SubmitMeshesParallel(const std::vector<MeshSubmitDesc>& meshes,
+        static u32 SubmitMeshesParallel(std::span<const MeshSubmitDesc> meshes,
                                         i32 minBatchSize = 16);
 
         static void SetViewPosition(const glm::vec3& position);
@@ -873,7 +876,7 @@ namespace OloEngine
         // Publishing a CANDIDATE list, not a decision: RayTracedShadowPass is
         // the only place that knows whether the trace actually ran, so it is
         // the only place allowed to turn the routing on. See ShadowTechnique.h.
-        static void SetRayTracedShadowLightRequests(std::vector<RayTracedShadowLightRequest> requests);
+        static void SetRayTracedShadowLightRequests(std::span<const RayTracedShadowLightRequest> requests);
 
         // This frame's grooms (issue #1246). Published by Scene, which is the
         // only place that holds the component AND the resolved GroomAsset;
@@ -881,18 +884,19 @@ namespace OloEngine
         // the only place that knows what the frame resolved. Same
         // producer/transport/consumer split as the ray-traced shadow
         // candidates above, and for the same reason.
-        static void SetGroomStrandRequests(std::vector<GroomStrandRequest> requests);
+        static void SetGroomStrandRequests(std::span<const GroomStrandRequest> requests);
+        static void SetGroomStrandRequests(TArray64<GroomStrandRequest>&& requests) noexcept;
         // Cleared at BeginScene, so an empty list means "no groom was
         // submitted this frame", never "last frame's is still here".
-        [[nodiscard]] static const std::vector<GroomStrandRequest>& GetGroomStrandRequests()
+        [[nodiscard]] static const TArray64<GroomStrandRequest>& GetGroomStrandRequests()
         {
             return s_Data.GroomStrandRequests;
         }
         // Cleared at BeginScene, so an empty list means "no light asked this
         // frame", never "the last frame's list is still here".
-        [[nodiscard]] static const std::vector<RayTracedShadowLightRequest>& GetRayTracedShadowLightRequests()
+        [[nodiscard]] static std::span<const RayTracedShadowLightRequest> GetRayTracedShadowLightRequests()
         {
-            return s_Data.RayTracedShadowLightRequests;
+            return { s_Data.RayTracedShadowLightRequests.GetData(), static_cast<sizet>(s_Data.RayTracedShadowLightRequests.Num()) };
         }
 
         // Upload multi-light UBO data for the current frame (partial: only header + activeLightCount lights)
@@ -1287,7 +1291,7 @@ namespace OloEngine
             s_Data.EnableSelectionOutline = enabled;
         }
 
-        static void SetSelectionOutlineEntityIDs(const std::vector<i32>& ids);
+        static void SetSelectionOutlineEntityIDs(std::span<const i32> ids);
 
         static bool IsSelectionOutlineEnabled()
         {
@@ -1369,7 +1373,7 @@ namespace OloEngine
         // DDGI caster enumeration for one RenderScene3D without a DDGI volume
         // being active. Caller owns the vector and MUST clear the sink
         // (nullptr) before it goes out of scope.
-        static void SetAuxCasterSink(std::vector<DDGIMeshCaster>* sink);
+        static void SetAuxCasterSink(TArray<DDGIMeshCaster>* sink);
 
         // @brief Record this frame's transform for an entity and return the
         // previous frame's transform (or the current one if no history exists
@@ -1407,15 +1411,15 @@ namespace OloEngine
         // History is keyed and recorded from the **full, stable pre-cull**
         // `currFullTransforms` list so per-instance identity is preserved
         // across frames even when frustum culling drops different subsets each
-        // frame. If `visibleIndices` is non-null, the returned prev array is
+        // frame. If `visibleIndices` is present, the returned prev array is
         // projected onto the visible subset (prevOut[i] = prevFull[visibleIndices[i]]);
         // otherwise the full prev array is returned. Sizing compatibility is
         // checked against `currFullTransforms.size()`, so a stable full-list
         // size keeps history valid even as visible counts fluctuate.
-        static std::vector<glm::mat4> GetAndRecordPrevInstanceTransforms(u64 meshKey, u64 ownerKey,
-                                                                         const std::vector<glm::mat4>& currFullTransforms,
-                                                                         const std::vector<u32>* visibleIndices = nullptr,
-                                                                         bool* outUsedFallback = nullptr)
+        static TArray64<glm::mat4> GetAndRecordPrevInstanceTransforms(u64 meshKey, u64 ownerKey,
+                                                                      std::span<const glm::mat4> currFullTransforms,
+                                                                      std::optional<std::span<const u32>> visibleIndices = std::nullopt,
+                                                                      bool* outUsedFallback = nullptr)
         {
             // Hash-combine (Boost formula) -- cheap, order-sensitive, and the
             // result preserves the original mesh-only key when ownerKey == 0.
@@ -1426,24 +1430,29 @@ namespace OloEngine
             // Record the **full pre-cull** list so per-instance identity
             // survives across frames regardless of which instances were
             // visible this frame.
-            s_Data.CurrInstanceTransforms.insert_or_assign(combinedKey, currFullTransforms);
+            auto& current = s_Data.CurrInstanceTransforms[combinedKey];
+            current.Reset();
+            current.Append(currFullTransforms.data(), static_cast<i64>(currFullTransforms.size()));
 
             auto prevIt = s_Data.PrevInstanceTransforms.find(combinedKey);
             const bool haveHistory = (prevIt != s_Data.PrevInstanceTransforms.end()) &&
-                                     (prevIt->second.size() == currFullTransforms.size());
+                                     (static_cast<sizet>(prevIt->second.Num()) == currFullTransforms.size());
 
-            auto project = [&visibleIndices](const std::vector<glm::mat4>& src) -> std::vector<glm::mat4>
+            auto project = [&visibleIndices](std::span<const glm::mat4> src) -> TArray64<glm::mat4>
             {
+                TArray64<glm::mat4> out;
                 if (!visibleIndices)
-                    return src;
-                std::vector<glm::mat4> out;
-                out.reserve(visibleIndices->size());
+                {
+                    out.Append(src.data(), static_cast<i64>(src.size()));
+                    return out;
+                }
+                out.Reserve(static_cast<i64>(visibleIndices->size()));
                 for (u32 idx : *visibleIndices)
                 {
                     if (idx < src.size())
-                        out.push_back(src[idx]);
+                        out.Add(src[idx]);
                     else
-                        out.emplace_back(1.0f); // Defensive guard — should not happen.
+                        out.Emplace(1.0f); // Defensive guard — should not happen.
                 }
                 return out;
             };
@@ -1452,7 +1461,7 @@ namespace OloEngine
             {
                 if (outUsedFallback)
                     *outUsedFallback = false;
-                return project(prevIt->second);
+                return project({ prevIt->second.GetData(), static_cast<sizet>(prevIt->second.Num()) });
             }
 
             // First frame or size mismatch -> alias current visible subset
@@ -2163,7 +2172,7 @@ namespace OloEngine
         // packet is either ready for the caller's normal SubmitPacket or
         // already null because SubmitGPUCulledInstanced handled everything
         // internally.
-        static CommandPacket* BuildDrawMeshInstancedPacket(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms,
+        static CommandPacket* BuildDrawMeshInstancedPacket(const Ref<Mesh>& mesh, std::span<const glm::mat4> transforms,
                                                            const Material& material, bool isStatic, u64 ownerKey,
                                                            bool& outOverlayRoute);
 
@@ -2175,7 +2184,7 @@ namespace OloEngine
         // dispatcher takes the indirect-draw path. Returns nullptr on
         // allocation failure or if the cull resources weren't ready.
         static CommandPacket* SubmitGPUCulledInstanced(const Ref<Mesh>& mesh,
-                                                       const std::vector<glm::mat4>& transforms,
+                                                       std::span<const glm::mat4> transforms,
                                                        const Material& material, bool isStatic,
                                                        u64 ownerKey);
 
@@ -2316,15 +2325,15 @@ namespace OloEngine
             RayTracing::VegetationSurfaceCache VegetationSurfaces;
             RayTracing::GroomSurfaceCache GroomSurfaces;
             // See SetRayTracedShadowLightRequests (issue #1056).
-            std::vector<RayTracedShadowLightRequest> RayTracedShadowLightRequests;
+            TArray64<RayTracedShadowLightRequest> RayTracedShadowLightRequests;
             // See SetGroomStrandRequests (issue #1246).
-            std::vector<GroomStrandRequest> GroomStrandRequests;
+            TArray64<GroomStrandRequest> GroomStrandRequests;
             bool GPUSceneExtractionActive = false;
             // This frame's draw links (GPUScene/GPUSceneDrawLink.h). Cleared at
             // BeginGPUSceneExtraction, appended during submission, resolved
             // once in EndScene. Kept as a vector because a link index is a
             // plain position: the table is never reordered.
-            std::vector<GPUSceneDrawLink> GPUSceneDrawLinks;
+            TArray64<GPUSceneDrawLink> GPUSceneDrawLinks;
             bool GPUSceneDrawLinksResolved = false;
             u32 GPUSceneLinkedDraws = 0;
             u32 GPUSceneUnlinkedDraws = 0;
@@ -2486,19 +2495,19 @@ namespace OloEngine
             std::unordered_map<i32, glm::mat4> CurrEntityTransforms;
 
             // Per-mesh per-instance previous-frame transform cache for DrawMeshInstanced.
-            // Keyed by mesh AssetHandle; the std::vector preserves per-instance order
+            // Keyed by mesh AssetHandle; the array preserves per-instance order
             // frame-to-frame — callers are expected to submit stable ordering, which
             // matches how foliage / particle emitters allocate their instance streams.
             // Only touched from Deferred submission (stays empty in Forward / Forward+).
-            std::unordered_map<u64, std::vector<glm::mat4>> PrevInstanceTransforms;
-            std::unordered_map<u64, std::vector<glm::mat4>> CurrInstanceTransforms;
+            std::unordered_map<u64, TArray64<glm::mat4>> PrevInstanceTransforms;
+            std::unordered_map<u64, TArray64<glm::mat4>> CurrInstanceTransforms;
 
             Ref<RenderGraph> RGraph;
             std::unique_ptr<RenderPipeline> Pipeline;
 
             // Auxiliary mesh-caster sink (issue #705) — see SetAuxCasterSink.
             // Non-owning; null except while a bake path is collecting.
-            std::vector<DDGIMeshCaster>* AuxCasterSink = nullptr;
+            TArray<DDGIMeshCaster>* AuxCasterSink = nullptr;
 
             // Sphere-proxy AO occluder collection (issue #710). Armed for the
             // frame by RenderPipeline::PrepareFrame when the proxy pass is on,
@@ -2514,7 +2523,7 @@ namespace OloEngine
             // view-frustum culled, and a proxy that vanished with its object
             // would defeat the whole feature.
             bool AOProxyCollecting = false;
-            std::vector<BoundingBox> AOProxyBounds;
+            TArray64<BoundingBox> AOProxyBounds;
 
             // True once Init() has allocated the renderer's one-shot singletons
             // (FrameDataBufferManager, FrameResourceManager, command dispatch, …).
@@ -2767,13 +2776,28 @@ namespace OloEngine
 
             // Editor-only features gated behind opt-in flags
             bool EnableSelectionOutline = false;
-            std::vector<i32> SelectionOutlineEntityIDs;
+            TArray64<i32> SelectionOutlineEntityIDs;
             RenderCallback PendingParticleRenderCallback;
             RenderCallback PendingUICompositeRenderCallback;
-            std::vector<FluidRenderData> PendingFluidDraws; // #630, drained by ConfigurePassesForFrame
+            TArray64<FluidRenderData> PendingFluidDraws; // #630, drained by ConfigurePassesForFrame
         };
 
         static Renderer3DData s_Data;
         static ShaderLibrary m_ShaderLibrary;
+    };
+    // Ref/Material own relocatable heap state; geometry values and the external LOD pointer have no self references.
+    template<>
+    struct TIsTriviallyRelocatable<Renderer3D::MeshSubmitDesc>
+    {
+        using Desc = Renderer3D::MeshSubmitDesc;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Desc::Mesh)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Desc::Transform)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Desc::MaterialData)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Desc::IsStatic)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Desc::EntityID)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Desc::PrevTransform)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Desc::HasPrevTransform)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Desc::LODGroupPtr)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Desc::LightmapScaleOffset)>;
     };
 } // namespace OloEngine

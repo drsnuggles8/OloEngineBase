@@ -147,6 +147,6 @@ namespace OloEngine
         // Stroke tracking for undo
         bool m_StrokeActive = false;
         bool m_PrevMouseDown = false;
-        std::vector<InstanceData> m_StrokePreSnapshot;
+        TArray<InstanceData> m_StrokePreSnapshot;
     };
 } // namespace OloEngine

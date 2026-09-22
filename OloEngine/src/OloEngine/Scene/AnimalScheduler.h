@@ -69,7 +69,7 @@
 #include <span>
 #include <string_view>
 #include <type_traits>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -706,10 +706,10 @@ namespace OloEngine
     ///   5. The resulting step is run through the hold: a coarsening needs
     ///      HoldFrames consecutive frames of being asked for, refining is
     ///      immediate.
-    [[nodiscard]] std::vector<AnimalSchedule> ScheduleAnimalPopulation(const AnimalBudgetPolicy& policy,
-                                                                       const AnimalCostModel& model,
-                                                                       std::span<const AnimalScheduleSlot> slots,
-                                                                       AnimalSchedulerStats* outStats);
+    [[nodiscard]] TArray<AnimalSchedule> ScheduleAnimalPopulation(const AnimalBudgetPolicy& policy,
+                                                                  const AnimalCostModel& model,
+                                                                  std::span<const AnimalScheduleSlot> slots,
+                                                                  AnimalSchedulerStats* outStats);
 
     /// What one animal costs at `steps`, in cost units. Exposed because the
     /// census test prices populations the scheduler never sees, and two copies

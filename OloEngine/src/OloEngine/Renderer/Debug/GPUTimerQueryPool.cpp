@@ -3,6 +3,8 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 
+#include <limits>
+
 namespace OloEngine
 {
     GPUTimerQueryPool& GPUTimerQueryPool::GetInstance()
@@ -21,6 +23,11 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         if (m_Initialized)
             return;
+        if (maxQueries > static_cast<u32>(std::numeric_limits<i32>::max()))
+        {
+            OLO_CORE_ERROR("GPUTimerQueryPool: query count exceeds container capacity");
+            return;
+        }
 
         // Elapsed-time queries through the facade (#691): RHI::QueryType::
         // TimeElapsed lowers to GL_TIME_ELAPSED on GL and a timestamp pair on
@@ -31,11 +38,11 @@ namespace OloEngine
         // Create double-buffered query objects
         for (u32 buf = 0; buf < 2; ++buf)
         {
-            m_QueryObjects[buf].assign(maxQueries, RHI::NullResource);
-            RenderCommand::CreateQueries(RHI::QueryType::TimeElapsed, std::span<RHI::ResourceHandle>(m_QueryObjects[buf]));
+            m_QueryObjects[buf].Init(RHI::NullResource, static_cast<i32>(maxQueries));
+            RenderCommand::CreateQueries(RHI::QueryType::TimeElapsed, std::span<RHI::ResourceHandle>(m_QueryObjects[buf].GetData(), static_cast<sizet>(m_QueryObjects[buf].Num())));
         }
 
-        m_Results.resize(maxQueries, 0.0);
+        m_Results.Init(0.0, static_cast<i32>(maxQueries));
         m_WriteBuffer = 0;
         m_WriteQueryCount = 0;
         m_ReadableQueryCount = 0;
@@ -53,14 +60,14 @@ namespace OloEngine
 
         for (u32 buf = 0; buf < 2; ++buf)
         {
-            if (!m_QueryObjects[buf].empty())
+            if (!m_QueryObjects[buf].IsEmpty())
             {
-                RenderCommand::DeleteQueries(std::span<const RHI::ResourceHandle>(m_QueryObjects[buf]));
-                m_QueryObjects[buf].clear();
+                RenderCommand::DeleteQueries(std::span<const RHI::ResourceHandle>(m_QueryObjects[buf].GetData(), static_cast<sizet>(m_QueryObjects[buf].Num())));
+                m_QueryObjects[buf].Reset();
             }
         }
 
-        m_Results.clear();
+        m_Results.Reset();
         m_Initialized = false;
         m_Active = false;
 
@@ -82,7 +89,8 @@ namespace OloEngine
         if (!m_FirstFrame)
         {
             m_ReadableQueryCount = m_WriteQueryCount; // previous frame's count
-            std::ranges::fill(m_Results, 0.0);
+            for (f64& result : m_Results)
+                result = 0.0;
 
             for (u32 i = 0; i < m_ReadableQueryCount; ++i)
             {
@@ -133,7 +141,7 @@ namespace OloEngine
         return 0.0;
     }
 
-    bool GPUTimerQueryPool::TryGetIssuedQueryResultsMs(std::vector<f64>& outResultsMs) const
+    bool GPUTimerQueryPool::TryGetIssuedQueryResultsMs(TArray<f64>& outResultsMs) const
     {
         if (!m_Initialized || m_WriteQueryCount == 0)
             return false;
@@ -145,7 +153,7 @@ namespace OloEngine
         if (!RenderCommand::IsQueryResultAvailable(queries[m_WriteQueryCount - 1]))
             return false;
 
-        outResultsMs.resize(m_WriteQueryCount);
+        outResultsMs.SetNum(static_cast<i32>(m_WriteQueryCount));
         for (u32 i = 0; i < m_WriteQueryCount; ++i)
         {
             const u64 timeNs = RenderCommand::GetQueryResultU64(queries[i]);

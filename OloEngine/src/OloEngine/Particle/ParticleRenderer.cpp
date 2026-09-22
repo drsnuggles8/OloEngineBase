@@ -33,14 +33,14 @@ namespace OloEngine
 
     void ParticleRenderer::RenderParticles2D(const ParticlePool& pool, const Ref<Texture2D>& texture,
                                              const glm::vec3& worldOffset, int entityID,
-                                             const std::vector<u32>* sortedIndices,
+                                             const TArray<u32>* sortedIndices,
                                              const ModuleTextureSheetAnimation* spriteSheet)
     {
         OLO_PROFILE_FUNCTION();
 
         u32 count = pool.GetAliveCount();
         bool useSpriteSheet = spriteSheet && spriteSheet->Enabled && spriteSheet->TotalFrames > 1 && texture;
-        bool useSorted = sortedIndices && sortedIndices->size() == count;
+        bool useSorted = sortedIndices && static_cast<u32>(sortedIndices->Num()) == count;
 
         for (u32 iter = 0; iter < count; ++iter)
         {
@@ -73,14 +73,14 @@ namespace OloEngine
     void ParticleRenderer::RenderParticlesBillboard(const ParticlePool& pool,
                                                     const Ref<Texture2D>& texture,
                                                     const glm::vec3& worldOffset, int entityID,
-                                                    const std::vector<u32>* sortedIndices,
+                                                    const TArray<u32>* sortedIndices,
                                                     const ModuleTextureSheetAnimation* spriteSheet)
     {
         OLO_PROFILE_FUNCTION();
 
         u32 count = pool.GetAliveCount();
         bool useSpriteSheet = spriteSheet && spriteSheet->Enabled && spriteSheet->TotalFrames > 1 && texture;
-        bool useSorted = sortedIndices && sortedIndices->size() == count;
+        bool useSorted = sortedIndices && static_cast<u32>(sortedIndices->Num()) == count;
 
         ParticleBatchRenderer::SetTexture(texture);
 
@@ -112,14 +112,14 @@ namespace OloEngine
                                                     const Ref<Texture2D>& texture,
                                                     f32 lengthScale,
                                                     const glm::vec3& worldOffset, int entityID,
-                                                    const std::vector<u32>* sortedIndices,
+                                                    const TArray<u32>* sortedIndices,
                                                     const ModuleTextureSheetAnimation* spriteSheet)
     {
         OLO_PROFILE_FUNCTION();
 
         u32 count = pool.GetAliveCount();
         bool useSpriteSheet = spriteSheet && spriteSheet->Enabled && spriteSheet->TotalFrames > 1 && texture;
-        bool useSorted = sortedIndices && sortedIndices->size() == count;
+        bool useSorted = sortedIndices && static_cast<u32>(sortedIndices->Num()) == count;
 
         ParticleBatchRenderer::SetTexture(texture);
 
@@ -154,7 +154,7 @@ namespace OloEngine
                                                const Ref<Texture2D>& texture,
                                                const glm::vec3& worldOffset,
                                                int entityID,
-                                               const std::vector<u32>* sortedIndices)
+                                               const TArray<u32>* sortedIndices)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -169,7 +169,7 @@ namespace OloEngine
             return;
         }
 
-        bool useSorted = sortedIndices && sortedIndices->size() == count;
+        bool useSorted = sortedIndices && static_cast<u32>(sortedIndices->Num()) == count;
 
         // Build instance data on stack (up to a reasonable limit)
         static thread_local std::vector<MeshParticleInstance> s_Instances;

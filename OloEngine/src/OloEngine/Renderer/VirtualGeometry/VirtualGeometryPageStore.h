@@ -8,14 +8,14 @@
 #include <atomic>
 #include <condition_variable>
 #include <cstdio>
-#include <deque>
+#include <array>
+#include "OloEngine/Containers/Deque.h"
 #include <filesystem>
 #include <mutex>
 #include <string>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
-#include <vector>
 
 namespace OloEngine
 {
@@ -65,14 +65,14 @@ namespace OloEngine
     // exactly what it was for the in-memory path.
     struct VirtualPagePayload
     {
-        std::vector<VirtualGpuVertex> Vertices;
-        std::vector<glm::vec2> LightmapUVs; // empty when the mesh carries no baked uv2
-        std::vector<u32> Indices;
+        TArray<VirtualGpuVertex> Vertices;
+        TArray<glm::vec2> LightmapUVs; // empty when the mesh carries no baked uv2
+        TArray<u32> Indices;
 
         [[nodiscard]] u64 ByteSize() const
         {
-            return Vertices.size() * sizeof(VirtualGpuVertex) + LightmapUVs.size() * sizeof(glm::vec2) +
-                   Indices.size() * sizeof(u32);
+            return static_cast<u64>(Vertices.Num()) * sizeof(VirtualGpuVertex) + static_cast<u64>(LightmapUVs.Num()) * sizeof(glm::vec2) +
+                   static_cast<u64>(Indices.Num()) * sizeof(u32);
         }
     };
 
@@ -231,6 +231,9 @@ namespace OloEngine
             u32 Page = 0; // index into m_Directory
         };
 
+        template<typename>
+        friend struct TIsTriviallyRelocatable;
+
         struct Completion
         {
             u32 Page = 0;
@@ -262,7 +265,7 @@ namespace OloEngine
         u64 m_WriteCursor = 0;
         bool m_OpenFailed = false; // a failed open is reported once, then remembered
 
-        std::vector<PageRecord> m_Directory;
+        TArray<PageRecord> m_Directory;
         VirtualPageStoreStats m_Stats;
         u32 m_MaxReadsInFlight = 32;
         u32 m_MaxStagedPages = 64;
@@ -270,12 +273,15 @@ namespace OloEngine
         // Worker plumbing. m_Mutex guards m_Directory, m_Queue, m_Completions, m_Requested,
         // m_Ready, m_Failed and m_Stats; m_Path, m_File, m_WriteCursor and the worker vectors
         // are render-thread-only and are not touched while a worker can observe them.
-        std::vector<std::thread> m_Workers;
-        std::vector<std::FILE*> m_WorkerFiles;
+        // OS thread objects have fixed addresses; they never enter relocatable storage.
+        static constexpr u32 kWorkerCount = 2;
+        std::array<std::thread, kWorkerCount> m_Workers;
+        u32 m_WorkerCount = 0;
+        TArray<std::FILE*> m_WorkerFiles;
         std::mutex m_Mutex;
         std::condition_variable m_WorkAvailable;
-        std::deque<Request> m_Queue;
-        std::vector<Completion> m_Completions;
+        TDeque<Request> m_Queue;
+        TArray<Completion> m_Completions;
         std::unordered_set<u32> m_Requested; // queued or being served
         std::atomic<bool> m_Stop{ false };
 
@@ -305,8 +311,29 @@ namespace OloEngine
         std::unordered_map<u32, ReadyEntry> m_Ready;
         // Arrival order as (page, seq) pairs. An entry whose page is gone from m_Ready, or
         // whose seq no longer matches the live one, is stale and is skipped.
-        std::deque<std::pair<u32, u64>> m_ReadyOrder;
+        struct ReadyOrderEntry
+        {
+            u32 Page = 0;
+            u64 Seq = 0;
+        };
+        TDeque<ReadyOrderEntry> m_ReadyOrder;
         u64 m_NextReadySeq = 1;
         std::unordered_set<u32> m_Failed;
+    };
+
+    template<>
+    struct TIsTriviallyRelocatable<VirtualPagePayload>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(VirtualPagePayload::Vertices)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(VirtualPagePayload::LightmapUVs)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(VirtualPagePayload::Indices)>::Value;
+    };
+
+    template<>
+    struct TIsTriviallyRelocatable<VirtualGeometryPageStore::Completion>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(VirtualGeometryPageStore::Completion::Page)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(VirtualGeometryPageStore::Completion::Ok)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(VirtualGeometryPageStore::Completion::Payload)>::Value;
     };
 } // namespace OloEngine

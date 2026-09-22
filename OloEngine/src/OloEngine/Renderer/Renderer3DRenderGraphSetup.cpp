@@ -90,10 +90,10 @@ namespace OloEngine
         if (Levers::RenderGraphDiagnostics())
         {
             const auto hazards = s_Data.RGraph->ValidateResourceHazards();
-            if (!hazards.empty())
+            if (!hazards.IsEmpty())
             {
                 OLO_CORE_WARN("Renderer3D: topology-time RenderGraph validation reported {} legacy/static hazards before frame compilation; compiled-frame validation in EndScene() is authoritative.",
-                              hazards.size());
+                              hazards.Num());
             }
             else
             {

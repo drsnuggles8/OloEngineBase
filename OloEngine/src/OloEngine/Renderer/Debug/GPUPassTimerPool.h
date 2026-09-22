@@ -6,10 +6,53 @@
 
 #include <array>
 #include <string>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/String.h"
 
 namespace OloEngine
 {
+    /// @brief One timed interval of a GPUPassTimerPool resolved frame. Lives at
+    /// namespace scope so the relocation trait below can name it; the pool
+    /// re-exports it as GPUPassTimerPool::PassTiming.
+    struct GPUPassTiming
+    {
+        FString Name;
+
+        /// The measurement and its validity. `Sample.GpuMs` is meaningful
+        /// only when `Sample.IsValid()`.
+        GpuTimingSample Sample{};
+
+        /// True for a bracket opened with BeginSubPass: its interval sits
+        /// INSIDE its parent's and is published as "<Parent>/<name>".
+        ///
+        /// Carried as a flag rather than re-derived from a '/' in the name,
+        /// which is what consumers used to do — a pass whose own name
+        /// contains a slash would be misread as somebody's sub-pass, and
+        /// its time then silently dropped from the frame total. Criterion 2
+        /// of #1337 is precisely "duplicate/nested intervals are not summed
+        /// as elapsed frame time", so the nesting is a fact the producer
+        /// states, not one the consumer infers.
+        bool IsSubPass = false;
+
+        /// The name of the enclosing pass when IsSubPass; empty otherwise.
+        FString ParentName;
+
+        [[nodiscard]] bool IsValid() const
+        {
+            return Sample.IsValid();
+        }
+    };
+
+    // Names own independent string storage; the sample and the flag are scalars.
+    template<>
+    struct TIsTriviallyRelocatable<GPUPassTiming>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(GPUPassTiming::Name)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GPUPassTiming::Sample)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GPUPassTiming::IsSubPass)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GPUPassTiming::ParentName)>;
+    };
+
     /// @brief Always-on GPU timing for the whole frame and each render-graph pass.
     ///
     /// Ring-buffered timestamp query pairs (RHI::QueryType::Timestamp through the
@@ -33,35 +76,8 @@ namespace OloEngine
     class GPUPassTimerPool
     {
       public:
-        /// @brief One timed interval of the resolved frame.
-        struct PassTiming
-        {
-            std::string Name;
-
-            /// The measurement and its validity. `Sample.GpuMs` is meaningful
-            /// only when `Sample.IsValid()`.
-            GpuTimingSample Sample{};
-
-            /// True for a bracket opened with BeginSubPass: its interval sits
-            /// INSIDE its parent's and is published as "<Parent>/<name>".
-            ///
-            /// Carried as a flag rather than re-derived from a '/' in the name,
-            /// which is what consumers used to do — a pass whose own name
-            /// contains a slash would be misread as somebody's sub-pass, and
-            /// its time then silently dropped from the frame total. Criterion 2
-            /// of #1337 is precisely "duplicate/nested intervals are not summed
-            /// as elapsed frame time", so the nesting is a fact the producer
-            /// states, not one the consumer infers.
-            bool IsSubPass = false;
-
-            /// The name of the enclosing pass when IsSubPass; empty otherwise.
-            std::string ParentName;
-
-            [[nodiscard]] bool IsValid() const
-            {
-                return Sample.IsValid();
-            }
-        };
+        /// @brief One timed interval of the resolved frame (see GPUPassTiming).
+        using PassTiming = GPUPassTiming;
 
         /// @brief Everything the pool published for one resolved frame, as one
         /// internally consistent snapshot.
@@ -88,7 +104,7 @@ namespace OloEngine
 
             /// Per-pass times in execution order, sub-pass entries included and
             /// flagged.
-            std::vector<PassTiming> Passes;
+            TArray<PassTiming> Passes;
 
             /// Slots discarded since Initialize() because the GPU fell more
             /// than a ring behind. Non-zero means some frames were never
@@ -197,7 +213,7 @@ namespace OloEngine
         /// Free-standing and static so every consumer totals a pass list the
         /// same way: the MCP shaping (McpPassTimings.h) calls it rather than
         /// keeping a loop of its own, and the evidence tests call it directly.
-        [[nodiscard]] static PassTotal SumTopLevel(const std::vector<PassTiming>& passes);
+        [[nodiscard]] static PassTotal SumTopLevel(const TArray<PassTiming>& passes);
 
         /// @brief Whole-frame GPU time of the most recently resolved frame, with
         /// its validity. Prefer GetLastFrameTimings() when the passes or the age
@@ -250,7 +266,7 @@ namespace OloEngine
             // sub-pass pair sits between its parent's begin and end stamps
             // (parent-first allocation order is what the MCP shaping relies on
             // to attach "Parent/Sub" entries to their parent).
-            std::vector<RHI::ResourceHandle> Queries;
+            TArray<RHI::ResourceHandle> Queries;
 
             // Per-query record of whether the BACKEND accepted the stamp, as
             // reported by RenderCommand::WriteTimestamp. Without it a query
@@ -259,11 +275,11 @@ namespace OloEngine
             // reports a never-used query object's result as AVAILABLE with
             // value 0, so availability alone cannot stand in for this.
             // u8 rather than bool so the storage is addressable per element.
-            std::vector<u8> Stamped;
+            TArray<u8> Stamped;
 
-            std::vector<std::string> PassNames;
-            std::vector<u8> PassIsSubPass;
-            std::vector<std::string> PassParentNames;
+            TArray<FString> PassNames;
+            TArray<u8> PassIsSubPass;
+            TArray<FString> PassParentNames;
             u32 PassCount = 0;
             u64 FrameNumber = 0;
             bool Pending = false; // stamped and awaiting readback
@@ -306,7 +322,7 @@ namespace OloEngine
         u32 m_CurrentSubPassIndex = 0;
 
         // Published results (most recently resolved frame).
-        std::vector<PassTiming> m_LastPassTimings;
+        TArray<PassTiming> m_LastPassTimings;
         GpuTimingSample m_LastFrameSample{};
         u64 m_LastResolvedFrame = 0;
         u32 m_DroppedSlots = 0;    // the ring wrapped on an unfinished slot

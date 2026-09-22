@@ -96,14 +96,14 @@ namespace OloEngine
 
     void SceneSpatialIndex::Clear()
     {
-        // Drop all entries and all cell keys. m_Entries.clear() keeps the
-        // vector's capacity, and unordered_map::clear() removes every (now-dead)
+        // Drop all entries and all cell keys. m_Entries.Reset() keeps the
+        // array's capacity, and unordered_map::clear() removes every (now-dead)
         // cell key while the implementation retains its bucket array — so the
         // next rebuild refills both without rehashing from scratch. Clearing
         // only the per-cell vectors (an earlier version) leaked the keys: as
         // moving entities visited new cells every tick, m_Cells grew without
         // bound with empty cells that were never reclaimed.
-        m_Entries.clear();
+        m_Entries.Reset();
         m_Cells.clear();
     }
 
@@ -133,19 +133,19 @@ namespace OloEngine
             return;
         }
 
-        const u32 index = static_cast<u32>(m_Entries.size());
-        m_Entries.push_back(Entry{ id, position });
-        m_Cells[CellKey{ cellX, cellY, cellZ }].push_back(index);
+        const u32 index = static_cast<u32>(m_Entries.Num());
+        m_Entries.Add(Entry{ id, position });
+        m_Cells[CellKey{ cellX, cellY, cellZ }].Add(index);
     }
 
-    std::vector<UUID> SceneSpatialIndex::QueryRadius(const glm::vec3& center, f32 radius) const
+    TArray<UUID> SceneSpatialIndex::QueryRadius(const glm::vec3& center, f32 radius) const
     {
-        std::vector<UUID> result;
+        TArray<UUID> result;
         QueryRadius(center, radius, result);
         return result;
     }
 
-    void SceneSpatialIndex::QueryRadius(const glm::vec3& center, f32 radius, std::vector<UUID>& out) const
+    void SceneSpatialIndex::QueryRadius(const glm::vec3& center, f32 radius, TArray<UUID>& out) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -179,13 +179,13 @@ namespace OloEngine
         // center/radius) or would span more cells than there are entries — both
         // make the cell walk either UB or pointlessly expensive.
         if (!representable ||
-            CellBoxLargerThanEntries(minX, maxX, minY, maxY, minZ, maxZ, m_Entries.size()))
+            CellBoxLargerThanEntries(minX, maxX, minY, maxY, minZ, maxZ, m_Entries.Num()))
         {
             for (const Entry& entry : m_Entries)
             {
                 if (glm::distance2(centerD, glm::dvec3(entry.Position)) <= radiusSq)
                 {
-                    out.push_back(entry.Id);
+                    out.Add(entry.Id);
                 }
             }
             return;
@@ -208,7 +208,7 @@ namespace OloEngine
                         const Entry& entry = m_Entries[index];
                         if (glm::distance2(centerD, glm::dvec3(entry.Position)) <= radiusSq)
                         {
-                            out.push_back(entry.Id);
+                            out.Add(entry.Id);
                         }
                     }
                 }
@@ -216,14 +216,14 @@ namespace OloEngine
         }
     }
 
-    std::vector<UUID> SceneSpatialIndex::QueryAABB(const glm::vec3& min, const glm::vec3& max) const
+    TArray<UUID> SceneSpatialIndex::QueryAABB(const glm::vec3& min, const glm::vec3& max) const
     {
-        std::vector<UUID> result;
+        TArray<UUID> result;
         QueryAABB(min, max, result);
         return result;
     }
 
-    void SceneSpatialIndex::QueryAABB(const glm::vec3& min, const glm::vec3& max, std::vector<UUID>& out) const
+    void SceneSpatialIndex::QueryAABB(const glm::vec3& min, const glm::vec3& max, TArray<UUID>& out) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -255,13 +255,13 @@ namespace OloEngine
         // Same cells-vs-entries trade-off as QueryRadius, plus the unrepresentable
         // guard: a huge or far-flung box is answered by scanning the entries.
         if (!representable ||
-            CellBoxLargerThanEntries(minX, maxX, minY, maxY, minZ, maxZ, m_Entries.size()))
+            CellBoxLargerThanEntries(minX, maxX, minY, maxY, minZ, maxZ, m_Entries.Num()))
         {
             for (const Entry& entry : m_Entries)
             {
                 if (contains(entry.Position))
                 {
-                    out.push_back(entry.Id);
+                    out.Add(entry.Id);
                 }
             }
             return;
@@ -284,7 +284,7 @@ namespace OloEngine
                         const Entry& entry = m_Entries[index];
                         if (contains(entry.Position))
                         {
-                            out.push_back(entry.Id);
+                            out.Add(entry.Id);
                         }
                     }
                 }
@@ -292,14 +292,14 @@ namespace OloEngine
         }
     }
 
-    std::vector<UUID> SceneSpatialIndex::NearestN(const glm::vec3& center, u32 count, f32 maxRadius) const
+    TArray<UUID> SceneSpatialIndex::NearestN(const glm::vec3& center, u32 count, f32 maxRadius) const
     {
         OLO_PROFILE_FUNCTION();
 
-        std::vector<UUID> result;
+        TArray<UUID> result;
         // A non-finite center or a NaN/negative maxRadius can't define a valid
         // search region — reject before any cell math or comparator runs.
-        if (count == 0 || m_Entries.empty() || maxRadius < 0.0f ||
+        if (count == 0 || m_Entries.IsEmpty() || maxRadius < 0.0f ||
             std::isnan(maxRadius) || !IsFinite(center))
         {
             return result;
@@ -315,7 +315,12 @@ namespace OloEngine
         // position can't overflow distance² (or maxRadius²) to +inf — that would
         // both report false hits (inf <= inf) and collapse the nearest-first
         // ordering of all faraway candidates into a UUID tiebreak. See QueryRadius.
-        std::vector<std::pair<f64, UUID>> candidates;
+        struct Candidate
+        {
+            f64 DistanceSquared;
+            UUID Id;
+        };
+        TArray<Candidate> candidates;
         const glm::dvec3 centerD(center);
 
         const bool bounded = std::isfinite(maxRadius) &&
@@ -334,7 +339,7 @@ namespace OloEngine
                 TryWorldToCell(center.z + maxRadius, m_InvCellSize, maxZ);
 
             if (!representable ||
-                CellBoxLargerThanEntries(minX, maxX, minY, maxY, minZ, maxZ, m_Entries.size()))
+                CellBoxLargerThanEntries(minX, maxX, minY, maxY, minZ, maxZ, m_Entries.Num()))
             {
                 // Box dwarfs the entry count → scan entries, still range-gated.
                 for (const Entry& entry : m_Entries)
@@ -342,7 +347,7 @@ namespace OloEngine
                     const f64 distSq = glm::distance2(centerD, glm::dvec3(entry.Position));
                     if (distSq <= maxRadiusSq)
                     {
-                        candidates.emplace_back(distSq, entry.Id);
+                        candidates.Add(Candidate{ distSq, entry.Id });
                     }
                 }
             }
@@ -365,7 +370,7 @@ namespace OloEngine
                                 const f64 distSq = glm::distance2(centerD, glm::dvec3(entry.Position));
                                 if (distSq <= maxRadiusSq)
                                 {
-                                    candidates.emplace_back(distSq, entry.Id);
+                                    candidates.Add(Candidate{ distSq, entry.Id });
                                 }
                             }
                         }
@@ -375,31 +380,31 @@ namespace OloEngine
         }
         else
         {
-            candidates.reserve(m_Entries.size());
+            candidates.Reserve(m_Entries.Num());
             for (const Entry& entry : m_Entries)
             {
-                candidates.emplace_back(glm::distance2(centerD, glm::dvec3(entry.Position)), entry.Id);
+                candidates.Add(Candidate{ glm::distance2(centerD, glm::dvec3(entry.Position)), entry.Id });
             }
         }
 
-        const sizet n = std::min<sizet>(count, candidates.size());
+        const sizet n = std::min<sizet>(count, candidates.Num());
         // Partial sort keeps the cost O(m log n) instead of fully sorting every
         // candidate when only the closest n are wanted. Compare on distance,
         // then UUID, so equidistant entries order deterministically.
         std::partial_sort(candidates.begin(), candidates.begin() + n, candidates.end(),
-                          [](const std::pair<f64, UUID>& a, const std::pair<f64, UUID>& b)
+                          [](const Candidate& a, const Candidate& b)
                           {
-                              if (a.first != b.first)
+                              if (a.DistanceSquared != b.DistanceSquared)
                               {
-                                  return a.first < b.first;
+                                  return a.DistanceSquared < b.DistanceSquared;
                               }
-                              return static_cast<u64>(a.second) < static_cast<u64>(b.second);
+                              return static_cast<u64>(a.Id) < static_cast<u64>(b.Id);
                           });
 
-        result.reserve(n);
+        result.Reserve(static_cast<i32>(n));
         for (sizet i = 0; i < n; ++i)
         {
-            result.push_back(candidates[i].second);
+            result.Add(candidates[i].Id);
         }
         return result;
     }
@@ -425,7 +430,7 @@ namespace OloEngine
 
         // Re-bin every existing entry under the new resolution.
         auto entries = std::move(m_Entries);
-        m_Entries.clear();
+        m_Entries.Reset();
         m_Cells.clear();
         for (const Entry& entry : entries)
         {

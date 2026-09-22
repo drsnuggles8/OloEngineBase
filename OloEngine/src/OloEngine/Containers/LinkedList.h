@@ -21,6 +21,8 @@
 #include "OloEngine/Containers/IntrusiveLinkedList.h"
 #include "OloEngine/Templates/UnrealTemplate.h"
 
+#include <type_traits>
+
 namespace OloEngine
 {
     // Forward declarations
@@ -165,7 +167,8 @@ namespace OloEngine
     class TDoubleLinkedListIterator
     {
       public:
-        using NodeType = typename TDoubleLinkedList<ElementType>::TDoubleLinkedListNode;
+        using MutableNodeType = typename TDoubleLinkedList<std::remove_const_t<ElementType>>::TDoubleLinkedListNode;
+        using NodeType = std::conditional_t<std::is_const_v<ElementType>, const MutableNodeType, MutableNodeType>;
 
         [[nodiscard]] explicit TDoubleLinkedListIterator(NodeType* StartingNode)
             : m_CurrentNode(StartingNode)
@@ -659,6 +662,14 @@ namespace OloEngine
         [[nodiscard]] friend TIterator end(TDoubleLinkedList& /*List*/)
         {
             return TIterator(nullptr);
+        }
+        [[nodiscard]] friend TConstIterator begin(const TDoubleLinkedList& List)
+        {
+            return TConstIterator(List.m_HeadNode);
+        }
+        [[nodiscard]] friend TConstIterator end(const TDoubleLinkedList& /*List*/)
+        {
+            return TConstIterator(nullptr);
         }
 
       private:

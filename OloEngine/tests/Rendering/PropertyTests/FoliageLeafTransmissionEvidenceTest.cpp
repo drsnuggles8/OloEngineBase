@@ -68,6 +68,8 @@
 // =============================================================================
 
 #include "OloEnginePCH.h"
+#include <span>
+#include "OloEngine/Containers/Array.h"
 #include "../../TestOptions.h"
 
 #include "RendererAttachedTest.h"
@@ -258,7 +260,7 @@ namespace OloEngine::Tests
                     clump.TransmissionPower = 3.0f;
                     clump.TransmissionWrap = 0.55f;
                     clump.TransmissionAmbient = 0.40f;
-                    foliage.m_Layers.push_back(clump);
+                    foliage.m_Layers.Add(clump);
                 }
 
                 // THE SHRUB — flat cards only, a different leaf material, so the
@@ -293,7 +295,7 @@ namespace OloEngine::Tests
                     shrub.TransmissionPower = 5.0f;
                     shrub.TransmissionWrap = 0.45f;
                     shrub.TransmissionAmbient = 0.35f;
-                    foliage.m_Layers.push_back(shrub);
+                    foliage.m_Layers.Add(shrub);
                 }
 
                 foliage.m_NeedsRebuild = true;
@@ -301,15 +303,15 @@ namespace OloEngine::Tests
                 // Remember the authored strengths so the control arm can be the
                 // exact same scene with ONLY this value changed.
                 for (const auto& l : foliage.m_Layers)
-                    m_AuthoredStrengths.push_back(l.TransmissionStrength);
+                    m_AuthoredStrengths.Add(l.TransmissionStrength);
             }
         }
 
         void SetTransmission(bool on)
         {
             auto& foliage = m_TerrainEntity.GetComponent<FoliageComponent>();
-            ASSERT_EQ(foliage.m_Layers.size(), m_AuthoredStrengths.size());
-            for (std::size_t i = 0; i < foliage.m_Layers.size(); ++i)
+            ASSERT_EQ(foliage.m_Layers.Num(), m_AuthoredStrengths.Num());
+            for (std::size_t i = 0; i < foliage.m_Layers.Num(); ++i)
                 foliage.m_Layers[i].TransmissionStrength = on ? m_AuthoredStrengths[i] : 0.0f;
             // The layer's leaf material is re-read on rebuild — the maps are
             // cached by path and nothing else here changed, so this is cheap.
@@ -411,7 +413,7 @@ namespace OloEngine::Tests
         Entity m_TerrainEntity;
         Entity m_SunEntity;
         Entity m_OccluderEntity;
-        std::vector<f32> m_AuthoredStrengths;
+        TArray<f32> m_AuthoredStrengths;
     };
 
     TEST_F(FoliageLeafTransmissionEvidenceTest, BacklitLeavesTransmitShadowedOnesDoNotAndEveryPathAgrees)
@@ -459,7 +461,7 @@ namespace OloEngine::Tests
             << "nothing was scattered — the fixture is broken and every measurement below is of an empty frame";
 
         const auto draws = foliage.m_Renderer->GetActiveLayerDrawInfo();
-        ASSERT_FALSE(draws.empty());
+        ASSERT_FALSE(draws.IsEmpty());
         bool anyLeafDraw = false;
         for (const auto& d : draws)
         {

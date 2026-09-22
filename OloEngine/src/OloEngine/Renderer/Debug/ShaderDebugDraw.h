@@ -19,7 +19,7 @@
 #include <array>
 #include <atomic>
 #include <mutex>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -141,13 +141,13 @@ namespace OloEngine
             std::array<Channel, kShaderDebugDrawPrimitiveCount> Channels{};
             Ref<UniformBuffer> ParamsUBO;
 
-            std::vector<ShaderDebugDrawLine> CpuLines;
-            std::vector<ShaderDebugDrawCircle> CpuCircles;
-            std::vector<ShaderDebugDrawRectangle> CpuRectangles;
-            std::vector<ShaderDebugDrawAABB> CpuAABBs;
-            std::vector<ShaderDebugDrawBox> CpuBoxes;
-            std::vector<ShaderDebugDrawCone> CpuCones;
-            std::vector<ShaderDebugDrawSphere> CpuSpheres;
+            TArray<ShaderDebugDrawLine> CpuLines;
+            TArray<ShaderDebugDrawCircle> CpuCircles;
+            TArray<ShaderDebugDrawRectangle> CpuRectangles;
+            TArray<ShaderDebugDrawAABB> CpuAABBs;
+            TArray<ShaderDebugDrawBox> CpuBoxes;
+            TArray<ShaderDebugDrawCone> CpuCones;
+            TArray<ShaderDebugDrawSphere> CpuSpheres;
             std::mutex CpuMutex;
             // Attempted CPU pushes this frame, per primitive — including the
             // ones refused because the staging vector hit its cap. This, not

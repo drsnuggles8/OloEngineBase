@@ -22,7 +22,7 @@ namespace OloEngine
             WaterShoreSettings m_Settings;
             WaterShoreBakeRequest m_Window;
             u64 m_Signature = 0;
-            std::vector<glm::vec4> m_Texels; ///< retained so physics can read the same field
+            TArray<glm::vec4> m_Texels; ///< retained so physics can read the same field
         };
 
         WaterShoreDepthData s_Data;
@@ -104,8 +104,8 @@ namespace OloEngine
     void WaterShoreDepthSystem::Shutdown()
     {
         s_Data.m_FieldTexture.Reset();
-        s_Data.m_Texels.clear();
-        s_Data.m_Texels.shrink_to_fit();
+        s_Data.m_Texels.Reset();
+        s_Data.m_Texels.Shrink();
         s_Data.m_HasField = false;
         s_Data.m_Signature = 0;
         s_Data.m_Initialized = false;
@@ -156,7 +156,7 @@ namespace OloEngine
             // pinned to the coastline the scene loaded with — silently, with the
             // terrain visibly changing next to it.
             HashInto(hash, terrain.Heights);
-            HashInto(hash, terrain.Heights != nullptr ? terrain.Heights->size() : sizet{ 0 });
+            HashInto(hash, terrain.Heights != nullptr ? terrain.Heights->Num() : sizet{ 0 });
             HashInto(hash, terrain.HeightRevision);
         }
         return hash;
@@ -164,12 +164,12 @@ namespace OloEngine
 
     void WaterShoreDepthSystem::BakeField(const WaterShoreBakeRequest& request,
                                           std::span<const SeabedTerrain> terrains,
-                                          std::vector<glm::vec4>& outTexels)
+                                          TArray<glm::vec4>& outTexels)
     {
         OLO_PROFILE_FUNCTION();
 
         const u32 res = WaterShore::kResolution;
-        outTexels.assign(static_cast<sizet>(res) * res, glm::vec4(0.0f));
+        outTexels.Init(glm::vec4(0.0f), static_cast<sizet>(res) * res);
 
         // Idempotent: Rebuild() has already normalised what it stores, and this
         // is here so a direct BakeField() call (the tests) cannot be handed a
@@ -246,8 +246,8 @@ namespace OloEngine
         // scaled by c/c0, which is 1 to within f32 at any depth that deep, so a
         // gradient out there turns nothing. Only the direction of the gradient
         // in SHALLOW water reaches the wave.
-        std::vector<f32> depths(outTexels.size());
-        for (sizet i = 0; i < outTexels.size(); ++i)
+        TArray<f32> depths(outTexels.Num());
+        for (sizet i = 0; i < outTexels.Num(); ++i)
             depths[i] = outTexels[i].x;
 
         auto depthAt = [&](u32 x, u32 z)
@@ -341,8 +341,8 @@ namespace OloEngine
             // RGBA16F takes its upload as full floats (the driver converts), so
             // this is 16 B per texel — 4 MB once per seabed change, not per
             // frame. See the class comment for why that is the right trade.
-            s_Data.m_FieldTexture->SetData(s_Data.m_Texels.data(),
-                                           static_cast<u32>(s_Data.m_Texels.size() *
+            s_Data.m_FieldTexture->SetData(s_Data.m_Texels.GetData(),
+                                           static_cast<u32>(s_Data.m_Texels.Num() *
                                                             sizeof(glm::vec4)));
         }
     }
@@ -351,7 +351,7 @@ namespace OloEngine
     {
         s_Data.m_HasField = false;
         s_Data.m_Signature = 0;
-        s_Data.m_Texels.clear();
+        s_Data.m_Texels.Reset();
     }
 
     glm::vec4 WaterShoreDepthSystem::GetShaderParams()
@@ -406,6 +406,6 @@ namespace OloEngine
     {
         if (!s_Data.m_HasField || !s_Data.m_Settings.m_Enabled)
             return WaterShore::DisabledSample();
-        return SampleBaked(s_Data.m_Texels, s_Data.m_Window, worldXZ);
+        return SampleBaked(std::span(s_Data.m_Texels.GetData(), static_cast<sizet>(s_Data.m_Texels.Num())), s_Data.m_Window, worldXZ);
     }
 } // namespace OloEngine

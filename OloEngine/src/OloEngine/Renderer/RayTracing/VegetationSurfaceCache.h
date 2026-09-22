@@ -7,8 +7,8 @@
 #include "OloEngine/Terrain/Foliage/FoliageLayer.h"
 
 #include <map>
-#include <tuple>
-#include <vector>
+#include <array>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -26,18 +26,33 @@ namespace OloEngine::RayTracing
     struct VegetationSurfacePart
     {
         u32 Slot = 0u;
-        std::vector<u32> Indices;
+        TArray<u32> Indices;
         GPUSceneMaterialInput Material;
     };
 
+} // namespace OloEngine::RayTracing
+
+namespace OloEngine
+{
+    template<>
+    struct TIsTriviallyRelocatable<RayTracing::VegetationSurfacePart>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfacePart::Slot)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfacePart::Indices)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfacePart::Material)>::Value;
+    };
+} // namespace OloEngine
+
+namespace OloEngine::RayTracing
+{
     struct VegetationSurfaceInput
     {
         u64 Owner = 0u;
         u64 FirstPlantId = 0u;
         Ref<VertexBuffer> Rest;
         u32 VertexCount = 0u;
-        std::vector<VegetationSurfacePart> Parts;
-        std::vector<FoliageInstanceData> Rows;
+        TArray<VegetationSurfacePart> Parts;
+        TArray<FoliageInstanceData> Rows;
         glm::mat4 WorldTransform{ 1.0f };
         ShaderBindingLayout::FoliageUBO Wind{};
         f32 DistanceToView = 0.0f;
@@ -46,6 +61,30 @@ namespace OloEngine::RayTracing
         bool HistoryContinuous = false;
     };
 
+} // namespace OloEngine::RayTracing
+
+namespace OloEngine
+{
+    template<>
+    struct TIsTriviallyRelocatable<RayTracing::VegetationSurfaceInput>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfaceInput::Owner)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfaceInput::FirstPlantId)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfaceInput::Rest)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfaceInput::VertexCount)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfaceInput::Parts)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfaceInput::Rows)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfaceInput::WorldTransform)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfaceInput::Wind)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfaceInput::DistanceToView)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfaceInput::DetailedDistance)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfaceInput::VelocityBound)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfaceInput::HistoryContinuous)>::Value;
+    };
+} // namespace OloEngine
+
+namespace OloEngine::RayTracing
+{
     struct VegetationSurfaceStats
     {
         u32 GroupsRequested = 0u;
@@ -86,11 +125,11 @@ namespace OloEngine::RayTracing
         }
         [[nodiscard]] bool HasWork() const
         {
-            return !m_Jobs.empty();
+            return !m_Jobs.IsEmpty();
         }
         [[nodiscard]] bool HasQueueCapacity() const
         {
-            return m_Inputs.size() < VegetationPolicy::ResidentGroups && m_StagedBytes < VegetationPolicy::GeometryBytes;
+            return static_cast<u32>(m_Inputs.Num()) < VegetationPolicy::ResidentGroups && m_StagedBytes < VegetationPolicy::GeometryBytes;
         }
         [[nodiscard]] const VegetationSurfaceStats& GetStats() const
         {
@@ -98,7 +137,9 @@ namespace OloEngine::RayTracing
         }
 
       private:
-        using Key = std::tuple<u64, u64, u64>;
+        template<typename>
+        friend struct OloEngine::TIsTriviallyRelocatable;
+        using Key = std::array<u64, 3>;
         struct Entry
         {
             Ref<VertexBuffer> Rest;
@@ -124,6 +165,14 @@ namespace OloEngine::RayTracing
             u32 PlantCount = 0u;
         };
 
+        struct Batch
+        {
+            u64 Owner = 0u;
+            u64 RestHandle = 0u;
+            const Job* Parameters = nullptr;
+            TArray<const Job*> Jobs;
+        };
+
         [[nodiscard]] bool EnsureShader();
         void RollbackJobs();
         bool m_Enabled = false;
@@ -132,10 +181,22 @@ namespace OloEngine::RayTracing
         u64 m_StagedBytes = 0u;
         VegetationSurfaceStats m_Stats;
         std::map<Key, Entry> m_Entries;
-        std::vector<VegetationSurfaceInput> m_Inputs;
-        std::vector<Job> m_Jobs;
+        TArray<VegetationSurfaceInput> m_Inputs;
+        TArray<Job> m_Jobs;
         Ref<ComputeShader> m_Shader;
         Ref<UniformBuffer> m_Params;
         Ref<UniformBuffer> m_Wind;
     };
 } // namespace OloEngine::RayTracing
+
+namespace OloEngine
+{
+    template<>
+    struct TIsTriviallyRelocatable<RayTracing::VegetationSurfaceCache::Batch>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfaceCache::Batch::Owner)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfaceCache::Batch::RestHandle)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfaceCache::Batch::Parameters)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfaceCache::Batch::Jobs)>::Value;
+    };
+} // namespace OloEngine

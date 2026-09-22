@@ -105,14 +105,14 @@ namespace
     // widen-to-RGBA upload path, and a 4-channel probe would not cover it.
     bool WriteSolidRgbPng(const std::filesystem::path& path, int w, int h, u8 r, u8 g, u8 b)
     {
-        std::vector<u8> pixels(static_cast<sizet>(w) * static_cast<sizet>(h) * 3u);
-        for (sizet i = 0; i < pixels.size(); i += 3)
+        TArray64<u8> pixels(static_cast<sizet>(w) * static_cast<sizet>(h) * 3u);
+        for (sizet i = 0; i < pixels.Num(); i += 3)
         {
             pixels[i + 0] = r;
             pixels[i + 1] = g;
             pixels[i + 2] = b;
         }
-        return ::stbi_write_png(path.string().c_str(), w, h, 3, pixels.data(), w * 3) != 0;
+        return ::stbi_write_png(path.string().c_str(), w, h, 3, pixels.GetData(), w * 3) != 0;
     }
 
     // The minimal sampling pair, copied in shape from VulkanDrawPathTest:
@@ -338,7 +338,7 @@ namespace OloEngine::Tests
         ASSERT_TRUE(colorHandle.IsValid());
         auto* vkFramebuffer = static_cast<VulkanFramebuffer*>(framebuffer.Raw());
 
-        const auto drawAndReadBack = [&](std::vector<u8>& outPixels)
+        const auto drawAndReadBack = [&](TArray64<u8>& outPixels)
         {
             SubmitFrame(api,
                         [&]()
@@ -368,15 +368,15 @@ namespace OloEngine::Tests
 
             const auto attachment = vkFramebuffer->GetColorAttachmentImage(0);
             ASSERT_NE(attachment, nullptr);
-            outPixels.clear();
+            outPixels.Reset();
             ASSERT_TRUE(attachment->GetData(outPixels, 0));
-            ASSERT_EQ(outPixels.size(), static_cast<sizet>(fbSpec.Width) * fbSpec.Height * 4u);
+            ASSERT_EQ(outPixels.Num(), static_cast<sizet>(fbSpec.Width) * fbSpec.Height * 4u);
         };
 
         // Baseline: the pre-edit red must actually reach the attachment,
         // otherwise the post-reload assertion proves nothing.
         {
-            std::vector<u8> before;
+            TArray64<u8> before;
             drawAndReadBack(before);
             ASSERT_FALSE(::testing::Test::HasFatalFailure());
             EXPECT_EQ(before[0], 0xFF) << "the probe texture did not sample as red before the reload";
@@ -400,7 +400,7 @@ namespace OloEngine::Tests
         // the editor's situation only for the first frame after a save.
         for (u32 frame = 0; frame < 6u; ++frame)
         {
-            std::vector<u8> after;
+            TArray64<u8> after;
             drawAndReadBack(after);
             ASSERT_FALSE(::testing::Test::HasFatalFailure());
             EXPECT_EQ(after[0], 0x00) << "frame " << frame
@@ -465,15 +465,15 @@ namespace OloEngine::Tests
             spec.Format = ImageFormat::RGBA8;
             spec.GenerateMips = false;
             auto tex = Texture2D::Create(spec);
-            std::vector<u8> pixels(4u * 4u * 4u);
-            for (sizet i = 0; i < pixels.size(); i += 4)
+            TArray64<u8> pixels(4u * 4u * 4u);
+            for (sizet i = 0; i < pixels.Num(); i += 4)
             {
                 pixels[i + 0] = r;
                 pixels[i + 1] = g;
                 pixels[i + 2] = b;
                 pixels[i + 3] = 0xFF;
             }
-            tex->SetData(pixels.data(), static_cast<u32>(pixels.size()));
+            tex->SetData(pixels.GetData(), static_cast<u32>(pixels.Num()));
             return tex;
         };
 
@@ -487,7 +487,7 @@ namespace OloEngine::Tests
         ASSERT_TRUE(colorHandle.IsValid());
         auto* vkFramebuffer = static_cast<VulkanFramebuffer*>(framebuffer.Raw());
 
-        const auto drawWithUnit1 = [&](const Ref<Texture2D>& unit1, std::vector<u8>& outPixels)
+        const auto drawWithUnit1 = [&](const Ref<Texture2D>& unit1, TArray64<u8>& outPixels)
         {
             SubmitFrame(api,
                         [&]()
@@ -517,15 +517,15 @@ namespace OloEngine::Tests
 
             const auto attachment = vkFramebuffer->GetColorAttachmentImage(0);
             ASSERT_NE(attachment, nullptr);
-            outPixels.clear();
+            outPixels.Reset();
             ASSERT_TRUE(attachment->GetData(outPixels, 0));
-            ASSERT_EQ(outPixels.size(), static_cast<sizet>(fbSpec.Width) * fbSpec.Height * 4u);
+            ASSERT_EQ(outPixels.Num(), static_cast<sizet>(fbSpec.Width) * fbSpec.Height * 4u);
         };
 
         // Draw once with the decoy at unit 1. This is what claims the slot
         // immediately after unit 0's, so the probe below cannot land on it.
         {
-            std::vector<u8> red;
+            TArray64<u8> red;
             drawWithUnit1(decoy, red);
             ASSERT_FALSE(::testing::Test::HasFatalFailure());
             EXPECT_EQ(red[0], 0xFF) << "the decoy did not reach u_Textures[1]";
@@ -535,7 +535,7 @@ namespace OloEngine::Tests
         // Now the probe, whose slot is NOT unit-0-slot + 1. Under the old
         // mapping the draw keeps sampling the decoy's slot and stays red.
         {
-            std::vector<u8> green;
+            TArray64<u8> green;
             drawWithUnit1(probe, green);
             ASSERT_FALSE(::testing::Test::HasFatalFailure());
 

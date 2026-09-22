@@ -54,11 +54,11 @@ namespace OloEngine::Tests
     // Helper: does the diff list contain an entry whose field name starts
     // with the given prefix? Used because field formatting includes old/new
     // values that depend on the GL default (e.g., "DepthFunc: 519 -> 514").
-    bool DiffContainsPrefix(const std::vector<std::string>& diffs, std::string_view prefix)
+    bool DiffContainsPrefix(const TArray<FString>& diffs, std::string_view prefix)
     {
         return std::ranges::any_of(diffs,
-                                   [&](const std::string& d)
-                                   { return d.rfind(prefix, 0) == 0; });
+                                   [&](const FString& d)
+                                   { return d.ToView().starts_with(prefix); });
     }
 
     // Create a minimal LINKED GL program. A bare `glCreateProgram()` is
@@ -102,7 +102,7 @@ namespace OloEngine::Tests
 
         GLStateGuard guard("EmptyRegion", GLStateGuard::Policy::Ignore);
         const auto diffs = guard.DetectLeaks();
-        EXPECT_TRUE(diffs.empty()) << "unexpected leaks: " << diffs.size();
+        EXPECT_TRUE(diffs.IsEmpty()) << "unexpected leaks: " << diffs.Num();
     }
 
     // =========================================================================
@@ -121,7 +121,7 @@ namespace OloEngine::Tests
         const auto diffs = guard.DetectLeaks();
 
         EXPECT_TRUE(DiffContainsPrefix(diffs, "Blend:"))
-            << "expected a 'Blend:' entry in diffs, got " << diffs.size() << " entries";
+            << "expected a 'Blend:' entry in diffs, got " << diffs.Num() << " entries";
 
         ::glDisable(GL_BLEND); // cleanup for subsequent tests
     }
@@ -141,7 +141,7 @@ namespace OloEngine::Tests
         const auto diffs = guard.DetectLeaks();
 
         EXPECT_TRUE(DiffContainsPrefix(diffs, "DepthMask"))
-            << "expected 'DepthMask' entry; got " << diffs.size();
+            << "expected 'DepthMask' entry; got " << diffs.Num();
 
         ::glDepthMask(GL_TRUE);
     }
@@ -167,7 +167,7 @@ namespace OloEngine::Tests
         const auto diffs = guard.DetectLeaks();
 
         EXPECT_TRUE(DiffContainsPrefix(diffs, "DrawFBO"))
-            << "expected 'DrawFBO' entry; got " << diffs.size();
+            << "expected 'DrawFBO' entry; got " << diffs.Num();
 
         ::glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
     }
@@ -189,7 +189,7 @@ namespace OloEngine::Tests
         const auto diffs = guard.DetectLeaks();
 
         EXPECT_TRUE(DiffContainsPrefix(diffs, "Texture2D[5]"))
-            << "expected 'Texture2D[5]' entry; got " << diffs.size();
+            << "expected 'Texture2D[5]' entry; got " << diffs.Num();
 
         ::glBindTextureUnit(5, 0);
         ::glDeleteTextures(1, reinterpret_cast<const GLuint*>(&tex));
@@ -216,7 +216,7 @@ namespace OloEngine::Tests
         const auto diffs = guard.DetectLeaks();
 
         EXPECT_TRUE(DiffContainsPrefix(diffs, "UBO[11]"))
-            << "expected 'UBO[11]' entry; got " << diffs.size();
+            << "expected 'UBO[11]' entry; got " << diffs.Num();
 
         ::glBindBufferBase(GL_UNIFORM_BUFFER, 11, 0);
     }
@@ -239,7 +239,7 @@ namespace OloEngine::Tests
         ::glEnable(GL_STENCIL_TEST);
 
         const auto diffs = guard.DetectLeaks();
-        EXPECT_GE(diffs.size(), 3u) << "expected at least 3 diff entries";
+        EXPECT_GE(diffs.Num(), 3u) << "expected at least 3 diff entries";
         EXPECT_TRUE(DiffContainsPrefix(diffs, "Blend:"));
         EXPECT_TRUE(DiffContainsPrefix(diffs, "DepthMask"));
         EXPECT_TRUE(DiffContainsPrefix(diffs, "StencilTest"));

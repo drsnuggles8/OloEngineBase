@@ -560,7 +560,7 @@ namespace OloEngine::Tests
 
         const f32 restoreThreshold = Renderer3D::GetRendererSettings().LODPixelErrorThreshold;
 
-        ASSERT_GT(m_Subject.GetComponent<LODGroupComponent>().m_LODGroup.Levels.size(), 1u)
+        ASSERT_GT(m_Subject.GetComponent<LODGroupComponent>().m_LODGroup.Levels.Num(), 1u)
             << "no LOD chain for a skinned source — the generators still refuse one";
 
         std::vector<u8> fine;

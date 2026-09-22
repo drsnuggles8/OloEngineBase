@@ -73,7 +73,7 @@ namespace OloEngine::MCP
             j["totalBytes"] = static_cast<u64>(total);
             j["totalMB"] = toMB(total);
             j["byType"] = std::move(byType);
-            j["suspectedLeakCount"] = static_cast<int>(leaks.size());
+            j["suspectedLeakCount"] = static_cast<int>(leaks.Num());
             return ToolResult::Structured(j);
         }
 
@@ -192,8 +192,10 @@ namespace OloEngine::MCP
                 Json o;
                 o["bottleneck"] = BottleneckTypeName(b.m_Type);
                 o["confidence"] = Round2(b.m_Confidence);
-                o["detail"] = b.m_Description;
-                o["recommendations"] = b.m_Recommendations;
+                o["detail"] = b.m_Description.ToStdString();
+                o["recommendations"] = Json::array();
+                for (const auto& recommendation : b.m_Recommendations)
+                    o["recommendations"].push_back(recommendation.ToStdString());
                 return o; });
             return ToolResult::Structured(j);
         }
@@ -207,9 +209,9 @@ namespace OloEngine::MCP
 
             Json j = host.MarshalRead([points]() -> Json
                                       {
-                const std::vector<RendererProfiler::FrameData> hist = RendererProfiler::GetInstance().GetFrameHistoryCopy();
+                const TArray<RendererProfiler::FrameData> hist = RendererProfiler::GetInstance().GetFrameHistoryCopy();
                 Json series = Json::array();
-                const std::size_t n = hist.size();
+                const std::size_t n = static_cast<sizet>(hist.Num());
                 if (n > 0)
                 {
                     // Ceiling division so we emit at most `points` samples (floor
@@ -253,7 +255,7 @@ namespace OloEngine::MCP
             const auto beforeGen = trigger.value("beforeGen", static_cast<u64>(0));
 
             // Poll for the freshly captured frame (both accessors are thread-safe).
-            std::deque<CapturedFrameData> frames;
+            TArray<CapturedFrameData> frames;
             bool captured = false;
             int polls = 0;
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
@@ -264,7 +266,7 @@ namespace OloEngine::MCP
                 if (FrameCaptureManager::GetInstance().GetCaptureGeneration() > beforeGen)
                 {
                     frames = FrameCaptureManager::GetInstance().GetCapturedFramesCopy();
-                    if (!frames.empty())
+                    if (!frames.IsEmpty())
                     {
                         captured = true;
                         break;
@@ -276,7 +278,7 @@ namespace OloEngine::MCP
             if (!captured)
                 return ToolResult::Error("Frame capture timed out (is the editor rendering the viewport?).");
 
-            const CapturedFrameData& cap = frames.back();
+            const CapturedFrameData& cap = frames.Last();
             Json o;
             o["frameNumber"] = cap.FrameNumber;
             o["stats"] = Json{ { "drawCalls", cap.Stats.DrawCalls },
@@ -304,7 +306,7 @@ namespace OloEngine::MCP
             Json topDraws = Json::array();
             for (std::size_t i = 0; i < draws.size() && i < static_cast<std::size_t>(topK); ++i)
             {
-                topDraws.push_back(Json{ { "name", draws[i]->GetDebugName() },
+                topDraws.push_back(Json{ { "name", draws[i]->GetDebugName().ToStdString() },
                                          { "type", draws[i]->GetCommandTypeString() },
                                          { "gpuMs", Round2(draws[i]->GetGpuTimeMs()) } });
             }
@@ -340,16 +342,16 @@ namespace OloEngine::MCP
                 const GPUPassTimerPool::FrameTimings gpuFrame = pool.GetLastFrameTimings();
 
                 std::vector<PassTimings::GpuPassEntry> gpuPasses;
-                gpuPasses.reserve(gpuFrame.Passes.size());
+                gpuPasses.reserve(static_cast<sizet>(gpuFrame.Passes.Num()));
                 for (const auto& timing : gpuFrame.Passes)
-                    gpuPasses.push_back(PassTimings::GpuPassEntry{ timing.Name, timing.Sample, timing.IsSubPass,
-                                                                   timing.ParentName });
+                    gpuPasses.push_back(PassTimings::GpuPassEntry{ timing.Name.ToStdString(), timing.Sample,
+                                                                   timing.IsSubPass, timing.ParentName.ToStdString() });
 
                 std::vector<PassTimings::CpuPassEntry> cpuPasses;
                 if (const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph())
                 {
                     for (const auto& timing : graph->GetLastExecutionTimings())
-                        cpuPasses.push_back(PassTimings::CpuPassEntry{ timing.NodeName, timing.CpuMs });
+                        cpuPasses.push_back(PassTimings::CpuPassEntry{ timing.NodeName.ToStdString(), timing.CpuMs });
                 }
 
                 // See Handle_PerfSnapshot: use the last fully-completed frame
@@ -380,8 +382,13 @@ namespace OloEngine::MCP
                 totals.ParallelRecording.JoinWaitMs = pr.JoinWaitMs;
                 for (const auto& region : pr.RegionTimings)
                 {
-                    totals.ParallelRecording.RegionTimings.push_back({ region.PassName, region.Parallel,
-                        region.WorkerRecordMs, region.RegionWallMs, region.JoinWaitMs, region.ItemRecordMs, region.ItemPassNames,
+                    std::vector<std::string> itemPassNames;
+                    itemPassNames.reserve(static_cast<sizet>(region.ItemPassNames.Num()));
+                    for (const auto& name : region.ItemPassNames)
+                        itemPassNames.push_back(name.ToStdString());
+                    totals.ParallelRecording.RegionTimings.push_back({ region.PassName.ToStdString(), region.Parallel,
+                        region.WorkerRecordMs, region.RegionWallMs, region.JoinWaitMs,
+                        std::vector<f64>(region.ItemRecordMs.begin(), region.ItemRecordMs.end()), std::move(itemPassNames),
                         region.SelectionSeedMs, region.AttachmentPrepareMs, region.SampledImagePrepareMs, region.PipelineLookupMs,
                         region.FrontendPrepareMs });
                 }

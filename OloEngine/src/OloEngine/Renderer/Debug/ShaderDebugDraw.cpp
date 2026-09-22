@@ -187,10 +187,10 @@ namespace OloEngine
         // outlives the frame that was allowed to produce it.
         if (!IsEnabled())
             return;
-        if (!AcceptCpuPush(data, ShaderDebugDrawPrimitive::Line, data.CpuLines.size()))
+        if (!AcceptCpuPush(data, ShaderDebugDrawPrimitive::Line, data.CpuLines.Num()))
             return; // over the staging cap — counted as an attempt, not stored
-        data.CpuLines.push_back(ShaderDebugDrawLine{ start, static_cast<u32>(std::to_underlying(space)), end, 0.0f,
-                                                     color, 0.0f });
+        data.CpuLines.Add(ShaderDebugDrawLine{ start, static_cast<u32>(std::to_underlying(space)), end, 0.0f,
+                                               color, 0.0f });
     }
 
     void ShaderDebugDraw::DrawCircle(const glm::vec3& center, const glm::vec3& normal, f32 radius,
@@ -207,10 +207,10 @@ namespace OloEngine
         // outlives the frame that was allowed to produce it.
         if (!IsEnabled())
             return;
-        if (!AcceptCpuPush(data, ShaderDebugDrawPrimitive::Circle, data.CpuCircles.size()))
+        if (!AcceptCpuPush(data, ShaderDebugDrawPrimitive::Circle, data.CpuCircles.Num()))
             return; // over the staging cap — counted as an attempt, not stored
-        data.CpuCircles.push_back(ShaderDebugDrawCircle{ center, static_cast<u32>(std::to_underlying(space)), normal,
-                                                         radius, color, 0.0f });
+        data.CpuCircles.Add(ShaderDebugDrawCircle{ center, static_cast<u32>(std::to_underlying(space)), normal,
+                                                   radius, color, 0.0f });
     }
 
     void ShaderDebugDraw::DrawRectangle(const glm::vec3& center, const glm::vec3& axisU, const glm::vec3& axisV,
@@ -227,10 +227,10 @@ namespace OloEngine
         // outlives the frame that was allowed to produce it.
         if (!IsEnabled())
             return;
-        if (!AcceptCpuPush(data, ShaderDebugDrawPrimitive::Rectangle, data.CpuRectangles.size()))
+        if (!AcceptCpuPush(data, ShaderDebugDrawPrimitive::Rectangle, data.CpuRectangles.Num()))
             return; // over the staging cap — counted as an attempt, not stored
-        data.CpuRectangles.push_back(ShaderDebugDrawRectangle{ center, static_cast<u32>(std::to_underlying(space)),
-                                                               axisU, 0.0f, axisV, 0.0f, color, 0.0f });
+        data.CpuRectangles.Add(ShaderDebugDrawRectangle{ center, static_cast<u32>(std::to_underlying(space)),
+                                                         axisU, 0.0f, axisV, 0.0f, color, 0.0f });
     }
 
     void ShaderDebugDraw::DrawAABB(const glm::vec3& min, const glm::vec3& max, const glm::vec3& color,
@@ -247,10 +247,10 @@ namespace OloEngine
         // outlives the frame that was allowed to produce it.
         if (!IsEnabled())
             return;
-        if (!AcceptCpuPush(data, ShaderDebugDrawPrimitive::AABB, data.CpuAABBs.size()))
+        if (!AcceptCpuPush(data, ShaderDebugDrawPrimitive::AABB, data.CpuAABBs.Num()))
             return; // over the staging cap — counted as an attempt, not stored
-        data.CpuAABBs.push_back(ShaderDebugDrawAABB{ min, static_cast<u32>(std::to_underlying(space)), max, 0.0f, color,
-                                                     0.0f });
+        data.CpuAABBs.Add(ShaderDebugDrawAABB{ min, static_cast<u32>(std::to_underlying(space)), max, 0.0f, color,
+                                               0.0f });
     }
 
     void ShaderDebugDraw::DrawBox(const std::array<glm::vec3, 8>& corners, const glm::vec3& color,
@@ -273,9 +273,9 @@ namespace OloEngine
         // outlives the frame that was allowed to produce it.
         if (!IsEnabled())
             return;
-        if (!AcceptCpuPush(data, ShaderDebugDrawPrimitive::Box, data.CpuBoxes.size()))
+        if (!AcceptCpuPush(data, ShaderDebugDrawPrimitive::Box, data.CpuBoxes.Num()))
             return; // over the staging cap — counted as an attempt, not stored
-        data.CpuBoxes.push_back(entry);
+        data.CpuBoxes.Add(entry);
     }
 
     void ShaderDebugDraw::DrawCone(const glm::vec3& apex, const glm::vec3& axis, f32 radius, const glm::vec3& color,
@@ -292,10 +292,10 @@ namespace OloEngine
         // outlives the frame that was allowed to produce it.
         if (!IsEnabled())
             return;
-        if (!AcceptCpuPush(data, ShaderDebugDrawPrimitive::Cone, data.CpuCones.size()))
+        if (!AcceptCpuPush(data, ShaderDebugDrawPrimitive::Cone, data.CpuCones.Num()))
             return; // over the staging cap — counted as an attempt, not stored
-        data.CpuCones.push_back(ShaderDebugDrawCone{ apex, static_cast<u32>(std::to_underlying(space)), axis, radius,
-                                                     color, 0.0f });
+        data.CpuCones.Add(ShaderDebugDrawCone{ apex, static_cast<u32>(std::to_underlying(space)), axis, radius,
+                                               color, 0.0f });
     }
 
     void ShaderDebugDraw::DrawSphere(const glm::vec3& center, f32 radius, const glm::vec3& color,
@@ -312,10 +312,10 @@ namespace OloEngine
         // outlives the frame that was allowed to produce it.
         if (!IsEnabled())
             return;
-        if (!AcceptCpuPush(data, ShaderDebugDrawPrimitive::Sphere, data.CpuSpheres.size()))
+        if (!AcceptCpuPush(data, ShaderDebugDrawPrimitive::Sphere, data.CpuSpheres.Num()))
             return; // over the staging cap — counted as an attempt, not stored
-        data.CpuSpheres.push_back(ShaderDebugDrawSphere{ center, radius, color,
-                                                         static_cast<u32>(std::to_underlying(space)) });
+        data.CpuSpheres.Add(ShaderDebugDrawSphere{ center, radius, color,
+                                                   static_cast<u32>(std::to_underlying(space)) });
     }
 
     bool ShaderDebugDraw::AcceptCpuPush(Data& data, ShaderDebugDrawPrimitive primitive, sizet stagedCount)
@@ -335,13 +335,13 @@ namespace OloEngine
     void ShaderDebugDraw::ClearCpuEntries()
     {
         auto& data = Get();
-        data.CpuLines.clear();
-        data.CpuCircles.clear();
-        data.CpuRectangles.clear();
-        data.CpuAABBs.clear();
-        data.CpuBoxes.clear();
-        data.CpuCones.clear();
-        data.CpuSpheres.clear();
+        data.CpuLines.Reset();
+        data.CpuCircles.Reset();
+        data.CpuRectangles.Reset();
+        data.CpuAABBs.Reset();
+        data.CpuBoxes.Reset();
+        data.CpuCones.Reset();
+        data.CpuSpheres.Reset();
         // Reset with the vectors, never separately: an attempt counter that
         // outlived its entries would report a phantom overflow, and a stale
         // pending flag would make every disabled frame take the lock again.
@@ -460,7 +460,7 @@ namespace OloEngine
             // the vector. Reporting `attempted` as RequestCount is what keeps a
             // CPU-side flood visible as an overflow rather than a quiet trim.
             const u32 attempted = data.CpuAttempts[ChannelIndex(primitive)];
-            const auto requested = static_cast<u32>(cpuEntries.size());
+            const auto requested = static_cast<u32>(cpuEntries.Num());
             // Grow past the configured capacity when the CPU alone needs more —
             // a CPU push is not a "best effort" append the way a GPU one is (the
             // caller can see the count), so silently dropping it would be a
@@ -475,7 +475,7 @@ namespace OloEngine
             const u32 capacity = std::min(std::max(data.RequestedCapacity, requested), kMaxChannelCapacity);
             EnsureChannelCapacity(channel, primitive, capacity);
             const u32 accepted = std::min(requested, channel.Capacity);
-            UploadChannel(primitive, cpuEntries.data(), accepted, std::max(attempted, requested));
+            UploadChannel(primitive, cpuEntries.GetData(), accepted, std::max(attempted, requested));
         };
 
         prepare(ShaderDebugDrawPrimitive::Line, data.CpuLines);

@@ -39,9 +39,9 @@ namespace OloEngine
         {
             return m_RHIHandle.Get();
         }
-        [[nodiscard("Store this!")]] const std::string& GetPath() const override
+        [[nodiscard("Store this!")]] std::string_view GetPath() const override
         {
-            return m_Path;
+            return m_Path.ToView();
         }
 
         void SetData(void* data, u32 size) override;
@@ -67,7 +67,7 @@ namespace OloEngine
                    m_Specification.Format == ImageFormat::RGBA32F;
         }
 
-        bool GetData(std::vector<u8>& outData, u32 mipLevel = 0) const override;
+        bool GetData(TArray64<u8>& outData, u32 mipLevel = 0) const override;
 
         [[nodiscard("Store this!")]] u32 GetMipLevelCount() const override
         {
@@ -88,7 +88,7 @@ namespace OloEngine
       private:
         TextureSpecification m_Specification;
 
-        std::string m_Path;
+        FString m_Path;
         bool m_IsLoaded = false;
         u32 m_Width{};
         u32 m_Height{};

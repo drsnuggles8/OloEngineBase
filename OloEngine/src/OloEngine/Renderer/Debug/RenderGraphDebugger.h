@@ -7,6 +7,7 @@
 
 #include <imgui.h>
 #include <string>
+#include "OloEngine/Containers/String.h"
 #include <unordered_map>
 
 namespace OloEngine
@@ -68,7 +69,7 @@ namespace OloEngine
             ImVec2 ScrollOffset = ImVec2(0.0f, 0.0f); // Added for pan/zoom support
         };
 
-        std::unordered_map<std::string, NodeData> m_NodePositions;
+        RGTransparentStringMap<NodeData> m_NodePositions;
         LayoutSettings m_Settings;
         bool m_NeedsLayout = true;
 
@@ -77,11 +78,11 @@ namespace OloEngine
         // Selected capture index for the full-size preview pane (-1 = none).
         i32 m_SelectedCaptureIndex = -1;
         bool m_CaptureWindowOpen = false;
-        std::string m_VisiblePassDigest;
+        FString m_VisiblePassDigest;
 
         // Currently inspected pass (left-click on canvas selects). Empty when
         // no pass is selected — the inspector section is then hidden.
-        std::string m_SelectedPassName;
+        FString m_SelectedPassName;
 
         // Auto-arm the per-pass capture whenever the debugger panel is open
         // so the thumbnail strip always reflects the current frame's outputs.

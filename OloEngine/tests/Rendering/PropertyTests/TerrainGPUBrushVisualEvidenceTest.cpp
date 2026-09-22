@@ -31,6 +31,8 @@
 //
 // SKIPs cleanly without a GL 4.6 context, like every other evidence test here.
 #include "OloEnginePCH.h"
+#include <span>
+#include "OloEngine/Containers/Array.h"
 #include "../../TestOptions.h"
 
 #include "RendererAttachedTest.h"
@@ -219,8 +221,8 @@ namespace OloEngine::Tests
         const sizet kCentreIndex = static_cast<sizet>(kTerrainRes / 2) * kTerrainRes + (kTerrainRes / 2);
         f32 preStrokeCentreHeight = 0.0f;
         {
-            const std::vector<f32>& heights = terrain.m_TerrainData->GetHeightData();
-            ASSERT_LT(kCentreIndex, heights.size());
+            const TArray<f32>& heights = terrain.m_TerrainData->GetHeightData();
+            ASSERT_LT(kCentreIndex, heights.Num());
             preStrokeCentreHeight = heights[kCentreIndex];
         }
         Ref<Texture2D> heightmap = terrain.m_TerrainData->GetGPUHeightmap();
@@ -264,8 +266,8 @@ namespace OloEngine::Tests
         // "the renderer is not sampling the brushed texture" failure apart from
         // "the stroke was too small to see", which is how this test first failed.
         {
-            const std::vector<f32>& heights = terrain.m_TerrainData->GetHeightData();
-            ASSERT_LT(kCentreIndex, heights.size());
+            const TArray<f32>& heights = terrain.m_TerrainData->GetHeightData();
+            ASSERT_LT(kCentreIndex, heights.Num());
             const f32 raisedWorldUnits = (heights[kCentreIndex] - preStrokeCentreHeight) * kHeightScale;
             ASSERT_GT(raisedWorldUnits, 20.0f)
                 << "the stroke raised the centre by only " << raisedWorldUnits

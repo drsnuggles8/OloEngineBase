@@ -45,10 +45,10 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!spec.FilePath.empty())
+        if (!spec.FilePath.IsEmpty())
         {
             // Load from file
-            m_EnvironmentMap = ConvertEquirectangularToCubemap(spec.FilePath);
+            m_EnvironmentMap = ConvertEquirectangularToCubemap(spec.FilePath.ToStdString());
         }
 
         if (spec.GenerateIBL && m_EnvironmentMap)
@@ -155,9 +155,9 @@ namespace OloEngine
 
         // Generate a unique cache key
         std::string cacheKey;
-        if (!m_Specification.FilePath.empty())
+        if (!m_Specification.FilePath.IsEmpty())
         {
-            cacheKey = m_Specification.FilePath;
+            cacheKey = m_Specification.FilePath.ToStdString();
         }
         else if (m_EnvironmentMap)
         {

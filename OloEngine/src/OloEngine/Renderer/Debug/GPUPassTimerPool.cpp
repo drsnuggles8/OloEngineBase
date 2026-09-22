@@ -37,12 +37,13 @@ namespace OloEngine
         const u32 queriesPerSlot = 2 + (2 * maxPassesPerFrame);
         for (auto& slot : m_Slots)
         {
-            slot.Queries.assign(queriesPerSlot, RHI::NullResource);
-            RenderCommand::CreateQueries(RHI::QueryType::Timestamp, std::span<RHI::ResourceHandle>(slot.Queries));
-            slot.Stamped.assign(queriesPerSlot, 0u);
-            slot.PassNames.resize(maxPassesPerFrame);
-            slot.PassIsSubPass.assign(maxPassesPerFrame, 0u);
-            slot.PassParentNames.resize(maxPassesPerFrame);
+            slot.Queries.Init(RHI::NullResource, static_cast<i32>(queriesPerSlot));
+            RenderCommand::CreateQueries(RHI::QueryType::Timestamp,
+                                         std::span<RHI::ResourceHandle>(slot.Queries.GetData(), static_cast<sizet>(slot.Queries.Num())));
+            slot.Stamped.Init(0u, static_cast<i32>(queriesPerSlot));
+            slot.PassNames.SetNum(static_cast<i32>(maxPassesPerFrame));
+            slot.PassIsSubPass.Init(0u, static_cast<i32>(maxPassesPerFrame));
+            slot.PassParentNames.SetNum(static_cast<i32>(maxPassesPerFrame));
             slot.PassCount = 0;
             slot.UntimedPasses = 0;
             slot.FrameNumber = 0;
@@ -59,7 +60,7 @@ namespace OloEngine
         m_DroppedSlots = 0;
         m_UnstampedFrames = 0;
         m_DropWarningIssued = false;
-        m_LastPassTimings.clear();
+        m_LastPassTimings.Reset();
         m_Initialized = true;
 
         OLO_CORE_INFO("GPUPassTimerPool: Initialized with {} pass slots x {} frames in flight", maxPassesPerFrame, kSlotCount);
@@ -73,19 +74,19 @@ namespace OloEngine
 
         for (auto& slot : m_Slots)
         {
-            if (!slot.Queries.empty())
+            if (!slot.Queries.IsEmpty())
             {
-                RenderCommand::DeleteQueries(std::span<const RHI::ResourceHandle>(slot.Queries));
-                slot.Queries.clear();
+                RenderCommand::DeleteQueries(std::span<const RHI::ResourceHandle>(slot.Queries.GetData(), static_cast<sizet>(slot.Queries.Num())));
+                slot.Queries.Reset();
             }
-            slot.Stamped.clear();
-            slot.PassNames.clear();
-            slot.PassIsSubPass.clear();
-            slot.PassParentNames.clear();
+            slot.Stamped.Reset();
+            slot.PassNames.Reset();
+            slot.PassIsSubPass.Reset();
+            slot.PassParentNames.Reset();
             slot.Pending = false;
         }
 
-        m_LastPassTimings.clear();
+        m_LastPassTimings.Reset();
         // The published sample follows the pool down: a shut-down pool that
         // kept handing out its last real measurement would report a number for
         // a device that is no longer being timed.
@@ -113,7 +114,7 @@ namespace OloEngine
 
     void GPUPassTimerPool::StampQuery(FrameSlot& slot, u32 queryIndex)
     {
-        if (queryIndex >= slot.Queries.size())
+        if (queryIndex >= static_cast<u32>(slot.Queries.Num()))
             return;
 
         // The backend's answer is the ground truth: Vulkan refuses a timestamp
@@ -195,7 +196,7 @@ namespace OloEngine
         m_CurrentPassIndex = slot.PassCount++;
         slot.PassNames[m_CurrentPassIndex] = name;
         slot.PassIsSubPass[m_CurrentPassIndex] = 0u;
-        slot.PassParentNames[m_CurrentPassIndex].clear();
+        slot.PassParentNames[m_CurrentPassIndex].Reset();
         StampQuery(slot, 2 + (2 * m_CurrentPassIndex));
         m_PassOpen = true;
     }
@@ -226,7 +227,7 @@ namespace OloEngine
         }
 
         m_CurrentSubPassIndex = slot.PassCount++;
-        slot.PassNames[m_CurrentSubPassIndex] = slot.PassNames[m_CurrentPassIndex] + "/" + name;
+        slot.PassNames[m_CurrentSubPassIndex] = slot.PassNames[m_CurrentPassIndex] + "/" + FString(name);
         slot.PassIsSubPass[m_CurrentSubPassIndex] = 1u;
         slot.PassParentNames[m_CurrentSubPassIndex] = slot.PassNames[m_CurrentPassIndex];
         StampQuery(slot, 2 + (2 * m_CurrentSubPassIndex));
@@ -245,7 +246,7 @@ namespace OloEngine
 
     GpuTimingSample GPUPassTimerPool::ResolvePair(const FrameSlot& slot, u32 beginIndex, u32 endIndex) const
     {
-        if (beginIndex >= slot.Queries.size() || endIndex >= slot.Queries.size())
+        if (beginIndex >= static_cast<u32>(slot.Queries.Num()) || endIndex >= static_cast<u32>(slot.Queries.Num()))
             return GpuTimingSample::Absent(GpuTimingStatus::NotTimed);
 
         // Gather what is observable, then let the pure decision in
@@ -359,11 +360,11 @@ namespace OloEngine
 
         m_LastFrameSample = ResolvePair(slot, 0, 1);
 
-        m_LastPassTimings.clear();
-        m_LastPassTimings.reserve(slot.PassCount + slot.UntimedPasses);
+        m_LastPassTimings.Reset();
+        m_LastPassTimings.Reserve(static_cast<i32>(slot.PassCount + slot.UntimedPasses));
         for (u32 i = 0; i < slot.PassCount; ++i)
         {
-            m_LastPassTimings.push_back(PassTiming{
+            m_LastPassTimings.Add(PassTiming{
                 .Name = slot.PassNames[i],
                 .Sample = ResolvePair(slot, 2 + (2 * i), 3 + (2 * i)),
                 .IsSubPass = slot.PassIsSubPass[i] != 0u,
@@ -377,8 +378,8 @@ namespace OloEngine
         // not execute.
         if (slot.UntimedPasses > 0)
         {
-            m_LastPassTimings.push_back(PassTiming{
-                .Name = "<" + std::to_string(slot.UntimedPasses) + " pass(es) over the per-frame timer budget>",
+            m_LastPassTimings.Add(PassTiming{
+                .Name = FString("<" + std::to_string(slot.UntimedPasses) + " pass(es) over the per-frame timer budget>"),
                 .Sample = GpuTimingSample::Absent(GpuTimingStatus::NotTimed),
                 .IsSubPass = false,
                 .ParentName = {},
@@ -425,7 +426,7 @@ namespace OloEngine
         return out;
     }
 
-    GPUPassTimerPool::PassTotal GPUPassTimerPool::SumTopLevel(const std::vector<PassTiming>& passes)
+    GPUPassTimerPool::PassTotal GPUPassTimerPool::SumTopLevel(const TArray<PassTiming>& passes)
     {
         PassTotal total;
         const auto hasTopLevelParent = [&passes](const PassTiming& sub)

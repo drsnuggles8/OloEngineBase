@@ -45,7 +45,8 @@
 
 #include <glm/glm.hpp>
 
-#include <vector>
+#include "OloEngine/Containers/Array.h"
+#include <span>
 
 namespace OloEngine::PathTracing
 {
@@ -127,13 +128,13 @@ namespace OloEngine::PathTracing
         }
 
         // Linear radiance, row 0 == top.
-        [[nodiscard]] const std::vector<glm::vec3>& GetPixels() const
+        [[nodiscard]] std::span<const glm::vec3> GetPixels() const
         {
-            return m_Pixels;
+            return { m_Pixels.GetData(), static_cast<sizet>(m_Pixels.Num()) };
         }
-        [[nodiscard]] std::vector<glm::vec3>& GetPixels()
+        [[nodiscard]] std::span<glm::vec3> GetPixels()
         {
-            return m_Pixels;
+            return { m_Pixels.GetData(), static_cast<sizet>(m_Pixels.Num()) };
         }
         [[nodiscard]] glm::vec3 GetPixel(u32 x, u32 y) const;
 
@@ -146,7 +147,7 @@ namespace OloEngine::PathTracing
         // result is directly comparable with a raster composite readback.
         // `tonemap` mirrors PBRCommon's postProcessColor operator selector
         // (0 none / 1 Reinhard / 2 ACES).
-        void EncodeRgba8(std::vector<u8>& outRgba, i32 tonemap = 1, f32 exposure = 1.0f, bool applyGamma = true) const;
+        void EncodeRgba8(TArray64<u8>& outRgba, i32 tonemap = 1, f32 exposure = 1.0f, bool applyGamma = true) const;
 
         // A stable content hash of the linear radiance buffer. This is the
         // determinism gate's assertion: same scene + settings => same hash,
@@ -158,7 +159,7 @@ namespace OloEngine::PathTracing
       private:
         u32 m_Width = 0;
         u32 m_Height = 0;
-        std::vector<glm::vec3> m_Pixels;
+        TArray64<glm::vec3> m_Pixels;
     };
 
     // -------------------------------------------------------------------------

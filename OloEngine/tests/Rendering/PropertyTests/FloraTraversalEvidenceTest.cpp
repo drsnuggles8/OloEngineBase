@@ -341,7 +341,7 @@ namespace OloEngine::Tests
 
             auto& foliage = m_TerrainEntity.AddComponent<FoliageComponent>();
             foliage.m_Enabled = true;
-            foliage.m_Layers.resize(kLayerCount);
+            foliage.m_Layers.SetNum(kLayerCount);
 
             // ── 0: meadow grass. Real blades near, card beyond (#1398).
             {
@@ -738,7 +738,7 @@ namespace OloEngine::Tests
             const auto& records = foliage.m_Renderer->GetInstanceRegistry().GetRecords();
 
             std::vector<f32> altitudes;
-            altitudes.reserve(records.size());
+            altitudes.reserve(static_cast<sizet>(records.Num()));
             for (const auto& record : records)
                 altitudes.push_back(record.m_Position.y); // terrain-local == altitude in world units
             std::sort(altitudes.begin(), altitudes.end());
@@ -1090,7 +1090,7 @@ namespace OloEngine::Tests
         const auto& foliage = m_TerrainEntity.GetComponent<FoliageComponent>();
         ASSERT_TRUE(foliage.m_Renderer);
         const auto draws = foliage.m_Renderer->GetActiveLayerDrawInfo();
-        ASSERT_FALSE(draws.empty()) << "the integrated scene emits no foliage draws at all";
+        ASSERT_FALSE(draws.IsEmpty()) << "the integrated scene emits no foliage draws at all";
 
         // The census is taken off the DRAW STREAM. A layer struct with the
         // right field set proves only that someone typed it; an entry in
@@ -1203,15 +1203,15 @@ namespace OloEngine::Tests
 
         for (u32 i = 0; i < kLayerCount; ++i)
         {
-            GTEST_LOG_(INFO) << "layer " << i << " '" << foliage.m_Layers[i].Name << "': " << placed[i]
+            GTEST_LOG_(INFO) << "layer " << i << " '" << foliage.m_Layers[i].Name.ToView() << "': " << placed[i]
                              << " placed, " << drawEntries[i] << " draw entries, " << drawnInstances[i]
                              << " instances submitted";
             if (placed[i] == 0u)
                 continue;
             EXPECT_GT(drawEntries[i], 0u)
-                << "layer '" << foliage.m_Layers[i].Name << "' placed " << placed[i]
+                << "layer '" << foliage.m_Layers[i].Name.ToView() << "' placed " << placed[i]
                 << " plants and emits NO draw entry — that species is in the registry and not in the frame";
-            EXPECT_GT(drawnInstances[i], 0u) << "layer '" << foliage.m_Layers[i].Name
+            EXPECT_GT(drawnInstances[i], 0u) << "layer '" << foliage.m_Layers[i].Name.ToView()
                                              << "' submits a draw with zero instances";
         }
 
@@ -1407,7 +1407,7 @@ namespace OloEngine::Tests
         const auto& foliage = m_TerrainEntity.GetComponent<FoliageComponent>();
         ASSERT_TRUE(foliage.m_Renderer);
         const auto& records = foliage.m_Renderer->GetInstanceRegistry().GetRecords();
-        ASSERT_FALSE(records.empty());
+        ASSERT_FALSE(records.IsEmpty());
         const glm::mat4 model = m_TerrainEntity.GetComponent<TransformComponent>().GetTransform();
 
         // The two layers with an authored mesh, and the band each hands over
@@ -1424,7 +1424,7 @@ namespace OloEngine::Tests
         for (u32 i = 0; i < kLayerCount; ++i)
         {
             const auto& layer = foliage.m_Layers[i];
-            if (layer.UseAuthoredMesh && !layer.MeshPath.empty() && layer.MeshViewDistance > layer.MeshFadeStartDistance)
+            if (layer.UseAuthoredMesh && !layer.MeshPath.IsEmpty() && layer.MeshViewDistance > layer.MeshFadeStartDistance)
                 bands.push_back(MeshBand{ i, layer.MeshFadeStartDistance, layer.MeshViewDistance });
         }
         ASSERT_GE(bands.size(), 2u) << "fewer than two species have an authored-mesh hand-over — there is no "
@@ -1546,7 +1546,7 @@ namespace OloEngine::Tests
         const CellDispersion on = dispersionPerCell(kSpread, kHysteresis);
 
         GTEST_LOG_(INFO) << "mesh hand-overs over " << bands.size() << " species x " << (kTraversalSteps - 2u)
-                         << " traversal steps, of " << records.size() << " plants: shared thresholds "
+                         << " traversal steps, of " << records.Num() << " plants: shared thresholds "
                          << off.Crossings << " crossings in " << off.Cells << " measurable cells, depth spread "
                          << off.MeanCellStdDev << " m mean / " << off.WorstCellStdDev << " m tightest | "
                          << "decorrelated over " << kSpread << " m " << on.Crossings << " crossings in "
@@ -1612,7 +1612,7 @@ namespace OloEngine::Tests
         // a configuration the fixture never declared, while the code claims to
         // have put things back.
         std::vector<bool> authoredMeshFlags;
-        authoredMeshFlags.reserve(foliage.m_Layers.size());
+        authoredMeshFlags.reserve(static_cast<sizet>(foliage.m_Layers.Num()));
         for (const auto& layer : foliage.m_Layers)
             authoredMeshFlags.push_back(layer.UseAuthoredMesh);
 
@@ -1622,7 +1622,7 @@ namespace OloEngine::Tests
         std::vector<u8> cardsOnly;
         Capture(closePose, cardsOnly);
 
-        for (std::size_t i = 0; i < foliage.m_Layers.size(); ++i)
+        for (i32 i = 0; i < foliage.m_Layers.Num(); ++i)
             foliage.m_Layers[i].UseAuthoredMesh = authoredMeshFlags[i];
         foliage.m_NeedsRebuild = true;
 

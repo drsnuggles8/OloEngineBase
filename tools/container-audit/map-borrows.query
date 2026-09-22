@@ -1,0 +1,3 @@
+# Candidate audit, not a proof of reference stability. In particular, a lexical
+# AST matcher cannot establish lifetimes across helpers, callbacks or returned borrows.
+match functionDecl(isExpansionInMainFile(), hasDescendant(varDecl(anyOf(hasType(referenceType()), hasType(pointerType())), hasDescendant(cxxOperatorCallExpr(hasOverloadedOperatorName("[]")))).bind("borrow")), hasDescendant(cxxMemberCallExpr(callee(cxxMethodDecl(matchesName("(^|::)(insert|emplace|try_emplace|insert_or_assign|reserve|rehash)$")))))).bind("mutation_scope")

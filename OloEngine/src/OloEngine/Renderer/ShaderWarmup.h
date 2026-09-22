@@ -1,4 +1,5 @@
 #pragma once
+#include "OloEngine/Containers/Array.h"
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
@@ -53,7 +54,7 @@ namespace OloEngine
         // When `window` is nullptr (e.g. headless tests), falls back to
         // library.LoadParallel() (synchronous, no progress UI, no polling).
         // `label`/`phase` are forwarded to RenderProgressFrame as-is.
-        static std::vector<Ref<Shader>> LoadShadersParallel(
+        static TArray<Ref<Shader>> LoadShadersParallel(
             ShaderLibrary& library, Window* window, const std::vector<std::string>& filepaths,
             std::string_view label, i32 phase);
 

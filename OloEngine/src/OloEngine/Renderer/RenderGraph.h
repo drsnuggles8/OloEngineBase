@@ -1,5 +1,8 @@
 #pragma once
 
+#include "OloEngine/Containers/LinkedList.h"
+#include "OloEngine/Containers/String.h"
+
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/FrameBlackboard.h"
@@ -37,53 +40,6 @@ namespace OloEngine
     //
     // ID 0 is reserved as the invalid sentinel; the first real interned ID
     // is 1. `Intern` adds; `Find` is read-only.
-    // Heterogeneous hash + equality so a `std::unordered_map<std::string, V>`
-    // can be looked up via `std::string_view` / `const char*` without
-    // allocating a temporary `std::string` per call. Use these as the third
-    // and fourth template arguments to `unordered_map` / `unordered_set` to
-    // get free transparent lookup. Also used internally by `RGStringInterner`
-    // for the same reason.
-    struct RGStringTransparentHash
-    {
-        using is_transparent = void;
-        [[nodiscard]] size_t operator()(std::string_view sv) const noexcept
-        {
-            return std::hash<std::string_view>{}(sv);
-        }
-        [[nodiscard]] size_t operator()(const std::string& s) const noexcept
-        {
-            return std::hash<std::string_view>{}(s);
-        }
-        [[nodiscard]] size_t operator()(const char* s) const noexcept
-        {
-            return std::hash<std::string_view>{}(s);
-        }
-    };
-    struct RGStringTransparentEqual
-    {
-        using is_transparent = void;
-        [[nodiscard]] bool operator()(std::string_view a, std::string_view b) const noexcept
-        {
-            return a == b;
-        }
-        [[nodiscard]] bool operator()(const std::string& a, std::string_view b) const noexcept
-        {
-            return a == b;
-        }
-        [[nodiscard]] bool operator()(std::string_view a, const std::string& b) const noexcept
-        {
-            return a == b;
-        }
-        [[nodiscard]] bool operator()(const std::string& a, const std::string& b) const noexcept
-        {
-            return a == b;
-        }
-    };
-
-    template<typename V>
-    using RGTransparentStringMap = std::unordered_map<std::string, V, RGStringTransparentHash, RGStringTransparentEqual>;
-    using RGTransparentStringSet = std::unordered_set<std::string, RGStringTransparentHash, RGStringTransparentEqual>;
-
     class RGStringInterner
     {
       public:
@@ -95,11 +51,10 @@ namespace OloEngine
                 return 0u;
             if (const auto it = m_IDByName.find(name); it != m_IDByName.end())
                 return it->second;
-            const auto id = static_cast<u32>(m_NameByID.size());
-            m_NameByID.emplace_back(name);
-            // Reference into the owned NameByID vector so the map's key is
-            // stable; entries are append-only so this is safe.
-            m_IDByName.emplace(m_NameByID.back(), id);
+            const auto id = static_cast<u32>(static_cast<sizet>(m_NameByID.Num()));
+            m_NameByID.Emplace(name);
+            // The std map retains its own key; the indexed names use UE ownership.
+            m_IDByName.emplace(m_NameByID.Last().ToStdString(), id);
             return id;
         }
 
@@ -112,15 +67,10 @@ namespace OloEngine
             return 0u;
         }
 
-        // Returns an owning std::string by value, not a view into m_NameByID.
-        // m_NameByID is a std::vector<std::string>; an Intern() call between
-        // a NameOf() and its use can realloc the vector and free the SSO
-        // buffer the view pointed at, producing a heap-use-after-free. See
-        // RenderGraph::GetResourceName for the same hazard at the public
-        // API surface.
-        [[nodiscard]] std::string NameOf(u32 id) const
+        // Return an owning snapshot so it remains valid after Clear or reuse.
+        [[nodiscard]] FString NameOf(u32 id) const
         {
-            if (id == 0u || id >= m_NameByID.size())
+            if (id == 0u || id >= static_cast<sizet>(m_NameByID.Num()))
                 return {};
             return m_NameByID[id];
         }
@@ -128,27 +78,27 @@ namespace OloEngine
         [[nodiscard]] sizet Size() const
         {
             // Index 0 is reserved as the invalid sentinel.
-            return m_NameByID.empty() ? 0u : (m_NameByID.size() - 1u);
+            return m_NameByID.IsEmpty() ? 0u : (static_cast<sizet>(m_NameByID.Num()) - 1u);
         }
 
         void Clear()
         {
             m_IDByName.clear();
-            m_NameByID.clear();
+            m_NameByID.Reset();
             // Reserve slot 0 as the invalid sentinel.
-            m_NameByID.emplace_back();
+            m_NameByID.Emplace();
         }
 
         RGStringInterner()
         {
             // Reserve slot 0 as the invalid sentinel so a default-constructed
             // ID always means "unknown".
-            m_NameByID.emplace_back();
+            m_NameByID.Emplace();
         }
 
       private:
         RGTransparentStringMap<u32> m_IDByName;
-        std::vector<std::string> m_NameByID; // index 0 unused (invalid sentinel)
+        TArray64<FString> m_NameByID; // index 0 unused (invalid sentinel)
     };
 
     // @brief Manages a graph of render nodes forming a complete rendering pipeline.
@@ -231,53 +181,53 @@ namespace OloEngine
         void SetFinalPass(const std::string& passName);
 
         template<typename T>
-        Ref<T> GetNode(const std::string& name)
+        Ref<T> GetNode(std::string_view name)
         {
-            if (m_NodeLookup.find(name) != m_NodeLookup.end())
+            if (const auto it = m_NodeLookup.find(name); it != m_NodeLookup.end())
             {
-                return m_NodeLookup.at(name).As<T>();
+                return it->second.As<T>();
             }
             return nullptr;
         }
 
         template<typename T>
-        Ref<T> GetNode(const std::string& name) const
+        Ref<T> GetNode(std::string_view name) const
         {
-            if (m_NodeLookup.find(name) != m_NodeLookup.end())
+            if (const auto it = m_NodeLookup.find(name); it != m_NodeLookup.end())
             {
-                return m_NodeLookup.at(name).As<T>();
+                return it->second.As<T>();
             }
             return nullptr;
         }
 
-        [[nodiscard]] bool IsFinalPass(const std::string& passName) const;
-        [[nodiscard]] const std::string& GetFinalPassName() const
+        [[nodiscard]] bool IsFinalPass(std::string_view passName) const;
+        [[nodiscard]] const FString& GetFinalPassName() const
         {
             return m_FinalPassName;
         }
 
         struct ConnectionInfo
         {
-            std::string OutputPass;
-            std::string InputPass;
+            FString OutputPass;
+            FString InputPass;
             u32 AttachmentIndex = 0;
         };
 
-        [[nodiscard]] std::vector<ConnectionInfo> GetConnections() const;
+        [[nodiscard]] TArray64<ConnectionInfo> GetConnections() const;
 
         struct NodeSubmissionInfo
         {
-            std::string NodeName;
+            FString NodeName;
             bool DeclaresResources = false;
             RenderGraphPassWorkType WorkType = RenderGraphPassWorkType::Graphics; // Scheduler metadata
             bool AsyncComputeCandidate = false;                                   // Scheduler metadata
         };
-        [[nodiscard]] std::vector<NodeSubmissionInfo> GetNodeSubmissionInfo() const;
+        [[nodiscard]] TArray64<NodeSubmissionInfo> GetNodeSubmissionInfo() const;
 
         // @brief Get the topologically-sorted node execution order (for testing/inspection).
-        [[nodiscard]] const std::vector<std::string>& GetExecutionOrder() const
+        [[nodiscard]] std::span<const FString> GetExecutionOrder() const
         {
-            return m_ExecutionOrder;
+            return { m_ExecutionOrder.GetData(), static_cast<sizet>(m_ExecutionOrder.Num()) };
         }
 
         // Validates only the dependency topology/cycle state without
@@ -321,35 +271,35 @@ namespace OloEngine
         struct Hazard
         {
             HazardKind Kind;
-            std::string Resource;
-            std::string Producer; // writer (RAW / WAW) or reader (WAR)
-            std::string Consumer; // reader (RAW), later writer (WAW / WAR)
-            std::string Message;
+            FString Resource;
+            FString Producer; // writer (RAW / WAW) or reader (WAR)
+            FString Consumer; // reader (RAW), later writer (WAW / WAR)
+            FString Message;
         };
-        [[nodiscard]] std::vector<Hazard> ValidateResourceHazards();
+        [[nodiscard]] TArray64<Hazard> ValidateResourceHazards();
 
         // Validates the compiled frame after BuildFrameGraph() using the
         // current frame's dynamic RGBuilder declarations and culling state.
         // This is the authoritative per-frame validation path for graph-native
         // nodes whose setup contract can legitimately declare zero accesses
         // when disabled.
-        [[nodiscard]] std::vector<Hazard> ValidateCompiledResourceHazards();
+        [[nodiscard]] TArray64<Hazard> ValidateCompiledResourceHazards();
 
         struct ResourceInfo
         {
-            std::string Name;
+            FString Name;
             RGResourceDesc Desc;
             bool HasExternalBacking = false;
             RGTextureHandle TextureHandle;
             RGBufferHandle BufferHandle;
             RGFramebufferHandle FramebufferHandle;
-            std::vector<std::string> Producers;
-            std::vector<std::string> Consumers;
+            TArray64<FString> Producers;
+            TArray64<FString> Consumers;
         };
 
         void ImportResource(std::string_view name, const RGResourceDesc& desc);
         void ClearImportedResources();
-        [[nodiscard]] const std::vector<ResourceInfo>& GetRegisteredResources() const;
+        [[nodiscard]] std::span<const ResourceInfo> GetRegisteredResources() const;
         [[nodiscard]] const ResourceInfo* FindRegisteredResource(std::string_view name) const;
         // Base-name lookups return the latest explicit version when one exists
         // (for example "SceneColor" -> "SceneColor@PassB"). Exact
@@ -401,8 +351,8 @@ namespace OloEngine
         // canonical registered name. Returns the first matching ResourceInfo
         // name, or an empty string if no registered resource owns this
         // handle. O(N) over registered resources — debug-only.
-        [[nodiscard]] std::string ReverseResolveTextureName(RGTextureHandle handle) const;
-        [[nodiscard]] std::string ReverseResolveFramebufferName(RGFramebufferHandle handle) const;
+        [[nodiscard]] FString ReverseResolveTextureName(RGTextureHandle handle) const;
+        [[nodiscard]] FString ReverseResolveFramebufferName(RGFramebufferHandle handle) const;
 
         // If `name` is a texture view created via CreateFramebufferAttachmentView,
         // returns the parent framebuffer's registered resource name. Empty
@@ -410,7 +360,7 @@ namespace OloEngine
         // RGBuilder to propagate texture-view reads to the parent framebuffer's
         // lifetime so the transient planner doesn't alias a parent framebuffer
         // with a downstream pass that's still reading one of its attachments.
-        [[nodiscard]] std::string FindAttachmentViewParent(std::string_view name) const;
+        [[nodiscard]] FString FindAttachmentViewParent(std::string_view name) const;
 
         // Returns the most recent pass that wrote the named resource during
         // BuildFrameGraph's Setup loop, or an empty string if none. Updated
@@ -418,7 +368,7 @@ namespace OloEngine
         // can call this from its own Setup to discover its predecessor and
         // emit an explicit DependsOnPass edge without the pipeline builder
         // needing to wire pass pointers via class-specific setters.
-        [[nodiscard]] auto GetLastWriterPassName(std::string_view resourceName) const -> const std::string&;
+        [[nodiscard]] auto GetLastWriterPassName(std::string_view resourceName) const -> const FString&;
         [[nodiscard]] bool IsTextureHandleCurrent(RGTextureHandle handle) const;
         [[nodiscard]] bool IsBufferHandleCurrent(RGBufferHandle handle) const;
         [[nodiscard]] bool IsFramebufferHandleCurrent(RGFramebufferHandle handle) const;
@@ -555,7 +505,7 @@ namespace OloEngine
         // For opt-in versioned writes this may be a derived version name
         // rather than the original canonical blackboard/import name.
         // Returns empty when the handle is invalid or stale.
-        // Returns an owning std::string by value (not a string_view into slot
+        // Returns an owning FString by value (not a string_view into slot
         // storage). Callers frequently hold the result across calls that
         // mutate the handle-slot vectors (e.g. AllocateTransient*),
         // which can realloc and invalidate any view into a slot's inline
@@ -563,9 +513,9 @@ namespace OloEngine
         // (TSan/ASan) catch reliably. Returning by value makes the API
         // safe-by-construction; the SSO buffer of the returned string lives
         // in the caller's stack frame and is unaffected by graph mutations.
-        [[nodiscard]] std::string GetResourceName(RGTextureHandle handle) const;
-        [[nodiscard]] std::string GetResourceName(RGFramebufferHandle handle) const;
-        [[nodiscard]] std::string GetResourceName(RGBufferHandle handle) const;
+        [[nodiscard]] FString GetResourceName(RGTextureHandle handle) const;
+        [[nodiscard]] FString GetResourceName(RGFramebufferHandle handle) const;
+        [[nodiscard]] FString GetResourceName(RGBufferHandle handle) const;
 
         // Queue an extraction callback that fires after Execute() completes.
         // The callback receives the resolved texture ID. Useful for persisting
@@ -574,7 +524,7 @@ namespace OloEngine
 
         struct ExternalTextureSinkContract
         {
-            std::string SourceResource;
+            FString SourceResource;
             RGResourceHandle::Kind SourceKind = RGResourceHandle::Kind::Unknown;
             u32 ColorAttachmentIndex = 0;
             bool SourceReachable = false;
@@ -601,9 +551,9 @@ namespace OloEngine
                                          u32 height,
                                          u32 colorAttachmentIndex = 0,
                                          bool* validFlag = nullptr);
-        [[nodiscard]] const std::vector<ExternalTextureSinkContract>& GetExternalTextureSinkContracts() const
+        [[nodiscard]] std::span<const ExternalTextureSinkContract> GetExternalTextureSinkContracts() const
         {
-            return m_ExternalTextureSinkContracts;
+            return { m_ExternalTextureSinkContracts.GetData(), static_cast<sizet>(m_ExternalTextureSinkContracts.Num()) };
         }
 
         // Register a persistent sink texture for a temporal history resource.
@@ -651,8 +601,8 @@ namespace OloEngine
                 Framebuffer,
             };
 
-            std::string HistoryResource; ///< canonical imported-history name (previous-frame input)
-            std::string SourceResource;  ///< current-frame resource extracted for next-frame reuse
+            FString HistoryResource; ///< canonical imported-history name (previous-frame input)
+            FString SourceResource;  ///< current-frame resource extracted for next-frame reuse
             SourceKind Kind = SourceKind::Texture;
             u32 ColorAttachmentIndex = 0;
             bool HistoryImported = false;
@@ -670,9 +620,9 @@ namespace OloEngine
                                    RGFramebufferHandle sourceHandle,
                                    std::function<void(u32)> callback,
                                    u32 colorAttachmentIndex = 0);
-        [[nodiscard]] const std::vector<TemporalHistoryContract>& GetTemporalHistoryContracts() const
+        [[nodiscard]] std::span<const TemporalHistoryContract> GetTemporalHistoryContracts() const
         {
-            return m_TemporalHistoryContracts;
+            return { m_TemporalHistoryContracts.GetData(), static_cast<sizet>(m_TemporalHistoryContracts.Num()) };
         }
 
         // Queue a framebuffer extraction callback.
@@ -802,23 +752,23 @@ namespace OloEngine
 
         struct TransientPlanEntry
         {
-            std::string Resource;
+            FString Resource;
             RGResourceHandle::Kind Kind = RGResourceHandle::Kind::Unknown;
             u32 FirstPassIndex = std::numeric_limits<u32>::max();
             u32 LastPassIndex = 0;
-            std::string FirstPass;
-            std::string LastPass;
-            std::string AliasGroup;
+            FString FirstPass;
+            FString LastPass;
+            FString AliasGroup;
             u32 AliasSlot = std::numeric_limits<u32>::max();
             u64 EstimatedBytes = 0;
             bool Reachable = false;
             bool WillAllocate = false;
-            std::string SkipReason;
+            FString SkipReason;
         };
 
-        [[nodiscard]] const std::vector<TransientPlanEntry>& GetTransientPlan() const
+        [[nodiscard]] std::span<const TransientPlanEntry> GetTransientPlan() const
         {
-            return m_TransientPlan;
+            return { m_TransientPlan.GetData(), static_cast<sizet>(m_TransientPlan.Num()) };
         }
 
         // `versioned name -> source name` for every WriteNewVersion rename in the
@@ -828,7 +778,7 @@ namespace OloEngine
         // is an alias of that one" rather than reporting a mysterious
         // `SkipReason = "version-alias"` with no target. Exposed for
         // `olo_render_transient_plan` (issue #607).
-        [[nodiscard]] const std::unordered_map<std::string, std::string>& GetVersionAliasTargets() const
+        [[nodiscard]] const RGTransparentStringMap<FString>& GetVersionAliasTargets() const
         {
             return m_VersionAliasTargets;
         }
@@ -918,23 +868,23 @@ namespace OloEngine
         struct BuildDiagnostic
         {
             BuildDiagnosticKind Kind = BuildDiagnosticKind::RegistrationOrderSensitivity;
-            std::string Resource;
-            std::string CurrentBeforePass;
-            std::string CurrentAfterPass;
-            std::string AlternateBeforePass;
-            std::string AlternateAfterPass;
-            std::string Message;
+            FString Resource;
+            FString CurrentBeforePass;
+            FString CurrentAfterPass;
+            FString AlternateBeforePass;
+            FString AlternateAfterPass;
+            FString Message;
         };
 
-        [[nodiscard]] const std::vector<BuildDiagnostic>& GetBuildDiagnostics() const
+        [[nodiscard]] std::span<const BuildDiagnostic> GetBuildDiagnostics() const
         {
-            return m_BuildDiagnostics;
+            return { m_BuildDiagnostics.GetData(), static_cast<sizet>(m_BuildDiagnostics.Num()) };
         }
 
         struct PlannedBarrier
         {
-            std::string BeforePass;
-            std::string Resource;
+            FString BeforePass;
+            FString Resource;
             MemoryBarrierFlags Flags = MemoryBarrierFlags::None;
             RGSubresourceRange Range; ///< subresource range from the consuming access declaration
 
@@ -951,13 +901,13 @@ namespace OloEngine
 
         struct ExecutionTiming
         {
-            std::string NodeName;
+            FString NodeName;
             f64 CpuMs = 0.0;
         };
 
-        [[nodiscard]] const std::vector<PlannedBarrier>& GetPlannedBarriers() const
+        [[nodiscard]] std::span<const PlannedBarrier> GetPlannedBarriers() const
         {
-            return m_PlannedBarriers;
+            return { m_PlannedBarriers.GetData(), static_cast<sizet>(m_PlannedBarriers.Num()) };
         }
 
         enum class BarrierDiagnosticKind
@@ -973,25 +923,25 @@ namespace OloEngine
         struct BarrierDiagnostic
         {
             BarrierDiagnosticKind Kind = BarrierDiagnosticKind::MissingProducer;
-            std::string PassName;
-            std::string Resource;
-            std::string Message;
+            FString PassName;
+            FString Resource;
+            FString Message;
         };
 
-        [[nodiscard]] const std::vector<BarrierDiagnostic>& GetBarrierDiagnostics() const
+        [[nodiscard]] std::span<const BarrierDiagnostic> GetBarrierDiagnostics() const
         {
-            return m_BarrierDiagnostics;
+            return { m_BarrierDiagnostics.GetData(), static_cast<sizet>(m_BarrierDiagnostics.Num()) };
         }
 
-        [[nodiscard]] const std::vector<ExecutionTiming>& GetLastExecutionTimings() const
+        [[nodiscard]] std::span<const ExecutionTiming> GetLastExecutionTimings() const
         {
-            return m_LastExecutionTimings;
+            return { m_LastExecutionTimings.GetData(), static_cast<sizet>(m_LastExecutionTimings.Num()) };
         }
 
         struct ResolveFailure
         {
-            std::string PassName;
-            std::string Reason;
+            FString PassName;
+            FString Reason;
             u32 Count = 0;
         };
 
@@ -1000,16 +950,16 @@ namespace OloEngine
         // and similar graph-contract violations).
         void RecordResolveFailure(std::string_view passName, std::string_view reason) const;
 
-        [[nodiscard]] const std::vector<ResolveFailure>& GetResolveFailures() const
+        [[nodiscard]] std::span<const ResolveFailure> GetResolveFailures() const
         {
-            return m_ResolveFailures;
+            return { m_ResolveFailures.GetData(), static_cast<sizet>(m_ResolveFailures.Num()) };
         }
 
         // Get the list of passes that were culled in the last reachability
         // analysis. Useful for debugging and frame-capture metadata.
-        [[nodiscard]] const std::vector<std::string>& GetCulledPasses() const
+        [[nodiscard]] std::span<const FString> GetCulledPasses() const
         {
-            return m_CulledPasses;
+            return { m_CulledPasses.GetData(), static_cast<sizet>(m_CulledPasses.Num()) };
         }
 
         // -------------------------------------------------------------------
@@ -1023,7 +973,7 @@ namespace OloEngine
         // the MCP snapshot must not clobber each other's hook). Listeners fire
         // in registration order; a listener must not add/remove hooks from
         // inside its own callback.
-        using PostPassHook = std::function<void(const std::string& passName, RenderGraph& graph)>;
+        using PostPassHook = std::function<void(std::string_view passName, RenderGraph& graph)>;
         void AddPostPassHook(std::string_view key, PostPassHook hook);
         void RemovePostPassHook(std::string_view key);
         // Legacy single-slot form: equivalent to Add/Remove under a reserved
@@ -1040,7 +990,7 @@ namespace OloEngine
         // track that itself (see RenderGraphFrameCapture::IsHookInstalled).
         [[nodiscard]] bool HasPostPassHook() const
         {
-            return !m_PostPassHooks.empty();
+            return m_PostPassHooks.Num() != 0;
         }
 
         // -------------------------------------------------------------------
@@ -1158,8 +1108,8 @@ namespace OloEngine
         //            drive fence Signal() calls + resource-barrier transitions.
         struct BatchResourceDependency
         {
-            std::string ResourceName; ///< virtual resource name registered in the graph
-            std::string ExternalNode; ///< non-batch node that produces (input) or first consumes (output) this resource
+            FString ResourceName; ///< virtual resource name registered in the graph
+            FString ExternalNode; ///< non-batch node that produces (input) or first consumes (output) this resource
         };
 
         enum class QueueLane : u8
@@ -1171,20 +1121,20 @@ namespace OloEngine
 
         struct AsyncComputeBatch
         {
-            std::vector<std::string> ComputeNodes; ///< batch members, in execution order
-            std::vector<std::string> WaitNodes;    ///< non-batch nodes this batch waits for
-            std::vector<std::string> SignalNodes;  ///< non-batch nodes that wait for this batch
-            QueueLane Lane = QueueLane::Compute;   ///< execution lane assignment for this batch
+            TArray64<FString> ComputeNodes;      ///< batch members, in execution order
+            TArray64<FString> WaitNodes;         ///< non-batch nodes this batch waits for
+            TArray64<FString> SignalNodes;       ///< non-batch nodes that wait for this batch
+            QueueLane Lane = QueueLane::Compute; ///< execution lane assignment for this batch
             // Per-resource cross-boundary dependency info
-            std::vector<BatchResourceDependency> InputResources;  ///< resources entering the batch from outside
-            std::vector<BatchResourceDependency> OutputResources; ///< resources leaving the batch to outside
+            TArray64<BatchResourceDependency> InputResources;  ///< resources entering the batch from outside
+            TArray64<BatchResourceDependency> OutputResources; ///< resources leaving the batch to outside
         };
 
         // Partition the hoisted execution order into async-compute batches.
         // Returns an empty vector when no AsyncComputeCandidate pass exists.
         // Must be called AFTER Execute() (or after a forced topology update)
         // so that HoistComputePasses() has already run.
-        [[nodiscard]] std::vector<AsyncComputeBatch> GetAsyncComputeBatches() const;
+        [[nodiscard]] TArray64<AsyncComputeBatch> GetAsyncComputeBatches() const;
 
         // -------------------------------------------------------------------
         // Explicit resource transition records
@@ -1217,9 +1167,9 @@ namespace OloEngine
         //             derived by the planner exactly as before.
         struct ResourceTransition
         {
-            std::string ResourceName;                            ///< virtual resource in the graph
-            std::string ProducerPass;                            ///< last writer before this transition; "external" when only imported
-            std::string ConsumerPass;                            ///< pass whose access triggers the barrier (barrier inserted before it)
+            FString ResourceName;                                ///< virtual resource in the graph
+            FString ProducerPass;                                ///< last writer before this transition; "external" when only imported
+            FString ConsumerPass;                                ///< pass whose access triggers the barrier (barrier inserted before it)
             RHI::Access FromAccess = RHI::Access::Undefined;     ///< producer's access; Undefined for external/first-use (discardable)
             RHI::Access ToAccess = RHI::Access::Undefined;       ///< consumer's access (read OR write — WAW is representable)
             MemoryBarrierFlags Flags = MemoryBarrierFlags::None; ///< the GL lowering, from PlannedBarrier (ADR 0011 §1.5)
@@ -1281,11 +1231,11 @@ namespace OloEngine
         struct FenceEdge
         {
             u32 Index = 0; ///< stable within one compiled submission plan
-            std::string ProducerPass;
-            std::string ConsumerPass;
+            FString ProducerPass;
+            FString ConsumerPass;
             QueueLane ProducerLane = QueueLane::Graphics;
             QueueLane ConsumerLane = QueueLane::Graphics;
-            std::vector<std::string> Resources; ///< resources sharing this producer -> consumer edge
+            TArray64<FString> Resources; ///< resources sharing this producer -> consumer edge
         };
 
         struct SubmissionCommand
@@ -1301,7 +1251,7 @@ namespace OloEngine
             };
 
             Kind CommandKind = Kind::Pass;
-            std::string NodeName;                                                 ///< non-empty for Pass commands
+            FString NodeName;                                                     ///< non-empty for Pass commands
             RenderGraphNode* NodePointer = nullptr;                               ///< cached node pointer to avoid map lookups
             MemoryBarrierFlags Barriers = MemoryBarrierFlags::None;               ///< for MemoryBarrier commands: the GL lowering
             u32 BatchIndex = 0;                                                   ///< for BatchBegin/BatchEnd: which async batch
@@ -1321,20 +1271,20 @@ namespace OloEngine
             // Name-keyed on purpose: physical handles change per frame under
             // transient pooling, so handle resolution happens at execute
             // time (RGCommandContext), never at plan-bake time.
-            std::vector<ResourceTransition> Transitions; ///< for MemoryBarrier commands
+            TArray64<ResourceTransition> Transitions; ///< for MemoryBarrier commands
 
             // Self-contained batch-boundary metadata so
             // backends can map waits/signals/resource ownership transitions
             // directly from GetSubmissionPlan() without side-channel queries.
-            std::vector<std::string> WaitNodes;                   ///< for BatchBegin commands
-            std::vector<std::string> SignalNodes;                 ///< for BatchEnd commands
-            std::vector<BatchResourceDependency> InputResources;  ///< for BatchBegin commands
-            std::vector<BatchResourceDependency> OutputResources; ///< for BatchEnd commands
+            TArray64<FString> WaitNodes;                       ///< for BatchBegin commands
+            TArray64<FString> SignalNodes;                     ///< for BatchEnd commands
+            TArray64<BatchResourceDependency> InputResources;  ///< for BatchBegin commands
+            TArray64<BatchResourceDependency> OutputResources; ///< for BatchEnd commands
 
             // For FenceWait/FenceSignal: one record per graph dependency edge.
             // The executor instantiates a timeline fence/value pair only when
             // the active backend can split the recording into submissions.
-            std::vector<FenceEdge> FenceEdges;
+            TArray64<FenceEdge> FenceEdges;
         };
 
         // Build the submission-plan IR for the current frame.
@@ -1342,7 +1292,7 @@ namespace OloEngine
         // into a single linearised command stream.
         // Must be called AFTER Execute() so that barrier planning and
         // compute-hoist have already run.
-        [[nodiscard]] std::vector<SubmissionCommand> GetSubmissionPlan() const;
+        [[nodiscard]] TArray64<SubmissionCommand> GetSubmissionPlan() const;
 
         // Derive all resource transition records from the current barrier plan
         // and access declarations. Returns an empty vector when no barriers are
@@ -1350,7 +1300,7 @@ namespace OloEngine
         // Must be called AFTER Execute() or after BuildFrameGraph() +
         // ComputeBarrierPlan() have run so that m_PlannedBarriers and
         // m_PassAccessDeclarations are populated.
-        [[nodiscard]] std::vector<ResourceTransition> GetResourceTransitions() const;
+        [[nodiscard]] TArray64<ResourceTransition> GetResourceTransitions() const;
 
         // ADR 0011 §1.5: resolve name-keyed transition records into
         // the handle-keyed RHI::Barrier form the facade's IssueBarrierBatch
@@ -1366,7 +1316,7 @@ namespace OloEngine
         // aspect mask from the image's own format, which it knows
         // authoritatively; the field is only meaningful for a declared
         // aspect-split transition, which no pass performs today.
-        [[nodiscard]] std::vector<RHI::Barrier> ResolveTransitionsToBarriers(std::span<const ResourceTransition> transitions) const;
+        [[nodiscard]] TArray64<RHI::Barrier> ResolveTransitionsToBarriers(std::span<const ResourceTransition> transitions) const;
 
         // -------------------------------------------------------------------
         // Unified resource lifetime records
@@ -1398,7 +1348,7 @@ namespace OloEngine
         //   extracted) LastReadPassIndex == UINT32_MAX and LastReadPass == "".
         struct ResourceLifetime
         {
-            std::string ResourceName;
+            FString ResourceName;
             bool IsImported = false;                                   ///< entered via ImportTexture/ImportFramebuffer/ImportBuffer
             bool IsExtracted = false;                                  ///< has a pending TextureExtract or FramebufferExtract
             bool IsHistory = false;                                    ///< temporal-history resource (ImportHistory)
@@ -1406,8 +1356,8 @@ namespace OloEngine
             bool HasExternalBacking = false;                           ///< resolves to caller-supplied frame-local backing instead of pool materialization
             u32 FirstWritePassIndex = std::numeric_limits<u32>::max(); ///< index in GetExecutionOrder(); UINT32_MAX when import-only
             u32 LastReadPassIndex = std::numeric_limits<u32>::max();   ///< index in GetExecutionOrder(); UINT32_MAX when write-only
-            std::string FirstWritePass;                                ///< name of the first writing pass; "external" when import-only
-            std::string LastReadPass;                                  ///< name of the last reading pass; "" when no reads declared
+            FString FirstWritePass;                                    ///< name of the first writing pass; "external" when import-only
+            FString LastReadPass;                                      ///< name of the last reading pass; "" when no reads declared
             RGWriteUsage FirstWriteUsage = RGWriteUsage::RenderTarget; ///< usage at first write
             RGReadUsage LastReadUsage = RGReadUsage::ShaderSample;     ///< usage at last read
         };
@@ -1415,7 +1365,7 @@ namespace OloEngine
         // Returns one ResourceLifetime per registered resource, ordered to
         // match GetRegisteredResources().  Available after Execute() or after
         // UpdateDependencyGraph() + ComputeBarrierPlan() have run.
-        [[nodiscard]] std::vector<ResourceLifetime> GetResourceLifetimes() const;
+        [[nodiscard]] TArray64<ResourceLifetime> GetResourceLifetimes() const;
 
       private:
         // -------------------------------------------------------------------
@@ -1428,14 +1378,14 @@ namespace OloEngine
         void ComputeReachability();
         void ComputeBarrierPlan();
         void LogSubmissionPlanIfChanged();
-        [[nodiscard]] std::vector<SubmissionCommand> BuildSubmissionPlan(bool sequential) const;
+        [[nodiscard]] TArray64<SubmissionCommand> BuildSubmissionPlan(bool sequential) const;
         [[nodiscard]] static MemoryBarrierFlags ResolveProducerBarrierFlags(RGWriteUsage usage);
         [[nodiscard]] static MemoryBarrierFlags ResolveConsumerBarrierFlags(RGReadUsage usage);
 
         // Check if a pass is marked as reachable (not culled) after the last
         // ComputeReachability() call. Reachability is recalculated in
         // BuildFrameGraph() and Execute().
-        [[nodiscard]] bool IsPassReachable(const std::string& passName) const;
+        [[nodiscard]] bool IsPassReachable(std::string_view passName) const;
         [[nodiscard]] bool IsHistoryTextureResource(std::string_view resourceName) const;
         [[nodiscard]] bool IsImportedResource(std::string_view resourceName) const;
         [[nodiscard]] bool IsTransientResource(std::string_view resourceName) const;
@@ -1450,7 +1400,7 @@ namespace OloEngine
         [[nodiscard]] bool IsGraphEntryAsyncComputeCandidate(std::string_view name) const;
         [[nodiscard]] bool IsGraphEntrySideEffecting(std::string_view name) const;
         [[nodiscard]] RenderGraphPassWorkType GetGraphEntryWorkType(std::string_view name) const;
-        [[nodiscard]] std::vector<Hazard> ValidateResourceHazardsInternal();
+        [[nodiscard]] TArray64<Hazard> ValidateResourceHazardsInternal();
 
         // String interners — see `RGStringInterner` for rationale.
         // `m_ResourceNames` covers texture / framebuffer / buffer / view
@@ -1459,13 +1409,13 @@ namespace OloEngine
         mutable RGStringInterner m_ResourceNames;
         mutable RGStringInterner m_PassNames;
 
-        std::unordered_map<std::string, Ref<RenderGraphNode>> m_NodeLookup;
-        std::unordered_map<std::string, std::vector<std::string>> m_Dependencies;         // Execution ordering
-        std::unordered_map<std::string, std::vector<std::string>> m_ExplicitDependencies; // Persistent ordering edges
+        RGTransparentStringMap<Ref<RenderGraphNode>> m_NodeLookup;
+        RGTransparentStringMap<TArray64<FString>> m_Dependencies;         // Execution ordering
+        RGTransparentStringMap<TArray64<FString>> m_ExplicitDependencies; // Persistent ordering edges
 
-        std::vector<std::string> m_InsertionOrder; // Graph entry names in registration order (stable topo tie-break)
-        std::vector<std::string> m_ExecutionOrder;
-        std::string m_FinalPassName;
+        TArray64<FString> m_InsertionOrder; // Graph entry names in registration order (stable topo tie-break)
+        TArray64<FString> m_ExecutionOrder;
+        FString m_FinalPassName;
         bool m_HasExplicitFinalPass = false;
         bool m_DependencyGraphDirty = false;
 
@@ -1485,46 +1435,46 @@ namespace OloEngine
         f32 m_RenderScale = 1.0f;
 
         // Reachability tracking
-        std::unordered_set<std::string> m_ReachablePasses; // Passes that are reachable from final output
-        std::vector<std::string> m_CulledPasses;           // Passes that were culled in last analysis
+        RGTransparentStringSet m_ReachablePasses; // Passes that are reachable from final output
+        TArray64<FString> m_CulledPasses;         // Passes that were culled in last analysis
 
         // Barrier planning/execution
-        std::unordered_map<std::string, std::vector<RGAccessDeclaration>> m_PassAccessDeclarations;
-        std::unordered_map<std::string, std::vector<RGFeedbackDeclaration>> m_PassFeedbackDeclarations;
+        RGTransparentStringMap<TArray64<RGAccessDeclaration>> m_PassAccessDeclarations;
+        RGTransparentStringMap<TArray64<RGFeedbackDeclaration>> m_PassFeedbackDeclarations;
         // Parent framebuffers whose transient lifetime a pass extends via an
         // attachment-view write (RGBuilder::GetDeclaredLifetimeExtensions).
         // Consumed only by RenderGraphTransientPlanner — deliberately kept
         // out of m_PassAccessDeclarations; see the comment in RGBuilder::Write.
-        std::unordered_map<std::string, std::vector<std::string>> m_PassLifetimeExtensions;
-        std::unordered_map<std::string, MemoryBarrierFlags> m_PassBarrierFlags;
-        std::vector<PlannedBarrier> m_PlannedBarriers;
-        std::vector<BuildDiagnostic> m_BuildDiagnostics;
-        std::vector<BarrierDiagnostic> m_BarrierDiagnostics;
-        std::vector<ExecutionTiming> m_LastExecutionTimings;
-        mutable std::vector<ResolveFailure> m_ResolveFailures;
+        RGTransparentStringMap<TArray64<FString>> m_PassLifetimeExtensions;
+        RGTransparentStringMap<MemoryBarrierFlags> m_PassBarrierFlags;
+        TArray64<PlannedBarrier> m_PlannedBarriers;
+        TArray64<BuildDiagnostic> m_BuildDiagnostics;
+        TArray64<BarrierDiagnostic> m_BarrierDiagnostics;
+        TArray64<ExecutionTiming> m_LastExecutionTimings;
+        mutable TArray64<ResolveFailure> m_ResolveFailures;
         bool m_RuntimeBarrierExecutionEnabled = true;
         bool m_RuntimeTransientMaterializationEnabled = false;
         u32 m_TransientPoolMaxBucketSize = 2u;
 
         // Keyed post-pass listeners, fired in registration order (see
         // AddPostPassHook). A small vector — at most a couple of debug tools.
-        std::vector<std::pair<std::string, PostPassHook>> m_PostPassHooks;
+        TDoubleLinkedList<std::pair<FString, PostPassHook>> m_PostPassHooks;
         BatchEventCallback m_BatchEventHook;
 
         // Execution-ready cache — rebuilt when m_DependencyGraphDirty is set.
         // The compiled submission plan is the only execution IR used by Execute().
-        std::vector<SubmissionCommand> m_CachedSubmissionPlan; ///< IR cached after barrier planning
-        bool m_CachedSubmissionPlanSequential = false;         ///< cache key for OLO_RENDERGRAPH_SEQUENTIAL
-        std::string m_LastLoggedSubmissionPlanDigest;
-        std::string m_LastLoggedCulledPassDigest;
-        std::string m_LastLoggedBuildDiagnosticDigest;
+        TArray64<SubmissionCommand> m_CachedSubmissionPlan; ///< IR cached after barrier planning
+        bool m_CachedSubmissionPlanSequential = false;      ///< cache key for OLO_RENDERGRAPH_SEQUENTIAL
+        FString m_LastLoggedSubmissionPlanDigest;
+        FString m_LastLoggedCulledPassDigest;
+        FString m_LastLoggedBuildDiagnosticDigest;
 
-        std::unordered_map<std::string, RGResourceDesc> m_ImportedResources;
+        RGTransparentStringMap<RGResourceDesc> m_ImportedResources;
 
         mutable bool m_ResourceRegistryDirty = true;
-        mutable std::unordered_map<std::string, ResourceInfo> m_ResourceRegistry;
-        mutable std::vector<ResourceInfo> m_RegisteredResources;
-        mutable std::vector<Hazard> m_ResourceRegistryDiagnostics;
+        mutable RGTransparentStringMap<ResourceInfo> m_ResourceRegistry;
+        mutable TArray64<ResourceInfo> m_RegisteredResources;
+        mutable TArray64<Hazard> m_ResourceRegistryDiagnostics;
         // Transparent string maps so `find(string_view)` is allocation-free.
         // Keys stay as `std::string` (callers still create the entries via
         // `string`, and the templated `RenderGraphHandleAllocator` operates
@@ -1544,7 +1494,7 @@ namespace OloEngine
         // hit the resource interner; lookups are O(1) u32 compares.
         std::unordered_map<u32, u32> m_TextureBaseNameAliases;
         std::unordered_map<u32, u32> m_FramebufferBaseNameAliases;
-        mutable std::unordered_map<std::string, RGResourceDesc> m_TextureViewResourceDescs;
+        mutable RGTransparentStringMap<RGResourceDesc> m_TextureViewResourceDescs;
 
         enum class FramebufferAttachmentViewKind : u8
         {
@@ -1564,29 +1514,30 @@ namespace OloEngine
 
         struct TextureViewDefinition
         {
-            std::string ParentResource;
-            std::string BackingResource;
+            FString ParentResource;
+            FString BackingResource;
             TextureViewKind Kind = TextureViewKind::FramebufferColorAttachment;
             u32 AttachmentIndex = 0;
             RGSubresourceRange ParentRange = RGSubresourceRange::Full();
         };
-        mutable std::unordered_map<std::string, TextureViewDefinition> m_TextureViewDefinitions;
+        mutable RGTransparentStringMap<TextureViewDefinition> m_TextureViewDefinitions;
 
         struct HandleSlot
         {
             u32 Generation = 1;
             bool Alive = false;
-            std::string Name;
+            FString Name;
             bool IsPlaceholder = false;
             mutable bool PlaceholderWarnedThisFrame = false;
-            std::string PlaceholderReason;
+            FString PlaceholderReason;
         };
-        mutable std::vector<HandleSlot> m_TextureHandleSlots;
-        mutable std::vector<HandleSlot> m_BufferHandleSlots;
-        mutable std::vector<HandleSlot> m_FramebufferHandleSlots;
-        mutable std::vector<u32> m_FreeTextureHandleIndices;
-        mutable std::vector<u32> m_FreeBufferHandleIndices;
-        mutable std::vector<u32> m_FreeFramebufferHandleIndices;
+        friend struct TIsTriviallyRelocatable<HandleSlot>;
+        mutable TArray64<HandleSlot> m_TextureHandleSlots;
+        mutable TArray64<HandleSlot> m_BufferHandleSlots;
+        mutable TArray64<HandleSlot> m_FramebufferHandleSlots;
+        mutable TArray64<u32> m_FreeTextureHandleIndices;
+        mutable TArray64<u32> m_FreeBufferHandleIndices;
+        mutable TArray64<u32> m_FreeFramebufferHandleIndices;
 
         // -------------------------------------------------------------------
         // Physical resource storage (parallel to handle slots)
@@ -1638,6 +1589,7 @@ namespace OloEngine
         {
             Ref<Framebuffer> FB;
         };
+        friend struct TIsTriviallyRelocatable<PhysicalFramebuffer>;
         struct PhysicalBuffer
         {
             u32 BufferID = 0;
@@ -1652,9 +1604,9 @@ namespace OloEngine
 
         // Parallel arrays — index by handle.Index (same slot system as HandleSlots).
         // Grown alongside m_TextureHandleSlots / m_FramebufferHandleSlots / m_BufferHandleSlots.
-        mutable std::vector<PhysicalTexture> m_PhysicalTextures;
-        mutable std::vector<PhysicalFramebuffer> m_PhysicalFramebuffers;
-        mutable std::vector<PhysicalBuffer> m_PhysicalBuffers;
+        mutable TArray64<PhysicalTexture> m_PhysicalTextures;
+        mutable TArray64<PhysicalFramebuffer> m_PhysicalFramebuffers;
+        mutable TArray64<PhysicalBuffer> m_PhysicalBuffers;
 
         // -------------------------------------------------------------------
         // Extraction queue
@@ -1666,7 +1618,7 @@ namespace OloEngine
         };
         struct ExternalTextureSinkKey
         {
-            std::string SourceResource;
+            FString SourceResource;
             u32 ColorAttachmentIndex = 0;
 
             auto operator==(const ExternalTextureSinkKey&) const -> bool = default;
@@ -1675,7 +1627,7 @@ namespace OloEngine
         {
             [[nodiscard]] auto operator()(const ExternalTextureSinkKey& key) const noexcept -> sizet
             {
-                sizet seed = std::hash<std::string>{}(key.SourceResource);
+                sizet seed = std::hash<FString>{}(key.SourceResource);
                 seed ^= static_cast<sizet>(key.ColorAttachmentIndex) + 0x9e3779b9u + (seed << 6u) + (seed >> 2u);
                 return seed;
             }
@@ -1695,7 +1647,7 @@ namespace OloEngine
                 Framebuffer,
             };
 
-            std::string HistoryResource;
+            FString HistoryResource;
             SourceKind Kind = SourceKind::Texture;
             RGTextureHandle SourceTextureHandle;
             RGFramebufferHandle SourceFramebufferHandle;
@@ -1715,13 +1667,13 @@ namespace OloEngine
             RGFramebufferHandle Handle;
             std::function<void(Ref<Framebuffer>)> Callback;
         };
-        std::vector<TextureExtract> m_TextureExtracts;
-        std::vector<ExternalTextureSinkContract> m_ExternalTextureSinkContracts;
-        std::vector<HistoryTextureExtract> m_HistoryTextureExtracts;
-        std::vector<FramebufferExtract> m_FramebufferExtracts;
-        std::vector<TemporalHistoryContract> m_TemporalHistoryContracts;
+        TDoubleLinkedList<TextureExtract> m_TextureExtracts;
+        TArray64<ExternalTextureSinkContract> m_ExternalTextureSinkContracts;
+        TDoubleLinkedList<HistoryTextureExtract> m_HistoryTextureExtracts;
+        TDoubleLinkedList<FramebufferExtract> m_FramebufferExtracts;
+        TArray64<TemporalHistoryContract> m_TemporalHistoryContracts;
         std::unordered_map<ExternalTextureSinkKey, ExternalTextureSink, ExternalTextureSinkKeyHash> m_ExternalTextureSinks;
-        std::unordered_map<std::string, HistoryTextureSink> m_HistoryTextureSinks;
+        RGTransparentStringMap<HistoryTextureSink> m_HistoryTextureSinks;
         TemporalHistoryRegistry m_TemporalHistoryRegistry;
         // Interned resource-name IDs (via m_ResourceNames) of transient
         // resources that were imported with explicit external backing. Set
@@ -1778,7 +1730,7 @@ namespace OloEngine
         void RebuildTransientPlan();
         void MaterializeTransientResources();
 
-        [[nodiscard]] static std::string BuildTransientAliasGroup(const RGResourceDesc& desc);
+        [[nodiscard]] static FString BuildTransientAliasGroup(const RGResourceDesc& desc);
         [[nodiscard]] static u64 EstimateTransientBytes(const RGResourceDesc& desc);
         [[nodiscard]] static bool IsTransientDescriptorAllocatable(const RGResourceDesc& desc);
         [[nodiscard]] static std::string_view GetTransientDescriptorSkipReason(const RGResourceDesc& desc);
@@ -1801,9 +1753,9 @@ namespace OloEngine
         void RefreshTemporalHistoryContracts();
         [[nodiscard]] bool HasHistoryTextureSink(std::string_view historyResource) const;
 
-        std::unordered_map<std::string, RGResourceDesc> m_TransientResourceDescs;
-        std::vector<TransientPlanEntry> m_TransientPlan;
-        RGTransparentStringMap<std::string> m_ExplicitVersionProducers;
+        RGTransparentStringMap<RGResourceDesc> m_TransientResourceDescs;
+        TArray64<TransientPlanEntry> m_TransientPlan;
+        RGTransparentStringMap<FString> m_ExplicitVersionProducers;
 
         // WriteNewVersion bookkeeping: versioned resource name → the source
         // resource it renames ("SceneColor@GPUDrivenOcclusionPass" →
@@ -1819,7 +1771,7 @@ namespace OloEngine
         // happened to receive — invisible in steady state (LIFO reuse handed
         // it last frame's real texture) but one frame of garbage squares on
         // every transient-plan rebuild (issue: black squares over water).
-        std::unordered_map<std::string, std::string> m_VersionAliasTargets;
+        RGTransparentStringMap<FString> m_VersionAliasTargets;
 
         // Tracks the most recent pass that wrote each resource (by base name).
         // Populated incrementally during BuildFrameGraph's Setup loop so a
@@ -1827,6 +1779,247 @@ namespace OloEngine
         // explicit DependsOnPass edge for read-modify-write chains without
         // every modifier needing a typed pass-pointer setter wired by the
         // pipeline builder. Cleared at the start of every BuildFrameGraph.
-        RGTransparentStringMap<std::string> m_LastWriterPassNameByResource;
+        RGTransparentStringMap<FString> m_LastWriterPassNameByResource;
+    };
+    // The framebuffer record owns only an audited Ref, with no self-relative state.
+    template<>
+    struct TIsTriviallyRelocatable<RenderGraph::PhysicalFramebuffer>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(RenderGraph::PhysicalFramebuffer::FB)>;
+    };
+    // Heap-owned strings and scalar generation/validity state have no address-relative members.
+    template<>
+    struct TIsTriviallyRelocatable<RenderGraph::HandleSlot>
+    {
+        using Slot = RenderGraph::HandleSlot;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Slot::Generation)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Slot::Alive)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Slot::Name)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Slot::IsPlaceholder)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Slot::PlaceholderWarnedThisFrame)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Slot::PlaceholderReason)>;
+    };
+    // Owned strings/arrays and scalar handles contain no pointers into the record.
+    template<>
+    struct TIsTriviallyRelocatable<RenderGraph::Hazard>
+    {
+        using Record = RenderGraph::Hazard;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::Kind)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Resource)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Producer)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Consumer)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Message)>;
+    };
+    // Owned strings/arrays and scalar handles contain no pointers into the record.
+    template<>
+    struct TIsTriviallyRelocatable<RenderGraph::ResourceInfo>
+    {
+        using Record = RenderGraph::ResourceInfo;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::Name)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Desc)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::HasExternalBacking)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::TextureHandle)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::BufferHandle)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::FramebufferHandle)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Producers)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Consumers)>;
+    };
+    // Heap-owned strings and value fields are independent of this record address.
+    template<>
+    struct TIsTriviallyRelocatable<RenderGraph::BuildDiagnostic>
+    {
+        using Record = RenderGraph::BuildDiagnostic;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::Kind)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Resource)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::CurrentBeforePass)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::CurrentAfterPass)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::AlternateBeforePass)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::AlternateAfterPass)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Message)>;
+    };
+    // Heap-owned strings and value fields are independent of this record address.
+    template<>
+    struct TIsTriviallyRelocatable<RenderGraph::PlannedBarrier>
+    {
+        using Record = RenderGraph::PlannedBarrier;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::BeforePass)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Resource)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Flags)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Range)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::ToAccess)>;
+    };
+    // Heap-owned strings and value fields are independent of this record address.
+    template<>
+    struct TIsTriviallyRelocatable<RenderGraph::BarrierDiagnostic>
+    {
+        using Record = RenderGraph::BarrierDiagnostic;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::Kind)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::PassName)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Resource)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Message)>;
+    };
+    // Heap-owned strings and value fields are independent of this record address.
+    template<>
+    struct TIsTriviallyRelocatable<RenderGraph::ExecutionTiming>
+    {
+        using Record = RenderGraph::ExecutionTiming;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::NodeName)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::CpuMs)>;
+    };
+    // Heap-owned strings and value fields are independent of this record address.
+    template<>
+    struct TIsTriviallyRelocatable<RenderGraph::ResolveFailure>
+    {
+        using Record = RenderGraph::ResolveFailure;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::PassName)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Reason)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Count)>;
+    };
+    // Owned heap containers, scalar metadata, and borrowed external pointers relocate together.
+    template<>
+    struct TIsTriviallyRelocatable<RenderGraph::ConnectionInfo>
+    {
+        using Record = RenderGraph::ConnectionInfo;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::OutputPass)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::InputPass)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::AttachmentIndex)>;
+    };
+    // Owned heap containers, scalar metadata, and borrowed external pointers relocate together.
+    template<>
+    struct TIsTriviallyRelocatable<RenderGraph::NodeSubmissionInfo>
+    {
+        using Record = RenderGraph::NodeSubmissionInfo;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::NodeName)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::DeclaresResources)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::WorkType)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::AsyncComputeCandidate)>;
+    };
+    // Owned heap containers, scalar metadata, and borrowed external pointers relocate together.
+    template<>
+    struct TIsTriviallyRelocatable<RenderGraph::ExternalTextureSinkContract>
+    {
+        using Record = RenderGraph::ExternalTextureSinkContract;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::SourceResource)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::SourceKind)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::ColorAttachmentIndex)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::SourceReachable)>;
+    };
+    // Owned heap containers, scalar metadata, and borrowed external pointers relocate together.
+    template<>
+    struct TIsTriviallyRelocatable<RenderGraph::TemporalHistoryContract>
+    {
+        using Record = RenderGraph::TemporalHistoryContract;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::HistoryResource)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::SourceResource)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Kind)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::ColorAttachmentIndex)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::HistoryImported)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::SourceReachable)>;
+    };
+    // Owned heap containers, scalar metadata, and borrowed external pointers relocate together.
+    template<>
+    struct TIsTriviallyRelocatable<RenderGraph::TransientPlanEntry>
+    {
+        using Record = RenderGraph::TransientPlanEntry;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::Resource)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Kind)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::FirstPassIndex)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::LastPassIndex)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::FirstPass)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::LastPass)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::AliasGroup)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::AliasSlot)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::EstimatedBytes)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Reachable)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::WillAllocate)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::SkipReason)>;
+    };
+    // Owned heap containers, scalar metadata, and borrowed external pointers relocate together.
+    template<>
+    struct TIsTriviallyRelocatable<RenderGraph::BatchResourceDependency>
+    {
+        using Record = RenderGraph::BatchResourceDependency;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::ResourceName)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::ExternalNode)>;
+    };
+    // Owned heap containers, scalar metadata, and borrowed external pointers relocate together.
+    template<>
+    struct TIsTriviallyRelocatable<RenderGraph::AsyncComputeBatch>
+    {
+        using Record = RenderGraph::AsyncComputeBatch;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::ComputeNodes)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::WaitNodes)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::SignalNodes)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Lane)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::InputResources)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::OutputResources)>;
+    };
+    // Owned heap containers, scalar metadata, and borrowed external pointers relocate together.
+    template<>
+    struct TIsTriviallyRelocatable<RenderGraph::ResourceTransition>
+    {
+        using Record = RenderGraph::ResourceTransition;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::ResourceName)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::ProducerPass)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::ConsumerPass)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::FromAccess)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::ToAccess)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Flags)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Range)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::ReadWhileAttached)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::IsCrossLane)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::ProducerLane)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::ConsumerLane)>;
+    };
+    // Owned heap containers, scalar metadata, and borrowed external pointers relocate together.
+    template<>
+    struct TIsTriviallyRelocatable<RenderGraph::FenceEdge>
+    {
+        using Record = RenderGraph::FenceEdge;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::Index)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::ProducerPass)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::ConsumerPass)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::ProducerLane)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::ConsumerLane)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Resources)>;
+    };
+    // Owned heap containers, scalar metadata, and borrowed external pointers relocate together.
+    template<>
+    struct TIsTriviallyRelocatable<RenderGraph::SubmissionCommand>
+    {
+        using Record = RenderGraph::SubmissionCommand;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::CommandKind)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::NodeName)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::NodePointer)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Barriers)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::BatchIndex)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::WorkType)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Lane)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::RecordingGroup)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::RecordingLane)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Transitions)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::WaitNodes)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::SignalNodes)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::InputResources)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::OutputResources)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::FenceEdges)>;
+    };
+    // Owned heap containers, scalar metadata, and borrowed external pointers relocate together.
+    template<>
+    struct TIsTriviallyRelocatable<RenderGraph::ResourceLifetime>
+    {
+        using Record = RenderGraph::ResourceLifetime;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::ResourceName)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::IsImported)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::IsExtracted)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::IsHistory)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::IsTransient)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::HasExternalBacking)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::FirstWritePassIndex)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::LastReadPassIndex)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::FirstWritePass)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::LastReadPass)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::FirstWriteUsage)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::LastReadUsage)>;
     };
 } // namespace OloEngine

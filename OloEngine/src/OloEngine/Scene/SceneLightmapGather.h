@@ -7,7 +7,7 @@
 #include <entt/entt.hpp>
 #include <glm/glm.hpp>
 
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -45,6 +45,14 @@ namespace OloEngine
         LightmapReceiverKind Kind = LightmapReceiverKind::Mesh;
     };
 
+    // The reference owns an external mesh; all other fields are values or borrowed
+    // pointers. Relocation never changes an address observed by those objects.
+    template<>
+    struct TIsTriviallyRelocatable<LightmapReceiver>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<Ref<MeshSource>>::Value;
+    };
+
     // Every lightmap-static receiver in the scene, in a DETERMINISTIC order:
     // UUID ascending, then SubKey ascending.
     //
@@ -61,7 +69,7 @@ namespace OloEngine
     // each caller, so "gathered" already means "bakeable as far as the ECS can
     // tell". The baker still rejects a singular world transform or a failed
     // unwrap of its own.
-    [[nodiscard]] std::vector<LightmapReceiver> GatherLightmapReceivers(Scene& scene);
+    [[nodiscard]] TArray<LightmapReceiver> GatherLightmapReceivers(Scene& scene);
 
     // The sub-key the gather assigned to `model.GetMeshes()[meshIndex]` — the
     // index of the FIRST mesh sharing that mesh's MeshSource. The draw path

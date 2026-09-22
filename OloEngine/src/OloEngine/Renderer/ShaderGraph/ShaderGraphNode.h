@@ -17,17 +17,17 @@ namespace OloEngine
     struct ShaderGraphNode
     {
         UUID ID;
-        std::string TypeName;
+        FString TypeName;
         ShaderGraphNodeCategory Category = ShaderGraphNodeCategory::Math;
         glm::vec2 EditorPosition = glm::vec2(0.0f);
-        std::vector<ShaderGraphPin> Inputs;
-        std::vector<ShaderGraphPin> Outputs;
+        TArray<ShaderGraphPin> Inputs;
+        TArray<ShaderGraphPin> Outputs;
 
         /// Name of a user-defined parameter (only used by parameter nodes)
-        std::string ParameterName;
+        FString ParameterName;
 
         /// User-defined GLSL expression (only used by CustomFunction nodes)
-        std::string CustomFunctionBody;
+        FString CustomFunctionBody;
 
         /// Workgroup size (only used by ComputeOutput nodes)
         glm::ivec3 WorkgroupSize = glm::ivec3(16, 16, 1);
@@ -42,8 +42,8 @@ namespace OloEngine
         const ShaderGraphPin* FindPin(UUID pinID) const;
 
         /// Find a pin by name and direction
-        ShaderGraphPin* FindPinByName(const std::string& name, ShaderGraphPinDirection direction);
-        const ShaderGraphPin* FindPinByName(const std::string& name, ShaderGraphPinDirection direction) const;
+        ShaderGraphPin* FindPinByName(const FString& name, ShaderGraphPinDirection direction);
+        const ShaderGraphPin* FindPinByName(const FString& name, ShaderGraphPinDirection direction) const;
     };
 
     // ─────────────────────────────────────────────────────────────
@@ -52,13 +52,13 @@ namespace OloEngine
 
     /// Creates a fully initialized node of the given type name.
     /// Returns nullptr if the type name is unknown.
-    Scope<ShaderGraphNode> CreateShaderGraphNode(const std::string& typeName);
+    Scope<ShaderGraphNode> CreateShaderGraphNode(const FString& typeName);
 
     /// Returns all registered node type names
-    std::vector<std::string> GetAllNodeTypeNames();
+    TArray<FString> GetAllNodeTypeNames();
 
     /// Returns node type names filtered by category
-    std::vector<std::string> GetNodeTypeNamesByCategory(ShaderGraphNodeCategory category);
+    TArray<FString> GetNodeTypeNamesByCategory(ShaderGraphNodeCategory category);
 
     // ─────────────────────────────────────────────────────────────
     //  Concrete Node Type Names (constants)

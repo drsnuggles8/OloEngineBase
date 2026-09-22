@@ -651,7 +651,7 @@ namespace OloEngine
             auto loaded = SceneTransition::LoadSceneFile(path, /*requirePrimaryCamera=*/true, saveSlot);
             if (!loaded)
             {
-                OLO_CORE_ERROR("[Runtime] {}", loaded.Error);
+                OLO_CORE_ERROR("[Runtime] {}", loaded.Error.ToView());
                 return false;
             }
 

@@ -28,6 +28,9 @@
 #include "TestTempDir.h"
 
 #include "OloEngine/Renderer/Benchmark/BenchmarkManifest.h"
+#include "OloEngine/Renderer/Benchmark/BenchmarkCapture.h"
+
+#include <nlohmann/json.hpp>
 
 #include <filesystem>
 #include <fstream>
@@ -205,27 +208,27 @@ TEST(ReferenceFixtureManifest, EveryFixtureDeclaresFourSequences)
         std::string error;
         const auto parsed = LoadBenchmarkManifest(file, error);
         ASSERT_TRUE(parsed.has_value()) << error;
-        if (std::ranges::find(kFixtureIds, parsed->Id) == kFixtureIds.end())
+        if (std::ranges::find(kFixtureIds, parsed->Id.ToStdString()) == kFixtureIds.end())
         {
             continue;
         }
-        found.push_back(parsed->Id);
+        found.push_back(parsed->Id.ToStdString());
 
         for (const char* required : { "frontal", "grazing", "backlit", "moving" })
         {
             const auto camera = std::ranges::find_if(parsed->Cameras, [required](const ManifestCamera& c)
                                                      { return c.Id == required; });
             ASSERT_NE(camera, parsed->Cameras.end())
-                << parsed->Id << " is missing the '" << required << "' sequence";
+                << parsed->Id.ToView() << " is missing the '" << required << "' sequence";
             if (std::string_view(required) == "moving")
             {
                 EXPECT_TRUE(camera->Motion.has_value())
-                    << parsed->Id << "'s moving camera has no Motion block — it would capture a still frame";
+                    << parsed->Id.ToView() << "'s moving camera has no Motion block — it would capture a still frame";
             }
             else
             {
                 EXPECT_FALSE(camera->Motion.has_value())
-                    << parsed->Id << "'s '" << required << "' camera should be a still shot";
+                    << parsed->Id.ToView() << "'s '" << required << "' camera should be a still shot";
             }
         }
     }
@@ -245,20 +248,20 @@ TEST(ReferenceFixtureManifest, EveryFixtureAssetCarriesFullProvenance)
         {
             continue;
         }
-        EXPECT_FALSE(parsed->Assets.empty()) << parsed->Id << " declares no assets";
+        EXPECT_FALSE(parsed->Assets.IsEmpty()) << parsed->Id.ToView() << " declares no assets";
         for (const auto& asset : parsed->Assets)
         {
-            SCOPED_TRACE(parsed->Id + " / " + asset.Path);
+            SCOPED_TRACE(parsed->Id.ToStdString() + " / " + asset.Path.ToStdString());
             EXPECT_TRUE(asset.Redistribution.has_value());
             EXPECT_TRUE(asset.LicenseVerified.has_value());
             EXPECT_TRUE(asset.Units.has_value());
             EXPECT_TRUE(asset.UpAxis.has_value());
             EXPECT_TRUE(asset.ColorSpace.has_value());
-            EXPECT_FALSE(asset.Origin.empty());
-            EXPECT_FALSE(asset.License.empty());
-            EXPECT_FALSE(asset.Version.empty());
-            EXPECT_FALSE(asset.Acquisition.empty());
-            EXPECT_EQ(asset.Sha256.size(), 64u);
+            EXPECT_FALSE(asset.Origin.IsEmpty());
+            EXPECT_FALSE(asset.License.IsEmpty());
+            EXPECT_FALSE(asset.Version.IsEmpty());
+            EXPECT_FALSE(asset.Acquisition.IsEmpty());
+            EXPECT_EQ(asset.Sha256.Len(), 64u);
         }
     }
 }
@@ -396,7 +399,7 @@ TEST(ReferenceFixtureManifest, V1ManifestRejectsProvenanceRequirement)
     const auto parsed = LoadBenchmarkManifest(WriteManifest("plain-v1", text), error);
     ASSERT_TRUE(parsed.has_value()) << error;
     EXPECT_EQ(parsed->ManifestVersion, 1u);
-    ASSERT_EQ(parsed->Assets.size(), 1u);
+    ASSERT_EQ(parsed->Assets.Num(), 1u);
     EXPECT_FALSE(parsed->Assets[0].Redistribution.has_value());
 }
 
@@ -481,7 +484,7 @@ TEST(ReferenceFixtureManifest, FixtureMotionStaysBounded)
             const f32 travelled = glm::length(end.Position - start.Position);
             const f32 turned = std::abs(end.YawDegrees - start.YawDegrees) +
                                std::abs(end.PitchDegrees - start.PitchDegrees);
-            SCOPED_TRACE(parsed->Id + " / " + camera.Id);
+            SCOPED_TRACE(parsed->Id.ToStdString() + " / " + camera.Id.ToStdString());
             // A shot that neither moves nor turns is a still frame with extra
             // ceremony; one that travels further than the scenes are wide has
             // left the fixture behind. Both are authoring mistakes.
@@ -496,4 +499,87 @@ TEST(ReferenceFixtureManifest, FixtureMotionStaysBounded)
             EXPECT_LT(travelled, 96.0f) << "moving camera leaves the fixture's terrain tile";
         }
     }
+}
+
+TEST(ReferenceFixtureManifest, NativeOwnedCaptureRecordsSurviveGrowthAndCopy)
+{
+    TArray<ManifestCamera> cameras;
+    TArray<ManifestAssetRecord> assets;
+    TArray<CameraCaptureSet> sets;
+    for (i32 i = 0; i < 130; ++i)
+    {
+        const FString id("camera-" + std::to_string(i));
+        ManifestCamera camera;
+        camera.Id = id;
+        camera.WarmupFrames = static_cast<u32>(i + 1);
+        camera.Motion = ManifestCameraMotion{ glm::vec3(1.0f, 0.0f, 0.0f), 2.0f, 3.0f };
+        cameras.Add(std::move(camera));
+        ManifestAssetRecord asset;
+        asset.Path = id + ".glb";
+        asset.License = "CC0";
+        asset.Redistribution = AssetRedistribution::Committed;
+        assets.Add(std::move(asset));
+        CapturedAttachment attachment;
+        attachment.Spec.Name = "beauty";
+        attachment.FileBytes = { 1, 2, static_cast<u8>(i) };
+        CameraCaptureSet set;
+        set.CameraId = id;
+        set.Attachments.Add(std::move(attachment));
+        sets.Add(std::move(set));
+    }
+    auto cameraCopy = cameras;
+    auto assetCopy = assets;
+    auto setCopy = sets;
+    cameras.Reset();
+    assets.Reset();
+    sets.Reset();
+    auto movedSets = std::move(setCopy);
+    for (i32 i = 0; i < movedSets.Num(); ++i)
+    {
+        EXPECT_EQ(cameraCopy[i].Id, movedSets[i].CameraId);
+        ASSERT_TRUE(cameraCopy[i].Motion.has_value());
+        EXPECT_EQ(cameraCopy[i].Motion->YawRateDegreesPerSecond, 2.0f);
+        EXPECT_EQ(assetCopy[i].Path, movedSets[i].CameraId + ".glb");
+        EXPECT_EQ(assetCopy[i].Redistribution, AssetRedistribution::Committed);
+        ASSERT_EQ(movedSets[i].Attachments.Num(), 1);
+        EXPECT_EQ(movedSets[i].Attachments[0].FileBytes[2], static_cast<u8>(i));
+    }
+}
+
+TEST(ReferenceFixtureManifest, NativeCaptureRecordsKeepResultJsonAndFileBytes)
+{
+    const auto manifestPath = WriteManifest("native-capture-output", ValidV2Manifest());
+    std::string error;
+    const auto manifest = LoadBenchmarkManifest(manifestPath, error);
+    ASSERT_TRUE(manifest.has_value()) << error;
+    CapturedAttachment attachment;
+    attachment.Spec = manifest->Attachments[0];
+    attachment.FileName = "beauty.png";
+    attachment.FileBytes = { 10, 20, 30, 40 };
+    attachment.Width = 2;
+    attachment.Height = 2;
+    attachment.FormatName = "RGBA8UNorm";
+    CameraCaptureSet camera;
+    camera.CameraId = manifest->Cameras[0].Id;
+    camera.Attachments.Add(std::move(attachment));
+    TArray<CameraCaptureSet> sets;
+    sets.Add(std::move(camera));
+    RunInfo info;
+    info.Backend = "opengl";
+    info.Host = "unit-test";
+    info.PassTimings.Add(PassTimingRecord{ "ScenePass", GpuTimingSample::Measured(0.25), false, {} });
+    const auto outputPath = Tests::TempFile("native-capture-output");
+    ASSERT_TRUE(WriteResultDirectory(*manifest, manifestPath, outputPath,
+                                     std::span{ sets.GetData(), static_cast<sizet>(sets.Num()) }, info, error))
+        << error;
+    std::ifstream metadata(outputPath / "result.json");
+    const auto json = nlohmann::json::parse(metadata);
+    EXPECT_EQ(json["resultSchemaVersion"], 2);
+    EXPECT_EQ(json["manifest"]["id"], manifest->Id.ToStdString());
+    EXPECT_EQ(json["provenance"]["backend"], "opengl");
+    EXPECT_EQ(json["cameras"][0]["attachments"][0]["file"], "beauty.png");
+    EXPECT_EQ(json["passTimingsMs"][0]["pass"], "ScenePass");
+    std::ifstream bytes(outputPath / "beauty.png", std::ios::binary);
+    const std::string encoded{ std::istreambuf_iterator<char>(bytes), std::istreambuf_iterator<char>() };
+    EXPECT_EQ(encoded, std::string("\x0a\x14\x1e\x28", 4));
 }

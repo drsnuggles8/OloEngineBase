@@ -1,7 +1,7 @@
 #include "OloEnginePCH.h"
 #include "ParticleEmitter.h"
 
-#include <algorithm>
+#include "OloEngine/Algo/Sort.h"
 
 namespace OloEngine
 {
@@ -30,7 +30,7 @@ namespace OloEngine
         }
 
         // Burst emission
-        for (u32 b = m_NextBurstIndex; b < static_cast<u32>(Bursts.size()); ++b)
+        for (u32 b = m_NextBurstIndex; b < static_cast<u32>(Bursts.Num()); ++b)
         {
             const auto& burst = Bursts[b];
             if (burst.Time >= prevLoopTime && burst.Time < m_LoopTime)
@@ -60,9 +60,9 @@ namespace OloEngine
         m_LoopTime = 0.0f;
         m_NextBurstIndex = 0;
         // Sort bursts by time so the forward-iteration in Update() works correctly
-        std::ranges::sort(Bursts,
-                          [](const BurstEntry& a, const BurstEntry& b)
-                          { return a.Time < b.Time; });
+        Algo::Sort(Bursts,
+                   [](const BurstEntry& a, const BurstEntry& b)
+                   { return a.Time < b.Time; });
     }
 
     void ParticleEmitter::InitializeParticle(u32 index, ParticlePool& pool, const glm::vec3& emitterPosition, const glm::quat& emitterRotation, FastRandomPCG& rng) const

@@ -23,7 +23,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
-#include <vector>
+#include <span>
 
 namespace OloEngine
 {
@@ -191,16 +191,16 @@ namespace OloEngine
         // One FrameDataBufferManager material slot PER PART (a multi-submesh mesh is one DAG
         // per submesh, each drawn as its own instance with its own material). Parallel to the
         // registry's part list for this mesh, so index i is the material for part i.
-        std::vector<u32> MaterialDataIndices;
+        TArray<u32> MaterialDataIndices;
         // Parallel to MaterialDataIndices: 1 when that part's material is alpha-masked/blended,
         // which forces its clusters onto the hardware raster path (the compute rasterizer
         // cannot run a cutout test — see VirtualInstanceGpuRecord::kFlagAlphaMasked).
-        std::vector<u8> PartAlphaMasked;
+        TArray<u8> PartAlphaMasked;
         // Parallel to MaterialDataIndices: 1 when that part's material is MaterialFlag::TwoSided,
         // so the hardware draw must not backface-cull it (the classic path does this in
         // Renderer3DDrawHelpers::BuildRenderState). Sponza's foliage is two-sided single-quad
         // geometry — culling it drops half of every leaf.
-        std::vector<u8> PartTwoSided;
+        TArray<u8> PartTwoSided;
         bool CastShadows = true;
         // Baked lightmap atlas region for this instance (issue #867): the same
         // encoded vec4 InstanceData::LightmapScaleOffset carries on the classic
@@ -223,13 +223,31 @@ namespace OloEngine
         // on a first frame. A mismatched pair would otherwise pair bone i's
         // current matrix with bone j's previous one and write motion vectors
         // that smear the character across the screen.
-        std::vector<glm::mat4> BoneMatrices;
-        std::vector<glm::mat4> PrevBoneMatrices;
+        TArray<glm::mat4> BoneMatrices;
+        TArray<glm::mat4> PrevBoneMatrices;
 
         [[nodiscard]] bool IsSkinned() const
         {
-            return !BoneMatrices.empty();
+            return !BoneMatrices.IsEmpty();
         }
+    };
+
+    template<>
+    struct TIsTriviallyRelocatable<VirtualMeshSubmission>
+    {
+        static constexpr bool Value =
+            TIsTriviallyRelocatable<decltype(VirtualMeshSubmission::Mesh)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshSubmission::Transform)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshSubmission::PrevTransform)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshSubmission::EntityID)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshSubmission::ErrorThresholdPixels)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshSubmission::MaterialDataIndices)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshSubmission::PartAlphaMasked)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshSubmission::PartTwoSided)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshSubmission::CastShadows)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshSubmission::LightmapScaleOffset)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshSubmission::BoneMatrices)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshSubmission::PrevBoneMatrices)>::Value;
     };
 
     // @brief GPU residence for every registered virtual mesh (issue #629).
@@ -481,7 +499,7 @@ namespace OloEngine
         }
         [[nodiscard]] u32 GetEntryCount() const
         {
-            return static_cast<u32>(m_Entries.size());
+            return static_cast<u32>(m_Entries.Num());
         }
 
         // Uploads (once) the GPU buffers backing this part's ray-tracing proxy
@@ -496,9 +514,9 @@ namespace OloEngine
         // Frame lifecycle -----------------------------------------------------
         void BeginFrame();
         void Submit(const VirtualMeshSubmission& submission);
-        [[nodiscard]] const std::vector<VirtualMeshSubmission>& GetSubmissions() const
+        [[nodiscard]] std::span<const VirtualMeshSubmission> GetSubmissions() const
         {
-            return m_Submissions;
+            return { m_Submissions.GetData(), static_cast<sizet>(m_Submissions.Num()) };
         }
 
         // Uploads dirty pools and stages this frame's instance records; returns
@@ -653,9 +671,9 @@ namespace OloEngine
         // after PrepareFrame, before the cull dispatches.
         void ProcessResidency();
 
-        [[nodiscard]] const std::vector<FrameInstance>& GetFrameInstances() const
+        [[nodiscard]] std::span<const FrameInstance> GetFrameInstances() const
         {
-            return m_FrameInstances;
+            return { m_FrameInstances.GetData(), static_cast<sizet>(m_FrameInstances.Num()) };
         }
         [[nodiscard]] u32 GetTotalFrameClusterCount() const
         {
@@ -906,17 +924,17 @@ namespace OloEngine
         // the loop rather than the speed of the consumer, and the staged payloads are then
         // discarded unused before anyone uploads them. Measured on VirtualGeometryStress:
         // 413,158 reads issued, 413,042 discarded, 21 pages actually resident.
-        void ApplyResidencySnapshot(const std::vector<u32>& gpuStates, u32& workBudget);
+        void ApplyResidencySnapshot(const TArray<u32>& gpuStates, u32& workBudget);
 
         std::unordered_map<AssetHandle, MeshParts> m_EntryLookup;
-        std::vector<MeshEntry> m_Entries; // stable order => deterministic pool layout
+        TArray<MeshEntry> m_Entries; // stable order => deterministic pool layout
         bool m_PoolsDirty = false;
         // Meshes whose AlphaMode::Blend parts have already been reported as skipped —
         // PrepareFrame runs every frame, the warning must not.
         std::unordered_set<u64> m_BlendRejectionWarned;
 
-        std::vector<VirtualMeshSubmission> m_Submissions;
-        std::vector<FrameInstance> m_FrameInstances;
+        TArray<VirtualMeshSubmission> m_Submissions;
+        TArray<FrameInstance> m_FrameInstances;
         SubmissionDiagnostics m_SubmissionDiagnostics;
         u32 m_TotalFrameClusterCount = 0;
         bool m_FramePrepared = false; // PrepareFrame ran this frame
@@ -945,10 +963,10 @@ namespace OloEngine
         RHI::ResourceHandle m_Vao{};         // element-buffer-only VAO for the MDI path
 
         // Streaming bookkeeping
-        std::vector<PageRuntime> m_Pages;
-        std::vector<u32> m_PageOfPooledGroup;                  // pooled group -> page index
-        std::vector<VirtualClusterGpuRecord> m_PooledClusters; // CPU mirror, mesh-local bases
-        std::vector<u32> m_GroupStatesCpu;
+        TArray<PageRuntime> m_Pages;
+        TArray<u32> m_PageOfPooledGroup;                  // pooled group -> page index
+        TArray<VirtualClusterGpuRecord> m_PooledClusters; // CPU mirror, mesh-local bases
+        TArray<u32> m_GroupStatesCpu;
         // Slot-arena residency directory (#704): one GPUPagedCache "page" per
         // slot, one single-page object per RESIDENT VirtualMeshRegistry page
         // (keyed by pooled page index). Directory-only + HostOnly: the payload
@@ -981,7 +999,7 @@ namespace OloEngine
         // PollResidencyReadback instead of a whole-array SetData, which is what
         // lets the snapshot apply without racing the GPU's own writes to OTHER
         // groups for frames after the snapshot was captured.
-        std::vector<u32> m_DirtyResidencyGroups;
+        TArray<u32> m_DirtyResidencyGroups;
 
         // Persistent-mapped upload ring (CPU staging -> arena copies). The
         // substrate's fence-locked ring (#704): a wrap now waits only on the
@@ -1019,5 +1037,30 @@ namespace OloEngine
         RHI::ResourceHandle m_DebugCountTex{};
         u32 m_DebugWidth = 0;
         u32 m_DebugHeight = 0;
+    };
+
+    template<>
+    struct TIsTriviallyRelocatable<VirtualMeshRegistry::MeshEntry>
+    {
+        static constexpr bool Value =
+            TIsTriviallyRelocatable<decltype(VirtualMeshRegistry::MeshEntry::Packed)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshRegistry::MeshEntry::ClusterBase)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshRegistry::MeshEntry::GroupBase)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshRegistry::MeshEntry::VertexBase)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshRegistry::MeshEntry::IndexBase)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshRegistry::MeshEntry::LevelCount)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshRegistry::MeshEntry::SourceTriangleCount)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshRegistry::MeshEntry::SubmeshIndex)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshRegistry::MeshEntry::Valid)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshRegistry::MeshEntry::MeshletCompatible)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshRegistry::MeshEntry::LocalBoundsMin)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshRegistry::MeshEntry::LocalBoundsMax)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshRegistry::MeshEntry::HasBounds)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshRegistry::MeshEntry::Proxy)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshRegistry::MeshEntry::ProxyVertexBuffer)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshRegistry::MeshEntry::ProxyIndexBuffer)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshRegistry::MeshEntry::StorePageBase)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshRegistry::MeshEntry::HasLightmapUVs)>::Value &&
+            TIsTriviallyRelocatable<decltype(VirtualMeshRegistry::MeshEntry::IsSkinned)>::Value;
     };
 } // namespace OloEngine

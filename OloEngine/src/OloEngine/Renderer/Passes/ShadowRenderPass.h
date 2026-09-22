@@ -1,5 +1,7 @@
 #pragma once
 
+#include "OloEngine/Containers/Array.h"
+
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
@@ -169,6 +171,7 @@ namespace OloEngine
             Ref<UniformBuffer> Animation;  // ShaderBindingLayout::UBO_ANIMATION — bones of the skinned caster in flight
             Ref<InstanceBuffer> Instances; // SSBO_INSTANCE_DATA — the transforms of the batch / caster in flight
         };
+        friend struct TIsTriviallyRelocatable<ItemResources>;
 
         // One auto-batched shadow draw, as RendererProfiler::RecordInstancedDraw
         // wants it. Not the profiler's own record type: that one carries a
@@ -184,8 +187,9 @@ namespace OloEngine
         // array, because there is one record per distinct submesh in the item.
         struct ItemProfilerTally
         {
-            std::vector<ShadowInstancedDrawRecord> InstancedDraws;
+            TArray64<ShadowInstancedDrawRecord> InstancedDraws;
         };
+        friend struct TIsTriviallyRelocatable<ItemProfilerTally>;
 
         // The shaders the parallel-safe half binds, resolved on the render
         // thread before the fork. ShaderLibrary::Get is a non-const map
@@ -278,19 +282,19 @@ namespace OloEngine
         Ref<Framebuffer> m_ShadowFramebuffer; // Depth-only FBO for shadow rendering
 
         // Shadow caster lists — cleared after each Execute()
-        std::vector<ShadowMeshCaster> m_MeshCasters;
-        std::vector<ShadowSkinnedCaster> m_SkinnedCasters;
-        std::vector<ShadowTerrainCaster> m_TerrainCasters;
-        std::vector<ShadowVoxelCaster> m_VoxelCasters;
-        std::vector<ShadowFoliageCaster> m_FoliageCasters;
+        TArray64<ShadowMeshCaster> m_MeshCasters;
+        TArray64<ShadowSkinnedCaster> m_SkinnedCasters;
+        TArray64<ShadowTerrainCaster> m_TerrainCasters;
+        TArray64<ShadowVoxelCaster> m_VoxelCasters;
+        TArray64<ShadowFoliageCaster> m_FoliageCasters;
 
         // Per-item state of the parallel regions (issue #806). Grown lazily to
         // the largest region seen; never resized while a region is open, so
         // item i touches element i and nothing else.
-        std::vector<ItemResources> m_ItemResources;
-        std::vector<VirtualGeometryShadow::ViewResources> m_VirtualItemResources;
-        std::vector<ItemProfilerTally> m_ItemTallies;
-        std::vector<ActiveShadowView> m_ActiveViews; // the current region's items, in item order
+        TArray64<ItemResources> m_ItemResources;
+        TArray64<VirtualGeometryShadow::ViewResources> m_VirtualItemResources;
+        TArray64<ItemProfilerTally> m_ItemTallies;
+        TArray64<ActiveShadowView> m_ActiveViews; // the current region's items, in item order
 
         // ---- Virtual geometry into the Virtual Shadow Map (issue #1149) ------
         //
@@ -300,11 +304,11 @@ namespace OloEngine
         // visible buffers. The cascade region forks, which is the only reason
         // that one is a vector.
         VirtualGeometryShadow::ViewResources m_VsmVirtualResources;
-        std::vector<VirtualGeometryShadow::VsmClipView> m_VsmClipViews;
+        TArray64<VirtualGeometryShadow::VsmClipView> m_VsmClipViews;
         // Scratch for this frame's virtual shadow casters, kept as a member so
         // the allocation survives across frames (cleared, never read across a
         // frame boundary, render thread only).
-        std::vector<VirtualGeometryShadow::ShadowCasterBounds> m_VsmVirtualBounds;
+        TArray64<VirtualGeometryShadow::ShadowCasterBounds> m_VsmVirtualBounds;
         // Last frame's virtual casters, by stable key, so a caster that vanished
         // can still have its pages invalidated — it is not in this frame's list
         // to be compared against. Keyed rather than indexed because the frame
@@ -318,5 +322,30 @@ namespace OloEngine
 
         bool m_WarnedOnce = false;
         bool m_LoggedOnce = false;
+    };
+    // Owns only audited pointer-based containers/Refs; no address-relative members.
+    template<>
+    struct TIsTriviallyRelocatable<ShadowRenderPass::ItemResources>
+    {
+        using Record = ShadowRenderPass::ItemResources;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::Camera)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Animation)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Instances)>;
+    };
+    // Owns only audited pointer-based containers/Refs; no address-relative members.
+    template<>
+    struct TIsTriviallyRelocatable<ShadowRenderPass::ItemProfilerTally>
+    {
+        using Record = ShadowRenderPass::ItemProfilerTally;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::InstancedDraws)>;
+    };
+    // External object identities and Ref ownership survive byte relocation; no self pointers.
+    template<>
+    struct TIsTriviallyRelocatable<ShadowFoliageCaster>
+    {
+        using Record = ShadowFoliageCaster;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::renderer)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::depthShader)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::time)>;
     };
 } // namespace OloEngine

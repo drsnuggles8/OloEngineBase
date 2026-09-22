@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Containers/String.h"
 
 namespace OloEngine
 {
@@ -26,7 +27,7 @@ namespace OloEngine
     // @brief Shader uniform declaration with layout information
     struct ShaderUniformDeclaration
     {
-        std::string Name;
+        FString Name;
         ShaderDataType Type;
         u32 Size;
         u32 Offset;
@@ -34,6 +35,16 @@ namespace OloEngine
 
         u32 GetComponentCount() const;
         static u32 ShaderDataTypeSize(ShaderDataType type);
+    };
+
+    template<>
+    struct TIsTriviallyRelocatable<ShaderUniformDeclaration>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(ShaderUniformDeclaration::Name)> &&
+                                      TIsTriviallyRelocatable_V<decltype(ShaderUniformDeclaration::Type)> &&
+                                      TIsTriviallyRelocatable_V<decltype(ShaderUniformDeclaration::Size)> &&
+                                      TIsTriviallyRelocatable_V<decltype(ShaderUniformDeclaration::Offset)> &&
+                                      TIsTriviallyRelocatable_V<decltype(ShaderUniformDeclaration::ArraySize)>;
     };
 
     // @brief Get the size in bytes of a shader data type

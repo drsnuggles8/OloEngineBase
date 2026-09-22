@@ -138,7 +138,7 @@ namespace OloEngine::Tests
 
         VirtualMeshSet roundTripped;
         ASSERT_TRUE(VirtualMeshSerializer::DeserializeSetFromBlob(blob, roundTripped));
-        EXPECT_EQ(roundTripped.Parts.size(), set.Parts.size());
+        EXPECT_EQ(static_cast<sizet>(roundTripped.Parts.Num()), static_cast<sizet>(set.Parts.Num()));
 
         // OVGS header is magic + version + partCount; the first part's OVGM starts after
         // submeshIndex (u32) + materialIndex (u32) + blobSize (u64).

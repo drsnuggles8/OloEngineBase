@@ -339,7 +339,7 @@ namespace OloEngine::VirtualGeometryShadow
         return levelsDrawn;
     }
 
-    bool CollectShadowCasterBounds(std::vector<ShadowCasterBounds>& out)
+    bool CollectShadowCasterBounds(TArray64<ShadowCasterBounds>& out)
     {
         auto& registry = VirtualMeshRegistry::Get();
         const auto& instances = registry.GetFrameInstances();
@@ -368,7 +368,7 @@ namespace OloEngine::VirtualGeometryShadow
             bounds.Moved = std::memcmp(&instance.Gpu.Transform, &instance.Gpu.PrevTransform,
                                        sizeof(glm::mat4)) != 0;
             bounds.Key = instance.CasterKey;
-            out.push_back(bounds);
+            out.Add(bounds);
             any = true;
         }
         return any;

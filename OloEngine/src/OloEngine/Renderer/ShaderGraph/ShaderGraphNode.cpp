@@ -44,7 +44,7 @@ namespace OloEngine
         return nullptr;
     }
 
-    ShaderGraphPin* ShaderGraphNode::FindPinByName(const std::string& name, ShaderGraphPinDirection direction)
+    ShaderGraphPin* ShaderGraphNode::FindPinByName(const FString& name, ShaderGraphPinDirection direction)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -57,7 +57,7 @@ namespace OloEngine
         return nullptr;
     }
 
-    const ShaderGraphPin* ShaderGraphNode::FindPinByName(const std::string& name, ShaderGraphPinDirection direction) const
+    const ShaderGraphPin* ShaderGraphNode::FindPinByName(const FString& name, ShaderGraphPinDirection direction) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -74,7 +74,7 @@ namespace OloEngine
     //  Helper: create pins for a node
     // ─────────────────────────────────────────────────────────────
 
-    static ShaderGraphPin MakeInput(UUID nodeID, const std::string& name, ShaderGraphPinType type, ShaderGraphPinValue defaultValue = {})
+    static ShaderGraphPin MakeInput(UUID nodeID, const FString& name, ShaderGraphPinType type, ShaderGraphPinValue defaultValue = {})
     {
         ShaderGraphPin pin;
         pin.ID = UUID();
@@ -86,7 +86,7 @@ namespace OloEngine
         return pin;
     }
 
-    static ShaderGraphPin MakeOutput(UUID nodeID, const std::string& name, ShaderGraphPinType type)
+    static ShaderGraphPin MakeOutput(UUID nodeID, const FString& name, ShaderGraphPinType type)
     {
         ShaderGraphPin pin;
         pin.ID = UUID();
@@ -104,13 +104,13 @@ namespace OloEngine
     static void InitPBROutput(ShaderGraphNode& node)
     {
         node.Category = ShaderGraphNodeCategory::Output;
-        node.Inputs.push_back(MakeInput(node.ID, "Albedo", ShaderGraphPinType::Vec3, glm::vec3(1.0f)));
-        node.Inputs.push_back(MakeInput(node.ID, "Metallic", ShaderGraphPinType::Float, 0.0f));
-        node.Inputs.push_back(MakeInput(node.ID, "Roughness", ShaderGraphPinType::Float, 0.5f));
-        node.Inputs.push_back(MakeInput(node.ID, "Normal", ShaderGraphPinType::Vec3, glm::vec3(0.0f, 0.0f, 1.0f)));
-        node.Inputs.push_back(MakeInput(node.ID, "AO", ShaderGraphPinType::Float, 1.0f));
-        node.Inputs.push_back(MakeInput(node.ID, "Emissive", ShaderGraphPinType::Vec3, glm::vec3(0.0f)));
-        node.Inputs.push_back(MakeInput(node.ID, "Alpha", ShaderGraphPinType::Float, 1.0f));
+        node.Inputs.Add(MakeInput(node.ID, "Albedo", ShaderGraphPinType::Vec3, glm::vec3(1.0f)));
+        node.Inputs.Add(MakeInput(node.ID, "Metallic", ShaderGraphPinType::Float, 0.0f));
+        node.Inputs.Add(MakeInput(node.ID, "Roughness", ShaderGraphPinType::Float, 0.5f));
+        node.Inputs.Add(MakeInput(node.ID, "Normal", ShaderGraphPinType::Vec3, glm::vec3(0.0f, 0.0f, 1.0f)));
+        node.Inputs.Add(MakeInput(node.ID, "AO", ShaderGraphPinType::Float, 1.0f));
+        node.Inputs.Add(MakeInput(node.ID, "Emissive", ShaderGraphPinType::Vec3, glm::vec3(0.0f)));
+        node.Inputs.Add(MakeInput(node.ID, "Alpha", ShaderGraphPinType::Float, 1.0f));
     }
 
     // --- Parameter Nodes ---
@@ -119,64 +119,64 @@ namespace OloEngine
     {
         node.Category = ShaderGraphNodeCategory::Input;
         node.ParameterName = "u_Float";
-        node.Outputs.push_back(MakeOutput(node.ID, "Value", ShaderGraphPinType::Float));
+        node.Outputs.Add(MakeOutput(node.ID, "Value", ShaderGraphPinType::Float));
     }
 
     static void InitFloatConstant(ShaderGraphNode& node)
     {
         node.Category = ShaderGraphNodeCategory::Input;
-        node.Outputs.push_back(MakeOutput(node.ID, "Value", ShaderGraphPinType::Float));
+        node.Outputs.Add(MakeOutput(node.ID, "Value", ShaderGraphPinType::Float));
     }
 
     static void InitVec3Parameter(ShaderGraphNode& node)
     {
         node.Category = ShaderGraphNodeCategory::Input;
         node.ParameterName = "u_Color";
-        node.Outputs.push_back(MakeOutput(node.ID, "Value", ShaderGraphPinType::Vec3));
+        node.Outputs.Add(MakeOutput(node.ID, "Value", ShaderGraphPinType::Vec3));
     }
 
     static void InitVec3Constant(ShaderGraphNode& node)
     {
         node.Category = ShaderGraphNodeCategory::Input;
-        node.Outputs.push_back(MakeOutput(node.ID, "Value", ShaderGraphPinType::Vec3));
+        node.Outputs.Add(MakeOutput(node.ID, "Value", ShaderGraphPinType::Vec3));
     }
 
     static void InitVec4Parameter(ShaderGraphNode& node)
     {
         node.Category = ShaderGraphNodeCategory::Input;
         node.ParameterName = "u_Vec4";
-        node.Outputs.push_back(MakeOutput(node.ID, "Value", ShaderGraphPinType::Vec4));
+        node.Outputs.Add(MakeOutput(node.ID, "Value", ShaderGraphPinType::Vec4));
     }
 
     static void InitTexture2DParameter(ShaderGraphNode& node)
     {
         node.Category = ShaderGraphNodeCategory::Input;
         node.ParameterName = "u_Texture";
-        node.Outputs.push_back(MakeOutput(node.ID, "Value", ShaderGraphPinType::Texture2D));
+        node.Outputs.Add(MakeOutput(node.ID, "Value", ShaderGraphPinType::Texture2D));
     }
 
     static void InitTime(ShaderGraphNode& node)
     {
         node.Category = ShaderGraphNodeCategory::Input;
-        node.Outputs.push_back(MakeOutput(node.ID, "Time", ShaderGraphPinType::Float));
+        node.Outputs.Add(MakeOutput(node.ID, "Time", ShaderGraphPinType::Float));
     }
 
     static void InitUV(ShaderGraphNode& node)
     {
         node.Category = ShaderGraphNodeCategory::Input;
-        node.Outputs.push_back(MakeOutput(node.ID, "UV", ShaderGraphPinType::Vec2));
+        node.Outputs.Add(MakeOutput(node.ID, "UV", ShaderGraphPinType::Vec2));
     }
 
     static void InitWorldPosition(ShaderGraphNode& node)
     {
         node.Category = ShaderGraphNodeCategory::Input;
-        node.Outputs.push_back(MakeOutput(node.ID, "Position", ShaderGraphPinType::Vec3));
+        node.Outputs.Add(MakeOutput(node.ID, "Position", ShaderGraphPinType::Vec3));
     }
 
     static void InitWorldNormal(ShaderGraphNode& node)
     {
         node.Category = ShaderGraphNodeCategory::Input;
-        node.Outputs.push_back(MakeOutput(node.ID, "Normal", ShaderGraphPinType::Vec3));
+        node.Outputs.Add(MakeOutput(node.ID, "Normal", ShaderGraphPinType::Vec3));
     }
 
     // --- Math Nodes ---
@@ -184,103 +184,103 @@ namespace OloEngine
     static void InitBinaryMathNode(ShaderGraphNode& node)
     {
         node.Category = ShaderGraphNodeCategory::Math;
-        node.Inputs.push_back(MakeInput(node.ID, "A", ShaderGraphPinType::Float, 0.0f));
-        node.Inputs.push_back(MakeInput(node.ID, "B", ShaderGraphPinType::Float, 0.0f));
-        node.Outputs.push_back(MakeOutput(node.ID, "Result", ShaderGraphPinType::Float));
+        node.Inputs.Add(MakeInput(node.ID, "A", ShaderGraphPinType::Float, 0.0f));
+        node.Inputs.Add(MakeInput(node.ID, "B", ShaderGraphPinType::Float, 0.0f));
+        node.Outputs.Add(MakeOutput(node.ID, "Result", ShaderGraphPinType::Float));
     }
 
     static void InitLerp(ShaderGraphNode& node)
     {
         node.Category = ShaderGraphNodeCategory::Math;
-        node.Inputs.push_back(MakeInput(node.ID, "A", ShaderGraphPinType::Float, 0.0f));
-        node.Inputs.push_back(MakeInput(node.ID, "B", ShaderGraphPinType::Float, 1.0f));
-        node.Inputs.push_back(MakeInput(node.ID, "T", ShaderGraphPinType::Float, 0.5f));
-        node.Outputs.push_back(MakeOutput(node.ID, "Result", ShaderGraphPinType::Float));
+        node.Inputs.Add(MakeInput(node.ID, "A", ShaderGraphPinType::Float, 0.0f));
+        node.Inputs.Add(MakeInput(node.ID, "B", ShaderGraphPinType::Float, 1.0f));
+        node.Inputs.Add(MakeInput(node.ID, "T", ShaderGraphPinType::Float, 0.5f));
+        node.Outputs.Add(MakeOutput(node.ID, "Result", ShaderGraphPinType::Float));
     }
 
     static void InitClamp(ShaderGraphNode& node)
     {
         node.Category = ShaderGraphNodeCategory::Math;
-        node.Inputs.push_back(MakeInput(node.ID, "Value", ShaderGraphPinType::Float, 0.0f));
-        node.Inputs.push_back(MakeInput(node.ID, "Min", ShaderGraphPinType::Float, 0.0f));
-        node.Inputs.push_back(MakeInput(node.ID, "Max", ShaderGraphPinType::Float, 1.0f));
-        node.Outputs.push_back(MakeOutput(node.ID, "Result", ShaderGraphPinType::Float));
+        node.Inputs.Add(MakeInput(node.ID, "Value", ShaderGraphPinType::Float, 0.0f));
+        node.Inputs.Add(MakeInput(node.ID, "Min", ShaderGraphPinType::Float, 0.0f));
+        node.Inputs.Add(MakeInput(node.ID, "Max", ShaderGraphPinType::Float, 1.0f));
+        node.Outputs.Add(MakeOutput(node.ID, "Result", ShaderGraphPinType::Float));
     }
 
     static void InitDot(ShaderGraphNode& node)
     {
         node.Category = ShaderGraphNodeCategory::Math;
-        node.Inputs.push_back(MakeInput(node.ID, "A", ShaderGraphPinType::Vec3, glm::vec3(0.0f)));
-        node.Inputs.push_back(MakeInput(node.ID, "B", ShaderGraphPinType::Vec3, glm::vec3(0.0f)));
-        node.Outputs.push_back(MakeOutput(node.ID, "Result", ShaderGraphPinType::Float));
+        node.Inputs.Add(MakeInput(node.ID, "A", ShaderGraphPinType::Vec3, glm::vec3(0.0f)));
+        node.Inputs.Add(MakeInput(node.ID, "B", ShaderGraphPinType::Vec3, glm::vec3(0.0f)));
+        node.Outputs.Add(MakeOutput(node.ID, "Result", ShaderGraphPinType::Float));
     }
 
     static void InitCross(ShaderGraphNode& node)
     {
         node.Category = ShaderGraphNodeCategory::Math;
-        node.Inputs.push_back(MakeInput(node.ID, "A", ShaderGraphPinType::Vec3, glm::vec3(0.0f)));
-        node.Inputs.push_back(MakeInput(node.ID, "B", ShaderGraphPinType::Vec3, glm::vec3(0.0f)));
-        node.Outputs.push_back(MakeOutput(node.ID, "Result", ShaderGraphPinType::Vec3));
+        node.Inputs.Add(MakeInput(node.ID, "A", ShaderGraphPinType::Vec3, glm::vec3(0.0f)));
+        node.Inputs.Add(MakeInput(node.ID, "B", ShaderGraphPinType::Vec3, glm::vec3(0.0f)));
+        node.Outputs.Add(MakeOutput(node.ID, "Result", ShaderGraphPinType::Vec3));
     }
 
     static void InitUnaryMathNode(ShaderGraphNode& node)
     {
         node.Category = ShaderGraphNodeCategory::Math;
-        node.Inputs.push_back(MakeInput(node.ID, "Value", ShaderGraphPinType::Float, 0.0f));
-        node.Outputs.push_back(MakeOutput(node.ID, "Result", ShaderGraphPinType::Float));
+        node.Inputs.Add(MakeInput(node.ID, "Value", ShaderGraphPinType::Float, 0.0f));
+        node.Outputs.Add(MakeOutput(node.ID, "Result", ShaderGraphPinType::Float));
     }
 
     static void InitNormalize(ShaderGraphNode& node)
     {
         node.Category = ShaderGraphNodeCategory::Math;
-        node.Inputs.push_back(MakeInput(node.ID, "Value", ShaderGraphPinType::Vec3, glm::vec3(0.0f)));
-        node.Outputs.push_back(MakeOutput(node.ID, "Result", ShaderGraphPinType::Vec3));
+        node.Inputs.Add(MakeInput(node.ID, "Value", ShaderGraphPinType::Vec3, glm::vec3(0.0f)));
+        node.Outputs.Add(MakeOutput(node.ID, "Result", ShaderGraphPinType::Vec3));
     }
 
     static void InitPower(ShaderGraphNode& node)
     {
         node.Category = ShaderGraphNodeCategory::Math;
-        node.Inputs.push_back(MakeInput(node.ID, "Base", ShaderGraphPinType::Float, 0.0f));
-        node.Inputs.push_back(MakeInput(node.ID, "Exponent", ShaderGraphPinType::Float, 1.0f));
-        node.Outputs.push_back(MakeOutput(node.ID, "Result", ShaderGraphPinType::Float));
+        node.Inputs.Add(MakeInput(node.ID, "Base", ShaderGraphPinType::Float, 0.0f));
+        node.Inputs.Add(MakeInput(node.ID, "Exponent", ShaderGraphPinType::Float, 1.0f));
+        node.Outputs.Add(MakeOutput(node.ID, "Result", ShaderGraphPinType::Float));
     }
 
     static void InitSplit(ShaderGraphNode& node)
     {
         node.Category = ShaderGraphNodeCategory::Math;
-        node.Inputs.push_back(MakeInput(node.ID, "Value", ShaderGraphPinType::Vec4, glm::vec4(0.0f)));
-        node.Outputs.push_back(MakeOutput(node.ID, "R", ShaderGraphPinType::Float));
-        node.Outputs.push_back(MakeOutput(node.ID, "G", ShaderGraphPinType::Float));
-        node.Outputs.push_back(MakeOutput(node.ID, "B", ShaderGraphPinType::Float));
-        node.Outputs.push_back(MakeOutput(node.ID, "A", ShaderGraphPinType::Float));
+        node.Inputs.Add(MakeInput(node.ID, "Value", ShaderGraphPinType::Vec4, glm::vec4(0.0f)));
+        node.Outputs.Add(MakeOutput(node.ID, "R", ShaderGraphPinType::Float));
+        node.Outputs.Add(MakeOutput(node.ID, "G", ShaderGraphPinType::Float));
+        node.Outputs.Add(MakeOutput(node.ID, "B", ShaderGraphPinType::Float));
+        node.Outputs.Add(MakeOutput(node.ID, "A", ShaderGraphPinType::Float));
     }
 
     static void InitCombine(ShaderGraphNode& node)
     {
         node.Category = ShaderGraphNodeCategory::Math;
-        node.Inputs.push_back(MakeInput(node.ID, "R", ShaderGraphPinType::Float, 0.0f));
-        node.Inputs.push_back(MakeInput(node.ID, "G", ShaderGraphPinType::Float, 0.0f));
-        node.Inputs.push_back(MakeInput(node.ID, "B", ShaderGraphPinType::Float, 0.0f));
-        node.Inputs.push_back(MakeInput(node.ID, "A", ShaderGraphPinType::Float, 1.0f));
-        node.Outputs.push_back(MakeOutput(node.ID, "Vec3", ShaderGraphPinType::Vec3));
-        node.Outputs.push_back(MakeOutput(node.ID, "Vec4", ShaderGraphPinType::Vec4));
+        node.Inputs.Add(MakeInput(node.ID, "R", ShaderGraphPinType::Float, 0.0f));
+        node.Inputs.Add(MakeInput(node.ID, "G", ShaderGraphPinType::Float, 0.0f));
+        node.Inputs.Add(MakeInput(node.ID, "B", ShaderGraphPinType::Float, 0.0f));
+        node.Inputs.Add(MakeInput(node.ID, "A", ShaderGraphPinType::Float, 1.0f));
+        node.Outputs.Add(MakeOutput(node.ID, "Vec3", ShaderGraphPinType::Vec3));
+        node.Outputs.Add(MakeOutput(node.ID, "Vec4", ShaderGraphPinType::Vec4));
     }
 
     static void InitStep(ShaderGraphNode& node)
     {
         node.Category = ShaderGraphNodeCategory::Math;
-        node.Inputs.push_back(MakeInput(node.ID, "Edge", ShaderGraphPinType::Float, 0.5f));
-        node.Inputs.push_back(MakeInput(node.ID, "Value", ShaderGraphPinType::Float, 0.0f));
-        node.Outputs.push_back(MakeOutput(node.ID, "Result", ShaderGraphPinType::Float));
+        node.Inputs.Add(MakeInput(node.ID, "Edge", ShaderGraphPinType::Float, 0.5f));
+        node.Inputs.Add(MakeInput(node.ID, "Value", ShaderGraphPinType::Float, 0.0f));
+        node.Outputs.Add(MakeOutput(node.ID, "Result", ShaderGraphPinType::Float));
     }
 
     static void InitSmoothstep(ShaderGraphNode& node)
     {
         node.Category = ShaderGraphNodeCategory::Math;
-        node.Inputs.push_back(MakeInput(node.ID, "Edge0", ShaderGraphPinType::Float, 0.0f));
-        node.Inputs.push_back(MakeInput(node.ID, "Edge1", ShaderGraphPinType::Float, 1.0f));
-        node.Inputs.push_back(MakeInput(node.ID, "Value", ShaderGraphPinType::Float, 0.5f));
-        node.Outputs.push_back(MakeOutput(node.ID, "Result", ShaderGraphPinType::Float));
+        node.Inputs.Add(MakeInput(node.ID, "Edge0", ShaderGraphPinType::Float, 0.0f));
+        node.Inputs.Add(MakeInput(node.ID, "Edge1", ShaderGraphPinType::Float, 1.0f));
+        node.Inputs.Add(MakeInput(node.ID, "Value", ShaderGraphPinType::Float, 0.5f));
+        node.Outputs.Add(MakeOutput(node.ID, "Result", ShaderGraphPinType::Float));
     }
 
     // --- Texture Nodes ---
@@ -288,23 +288,23 @@ namespace OloEngine
     static void InitSampleTexture2D(ShaderGraphNode& node)
     {
         node.Category = ShaderGraphNodeCategory::Texture;
-        node.Inputs.push_back(MakeInput(node.ID, "Texture", ShaderGraphPinType::Texture2D));
-        node.Inputs.push_back(MakeInput(node.ID, "UV", ShaderGraphPinType::Vec2, glm::vec2(0.0f)));
-        node.Outputs.push_back(MakeOutput(node.ID, "RGBA", ShaderGraphPinType::Vec4));
-        node.Outputs.push_back(MakeOutput(node.ID, "RGB", ShaderGraphPinType::Vec3));
-        node.Outputs.push_back(MakeOutput(node.ID, "R", ShaderGraphPinType::Float));
-        node.Outputs.push_back(MakeOutput(node.ID, "G", ShaderGraphPinType::Float));
-        node.Outputs.push_back(MakeOutput(node.ID, "B", ShaderGraphPinType::Float));
-        node.Outputs.push_back(MakeOutput(node.ID, "A", ShaderGraphPinType::Float));
+        node.Inputs.Add(MakeInput(node.ID, "Texture", ShaderGraphPinType::Texture2D));
+        node.Inputs.Add(MakeInput(node.ID, "UV", ShaderGraphPinType::Vec2, glm::vec2(0.0f)));
+        node.Outputs.Add(MakeOutput(node.ID, "RGBA", ShaderGraphPinType::Vec4));
+        node.Outputs.Add(MakeOutput(node.ID, "RGB", ShaderGraphPinType::Vec3));
+        node.Outputs.Add(MakeOutput(node.ID, "R", ShaderGraphPinType::Float));
+        node.Outputs.Add(MakeOutput(node.ID, "G", ShaderGraphPinType::Float));
+        node.Outputs.Add(MakeOutput(node.ID, "B", ShaderGraphPinType::Float));
+        node.Outputs.Add(MakeOutput(node.ID, "A", ShaderGraphPinType::Float));
     }
 
     static void InitNormalMap(ShaderGraphNode& node)
     {
         node.Category = ShaderGraphNodeCategory::Texture;
-        node.Inputs.push_back(MakeInput(node.ID, "Texture", ShaderGraphPinType::Texture2D));
-        node.Inputs.push_back(MakeInput(node.ID, "UV", ShaderGraphPinType::Vec2, glm::vec2(0.0f)));
-        node.Inputs.push_back(MakeInput(node.ID, "Strength", ShaderGraphPinType::Float, 1.0f));
-        node.Outputs.push_back(MakeOutput(node.ID, "Normal", ShaderGraphPinType::Vec3));
+        node.Inputs.Add(MakeInput(node.ID, "Texture", ShaderGraphPinType::Texture2D));
+        node.Inputs.Add(MakeInput(node.ID, "UV", ShaderGraphPinType::Vec2, glm::vec2(0.0f)));
+        node.Inputs.Add(MakeInput(node.ID, "Strength", ShaderGraphPinType::Float, 1.0f));
+        node.Outputs.Add(MakeOutput(node.ID, "Normal", ShaderGraphPinType::Vec3));
     }
 
     // --- Utility Nodes ---
@@ -312,19 +312,19 @@ namespace OloEngine
     static void InitFresnel(ShaderGraphNode& node)
     {
         node.Category = ShaderGraphNodeCategory::Utility;
-        node.Inputs.push_back(MakeInput(node.ID, "Normal", ShaderGraphPinType::Vec3, glm::vec3(0.0f, 0.0f, 1.0f)));
-        node.Inputs.push_back(MakeInput(node.ID, "ViewDir", ShaderGraphPinType::Vec3, glm::vec3(0.0f, 0.0f, 1.0f)));
-        node.Inputs.push_back(MakeInput(node.ID, "Power", ShaderGraphPinType::Float, 5.0f));
-        node.Outputs.push_back(MakeOutput(node.ID, "Result", ShaderGraphPinType::Float));
+        node.Inputs.Add(MakeInput(node.ID, "Normal", ShaderGraphPinType::Vec3, glm::vec3(0.0f, 0.0f, 1.0f)));
+        node.Inputs.Add(MakeInput(node.ID, "ViewDir", ShaderGraphPinType::Vec3, glm::vec3(0.0f, 0.0f, 1.0f)));
+        node.Inputs.Add(MakeInput(node.ID, "Power", ShaderGraphPinType::Float, 5.0f));
+        node.Outputs.Add(MakeOutput(node.ID, "Result", ShaderGraphPinType::Float));
     }
 
     static void InitTilingOffset(ShaderGraphNode& node)
     {
         node.Category = ShaderGraphNodeCategory::Utility;
-        node.Inputs.push_back(MakeInput(node.ID, "UV", ShaderGraphPinType::Vec2, glm::vec2(0.0f)));
-        node.Inputs.push_back(MakeInput(node.ID, "Tiling", ShaderGraphPinType::Vec2, glm::vec2(1.0f)));
-        node.Inputs.push_back(MakeInput(node.ID, "Offset", ShaderGraphPinType::Vec2, glm::vec2(0.0f)));
-        node.Outputs.push_back(MakeOutput(node.ID, "Result", ShaderGraphPinType::Vec2));
+        node.Inputs.Add(MakeInput(node.ID, "UV", ShaderGraphPinType::Vec2, glm::vec2(0.0f)));
+        node.Inputs.Add(MakeInput(node.ID, "Tiling", ShaderGraphPinType::Vec2, glm::vec2(1.0f)));
+        node.Inputs.Add(MakeInput(node.ID, "Offset", ShaderGraphPinType::Vec2, glm::vec2(0.0f)));
+        node.Outputs.Add(MakeOutput(node.ID, "Result", ShaderGraphPinType::Vec2));
     }
 
     // --- Custom Function Nodes ---
@@ -332,9 +332,9 @@ namespace OloEngine
     static void InitCustomFunction(ShaderGraphNode& node)
     {
         node.Category = ShaderGraphNodeCategory::Custom;
-        node.Inputs.push_back(MakeInput(node.ID, "A", ShaderGraphPinType::Float, 0.0f));
-        node.Inputs.push_back(MakeInput(node.ID, "B", ShaderGraphPinType::Float, 0.0f));
-        node.Outputs.push_back(MakeOutput(node.ID, "Result", ShaderGraphPinType::Float));
+        node.Inputs.Add(MakeInput(node.ID, "A", ShaderGraphPinType::Float, 0.0f));
+        node.Inputs.Add(MakeInput(node.ID, "B", ShaderGraphPinType::Float, 0.0f));
+        node.Outputs.Add(MakeOutput(node.ID, "Result", ShaderGraphPinType::Float));
         node.CustomFunctionBody = "A + B";
     }
 
@@ -352,7 +352,7 @@ namespace OloEngine
         node.Category = ShaderGraphNodeCategory::Compute;
         node.ParameterName = "inputBuffer";
         node.BufferBinding = 0;
-        node.Outputs.push_back(MakeOutput(node.ID, "Value", ShaderGraphPinType::Float));
+        node.Outputs.Add(MakeOutput(node.ID, "Value", ShaderGraphPinType::Float));
     }
 
     static void InitComputeBufferStore(ShaderGraphNode& node)
@@ -360,25 +360,25 @@ namespace OloEngine
         node.Category = ShaderGraphNodeCategory::Compute;
         node.ParameterName = "outputBuffer";
         node.BufferBinding = 1;
-        node.Inputs.push_back(MakeInput(node.ID, "Value", ShaderGraphPinType::Float, 0.0f));
+        node.Inputs.Add(MakeInput(node.ID, "Value", ShaderGraphPinType::Float, 0.0f));
     }
 
     static void InitWorkgroupID(ShaderGraphNode& node)
     {
         node.Category = ShaderGraphNodeCategory::Compute;
-        node.Outputs.push_back(MakeOutput(node.ID, "ID", ShaderGraphPinType::Vec3));
+        node.Outputs.Add(MakeOutput(node.ID, "ID", ShaderGraphPinType::Vec3));
     }
 
     static void InitLocalInvocationID(ShaderGraphNode& node)
     {
         node.Category = ShaderGraphNodeCategory::Compute;
-        node.Outputs.push_back(MakeOutput(node.ID, "ID", ShaderGraphPinType::Vec3));
+        node.Outputs.Add(MakeOutput(node.ID, "ID", ShaderGraphPinType::Vec3));
     }
 
     static void InitGlobalInvocationID(ShaderGraphNode& node)
     {
         node.Category = ShaderGraphNodeCategory::Compute;
-        node.Outputs.push_back(MakeOutput(node.ID, "ID", ShaderGraphPinType::Vec3));
+        node.Outputs.Add(MakeOutput(node.ID, "ID", ShaderGraphPinType::Vec3));
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -451,12 +451,12 @@ namespace OloEngine
         return s_Registry;
     }
 
-    Scope<ShaderGraphNode> CreateShaderGraphNode(const std::string& typeName)
+    Scope<ShaderGraphNode> CreateShaderGraphNode(const FString& typeName)
     {
         OLO_PROFILE_FUNCTION();
 
         const auto& registry = GetNodeRegistry();
-        auto it = registry.find(typeName);
+        auto it = registry.find(typeName.ToStdString());
         if (it == registry.end())
             return nullptr;
 
@@ -467,31 +467,31 @@ namespace OloEngine
         return node;
     }
 
-    std::vector<std::string> GetAllNodeTypeNames()
+    TArray<FString> GetAllNodeTypeNames()
     {
         OLO_PROFILE_FUNCTION();
 
         const auto& registry = GetNodeRegistry();
-        std::vector<std::string> names;
-        names.reserve(registry.size());
+        TArray<FString> names;
+        names.Reserve(static_cast<i32>(registry.size()));
         for (const auto& [name, info] : registry)
-            names.push_back(name);
-        std::ranges::sort(names);
+            names.Add(name);
+        names.Sort();
         return names;
     }
 
-    std::vector<std::string> GetNodeTypeNamesByCategory(ShaderGraphNodeCategory category)
+    TArray<FString> GetNodeTypeNamesByCategory(ShaderGraphNodeCategory category)
     {
         OLO_PROFILE_FUNCTION();
 
         const auto& registry = GetNodeRegistry();
-        std::vector<std::string> names;
+        TArray<FString> names;
         for (const auto& [name, info] : registry)
         {
             if (info.Category == category)
-                names.push_back(name);
+                names.Add(name);
         }
-        std::ranges::sort(names);
+        names.Sort();
         return names;
     }
 

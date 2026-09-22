@@ -70,7 +70,7 @@ namespace
         lightmap->SetDimensions(kWidth, kHeight, 1);
         lightmap->SetBakeKey(kBakeKey);
 
-        std::vector<f32> texels(static_cast<sizet>(lightmap->GetExpectedTexelCount()));
+        TArray<f32> texels(static_cast<sizet>(lightmap->GetExpectedTexelCount()));
         for (u32 y = 0; y < kHeight; ++y)
         {
             for (u32 x = 0; x < kWidth; ++x)
@@ -84,7 +84,7 @@ namespace
         }
         lightmap->SetTexelData(std::move(texels));
 
-        std::vector<LightmapEntityEntry> entries;
+        TArray<LightmapEntityEntry> entries;
         // Sub-keys on purpose (issue #867), and two entries SHARING a UUID: that
         // is the shape an InstancedMeshComponent produces, and it is exactly what
         // a reader still assuming one region per entity would collapse.
@@ -96,11 +96,11 @@ namespace
             entry.ScaleOffset = region;
             return entry;
         };
-        entries.push_back(makeEntry(0x1111111111111111ull, 0, glm::vec4(0.25f, 0.25f, 0.0f, 0.0f)));
-        entries.push_back(makeEntry(0x2222222222222222ull, 0x8000000000000004ull,
-                                    glm::vec4(0.5f, 0.5f, 0.25f, 0.0f)));
-        entries.push_back(makeEntry(0x2222222222222222ull, 5ull,
-                                    glm::vec4(0.125f, 0.125f, 0.75f, 0.875f)));
+        entries.Add(makeEntry(0x1111111111111111ull, 0, glm::vec4(0.25f, 0.25f, 0.0f, 0.0f)));
+        entries.Add(makeEntry(0x2222222222222222ull, 0x8000000000000004ull,
+                              glm::vec4(0.5f, 0.5f, 0.25f, 0.0f)));
+        entries.Add(makeEntry(0x2222222222222222ull, 5ull,
+                              glm::vec4(0.125f, 0.125f, 0.75f, 0.875f)));
         lightmap->SetEntries(std::move(entries));
 
         return lightmap;
@@ -199,14 +199,14 @@ TEST_F(LightmapAssetSerializationTest, DiskRoundTripIsBitExact)
 
     // Texels: bit-exact. memcmp over the raw f32 buffer, deliberately not a
     // float comparison — identical bits is the contract.
-    ASSERT_EQ(loaded->GetTexelData().size(), source->GetTexelData().size());
-    EXPECT_EQ(0, std::memcmp(loaded->GetTexelData().data(), source->GetTexelData().data(),
-                             source->GetTexelData().size() * sizeof(f32)))
+    ASSERT_EQ(loaded->GetTexelData().Num(), source->GetTexelData().Num());
+    EXPECT_EQ(0, std::memcmp(loaded->GetTexelData().GetData(), source->GetTexelData().GetData(),
+                             source->GetTexelData().Num() * sizeof(f32)))
         << "Texel data did not round-trip bit-exactly";
 
     // Entity table: field-by-field, ScaleOffset again by bits.
-    ASSERT_EQ(loaded->GetEntries().size(), source->GetEntries().size());
-    for (sizet i = 0; i < source->GetEntries().size(); ++i)
+    ASSERT_EQ(loaded->GetEntries().Num(), source->GetEntries().Num());
+    for (sizet i = 0; i < source->GetEntries().Num(); ++i)
     {
         const auto& a = source->GetEntries()[i];
         const auto& b = loaded->GetEntries()[i];
@@ -339,7 +339,7 @@ TEST_F(LightmapAssetSerializationTest, SerializeRefusesNonFiniteTexels)
 // 5a. Hostile atlas parameters: a ~100-byte file whose Info section sits at
 //     the format caps (16384 x 16384 x 8 pages) implies a 32 GiB texel
 //     buffer. The load must fail cleanly and FAST — before the allocation
-//     guard, this reached `std::vector<f32> texels(...)` and asked the
+//     guard, this reached `TArray<f32> texels(...)` and asked the
 //     allocator for 32 GiB (bad_alloc at best, a machine-freezing zero-fill
 //     at worst). This test completing in milliseconds is itself the proof
 //     that no giant allocation happens.

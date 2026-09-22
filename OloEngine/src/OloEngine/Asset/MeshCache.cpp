@@ -241,7 +241,7 @@ namespace OloEngine
             return AnimationBinarySerializer::Read(cachePath);
         }
 
-        bool SaveAnimationsToCache(const std::filesystem::path& sourcePath, const std::vector<Ref<AnimationClip>>& clips)
+        bool SaveAnimationsToCache(const std::filesystem::path& sourcePath, std::span<const Ref<AnimationClip>> clips)
         {
             OLO_PROFILE_FUNCTION();
 

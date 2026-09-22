@@ -1,5 +1,7 @@
 #pragma once
 
+#include "OloEngine/Containers/Array.h"
+
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
@@ -201,7 +203,7 @@ namespace OloEngine
         }
         [[nodiscard]] u32 GetPoolCapacity() const
         {
-            return static_cast<u32>(m_Pool.size());
+            return static_cast<u32>(m_Pool.Num());
         }
 
       private:
@@ -223,6 +225,7 @@ namespace OloEngine
             Ref<StorageBuffer> Phase2Indirect;  // binding 17 (phase-2)
             u32 TwoPhaseCapacity = 0;           // in instances
         };
+        friend struct TIsTriviallyRelocatable<PoolSlot>;
 
         PoolSlot& AcquireSlot(u32 requiredCapacity);
         void EnsureSlotCapacity(PoolSlot& slot, u32 requiredCapacity) const;
@@ -263,8 +266,43 @@ namespace OloEngine
         // dispatch: on the Vulkan route every SetData mints a fresh arena
         // address, so the Bind() must follow the upload (ADR 0011 §4).
         void UploadCullParams(const UBOStructures::InstanceCullUBO& params);
-        std::vector<PoolSlot> m_Pool;
+        TArray64<PoolSlot> m_Pool;
         u32 m_NextSlot = 0;
         bool m_Initialised = false;
+    };
+    // Six Ref<> handles to separately allocated GPU resources plus scalars and a
+    // glm::vec4; nothing points back into the result, so growth may relocate it.
+    template<>
+    struct TIsTriviallyRelocatable<GPUFrustumCuller::TwoPhaseCullResult>
+    {
+        using Record = GPUFrustumCuller::TwoPhaseCullResult;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::Phase1Output)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Phase1Indirect)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Phase2Output)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Phase2Indirect)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::RejectedBuffer)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::RejectedCounter)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::InputCount)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::IndexCount)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::BaseIndex)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::LocalBoundingSphere)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::RadiusExpansion)>;
+    };
+    // Owns only audited pointer-based containers/Refs and scalar state; no address-relative members.
+    template<>
+    struct TIsTriviallyRelocatable<GPUFrustumCuller::PoolSlot>
+    {
+        using Record = GPUFrustumCuller::PoolSlot;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::InputBuffer)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::OutputBuffer)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::IndirectBuffer)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::RootSeedBuffer)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::RootDataBuffer)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Capacity)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::RejectedBuffer)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::RejectedCounter)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Phase2Output)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Phase2Indirect)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::TwoPhaseCapacity)>;
     };
 } // namespace OloEngine

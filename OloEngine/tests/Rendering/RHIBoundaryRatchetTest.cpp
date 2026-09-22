@@ -204,6 +204,32 @@ namespace OloEngine::Tests
             return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_';
         }
 
+        // Blank `TIsTriviallyRelocatable_V<decltype(X::Member)>` spans, keeping
+        // newlines so line-oriented reporting still lines up.
+        std::string BlankRelocationTraitDecltypes(const std::string& text)
+        {
+            static constexpr std::string_view kNeedle = "TIsTriviallyRelocatable_V<decltype(";
+            std::string out = text;
+            sizet at = 0;
+            while ((at = out.find(kNeedle, at)) != std::string::npos)
+            {
+                const sizet close = out.find(')', at + kNeedle.size());
+                if (close == std::string::npos)
+                {
+                    break;
+                }
+                for (sizet k = at; k <= close; ++k)
+                {
+                    if (out[k] != '\n')
+                    {
+                        out[k] = ' ';
+                    }
+                }
+                at = close + 1;
+            }
+            return out;
+        }
+
         // Count identifiers matching gl[A-Z][A-Za-z0-9_]* immediately followed
         // by '(' (optionally separated by whitespace).
         u32 CountGLCalls(const std::string& blanked)
@@ -472,7 +498,15 @@ namespace OloEngine::Tests
                     rel.starts_with("Platform/") || rel.starts_with("OloEngine/Renderer/Debug/");
                 if (!nativeNamesAllowed)
                 {
-                    const u32 rendererIds = CountOccurrences(blanked, "RendererID");
+                    // A TIsTriviallyRelocatable specialisation names each member
+                    // in a decltype so the audit fails closed when a field that
+                    // cannot be relocated is added (#738). That is a compile-time
+                    // question about a member's TYPE — it emits no code and
+                    // touches no native object — so it is not the identity leak
+                    // this sweep exists to catch. Blank those spans before
+                    // counting rather than exempting whole files.
+                    const std::string identitySource = BlankRelocationTraitDecltypes(blanked);
+                    const u32 rendererIds = CountOccurrences(identitySource, "RendererID");
                     tally.SweepRendererId += rendererIds;
                     if (rendererIds > 0)
                     {

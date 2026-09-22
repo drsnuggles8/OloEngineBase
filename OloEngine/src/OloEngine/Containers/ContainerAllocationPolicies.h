@@ -1836,3 +1836,58 @@ namespace OloEngine
     };
 
 } // namespace OloEngine
+
+namespace OloEngine
+{
+    // Allocator policy opt-ins describe their instantiated storage, not the empty
+    // policy object. Unknown policies (including self-pointing inline storage) fail closed.
+    template<typename Allocator>
+    struct TIsContainerAllocatorRelocatable
+    {
+        static constexpr bool Value = false;
+    };
+    template<int Bits>
+    struct TIsContainerAllocatorRelocatable<TSizedHeapAllocator<Bits>>
+    {
+        static constexpr bool Value = true;
+    };
+    template<int Bits>
+    struct TIsContainerAllocatorRelocatable<TSizedDefaultAllocator<Bits>>
+    {
+        static constexpr bool Value = true;
+    };
+    template<int Bits>
+    struct TIsContainerAllocatorRelocatable<TSizedNonshrinkingAllocator<Bits>>
+    {
+        static constexpr bool Value = true;
+    };
+    template<u32 Alignment>
+    struct TIsContainerAllocatorRelocatable<TAlignedHeapAllocator<Alignment>>
+    {
+        static constexpr bool Value = true;
+    };
+    template<u32 Count, int Bits, typename Secondary>
+    struct TIsContainerAllocatorRelocatable<TSizedInlineAllocator<Count, Bits, Secondary>>
+    {
+        static constexpr bool Value = TIsContainerAllocatorRelocatable<Secondary>::Value;
+    };
+    template<u32 Count>
+    struct TIsContainerAllocatorRelocatable<TFixedAllocator<Count>>
+    {
+        static constexpr bool Value = true;
+    };
+    template<>
+    struct TIsContainerAllocatorRelocatable<FDefaultBitArrayAllocator> : TIsContainerAllocatorRelocatable<TInlineAllocator<4>>
+    {
+    };
+    template<typename Elements, typename Bits>
+    struct TIsContainerAllocatorRelocatable<TSparseArrayAllocator<Elements, Bits>>
+    {
+        static constexpr bool Value = TIsContainerAllocatorRelocatable<Elements>::Value && TIsContainerAllocatorRelocatable<Bits>::Value;
+    };
+    template<>
+    struct TIsContainerAllocatorRelocatable<FDefaultSparseArrayAllocator> : TIsContainerAllocatorRelocatable<TSparseArrayAllocator<>>
+    {
+    };
+
+} // namespace OloEngine

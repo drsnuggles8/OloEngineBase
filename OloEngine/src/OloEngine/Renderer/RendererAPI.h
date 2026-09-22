@@ -1,6 +1,8 @@
 #pragma once
 
 #include "OloEngine/Renderer/VertexArray.h"
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/String.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/RayTracing/RayTracingTypes.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
@@ -46,6 +48,76 @@ namespace OloEngine
                    GpuWrittenFieldOffsetBytes <= SizeBytes - sizeof(u64) &&
                    (GpuWrittenFieldOffsetBytes % alignof(u64)) == 0u;
         }
+    };
+
+    struct RendererParallelRecordingRegionStats
+    {
+        FString PassName;
+        bool Parallel = false;
+        f64 WorkerRecordMs = 0.0;
+        f64 RegionWallMs = 0.0;
+        // Time after the caller finished its last item until ParallelFor
+        // returned, including scheduler and join bookkeeping.
+        f64 JoinWaitMs = 0.0;
+        TArray<f64> ItemRecordMs;
+        TArray<FString> ItemPassNames;
+        // Optional micro-cost probe: OLO_VK_RECORDING_COSTS=1 at process start.
+        f64 SelectionSeedMs = 0.0;
+        f64 AttachmentPrepareMs = 0.0;
+        f64 SampledImagePrepareMs = 0.0;
+        f64 PipelineLookupMs = 0.0;
+        // Caller-side seeding of every item's frontend context: the
+        // dispatcher cache reset plus the per-item copy of each shared
+        // upload object. It scales with items x uploads, so on a small
+        // scene it is the largest fixed cost of forking at all — it has to
+        // be attributable rather than inferred from RegionWallMs.
+        f64 FrontendPrepareMs = 0.0;
+    };
+
+    // Each owned allocation moves independently; records hold no interior pointers.
+    template<>
+    struct TIsTriviallyRelocatable<RendererParallelRecordingRegionStats>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(RendererParallelRecordingRegionStats::PassName)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererParallelRecordingRegionStats::Parallel)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererParallelRecordingRegionStats::WorkerRecordMs)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererParallelRecordingRegionStats::RegionWallMs)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererParallelRecordingRegionStats::JoinWaitMs)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererParallelRecordingRegionStats::ItemRecordMs)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererParallelRecordingRegionStats::ItemPassNames)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererParallelRecordingRegionStats::SelectionSeedMs)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererParallelRecordingRegionStats::AttachmentPrepareMs)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererParallelRecordingRegionStats::SampledImagePrepareMs)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererParallelRecordingRegionStats::PipelineLookupMs)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererParallelRecordingRegionStats::FrontendPrepareMs)>::Value;
+    };
+
+    struct RendererParallelRecordingFrameStats
+    {
+        u32 Regions = 0;             ///< RecordParallel calls that forked this frame.
+        u32 InlineRegions = 0;       ///< RecordParallel calls that ran inline (unsupported, declined, or item count < 2).
+        u32 SecondariesExecuted = 0; ///< Secondary command buffers executed into the primary.
+        u32 MergeConflicts = 0;      ///< Subresources two items transitioned non-identically (amendment (92) rule 5).
+        u32 DeclinedGroups = 0;      ///< Whole-pass groups prepared then run sequentially instead (NoteDeclinedRecordingGroup).
+        f64 WorkerRecordMs = 0.0;    ///< Sum of per-item recording time, including caller items.
+        f64 RegionWallMs = 0.0;      ///< Sum of fork-to-join wall time on the render thread.
+        f64 JoinWaitMs = 0.0;
+        TArray<RendererParallelRecordingRegionStats> RegionTimings;
+    };
+
+    // Each owned allocation moves independently; records hold no interior pointers.
+    template<>
+    struct TIsTriviallyRelocatable<RendererParallelRecordingFrameStats>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(RendererParallelRecordingFrameStats::Regions)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererParallelRecordingFrameStats::InlineRegions)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererParallelRecordingFrameStats::SecondariesExecuted)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererParallelRecordingFrameStats::MergeConflicts)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererParallelRecordingFrameStats::DeclinedGroups)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererParallelRecordingFrameStats::WorkerRecordMs)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererParallelRecordingFrameStats::RegionWallMs)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererParallelRecordingFrameStats::JoinWaitMs)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererParallelRecordingFrameStats::RegionTimings)>::Value;
     };
 
     class RendererAPI
@@ -406,44 +478,11 @@ namespace OloEngine
         // otherwise nothing to see.
         virtual void NoteDeclinedRecordingGroup() {}
 
-        struct ParallelRecordingRegionStats
-        {
-            std::string PassName;
-            bool Parallel = false;
-            f64 WorkerRecordMs = 0.0;
-            f64 RegionWallMs = 0.0;
-            // Time after the caller finished its last item until ParallelFor
-            // returned, including scheduler and join bookkeeping.
-            f64 JoinWaitMs = 0.0;
-            std::vector<f64> ItemRecordMs;
-            std::vector<std::string> ItemPassNames;
-            // Optional micro-cost probe: OLO_VK_RECORDING_COSTS=1 at process start.
-            f64 SelectionSeedMs = 0.0;
-            f64 AttachmentPrepareMs = 0.0;
-            f64 SampledImagePrepareMs = 0.0;
-            f64 PipelineLookupMs = 0.0;
-            // Caller-side seeding of every item's frontend context: the
-            // dispatcher cache reset plus the per-item copy of each shared
-            // upload object. It scales with items x uploads, so on a small
-            // scene it is the largest fixed cost of forking at all — it has to
-            // be attributable rather than inferred from RegionWallMs.
-            f64 FrontendPrepareMs = 0.0;
-        };
+        using ParallelRecordingRegionStats = RendererParallelRecordingRegionStats;
 
         // Frame-level telemetry for the parallel recorder, reset per frame by
         // the backend's frame bracket. Vulkan reports inline regions too.
-        struct ParallelRecordingFrameStats
-        {
-            u32 Regions = 0;             ///< RecordParallel calls that forked this frame.
-            u32 InlineRegions = 0;       ///< RecordParallel calls that ran inline (unsupported, declined, or item count < 2).
-            u32 SecondariesExecuted = 0; ///< Secondary command buffers executed into the primary.
-            u32 MergeConflicts = 0;      ///< Subresources two items transitioned non-identically (amendment (92) rule 5).
-            u32 DeclinedGroups = 0;      ///< Whole-pass groups prepared then run sequentially instead (NoteDeclinedRecordingGroup).
-            f64 WorkerRecordMs = 0.0;    ///< Sum of per-item recording time, including caller items.
-            f64 RegionWallMs = 0.0;      ///< Sum of fork-to-join wall time on the render thread.
-            f64 JoinWaitMs = 0.0;
-            std::vector<ParallelRecordingRegionStats> RegionTimings;
-        };
+        using ParallelRecordingFrameStats = RendererParallelRecordingFrameStats;
         [[nodiscard]] virtual ParallelRecordingFrameStats GetParallelRecordingStats() const
         {
             return {};

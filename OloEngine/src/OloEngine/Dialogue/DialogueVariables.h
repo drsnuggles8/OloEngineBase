@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Containers/String.h"
 
 #include <string>
 #include <unordered_map>
@@ -8,7 +9,8 @@
 
 namespace OloEngine
 {
-    using DialogueVariableValue = std::variant<bool, i32, f32, std::string>; // matches DialoguePropertyValue
+    // Values are owned here; the public string API remains a Lua/callback seam.
+    using DialogueVariableValue = std::variant<bool, i32, f32, FString>;
 
     class DialogueVariables
     {

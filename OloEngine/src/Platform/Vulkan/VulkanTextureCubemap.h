@@ -71,9 +71,9 @@ namespace OloEngine
         {
             return m_RHIHandle.Get();
         }
-        [[nodiscard]] const std::string& GetPath() const override
+        [[nodiscard]] std::string_view GetPath() const override
         {
-            return m_Path;
+            return m_Path.ToView();
         }
         [[nodiscard]] bool IsLoaded() const override
         {
@@ -102,8 +102,8 @@ namespace OloEngine
         void SetFaceData(u32 faceIndex, void* data, u32 size) override;
         bool SetFaceDataMip(u32 faceIndex, u32 mipLevel, void* data, u32 size) override;
         void GenerateMipmaps() const override;
-        bool GetFaceData(u32 faceIndex, std::vector<u8>& outData, u32 mipLevel = 0) const override;
-        bool GetData(std::vector<u8>& outData, u32 mipLevel = 0) const override;
+        bool GetFaceData(u32 faceIndex, TArray64<u8>& outData, u32 mipLevel = 0) const override;
+        bool GetData(TArray64<u8>& outData, u32 mipLevel = 0) const override;
 
       private:
         // The shared single-submit face readback behind GetFaceData and
@@ -115,12 +115,12 @@ namespace OloEngine
         // GetData previously looped GetFaceData six times, paying the flush +
         // blocking-submit + readback-buffer create/destroy round per face.
         // `what` labels the one-shot with the public entry point's name.
-        [[nodiscard]] bool ReadFaces(u32 baseFace, u32 faceCount, u32 mipLevel, std::vector<u8>& outData,
+        [[nodiscard]] bool ReadFaces(u32 baseFace, u32 faceCount, u32 mipLevel, TArray64<u8>& outData,
                                      const char* what) const;
 
         TextureSpecification m_Specification;
         CubemapSpecification m_CubemapSpecification;
-        std::string m_Path;
+        FString m_Path;
         u32 m_MipLevels = 1;
         VkImage m_Image = VK_NULL_HANDLE;
         VmaAllocation m_Allocation = VK_NULL_HANDLE;

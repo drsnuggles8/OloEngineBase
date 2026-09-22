@@ -22,6 +22,8 @@
 // they are asserted directly rather than inferred from a rendered frame.
 
 #include "OloEnginePCH.h"
+#include <span>
+#include "OloEngine/Containers/Array.h"
 
 #include "RenderPropertyTest.h"
 
@@ -61,9 +63,9 @@ namespace
 
     // A field with structure in both axes, so a Smooth pass has something to
     // average and a transposed index would not cancel out.
-    std::vector<f32> MakeTestField()
+    TArray<f32> MakeTestField()
     {
-        std::vector<f32> heights(static_cast<sizet>(kResolution) * kResolution);
+        TArray<f32> heights(static_cast<sizet>(kResolution) * kResolution);
         for (u32 z = 0; z < kResolution; ++z)
         {
             for (u32 x = 0; x < kResolution; ++x)
@@ -91,10 +93,10 @@ namespace
         sizet Index = 0;
     };
 
-    FieldDiff CompareFields(const std::vector<f32>& a, const std::vector<f32>& b)
+    FieldDiff CompareFields(const TArray<f32>& a, const TArray<f32>& b)
     {
         FieldDiff diff;
-        const sizet n = std::min(a.size(), b.size());
+        const sizet n = std::min(a.Num(), b.Num());
         for (sizet i = 0; i < n; ++i)
         {
             const f32 d = std::abs(a[i] - b[i]);
@@ -109,10 +111,10 @@ namespace
 
     // Number of texels that actually moved, so a "parity" pass cannot be satisfied
     // by two implementations that both did nothing.
-    u32 CountChanged(const std::vector<f32>& before, const std::vector<f32>& after)
+    u32 CountChanged(const TArray<f32>& before, const TArray<f32>& after)
     {
         u32 changed = 0;
-        const sizet n = std::min(before.size(), after.size());
+        const sizet n = std::min(before.Num(), after.Num());
         for (sizet i = 0; i < n; ++i)
         {
             if (std::abs(after[i] - before[i]) > 1e-6f)
@@ -167,12 +169,12 @@ TEST_P(TerrainGPUBrushParity, MatchesTheCpuBrushOnANonSquareTerrain)
 
     // --- CPU reference -------------------------------------------------------
     Ref<TerrainData> cpuTerrain = MakeTerrain();
-    const std::vector<f32> original = cpuTerrain->GetHeightData();
+    const TArray<f32> original = cpuTerrain->GetHeightData();
     const f32 targetHeight = cpuTerrain->GetHeightAt(worldPos.x / kWorldSizeX, worldPos.z / kWorldSizeZ);
 
     const TerrainBrush::DirtyRegion cpuRegion =
         TerrainBrush::Apply(*cpuTerrain, settings, worldPos, kWorldSizeX, kWorldSizeZ, kHeightScale, kDeltaTime);
-    const std::vector<f32> cpuResult = cpuTerrain->GetHeightData();
+    const TArray<f32> cpuResult = cpuTerrain->GetHeightData();
 
     ASSERT_GT(cpuRegion.Width, 0u) << "The CPU reference brush touched nothing — the test inputs are wrong, "
                                       "not the GPU kernel";
@@ -200,10 +202,10 @@ TEST_P(TerrainGPUBrushParity, MatchesTheCpuBrushOnANonSquareTerrain)
            "this issue removes) or it forgot to call MarkGPUModified (so every CPU consumer now reads a "
            "pre-stroke surface, silently)";
 
-    const std::vector<f32> gpuResult = gpuTerrain->GetHeightData();
+    const TArray<f32> gpuResult = gpuTerrain->GetHeightData();
     EXPECT_FALSE(gpuTerrain->IsCPUMirrorStale()) << "Reading the mirror did not clear the stale flag";
 
-    ASSERT_EQ(gpuResult.size(), cpuResult.size());
+    ASSERT_EQ(gpuResult.Num(), cpuResult.Num());
     EXPECT_GT(CountChanged(original, gpuResult), 100u) << "The GPU kernel dispatched but changed nothing";
 
     // Tolerance: both sides run the identical float formula, but the GPU evaluates
@@ -475,8 +477,8 @@ TEST(TerrainGPUPaintBrush, MatchesTheCpuPaintBrushAcrossBothSplatmaps)
     const TerrainPaintBrush::DirtyRegion cpuRegion =
         TerrainPaintBrush::Apply(*cpuMaterial, settings, worldPos, kWorldSizeX, kWorldSizeZ, kDeltaTime);
     ASSERT_GT(cpuRegion.Width, 0u);
-    const std::vector<u8> cpuSplat0 = cpuMaterial->GetSplatmapData(0);
-    const std::vector<u8> cpuSplat1 = cpuMaterial->GetSplatmapData(1);
+    const TArray<u8> cpuSplat0 = cpuMaterial->GetSplatmapData(0);
+    const TArray<u8> cpuSplat1 = cpuMaterial->GetSplatmapData(1);
 
     Ref<TerrainMaterial> gpuMaterial = MakeMaterial(kLayerCount);
     const TerrainPaintBrush::DirtyRegion gpuRegion =
@@ -491,14 +493,14 @@ TEST(TerrainGPUPaintBrush, MatchesTheCpuPaintBrushAcrossBothSplatmaps)
         << "ApplyPaint did not mark the splatmap mirror stale — every CPU consumer (foliage density masks, "
            "save) would keep reading the pre-stroke splatmap";
 
-    const std::vector<u8> gpuSplat0 = gpuMaterial->GetSplatmapData(0);
-    const std::vector<u8> gpuSplat1 = gpuMaterial->GetSplatmapData(1);
+    const TArray<u8> gpuSplat0 = gpuMaterial->GetSplatmapData(0);
+    const TArray<u8> gpuSplat1 = gpuMaterial->GetSplatmapData(1);
     // All four, not just the two pairs: the loop below is bounded by
-    // cpuSplat0.size() and indexes cpuSplat1/gpuSplat1 with the same i, so pairing
+    // cpuSplat0.Num() and indexes cpuSplat1/gpuSplat1 with the same i, so pairing
     // the sizes up separately would still let a short splatmap 1 read out of bounds.
-    ASSERT_EQ(gpuSplat0.size(), cpuSplat0.size());
-    ASSERT_EQ(gpuSplat1.size(), cpuSplat1.size());
-    ASSERT_EQ(cpuSplat1.size(), cpuSplat0.size());
+    ASSERT_EQ(gpuSplat0.Num(), cpuSplat0.Num());
+    ASSERT_EQ(gpuSplat1.Num(), cpuSplat1.Num());
+    ASSERT_EQ(cpuSplat1.Num(), cpuSplat0.Num());
 
     // Tolerance of one level, not zero: both sides quantise to u8 at every
     // assignment, and the GPU reaches those bytes through an RGBA8 unorm image
@@ -508,7 +510,7 @@ TEST(TerrainGPUPaintBrush, MatchesTheCpuPaintBrushAcrossBothSplatmaps)
     i32 worst0 = 0;
     i32 worst1 = 0;
     sizet worstIndex = 0;
-    for (sizet i = 0; i < cpuSplat0.size(); ++i)
+    for (sizet i = 0; i < cpuSplat0.Num(); ++i)
     {
         const i32 d0 = std::abs(static_cast<i32>(cpuSplat0[i]) - static_cast<i32>(gpuSplat0[i]));
         const i32 d1 = std::abs(static_cast<i32>(cpuSplat1[i]) - static_cast<i32>(gpuSplat1[i]));
@@ -528,7 +530,7 @@ TEST(TerrainGPUPaintBrush, MatchesTheCpuPaintBrushAcrossBothSplatmaps)
     // Guard against a vacuous pass: the stroke must actually have painted.
     const u32 layerChannel = settings.TargetLayer % 4;
     u32 painted = 0;
-    for (sizet px = layerChannel; px < gpuSplat1.size(); px += 4)
+    for (sizet px = layerChannel; px < gpuSplat1.Num(); px += 4)
     {
         if (gpuSplat1[px] > 0)
             ++painted;
@@ -551,7 +553,7 @@ TEST(TerrainDataSyncPoint, GpuEditsReachEveryCpuConsumerThroughOneSync)
     }
 
     Ref<TerrainData> terrain = MakeTerrain();
-    const std::vector<f32> before = terrain->GetHeightData();
+    const TArray<f32> before = terrain->GetHeightData();
     EXPECT_FALSE(terrain->IsCPUMirrorStale());
 
     TerrainBrushSettings settings;
@@ -575,7 +577,7 @@ TEST(TerrainDataSyncPoint, GpuEditsReachEveryCpuConsumerThroughOneSync)
            "disagree with what is on screen.";
 
     // And the raw mirror agrees with the query.
-    const std::vector<f32> after = terrain->GetHeightData();
+    const TArray<f32> after = terrain->GetHeightData();
     EXPECT_GT(after[centreIndex], before[centreIndex]);
     EXPECT_GT(CountChanged(before, after), 100u);
 }
@@ -611,7 +613,7 @@ TEST(TerrainTextureUndoStack, SnapshotAndRestoreRoundTripARegion)
     }
 
     Ref<TerrainData> terrain = MakeTerrain();
-    const std::vector<f32> original = terrain->GetHeightData();
+    const TArray<f32> original = terrain->GetHeightData();
 
     TerrainTextureUndoStack stack;
     const auto snapshot = stack.Capture(terrain->GetGPUHeightmap(), 0, 0, kResolution, kResolution);
@@ -627,14 +629,14 @@ TEST(TerrainTextureUndoStack, SnapshotAndRestoreRoundTripARegion)
                   .Width,
               0u);
 
-    const std::vector<f32> edited = terrain->GetHeightData();
+    const TArray<f32> edited = terrain->GetHeightData();
     ASSERT_GT(CountChanged(original, edited), 100u) << "The stroke changed nothing; the restore below "
                                                        "would pass trivially";
 
     ASSERT_TRUE(stack.Restore(snapshot, terrain->GetGPUHeightmap()));
     terrain->MarkGPUModified();
 
-    const std::vector<f32> restored = terrain->GetHeightData();
+    const TArray<f32> restored = terrain->GetHeightData();
     const FieldDiff diff = CompareFields(original, restored);
     EXPECT_LE(diff.MaxAbs, 0.0f) << "Undo did not restore the pre-stroke field exactly (worst diff "
                                  << diff.MaxAbs << " at index " << diff.Index

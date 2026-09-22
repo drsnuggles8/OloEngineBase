@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Containers/Array.h"
 #include "OloEngine/Renderer/LightCulling/LightCullingBuffer.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 
@@ -56,9 +57,9 @@ namespace OloEngine
         m_Initialized = false;
     }
 
-    void LightCullingBuffer::Update(const std::vector<GPUPointLight>& pointLights,
-                                    const std::vector<GPUSpotLight>& spotLights,
-                                    const std::vector<GPUSphereAreaLight>& sphereAreaLights)
+    void LightCullingBuffer::Update(std::span<const GPUPointLight> pointLights,
+                                    std::span<const GPUSpotLight> spotLights,
+                                    std::span<const GPUSphereAreaLight> sphereAreaLights)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -80,7 +81,8 @@ namespace OloEngine
 
         if (m_PointLightCount > 0 && m_PointLightSSBO)
         {
-            std::vector<GPUPointLight> shifted(pointLights);
+            TArray64<GPUPointLight> shifted;
+            shifted.Append(pointLights.data(), static_cast<i64>(pointLights.size()));
             for (auto& light : shifted)
                 light.PositionAndRadius -= glm::vec4(origin, 0.0f);
             // Resize if needed
@@ -89,12 +91,13 @@ namespace OloEngine
             {
                 m_PointLightSSBO->Resize(requiredSize);
             }
-            m_PointLightSSBO->SetData(shifted.data(), requiredSize);
+            m_PointLightSSBO->SetData(shifted.GetData(), requiredSize);
         }
 
         if (m_SpotLightCount > 0 && m_SpotLightSSBO)
         {
-            std::vector<GPUSpotLight> shifted(spotLights);
+            TArray64<GPUSpotLight> shifted;
+            shifted.Append(spotLights.data(), static_cast<i64>(spotLights.size()));
             for (auto& light : shifted)
                 light.PositionAndRadius -= glm::vec4(origin, 0.0f);
             const u32 requiredSize = m_SpotLightCount * sizeof(GPUSpotLight);
@@ -102,12 +105,13 @@ namespace OloEngine
             {
                 m_SpotLightSSBO->Resize(requiredSize);
             }
-            m_SpotLightSSBO->SetData(shifted.data(), requiredSize);
+            m_SpotLightSSBO->SetData(shifted.GetData(), requiredSize);
         }
 
         if (m_SphereAreaLightCount > 0 && m_SphereAreaLightSSBO)
         {
-            std::vector<GPUSphereAreaLight> shifted(sphereAreaLights);
+            TArray64<GPUSphereAreaLight> shifted;
+            shifted.Append(sphereAreaLights.data(), static_cast<i64>(sphereAreaLights.size()));
             for (auto& light : shifted)
                 light.PositionAndRadius -= glm::vec4(origin, 0.0f);
             const u32 requiredSize = m_SphereAreaLightCount * sizeof(GPUSphereAreaLight);
@@ -115,7 +119,7 @@ namespace OloEngine
             {
                 m_SphereAreaLightSSBO->Resize(requiredSize);
             }
-            m_SphereAreaLightSSBO->SetData(shifted.data(), requiredSize);
+            m_SphereAreaLightSSBO->SetData(shifted.GetData(), requiredSize);
         }
     }
 

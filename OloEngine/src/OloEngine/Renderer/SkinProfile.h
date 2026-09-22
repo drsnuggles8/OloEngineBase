@@ -1,5 +1,7 @@
 #pragma once
 
+#include "OloEngine/Containers/String.h"
+
 // =============================================================================
 // SkinProfile.h — the authored parameter set a skin material points at, and the
 // separately versioned algorithm that evaluates it. Issue #1231.
@@ -906,13 +908,13 @@ namespace OloEngine
         }
 
         // Authoring label. Not an identity — the AssetHandle is.
-        [[nodiscard]] const std::string& GetName() const noexcept
+        [[nodiscard]] std::string_view GetName() const noexcept
         {
-            return m_Name;
+            return m_Name.ToView();
         }
-        void SetName(std::string name)
+        void SetName(std::string_view name)
         {
-            m_Name = std::move(name);
+            m_Name = name;
         }
 
         [[nodiscard]] const SkinProfileParameters& GetParameters() const noexcept
@@ -943,7 +945,7 @@ namespace OloEngine
         }
 
       private:
-        std::string m_Name = "Skin";
+        FString m_Name = "Skin";
         SkinProfileParameters m_Parameters{};
     };
 

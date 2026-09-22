@@ -61,7 +61,7 @@ namespace OloEngine
 
     struct EnvironmentMapSpecification
     {
-        std::string FilePath;
+        FString FilePath;
         u32 Resolution = 512;
         ImageFormat Format = ImageFormat::RGBA32F;
         bool GenerateIBL = true;

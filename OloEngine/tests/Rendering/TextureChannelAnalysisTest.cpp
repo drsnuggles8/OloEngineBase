@@ -148,13 +148,13 @@ TEST(TextureChannelAnalysis, BC4RoundTripsGreyscaleAndSamplesAsRRR1)
     const CompressedTextureImage image = TextureCompression::EncodeBC4(source.data(), kW, kH, 4, false);
     ASSERT_TRUE(image.IsValid());
     EXPECT_EQ(image.Format, TextureCompressionFormat::BC4);
-    EXPECT_EQ(image.Mips[0].size(), TextureCompression::MipByteSize(TextureCompressionFormat::BC4, kW, kH));
+    EXPECT_EQ(image.Mips[0].Num(), TextureCompression::MipByteSize(TextureCompressionFormat::BC4, kW, kH));
 
-    std::vector<u8> decoded;
+    TArray64<u8> decoded;
     u32 dw = 0;
     u32 dh = 0;
     ASSERT_TRUE(TextureCompression::DecodeToRGBA8(image, 0, decoded, dw, dh));
-    ASSERT_EQ(decoded.size(), static_cast<sizet>(kW) * kH * 4);
+    ASSERT_EQ(decoded.Num(), static_cast<sizet>(kW) * kH * 4);
 
     double mse = 0.0;
     for (sizet i = 0; i < static_cast<sizet>(kW) * kH; ++i)
@@ -337,11 +337,11 @@ TEST(TextureChannelAnalysis, TwoChannelSourceIsGreyPlusAlphaNotRedGreen)
     EXPECT_TRUE(image.HasAlpha) << "a grey+alpha source carries alpha; reporting it opaque mis-sorts it";
 
     // And the alpha has to survive as alpha rather than land in green.
-    std::vector<u8> decoded;
+    TArray64<u8> decoded;
     u32 dw = 0;
     u32 dh = 0;
     ASSERT_TRUE(TextureCompression::DecodeToRGBA8(image, 0, decoded, dw, dh));
-    ASSERT_EQ(decoded.size(), static_cast<sizet>(kW) * kH * 4);
+    ASSERT_EQ(decoded.Num(), static_cast<sizet>(kW) * kH * 4);
 
     // CompressImageFile loads with the runtime loader's vertical flip, so compare against
     // a flipped expectation rather than the source order.

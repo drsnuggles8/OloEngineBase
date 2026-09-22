@@ -324,8 +324,8 @@ namespace OloEngine
         ~TCompactSet()
         {
             // TCompactSet relocates its elements bitwise like the other UE containers.
-            OLO_STATIC_ASSERT_WARN(TIsTriviallyRelocatable_V<ElementType>,
-                                   "This container can only be used with trivially relocatable types");
+            static_assert(TIsTriviallyRelocatable_V<ElementType>,
+                          "This container can only be used with trivially relocatable types");
 
             Empty(0);
         }
@@ -1826,4 +1826,13 @@ namespace OloEngine
         return !LegacyCompareEqual(A, B);
     }
 
+} // namespace OloEngine
+
+namespace OloEngine
+{
+    template<typename T, typename K, typename A>
+    struct TIsTriviallyRelocatable<TCompactSet<T, K, A>>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable_V<T> && TIsContainerAllocatorRelocatable<A>::Value;
+    };
 } // namespace OloEngine

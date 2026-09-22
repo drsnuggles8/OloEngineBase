@@ -18,6 +18,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <vector>
 
 using namespace OloEngine;
 
@@ -205,6 +206,29 @@ TEST(GPUResourceQueueComputeShader, CreateComputeShaderCommandWithEmptySourceRep
     EXPECT_FALSE(received);
 }
 
+TEST(GPUResourceQueueCommands, BatchTransferPreservesFifoAndDefersNewCommands)
+{
+    GPUResourceQueue::Clear();
+    std::vector<int> executed;
+    GPUResourceQueue::EnqueueCustom([&]
+                                    {
+        executed.push_back(1);
+        GPUResourceQueue::EnqueueCustom([&] { executed.push_back(4); }); });
+    GPUResourceQueue::EnqueueCustom([&]
+                                    { executed.push_back(2); });
+    GPUResourceQueue::EnqueueCustom([&]
+                                    { executed.push_back(3); });
+
+    EXPECT_EQ(GPUResourceQueue::ProcessBatch(0), 0u);
+    EXPECT_EQ(GPUResourceQueue::GetPendingCount(), 3u);
+    EXPECT_EQ(GPUResourceQueue::ProcessBatch(2), 2u);
+    EXPECT_EQ(executed, (std::vector<int>{ 1, 2 }));
+    EXPECT_EQ(GPUResourceQueue::GetPendingCount(), 2u);
+    EXPECT_EQ(GPUResourceQueue::ProcessAll(), 2u);
+    EXPECT_EQ(executed, (std::vector<int>{ 1, 2, 3, 4 }));
+    EXPECT_FALSE(GPUResourceQueue::HasPending());
+}
+
 // Mirrors exactly what CreateFromFileAsync's worker does — load the source then
 // enqueue a CreateComputeShaderCommand — but synchronously, so it is a clean,
 // deterministic headless test of the producer hand-off without standing up the
@@ -221,8 +245,8 @@ TEST(GPUResourceQueueComputeShader, LoadedSourceEnqueuesAComputeShaderCreationCo
     ASSERT_TRUE(loaded.IsValid());
 
     RawShaderData data;
-    data.Name = loaded.Name;
-    data.ComputeSource = loaded.Source;
+    data.Name = FString(loaded.Name);
+    data.ComputeSource = FString(loaded.Source);
     GPUResourceQueue::Enqueue<CreateComputeShaderCommand>(std::move(data), [](Ref<ComputeShader>) {});
 
     EXPECT_TRUE(GPUResourceQueue::HasPending());

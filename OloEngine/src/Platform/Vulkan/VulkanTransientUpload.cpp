@@ -165,13 +165,13 @@ namespace OloEngine::VulkanUpload
         return 0;
     }
 
-    std::vector<u8> ExpandRgbToRgba(ImageFormat format, const void* data, u64 pixelCount)
+    TArray64<u8> ExpandRgbToRgba(ImageFormat format, const void* data, u64 pixelCount)
     {
-        std::vector<u8> out;
+        TArray64<u8> out;
         if (format == ImageFormat::RGB8)
         {
             const auto* src = static_cast<const u8*>(data);
-            out.resize(pixelCount * 4);
+            out.SetNum(pixelCount * 4, EAllowShrinking::No);
             for (u64 i = 0; i < pixelCount; ++i)
             {
                 out[i * 4 + 0] = src[i * 3 + 0];
@@ -183,8 +183,8 @@ namespace OloEngine::VulkanUpload
         else if (format == ImageFormat::RGB32F)
         {
             const auto* src = static_cast<const f32*>(data);
-            out.resize(pixelCount * 16);
-            auto* dst = reinterpret_cast<f32*>(out.data());
+            out.SetNum(pixelCount * 16, EAllowShrinking::No);
+            auto* dst = reinterpret_cast<f32*>(out.GetData());
             for (u64 i = 0; i < pixelCount; ++i)
             {
                 dst[i * 4 + 0] = src[i * 3 + 0];

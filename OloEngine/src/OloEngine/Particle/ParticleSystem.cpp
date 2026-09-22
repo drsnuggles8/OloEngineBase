@@ -14,18 +14,11 @@ namespace OloEngine
         : m_Pool(maxParticles)
     {
         m_TrailData.Resize(maxParticles, TrailModule.MaxTrailPoints);
-
-        // Wire up swap callback so trail data stays in sync when particles die
-        m_Pool.m_OnSwapCallback = [this](u32 a, u32 b)
-        { m_TrailData.SwapParticles(a, b); };
     }
 
     ParticleSystem::ParticleSystem(const ParticleSystem& other)
         : m_Pool(other.m_Pool), m_TrailData(other.m_TrailData), m_PendingTriggers(other.m_PendingTriggers), m_SortedIndices(other.m_SortedIndices), m_SortDistances(other.m_SortDistances), m_JoltScene(other.m_JoltScene), m_EmitterPosition(other.m_EmitterPosition), m_BoundingSphere(other.m_BoundingSphere), m_ParentVelocity(other.m_ParentVelocity), m_Time(other.m_Time), m_LODSpawnRateMultiplier(other.m_LODSpawnRateMultiplier), m_HasWarmedUp(other.m_HasWarmedUp), Playing(other.Playing), Looping(other.Looping), Duration(other.Duration), PlaybackSpeed(other.PlaybackSpeed), WarmUpTime(other.WarmUpTime), SimulationSpace(other.SimulationSpace), BlendMode(other.BlendMode), RenderMode(other.RenderMode), DepthSortEnabled(other.DepthSortEnabled), UseGPU(other.UseGPU), WindInfluence(other.WindInfluence), GPUNoiseStrength(other.GPUNoiseStrength), GPUNoiseFrequency(other.GPUNoiseFrequency), GPUGroundCollision(other.GPUGroundCollision), GPUGroundY(other.GPUGroundY), GPUCollisionBounce(other.GPUCollisionBounce), GPUCollisionFriction(other.GPUCollisionFriction), SoftParticlesEnabled(other.SoftParticlesEnabled), SoftParticleDistance(other.SoftParticleDistance), VelocityInheritance(other.VelocityInheritance), LODDistance1(other.LODDistance1), LODMaxDistance(other.LODMaxDistance), Emitter(other.Emitter), ColorModule(other.ColorModule), SizeModule(other.SizeModule), VelocityModule(other.VelocityModule), RotationModule(other.RotationModule), GravityModule(other.GravityModule), DragModule(other.DragModule), NoiseModule(other.NoiseModule), CollisionModule(other.CollisionModule), ForceFields(other.ForceFields), TrailModule(other.TrailModule), SubEmitterModule(other.SubEmitterModule), TextureSheetModule(other.TextureSheetModule), m_Random(other.m_Random), m_RandomSeeded(other.m_RandomSeeded)
     {
-        // Rewire callback to THIS instance's trail data
-        m_Pool.m_OnSwapCallback = [this](u32 a, u32 b)
-        { m_TrailData.SwapParticles(a, b); };
     }
 
     ParticleSystem& ParticleSystem::operator=(const ParticleSystem& other)
@@ -97,11 +90,7 @@ namespace OloEngine
         m_RandomSeeded = other.m_RandomSeeded;
 
         // GPU system is not copied — it will be lazily initialized on next Update
-        m_GPUSystem.reset();
-
-        // Rewire callback to THIS instance
-        m_Pool.m_OnSwapCallback = [this](u32 a, u32 b)
-        { m_TrailData.SwapParticles(a, b); };
+        m_GPUSystem.Reset();
 
         return *this;
     }
@@ -109,9 +98,6 @@ namespace OloEngine
     ParticleSystem::ParticleSystem(ParticleSystem&& other) noexcept
         : m_Pool(std::move(other.m_Pool)), m_TrailData(std::move(other.m_TrailData)), m_GPUSystem(std::move(other.m_GPUSystem)), m_PendingTriggers(std::move(other.m_PendingTriggers)), m_SortedIndices(std::move(other.m_SortedIndices)), m_SortDistances(std::move(other.m_SortDistances)), m_JoltScene(other.m_JoltScene), m_EmitterPosition(other.m_EmitterPosition), m_BoundingSphere(other.m_BoundingSphere), m_ParentVelocity(other.m_ParentVelocity), m_Time(other.m_Time), m_LODSpawnRateMultiplier(other.m_LODSpawnRateMultiplier), m_HasWarmedUp(other.m_HasWarmedUp), Playing(other.Playing), Looping(other.Looping), Duration(other.Duration), PlaybackSpeed(other.PlaybackSpeed), WarmUpTime(other.WarmUpTime), SimulationSpace(other.SimulationSpace), BlendMode(other.BlendMode), RenderMode(other.RenderMode), DepthSortEnabled(other.DepthSortEnabled), UseGPU(other.UseGPU), WindInfluence(other.WindInfluence), GPUNoiseStrength(other.GPUNoiseStrength), GPUNoiseFrequency(other.GPUNoiseFrequency), GPUGroundCollision(other.GPUGroundCollision), GPUGroundY(other.GPUGroundY), GPUCollisionBounce(other.GPUCollisionBounce), GPUCollisionFriction(other.GPUCollisionFriction), SoftParticlesEnabled(other.SoftParticlesEnabled), SoftParticleDistance(other.SoftParticleDistance), VelocityInheritance(other.VelocityInheritance), LODDistance1(other.LODDistance1), LODMaxDistance(other.LODMaxDistance), Emitter(std::move(other.Emitter)), ColorModule(other.ColorModule), SizeModule(other.SizeModule), VelocityModule(other.VelocityModule), RotationModule(other.RotationModule), GravityModule(other.GravityModule), DragModule(other.DragModule), NoiseModule(other.NoiseModule), CollisionModule(other.CollisionModule), ForceFields(std::move(other.ForceFields)), TrailModule(other.TrailModule), SubEmitterModule(std::move(other.SubEmitterModule)), TextureSheetModule(other.TextureSheetModule), m_Random(other.m_Random), m_RandomSeeded(other.m_RandomSeeded)
     {
-        // Rewire callback to THIS instance
-        m_Pool.m_OnSwapCallback = [this](u32 a, u32 b)
-        { m_TrailData.SwapParticles(a, b); };
     }
 
     ParticleSystem& ParticleSystem::operator=(ParticleSystem&& other) noexcept
@@ -180,10 +166,6 @@ namespace OloEngine
         m_HasWarmedUp = other.m_HasWarmedUp;
         m_Random = other.m_Random;
         m_RandomSeeded = other.m_RandomSeeded;
-
-        // Rewire callback to THIS instance
-        m_Pool.m_OnSwapCallback = [this](u32 a, u32 b)
-        { m_TrailData.SwapParticles(a, b); };
 
         return *this;
     }
@@ -299,7 +281,7 @@ namespace OloEngine
             if (RenderCommand::IsDeviceAvailable())
             {
                 UpdateGPU(scaledDt, emitterPosition, emitterRotation, emissionAllowed);
-                m_PendingTriggers.clear();
+                m_PendingTriggers.Reset();
                 return;
             }
             static bool s_WarnedNoDevice = false;
@@ -316,7 +298,7 @@ namespace OloEngine
         glm::vec3 emitPos = (SimulationSpace == ParticleSpace::Local) ? glm::vec3(0.0f) : emitterPosition;
 
         // Clear pending sub-emitter triggers from previous frame
-        m_PendingTriggers.clear();
+        m_PendingTriggers.Reset();
 
         // 1. Emit new particles (with LOD rate multiplier passed as parameter)
         // Skip emission when the system has stopped playing (e.g. a non-
@@ -355,7 +337,7 @@ namespace OloEngine
                         trigger.Event = SubEmitterEvent::OnBirth;
                         trigger.ChildSystemIndex = entry.ChildSystemIndex;
                         trigger.EmitCount = entry.EmitCount;
-                        m_PendingTriggers.push_back(trigger);
+                        m_PendingTriggers.Add(trigger);
                     }
                 }
             }
@@ -434,22 +416,25 @@ namespace OloEngine
             forceField.Apply(scaledDt, m_Pool);
         }
 
+        const ParticleSwapObserver trailObserver{ &m_TrailData, [](void* context, u32 a, u32 b)
+                                                  { static_cast<ParticleTrailData*>(context)->SwapParticles(a, b); } };
+
         // Collision: use raycasts if Jolt scene available and mode is SceneRaycast
-        m_CollisionEvents.clear();
+        m_CollisionEvents.Reset();
         if (CollisionModule.Enabled)
         {
             auto* eventsPtr = SubEmitterModule.Enabled ? &m_CollisionEvents : nullptr;
             if (CollisionModule.Mode == CollisionMode::SceneRaycast && m_JoltScene)
             {
-                CollisionModule.ApplyWithRaycasts(scaledDt, m_Pool, m_JoltScene, eventsPtr);
+                CollisionModule.ApplyWithRaycasts(scaledDt, m_Pool, m_JoltScene, eventsPtr, trailObserver);
             }
             else
             {
-                CollisionModule.Apply(scaledDt, m_Pool, eventsPtr);
+                CollisionModule.Apply(scaledDt, m_Pool, eventsPtr, trailObserver);
             }
 
             // Fire OnCollision sub-emitter triggers
-            if (SubEmitterModule.Enabled && !m_CollisionEvents.empty())
+            if (SubEmitterModule.Enabled && !m_CollisionEvents.IsEmpty())
             {
                 for (const auto& entry : SubEmitterModule.Entries)
                 {
@@ -463,7 +448,7 @@ namespace OloEngine
                             trigger.Event = SubEmitterEvent::OnCollision;
                             trigger.ChildSystemIndex = entry.ChildSystemIndex;
                             trigger.EmitCount = entry.EmitCount;
-                            m_PendingTriggers.push_back(trigger);
+                            m_PendingTriggers.Add(trigger);
                         }
                     }
                 }
@@ -512,15 +497,15 @@ namespace OloEngine
                             trigger.Event = SubEmitterEvent::OnDeath;
                             trigger.ChildSystemIndex = entry.ChildSystemIndex;
                             trigger.EmitCount = entry.EmitCount;
-                            m_PendingTriggers.push_back(trigger);
+                            m_PendingTriggers.Add(trigger);
                         }
                     }
                 }
             }
         }
 
-        // Kill expired particles (m_OnSwapCallback keeps trail data in sync)
-        m_Pool.UpdateLifetimes(scaledDt);
+        // Kill expired particles while keeping trail data in sync.
+        m_Pool.UpdateLifetimes(scaledDt, trailObserver);
 
         // 7. Spawn particles from sub-emitter triggers
         ProcessSubEmitterTriggers();
@@ -530,7 +515,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!SubEmitterModule.Enabled || m_PendingTriggers.empty())
+        if (!SubEmitterModule.Enabled || m_PendingTriggers.IsEmpty())
         {
             return;
         }
@@ -595,14 +580,14 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         u32 count = m_Pool.GetAliveCount();
-        if (m_SortedIndices.size() != count)
+        if (m_SortedIndices.Num() != count)
         {
-            m_SortedIndices.resize(count);
+            m_SortedIndices.SetNum(count, EAllowShrinking::No);
             std::iota(m_SortedIndices.begin(), m_SortedIndices.end(), 0u);
         }
 
         // Precompute squared distances to avoid recomputing in inner loop
-        m_SortDistances.resize(count);
+        m_SortDistances.SetNum(count, EAllowShrinking::No);
         for (u32 i = 0; i < count; ++i)
         {
             glm::vec3 diff = m_Pool.m_Positions[i] - cameraPosition;
@@ -631,7 +616,7 @@ namespace OloEngine
         // Lazy-initialize GPU system
         if (!m_GPUSystem)
         {
-            m_GPUSystem = CreateScope<GPUParticleSystem>(m_Pool.GetMaxParticles());
+            m_GPUSystem.Reset(new GPUParticleSystem(m_Pool.GetMaxParticles()));
         }
 
         // Use a temporary CPU pool to emit particles through the existing emitter
@@ -711,7 +696,7 @@ namespace OloEngine
         m_HasWarmedUp = false;
         m_Pool.Resize(m_Pool.GetMaxParticles());
         m_TrailData.Resize(m_Pool.GetMaxParticles(), TrailModule.MaxTrailPoints);
-        m_PendingTriggers.clear();
+        m_PendingTriggers.Reset();
         Emitter.Reset();
         Playing = true;
 

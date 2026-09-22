@@ -28,6 +28,8 @@
 // =============================================================================
 
 #include "OloEnginePCH.h"
+#include <span>
+#include "OloEngine/Containers/Array.h"
 #include <gtest/gtest.h>
 
 #include "OloEngine/Renderer/GPUCache/GPUCachePolicy.h"
@@ -889,7 +891,7 @@ TEST(TerrainVirtualTexture, AnalyzerPinsTheCoarsestPageEvenWithNoFeedbackAtAll)
     VTFeedbackAnalyzer analyzer;
     analyzer.Analyze({}, sectors, 8u);
 
-    ASSERT_EQ(analyzer.GetRequests().size(), 1u);
+    ASSERT_EQ(analyzer.GetRequests().Num(), 1u);
     EXPECT_EQ(analyzer.GetRequests()[0].m_PageKey, VTMakePageKey(8u, 0u, 0u));
     // At the maximum count: the count is what the pins-first sort keys on, so
     // anything lower would let camera traffic outrank the terminator.
@@ -902,7 +904,7 @@ TEST(TerrainVirtualTexture, AnalyzerPinsTheCoarsestPageEvenWithNoFeedbackAtAll)
     const std::vector<VTSectorSnapshot> freed{ VTSectorSnapshot{} };
     VTFeedbackAnalyzer empty;
     empty.Analyze({}, freed, 8u);
-    EXPECT_TRUE(empty.GetRequests().empty());
+    EXPECT_TRUE(empty.GetRequests().IsEmpty());
 }
 
 TEST(TerrainVirtualTexture, AnalyzerRequestsEachWantedPageAndItsParent)
@@ -923,7 +925,7 @@ TEST(TerrainVirtualTexture, AnalyzerRequestsEachWantedPageAndItsParent)
     EXPECT_EQ(analyzer.GetStaleTexelCount(), 0u) << "the whole-atlas sector owns every address";
 
     const auto has = [&requests](u32 key)
-    { return std::ranges::any_of(requests, [key](const VTPageRequest& r)
+    { return std::ranges::any_of(std::span(requests.GetData(), static_cast<sizet>(requests.Num())), [key](const VTPageRequest& r)
                                  { return r.m_PageKey == key; }); };
 
     EXPECT_TRUE(has(VTMakePageKey(2u, 64u >> 2u, 32u >> 2u))) << "the page the pixel asked for";
@@ -955,9 +957,9 @@ TEST(TerrainVirtualTexture, AnalyzerDeduplicatesAndCountsRepeatedRequests)
     const auto& requests = analyzer.GetRequests();
     const auto find = [&requests](u32 key) -> u32
     {
-        const auto it = std::ranges::find_if(requests, [key](const VTPageRequest& r)
-                                             { return r.m_PageKey == key; });
-        return (it == requests.end()) ? 0u : it->m_Count;
+        const auto it = std::find_if(requests.GetData(), requests.GetData() + requests.Num(), [key](const VTPageRequest& r)
+                                     { return r.m_PageKey == key; });
+        return (it == requests.GetData() + requests.Num()) ? 0u : it->m_Count;
     };
 
     EXPECT_EQ(find(VTMakePageKey(1u, 8u, 8u)), 30u);
@@ -987,10 +989,10 @@ TEST(TerrainVirtualTexture, RequestsAreOrderedCoarsestFirstThenByDemand)
     analyzer.Analyze(feedback, sectors, kMaxMip);
 
     const auto& requests = analyzer.GetRequests();
-    ASSERT_GE(requests.size(), 2u);
+    ASSERT_GE(requests.Num(), 2u);
 
-    EXPECT_EQ(VTPageKeyMip(requests.front().m_PageKey), kMaxMip) << "the pinned page must sort first";
-    for (sizet i = 1; i < requests.size(); ++i)
+    EXPECT_EQ(VTPageKeyMip(requests[0].m_PageKey), kMaxMip) << "the pinned page must sort first";
+    for (sizet i = 1; i < requests.Num(); ++i)
     {
         const u32 prevMip = VTPageKeyMip(requests[i - 1].m_PageKey);
         const u32 mip = VTPageKeyMip(requests[i].m_PageKey);
@@ -1017,7 +1019,7 @@ TEST(TerrainVirtualTexture, AnalyzerClampsAMipTheConfigNoLongerHas)
     analyzer.Analyze(feedback, sectors, 4u);
 
     EXPECT_EQ(analyzer.GetStaleTexelCount(), 0u) << "an owned address with a bogus mip is clamped, not dropped";
-    ASSERT_FALSE(analyzer.GetRequests().empty());
+    ASSERT_FALSE(analyzer.GetRequests().IsEmpty());
     for (const auto& request : analyzer.GetRequests())
     {
         EXPECT_LE(VTPageKeyMip(request.m_PageKey), 4u);
@@ -1058,7 +1060,7 @@ TEST(TerrainVirtualTexture, AnalyzerAttributesEveryWordToTheSectorThatOwnsItsAdd
     EXPECT_EQ(analyzer.GetStaleTexelCount(), 1u);
 
     const auto& perSector = analyzer.GetSectorFeedback();
-    ASSERT_EQ(perSector.size(), sectors.size());
+    ASSERT_EQ(perSector.Num(), sectors.size());
     EXPECT_EQ(perSector[0].m_Requests, 3u);
     EXPECT_EQ(perSector[0].m_UnderResolved, 0u);
     EXPECT_EQ(perSector[0].m_FinestMipRequested, 2u);
@@ -1074,7 +1076,7 @@ TEST(TerrainVirtualTexture, AnalyzerAttributesEveryWordToTheSectorThatOwnsItsAdd
     // other images own, and the mip-0 pair's parent stops at sector 1's own
     // coarsest level.
     const auto& requests = analyzer.GetRequests();
-    ASSERT_EQ(requests.size(), 6u);
+    ASSERT_EQ(requests.Num(), 6u);
     EXPECT_EQ(requests[0].m_PageKey, sectors[0].PinKey());
     EXPECT_EQ(requests[0].m_Count, std::numeric_limits<u32>::max());
     EXPECT_EQ(requests[1].m_PageKey, sectors[1].PinKey());
@@ -1114,7 +1116,7 @@ TEST(TerrainVirtualTexture, AOnePageImagesPinSortsBeforeEveryCameraRequest)
     analyzer.Analyze(feedback, sectors, 8u);
 
     const auto& requests = analyzer.GetRequests();
-    ASSERT_EQ(requests.size(), 4u);
+    ASSERT_EQ(requests.Num(), 4u);
     EXPECT_EQ(requests[0].m_PageKey, sectors[1].PinKey()) << "between pins, coarsest first";
     EXPECT_EQ(requests[1].m_PageKey, sectors[0].PinKey())
         << "the one-page image's pin must outrank the neighbour's coarse camera traffic";
@@ -1387,7 +1389,7 @@ namespace
     std::vector<u32> MappedKeys(const VTServiceOutcome& outcome)
     {
         std::vector<u32> keys;
-        keys.reserve(outcome.m_Mapped.size());
+        keys.reserve(outcome.m_Mapped.Num());
         for (const auto& [key, tile] : outcome.m_Mapped)
         {
             keys.push_back(key);
@@ -1401,14 +1403,14 @@ TEST(TerrainVirtualTexture, PageCacheMapsOnePhysicalTilePerPage)
     VTPageCache cache;
     ASSERT_TRUE(cache.Create(0, 16u, GPUCacheBacking::HostOnly));
 
-    std::vector<VTPageRequest> requests;
+    TArray<VTPageRequest> requests;
     for (u32 i = 0; i < 4u; ++i)
     {
-        requests.push_back(VTPageRequest{ VTMakePageKey(0u, i, 0u), 1u });
+        requests.Add(VTPageRequest{ VTMakePageKey(0u, i, 0u), 1u });
     }
     const VTServiceOutcome outcome = VTServicePageRequests(cache, requests, 16u, 8u);
 
-    EXPECT_EQ(outcome.m_Mapped.size(), 4u);
+    EXPECT_EQ(outcome.m_Mapped.Num(), 4u);
     EXPECT_EQ(outcome.m_Touched, 0u);
     EXPECT_FALSE(outcome.m_WorkingSetExceedsCache);
 
@@ -1431,20 +1433,20 @@ TEST(TerrainVirtualTexture, TheBakeBudgetDefersRatherThanDropsRequests)
     VTPageCache cache;
     ASSERT_TRUE(cache.Create(0, 32u, GPUCacheBacking::HostOnly));
 
-    std::vector<VTPageRequest> requests;
+    TArray<VTPageRequest> requests;
     for (u32 i = 0; i < 10u; ++i)
     {
-        requests.push_back(VTPageRequest{ VTMakePageKey(0u, i, 0u), 10u - i });
+        requests.Add(VTPageRequest{ VTMakePageKey(0u, i, 0u), 10u - i });
     }
 
     const VTServiceOutcome first = VTServicePageRequests(cache, requests, 32u, 3u);
-    EXPECT_EQ(first.m_Mapped.size(), 3u);
+    EXPECT_EQ(first.m_Mapped.Num(), 3u);
     EXPECT_EQ(first.m_Deferred, 7u) << "the rest must be reported as deferred, not silently dropped";
 
     // Same request list, next frame: the three already-resident pages are hits
     // and the budget goes to the next three. Nothing was lost.
     const VTServiceOutcome second = VTServicePageRequests(cache, requests, 32u, 3u);
-    EXPECT_EQ(second.m_Mapped.size(), 3u);
+    EXPECT_EQ(second.m_Mapped.Num(), 3u);
     EXPECT_EQ(second.m_Touched, 3u);
 
     const std::vector<u32> firstKeys = MappedKeys(first);
@@ -1484,11 +1486,11 @@ TEST(TerrainVirtualTexture, ThePinnedPageSurvivesACacheSmallerThanTheWorkingSet)
 
     for (u32 frame = 0; frame < 10u; ++frame)
     {
-        std::vector<VTPageRequest> requests;
-        requests.push_back(VTPageRequest{ pinnedKey, 0xFFFFFFFFu });
+        TArray<VTPageRequest> requests;
+        requests.Add(VTPageRequest{ pinnedKey, 0xFFFFFFFFu });
         for (u32 i = 0; i < 4u; ++i)
         {
-            requests.push_back(VTPageRequest{ VTMakePageKey(0u, frame * 4u + i, 0u), 4u - i });
+            requests.Add(VTPageRequest{ VTMakePageKey(0u, frame * 4u + i, 0u), 4u - i });
         }
         const VTServiceOutcome outcome = VTServicePageRequests(cache, requests, kTiles, kTiles);
 
@@ -1512,10 +1514,10 @@ TEST(TerrainVirtualTexture, ServicingNeverEvictsAPageTheSameFrameAskedFor)
     ASSERT_TRUE(cache.Create(0, kTiles, GPUCacheBacking::HostOnly));
 
     // Fill the cache.
-    std::vector<VTPageRequest> warm;
+    TArray<VTPageRequest> warm;
     for (u32 i = 0; i < kTiles; ++i)
     {
-        warm.push_back(VTPageRequest{ VTMakePageKey(0u, i, 0u), 1u });
+        warm.Add(VTPageRequest{ VTMakePageKey(0u, i, 0u), 1u });
     }
     (void)VTServicePageRequests(cache, warm, kTiles, kTiles);
     for (const auto& request : warm)
@@ -1525,14 +1527,14 @@ TEST(TerrainVirtualTexture, ServicingNeverEvictsAPageTheSameFrameAskedFor)
 
     // Now ask for half the old set plus a lot of new pages, with a budget big
     // enough to wrap the whole cache if nothing stopped it.
-    std::vector<VTPageRequest> mixed;
+    TArray<VTPageRequest> mixed;
     for (u32 i = 0; i < 4u; ++i)
     {
-        mixed.push_back(VTPageRequest{ VTMakePageKey(0u, i, 0u), 100u - i });
+        mixed.Add(VTPageRequest{ VTMakePageKey(0u, i, 0u), 100u - i });
     }
     for (u32 i = 0; i < 16u; ++i)
     {
-        mixed.push_back(VTPageRequest{ VTMakePageKey(0u, 100u + i, 0u), 1u });
+        mixed.Add(VTPageRequest{ VTMakePageKey(0u, 100u + i, 0u), 1u });
     }
     (void)VTServicePageRequests(cache, mixed, kTiles, kTiles * 4u);
 
@@ -1565,10 +1567,10 @@ TEST(TerrainVirtualTexture, HighPriorityPagesOutliveLowPriorityOnesAfterTheCamer
     const u32 highest = VTMakePageKey(0u, 0u, 0u);
     const u32 lowest = VTMakePageKey(0u, 3u, 0u);
 
-    std::vector<VTPageRequest> requests;
+    TArray<VTPageRequest> requests;
     for (u32 i = 0; i < kTiles; ++i)
     {
-        requests.push_back(VTPageRequest{ VTMakePageKey(0u, i, 0u), 100u - i });
+        requests.Add(VTPageRequest{ VTMakePageKey(0u, i, 0u), 100u - i });
     }
 
     // Frame 1 fills the cache; frame 2 is the first that TOUCHES rather than
@@ -1580,10 +1582,10 @@ TEST(TerrainVirtualTexture, HighPriorityPagesOutliveLowPriorityOnesAfterTheCamer
 
     // The camera moves somewhere else entirely: two brand new pages, nothing
     // from the old set requested.
-    const std::vector<VTPageRequest> elsewhere{ VTPageRequest{ VTMakePageKey(0u, 50u, 0u), 5u },
-                                                VTPageRequest{ VTMakePageKey(0u, 51u, 0u), 4u } };
+    const TArray<VTPageRequest> elsewhere{ VTPageRequest{ VTMakePageKey(0u, 50u, 0u), 5u },
+                                           VTPageRequest{ VTMakePageKey(0u, 51u, 0u), 4u } };
     const VTServiceOutcome outcome = VTServicePageRequests(cache, elsewhere, kTiles, kTiles);
-    ASSERT_EQ(outcome.m_Mapped.size(), 2u) << "both new pages should map into the two coldest tiles";
+    ASSERT_EQ(outcome.m_Mapped.Num(), 2u) << "both new pages should map into the two coldest tiles";
 
     EXPECT_TRUE(cache.Has(highest)) << "the highest-priority page was evicted before the lowest-priority one — "
                                        "the touch pass is running in priority order instead of reverse";

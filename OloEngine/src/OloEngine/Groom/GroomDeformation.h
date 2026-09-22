@@ -1,5 +1,7 @@
 #pragma once
 
+#include "OloEngine/Containers/Array.h"
+
 // =============================================================================
 // GroomDeformation.h — carrying a bound groom through a deforming body.
 // Issue #1249.
@@ -357,5 +359,5 @@ namespace OloEngine
     GroomDeformationStats EvaluateGroomRootTransforms(const GroomAsset& groom, const GroomBindingAsset& binding,
                                                       const GroomDeformationInputs& inputs,
                                                       std::optional<std::span<const u32>> selectedCurves,
-                                                      std::vector<GroomRootTransform>& outTransforms);
+                                                      TArray<GroomRootTransform>& outTransforms);
 } // namespace OloEngine

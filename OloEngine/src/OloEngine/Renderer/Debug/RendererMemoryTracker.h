@@ -4,7 +4,8 @@
 #include "DebugUtils.h"
 #include <imgui.h>
 #include <string>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/String.h"
 #include <unordered_map>
 #include <memory>
 #include <atomic>
@@ -45,8 +46,8 @@ namespace OloEngine
             void* m_Address = nullptr;
             sizet m_Size = 0;
             ResourceType m_Type = ResourceType::Other;
-            std::string m_Name;
-            std::string m_File;
+            FString m_Name;
+            FString m_File;
             u32 m_Line = 0;
             f64 m_Timestamp = 0.0;
             bool m_IsGPU = false;
@@ -109,7 +110,7 @@ namespace OloEngine
         u32 GetAllocationCount(ResourceType type) const;
 
         // @brief Detect potential memory leaks
-        std::vector<LeakInfo> DetectLeaks() const;
+        TArray<LeakInfo> DetectLeaks() const;
 
         // @brief Export memory report to file
         bool ExportReport(const std::string& filePath) const;
@@ -139,10 +140,10 @@ namespace OloEngine
 
         // History for graphs
         static constexpr u32 OLO_HISTORY_SIZE = 300; // 5 minutes at 60fps
-        std::vector<f32> m_MemoryHistory;
-        std::vector<f32> m_AllocationHistory;
-        std::vector<f32> m_GPUMemoryHistory;
-        std::vector<f32> m_CPUMemoryHistory;
+        TArray<f32> m_MemoryHistory;
+        TArray<f32> m_AllocationHistory;
+        TArray<f32> m_GPUMemoryHistory;
+        TArray<f32> m_CPUMemoryHistory;
         u32 m_HistoryIndex = 0;
 
         // Pool statistics (placeholder for future implementation)
@@ -173,6 +174,28 @@ namespace OloEngine
         // Shutdown tracking
         std::atomic<bool> m_IsShutdown{ false };
         std::atomic<bool> m_IsInitialized{ false };
+    };
+    // AllocationInfo owns two FStrings plus scalar/address metadata; the tracked
+    // allocation address points outside the record and never to its own fields.
+    template<>
+    struct TIsTriviallyRelocatable<RendererMemoryTracker::AllocationInfo>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(RendererMemoryTracker::AllocationInfo::m_Address)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererMemoryTracker::AllocationInfo::m_Size)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererMemoryTracker::AllocationInfo::m_Type)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererMemoryTracker::AllocationInfo::m_Name)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererMemoryTracker::AllocationInfo::m_File)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererMemoryTracker::AllocationInfo::m_Line)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererMemoryTracker::AllocationInfo::m_Timestamp)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererMemoryTracker::AllocationInfo::m_IsGPU)>::Value;
+    };
+
+    template<>
+    struct TIsTriviallyRelocatable<RendererMemoryTracker::LeakInfo>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(RendererMemoryTracker::LeakInfo::m_Allocation)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererMemoryTracker::LeakInfo::m_AgeSeconds)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererMemoryTracker::LeakInfo::m_IsSuspicious)>::Value;
     };
 } // namespace OloEngine
 

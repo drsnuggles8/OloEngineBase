@@ -97,10 +97,10 @@ namespace OloEngine::MCP::FrameBreakdown
     // earlier stage has the commands. The stage actually returned is written to
     // `usedMode`. Used by both the top-level (source-pass) breakdown and each
     // per-pass entry (CapturedPassData has the same three stage lists).
-    [[nodiscard]] inline const std::vector<CapturedCommandData>& SelectStage(
-        const std::vector<CapturedCommandData>& preSort,
-        const std::vector<CapturedCommandData>& postSort,
-        const std::vector<CapturedCommandData>& postBatch,
+    [[nodiscard]] inline const TArray<CapturedCommandData>& SelectStage(
+        const TArray<CapturedCommandData>& preSort,
+        const TArray<CapturedCommandData>& postSort,
+        const TArray<CapturedCommandData>& postBatch,
         ViewMode requested, ViewMode& usedMode)
     {
         switch (requested)
@@ -109,7 +109,7 @@ namespace OloEngine::MCP::FrameBreakdown
                 usedMode = ViewMode::PreSort;
                 return preSort;
             case ViewMode::PostSort:
-                if (!postSort.empty())
+                if (!postSort.IsEmpty())
                 {
                     usedMode = ViewMode::PostSort;
                     return postSort;
@@ -118,12 +118,12 @@ namespace OloEngine::MCP::FrameBreakdown
                 return preSort;
             case ViewMode::PostBatch:
             default:
-                if (!postBatch.empty())
+                if (!postBatch.IsEmpty())
                 {
                     usedMode = ViewMode::PostBatch;
                     return postBatch;
                 }
-                if (!postSort.empty())
+                if (!postSort.IsEmpty())
                 {
                     usedMode = ViewMode::PostSort;
                     return postSort;
@@ -134,7 +134,7 @@ namespace OloEngine::MCP::FrameBreakdown
     }
 
     // Convenience overload selecting from a frame's top-level (source-pass) lists.
-    [[nodiscard]] inline const std::vector<CapturedCommandData>& SelectCommands(const CapturedFrameData& frame, ViewMode requested, ViewMode& usedMode)
+    [[nodiscard]] inline const TArray<CapturedCommandData>& SelectCommands(const CapturedFrameData& frame, ViewMode requested, ViewMode& usedMode)
     {
         return SelectStage(frame.PreSortCommands, frame.PostSortCommands, frame.PostBatchCommands, requested, usedMode);
     }
@@ -209,15 +209,15 @@ namespace OloEngine::MCP::FrameBreakdown
     // slice) so it stays accurate under truncation; `commandCount` is always the
     // full count and `truncated` flags the cap, so the maxCommands limit is never a
     // silent truncation.
-    [[nodiscard]] inline Json ShapeBucket(const std::vector<CapturedCommandData>& preSort,
-                                          const std::vector<CapturedCommandData>& postSort,
-                                          const std::vector<CapturedCommandData>& postBatch,
+    [[nodiscard]] inline Json ShapeBucket(const TArray<CapturedCommandData>& preSort,
+                                          const TArray<CapturedCommandData>& postSort,
+                                          const TArray<CapturedCommandData>& postBatch,
                                           ViewMode requested, int maxCommands)
     {
         ViewMode usedMode = requested;
-        const std::vector<CapturedCommandData>& commands = SelectStage(preSort, postSort, postBatch, requested, usedMode);
+        const TArray<CapturedCommandData>& commands = SelectStage(preSort, postSort, postBatch, requested, usedMode);
 
-        const sizet total = commands.size();
+        const sizet total = commands.Num();
         const sizet limit = maxCommands < 1 ? total : std::min<sizet>(total, static_cast<sizet>(maxCommands));
 
         std::map<std::string, u32> histogram;
@@ -235,9 +235,9 @@ namespace OloEngine::MCP::FrameBreakdown
         Json out;
         out["requestedViewMode"] = ViewModeName(requested);
         out["viewMode"] = ViewModeName(usedMode);
-        out["stageCounts"] = Json{ { "preSort", preSort.size() },
-                                   { "postSort", postSort.size() },
-                                   { "postBatch", postBatch.size() } };
+        out["stageCounts"] = Json{ { "preSort", preSort.Num() },
+                                   { "postSort", postSort.Num() },
+                                   { "postBatch", postBatch.Num() } };
         out["commandTypeHistogram"] = std::move(typeHistogram);
         out["commandCount"] = total;
         out["returnedCommands"] = limit;
@@ -268,7 +268,7 @@ namespace OloEngine::MCP::FrameBreakdown
         // The pass these top-level commands were emitted by. Prefer the name the
         // capture recorded on the frame; fall back to the attribution's source
         // (same value, kept for callers that only populate the attribution).
-        std::string sourcePass = frame.SourcePassName;
+        std::string sourcePass = frame.SourcePassName.ToStdString();
         if (sourcePass.empty() && attribution != nullptr)
             sourcePass = attribution->CaptureSourcePass;
 
@@ -293,14 +293,14 @@ namespace OloEngine::MCP::FrameBreakdown
         // Decal, ForwardOverlay), each tagged with its graph pass name and shaped
         // identically to the top-level bucket. The capture is no longer limited to
         // the single scene-pass bucket. Empty for a legacy single-pass capture.
-        if (!frame.Passes.empty())
+        if (!frame.Passes.IsEmpty())
         {
             Json passBreakdowns = Json::array();
             for (const auto& pass : frame.Passes)
             {
                 Json entry = ShapeBucket(pass.PreSortCommands, pass.PostSortCommands, pass.PostBatchCommands,
                                          requested, maxCommands);
-                entry["name"] = pass.PassName;
+                entry["name"] = pass.PassName.ToStdString();
                 entry["isCaptureSource"] = !sourcePass.empty() && pass.PassName == sourcePass;
                 passBreakdowns.push_back(std::move(entry));
             }
@@ -311,14 +311,14 @@ namespace OloEngine::MCP::FrameBreakdown
         // graph pass below as captured / not, and to size capturedPassCount.
         std::set<std::string> capturedPassNames;
         for (const auto& pass : frame.Passes)
-            capturedPassNames.insert(pass.PassName);
+            capturedPassNames.insert(pass.PassName.ToStdString());
 
         // capturedPassCount is the number of per-pass command captures this frame.
         // Falls back to the legacy single-pass count (0/1) for an old-style frame
         // that has no per-pass entries.
-        const u32 capturedPassCount = frame.Passes.empty()
+        const u32 capturedPassCount = frame.Passes.IsEmpty()
                                           ? (sourcePass.empty() ? 0u : 1u)
-                                          : static_cast<u32>(frame.Passes.size());
+                                          : static_cast<u32>(frame.Passes.Num());
 
         // Graph-wide command-bucket attribution: place the captured per-pass
         // buckets in the context of the whole render graph (issue #316).

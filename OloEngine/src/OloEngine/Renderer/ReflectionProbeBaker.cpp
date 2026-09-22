@@ -27,7 +27,7 @@
 #include <cmath>
 #include <limits>
 #include <utility>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -82,7 +82,7 @@ namespace OloEngine
     Ref<TextureCubemap> ReflectionProbeBaker::CaptureSceneCubemap(Ref<Scene>& scene,
                                                                   const glm::vec3& position,
                                                                   u32 resolution,
-                                                                  std::vector<DDGIMeshCaster>* casterSink)
+                                                                  TArray<DDGIMeshCaster>* casterSink)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -126,7 +126,7 @@ namespace OloEngine
         // realistic throw here (bad_alloc at high resolution) from stranding the
         // live view at the probe's size/scale.
         sizet const faceBytes = static_cast<sizet>(clampedResolution) * clampedResolution * 4u * sizeof(f32);
-        std::vector<f32> pixelBuffer(faceBytes / sizeof(f32));
+        TArray<f32> pixelBuffer(faceBytes / sizeof(f32));
 
         // Snapshot the live render size so we can restore it afterwards. In the
         // editor the SceneColor target already exists (the viewport has been
@@ -212,7 +212,7 @@ namespace OloEngine
                 // SceneColor RT0. The readback reads the texture directly
                 // (no FBO-bound restriction) and lets the driver pick its path.
                 if (!RenderCommand::ReadTextureImage(colorAttachment, 0, RHI::Format::RGBA32Float,
-                                                     faceBytes, pixelBuffer.data()))
+                                                     faceBytes, pixelBuffer.GetData()))
                 {
                     OLO_CORE_WARN("ReflectionProbeBaker: cubemap face readback failed");
                 }
@@ -221,7 +221,7 @@ namespace OloEngine
                 // glGenerateTextureMipmap on every call; redundant on faces
                 // 0-4 but harmless and keeps the API surface small. Bake is an
                 // editor-time interactive action so the cost is acceptable.
-                cubemap->SetFaceData(face, pixelBuffer.data(), static_cast<u32>(faceBytes));
+                cubemap->SetFaceData(face, pixelBuffer.GetData(), static_cast<u32>(faceBytes));
             }
         }
 
@@ -244,7 +244,7 @@ namespace OloEngine
         return cubemap;
     }
 
-    Ref<ReflectionProbeDistanceField> ReflectionProbeBaker::CaptureDistanceField(const std::vector<DDGIMeshCaster>& casters,
+    Ref<ReflectionProbeDistanceField> ReflectionProbeBaker::CaptureDistanceField(std::span<const DDGIMeshCaster> casters,
                                                                                  const glm::vec3& position)
     {
         OLO_PROFILE_FUNCTION();
@@ -279,9 +279,9 @@ namespace OloEngine
         // radial distances are origin-independent anyway.
         glm::mat4 const proj = glm::perspective(glm::radians(90.0f), 1.0f, kProbeDistanceNear, kProbeDistanceFar);
 
-        std::vector<f32> fieldData(static_cast<sizet>(kRes) * kRes * 6u, kProbeDistanceFar);
-        std::vector<f32> rgReadback(static_cast<sizet>(kRes) * kRes * 2u);
-        sizet const faceBytes = rgReadback.size() * sizeof(f32);
+        TArray<f32> fieldData(static_cast<sizet>(kRes) * kRes * 6u, kProbeDistanceFar);
+        TArray<f32> rgReadback(static_cast<sizet>(kRes) * kRes * 2u);
+        sizet const faceBytes = rgReadback.Num() * sizeof(f32);
 
         // Restore on every exit path, including a throwing face capture: FBO,
         // cull flip, pre-capture viewport, dispatch state cache, and — because
@@ -348,7 +348,7 @@ namespace OloEngine
             }
 
             if (!RenderCommand::ReadTextureImage(colorAttachment, 0, RHI::Format::RG32Float,
-                                                 faceBytes, rgReadback.data()))
+                                                 faceBytes, rgReadback.GetData()))
             {
                 OLO_CORE_WARN("ReflectionProbeBaker: distance face {} readback failed", face);
                 readbackOk = false;
@@ -416,7 +416,7 @@ namespace OloEngine
         } activeGuard{ probe.m_Active, probe.m_Active };
         probe.m_Active = false;
 
-        std::vector<DDGIMeshCaster> casters;
+        TArray<DDGIMeshCaster> casters;
         auto cubemap = CaptureSceneCubemap(scene, position, resolution, &casters);
         if (!cubemap)
         {
@@ -450,7 +450,7 @@ namespace OloEngine
         // with no distance field still works — the per-pixel probe path just
         // skips it and the global IBL fallback covers those pixels — so a
         // failed distance capture degrades rather than failing the bake.
-        if (auto distanceField = CaptureDistanceField(casters, position))
+        if (auto distanceField = CaptureDistanceField({ casters.GetData(), static_cast<sizet>(casters.Num()) }, position))
         {
             environment->SetProbeDistanceField(distanceField);
         }
@@ -463,7 +463,7 @@ namespace OloEngine
         probe.m_NeedsBake = false;
 
         OLO_CORE_INFO("Baked reflection probe at ({}, {}, {}) — cubemap {}x{}, {} casters in distance field",
-                      position.x, position.y, position.z, resolution, resolution, casters.size());
+                      position.x, position.y, position.z, resolution, resolution, casters.Num());
         return true;
     }
 } // namespace OloEngine

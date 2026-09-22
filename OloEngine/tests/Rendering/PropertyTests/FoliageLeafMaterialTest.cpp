@@ -42,9 +42,12 @@
 // =============================================================================
 
 #include "OloEnginePCH.h"
+#include <span>
+#include "OloEngine/Containers/Array.h"
 
 #include <gtest/gtest.h>
 
+#include "OloEngine/Containers/Array.h"
 #include "OloEngine/Core/YAMLConverters.h"
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/FoliageLeafProfile.h"
@@ -66,6 +69,36 @@
 
 namespace OloEngine::Tests
 {
+    TEST(FoliageLayerRelocation, PreservesEveryStringAcrossArrayGrowthAndRemoval)
+    {
+        static_assert(TIsTriviallyRelocatable<FoliageLayer>::Value);
+        TArray<FoliageLayer> layers;
+        for (i32 i = 0; i < 128; ++i)
+        {
+            FoliageLayer layer;
+            const std::string suffix = std::to_string(i);
+            layer.Name = suffix;
+            layer.MeshPath = "mesh/" + suffix;
+            layer.AlbedoPath = "albedo/" + suffix;
+            layer.NormalMapPath = "normal/" + suffix;
+            layer.RoughnessMapPath = "assets/textures/foliage/roughness/" + suffix;
+            layer.ThicknessMapPath = "assets/textures/foliage/thickness/" + suffix;
+            layers.Add(std::move(layer));
+        }
+        layers.RemoveAt(0);
+        ASSERT_EQ(layers.Num(), 127);
+        for (i32 i = 0; i < layers.Num(); ++i)
+        {
+            const std::string suffix = std::to_string(i + 1);
+            EXPECT_EQ(layers[i].Name.ToStdString(), suffix);
+            EXPECT_EQ(layers[i].MeshPath.ToStdString(), "mesh/" + suffix);
+            EXPECT_EQ(layers[i].AlbedoPath.ToStdString(), "albedo/" + suffix);
+            EXPECT_EQ(layers[i].NormalMapPath.ToStdString(), "normal/" + suffix);
+            EXPECT_EQ(layers[i].RoughnessMapPath.ToStdString(), "assets/textures/foliage/roughness/" + suffix);
+            EXPECT_EQ(layers[i].ThicknessMapPath.ToStdString(), "assets/textures/foliage/thickness/" + suffix);
+        }
+    }
+
     namespace
     {
         // A leaf material with every field distinct from the constructor
@@ -323,7 +356,7 @@ namespace OloEngine::Tests
             Entity e = scene->CreateEntity("Canopy");
             e.AddComponent<TerrainComponent>();
             auto& foliage = e.AddComponent<FoliageComponent>();
-            foliage.m_Layers.push_back(authored);
+            foliage.m_Layers.Add(authored);
             yaml = SceneSerializer(scene).SerializeToYAML();
         }
         ASSERT_FALSE(yaml.empty());
@@ -335,7 +368,7 @@ namespace OloEngine::Tests
         ASSERT_TRUE(static_cast<bool>(restored)) << "the round-tripped scene has no 'Canopy' entity";
         ASSERT_TRUE(restored.HasComponent<FoliageComponent>());
         const auto& foliage = restored.GetComponent<FoliageComponent>();
-        ASSERT_EQ(foliage.m_Layers.size(), 1u);
+        ASSERT_EQ(foliage.m_Layers.Num(), 1u);
         ExpectLeafFieldsEqual(foliage.m_Layers[0], authored);
     }
 
@@ -387,15 +420,15 @@ Entities:
         ASSERT_TRUE(static_cast<bool>(restored));
         ASSERT_TRUE(restored.HasComponent<FoliageComponent>());
         const auto& foliage = restored.GetComponent<FoliageComponent>();
-        ASSERT_EQ(foliage.m_Layers.size(), 1u);
+        ASSERT_EQ(foliage.m_Layers.Num(), 1u);
         const FoliageLayer& layer = foliage.m_Layers[0];
 
         // The documented conservative default.
         EXPECT_FLOAT_EQ(layer.TransmissionStrength, 0.0f)
             << "a scene authored before #1234 came back with transmission ON";
-        EXPECT_TRUE(layer.NormalMapPath.empty());
-        EXPECT_TRUE(layer.RoughnessMapPath.empty());
-        EXPECT_TRUE(layer.ThicknessMapPath.empty());
+        EXPECT_TRUE(layer.NormalMapPath.IsEmpty());
+        EXPECT_TRUE(layer.RoughnessMapPath.IsEmpty());
+        EXPECT_TRUE(layer.ThicknessMapPath.IsEmpty());
         // And the fields it DID carry are untouched, so this is a test of the
         // new keys' absence and not of a load that failed silently.
         EXPECT_FLOAT_EQ(layer.Roughness, 0.8f);
@@ -448,7 +481,7 @@ Entities:
         ASSERT_TRUE(static_cast<bool>(restored));
         ASSERT_TRUE(restored.HasComponent<FoliageComponent>());
         const auto& foliage = restored.GetComponent<FoliageComponent>();
-        ASSERT_EQ(foliage.m_Layers.size(), 2u);
+        ASSERT_EQ(foliage.m_Layers.Num(), 2u);
         const FoliageLayer& l = foliage.m_Layers[0];
 
         EXPECT_TRUE(std::isfinite(l.TransmissionStrength));

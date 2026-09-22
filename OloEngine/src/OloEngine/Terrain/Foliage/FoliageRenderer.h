@@ -15,7 +15,7 @@
 #include <glm/glm.hpp>
 #include <array>
 #include <string>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -136,6 +136,257 @@ namespace OloEngine
     // Manages foliage instance generation, culling, and instanced rendering.
     // Generates instances on the CPU from terrain data + foliage layer config,
     // uploads to a per-layer instance VBO, and draws with DrawIndexedInstanced.
+    struct FoliageLayerDrawPart
+    {
+        u32 BaseIndex = 0;
+        u32 IndexCount = 0;
+        // The submesh's own albedo. Null falls through to the layer's
+        // AlbedoTexture, which is what a mesh with no imported texture gets.
+        Ref<Texture2D> Albedo;
+    };
+
+    // An external texture Ref and scalar index range; no self-address escapes.
+    template<>
+    struct TIsTriviallyRelocatable<FoliageLayerDrawPart>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(FoliageLayerDrawPart::BaseIndex)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerDrawPart::IndexCount)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerDrawPart::Albedo)>::Value;
+    };
+
+    struct FoliageLayerRenderData
+    {
+        Ref<VertexArray> VAO;
+        Ref<VertexBuffer> QuadVBO;     // Geometry (unit quad)
+        Ref<VertexBuffer> InstanceVBO; // Per-instance data
+        Ref<IndexBuffer> IBO;
+
+        // Authored plant mesh (issue #1233), drawn up close. A SEPARATE
+        // vertex array over a PRIVATE copy of the source geometry rather
+        // than the MeshSource's own: the instance stream has to be bound
+        // into the vertex array, and doing that to a shared mesh asset
+        // would leak this layer's instancing into every other user of it.
+        Ref<VertexArray> MeshVAO;
+        Ref<VertexBuffer> MeshVBO;
+        Ref<IndexBuffer> MeshIBO;
+        TArray<FoliageLayerDrawPart> MeshParts;
+        TArray<u32> MeshRayTracingIndices;
+        // Keeps the imported materials' textures alive for as long as the
+        // parts reference them.
+        Ref<Model> MeshModel;
+        FString MeshGeometryPath;   // What MeshVBO/MeshIBO were built from
+        bool MeshRequested = false; // UseAuthoredMesh && !MeshPath.empty()
+        u32 MeshVertexCount = 0;
+        u32 MeshIndexCount = 0;
+        FoliageBoundsProfile BoundsProfile{};
+        f32 MeshViewDistance = 0.0f;
+        f32 MeshFadeStartDistance = 0.0f;
+
+        u32 InstanceCount = 0;
+        u32 InstanceCapacity = 0;
+        u32 IndexCount = 0;
+
+        // ── GPU cull state (issue #1235) ─────────────────────────────
+        // Group bounds + the row -> group table, rebuilt only when the
+        // registry generation moves.
+        FoliageGPUCuller::LayerResources CullLayer;
+        // One set per view slot: the compacted stream, its state and
+        // indirect buffers, and the vertex arrays that stream it. The
+        // arrays are per slot because each slot compacts into its OWN
+        // buffer, and a vertex array names the buffer it streams.
+        struct CullViewSlot
+        {
+            FoliageGPUCuller::ViewResources Resources;
+            Ref<VertexArray> CardVAO;
+            Ref<VertexArray> MeshVAO;
+            // The cull this frame produced something drawable. Cleared
+            // before every dispatch, so a slot that fell back reports it
+            // rather than replaying the last successful frame's set --
+            // the latched-flag bug TerrainGPUQuadtree::HasDispatched
+            // documents.
+            bool Active = false;
+        };
+        std::array<CullViewSlot, FoliageGPUCuller::kViewSlotCount> CullViews;
+        f32 ViewDistance = 100.0f;
+        f32 FadeStartDistance = 80.0f;
+        f32 WindStrength = 0.3f;
+        f32 WindSpeed = 1.0f;
+        glm::vec4 WindWeights{ 0.0f };
+        f32 InteractionResponse = 1.0f;
+        glm::vec3 BaseColor{ 1.0f };
+        f32 AlphaCutoff = 0.5f;
+        Ref<Texture2D> AlbedoTexture;
+
+        // The leaf material (issue #1234). The maps are cached BY PATH —
+        // `Loaded*Path` records what each Ref was opened from, so editing
+        // the path in the inspector re-opens it and NOT editing it does not
+        // re-open anything. (The albedo above predates this and reloads
+        // only when its Ref is null, which is a separate pre-existing
+        // limitation, not one these three inherit.)
+        Ref<Texture2D> LeafNormalTexture;
+        Ref<Texture2D> LeafRoughnessTexture;
+        Ref<Texture2D> LeafThicknessTexture;
+        FString LoadedNormalPath;
+        FString LoadedRoughnessPath;
+        FString LoadedThicknessPath;
+        f32 LeafRoughness = 0.8f;
+        f32 LeafNormalStrength = 1.0f;
+        f32 LeafThickness = 0.0f;
+        f32 LeafTransmissionStrength = 0.0f;
+        glm::vec3 LeafTransmissionColor{ 0.42f, 0.62f, 0.18f };
+        f32 LeafTransmissionDistortion = 0.35f;
+        f32 LeafTransmissionPower = 4.0f;
+        f32 LeafTransmissionWrap = 0.5f;
+        f32 LeafTransmissionAmbient = 0.35f;
+
+        BoundingBox Bounds; // Precomputed AABB encompassing all instances
+
+        // Octahedral impostor (issue #433). Baked lazily from the layer mesh;
+        // the *Baked* fields cache the config the atlas was baked for so a
+        // regenerate only re-bakes when the mesh / grid / layout changes.
+        ImpostorAtlas Impostor;
+        bool UseImpostor = false;
+        f32 ImpostorStartDistance = 40.0f;
+        f32 ImpostorTransitionBand = 15.0f;
+        FString ImpostorBakedMeshPath;
+        FString ImpostorBakedAlbedoPath;
+        glm::vec3 ImpostorBakedBaseColor{ 0.0f };
+        f32 ImpostorBakedAlphaCutoff = 0.0f;
+        u32 ImpostorBakedFrames = 0;
+        u32 ImpostorBakedResolution = 0;
+        bool ImpostorBakedHemi = true;
+
+        // LOD transitions + coverage-preserving density (issue #1237).
+        // SANITISED at build time (FoliageLod::Sanitise), so every consumer
+        // — the three UBO-fill sites, the cull state header and the RT
+        // vegetation cache — reads numbers a smoothstep can be handed. The
+        // identity default is what a layer that did not author the feature
+        // keeps.
+        FoliageLod::Params Lod{};
+    };
+
+    // Owns TArrays, FStrings and intrusive Refs; cull resources and impostor hold external GPU objects. Bounds and remaining state are values.
+    template<>
+    struct TIsTriviallyRelocatable<FoliageLayerRenderData::CullViewSlot>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::CullViewSlot::Resources)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::CullViewSlot::CardVAO)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::CullViewSlot::MeshVAO)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::CullViewSlot::Active)>::Value;
+    };
+
+    // std::array has only inline element storage; this concrete array follows its audited slot type.
+    template<>
+    struct TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::CullViews)>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<typename decltype(FoliageLayerRenderData::CullViews)::value_type>::Value;
+    };
+
+    template<>
+    struct TIsTriviallyRelocatable<FoliageLayerRenderData>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::VAO)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::QuadVBO)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::InstanceVBO)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::IBO)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::MeshVAO)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::MeshVBO)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::MeshIBO)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::MeshParts)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::MeshRayTracingIndices)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::MeshModel)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::MeshGeometryPath)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::MeshRequested)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::MeshVertexCount)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::MeshIndexCount)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::BoundsProfile)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::MeshViewDistance)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::MeshFadeStartDistance)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::InstanceCount)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::InstanceCapacity)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::IndexCount)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::CullLayer)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::CullViews)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::ViewDistance)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::FadeStartDistance)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::WindStrength)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::WindSpeed)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::WindWeights)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::InteractionResponse)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::BaseColor)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::AlphaCutoff)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::AlbedoTexture)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::LeafNormalTexture)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::LeafRoughnessTexture)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::LeafThicknessTexture)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::LoadedNormalPath)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::LoadedRoughnessPath)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::LoadedThicknessPath)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::LeafRoughness)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::LeafNormalStrength)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::LeafThickness)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::LeafTransmissionStrength)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::LeafTransmissionColor)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::LeafTransmissionDistortion)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::LeafTransmissionPower)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::LeafTransmissionWrap)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::LeafTransmissionAmbient)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::Bounds)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::Impostor)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::UseImpostor)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::ImpostorStartDistance)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::ImpostorTransitionBand)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::ImpostorBakedMeshPath)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::ImpostorBakedAlbedoPath)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::ImpostorBakedBaseColor)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::ImpostorBakedAlphaCutoff)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::ImpostorBakedFrames)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::ImpostorBakedResolution)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::ImpostorBakedHemi)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::Lod)>::Value;
+    };
+
+    struct FoliageLayerDraw
+    {
+        Ref<VertexArray> VAO;
+        u32 BaseIndex = 0;
+        u32 IndexCount = 0;
+        Ref<Texture2D> Albedo;
+        bool IsAuthoredMesh = false;
+        // The layer's mesh-to-card hand-over band, the SAME values on every
+        // draw of the layer. Each draw derives the mesh's coverage fraction
+        // from it and keeps the pixels the other one does not, so the two
+        // partition the screen rather than overlap. Zero end = no mesh.
+        f32 HandoverStart = 0.0f;
+        f32 HandoverEnd = 0.0f;
+        // The layer's own distance fade-out, unchanged by #1233.
+        f32 FadeStart = 80.0f;
+        f32 ViewDistance = 100.0f;
+        // The layer's #1237 parameters, already packed into the two lanes
+        // FoliageUBO::LodTransition0/1 carries. Packed ONCE, on the draw,
+        // so the beauty path, the shadow path and Render() cannot pack the
+        // flag bitfield three ways.
+        glm::vec4 LodTransition0{ 0.0f, 30.0f, 80.0f, 0.25f };
+        glm::vec4 LodTransition1{ 0.15f, 2.0f, 0.0f, 0.0f };
+    };
+
+    // External vertex-array/texture Refs with scalar and glm draw parameters.
+    template<>
+    struct TIsTriviallyRelocatable<FoliageLayerDraw>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(FoliageLayerDraw::VAO)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerDraw::BaseIndex)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerDraw::IndexCount)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerDraw::Albedo)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerDraw::IsAuthoredMesh)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerDraw::HandoverStart)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerDraw::HandoverEnd)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerDraw::FadeStart)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerDraw::ViewDistance)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerDraw::LodTransition0)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerDraw::LodTransition1)>::Value;
+    };
+
     class FoliageRenderer : public RefCounted
     {
       public:
@@ -161,7 +412,7 @@ namespace OloEngine
         // Regenerate all instances for the given layers from terrain data.
         // Call when terrain changes (erosion, sculpting) or layer settings change.
         void GenerateInstances(
-            const std::vector<FoliageLayer>& layers,
+            const TArray<FoliageLayer>& layers,
             const TerrainData& terrainData,
             const TerrainMaterial* material,
             f32 worldSizeX, f32 worldSizeZ, f32 heightScale);
@@ -248,7 +499,7 @@ namespace OloEngine
         // LayerIndex lives in.
         [[nodiscard]] u32 GetLayerCount() const
         {
-            return static_cast<u32>(m_Layers.size());
+            return static_cast<u32>(m_Layers.Num());
         }
 
         // Read one layer's cull result back to the CPU. STALLS -- see
@@ -299,7 +550,7 @@ namespace OloEngine
 
         // Returns draw info for all active layers (InstanceCount > 0 && VAO valid).
         // Used by Scene to create DrawFoliageLayerCommand packets per layer.
-        [[nodiscard]] std::vector<FoliageLayerDrawInfo> GetActiveLayerDrawInfo() const;
+        [[nodiscard]] TArray<FoliageLayerDrawInfo> GetActiveLayerDrawInfo() const;
         void QueueRayTracing(u64 owner, const glm::vec3& cameraPosition) const;
 
         void SetTime(f32 time, f32 prevTime)
@@ -326,126 +577,10 @@ namespace OloEngine
         // is drawn with (issue #1233). The card is a single part; an authored
         // mesh contributes one part per submesh so a plant whose trunk and
         // leaves use different textures renders as authored.
-        struct LayerDrawPart
-        {
-            u32 BaseIndex = 0;
-            u32 IndexCount = 0;
-            // The submesh's own albedo. Null falls through to the layer's
-            // AlbedoTexture, which is what a mesh with no imported texture gets.
-            Ref<Texture2D> Albedo;
-        };
+        using LayerDrawPart = FoliageLayerDrawPart;
 
         // Internal per-layer GPU data
-        struct LayerRenderData
-        {
-            Ref<VertexArray> VAO;
-            Ref<VertexBuffer> QuadVBO;     // Geometry (unit quad)
-            Ref<VertexBuffer> InstanceVBO; // Per-instance data
-            Ref<IndexBuffer> IBO;
-
-            // Authored plant mesh (issue #1233), drawn up close. A SEPARATE
-            // vertex array over a PRIVATE copy of the source geometry rather
-            // than the MeshSource's own: the instance stream has to be bound
-            // into the vertex array, and doing that to a shared mesh asset
-            // would leak this layer's instancing into every other user of it.
-            Ref<VertexArray> MeshVAO;
-            Ref<VertexBuffer> MeshVBO;
-            Ref<IndexBuffer> MeshIBO;
-            std::vector<LayerDrawPart> MeshParts;
-            std::vector<u32> MeshRayTracingIndices;
-            // Keeps the imported materials' textures alive for as long as the
-            // parts reference them.
-            Ref<Model> MeshModel;
-            std::string MeshGeometryPath; // What MeshVBO/MeshIBO were built from
-            bool MeshRequested = false;   // UseAuthoredMesh && !MeshPath.empty()
-            u32 MeshVertexCount = 0;
-            u32 MeshIndexCount = 0;
-            FoliageBoundsProfile BoundsProfile{};
-            f32 MeshViewDistance = 0.0f;
-            f32 MeshFadeStartDistance = 0.0f;
-
-            u32 InstanceCount = 0;
-            u32 InstanceCapacity = 0;
-            u32 IndexCount = 0;
-
-            // ── GPU cull state (issue #1235) ─────────────────────────────
-            // Group bounds + the row -> group table, rebuilt only when the
-            // registry generation moves.
-            FoliageGPUCuller::LayerResources CullLayer;
-            // One set per view slot: the compacted stream, its state and
-            // indirect buffers, and the vertex arrays that stream it. The
-            // arrays are per slot because each slot compacts into its OWN
-            // buffer, and a vertex array names the buffer it streams.
-            struct CullViewSlot
-            {
-                FoliageGPUCuller::ViewResources Resources;
-                Ref<VertexArray> CardVAO;
-                Ref<VertexArray> MeshVAO;
-                // The cull this frame produced something drawable. Cleared
-                // before every dispatch, so a slot that fell back reports it
-                // rather than replaying the last successful frame's set --
-                // the latched-flag bug TerrainGPUQuadtree::HasDispatched
-                // documents.
-                bool Active = false;
-            };
-            std::array<CullViewSlot, FoliageGPUCuller::kViewSlotCount> CullViews;
-            f32 ViewDistance = 100.0f;
-            f32 FadeStartDistance = 80.0f;
-            f32 WindStrength = 0.3f;
-            f32 WindSpeed = 1.0f;
-            glm::vec4 WindWeights{ 0.0f };
-            f32 InteractionResponse = 1.0f;
-            glm::vec3 BaseColor{ 1.0f };
-            f32 AlphaCutoff = 0.5f;
-            Ref<Texture2D> AlbedoTexture;
-
-            // The leaf material (issue #1234). The maps are cached BY PATH —
-            // `Loaded*Path` records what each Ref was opened from, so editing
-            // the path in the inspector re-opens it and NOT editing it does not
-            // re-open anything. (The albedo above predates this and reloads
-            // only when its Ref is null, which is a separate pre-existing
-            // limitation, not one these three inherit.)
-            Ref<Texture2D> LeafNormalTexture;
-            Ref<Texture2D> LeafRoughnessTexture;
-            Ref<Texture2D> LeafThicknessTexture;
-            std::string LoadedNormalPath;
-            std::string LoadedRoughnessPath;
-            std::string LoadedThicknessPath;
-            f32 LeafRoughness = 0.8f;
-            f32 LeafNormalStrength = 1.0f;
-            f32 LeafThickness = 0.0f;
-            f32 LeafTransmissionStrength = 0.0f;
-            glm::vec3 LeafTransmissionColor{ 0.42f, 0.62f, 0.18f };
-            f32 LeafTransmissionDistortion = 0.35f;
-            f32 LeafTransmissionPower = 4.0f;
-            f32 LeafTransmissionWrap = 0.5f;
-            f32 LeafTransmissionAmbient = 0.35f;
-
-            BoundingBox Bounds; // Precomputed AABB encompassing all instances
-
-            // Octahedral impostor (issue #433). Baked lazily from the layer mesh;
-            // the *Baked* fields cache the config the atlas was baked for so a
-            // regenerate only re-bakes when the mesh / grid / layout changes.
-            ImpostorAtlas Impostor;
-            bool UseImpostor = false;
-            f32 ImpostorStartDistance = 40.0f;
-            f32 ImpostorTransitionBand = 15.0f;
-            std::string ImpostorBakedMeshPath;
-            std::string ImpostorBakedAlbedoPath;
-            glm::vec3 ImpostorBakedBaseColor{ 0.0f };
-            f32 ImpostorBakedAlphaCutoff = 0.0f;
-            u32 ImpostorBakedFrames = 0;
-            u32 ImpostorBakedResolution = 0;
-            bool ImpostorBakedHemi = true;
-
-            // LOD transitions + coverage-preserving density (issue #1237).
-            // SANITISED at build time (FoliageLod::Sanitise), so every consumer
-            // — the three UBO-fill sites, the cull state header and the RT
-            // vegetation cache — reads numbers a smoothstep can be handed. The
-            // identity default is what a layer that did not author the feature
-            // keeps.
-            FoliageLod::Params Lod{};
-        };
+        using LayerRenderData = FoliageLayerRenderData;
 
         // ONE draw this layer contributes: an index range of one of its vertex
         // arrays, the material it is drawn with, and the distance band it owns.
@@ -456,30 +591,8 @@ namespace OloEngine
         // issue #1233's fourth criterion structural rather than reviewable: a
         // pass cannot draw a quad where another drew a pine, because none of
         // them decides what to draw.
-        struct LayerDraw
-        {
-            Ref<VertexArray> VAO;
-            u32 BaseIndex = 0;
-            u32 IndexCount = 0;
-            Ref<Texture2D> Albedo;
-            bool IsAuthoredMesh = false;
-            // The layer's mesh-to-card hand-over band, the SAME values on every
-            // draw of the layer. Each draw derives the mesh's coverage fraction
-            // from it and keeps the pixels the other one does not, so the two
-            // partition the screen rather than overlap. Zero end = no mesh.
-            f32 HandoverStart = 0.0f;
-            f32 HandoverEnd = 0.0f;
-            // The layer's own distance fade-out, unchanged by #1233.
-            f32 FadeStart = 80.0f;
-            f32 ViewDistance = 100.0f;
-            // The layer's #1237 parameters, already packed into the two lanes
-            // FoliageUBO::LodTransition0/1 carries. Packed ONCE, on the draw,
-            // so the beauty path, the shadow path and Render() cannot pack the
-            // flag bitfield three ways.
-            glm::vec4 LodTransition0{ 0.0f, 30.0f, 80.0f, 0.25f };
-            glm::vec4 LodTransition1{ 0.15f, 2.0f, 0.0f, 0.0f };
-        };
-        void EnumerateLayerDraws(const LayerRenderData& data, std::vector<LayerDraw>& out) const;
+        using LayerDraw = FoliageLayerDraw;
+        void EnumerateLayerDraws(const LayerRenderData& data, TArray<LayerDraw>& out) const;
 
         // Run one view's cull over every layer. Returns true when at least one
         // layer produced a compacted draw.
@@ -498,13 +611,13 @@ namespace OloEngine
         // has to be bound into EVERY vertex array the layer draws from, and a
         // capacity grow replaces it.
         void RebuildVertexArrays(LayerRenderData& data) const;
-        void UploadInstances(LayerRenderData& data, const std::vector<FoliageInstanceData>& instances);
+        void UploadInstances(LayerRenderData& data, const TArray<FoliageInstanceData>& instances);
 
         // Bakes (or re-bakes) the layer's octahedral impostor atlas if UseImpostor
         // and the mesh/grid/layout differs from what was last baked. No-op otherwise.
         void UpdateImpostorAtlas(LayerRenderData& data, const FoliageLayer& layer);
 
-        std::vector<LayerRenderData> m_Layers;
+        TArray<LayerRenderData> m_Layers;
         FoliageInstanceRegistry m_Registry;
         FoliageGPUCuller m_Culler;
         bool m_MainViewCulled = false;

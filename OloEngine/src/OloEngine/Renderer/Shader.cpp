@@ -223,7 +223,7 @@ namespace OloEngine
         return nullptr;
     }
 
-    std::vector<Ref<Shader>> Shader::PrepareBatch(const std::vector<std::string>& filepaths, std::atomic<u32>* progressCounter)
+    TArray<Ref<Shader>> Shader::PrepareBatch(std::span<const FString> filepaths, std::atomic<u32>* progressCounter)
     {
         switch (Renderer::GetAPI())
         {
@@ -240,7 +240,11 @@ namespace OloEngine
                 // FinalizeBatch() below does the real (sequential, render-
                 // thread) Create() call for each. progressCounter has
                 // nothing honest to report here — see the header comment.
-                return std::vector<Ref<Shader>>(filepaths.size());
+                {
+                    TArray<Ref<Shader>> result;
+                    result.SetNum(static_cast<i32>(filepaths.size()));
+                    return result;
+                }
             case RendererAPI::API::OpenGL:
                 return OpenGLShader::PrepareBatch(filepaths, progressCounter);
         }
@@ -249,7 +253,7 @@ namespace OloEngine
         return {};
     }
 
-    std::vector<Ref<Shader>> Shader::FinalizeBatch(const std::vector<std::string>& filepaths, std::vector<Ref<Shader>> prepared, const std::vector<bool>& alreadyFinal)
+    TArray<Ref<Shader>> Shader::FinalizeBatch(std::span<const FString> filepaths, TArray<Ref<Shader>> prepared, std::span<const bool> alreadyFinal)
     {
         switch (Renderer::GetAPI())
         {
@@ -264,7 +268,8 @@ namespace OloEngine
                 // above) — do the real Create() here instead, sequentially,
                 // now that this is contractually the render thread.
                 const sizet count = filepaths.size();
-                std::vector<Ref<Shader>> result(count);
+                TArray<Ref<Shader>> result;
+                result.SetNum(static_cast<i32>(count));
                 for (sizet i = 0; i < count; ++i)
                 {
                     if (i < alreadyFinal.size() && alreadyFinal[i])
@@ -272,7 +277,7 @@ namespace OloEngine
                         result[i] = prepared[i]; // pack-loaded upstream — not exercised by Vulkan today, kept symmetric with OpenGL
                         continue;
                     }
-                    result[i] = Create(filepaths[i]);
+                    result[i] = Create(filepaths[i].ToStdString());
                 }
                 return result;
             }

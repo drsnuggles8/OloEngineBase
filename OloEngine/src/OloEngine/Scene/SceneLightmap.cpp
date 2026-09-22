@@ -18,7 +18,6 @@
 #include <glm/gtc/packing.hpp>
 
 #include <algorithm>
-#include <vector>
 
 namespace OloEngine
 {
@@ -137,7 +136,7 @@ namespace OloEngine
         // Gathered ONCE per recheck and handed to ComputeBakeKey below: the walk
         // is O(scene) with an EnsureStableIDs scan per instanced batch, and it
         // sits behind the throttle for that reason.
-        const std::vector<LightmapReceiver> receivers = GatherLightmapReceivers(scene);
+        const TArray<LightmapReceiver> receivers = GatherLightmapReceivers(scene);
         {
             LightmapUnwrapOptions unwrapOptions;
             unwrapOptions.Resolution = kLightmapUnwrapResolution;
@@ -175,7 +174,7 @@ namespace OloEngine
             }
         }
 
-        const u64 liveKey = ComputeBakeKey(scene, settings, receivers);
+        const u64 liveKey = ComputeBakeKey(scene, settings, { receivers.GetData(), static_cast<sizet>(receivers.Num()) });
 
         // Cheap re-resolve: same asset, same live key, texture already built.
         if (m_Resolved && m_ResolvedAsset == settings.LightmapAsset && m_ResolvedBakeKey == liveKey && !m_Stale)
@@ -231,8 +230,8 @@ namespace OloEngine
         // asset outright, so this is the second line of defence, not the first.
         u32 rejectedPages = 0;
         const u32 pageCount = asset->GetPageCount();
-        m_Regions.reserve(asset->GetEntries().size());
-        m_EntitiesWithRegions.reserve(asset->GetEntries().size());
+        m_Regions.reserve(asset->GetEntries().Num());
+        m_EntitiesWithRegions.reserve(asset->GetEntries().Num());
         for (const auto& entry : asset->GetEntries())
         {
             // Both halves of the address are bounded, not just the page: the
@@ -285,11 +284,12 @@ namespace OloEngine
             {
                 const auto& texels = asset->GetTexelData();
                 const sizet pageFloats = static_cast<sizet>(asset->GetWidth()) * asset->GetHeight() * 4u;
-                std::vector<u16> halves(pageFloats);
+                TArray<u16> halves;
+                halves.SetNumUninitialized(static_cast<i32>(pageFloats));
                 for (u32 page = 0; page < pageCount; ++page)
                 {
                     const sizet base = static_cast<sizet>(page) * pageFloats;
-                    if (base + pageFloats > texels.size())
+                    if (base + pageFloats > static_cast<sizet>(texels.Num()))
                     {
                         // Validate() guarantees this cannot happen; refusing to
                         // upload beats reading past the buffer if it ever does.
@@ -302,7 +302,7 @@ namespace OloEngine
                     {
                         halves[i] = static_cast<u16>(glm::packHalf1x16(texels[base + i]));
                     }
-                    m_AtlasTexture->SetLayerData(page, halves.data(), asset->GetWidth(), asset->GetHeight());
+                    m_AtlasTexture->SetLayerData(page, halves.GetData(), asset->GetWidth(), asset->GetHeight());
                 }
             }
         }
@@ -315,7 +315,8 @@ namespace OloEngine
 
     u64 SceneLightmapRuntime::ComputeBakeKey(Scene& scene, const SceneLightmapSettings& settings)
     {
-        return ComputeBakeKey(scene, settings, GatherLightmapReceivers(scene));
+        const auto receivers = GatherLightmapReceivers(scene);
+        return ComputeBakeKey(scene, settings, { receivers.GetData(), static_cast<sizet>(receivers.Num()) });
     }
 
     u64 SceneLightmapRuntime::ComputeBakeKey(Scene& scene, const SceneLightmapSettings& settings,
@@ -388,9 +389,9 @@ namespace OloEngine
         // coincidentally-equal field bytes from colliding.
         const auto hashLightsOfType = [&](auto view, auto&& mixEntity)
         {
-            std::vector<KeyedEntity> lights;
+            TArray<KeyedEntity> lights;
             for (auto entity : view)
-                lights.push_back({ static_cast<u64>(view.template get<IDComponent>(entity).ID), entity });
+                lights.Add({ static_cast<u64>(view.template get<IDComponent>(entity).ID), entity });
             std::sort(lights.begin(), lights.end(),
                       [](const KeyedEntity& a, const KeyedEntity& b)
                       { return a.Uuid < b.Uuid; });

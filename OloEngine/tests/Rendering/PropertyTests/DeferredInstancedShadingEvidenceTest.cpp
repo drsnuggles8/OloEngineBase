@@ -123,7 +123,7 @@ namespace OloEngine::Tests
         // centred at (centreX, 0, 0), spanning `span` world units per axis.
         void FillInstanceGrid(InstancedMeshComponent& imc, i32 gridDim, f32 centreX, f32 span)
         {
-            imc.Instances.reserve(imc.Instances.size() + static_cast<sizet>(gridDim) * gridDim);
+            imc.Instances.Reserve(imc.Instances.Num() + static_cast<sizet>(gridDim) * gridDim);
             for (i32 gy = 0; gy < gridDim; ++gy)
             {
                 for (i32 gx = 0; gx < gridDim; ++gx)
@@ -135,7 +135,7 @@ namespace OloEngine::Tests
                         glm::translate(glm::mat4(1.0f), glm::vec3(x, y, 0.0f)),
                         glm::vec3(span / static_cast<f32>(gridDim) * 0.85f));
                     inst.PrevTransform = inst.Transform;
-                    imc.Instances.push_back(inst);
+                    imc.Instances.Add(inst);
                 }
             }
         }

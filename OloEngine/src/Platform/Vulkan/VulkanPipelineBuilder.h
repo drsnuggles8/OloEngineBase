@@ -1,4 +1,5 @@
 #pragma once
+#include <span>
 
 // VulkanPipelineBuilder — thin PSOs + the root-data binding-mapping ABI.
 // Issue #691, ADR 0011 §4 (root data) + §5 (thin PSO).
@@ -85,7 +86,7 @@ namespace OloEngine
         std::vector<Field> Fields;
         u32 SizeBytes = 0;
 
-        [[nodiscard]] static VulkanRootDataLayout Build(const std::vector<VulkanShaderBinding>& bindings);
+        [[nodiscard]] static VulkanRootDataLayout Build(std::span<const VulkanShaderBinding> bindings);
         [[nodiscard]] const Field* Find(u32 set, u32 binding) const;
     };
 

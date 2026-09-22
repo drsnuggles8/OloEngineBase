@@ -46,7 +46,7 @@ namespace OloEngine
         m_Scene = scene;
         m_Config = config;
         m_CurrentFrame = 0;
-        m_PendingLoads.clear();
+        m_PendingLoads.Reset();
 
         DiscoverRegions();
     }
@@ -63,17 +63,17 @@ namespace OloEngine
                 pending.Task.Wait();
             }
         }
-        m_PendingLoads.clear();
+        m_PendingLoads.Reset();
 
         // Unload all ready regions
-        std::vector<RegionID> toUnload;
+        TArray<RegionID> toUnload;
         {
             TUniqueLock<FMutex> lock(m_RegionMutex);
             for (auto& [id, region] : m_Regions)
             {
                 if (region->m_State == StreamingRegion::State::Ready)
                 {
-                    toUnload.push_back(id);
+                    toUnload.Add(id);
                 }
             }
         }
@@ -92,15 +92,15 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (m_Config.RegionDirectory.empty())
+        if (m_Config.RegionDirectory.IsEmpty())
         {
             return;
         }
 
-        std::filesystem::path regionDir(m_Config.RegionDirectory);
+        std::filesystem::path regionDir(m_Config.RegionDirectory.ToStdString());
         if (!std::filesystem::exists(regionDir))
         {
-            OLO_CORE_WARN("SceneStreamer: Region directory does not exist: {0}", m_Config.RegionDirectory);
+            OLO_CORE_WARN("SceneStreamer: Region directory does not exist: {0}", m_Config.RegionDirectory.ToView());
             return;
         }
 
@@ -282,11 +282,11 @@ namespace OloEngine
             }
         }
 
-        region->m_EntityUUIDs.clear();
+        region->m_EntityUUIDs.Reset();
         region->m_RawData.reset();
         region->m_State = StreamingRegion::State::Unloaded;
 
-        OLO_CORE_TRACE("SceneStreamer: Unloaded region '{0}'", region->m_Name);
+        OLO_CORE_TRACE("SceneStreamer: Unloaded region '{0}'", region->m_Name.ToView());
     }
 
     void SceneStreamer::SetActivationEntity(UUID entityId)
@@ -310,7 +310,7 @@ namespace OloEngine
 
     u32 SceneStreamer::GetPendingLoadCount() const
     {
-        return static_cast<u32>(m_PendingLoads.size());
+        return static_cast<u32>(m_PendingLoads.Num());
     }
 
     void SceneStreamer::RequestRegionLoad(RegionID id)
@@ -343,30 +343,30 @@ namespace OloEngine
             },
             Tasks::ETaskPriority::BackgroundNormal);
 
-        m_PendingLoads.push_back({ id, std::move(task), region });
+        m_PendingLoads.Add(PendingLoad{ id, std::move(task), region });
 
-        OLO_CORE_TRACE("SceneStreamer: Requested load for region '{0}'", region->m_Name);
+        OLO_CORE_TRACE("SceneStreamer: Requested load for region '{0}'", region->m_Name.ToView());
     }
 
     void SceneStreamer::ProcessCompletedLoads()
     {
         OLO_PROFILE_FUNCTION();
 
-        if (m_PendingLoads.empty())
+        if (m_PendingLoads.IsEmpty())
         {
             return;
         }
 
-        for (auto it = m_PendingLoads.begin(); it != m_PendingLoads.end();)
+        for (i32 index = 0; index < m_PendingLoads.Num();)
         {
-            if (!it->Task.IsCompleted())
+            if (!m_PendingLoads[index].Task.IsCompleted())
             {
-                ++it;
+                ++index;
                 continue;
             }
 
-            bool success = it->Task.GetResult();
-            auto& region = it->Region;
+            bool success = m_PendingLoads[index].Task.GetResult();
+            auto& region = m_PendingLoads[index].Region;
 
             // Read state and move raw data under mutex (written by worker thread under same lock)
             StreamingRegion::State regionState;
@@ -385,7 +385,11 @@ namespace OloEngine
                 if (auto entitiesNode = rawData["Entities"])
                 {
                     auto createdUUIDs = serializer.DeserializeAdditive(entitiesNode);
-                    region->m_EntityUUIDs = std::move(createdUUIDs);
+                    region->m_EntityUUIDs.Reset(static_cast<i32>(createdUUIDs.Num()));
+                    for (const UUID uuid : createdUUIDs)
+                    {
+                        region->m_EntityUUIDs.Add(uuid);
+                    }
                 }
 
                 // Initialize subsystems for new entities
@@ -400,18 +404,18 @@ namespace OloEngine
                 auto volView = m_Scene->GetAllEntitiesWith<StreamingVolumeComponent>();
                 for (auto&& [ve, vol] : volView.each())
                 {
-                    if (RegionID(static_cast<u64>(vol.RegionAssetHandle)) == it->RegionId)
+                    if (RegionID(static_cast<u64>(vol.RegionAssetHandle)) == m_PendingLoads[index].RegionId)
                     {
                         vol.IsLoaded = true;
                     }
                 }
 
                 OLO_CORE_TRACE("SceneStreamer: Region '{0}' is now Ready ({1} entities)",
-                               region->m_Name, region->m_EntityUUIDs.size());
+                               region->m_Name.ToView(), region->m_EntityUUIDs.Num());
             }
             else if (!success)
             {
-                OLO_CORE_ERROR("SceneStreamer: Failed to load region '{0}'", region->m_Name);
+                OLO_CORE_ERROR("SceneStreamer: Failed to load region '{0}'", region->m_Name.ToView());
                 TUniqueLock<FMutex> lock(m_RegionMutex);
                 region->m_State = StreamingRegion::State::Unloaded;
             }
@@ -420,7 +424,7 @@ namespace OloEngine
                 // No additional handling required.
             }
 
-            it = m_PendingLoads.erase(it);
+            m_PendingLoads.RemoveAt(index);
         }
     }
 
@@ -446,32 +450,37 @@ namespace OloEngine
         }
 
         // Collect ready regions sorted by LRU frame
-        std::vector<std::pair<RegionID, u64>> sortedRegions;
-        sortedRegions.reserve(readyCount);
+        struct ReadyRegion
+        {
+            RegionID Id;
+            u64 LastUsedFrame;
+        };
+        TArray<ReadyRegion> sortedRegions;
+        sortedRegions.Reserve(static_cast<i32>(readyCount));
         for (auto& [id, region] : m_Regions)
         {
             if (region->m_State == StreamingRegion::State::Ready)
             {
-                sortedRegions.push_back({ id, region->m_LastUsedFrame });
+                sortedRegions.Add(ReadyRegion{ id, region->m_LastUsedFrame });
             }
         }
 
         std::ranges::sort(sortedRegions,
                           [](const auto& a, const auto& b)
-                          { return a.second < b.second; });
+                          { return a.LastUsedFrame < b.LastUsedFrame; });
 
         // Evict oldest until under budget
         u32 toEvict = readyCount - m_Config.MaxLoadedRegions;
-        for (u32 i = 0; i < toEvict && i < static_cast<u32>(sortedRegions.size()); ++i)
+        for (u32 i = 0; i < toEvict && i < static_cast<u32>(sortedRegions.Num()); ++i)
         {
             // Release lock before UnloadRegion (it acquires lock internally)
             lock.Unlock();
-            UnloadRegion(sortedRegions[i].first);
+            UnloadRegion(sortedRegions[i].Id);
             lock.Lock();
         }
     }
 
-    void SceneStreamer::InitializeStreamedEntities(const std::vector<UUID>& entityUUIDs) const
+    void SceneStreamer::InitializeStreamedEntities(const TArray<UUID>& entityUUIDs) const
     {
         OLO_PROFILE_FUNCTION();
 

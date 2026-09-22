@@ -388,7 +388,7 @@ TEST(GPUPagedCacheTest, AllocateObjectSinglePage)
     ASSERT_TRUE(cache.Has(1));
 
     const auto ranges = cache.GetObjectBufferRanges(1);
-    ASSERT_EQ(ranges.size(), 1u);
+    ASSERT_EQ(static_cast<sizet>(ranges.Num()), 1u);
     EXPECT_EQ(ranges[0].m_AtomCount, 3u);
     EXPECT_EQ(Inspector::ReadObjectData(cache, 1), data);
 }
@@ -416,7 +416,7 @@ TEST(GPUPagedCacheTest, AllocateObjectExactPageBoundary)
     ASSERT_TRUE(cache.AllocateObject(2, data.data(), data.size()));
 
     const auto ranges = cache.GetObjectBufferRanges(2);
-    ASSERT_EQ(ranges.size(), 1u);
+    ASSERT_EQ(static_cast<sizet>(ranges.Num()), 1u);
     EXPECT_EQ(ranges[0].m_AtomCount, 5u);
     EXPECT_EQ(Inspector::ReadObjectData(cache, 2), data);
 }
@@ -430,7 +430,7 @@ TEST(GPUPagedCacheTest, AllocateObjectOverMultiplePagesContiguous)
     ASSERT_TRUE(cache.AllocateObject(3, data.data(), data.size()));
 
     const auto ranges = cache.GetObjectBufferRanges(3);
-    ASSERT_EQ(ranges.size(), 1u);
+    ASSERT_EQ(static_cast<sizet>(ranges.Num()), 1u);
     EXPECT_EQ(ranges[0].m_AtomCount, 12u);
     EXPECT_EQ(Inspector::ReadObjectData(cache, 3), data);
 }
@@ -450,7 +450,7 @@ TEST(GPUPagedCacheTest, AllocateObjectOverMultiplePagesFragmented)
     ASSERT_TRUE(cache.AllocateObject(4, largeData.data(), largeData.size()));
 
     const auto ranges = cache.GetObjectBufferRanges(4);
-    ASSERT_EQ(ranges.size(), 2u);
+    ASSERT_EQ(static_cast<sizet>(ranges.Num()), 2u);
     EXPECT_EQ(Inspector::ReadObjectData(cache, 4), largeData);
 }
 
@@ -461,7 +461,7 @@ TEST(GPUPagedCacheTest, AllocateObjectWithNoElements)
 
     ASSERT_TRUE(cache.AllocateObject(5, nullptr, 0));
     EXPECT_TRUE(cache.Has(5));
-    EXPECT_TRUE(cache.GetObjectBufferRanges(5).empty());
+    EXPECT_TRUE(cache.GetObjectBufferRanges(5).IsEmpty());
 }
 
 TEST(GPUPagedCacheTest, AllocateObjectCausesSingleEviction)
@@ -556,7 +556,7 @@ TEST(GPUPagedCacheTest, AllocateObjectAfterClearObject)
     const int newData[] = { 9, 8, 7 };
     ASSERT_TRUE(cache.AllocateObject(1, newData, 3));
     EXPECT_EQ(Inspector::ReadObjectData(cache, 1), std::vector<int>({ 9, 8, 7 }));
-    ASSERT_EQ(cache.GetObjectBufferRanges(1).size(), 1u);
+    ASSERT_EQ(cache.GetObjectBufferRanges(1).Num(), 1u);
 }
 
 // ------------------------------------------------------------- PushBackToObject
@@ -762,7 +762,7 @@ TEST(GPUPagedCacheTest, BufferRangesSplitAtThePartialPage)
 
     using Range = Cache::BufferRange;
     const auto ranges = cache.GetObjectBufferRanges(2);
-    const std::vector<Range> expected = {
+    const TArray<Range> expected = {
         Range{ 0, 1 }, // page 0: the 1-atom data tail
         Range{ 2, 4 }, // pages 1-2: full, address-adjacent
     };
@@ -773,7 +773,7 @@ TEST(GPUPagedCacheTest, BufferRangesForNonExistingObjectAreEmpty)
 {
     Cache cache;
     ASSERT_TRUE(cache.Create(kPageSize, 2));
-    EXPECT_TRUE(cache.GetObjectBufferRanges(404).empty());
+    EXPECT_TRUE(cache.GetObjectBufferRanges(404).IsEmpty());
 }
 
 // ------------------------------------------------------------- other policies
@@ -933,19 +933,19 @@ TEST(GPUPagedCacheTest, ReserveUpToPagesClaimsLowestIndicesFirst)
     GPUPagedBuffer<int> buffer;
     ASSERT_TRUE(buffer.Create(1, 8, GPUCacheBacking::HostOnly));
 
-    std::vector<u32> pages;
+    TArray<u32> pages;
     ASSERT_EQ(buffer.ReserveUpToPages(5, pages), 5u);
-    EXPECT_EQ(pages, std::vector<u32>({ 0, 1, 2, 3, 4 }));
+    EXPECT_EQ(pages, TArray<u32>({ 0, 1, 2, 3, 4 }));
 
     buffer.FreePage(3);
     buffer.FreePage(1);
 
-    pages.clear();
+    pages.Reset();
     ASSERT_EQ(buffer.ReserveUpToPages(2, pages), 2u);
-    EXPECT_EQ(pages, std::vector<u32>({ 1, 3 })) << "freed pages must be re-claimed in ascending order";
+    EXPECT_EQ(pages, TArray<u32>({ 1, 3 })) << "freed pages must be re-claimed in ascending order";
 
     // A short claim reports how much it got and keeps the claim.
-    pages.clear();
+    pages.Reset();
     EXPECT_EQ(buffer.ReserveUpToPages(9, pages), 3u); // only 5..7 remain
-    EXPECT_EQ(pages, std::vector<u32>({ 5, 6, 7 }));
+    EXPECT_EQ(pages, TArray<u32>({ 5, 6, 7 }));
 }

@@ -33,19 +33,19 @@ namespace OloEngine::RenderGraphReachability
 
         // Iteration order for building the writer map (matches the canonical
         // insertion order). Each entry must be a registered graph-entry name.
-        std::span<const std::string> InsertionOrder;
+        std::span<const FString> InsertionOrder;
 
         // Per-pass setup-time access declarations.
-        const std::unordered_map<std::string, std::vector<RGAccessDeclaration>>& PassAccessDeclarations;
+        const RGTransparentStringMap<TArray64<RGAccessDeclaration>>& PassAccessDeclarations;
 
         // Explicit ordering edges (consumer → list of producer pass names).
-        const std::unordered_map<std::string, std::vector<std::string>>& Dependencies;
+        const RGTransparentStringMap<TArray64<FString>>& Dependencies;
 
         // Additional reachability roots derived from extraction / temporal-
         // history / external-sink contracts. Each entry is a resource name
         // whose writers must remain reachable. Empty entries are ignored.
-        std::span<const std::string> ExtractedResourceNames;
+        std::span<const FString> ExtractedResourceNames;
     };
 
-    [[nodiscard]] auto ComputeReachableSet(const ScanInput& input) -> std::unordered_set<std::string>;
+    [[nodiscard]] auto ComputeReachableSet(const ScanInput& input) -> RGTransparentStringSet;
 } // namespace OloEngine::RenderGraphReachability

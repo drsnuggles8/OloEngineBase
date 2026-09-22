@@ -323,7 +323,7 @@ namespace OloEngine
 
         // Query color attachments
         outInfo.ColorAttachmentCount = 0;
-        outInfo.ColorAttachmentFormats.clear();
+        outInfo.ColorAttachmentFormats.Reset();
 
         for (u32 i = 0; i < 8; ++i)
         {
@@ -335,7 +335,7 @@ namespace OloEngine
             {
                 ++outInfo.ColorAttachmentCount;
 
-                outInfo.ColorAttachmentFormats.push_back(
+                outInfo.ColorAttachmentFormats.Add(
                     static_cast<u32>(QueryAttachmentInternalFormat(GL_COLOR_ATTACHMENT0 + i)));
             }
         }
@@ -910,7 +910,7 @@ namespace OloEngine
                 isDepth = true;
                 break;
             default:
-                outSource.Error = "unsupported internal format 0x" + std::format("{:X}", static_cast<u32>(internalFormat));
+                outSource.Error = FString("unsupported internal format 0x" + std::format("{:X}", static_cast<u32>(internalFormat)));
                 return false;
         }
 
@@ -918,7 +918,7 @@ namespace OloEngine
         outSource.IsFloat = (dataType == GL_FLOAT);
         outSource.IsDepth = isDepth;
         outSource.PixelFormat = static_cast<u32>(format);
-        outSource.FormatName = FormatTextureFormatName(static_cast<u32>(internalFormat));
+        outSource.FormatName = FString(FormatTextureFormatName(static_cast<u32>(internalFormat)));
         return true;
     }
 

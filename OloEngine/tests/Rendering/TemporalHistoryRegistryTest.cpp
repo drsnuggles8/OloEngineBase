@@ -46,6 +46,32 @@ namespace OloEngine::Tests
         }
     } // namespace
 
+    TEST(TemporalHistoryRegistry, ArrayGrowthPreservesHistoryNamesAndTokens)
+    {
+        TemporalHistoryRegistry registry;
+        std::array<TemporalHistoryToken, 128> tokens;
+        for (u32 i = 0; i < tokens.size(); ++i)
+        {
+            auto key = MakeKey();
+            key.View = i;
+            const std::string name = std::string(i % 2 == 0 ? 3 : 128, 'x') + std::to_string(i);
+            const auto acquired = registry.Acquire(key, MakeDescriptor(), kAllViewDependencies, name);
+            ASSERT_TRUE(acquired.Created);
+            tokens[i] = acquired.Token;
+        }
+
+        const auto snapshots = registry.Snapshot();
+        ASSERT_EQ(snapshots.Num(), tokens.size());
+        for (u32 i = 0; i < tokens.size(); ++i)
+        {
+            const std::string name = std::string(i % 2 == 0 ? 3 : 128, 'x') + std::to_string(i);
+            EXPECT_TRUE(registry.IsCurrent(tokens[i]));
+            EXPECT_EQ(registry.GetDebugName(tokens[i]), name);
+            EXPECT_EQ(snapshots[i].DebugName.ToView(), name);
+            EXPECT_EQ(snapshots[i].Token, tokens[i]);
+        }
+    }
+
     TEST(TemporalHistoryRegistry, CompatibleAcquireKeepsTheSameGeneration)
     {
         TemporalHistoryRegistry registry;
@@ -68,7 +94,7 @@ namespace OloEngine::Tests
 
         EXPECT_TRUE(first.Token.IsValid());
         EXPECT_FALSE(collision.Token.IsValid());
-        EXPECT_EQ(registry.Snapshot().size(), 1u);
+        EXPECT_EQ(registry.Snapshot().Num(), 1u);
     }
 
     TEST(TemporalHistoryRegistry, DescriptorMismatchAdvancesGenerationAndRejectsStaleToken)
@@ -170,7 +196,7 @@ namespace OloEngine::Tests
         ASSERT_EQ(registry.Invalidate(TemporalHistoryInvalidationCause::SceneReset), 1u);
 
         const auto snapshots = registry.Snapshot();
-        ASSERT_EQ(snapshots.size(), 1u);
+        ASSERT_EQ(snapshots.Num(), 1u);
         EXPECT_EQ(snapshots[0].Key, MakeKey());
         EXPECT_EQ(snapshots[0].Descriptor, MakeDescriptor());
         EXPECT_EQ(snapshots[0].Token.Generation, acquired.Token.Generation + 1u);

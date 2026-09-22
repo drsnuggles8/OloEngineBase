@@ -61,18 +61,18 @@ namespace OloEngine::RenderGraphBarrierPlanner
     // ------------------------------------------------------------------------
     struct PlanInput
     {
-        std::span<const std::string> ExecutionOrder;
-        const std::unordered_map<std::string, std::vector<RGAccessDeclaration>>& PassAccessDeclarations;
+        std::span<const FString> ExecutionOrder;
+        const RGTransparentStringMap<TArray64<RGAccessDeclaration>>& PassAccessDeclarations;
         // Returns true when the named pass is reachable from the final pass
         // and therefore will actually execute this frame.
-        std::function<bool(const std::string&)> IsPassReachable;
+        std::function<bool(std::string_view)> IsPassReachable;
     };
 
     struct PlanResult
     {
-        std::vector<RenderGraph::PlannedBarrier> PlannedBarriers;
-        std::unordered_map<std::string, MemoryBarrierFlags> PassBarrierFlags;
-        std::vector<RenderGraph::BarrierDiagnostic> Diagnostics;
+        TArray64<RenderGraph::PlannedBarrier> PlannedBarriers;
+        RGTransparentStringMap<MemoryBarrierFlags> PassBarrierFlags;
+        TArray64<RenderGraph::BarrierDiagnostic> Diagnostics;
     };
 
     [[nodiscard]] auto ComputePlan(const PlanInput& input) -> PlanResult;
@@ -87,10 +87,10 @@ namespace OloEngine::RenderGraphBarrierPlanner
     struct TransitionInput
     {
         std::span<const RenderGraph::PlannedBarrier> PlannedBarriers;
-        std::span<const std::string> ExecutionOrder;
-        const std::unordered_map<std::string, std::vector<RGAccessDeclaration>>& PassAccessDeclarations;
-        std::function<RenderGraphPassWorkType(const std::string&)> GetPassWorkType;
+        std::span<const FString> ExecutionOrder;
+        const RGTransparentStringMap<TArray64<RGAccessDeclaration>>& PassAccessDeclarations;
+        std::function<RenderGraphPassWorkType(std::string_view)> GetPassWorkType;
     };
 
-    [[nodiscard]] auto BuildResourceTransitions(const TransitionInput& input) -> std::vector<RenderGraph::ResourceTransition>;
+    [[nodiscard]] auto BuildResourceTransitions(const TransitionInput& input) -> TArray64<RenderGraph::ResourceTransition>;
 } // namespace OloEngine::RenderGraphBarrierPlanner

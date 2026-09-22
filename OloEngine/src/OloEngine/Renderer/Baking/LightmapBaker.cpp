@@ -101,7 +101,7 @@ namespace OloEngine
         // different pages is two different texels (issue #868).
         void RasterizeEntity(const MeshSource& mesh, const glm::mat4& worldTransform,
                              const glm::vec4& scaleOffset, u32 atlasSize, u32 page,
-                             std::vector<LightmapTexelJob>& jobs, std::span<u8> texelClaimed)
+                             TArray<LightmapTexelJob>& jobs, std::span<u8> texelClaimed)
         {
             const auto& vertices = mesh.GetVertices();
             const auto& indices = mesh.GetIndices();
@@ -114,8 +114,8 @@ namespace OloEngine
             // per triangle corner. The expressions match the previous
             // per-corner ones exactly, so baked values are bit-identical.
             const i32 vertexCount = vertices.Num();
-            std::vector<glm::vec3> worldPositions(static_cast<sizet>(vertexCount));
-            std::vector<glm::vec3> worldNormals(static_cast<sizet>(vertexCount));
+            TArray<glm::vec3> worldPositions(static_cast<sizet>(vertexCount));
+            TArray<glm::vec3> worldNormals(static_cast<sizet>(vertexCount));
             for (i32 v = 0; v < vertexCount; ++v)
             {
                 worldPositions[static_cast<sizet>(v)] = glm::vec3(worldTransform * glm::vec4(vertices[v].Position, 1.0f));
@@ -128,7 +128,7 @@ namespace OloEngine
                 if (texelClaimed[claimIndex] != 0)
                     return; // first-writer-wins keeps overlaps (chart padding rounding) deterministic
                 texelClaimed[claimIndex] = 1;
-                jobs.push_back(LightmapTexelJob{ x, y, page, pos, normal });
+                jobs.Add(LightmapTexelJob{ x, y, page, pos, normal });
             };
 
             for (i32 i = 0; i + 2 < indices.Num(); i += 3)
@@ -216,7 +216,7 @@ namespace OloEngine
         // PING-PONG: every pass reads only the previous pass's state and writes
         // a separate buffer, so the result is a pure function of the input —
         // iteration order within a pass cannot affect it.
-        void DilateAtlas(std::vector<f32>& texels, u32 atlasSize, u32 pageCount, u32 passes,
+        void DilateAtlas(TArray<f32>& texels, u32 atlasSize, u32 pageCount, u32 passes,
                          std::span<const LightmapAtlasRegion> regions)
         {
             if (passes == 0)
@@ -224,8 +224,8 @@ namespace OloEngine
 
             const sizet pageFloats = static_cast<sizet>(atlasSize) * atlasSize * 4;
 
-            std::vector<f32> read;
-            std::vector<f32> write;
+            TArray<f32> read;
+            TArray<f32> write;
             for (const LightmapAtlasRegion& region : regions)
             {
                 if (region.Size == 0 || region.X + region.Size > atlasSize || region.Y + region.Size > atlasSize ||
@@ -240,12 +240,12 @@ namespace OloEngine
                 const sizet rowFloats = static_cast<sizet>(region.Size) * 4;
 
                 // Lift the region into a local rect buffer.
-                read.resize(static_cast<sizet>(region.Size) * rowFloats);
-                write.resize(read.size());
+                read.SetNum(static_cast<sizet>(region.Size) * rowFloats, EAllowShrinking::No);
+                write.SetNum(read.Num(), EAllowShrinking::No);
                 for (u32 y = 0; y < region.Size; ++y)
                 {
                     const sizet src = pageBase + (static_cast<sizet>(region.Y + y) * atlasSize + region.X) * 4;
-                    std::copy_n(texels.data() + src, rowFloats, write.data() + static_cast<sizet>(y) * rowFloats);
+                    std::copy_n(texels.GetData() + src, rowFloats, write.GetData() + static_cast<sizet>(y) * rowFloats);
                 }
                 std::swap(read, write); // `read` now holds the pre-dilation state
 
@@ -309,7 +309,7 @@ namespace OloEngine
                 for (u32 y = 0; y < region.Size; ++y)
                 {
                     const sizet dst = pageBase + (static_cast<sizet>(region.Y + y) * atlasSize + region.X) * 4;
-                    std::copy_n(read.data() + static_cast<sizet>(y) * rowFloats, rowFloats, texels.data() + dst);
+                    std::copy_n(read.GetData() + static_cast<sizet>(y) * rowFloats, rowFloats, texels.GetData() + dst);
                 }
             }
         }
@@ -355,7 +355,7 @@ namespace OloEngine
         // freeze the game thread for minutes and emit 5,000 identical warnings.
         // The attempt is a pure function of the mesh, so one result per mesh is
         // both faster and the same answer.
-        std::vector<bool> unwrapFailed(entities.size(), false);
+        TArray<bool> unwrapFailed(static_cast<i32>(entities.size()), false);
         std::unordered_map<const MeshSource*, bool> unwrapAttempted;
         for (sizet e = 0; e < entities.size(); ++e)
         {
@@ -396,8 +396,8 @@ namespace OloEngine
         }
 
         // ── 2. Atlas regions: sized by world-space area, packed deterministically ──
-        std::vector<EntityPlan> plans;
-        plans.reserve(entities.size());
+        TArray<EntityPlan> plans;
+        plans.Reserve(entities.size());
         for (sizet e = 0; e < entities.size(); ++e)
         {
             if (unwrapFailed[e])
@@ -412,10 +412,10 @@ namespace OloEngine
             plan.InputIndex = e;
             plan.RegionSize = std::clamp(desiredSize, settings.MinRegionSize, settings.AtlasSize);
             plan.DesiredRegionSize = plan.RegionSize;
-            plans.push_back(plan);
+            plans.Add(plan);
         }
 
-        if (plans.empty())
+        if (plans.IsEmpty())
         {
             outError = "no bakeable entities (every unwrap failed)";
             return false;
@@ -467,15 +467,15 @@ namespace OloEngine
         // plans are already in a total order (size desc, UUID asc), pages are
         // scanned low-to-high, and the allocator itself is deterministic — so
         // the whole assignment is a pure function of the sorted plan list.
-        std::vector<AtlasAllocator> pages;
-        pages.reserve(maxPages);
-        pages.emplace_back(settings.AtlasSize, settings.MinRegionSize);
+        TArray<AtlasAllocator> pages;
+        pages.Reserve(maxPages);
+        pages.Emplace(settings.AtlasSize, settings.MinRegionSize);
 
         // Try to place `size` on any existing page, opening a new one if the
         // budget still allows. Returns false when neither is possible.
         const auto placeAtSize = [&](EntityPlan& plan, u32 size) -> bool
         {
-            for (u32 page = 0; page < static_cast<u32>(pages.size()); ++page)
+            for (u32 page = 0; page < static_cast<u32>(pages.Num()); ++page)
             {
                 const u32 node = pages[page].Allocate(size);
                 if (node != AtlasAllocator::kInvalidNode)
@@ -487,18 +487,18 @@ namespace OloEngine
                     return true;
                 }
             }
-            if (static_cast<u32>(pages.size()) >= maxPages)
+            if (static_cast<u32>(pages.Num()) >= maxPages)
                 return false;
 
-            pages.emplace_back(settings.AtlasSize, settings.MinRegionSize);
-            const u32 page = static_cast<u32>(pages.size()) - 1;
+            pages.Emplace(settings.AtlasSize, settings.MinRegionSize);
+            const u32 page = static_cast<u32>(pages.Num()) - 1;
             const u32 node = pages[page].Allocate(size);
             if (node == AtlasAllocator::kInvalidNode)
             {
                 // A fresh page cannot fit `size` at all (only reachable if it
                 // exceeds the atlas). Drop the page again so PageCount never
                 // counts one nothing was ever placed on.
-                pages.pop_back();
+                pages.RemoveAt(pages.Num() - 1, 1, EAllowShrinking::No);
                 return false;
             }
             plan.AllocatorNode = node;
@@ -534,7 +534,7 @@ namespace OloEngine
             {
                 OLO_CORE_WARN("LightmapBaker: atlas exhausted at {} page(s) — entity {:x} gets no lightmap "
                               "(raise AtlasSize or lower TexelsPerMeter)",
-                              pages.size(), entities[plan.InputIndex].EntityUUID);
+                              pages.Num(), entities[plan.InputIndex].EntityUUID);
             }
             else if (plan.RegionSize < plan.DesiredRegionSize)
             {
@@ -543,13 +543,13 @@ namespace OloEngine
             }
         }
 
-        const u32 pageCount = static_cast<u32>(pages.size());
+        const u32 pageCount = static_cast<u32>(pages.Num());
 
         // ── 3. Rasterize every placed entity's charts into texel jobs ──
         // One claim slice per page — pages pack independently, so the same
         // (x, y) on two pages must be two separately claimable texels.
         const sizet pageTexels = static_cast<sizet>(settings.AtlasSize) * settings.AtlasSize;
-        std::vector<u8> texelClaimed(pageTexels * pageCount, 0);
+        TArray<u8> texelClaimed(static_cast<i32>(pageTexels * pageCount), 0);
 
         for (const auto& plan : plans)
         {
@@ -572,19 +572,19 @@ namespace OloEngine
 
             RasterizeEntity(*input.Mesh, input.WorldTransform, scaleOffset, settings.AtlasSize, plan.Page,
                             outPrepared.Jobs,
-                            std::span<u8>(texelClaimed).subspan(static_cast<sizet>(plan.Page) * pageTexels, pageTexels));
+                            std::span<u8>(texelClaimed.GetData(), static_cast<sizet>(texelClaimed.Num())).subspan(static_cast<sizet>(plan.Page) * pageTexels, pageTexels));
 
             LightmapEntityEntry entry;
             entry.EntityUUID = input.EntityUUID;
             entry.SubKey = input.SubKey;
             entry.Page = plan.Page;
             entry.ScaleOffset = scaleOffset;
-            outPrepared.Entries.push_back(entry);
-            outPrepared.Regions.push_back(LightmapAtlasRegion{ plan.Region.X, plan.Region.Y, plan.RegionSize, plan.Page });
+            outPrepared.Entries.Add(entry);
+            outPrepared.Regions.Add(LightmapAtlasRegion{ plan.Region.X, plan.Region.Y, plan.RegionSize, plan.Page });
             ++outPrepared.BakedEntityCount;
         }
 
-        if (outPrepared.Jobs.empty())
+        if (outPrepared.Jobs.IsEmpty())
         {
             outError = "rasterization produced no texels (are the meshes degenerate?)";
             return false;
@@ -612,7 +612,7 @@ namespace OloEngine
             result.Error = "SamplesPerTexel must be non-zero";
             return result;
         }
-        if (prepared.AtlasSize == 0 || prepared.PageCount == 0 || prepared.Jobs.empty())
+        if (prepared.AtlasSize == 0 || prepared.PageCount == 0 || prepared.Jobs.IsEmpty())
         {
             result.Error = "nothing prepared to bake";
             return result;
@@ -629,7 +629,13 @@ namespace OloEngine
         // Each texel's seed derives from its atlas coordinates, so the estimate
         // is independent of scheduling — the whole bake is deterministic.
         const sizet pageTexels = static_cast<sizet>(prepared.AtlasSize) * prepared.AtlasSize;
-        std::vector<f32> texels(pageTexels * prepared.PageCount * 4, 0.0f);
+        const sizet texelCount = pageTexels * prepared.PageCount * 4;
+        if (texelCount > static_cast<sizet>(std::numeric_limits<i32>::max()))
+        {
+            result.Error = "prepared texel count exceeds the array capacity";
+            return result;
+        }
+        TArray<f32> texels(static_cast<i32>(texelCount), 0.0f);
 
         PathTracing::PathTracerSettings tracerSettings;
         tracerSettings.SamplesPerPixel = settings.SamplesPerTexel;
@@ -642,7 +648,7 @@ namespace OloEngine
 
         ParallelFor(
             "LightmapBaker::BakeTexels",
-            static_cast<i32>(prepared.Jobs.size()),
+            static_cast<i32>(prepared.Jobs.Num()),
             16, // MinBatchSize: each job is SamplesPerTexel full paths
             [&](i32 jobIndex)
             {
@@ -676,7 +682,7 @@ namespace OloEngine
 
                 const sizet done = jobsDone.fetch_add(1, std::memory_order_relaxed) + 1;
                 if (progress && (done % 256 == 0))
-                    ReportProgress(progress, 0.95f * static_cast<f32>(done) / static_cast<f32>(prepared.Jobs.size()));
+                    ReportProgress(progress, 0.95f * static_cast<f32>(done) / static_cast<f32>(prepared.Jobs.Num()));
             });
 
         if (sawCancel.load(std::memory_order_relaxed) || IsCancelled(cancelToken))
@@ -687,13 +693,13 @@ namespace OloEngine
         ReportProgress(progress, 0.95f);
 
         // ── Dilation + asset assembly ──
-        DilateAtlas(texels, prepared.AtlasSize, prepared.PageCount, settings.DilationPasses, prepared.Regions);
+        DilateAtlas(texels, prepared.AtlasSize, prepared.PageCount, settings.DilationPasses, { prepared.Regions.GetData(), static_cast<sizet>(prepared.Regions.Num()) });
 
         auto asset = Ref<LightmapAsset>::Create();
         asset->SetDimensions(prepared.AtlasSize, prepared.AtlasSize, prepared.PageCount);
         asset->SetBakeKey(settings.BakeKey);
         asset->SetTexelData(std::move(texels));
-        asset->SetEntries(std::vector<LightmapEntityEntry>(prepared.Entries));
+        asset->SetEntries(TArray<LightmapEntityEntry>(prepared.Entries));
 
         result.Asset = asset;
         result.Success = true;

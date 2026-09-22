@@ -9,7 +9,7 @@
 
 namespace OloEngine
 {
-    Ref<ReflectionProbeDistanceField> ReflectionProbeDistanceField::Create(std::vector<f32>&& mip0, u32 resolution)
+    Ref<ReflectionProbeDistanceField> ReflectionProbeDistanceField::Create(TArray<f32>&& mip0, u32 resolution)
     {
         if (!FMath::IsPowerOfTwo(resolution))
         {
@@ -17,21 +17,21 @@ namespace OloEngine
             return nullptr;
         }
         sizet const expected = static_cast<sizet>(resolution) * resolution * 6u;
-        if (mip0.size() != expected)
+        if (mip0.Num() != expected)
         {
-            OLO_CORE_ERROR("ReflectionProbeDistanceField: mip0 has {} texels, expected {}", mip0.size(), expected);
+            OLO_CORE_ERROR("ReflectionProbeDistanceField: mip0 has {} texels, expected {}", mip0.Num(), expected);
             return nullptr;
         }
 
         auto field = Ref<ReflectionProbeDistanceField>::Create();
         field->m_Resolution = resolution;
-        field->m_MaxFiniteDistance = ComputeMaxFiniteProbeDistance(mip0);
-        field->m_Mips.emplace_back(std::move(mip0));
+        field->m_MaxFiniteDistance = ComputeMaxFiniteProbeDistance({ mip0.GetData(), static_cast<sizet>(mip0.Num()) });
+        field->m_Mips.Emplace(std::move(mip0));
 
         u32 res = resolution;
         while (res > 1)
         {
-            field->m_Mips.emplace_back(BuildNextMaxMip(field->m_Mips.back(), res));
+            field->m_Mips.Emplace(BuildNextMaxMip(field->GetMip(static_cast<u32>(field->m_Mips.Num() - 1)), res));
             res /= 2;
         }
         return field;
@@ -39,11 +39,11 @@ namespace OloEngine
 
     std::span<const f32> ReflectionProbeDistanceField::GetMip(u32 mip) const
     {
-        if (mip >= m_Mips.size())
+        if (mip >= m_Mips.Num())
         {
             return {};
         }
-        return m_Mips[mip];
+        return { m_Mips[mip].GetData(), static_cast<sizet>(m_Mips[mip].Num()) };
     }
 
     f32 ReflectionProbeDistanceField::SampleNearest(const glm::vec3& direction, u32 mip) const
@@ -51,11 +51,11 @@ namespace OloEngine
         // Create() always builds at least mip 0, but a default-constructed
         // instance is representable — fail safe to "sky" rather than
         // underflowing the mip clamp below.
-        if (m_Mips.empty())
+        if (m_Mips.IsEmpty())
         {
             return kProbeDistanceFar;
         }
-        u32 const clampedMip = std::min(mip, static_cast<u32>(m_Mips.size()) - 1u);
+        u32 const clampedMip = std::min(mip, static_cast<u32>(m_Mips.Num()) - 1u);
         u32 const res = std::max(1u, m_Resolution >> clampedMip);
         CubeFaceTexel const texel = DirectionToCubeFaceTexel(direction, res);
         auto const& data = m_Mips[clampedMip];
@@ -63,10 +63,16 @@ namespace OloEngine
         return data[index];
     }
 
-    std::vector<f32> BuildNextMaxMip(std::span<const f32> source, u32 resolution)
+    TArray<f32> BuildNextMaxMip(std::span<const f32> source, u32 resolution)
     {
         u32 const dstRes = std::max(1u, resolution / 2u);
-        std::vector<f32> next(static_cast<sizet>(dstRes) * dstRes * 6u, 0.0f);
+        const u64 texelCount = static_cast<u64>(dstRes) * dstRes * 6u;
+        if (texelCount > static_cast<u64>(std::numeric_limits<i32>::max()))
+        {
+            OLO_CORE_ERROR("BuildNextMaxMip: destination exceeds array capacity");
+            return {};
+        }
+        TArray<f32> next(static_cast<i32>(texelCount), 0.0f);
         if (resolution < 2u || source.size() < static_cast<sizet>(resolution) * resolution * 6u)
         {
             OLO_CORE_ERROR("BuildNextMaxMip: malformed source (resolution {}, {} texels)", resolution, source.size());

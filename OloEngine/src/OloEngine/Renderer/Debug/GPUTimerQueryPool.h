@@ -1,9 +1,8 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Containers/Array.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
-
-#include <vector>
 
 namespace OloEngine
 {
@@ -48,7 +47,7 @@ namespace OloEngine
         /// issues the queries, then a later frame (when the GPU has caught up)
         /// resolves them straight out of the write buffer before the capture is
         /// committed. Returns false while the results are still pending.
-        bool TryGetIssuedQueryResultsMs(std::vector<f64>& outResultsMs) const;
+        bool TryGetIssuedQueryResultsMs(TArray<f64>& outResultsMs) const;
 
         /// @brief Number of queries issued in the previous (now-readable) frame.
         u32 GetReadableQueryCount() const
@@ -80,8 +79,8 @@ namespace OloEngine
         GPUTimerQueryPool& operator=(const GPUTimerQueryPool&) = delete;
 
         // Double-buffered: index 0 and 1
-        std::vector<RHI::ResourceHandle> m_QueryObjects[2]; // facade query identities
-        std::vector<f64> m_Results;                         // Readback results in ms
+        TArray<RHI::ResourceHandle> m_QueryObjects[2]; // facade query identities
+        TArray<f64> m_Results;                         // Readback results in ms
 
         u32 m_MaxQueries = 0;
         u32 m_WriteBuffer = 0;        // Buffer currently being written to

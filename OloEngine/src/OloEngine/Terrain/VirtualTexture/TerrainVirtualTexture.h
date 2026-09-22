@@ -16,7 +16,8 @@
 #include <memory>
 #include <span>
 #include <unordered_map>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/LinkedList.h"
 
 namespace OloEngine
 {
@@ -77,7 +78,7 @@ namespace OloEngine
     // ── Threading ────────────────────────────────────────────────────────────
     //
     // Every method is render-thread-only. The single exception is the analysis
-    // body, which runs on a Task worker over a plain `std::vector<u32>` copy and
+    // body, which runs on a Task worker over a plain `TArray<u32>` copy and
     // touches no renderer state — see `VTFeedbackAnalyzer`.
     //
     // ── The adaptive layer (slice 3), in one paragraph ───────────────────────
@@ -280,10 +281,10 @@ namespace OloEngine
         struct PendingAnalysis
         {
             Tasks::TTask<bool> m_Task;
-            std::shared_ptr<std::vector<u32>> m_Feedback;
+            std::shared_ptr<TArray<u32>> m_Feedback;
             std::shared_ptr<VTFeedbackAnalyzer> m_Analyzer;
             // Which capture this reduces. Task completion order is NOT launch
-            // order, so "the last one in the vector" is not "the newest" — see
+            // order, so the last list entry is not necessarily the newest — see
             // RetireAnalysis. (The sector-table snapshot the analysis judges
             // its words against is owned by the task lambda's capture.)
             u64 m_Sequence = 0;
@@ -354,7 +355,7 @@ namespace OloEngine
         // degrades to keeping the old size rather than losing the image.
         void ResizeSectorImage(u32 sectorIndex, u32 newSize);
         // The live table flattened for an analysis launch / the bake path.
-        [[nodiscard]] std::shared_ptr<std::vector<VTSectorSnapshot>> SnapshotSectors() const;
+        [[nodiscard]] std::shared_ptr<TArray<VTSectorSnapshot>> SnapshotSectors() const;
         // Which sector's image owns an atlas page key, or kVTMaxSectorCount.
         [[nodiscard]] u32 FindOwningSector(u32 pageKey) const;
 
@@ -398,10 +399,10 @@ namespace OloEngine
         // non-RAII allocator nodes in m_Sectors die with the allocator, so
         // they are never freed per element.
         AtlasAllocator m_AtlasAllocator;
-        std::vector<SectorImage> m_Sectors;
+        TArray<SectorImage> m_Sectors;
         // The per-sector aggregates of the most recent ADOPTED analysis,
         // consumed by ApplyAdaptiveSizing.
-        std::vector<VTSectorFeedback> m_SectorFeedback;
+        TArray<VTSectorFeedback> m_SectorFeedback;
         bool m_HasSectorFeedback = false;
         // Round-robin start of the sizing walk, so the per-frame resize cap
         // cannot starve high-index sectors behind low-index ones.
@@ -412,18 +413,19 @@ namespace OloEngine
         std::array<ReadbackSlot, kReadbackSlots> m_ReadbackSlots{};
         u32 m_NextReadbackSlot = 0;
 
-        std::vector<PendingAnalysis> m_PendingAnalyses;
+        // Shared task state is constructed and destroyed in stable nodes, never bitwise-relocated.
+        TDoubleLinkedList<PendingAnalysis> m_PendingAnalyses;
         // The most recent completed analysis, consumed by ServiceRequests().
-        std::vector<VTPageRequest> m_Requests;
+        TArray<VTPageRequest> m_Requests;
         u64 m_NextAnalysisSequence = 1;
         u64 m_AdoptedAnalysisSequence = 0;
 
         PageCache m_PageCache;
         std::unordered_map<u32, u32> m_Resident; // page key -> physical tile index
-        std::vector<u32> m_EvictedThisFrame;     // filled by the eviction listener
+        TArray<u32> m_EvictedThisFrame;          // filled by the eviction listener
 
-        std::vector<VTBakeRequest> m_BakeList;
-        std::vector<u8> m_UploadScratch;
+        TArray<VTBakeRequest> m_BakeList;
+        TArray<u8> m_UploadScratch;
 
         // This frame's indirection changes, accumulated by the eviction listener
         // and by ServiceRequests as they happen, drained by PublishIndirection.

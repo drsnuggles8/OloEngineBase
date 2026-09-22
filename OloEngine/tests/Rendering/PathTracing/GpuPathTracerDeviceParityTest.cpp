@@ -204,7 +204,7 @@ namespace OloEngine::Tests
             std::vector<RT::BlasBuildRequest> BlasBuilds;
             std::vector<RT::InstanceRecord> TlasInstances;
             std::vector<GPUSceneLight> Lights;
-            std::vector<EmissiveTriangleRecord> Emissive;
+            TArray<EmissiveTriangleRecord> Emissive;
             f32 EmissiveArea = 0.0f;
 
             // The textured twin: one Texture2D per fixture image, uploaded
@@ -440,7 +440,7 @@ namespace OloEngine::Tests
                 static_cast<u32>(std::max<sizet>(twin.Lights.size(), 1u) * sizeof(GPUSceneLight)),
                 GPUSceneBindingLayout::Lights);
             twin.EmissiveSsbo = StorageBuffer::Create(
-                static_cast<u32>(std::max<sizet>(twin.Emissive.size(), 1u) * sizeof(EmissiveTriangleRecord)),
+                static_cast<u32>(std::max<sizet>(twin.Emissive.Num(), 1u) * sizeof(EmissiveTriangleRecord)),
                 GPUSceneBindingLayout::Environments);
             if (!twin.InstanceSsbo || !twin.GeometrySsbo || !twin.MaterialSsbo || !twin.LightSsbo || !twin.EmissiveSsbo)
                 return false;
@@ -457,8 +457,8 @@ namespace OloEngine::Tests
             {
                 twin.LightSsbo->SetData(twin.Lights.data(), static_cast<u32>(twin.Lights.size() * sizeof(GPUSceneLight)));
             }
-            if (!twin.Emissive.empty())
-                twin.EmissiveSsbo->SetData(twin.Emissive.data(), static_cast<u32>(twin.Emissive.size() * sizeof(EmissiveTriangleRecord)));
+            if (!twin.Emissive.IsEmpty())
+                twin.EmissiveSsbo->SetData(twin.Emissive.GetData(), static_cast<u32>(twin.Emissive.Num() * sizeof(EmissiveTriangleRecord)));
 
             if (twin.Textured)
             {
@@ -495,17 +495,17 @@ namespace OloEngine::Tests
             const auto image = vkFramebuffer->GetColorAttachmentImage(index);
             if (image == nullptr)
                 return false;
-            std::vector<u8> bytes;
+            TArray64<u8> bytes;
             if (!image->GetData(bytes, 0))
                 return false;
-            if (bytes.size() != static_cast<sizet>(kWidth) * kHeight * sizeof(glm::vec4))
+            if (bytes.Num() != static_cast<sizet>(kWidth) * kHeight * sizeof(glm::vec4))
                 return false;
             out.resize(static_cast<sizet>(kWidth) * kHeight);
-            std::memcpy(out.data(), bytes.data(), bytes.size());
+            std::memcpy(out.data(), bytes.GetData(), bytes.Num());
             return true;
         }
 
-        [[nodiscard]] glm::vec3 RegionMean(const std::vector<glm::vec3>& image, glm::ivec2 center, i32 radius)
+        [[nodiscard]] glm::vec3 RegionMean(std::span<const glm::vec3> image, glm::ivec2 center, i32 radius)
         {
             glm::dvec3 sum(0.0);
             u32 count = 0;
@@ -530,18 +530,18 @@ namespace OloEngine::Tests
             return image;
         }
 
-        void WriteEvidencePng(const std::vector<glm::vec3>& image, const char* name)
+        void WriteEvidencePng(std::span<const glm::vec3> image, const char* name)
         {
             namespace fs = std::filesystem;
             const fs::path dir = fs::path("assets") / "tests" / "visual";
             std::error_code ec;
             fs::create_directories(dir, ec);
             ReferenceFilm film(kWidth, kHeight);
-            film.GetPixels() = image;
-            std::vector<u8> rgba;
+            std::ranges::copy(image, film.GetPixels().begin());
+            TArray64<u8> rgba;
             film.EncodeRgba8(rgba, /*tonemap*/ 1, /*exposure*/ 1.0f, /*applyGamma*/ true);
             const std::string path = (dir / (std::string(name) + ".png")).string();
-            if (::stbi_write_png(path.c_str(), static_cast<int>(kWidth), static_cast<int>(kHeight), 4, rgba.data(),
+            if (::stbi_write_png(path.c_str(), static_cast<int>(kWidth), static_cast<int>(kHeight), 4, rgba.GetData(),
                                  static_cast<int>(kWidth * 4)) == 0)
                 std::cout << "[evidence] stbi_write_png failed for " << path << "\n";
             else
@@ -807,7 +807,7 @@ namespace OloEngine::Tests
             const auto emissive = SplitAddress(rig.Twin.EmissiveSsbo->GetDeviceAddress());
             const u32 flags = kGpuPathTracerFlagNextEventEstimation | (historyIndex ? kGpuPathTracerFlagHistoryValid : 0u) |
                               (rig.Twin.Textured ? kGpuPathTracerFlagTextures : 0u);
-            params.EmissiveTable = glm::uvec4(emissive.x, emissive.y, static_cast<u32>(rig.Twin.Emissive.size()), flags);
+            params.EmissiveTable = glm::uvec4(emissive.x, emissive.y, static_cast<u32>(rig.Twin.Emissive.Num()), flags);
             params.PathParams = glm::uvec4(kMaxBounces, kRussianRouletteStart, samplesPerFrame, 0u);
             params.RayParams = glm::vec4(1e-3f, 0.0f, 1.0e5f, 0.0f);
             params.Environment = glm::vec4(rig.Fixture.Scene.GetEnvironment().Radiance,
@@ -939,7 +939,7 @@ namespace OloEngine::Tests
         settings.EnableNextEventEstimation = true;
         ReferenceFilm film(kWidth, kHeight);
         PathTracer::Render(rig.Fixture.Scene, rig.Fixture.MakeCamera(kWidth, kHeight), settings, film);
-        const std::vector<glm::vec3>& cpuImage = film.GetPixels();
+        const auto cpuImage = film.GetPixels();
 
         WriteEvidencePng(gpuImage, evidenceName);
         WriteEvidencePng(cpuImage, (std::string(evidenceName) + "_CpuReference").c_str());

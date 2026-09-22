@@ -17,12 +17,12 @@ namespace OloEngine
 
         RGPreparedPass prepared;
         for (const auto& texture : textures)
-            prepared.Resources.push_back({ texture.Texture, false });
+            prepared.Resources.Add({ texture.Texture, false });
         for (auto& uniform : uniforms)
             if (uniform)
             {
                 uniform->PrepareForParallelRead();
-                prepared.Resources.push_back({ uniform->GetRHIHandle(), false });
+                prepared.Resources.Add({ uniform->GetRHIHandle(), false });
             }
         u32 color = 0;
         for (const auto& attachment : target->GetSpecification().Attachments.Attachments)
@@ -31,7 +31,7 @@ namespace OloEngine
                 continue;
             const bool depth = attachment.TextureFormat == FramebufferTextureFormat::DEPTH24STENCIL8 ||
                                attachment.TextureFormat == FramebufferTextureFormat::DEPTH_COMPONENT32F;
-            prepared.Resources.push_back({ depth ? target->GetDepthAttachmentHandle() : target->GetColorAttachmentHandle(color++), true });
+            prepared.Resources.Add({ depth ? target->GetDepthAttachmentHandle() : target->GetColorAttachmentHandle(color++), true });
         }
 
         // The shared primitive is lazy; create it before any worker can ask.

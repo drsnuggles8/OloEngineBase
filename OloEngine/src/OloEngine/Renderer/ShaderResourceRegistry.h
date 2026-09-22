@@ -1,4 +1,6 @@
 #pragma once
+#include "OloEngine/Containers/String.h"
+#include <span>
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
@@ -47,7 +49,7 @@ namespace OloEngine
     {
         ShaderResource Resource;
         u32 BindingPoint;
-        std::string Name;
+        FString Name;
         ShaderResourceType Type;
         u32 Offset = 0; // For buffers
         u32 Size = 0;   // For buffers
@@ -117,7 +119,7 @@ namespace OloEngine
 
         // Resource discovery from reflection
         // @brief Discover resources from SPIR-V reflection data
-        void DiscoverResources(u32 stage, const std::vector<u32>& spirvData, const std::string& filePath = "");
+        void DiscoverResources(u32 stage, std::span<const u32> spirvData, const std::string& filePath = "");
 
         // @brief Register all resources from reflection data
         void RegisterFromReflection(const ShaderReflection& reflection);

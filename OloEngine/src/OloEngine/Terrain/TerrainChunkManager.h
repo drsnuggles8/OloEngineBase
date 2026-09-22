@@ -9,7 +9,7 @@
 
 #include <glm/glm.hpp>
 #include <optional>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -95,13 +95,13 @@ namespace OloEngine
 
         // Get chunks visible to the given frustum (Phase 1 compat — flat culling)
         void GetVisibleChunks(const Frustum& frustum,
-                              std::vector<const TerrainChunk*>& outChunks) const;
+                              TArray<const TerrainChunk*>& outChunks) const;
 
         // Get all chunks (for shadow rendering which uses its own frustum)
-        void GetAllChunks(std::vector<const TerrainChunk*>& outChunks) const;
+        void GetAllChunks(TArray<const TerrainChunk*>& outChunks) const;
 
         // Get selected chunks from last SelectVisibleChunks call (with LOD data)
-        [[nodiscard]] const std::vector<TerrainRenderChunk>& GetSelectedChunks() const
+        [[nodiscard]] const TArray<TerrainRenderChunk>& GetSelectedChunks() const
         {
             return m_SelectedChunks;
         }
@@ -120,7 +120,7 @@ namespace OloEngine
         }
         [[nodiscard]] bool IsBuilt() const
         {
-            return !m_Chunks.empty();
+            return !m_Chunks.IsEmpty();
         }
 
         [[nodiscard]] TerrainQuadtree& GetQuadtree()
@@ -158,17 +158,17 @@ namespace OloEngine
         [[nodiscard("the chunk range must be used to enumerate the covered chunks")]] std::optional<ChunkRange>
         RangeForNode(const TerrainQuadNode& node) const;
 
-        std::vector<TerrainChunk> m_Chunks;
+        TArray<TerrainChunk> m_Chunks;
         u32 m_NumChunksX = 0;
         u32 m_NumChunksZ = 0;
 
         TerrainQuadtree m_Quadtree;
-        std::vector<TerrainRenderChunk> m_SelectedChunks;
+        TArray<TerrainRenderChunk> m_SelectedChunks;
         // One byte per chunk, reset at the start of each CPU selection: which
         // chunks this frame's selection has already claimed. Needed because the
         // chunk grid is not necessarily a power of two, so a quadtree boundary
         // can fall inside a chunk and two nodes can both cover it.
-        std::vector<u8> m_ChunkClaimed;
+        TArray<u8> m_ChunkClaimed;
 
         // Created lazily by GenerateAllChunks; null when the terrain never
         // built. Held by Ref because Scene.cpp hands its buffers to a render

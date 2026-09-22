@@ -5,7 +5,7 @@
 #include "OloEngine/Renderer/RHI/RHIResources.h"
 
 #include <algorithm>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine::RHI
 {
@@ -73,10 +73,10 @@ namespace OloEngine::RHI
         const std::lock_guard lock(m_WriteMutex);
 
         u32 index = 0;
-        if (!m_FreeList.empty())
+        if (!m_FreeList.IsEmpty())
         {
-            index = m_FreeList.back();
-            m_FreeList.pop_back();
+            index = m_FreeList.Last();
+            m_FreeList.Pop(EAllowShrinking::No);
         }
         else
         {
@@ -154,7 +154,7 @@ namespace OloEngine::RHI
         slot->Owner.store(static_cast<u8>(Backend::None), std::memory_order_relaxed);
         slot->Generation.store(generation, std::memory_order_release);
 
-        m_FreeList.push_back(handle.Index);
+        m_FreeList.Add(handle.Index);
     }
 
     void ResourceRegistry::UpdateNative(ResourceHandle handle, u64 nativeHandle)
@@ -268,7 +268,7 @@ namespace OloEngine::RHI
 
         Stats stats;
         stats.SlotCount = m_SlotCount.load(std::memory_order_relaxed);
-        stats.FreeCount = static_cast<u32>(m_FreeList.size());
+        stats.FreeCount = static_cast<u32>(m_FreeList.Num());
         stats.LiveCount = stats.SlotCount - stats.FreeCount;
         stats.TotalRegistered = m_TotalRegistered;
         stats.StaleRejections = m_StaleRejections.load(std::memory_order_relaxed);
@@ -276,7 +276,7 @@ namespace OloEngine::RHI
         return stats;
     }
 
-    auto ResourceRegistry::Snapshot() const -> std::vector<SnapshotEntry>
+    auto ResourceRegistry::Snapshot() const -> TArray<SnapshotEntry>
     {
         const std::lock_guard lock(m_WriteMutex);
 
@@ -287,15 +287,15 @@ namespace OloEngine::RHI
         // VkFramebuffer under dynamic rendering; an arena-backed UBO has no
         // native object), so "Native != 0" would silently drop exactly the
         // resources whose absence is hardest to notice.
-        std::vector<bool> free(slotCount, false);
+        TArray<bool> free(slotCount, false);
         for (const u32 index : m_FreeList)
         {
             if (index < slotCount)
                 free[index] = true;
         }
 
-        std::vector<SnapshotEntry> entries;
-        entries.reserve(slotCount - std::min<sizet>(m_FreeList.size(), slotCount));
+        TArray<SnapshotEntry> entries;
+        entries.Reserve(slotCount - std::min<sizet>(m_FreeList.Num(), slotCount));
         for (u32 index = 0u; index < slotCount; ++index)
         {
             if (free[index])
@@ -309,7 +309,7 @@ namespace OloEngine::RHI
             if (generation == 0u)
                 continue; // never handed out
 
-            entries.push_back(SnapshotEntry{
+            entries.Add(SnapshotEntry{
                 ResourceHandle{ index, generation },
                 slot->Native.load(std::memory_order_relaxed),
                 static_cast<ResourceKind>(slot->Kind.load(std::memory_order_relaxed)),
@@ -330,8 +330,8 @@ namespace OloEngine::RHI
         const std::lock_guard lock(m_WriteMutex);
 
         const u32 slotCount = m_SlotCount.load(std::memory_order_relaxed);
-        m_FreeList.clear();
-        m_FreeList.reserve(slotCount);
+        m_FreeList.Reset();
+        m_FreeList.Reserve(slotCount);
 
         for (u32 index = 0u; index < slotCount; ++index)
         {
@@ -351,7 +351,7 @@ namespace OloEngine::RHI
             slot->Owner.store(static_cast<u8>(Backend::None), std::memory_order_relaxed);
             slot->Generation.store(generation, std::memory_order_release);
 
-            m_FreeList.push_back(index);
+            m_FreeList.Add(index);
         }
     }
 

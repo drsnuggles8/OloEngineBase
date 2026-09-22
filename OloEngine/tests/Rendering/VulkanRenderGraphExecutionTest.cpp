@@ -379,7 +379,11 @@ TEST_F(VulkanRenderGraphExecution, GraphTransitionsLowerToValidationCleanBarrier
         }
         BarrierBatch batch;
         batch.Flags = cmd.Barriers;
-        batch.Resolved = graph.ResolveTransitionsToBarriers(cmd.Transitions);
+        {
+            const auto resolvedBarriers = graph.ResolveTransitionsToBarriers(
+                std::span<const RenderGraph::ResourceTransition>(cmd.Transitions.GetData(), static_cast<sizet>(cmd.Transitions.Num())));
+            batch.Resolved.assign(resolvedBarriers.begin(), resolvedBarriers.end());
+        }
         batches.push_back(std::move(batch));
     }
     ASSERT_GE(batches.size(), 2u) << "Expected a WAW batch (before VkRewriter) and a RAW batch (before VkConsumer)";
@@ -803,9 +807,9 @@ TEST(VulkanRenderGraphExecutionContext, GraphDependencyFencePairOrdersProduction
             { return command.CommandKind == RenderGraph::SubmissionCommand::Kind::FenceWait; });
         ASSERT_NE(signalCommand, plan.end());
         ASSERT_NE(waitCommand, plan.end());
-        ASSERT_EQ(signalCommand->FenceEdges.size(), 1u);
-        ASSERT_EQ(waitCommand->FenceEdges.size(), 1u);
-        EXPECT_EQ(signalCommand->FenceEdges.front().Index, waitCommand->FenceEdges.front().Index);
+        ASSERT_EQ(signalCommand->FenceEdges.Num(), 1u);
+        ASSERT_EQ(waitCommand->FenceEdges.Num(), 1u);
+        EXPECT_EQ(signalCommand->FenceEdges[0].Index, waitCommand->FenceEdges[0].Index);
 
         context.SetFrameRenderCallback(
             [&](const GraphicsContext::FrameRenderTarget&)

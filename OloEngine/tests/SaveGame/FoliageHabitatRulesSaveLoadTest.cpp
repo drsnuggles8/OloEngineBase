@@ -112,9 +112,9 @@ namespace OloEngine::Tests
             u32 layerCount = 1;
             ar << layerCount;
 
-            std::string name = l.Name;
-            std::string meshPath = l.MeshPath;
-            std::string albedoPath = l.AlbedoPath;
+            std::string name = l.Name.ToStdString();
+            std::string meshPath = l.MeshPath.ToStdString();
+            std::string albedoPath = l.AlbedoPath.ToStdString();
             ar << name << meshPath << albedoPath;
             f32 density = l.Density;
             ar << density;
@@ -165,9 +165,9 @@ namespace OloEngine::Tests
             ar << meshViewDistance << meshFadeStart;
 
             // v33 leaf-material block — and then nothing, which is the point.
-            std::string normalMap = l.NormalMapPath;
-            std::string roughnessMap = l.RoughnessMapPath;
-            std::string thicknessMap = l.ThicknessMapPath;
+            std::string normalMap = l.NormalMapPath.ToStdString();
+            std::string roughnessMap = l.RoughnessMapPath.ToStdString();
+            std::string thicknessMap = l.ThicknessMapPath.ToStdString();
             ar << normalMap << roughnessMap << thicknessMap;
             f32 normalStrength = l.NormalStrength;
             ar << normalStrength;
@@ -193,10 +193,10 @@ namespace OloEngine::Tests
     {
         FoliageComponent seed;
         seed.m_Enabled = true;
-        seed.m_Layers.push_back(MakeHabitatLayer());
+        seed.m_Layers.Add(MakeHabitatLayer());
 
         const FoliageComponent loaded = RoundTrip(seed, kSaveGameFormatVersion);
-        ASSERT_EQ(loaded.m_Layers.size(), 1u);
+        ASSERT_EQ(loaded.m_Layers.Num(), 1u);
         const FoliageLayer& got = loaded.m_Layers[0];
         const FoliageLayer& want = seed.m_Layers[0];
 
@@ -234,7 +234,7 @@ namespace OloEngine::Tests
         // an older save ever produced.
         FoliageComponent seed;
         seed.m_Enabled = true;
-        seed.m_Layers.push_back(MakeHabitatLayer());
+        seed.m_Layers.Add(MakeHabitatLayer());
 
         const std::vector<u8> buffer = BuildV34Payload(seed.m_Layers[0], /*componentEnabled=*/true);
 
@@ -246,7 +246,7 @@ namespace OloEngine::Tests
         ASSERT_FALSE(reader.IsError());
         EXPECT_TRUE(reader.AtEnd()) << "a v34 reader did not consume exactly the v34 payload";
 
-        ASSERT_EQ(loaded.m_Layers.size(), 1u);
+        ASSERT_EQ(loaded.m_Layers.Num(), 1u);
         const FoliageLayer& got = loaded.m_Layers[0];
         const FoliageLayer defaults;
 
@@ -282,10 +282,10 @@ namespace OloEngine::Tests
         hostile.ClumpFalloff = nan;
         hostile.SlopeSinkFactor = 1.0e9f;
         hostile.AltitudeFeather = -5.0f;
-        seed.m_Layers.push_back(hostile);
+        seed.m_Layers.Add(hostile);
 
         const FoliageComponent loaded = RoundTrip(seed, kSaveGameFormatVersion);
-        ASSERT_EQ(loaded.m_Layers.size(), 1u);
+        ASSERT_EQ(loaded.m_Layers.Num(), 1u);
         const FoliageLayer& got = loaded.m_Layers[0];
 
         EXPECT_TRUE(std::isfinite(got.SlopeFeather));

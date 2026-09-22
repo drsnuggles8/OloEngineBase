@@ -2,9 +2,10 @@
 
 #include "OloEngine/Asset/Asset.h"
 #include "OloEngine/Dialogue/DialogueTypes.h"
+#include "OloEngine/Containers/LinkedList.h"
 
 #include <unordered_map>
-#include <vector>
+#include <string_view>
 
 namespace OloEngine
 {
@@ -23,11 +24,11 @@ namespace OloEngine
             return GetStaticType();
         }
 
-        const std::vector<DialogueNodeData>& GetNodes() const
+        const TDoubleLinkedList<DialogueNodeData>& GetNodes() const
         {
             return m_Nodes;
         }
-        const std::vector<DialogueConnection>& GetConnections() const
+        const TArray<DialogueConnection>& GetConnections() const
         {
             return m_Connections;
         }
@@ -40,28 +41,28 @@ namespace OloEngine
         {
             if (auto it = m_NodeIndex.find(id); it != m_NodeIndex.end())
             {
-                return &m_Nodes[it->second];
+                return it->second;
             }
             return nullptr;
         }
 
-        std::vector<DialogueConnection> GetConnectionsFrom(UUID nodeID, const std::string& port = "") const
+        TArray<DialogueConnection> GetConnectionsFrom(UUID nodeID, std::string_view port = {}) const
         {
-            std::vector<DialogueConnection> result;
+            TArray<DialogueConnection> result;
             for (const auto& conn : m_Connections)
             {
-                if (conn.SourceNodeID == nodeID && (port.empty() || conn.SourcePort == port))
-                    result.push_back(conn);
+                if (conn.SourceNodeID == nodeID && (port.empty() || conn.SourcePort.ToView() == port))
+                    result.Add(conn);
             }
             return result;
         }
 
         // Writable access for tests and serialization
-        std::vector<DialogueNodeData>& GetNodesWritable()
+        TDoubleLinkedList<DialogueNodeData>& GetNodesWritable()
         {
             return m_Nodes;
         }
-        std::vector<DialogueConnection>& GetConnectionsWritable()
+        TArray<DialogueConnection>& GetConnectionsWritable()
         {
             return m_Connections;
         }
@@ -73,17 +74,19 @@ namespace OloEngine
         void RebuildNodeIndex()
         {
             m_NodeIndex.clear();
-            for (size_t i = 0; i < m_Nodes.size(); ++i)
+            for (auto& node : m_Nodes)
             {
-                m_NodeIndex[m_Nodes[i].ID] = i;
+                m_NodeIndex[node.ID] = &node;
             }
         }
 
       private:
-        std::vector<DialogueNodeData> m_Nodes;
-        std::vector<DialogueConnection> m_Connections;
+        // Property maps remain standard containers under the reference-stability
+        // audit gate. Stable list nodes avoid relocating those maps entirely.
+        TDoubleLinkedList<DialogueNodeData> m_Nodes;
+        TArray<DialogueConnection> m_Connections;
         UUID m_RootNodeID = 0;
-        std::unordered_map<UUID, size_t> m_NodeIndex;
+        std::unordered_map<UUID, const DialogueNodeData*> m_NodeIndex;
 
         friend class DialogueTreeSerializer;
     };

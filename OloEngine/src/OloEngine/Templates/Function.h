@@ -316,7 +316,9 @@ namespace OloEngine
                 }
 
 #if TFUNCTION_USES_INLINE_STORAGE
-                constexpr bool bOnHeap = sizeof(TFunction_OwnedObject<DecayedFunctorType, bUnique, false>) > TFUNCTION_INLINE_SIZE;
+                constexpr bool bOnHeap = sizeof(TFunction_OwnedObject<DecayedFunctorType, bUnique, false>) > TFUNCTION_INLINE_SIZE ||
+                                         alignof(TFunction_OwnedObject<DecayedFunctorType, bUnique, false>) > TFUNCTION_INLINE_ALIGNMENT ||
+                                         !TIsTriviallyRelocatable_V<DecayedFunctorType>;
 #else
                 constexpr bool bOnHeap = true;
 #endif
@@ -753,4 +755,20 @@ namespace OloEngine
     template<typename Ret, typename... Args>
     TUniqueFunction(Ret (*)(Args...)) -> TUniqueFunction<Ret(Args...)>;
 
+} // namespace OloEngine
+
+namespace OloEngine
+{
+    // Heap callables keep their address; inline callables are admitted only after
+    // checking their relocation trait. GetPtr recomputes the inline address.
+    template<typename Signature>
+    struct TIsTriviallyRelocatable<TFunction<Signature>>
+    {
+        static constexpr bool Value = true;
+    };
+    template<typename Signature>
+    struct TIsTriviallyRelocatable<TUniqueFunction<Signature>>
+    {
+        static constexpr bool Value = true;
+    };
 } // namespace OloEngine

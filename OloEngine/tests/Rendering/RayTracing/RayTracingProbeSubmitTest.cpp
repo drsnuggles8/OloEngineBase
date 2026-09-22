@@ -109,21 +109,21 @@ namespace OloEngine::Tests
         std::string error;
 
         RT::RayTracingProbe::Batch empty = GoodBatch();
-        empty.Rays.clear();
+        empty.Rays.Reset();
         EXPECT_FALSE(probe.SubmitBatch(empty, error));
         EXPECT_FALSE(error.empty());
 
         // Truncating would report the dropped rays as misses, which is the one
         // answer a probe must never invent.
         RT::RayTracingProbe::Batch tooMany = GoodBatch();
-        tooMany.Rays.assign(RT::RayTracingProbe::kMaxRays + 1u, GoodRay());
+        tooMany.Rays.Init(GoodRay(), RT::RayTracingProbe::kMaxRays + 1u);
         EXPECT_FALSE(probe.SubmitBatch(tooMany, error));
         EXPECT_NE(error.find(std::to_string(RT::RayTracingProbe::kMaxRays)), std::string::npos) << error;
         EXPECT_FALSE(probe.HasPendingBatch());
 
         // Exactly the cap is fine — the boundary is inclusive.
         RT::RayTracingProbe::Batch atCap = GoodBatch();
-        atCap.Rays.assign(RT::RayTracingProbe::kMaxRays, GoodRay());
+        atCap.Rays.Init(GoodRay(), RT::RayTracingProbe::kMaxRays);
         EXPECT_TRUE(probe.SubmitBatch(atCap, error)) << error;
     }
 
@@ -216,7 +216,7 @@ namespace OloEngine::Tests
         EXPECT_FALSE(probe.GetLatest().Valid);
         EXPECT_FALSE(probe.HasPendingBatch());
         EXPECT_EQ(probe.GetSlotsInFlight(), 0u);
-        EXPECT_TRUE(probe.GetUnavailableReason().empty());
+        EXPECT_TRUE(probe.GetUnavailableReason().IsEmpty());
         EXPECT_EQ(probe.GetUnavailableBatchId(), 0u);
     }
 } // namespace OloEngine::Tests

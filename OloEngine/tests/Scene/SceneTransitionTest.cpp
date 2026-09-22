@@ -214,8 +214,8 @@ TEST_F(SceneTransitionTest, LoadingAValidSceneReturnsAStartableScene)
     WriteSceneFile(scenePath, "Level2Marker", /*withCamera=*/true);
 
     auto result = SceneTransition::LoadSceneFile(scenePath, /*requirePrimaryCamera=*/true);
-    ASSERT_TRUE(static_cast<bool>(result)) << "load failed: " << result.Error;
-    EXPECT_TRUE(result.Error.empty());
+    ASSERT_TRUE(static_cast<bool>(result)) << "load failed: " << result.Error.ToView();
+    EXPECT_TRUE(result.Error.IsEmpty());
 
     // The scene is populated but NOT started — the caller still owns the
     // ordering of OnRuntimeStop on the outgoing scene vs OnRuntimeStart here.
@@ -250,7 +250,7 @@ TEST_F(SceneTransitionTest, ContinueRestoresBeforeReturningAStartableScene)
                                     header, metadata, {}, payload));
 
     auto loaded = SceneTransition::LoadSceneFile(scenePath, /*requirePrimaryCamera=*/true, "drift_voyage");
-    ASSERT_TRUE(static_cast<bool>(loaded)) << loaded.Error;
+    ASSERT_TRUE(static_cast<bool>(loaded)) << loaded.Error.ToView();
     EXPECT_TRUE(static_cast<bool>(loaded.LoadedScene->FindEntityByName("RestoredMarker")));
     EXPECT_FALSE(static_cast<bool>(loaded.LoadedScene->FindEntityByName("AuthoredMarker")));
     EXPECT_FALSE(loaded.LoadedScene->IsRunning())
@@ -259,7 +259,7 @@ TEST_F(SceneTransitionTest, ContinueRestoresBeforeReturningAStartableScene)
     auto missing = SceneTransition::LoadSceneFile(scenePath, /*requirePrimaryCamera=*/true, "missing_slot");
     EXPECT_FALSE(static_cast<bool>(missing))
         << "a missing save must discard the incoming scene so the host keeps the outgoing scene alive.";
-    EXPECT_FALSE(missing.Error.empty());
+    EXPECT_FALSE(missing.Error.IsEmpty());
 }
 
 TEST_F(SceneTransitionTest, ASceneWithNoPrimaryCameraIsRefused)
@@ -271,11 +271,11 @@ TEST_F(SceneTransitionTest, ASceneWithNoPrimaryCameraIsRefused)
     EXPECT_FALSE(static_cast<bool>(refused))
         << "a camera-less scene was accepted — the runtime has no editor camera to fall back on, so "
            "switching to it would drop the player into a black screen.";
-    EXPECT_FALSE(refused.Error.empty()) << "a failed load must say why.";
+    EXPECT_FALSE(refused.Error.IsEmpty()) << "a failed load must say why.";
 
     // The check is opt-in: the editor's own scene loading has an editor camera.
     auto accepted = SceneTransition::LoadSceneFile(scenePath, /*requirePrimaryCamera=*/false);
-    EXPECT_TRUE(static_cast<bool>(accepted)) << accepted.Error;
+    EXPECT_TRUE(static_cast<bool>(accepted)) << accepted.Error.ToView();
 }
 
 TEST_F(SceneTransitionTest, AMissingOrMalformedTargetFailsWithoutASceneAndWithAReason)
@@ -283,7 +283,7 @@ TEST_F(SceneTransitionTest, AMissingOrMalformedTargetFailsWithoutASceneAndWithAR
     // Missing file.
     auto missing = SceneTransition::LoadSceneFile(m_Root / "Scenes" / "Ghost.olo", true);
     EXPECT_FALSE(static_cast<bool>(missing));
-    EXPECT_FALSE(missing.Error.empty());
+    EXPECT_FALSE(missing.Error.IsEmpty());
 
     // Wrong extension.
     const auto textFile = m_Root / "Scenes" / "notes.txt";
@@ -309,7 +309,7 @@ TEST_F(SceneTransitionTest, AMissingOrMalformedTargetFailsWithoutASceneAndWithAR
     auto broken = SceneTransition::LoadSceneFile(corrupt, true);
     EXPECT_FALSE(static_cast<bool>(broken))
         << "a corrupt scene file was accepted; the host would have stopped the running scene for it.";
-    EXPECT_FALSE(broken.Error.empty());
+    EXPECT_FALSE(broken.Error.IsEmpty());
 }
 
 // -----------------------------------------------------------------------------

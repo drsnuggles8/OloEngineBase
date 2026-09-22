@@ -1,8 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -52,6 +51,6 @@ namespace OloEngine
 
         void Wait(u64 fence) const;
 
-        std::vector<BufferLock> m_BufferLocks;
+        TArray<BufferLock> m_BufferLocks;
     };
 } // namespace OloEngine

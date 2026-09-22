@@ -172,7 +172,7 @@ namespace OloEngine::Ocean
         lutSpec.MipLevels = 1;
         m_ButterflyTex = Texture2D::Create(lutSpec);
 
-        m_Scratch.assign(static_cast<sizet>(stages) * resolution, glm::vec4(0.0f));
+        m_Scratch.Init(glm::vec4(0.0f), static_cast<sizet>(stages) * resolution);
         for (u32 stage = 0u; stage < stages; ++stage)
         {
             const u32 half = 1u << stage;
@@ -200,14 +200,14 @@ namespace OloEngine::Ocean
                     glm::vec4(w.x, w.y, static_cast<f32>(a), static_cast<f32>(b));
             }
         }
-        m_ButterflyTex->SetData(m_Scratch.data(), static_cast<u32>(m_Scratch.size() * sizeof(glm::vec4)));
+        m_ButterflyTex->SetData(m_Scratch.GetData(), static_cast<u32>(m_Scratch.Num() * sizeof(glm::vec4)));
     }
 
-    void OceanFFTGpu::SetH0(const std::vector<Complex>& h0, u32 resolution, f32 patchSize, f32 gravity)
+    void OceanFFTGpu::SetH0(const TArray<Complex>& h0, u32 resolution, f32 patchSize, f32 gravity)
     {
         OLO_PROFILE_FUNCTION();
         OLO_CORE_ASSERT(IsPowerOfTwo(resolution), "OceanFFTGpu::SetH0: resolution must be a power of two");
-        OLO_CORE_ASSERT(h0.size() == static_cast<sizet>(resolution) * resolution, "OceanFFTGpu::SetH0: h0 size mismatch");
+        OLO_CORE_ASSERT(h0.Num() == static_cast<sizet>(resolution) * resolution, "OceanFFTGpu::SetH0: h0 size mismatch");
         if (!EnsureShaders())
             return;
 
@@ -218,7 +218,7 @@ namespace OloEngine::Ocean
 
         // Pack rg = h0(k), ba = conj(h0(-k)) so the evolve pass needs one fetch.
         const u32 N = resolution;
-        m_Scratch.resize(static_cast<sizet>(N) * N);
+        m_Scratch.SetNum(static_cast<sizet>(N) * N, EAllowShrinking::No);
         for (u32 m = 0u; m < N; ++m)
         {
             const u32 mm = (N - m) % N;
@@ -230,7 +230,7 @@ namespace OloEngine::Ocean
                 m_Scratch[static_cast<sizet>(m) * N + n] = glm::vec4(k.real(), k.imag(), mk.real(), -mk.imag());
             }
         }
-        m_H0Tex->SetData(m_Scratch.data(), static_cast<u32>(m_Scratch.size() * sizeof(glm::vec4)));
+        m_H0Tex->SetData(m_Scratch.GetData(), static_cast<u32>(m_Scratch.Num() * sizeof(glm::vec4)));
     }
 
     u32 OceanFFTGpu::RunButterflyPasses(u32 srcIndex)
@@ -358,10 +358,10 @@ namespace OloEngine::Ocean
         }
     }
 
-    std::vector<Complex> OceanFFTGpu::DebugInverseFFT2D(const std::vector<Complex>& freq, u32 resolution)
+    TArray<Complex> OceanFFTGpu::DebugInverseFFT2D(const TArray<Complex>& freq, u32 resolution)
     {
         OLO_CORE_ASSERT(IsPowerOfTwo(resolution), "OceanFFTGpu::DebugInverseFFT2D: resolution must be a power of two");
-        OLO_CORE_ASSERT(freq.size() == static_cast<sizet>(resolution) * resolution,
+        OLO_CORE_ASSERT(freq.Num() == static_cast<sizet>(resolution) * resolution,
                         "OceanFFTGpu::DebugInverseFFT2D: grid size mismatch");
         if (!EnsureShaders())
             return {};
@@ -379,21 +379,21 @@ namespace OloEngine::Ocean
         RenderCommand::ClearTextureFloat(m_PingPong[1]->GetRHIHandle(), 0, zero);
 
         // Upload the input into layer 0 (rg = complex, ba unused).
-        m_Scratch.assign(count, glm::vec4(0.0f));
+        m_Scratch.Init(glm::vec4(0.0f), count);
         for (sizet i = 0; i < count; ++i)
             m_Scratch[i] = glm::vec4(freq[i].real(), freq[i].imag(), 0.0f, 0.0f);
         RenderCommand::UploadTextureSubImage3D(m_PingPong[0]->GetRHIHandle(), 0, 0, 0, N, N, 1,
-                                               RHI::Format::RGBA32Float, m_Scratch.data());
+                                               RHI::Format::RGBA32Float, m_Scratch.GetData());
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::TextureUpdate);
 
         const u32 finalIndex = RunButterflyPasses(0u);
 
         // Read back layer 0 and apply the 1/N² normalisation the production
         // path defers to the assemble pass.
-        std::vector<glm::vec4> readback(count);
+        TArray<glm::vec4> readback(count);
         if (!RenderCommand::ReadTextureSubImage(m_PingPong[finalIndex]->GetRHIHandle(), 0, 0, 0, 0,
                                                 N, N, 1, RHI::Format::RGBA32Float,
-                                                count * sizeof(glm::vec4), readback.data()))
+                                                count * sizeof(glm::vec4), readback.GetData()))
         {
             // Return empty rather than normalizing an unspecified buffer — this
             // is a verification utility, so silently handing back plausible-looking
@@ -403,7 +403,7 @@ namespace OloEngine::Ocean
         }
 
         const f32 invN2 = 1.0f / (static_cast<f32>(N) * static_cast<f32>(N));
-        std::vector<Complex> result(count);
+        TArray<Complex> result(count);
         for (sizet i = 0; i < count; ++i)
             result[i] = Complex(readback[i].x * invN2, readback[i].y * invN2);
         return result;

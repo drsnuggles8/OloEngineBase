@@ -383,7 +383,7 @@ namespace OloEngine
 
     void DDGIProbeUpdatePass::AddMeshCaster(const DDGIMeshCaster& caster)
     {
-        m_Casters.push_back(caster);
+        m_Casters.Add(caster);
     }
 
     RHI::ResourceHandle DDGIProbeUpdatePass::GetIrradianceAtlasID() const
@@ -445,7 +445,7 @@ namespace OloEngine
 
     f32 DDGIProbeUpdatePass::ComputeCapturedFraction() const
     {
-        if (m_Records.empty())
+        if (m_Records.IsEmpty())
         {
             return 0.0f;
         }
@@ -457,7 +457,7 @@ namespace OloEngine
                 ++captured;
             }
         }
-        return static_cast<f32>(captured) / static_cast<f32>(m_Records.size());
+        return static_cast<f32>(captured) / static_cast<f32>(m_Records.Num());
     }
 
     void DDGIProbeUpdatePass::ReadbackProbeDiagnostics() const
@@ -480,7 +480,7 @@ namespace OloEngine
         // the session. See StagedBufferReadback.
         // Nothing dispatched, or no buffer to read: the counters are zero by
         // definition, and saying so beats reporting the previous grid's.
-        if (m_Records.empty() || !m_ProbeAuxSSBO)
+        if (m_Records.IsEmpty() || !m_ProbeAuxSSBO)
         {
             m_Stats = ProbeStats{};
             return;
@@ -498,10 +498,10 @@ namespace OloEngine
             }
         }
 
-        std::vector<ProbeAuxRecordGPU> aux(m_Records.size());
-        const u64 auxBytes = static_cast<u64>(aux.size()) * sizeof(ProbeAuxRecordGPU);
+        TArray<ProbeAuxRecordGPU> aux(m_Records.Num());
+        const u64 auxBytes = static_cast<u64>(aux.Num()) * sizeof(ProbeAuxRecordGPU);
         m_AuxReadback.Stage(m_ProbeAuxSSBO->GetRHIHandle(), kProbeAuxHeaderBytes, auxBytes);
-        if (!m_AuxReadback.Read(aux.data(), auxBytes))
+        if (!m_AuxReadback.Read(aux.GetData(), auxBytes))
         {
             return;
         }
@@ -510,17 +510,17 @@ namespace OloEngine
         // than the aux buffer because the GATHER samples it; reading it back
         // needs the same shape the relocation compute writes.
         const glm::ivec2 tileDims = DDGI::CascadedAtlasTileDimensions(m_ResourceResolution, m_ResourceCascadeCount);
-        std::vector<glm::vec4> probeData(static_cast<sizet>(std::max(tileDims.x, 1)) *
-                                         static_cast<sizet>(std::max(tileDims.y, 1)));
+        TArray<glm::vec4> probeData(static_cast<sizet>(std::max(tileDims.x, 1)) *
+                                    static_cast<sizet>(std::max(tileDims.y, 1)));
         const bool probeDataRead =
             m_ProbeDataTexture.IsValid() &&
             RenderCommand::ReadTextureSubImage(m_ProbeDataTexture, 0, 0, 0, 0,
                                                static_cast<u32>(std::max(tileDims.x, 1)),
                                                static_cast<u32>(std::max(tileDims.y, 1)), 1,
                                                RHI::Format::RGBA32Float,
-                                               probeData.size() * sizeof(glm::vec4), probeData.data());
+                                               probeData.Num() * sizeof(glm::vec4), probeData.GetData());
 
-        for (sizet i = 0; i < m_Records.size(); ++i)
+        for (sizet i = 0; i < m_Records.Num(); ++i)
         {
             ProbeRecord& rec = m_Records[i];
             const ProbeAuxRecordGPU& a = aux[i];
@@ -622,7 +622,7 @@ namespace OloEngine
         m_VisibilityFB[1] = nullptr;
         m_RadianceFB = nullptr;
         m_HitFB = nullptr;
-        m_CaptureItems.clear();
+        m_CaptureItems.Reset();
         m_CaptureFB = nullptr;
         m_ProbeAuxSSBO = nullptr;
         if (m_ProbeDataTexture.IsValid())
@@ -733,7 +733,8 @@ namespace OloEngine
                             static_cast<sizet>(m_Desc.Resolution.y) *
                             static_cast<sizet>(m_Desc.Resolution.z) *
                             static_cast<sizet>(std::max(m_Desc.CascadeCount, 1));
-        m_Records.assign(total, ProbeRecord{});
+        m_Records.Reset();
+        m_Records.SetNum(total, EAllowShrinking::No);
         m_CaptureCursor = 0;
         m_IrradianceCurrent = 0;
         m_VisibilityCurrent = 0;
@@ -815,7 +816,7 @@ namespace OloEngine
         // thing from the same two lattice origins in DDGI_ProbeMaintain.comp;
         // the two must agree, which is why both derive it rather than one
         // telling the other (that would be a readback).
-        if (m_CascadeShifted && !m_Records.empty())
+        if (m_CascadeShifted && !m_Records.IsEmpty())
         {
             const i32 perCascade = DDGI::ProbesPerCascade(m_Desc.Resolution);
             for (i32 level = 0; level < m_CascadeCount; ++level)
@@ -836,7 +837,7 @@ namespace OloEngine
                     }
                     const sizet idx = static_cast<sizet>(level) * static_cast<sizet>(perCascade) +
                                       static_cast<sizet>(local);
-                    if (idx < m_Records.size())
+                    if (idx < m_Records.Num())
                     {
                         m_Records[idx] = ProbeRecord{};
                     }
@@ -1003,7 +1004,7 @@ namespace OloEngine
         return m_ViewFrustum.IsSphereVisible(worldPos, hopReach);
     }
 
-    std::vector<i32> DDGIProbeUpdatePass::PickCaptureSet(i32 budget)
+    TArray<i32> DDGIProbeUpdatePass::PickCaptureSet(i32 budget)
     {
         // The authored single-volume path keeps the EXACT #632 scheduler: its
         // reference-path-tracer parity and its goldens were measured against
@@ -1017,17 +1018,17 @@ namespace OloEngine
         return PickCaptureSetPrioritized(budget);
     }
 
-    std::vector<i32> DDGIProbeUpdatePass::PickCaptureSetLegacy(i32 budget)
+    TArray<i32> DDGIProbeUpdatePass::PickCaptureSetLegacy(i32 budget)
     {
-        std::vector<i32> result;
+        TArray<i32> result;
         const i32 total = m_TotalProbes;
         if (total <= 0 || budget <= 0)
         {
             return result;
         }
         budget = std::min(budget, total);
-        result.reserve(static_cast<sizet>(budget));
-        std::vector<u8> picked(static_cast<sizet>(total), 0u);
+        result.Reserve(static_cast<sizet>(budget));
+        TArray<u8> picked(static_cast<sizet>(total), 0u);
 
         // 1) Never-captured probes, linear cursor. Scan indices derive from a
         //    FROZEN copy of the cursor: advancing m_CaptureCursor on each
@@ -1043,12 +1044,12 @@ namespace OloEngine
         //    passes, which multiplies the time to full coverage by the
         //    warm-up length (DDGI::kRelocationWarmupCaptures).
         const i32 scanStart = m_CaptureCursor;
-        for (i32 n = 0; n < total && static_cast<i32>(result.size()) < budget; ++n)
+        for (i32 n = 0; n < total && static_cast<i32>(result.Num()) < budget; ++n)
         {
             const i32 idx = (scanStart + n) % total;
             if (picked[idx] == 0u && !m_Records[idx].Captured())
             {
-                result.push_back(idx);
+                result.Add(idx);
                 picked[idx] = 1u;
                 m_CaptureCursor = (idx + 1) % total;
             }
@@ -1059,12 +1060,12 @@ namespace OloEngine
         //    is the settling one: it re-reads the hit cache and re-classifies
         //    from the position the spring produced, without moving the probe
         //    again (issue #1279).
-        for (i32 i = 0; i < total && static_cast<i32>(result.size()) < budget; ++i)
+        for (i32 i = 0; i < total && static_cast<i32>(result.Num()) < budget; ++i)
         {
             if (picked[i] == 0u &&
                 DDGI::RelocationStepForCapture(m_Records[i].CaptureCount).Tier == DDGI::CaptureTier::RelocationFollowUp)
             {
-                result.push_back(i);
+                result.Add(i);
                 picked[i] = 1u;
             }
         }
@@ -1077,12 +1078,12 @@ namespace OloEngine
         //    pass re-rasterized the FULL budget every frame forever, ~8x the
         //    intended steady-state cost (measured 9.7 ms GPU on the 32-probe
         //    bring-up scene; ~2.5 ms with the cap).
-        if (!result.empty())
+        if (!result.IsEmpty())
         {
             return result; // initial fill / relocation still in progress — no refresh this frame
         }
         const i32 refreshBudget = std::max(1, budget / 8);
-        while (static_cast<i32>(result.size()) < refreshBudget)
+        while (static_cast<i32>(result.Num()) < refreshBudget)
         {
             i32 oldest = -1;
             u32 oldestFrame = std::numeric_limits<u32>::max();
@@ -1098,17 +1099,17 @@ namespace OloEngine
             {
                 break;
             }
-            result.push_back(oldest);
+            result.Add(oldest);
             picked[oldest] = 1u;
         }
         return result;
     }
 
-    std::vector<i32> DDGIProbeUpdatePass::PickCaptureSetPrioritized(i32 budget)
+    TArray<i32> DDGIProbeUpdatePass::PickCaptureSetPrioritized(i32 budget)
     {
         OLO_PROFILE_FUNCTION();
 
-        std::vector<i32> result;
+        TArray<i32> result;
         const i32 total = m_TotalProbes;
         if (total <= 0 || budget <= 0)
         {
@@ -1125,8 +1126,8 @@ namespace OloEngine
             i32 Index;
             f32 Score; // lower is more urgent
         };
-        std::vector<Candidate> candidates;
-        candidates.reserve(static_cast<sizet>(budget) * 8u);
+        TArray<Candidate> candidates;
+        candidates.Reserve(static_cast<sizet>(budget) * 8u);
 
         for (i32 i = 0; i < total; ++i)
         {
@@ -1147,15 +1148,15 @@ namespace OloEngine
             // comment next to the code that implements it.
             const DDGI::CaptureTier tier = DDGI::RelocationStepForCapture(rec.CaptureCount).Tier;
             const u32 age = (m_FrameIndex >= rec.LastCaptureFrame) ? (m_FrameIndex - rec.LastCaptureFrame) : 0u;
-            candidates.push_back({ i, DDGI::CaptureScore(tier, distance, level, age) });
+            candidates.Add({ i, DDGI::CaptureScore(tier, distance, level, age) });
         }
 
-        if (candidates.empty())
+        if (candidates.IsEmpty())
         {
             return result;
         }
 
-        const sizet keep = std::min(static_cast<sizet>(budget), candidates.size());
+        const sizet keep = std::min(static_cast<sizet>(budget), static_cast<sizet>(candidates.Num()));
         std::partial_sort(candidates.begin(), candidates.begin() + static_cast<std::ptrdiff_t>(keep), candidates.end(),
                           [](const Candidate& a, const Candidate& b)
                           {
@@ -1187,13 +1188,13 @@ namespace OloEngine
         // this comparison quietly classifying every probe as urgent.
         constexpr f32 kRefreshTierFloor =
             static_cast<f32>(std::to_underlying(DDGI::CaptureTier::PeriodicRefresh)) * DDGI::kCaptureTierBias;
-        const bool anyUrgent = candidates.front().Score < kRefreshTierFloor;
+        const bool anyUrgent = candidates.First().Score < kRefreshTierFloor;
         const i32 effectiveBudget = anyUrgent ? budget : std::max(1, budget / 8);
 
-        result.reserve(static_cast<sizet>(effectiveBudget));
-        for (sizet i = 0; i < keep && static_cast<i32>(result.size()) < effectiveBudget; ++i)
+        result.Reserve(static_cast<sizet>(effectiveBudget));
+        for (sizet i = 0; i < keep && static_cast<i32>(result.Num()) < effectiveBudget; ++i)
         {
-            result.push_back(candidates[i].Index);
+            result.Add(candidates[i].Index);
         }
         return result;
     }
@@ -1273,8 +1274,8 @@ namespace OloEngine
 
     void DDGIProbeUpdatePass::PrepareCaptureResources(u32 count)
     {
-        if (m_CaptureItems.size() < count)
-            m_CaptureItems.resize(count);
+        if (m_CaptureItems.Num() < count)
+            m_CaptureItems.SetNum(count, EAllowShrinking::No);
         if (count == 0u)
             return;
         m_CaptureItems[0] = { m_CaptureFB, m_CaptureCameraUBO, m_PassDataUBO };
@@ -1292,17 +1293,17 @@ namespace OloEngine
         (void)MeshPrimitives::GetFullscreenTriangle(); // prime the shared lazy builder before workers
     }
 
-    void DDGIProbeUpdatePass::RecordProbeRanges(const std::vector<i32>& probes, u32 minProbesPerItem,
+    void DDGIProbeUpdatePass::RecordProbeRanges(const TArray<i32>& probes, u32 minProbesPerItem,
                                                 const std::function<void(i32, CaptureResources&)>& body)
     {
-        if (probes.empty())
+        if (probes.IsEmpty())
             return;
-        const u32 count = static_cast<u32>(std::clamp<sizet>(probes.size() / minProbesPerItem, 1u, MAX_RENDER_WORKERS));
-        OLO_CORE_ASSERT(m_CaptureItems.size() >= count, "Prepare DDGI recording items before the region");
+        const u32 count = static_cast<u32>(std::clamp<sizet>(probes.Num() / minProbesPerItem, 1u, MAX_RENDER_WORKERS));
+        OLO_CORE_ASSERT(m_CaptureItems.Num() >= count, "Prepare DDGI recording items before the region");
         RenderCommand::RecordParallel(count, [&](u32 item)
                                       {
-            const sizet begin = probes.size() * item / count;
-            const sizet end = probes.size() * (item + 1u) / count;
+            const sizet begin = probes.Num() * item / count;
+            const sizet end = probes.Num() * (item + 1u) / count;
             for (sizet probe = begin; probe < end; ++probe)
                 body(probes[probe], m_CaptureItems[item]); });
     }
@@ -1440,11 +1441,11 @@ namespace OloEngine
         RenderCommand::DrawIndexed(va);
     }
 
-    void DDGIProbeUpdatePass::RelocateProbesGPU(const std::vector<i32>& captureSet)
+    void DDGIProbeUpdatePass::RelocateProbesGPU(const TArray<i32>& captureSet)
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!m_RelocateCompute || !m_HitFB || captureSet.empty())
+        if (!m_RelocateCompute || !m_HitFB || captureSet.IsEmpty())
         {
             return;
         }
@@ -1477,9 +1478,9 @@ namespace OloEngine
         // tail would leave those probes permanently unrelocated and unclassified
         // with nothing in the log, which is the exact silent-degradation shape
         // this renderer keeps postmortems about.
-        for (sizet begin = 0; begin < captureSet.size(); begin += kBatch)
+        for (sizet begin = 0; begin < captureSet.Num(); begin += kBatch)
         {
-            const sizet count = std::min(kBatch, captureSet.size() - begin);
+            const sizet count = std::min(kBatch, captureSet.Num() - begin);
 
             DDGIRelocateParamsUBO params{};
             for (sizet i = 0; i < count; ++i)
@@ -1504,7 +1505,7 @@ namespace OloEngine
         }
     }
 
-    void DDGIProbeUpdatePass::BlendVisibility(const std::vector<i32>& capturedProbes)
+    void DDGIProbeUpdatePass::BlendVisibility(const TArray<i32>& capturedProbes)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -1669,7 +1670,7 @@ namespace OloEngine
         if (!m_VolumeSubmitted)
         {
             UploadDisabledUBO();
-            m_Casters.clear();
+            m_Casters.Reset();
             return;
         }
         m_VolumeSubmitted = false;
@@ -1677,7 +1678,7 @@ namespace OloEngine
         if (!IsReadyForExecution())
         {
             UploadDisabledUBO();
-            m_Casters.clear();
+            m_Casters.Reset();
             return;
         }
 
@@ -1708,7 +1709,7 @@ namespace OloEngine
         m_MinAxialSpacing = glm::min(glm::min(m_Spacing.x, m_Spacing.y), m_Spacing.z);
         m_MaxRayDistance = DDGI::kMaxRayDistanceSpacingScale * glm::length(m_Spacing);
         m_TileDims = DDGI::CascadedAtlasTileDimensions(m_Desc.Resolution, m_CascadeCount);
-        m_TotalProbes = static_cast<i32>(m_Records.size());
+        m_TotalProbes = static_cast<i32>(m_Records.Num());
         // Frame counters START AT 1: 0 is the "never requested" sentinel in the
         // probe aux buffer, and a frame 0 would make every probe read as
         // requested on the very first frame and as stale forever after.
@@ -1747,10 +1748,10 @@ namespace OloEngine
 
         // 4-5. Amortized capture: mini-G-buffer rasterization -> octahedral
         // resample, per scheduled probe, then GPU relocation/classification.
-        const std::vector<i32> captureSet = PickCaptureSet(m_Desc.CaptureBudget);
-        if (!captureSet.empty())
+        const TArray<i32> captureSet = PickCaptureSet(m_Desc.CaptureBudget);
+        if (!captureSet.IsEmpty())
         {
-            PrepareCaptureResources(static_cast<u32>(std::min<sizet>(captureSet.size(), MAX_RENDER_WORKERS)));
+            PrepareCaptureResources(static_cast<u32>(std::min<sizet>(captureSet.Num(), MAX_RENDER_WORKERS)));
             // The hit atlas is shared by disjoint probe tiles. Settle its
             // attachment layout and the relocated-position sample before any
             // item captures into its own target and then resamples into it.
@@ -1819,7 +1820,7 @@ namespace OloEngine
         if ((m_FrameIndex % 300u) == 1u)
         {
             OLO_CORE_INFO("DDGI: frame {} cascades={} probes={} casters={} captured {}/frame, capture coverage {:.1f}%",
-                          m_FrameIndex, m_CascadeCount, m_TotalProbes, m_Casters.size(), captureSet.size(),
+                          m_FrameIndex, m_CascadeCount, m_TotalProbes, m_Casters.Num(), captureSet.Num(),
                           static_cast<f64>(ComputeCapturedFraction()) * 100.0);
         }
 
@@ -1871,7 +1872,7 @@ namespace OloEngine
         m_PrevWorldInvViewProjection = RHI::AdjustedInverseForShaderReconstruction(m_WorldViewProjection);
         m_HavePrevViewProjection = true;
 
-        m_Casters.clear();
+        m_Casters.Reset();
         m_RanThisFrame = true;
     }
 

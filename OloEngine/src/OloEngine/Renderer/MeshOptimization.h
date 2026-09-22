@@ -1,10 +1,9 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Containers/Array.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/LOD.h"
-
-#include <vector>
 
 namespace OloEngine
 {
@@ -72,16 +71,16 @@ namespace OloEngine
             f32 ConeCutoff = 0.0f;
         };
 
-        std::vector<Meshlet> Meshlets;
-        std::vector<u32> MeshletVertices;  // Vertex indices for all meshlets
-        std::vector<u8> MeshletTriangles;  // Local triangle indices (3 bytes per tri)
-        std::vector<MeshletBounds> Bounds; // Per-meshlet bounding cone for GPU culling
+        TArray<Meshlet> Meshlets;
+        TArray<u32> MeshletVertices;  // Vertex indices for all meshlets
+        TArray<u8> MeshletTriangles;  // Local triangle indices (3 bytes per tri)
+        TArray<MeshletBounds> Bounds; // Per-meshlet bounding cone for GPU culling
     };
 
     // Encoded mesh buffer for compact asset pack storage.
     struct EncodedMeshBuffer
     {
-        std::vector<u8> Data;
+        TArray<u8> Data;
         sizet OriginalSize = 0; // Original unencoded size in bytes
     };
 
@@ -145,6 +144,19 @@ namespace OloEngine
             f32 Error = 0.0f; // accumulated, relative to the model extent
         };
 
+    } // namespace MeshOptimization
+
+    // Ref owns a separate allocation; the count/error are scalar measurements.
+    template<>
+    struct TIsTriviallyRelocatable<MeshOptimization::AutoLODChainEntry>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(MeshOptimization::AutoLODChainEntry::Source)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(MeshOptimization::AutoLODChainEntry::TriangleCount)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(MeshOptimization::AutoLODChainEntry::Error)>::Value;
+    };
+
+    namespace MeshOptimization
+    {
         // The CPU half of automatic LOD generation: simplifies, measures, and stops.
         // Touches no AssetManager and uploads nothing to the GPU, which is what makes
         // the error metric testable without a project or a graphics device.
@@ -152,8 +164,8 @@ namespace OloEngine
         // Returns an EMPTY chain for a source with no vertices or no indices — there is
         // no LOD 0 to describe. Otherwise entry 0 is the source mesh, and the entries
         // after it are ordered fine -> coarse with strictly increasing Error.
-        std::vector<AutoLODChainEntry> BuildAutoLODChain(const MeshSource& meshSource,
-                                                         const AutoLODSettings& settings = {});
+        TArray<AutoLODChainEntry> BuildAutoLODChain(const MeshSource& meshSource,
+                                                    const AutoLODSettings& settings = {});
 
         // The largest bounding-box side over the vertices `meshSource`'s indices
         // reference — the unit AutoLODChainEntry::Error is expressed in. Returns 0 for

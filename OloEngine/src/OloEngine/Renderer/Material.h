@@ -108,13 +108,13 @@ namespace OloEngine
         // -Wdefaulted-function-deleted. Making Material movable means making
         // RendererResource movable first.
 
-        static Ref<Material> Create(const Ref<OloEngine::Shader>& shader, const std::string& name = "");
-        static Ref<Material> Copy(const Ref<Material>& other, const std::string& name = "");
+        static Ref<Material> Create(const Ref<OloEngine::Shader>& shader, const FString& name = "");
+        static Ref<Material> Copy(const Ref<Material>& other, const FString& name = "");
 
         // Static factory method for PBR materials - returns Ref<Material> for consistency
-        static Ref<Material> CreatePBR(const std::string& name, const glm::vec3& baseColor, f32 metallic = 0.0f, f32 roughness = 0.5f);
+        static Ref<Material> CreatePBR(const FString& name, const glm::vec3& baseColor, f32 metallic = 0.0f, f32 roughness = 0.5f);
         // Static factory for snow PBR material (white, high roughness, non-metallic)
-        static Ref<Material> CreateSnow(const std::string& name = "Snow");
+        static Ref<Material> CreateSnow(const FString& name = "Snow");
 
         virtual ~Material() = default;
 
@@ -122,11 +122,11 @@ namespace OloEngine
         virtual void OnShaderReloaded() {}
 
         // Material property accessors
-        void SetName(const std::string& name)
+        void SetName(const FString& name)
         {
             m_Name = name;
         }
-        const std::string& GetName() const
+        const FString& GetName() const
         {
             return m_Name;
         }
@@ -757,14 +757,14 @@ namespace OloEngine
         }
 
       protected:
-        Material(const Ref<OloEngine::Shader>& shader, const std::string& name = "");
+        Material(const Ref<OloEngine::Shader>& shader, const FString& name = "");
 
         // Helper method to generate composite keys for array textures
         static std::string GenerateArrayKey(const std::string& name, u32 arrayIndex);
 
       protected:
         Ref<OloEngine::Shader> m_Shader;
-        std::string m_Name;
+        FString m_Name;
         u32 m_MaterialFlags = std::to_underlying(MaterialFlag::DepthTest);
 
         // Material properties storage (uniform system)
@@ -843,6 +843,19 @@ namespace OloEngine
         Ref<TextureCubemap> m_IrradianceMap;   // Irradiance cubemap
         Ref<TextureCubemap> m_PrefilterMap;    // Prefiltered environment map
         Ref<Texture2D> m_BRDFLutMap;           // BRDF lookup table
+    };
+
+    // By-value materials own only heap-backed FString/TMap storage and external
+    // Ref handles; their remaining fields and Asset base are scalar state. No
+    // member points into this object. As with every container element, references
+    // to a by-value Material must not survive container growth (Ref<Material>
+    // continues to refer to separately allocated, stable objects).
+    template<>
+    struct TIsTriviallyRelocatable<Material>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable_V<FString> &&
+                                      TIsTriviallyRelocatable_V<TMap<FString, Ref<Texture2D>>> &&
+                                      TIsTriviallyRelocatable_V<Ref<Shader>>;
     };
 
 } // namespace OloEngine

@@ -34,13 +34,13 @@ namespace OloEngine::MeshOptimization
         // into the unchanged vertex array — so the caller keeps its full vertex buffer as-is and
         // the simplified output just points at the representatives. This is the same fix the
         // virtualized-geometry builder uses (VirtualMeshBuilder, issue #651).
-        [[nodiscard]] std::vector<u32> WeldIndicesByPosition(const Vertex* vertices, sizet vertexCount,
-                                                             const u32* indices, sizet indexCount)
+        [[nodiscard]] TArray<u32> WeldIndicesByPosition(const Vertex* vertices, sizet vertexCount,
+                                                        const u32* indices, sizet indexCount)
         {
-            std::vector<u32> remap(vertexCount);
-            meshopt_generatePositionRemap(remap.data(), &vertices[0].Position.x, vertexCount, sizeof(Vertex));
+            TArray<u32> remap(vertexCount);
+            meshopt_generatePositionRemap(remap.GetData(), &vertices[0].Position.x, vertexCount, sizeof(Vertex));
 
-            std::vector<u32> welded(indexCount);
+            TArray<u32> welded(indexCount);
             for (sizet i = 0; i < indexCount; ++i)
             {
                 // Guard the remap lookup: an out-of-range index (a degenerate/corrupt source
@@ -241,14 +241,14 @@ namespace OloEngine::MeshOptimization
         }
 
         // 3. Vertex fetch optimization — reorder vertices for sequential memory access
-        std::vector<u32> remap(vertexCount);
-        auto remappedVertexCount = meshopt_optimizeVertexFetchRemap(remap.data(), indices.GetData(), indexCount, vertexCount);
+        TArray<u32> remap(vertexCount);
+        auto remappedVertexCount = meshopt_optimizeVertexFetchRemap(remap.GetData(), indices.GetData(), indexCount, vertexCount);
 
-        meshopt_remapIndexBuffer(indices.GetData(), indices.GetData(), indexCount, remap.data());
+        meshopt_remapIndexBuffer(indices.GetData(), indices.GetData(), indexCount, remap.GetData());
 
         {
             TArray<Vertex> remappedVertices(static_cast<i32>(remappedVertexCount));
-            meshopt_remapVertexBuffer(remappedVertices.GetData(), vertices.GetData(), vertexCount, sizeof(Vertex), remap.data());
+            meshopt_remapVertexBuffer(remappedVertices.GetData(), vertices.GetData(), vertexCount, sizeof(Vertex), remap.GetData());
             vertices = MoveTemp(remappedVertices);
         }
 
@@ -256,7 +256,7 @@ namespace OloEngine::MeshOptimization
         {
             auto& boneInfluences = meshSource.GetBoneInfluences();
             TArray<BoneInfluence> remappedBones(static_cast<i32>(remappedVertexCount));
-            meshopt_remapVertexBuffer(remappedBones.GetData(), boneInfluences.GetData(), vertexCount, sizeof(BoneInfluence), remap.data());
+            meshopt_remapVertexBuffer(remappedBones.GetData(), boneInfluences.GetData(), vertexCount, sizeof(BoneInfluence), remap.GetData());
             boneInfluences = MoveTemp(remappedBones);
         }
 
@@ -267,7 +267,7 @@ namespace OloEngine::MeshOptimization
         {
             auto& lightmapUVs = meshSource.GetLightmapUVs();
             TArray<glm::vec2> remappedUVs(static_cast<i32>(remappedVertexCount));
-            meshopt_remapVertexBuffer(remappedUVs.GetData(), lightmapUVs.GetData(), vertexCount, sizeof(glm::vec2), remap.data());
+            meshopt_remapVertexBuffer(remappedUVs.GetData(), lightmapUVs.GetData(), vertexCount, sizeof(glm::vec2), remap.GetData());
             lightmapUVs = MoveTemp(remappedUVs);
         }
 
@@ -281,7 +281,7 @@ namespace OloEngine::MeshOptimization
                 {
                     std::vector<MorphTargetVertex> remappedDeltas(remappedVertexCount);
                     meshopt_remapVertexBuffer(remappedDeltas.data(), target.Vertices.data(),
-                                              vertexCount, sizeof(MorphTargetVertex), remap.data());
+                                              vertexCount, sizeof(MorphTargetVertex), remap.GetData());
                     target.Vertices = MoveTemp(remappedDeltas);
                 }
                 // Sparse targets reference vertices by index — remap those indices
@@ -379,7 +379,7 @@ namespace OloEngine::MeshOptimization
         // Position-weld before simplifying (issue #653) — otherwise an unwelded mesh (any source
         // imported without normals) is a disconnected triangle soup to meshopt and does not reduce
         // at all. No-op on an already-welded mesh.
-        const std::vector<u32> weldedIndices =
+        const TArray<u32> weldedIndices =
             WeldIndicesByPosition(srcVertices.GetData(), vertexCount, srcIndices.GetData(), indexCount);
 
         // meshopt_SimplifySparse: the welded index buffer references only the canonical
@@ -387,10 +387,10 @@ namespace OloEngine::MeshOptimization
         // meshopt must be told to ignore the unreferenced coincident duplicates. Without it,
         // non-sparse simplify still sees the duplicate positions and refuses to collapse — welding
         // the indices alone is necessary but NOT sufficient (issue #653; matches VirtualMeshBuilder).
-        std::vector<u32> simplifiedIndices(indexCount);
+        TArray<u32> simplifiedIndices(indexCount);
         f32 resultError = 0.0f;
         auto resultIndexCount = meshopt_simplify(
-            simplifiedIndices.data(), weldedIndices.data(), indexCount,
+            simplifiedIndices.GetData(), weldedIndices.GetData(), indexCount,
             &srcVertices.GetData()[0].Position.x, vertexCount, sizeof(Vertex),
             targetIndexCount, targetError, meshopt_SimplifySparse, &resultError);
 
@@ -400,7 +400,7 @@ namespace OloEngine::MeshOptimization
             return nullptr;
         }
 
-        simplifiedIndices.resize(resultIndexCount);
+        simplifiedIndices.SetNum(resultIndexCount, EAllowShrinking::No);
 
         TArray<Vertex> lodVertices;
         lodVertices.Reserve(srcVertices.Num());
@@ -408,7 +408,7 @@ namespace OloEngine::MeshOptimization
 
         TArray<u32> lodIndices;
         lodIndices.Reserve(static_cast<i32>(resultIndexCount));
-        lodIndices.Append(simplifiedIndices.data(), static_cast<i32>(resultIndexCount));
+        lodIndices.Append(simplifiedIndices.GetData(), static_cast<i32>(resultIndexCount));
 
         auto lodMesh = Ref<MeshSource>::Create(MoveTemp(lodVertices), MoveTemp(lodIndices));
 
@@ -492,7 +492,7 @@ namespace OloEngine::MeshOptimization
 
         // Build attribute array: Normal (3 floats) + TexCoord (2 floats) = 5 per vertex
         constexpr sizet kAttributeCount = 5;
-        std::vector<f32> attributes(vertexCount * kAttributeCount);
+        TArray<f32> attributes(vertexCount * kAttributeCount);
         for (sizet i = 0; i < vertexCount; ++i)
         {
             const auto& v = srcVertices[static_cast<i32>(i)];
@@ -509,14 +509,14 @@ namespace OloEngine::MeshOptimization
         // Position-weld before simplifying (issue #653) — see GenerateLODMesh. The attribute
         // array stays indexed by original vertex; the welded indices reference the canonical
         // representative per position, whose attributes meshopt reads from the same array.
-        const std::vector<u32> weldedIndices =
+        const TArray<u32> weldedIndices =
             WeldIndicesByPosition(srcVertices.GetData(), vertexCount, srcIndices.GetData(), indexCount);
 
-        std::vector<u32> simplifiedIndices(indexCount);
+        TArray<u32> simplifiedIndices(indexCount);
         auto resultIndexCount = meshopt_simplifyWithAttributes(
-            simplifiedIndices.data(), weldedIndices.data(), indexCount,
+            simplifiedIndices.GetData(), weldedIndices.GetData(), indexCount,
             &srcVertices.GetData()[0].Position.x, vertexCount, sizeof(Vertex),
-            attributes.data(), sizeof(f32) * kAttributeCount,
+            attributes.GetData(), sizeof(f32) * kAttributeCount,
             attributeWeights, kAttributeCount,
             nullptr, // no vertex locking
             targetIndexCount, targetError, meshopt_SimplifySparse, nullptr);
@@ -527,7 +527,7 @@ namespace OloEngine::MeshOptimization
             return nullptr;
         }
 
-        simplifiedIndices.resize(resultIndexCount);
+        simplifiedIndices.SetNum(resultIndexCount, EAllowShrinking::No);
 
         TArray<Vertex> lodVertices;
         lodVertices.Reserve(srcVertices.Num());
@@ -535,7 +535,7 @@ namespace OloEngine::MeshOptimization
 
         TArray<u32> lodIndices;
         lodIndices.Reserve(static_cast<i32>(resultIndexCount));
-        lodIndices.Append(simplifiedIndices.data(), static_cast<i32>(resultIndexCount));
+        lodIndices.Append(simplifiedIndices.GetData(), static_cast<i32>(resultIndexCount));
 
         auto lodMesh = Ref<MeshSource>::Create(MoveTemp(lodVertices), MoveTemp(lodIndices));
 
@@ -600,7 +600,7 @@ namespace OloEngine::MeshOptimization
         u32 const baseTriCount = srcIndices.IsEmpty() ? 0 : static_cast<u32>(srcIndices.Num()) / 3;
 
         f32 const distanceStep = maxDistance / static_cast<f32>(lodCount);
-        group.Levels.emplace_back(baseMeshHandle, distanceStep, baseTriCount);
+        group.Levels.Emplace(baseMeshHandle, distanceStep, baseTriCount);
 
         for (u32 i = 1; i < lodCount; ++i)
         {
@@ -623,7 +623,7 @@ namespace OloEngine::MeshOptimization
                                      ? 0
                                      : static_cast<u32>(lodMeshSource->GetIndices().Num()) / 3;
             f32 const levelDistance = distanceStep * static_cast<f32>(i + 1);
-            group.Levels.emplace_back(handle, levelDistance, triCount);
+            group.Levels.Emplace(handle, levelDistance, triCount);
 
             OLO_CORE_TRACE("MeshOptimization::GenerateLODGroup: LOD {} - {} triangles, distance {:.1f}",
                            i, triCount, levelDistance);
@@ -729,32 +729,32 @@ namespace OloEngine::MeshOptimization
             // optimizeVertexFetch: this level compacts the vertex array, and the bone
             // and morph-delta arrays parallel to it can only follow through the remap
             // TABLE, which the one-shot form never produces (#1227).
-            std::vector<u32> compactIndices(indices, indices + indexCount);
-            std::vector<u32> remap(vertexCount);
+            TArray<u32> compactIndices(indices, static_cast<i32>(indexCount));
+            TArray<u32> remap(vertexCount);
             sizet const uniqueVertexCount = meshopt_optimizeVertexFetchRemap(
-                remap.data(), compactIndices.data(), indexCount, vertexCount);
+                remap.GetData(), compactIndices.GetData(), indexCount, vertexCount);
 
             if (uniqueVertexCount == 0)
             {
                 return nullptr;
             }
 
-            std::vector<Vertex> compactVertices(uniqueVertexCount);
-            meshopt_remapVertexBuffer(compactVertices.data(), srcVertices.GetData(), vertexCount,
-                                      sizeof(Vertex), remap.data());
-            meshopt_remapIndexBuffer(compactIndices.data(), compactIndices.data(), indexCount, remap.data());
+            TArray<Vertex> compactVertices(uniqueVertexCount);
+            meshopt_remapVertexBuffer(compactVertices.GetData(), srcVertices.GetData(), vertexCount,
+                                      sizeof(Vertex), remap.GetData());
+            meshopt_remapIndexBuffer(compactIndices.GetData(), compactIndices.GetData(), indexCount, remap.GetData());
 
             TArray<Vertex> lodVertices;
             lodVertices.Reserve(static_cast<i32>(uniqueVertexCount));
-            lodVertices.Append(compactVertices.data(), static_cast<i32>(uniqueVertexCount));
+            lodVertices.Append(compactVertices.GetData(), static_cast<i32>(uniqueVertexCount));
 
             TArray<u32> lodIndices;
             lodIndices.Reserve(static_cast<i32>(indexCount));
-            lodIndices.Append(compactIndices.data(), static_cast<i32>(indexCount));
+            lodIndices.Append(compactIndices.GetData(), static_cast<i32>(indexCount));
 
             auto lodMesh = Ref<MeshSource>::Create(MoveTemp(lodVertices), MoveTemp(lodIndices));
 
-            CopyDeformationStreams(meshSource, *lodMesh, remap.data(), vertexCount, uniqueVertexCount);
+            CopyDeformationStreams(meshSource, *lodMesh, remap.GetData(), vertexCount, uniqueVertexCount);
 
             for (const auto& [index, handle] : meshSource.GetMaterials())
             {
@@ -798,9 +798,9 @@ namespace OloEngine::MeshOptimization
             f32 const pixelsPerRadian = kReferenceScreenHeight / (2.0f * kReferenceTanHalfFovY);
             bool const usable = std::isfinite(modelExtent) && modelExtent > 0.0f;
 
-            for (sizet i = 0; i < group.Levels.size(); ++i)
+            for (sizet i = 0; i < group.Levels.Num(); ++i)
             {
-                if (i + 1 >= group.Levels.size())
+                if (i + 1 >= group.Levels.Num())
                 {
                     group.Levels[i].MaxDistance = kFarDistance;
                     break;
@@ -832,11 +832,11 @@ namespace OloEngine::MeshOptimization
             .Extent;
     }
 
-    std::vector<AutoLODChainEntry> BuildAutoLODChain(const MeshSource& meshSource, const AutoLODSettings& settings)
+    TArray<AutoLODChainEntry> BuildAutoLODChain(const MeshSource& meshSource, const AutoLODSettings& settings)
     {
         OLO_PROFILE_FUNCTION();
 
-        std::vector<AutoLODChainEntry> chain;
+        TArray<AutoLODChainEntry> chain;
 
         const auto& srcVertices = meshSource.GetVertices();
         const auto& srcIndices = meshSource.GetIndices();
@@ -849,7 +849,7 @@ namespace OloEngine::MeshOptimization
         auto const baseIndexCount = static_cast<sizet>(srcIndices.Num());
 
         // Entry 0 is the source mesh itself and is exact, so its error is 0.
-        chain.push_back(AutoLODChainEntry{ nullptr, static_cast<u32>(baseIndexCount / 3), 0.0f });
+        chain.Add(AutoLODChainEntry{ nullptr, static_cast<u32>(baseIndexCount / 3), 0.0f });
 
         if (meshSource.GetSubmeshes().Num() > 1)
         {
@@ -866,13 +866,13 @@ namespace OloEngine::MeshOptimization
 
         // Position-weld once, up front (issue #653): an unwelded source is a
         // disconnected triangle soup to the simplifier and will not reduce at all.
-        std::vector<u32> prevIndices =
+        TArray<u32> prevIndices =
             WeldIndicesByPosition(srcVertices.GetData(), vertexCount, srcIndices.GetData(), baseIndexCount);
 
         // Attribute stream stays indexed by ORIGINAL vertex for the whole chain —
         // every level's index buffer references the same vertex array.
         constexpr sizet kAttributeCount = 5; // normal xyz + uv xy
-        std::vector<f32> attributes(vertexCount * kAttributeCount);
+        TArray<f32> attributes(vertexCount * kAttributeCount);
         for (sizet i = 0; i < vertexCount; ++i)
         {
             const auto& v = srcVertices[static_cast<i32>(i)];
@@ -885,11 +885,11 @@ namespace OloEngine::MeshOptimization
 
         f32 accumulatedError = 0.0f;
         MeshSpacing const baseSpacing =
-            MeasureMeshSpacing(srcVertices.GetData(), vertexCount, prevIndices.data(), baseIndexCount);
+            MeasureMeshSpacing(srcVertices.GetData(), vertexCount, prevIndices.GetData(), baseIndexCount);
 
         for (u32 level = 1; level < maxLevels; ++level)
         {
-            sizet const prevIndexCount = prevIndices.size();
+            sizet const prevIndexCount = static_cast<sizet>(prevIndices.Num());
             if (prevIndexCount / 3 <= static_cast<sizet>(minTriangleCount))
             {
                 break;
@@ -909,7 +909,7 @@ namespace OloEngine::MeshOptimization
             // which stops being true the moment a step is topology-limited — and then
             // the levels are no longer mutually consistent, silently.
             MeshSpacing const spacing =
-                MeasureMeshSpacing(srcVertices.GetData(), vertexCount, prevIndices.data(), prevIndexCount);
+                MeasureMeshSpacing(srcVertices.GetData(), vertexCount, prevIndices.GetData(), prevIndexCount);
             f32 const normalizedVertexDistance = (spacing.NormalizedVertexDistance > 0.0f)
                                                      ? spacing.NormalizedVertexDistance
                                                      : baseSpacing.NormalizedVertexDistance;
@@ -918,14 +918,14 @@ namespace OloEngine::MeshOptimization
             f32 const attributeWeights[kAttributeCount] = { normalWeight, normalWeight, normalWeight,
                                                             texCoordWeight, texCoordWeight };
 
-            std::vector<u32> simplified(prevIndexCount);
+            TArray<u32> simplified(prevIndexCount);
             f32 stepError = 0.0f;
             // No target_error cap: the triangle target is the goal, and the error the
             // step actually cost is what decides whether the level is kept.
             sizet const resultIndexCount = meshopt_simplifyWithAttributes(
-                simplified.data(), prevIndices.data(), prevIndexCount,
+                simplified.GetData(), prevIndices.GetData(), prevIndexCount,
                 &srcVertices.GetData()[0].Position.x, vertexCount, sizeof(Vertex),
-                attributes.data(), sizeof(f32) * kAttributeCount,
+                attributes.GetData(), sizeof(f32) * kAttributeCount,
                 attributeWeights, kAttributeCount,
                 nullptr, // no vertex locking
                 targetIndexCount, std::numeric_limits<f32>::max(), meshopt_SimplifySparse, &stepError);
@@ -954,7 +954,7 @@ namespace OloEngine::MeshOptimization
                 break;
             }
 
-            auto lodMeshSource = BuildLODMeshSource(meshSource, simplified.data(), resultIndexCount);
+            auto lodMeshSource = BuildLODMeshSource(meshSource, simplified.GetData(), resultIndexCount);
             if (!lodMeshSource)
             {
                 OLO_CORE_WARN("MeshOptimization::BuildAutoLODChain: Failed to build LOD level {}", level);
@@ -967,13 +967,13 @@ namespace OloEngine::MeshOptimization
             // is the smallest nudge that cannot itself change a selection decision.
             accumulatedError = std::nextafter(accumulatedError + renormalizedError,
                                               std::numeric_limits<f32>::max());
-            chain.push_back(AutoLODChainEntry{ lodMeshSource, static_cast<u32>(resultIndexCount / 3), accumulatedError });
+            chain.Add(AutoLODChainEntry{ lodMeshSource, static_cast<u32>(resultIndexCount / 3), accumulatedError });
 
             OLO_CORE_TRACE("MeshOptimization::BuildAutoLODChain: LOD {} - {} triangles, step error {:.4f}, accumulated {:.4f}",
                            level, resultIndexCount / 3, renormalizedError, accumulatedError);
 
-            prevIndices.assign(simplified.begin(),
-                               simplified.begin() + static_cast<std::ptrdiff_t>(resultIndexCount));
+            prevIndices.Reset();
+            prevIndices.Append(simplified.GetData(), static_cast<i32>(resultIndexCount));
         }
 
         return chain;
@@ -988,15 +988,15 @@ namespace OloEngine::MeshOptimization
 
         // Non-const: Ref<T> propagates constness, so a const chain would hand
         // MeshSource::Build() a const `this`.
-        std::vector<AutoLODChainEntry> chain = BuildAutoLODChain(meshSource, settings);
-        if (chain.empty())
+        TArray<AutoLODChainEntry> chain = BuildAutoLODChain(meshSource, settings);
+        if (chain.IsEmpty())
         {
             return group;
         }
 
-        group.Levels.emplace_back(baseMeshHandle, 0.0f, chain[0].TriangleCount, 0.0f);
+        group.Levels.Emplace(baseMeshHandle, 0.0f, chain[0].TriangleCount, 0.0f);
 
-        for (sizet i = 1; i < chain.size(); ++i)
+        for (sizet i = 1; i < static_cast<sizet>(chain.Num()); ++i)
         {
             auto& entry = chain[i]; // non-const: Ref<T> propagates constness to Build()
             if (!entry.Source)
@@ -1007,7 +1007,7 @@ namespace OloEngine::MeshOptimization
 
             auto lodMesh = Ref<Mesh>::Create(entry.Source, 0);
             AssetHandle const handle = AssetManager::AddMemoryOnlyAsset(lodMesh);
-            group.Levels.emplace_back(handle, 0.0f, entry.TriangleCount, entry.Error);
+            group.Levels.Emplace(handle, 0.0f, entry.TriangleCount, entry.Error);
         }
 
         FillNominalLODDistances(group, MeasureModelExtent(meshSource));
@@ -1204,36 +1204,36 @@ namespace OloEngine::MeshOptimization
 
         sizet maxMeshletCount = meshopt_buildMeshletsBound(indexCount, maxVertices, maxTriangles);
 
-        std::vector<meshopt_Meshlet> meshlets(maxMeshletCount);
-        std::vector<u32> meshletVertices(maxMeshletCount * maxVertices);
-        std::vector<u8> meshletTriangles(maxMeshletCount * maxTriangles * 3);
+        TArray<meshopt_Meshlet> meshlets(maxMeshletCount);
+        TArray<u32> meshletVertices(maxMeshletCount * maxVertices);
+        TArray<u8> meshletTriangles(maxMeshletCount * maxTriangles * 3);
 
         sizet meshletCount = meshopt_buildMeshlets(
-            meshlets.data(), meshletVertices.data(), meshletTriangles.data(),
+            meshlets.GetData(), meshletVertices.GetData(), meshletTriangles.GetData(),
             indices.GetData(), indexCount,
             &vertices.GetData()[0].Position.x, vertexCount, sizeof(Vertex),
             maxVertices, maxTriangles, 0.0f);
 
         // Trim arrays based on actual output
-        meshlets.resize(meshletCount);
+        meshlets.SetNum(meshletCount, EAllowShrinking::No);
         if (meshletCount > 0)
         {
             const auto& last = meshlets[meshletCount - 1];
-            meshletVertices.resize(last.vertex_offset + last.vertex_count);
-            meshletTriangles.resize(last.triangle_offset + ((last.triangle_count * 3 + 3) & ~3));
+            meshletVertices.SetNum(last.vertex_offset + last.vertex_count, EAllowShrinking::No);
+            meshletTriangles.SetNum(last.triangle_offset + ((last.triangle_count * 3 + 3) & ~3), EAllowShrinking::No);
         }
 
         // Copy to engine data structures
-        result.Meshlets.reserve(meshletCount);
+        result.Meshlets.Reserve(meshletCount);
         for (const auto& m : meshlets)
         {
-            result.Meshlets.push_back({ m.vertex_offset, m.triangle_offset, m.vertex_count, m.triangle_count });
+            result.Meshlets.Add({ m.vertex_offset, m.triangle_offset, m.vertex_count, m.triangle_count });
         }
         result.MeshletVertices = std::move(meshletVertices);
         result.MeshletTriangles = std::move(meshletTriangles);
 
         // Compute per-meshlet bounding cones for GPU culling
-        result.Bounds.reserve(meshletCount);
+        result.Bounds.Reserve(meshletCount);
         for (sizet i = 0; i < meshletCount; ++i)
         {
             meshopt_Bounds const bounds = meshopt_computeMeshletBounds(
@@ -1248,7 +1248,7 @@ namespace OloEngine::MeshOptimization
             std::memcpy(mb.ConeApex, bounds.cone_apex, sizeof(f32) * 3);
             std::memcpy(mb.ConeAxis, bounds.cone_axis, sizeof(f32) * 3);
             mb.ConeCutoff = bounds.cone_cutoff;
-            result.Bounds.push_back(mb);
+            result.Bounds.Add(mb);
         }
 
         OLO_CORE_TRACE("MeshOptimization::GenerateMeshlets: {} meshlets from {} triangles",
@@ -1321,13 +1321,13 @@ namespace OloEngine::MeshOptimization
         result.OriginalSize = vertexCount * vertexSize;
 
         sizet maxSize = meshopt_encodeVertexBufferBound(vertexCount, vertexSize);
-        result.Data.resize(maxSize);
+        result.Data.SetNum(maxSize, EAllowShrinking::No);
 
         sizet encodedSize = meshopt_encodeVertexBuffer(
-            result.Data.data(), maxSize,
+            result.Data.GetData(), maxSize,
             vertices, vertexCount, vertexSize);
 
-        result.Data.resize(encodedSize);
+        result.Data.SetNum(encodedSize, EAllowShrinking::No);
 
         OLO_CORE_TRACE("MeshOptimization::EncodeVertexBuffer: {} -> {} bytes ({:.1f}% reduction)",
                        result.OriginalSize, encodedSize,
@@ -1342,7 +1342,7 @@ namespace OloEngine::MeshOptimization
 
         int const rc = meshopt_decodeVertexBuffer(
             destination, vertexCount, vertexSize,
-            encoded.Data.data(), encoded.Data.size());
+            encoded.Data.GetData(), static_cast<sizet>(encoded.Data.Num()));
         return rc == 0;
     }
 
@@ -1354,13 +1354,13 @@ namespace OloEngine::MeshOptimization
         result.OriginalSize = indexCount * sizeof(u32);
 
         sizet maxSize = meshopt_encodeIndexBufferBound(indexCount, vertexCount);
-        result.Data.resize(maxSize);
+        result.Data.SetNum(maxSize, EAllowShrinking::No);
 
         sizet encodedSize = meshopt_encodeIndexBuffer(
-            result.Data.data(), maxSize,
+            result.Data.GetData(), maxSize,
             indices, indexCount);
 
-        result.Data.resize(encodedSize);
+        result.Data.SetNum(encodedSize, EAllowShrinking::No);
 
         OLO_CORE_TRACE("MeshOptimization::EncodeIndexBuffer: {} -> {} bytes ({:.1f}% reduction)",
                        result.OriginalSize, encodedSize,
@@ -1375,7 +1375,7 @@ namespace OloEngine::MeshOptimization
 
         int const rc = meshopt_decodeIndexBuffer(
             destination, indexCount, sizeof(u32),
-            encoded.Data.data(), encoded.Data.size());
+            encoded.Data.GetData(), static_cast<sizet>(encoded.Data.Num()));
         return rc == 0;
     }
 } // namespace OloEngine::MeshOptimization

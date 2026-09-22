@@ -1,5 +1,7 @@
 #pragma once
 
+#include "OloEngine/Containers/Array.h"
+
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
 
@@ -74,7 +76,7 @@ namespace OloEngine
         OcclusionStateManager() = default;
 
         std::unordered_map<u64, OcclusionState> m_States;
-        std::vector<u32> m_FreeQueryIndices;
+        TArray64<u32> m_FreeQueryIndices;
         u32 m_MaxQueries = 0;
         u32 m_NextQueryIndex = 0;
         u32 m_CurrentFrame = 0;

@@ -70,14 +70,14 @@ namespace
     /// sees the same shape a real island would present.
     struct RampBed
     {
-        std::vector<f32> Heights;
+        TArray<f32> Heights;
         SeabedTerrain Tile;
     };
 
     [[nodiscard]] RampBed MakeRampBed(u32 resolution, f32 sizeMetres, f32 baseY, f32 heightScale)
     {
         RampBed bed;
-        bed.Heights.resize(static_cast<sizet>(resolution) * resolution);
+        bed.Heights.SetNum(static_cast<sizet>(resolution) * resolution);
         for (u32 z = 0; z < resolution; ++z)
         {
             for (u32 x = 0; x < resolution; ++x)
@@ -434,10 +434,10 @@ TEST(WaterShoreField, BakeResamplesTheSeabedIntoDepthAndGradient)
     request.ExtentMetres = size;
     request.WaterPlaneY = 0.0f;
 
-    std::vector<glm::vec4> texels;
+    TArray<glm::vec4> texels;
     const std::array<SeabedTerrain, 1> tiles{ bed.Tile };
     WaterShoreDepthSystem::BakeField(request, tiles, texels);
-    ASSERT_EQ(texels.size(), static_cast<sizet>(WaterShore::kResolution) * WaterShore::kResolution);
+    ASSERT_EQ(texels.Num(), static_cast<sizet>(WaterShore::kResolution) * WaterShore::kResolution);
 
     // The analytic depth: at world X the ramp's normalised height is
     // t = 1 - (X + size/2) / size, so seabed Y = -20 + 40 t and depth = -seabedY.
@@ -454,7 +454,7 @@ TEST(WaterShoreField, BakeResamplesTheSeabedIntoDepthAndGradient)
     for (const f32 worldX : { 150.0f, 110.0f, 70.0f, 30.0f })
     {
         const WaterShore::Sample sample =
-            WaterShoreDepthSystem::SampleBaked(texels, request, { worldX, 12.0f });
+            WaterShoreDepthSystem::SampleBaked(std::span(texels.GetData(), static_cast<sizet>(texels.Num())), request, { worldX, 12.0f });
         ASSERT_TRUE(sample.Enabled) << "at X " << worldX;
         EXPECT_NEAR(sample.Depth, analyticDepth(worldX), 0.35f) << "at X " << worldX;
 
@@ -477,9 +477,9 @@ TEST(WaterShoreField, NonFiniteWindowIsNormalisedBeforeItIsStored)
     bad.ExtentMetres = 400.0f;
     bad.WaterPlaneY = std::numeric_limits<f32>::infinity();
 
-    std::vector<glm::vec4> texels;
+    TArray<glm::vec4> texels;
     WaterShoreDepthSystem::BakeField(bad, {}, texels);
-    ASSERT_EQ(texels.size(), static_cast<sizet>(WaterShore::kResolution) * WaterShore::kResolution);
+    ASSERT_EQ(texels.Num(), static_cast<sizet>(WaterShore::kResolution) * WaterShore::kResolution);
     for (const glm::vec4& texel : texels)
     {
         EXPECT_TRUE(std::isfinite(texel.x));
@@ -512,10 +512,10 @@ TEST(WaterShoreField, AnInPlaceHeightEditChangesTheSignature)
 
     // Edit in place: same vector, same address, same size — only the samples and
     // the revision move, exactly as a brush stroke does.
-    const f32* addressBefore = bed.Heights.data();
+    const f32* addressBefore = bed.Heights.GetData();
     bed.Heights[10] = 0.9f;
     tiles[0].HeightRevision = bed.Tile.HeightRevision + 1;
-    ASSERT_EQ(bed.Heights.data(), addressBefore) << "the test did not edit in place";
+    ASSERT_EQ(bed.Heights.GetData(), addressBefore) << "the test did not edit in place";
 
     EXPECT_NE(WaterShoreDepthSystem::BuildSignature(request, tiles), before)
         << "an in-place height edit did not change the bake signature — the seabed "
@@ -529,9 +529,9 @@ TEST(WaterShoreField, WaterWithNoTerrainUnderItReadsAsOpenSea)
     WaterShoreBakeRequest request;
     request.ExtentMetres = 800.0f;
 
-    std::vector<glm::vec4> texels;
+    TArray<glm::vec4> texels;
     WaterShoreDepthSystem::BakeField(request, {}, texels);
-    ASSERT_FALSE(texels.empty());
+    ASSERT_FALSE(texels.IsEmpty());
     for (const glm::vec4& texel : texels)
     {
         EXPECT_FLOAT_EQ(texel.x, WaterShore::kDeepSentinelMetres);
@@ -549,12 +549,12 @@ TEST(WaterShoreField, OutsideTheWindowIsTheDisabledSample)
     request.CentreXZ = { 0.0f, 0.0f };
     request.ExtentMetres = 200.0f;
 
-    std::vector<glm::vec4> texels;
+    TArray<glm::vec4> texels;
     WaterShoreDepthSystem::BakeField(request, {}, texels);
 
-    EXPECT_FALSE(WaterShoreDepthSystem::SampleBaked(texels, request, { 400.0f, 0.0f }).Enabled);
-    EXPECT_FALSE(WaterShoreDepthSystem::SampleBaked(texels, request, { 0.0f, -101.0f }).Enabled);
-    EXPECT_TRUE(WaterShoreDepthSystem::SampleBaked(texels, request, { 0.0f, 0.0f }).Enabled);
+    EXPECT_FALSE(WaterShoreDepthSystem::SampleBaked(std::span(texels.GetData(), static_cast<sizet>(texels.Num())), request, { 400.0f, 0.0f }).Enabled);
+    EXPECT_FALSE(WaterShoreDepthSystem::SampleBaked(std::span(texels.GetData(), static_cast<sizet>(texels.Num())), request, { 0.0f, -101.0f }).Enabled);
+    EXPECT_TRUE(WaterShoreDepthSystem::SampleBaked(std::span(texels.GetData(), static_cast<sizet>(texels.Num())), request, { 0.0f, 0.0f }).Enabled);
 }
 
 // Two tiles that overlap both describe solid ground; the water column ends at
@@ -569,12 +569,12 @@ TEST(WaterShoreField, OverlappingTilesKeepTheShallowerSeabed)
     WaterShoreBakeRequest request;
     request.ExtentMetres = size;
 
-    std::vector<glm::vec4> texels;
+    TArray<glm::vec4> texels;
     const std::array<SeabedTerrain, 2> tiles{ deepBed.Tile, shallowBed.Tile };
     WaterShoreDepthSystem::BakeField(request, tiles, texels);
 
     const WaterShore::Sample sample =
-        WaterShoreDepthSystem::SampleBaked(texels, request, { 0.0f, 0.0f });
+        WaterShoreDepthSystem::SampleBaked(std::span(texels.GetData(), static_cast<sizet>(texels.Num())), request, { 0.0f, 0.0f });
     EXPECT_NEAR(sample.Depth, 4.0f, 0.05f);
 }
 

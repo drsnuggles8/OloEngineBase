@@ -1,4 +1,6 @@
 #include "OloEnginePCH.h"
+#include <span>
+#include "OloEngine/Containers/Array.h"
 #include <gtest/gtest.h>
 
 #include "OloEngine/Terrain/Foliage/FoliageLayer.h"
@@ -51,9 +53,9 @@ namespace
     }
 
     // Every value present, finite, and inside the normalized [0, 1] band.
-    void ExpectNormalizedField(const std::vector<f32>& heights, u32 resolution)
+    void ExpectNormalizedField(const TArray<f32>& heights, u32 resolution)
     {
-        ASSERT_EQ(heights.size(), static_cast<sizet>(resolution) * resolution);
+        ASSERT_EQ(heights.Num(), static_cast<sizet>(resolution) * resolution);
         for (const f32 h : heights)
         {
             ASSERT_TRUE(std::isfinite(h)) << "height field contains a non-finite value";
@@ -68,8 +70,8 @@ namespace
 TEST(TerrainGeneratorTest, HeightFieldIsDeterministic)
 {
     const auto params = MakeParams();
-    std::vector<f32> a;
-    std::vector<f32> b;
+    TArray<f32> a;
+    TArray<f32> b;
     TerrainGenerator::GenerateHeightField(a, params);
     TerrainGenerator::GenerateHeightField(b, params);
     // Same parameters → bit-identical field (the precondition for golden renders
@@ -80,12 +82,12 @@ TEST(TerrainGeneratorTest, HeightFieldIsDeterministic)
 TEST(TerrainGeneratorTest, HeightFieldIsNormalizedAndFinite)
 {
     const auto params = MakeParams();
-    std::vector<f32> heights;
+    TArray<f32> heights;
     TerrainGenerator::GenerateHeightField(heights, params);
     ExpectNormalizedField(heights, params.Resolution);
 
     // A non-trivial field actually spans the range (not a constant plane).
-    const auto [minIt, maxIt] = std::minmax_element(heights.begin(), heights.end());
+    const auto [minIt, maxIt] = std::minmax_element(heights.GetData(), heights.GetData() + heights.Num());
     EXPECT_LE(*minIt, 0.05f);
     EXPECT_GE(*maxIt, 0.95f);
 }
@@ -96,20 +98,20 @@ TEST(TerrainGeneratorTest, LargeSeedStillProducesVariedTerrain)
     // large seeds (the editor's Randomize Seed picks any i32), collapsing every
     // sample to one lattice cell → a dead-flat field. The seed must be hashed
     // into a bounded range so any seed yields real relief.
-    std::vector<f32> heights;
+    TArray<f32> heights;
     TerrainGenerator::GenerateHeightField(heights, MakeParams(20240611));
     ExpectNormalizedField(heights, 64);
-    const auto [minIt, maxIt] = std::minmax_element(heights.begin(), heights.end());
+    const auto [minIt, maxIt] = std::minmax_element(heights.GetData(), heights.GetData() + heights.Num());
     EXPECT_GT(*maxIt - *minIt, 0.5f) << "large seed produced a (near-)flat height field";
 }
 
 TEST(TerrainGeneratorTest, DifferentSeedsProduceDifferentTerrain)
 {
-    std::vector<f32> a;
-    std::vector<f32> b;
+    TArray<f32> a;
+    TArray<f32> b;
     TerrainGenerator::GenerateHeightField(a, MakeParams(1));
     TerrainGenerator::GenerateHeightField(b, MakeParams(2));
-    ASSERT_EQ(a.size(), b.size());
+    ASSERT_EQ(a.Num(), b.Num());
     EXPECT_NE(a, b);
 }
 
@@ -120,7 +122,7 @@ TEST(TerrainGeneratorTest, RidgedAndWarpAndExponentStayValid)
     params.Shaping.WarpStrength = 0.3f; // heavy domain warp
     params.Shaping.WarpFrequency = 3.0f;
     params.Shaping.HeightExponent = 2.5f;
-    std::vector<f32> heights;
+    TArray<f32> heights;
     TerrainGenerator::GenerateHeightField(heights, params);
     ExpectNormalizedField(heights, params.Resolution);
 }
@@ -130,8 +132,8 @@ TEST(TerrainGeneratorTest, TerraceShapingStaysValidAndDeterministic)
     auto params = MakeParams();
     params.Shaping.TerraceSteps = 6;
     params.Shaping.TerraceSharpness = 0.85f;
-    std::vector<f32> a;
-    std::vector<f32> b;
+    TArray<f32> a;
+    TArray<f32> b;
     TerrainGenerator::GenerateHeightField(a, params);
     TerrainGenerator::GenerateHeightField(b, params);
     ExpectNormalizedField(a, params.Resolution);
@@ -149,7 +151,7 @@ TEST(TerrainGeneratorTest, TerraceShapingStaysValidAndDeterministic)
 namespace
 {
     // Largest height found on the tile's outermost ring of texels.
-    [[nodiscard]] f32 MaxBorderHeight(const std::vector<f32>& heights, u32 resolution)
+    [[nodiscard]] f32 MaxBorderHeight(const TArray<f32>& heights, u32 resolution)
     {
         f32 maxBorder = 0.0f;
         const auto at = [&](u32 x, u32 z)
@@ -173,12 +175,12 @@ TEST(TerrainGeneratorTest, IslandFalloffIsOffByDefaultAndLeavesTheFieldUntouched
     auto params = MakeParams();
     params.Shaping.RidgeBlend = 0.5f;
     params.Shaping.HeightExponent = 1.15f;
-    std::vector<f32> off;
+    TArray<f32> off;
     TerrainGenerator::GenerateHeightField(off, params);
 
     params.Shaping.IslandFalloff = 0.0f;
     params.Shaping.IslandFalloffRadius = 0.25f; // ignored while the strength is 0
-    std::vector<f32> explicitlyOff;
+    TArray<f32> explicitlyOff;
     TerrainGenerator::GenerateHeightField(explicitlyOff, params);
     EXPECT_EQ(off, explicitlyOff);
 
@@ -204,7 +206,7 @@ TEST(TerrainGeneratorTest, IslandFalloffDrivesEveryBorderTexelToZero)
         params.Shaping.IslandFalloff = 1.0f;
         params.Shaping.IslandFalloffRadius = 0.3f;
 
-        std::vector<f32> heights;
+        TArray<f32> heights;
         TerrainGenerator::GenerateHeightField(heights, params);
         ExpectNormalizedField(heights, resolution);
         EXPECT_FLOAT_EQ(MaxBorderHeight(heights, resolution), 0.0f)
@@ -212,7 +214,7 @@ TEST(TerrainGeneratorTest, IslandFalloffDrivesEveryBorderTexelToZero)
 
         // Anti-vacuity: the island itself must still be there. A mask that zeroed
         // the whole tile would satisfy the assertion above perfectly.
-        const f32 peak = *std::max_element(heights.begin(), heights.end());
+        const f32 peak = *std::max_element(heights.GetData(), heights.GetData() + heights.Num());
         EXPECT_GT(peak, 0.5f) << "resolution " << resolution << ": the mask flattened the whole tile";
     }
 }
@@ -228,11 +230,11 @@ TEST(TerrainGeneratorTest, IslandFalloffRadiusControlsHowMuchOfTheTileIsLand)
         auto params = MakeParams(99, 96);
         params.Shaping.IslandFalloff = 1.0f;
         params.Shaping.IslandFalloffRadius = radius;
-        std::vector<f32> heights;
+        TArray<f32> heights;
         TerrainGenerator::GenerateHeightField(heights, params);
-        const auto above = std::count_if(heights.begin(), heights.end(), [](f32 h)
+        const auto above = std::count_if(heights.GetData(), heights.GetData() + heights.Num(), [](f32 h)
                                          { return h > kSeaLevel; });
-        return static_cast<f32>(above) / static_cast<f32>(heights.size());
+        return static_cast<f32>(above) / static_cast<f32>(heights.Num());
     };
 
     const f32 small = landFraction(0.15f);
@@ -246,12 +248,12 @@ TEST(TerrainGeneratorTest, IslandFalloffStrengthInterpolatesTowardsTheMask)
     // Partial strength is a lerp between the raw field and the fully masked one,
     // so a border texel at half strength sits at half its unmasked height.
     auto params = MakeParams(7, 64);
-    std::vector<f32> raw;
+    TArray<f32> raw;
     TerrainGenerator::GenerateHeightField(raw, params);
 
     params.Shaping.IslandFalloff = 0.5f;
     params.Shaping.IslandFalloffRadius = 0.3f;
-    std::vector<f32> half;
+    TArray<f32> half;
     TerrainGenerator::GenerateHeightField(half, params);
     ExpectNormalizedField(half, params.Resolution);
 
@@ -276,7 +278,7 @@ TEST(TerrainGeneratorTest, IslandFalloffSurvivesTheErosionPostPass)
     params.Shaping.IslandFalloffRadius = 0.28f;
     params.ErosionIterations = 4;
 
-    std::vector<f32> heights;
+    TArray<f32> heights;
     TerrainGenerator::GenerateHeightField(heights, params);
     ExpectNormalizedField(heights, params.Resolution);
     EXPECT_FLOAT_EQ(MaxBorderHeight(heights, params.Resolution), 0.0f)
@@ -284,11 +286,11 @@ TEST(TerrainGeneratorTest, IslandFalloffSurvivesTheErosionPostPass)
 
     // Anti-vacuity twice over: the island is still there, and the erosion pass
     // actually ran (otherwise this asserts the same thing the sweep already does).
-    EXPECT_GT(*std::max_element(heights.begin(), heights.end()), 0.5f);
+    EXPECT_GT(*std::max_element(heights.GetData(), heights.GetData() + heights.Num()), 0.5f);
 
     auto unEroded = params;
     unEroded.ErosionIterations = 0;
-    std::vector<f32> baseline;
+    TArray<f32> baseline;
     TerrainGenerator::GenerateHeightField(baseline, unEroded);
     EXPECT_NE(heights, baseline) << "erosion made no difference, so this test proves nothing";
 }
@@ -306,16 +308,16 @@ TEST(TerrainGeneratorTest, FractionalIslandFalloffIsNotAppliedTwiceByTheErosionP
     params.Shaping.IslandFalloff = kStrength;
     params.Shaping.IslandFalloffRadius = 0.28f;
 
-    std::vector<f32> withoutErosion;
+    TArray<f32> withoutErosion;
     TerrainGenerator::GenerateHeightField(withoutErosion, params);
 
     params.ErosionIterations = 4;
-    std::vector<f32> withErosion;
+    TArray<f32> withErosion;
     TerrainGenerator::GenerateHeightField(withErosion, params);
 
     // The border may only be carved DOWN by erosion, never scaled again.
     const u32 resolution = params.Resolution;
-    const auto at = [&](const std::vector<f32>& h, u32 x, u32 z)
+    const auto at = [&](const TArray<f32>& h, u32 x, u32 z)
     { return h[static_cast<sizet>(z) * resolution + x]; };
     bool sawAnyBorderHeight = false;
     for (u32 x = 0; x < resolution; ++x)
@@ -338,8 +340,8 @@ TEST(TerrainGeneratorTest, IslandFalloffIsDeterministicAndComparesEqual)
     auto params = MakeParams();
     params.Shaping.IslandFalloff = 0.8f;
     params.Shaping.IslandFalloffRadius = 0.28f;
-    std::vector<f32> a;
-    std::vector<f32> b;
+    TArray<f32> a;
+    TArray<f32> b;
     TerrainGenerator::GenerateHeightField(a, params);
     TerrainGenerator::GenerateHeightField(b, params);
     EXPECT_EQ(a, b);
@@ -365,8 +367,8 @@ TEST(TerrainGeneratorTest, ErosionPostPassIsDeterministic)
     // the generation pass must be reproducible so scenes regenerate identically.
     auto params = MakeParams();
     params.ErosionIterations = 2;
-    std::vector<f32> a;
-    std::vector<f32> b;
+    TArray<f32> a;
+    TArray<f32> b;
     TerrainGenerator::GenerateHeightField(a, params);
     TerrainGenerator::GenerateHeightField(b, params);
     EXPECT_EQ(a, b);
@@ -376,7 +378,7 @@ TEST(TerrainGeneratorTest, ErosionStaysNormalizedAndFinite)
 {
     auto params = MakeParams();
     params.ErosionIterations = 2;
-    std::vector<f32> heights;
+    TArray<f32> heights;
     TerrainGenerator::GenerateHeightField(heights, params);
     // Erosion deposits/erodes without bound internally, but the field is clamped
     // back into the [0,1] contract every downstream consumer relies on.
@@ -388,21 +390,21 @@ TEST(TerrainGeneratorTest, ErosionActuallyChangesTheField)
     // The gate must do something: an eroded field differs from the same seed's
     // un-eroded field, and ErosionIterations == 0 is exactly the un-eroded field.
     auto base = MakeParams();
-    std::vector<f32> plain;
+    TArray<f32> plain;
     TerrainGenerator::GenerateHeightField(plain, base);
 
     auto eroded = base;
     eroded.ErosionIterations = 2;
-    std::vector<f32> carved;
+    TArray<f32> carved;
     TerrainGenerator::GenerateHeightField(carved, eroded);
 
-    ASSERT_EQ(plain.size(), carved.size());
+    ASSERT_EQ(plain.Num(), carved.Num());
     EXPECT_NE(plain, carved) << "erosion post-pass left the field unchanged";
 
     // Zero iterations is the disabled path — identical to never calling erosion.
     auto off = base;
     off.ErosionIterations = 0;
-    std::vector<f32> untouched;
+    TArray<f32> untouched;
     TerrainGenerator::GenerateHeightField(untouched, off);
     EXPECT_EQ(plain, untouched);
 }
@@ -411,31 +413,31 @@ TEST(TerrainGeneratorTest, ApplyErosionStandaloneIsDeterministicAndGuarded)
 {
     constexpr u32 kRes = 48;
     auto params = MakeParams(1337, kRes);
-    std::vector<f32> field;
+    TArray<f32> field;
     TerrainGenerator::GenerateHeightField(field, params);
 
     const ErosionParams erosion; // defaults (namespace-scope struct, like TerrainLayerRule)
 
     // Two independent runs on copies of the same field → identical results.
-    std::vector<f32> a = field;
-    std::vector<f32> b = field;
+    TArray<f32> a = field;
+    TArray<f32> b = field;
     TerrainGenerator::ApplyErosion(a, kRes, 2, erosion, /*seed*/ 99);
     TerrainGenerator::ApplyErosion(b, kRes, 2, erosion, /*seed*/ 99);
     EXPECT_EQ(a, b);
     ExpectNormalizedField(a, kRes);
 
     // A different seed carves a different field.
-    std::vector<f32> c = field;
+    TArray<f32> c = field;
     TerrainGenerator::ApplyErosion(c, kRes, 2, erosion, /*seed*/ 1234);
     EXPECT_NE(a, c);
 
     // Guards: zero iterations and a mismatched buffer are no-ops (not crashes).
-    std::vector<f32> noop = field;
+    TArray<f32> noop = field;
     TerrainGenerator::ApplyErosion(noop, kRes, 0, erosion, 99);
     EXPECT_EQ(noop, field);
 
-    std::vector<f32> wrongSize(kRes * kRes + 1, 0.5f);
-    const std::vector<f32> before = wrongSize;
+    TArray<f32> wrongSize(kRes * kRes + 1, 0.5f);
+    const TArray<f32> before = wrongSize;
     TerrainGenerator::ApplyErosion(wrongSize, kRes, 2, erosion, 99);
     EXPECT_EQ(wrongSize, before);
 }
@@ -553,7 +555,7 @@ TEST(TerrainGeneratorTest, LayerWeightsAreNormalized)
 
 TEST(TerrainGeneratorTest, NoMatchingRuleFallsBackToLayerZero)
 {
-    std::vector<TerrainLayerRule> rules;
+    TArray<TerrainLayerRule> rules;
     TerrainLayerRule narrow;
     narrow.LayerIndex = 3;
     narrow.MinHeight = 0.40f;
@@ -562,7 +564,7 @@ TEST(TerrainGeneratorTest, NoMatchingRuleFallsBackToLayerZero)
     narrow.MinSlopeDeg = 0.0f;
     narrow.MaxSlopeDeg = 10.0f;
     narrow.SlopeBlend = 0.0f;
-    rules.push_back(narrow);
+    rules.Add(narrow);
 
     std::array<f32, MAX_TERRAIN_LAYERS> w{};
     TerrainGenerator::EvaluateLayerWeights(0.95f, 80.0f, rules, w); // outside the only rule
@@ -600,10 +602,10 @@ namespace
     // begins before the cull distance, and a real splat channel.
     void ExpectValidFoliageLayer(const FoliageLayer& layer)
     {
-        EXPECT_FALSE(layer.Name.empty());
+        EXPECT_FALSE(layer.Name.IsEmpty());
         // A foliage billboard alpha-tests against its albedo cutout; without one
         // it renders as solid/garbage quads, so the preset must supply a texture.
-        EXPECT_FALSE(layer.AlbedoPath.empty()) << "emitted foliage needs an albedo cutout to render as blades";
+        EXPECT_FALSE(layer.AlbedoPath.IsEmpty()) << "emitted foliage needs an albedo cutout to render as blades";
         EXPECT_GT(layer.Density, 0.0f);
         EXPECT_GE(layer.SplatmapChannel, 0);
         EXPECT_LT(layer.SplatmapChannel, 8);
@@ -638,7 +640,7 @@ namespace
 TEST(TerrainGeneratorTest, DefaultFoliageLayersAreVegetatedAndWellFormed)
 {
     const auto layers = TerrainGenerator::MakeDefaultFoliageLayers();
-    ASSERT_FALSE(layers.empty()) << "default biome must emit some vegetation";
+    ASSERT_FALSE(layers.IsEmpty()) << "default biome must emit some vegetation";
 
     bool sawGrassChannel = false;
     for (const auto& layer : layers)
@@ -656,8 +658,8 @@ TEST(TerrainGeneratorTest, DefaultFoliageEqualsMappingOfDefaultRules)
     // default rules — not a separate hand-authored list that could drift.
     const auto preset = TerrainGenerator::MakeDefaultFoliageLayers();
     const auto fromRules = TerrainGenerator::MakeFoliageLayersFromRules(TerrainGenerator::MakeDefaultRules());
-    ASSERT_EQ(preset.size(), fromRules.size());
-    for (sizet i = 0; i < preset.size(); ++i)
+    ASSERT_EQ(preset.Num(), fromRules.Num());
+    for (sizet i = 0; i < preset.Num(); ++i)
         EXPECT_TRUE(preset[i] == fromRules[i]) << "preset layer " << i << " differs from the rule mapping";
 }
 
@@ -666,15 +668,15 @@ TEST(TerrainGeneratorTest, FoliageInheritsPlacementBandFromMatchingRule)
     // The placement mask is taken from the material rule, so vegetation lands
     // exactly on the band the splatmap paints. A rule with a tight slope band
     // clamps the emitted foliage's slope band the same way.
-    std::vector<TerrainLayerRule> rules;
+    TArray<TerrainLayerRule> rules;
     TerrainLayerRule grass;
     grass.LayerIndex = 1; // grass layer → grass + wildflowers profiles
     grass.MinSlopeDeg = 4.0f;
     grass.MaxSlopeDeg = 12.0f; // tighter than either profile's own ceiling
-    rules.push_back(grass);
+    rules.Add(grass);
 
     const auto layers = TerrainGenerator::MakeFoliageLayersFromRules(rules);
-    ASSERT_FALSE(layers.empty());
+    ASSERT_FALSE(layers.IsEmpty());
     for (const auto& layer : layers)
     {
         EXPECT_EQ(layer.SplatmapChannel, 1) << "foliage must read the layer its rule paints";
@@ -687,15 +689,15 @@ TEST(TerrainGeneratorTest, ProfileSlopeCeilingClampsPermissiveRule)
 {
     // The reverse direction: a wide-open rule (0..90°) must still be tightened
     // by the profile's own slope ceiling so grass never climbs onto cliffs.
-    std::vector<TerrainLayerRule> rules;
+    TArray<TerrainLayerRule> rules;
     TerrainLayerRule grass;
     grass.LayerIndex = 1;
     grass.MinSlopeDeg = 0.0f;
     grass.MaxSlopeDeg = 90.0f;
-    rules.push_back(grass);
+    rules.Add(grass);
 
     const auto layers = TerrainGenerator::MakeFoliageLayersFromRules(rules);
-    ASSERT_FALSE(layers.empty());
+    ASSERT_FALSE(layers.IsEmpty());
     for (const auto& layer : layers)
         EXPECT_LT(layer.MaxSlopeAngle, 90.0f) << "profile slope ceiling must cap a permissive rule";
 }
@@ -703,24 +705,24 @@ TEST(TerrainGeneratorTest, ProfileSlopeCeilingClampsPermissiveRule)
 TEST(TerrainGeneratorTest, FoliageOnlyEmittedForLayersWithRules)
 {
     // No rules → no vegetation (nothing painted to grow on).
-    EXPECT_TRUE(TerrainGenerator::MakeFoliageLayersFromRules({}).empty());
+    EXPECT_TRUE(TerrainGenerator::MakeFoliageLayersFromRules({}).IsEmpty());
 
     // A rule set that only paints rock (layer 2) has no vegetation profile, so
     // it emits nothing — bare cliffs stay bare.
-    std::vector<TerrainLayerRule> rockOnly;
+    TArray<TerrainLayerRule> rockOnly;
     TerrainLayerRule rock;
     rock.LayerIndex = 2;
-    rockOnly.push_back(rock);
-    EXPECT_TRUE(TerrainGenerator::MakeFoliageLayersFromRules(rockOnly).empty());
+    rockOnly.Add(rock);
+    EXPECT_TRUE(TerrainGenerator::MakeFoliageLayersFromRules(rockOnly).IsEmpty());
 
     // A rule set that only paints grass (layer 1) emits the grass-layer
     // profiles (grass + wildflowers) but no sand dune grass (layer 0 unpainted).
-    std::vector<TerrainLayerRule> grassOnly;
+    TArray<TerrainLayerRule> grassOnly;
     TerrainLayerRule grass;
     grass.LayerIndex = 1;
-    grassOnly.push_back(grass);
+    grassOnly.Add(grass);
     const auto layers = TerrainGenerator::MakeFoliageLayersFromRules(grassOnly);
-    EXPECT_FALSE(layers.empty());
+    EXPECT_FALSE(layers.IsEmpty());
     for (const auto& layer : layers)
         EXPECT_EQ(layer.SplatmapChannel, 1) << "only the painted (grass) layer should carry foliage";
 }
@@ -734,7 +736,7 @@ TEST(TerrainGeneratorTest, FoliageOnlyEmittedForLayersWithRules)
 // erosion/deposition diff) to OloEditor/assets/tests/visual/.
 namespace
 {
-    void WriteGrayscalePNG(const std::string& path, const std::vector<f32>& field, u32 res)
+    void WriteGrayscalePNG(const std::string& path, const TArray<f32>& field, u32 res)
     {
         std::vector<std::uint8_t> px(static_cast<sizet>(res) * res);
         for (sizet i = 0; i < px.size(); ++i)
@@ -750,16 +752,16 @@ TEST(TerrainGeneratorTest, DISABLED_DumpErosionHeightmapPNGs)
     params.Octaves = 7;
     params.Shaping.RidgeBlend = 0.55f; // some mountains so channels are visible
 
-    std::vector<f32> plain;
+    TArray<f32> plain;
     TerrainGenerator::GenerateHeightField(plain, params);
 
     params.ErosionIterations = 4;
-    std::vector<f32> eroded;
+    TArray<f32> eroded;
     TerrainGenerator::GenerateHeightField(eroded, params);
 
     // Signed diff centered at 0.5: darker = eroded away, brighter = deposited.
-    std::vector<f32> diff(plain.size());
-    for (sizet i = 0; i < diff.size(); ++i)
+    TArray<f32> diff(plain.Num());
+    for (sizet i = 0; i < diff.Num(); ++i)
         diff[i] = 0.5f + std::clamp((eroded[i] - plain[i]) * 6.0f, -0.5f, 0.5f);
 
     const std::string dir = "assets/tests/visual/";

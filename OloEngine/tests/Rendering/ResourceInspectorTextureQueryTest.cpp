@@ -174,12 +174,12 @@ TEST(OpenGLTextureMipUpload, SetDataPopulatesTheRequestedMipChain)
 
     // A constant image has the same value in every generated mip. Before #953,
     // SetData wrote level zero only; the allocated lower levels remained undefined.
-    std::vector<u8> pixels(8u * 8u * 4u, 0x80u);
-    texture->SetData(pixels.data(), static_cast<u32>(pixels.size()));
+    OloEngine::TArray64<u8> pixels(8u * 8u * 4u, 0x80u);
+    texture->SetData(pixels.GetData(), static_cast<u32>(pixels.Num()));
 
-    std::vector<u8> mip2;
+    OloEngine::TArray64<u8> mip2;
     ASSERT_TRUE(texture->GetData(mip2, 2));
-    ASSERT_EQ(mip2.size(), sizet{ 2u * 2u * 4u });
+    ASSERT_EQ(mip2.Num(), sizet{ 2u * 2u * 4u });
     for (const u8 byte : mip2)
     {
         EXPECT_EQ(byte, 0x80u);

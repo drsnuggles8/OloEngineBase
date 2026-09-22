@@ -81,13 +81,13 @@ namespace OloEngine
         OLO_CORE_TRACE("ShaderResourceRegistry: Shutdown complete");
     }
 
-    void ShaderResourceRegistry::DiscoverResources(u32 stage, const std::vector<u32>& spirvData, const std::string& filePath)
+    void ShaderResourceRegistry::DiscoverResources(u32 stage, std::span<const u32> spirvData, const std::string& filePath)
     {
         OLO_CORE_TRACE("ShaderResourceRegistry: DiscoverResources called for stage {}", stage);
 
         try
         {
-            spirv_cross::Compiler compiler(spirvData);
+            spirv_cross::Compiler compiler(spirvData.data(), spirvData.size());
             spirv_cross::ShaderResources resources = compiler.get_shader_resources();
 
             for (const auto& resource : resources.uniform_buffers)
@@ -188,7 +188,7 @@ namespace OloEngine
             binding.Type = ShaderResourceType::UniformBuffer;
             binding.Size = block.Size;
 
-            m_Bindings[block.Name] = binding;
+            m_Bindings[block.Name.ToStdString()] = binding;
         }
 
         for (const auto& texture : reflection.GetTextures())
@@ -199,11 +199,11 @@ namespace OloEngine
             binding.Type = texture.Type;
             binding.Size = 0; // Textures don't have a meaningful size
 
-            m_Bindings[texture.Name] = binding;
+            m_Bindings[texture.Name.ToStdString()] = binding;
         }
 
         OLO_CORE_TRACE("ShaderResourceRegistry: Registered {0} uniform blocks and {1} textures from reflection",
-                       reflection.GetUniformBlocks().size(), reflection.GetTextures().size());
+                       reflection.GetUniformBlocks().Num(), reflection.GetTextures().Num());
     }
 
     void ShaderResourceRegistry::SetUniformBuffer(const std::string& name, Ref<UniformBuffer> buffer)

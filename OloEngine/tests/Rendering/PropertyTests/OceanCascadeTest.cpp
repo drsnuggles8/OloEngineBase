@@ -295,12 +295,12 @@ TEST(OceanCascade, DerivedResolutionReproducesTheArrayResolutionField)
     ASSERT_LT(band.m_Resolution, preset.m_ArrayResolution);
 
     Ocean::SpectrumParams big = MakeParams(3u, band.m_PatchSize, preset.m_ArrayResolution);
-    std::vector<Ocean::Complex> h0Big = Ocean::GenerateH0(big);
+    TArray<Ocean::Complex> h0Big = Ocean::GenerateH0(big);
     Ocean::ApplyBandLimit(h0Big, preset.m_ArrayResolution, band.m_PatchSize, band.m_KMin, band.m_KMax);
 
     // The SAME spectrum on the derived grid: same wave vectors per signed
     // frequency, rescaled for the grid-size-dependent 1/N² the inverse carries.
-    const std::vector<Ocean::Complex> h0Small =
+    const TArray<Ocean::Complex> h0Small =
         Ocean::ExtractBandLimitedH0(h0Big, preset.m_ArrayResolution, band.m_Resolution);
 
     Ocean::SpectrumParams small = big;
@@ -339,8 +339,8 @@ TEST(OceanCascade, ApplyBandLimitKeepsExactlyTheBandsBins)
     const u32 N = 32u;
     const f32 L = 100.0f;
     Ocean::SpectrumParams p = MakeParams(1u, L, N);
-    std::vector<Ocean::Complex> h0 = Ocean::GenerateH0(p);
-    const std::vector<Ocean::Complex> before = h0;
+    TArray<Ocean::Complex> h0 = Ocean::GenerateH0(p);
+    const TArray<Ocean::Complex> before = h0;
 
     const f32 kMin = 0.2f;
     const f32 kMax = 0.6f;
@@ -377,10 +377,10 @@ TEST(OceanCascade, ApplyBandLimitOverTheWholeSpectrumIsANoOp)
     // existing scene would quietly change.
     const u32 N = 32u;
     Ocean::SpectrumParams p = MakeParams(1u, 100.0f, N);
-    std::vector<Ocean::Complex> h0 = Ocean::GenerateH0(p);
-    const std::vector<Ocean::Complex> before = h0;
+    TArray<Ocean::Complex> h0 = Ocean::GenerateH0(p);
+    const TArray<Ocean::Complex> before = h0;
     Ocean::ApplyBandLimit(h0, N, 100.0f, 0.0f, std::numeric_limits<f32>::infinity());
-    for (sizet i = 0; i < h0.size(); ++i)
+    for (sizet i = 0; i < h0.Num(); ++i)
     {
         EXPECT_FLOAT_EQ(h0[i].real(), before[i].real());
         EXPECT_FLOAT_EQ(h0[i].imag(), before[i].imag());
@@ -410,19 +410,19 @@ TEST(OceanCascade, SingleCascadeFieldReproducesThePreCascadePipeline)
 
     Ocean::SpectrumParams unit = p;
     unit.m_Amplitude = 1.0f;
-    std::vector<Ocean::Complex> h0 = Ocean::GenerateH0(unit);
+    TArray<Ocean::Complex> h0 = Ocean::GenerateH0(unit);
     const Ocean::DisplacementField ref = Ocean::EvaluateField(p, h0, 0.0f);
     f64 sumSq = 0.0;
     for (f32 h : ref.m_Height)
         sumSq += static_cast<f64>(h) * h;
-    const f32 rms = static_cast<f32>(std::sqrt(sumSq / static_cast<f64>(ref.m_Height.size())));
+    const f32 rms = static_cast<f32>(std::sqrt(sumSq / static_cast<f64>(ref.m_Height.Num())));
     const f32 scale = (p.m_Amplitude * 0.3f) / rms;
     for (Ocean::Complex& c : h0)
         c *= scale;
     const Ocean::DisplacementField expected = Ocean::EvaluateField(p, h0, 2.25f);
 
-    ASSERT_EQ(expected.m_Height.size(), got.m_Height.size());
-    for (sizet i = 0; i < expected.m_Height.size(); ++i)
+    ASSERT_EQ(expected.m_Height.Num(), got.m_Height.Num());
+    for (sizet i = 0; i < expected.m_Height.Num(); ++i)
         ASSERT_NEAR(got.m_Height[i], expected.m_Height[i], 1e-5f) << "at texel " << i;
 }
 
@@ -620,7 +620,7 @@ TEST(OceanCascade, TheBroadBandCarriesRealEnergy)
         f64 acc = 0.0;
         for (f32 h : f.m_Height)
             acc += static_cast<f64>(h) * h;
-        return f.m_Height.empty() ? 0.0 : std::sqrt(acc / static_cast<f64>(f.m_Height.size()));
+        return f.m_Height.IsEmpty() ? 0.0 : std::sqrt(acc / static_cast<f64>(f.m_Height.Num()));
     };
 
     f64 total = 0.0;
@@ -686,7 +686,7 @@ TEST(OceanCascade, DiagBandEnergyAndSlopeAtDriftSettings)
             for (f32 h : f.m_Height)
                 acc += static_cast<f64>(h) * h;
             std::cout << "[ DIAG ]   band " << i << " tile " << field->GetPreset().m_Bands[i].m_PatchSize
-                      << " m, height RMS = " << (f.m_Height.empty() ? 0.0 : std::sqrt(acc / f.m_Height.size()))
+                      << " m, height RMS = " << (f.m_Height.IsEmpty() ? 0.0 : std::sqrt(acc / f.m_Height.Num()))
                       << " m\n";
         }
         return std::sqrt(s2 / n);
@@ -729,13 +729,13 @@ TEST(OceanCascade, AnalyticReferenceRmsMatchesTheEvaluatedField)
         {
             Ocean::SpectrumParams p = MakeParams(1u, 137.0f, N);
             p.m_WindSpeed = wind;
-            const std::vector<Ocean::Complex> h0 = Ocean::GenerateH0(p);
+            const TArray<Ocean::Complex> h0 = Ocean::GenerateH0(p);
 
             const Ocean::DisplacementField f = Ocean::EvaluateField(p, h0, 0.0f);
             f64 sumSq = 0.0;
             for (f32 h : f.m_Height)
                 sumSq += static_cast<f64>(h) * h;
-            const f64 measured = std::sqrt(sumSq / static_cast<f64>(f.m_Height.size()));
+            const f64 measured = std::sqrt(sumSq / static_cast<f64>(f.m_Height.Num()));
             const f64 analytic = Ocean::ReferenceHeightRms(h0, N);
 
             ASSERT_GT(measured, 1e-9) << "N=" << N << " wind=" << wind << ": the field is flat";
@@ -810,12 +810,12 @@ TEST(OceanCascade, CachedNoiseReproducesGenerateH0Exactly)
                 p.m_WindSpeed = wind;
                 p.m_Seed = seed;
 
-                const std::vector<Ocean::Complex> viaRng = Ocean::GenerateH0(p);
-                const std::vector<glm::vec2> noise = Ocean::GenerateSpectrumNoise(seed, N);
-                const std::vector<Ocean::Complex> viaNoise = Ocean::GenerateH0FromNoise(p, noise);
+                const TArray<Ocean::Complex> viaRng = Ocean::GenerateH0(p);
+                const TArray<glm::vec2> noise = Ocean::GenerateSpectrumNoise(seed, N);
+                const TArray<Ocean::Complex> viaNoise = Ocean::GenerateH0FromNoise(p, noise);
 
-                ASSERT_EQ(viaRng.size(), viaNoise.size());
-                for (sizet i = 0; i < viaRng.size(); ++i)
+                ASSERT_EQ(viaRng.Num(), viaNoise.Num());
+                for (sizet i = 0; i < viaRng.Num(); ++i)
                 {
                     ASSERT_FLOAT_EQ(viaNoise[i].real(), viaRng[i].real()) << "N=" << N << " seed=" << seed << " bin " << i;
                     ASSERT_FLOAT_EQ(viaNoise[i].imag(), viaRng[i].imag()) << "N=" << N << " seed=" << seed << " bin " << i;
@@ -826,10 +826,10 @@ TEST(OceanCascade, CachedNoiseReproducesGenerateH0Exactly)
 
     // ...and the draws really are wind-independent: same seed, different wind,
     // same noise. (The SPECTRUM differs, which the loop above already covers.)
-    const std::vector<glm::vec2> a = Ocean::GenerateSpectrumNoise(99u, 32u);
-    const std::vector<glm::vec2> b = Ocean::GenerateSpectrumNoise(99u, 32u);
-    ASSERT_EQ(a.size(), b.size());
-    for (sizet i = 0; i < a.size(); ++i)
+    const TArray<glm::vec2> a = Ocean::GenerateSpectrumNoise(99u, 32u);
+    const TArray<glm::vec2> b = Ocean::GenerateSpectrumNoise(99u, 32u);
+    ASSERT_EQ(a.Num(), b.Num());
+    for (sizet i = 0; i < a.Num(); ++i)
     {
         EXPECT_FLOAT_EQ(a[i].x, b[i].x);
         EXPECT_FLOAT_EQ(a[i].y, b[i].y);

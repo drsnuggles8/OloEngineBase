@@ -199,7 +199,7 @@ namespace OloEngine
             return VK_CULL_MODE_NONE;
         }
 
-        [[nodiscard]] u64 HashCombine(u64 seed, u64 value)
+        [[nodiscard]] u64 CombinePipelineHash(u64 seed, u64 value)
         {
             return seed ^ (value + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2));
         }
@@ -224,15 +224,15 @@ namespace OloEngine
             u64 hash = layout.SizeBytes;
             for (const auto& field : layout.Fields)
             {
-                hash = HashCombine(hash, field.Offset);
-                hash = HashCombine(hash, field.SamplerOffset);
-                hash = HashCombine(hash, field.Binding.Set);
-                hash = HashCombine(hash, field.Binding.Binding);
-                hash = HashCombine(hash, static_cast<u64>(field.Binding.BindingKind));
+                hash = CombinePipelineHash(hash, field.Offset);
+                hash = CombinePipelineHash(hash, field.SamplerOffset);
+                hash = CombinePipelineHash(hash, field.Binding.Set);
+                hash = CombinePipelineHash(hash, field.Binding.Binding);
+                hash = CombinePipelineHash(hash, static_cast<u64>(field.Binding.BindingKind));
                 // #1078: the array length selects the MAPPING SOURCE, so two
                 // layouts that differ only here produce different pipelines
                 // and must not share a cache entry.
-                hash = HashCombine(hash, field.Binding.ArrayCount);
+                hash = CombinePipelineHash(hash, field.Binding.ArrayCount);
             }
             return hash == 0 ? 1 : hash;
         }
@@ -242,12 +242,12 @@ namespace OloEngine
     // VulkanRootDataLayout
     // =========================================================================
 
-    VulkanRootDataLayout VulkanRootDataLayout::Build(const std::vector<VulkanShaderBinding>& bindings)
+    VulkanRootDataLayout VulkanRootDataLayout::Build(std::span<const VulkanShaderBinding> bindings)
     {
         VulkanRootDataLayout layout;
 
         // Deterministic field order: (set, binding), buffer blocks first.
-        std::vector<VulkanShaderBinding> sorted = bindings;
+        TArray<VulkanShaderBinding> sorted(bindings.data(), static_cast<i32>(bindings.size()));
         std::ranges::sort(sorted, [](const VulkanShaderBinding& a, const VulkanShaderBinding& b)
                           {
             const bool aBuffer = a.BindingKind == VulkanShaderBinding::Kind::UniformBuffer ||
@@ -334,14 +334,14 @@ namespace OloEngine
         u64 hash = key.ShaderKey;
         for (u32 i = 0; i < key.ColorCount; ++i)
         {
-            hash = HashCombine(hash, static_cast<u64>(key.ColorFormats[i]));
+            hash = CombinePipelineHash(hash, static_cast<u64>(key.ColorFormats[i]));
         }
-        hash = HashCombine(hash, static_cast<u64>(key.DepthFormat));
-        hash = HashCombine(hash, key.ColorCount);
-        hash = HashCombine(hash, key.Samples);
-        hash = HashCombine(hash, key.BakedBlendHash);
-        hash = HashCombine(hash, key.LayoutHash);
-        hash = HashCombine(hash, key.PatchControlPoints);
+        hash = CombinePipelineHash(hash, static_cast<u64>(key.DepthFormat));
+        hash = CombinePipelineHash(hash, key.ColorCount);
+        hash = CombinePipelineHash(hash, key.Samples);
+        hash = CombinePipelineHash(hash, key.BakedBlendHash);
+        hash = CombinePipelineHash(hash, key.LayoutHash);
+        hash = CombinePipelineHash(hash, key.PatchControlPoints);
         return static_cast<sizet>(hash);
     }
 
@@ -585,22 +585,22 @@ namespace OloEngine
             // per-attachment overrides — or two states differing only in an
             // unhashed field silently share one pipeline.
             u64 blendHash = state.Blend ? 1 : 0;
-            blendHash = HashCombine(blendHash, static_cast<u64>(state.BlendSrcRGB));
-            blendHash = HashCombine(blendHash, static_cast<u64>(state.BlendDstRGB));
-            blendHash = HashCombine(blendHash, static_cast<u64>(state.BlendSrcAlpha));
-            blendHash = HashCombine(blendHash, static_cast<u64>(state.BlendDstAlpha));
-            blendHash = HashCombine(blendHash, static_cast<u64>(state.BlendEquation));
+            blendHash = CombinePipelineHash(blendHash, static_cast<u64>(state.BlendSrcRGB));
+            blendHash = CombinePipelineHash(blendHash, static_cast<u64>(state.BlendDstRGB));
+            blendHash = CombinePipelineHash(blendHash, static_cast<u64>(state.BlendSrcAlpha));
+            blendHash = CombinePipelineHash(blendHash, static_cast<u64>(state.BlendDstAlpha));
+            blendHash = CombinePipelineHash(blendHash, static_cast<u64>(state.BlendEquation));
             for (u32 i = 0; i < 4; ++i)
             {
-                blendHash = HashCombine(blendHash, state.ColorMask[i] ? 1u : 0u);
+                blendHash = CombinePipelineHash(blendHash, state.ColorMask[i] ? 1u : 0u);
             }
             for (u32 i = 0; i < safeTargets.ColorCount; ++i)
             {
-                blendHash = HashCombine(blendHash, static_cast<u64>(state.AttachmentBlend[i]));
-                blendHash = HashCombine(blendHash, static_cast<u64>(state.AttachmentBlendFunc[i]));
-                blendHash = HashCombine(blendHash, static_cast<u64>(state.AttachmentBlendSrc[i]));
-                blendHash = HashCombine(blendHash, static_cast<u64>(state.AttachmentBlendDst[i]));
-                blendHash = HashCombine(blendHash, state.AttachmentColorMask[i]);
+                blendHash = CombinePipelineHash(blendHash, static_cast<u64>(state.AttachmentBlend[i]));
+                blendHash = CombinePipelineHash(blendHash, static_cast<u64>(state.AttachmentBlendFunc[i]));
+                blendHash = CombinePipelineHash(blendHash, static_cast<u64>(state.AttachmentBlendSrc[i]));
+                blendHash = CombinePipelineHash(blendHash, static_cast<u64>(state.AttachmentBlendDst[i]));
+                blendHash = CombinePipelineHash(blendHash, state.AttachmentColorMask[i]);
             }
             key.BakedBlendHash = blendHash == 0 ? 1 : blendHash;
         }

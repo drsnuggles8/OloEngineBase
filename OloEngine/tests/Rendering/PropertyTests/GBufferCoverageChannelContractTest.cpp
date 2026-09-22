@@ -102,7 +102,7 @@ namespace OloEngine::Tests
         // have to agree or the coverage term works in Deferred and reads
         // rubbish in Forward / Forward+.
         const auto attachments = SceneRenderPass::SceneMRTAttachments().Attachments;
-        ASSERT_GT(attachments.size(), 3u);
+        ASSERT_GT(attachments.Num(), 3);
         EXPECT_EQ(attachments[3].TextureFormat, FramebufferTextureFormat::RGBA16F)
             << "The forward scene FB's velocity attachment must match G-Buffer RT3.";
     }

@@ -11,6 +11,23 @@
 
 namespace OloEngine
 {
+    template<typename T>
+    struct TVolumetricChunkSlot
+    {
+        bool Loaded = false;
+        glm::ivec3 Coord{ 0 };
+        T Data{};
+    };
+
+    // The slot adds only values; never grant relocation to an unsafe payload.
+    template<typename T>
+    struct TIsTriviallyRelocatable<TVolumetricChunkSlot<T>>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(TVolumetricChunkSlot<T>::Loaded)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TVolumetricChunkSlot<T>::Coord)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TVolumetricChunkSlot<T>::Data)>::Value;
+    };
+
     // A fixed cubic window of chunks streamed around a tracked position (#729).
     //
     // Built for a volumetric/voxel world, where the loaded set is a 3D
@@ -203,12 +220,7 @@ namespace OloEngine
         }
 
       private:
-        struct Slot
-        {
-            bool Loaded = false;
-            glm::ivec3 Coord{ 0 };
-            T Data{};
-        };
+        using Slot = TVolumetricChunkSlot<T>;
 
         // Validates LoadRadius BEFORE the ring buffer's side length is computed
         // or handed to ChunkRingBuffer3D — that constructor allocates side^3

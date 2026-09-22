@@ -1,5 +1,7 @@
 #pragma once
 
+#include "OloEngine/Containers/Array.h"
+
 #include "OloEngine/Core/Base.h"
 
 #include <string>
@@ -36,8 +38,8 @@ namespace OloEngine::RenderGraphHandleAllocator
     // overloads. Same applies to `activeNames` (set vs transparent set).
     template<typename HandlesByNameT, typename SlotT, typename ActiveNamesT>
     void Reconcile(HandlesByNameT& handlesByName,
-                   std::vector<SlotT>& slots,
-                   std::vector<u32>& freeIndices,
+                   TArray64<SlotT>& slots,
+                   TArray64<u32>& freeIndices,
                    const ActiveNamesT& activeNames)
     {
         for (auto it = handlesByName.begin(); it != handlesByName.end();)
@@ -48,18 +50,18 @@ namespace OloEngine::RenderGraphHandleAllocator
                 continue;
             }
 
-            if (const auto staleHandle = it->second; staleHandle.IsValid() && staleHandle.Index < slots.size())
+            if (const auto staleHandle = it->second; staleHandle.IsValid() && staleHandle.Index < static_cast<sizet>(slots.Num()))
             {
                 auto& slot = slots[staleHandle.Index];
                 slot.Alive = false;
-                slot.Name.clear();
+                slot.Name.Reset();
                 // Increment first, then repair a wrap to 0: Generation 0 is
                 // the "never allocated" sentinel (IsValid() requires > 0), so
                 // an overflow must land on 1, not 0.
                 ++slot.Generation;
                 if (slot.Generation == 0)
                     slot.Generation = 1;
-                freeIndices.push_back(staleHandle.Index);
+                freeIndices.Add(staleHandle.Index);
             }
 
             it = handlesByName.erase(it);
@@ -69,15 +71,15 @@ namespace OloEngine::RenderGraphHandleAllocator
     template<typename HandlesByNameT, typename SlotT, typename PhysicalT, typename MakeHandleFn>
     auto Allocate(const std::string& name,
                   HandlesByNameT& handlesByName,
-                  std::vector<SlotT>& slots,
-                  std::vector<PhysicalT>& physicals,
-                  std::vector<u32>& freeIndices,
+                  TArray64<SlotT>& slots,
+                  TArray64<PhysicalT>& physicals,
+                  TArray64<u32>& freeIndices,
                   MakeHandleFn makeHandle)
     {
         const auto ensurePhysicalCapacity = [&physicals](const u32 index)
         {
-            if (index >= physicals.size())
-                physicals.resize(static_cast<sizet>(index) + 1u);
+            if (index >= static_cast<sizet>(physicals.Num()))
+                physicals.SetNum(static_cast<i64>(static_cast<sizet>(index) + 1u), EAllowShrinking::No);
         };
 
         if (auto it = handlesByName.find(name); it != handlesByName.end())
@@ -87,10 +89,10 @@ namespace OloEngine::RenderGraphHandleAllocator
         }
 
         u32 index = 0;
-        if (!freeIndices.empty())
+        if (!freeIndices.IsEmpty())
         {
-            index = freeIndices.back();
-            freeIndices.pop_back();
+            index = freeIndices.Last();
+            freeIndices.Pop(EAllowShrinking::No);
 
             auto& slot = slots[index];
             slot.Alive = true;
@@ -112,9 +114,9 @@ namespace OloEngine::RenderGraphHandleAllocator
             return handle;
         }
 
-        index = static_cast<u32>(slots.size());
-        slots.push_back({ 1, true, name });
-        physicals.resize(slots.size());
+        index = static_cast<u32>(static_cast<sizet>(slots.Num()));
+        slots.Add({ 1, true, name });
+        physicals.SetNum(static_cast<i64>(static_cast<sizet>(slots.Num())), EAllowShrinking::No);
         auto handle = makeHandle(index, 1);
         handlesByName[name] = handle;
         return handle;

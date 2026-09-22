@@ -4,7 +4,7 @@
 #include "OloEngine/Scene/Scene.h"
 
 #include <filesystem>
-#include <string>
+#include "OloEngine/Containers/String.h"
 #include <string_view>
 
 namespace OloEngine::SceneTransition
@@ -53,7 +53,7 @@ namespace OloEngine::SceneTransition
         /// `OnRuntimeStop`.
         Ref<Scene> LoadedScene;
         /// Human-readable reason the load failed. Empty on success.
-        std::string Error;
+        FString Error;
 
         [[nodiscard]] explicit operator bool() const
         {

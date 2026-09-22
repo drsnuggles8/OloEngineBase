@@ -80,10 +80,10 @@ namespace OloEngine
         // No G-Buffer (Forward path) or no disoccluded set this frame → nothing
         // to do. Drop any queued phase-2 packets (frame-allocator pointers that
         // go stale next frame) even on the bail-out paths.
-        if (!m_GBuffer || m_Phase2Packets.empty())
+        if (!m_GBuffer || m_Phase2Packets.IsEmpty())
         {
-            m_Phase2Packets.clear();
-            m_Phase2Culls.clear();
+            m_Phase2Packets.Reset();
+            m_Phase2Culls.Reset();
             return;
         }
 
@@ -101,8 +101,8 @@ namespace OloEngine
                                                   : m_GBuffer->GetSamplingFramebuffer();
         if (!targetFB)
         {
-            m_Phase2Packets.clear();
-            m_Phase2Culls.clear();
+            m_Phase2Packets.Reset();
+            m_Phase2Culls.Reset();
             return;
         }
 
@@ -157,7 +157,7 @@ namespace OloEngine
                 Renderer3D::DispatchOcclusionPhase2(cull, currentHZB);
 
             bindGBufferForDraw();
-            (void)CommandBucket::RecordPackets(rendererAPI, m_Phase2Packets);
+            (void)CommandBucket::RecordPackets(rendererAPI, std::span{ m_Phase2Packets.GetData(), static_cast<sizet>(m_Phase2Packets.Num()) });
 
             targetFB->Unbind();
 
@@ -224,16 +224,16 @@ namespace OloEngine
         RenderCommand::BindVertexArrayRaw(RHI::NullResource);
         RenderCommand::BindShaderProgram(RHI::NullResource);
 
-        m_Phase2Packets.clear();
-        m_Phase2Culls.clear();
+        m_Phase2Packets.Reset();
+        m_Phase2Culls.Reset();
     }
 
     void DeferredGPUOcclusionPass::SubmitPhase2(CommandPacket* packet, const GPUFrustumCuller::TwoPhaseCullResult& cull)
     {
         if (!packet)
             return;
-        m_Phase2Packets.push_back(packet);
-        m_Phase2Culls.push_back(cull);
+        m_Phase2Packets.Add(packet);
+        m_Phase2Culls.Add(cull);
     }
 
     Ref<Framebuffer> DeferredGPUOcclusionPass::GetTarget() const
@@ -249,7 +249,7 @@ namespace OloEngine
     {
         // Drop any queued phase-2 packets so a graph reset / asset reload leaves
         // no dangling frame-allocator pointers.
-        m_Phase2Packets.clear();
-        m_Phase2Culls.clear();
+        m_Phase2Packets.Reset();
+        m_Phase2Culls.Reset();
     }
 } // namespace OloEngine

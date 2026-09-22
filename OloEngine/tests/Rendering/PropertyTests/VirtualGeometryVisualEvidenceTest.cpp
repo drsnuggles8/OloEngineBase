@@ -837,8 +837,8 @@ namespace OloEngine::Tests
             ASSERT_TRUE(geometryHandle.IsValid()) << "part " << partIndex << ": no GPU Scene geometry record";
             const GPUSceneGeometry* geometry = gpuScene.GetGeometryRecord(geometryHandle);
             ASSERT_NE(geometry, nullptr);
-            EXPECT_EQ(geometry->IndexCount, static_cast<u32>(entry.Proxy.Indices.size()));
-            EXPECT_EQ(geometry->VertexCount, static_cast<u32>(entry.Proxy.Vertices.size()));
+            EXPECT_EQ(geometry->IndexCount, static_cast<u32>(static_cast<sizet>(entry.Proxy.Indices.Num())));
+            EXPECT_EQ(geometry->VertexCount, static_cast<u32>(static_cast<sizet>(entry.Proxy.Vertices.Num())));
             EXPECT_EQ(geometry->FirstIndex, 0u) << "a proxy covers its whole dedicated buffer pair";
 
             const GPUSceneInstanceKey instanceKey{

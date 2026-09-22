@@ -75,11 +75,12 @@ namespace OloEngine
             ImVec2 Position;
             UUID PinID;
             UUID NodeID;
-            std::string Name;
+            FString Name;
             ShaderGraphPinType Type;
             bool IsOutput;
         };
-        std::vector<PinInfo> GetNodePins(const ShaderGraphNode& node, const ImVec2& nodeScreenPos) const;
+        friend struct TIsTriviallyRelocatable<PinInfo>;
+        TArray<PinInfo> GetNodePins(const ShaderGraphNode& node, const ImVec2& nodeScreenPos) const;
 
         enum class PinDirectionFilter
         {
@@ -133,7 +134,7 @@ namespace OloEngine
         void PerformPendingLoad();
 
         // Node operations
-        UUID CreateNode(const std::string& typeName, const glm::vec2& position);
+        UUID CreateNode(const FString& typeName, const glm::vec2& position);
         void DeleteNode(UUID nodeID);
         void DeleteLink(UUID linkID);
 
@@ -201,19 +202,19 @@ namespace OloEngine
         ShaderGraphCommandHistory m_CommandHistory;
 
         // Pending edit tracking for deferred undo commands (ImGui interactive widgets)
-        std::string m_PendingStringOldValue;
+        FString m_PendingStringOldValue;
         glm::ivec3 m_PendingWorkgroupOldValue{};
         int m_PendingBufferBindingOldValue = 0;
         ShaderGraphPinValue m_PendingPinOldValue;
 
         // Copy/Paste
-        std::string m_CopiedNodeTypeName;
-        std::string m_CopiedParameterName;
-        std::string m_CopiedCustomFunctionBody;
+        FString m_CopiedNodeTypeName;
+        FString m_CopiedParameterName;
+        FString m_CopiedCustomFunctionBody;
         glm::ivec3 m_CopiedWorkgroupSize{ 16, 16, 1 };
         int m_CopiedBufferBinding = 0;
-        std::vector<ShaderGraphPin> m_CopiedInputs;
-        std::vector<ShaderGraphPin> m_CopiedOutputs;
+        TArray<ShaderGraphPin> m_CopiedInputs;
+        TArray<ShaderGraphPin> m_CopiedOutputs;
         bool m_HasCopiedNode = false;
 
         // Layout constants
@@ -228,6 +229,18 @@ namespace OloEngine
         static constexpr f32 s_PinHitRadiusMin = 9.0f;
         /// Screen pixels from a wire that still counts as clicking it.
         static constexpr f32 s_WireHitDistance = 8.0f;
+    };
+
+    template<>
+    struct TIsTriviallyRelocatable<ShaderGraphEditorPanel::PinInfo>
+    {
+        using Pin = ShaderGraphEditorPanel::PinInfo;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Pin::Position)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Pin::PinID)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Pin::NodeID)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Pin::Name)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Pin::Type)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Pin::IsOutput)>;
     };
 
 } // namespace OloEngine

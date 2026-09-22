@@ -90,9 +90,9 @@ namespace OloEngine::Tests
         /// A cone height field, normalised [0, 1], flat at 0 outside the island
         /// radius so the tile border is sea floor exactly like Drift's
         /// island-falloff mask leaves it.
-        [[nodiscard]] std::vector<f32> MakeConeHeights()
+        [[nodiscard]] TArray<f32> MakeConeHeights()
         {
-            std::vector<f32> heights(static_cast<sizet>(kTileRes) * kTileRes, 0.0f);
+            TArray<f32> heights(static_cast<sizet>(kTileRes) * kTileRes, 0.0f);
             for (u32 z = 0; z < kTileRes; ++z)
             {
                 for (u32 x = 0; x < kTileRes; ++x)

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <span>
+
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 
@@ -70,7 +72,7 @@ namespace OloEngine
         std::vector<Ref<AnimationClip>> LoadAnimationsFromCache(const std::filesystem::path& sourcePath);
 
         // Save AnimationClips to cache after import.
-        bool SaveAnimationsToCache(const std::filesystem::path& sourcePath, const std::vector<Ref<AnimationClip>>& clips);
+        bool SaveAnimationsToCache(const std::filesystem::path& sourcePath, std::span<const Ref<AnimationClip>> clips);
 
         // Delete all cached files — mesh, animation and cooked embedded textures
         // (e.g. for the "clear cache" editor action).

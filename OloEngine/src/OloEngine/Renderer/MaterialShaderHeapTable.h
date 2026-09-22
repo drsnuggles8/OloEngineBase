@@ -1,12 +1,12 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Containers/Array.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 
 #include <glm/glm.hpp>
 #include <cstddef>
-#include <vector>
 
 namespace OloEngine
 {
@@ -48,7 +48,7 @@ namespace OloEngine
 
       private:
         Ref<StorageBuffer> m_Buffer;
-        std::vector<MaterialShaderHeapRecord> m_Uploaded;
+        TArray<MaterialShaderHeapRecord> m_Uploaded;
         u32 m_Unresolved = 0u;
     };
 } // namespace OloEngine

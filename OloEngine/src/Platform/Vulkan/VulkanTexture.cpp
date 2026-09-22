@@ -132,9 +132,9 @@ namespace OloEngine
             return format == ImageFormat::RGBA16F || format == ImageFormat::RG16F;
         }
 
-        [[nodiscard]] std::vector<u16> PackF32ClientToHalf(const void* data, u64 floatCount)
+        [[nodiscard]] TArray64<u16> PackF32ClientToHalf(const void* data, u64 floatCount)
         {
-            std::vector<u16> halves(floatCount);
+            TArray64<u16> halves(floatCount);
             const auto* src = static_cast<const f32*>(data);
             for (u64 i = 0; i < floatCount; ++i)
             {
@@ -461,14 +461,14 @@ namespace OloEngine
         if (IsCompressedFormat(m_Specification.Format))
             return false;
 
-        if (m_Path.empty())
+        if (m_Path.IsEmpty())
             return false;
 
         // m_Path is the texture's *identity*, not necessarily something this
         // process can open — the asset system stores a project-relative
         // spelling. The shared helper resolves it (and logs if it can't); see
         // its comment for #1067.
-        const std::filesystem::path readPath = ResolveStoredSourcePath(m_Path);
+        const std::filesystem::path readPath = ResolveStoredSourcePath(m_Path.ToView());
         if (readPath.empty())
             return false;
 
@@ -489,7 +489,7 @@ namespace OloEngine
 
         if (data == nullptr)
         {
-            OLO_CORE_ERROR("VulkanTexture2D::Reload: failed to re-read texture '{}' (from '{}')", m_Path,
+            OLO_CORE_ERROR("VulkanTexture2D::Reload: failed to re-read texture '{}' (from '{}')", m_Path.ToView(),
                            readPathString);
             return false;
         }
@@ -498,7 +498,7 @@ namespace OloEngine
         // and creates + uploads a new one onto this SAME object; m_RHIHandle
         // is rebound, not re-minted, so every consumer's Ref and every cached
         // handle stay valid.
-        Invalidate(m_Path, static_cast<u32>(width), static_cast<u32>(height), data, static_cast<u32>(channels));
+        Invalidate(m_Path.ToView(), static_cast<u32>(width), static_cast<u32>(height), data, static_cast<u32>(channels));
 
         ::stbi_image_free(data);
         return m_IsLoaded;
@@ -712,12 +712,12 @@ namespace OloEngine
         // format — expand CPU-side when so.
         const void* uploadData = data;
         u64 uploadSize = sizeBytes;
-        std::vector<u8> expanded;
+        TArray64<u8> expanded;
         if (m_Specification.Format == ImageFormat::RGB8 || m_Specification.Format == ImageFormat::RGB32F)
         {
             expanded = VulkanUpload::ExpandRgbToRgba(m_Specification.Format, data, static_cast<u64>(m_Width) * m_Height);
-            uploadData = expanded.data();
-            uploadSize = expanded.size();
+            uploadData = expanded.GetData();
+            uploadSize = expanded.Num();
         }
 
         const bool generateMips = m_MipLevels > 1u;
@@ -877,8 +877,8 @@ namespace OloEngine
 
         if (f32Client)
         {
-            const std::vector<u16> halves = PackF32ClientToHalf(data, expected / sizeof(f32));
-            m_IsLoaded = UploadPixels(halves.data(), halves.size() * sizeof(u16)) || m_IsLoaded;
+            const TArray64<u16> halves = PackF32ClientToHalf(data, expected / sizeof(f32));
+            m_IsLoaded = UploadPixels(halves.GetData(), halves.Num() * sizeof(u16)) || m_IsLoaded;
             return;
         }
         m_IsLoaded = UploadPixels(data, size) || m_IsLoaded;
@@ -964,12 +964,12 @@ namespace OloEngine
             OLO_CORE_ERROR("VulkanTexture2D::SubImage: got {} bytes, region needs {}", dataSize, expected);
             return;
         }
-        std::vector<u16> halfPayload;
+        TArray64<u16> halfPayload;
         if (f32Client)
         {
             halfPayload = PackF32ClientToHalf(data, expected / sizeof(f32));
-            data = halfPayload.data();
-            dataSize = static_cast<u32>(halfPayload.size() * sizeof(u16));
+            data = halfPayload.GetData();
+            dataSize = static_cast<u32>(halfPayload.Num() * sizeof(u16));
         }
 
         // Mid-frame (#691): a region flush between two GPU uses (the
@@ -989,7 +989,7 @@ namespace OloEngine
             // format matched neither the image nor any conversion pair
             // downstream, so the mid-frame region upload silently dropped
             // (review finding, #691).
-            std::vector<u8> widened;
+            TArray64<u8> widened;
             const void* stagedData = data;
             const RHI::Format clientFormat = [&]
             {
@@ -999,7 +999,7 @@ namespace OloEngine
                         return RHI::Format::R8UNorm;
                     case ImageFormat::RGB8:
                         widened = VulkanUpload::ExpandRgbToRgba(m_Specification.Format, data, static_cast<u64>(width) * height);
-                        stagedData = widened.data();
+                        stagedData = widened.GetData();
                         return RHI::Format::RGBA8UNorm;
                     case ImageFormat::RGBA8:
                         return RHI::Format::RGBA8UNorm;
@@ -1009,7 +1009,7 @@ namespace OloEngine
                         return RHI::Format::RG32Float;
                     case ImageFormat::RGB32F:
                         widened = VulkanUpload::ExpandRgbToRgba(m_Specification.Format, data, static_cast<u64>(width) * height);
-                        stagedData = widened.data();
+                        stagedData = widened.GetData();
                         return RHI::Format::RGBA32Float;
                     case ImageFormat::RGBA32F:
                         return RHI::Format::RGBA32Float;
@@ -1042,12 +1042,12 @@ namespace OloEngine
         const u64 nativeExpected = static_cast<u64>(width) * height * nativeBpp;
         const void* uploadData = data;
         u64 uploadSize = nativeExpected;
-        std::vector<u8> expanded;
+        TArray64<u8> expanded;
         if (m_Specification.Format == ImageFormat::RGB8 || m_Specification.Format == ImageFormat::RGB32F)
         {
             expanded = VulkanUpload::ExpandRgbToRgba(m_Specification.Format, data, static_cast<u64>(width) * height);
-            uploadData = expanded.data();
-            uploadSize = expanded.size();
+            uploadData = expanded.GetData();
+            uploadSize = expanded.Num();
         }
 
         VkBufferCreateInfo stagingInfo{};
@@ -1151,7 +1151,7 @@ namespace OloEngine
 
         ReleaseImage();
 
-        m_Path = std::string(path);
+        m_Path = path;
         m_Width = width;
         m_Height = height;
         m_Specification.Width = width;
@@ -1180,11 +1180,11 @@ namespace OloEngine
         RenderCommand::GetRendererAPI().BindTexture(slot, m_RHIHandle.Get());
     }
 
-    bool VulkanTexture2D::GetData(std::vector<u8>& outData, u32 mipLevel) const
+    bool VulkanTexture2D::GetData(TArray64<u8>& outData, u32 mipLevel) const
     {
         OLO_PROFILE_FUNCTION();
 
-        outData.clear();
+        outData.Reset();
         auto* device = VulkanDevice::Get();
         if (device == nullptr || m_Image == VK_NULL_HANDLE || mipLevel >= m_MipLevels)
         {
@@ -1300,8 +1300,8 @@ namespace OloEngine
                 VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VulkanDevice::Get()->GetSampledImageLayout());
             }
             vmaInvalidateAllocation(device->GetAllocator(), readbackAllocation, 0, sizeBytes);
-            outData.resize(sizeBytes);
-            std::memcpy(outData.data(), readbackOut.pMappedData, sizeBytes);
+            outData.SetNum(sizeBytes, EAllowShrinking::No);
+            std::memcpy(outData.GetData(), readbackOut.pMappedData, sizeBytes);
         }
         vmaDestroyBuffer(device->GetAllocator(), readback, readbackAllocation);
         return ok;

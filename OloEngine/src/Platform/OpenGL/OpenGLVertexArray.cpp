@@ -79,7 +79,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        OLO_CORE_ASSERT(vertexBuffer->GetLayout().GetElements().size(), "Vertex Buffer has no layout!");
+        OLO_CORE_ASSERT(vertexBuffer->GetLayout().GetElements().Num(), "Vertex Buffer has no layout!");
 
         glBindVertexArray(m_RendererID);
         vertexBuffer->Bind();
@@ -132,7 +132,7 @@ namespace OloEngine
             }
         }
 
-        m_VertexBuffers.push_back(vertexBuffer);
+        m_VertexBuffers.Add(vertexBuffer);
     }
 
     void OpenGLVertexArray::AddVertexBuffer(const Ref<VertexBuffer>& vertexBuffer)
@@ -153,7 +153,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        OLO_CORE_ASSERT(vertexBuffer->GetLayout().GetElements().size(), "Vertex Buffer has no layout!");
+        OLO_CORE_ASSERT(vertexBuffer->GetLayout().GetElements().Num(), "Vertex Buffer has no layout!");
 
         glBindVertexArray(m_RendererID);
         vertexBuffer->Bind();
@@ -201,7 +201,7 @@ namespace OloEngine
             }
         }
 
-        m_VertexBuffers.push_back(vertexBuffer);
+        m_VertexBuffers.Add(vertexBuffer);
     }
 
     void OpenGLVertexArray::SetIndexBuffer(const Ref<IndexBuffer>& indexBuffer)

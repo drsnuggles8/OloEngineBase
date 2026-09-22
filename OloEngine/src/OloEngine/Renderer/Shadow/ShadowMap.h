@@ -1,5 +1,7 @@
 #pragma once
 
+#include "OloEngine/Containers/Array.h"
+
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Core/Ref.h"
@@ -165,13 +167,14 @@ namespace OloEngine
         // Replace this frame's candidate record (Scene calls it once, after the
         // allocation). Kept separate from SetAtlasEntry so the hot upload path is
         // untouched — this is diagnostics-only state.
-        void SetAtlasLayout(std::vector<AtlasCasterRecord> layout)
+        void SetAtlasLayout(std::span<const AtlasCasterRecord> layout)
         {
-            m_AtlasLayout = std::move(layout);
+            m_AtlasLayout.Reset();
+            m_AtlasLayout.Append(layout.data(), static_cast<i64>(layout.size()));
         }
-        [[nodiscard]] const std::vector<AtlasCasterRecord>& GetAtlasLayout() const
+        [[nodiscard]] std::span<const AtlasCasterRecord> GetAtlasLayout() const
         {
-            return m_AtlasLayout;
+            return { m_AtlasLayout.GetData(), static_cast<sizet>(m_AtlasLayout.Num()) };
         }
 
         // Rank + pack this frame's shadow candidates into the atlas (issue
@@ -463,7 +466,7 @@ namespace OloEngine
 
         // Diagnostics-only candidate list for the current frame (see
         // AtlasCasterRecord). Never read by the render path.
-        std::vector<AtlasCasterRecord> m_AtlasLayout;
+        TArray64<AtlasCasterRecord> m_AtlasLayout;
 
         // Persistent tile allocator (issue #718) backing AllocateAtlasTiles().
         // Rebuilt (dropping every held tile) by Init() whenever AtlasResolution

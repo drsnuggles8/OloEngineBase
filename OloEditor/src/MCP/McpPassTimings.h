@@ -195,10 +195,11 @@ namespace OloEngine::MCP::PassTimings
         // a sub-pass whose parent is in the list is inside that bracket and
         // excluded, an orphan counts, an unmeasured pass makes the total a
         // LOWER BOUND and is counted. One rule, one place (#1337).
-        std::vector<GPUPassTimerPool::PassTiming> forTotal;
-        forTotal.reserve(gpuPasses.size());
+        TArray<GPUPassTimerPool::PassTiming> forTotal;
+        forTotal.Reserve(static_cast<i32>(gpuPasses.size()));
         for (const auto& gpuPass : gpuPasses)
-            forTotal.push_back({ gpuPass.Name, gpuPass.Sample, gpuPass.IsSubPass, gpuPass.ParentName });
+            forTotal.Add(GPUPassTimerPool::PassTiming{ FString(gpuPass.Name), gpuPass.Sample, gpuPass.IsSubPass,
+                                                       FString(gpuPass.ParentName) });
         const GPUPassTimerPool::PassTotal total = GPUPassTimerPool::SumTopLevel(forTotal);
         const f64 passGpuTotal = total.GpuMs;
         const u32 unmeasuredPasses = total.UnmeasuredPasses;

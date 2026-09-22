@@ -41,22 +41,22 @@ namespace OloEngine::PathTracing
             if (width == 0 || height == 0)
                 return false;
 
-            std::vector<u8> bytes;
+            TArray64<u8> bytes;
             if (!texture->GetData(bytes, 0))
                 return false;
 
             const sizet texelCount = static_cast<sizet>(width) * height;
             if (spec.Format == ImageFormat::RGBA8)
             {
-                if (bytes.size() < texelCount * 4u)
+                if (bytes.Num() < texelCount * 4u)
                     return false;
-                out = ReferenceTexture::FromRgba8(width, height, std::span<const u8>(bytes), spec.SRGB);
+                out = ReferenceTexture::FromRgba8(width, height, std::span<const u8>(bytes.GetData(), static_cast<sizet>(bytes.Num())), spec.SRGB);
             }
             else if (spec.Format == ImageFormat::RGB8)
             {
-                if (bytes.size() < texelCount * 3u)
+                if (bytes.Num() < texelCount * 3u)
                     return false;
-                std::vector<u8> rgba(texelCount * 4u);
+                TArray64<u8> rgba(texelCount * 4u);
                 for (sizet i = 0; i < texelCount; ++i)
                 {
                     rgba[i * 4 + 0] = bytes[i * 3 + 0];
@@ -64,7 +64,7 @@ namespace OloEngine::PathTracing
                     rgba[i * 4 + 2] = bytes[i * 3 + 2];
                     rgba[i * 4 + 3] = 255;
                 }
-                out = ReferenceTexture::FromRgba8(width, height, std::span<const u8>(rgba), spec.SRGB);
+                out = ReferenceTexture::FromRgba8(width, height, std::span<const u8>(rgba.GetData(), static_cast<sizet>(rgba.Num())), spec.SRGB);
             }
             else
             {
@@ -192,7 +192,7 @@ namespace OloEngine::PathTracing
             return nullptr;
         }
 
-        std::vector<u8> bytes;
+        TArray64<u8> bytes;
         if (!cubemap->GetData(bytes, 0))
         {
             OLO_CORE_WARN("CaptureEnvironmentCubemap: the backend could not read back a {}x{} sky cubemap "
@@ -220,31 +220,31 @@ namespace OloEngine::PathTracing
         // the earlier draft sized the buffer at 16 bytes/texel, found 8, and
         // returned null with no message, which is a sky that silently is not
         // there. Both branches below therefore end in a NAMED failure.
-        std::vector<f32> rgba;
+        TArray64<f32> rgba;
         if (spec.Format == ImageFormat::RGBA32F)
         {
-            if (bytes.size() < totalTexels * 4u * sizeof(f32))
+            if (bytes.Num() < totalTexels * 4u * sizeof(f32))
             {
                 OLO_CORE_WARN("CaptureEnvironmentCubemap: RGBA32F readback returned {} bytes, needed {} — "
                               "tracing with no sky",
-                              bytes.size(), totalTexels * 4u * sizeof(f32));
+                              bytes.Num(), totalTexels * 4u * sizeof(f32));
                 return nullptr;
             }
-            rgba.resize(totalTexels * 4u);
-            std::memcpy(rgba.data(), bytes.data(), rgba.size() * sizeof(f32));
+            rgba.SetNum(totalTexels * 4u, EAllowShrinking::No);
+            std::memcpy(rgba.GetData(), bytes.GetData(), rgba.Num() * sizeof(f32));
         }
         else if (spec.Format == ImageFormat::RGBA16F)
         {
-            if (bytes.size() < totalTexels * 4u * sizeof(u16))
+            if (bytes.Num() < totalTexels * 4u * sizeof(u16))
             {
                 OLO_CORE_WARN("CaptureEnvironmentCubemap: RGBA16F readback returned {} bytes, needed {} — "
                               "tracing with no sky",
-                              bytes.size(), totalTexels * 4u * sizeof(u16));
+                              bytes.Num(), totalTexels * 4u * sizeof(u16));
                 return nullptr;
             }
-            rgba.resize(totalTexels * 4u);
-            const u16* halves = reinterpret_cast<const u16*>(bytes.data());
-            for (sizet i = 0; i < rgba.size(); ++i)
+            rgba.SetNum(totalTexels * 4u, EAllowShrinking::No);
+            const u16* halves = reinterpret_cast<const u16*>(bytes.GetData());
+            for (sizet i = 0; i < rgba.Num(); ++i)
             {
                 rgba[i] = glm::unpackHalf1x16(halves[i]);
             }
@@ -260,9 +260,9 @@ namespace OloEngine::PathTracing
             // darker in the bake than on screen, which is a convention
             // divergence dressed up as a transport result.
             const sizet channels = spec.Format == ImageFormat::RGBA8 ? 4u : 3u;
-            if (bytes.size() < totalTexels * channels)
+            if (bytes.Num() < totalTexels * channels)
                 return nullptr;
-            rgba.resize(totalTexels * 4u);
+            rgba.SetNum(totalTexels * 4u, EAllowShrinking::No);
             for (sizet i = 0; i < totalTexels; ++i)
             {
                 rgba[i * 4 + 0] = static_cast<f32>(bytes[i * channels + 0]) / 255.0f;
@@ -279,7 +279,7 @@ namespace OloEngine::PathTracing
         }
 
         auto cube = std::make_shared<const ReferenceEnvironmentCubemap>(
-            ReferenceEnvironmentCubemap::FromFacesRgba32F(faceSize, std::span<const f32>(rgba)));
+            ReferenceEnvironmentCubemap::FromFacesRgba32F(faceSize, std::span<const f32>(rgba.GetData(), static_cast<sizet>(rgba.Num()))));
         if (!cube->IsValid())
             return nullptr;
         return cube;

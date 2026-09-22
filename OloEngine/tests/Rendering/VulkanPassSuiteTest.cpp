@@ -212,8 +212,8 @@ namespace
     // to assert against a uniform field).
     Ref<Texture2D> MakeSolidTexture(u32 size, u8 r, u8 g, u8 b, u8 a)
     {
-        std::vector<u8> pixels(static_cast<sizet>(size) * size * 4);
-        for (sizet i = 0; i < pixels.size(); i += 4)
+        TArray64<u8> pixels(static_cast<sizet>(size) * size * 4);
+        for (sizet i = 0; i < pixels.Num(); i += 4)
         {
             pixels[i + 0] = r;
             pixels[i + 1] = g;
@@ -227,7 +227,7 @@ namespace
         spec.GenerateMips = false;
         auto texture = Texture2D::Create(spec);
         if (texture)
-            texture->SetData(pixels.data(), static_cast<u32>(pixels.size()));
+            texture->SetData(pixels.GetData(), static_cast<u32>(pixels.Num()));
         return texture;
     }
 
@@ -236,7 +236,7 @@ namespace
     // radial effect like chromatic aberration is zero AT the centre).
     Ref<Texture2D> MakeVerticalEdgeTexture(u32 size, u32 edgeX)
     {
-        std::vector<u8> pixels(static_cast<sizet>(size) * size * 4);
+        TArray64<u8> pixels(static_cast<sizet>(size) * size * 4);
         for (u32 y = 0; y < size; ++y)
         {
             for (u32 x = 0; x < size; ++x)
@@ -256,7 +256,7 @@ namespace
         spec.GenerateMips = false;
         auto texture = Texture2D::Create(spec);
         if (texture)
-            texture->SetData(pixels.data(), static_cast<u32>(pixels.size()));
+            texture->SetData(pixels.GetData(), static_cast<u32>(pixels.Num()));
         return texture;
     }
 
@@ -269,7 +269,7 @@ namespace
                                               const std::array<u8, 4>& low,
                                               const std::array<u8, 4>& high)
     {
-        std::vector<u8> pixels(static_cast<sizet>(size) * size * 4);
+        TArray64<u8> pixels(static_cast<sizet>(size) * size * 4);
         for (u32 y = 0; y < size; ++y)
         {
             const auto& rgba = y < splitY ? low : high;
@@ -289,7 +289,7 @@ namespace
         spec.GenerateMips = false;
         auto texture = Texture2D::Create(spec);
         if (texture)
-            texture->SetData(pixels.data(), static_cast<u32>(pixels.size()));
+            texture->SetData(pixels.GetData(), static_cast<u32>(pixels.Num()));
         return texture;
     }
 
@@ -659,15 +659,15 @@ class VulkanPassSuite : public ::testing::Test
     // it temporally and composites it inside one Execute (SSR and SSGI since
     // issue #902) is 4. The number is asserted rather than ignored on purpose —
     // a silently dropped draw is exactly what this harness exists to catch.
-    std::vector<u8> RunSinglePassChain(u32 size,
-                                       const Ref<PatternProducerPass>& producer,
-                                       const Ref<RenderGraphNode>& passNode,
-                                       const char* finalPassName,
-                                       std::string_view outputResourceName,
-                                       const std::function<void(FrameBlackboard&, RGFramebufferHandle)>& assignOutput,
-                                       u32 expectedDraws = 2u)
+    TArray64<u8> RunSinglePassChain(u32 size,
+                                    const Ref<PatternProducerPass>& producer,
+                                    const Ref<RenderGraphNode>& passNode,
+                                    const char* finalPassName,
+                                    std::string_view outputResourceName,
+                                    const std::function<void(FrameBlackboard&, RGFramebufferHandle)>& assignOutput,
+                                    u32 expectedDraws = 2u)
     {
-        std::vector<u8> rendered;
+        TArray64<u8> rendered;
 
         RenderGraph graph;
         // Pool materialization is opt-in; production enables it in
@@ -735,8 +735,8 @@ class VulkanPassSuite : public ::testing::Test
         EXPECT_TRUE(passNode->GetTarget()) << finalPassName << ": the pass early-returned (input/output/shader guard)";
         for (const auto& failure : graph.GetResolveFailures())
         {
-            ADD_FAILURE() << finalPassName << ": resolve failure pass='" << failure.PassName << "' reason='"
-                          << failure.Reason << "' x" << failure.Count;
+            ADD_FAILURE() << finalPassName << ": resolve failure pass='" << failure.PassName.ToView() << "' reason='"
+                          << failure.Reason.ToView() << "' x" << failure.Count;
         }
         {
             auto& vkApi = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
@@ -825,9 +825,9 @@ class VulkanPassSuite : public ::testing::Test
         return harness;
     }
 
-    std::vector<u8> DrawLightmapSample(u32 size, Ref<Shader>& shader,
-                                       Ref<Framebuffer>& output,
-                                       const std::function<void()>& publishInput)
+    TArray64<u8> DrawLightmapSample(u32 size, Ref<Shader>& shader,
+                                    Ref<Framebuffer>& output,
+                                    const std::function<void()>& publishInput)
     {
         SubmitFrame(
             [&]()
@@ -858,7 +858,7 @@ class VulkanPassSuite : public ::testing::Test
         EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 1u);
         EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
 
-        std::vector<u8> rendered;
+        TArray64<u8> rendered;
         auto* vkOutput = static_cast<VulkanFramebuffer*>(output.Raw());
         if (vkOutput->GetColorAttachmentImage(0) == nullptr ||
             !vkOutput->GetColorAttachmentImage(0)->GetData(rendered, 0))
@@ -942,7 +942,7 @@ TEST_F(VulkanPassSuite, PagedRgba16fLightmapSamplesEveryLayerThroughSlot16)
                 RHI::HeapSlotLifetime::Persistent, {}, RHI::NullSamplerKind::Texture2DArray);
             EXPECT_TRUE(offset.IsValid());
         });
-    ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(rendered.Num(), static_cast<sizet>(kSize) * kSize * 4);
     const auto pixel = [&](u32 x, u32 y)
     {
         const auto i = (static_cast<sizet>(y) * kSize + x) * 4;
@@ -983,7 +983,7 @@ TEST_F(VulkanPassSuite, Rgba16fLightmapTypedArrayNullFallbackIsTransparentBlack)
             EXPECT_EQ(HeapBinding::StagedOffsetAt(ShaderBindingLayout::TEX_LIGHTMAP).Value,
                       RHI::NullOffsetForSamplerKind(RHI::NullSamplerKind::Texture2DArray));
         });
-    ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(rendered.Num(), static_cast<sizet>(kSize) * kSize * 4);
     const auto i = (static_cast<sizet>(16) * kSize + 16) * 4;
     EXPECT_EQ((std::array<u8, 4>{ rendered[i], rendered[i + 1], rendered[i + 2], rendered[i + 3] }),
               (std::array<u8, 4>{ 0, 0, 0, 0 }));
@@ -996,8 +996,8 @@ TEST_F(VulkanPassSuite, FxaaPassMatchesTheGoldenThroughTheRenderGraph)
 
     // --- preloaded content ---------------------------------------------------
     const std::vector<f32> pattern = MakeHardEdgePattern(kSize);
-    std::vector<u8> patternRgba8(static_cast<sizet>(kSize) * kSize * 4);
-    for (sizet i = 0; i < patternRgba8.size(); ++i)
+    TArray64<u8> patternRgba8(static_cast<sizet>(kSize) * kSize * 4);
+    for (sizet i = 0; i < patternRgba8.Num(); ++i)
     {
         patternRgba8[i] = static_cast<u8>(std::lround(std::clamp(pattern[i], 0.0f, 1.0f) * 255.0f));
     }
@@ -1008,7 +1008,7 @@ TEST_F(VulkanPassSuite, FxaaPassMatchesTheGoldenThroughTheRenderGraph)
     patternSpec.GenerateMips = false;
     auto patternTexture = Texture2D::Create(patternSpec);
     ASSERT_NE(patternTexture, nullptr);
-    patternTexture->SetData(patternRgba8.data(), static_cast<u32>(patternRgba8.size()));
+    patternTexture->SetData(patternRgba8.GetData(), static_cast<u32>(patternRgba8.Num()));
 
     auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
     ASSERT_TRUE(blitShader);
@@ -1094,9 +1094,9 @@ TEST_F(VulkanPassSuite, FxaaPassMatchesTheGoldenThroughTheRenderGraph)
     {
         for (const auto& entry : graph.GetTransientPlan())
         {
-            std::cout << "[plan] " << entry.Resource << " willAlloc=" << entry.WillAllocate << " skip='"
-                      << entry.SkipReason << "' reachable=" << entry.Reachable << " first='" << entry.FirstPass
-                      << "' last='" << entry.LastPass << "'\n";
+            std::cout << "[plan] " << entry.Resource.ToView() << " willAlloc=" << entry.WillAllocate << " skip='"
+                      << entry.SkipReason.ToView() << "' reachable=" << entry.Reachable << " first='" << entry.FirstPass.ToView()
+                      << "' last='" << entry.LastPass.ToView() << "'\n";
         }
     }
 
@@ -1126,7 +1126,7 @@ TEST_F(VulkanPassSuite, FxaaPassMatchesTheGoldenThroughTheRenderGraph)
     // resolve failure with its reason — any entry is a silent early-return.
     for (const auto& failure : graph.GetResolveFailures())
     {
-        ADD_FAILURE() << "graph resolve failure: pass='" << failure.PassName << "' reason='" << failure.Reason
+        ADD_FAILURE() << "graph resolve failure: pass='" << failure.PassName.ToView() << "' reason='" << failure.Reason.ToView()
                       << "' x" << failure.Count;
     }
     // Draw-count contract: producer + FXAA prepare exactly one draw each and
@@ -1144,9 +1144,9 @@ TEST_F(VulkanPassSuite, FxaaPassMatchesTheGoldenThroughTheRenderGraph)
         auto intermediateFramebuffer = graph.ResolveFramebuffer(blackboard.Post.PostProcessColor);
         ASSERT_TRUE(intermediateFramebuffer) << "pooled canonical PostProcessColor must resolve after Execute";
         auto* vkIntermediate = static_cast<VulkanFramebuffer*>(intermediateFramebuffer.Raw());
-        std::vector<u8> mid;
+        TArray64<u8> mid;
         ASSERT_TRUE(vkIntermediate->GetColorAttachmentImage(0)->GetData(mid, 0));
-        ASSERT_EQ(mid.size(), static_cast<sizet>(kSize) * kSize * 4);
+        ASSERT_EQ(mid.Num(), static_cast<sizet>(kSize) * kSize * 4);
         const sizet whiteIdx = ((static_cast<sizet>(8) * kSize) + 120) * 4;
         const sizet blackIdx = ((static_cast<sizet>(8) * kSize) + 8) * 4;
         EXPECT_GT(static_cast<int>(mid[whiteIdx]), 200)
@@ -1159,9 +1159,9 @@ TEST_F(VulkanPassSuite, FxaaPassMatchesTheGoldenThroughTheRenderGraph)
     // --- golden comparison (the pilot's exact bar) ---------------------------
     auto* vkOutput = static_cast<VulkanFramebuffer*>(outputFramebuffer.Raw());
     ASSERT_NE(vkOutput->GetColorAttachmentImage(0), nullptr);
-    std::vector<u8> rendered;
+    TArray64<u8> rendered;
     ASSERT_TRUE(vkOutput->GetColorAttachmentImage(0)->GetData(rendered, 0));
-    ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(rendered.Num(), static_cast<sizet>(kSize) * kSize * 4);
 
     int goldenW = 0;
     int goldenH = 0;
@@ -1172,19 +1172,19 @@ TEST_F(VulkanPassSuite, FxaaPassMatchesTheGoldenThroughTheRenderGraph)
     ASSERT_EQ(goldenH, static_cast<int>(kSize));
 
     f64 sumSquares = 0.0;
-    for (sizet i = 0; i < rendered.size(); ++i)
+    for (sizet i = 0; i < rendered.Num(); ++i)
     {
         const f64 diff = (static_cast<f64>(rendered[i]) - static_cast<f64>(golden[i])) / 255.0;
         sumSquares += diff * diff;
     }
     stbi_image_free(golden);
-    const f64 rmse = std::sqrt(sumSquares / static_cast<f64>(rendered.size()));
+    const f64 rmse = std::sqrt(sumSquares / static_cast<f64>(rendered.Num()));
     if (rmse >= 0.02)
     {
         // Diagnosis aid: dump what actually rendered so the failure can be
         // LOOKED at (the repo's visual-verification rule), plus probe pixels.
         stbi_write_png("assets/tests/visual/vulkan_pass_suite_fxaa_FAILED.png", static_cast<int>(kSize),
-                       static_cast<int>(kSize), 4, rendered.data(), static_cast<int>(kSize) * 4);
+                       static_cast<int>(kSize), 4, rendered.GetData(), static_cast<int>(kSize) * 4);
         const auto px = [&](u32 x, u32 y)
         {
             const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
@@ -1246,7 +1246,7 @@ TEST_F(VulkanPassSuite, VignettePassDarkensCornersThroughTheRenderGraph)
                                              ResourceNames::VignetteColor,
                                              [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
                                              { blackboard.Post.VignetteColor = handle; });
-    ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(rendered.Num(), static_cast<sizet>(kSize) * kSize * 4);
 
     const auto luma = [&](u32 x, u32 y)
     {
@@ -1300,7 +1300,7 @@ TEST_F(VulkanPassSuite, ChromaticAberrationSplitsChannelsAcrossAnOffCentreEdge)
                                              ResourceNames::ChromAbColor,
                                              [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
                                              { blackboard.Post.ChromAbColor = handle; });
-    ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(rendered.Num(), static_cast<sizet>(kSize) * kSize * 4);
 
     const auto px = [&](u32 x, u32 y)
     {
@@ -1341,8 +1341,8 @@ TEST_F(VulkanPassSuite, ColorGradingIdentityLutPassesThePatternThrough)
     // is a passthrough, so the hard-edge pattern must survive byte-for-byte
     // (small tolerance for the 256x16 strip's bilinear fetch).
     const std::vector<f32> pattern = MakeHardEdgePattern(kSize);
-    std::vector<u8> patternRgba8(static_cast<sizet>(kSize) * kSize * 4);
-    for (sizet i = 0; i < patternRgba8.size(); ++i)
+    TArray64<u8> patternRgba8(static_cast<sizet>(kSize) * kSize * 4);
+    for (sizet i = 0; i < patternRgba8.Num(); ++i)
         patternRgba8[i] = static_cast<u8>(std::lround(std::clamp(pattern[i], 0.0f, 1.0f) * 255.0f));
     TextureSpecification patternSpec;
     patternSpec.Width = kSize;
@@ -1351,7 +1351,7 @@ TEST_F(VulkanPassSuite, ColorGradingIdentityLutPassesThePatternThrough)
     patternSpec.GenerateMips = false;
     auto patternTexture = Texture2D::Create(patternSpec);
     ASSERT_NE(patternTexture, nullptr);
-    patternTexture->SetData(patternRgba8.data(), static_cast<u32>(patternRgba8.size()));
+    patternTexture->SetData(patternRgba8.GetData(), static_cast<u32>(patternRgba8.Num()));
 
     auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
     ASSERT_TRUE(blitShader);
@@ -1380,10 +1380,10 @@ TEST_F(VulkanPassSuite, ColorGradingIdentityLutPassesThePatternThrough)
                                              ResourceNames::ColorGradingColor,
                                              [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
                                              { blackboard.Post.ColorGradingColor = handle; });
-    ASSERT_EQ(rendered.size(), patternRgba8.size());
+    ASSERT_EQ(rendered.Num(), patternRgba8.Num());
 
     u32 maxDiff = 0;
-    for (sizet i = 0; i < rendered.size(); i += 4)
+    for (sizet i = 0; i < rendered.Num(); i += 4)
     {
         for (sizet c = 0; c < 3; ++c)
         {
@@ -1439,7 +1439,7 @@ TEST_F(VulkanPassSuite, EasuPreservesAConstantFieldAtIdentityScale)
     const auto rendered = RunSinglePassChain(kSize, producer, easu, "EASUPass", ResourceNames::EASUColor,
                                              [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
                                              { blackboard.Post.EASUColor = handle; });
-    ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(rendered.Num(), static_cast<sizet>(kSize) * kSize * 4);
 
     for (const auto& [x, y] :
          { std::pair<u32, u32>{ 8, 8 }, { 120, 8 }, { 64, 64 }, { 8, 120 }, { 120, 120 } })
@@ -1486,7 +1486,7 @@ TEST_F(VulkanPassSuite, DofFocusGatesTheBlurThroughAnImportedDepth)
             graph.ImportTextureHandle(ResourceNames::SceneDepth, depthTexture->GetRHIHandle(), depthDesc);
     };
 
-    const auto runChain = [&](f32 focusDistance) -> std::vector<u8>
+    const auto runChain = [&](f32 focusDistance) -> TArray64<u8>
     {
         PostProcessUBOData uboData{};
         uboData.DOFFocusDistance = focusDistance;
@@ -1516,8 +1516,8 @@ TEST_F(VulkanPassSuite, DofFocusGatesTheBlurThroughAnImportedDepth)
 
     // Focus at the near plane (depth 0 linearises to 0.1): coc 0, passthrough.
     const auto inFocus = runChain(0.1f);
-    ASSERT_EQ(inFocus.size(), static_cast<sizet>(kSize) * kSize * 4);
-    const auto redAt = [kSize](const std::vector<u8>& img, u32 x, u32 y)
+    ASSERT_EQ(inFocus.Num(), static_cast<sizet>(kSize) * kSize * 4);
+    const auto redAt = [kSize](const TArray64<u8>& img, u32 x, u32 y)
     { return static_cast<int>(img[(static_cast<sizet>(y) * kSize + x) * 4]); };
     EXPECT_LE(redAt(inFocus, 94, 64), 5) << "in focus: the black side must stay black";
     EXPECT_GE(redAt(inFocus, 98, 64), 250) << "in focus: the white side must stay white";
@@ -1526,7 +1526,7 @@ TEST_F(VulkanPassSuite, DofFocusGatesTheBlurThroughAnImportedDepth)
     // sides of the edge — the pixel two texels into the white side reads a
     // blend, not pure white.
     const auto outOfFocus = runChain(50.0f);
-    ASSERT_EQ(outOfFocus.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(outOfFocus.Num(), static_cast<sizet>(kSize) * kSize * 4);
     const int blurred = redAt(outOfFocus, 98, 64);
     EXPECT_GT(blurred, 30) << "out of focus: not black — the disc still covers white texels";
     EXPECT_LT(blurred, 225) << "out of focus: the hard edge must have softened";
@@ -1577,7 +1577,7 @@ TEST_F(VulkanPassSuite, SssBlurSoftensTheEdgeOnlyWhenTheUboFlagEnablesIt)
             ResourceNames::SceneDepthAttachment, depthTexture->GetRHIHandle(), depthDesc);
     };
 
-    const auto runChain = [&](f32 enabledFlag) -> std::vector<u8>
+    const auto runChain = [&](f32 enabledFlag) -> TArray64<u8>
     {
         SSSUBOData sssData{};
         sssData.BlurParams = glm::vec4(8.0f, 0.0f, static_cast<f32>(kSize), static_cast<f32>(kSize));
@@ -1608,18 +1608,18 @@ TEST_F(VulkanPassSuite, SssBlurSoftensTheEdgeOnlyWhenTheUboFlagEnablesIt)
                                   { blackboard.Post.SSSColor = handle; });
     };
 
-    const auto redAt = [kSize](const std::vector<u8>& img, u32 x, u32 y)
+    const auto redAt = [kSize](const TArray64<u8>& img, u32 x, u32 y)
     { return static_cast<int>(img[(static_cast<sizet>(y) * kSize + x) * 4]); };
 
     const auto disabled = runChain(0.0f);
-    ASSERT_EQ(disabled.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(disabled.Num(), static_cast<sizet>(kSize) * kSize * 4);
     EXPECT_LE(redAt(disabled, 94, 64), 5) << "Flags.x=0: passthrough must keep the black side";
     EXPECT_GE(redAt(disabled, 98, 64), 250) << "Flags.x=0: passthrough must keep the white side";
     EXPECT_EQ(static_cast<int>(disabled[((static_cast<sizet>(64) * kSize + 94) * 4) + 3]), 255)
         << "SSS must reset alpha to 1 (the produce-consume-reset contract)";
 
     const auto enabled = runChain(1.0f);
-    ASSERT_EQ(enabled.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(enabled.Num(), static_cast<sizet>(kSize) * kSize * 4);
     const int softened = redAt(enabled, 94, 64);
     EXPECT_GT(softened, 25) << "enabled SSS blur must leak white across the edge (~56 expected)";
     EXPECT_LT(softened, 120) << "the leak must stay a partial mix, not full white";
@@ -1680,7 +1680,7 @@ TEST_F(VulkanPassSuite, AoApplyModulatesSceneColorByTheAoBuffer)
             graph.ImportTextureHandle(ResourceNames::SceneDepth, depthTexture->GetRHIHandle(), auxDesc);
     };
 
-    const auto runChain = [&](const Ref<Texture2D>& aoTexture) -> std::vector<u8>
+    const auto runChain = [&](const Ref<Texture2D>& aoTexture) -> TArray64<u8>
     {
         currentAO = aoTexture;
 
@@ -1705,11 +1705,11 @@ TEST_F(VulkanPassSuite, AoApplyModulatesSceneColorByTheAoBuffer)
                                   { blackboard.Post.AOApplyColor = handle; });
     };
 
-    const auto redAt = [kSize](const std::vector<u8>& img, u32 x, u32 y)
+    const auto redAt = [kSize](const TArray64<u8>& img, u32 x, u32 y)
     { return static_cast<int>(img[(static_cast<sizet>(y) * kSize + x) * 4]); };
 
     const auto unoccluded = runChain(aoWhite);
-    ASSERT_EQ(unoccluded.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(unoccluded.Num(), static_cast<sizet>(kSize) * kSize * 4);
     for (const auto& [x, y] : { std::pair<u32, u32>{ 64, 64 }, { 8, 120 } })
     {
         const int v = redAt(unoccluded, x, y);
@@ -1718,7 +1718,7 @@ TEST_F(VulkanPassSuite, AoApplyModulatesSceneColorByTheAoBuffer)
     }
 
     const auto occluded = runChain(aoGray);
-    ASSERT_EQ(occluded.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(occluded.Num(), static_cast<sizet>(kSize) * kSize * 4);
     for (const auto& [x, y] : { std::pair<u32, u32>{ 64, 64 }, { 8, 120 } })
     {
         const int v = redAt(occluded, x, y);
@@ -1777,7 +1777,7 @@ TEST_F(VulkanPassSuite, ContactShadowDarkensTheContactRegionOnlyWithIntensity)
             graph.ImportTextureHandle(ResourceNames::GBufferNormal, normalTexture->GetRHIHandle(), auxDesc);
     };
 
-    const auto runChain = [&](f32 intensity) -> std::vector<u8>
+    const auto runChain = [&](f32 intensity) -> TArray64<u8>
     {
         ContactShadowUBOData csData{};
         csData.Projection = glm::perspectiveRH_NO(glm::radians(90.0f), 1.0f, 0.1f, 100.0f);
@@ -1813,13 +1813,13 @@ TEST_F(VulkanPassSuite, ContactShadowDarkensTheContactRegionOnlyWithIntensity)
                                   { blackboard.Post.ContactShadowColor = handle; });
     };
 
-    const auto redAt = [kSize](const std::vector<u8>& img, u32 x, u32 y)
+    const auto redAt = [kSize](const TArray64<u8>& img, u32 x, u32 y)
     { return static_cast<int>(img[(static_cast<sizet>(y) * kSize + x) * 4]); };
 
     // Intensity 0: the march still finds the occluder, but the shadow factor
     // is 1 everywhere — full passthrough.
     const auto zeroIntensity = runChain(0.0f);
-    ASSERT_EQ(zeroIntensity.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(zeroIntensity.Num(), static_cast<sizet>(kSize) * kSize * 4);
     EXPECT_GE(redAt(zeroIntensity, 64, 58), 120) << "intensity 0 must pass the contact pixel through";
     EXPECT_LE(redAt(zeroIntensity, 64, 58), 136);
     EXPECT_GE(redAt(zeroIntensity, 64, 8), 120) << "intensity 0 must pass the far receiver through";
@@ -1828,7 +1828,7 @@ TEST_F(VulkanPassSuite, ContactShadowDarkensTheContactRegionOnlyWithIntensity)
     // Intensity 1: occlusion ~0.90 -> factor ~0.10 -> the contact pixel
     // drops to ~13, while the far receiver keeps its full lighting.
     const auto fullIntensity = runChain(1.0f);
-    ASSERT_EQ(fullIntensity.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(fullIntensity.Num(), static_cast<sizet>(kSize) * kSize * 4);
     EXPECT_LE(redAt(fullIntensity, 64, 58), 70) << "the contact pixel must darken under the near wall";
     EXPECT_GE(redAt(fullIntensity, 64, 8), 120) << "the far receiver must stay lit (no occluder crossing)";
     EXPECT_LE(redAt(fullIntensity, 64, 8), 136);
@@ -1913,7 +1913,7 @@ TEST_F(VulkanPassSuite, SsgiAddsGatheredBounceLightOnlyWithIntensity)
         blackboard.Scratch.SSGISignal =
             graph.DeclareTransientFramebuffer(ResourceNames::SSGISignal, signalDesc);
         // The pre-blur and post-blur outputs are single-attachment.
-        signalDesc.Attachments.clear();
+        signalDesc.Attachments.Reset();
         signalDesc.DebugName = std::string(ResourceNames::SSGIPreBlurred);
         blackboard.Scratch.SSGIPreBlurred =
             graph.DeclareTransientFramebuffer(ResourceNames::SSGIPreBlurred, signalDesc);
@@ -1940,7 +1940,7 @@ TEST_F(VulkanPassSuite, SsgiAddsGatheredBounceLightOnlyWithIntensity)
             graph.DeclareTransientFramebuffer(ResourceNames::SSGIResolved, signalDesc);
     };
 
-    const auto runChain = [&](f32 intensity) -> std::vector<u8>
+    const auto runChain = [&](f32 intensity) -> TArray64<u8>
     {
         SSGIUBOData ssgiData{};
         ssgiData.Projection = glm::perspectiveRH_NO(glm::radians(90.0f), 1.0f, 0.1f, 100.0f);
@@ -1974,17 +1974,17 @@ TEST_F(VulkanPassSuite, SsgiAddsGatheredBounceLightOnlyWithIntensity)
                                   { blackboard.Post.SSGIColor = handle; }, 6u);
     };
 
-    const auto redAt = [kSize](const std::vector<u8>& img, u32 x, u32 y)
+    const auto redAt = [kSize](const TArray64<u8>& img, u32 x, u32 y)
     { return static_cast<int>(img[(static_cast<sizet>(y) * kSize + x) * 4]); };
 
     const auto zeroIntensity = runChain(0.0f);
-    ASSERT_EQ(zeroIntensity.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(zeroIntensity.Num(), static_cast<sizet>(kSize) * kSize * 4);
     const int base = redAt(zeroIntensity, 64, 58);
     EXPECT_GE(base, 29) << "intensity 0 must reduce to the passthrough base colour";
     EXPECT_LE(base, 35) << "intensity 0 must reduce to the passthrough base colour";
 
     const auto fullIntensity = runChain(1.0f);
-    ASSERT_EQ(fullIntensity.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(fullIntensity.Num(), static_cast<sizet>(kSize) * kSize * 4);
     const int lit = redAt(fullIntensity, 64, 58);
     EXPECT_GE(lit, base + 25) << "hemisphere rays crossing into the near wall must gather its white radiance";
 
@@ -2046,7 +2046,7 @@ TEST_F(VulkanPassSuite, MotionBlurSmearsAlongTheVelocityAndPassesThroughAtZero)
             graph.ImportTextureHandle(ResourceNames::Velocity, currentVelocity->GetRHIHandle(), auxDesc);
     };
 
-    const auto runChain = [&](const Ref<Texture2D>& velocityTexture) -> std::vector<u8>
+    const auto runChain = [&](const Ref<Texture2D>& velocityTexture) -> TArray64<u8>
     {
         currentVelocity = velocityTexture;
 
@@ -2068,16 +2068,16 @@ TEST_F(VulkanPassSuite, MotionBlurSmearsAlongTheVelocityAndPassesThroughAtZero)
                                   { blackboard.Post.MotionBlurColor = handle; });
     };
 
-    const auto redAt = [kSize](const std::vector<u8>& img, u32 x, u32 y)
+    const auto redAt = [kSize](const TArray64<u8>& img, u32 x, u32 y)
     { return static_cast<int>(img[(static_cast<sizet>(y) * kSize + x) * 4]); };
 
     const auto still = runChain(velocityZero);
-    ASSERT_EQ(still.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(still.Num(), static_cast<sizet>(kSize) * kSize * 4);
     EXPECT_LE(redAt(still, 94, 64), 5) << "zero velocity: the black side must stay black";
     EXPECT_GE(redAt(still, 98, 64), 250) << "zero velocity: the white side must stay white";
 
     const auto moving = runChain(velocityRight);
-    ASSERT_EQ(moving.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(moving.Num(), static_cast<sizet>(kSize) * kSize * 4);
     const int smearedBlackSide = redAt(moving, 94, 64);
     EXPECT_GT(smearedBlackSide, 40) << "moving: taps across the edge must brighten the black side (~96)";
     EXPECT_LT(smearedBlackSide, 170) << "moving: the mix must stay partial";
@@ -2111,8 +2111,8 @@ TEST_F(VulkanPassSuite, PrecipitationPassesThePatternThroughAtZeroIntensity)
     ScreenSpacePrecipitation::Reset(); // full-suite hygiene: drop any stale lens impacts
 
     const std::vector<f32> pattern = MakeHardEdgePattern(kSize);
-    std::vector<u8> patternRgba8(static_cast<sizet>(kSize) * kSize * 4);
-    for (sizet i = 0; i < patternRgba8.size(); ++i)
+    TArray64<u8> patternRgba8(static_cast<sizet>(kSize) * kSize * 4);
+    for (sizet i = 0; i < patternRgba8.Num(); ++i)
         patternRgba8[i] = static_cast<u8>(std::lround(std::clamp(pattern[i], 0.0f, 1.0f) * 255.0f));
     TextureSpecification patternSpec;
     patternSpec.Width = kSize;
@@ -2121,7 +2121,7 @@ TEST_F(VulkanPassSuite, PrecipitationPassesThePatternThroughAtZeroIntensity)
     patternSpec.GenerateMips = false;
     auto patternTexture = Texture2D::Create(patternSpec);
     ASSERT_NE(patternTexture, nullptr);
-    patternTexture->SetData(patternRgba8.data(), static_cast<u32>(patternRgba8.size()));
+    patternTexture->SetData(patternRgba8.GetData(), static_cast<u32>(patternRgba8.Num()));
 
     auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
     ASSERT_TRUE(blitShader);
@@ -2153,10 +2153,10 @@ TEST_F(VulkanPassSuite, PrecipitationPassesThePatternThroughAtZeroIntensity)
                                              ResourceNames::PrecipitationColor,
                                              [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
                                              { blackboard.Post.PrecipitationColor = handle; });
-    ASSERT_EQ(rendered.size(), patternRgba8.size());
+    ASSERT_EQ(rendered.Num(), patternRgba8.Num());
 
     u32 maxDiff = 0;
-    for (sizet i = 0; i < rendered.size(); i += 4)
+    for (sizet i = 0; i < rendered.Num(); i += 4)
     {
         for (sizet c = 0; c < 3; ++c)
         {
@@ -2228,7 +2228,7 @@ TEST_F(VulkanPassSuite, ToneMapAppliesManualExposureAndMetersAutoExposure)
             graph.ImportTextureHandle(ResourceNames::SceneDepth, depthTexture->GetRHIHandle(), depthDesc);
     };
 
-    const auto runChain = [&](const Ref<Texture2D>& input, f32 exposure, bool autoExposure) -> std::vector<u8>
+    const auto runChain = [&](const Ref<Texture2D>& input, f32 exposure, bool autoExposure) -> TArray64<u8>
     {
         PostProcessUBOData uboData{};
         uboData.TonemapOperator = 0; // TONEMAP_NONE: clamp only
@@ -2264,12 +2264,12 @@ TEST_F(VulkanPassSuite, ToneMapAppliesManualExposureAndMetersAutoExposure)
                                   { blackboard.Post.ToneMapColor = handle; });
     };
 
-    const auto redAt = [kSize](const std::vector<u8>& img, u32 x, u32 y)
+    const auto redAt = [kSize](const TArray64<u8>& img, u32 x, u32 y)
     { return static_cast<int>(img[(static_cast<sizet>(y) * kSize + x) * 4]); };
 
     // A) identity: operator 0 / exposure 1 / gamma 1 passes mid-gray through.
     const auto identity = runChain(midGray, 1.0f, false);
-    ASSERT_EQ(identity.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(identity.Num(), static_cast<sizet>(kSize) * kSize * 4);
     for (const auto& [x, y] : { std::pair<u32, u32>{ 8, 8 }, { 64, 64 }, { 120, 120 } })
     {
         EXPECT_NEAR(redAt(identity, x, y), 128, 2) << "identity tone map must pass mid-gray through at ("
@@ -2279,14 +2279,14 @@ TEST_F(VulkanPassSuite, ToneMapAppliesManualExposureAndMetersAutoExposure)
 
     // B) manual exposure multiplies: 0.251 x 2 = 0.502.
     const auto doubled = runChain(quarterGray, 2.0f, false);
-    ASSERT_EQ(doubled.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(doubled.Num(), static_cast<sizet>(kSize) * kSize * 4);
     EXPECT_NEAR(redAt(doubled, 64, 64), 128, 3) << "exposure 2 must double quarter-gray to mid-gray";
 
     // C) auto-exposure: the metered exposure (~0.21 for a uniform 0.502
     // field) must replace the manual 1.0 — the two dispatches actually ran
     // and the fragment consumed the SSBO they wrote.
     const auto metered = runChain(midGray, 1.0f, true);
-    ASSERT_EQ(metered.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(metered.Num(), static_cast<sizet>(kSize) * kSize * 4);
     const int meteredValue = redAt(metered, 64, 64);
     EXPECT_GE(meteredValue, 21) << "metered exposure must not crush to black";
     EXPECT_LE(meteredValue, 33) << "metered exposure ~1/(9.6 x 0.502) must dim mid-gray to ~27 "
@@ -2496,7 +2496,7 @@ TEST_F(VulkanPassSuite, VolumetricFogIntegratesAUniformMediumMonotonically)
         EXPECT_TRUE(fogPass->RanThisFrame()) << "frame 1: the compute chain must have dispatched";
         for (const auto& failure : graph.GetResolveFailures())
         {
-            ADD_FAILURE() << "frame 1 resolve failure: pass='" << failure.PassName << "' reason='" << failure.Reason
+            ADD_FAILURE() << "frame 1 resolve failure: pass='" << failure.PassName.ToView() << "' reason='" << failure.Reason.ToView()
                           << "' x" << failure.Count;
         }
     }
@@ -2586,7 +2586,7 @@ TEST_F(VulkanPassSuite, VolumetricFogIntegratesAUniformMediumMonotonically)
         EXPECT_TRUE(fogPass->RanThisFrame()) << "frame 2: the compute chain must have dispatched";
         for (const auto& failure : graph.GetResolveFailures())
         {
-            ADD_FAILURE() << "frame 2 resolve failure: pass='" << failure.PassName << "' reason='" << failure.Reason
+            ADD_FAILURE() << "frame 2 resolve failure: pass='" << failure.PassName.ToView() << "' reason='" << failure.Reason.ToView()
                           << "' x" << failure.Count;
         }
         const auto& state = fogPass->GetFroxelVolumeState();
@@ -2691,9 +2691,9 @@ TEST_F(VulkanPassSuite, GtaoIsOpenOnUniformDepthAndDarkensACrease)
 
     const glm::mat4 projection = glm::perspectiveRH_NO(glm::radians(90.0f), 1.0f, 0.1f, 100.0f);
 
-    const auto runChain = [&](const Ref<Texture2D>& depthTexture) -> std::vector<u8>
+    const auto runChain = [&](const Ref<Texture2D>& depthTexture) -> TArray64<u8>
     {
-        std::vector<u8> aoBytes;
+        TArray64<u8> aoBytes;
 
         // Caller-owned AO output, imported under the blackboard slot GTAO's
         // Setup declares TransferDest on. Pre-seeded ZEROS: the readback can
@@ -2709,8 +2709,8 @@ TEST_F(VulkanPassSuite, GtaoIsOpenOnUniformDepthAndDarkensACrease)
             ADD_FAILURE() << "R8 AO output texture creation failed";
             return aoBytes;
         }
-        std::vector<u8> aoZeros(static_cast<sizet>(kSize) * kSize, 0u);
-        aoOutput->SetData(aoZeros.data(), static_cast<u32>(aoZeros.size()));
+        TArray64<u8> aoZeros(static_cast<sizet>(kSize) * kSize, 0u);
+        aoOutput->SetData(aoZeros.GetData(), static_cast<u32>(aoZeros.Num()));
 
         auto gtao = Ref<GTAORenderPass>::Create();
         FramebufferSpecification initSpec;
@@ -2823,7 +2823,7 @@ TEST_F(VulkanPassSuite, GtaoIsOpenOnUniformDepthAndDarkensACrease)
 
         for (const auto& failure : graph.GetResolveFailures())
         {
-            ADD_FAILURE() << "GTAO resolve failure: pass='" << failure.PassName << "' reason='" << failure.Reason
+            ADD_FAILURE() << "GTAO resolve failure: pass='" << failure.PassName.ToView() << "' reason='" << failure.Reason.ToView()
                           << "' x" << failure.Count;
         }
         EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u)
@@ -2836,9 +2836,9 @@ TEST_F(VulkanPassSuite, GtaoIsOpenOnUniformDepthAndDarkensACrease)
         return aoBytes;
     };
 
-    const auto aoAt = [kSize](const std::vector<u8>& img, u32 x, u32 y)
+    const auto aoAt = [kSize](const TArray64<u8>& img, u32 x, u32 y)
     { return static_cast<int>(img[static_cast<sizet>(y) * kSize + x]); };
-    const auto rowMean = [&](const std::vector<u8>& img, u32 y)
+    const auto rowMean = [&](const TArray64<u8>& img, u32 y)
     {
         int sum = 0;
         int count = 0;
@@ -2859,7 +2859,7 @@ TEST_F(VulkanPassSuite, GtaoIsOpenOnUniformDepthAndDarkensACrease)
     // visibility clamp (byte 8), garbage normals (~0), or a dead final copy
     // (the AO import is pre-seeded ZEROS).
     const auto open = runChain(depthUniform);
-    ASSERT_EQ(open.size(), static_cast<sizet>(kSize) * kSize);
+    ASSERT_EQ(open.Num(), static_cast<sizet>(kSize) * kSize);
     int minAO = 255;
     for (const u8 v : open)
         minAO = std::min(minAO, static_cast<int>(v));
@@ -2886,7 +2886,7 @@ TEST_F(VulkanPassSuite, GtaoIsOpenOnUniformDepthAndDarkensACrease)
     // OPEN (row66 249 — their depth step goes AWAY from the camera, an
     // occluder must be in FRONT), and the deep near side matches the control.
     const auto crease = runChain(depthCrease);
-    ASSERT_EQ(crease.size(), static_cast<sizet>(kSize) * kSize);
+    ASSERT_EQ(crease.Num(), static_cast<sizet>(kSize) * kSize);
     const int open62 = rowMean(open, 62);
     const int crease62 = rowMean(crease, 62);
     EXPECT_GE(open62 - crease62, 40) << "the near wall must darken the far-side crease row vs the control";
@@ -2984,7 +2984,7 @@ TEST_F(VulkanPassSuite, FluidIntermediatesBuildsRawTargetsAndPinsTheNoDrawEarlyO
         EXPECT_FALSE(fluid->RanThisFrame()) << "no draws => the pass must not run";
         for (const auto& failure : graph.GetResolveFailures())
         {
-            ADD_FAILURE() << "fluid resolve failure: pass='" << failure.PassName << "' reason='" << failure.Reason
+            ADD_FAILURE() << "fluid resolve failure: pass='" << failure.PassName.ToView() << "' reason='" << failure.Reason.ToView()
                           << "' x" << failure.Count;
         }
     }
@@ -3104,12 +3104,12 @@ TEST_F(VulkanPassSuite, FluidSplatRangesMatchInlineDepthAndThickness)
         draws.insert(draws.end(), 32, draw);
     }
     std::vector<f32> referenceDepth;
-    std::vector<u8> referenceThickness;
+    TArray64<u8> referenceThickness;
     for (const auto lever : { Levers::Tristate::Off, Levers::Tristate::On })
     {
         Levers::SetVulkanParallelRecording(lever);
         VulkanFrameArena::Get().BeginFrame(0);
-        fluid->SetFrameDraws(draws);
+        fluid->SetFrameDraws(TArray64<FluidRenderData>(draws.data(), static_cast<i64>(draws.size())));
         RenderGraph graph;
         graph.SetTransientMaterializationEnabled(true);
         RGResourceDesc depthDesc;
@@ -3128,11 +3128,11 @@ TEST_F(VulkanPassSuite, FluidSplatRangesMatchInlineDepthAndThickness)
                         graph.Execute(); });
         ASSERT_TRUE(fluid->RanThisFrame());
         std::vector<f32> depth(kSize * kSize);
-        std::vector<u8> thickness(kSize * kSize * 4);
+        TArray64<u8> thickness(kSize * kSize * 4);
         ASSERT_TRUE(api.ReadTextureImage(fluid->GetSmoothedDepthTextureID(), 0, RHI::Format::R32Float,
                                          depth.size() * sizeof(f32), depth.data()));
         ASSERT_TRUE(api.ReadTextureImage(fluid->GetThicknessTextureID(), 0, RHI::Format::RG16Float,
-                                         thickness.size(), thickness.data()));
+                                         thickness.Num(), thickness.GetData()));
         if (lever == Levers::Tristate::Off)
         {
             referenceDepth = depth;
@@ -3165,8 +3165,8 @@ TEST_F(VulkanPassSuite, BloomSpreadsABrightBlobIntoAHaloAndKeepsBlackBlack)
     // Black field with an 8x8 white blob centred at (64, 64).
     const auto makeBlobTexture = [&](bool withBlob) -> Ref<Texture2D>
     {
-        std::vector<u8> pixels(static_cast<sizet>(kSize) * kSize * 4, 0u);
-        for (sizet i = 3; i < pixels.size(); i += 4)
+        TArray64<u8> pixels(static_cast<sizet>(kSize) * kSize * 4, 0u);
+        for (sizet i = 3; i < pixels.Num(); i += 4)
             pixels[i] = 255u;
         if (withBlob)
         {
@@ -3188,7 +3188,7 @@ TEST_F(VulkanPassSuite, BloomSpreadsABrightBlobIntoAHaloAndKeepsBlackBlack)
         spec.GenerateMips = false;
         auto texture = Texture2D::Create(spec);
         if (texture)
-            texture->SetData(pixels.data(), static_cast<u32>(pixels.size()));
+            texture->SetData(pixels.GetData(), static_cast<u32>(pixels.Num()));
         return texture;
     };
     auto blobInput = makeBlobTexture(true);
@@ -3214,9 +3214,9 @@ TEST_F(VulkanPassSuite, BloomSpreadsABrightBlobIntoAHaloAndKeepsBlackBlack)
     auto postProcessUbo = UniformBuffer::Create(sizeof(PostProcessUBOData), 7);
     postProcessUbo->SetData(&uboData, sizeof(uboData));
 
-    const auto runChain = [&](const Ref<Texture2D>& input) -> std::vector<u8>
+    const auto runChain = [&](const Ref<Texture2D>& input) -> TArray64<u8>
     {
-        std::vector<u8> rendered;
+        TArray64<u8> rendered;
 
         RenderGraph graph;
         graph.SetTransientMaterializationEnabled(true);
@@ -3242,7 +3242,7 @@ TEST_F(VulkanPassSuite, BloomSpreadsABrightBlobIntoAHaloAndKeepsBlackBlack)
             mipDesc.Width = mipW;
             mipDesc.Height = mipH;
             mipDesc.DebugName = "BloomMip" + std::to_string(i);
-            blackboard.Scratch.BloomMips[i] = graph.DeclareTransientFramebuffer(mipDesc.DebugName, mipDesc);
+            blackboard.Scratch.BloomMips[i] = graph.DeclareTransientFramebuffer(mipDesc.DebugName.ToView(), mipDesc);
             mipW /= 2u;
             mipH /= 2u;
         }
@@ -3293,7 +3293,7 @@ TEST_F(VulkanPassSuite, BloomSpreadsABrightBlobIntoAHaloAndKeepsBlackBlack)
         EXPECT_TRUE(bloom->GetTarget()) << "bloom: Execute early-returned (input/output/mips/shader guard)";
         for (const auto& failure : graph.GetResolveFailures())
         {
-            ADD_FAILURE() << "bloom resolve failure: pass='" << failure.PassName << "' reason='" << failure.Reason
+            ADD_FAILURE() << "bloom resolve failure: pass='" << failure.PassName.ToView() << "' reason='" << failure.Reason.ToView()
                           << "' x" << failure.Count;
         }
         {
@@ -3309,11 +3309,11 @@ TEST_F(VulkanPassSuite, BloomSpreadsABrightBlobIntoAHaloAndKeepsBlackBlack)
         return rendered;
     };
 
-    const auto redAt = [kSize](const std::vector<u8>& img, u32 x, u32 y)
+    const auto redAt = [kSize](const TArray64<u8>& img, u32 x, u32 y)
     { return static_cast<int>(img[(static_cast<sizet>(y) * kSize + x) * 4]); };
 
     const auto bloomed = runChain(blobInput);
-    ASSERT_EQ(bloomed.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(bloomed.Num(), static_cast<sizet>(kSize) * kSize * 4);
     EXPECT_GE(redAt(bloomed, 64, 64), 250) << "the blob core must stay saturated (scene + bloom)";
     const int halo = redAt(bloomed, 70, 64);
     EXPECT_GE(halo, 10) << "2 px outside the blob the additive upsample chain must have spread energy";
@@ -3322,9 +3322,9 @@ TEST_F(VulkanPassSuite, BloomSpreadsABrightBlobIntoAHaloAndKeepsBlackBlack)
     EXPECT_GT(halo, farCorner + 5) << "the halo must decay with distance from the blob";
 
     const auto black = runChain(blackInput);
-    ASSERT_EQ(black.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(black.Num(), static_cast<sizet>(kSize) * kSize * 4);
     int maxBlack = 0;
-    for (sizet i = 0; i < black.size(); i += 4)
+    for (sizet i = 0; i < black.Num(); i += 4)
     {
         maxBlack = std::max(maxBlack, static_cast<int>(black[i]));
         maxBlack = std::max(maxBlack, static_cast<int>(black[i + 1]));
@@ -3390,8 +3390,8 @@ TEST_F(VulkanPassSuite, SsaoRunsBothHalfResDrawsAndCopiesUnoccludedAOThroughTheG
         // Facade client contract for the 16F formats: f32 PER CHANNEL (the
         // GL driver converts; this backend converts CPU-side) — 8 bytes per
         // RG16F texel, not the native 4. Zeros are zeros in either width.
-        std::vector<u8> zeros(static_cast<sizet>(kHalf) * kHalf * 2u * sizeof(f32), 0u);
-        aoOutput->SetData(zeros.data(), static_cast<u32>(zeros.size()));
+        TArray64<u8> zeros(static_cast<sizet>(kHalf) * kHalf * 2u * sizeof(f32), 0u);
+        aoOutput->SetData(zeros.GetData(), static_cast<u32>(zeros.Num()));
     }
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
@@ -3480,7 +3480,7 @@ TEST_F(VulkanPassSuite, SsaoRunsBothHalfResDrawsAndCopiesUnoccludedAOThroughTheG
     EXPECT_TRUE(ssao->GetTarget()) << "ready SSAO must run through to the blur target";
     for (const auto& failure : graph.GetResolveFailures())
     {
-        ADD_FAILURE() << "SSAO resolve failure: pass='" << failure.PassName << "' reason='" << failure.Reason
+        ADD_FAILURE() << "SSAO resolve failure: pass='" << failure.PassName.ToView() << "' reason='" << failure.Reason.ToView()
                       << "' x" << failure.Count;
     }
     EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 2u)
@@ -3489,9 +3489,9 @@ TEST_F(VulkanPassSuite, SsaoRunsBothHalfResDrawsAndCopiesUnoccludedAOThroughTheG
     EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore)
         << "the whole chain (noise bind + 2 draws + CopyImageSubData) must record without a stub";
 
-    std::vector<u8> aoBytes;
+    TArray64<u8> aoBytes;
     ASSERT_TRUE(aoOutput->GetData(aoBytes, 0)) << "AO readback failed";
-    ASSERT_EQ(aoBytes.size(), static_cast<sizet>(kHalf) * kHalf * 4u); // RG16F: 4 bytes/texel
+    ASSERT_EQ(aoBytes.Num(), static_cast<sizet>(kHalf) * kHalf * 4u); // RG16F: 4 bytes/texel
     const auto aoAt = [&](u32 x, u32 y)
     {
         const sizet i = (static_cast<sizet>(y) * kHalf + x) * 4u;
@@ -3560,9 +3560,9 @@ TEST_F(VulkanPassSuite, SelectionOutlineRingsTheSelectedBlobAndIdlesWithoutSelec
     drsUbo->SetData(&drsData, sizeof(drsData));
 
     const auto runChain = [&](std::span<const i32> selectedIds, u32& preparedDraws,
-                              bool& targetValid) -> std::vector<u8>
+                              bool& targetValid) -> TArray64<u8>
     {
-        std::vector<u8> rendered;
+        TArray64<u8> rendered;
 
         RenderGraph graph;
         graph.SetTransientMaterializationEnabled(true);
@@ -3643,8 +3643,8 @@ TEST_F(VulkanPassSuite, SelectionOutlineRingsTheSelectedBlobAndIdlesWithoutSelec
         EXPECT_TRUE(producer->DidDraw);
         for (const auto& failure : graph.GetResolveFailures())
         {
-            ADD_FAILURE() << "selection-outline resolve failure: pass='" << failure.PassName << "' reason='"
-                          << failure.Reason << "' x" << failure.Count;
+            ADD_FAILURE() << "selection-outline resolve failure: pass='" << failure.PassName.ToView() << "' reason='"
+                          << failure.Reason.ToView() << "' x" << failure.Count;
         }
         {
             auto& vkApi = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
@@ -3670,8 +3670,8 @@ TEST_F(VulkanPassSuite, SelectionOutlineRingsTheSelectedBlobAndIdlesWithoutSelec
     EXPECT_TRUE(hasTarget) << "a live selection must produce the outline target";
     // producer + JFA init + 2 flood iterations + composite.
     EXPECT_EQ(draws, 5u);
-    ASSERT_EQ(ringed.size(), static_cast<sizet>(kSize) * kSize * 4);
-    const auto px = [&](const std::vector<u8>& img, u32 x, u32 y)
+    ASSERT_EQ(ringed.Num(), static_cast<sizet>(kSize) * kSize * 4);
+    const auto px = [&](const TArray64<u8>& img, u32 x, u32 y)
     {
         const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
         return std::array<int, 3>{ img[i], img[i + 1], img[i + 2] };
@@ -3764,7 +3764,7 @@ TEST_F(VulkanPassSuite, CloudscapeRendersCloudsAgainstTheSkyAndExtractsHistory)
     Ref<Texture2D> weatherMap;
     {
         constexpr u32 kWeatherSize = 4;
-        std::vector<u8> weather(static_cast<sizet>(kWeatherSize) * kWeatherSize * 4);
+        TArray64<u8> weather(static_cast<sizet>(kWeatherSize) * kWeatherSize * 4);
         for (u32 y = 0; y < kWeatherSize; ++y)
         {
             for (u32 x = 0; x < kWeatherSize; ++x)
@@ -3784,7 +3784,7 @@ TEST_F(VulkanPassSuite, CloudscapeRendersCloudsAgainstTheSkyAndExtractsHistory)
         spec.GenerateMips = false;
         weatherMap = Texture2D::Create(spec);
         ASSERT_NE(weatherMap, nullptr);
-        weatherMap->SetData(weather.data(), static_cast<u32>(weather.size()));
+        weatherMap->SetData(weather.GetData(), static_cast<u32>(weather.Num()));
     }
 
     // Camera looking straight UP (+Y) from (4000, 0, 4000): every ray pierces
@@ -3930,17 +3930,17 @@ TEST_F(VulkanPassSuite, CloudscapeRendersCloudsAgainstTheSkyAndExtractsHistory)
     EXPECT_TRUE(cloudscape->GetTarget()) << "cloudscape Execute early-returned (input/scratch/depth guard)";
     for (const auto& failure : graph.GetResolveFailures())
     {
-        ADD_FAILURE() << "cloudscape resolve failure: pass='" << failure.PassName << "' reason='" << failure.Reason
+        ADD_FAILURE() << "cloudscape resolve failure: pass='" << failure.PassName.ToView() << "' reason='" << failure.Reason.ToView()
                       << "' x" << failure.Count;
     }
     EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 4u) << "producer + raymarch + resolve + composite";
     EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
     EXPECT_TRUE(historyValid) << "the CloudsResolved -> CloudsHistory extract must have copied (sink flag)";
 
-    std::vector<u8> rendered;
+    TArray64<u8> rendered;
     auto* vkOutput = static_cast<VulkanFramebuffer*>(outputFramebuffer.Raw());
     ASSERT_TRUE(vkOutput->GetColorAttachmentImage(0)->GetData(rendered, 0));
-    ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(rendered.Num(), static_cast<sizet>(kSize) * kSize * 4);
 
     // Clouds must have changed the zenith away from the sky-blue input...
     const auto px = [&](u32 x, u32 y)
@@ -3958,7 +3958,7 @@ TEST_F(VulkanPassSuite, CloudscapeRendersCloudsAgainstTheSkyAndExtractsHistory)
     // a sparse probe grid can sit entirely on the deck).
     int minR = 255;
     int maxR = 0;
-    for (sizet i = 0; i < rendered.size(); i += 4)
+    for (sizet i = 0; i < rendered.Num(); i += 4)
     {
         const int r = rendered[i];
         minR = std::min(minR, r);
@@ -4051,9 +4051,9 @@ TEST_F(VulkanPassSuite, FogFogsTheFarFieldAnalyticallyAndPassesThroughAtZeroDens
     ASSERT_NE(tinyVolume, nullptr);
     bool tinyVolumeSeeded = false;
 
-    const auto runChain = [&](f32 density) -> std::vector<u8>
+    const auto runChain = [&](f32 density) -> TArray64<u8>
     {
-        std::vector<u8> rendered;
+        TArray64<u8> rendered;
 
         FogUBOData fogData{};
         fogData.ColorAndDensity = glm::vec4(1.0f, 0.0f, 0.0f, density); // red fog
@@ -4156,7 +4156,7 @@ TEST_F(VulkanPassSuite, FogFogsTheFarFieldAnalyticallyAndPassesThroughAtZeroDens
         EXPECT_FALSE(froxel->RanThisFrame()) << "the un-graphed froxel chain must not have dispatched";
         for (const auto& failure : graph.GetResolveFailures())
         {
-            ADD_FAILURE() << "fog resolve failure: pass='" << failure.PassName << "' reason='" << failure.Reason
+            ADD_FAILURE() << "fog resolve failure: pass='" << failure.PassName.ToView() << "' reason='" << failure.Reason.ToView()
                           << "' x" << failure.Count;
         }
         EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 3u) << "producer + half-res fog + upsample composite";
@@ -4170,7 +4170,7 @@ TEST_F(VulkanPassSuite, FogFogsTheFarFieldAnalyticallyAndPassesThroughAtZeroDens
 
     // Density 0.05 over ~100 view units: factor 0.993 — red fog everywhere.
     const auto fogged = runChain(0.05f);
-    ASSERT_EQ(fogged.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(fogged.Num(), static_cast<sizet>(kSize) * kSize * 4);
     for (const auto& [x, y] : { std::pair<u32, u32>{ 64, 64 }, { 8, 8 }, { 120, 120 } })
     {
         const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
@@ -4181,9 +4181,9 @@ TEST_F(VulkanPassSuite, FogFogsTheFarFieldAnalyticallyAndPassesThroughAtZeroDens
 
     // Density 0: transmittance 1, inscatter 0 — exact passthrough.
     const auto clear = runChain(0.0f);
-    ASSERT_EQ(clear.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(clear.Num(), static_cast<sizet>(kSize) * kSize * 4);
     u32 maxDiff = 0;
-    for (sizet i = 0; i < clear.size(); i += 4)
+    for (sizet i = 0; i < clear.Num(); i += 4)
     {
         for (sizet c = 0; c < 3; ++c)
         {
@@ -4226,7 +4226,7 @@ TEST_F(VulkanPassSuite, TaaResolvesIdentityAndBlendsTheImportedHistory)
     constexpr u8 kHigh = 160;
     const auto makeChecker = [&](u32 flip) -> Ref<Texture2D>
     {
-        std::vector<u8> pixels(static_cast<sizet>(kSize) * kSize * 4);
+        TArray64<u8> pixels(static_cast<sizet>(kSize) * kSize * 4);
         for (u32 y = 0; y < kSize; ++y)
         {
             for (u32 x = 0; x < kSize; ++x)
@@ -4246,7 +4246,7 @@ TEST_F(VulkanPassSuite, TaaResolvesIdentityAndBlendsTheImportedHistory)
         spec.GenerateMips = false;
         auto texture = Texture2D::Create(spec);
         if (texture)
-            texture->SetData(pixels.data(), static_cast<u32>(pixels.size()));
+            texture->SetData(pixels.GetData(), static_cast<u32>(pixels.Num()));
         return texture;
     };
     auto checkerA = makeChecker(1u); // odd parity high
@@ -4297,7 +4297,7 @@ TEST_F(VulkanPassSuite, TaaResolvesIdentityAndBlendsTheImportedHistory)
     // barrier's source scope must name the copy, not the raster.
     m_OutputBarrierBefore = RHI::Access::TransferRead;
 
-    const auto runFrame = [&](const Ref<Texture2D>& input) -> std::vector<u8>
+    const auto runFrame = [&](const Ref<Texture2D>& input) -> TArray64<u8>
     {
         auto taa = Ref<TAARenderPass>::Create();
         FramebufferSpecification initSpec;
@@ -4323,7 +4323,7 @@ TEST_F(VulkanPassSuite, TaaResolvesIdentityAndBlendsTheImportedHistory)
     // Frame 1: history invalid -> the pass's history=current fallback makes
     // the resolve an exact identity; the extract fills the history sink.
     const auto frame1 = runFrame(checkerA);
-    ASSERT_EQ(frame1.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(frame1.Num(), static_cast<sizet>(kSize) * kSize * 4);
     {
         u32 maxDiff = 0;
         for (u32 y = 0; y < kSize; ++y)
@@ -4344,7 +4344,7 @@ TEST_F(VulkanPassSuite, TaaResolvesIdentityAndBlendsTheImportedHistory)
     // every pixel, both inside the neighborhood clamp box, so the output is
     // the pure feedback blend: 0.1*current + 0.9*history.
     const auto frame2 = runFrame(checkerB);
-    ASSERT_EQ(frame2.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(frame2.Num(), static_cast<sizet>(kSize) * kSize * 4);
     {
         u32 maxDiff = 0;
         for (u32 y = 0; y < kSize; ++y)
@@ -4471,7 +4471,7 @@ TEST_F(VulkanPassSuite, OitResolveCompositesAccumOverTheSceneByRevealage)
     EXPECT_TRUE(producer->DidDraw);
     for (const auto& failure : graph.GetResolveFailures())
     {
-        ADD_FAILURE() << "OIT resolve failure: pass='" << failure.PassName << "' reason='" << failure.Reason
+        ADD_FAILURE() << "OIT resolve failure: pass='" << failure.PassName.ToView() << "' reason='" << failure.Reason.ToView()
                       << "' x" << failure.Count;
     }
     // (OITResolveRenderPass never publishes m_Target — GetTarget() is not a
@@ -4479,10 +4479,10 @@ TEST_F(VulkanPassSuite, OitResolveCompositesAccumOverTheSceneByRevealage)
     EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 2u) << "producer + one resolve draw";
     EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
 
-    std::vector<u8> rendered;
+    TArray64<u8> rendered;
     auto* vkOutput = static_cast<VulkanFramebuffer*>(sceneFramebuffer.Raw());
     ASSERT_TRUE(vkOutput->GetColorAttachmentImage(0)->GetData(rendered, 0));
-    ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(rendered.Num(), static_cast<sizet>(kSize) * kSize * 4);
 
     const auto px = [&](u32 x, u32 y)
     {
@@ -4604,28 +4604,28 @@ TEST_F(VulkanPassSuite, DepthVelocityUpscaleNearestUpsamplesExactValues)
     EXPECT_TRUE(upscale->GetTarget()) << "DepthVelocityUpscale early-returned (input/output guard)";
     for (const auto& failure : graph.GetResolveFailures())
     {
-        ADD_FAILURE() << "upscale resolve failure: pass='" << failure.PassName << "' reason='" << failure.Reason
+        ADD_FAILURE() << "upscale resolve failure: pass='" << failure.PassName.ToView() << "' reason='" << failure.Reason.ToView()
                       << "' x" << failure.Count;
     }
     EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 1u) << "one MRT2 fullscreen draw, no producer";
     EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
 
     auto* vkOutput = static_cast<VulkanFramebuffer*>(outputFramebuffer.Raw());
-    std::vector<u8> depthBytes;
+    TArray64<u8> depthBytes;
     ASSERT_TRUE(vkOutput->GetColorAttachmentImage(0)->GetData(depthBytes, 0));
-    ASSERT_EQ(depthBytes.size(), static_cast<sizet>(kSize) * kSize * 4); // R32F
-    std::vector<u8> velocityBytes;
+    ASSERT_EQ(depthBytes.Num(), static_cast<sizet>(kSize) * kSize * 4); // R32F
+    TArray64<u8> velocityBytes;
     ASSERT_TRUE(vkOutput->GetColorAttachmentImage(1)->GetData(velocityBytes, 0));
-    ASSERT_EQ(velocityBytes.size(), static_cast<sizet>(kSize) * kSize * 4); // RG16F
+    ASSERT_EQ(velocityBytes.Num(), static_cast<sizet>(kSize) * kSize * 4); // RG16F
 
     const auto depthAt = [&](u32 x, u32 y) -> f32
     {
-        const auto* floats = reinterpret_cast<const f32*>(depthBytes.data());
+        const auto* floats = reinterpret_cast<const f32*>(depthBytes.GetData());
         return floats[static_cast<sizet>(y) * kSize + x];
     };
     const auto velocityAt = [&](u32 x, u32 y) -> glm::vec2
     {
-        const auto* halves = reinterpret_cast<const u16*>(velocityBytes.data());
+        const auto* halves = reinterpret_cast<const u16*>(velocityBytes.GetData());
         const sizet i = (static_cast<sizet>(y) * kSize + x) * 2;
         return { HalfToFloat(halves[i]), HalfToFloat(halves[i + 1]) };
     };
@@ -4674,8 +4674,8 @@ TEST_F(VulkanPassSuite, SsrPassesThroughAtZeroIntensityWithTheHzbChainLive)
     VulkanFrameArena::Get().BeginFrame(0);
 
     const std::vector<f32> pattern = MakeHardEdgePattern(kSize);
-    std::vector<u8> patternRgba8(static_cast<sizet>(kSize) * kSize * 4);
-    for (sizet i = 0; i < patternRgba8.size(); ++i)
+    TArray64<u8> patternRgba8(static_cast<sizet>(kSize) * kSize * 4);
+    for (sizet i = 0; i < patternRgba8.Num(); ++i)
         patternRgba8[i] = static_cast<u8>(std::lround(std::clamp(pattern[i], 0.0f, 1.0f) * 255.0f));
     TextureSpecification patternSpec;
     patternSpec.Width = kSize;
@@ -4684,7 +4684,7 @@ TEST_F(VulkanPassSuite, SsrPassesThroughAtZeroIntensityWithTheHzbChainLive)
     patternSpec.GenerateMips = false;
     auto patternTexture = Texture2D::Create(patternSpec);
     ASSERT_NE(patternTexture, nullptr);
-    patternTexture->SetData(patternRgba8.data(), static_cast<u32>(patternRgba8.size()));
+    patternTexture->SetData(patternRgba8.GetData(), static_cast<u32>(patternRgba8.Num()));
 
     auto depthTexture = MakeSolidTexture(kSize, 128, 128, 128, 255); // mid depth — NOT sky
     ASSERT_NE(depthTexture, nullptr);
@@ -4733,7 +4733,7 @@ TEST_F(VulkanPassSuite, SsrPassesThroughAtZeroIntensityWithTheHzbChainLive)
         };
         blackboard.Scratch.SSRSignal =
             graph.DeclareTransientFramebuffer(ResourceNames::SSRSignal, signalDesc);
-        signalDesc.Attachments.clear();
+        signalDesc.Attachments.Reset();
         signalDesc.DebugName = std::string(ResourceNames::SSRPreBlurred);
         blackboard.Scratch.SSRPreBlurred =
             graph.DeclareTransientFramebuffer(ResourceNames::SSRPreBlurred, signalDesc);
@@ -4778,10 +4778,10 @@ TEST_F(VulkanPassSuite, SsrPassesThroughAtZeroIntensityWithTheHzbChainLive)
     // run because the default radii are non-zero.
     const auto rendered = RunSinglePassChain(kSize, producer, ssr, "SSRPass", ResourceNames::SSRColor, [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
                                              { blackboard.Post.SSRColor = handle; }, 6u);
-    ASSERT_EQ(rendered.size(), patternRgba8.size());
+    ASSERT_EQ(rendered.Num(), patternRgba8.Num());
 
     u32 maxDiff = 0;
-    for (sizet i = 0; i < rendered.size(); i += 4)
+    for (sizet i = 0; i < rendered.Num(); i += 4)
     {
         for (sizet c = 0; c < 3; ++c)
         {
@@ -4919,16 +4919,16 @@ TEST_F(VulkanPassSuite, UiCompositeClearsBlitsAndBlendsTheOverlayCallback)
     EXPECT_TRUE(uiComposite->GetTarget()) << "UIComposite early-returned (output resolve guard)";
     for (const auto& failure : graph.GetResolveFailures())
     {
-        ADD_FAILURE() << "UIComposite resolve failure: pass='" << failure.PassName << "' reason='"
-                      << failure.Reason << "' x" << failure.Count;
+        ADD_FAILURE() << "UIComposite resolve failure: pass='" << failure.PassName.ToView() << "' reason='"
+                      << failure.Reason.ToView() << "' x" << failure.Count;
     }
     EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 3u) << "producer + background blit + overlay draw";
     EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
 
     auto* vkOutput = static_cast<VulkanFramebuffer*>(outputFramebuffer.Raw());
-    std::vector<u8> rendered;
+    TArray64<u8> rendered;
     ASSERT_TRUE(vkOutput->GetColorAttachmentImage(0)->GetData(rendered, 0));
-    ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(rendered.Num(), static_cast<sizet>(kSize) * kSize * 4);
     // out = overlay * a + background * (1 - a), a = 128/255:
     //   R = 1.0   * 0.502 = 0.502 -> 128
     //   B = 0.784 * 0.498 = 0.390 -> 100
@@ -4941,10 +4941,10 @@ TEST_F(VulkanPassSuite, UiCompositeClearsBlitsAndBlendsTheOverlayCallback)
     }
 
     // The R32I entity attachment reads back the -1 clear everywhere probed.
-    std::vector<u8> entityBytes;
+    TArray64<u8> entityBytes;
     ASSERT_TRUE(vkOutput->GetColorAttachmentImage(1)->GetData(entityBytes, 0));
-    ASSERT_EQ(entityBytes.size(), static_cast<sizet>(kSize) * kSize * 4);
-    const auto* entityIds = reinterpret_cast<const i32*>(entityBytes.data());
+    ASSERT_EQ(entityBytes.Num(), static_cast<sizet>(kSize) * kSize * 4);
+    const auto* entityIds = reinterpret_cast<const i32*>(entityBytes.GetData());
     for (const auto& [x, y] : { std::pair<u32, u32>{ 0, 0 }, { 64, 64 }, { 127, 127 } })
     {
         EXPECT_EQ(entityIds[static_cast<sizet>(y) * kSize + x], -1)
@@ -5006,8 +5006,8 @@ TEST_F(VulkanPassSuite, OitPrepareClearsTargetsAndSeedsDepthFromTheScene)
 
     struct ChainResult
     {
-        std::vector<u8> Accum;     // RGBA16F raw halfs
-        std::vector<u8> Revealage; // RG16F raw halfs
+        TArray64<u8> Accum;     // RGBA16F raw halfs
+        TArray64<u8> Revealage; // RG16F raw halfs
     };
 
     const auto runChain = [&](bool sceneHasDepth) -> ChainResult
@@ -5128,8 +5128,8 @@ TEST_F(VulkanPassSuite, OitPrepareClearsTargetsAndSeedsDepthFromTheScene)
         EXPECT_TRUE(producer->DidDraw) << "producer early-returned (sceneHasDepth=" << sceneHasDepth << ")";
         for (const auto& failure : graph.GetResolveFailures())
         {
-            ADD_FAILURE() << "OITPrepare resolve failure: pass='" << failure.PassName << "' reason='"
-                          << failure.Reason << "' x" << failure.Count;
+            ADD_FAILURE() << "OITPrepare resolve failure: pass='" << failure.PassName.ToView() << "' reason='"
+                          << failure.Reason.ToView() << "' x" << failure.Count;
         }
 
         auto* vkOit = static_cast<VulkanFramebuffer*>(oitFramebuffer.Raw());
@@ -5141,20 +5141,20 @@ TEST_F(VulkanPassSuite, OitPrepareClearsTargetsAndSeedsDepthFromTheScene)
     const ChainResult seeded = runChain(true);
     const ChainResult fallback = runChain(false);
 
-    ASSERT_EQ(seeded.Accum.size(), static_cast<sizet>(kSize) * kSize * 8);
-    ASSERT_EQ(seeded.Revealage.size(), static_cast<sizet>(kSize) * kSize * 4);
-    ASSERT_EQ(fallback.Accum.size(), static_cast<sizet>(kSize) * kSize * 8);
+    ASSERT_EQ(seeded.Accum.Num(), static_cast<sizet>(kSize) * kSize * 8);
+    ASSERT_EQ(seeded.Revealage.Num(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(fallback.Accum.Num(), static_cast<sizet>(kSize) * kSize * 8);
 
     const auto accumTexel = [&](const ChainResult& r, u32 x, u32 y)
     {
-        const auto* halves = reinterpret_cast<const u16*>(r.Accum.data());
+        const auto* halves = reinterpret_cast<const u16*>(r.Accum.GetData());
         const sizet base = (static_cast<sizet>(y) * kSize + x) * 4;
         return std::array<f32, 4>{ HalfToFloat(halves[base]), HalfToFloat(halves[base + 1]),
                                    HalfToFloat(halves[base + 2]), HalfToFloat(halves[base + 3]) };
     };
     const auto revealageTexel = [&](const ChainResult& r, u32 x, u32 y)
     {
-        const auto* halves = reinterpret_cast<const u16*>(r.Revealage.data());
+        const auto* halves = reinterpret_cast<const u16*>(r.Revealage.GetData());
         const sizet base = (static_cast<sizet>(y) * kSize + x) * 2;
         return HalfToFloat(halves[base]);
     };
@@ -5304,7 +5304,7 @@ TEST_F(VulkanPassSuite, FluidCompositeFloorsWithoutIntermediatesAndPassesRefract
         EXPECT_FALSE(intermediates->RanThisFrame())
             << "the raw-FBO stub family must still gate the intermediates body (this floor's premise)";
 
-        std::vector<u8> rendered;
+        TArray64<u8> rendered;
         auto* vkScene = static_cast<VulkanFramebuffer*>(sceneFramebuffer.Raw());
         ASSERT_TRUE(vkScene->GetColorAttachmentImage(0)->GetData(rendered, 0));
         const sizet centre = ((static_cast<sizet>(64) * kSize) + 64) * 4;
@@ -5403,10 +5403,10 @@ TEST_F(VulkanPassSuite, FluidCompositeFloorsWithoutIntermediatesAndPassesRefract
     EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 2u) << "seed draw + composite draw must both prepare";
     EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
 
-    std::vector<u8> rendered;
+    TArray64<u8> rendered;
     auto* vkOut = static_cast<VulkanFramebuffer*>(outputFramebuffer.Raw());
     ASSERT_TRUE(vkOut->GetColorAttachmentImage(0)->GetData(rendered, 0));
-    ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(rendered.Num(), static_cast<sizet>(kSize) * kSize * 4);
 
     const auto px = [&](u32 x, u32 y)
     {
@@ -5509,15 +5509,15 @@ TEST_F(VulkanPassSuite, OverdrawRunsTheEmptyReplayAndMapsCountsToHeatColours)
         EXPECT_TRUE(overdraw->GetTarget()) << "the pass early-returned";
         for (const auto& failure : graph.GetResolveFailures())
         {
-            ADD_FAILURE() << "Overdraw resolve failure: pass='" << failure.PassName << "' reason='"
-                          << failure.Reason << "' x" << failure.Count;
+            ADD_FAILURE() << "Overdraw resolve failure: pass='" << failure.PassName.ToView() << "' reason='"
+                          << failure.Reason.ToView() << "' x" << failure.Count;
         }
         // Counters reset per recording bracket — absolute count for this submit.
         EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 1u)
             << "exactly the heat-map draw (the replayed bucket is empty)";
         EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
 
-        std::vector<u8> rendered;
+        TArray64<u8> rendered;
         auto* vkOut = static_cast<VulkanFramebuffer*>(outputFramebuffer.Raw());
         ASSERT_TRUE(vkOut->GetColorAttachmentImage(0)->GetData(rendered, 0));
         for (const auto& [x, y] : { std::pair<u32, u32>{ 3, 3 }, { 64, 64 }, { 124, 124 } })
@@ -5590,7 +5590,7 @@ TEST_F(VulkanPassSuite, OverdrawRunsTheEmptyReplayAndMapsCountsToHeatColours)
             api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
         });
 
-    std::vector<u8> ramp;
+    TArray64<u8> ramp;
     auto* vkRamp = static_cast<VulkanFramebuffer*>(rampFramebuffer.Raw());
     ASSERT_TRUE(vkRamp->GetColorAttachmentImage(0)->GetData(ramp, 0));
 
@@ -5908,15 +5908,15 @@ TEST_F(VulkanPassSuite, DeferredLightingShadesAKnownGBufferAndBlitsEntityIds)
     EXPECT_TRUE(deferredLighting->GetTarget()) << "the pass early-returned";
     for (const auto& failure : graph.GetResolveFailures())
     {
-        ADD_FAILURE() << "DeferredLighting resolve failure: pass='" << failure.PassName << "' reason='"
-                      << failure.Reason << "' x" << failure.Count;
+        ADD_FAILURE() << "DeferredLighting resolve failure: pass='" << failure.PassName.ToView() << "' reason='"
+                      << failure.Reason.ToView() << "' x" << failure.Count;
     }
     EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
 
-    std::vector<u8> rendered;
+    TArray64<u8> rendered;
     auto* vkScene = static_cast<VulkanFramebuffer*>(sceneFramebuffer.Raw());
     ASSERT_TRUE(vkScene->GetColorAttachmentImage(0)->GetData(rendered, 0));
-    ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(rendered.Num(), static_cast<sizet>(kSize) * kSize * 4);
 
     const auto px = [&](u32 x, u32 y)
     {
@@ -5952,10 +5952,10 @@ TEST_F(VulkanPassSuite, DeferredLightingShadesAKnownGBufferAndBlitsEntityIds)
 
     // The {1}-narrowed entity blit: RT1 carries the G-buffer's 42 clear
     // everywhere — and RT0 visibly does NOT (the narrow remapped the copy).
-    std::vector<u8> entityBytes;
+    TArray64<u8> entityBytes;
     ASSERT_TRUE(vkScene->GetColorAttachmentImage(1)->GetData(entityBytes, 0));
-    ASSERT_EQ(entityBytes.size(), static_cast<sizet>(kSize) * kSize * 4);
-    const auto* entityIds = reinterpret_cast<const i32*>(entityBytes.data());
+    ASSERT_EQ(entityBytes.Num(), static_cast<sizet>(kSize) * kSize * 4);
+    const auto* entityIds = reinterpret_cast<const i32*>(entityBytes.GetData());
     for (const auto& [x, y] : { std::pair<u32, u32>{ 0, 0 }, { 64, 64 }, { 127, 127 } })
     {
         EXPECT_EQ(entityIds[static_cast<sizet>(y) * kSize + x], 42)
@@ -6249,7 +6249,7 @@ TEST_F(VulkanPassSuite, VirtualGeometryMdiCountDrawsHandAuthoredClusters)
     };
 
     auto* vkGbuffer = static_cast<VulkanFramebuffer*>(gbufferFB.Raw());
-    const auto albedoAt = [&](const std::vector<u8>& rgba, u32 x, u32 y)
+    const auto albedoAt = [&](const TArray64<u8>& rgba, u32 x, u32 y)
     {
         const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
         return std::array<int, 3>{ rgba[i], rgba[i + 1], rgba[i + 2] };
@@ -6258,11 +6258,11 @@ TEST_F(VulkanPassSuite, VirtualGeometryMdiCountDrawsHandAuthoredClusters)
     // --- chain 1: count = 2 -> both clusters land ---------------------------
     runChain(2u);
     {
-        std::vector<u8> albedo;
-        std::vector<u8> entityBytes;
+        TArray64<u8> albedo;
+        TArray64<u8> entityBytes;
         ASSERT_TRUE(vkGbuffer->GetColorAttachmentImage(0)->GetData(albedo, 0));
         ASSERT_TRUE(vkGbuffer->GetColorAttachmentImage(4)->GetData(entityBytes, 0));
-        const auto* entities = reinterpret_cast<const i32*>(entityBytes.data());
+        const auto* entities = reinterpret_cast<const i32*>(entityBytes.GetData());
 
         const auto left = albedoAt(albedo, 32, 64);
         EXPECT_NEAR(left[0], 204, 3) << "cluster 0 albedo (command 0: FirstIndex 0, BaseVertex 0)";
@@ -6283,7 +6283,7 @@ TEST_F(VulkanPassSuite, VirtualGeometryMdiCountDrawsHandAuthoredClusters)
     // --- chain 2: count = 1 (maxDrawCount still 2) -> cluster 1 vanishes ----
     runChain(1u);
     {
-        std::vector<u8> albedo;
+        TArray64<u8> albedo;
         ASSERT_TRUE(vkGbuffer->GetColorAttachmentImage(0)->GetData(albedo, 0));
         const auto left = albedoAt(albedo, 32, 64);
         EXPECT_NEAR(left[0], 204, 3) << "cluster 0 must survive the count cut";
@@ -6528,17 +6528,17 @@ TEST_F(VulkanPassSuite, VirtualGeometryMeshTasksMatchTheMdiPath)
     };
 
     auto* vkGbuffer = static_cast<VulkanFramebuffer*>(gbufferFB.Raw());
-    const auto capture = [&](std::vector<u8>& albedo, std::vector<i32>& entities)
+    const auto capture = [&](TArray64<u8>& albedo, std::vector<i32>& entities)
     {
-        std::vector<u8> entityBytes;
+        TArray64<u8> entityBytes;
         ASSERT_TRUE(vkGbuffer->GetColorAttachmentImage(0)->GetData(albedo, 0));
         ASSERT_TRUE(vkGbuffer->GetColorAttachmentImage(4)->GetData(entityBytes, 0));
-        const auto* raw = reinterpret_cast<const i32*>(entityBytes.data());
-        entities.assign(raw, raw + (entityBytes.size() / sizeof(i32)));
+        const auto* raw = reinterpret_cast<const i32*>(entityBytes.GetData());
+        entities.assign(raw, raw + (entityBytes.Num() / sizeof(i32)));
     };
 
     // --- chain 1: MDI, count 2 — the reference image ------------------------
-    std::vector<u8> mdiAlbedo;
+    TArray64<u8> mdiAlbedo;
     std::vector<i32> mdiEntities;
     runChain(/*meshPath=*/false, 2u);
     capture(mdiAlbedo, mdiEntities);
@@ -6546,15 +6546,15 @@ TEST_F(VulkanPassSuite, VirtualGeometryMeshTasksMatchTheMdiPath)
     ASSERT_EQ(mdiEntities[static_cast<sizet>(64) * kSize + 96], 7);
 
     // --- chain 2: mesh path, count 2 — must produce the SAME image ----------
-    std::vector<u8> meshAlbedo;
+    TArray64<u8> meshAlbedo;
     std::vector<i32> meshEntities;
     runChain(/*meshPath=*/true, 2u);
     capture(meshAlbedo, meshEntities);
 
-    ASSERT_EQ(meshAlbedo.size(), mdiAlbedo.size());
+    ASSERT_EQ(meshAlbedo.Num(), mdiAlbedo.Num());
     ASSERT_EQ(meshEntities.size(), mdiEntities.size());
     u32 albedoDiffs = 0;
-    sizet const albedoCount = mdiAlbedo.size();
+    sizet const albedoCount = mdiAlbedo.Num();
     for (sizet i = 0; i < albedoCount; ++i)
     {
         // Byte-exact, no tolerance: both routes run the same vertex transform
@@ -6579,7 +6579,7 @@ TEST_F(VulkanPassSuite, VirtualGeometryMeshTasksMatchTheMdiPath)
     // --- chain 3: mesh path, count 1 — the task stage must honour the count -
     runChain(/*meshPath=*/true, 1u);
     {
-        std::vector<u8> albedo;
+        TArray64<u8> albedo;
         std::vector<i32> entities;
         capture(albedo, entities);
         EXPECT_EQ(entities[static_cast<sizet>(64) * kSize + 32], 7) << "cluster 0 survives the count cut";
@@ -6609,10 +6609,10 @@ namespace
         return glm::dot(pixel / length, glm::normalize(hue)) > 0.96f;
     }
 
-    [[nodiscard]] u32 CountHuePixels(const std::vector<u8>& rgba, u32 size, const glm::vec3& hue)
+    [[nodiscard]] u32 CountHuePixels(const TArray64<u8>& rgba, u32 size, const glm::vec3& hue)
     {
         u32 count = 0;
-        for (sizet i = 0; i + 3 < rgba.size(); i += 4)
+        for (sizet i = 0; i + 3 < rgba.Num(); i += 4)
         {
             if (PixelCarriesHue(&rgba[i], hue))
                 ++count;
@@ -6955,17 +6955,17 @@ namespace
         };
         static_assert(sizeof(VgSwListHeader) == 16, "the SW list header is four words");
 
-        std::vector<u8> swListBytes(sizeof(VgSwListHeader) + (kClusterCount * sizeof(VirtualVisibleCluster)));
+        TArray64<u8> swListBytes(sizeof(VgSwListHeader) + (kClusterCount * sizeof(VirtualVisibleCluster)));
         {
             const VgSwListHeader header{ kClusterCount, kClusterCount, 1u, 1u };
-            std::memcpy(swListBytes.data(), &header, sizeof(header));
+            std::memcpy(swListBytes.GetData(), &header, sizeof(header));
             std::array<VirtualVisibleCluster, kClusterCount> records{};
             for (u32 c = 0; c < kClusterCount; ++c)
             {
                 records[c].InstanceIndex = 0u;
                 records[c].ClusterIndex = c;
             }
-            std::memcpy(swListBytes.data() + sizeof(header), records.data(), sizeof(records));
+            std::memcpy(swListBytes.GetData() + sizeof(header), records.data(), sizeof(records));
         }
         // DynamicCopy, matching VirtualMeshRegistry: the usage decides the VMA
         // memory class, and DynamicDraw would put the buffer every inner-loop
@@ -6973,11 +6973,11 @@ namespace
         // one production rasterizes into — which would quietly make the perf
         // bracket below measure a different buffer than the one that ships.
         scene.SwList =
-            StorageBuffer::Create(static_cast<u32>(swListBytes.size()), ShaderBindingLayout::SSBO_VIRTUAL_SW_LIST,
+            StorageBuffer::Create(static_cast<u32>(swListBytes.Num()), ShaderBindingLayout::SSBO_VIRTUAL_SW_LIST,
                                   StorageBufferUsage::DynamicCopy);
         if (!scene.SwList)
             return scene;
-        scene.SwList->SetData(swListBytes.data(), static_cast<u32>(swListBytes.size()));
+        scene.SwList->SetData(swListBytes.GetData(), static_cast<u32>(swListBytes.Num()));
 
         // uvec2 per pixel: .y = depth bits (atomicMin), .x = payload.
         scene.Visbuffer = StorageBuffer::Create(size * size * 2u * static_cast<u32>(sizeof(u32)),
@@ -7347,7 +7347,7 @@ TEST_F(VulkanPassSuite, VirtualGeometrySoftwareRasterReportsGpuTimingsOnVulkan)
     // ONE snapshot: the passes, the frame span and the frame identity all
     // have to describe the same resolved frame (#1337).
     const GPUPassTimerPool::FrameTimings resolved = timers.GetLastFrameTimings();
-    const std::vector<GPUPassTimerPool::PassTiming>& timings = resolved.Passes;
+    const TArray<GPUPassTimerPool::PassTiming>& timings = resolved.Passes;
     const u64 resolvedFrame = resolved.FrameNumber;
     const GpuTimingSample frameSample = resolved.Frame;
 
@@ -7366,7 +7366,7 @@ TEST_F(VulkanPassSuite, VirtualGeometrySoftwareRasterReportsGpuTimingsOnVulkan)
     const auto swRaster = std::ranges::find_if(timings, [](const GPUPassTimerPool::PassTiming& timing)
                                                { return timing.Name == "VirtualGeometryPass/SwRaster"; });
     ASSERT_NE(swRaster, timings.end())
-        << "the SwRaster sub-pass bracket produced no timing on Vulkan; " << timings.size()
+        << "the SwRaster sub-pass bracket produced no timing on Vulkan; " << timings.Num()
         << " pass timing(s) resolved";
 
     // Finite, positive, and NESTED. There is deliberately no elapsed-time
@@ -7409,7 +7409,7 @@ TEST_F(VulkanPassSuite, VirtualGeometrySoftwareRasterReportsGpuTimingsOnVulkan)
     // name: a mismatched BeginSubPass/EndSubPass pair that still produced a
     // plausible duration would pass the span check above but not this one.
     EXPECT_TRUE(swRaster->IsSubPass) << "SwRaster must be published as a sub-pass bracket";
-    EXPECT_EQ(swRaster->ParentName, "VirtualGeometryPass");
+    EXPECT_EQ(swRaster->ParentName.ToView(), "VirtualGeometryPass");
 
     // The A/B line. Shaders are runtime assets, so the same binary against two
     // versions of VirtualClusterRaster.comp compares directly on this number.
@@ -7544,18 +7544,18 @@ TEST_F(VulkanPassSuite, ShaderDebugDrawIndirectDrawsChannelsAndReadsBackStats)
     EXPECT_TRUE(debugPass->GetTarget()) << "the pass early-returned";
     for (const auto& failure : graph.GetResolveFailures())
     {
-        ADD_FAILURE() << "ShaderDebugDraw resolve failure: pass='" << failure.PassName << "' reason='"
-                      << failure.Reason << "' x" << failure.Count;
+        ADD_FAILURE() << "ShaderDebugDraw resolve failure: pass='" << failure.PassName.ToView() << "' reason='"
+                      << failure.Reason.ToView() << "' x" << failure.Count;
     }
     EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 8u)
         << "producer + one indirect draw per channel (empty channels draw with instanceCount 0)";
     EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
 
     // --- pixels: the primitives must reach the viewport ---------------------
-    std::vector<u8> rendered;
+    TArray64<u8> rendered;
     auto* vkScene = static_cast<VulkanFramebuffer*>(sceneFramebuffer.Raw());
     ASSERT_TRUE(vkScene->GetColorAttachmentImage(0)->GetData(rendered, 0));
-    ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(rendered.Num(), static_cast<sizet>(kSize) * kSize * 4);
 
     const u32 redCount = CountHuePixels(rendered, kSize, glm::vec3(1.0f, 0.0f, 0.0f));
     const u32 yellowCount = CountHuePixels(rendered, kSize, glm::vec3(1.0f, 1.0f, 0.0f));
@@ -7798,10 +7798,10 @@ TEST_F(VulkanPassSuite, FoliageInstancePullDrawsThreeTintedCards)
     EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 1u);
     EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
 
-    std::vector<u8> rendered;
+    TArray64<u8> rendered;
     auto* vkScene = static_cast<VulkanFramebuffer*>(sceneFramebuffer.Raw());
     ASSERT_TRUE(vkScene->GetColorAttachmentImage(0)->GetData(rendered, 0));
-    ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(rendered.Num(), static_cast<sizet>(kSize) * kSize * 4);
 
     const auto px = [&](u32 x, u32 y)
     {
@@ -7975,7 +7975,7 @@ TEST_F(VulkanPassSuite, GroomStrandCoatCoversPixelsUnderTheVulkanClipConvention)
         auto groomPass = Ref<GroomRenderPass>::Create();
         groomPass->Init(sceneSpec);
 
-        groomPass->SetRequests({ request });
+        groomPass->SetRequests(std::span<const GroomStrandRequest>(&request, 1));
         GroomFrameState frameState;
         frameState.FrameIndex = 1u;
         frameState.TemporalResolveActive = false;
@@ -8026,21 +8026,21 @@ TEST_F(VulkanPassSuite, GroomStrandCoatCoversPixelsUnderTheVulkanClipConvention)
 
         for (const auto& failure : graph.GetResolveFailures())
         {
-            ADD_FAILURE() << "GroomRenderPass resolve failure: pass='" << failure.PassName << "' reason='"
-                          << failure.Reason << "' x" << failure.Count;
+            ADD_FAILURE() << "GroomRenderPass resolve failure: pass='" << failure.PassName.ToView() << "' reason='"
+                          << failure.Reason.ToView() << "' x" << failure.Count;
         }
         EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u) << "a strand draw dropped silently";
 
         outStats = groomPass->GetStats();
 
-        std::vector<u8> rendered;
+        TArray64<u8> rendered;
         auto* vkScene = static_cast<VulkanFramebuffer*>(sceneFramebuffer.Raw());
         ASSERT_NE(vkScene->GetColorAttachmentImage(0), nullptr);
         ASSERT_TRUE(vkScene->GetColorAttachmentImage(0)->GetData(rendered, 0));
-        ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4);
+        ASSERT_EQ(rendered.Num(), static_cast<sizet>(kSize) * kSize * 4);
 
         outCoveredPixels = 0;
-        for (sizet i = 0; i + 3 < rendered.size(); i += 4)
+        for (sizet i = 0; i + 3 < rendered.Num(); i += 4)
         {
             // Any channel above the black clear. The coat is unlit and flat at
             // RampFloor 1.0, so a covered pixel is far above this floor.
@@ -8178,13 +8178,13 @@ TEST_F(VulkanPassSuite, ForwardOverlayEmptyBucketFloorLeavesTheSceneUntouched)
     EXPECT_FALSE(overlay->GetTarget()) << "an empty-bucket overlay must not resolve a target";
     for (const auto& failure : graph.GetResolveFailures())
     {
-        ADD_FAILURE() << "ForwardOverlay resolve failure: pass='" << failure.PassName << "' reason='"
-                      << failure.Reason << "' x" << failure.Count;
+        ADD_FAILURE() << "ForwardOverlay resolve failure: pass='" << failure.PassName.ToView() << "' reason='"
+                      << failure.Reason.ToView() << "' x" << failure.Count;
     }
     EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 1u) << "exactly the producer's draw";
     EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
 
-    std::vector<u8> rendered;
+    TArray64<u8> rendered;
     auto* vkScene = static_cast<VulkanFramebuffer*>(sceneFramebuffer.Raw());
     ASSERT_TRUE(vkScene->GetColorAttachmentImage(0)->GetData(rendered, 0));
     const sizet centre = ((static_cast<sizet>(64) * kSize) + 64) * 4;
@@ -8284,7 +8284,7 @@ TEST_F(VulkanPassSuite, ParticleBillboardsTrailsOitAndGpuIndirectDraw)
         ParticleBatchRenderer::EndBatch();
     };
 
-    const auto px = [&](const std::vector<u8>& rgba, u32 x, u32 y)
+    const auto px = [&](const TArray64<u8>& rgba, u32 x, u32 y)
     {
         const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
         return std::array<int, 3>{ rgba[i], rgba[i + 1], rgba[i + 2] };
@@ -8347,17 +8347,17 @@ TEST_F(VulkanPassSuite, ParticleBillboardsTrailsOitAndGpuIndirectDraw)
         EXPECT_TRUE(particlePass->GetTarget()) << "the pass early-returned";
         for (const auto& failure : graph.GetResolveFailures())
         {
-            ADD_FAILURE() << "Particle resolve failure: pass='" << failure.PassName << "' reason='"
-                          << failure.Reason << "' x" << failure.Count;
+            ADD_FAILURE() << "Particle resolve failure: pass='" << failure.PassName.ToView() << "' reason='"
+                          << failure.Reason.ToView() << "' x" << failure.Count;
         }
         EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 3u)
             << "producer + billboard flush + trail flush";
         EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
 
-        std::vector<u8> rendered;
+        TArray64<u8> rendered;
         auto* vkScene = static_cast<VulkanFramebuffer*>(sceneFramebuffer.Raw());
         ASSERT_TRUE(vkScene->GetColorAttachmentImage(0)->GetData(rendered, 0));
-        ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4);
+        ASSERT_EQ(rendered.Num(), static_cast<sizet>(kSize) * kSize * 4);
 
         // Billboards: centre +-0.5 NDC, half-size 0.25 => px 16..48 / 80..112,
         // rows 48..80 (y-symmetric — orientation-proof). Trail: x -0.2..0.2.
@@ -8465,29 +8465,29 @@ TEST_F(VulkanPassSuite, ParticleBillboardsTrailsOitAndGpuIndirectDraw)
         EXPECT_TRUE(particlePass->GetTarget()) << "the OIT-mode pass early-returned";
         for (const auto& failure : graph.GetResolveFailures())
         {
-            ADD_FAILURE() << "Particle OIT resolve failure: pass='" << failure.PassName << "' reason='"
-                          << failure.Reason << "' x" << failure.Count;
+            ADD_FAILURE() << "Particle OIT resolve failure: pass='" << failure.PassName.ToView() << "' reason='"
+                          << failure.Reason.ToView() << "' x" << failure.Count;
         }
         EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
 
-        std::vector<u8> accumBytes;
-        std::vector<u8> revealageBytes;
+        TArray64<u8> accumBytes;
+        TArray64<u8> revealageBytes;
         auto* vkOit = static_cast<VulkanFramebuffer*>(oitFramebuffer.Raw());
         ASSERT_TRUE(vkOit->GetColorAttachmentImage(0)->GetData(accumBytes, 0));
         ASSERT_TRUE(vkOit->GetColorAttachmentImage(1)->GetData(revealageBytes, 0));
-        ASSERT_EQ(accumBytes.size(), static_cast<sizet>(kSize) * kSize * 8);
-        ASSERT_EQ(revealageBytes.size(), static_cast<sizet>(kSize) * kSize * 4);
+        ASSERT_EQ(accumBytes.Num(), static_cast<sizet>(kSize) * kSize * 8);
+        ASSERT_EQ(revealageBytes.Num(), static_cast<sizet>(kSize) * kSize * 4);
 
         const auto accumAt = [&](u32 x, u32 y)
         {
-            const auto* halves = reinterpret_cast<const u16*>(accumBytes.data());
+            const auto* halves = reinterpret_cast<const u16*>(accumBytes.GetData());
             const sizet base = (static_cast<sizet>(y) * kSize + x) * 4;
             return std::array<f32, 4>{ HalfToFloat(halves[base]), HalfToFloat(halves[base + 1]),
                                        HalfToFloat(halves[base + 2]), HalfToFloat(halves[base + 3]) };
         };
         const auto revealageAt = [&](u32 x, u32 y)
         {
-            const auto* halves = reinterpret_cast<const u16*>(revealageBytes.data());
+            const auto* halves = reinterpret_cast<const u16*>(revealageBytes.GetData());
             return HalfToFloat(halves[(static_cast<sizet>(y) * kSize + x) * 2]);
         };
 
@@ -8634,7 +8634,7 @@ TEST_F(VulkanPassSuite, ParticleBillboardsTrailsOitAndGpuIndirectDraw)
         EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 1u) << "the one indirect draw";
         EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
 
-        std::vector<u8> rendered;
+        TArray64<u8> rendered;
         auto* vkOut = static_cast<VulkanFramebuffer*>(outputFramebuffer.Raw());
         ASSERT_TRUE(vkOut->GetColorAttachmentImage(0)->GetData(rendered, 0));
 
@@ -9024,7 +9024,7 @@ TEST_F(VulkanPassSuite, DecalGBufferModeMatrixMasksItsTargetRenderTargets)
     // centre of the decal footprint, (8, 8) is far outside it.
     struct AttachmentReadback
     {
-        std::vector<u8> Bytes;
+        TArray64<u8> Bytes;
         u32 BytesPerPixel = 4;
     };
     const auto readAttachment = [&](u32 index, u32 bytesPerPixel)
@@ -9038,8 +9038,7 @@ TEST_F(VulkanPassSuite, DecalGBufferModeMatrixMasksItsTargetRenderTargets)
     const auto texel = [&](const AttachmentReadback& rb, u32 x, u32 y)
     {
         const sizet offset = (static_cast<sizet>(y) * kSize + x) * rb.BytesPerPixel;
-        return std::vector<u8>(rb.Bytes.begin() + static_cast<std::ptrdiff_t>(offset),
-                               rb.Bytes.begin() + static_cast<std::ptrdiff_t>(offset + rb.BytesPerPixel));
+        return TArray64<u8>(rb.Bytes.GetData() + offset, static_cast<i64>(rb.BytesPerPixel));
     };
 
     // Which attachments the mode's draw MAP puts in the rendering scope. Note
@@ -9128,7 +9127,7 @@ TEST_F(VulkanPassSuite, DecalGBufferModeMatrixMasksItsTargetRenderTargets)
     {
         runMode(DrawDecalCommand::DecalMode::Emissive);
         const auto rt2 = readAttachment(2, 8);
-        const auto* halves = reinterpret_cast<const u16*>(rt2.Bytes.data());
+        const auto* halves = reinterpret_cast<const u16*>(rt2.Bytes.GetData());
         const auto emissiveAt = [&](u32 x, u32 y)
         {
             const sizet base = (static_cast<sizet>(y) * kSize + x) * 4;
@@ -9166,7 +9165,7 @@ TEST_F(VulkanPassSuite, DecalGBufferModeMatrixMasksItsTargetRenderTargets)
         EXPECT_NE(inside0[3], outside0[3]) << "RT0.a (metallic) is the RMA mode's own channel";
 
         const auto rt1 = readAttachment(1, 8);
-        const auto* halves = reinterpret_cast<const u16*>(rt1.Bytes.data());
+        const auto* halves = reinterpret_cast<const u16*>(rt1.Bytes.GetData());
         const auto normalAt = [&](u32 x, u32 y)
         {
             const sizet base = (static_cast<sizet>(y) * kSize + x) * 4;
@@ -9192,7 +9191,7 @@ TEST_F(VulkanPassSuite, DecalGBufferModeMatrixMasksItsTargetRenderTargets)
     {
         runMode(DrawDecalCommand::DecalMode::Normal);
         const auto rt1 = readAttachment(1, 8);
-        const auto* halves = reinterpret_cast<const u16*>(rt1.Bytes.data());
+        const auto* halves = reinterpret_cast<const u16*>(rt1.Bytes.GetData());
         const auto normalAt = [&](u32 x, u32 y)
         {
             const sizet base = (static_cast<sizet>(y) * kSize + x) * 4;
@@ -9225,7 +9224,7 @@ TEST_F(VulkanPassSuite, DecalGBufferModeMatrixMasksItsTargetRenderTargets)
     // their pickability over the underlying mesh.
     {
         const auto rt4 = readAttachment(4, 4);
-        const auto* ids = reinterpret_cast<const i32*>(rt4.Bytes.data());
+        const auto* ids = reinterpret_cast<const i32*>(rt4.Bytes.GetData());
         EXPECT_EQ(ids[static_cast<sizet>(64) * kSize + 64], kClearEntity)
             << "RT4 (entity id) is outside every decal draw map";
     }
@@ -9295,8 +9294,8 @@ TEST_F(VulkanPassSuite, DeferredOpaqueDecalExportsTheGBufferThroughTheGraph)
         auto texture = Texture2D::Create(exportSpec);
         if (texture)
         {
-            std::vector<u8> seed(static_cast<sizet>(kSize) * kSize * bytesPerPixel, seedValue);
-            texture->SetData(seed.data(), static_cast<u32>(seed.size()));
+            TArray64<u8> seed(static_cast<sizet>(kSize) * kSize * bytesPerPixel, seedValue);
+            texture->SetData(seed.GetData(), static_cast<u32>(seed.Num()));
         }
         return texture;
     };
@@ -9362,14 +9361,14 @@ TEST_F(VulkanPassSuite, DeferredOpaqueDecalExportsTheGBufferThroughTheGraph)
     EXPECT_TRUE(opaqueDecalPass->GetTarget()) << "the node early-returned";
     for (const auto& failure : graph.GetResolveFailures())
     {
-        ADD_FAILURE() << "DeferredOpaqueDecal resolve failure: pass='" << failure.PassName << "' reason='"
-                      << failure.Reason << "' x" << failure.Count;
+        ADD_FAILURE() << "DeferredOpaqueDecal resolve failure: pass='" << failure.PassName.ToView() << "' reason='"
+                      << failure.Reason.ToView() << "' x" << failure.Count;
     }
     EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
 
-    std::vector<u8> exported;
+    TArray64<u8> exported;
     ASSERT_TRUE(exportedAlbedo->GetData(exported, 0));
-    ASSERT_EQ(exported.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(exported.Num(), static_cast<sizet>(kSize) * kSize * 4);
     for (const auto& [x, y] : { std::pair<u32, u32>{ 8, 8 }, { 64, 64 }, { 120, 120 } })
     {
         const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
@@ -9378,11 +9377,11 @@ TEST_F(VulkanPassSuite, DeferredOpaqueDecalExportsTheGBufferThroughTheGraph)
         EXPECT_NE(exported[i], 17) << "the seed must have been overwritten — the copy has to have run";
     }
 
-    std::vector<u8> exportedNormalBytes;
+    TArray64<u8> exportedNormalBytes;
     ASSERT_TRUE(exportedNormals->GetData(exportedNormalBytes, 0));
-    ASSERT_EQ(exportedNormalBytes.size(), static_cast<sizet>(kSize) * kSize * 8);
+    ASSERT_EQ(exportedNormalBytes.Num(), static_cast<sizet>(kSize) * kSize * 8);
     {
-        const auto* halves = reinterpret_cast<const u16*>(exportedNormalBytes.data());
+        const auto* halves = reinterpret_cast<const u16*>(exportedNormalBytes.GetData());
         EXPECT_NEAR(HalfToFloat(halves[(static_cast<sizet>(64) * kSize + 64) * 4]), 0.25f, 1e-3f)
             << "the SceneNormals export is a SECOND declared slot — its RGBA16F copy must run too";
     }
@@ -9592,8 +9591,8 @@ TEST_F(VulkanPassSuite, OcclusionQueriesCountSamplesAndGateConditionalRendering)
     EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u) << "a conditional skip is not a drop";
 
     {
-        std::vector<u8> skipped;
-        std::vector<u8> drawn;
+        TArray64<u8> skipped;
+        TArray64<u8> drawn;
         auto* vkSkipped = static_cast<VulkanFramebuffer*>(skippedTarget.Raw());
         auto* vkDrawn = static_cast<VulkanFramebuffer*>(drawnTarget.Raw());
         ASSERT_TRUE(vkSkipped->GetColorAttachmentImage(0)->GetData(skipped, 0));
@@ -9731,16 +9730,16 @@ TEST_F(VulkanPassSuite, ScenePassDeferredFloorClearsTheGBufferAndBlitsTheRmaDebu
     EXPECT_EQ(scenePass->GetGBuffer()->GetWidth(), kSize);
     for (const auto& failure : graph.GetResolveFailures())
     {
-        ADD_FAILURE() << "ScenePass resolve failure: pass='" << failure.PassName << "' reason='" << failure.Reason
+        ADD_FAILURE() << "ScenePass resolve failure: pass='" << failure.PassName.ToView() << "' reason='" << failure.Reason.ToView()
                       << "' x" << failure.Count;
     }
     EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 1u) << "exactly the RMA debug gather";
     EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
 
-    std::vector<u8> rendered;
+    TArray64<u8> rendered;
     auto* vkScene = static_cast<VulkanFramebuffer*>(sceneFramebuffer.Raw());
     ASSERT_TRUE(vkScene->GetColorAttachmentImage(0)->GetData(rendered, 0));
-    ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(rendered.Num(), static_cast<sizet>(kSize) * kSize * 4);
     for (const auto& [x, y] : { std::pair<u32, u32>{ 8, 8 }, { 64, 64 }, { 120, 120 } })
     {
         const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
@@ -9750,9 +9749,9 @@ TEST_F(VulkanPassSuite, ScenePassDeferredFloorClearsTheGBufferAndBlitsTheRmaDebu
         EXPECT_EQ(rendered[i + 2], 255) << "RMA blue = ao = the G-Buffer RT1.w clear (1.0)";
     }
 
-    std::vector<u8> entityBytes;
+    TArray64<u8> entityBytes;
     ASSERT_TRUE(vkScene->GetColorAttachmentImage(1)->GetData(entityBytes, 0));
-    const auto* entityIds = reinterpret_cast<const i32*>(entityBytes.data());
+    const auto* entityIds = reinterpret_cast<const i32*>(entityBytes.GetData());
     EXPECT_EQ(entityIds[static_cast<sizet>(64) * kSize + 64], -1)
         << "the Deferred path still clears the SCENE framebuffer's non-colour attachments";
 
@@ -10692,12 +10691,12 @@ void main()
         EXPECT_EQ(args[1], chain.ExpectedInstances)
             << chain.Name << ": the cull's instanceCount decision (7 here means the dispatch never ran)";
 
-        std::vector<u8> rendered;
+        TArray64<u8> rendered;
         auto* vkPhase2 = static_cast<VulkanFramebuffer*>(chain.Phase2.Raw());
         ASSERT_TRUE(vkPhase2->GetColorAttachmentImage(0) &&
                     vkPhase2->GetColorAttachmentImage(0)->GetData(rendered, 0))
             << chain.Name << ": phase-2 readback failed";
-        ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4u);
+        ASSERT_EQ(rendered.Num(), static_cast<sizet>(kSize) * kSize * 4u);
         const sizet centre = (static_cast<sizet>(kSize / 2) * kSize + kSize / 2) * 4u;
         if (chain.ExpectedInstances == 0u)
         {
@@ -11236,7 +11235,7 @@ TEST_F(VulkanPassSuite, FinalPassBlitsThroughTheDefaultFramebufferIntoThePublish
     constexpr u8 kBottomR = 200;
     constexpr u8 kBottomG = 60;
     constexpr u8 kBottomB = 30;
-    std::vector<u8> bandRgba(static_cast<sizet>(kSize) * kSize * 4);
+    TArray64<u8> bandRgba(static_cast<sizet>(kSize) * kSize * 4);
     for (u32 y = 0; y < kSize; ++y)
     {
         const bool firstHalf = y < kSize / 2u;
@@ -11255,7 +11254,7 @@ TEST_F(VulkanPassSuite, FinalPassBlitsThroughTheDefaultFramebufferIntoThePublish
     bandSpec.Format = ImageFormat::RGBA8;
     auto patternInput = Texture2D::Create(bandSpec);
     ASSERT_NE(patternInput, nullptr);
-    patternInput->SetData(bandRgba.data(), static_cast<u32>(bandRgba.size()));
+    patternInput->SetData(bandRgba.GetData(), static_cast<u32>(bandRgba.Num()));
     auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
     ASSERT_TRUE(blitShader);
     ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
@@ -11338,8 +11337,8 @@ TEST_F(VulkanPassSuite, FinalPassBlitsThroughTheDefaultFramebufferIntoThePublish
     EXPECT_TRUE(producer->DidDraw) << "the producer pass early-returned";
     for (const auto& failure : graph.GetResolveFailures())
     {
-        ADD_FAILURE() << "FinalRenderPass: resolve failure pass='" << failure.PassName << "' reason='"
-                      << failure.Reason << "' x" << failure.Count;
+        ADD_FAILURE() << "FinalRenderPass: resolve failure pass='" << failure.PassName.ToView() << "' reason='"
+                      << failure.Reason.ToView() << "' x" << failure.Count;
     }
     EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 2u)
         << "the producer's blit and the final blit must BOTH record — a final blit dropped for want of a "
@@ -11347,17 +11346,17 @@ TEST_F(VulkanPassSuite, FinalPassBlitsThroughTheDefaultFramebufferIntoThePublish
     EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u) << "a draw dropped silently";
     EXPECT_TRUE(armOneFinalized) << "the frame never touched the backbuffer";
 
-    std::vector<u8> presented;
+    TArray64<u8> presented;
     ASSERT_TRUE(backbufferImage->GetData(presented, 0)) << "backbuffer readback failed";
-    ASSERT_EQ(presented.size(), static_cast<sizet>(kSize) * kSize * 4);
-    std::vector<u8> chain;
+    ASSERT_EQ(presented.Num(), static_cast<sizet>(kSize) * kSize * 4);
+    TArray64<u8> chain;
     auto* vkChain = static_cast<VulkanFramebuffer*>(chainFramebuffer.Raw());
     ASSERT_TRUE(vkChain->GetColorAttachmentImage(0) != nullptr &&
                 vkChain->GetColorAttachmentImage(0)->GetData(chain, 0))
         << "chain framebuffer readback failed";
-    ASSERT_EQ(chain.size(), presented.size());
+    ASSERT_EQ(chain.Num(), presented.Num());
 
-    const auto texel = [&](const std::vector<u8>& image, u32 x, u32 y, u32 channel)
+    const auto texel = [&](const TArray64<u8>& image, u32 x, u32 y, u32 channel)
     { return static_cast<int>(image[(static_cast<sizet>(y) * kSize + x) * 4 + channel]); };
 
     // Content: both bands survived the two blits (no clear, no black frame).
@@ -11428,9 +11427,9 @@ TEST_F(VulkanPassSuite, FinalPassBlitsThroughTheDefaultFramebufferIntoThePublish
            "silently replaces the pass's own clear colour";
     EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 0u) << "arm 2 records no draw by construction";
 
-    std::vector<u8> cleared;
+    TArray64<u8> cleared;
     ASSERT_TRUE(backbufferImage->GetData(cleared, 0)) << "backbuffer readback failed";
-    ASSERT_EQ(cleared.size(), presented.size());
+    ASSERT_EQ(cleared.Num(), presented.Num());
     const auto clearedTexel = [&](u32 x, u32 y, u32 channel)
     { return static_cast<int>(cleared[(static_cast<sizet>(y) * kSize + x) * 4 + channel]); };
     for (const auto& [x, y] : { std::pair<u32, u32>{ 4, 4 }, { 64, 64 }, { 123, 123 } })
@@ -11641,27 +11640,27 @@ TEST_F(VulkanPassSuite, ReadTextureSubImageReadsBackUploadedTexelsWithConversion
     auto texture = Texture2D::Create(spec);
     ASSERT_NE(texture, nullptr);
 
-    std::vector<u8> texels(static_cast<sizet>(kSize) * kSize * 4u);
+    TArray64<u8> texels(static_cast<sizet>(kSize) * kSize * 4u);
     for (u32 y = 0; y < kSize; ++y)
     {
         for (u32 x = 0; x < kSize; ++x)
         {
-            u8* t = texels.data() + (static_cast<sizet>(y) * kSize + x) * 4u;
+            u8* t = texels.GetData() + (static_cast<sizet>(y) * kSize + x) * 4u;
             t[0] = static_cast<u8>(x * 16u);
             t[1] = static_cast<u8>(y * 16u);
             t[2] = 128u;
             t[3] = 255u;
         }
     }
-    texture->SetData(texels.data(), static_cast<u32>(texels.size()));
+    texture->SetData(texels.GetData(), static_cast<u32>(texels.Num()));
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
     const u64 stubsBefore = api.GetUnimplementedStubHitCount();
 
     // Identity: RGBA8 image read as RGBA8 — byte-exact, no row flip.
-    std::vector<u8> identity(texels.size(), 0u);
+    TArray64<u8> identity(texels.Num(), 0u);
     ASSERT_TRUE(api.ReadTextureSubImage(texture->GetRHIHandle(), 0, 0, 0, 0, kSize, kSize, 1u,
-                                        RHI::Format::RGBA8UNorm, identity.size(), identity.data()));
+                                        RHI::Format::RGBA8UNorm, identity.Num(), identity.GetData()));
     EXPECT_EQ(identity, texels) << "identity readback must return the uploaded bytes verbatim";
 
     // Conversion: the render-graph/MCP capture shape — any attachment read
@@ -11676,17 +11675,17 @@ TEST_F(VulkanPassSuite, ReadTextureSubImageReadsBackUploadedTexelsWithConversion
     EXPECT_NEAR(floats[probe + 3], 1.0f, 1.0e-6f);
 
     // Sub-region: 2x2 at (4, 2), image coordinates.
-    std::vector<u8> region(2u * 2u * 4u, 0u);
+    TArray64<u8> region(2u * 2u * 4u, 0u);
     ASSERT_TRUE(api.ReadTextureSubImage(texture->GetRHIHandle(), 0, 4, 2, 0, 2u, 2u, 1u,
-                                        RHI::Format::RGBA8UNorm, region.size(), region.data()));
+                                        RHI::Format::RGBA8UNorm, region.Num(), region.GetData()));
     EXPECT_EQ(region[0], 64u) << "region texel (0,0) must be image texel (4,2).r";
     EXPECT_EQ(region[1], 32u) << "region texel (0,0) must be image texel (4,2).g";
     EXPECT_EQ(region[4], 80u) << "region texel (1,0) must be image texel (5,2).r";
 
     // Whole-level convenience wrapper sizes the read from the registry extent.
-    std::vector<u8> whole(texels.size(), 0u);
-    ASSERT_TRUE(api.ReadTextureImage(texture->GetRHIHandle(), 0, RHI::Format::RGBA8UNorm, whole.size(),
-                                     whole.data()));
+    TArray64<u8> whole(texels.Num(), 0u);
+    ASSERT_TRUE(api.ReadTextureImage(texture->GetRHIHandle(), 0, RHI::Format::RGBA8UNorm, whole.Num(),
+                                     whole.GetData()));
     EXPECT_EQ(whole, texels);
 
     // Half-float client contract (#691): the GL facade takes f32 PER
@@ -11864,10 +11863,10 @@ TEST_F(VulkanPassSuite, InterleavedInstanceBufferUploadsKeepCommandOrderAcrossDr
     EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 2u);
     EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
 
-    std::vector<u8> rendered;
+    TArray64<u8> rendered;
     auto* vkScene = static_cast<VulkanFramebuffer*>(sceneFramebuffer.Raw());
     ASSERT_TRUE(vkScene->GetColorAttachmentImage(0)->GetData(rendered, 0));
-    ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(rendered.Num(), static_cast<sizet>(kSize) * kSize * 4);
 
     const auto px = [&](u32 x, u32 y)
     {

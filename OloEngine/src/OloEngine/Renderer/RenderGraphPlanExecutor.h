@@ -31,7 +31,7 @@ namespace OloEngine::RenderGraphPlanExecutor
         RGCommandContext& Context;
         bool RuntimeBarrierExecutionEnabled = true;
         // Predicate: returns true when the named pass survived culling.
-        std::function<bool(const std::string&)> IsPassReachable;
+        std::function<bool(std::string_view)> IsPassReachable;
         // Optional batch-event hook (fires on each `BatchBegin` / `BatchEnd`).
         RenderGraph::BatchEventCallback BatchEventHook;
         // Optional post-pass hook (fires after every `EndPass`, before the
@@ -65,5 +65,5 @@ namespace OloEngine::RenderGraphPlanExecutor
     // Runs the IR walk and returns per-pass CPU timings (one entry per
     // executed pass; passes that were skipped because they failed the
     // reachability predicate produce no entry).
-    [[nodiscard]] auto ExecutePlan(const ExecuteInput& input) -> std::vector<RenderGraph::ExecutionTiming>;
+    [[nodiscard]] auto ExecutePlan(const ExecuteInput& input) -> TArray64<RenderGraph::ExecutionTiming>;
 } // namespace OloEngine::RenderGraphPlanExecutor

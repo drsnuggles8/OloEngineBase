@@ -1441,7 +1441,7 @@ namespace OloEngine
         OLO_CORE_ASSERT(entity);
         if (!entity.HasComponent<InstancedMeshComponent>())
             return 0;
-        return static_cast<i32>(entity.GetComponent<InstancedMeshComponent>().Instances.size());
+        return static_cast<i32>(entity.GetComponent<InstancedMeshComponent>().Instances.Num());
     }
 
     static void InstancedMeshComponent_AddInstance(UUID entityID, glm::vec3* position, glm::vec3* eulerRotation, glm::vec3* scale, glm::vec4* color, f32 custom, i32 instanceEntityID)
@@ -1464,7 +1464,7 @@ namespace OloEngine
         inst.Color = *color;
         inst.Custom = custom;
         inst.EntityID = instanceEntityID;
-        entity.GetComponent<InstancedMeshComponent>().Instances.push_back(inst);
+        entity.GetComponent<InstancedMeshComponent>().Instances.Add(inst);
     }
 
     static void InstancedMeshComponent_ClearInstances(UUID entityID)
@@ -1475,7 +1475,7 @@ namespace OloEngine
         Entity entity = scene->GetEntityByUUID(entityID);
         OLO_CORE_ASSERT(entity);
         if (entity.HasComponent<InstancedMeshComponent>())
-            entity.GetComponent<InstancedMeshComponent>().Instances.clear();
+            entity.GetComponent<InstancedMeshComponent>().Instances.Reset();
     }
 
     static bool InstancedMeshComponent_GetCastShadows(UUID entityID)
@@ -1710,7 +1710,7 @@ namespace OloEngine
         auto& agent = entity.GetComponent<NavAgentComponent>();
         agent.m_HasTarget = false;
         agent.m_HasPath = false;
-        agent.m_PathCorners.clear();
+        agent.m_PathCorners.Reset();
         agent.m_CurrentCornerIndex = 0;
     }
 

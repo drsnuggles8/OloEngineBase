@@ -1,4 +1,5 @@
 #pragma once
+#include <span>
 
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include <atomic>
@@ -121,8 +122,8 @@ namespace OloEngine
         // Platform/<Backend>/'s business.
         [[nodiscard]] virtual RHI::ResourceHandle GetRHIHandle() const = 0;
 
-        [[nodiscard("Store this!")]] virtual const std::string& GetName() const = 0;
-        [[nodiscard("Store this!")]] virtual const std::string& GetFilePath() const = 0;
+        [[nodiscard("Store this!")]] virtual std::string GetName() const = 0;
+        [[nodiscard("Store this!")]] virtual std::string GetFilePath() const = 0;
 
         // Recompile from the source on disk. Returns true when the NEW program (or
         // modules) is live, false when the compile failed and the previous one was
@@ -216,7 +217,7 @@ namespace OloEngine
         // its progress only moves during FinalizeBatch(), which does not
         // take a progressCounter because it must already be on the render
         // thread when it runs.
-        static std::vector<Ref<Shader>> PrepareBatch(const std::vector<std::string>& filepaths, std::atomic<u32>* progressCounter = nullptr);
+        static TArray<Ref<Shader>> PrepareBatch(std::span<const FString> filepaths, std::atomic<u32>* progressCounter = nullptr);
 
         // `alreadyFinal[i]` marks an entry that is already a fully created,
         // linked shader (e.g. loaded from a shader pack upstream of
@@ -225,7 +226,7 @@ namespace OloEngine
         // `filepaths` must be the same list (same order) passed to the
         // PrepareBatch() call that produced `prepared` — needed by a backend
         // that deferred its entire Create() here (see PrepareBatch() above).
-        static std::vector<Ref<Shader>> FinalizeBatch(const std::vector<std::string>& filepaths, std::vector<Ref<Shader>> prepared, const std::vector<bool>& alreadyFinal);
+        static TArray<Ref<Shader>> FinalizeBatch(std::span<const FString> filepaths, TArray<Ref<Shader>> prepared, std::span<const bool> alreadyFinal);
 
       protected:
         // Call only after a replacement program is live. A failed reload that

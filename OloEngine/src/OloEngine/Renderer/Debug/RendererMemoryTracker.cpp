@@ -52,10 +52,10 @@ namespace OloEngine
         }
 
         // Initialize history arrays
-        m_MemoryHistory.resize(OLO_HISTORY_SIZE, 0.0f);
-        m_AllocationHistory.resize(OLO_HISTORY_SIZE, 0.0f);
-        m_GPUMemoryHistory.resize(OLO_HISTORY_SIZE, 0.0f);
-        m_CPUMemoryHistory.resize(OLO_HISTORY_SIZE, 0.0f);
+        m_MemoryHistory.Init(0.0f, OLO_HISTORY_SIZE);
+        m_AllocationHistory.Init(0.0f, OLO_HISTORY_SIZE);
+        m_GPUMemoryHistory.Init(0.0f, OLO_HISTORY_SIZE);
+        m_CPUMemoryHistory.Init(0.0f, OLO_HISTORY_SIZE);
         // Initialize type usage tracking
         for (u32 i = 0; i < static_cast<u32>(std::to_underlying(ResourceType::COUNT)); ++i)
         {
@@ -142,8 +142,8 @@ namespace OloEngine
                         continue;
                     ++listed;
                     OLO_CORE_WARN("[Teardown]   e.g. {} '{}' ({} bytes) created at {}:{}",
-                                  GetResourceTypeName(info.m_Type), info.m_Name, info.m_Size,
-                                  info.m_File, info.m_Line);
+                                  GetResourceTypeName(info.m_Type), info.m_Name.ToView(), info.m_Size,
+                                  info.m_File.ToView(), info.m_Line);
                 }
             }
         }
@@ -241,7 +241,7 @@ namespace OloEngine
         info.m_Address = address;
         info.m_Size = size;
         info.m_Type = type;
-        info.m_Name = name;
+        info.m_Name = FString(name);
         info.m_File = file ? file : "Unknown";
         info.m_Line = line;
         info.m_Timestamp = DebugUtils::GetCurrentTimeSeconds();
@@ -261,7 +261,7 @@ namespace OloEngine
             const AllocationInfo& old = stale->second;
             OLO_CORE_WARN("Double allocation at address {0}: '{1}' ({2} bytes, tracked at {3}:{4}) was never "
                           "untracked before '{5}' reused the address — its destructor is missing OLO_TRACK_DEALLOC",
-                          address, old.m_Name, old.m_Size, old.m_File, old.m_Line, name);
+                          address, old.m_Name.ToView(), old.m_Size, old.m_File.ToView(), old.m_Line, name);
 
             const sizet oldType = static_cast<sizet>(std::to_underlying(old.m_Type));
             m_TypeUsage[oldType] -= std::min(m_TypeUsage[oldType], old.m_Size);
@@ -568,11 +568,11 @@ namespace OloEngine
                 ImGui::Text("%s", info.m_IsGPU ? "GPU" : "CPU");
 
                 ImGui::TableSetColumnIndex(4);
-                ImGui::Text("%s", info.m_Name.c_str());
+                ImGui::Text("%s", info.m_Name.GetData());
 
                 ImGui::TableSetColumnIndex(5);
                 // Extract filename from full path
-                std::string filename = info.m_File;
+                std::string filename = info.m_File.ToStdString();
                 if (sizet lastSlash = filename.find_last_of("/\\"); lastSlash != std::string::npos)
                     filename = filename.substr(lastSlash + 1);
                 ImGui::Text("%s:%u", filename.c_str(), info.m_Line);
@@ -598,8 +598,8 @@ namespace OloEngine
                 ImGui::Text("Size: %s (%zu bytes)", DebugUtils::FormatMemorySize(info.m_Size).c_str(), info.m_Size);
                 ImGui::Text("Type: %s", GetResourceTypeName(info.m_Type).c_str());
                 ImGui::Text("Location: %s", info.m_IsGPU ? "GPU" : "CPU");
-                ImGui::Text("Name: %s", info.m_Name.c_str());
-                ImGui::Text("Source: %s:%u", info.m_File.c_str(), info.m_Line);
+                ImGui::Text("Name: %s", info.m_Name.GetData());
+                ImGui::Text("Source: %s:%u", info.m_File.GetData(), info.m_Line);
 
                 f64 currentTime2 = DebugUtils::GetCurrentTimeSeconds();
                 f64 age = currentTime2 - info.m_Timestamp;
@@ -641,7 +641,7 @@ namespace OloEngine
         ImGui::Separator();
 
         // Detect and display potential leaks inline (avoid double locking)
-        std::vector<LeakInfo> leaks;
+        TArray<LeakInfo> leaks;
         f64 currentTime = DebugUtils::GetCurrentTimeSeconds();
 
         for (const auto& [address, info] : m_Allocations)
@@ -653,17 +653,17 @@ namespace OloEngine
                 leak.m_Allocation = info;
                 leak.m_AgeSeconds = age;
                 leak.m_IsSuspicious = (age > m_LeakDetectionThreshold * 2.0); // Very old allocations are suspicious
-                leaks.push_back(leak);
+                leaks.Add(leak);
             }
         }
 
-        if (leaks.empty())
+        if (leaks.IsEmpty())
         {
             ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "No potential memory leaks detected!");
         }
         else
         {
-            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "Potential memory leaks detected: %zu", leaks.size());
+            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "Potential memory leaks detected: %d", leaks.Num());
 
             if (ImGui::BeginTable("Leaks", 6, ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg))
             {
@@ -693,7 +693,7 @@ namespace OloEngine
                     ImGui::Text("%.1fs", leak.m_AgeSeconds);
 
                     ImGui::TableSetColumnIndex(4);
-                    ImGui::Text("%s", leak.m_Allocation.m_Name.c_str());
+                    ImGui::Text("%s", leak.m_Allocation.m_Name.GetData());
 
                     ImGui::TableSetColumnIndex(5);
                     if (leak.m_IsSuspicious)
@@ -718,12 +718,12 @@ namespace OloEngine
         ImGui::Separator();
 
         // Calculate pool statistics based on allocation patterns
-        std::map<ResourceType, std::vector<sizet>> allocationSizes;
+        std::map<ResourceType, TArray<sizet>> allocationSizes;
         std::map<ResourceType, sizet> totalTypeMemory;
 
         for (const auto& [address, info] : m_Allocations)
         {
-            allocationSizes[info.m_Type].push_back(info.m_Size);
+            allocationSizes[info.m_Type].Add(info.m_Size);
             totalTypeMemory[info.m_Type] += info.m_Size;
         }
 
@@ -735,30 +735,30 @@ namespace OloEngine
                 continue;
 
             auto& sizes = allocationSizes[type];
-            if (sizes.empty())
+            if (sizes.IsEmpty())
                 continue;
 
             ImGui::Text("%s Pool:", GetResourceTypeName(type).c_str());
             ImGui::Indent();
 
             // Count and total memory
-            ImGui::Text("Active Allocations: %zu", sizes.size());
+            ImGui::Text("Active Allocations: %d", sizes.Num());
             ImGui::Text("Total Memory: %s", DebugUtils::FormatMemorySize(totalTypeMemory[type]).c_str());
 
             // Calculate min, max, average
             auto minMax = std::minmax_element(sizes.begin(), sizes.end());
             sizet minSize = *minMax.first;
             sizet maxSize = *minMax.second;
-            sizet avgSize = totalTypeMemory[type] / sizes.size();
+            sizet avgSize = totalTypeMemory[type] / sizes.Num();
             ImGui::Text("Size Range: %s - %s", DebugUtils::FormatMemorySize(minSize).c_str(), DebugUtils::FormatMemorySize(maxSize).c_str());
             ImGui::Text("Average Size: %s", DebugUtils::FormatMemorySize(avgSize).c_str());
 
             // Pool utilization (simple metric based on allocation count vs total memory)
-            f32 utilization = sizes.size() > 0 ? static_cast<f32>(totalTypeMemory[type]) / (sizes.size() * maxSize) * 100.0f : 0.0f;
+            f32 utilization = sizes.Num() > 0 ? static_cast<f32>(totalTypeMemory[type]) / (sizes.Num() * maxSize) * 100.0f : 0.0f;
             ImGui::Text("Pool Utilization: %.1f%%", utilization);
 
             // Fragmentation estimate (high variance = more fragmentation)
-            if (sizes.size() > 1)
+            if (sizes.Num() > 1)
             {
                 f64 variance = 0.0;
                 for (sizet size : sizes)
@@ -766,7 +766,7 @@ namespace OloEngine
                     f64 diff = static_cast<f64>(size) - static_cast<f64>(avgSize);
                     variance += diff * diff;
                 }
-                variance /= sizes.size();
+                variance /= sizes.Num();
                 f64 stdDev = std::sqrt(variance);
                 f32 fragmentation = static_cast<f32>(stdDev / avgSize * 100.0);
 
@@ -786,23 +786,23 @@ namespace OloEngine
     void RendererMemoryTracker::RenderHistoryGraphs()
     {
         // Memory usage over time
-        if (!m_MemoryHistory.empty())
+        if (!m_MemoryHistory.IsEmpty())
         {
             ImGui::Text("Memory Usage History:");
-            ImGui::PlotLines("Total Memory", m_MemoryHistory.data(),
-                             (i32)m_MemoryHistory.size(), m_HistoryIndex,
+            ImGui::PlotLines("Total Memory", m_MemoryHistory.GetData(),
+                             (i32)m_MemoryHistory.Num(), m_HistoryIndex,
                              nullptr, 0.0f, FLT_MAX, ImVec2(0, 80));
 
-            ImGui::PlotLines("GPU Memory", m_GPUMemoryHistory.data(),
-                             (i32)m_GPUMemoryHistory.size(), m_HistoryIndex,
+            ImGui::PlotLines("GPU Memory", m_GPUMemoryHistory.GetData(),
+                             (i32)m_GPUMemoryHistory.Num(), m_HistoryIndex,
                              nullptr, 0.0f, FLT_MAX, ImVec2(0, 60));
 
-            ImGui::PlotLines("CPU Memory", m_CPUMemoryHistory.data(),
-                             (i32)m_CPUMemoryHistory.size(), m_HistoryIndex,
+            ImGui::PlotLines("CPU Memory", m_CPUMemoryHistory.GetData(),
+                             (i32)m_CPUMemoryHistory.Num(), m_HistoryIndex,
                              nullptr, 0.0f, FLT_MAX, ImVec2(0, 60));
 
-            ImGui::PlotLines("Allocation Count", m_AllocationHistory.data(),
-                             (i32)m_AllocationHistory.size(), m_HistoryIndex,
+            ImGui::PlotLines("Allocation Count", m_AllocationHistory.GetData(),
+                             (i32)m_AllocationHistory.Num(), m_HistoryIndex,
                              nullptr, 0.0f, FLT_MAX, ImVec2(0, 60));
         }
     }
@@ -834,10 +834,10 @@ namespace OloEngine
         return m_TypeCounts[static_cast<sizet>(std::to_underlying(type))];
     }
 
-    std::vector<RendererMemoryTracker::LeakInfo> RendererMemoryTracker::DetectLeaks() const
+    TArray<RendererMemoryTracker::LeakInfo> RendererMemoryTracker::DetectLeaks() const
     {
         TUniqueLock<FMutex> lock(m_Mutex);
-        std::vector<LeakInfo> leaks;
+        TArray<LeakInfo> leaks;
         f64 currentTime = DebugUtils::GetCurrentTimeSeconds();
 
         for (const auto& [address, info] : m_Allocations)
@@ -849,7 +849,7 @@ namespace OloEngine
                 leak.m_Allocation = info;
                 leak.m_AgeSeconds = age;
                 leak.m_IsSuspicious = (age > m_LeakDetectionThreshold * 2.0); // Very old allocations are suspicious
-                leaks.push_back(leak);
+                leaks.Add(leak);
             }
         }
 
@@ -971,8 +971,8 @@ namespace OloEngine
                      << info.m_Size << ","
                      << GetResourceTypeName(info.m_Type) << ","
                      << (info.m_IsGPU ? "GPU" : "CPU") << ","
-                     << info.m_Name << ","
-                     << info.m_File << ","
+                     << info.m_Name.ToView() << ","
+                     << info.m_File.ToView() << ","
                      << info.m_Line << ","
                      << std::fixed << std::setprecision(1) << age << "\n";
             }

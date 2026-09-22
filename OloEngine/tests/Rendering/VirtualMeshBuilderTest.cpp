@@ -375,9 +375,9 @@ static std::vector<std::array<PositionKey, 3>> CanonicalSourceTriangles(const Me
 // Watertightness of a cluster selection on a CLOSED manifold: every undirected edge of
 // the selected triangle set must be shared by exactly two triangles. A crack (mismatched
 // LOD boundary), a hole, or double-coverage all break the exactly-two property.
-static void ExpectWatertightSelection(const VirtualMesh& vm, const std::vector<u32>& selected, const char* label)
+static void ExpectWatertightSelection(const VirtualMesh& vm, const TArray<u32>& selected, const char* label)
 {
-    ASSERT_FALSE(selected.empty()) << label << ": selection is empty";
+    ASSERT_FALSE(selected.IsEmpty()) << label << ": selection is empty";
 
     std::map<std::pair<PositionKey, PositionKey>, int> edgeCounts;
     for (u32 const clusterIndex : selected)
@@ -433,7 +433,7 @@ static std::vector<f32> InterestingThresholds(const VirtualMesh& vm)
     return thresholds;
 }
 
-static u32 SelectedTriangleCount(const VirtualMesh& vm, const std::vector<u32>& selected)
+static u32 SelectedTriangleCount(const VirtualMesh& vm, const TArray<u32>& selected)
 {
     u32 total = 0;
     for (u32 const clusterIndex : selected)
@@ -522,7 +522,7 @@ TEST(VirtualMeshBuilder, BuildProducesStructurallyValidDAG)
 
     // Group ranges tile Clusters contiguously and agree with each cluster's GroupIndex
     u64 runningFirst = 0;
-    for (sizet g = 0; g < vm.Groups.size(); ++g)
+    for (sizet g = 0; g < static_cast<sizet>(vm.Groups.Num()); ++g)
     {
         const VirtualClusterGroup& group = vm.Groups[g];
         EXPECT_EQ(group.FirstCluster, runningFirst);
@@ -535,7 +535,7 @@ TEST(VirtualMeshBuilder, BuildProducesStructurallyValidDAG)
             EXPECT_EQ(vm.Clusters[c].GroupIndex, static_cast<i32>(g));
         }
     }
-    EXPECT_EQ(runningFirst, vm.Clusters.size());
+    EXPECT_EQ(runningFirst, static_cast<sizet>(vm.Clusters.Num()));
 
     for (const VirtualCluster& cluster : vm.Clusters)
     {
@@ -544,9 +544,9 @@ TEST(VirtualMeshBuilder, BuildProducesStructurallyValidDAG)
         EXPECT_GT(cluster.VertexCount, 0u);
         EXPECT_LE(cluster.VertexCount, defaults.MaxClusterVertices);
 
-        ASSERT_LE(static_cast<u64>(cluster.VertexOffset) + cluster.VertexCount, vm.ClusterVertexRefs.size());
+        ASSERT_LE(static_cast<u64>(cluster.VertexOffset) + cluster.VertexCount, static_cast<sizet>(vm.ClusterVertexRefs.Num()));
         ASSERT_LE(static_cast<u64>(cluster.TriangleOffset) + (static_cast<u64>(cluster.TriangleCount) * 3),
-                  vm.ClusterTriangles.size());
+                  static_cast<sizet>(vm.ClusterTriangles.Num()));
 
         for (u32 t = 0; t < cluster.TriangleCount * 3; ++t)
         {
@@ -554,12 +554,12 @@ TEST(VirtualMeshBuilder, BuildProducesStructurallyValidDAG)
         }
         for (u32 v = 0; v < cluster.VertexCount; ++v)
         {
-            EXPECT_LT(vm.ClusterVertexRefs[cluster.VertexOffset + v], vm.Vertices.size());
+            EXPECT_LT(vm.ClusterVertexRefs[cluster.VertexOffset + v], static_cast<sizet>(vm.Vertices.Num()));
         }
 
         if (cluster.RefinedGroup >= 0)
         {
-            EXPECT_LT(static_cast<sizet>(cluster.RefinedGroup), vm.Groups.size());
+            EXPECT_LT(static_cast<sizet>(cluster.RefinedGroup), static_cast<sizet>(vm.Groups.Num()));
         }
     }
 
@@ -576,7 +576,7 @@ TEST(VirtualMeshBuilder, LeafClustersExactlyPartitionSourceTriangles)
         ASSERT_TRUE(vm.IsValid());
 
         std::vector<u32> leaves;
-        for (sizet i = 0; i < vm.Clusters.size(); ++i)
+        for (sizet i = 0; i < static_cast<sizet>(vm.Clusters.Num()); ++i)
         {
             if (vm.Clusters[i].RefinedGroup < 0)
             {
@@ -751,14 +751,14 @@ TEST(VirtualMeshBuilder, CutAtNegativeThresholdSelectsExactlyTheLeafClusters)
 
     auto selected = vm.SelectClusters(-1.0f);
     std::vector<u32> leaves;
-    for (sizet i = 0; i < vm.Clusters.size(); ++i)
+    for (sizet i = 0; i < static_cast<sizet>(vm.Clusters.Num()); ++i)
     {
         if (vm.Clusters[i].RefinedGroup < 0)
         {
             leaves.push_back(static_cast<u32>(i));
         }
     }
-    EXPECT_EQ(selected, leaves) << "a threshold below every error must select the full-detail cut";
+    EXPECT_TRUE(std::ranges::equal(selected, leaves)) << "a threshold below every error must select the full-detail cut";
 }
 
 TEST(VirtualMeshBuilder, CutIsWatertightAtEveryThreshold)
@@ -812,7 +812,7 @@ TEST(VirtualMeshBuilder, SeamedMeshCutsStayWatertightAcrossDuplicatedVertices)
 
     // The full-detail cut still carries exactly the source surface
     std::vector<u32> leaves;
-    for (sizet i = 0; i < vm.Clusters.size(); ++i)
+    for (sizet i = 0; i < static_cast<sizet>(vm.Clusters.Num()); ++i)
     {
         if (vm.Clusters[i].RefinedGroup < 0)
         {
@@ -923,7 +923,7 @@ TEST(VirtualMeshBuilder, SloppyFallbackAloneStillProducesWatertightCuts)
     // an equality, both because comparing floats with == is wrong and because it makes the check
     // below catch a non-finite error for free: NaN >= FLT_MAX is false, so a NaN falls through to
     // the EXPECT_GT, which it also fails.
-    for (sizet i = 0; i < vm.Groups.size(); ++i)
+    for (sizet i = 0; i < static_cast<sizet>(vm.Groups.Num()); ++i)
     {
         const VirtualClusterGroup& group = vm.Groups[i];
         if (group.LODBounds.Error >= std::numeric_limits<f32>::max())
@@ -970,7 +970,7 @@ TEST(VirtualMeshBuilder, TerminalGroupBoundaryStaysLockedForTheRestOfTheBuild)
         }
     }
     ASSERT_GT(terminalGroups, 0u) << "no terminal group — fixture does not exercise the seam";
-    ASSERT_LT(terminalGroups, vm.Groups.size()) << "every group is terminal — nothing simplifies";
+    ASSERT_LT(terminalGroups, static_cast<sizet>(vm.Groups.Num())) << "every group is terminal — nothing simplifies";
 
     for (f32 const threshold : InterestingThresholds(vm))
     {
@@ -1086,7 +1086,7 @@ TEST(VirtualMeshBuilder, BuildSetEmitsOneDagPerSubmesh)
 
     VirtualMeshSet const set = VirtualMeshBuilder::BuildSet(*multi);
     ASSERT_TRUE(set.IsValid());
-    ASSERT_EQ(set.Parts.size(), 2u);
+    ASSERT_EQ(static_cast<sizet>(set.Parts.Num()), 2u);
 
     // Each part carries the submesh it came from and that submesh's material.
     EXPECT_EQ(set.Parts[0].SubmeshIndex, 0u);
@@ -1113,7 +1113,7 @@ TEST(VirtualMeshBuilder, BuildSetTreatsASubmeshlessSourceAsOnePart)
     VirtualMeshSet const set = VirtualMeshBuilder::BuildSet(*mesh);
 
     ASSERT_TRUE(set.IsValid());
-    ASSERT_EQ(set.Parts.size(), 1u);
+    ASSERT_EQ(static_cast<sizet>(set.Parts.Num()), 1u);
     EXPECT_EQ(set.Parts[0].SubmeshIndex, 0u);
     EXPECT_EQ(set.TotalSourceTriangles(), static_cast<u32>(mesh->GetIndices().Num()) / 3u);
 }
@@ -1139,20 +1139,20 @@ TEST(VirtualMeshSerializer, SetBlobRoundTripsEveryPart)
     multi->AddSubmesh(second);
 
     VirtualMeshSet const built = VirtualMeshBuilder::BuildSet(*multi);
-    ASSERT_EQ(built.Parts.size(), 2u);
+    ASSERT_EQ(static_cast<sizet>(built.Parts.Num()), 2u);
 
     std::vector<u8> const blob = VirtualMeshSerializer::SerializeSetToBlob(built);
     ASSERT_FALSE(blob.empty());
 
     VirtualMeshSet restored;
     ASSERT_TRUE(VirtualMeshSerializer::DeserializeSetFromBlob(blob, restored));
-    ASSERT_EQ(restored.Parts.size(), built.Parts.size());
+    ASSERT_EQ(static_cast<sizet>(restored.Parts.Num()), static_cast<sizet>(built.Parts.Num()));
 
-    for (sizet i = 0; i < built.Parts.size(); ++i)
+    for (sizet i = 0; i < static_cast<sizet>(built.Parts.Num()); ++i)
     {
         EXPECT_EQ(restored.Parts[i].SubmeshIndex, built.Parts[i].SubmeshIndex);
         EXPECT_EQ(restored.Parts[i].MaterialIndex, built.Parts[i].MaterialIndex);
-        EXPECT_EQ(restored.Parts[i].Dag.Clusters.size(), built.Parts[i].Dag.Clusters.size());
+        EXPECT_EQ(static_cast<sizet>(restored.Parts[i].Dag.Clusters.Num()), static_cast<sizet>(built.Parts[i].Dag.Clusters.Num()));
         EXPECT_EQ(restored.Parts[i].Dag.SourceTriangleCount, built.Parts[i].Dag.SourceTriangleCount);
     }
     EXPECT_EQ(restored.Parts[1].MaterialIndex, 7u);
@@ -1170,9 +1170,9 @@ TEST(VirtualMeshSerializer, SetReaderAcceptsALegacySingleDagBlob)
 
     VirtualMeshSet restored;
     ASSERT_TRUE(VirtualMeshSerializer::DeserializeSetFromBlob(legacyBlob, restored));
-    ASSERT_EQ(restored.Parts.size(), 1u);
+    ASSERT_EQ(static_cast<sizet>(restored.Parts.Num()), 1u);
     EXPECT_EQ(restored.Parts[0].SubmeshIndex, 0u);
-    EXPECT_EQ(restored.Parts[0].Dag.Clusters.size(), single.Clusters.size());
+    EXPECT_EQ(static_cast<sizet>(restored.Parts[0].Dag.Clusters.Num()), static_cast<sizet>(single.Clusters.Num()));
     EXPECT_EQ(restored.Parts[0].Dag.SourceTriangleCount, single.SourceTriangleCount);
 }
 
@@ -1206,16 +1206,16 @@ TEST(VirtualMeshBuilder, TinyMeshBecomesSingleTerminalCluster)
     auto vm = VirtualMeshBuilder::Build(*mesh);
     ASSERT_TRUE(vm.IsValid());
 
-    ASSERT_EQ(vm.Clusters.size(), 1u);
-    ASSERT_EQ(vm.Groups.size(), 1u);
+    ASSERT_EQ(static_cast<sizet>(vm.Clusters.Num()), 1u);
+    ASSERT_EQ(static_cast<sizet>(vm.Groups.Num()), 1u);
     EXPECT_EQ(vm.Clusters[0].RefinedGroup, -1);
     EXPECT_EQ(vm.Clusters[0].TriangleCount, 2u);
     EXPECT_GE(vm.Groups[0].LODBounds.Error, std::numeric_limits<f32>::max());
     EXPECT_EQ(vm.LevelCount, 1u);
 
     // The lone cluster is selected at any threshold
-    EXPECT_EQ(vm.SelectClusters(-1.0f), std::vector<u32>{ 0u });
-    EXPECT_EQ(vm.SelectClusters(1e6f), std::vector<u32>{ 0u });
+    EXPECT_EQ(vm.SelectClusters(-1.0f), TArray<u32>{ 0u });
+    EXPECT_EQ(vm.SelectClusters(1e6f), TArray<u32>{ 0u });
 }
 
 TEST(VirtualMeshBuilder, BuildIsDeterministic)
@@ -1246,9 +1246,9 @@ TEST(VirtualMeshSerializer, RoundTripIsExact)
     VirtualMesh loaded;
     ASSERT_TRUE(VirtualMeshSerializer::DeserializeFromBlob(blob, loaded));
 
-    EXPECT_EQ(loaded.Clusters.size(), vm.Clusters.size());
-    EXPECT_EQ(loaded.Groups.size(), vm.Groups.size());
-    EXPECT_EQ(loaded.Vertices.size(), vm.Vertices.size());
+    EXPECT_EQ(static_cast<sizet>(loaded.Clusters.Num()), static_cast<sizet>(vm.Clusters.Num()));
+    EXPECT_EQ(static_cast<sizet>(loaded.Groups.Num()), static_cast<sizet>(vm.Groups.Num()));
+    EXPECT_EQ(static_cast<sizet>(loaded.Vertices.Num()), static_cast<sizet>(vm.Vertices.Num()));
     EXPECT_EQ(loaded.ClusterVertexRefs, vm.ClusterVertexRefs);
     EXPECT_EQ(loaded.ClusterTriangles, vm.ClusterTriangles);
     EXPECT_EQ(loaded.LevelCount, vm.LevelCount);
@@ -1324,9 +1324,9 @@ TEST(VirtualMeshSerializer, RejectsCorruptedBlobs)
     // Out-of-range group index on the first cluster
     {
         auto corrupted = blob;
-        sizet const clusterTableOffset = kHeaderBytes + vm.Vertices.size() * 32; // header + vertices
+        sizet const clusterTableOffset = kHeaderBytes + static_cast<sizet>(vm.Vertices.Num()) * 32; // header + vertices
         sizet const groupIndexOffset = clusterTableOffset + 4 * sizeof(u32);
-        i32 const bogusGroup = static_cast<i32>(vm.Groups.size()) + 7;
+        i32 const bogusGroup = static_cast<i32>(static_cast<sizet>(vm.Groups.Num())) + 7;
         std::memcpy(corrupted.data() + groupIndexOffset, &bogusGroup, sizeof(i32));
         EXPECT_FALSE(VirtualMeshSerializer::DeserializeFromBlob(corrupted, out));
     }
@@ -1340,15 +1340,15 @@ TEST(VirtualMeshSerializer, RejectsCorruptedBlobs)
     }
 
     // Wire-format section offsets (vertex 32, cluster 68, group 32 bytes)
-    sizet const clusterTable = kHeaderBytes + vm.Vertices.size() * 32;
-    sizet const groupTable = clusterTable + vm.Clusters.size() * 68;
-    sizet const refsTable = groupTable + vm.Groups.size() * 32;
-    sizet const trianglesTable = refsTable + vm.ClusterVertexRefs.size() * 4;
+    sizet const clusterTable = kHeaderBytes + static_cast<sizet>(vm.Vertices.Num()) * 32;
+    sizet const groupTable = clusterTable + static_cast<sizet>(vm.Clusters.Num()) * 68;
+    sizet const refsTable = groupTable + static_cast<sizet>(vm.Groups.Num()) * 32;
+    sizet const trianglesTable = refsTable + static_cast<sizet>(vm.ClusterVertexRefs.Num()) * 4;
 
     // Out-of-range cluster vertex reference (first ref -> one past the last vertex)
     {
         auto corrupted = blob;
-        auto const badRef = static_cast<u32>(vm.Vertices.size());
+        auto const badRef = static_cast<u32>(static_cast<sizet>(vm.Vertices.Num()));
         std::memcpy(corrupted.data() + refsTable, &badRef, sizeof(u32));
         EXPECT_FALSE(VirtualMeshSerializer::DeserializeFromBlob(corrupted, out));
     }
@@ -1363,8 +1363,8 @@ TEST(VirtualMeshSerializer, RejectsCorruptedBlobs)
 
     // Self-referential refinement edge (RefinedGroup == GroupIndex) breaks the DAG
     {
-        sizet refinedClusterIndex = vm.Clusters.size();
-        for (sizet i = 0; i < vm.Clusters.size(); ++i)
+        sizet refinedClusterIndex = static_cast<sizet>(vm.Clusters.Num());
+        for (sizet i = 0; i < static_cast<sizet>(vm.Clusters.Num()); ++i)
         {
             if (vm.Clusters[i].RefinedGroup >= 0)
             {
@@ -1372,7 +1372,7 @@ TEST(VirtualMeshSerializer, RejectsCorruptedBlobs)
                 break;
             }
         }
-        ASSERT_LT(refinedClusterIndex, vm.Clusters.size()) << "fixture must contain refined clusters";
+        ASSERT_LT(refinedClusterIndex, static_cast<sizet>(vm.Clusters.Num())) << "fixture must contain refined clusters";
 
         auto corrupted = blob;
         i32 const selfGroup = vm.Clusters[refinedClusterIndex].GroupIndex;
@@ -1385,7 +1385,7 @@ TEST(VirtualMeshSerializer, RejectsCorruptedBlobs)
     {
         auto corrupted = blob;
         f32 const zero = 0.0f;
-        for (sizet g = 0; g < vm.Groups.size(); ++g)
+        for (sizet g = 0; g < static_cast<sizet>(vm.Groups.Num()); ++g)
         {
             std::memcpy(corrupted.data() + groupTable + g * 32 + 28, &zero, sizeof(f32));
         }
@@ -1434,14 +1434,14 @@ TEST(VirtualMeshBuilder, LightmapUVsRideTheVertexCompaction)
 
     // All-or-nothing: every compacted vertex has a UV2 or none does. A partial
     // stream would leave some vertices reading (0,0) — the region's corner texel.
-    ASSERT_EQ(vm.LightmapUVs.size(), vm.Vertices.size());
+    ASSERT_EQ(static_cast<sizet>(vm.LightmapUVs.Num()), static_cast<sizet>(vm.Vertices.Num()));
 
     // The compaction reorders and drops vertices, so identity is checked through
     // the DATA rather than through indices: the source's UV2 is the x-mirror of
     // its UV0, and the builder copies both from the same source vertex, so that
     // relation must hold for every surviving vertex. If the two arrays ever fell
     // out of step, this is the assertion that would catch it.
-    for (sizet i = 0; i < vm.Vertices.size(); ++i)
+    for (sizet i = 0; i < static_cast<sizet>(vm.Vertices.Num()); ++i)
     {
         EXPECT_NEAR(vm.LightmapUVs[i].x, 1.0f - vm.Vertices[i].TexCoord.x, 1e-5f)
             << "vertex " << i << ": UV2 does not belong to this vertex";
@@ -1456,22 +1456,22 @@ TEST(VirtualMeshBuilder, AMeshWithNoLightmapUVsCooksWithAnEmptyStream)
     // decision to allocate a parallel stream, both key off `empty()`.
     auto vm = VirtualMeshBuilder::Build(*MakeGridMesh(16));
     ASSERT_TRUE(vm.IsValid());
-    EXPECT_TRUE(vm.LightmapUVs.empty());
+    EXPECT_TRUE(vm.LightmapUVs.IsEmpty());
 }
 
 TEST(VirtualMeshSerializer, LightmapUVsRoundTripByteExactly)
 {
     auto vm = VirtualMeshBuilder::Build(*MakeGridMeshWithLightmapUVs(16));
     ASSERT_TRUE(vm.IsValid());
-    ASSERT_FALSE(vm.LightmapUVs.empty());
+    ASSERT_FALSE(vm.LightmapUVs.IsEmpty());
 
     auto blob = VirtualMeshSerializer::SerializeToBlob(vm);
     ASSERT_FALSE(blob.empty());
 
     VirtualMesh loaded;
     ASSERT_TRUE(VirtualMeshSerializer::DeserializeFromBlob(blob, loaded));
-    ASSERT_EQ(loaded.LightmapUVs.size(), vm.LightmapUVs.size());
-    for (sizet i = 0; i < vm.LightmapUVs.size(); ++i)
+    ASSERT_EQ(static_cast<sizet>(loaded.LightmapUVs.Num()), static_cast<sizet>(vm.LightmapUVs.Num()));
+    for (sizet i = 0; i < static_cast<sizet>(vm.LightmapUVs.Num()); ++i)
     {
         // EXPECT_EQ on floats: a cook is a derived artifact whose whole value is
         // being reproducible, so bit-identity IS the contract here.
@@ -1498,7 +1498,7 @@ TEST(VirtualMeshSerializer, ABlobClaimingAPartialLightmapUVStreamIsRejected)
     ASSERT_GT(blob.size(), kLightmapUVCountOffset + sizeof(u32));
     u32 claimed = 0;
     std::memcpy(&claimed, blob.data() + kLightmapUVCountOffset, sizeof(claimed));
-    ASSERT_EQ(claimed, static_cast<u32>(vm.Vertices.size())) << "header layout drifted";
+    ASSERT_EQ(claimed, static_cast<u32>(static_cast<sizet>(vm.Vertices.Num()))) << "header layout drifted";
 
     const u32 partial = claimed / 2;
     std::memcpy(blob.data() + kLightmapUVCountOffset, &partial, sizeof(partial));

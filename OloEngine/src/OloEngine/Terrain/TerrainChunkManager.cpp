@@ -57,8 +57,8 @@ namespace OloEngine
         if (resolution == 0)
         {
             OLO_CORE_WARN("TerrainChunkManager: Cannot generate chunks — heightmap resolution is 0");
-            m_Chunks.clear();
-            m_SelectedChunks.clear();
+            m_Chunks.Reset();
+            m_SelectedChunks.Reset();
             m_NumChunksX = 0;
             m_NumChunksZ = 0;
             return;
@@ -69,7 +69,7 @@ namespace OloEngine
         m_NumChunksZ = std::max(1u, (resolution + TerrainChunk::CHUNK_RESOLUTION - 1) / TerrainChunk::CHUNK_RESOLUTION);
 
         u32 totalChunks = m_NumChunksX * m_NumChunksZ;
-        m_Chunks.resize(totalChunks);
+        m_Chunks.SetNum(totalChunks, EAllowShrinking::No);
 
         // Build chunk geometry in parallel (CPU only, no GL calls)
         ParallelFor("TerrainChunkBuild", static_cast<i32>(totalChunks),
@@ -141,7 +141,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        m_SelectedChunks.clear();
+        m_SelectedChunks.Reset();
 
         // Whichever path runs LAST owns this frame's selection. Without this the
         // submission side would keep taking the GPU branch off a stale node list
@@ -155,7 +155,7 @@ namespace OloEngine
         m_Quadtree.SelectLOD(frustum, cameraPos, viewProjection, viewportHeight);
 
         const auto& selectedNodes = m_Quadtree.GetSelectedNodes();
-        m_SelectedChunks.reserve(selectedNodes.size());
+        m_SelectedChunks.Reserve(selectedNodes.Num());
 
         // A selected node is NOT always one chunk. The tree is built to depth
         // ceil(log2(numChunks)) so that a LEAF is one chunk, but selection stops
@@ -170,7 +170,7 @@ namespace OloEngine
         // two, so quadtree boundaries can fall inside a chunk and two adjacent
         // nodes can both overlap it. First node wins; without that the chunk
         // would be submitted twice with different LOD data.
-        m_ChunkClaimed.assign(m_Chunks.size(), 0u);
+        m_ChunkClaimed.Init(0u, m_Chunks.Num());
 
         for (const auto* node : selectedNodes)
         {
@@ -200,7 +200,7 @@ namespace OloEngine
                     TerrainRenderChunk rc;
                     rc.Chunk = &chunk;
                     rc.LODData = lodData;
-                    m_SelectedChunks.push_back(rc);
+                    m_SelectedChunks.Add(rc);
                 }
             }
         }
@@ -235,7 +235,7 @@ namespace OloEngine
         // explicit: a consumer that still reads GetSelectedChunks() gets an
         // empty list and draws nothing, rather than silently re-drawing the
         // stale selection from whichever frame last ran the CPU descent.
-        m_SelectedChunks.clear();
+        m_SelectedChunks.Reset();
         return true;
     }
 
@@ -272,12 +272,12 @@ namespace OloEngine
     }
 
     void TerrainChunkManager::GetVisibleChunks(const Frustum& frustum,
-                                               std::vector<const TerrainChunk*>& outChunks) const
+                                               TArray<const TerrainChunk*>& outChunks) const
     {
         OLO_PROFILE_FUNCTION();
 
-        outChunks.clear();
-        outChunks.reserve(m_Chunks.size());
+        outChunks.Reset();
+        outChunks.Reserve(m_Chunks.Num());
 
         for (const auto& chunk : m_Chunks)
         {
@@ -289,23 +289,23 @@ namespace OloEngine
             const auto& bounds = chunk.GetBounds();
             if (frustum.IsBoxVisible(bounds.Min, bounds.Max))
             {
-                outChunks.push_back(&chunk);
+                outChunks.Add(&chunk);
             }
         }
     }
 
-    void TerrainChunkManager::GetAllChunks(std::vector<const TerrainChunk*>& outChunks) const
+    void TerrainChunkManager::GetAllChunks(TArray<const TerrainChunk*>& outChunks) const
     {
         OLO_PROFILE_FUNCTION();
 
-        outChunks.clear();
-        outChunks.reserve(m_Chunks.size());
+        outChunks.Reset();
+        outChunks.Reserve(m_Chunks.Num());
 
         for (const auto& chunk : m_Chunks)
         {
             if (chunk.IsBuilt())
             {
-                outChunks.push_back(&chunk);
+                outChunks.Add(&chunk);
             }
         }
     }

@@ -219,7 +219,7 @@ class RuntimeSceneSwitchTest : public FunctionalTest
         auto loaded = SceneTransition::LoadSceneFile(resolved, /*requirePrimaryCamera=*/true);
         if (!loaded)
         {
-            m_LastError = loaded.Error;
+            m_LastError = loaded.Error.ToStdString();
             return false;
         }
 

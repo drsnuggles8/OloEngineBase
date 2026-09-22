@@ -84,7 +84,7 @@ namespace OloEngine::RayTracing
         [[nodiscard]] bool IsDeformed(const GroomStrandRequest& request) noexcept
         {
             return request.Groom && request.Binding &&
-                   request.RootTransforms.size() == request.Groom->GetCurveCount();
+                   static_cast<sizet>(request.RootTransforms.Num()) == request.Groom->GetCurveCount();
         }
 
         [[nodiscard]] bool IsFiniteTransform(const glm::mat4& matrix) noexcept
@@ -161,7 +161,8 @@ namespace OloEngine::RayTracing
         if (deformed)
         {
             deformation.Binding = request.Binding.Raw();
-            deformation.RootTransforms = request.RootTransforms;
+            deformation.RootTransforms = std::span<const GroomRootTransform>(
+                request.RootTransforms.GetData(), static_cast<sizet>(request.RootTransforms.Num()));
         }
         const GroomCoatContext coat{ &request.Coat, request.Groom->GetGroupCoats() };
         const GroomStrandSimulation simulation = request.Simulation();

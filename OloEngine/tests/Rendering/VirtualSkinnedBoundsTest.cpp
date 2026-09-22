@@ -157,11 +157,11 @@ TEST(VirtualSkinnedBounds, TheBuilderNoLongerRejectsASkinnedSource)
 
     ASSERT_TRUE(dag.IsValid()) << "a skinned source must now produce a DAG (issue #1150)";
     EXPECT_TRUE(dag.IsSkinned());
-    EXPECT_EQ(dag.Skinning.size(), dag.Vertices.size())
+    EXPECT_EQ(static_cast<sizet>(dag.Skinning.Num()), static_cast<sizet>(dag.Vertices.Num()))
         << "the skin binding stream rides the vertex compaction and must stay in lockstep with it";
-    EXPECT_EQ(dag.ClusterBoneRefs.size(), dag.Clusters.size() * kMaxClusterBones)
+    EXPECT_EQ(static_cast<sizet>(dag.ClusterBoneRefs.Num()), static_cast<sizet>(dag.Clusters.Num()) * kMaxClusterBones)
         << "cluster bone sets are fixed-width and cluster-major";
-    EXPECT_EQ(dag.BoneBounds.size(), kBoneCount);
+    EXPECT_EQ(static_cast<sizet>(dag.BoneBounds.Num()), kBoneCount);
 }
 
 TEST(VirtualSkinnedBounds, EveryBoneBoundContainsEveryVertexItInfluences)
@@ -173,7 +173,7 @@ TEST(VirtualSkinnedBounds, EveryBoneBoundContainsEveryVertexItInfluences)
     // its own vertices, every bound derived from it is wrong for every pose —
     // so this failing first is what stops the pose sweeps below from being
     // blamed for it.
-    for (sizet v = 0; v < dag.Skinning.size(); ++v)
+    for (sizet v = 0; v < static_cast<sizet>(dag.Skinning.Num()); ++v)
     {
         const VirtualVertexSkinning& binding = dag.Skinning[v];
         for (u32 i = 0; i < 4; ++i)
@@ -198,10 +198,10 @@ TEST(VirtualSkinnedBounds, TheDeformedClusterSphereContainsItsClusterInEveryPose
     u32 checkedClusters = 0;
     for (const std::vector<glm::mat4>& palette : AnimationRange())
     {
-        for (sizet c = 0; c < dag.Clusters.size(); ++c)
+        for (sizet c = 0; c < static_cast<sizet>(dag.Clusters.Num()); ++c)
         {
             const VirtualCluster& cluster = dag.Clusters[c];
-            std::span<const u32> const boneRefs(dag.ClusterBoneRefs.data() + c * kMaxClusterBones, kMaxClusterBones);
+            std::span<const u32> const boneRefs(dag.ClusterBoneRefs.GetData() + c * kMaxClusterBones, kMaxClusterBones);
 
             glm::vec4 const restSphere(cluster.BoundsCenter, cluster.BoundsRadius);
             glm::vec4 sphere = SkinnedClusterSphere(restSphere, boneRefs, palette);
@@ -211,7 +211,7 @@ TEST(VirtualSkinnedBounds, TheDeformedClusterSphereContainsItsClusterInEveryPose
                 // answer is the instance-wide padding, so that is what is
                 // checked here — testing the fallback path is the point, not
                 // skipping the cluster.
-                sphere.w += SkinDisplacementBound(dag.BoneBounds, palette);
+                sphere.w += SkinDisplacementBound({ dag.BoneBounds.GetData(), static_cast<sizet>(dag.BoneBounds.Num()) }, palette);
             }
 
             for (u32 local = 0; local < cluster.VertexCount; ++local)
@@ -239,8 +239,8 @@ TEST(VirtualSkinnedBounds, TheInstanceWideBoundContainsEveryVertexDisplacementIn
     // uniform-padding argument in VirtualClusterCull.comp checkable.
     for (const std::vector<glm::mat4>& palette : AnimationRange())
     {
-        f32 const bound = SkinDisplacementBound(dag.BoneBounds, palette);
-        for (sizet v = 0; v < dag.Vertices.size(); ++v)
+        f32 const bound = SkinDisplacementBound({ dag.BoneBounds.GetData(), static_cast<sizet>(dag.BoneBounds.Num()) }, palette);
+        for (sizet v = 0; v < static_cast<sizet>(dag.Vertices.Num()); ++v)
         {
             glm::vec3 const rest = dag.Vertices[v].Position;
             glm::vec3 const posed = SkinPosition(rest, dag.Skinning[v], palette);
@@ -261,7 +261,7 @@ TEST(VirtualSkinnedBounds, UniformPaddingKeepsGroupSpheresNested)
     // what the line says, on real group spheres, for a real padding.
     for (const std::vector<glm::mat4>& palette : AnimationRange())
     {
-        f32 const padding = SkinDisplacementBound(dag.BoneBounds, palette);
+        f32 const padding = SkinDisplacementBound({ dag.BoneBounds.GetData(), static_cast<sizet>(dag.BoneBounds.Num()) }, palette);
         u32 checkedEdges = 0;
         for (const VirtualCluster& cluster : dag.Clusters)
         {
@@ -363,13 +363,13 @@ TEST(VirtualSkinnedBounds, AClusterHoldingAnUninfluencedVertexForfeitsItsTightBo
     ASSERT_TRUE(dag.IsSkinned()) << "the remaining influences still make this a skinned source";
 
     std::vector<glm::mat4> const palette = MakeBendPose(kBoneCount, 1.0f);
-    f32 const padding = SkinDisplacementBound(dag.BoneBounds, palette);
+    f32 const padding = SkinDisplacementBound({ dag.BoneBounds.GetData(), static_cast<sizet>(dag.BoneBounds.Num()) }, palette);
 
     u32 forfeited = 0;
-    for (sizet c = 0; c < dag.Clusters.size(); ++c)
+    for (sizet c = 0; c < static_cast<sizet>(dag.Clusters.Num()); ++c)
     {
         const VirtualCluster& cluster = dag.Clusters[c];
-        std::span<const u32> const boneRefs(dag.ClusterBoneRefs.data() + c * kMaxClusterBones, kMaxClusterBones);
+        std::span<const u32> const boneRefs(dag.ClusterBoneRefs.GetData() + c * kMaxClusterBones, kMaxClusterBones);
         bool holdsRigidVertex = false;
         for (u32 local = 0; local < cluster.VertexCount; ++local)
         {
@@ -413,10 +413,10 @@ TEST(VirtualSkinnedBounds, ARestPosePaletteMovesNothing)
     // The identity control. Without it every containment test above could pass
     // on a bound that is simply enormous, and nothing here would notice.
     std::vector<glm::mat4> const identity(kBoneCount, glm::mat4(1.0f));
-    EXPECT_NEAR(SkinDisplacementBound(dag.BoneBounds, identity), 0.0f, kSlack);
+    EXPECT_NEAR(SkinDisplacementBound({ dag.BoneBounds.GetData(), static_cast<sizet>(dag.BoneBounds.Num()) }, identity), 0.0f, kSlack);
     EXPECT_NEAR(SkinMaxBoneScale(identity), 1.0f, kSlack);
 
-    for (sizet v = 0; v < dag.Vertices.size(); ++v)
+    for (sizet v = 0; v < static_cast<sizet>(dag.Vertices.Num()); ++v)
     {
         EXPECT_LT(glm::length(SkinPosition(dag.Vertices[v].Position, dag.Skinning[v], identity) -
                               dag.Vertices[v].Position),
@@ -434,13 +434,13 @@ TEST(VirtualSkinnedBounds, TheDeformedSphereIsTighterThanTheInstanceWideFallback
     // the payload, the arena tail and the cull's two loops, buying nothing. This
     // measures the claim instead of assuming it.
     std::vector<glm::mat4> const palette = MakeBendPose(kBoneCount, 1.2f);
-    f32 const padding = SkinDisplacementBound(dag.BoneBounds, palette);
+    f32 const padding = SkinDisplacementBound({ dag.BoneBounds.GetData(), static_cast<sizet>(dag.BoneBounds.Num()) }, palette);
 
     u32 tighter = 0;
     u32 tight = 0;
-    for (sizet c = 0; c < dag.Clusters.size(); ++c)
+    for (sizet c = 0; c < static_cast<sizet>(dag.Clusters.Num()); ++c)
     {
-        std::span<const u32> const boneRefs(dag.ClusterBoneRefs.data() + c * kMaxClusterBones, kMaxClusterBones);
+        std::span<const u32> const boneRefs(dag.ClusterBoneRefs.GetData() + c * kMaxClusterBones, kMaxClusterBones);
         if (!SkinnedClusterSphereIsTight(boneRefs, palette))
         {
             continue;
@@ -521,10 +521,10 @@ TEST(VirtualSkinnedBounds, SkinningSurvivesTheCookedBlobRoundTrip)
     ASSERT_TRUE(VirtualMeshSerializer::DeserializeFromBlob(blob, restored));
 
     ASSERT_TRUE(restored.IsSkinned());
-    ASSERT_EQ(restored.Skinning.size(), dag.Skinning.size());
+    ASSERT_EQ(static_cast<sizet>(restored.Skinning.Num()), static_cast<sizet>(dag.Skinning.Num()));
     ASSERT_EQ(restored.ClusterBoneRefs, dag.ClusterBoneRefs);
-    ASSERT_EQ(restored.BoneBounds.size(), dag.BoneBounds.size());
-    for (sizet v = 0; v < dag.Skinning.size(); ++v)
+    ASSERT_EQ(static_cast<sizet>(restored.BoneBounds.Num()), static_cast<sizet>(dag.BoneBounds.Num()));
+    for (sizet v = 0; v < static_cast<sizet>(dag.Skinning.Num()); ++v)
     {
         for (u32 i = 0; i < 4; ++i)
         {
@@ -536,8 +536,8 @@ TEST(VirtualSkinnedBounds, SkinningSurvivesTheCookedBlobRoundTrip)
     // The bound is what the blob exists to carry; comparing it directly says the
     // restored cook is usable, not merely structurally equal.
     std::vector<glm::mat4> const palette = MakeBendPose(kBoneCount, 0.8f);
-    EXPECT_FLOAT_EQ(SkinDisplacementBound(restored.BoneBounds, palette),
-                    SkinDisplacementBound(dag.BoneBounds, palette));
+    EXPECT_FLOAT_EQ(SkinDisplacementBound({ restored.BoneBounds.GetData(), static_cast<sizet>(restored.BoneBounds.Num()) }, palette),
+                    SkinDisplacementBound({ dag.BoneBounds.GetData(), static_cast<sizet>(dag.BoneBounds.Num()) }, palette));
 }
 
 TEST(VirtualSkinnedBounds, ABlobWithAPartialSkinningPayloadIsRejected)
@@ -551,21 +551,21 @@ TEST(VirtualSkinnedBounds, ABlobWithAPartialSkinningPayloadIsRejected)
     // flickers rather than failing.
     {
         VirtualMesh partial = dag;
-        partial.ClusterBoneRefs.pop_back();
+        partial.ClusterBoneRefs.Pop();
         VirtualMesh out;
         EXPECT_FALSE(VirtualMeshSerializer::DeserializeFromBlob(
             VirtualMeshSerializer::SerializeToBlob(partial), out));
     }
     {
         VirtualMesh partial = dag;
-        partial.BoneBounds.clear();
+        partial.BoneBounds.Reset();
         VirtualMesh out;
         EXPECT_FALSE(VirtualMeshSerializer::DeserializeFromBlob(
             VirtualMeshSerializer::SerializeToBlob(partial), out));
     }
     {
         VirtualMesh partial = dag;
-        partial.Skinning.pop_back();
+        partial.Skinning.Pop();
         VirtualMesh out;
         EXPECT_FALSE(VirtualMeshSerializer::DeserializeFromBlob(
             VirtualMeshSerializer::SerializeToBlob(partial), out));
@@ -591,8 +591,8 @@ TEST(VirtualSkinnedBounds, ASubmeshWithNoBoneWeightsCooksAsRigidAndStillLoads)
     VirtualMesh const dag = VirtualMeshBuilder::Build(*source);
     ASSERT_TRUE(dag.IsValid());
     EXPECT_FALSE(dag.IsSkinned());
-    EXPECT_TRUE(dag.BoneBounds.empty());
-    EXPECT_TRUE(dag.ClusterBoneRefs.empty());
+    EXPECT_TRUE(dag.BoneBounds.IsEmpty());
+    EXPECT_TRUE(dag.ClusterBoneRefs.IsEmpty());
 
     VirtualMesh restored;
     EXPECT_TRUE(VirtualMeshSerializer::DeserializeFromBlob(VirtualMeshSerializer::SerializeToBlob(dag), restored))
@@ -620,14 +620,14 @@ TEST(VirtualSkinnedBounds, AnOutOfRangeBoneIdIsDroppedAtCookTime)
 
     // The cap is what the GPU packing can address at all, so an id above it
     // could never have been read by a shader anyway.
-    EXPECT_LE(dag.BoneBounds.size(), static_cast<sizet>(kVirtualSkinningMaxBoneId));
+    EXPECT_LE(static_cast<sizet>(dag.BoneBounds.Num()), static_cast<sizet>(kVirtualSkinningMaxBoneId));
     for (const VirtualVertexSkinning& binding : dag.Skinning)
     {
         for (u32 i = 0; i < 4; ++i)
         {
             if (binding.Weights[i] > 0.0f)
             {
-                EXPECT_LT(binding.BoneIDs[i], dag.BoneBounds.size())
+                EXPECT_LT(binding.BoneIDs[i], static_cast<sizet>(dag.BoneBounds.Num()))
                     << "a surviving influence must address a bone the cook actually bounded";
             }
         }
@@ -644,8 +644,8 @@ TEST(VirtualSkinnedBounds, ARigidCookCarriesNoSkinningPayloadAtAll)
 
     ASSERT_TRUE(dag.IsValid());
     EXPECT_FALSE(dag.IsSkinned());
-    EXPECT_TRUE(dag.Skinning.empty());
-    EXPECT_TRUE(dag.BoneBounds.empty());
-    EXPECT_TRUE(dag.ClusterBoneRefs.empty());
+    EXPECT_TRUE(dag.Skinning.IsEmpty());
+    EXPECT_TRUE(dag.BoneBounds.IsEmpty());
+    EXPECT_TRUE(dag.ClusterBoneRefs.IsEmpty());
     EXPECT_FALSE(PackVirtualMeshForGpu(dag).IsSkinned());
 }

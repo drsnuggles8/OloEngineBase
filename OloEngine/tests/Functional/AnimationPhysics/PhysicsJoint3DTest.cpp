@@ -1346,7 +1346,7 @@ TEST_F(PhysicsJoint3DTest, ComponentSurvivesSaveGameRoundTrip)
     EXPECT_NEAR(rj.m_ConnectedAxis.z, 0.5f, kEps);
     EXPECT_NEAR(rj.m_GearRatio, -2.5f, kEps);
     // Path joint fields (issue #308).
-    ASSERT_EQ(rj.m_PathPoints.size(), 3u) << "Path control points dropped by the save-game round-trip";
+    ASSERT_EQ(rj.m_PathPoints.Num(), 3u) << "Path control points dropped by the save-game round-trip";
     EXPECT_NEAR(rj.m_PathPoints[0].x, -1.0f, kEps);
     EXPECT_NEAR(rj.m_PathPoints[0].y, 2.0f, kEps);
     EXPECT_NEAR(rj.m_PathPoints[0].z, -3.0f, kEps);

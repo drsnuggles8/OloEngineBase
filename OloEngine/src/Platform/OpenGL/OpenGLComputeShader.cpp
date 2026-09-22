@@ -41,12 +41,12 @@ namespace OloEngine
         // Reloadable by name like every other file-backed shader (issue #607) —
         // registered before the compile so a compute shader that fails to build
         // at boot can still be fixed on disk and reloaded without a restart.
-        ShaderRegistry::Get().RegisterComputeShader(m_Name, this);
+        ShaderRegistry::Get().RegisterComputeShader(GetName(), this);
 
         const std::string rawSource = FileSystem::ReadFileText(filepath);
         if (rawSource.empty())
         {
-            OLO_CORE_ERROR("Compute shader '{0}': failed to read source file '{1}'", m_Name, filepath);
+            OLO_CORE_ERROR("Compute shader '{0}': failed to read source file '{1}'", GetName(), filepath);
             m_IsValid = false;
             return;
         }
@@ -59,11 +59,11 @@ namespace OloEngine
         const std::string source = OpenGLShader::ProcessIncludes(rawSource, directory);
         if (source.empty())
         {
-            OLO_CORE_ERROR("Compute shader '{0}': include processing returned empty source", m_Name);
+            OLO_CORE_ERROR("Compute shader '{0}': include processing returned empty source", GetName());
             return;
         }
 
-        OLO_SHADER_COMPILATION_START(m_Name, filepath);
+        OLO_SHADER_COMPILATION_START(GetName(), filepath);
         Compile(source);
         OLO_SHADER_COMPILATION_END(m_RendererID, m_IsValid, "", 0.0);
     }
@@ -73,7 +73,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        OLO_SHADER_COMPILATION_START(m_Name, "<from_source>");
+        OLO_SHADER_COMPILATION_START(GetName(), "<from_source>");
         Compile(source);
         OLO_SHADER_COMPILATION_END(m_RendererID, m_IsValid, "", 0.0);
     }
@@ -156,7 +156,7 @@ namespace OloEngine
             std::string infoLog(static_cast<sizet>(length), '\0');
             glGetShaderInfoLog(shader, length, &length, infoLog.data());
             glDeleteShader(shader);
-            OLO_CORE_ERROR("Compute shader compilation failed ({0}):\n{1}", m_Name, infoLog);
+            OLO_CORE_ERROR("Compute shader compilation failed ({0}):\n{1}", GetName(), infoLog);
 
             // A broken bindless BRANCH must cost the dispatch its optimisation,
             // never its shader — same degradation policy as the graphics route,
@@ -167,7 +167,7 @@ namespace OloEngine
             {
                 OLO_CORE_WARN("[Bindless] Compute shader '{0}' failed with the bindless branch; "
                               "falling back to the slot-based build.",
-                              m_Name);
+                              GetName());
                 m_IsBindlessVariant = false;
                 const u32 retry = glCreateShader(GL_COMPUTE_SHADER);
                 const char* plain = source.c_str();
@@ -215,7 +215,7 @@ namespace OloEngine
             glDeleteShader(shader);
             m_RendererID = 0;
             m_RHIHandle.Sync(RHI::ResourceKind::ShaderProgram, m_RendererID, RHI::Backend::OpenGL);
-            OLO_CORE_ERROR("Compute shader link failed ({0}):\n{1}", m_Name, infoLog);
+            OLO_CORE_ERROR("Compute shader link failed ({0}):\n{1}", GetName(), infoLog);
             OLO_CORE_ASSERT(false, "Compute shader link failure!");
             return;
         }
@@ -225,19 +225,19 @@ namespace OloEngine
 
         // Name the program for GPU debuggers and the debug-callback label
         // registry (see OpenGLShader::FinalizeProgram for rationale).
-        if (!m_Name.empty())
+        if (!GetName().empty())
         {
-            glObjectLabel(GL_PROGRAM, m_RendererID, -1, m_Name.c_str());
-            RegisterGLProgramLabel(m_RendererID, m_Name);
+            glObjectLabel(GL_PROGRAM, m_RendererID, -1, GetName().c_str());
+            RegisterGLProgramLabel(m_RendererID, GetName());
         }
 
         // Estimate GPU memory: source size + driver overhead for compiled program
         const sizet estimatedMemory = source.size() + 1024;
         OLO_TRACK_GPU_ALLOC(this, estimatedMemory, RendererMemoryTracker::ResourceType::Shader, "OpenGL Compute Shader");
 
-        OLO_SHADER_REGISTER_MANUAL(m_RendererID, m_Name, m_FilePath);
+        OLO_SHADER_REGISTER_MANUAL(m_RendererID, GetName(), GetFilePath());
         m_IsValid = true;
-        OLO_CORE_INFO("Compiled compute shader '{0}'{1}", m_Name, m_IsBindlessVariant ? " (bindless)" : "");
+        OLO_CORE_INFO("Compiled compute shader '{0}'{1}", GetName(), m_IsBindlessVariant ? " (bindless)" : "");
     }
 
     void OpenGLComputeShader::Bind() const
@@ -281,7 +281,7 @@ namespace OloEngine
         const GLint location = glGetUniformLocation(m_RendererID, name.c_str());
         if (location == -1)
         {
-            OLO_CORE_WARN("Compute shader '{0}': uniform '{1}' not found", m_Name, name);
+            OLO_CORE_WARN("Compute shader '{0}': uniform '{1}' not found", GetName(), name);
         }
         m_UniformLocationCache[name] = location;
         return location;
@@ -341,22 +341,22 @@ namespace OloEngine
 
         OLO_SHADER_RELOAD_START(m_RendererID);
 
-        const std::string rawSource = FileSystem::ReadFileText(m_FilePath);
+        const std::string rawSource = FileSystem::ReadFileText(GetFilePath());
         if (rawSource.empty())
         {
-            OLO_CORE_ERROR("Failed to reload compute shader '{0}': empty source", m_Name);
+            OLO_CORE_ERROR("Failed to reload compute shader '{0}': empty source", GetName());
             OLO_SHADER_RELOAD_END(m_RendererID, false);
             return;
         }
 
         // Extract directory for resolving #include paths
-        auto dirEnd = m_FilePath.find_last_of("/\\");
-        std::string directory = (dirEnd != std::string::npos) ? m_FilePath.substr(0, dirEnd) : "";
+        auto dirEnd = GetFilePath().find_last_of("/\\");
+        std::string directory = (dirEnd != std::string::npos) ? GetFilePath().substr(0, dirEnd) : "";
 
         const std::string source = OpenGLShader::ProcessIncludes(rawSource, directory);
         if (source.empty())
         {
-            OLO_CORE_ERROR("Compute shader '{0}': include processing returned empty source during reload", m_Name);
+            OLO_CORE_ERROR("Compute shader '{0}': include processing returned empty source during reload", GetName());
             OLO_SHADER_RELOAD_END(m_RendererID, false);
             return;
         }

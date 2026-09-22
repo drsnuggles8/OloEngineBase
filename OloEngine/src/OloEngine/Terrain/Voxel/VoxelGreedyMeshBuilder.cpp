@@ -107,9 +107,9 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::vector<VoxelCoord> dirtyCoords;
+        TArray<VoxelCoord> dirtyCoords;
         voxels.GetDirtyChunks(dirtyCoords);
-        if (dirtyCoords.empty())
+        if (dirtyCoords.IsEmpty())
         {
             return;
         }
@@ -122,8 +122,8 @@ namespace OloEngine
         // set answers membership in O(1). A plain linear find here is quadratic
         // in the dirty-chunk count, which a large carve or the initial seed of a
         // big volume hits directly.
-        std::vector<VoxelCoord> rebuild = dirtyCoords;
-        std::unordered_set<VoxelCoord, VoxelCoordHash> rebuildSet(dirtyCoords.begin(), dirtyCoords.end());
+        TArray<VoxelCoord> rebuild = dirtyCoords;
+        std::unordered_set<VoxelCoord, VoxelCoordHash> rebuildSet(dirtyCoords.GetData(), dirtyCoords.GetData() + dirtyCoords.Num());
 
         constexpr i32 kNeighbourOffsets[6][3] = {
             { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 }, { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 }
@@ -139,7 +139,7 @@ namespace OloEngine
                 }
                 if (rebuildSet.insert(neighbour).second)
                 {
-                    rebuild.push_back(neighbour);
+                    rebuild.Add(neighbour);
                 }
             }
         }
@@ -160,7 +160,7 @@ namespace OloEngine
 
             // Reserve for the worst realistic case (a checkerboard is pathological
             // and grows past this, which is fine — the vector just reallocates).
-            job->Quads.reserve(static_cast<sizet>(VoxelChunk::CHUNK_SIZE) * VoxelChunk::CHUNK_SIZE);
+            job->Quads.Reserve(static_cast<sizet>(VoxelChunk::CHUNK_SIZE) * VoxelChunk::CHUNK_SIZE);
 
             auto task = Tasks::Launch("VoxelGreedyMesh", [job]() mutable -> bool
                                       {
@@ -208,7 +208,7 @@ namespace OloEngine
                 continue;
             }
 
-            if (it->second.Job->Quads.empty())
+            if (it->second.Job->Quads.IsEmpty())
             {
                 m_Meshes.erase(it->first);
             }
@@ -237,7 +237,7 @@ namespace OloEngine
         m_UnitQuadIBO = IndexBuffer::Create(indices, VoxelQuadMesh::kIndexCount);
     }
 
-    void VoxelGreedyMeshBuilder::UploadMesh(const VoxelCoord& coord, const std::vector<PackedQuad>& quads,
+    void VoxelGreedyMeshBuilder::UploadMesh(const VoxelCoord& coord, const TArray<PackedQuad>& quads,
                                             f32 voxelSize, const VoxelOverride& voxels)
     {
         OLO_PROFILE_FUNCTION();
@@ -255,8 +255,8 @@ namespace OloEngine
             static_cast<f32>(coord.Z) * chunkWorldSize);
         mesh.ChunkTransform = glm::scale(glm::translate(glm::mat4(1.0f), chunkOrigin), glm::vec3(voxelSize));
 
-        const auto quadCount = static_cast<u32>(quads.size());
-        const auto dataSize = static_cast<u32>(quads.size() * sizeof(PackedQuad));
+        const auto quadCount = static_cast<u32>(quads.Num());
+        const auto dataSize = static_cast<u32>(quads.Num() * sizeof(PackedQuad));
 
         // Rebuild the VAO whenever the instance buffer is (re)created: adding a
         // second instance buffer to a live VAO would double-bind the attributes.
@@ -273,7 +273,7 @@ namespace OloEngine
             mesh.VAO->AddInstanceBuffer(mesh.InstanceVBO);
         }
 
-        mesh.InstanceVBO->SetData({ quads.data(), dataSize });
+        mesh.InstanceVBO->SetData({ quads.GetData(), dataSize });
         mesh.QuadCount = quadCount;
     }
 } // namespace OloEngine

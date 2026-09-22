@@ -3,7 +3,7 @@
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 
 #include <functional>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -28,7 +28,7 @@ namespace OloEngine
     {
         std::function<void(RGCommandContext&)> Record;
         std::function<void()> Publish;
-        std::vector<RGRecordingResourceUse> Resources;
+        TArray<RGRecordingResourceUse> Resources;
         u32 InstanceCapacity = 1u;
     };
 

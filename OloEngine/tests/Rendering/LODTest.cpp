@@ -36,7 +36,7 @@ TEST(LODGroup, EmptyGroupReturnsInvalid)
 TEST(LODGroup, SingleLevelAlwaysSelected)
 {
     LODGroup group;
-    group.Levels.emplace_back(AssetHandle(1), 100.0f, 1000);
+    group.Levels.Emplace(AssetHandle(1), 100.0f, 1000);
 
     EXPECT_EQ(group.SelectLOD(0.0f), 0);
     EXPECT_EQ(group.SelectLOD(50.0f), 0);
@@ -52,9 +52,9 @@ TEST(LODGroup, SingleLevelAlwaysSelected)
 TEST(LODGroup, MultipleLevelsSelectCorrectly)
 {
     LODGroup group;
-    group.Levels.emplace_back(AssetHandle(1), 50.0f, 10000); // LOD 0: high detail
-    group.Levels.emplace_back(AssetHandle(2), 150.0f, 2500); // LOD 1: medium
-    group.Levels.emplace_back(AssetHandle(3), 500.0f, 500);  // LOD 2: low
+    group.Levels.Emplace(AssetHandle(1), 50.0f, 10000); // LOD 0: high detail
+    group.Levels.Emplace(AssetHandle(2), 150.0f, 2500); // LOD 1: medium
+    group.Levels.Emplace(AssetHandle(3), 500.0f, 500);  // LOD 2: low
 
     // Within LOD 0 range
     EXPECT_EQ(group.SelectLOD(0.0f), 0);
@@ -78,8 +78,8 @@ TEST(LODGroup, MultipleLevelsSelectCorrectly)
 TEST(LODGroup, BoundaryDistancesSelectCorrectLevel)
 {
     LODGroup group;
-    group.Levels.emplace_back(AssetHandle(1), 100.0f);
-    group.Levels.emplace_back(AssetHandle(2), 200.0f);
+    group.Levels.Emplace(AssetHandle(1), 100.0f);
+    group.Levels.Emplace(AssetHandle(2), 200.0f);
 
     // Exactly at boundary selects current level (distance <= maxDistance)
     EXPECT_EQ(group.SelectLOD(100.0f), 0);
@@ -97,8 +97,8 @@ TEST(LODGroup, BiasOneHasNoEffect)
 {
     LODGroup group;
     group.Bias = 1.0f;
-    group.Levels.emplace_back(AssetHandle(1), 100.0f);
-    group.Levels.emplace_back(AssetHandle(2), 200.0f);
+    group.Levels.Emplace(AssetHandle(1), 100.0f);
+    group.Levels.Emplace(AssetHandle(2), 200.0f);
 
     EXPECT_EQ(group.SelectLOD(50.0f), 0);
     EXPECT_EQ(group.SelectLOD(150.0f), 1);
@@ -115,8 +115,8 @@ TEST(LODGroup, BiasGreaterThanOneKeepsHighDetailLonger)
 
     LODGroup group;
     group.Bias = 2.0f; // effectiveDistance = distance / 2.0
-    group.Levels.emplace_back(AssetHandle(1), 100.0f);
-    group.Levels.emplace_back(AssetHandle(2), 200.0f);
+    group.Levels.Emplace(AssetHandle(1), 100.0f);
+    group.Levels.Emplace(AssetHandle(2), 200.0f);
 
     // At distance 150, effective = 75, which is <= 100 → LOD 0
     EXPECT_EQ(group.SelectLOD(150.0f), 0);
@@ -132,8 +132,8 @@ TEST(LODGroup, BiasLessThanOneFavorsLowerDetail)
 {
     LODGroup group;
     group.Bias = 0.5f; // effectiveDistance = distance / 0.5 = distance * 2
-    group.Levels.emplace_back(AssetHandle(1), 100.0f);
-    group.Levels.emplace_back(AssetHandle(2), 200.0f);
+    group.Levels.Emplace(AssetHandle(1), 100.0f);
+    group.Levels.Emplace(AssetHandle(2), 200.0f);
 
     // At distance 75, effective = 150, which is > 100 → LOD 1
     EXPECT_EQ(group.SelectLOD(75.0f), 1);
@@ -149,9 +149,9 @@ TEST(LODGroup, VeryHighBiasAlwaysSelectsHighestDetail)
 {
     LODGroup group;
     group.Bias = 1000.0f; // effectiveDistance ≈ 0 for reasonable distances
-    group.Levels.emplace_back(AssetHandle(1), 10.0f);
-    group.Levels.emplace_back(AssetHandle(2), 50.0f);
-    group.Levels.emplace_back(AssetHandle(3), 200.0f);
+    group.Levels.Emplace(AssetHandle(1), 10.0f);
+    group.Levels.Emplace(AssetHandle(2), 50.0f);
+    group.Levels.Emplace(AssetHandle(3), 200.0f);
 
     EXPECT_EQ(group.SelectLOD(100.0f), 0);
     EXPECT_EQ(group.SelectLOD(5000.0f), 0);
@@ -161,9 +161,9 @@ TEST(LODGroup, VeryLowBiasAlwaysSelectsLowestDetail)
 {
     LODGroup group;
     group.Bias = 0.001f; // effectiveDistance = distance * 1000
-    group.Levels.emplace_back(AssetHandle(1), 100.0f);
-    group.Levels.emplace_back(AssetHandle(2), 200.0f);
-    group.Levels.emplace_back(AssetHandle(3), 500.0f);
+    group.Levels.Emplace(AssetHandle(1), 100.0f);
+    group.Levels.Emplace(AssetHandle(2), 200.0f);
+    group.Levels.Emplace(AssetHandle(3), 500.0f);
 
     // Even at distance 1, effective = 1000 → beyond all thresholds → last
     EXPECT_EQ(group.SelectLOD(1.0f), 2);
@@ -176,8 +176,8 @@ TEST(LODGroup, VeryLowBiasAlwaysSelectsLowestDetail)
 TEST(LODGroup, ZeroDistanceSelectsFirstLevel)
 {
     LODGroup group;
-    group.Levels.emplace_back(AssetHandle(1), 50.0f);
-    group.Levels.emplace_back(AssetHandle(2), 150.0f);
+    group.Levels.Emplace(AssetHandle(1), 50.0f);
+    group.Levels.Emplace(AssetHandle(2), 150.0f);
 
     EXPECT_EQ(group.SelectLOD(0.0f), 0);
 }
@@ -185,8 +185,8 @@ TEST(LODGroup, ZeroDistanceSelectsFirstLevel)
 TEST(LODGroup, NegativeDistanceTreatedAsVeryClose)
 {
     LODGroup group;
-    group.Levels.emplace_back(AssetHandle(1), 50.0f);
-    group.Levels.emplace_back(AssetHandle(2), 150.0f);
+    group.Levels.Emplace(AssetHandle(1), 50.0f);
+    group.Levels.Emplace(AssetHandle(2), 150.0f);
 
     // Negative distance (shouldn't happen normally) — effective distance is negative,
     // which is <= first threshold → selects LOD 0
@@ -196,9 +196,9 @@ TEST(LODGroup, NegativeDistanceTreatedAsVeryClose)
 TEST(LODGroup, VeryLargeDistanceSelectsLastLevel)
 {
     LODGroup group;
-    group.Levels.emplace_back(AssetHandle(1), 100.0f);
-    group.Levels.emplace_back(AssetHandle(2), 500.0f);
-    group.Levels.emplace_back(AssetHandle(3), 1000.0f);
+    group.Levels.Emplace(AssetHandle(1), 100.0f);
+    group.Levels.Emplace(AssetHandle(2), 500.0f);
+    group.Levels.Emplace(AssetHandle(3), 1000.0f);
 
     EXPECT_EQ(group.SelectLOD(999999.0f), 2);
 }
@@ -206,9 +206,9 @@ TEST(LODGroup, VeryLargeDistanceSelectsLastLevel)
 TEST(LODGroup, AllLevelsSameDistanceSelectsFirst)
 {
     LODGroup group;
-    group.Levels.emplace_back(AssetHandle(1), 100.0f, 10000);
-    group.Levels.emplace_back(AssetHandle(2), 100.0f, 5000);
-    group.Levels.emplace_back(AssetHandle(3), 100.0f, 1000);
+    group.Levels.Emplace(AssetHandle(1), 100.0f, 10000);
+    group.Levels.Emplace(AssetHandle(2), 100.0f, 5000);
+    group.Levels.Emplace(AssetHandle(3), 100.0f, 1000);
 
     // At distance 100, first level matches (distance <= 100)
     EXPECT_EQ(group.SelectLOD(100.0f), 0);
@@ -221,7 +221,7 @@ TEST(LODGroup, ManyLevelsCorrectSelection)
     LODGroup group;
     for (i32 i = 0; i < 8; ++i)
     {
-        group.Levels.emplace_back(AssetHandle(i + 1), static_cast<f32>((i + 1) * 50));
+        group.Levels.Emplace(AssetHandle(i + 1), static_cast<f32>((i + 1) * 50));
     }
     // Levels at 50, 100, 150, 200, 250, 300, 350, 400
 
@@ -259,10 +259,10 @@ namespace
     LODGroup ErrorChain()
     {
         LODGroup group;
-        group.Levels.emplace_back(AssetHandle(1), 0.0f, 1000u, 0.0f);
-        group.Levels.emplace_back(AssetHandle(2), 0.0f, 500u, 0.01f);
-        group.Levels.emplace_back(AssetHandle(3), 0.0f, 250u, 0.02f);
-        group.Levels.emplace_back(AssetHandle(4), 0.0f, 125u, 0.04f);
+        group.Levels.Emplace(AssetHandle(1), 0.0f, 1000u, 0.0f);
+        group.Levels.Emplace(AssetHandle(2), 0.0f, 500u, 0.01f);
+        group.Levels.Emplace(AssetHandle(3), 0.0f, 250u, 0.02f);
+        group.Levels.Emplace(AssetHandle(4), 0.0f, 125u, 0.04f);
         return group;
     }
 
@@ -280,8 +280,8 @@ namespace
 TEST(LODGroup, HasErrorDataDistinguishesGeneratedFromAuthored)
 {
     LODGroup authored;
-    authored.Levels.emplace_back(AssetHandle(1), 50.0f, 1000u);
-    authored.Levels.emplace_back(AssetHandle(2), 150.0f, 200u);
+    authored.Levels.Emplace(AssetHandle(1), 50.0f, 1000u);
+    authored.Levels.Emplace(AssetHandle(2), 150.0f, 200u);
     EXPECT_FALSE(authored.HasErrorData());
 
     EXPECT_TRUE(ErrorChain().HasErrorData());
@@ -411,7 +411,7 @@ TEST(LODGroup, SelectedLevelCoarsensMonotonicallyWithDistance)
         EXPECT_GE(lod, previous) << "distance " << step * 5;
         previous = lod;
     }
-    EXPECT_EQ(previous, static_cast<i32>(group.Levels.size()) - 1) << "far away must reach the coarsest level";
+    EXPECT_EQ(previous, static_cast<i32>(group.Levels.Num()) - 1) << "far away must reach the coarsest level";
 }
 
 // A larger threshold is the performance lever: it may only ever select a level
@@ -451,8 +451,8 @@ TEST(LODGroup, PixelErrorSelectionHonoursBias)
 TEST(LODGroup, UnmeasuredLevelDoesNotWinAtEveryDistance)
 {
     LODGroup group = ErrorChain();
-    const sizet lastMeasured = group.Levels.size() - 1;
-    group.Levels.emplace_back(AssetHandle(0), 500.0f, 0u, 0.0f); // what the button appends
+    const sizet lastMeasured = group.Levels.Num() - 1;
+    group.Levels.Emplace(AssetHandle(0), 500.0f, 0u, 0.0f); // what the button appends
 
     // Point-blank: still LOD 0.
     EXPECT_EQ(group.SelectLODByPixelError(100000.0f, 1.0f), 0);
@@ -469,7 +469,7 @@ TEST(LODGroup, UnmeasuredLevelDoesNotWinAtEveryDistance)
 
     // And it is genuinely reachable in index terms — the guard is what excludes it,
     // not the loop bound.
-    ASSERT_EQ(group.Levels.size(), lastMeasured + 2);
+    ASSERT_EQ(group.Levels.Num(), lastMeasured + 2);
 }
 
 // A non-finite error in the middle of a chain (corrupt scene, bad hand-edit) ends
@@ -491,10 +491,10 @@ TEST(LODGroup, PixelErrorSelectionEdgeCases)
     const LODGroup group = ErrorChain();
     // Zero / negative / non-finite projected size all mean "no measurable error",
     // which is the coarsest level the chain offers.
-    EXPECT_EQ(group.SelectLODByPixelError(0.0f, 1.0f), static_cast<i32>(group.Levels.size()) - 1);
-    EXPECT_EQ(group.SelectLODByPixelError(-5.0f, 1.0f), static_cast<i32>(group.Levels.size()) - 1);
+    EXPECT_EQ(group.SelectLODByPixelError(0.0f, 1.0f), static_cast<i32>(group.Levels.Num()) - 1);
+    EXPECT_EQ(group.SelectLODByPixelError(-5.0f, 1.0f), static_cast<i32>(group.Levels.Num()) - 1);
     EXPECT_EQ(group.SelectLODByPixelError(std::numeric_limits<f32>::quiet_NaN(), 1.0f),
-              static_cast<i32>(group.Levels.size()) - 1);
+              static_cast<i32>(group.Levels.Num()) - 1);
 
     // A non-finite or non-positive threshold falls back to 1 px rather than
     // selecting arbitrarily.

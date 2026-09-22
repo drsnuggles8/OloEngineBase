@@ -8,19 +8,19 @@ namespace OloEngine
 {
     FrameDataBuffer::FrameDataBuffer(sizet boneCapacity, sizet transformCapacity, sizet entityIDCapacity)
     {
-        m_BoneMatrices.resize(boneCapacity);
-        m_Transforms.resize(transformCapacity);
-        m_EntityIDs.resize(entityIDCapacity);
-        m_Colors.resize(DEFAULT_COLOR_CAPACITY);
-        m_Customs.resize(DEFAULT_CUSTOM_CAPACITY);
-        m_GPUSceneRefs.resize(DEFAULT_GPU_SCENE_REF_CAPACITY);
+        m_BoneMatrices.SetNum(static_cast<i64>(boneCapacity), EAllowShrinking::No);
+        m_Transforms.SetNum(static_cast<i64>(transformCapacity), EAllowShrinking::No);
+        m_EntityIDs.SetNum(static_cast<i64>(entityIDCapacity), EAllowShrinking::No);
+        m_Colors.SetNum(static_cast<i64>(DEFAULT_COLOR_CAPACITY), EAllowShrinking::No);
+        m_Customs.SetNum(static_cast<i64>(DEFAULT_CUSTOM_CAPACITY), EAllowShrinking::No);
+        m_GPUSceneRefs.SetNum(static_cast<i64>(DEFAULT_GPU_SCENE_REF_CAPACITY), EAllowShrinking::No);
         m_BoneMatrixOffset = 0;
         m_TransformOffset = 0;
         m_EntityIDOffset = 0;
         m_ColorOffset = 0;
         m_CustomOffset = 0;
         m_GPUSceneRefOffset = 0;
-        m_MaterialData.resize(MAX_MATERIAL_DATA_PER_FRAME);
+        m_MaterialData.SetNum(static_cast<i64>(MAX_MATERIAL_DATA_PER_FRAME), EAllowShrinking::No);
     }
 
     void FrameDataBuffer::Reset()
@@ -92,13 +92,13 @@ namespace OloEngine
         u32 offset = m_BoneMatrixOffset;
 
         // Check for overflow before addition
-        if (count > static_cast<u32>(m_BoneMatrices.size()) - offset)
+        if (count > static_cast<u32>(static_cast<sizet>(m_BoneMatrices.Num())) - offset)
         {
             if (!m_BoneOverflowLogged)
             {
                 OLO_CORE_ERROR("FrameDataBuffer: Bone matrix buffer overflow! Requested {} matrices at offset {}, capacity {}. "
                                "Subsequent overflows this frame will be silent.",
-                               count, offset, m_BoneMatrices.size());
+                               count, offset, static_cast<sizet>(m_BoneMatrices.Num()));
                 m_BoneOverflowLogged = true;
             }
             return UINT32_MAX;
@@ -118,13 +118,13 @@ namespace OloEngine
         u32 offset = m_TransformOffset;
 
         // Check for overflow before addition
-        if (count > static_cast<u32>(m_Transforms.size()) - offset)
+        if (count > static_cast<u32>(static_cast<sizet>(m_Transforms.Num())) - offset)
         {
             if (!m_TransformOverflowLogged)
             {
                 OLO_CORE_ERROR("FrameDataBuffer: Transform buffer overflow! Requested {} transforms at offset {}, capacity {}. "
                                "Subsequent overflows this frame will be silent.",
-                               count, offset, m_Transforms.size());
+                               count, offset, static_cast<sizet>(m_Transforms.Num()));
                 m_TransformOverflowLogged = true;
             }
             return UINT32_MAX;
@@ -137,7 +137,7 @@ namespace OloEngine
     glm::mat4* FrameDataBuffer::GetBoneMatrixPtr(u32 offset)
     {
         TUniqueLock<FMutex> lock(m_BoneMutex);
-        if (offset >= m_BoneMatrices.size())
+        if (offset >= static_cast<sizet>(m_BoneMatrices.Num()))
         {
             OLO_CORE_ERROR("FrameDataBuffer: Invalid bone matrix offset {}", offset);
             return nullptr;
@@ -148,7 +148,7 @@ namespace OloEngine
     const glm::mat4* FrameDataBuffer::GetBoneMatrixPtr(u32 offset) const
     {
         TUniqueLock<FMutex> lock(m_BoneMutex);
-        if (offset >= m_BoneMatrices.size())
+        if (offset >= static_cast<sizet>(m_BoneMatrices.Num()))
         {
             OLO_CORE_ERROR("FrameDataBuffer: Invalid bone matrix offset {}", offset);
             return nullptr;
@@ -161,10 +161,10 @@ namespace OloEngine
         TUniqueLock<FMutex> lock(m_BoneMutex);
         // u64 arithmetic so an offset + count that wraps u32 cannot pass the
         // test it is supposed to fail.
-        if (count == 0 || static_cast<u64>(offset) + static_cast<u64>(count) > static_cast<u64>(m_BoneMatrices.size()))
+        if (count == 0 || static_cast<u64>(offset) + static_cast<u64>(count) > static_cast<u64>(static_cast<sizet>(m_BoneMatrices.Num())))
         {
             OLO_CORE_ERROR("FrameDataBuffer: Bone matrix range [{}, {}) is outside the buffer ({} matrices)",
-                           offset, static_cast<u64>(offset) + static_cast<u64>(count), m_BoneMatrices.size());
+                           offset, static_cast<u64>(offset) + static_cast<u64>(count), static_cast<sizet>(m_BoneMatrices.Num()));
             return nullptr;
         }
         return &m_BoneMatrices[offset];
@@ -173,7 +173,7 @@ namespace OloEngine
     glm::mat4* FrameDataBuffer::GetTransformPtr(u32 offset)
     {
         TUniqueLock<FMutex> lock(m_TransformMutex);
-        if (offset >= m_Transforms.size())
+        if (offset >= static_cast<sizet>(m_Transforms.Num()))
         {
             OLO_CORE_ERROR("FrameDataBuffer: Invalid transform offset {}", offset);
             return nullptr;
@@ -184,7 +184,7 @@ namespace OloEngine
     const glm::mat4* FrameDataBuffer::GetTransformPtr(u32 offset) const
     {
         TUniqueLock<FMutex> lock(m_TransformMutex);
-        if (offset >= m_Transforms.size())
+        if (offset >= static_cast<sizet>(m_Transforms.Num()))
         {
             OLO_CORE_ERROR("FrameDataBuffer: Invalid transform offset {}", offset);
             return nullptr;
@@ -195,10 +195,10 @@ namespace OloEngine
     void FrameDataBuffer::WriteBoneMatrices(u32 offset, const glm::mat4* data, u32 count)
     {
         TUniqueLock<FMutex> lock(m_BoneMutex);
-        if (offset + count > m_BoneMatrices.size())
+        if (offset + count > static_cast<sizet>(m_BoneMatrices.Num()))
         {
             OLO_CORE_ERROR("FrameDataBuffer: WriteBoneMatrices out of bounds: offset={}, count={}, capacity={}",
-                           offset, count, m_BoneMatrices.size());
+                           offset, count, static_cast<sizet>(m_BoneMatrices.Num()));
             return;
         }
         std::memcpy(&m_BoneMatrices[offset], data, count * sizeof(glm::mat4));
@@ -207,10 +207,10 @@ namespace OloEngine
     void FrameDataBuffer::WriteTransforms(u32 offset, const glm::mat4* data, u32 count)
     {
         TUniqueLock<FMutex> lock(m_TransformMutex);
-        if (offset + count > m_Transforms.size())
+        if (offset + count > static_cast<sizet>(m_Transforms.Num()))
         {
             OLO_CORE_ERROR("FrameDataBuffer: WriteTransforms out of bounds: offset={}, count={}, capacity={}",
-                           offset, count, m_Transforms.size());
+                           offset, count, static_cast<sizet>(m_Transforms.Num()));
             return;
         }
         std::memcpy(&m_Transforms[offset], data, count * sizeof(glm::mat4));
@@ -222,13 +222,13 @@ namespace OloEngine
             return 0;
         TUniqueLock<FMutex> lock(m_EntityIDMutex);
         u32 offset = m_EntityIDOffset;
-        if (count > static_cast<u32>(m_EntityIDs.size()) - offset)
+        if (count > static_cast<u32>(static_cast<sizet>(m_EntityIDs.Num())) - offset)
         {
             if (!m_EntityIDOverflowLogged)
             {
                 OLO_CORE_ERROR("FrameDataBuffer: EntityID buffer overflow! Requested {} ids at offset {}, capacity {}. "
                                "Subsequent overflows this frame will be silent.",
-                               count, offset, m_EntityIDs.size());
+                               count, offset, static_cast<sizet>(m_EntityIDs.Num()));
                 m_EntityIDOverflowLogged = true;
             }
             return UINT32_MAX;
@@ -240,7 +240,7 @@ namespace OloEngine
     i32* FrameDataBuffer::GetEntityIDPtr(u32 offset)
     {
         TUniqueLock<FMutex> lock(m_EntityIDMutex);
-        if (offset >= m_EntityIDs.size())
+        if (offset >= static_cast<sizet>(m_EntityIDs.Num()))
             return nullptr;
         return &m_EntityIDs[offset];
     }
@@ -248,7 +248,7 @@ namespace OloEngine
     const i32* FrameDataBuffer::GetEntityIDPtr(u32 offset) const
     {
         TUniqueLock<FMutex> lock(m_EntityIDMutex);
-        if (offset >= m_EntityIDs.size())
+        if (offset >= static_cast<sizet>(m_EntityIDs.Num()))
             return nullptr;
         return &m_EntityIDs[offset];
     }
@@ -256,10 +256,10 @@ namespace OloEngine
     void FrameDataBuffer::WriteEntityIDs(u32 offset, const i32* data, u32 count)
     {
         TUniqueLock<FMutex> lock(m_EntityIDMutex);
-        if (offset + count > m_EntityIDs.size())
+        if (offset + count > static_cast<sizet>(m_EntityIDs.Num()))
         {
             OLO_CORE_ERROR("FrameDataBuffer: WriteEntityIDs out of bounds: offset={}, count={}, capacity={}",
-                           offset, count, m_EntityIDs.size());
+                           offset, count, static_cast<sizet>(m_EntityIDs.Num()));
             return;
         }
         std::memcpy(&m_EntityIDs[offset], data, count * sizeof(i32));
@@ -271,13 +271,13 @@ namespace OloEngine
             return 0;
         TUniqueLock<FMutex> lock(m_ColorMutex);
         u32 offset = m_ColorOffset;
-        if (count > static_cast<u32>(m_Colors.size()) - offset)
+        if (count > static_cast<u32>(static_cast<sizet>(m_Colors.Num())) - offset)
         {
             if (!m_ColorOverflowLogged)
             {
                 OLO_CORE_ERROR("FrameDataBuffer: Color buffer overflow! Requested {} at offset {}, capacity {}. "
                                "Subsequent overflows this frame will be silent.",
-                               count, offset, m_Colors.size());
+                               count, offset, static_cast<sizet>(m_Colors.Num()));
                 m_ColorOverflowLogged = true;
             }
             return UINT32_MAX;
@@ -289,7 +289,7 @@ namespace OloEngine
     glm::vec4* FrameDataBuffer::GetColorPtr(u32 offset)
     {
         TUniqueLock<FMutex> lock(m_ColorMutex);
-        if (offset >= m_Colors.size())
+        if (offset >= static_cast<sizet>(m_Colors.Num()))
             return nullptr;
         return &m_Colors[offset];
     }
@@ -297,7 +297,7 @@ namespace OloEngine
     const glm::vec4* FrameDataBuffer::GetColorPtr(u32 offset) const
     {
         TUniqueLock<FMutex> lock(m_ColorMutex);
-        if (offset >= m_Colors.size())
+        if (offset >= static_cast<sizet>(m_Colors.Num()))
             return nullptr;
         return &m_Colors[offset];
     }
@@ -305,10 +305,10 @@ namespace OloEngine
     void FrameDataBuffer::WriteColors(u32 offset, const glm::vec4* data, u32 count)
     {
         TUniqueLock<FMutex> lock(m_ColorMutex);
-        if (offset + count > m_Colors.size())
+        if (offset + count > static_cast<sizet>(m_Colors.Num()))
         {
             OLO_CORE_ERROR("FrameDataBuffer: WriteColors out of bounds: offset={}, count={}, capacity={}",
-                           offset, count, m_Colors.size());
+                           offset, count, static_cast<sizet>(m_Colors.Num()));
             return;
         }
         std::memcpy(&m_Colors[offset], data, count * sizeof(glm::vec4));
@@ -320,13 +320,13 @@ namespace OloEngine
             return 0;
         TUniqueLock<FMutex> lock(m_CustomMutex);
         u32 offset = m_CustomOffset;
-        if (count > static_cast<u32>(m_Customs.size()) - offset)
+        if (count > static_cast<u32>(static_cast<sizet>(m_Customs.Num())) - offset)
         {
             if (!m_CustomOverflowLogged)
             {
                 OLO_CORE_ERROR("FrameDataBuffer: Custom buffer overflow! Requested {} at offset {}, capacity {}. "
                                "Subsequent overflows this frame will be silent.",
-                               count, offset, m_Customs.size());
+                               count, offset, static_cast<sizet>(m_Customs.Num()));
                 m_CustomOverflowLogged = true;
             }
             return UINT32_MAX;
@@ -338,7 +338,7 @@ namespace OloEngine
     f32* FrameDataBuffer::GetCustomPtr(u32 offset)
     {
         TUniqueLock<FMutex> lock(m_CustomMutex);
-        if (offset >= m_Customs.size())
+        if (offset >= static_cast<sizet>(m_Customs.Num()))
             return nullptr;
         return &m_Customs[offset];
     }
@@ -346,7 +346,7 @@ namespace OloEngine
     const f32* FrameDataBuffer::GetCustomPtr(u32 offset) const
     {
         TUniqueLock<FMutex> lock(m_CustomMutex);
-        if (offset >= m_Customs.size())
+        if (offset >= static_cast<sizet>(m_Customs.Num()))
             return nullptr;
         return &m_Customs[offset];
     }
@@ -354,10 +354,10 @@ namespace OloEngine
     void FrameDataBuffer::WriteCustoms(u32 offset, const f32* data, u32 count)
     {
         TUniqueLock<FMutex> lock(m_CustomMutex);
-        if (offset + count > m_Customs.size())
+        if (offset + count > static_cast<sizet>(m_Customs.Num()))
         {
             OLO_CORE_ERROR("FrameDataBuffer: WriteCustoms out of bounds: offset={}, count={}, capacity={}",
-                           offset, count, m_Customs.size());
+                           offset, count, static_cast<sizet>(m_Customs.Num()));
             return;
         }
         std::memcpy(&m_Customs[offset], data, count * sizeof(f32));
@@ -367,11 +367,11 @@ namespace OloEngine
     {
         TUniqueLock<FMutex> lock(m_GPUSceneRefMutex);
         const u32 offset = m_GPUSceneRefOffset;
-        if (count > static_cast<u32>(m_GPUSceneRefs.size()) - offset)
+        if (count > static_cast<u32>(static_cast<sizet>(m_GPUSceneRefs.Num())) - offset)
         {
             if (!m_GPUSceneRefOverflowLogged)
             {
-                OLO_CORE_ERROR("FrameDataBuffer: GPU Scene reference buffer overflow! Requested {} at offset {}, capacity {}. Subsequent overflows this frame will be silent.", count, offset, m_GPUSceneRefs.size());
+                OLO_CORE_ERROR("FrameDataBuffer: GPU Scene reference buffer overflow! Requested {} at offset {}, capacity {}. Subsequent overflows this frame will be silent.", count, offset, static_cast<sizet>(m_GPUSceneRefs.Num()));
                 m_GPUSceneRefOverflowLogged = true;
             }
             return UINT32_MAX;
@@ -383,21 +383,21 @@ namespace OloEngine
     glm::uvec4* FrameDataBuffer::GetGPUSceneRefPtr(u32 offset)
     {
         TUniqueLock<FMutex> lock(m_GPUSceneRefMutex);
-        return offset < m_GPUSceneRefs.size() ? &m_GPUSceneRefs[offset] : nullptr;
+        return offset < static_cast<sizet>(m_GPUSceneRefs.Num()) ? &m_GPUSceneRefs[offset] : nullptr;
     }
 
     const glm::uvec4* FrameDataBuffer::GetGPUSceneRefPtr(u32 offset) const
     {
         TUniqueLock<FMutex> lock(m_GPUSceneRefMutex);
-        return offset < m_GPUSceneRefs.size() ? &m_GPUSceneRefs[offset] : nullptr;
+        return offset < static_cast<sizet>(m_GPUSceneRefs.Num()) ? &m_GPUSceneRefs[offset] : nullptr;
     }
 
     void FrameDataBuffer::WriteGPUSceneRefs(u32 offset, const glm::uvec4* data, u32 count)
     {
         TUniqueLock<FMutex> lock(m_GPUSceneRefMutex);
-        if (offset + count > m_GPUSceneRefs.size())
+        if (offset + count > static_cast<sizet>(m_GPUSceneRefs.Num()))
         {
-            OLO_CORE_ERROR("FrameDataBuffer: WriteGPUSceneRefs out of bounds: offset={}, count={}, capacity={}", offset, count, m_GPUSceneRefs.size());
+            OLO_CORE_ERROR("FrameDataBuffer: WriteGPUSceneRefs out of bounds: offset={}, count={}, capacity={}", offset, count, static_cast<sizet>(m_GPUSceneRefs.Num()));
             return;
         }
         std::memcpy(&m_GPUSceneRefs[offset], data, count * sizeof(glm::uvec4));
@@ -555,12 +555,12 @@ namespace OloEngine
         WorkerScratchBuffer& scratch = m_WorkerScratchBuffers[workerIndex];
 
         // Ensure capacity
-        if (scratch.boneCount + count > scratch.bones.size())
+        if (scratch.boneCount + count > static_cast<sizet>(scratch.bones.Num()))
         {
             sizet newCapacity = std::max(
-                scratch.bones.size() * 2,
+                static_cast<sizet>(scratch.bones.Num()) * 2,
                 static_cast<sizet>(scratch.boneCount + count));
-            scratch.bones.resize(newCapacity);
+            scratch.bones.SetNum(static_cast<i64>(newCapacity), EAllowShrinking::No);
         }
 
         u32 localOffset = scratch.boneCount;
@@ -604,13 +604,13 @@ namespace OloEngine
         u32 newCount = scratch.transformCount + count;
 
         // Ensure capacity with safe type conversion
-        if (newCount > scratch.transforms.size())
+        if (newCount > static_cast<sizet>(scratch.transforms.Num()))
         {
             // Use size_t to avoid overflow in capacity calculation
             sizet newCapacity = std::max(
-                scratch.transforms.size() * 2,
+                static_cast<sizet>(scratch.transforms.Num()) * 2,
                 static_cast<sizet>(newCount));
-            scratch.transforms.resize(newCapacity);
+            scratch.transforms.SetNum(static_cast<i64>(newCapacity), EAllowShrinking::No);
         }
 
         u32 localOffset = scratch.transformCount;
@@ -628,10 +628,10 @@ namespace OloEngine
         WorkerScratchBuffer& scratch = m_WorkerScratchBuffers[workerIndex];
 
         // Runtime bounds check (works in release builds unlike assertions)
-        if (localOffset + count > scratch.bones.size())
+        if (localOffset + count > static_cast<sizet>(scratch.bones.Num()))
         {
             OLO_CORE_ERROR("FrameDataBuffer::WriteBoneMatricesParallel: Write out of bounds! offset={}, count={}, capacity={}",
-                           localOffset, count, scratch.bones.size());
+                           localOffset, count, static_cast<sizet>(scratch.bones.Num()));
             return;
         }
 
@@ -647,10 +647,10 @@ namespace OloEngine
         WorkerScratchBuffer& scratch = m_WorkerScratchBuffers[workerIndex];
 
         // Runtime bounds check (works in release builds unlike assertions)
-        if (localOffset + count > scratch.transforms.size())
+        if (localOffset + count > static_cast<sizet>(scratch.transforms.Num()))
         {
             OLO_CORE_ERROR("FrameDataBuffer::WriteTransformsParallel: Write out of bounds! offset={}, count={}, capacity={}",
-                           localOffset, count, scratch.transforms.size());
+                           localOffset, count, static_cast<sizet>(scratch.transforms.Num()));
             return;
         }
 
@@ -678,13 +678,13 @@ namespace OloEngine
         }
 
         // Ensure main buffer has capacity
-        if (m_BoneMatrixOffset + totalBones > m_BoneMatrices.size())
+        if (m_BoneMatrixOffset + totalBones > static_cast<sizet>(m_BoneMatrices.Num()))
         {
-            m_BoneMatrices.resize(m_BoneMatrixOffset + totalBones);
+            m_BoneMatrices.SetNum(static_cast<i64>(m_BoneMatrixOffset + totalBones), EAllowShrinking::No);
         }
-        if (m_TransformOffset + totalTransforms > m_Transforms.size())
+        if (m_TransformOffset + totalTransforms > static_cast<sizet>(m_Transforms.Num()))
         {
-            m_Transforms.resize(m_TransformOffset + totalTransforms);
+            m_Transforms.SetNum(static_cast<i64>(m_TransformOffset + totalTransforms), EAllowShrinking::No);
         }
 
         // Copy scratch buffers into main buffer and record global offsets
@@ -697,7 +697,7 @@ namespace OloEngine
             {
                 scratch.globalBoneOffset = currentBoneOffset;
                 std::memcpy(&m_BoneMatrices[currentBoneOffset],
-                            scratch.bones.data(),
+                            scratch.bones.GetData(),
                             scratch.boneCount * sizeof(glm::mat4));
                 currentBoneOffset += scratch.boneCount;
             }
@@ -706,7 +706,7 @@ namespace OloEngine
             {
                 scratch.globalTransformOffset = currentTransformOffset;
                 std::memcpy(&m_Transforms[currentTransformOffset],
-                            scratch.transforms.data(),
+                            scratch.transforms.GetData(),
                             scratch.transformCount * sizeof(glm::mat4));
                 currentTransformOffset += scratch.transformCount;
             }

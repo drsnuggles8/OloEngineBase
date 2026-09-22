@@ -804,4 +804,33 @@ namespace OloEngine::Tests
                                            glm::vec3(0.25f)));
         }
     }
+    TEST(ReferenceSceneOwnership, StableOwnersSurviveIndexGrowthAndSceneMoves)
+    {
+        std::weak_ptr<const ReferenceTexture> textureLifetime;
+        {
+            ReferenceScene scene;
+            ReferenceMaterial material;
+            material.AlbedoMap = std::make_shared<ReferenceTexture>();
+            textureLifetime = material.AlbedoMap;
+            scene.AddMaterial(material);
+            material.AlbedoMap.reset();
+            scene.AddQuadGeometry({ 0, 0, 0 }, { 1, 0, 0 }, { 1, 1, 0 }, { 0, 1, 0 });
+            const auto* firstMaterial = &scene.GetMaterial(0);
+            const auto* firstGeometry = &scene.GetGeometry(0);
+            for (u32 i = 0; i < 128; ++i)
+            {
+                scene.AddMaterial({});
+                scene.AddQuadGeometry({ 0, 0, 0 }, { 1, 0, 0 }, { 1, 1, 0 }, { 0, 1, 0 });
+            }
+            ReferenceScene moved = std::move(scene);
+            ReferenceScene assigned;
+            assigned = std::move(moved);
+            EXPECT_EQ(&assigned.GetMaterial(0), firstMaterial);
+            EXPECT_EQ(&assigned.GetGeometry(0), firstGeometry);
+            EXPECT_EQ(assigned.GetMaterials().size(), 129u);
+            EXPECT_EQ(assigned.GetGeometry(0).GetTriangleCount(), 2u);
+            EXPECT_FALSE(textureLifetime.expired());
+        }
+        EXPECT_TRUE(textureLifetime.expired());
+    }
 } // namespace OloEngine::Tests

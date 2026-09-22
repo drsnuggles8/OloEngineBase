@@ -203,19 +203,19 @@ namespace OloEngine
 
         if (!handle.IsValid())
         {
-            m_RenderGraph->RecordResolveFailure(m_ActivePassName, "invalid-texture-handle");
+            m_RenderGraph->RecordResolveFailure(m_ActivePassName.ToView(), "invalid-texture-handle");
             return 0;
         }
 
         if (!m_RenderGraph->IsTextureHandleCurrent(handle))
         {
-            m_RenderGraph->RecordResolveFailure(m_ActivePassName, "stale-texture-handle");
+            m_RenderGraph->RecordResolveFailure(m_ActivePassName.ToView(), "stale-texture-handle");
             return 0;
         }
 
         const auto resolved = m_RenderGraph->ResolveTexture(handle);
         if (resolved == 0)
-            m_RenderGraph->RecordResolveFailure(m_ActivePassName, "texture-resolve-zero");
+            m_RenderGraph->RecordResolveFailure(m_ActivePassName.ToView(), "texture-resolve-zero");
 
         return resolved;
     }
@@ -228,13 +228,13 @@ namespace OloEngine
 
         if (!handle.IsValid())
         {
-            m_RenderGraph->RecordResolveFailure(m_ActivePassName, "invalid-texture-handle");
+            m_RenderGraph->RecordResolveFailure(m_ActivePassName.ToView(), "invalid-texture-handle");
             return {};
         }
 
         if (!m_RenderGraph->IsTextureHandleCurrent(handle))
         {
-            m_RenderGraph->RecordResolveFailure(m_ActivePassName, "stale-texture-handle");
+            m_RenderGraph->RecordResolveFailure(m_ActivePassName.ToView(), "stale-texture-handle");
             return {};
         }
 
@@ -253,19 +253,19 @@ namespace OloEngine
 
         if (!handle.IsValid())
         {
-            m_RenderGraph->RecordResolveFailure(m_ActivePassName, "invalid-framebuffer-handle");
+            m_RenderGraph->RecordResolveFailure(m_ActivePassName.ToView(), "invalid-framebuffer-handle");
             return nullptr;
         }
 
         if (!m_RenderGraph->IsFramebufferHandleCurrent(handle))
         {
-            m_RenderGraph->RecordResolveFailure(m_ActivePassName, "stale-framebuffer-handle");
+            m_RenderGraph->RecordResolveFailure(m_ActivePassName.ToView(), "stale-framebuffer-handle");
             return nullptr;
         }
 
         auto resolved = m_RenderGraph->ResolveFramebuffer(handle);
         if (!resolved)
-            m_RenderGraph->RecordResolveFailure(m_ActivePassName, "framebuffer-resolve-null");
+            m_RenderGraph->RecordResolveFailure(m_ActivePassName.ToView(), "framebuffer-resolve-null");
 
         return resolved;
     }
@@ -279,13 +279,13 @@ namespace OloEngine
 
         if (!sourceHandle.IsValid())
         {
-            m_RenderGraph->RecordResolveFailure(m_ActivePassName, "invalid-history-source-texture-handle");
+            m_RenderGraph->RecordResolveFailure(m_ActivePassName.ToView(), "invalid-history-source-texture-handle");
             return;
         }
 
         if (!m_RenderGraph->IsTextureHandleCurrent(sourceHandle))
         {
-            m_RenderGraph->RecordResolveFailure(m_ActivePassName, "stale-history-source-texture-handle");
+            m_RenderGraph->RecordResolveFailure(m_ActivePassName.ToView(), "stale-history-source-texture-handle");
             return;
         }
 
@@ -302,13 +302,13 @@ namespace OloEngine
 
         if (!sourceHandle.IsValid())
         {
-            m_RenderGraph->RecordResolveFailure(m_ActivePassName, "invalid-history-source-framebuffer-handle");
+            m_RenderGraph->RecordResolveFailure(m_ActivePassName.ToView(), "invalid-history-source-framebuffer-handle");
             return;
         }
 
         if (!m_RenderGraph->IsFramebufferHandleCurrent(sourceHandle))
         {
-            m_RenderGraph->RecordResolveFailure(m_ActivePassName, "stale-history-source-framebuffer-handle");
+            m_RenderGraph->RecordResolveFailure(m_ActivePassName.ToView(), "stale-history-source-framebuffer-handle");
             return;
         }
 

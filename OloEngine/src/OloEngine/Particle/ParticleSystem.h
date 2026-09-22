@@ -9,6 +9,7 @@
 #include "OloEngine/Particle/ParticleTrail.h"
 #include "OloEngine/Particle/SubEmitter.h"
 #include "OloEngine/Particle/GPUParticleSystem.h"
+#include "OloEngine/Particle/GPUParticleSystemOwner.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
 
 #include <glm/glm.hpp>
@@ -41,7 +42,7 @@ namespace OloEngine
       public:
         explicit ParticleSystem(u32 maxParticles = 1000);
 
-        // Copy constructor: deep-copies all state but rewires OnSwapCallback to this instance
+        // Copy constructor: deep-copies CPU state; GPU state is recreated lazily.
         ParticleSystem(const ParticleSystem& other);
         ParticleSystem& operator=(const ParticleSystem& other);
         ParticleSystem(ParticleSystem&&) noexcept;
@@ -64,7 +65,7 @@ namespace OloEngine
         void SortByDepth(const glm::vec3& cameraPosition);
 
         // Get depth-sorted index array (valid after SortByDepth(); size == GetAliveCount()).
-        [[nodiscard]] const std::vector<u32>& GetSortedIndices() const
+        [[nodiscard]] const TArray<u32>& GetSortedIndices() const
         {
             return m_SortedIndices;
         }
@@ -122,17 +123,17 @@ namespace OloEngine
         // GPU particle system accessor (valid when UseGPU is true and system has been updated)
         [[nodiscard]] GPUParticleSystem* GetGPUSystem() const
         {
-            return m_GPUSystem.get();
+            return m_GPUSystem.Get();
         }
 
         // Collect sub-emitter triggers that fired this frame
-        [[nodiscard]] const std::vector<SubEmitterTriggerInfo>& GetPendingTriggers() const
+        [[nodiscard]] const TArray<SubEmitterTriggerInfo>& GetPendingTriggers() const
         {
             return m_PendingTriggers;
         }
         void ClearPendingTriggers()
         {
-            m_PendingTriggers.clear();
+            m_PendingTriggers.Reset();
         }
 
         // Set Jolt scene for raycast collision (optional, set by Scene during runtime)
@@ -241,7 +242,7 @@ namespace OloEngine
 
         // Sub-systems — collision, force fields, trails, sub-emitters
         ModuleCollision CollisionModule;
-        std::vector<ModuleForceField> ForceFields;
+        TArray<ModuleForceField> ForceFields;
         ModuleTrail TrailModule;
         ModuleSubEmitter SubEmitterModule;
 
@@ -249,13 +250,14 @@ namespace OloEngine
         ModuleTextureSheetAnimation TextureSheetModule;
 
       private:
+        friend struct TIsTriviallyRelocatable<ParticleSystem>;
         ParticlePool m_Pool;
         ParticleTrailData m_TrailData;
-        Scope<GPUParticleSystem> m_GPUSystem;
-        std::vector<SubEmitterTriggerInfo> m_PendingTriggers;
-        std::vector<CollisionEvent> m_CollisionEvents;
-        std::vector<u32> m_SortedIndices;
-        std::vector<f32> m_SortDistances;
+        GPUParticleSystemOwner m_GPUSystem;
+        TArray<SubEmitterTriggerInfo> m_PendingTriggers;
+        TArray<CollisionEvent> m_CollisionEvents;
+        TArray<u32> m_SortedIndices;
+        TArray<f32> m_SortDistances;
         JoltScene* m_JoltScene = nullptr;
         glm::vec3 m_EmitterPosition{ 0.0f };
         glm::vec3 m_ParentVelocity{ 0.0f };
@@ -274,5 +276,63 @@ namespace OloEngine
         void ProcessSubEmitterTriggers();
         void UpdateInternal(f32 dt, const glm::vec3& emitterPosition, const glm::vec3& parentVelocity, const glm::quat& emitterRotation);
         void UpdateGPU(f32 dt, const glm::vec3& emitterPosition, const glm::quat& emitterRotation, bool emissionAllowed);
+    };
+    // Owned arrays/resources use independent heap storage; the remaining fields
+    // are values or external pointers. No member retains the enclosing address.
+    template<>
+    struct TIsTriviallyRelocatable<ParticleSystem>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(ParticleSystem::Playing)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::Looping)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::Duration)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::PlaybackSpeed)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::WarmUpTime)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::SimulationSpace)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::BlendMode)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::RenderMode)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::DepthSortEnabled)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::UseGPU)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::WindInfluence)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::GPUNoiseStrength)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::GPUNoiseFrequency)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::GPUGroundCollision)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::GPUGroundY)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::GPUCollisionBounce)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::GPUCollisionFriction)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::SoftParticlesEnabled)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::SoftParticleDistance)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::VelocityInheritance)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::LODDistance1)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::LODMaxDistance)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::Emitter)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::ColorModule)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::SizeModule)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::VelocityModule)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::RotationModule)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::GravityModule)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::DragModule)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::NoiseModule)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::CollisionModule)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::ForceFields)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::TrailModule)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::SubEmitterModule)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::TextureSheetModule)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::m_Pool)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::m_TrailData)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::m_GPUSystem)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::m_PendingTriggers)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::m_CollisionEvents)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::m_SortedIndices)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::m_SortDistances)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::m_JoltScene)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::m_EmitterPosition)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::m_ParentVelocity)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::m_BoundingSphere)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::m_Time)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::m_LODSpawnRateMultiplier)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::m_LastGpuEmitRequest)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::m_HasWarmedUp)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::m_Random)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ParticleSystem::m_RandomSeeded)>::Value;
     };
 } // namespace OloEngine

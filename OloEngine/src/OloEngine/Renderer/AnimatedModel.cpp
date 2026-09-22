@@ -25,7 +25,7 @@ namespace OloEngine
     {
         // Combine multiple MeshSources into a single MeshSource for binary cache serialization.
         // Each original MeshSource becomes one submesh in the combined output.
-        Ref<MeshSource> CombineMeshSourcesForCache(const std::vector<Ref<MeshSource>>& meshes, const Ref<Skeleton>& skeleton)
+        Ref<MeshSource> CombineMeshSourcesForCache(std::span<const Ref<MeshSource>> meshes, const Ref<Skeleton>& skeleton)
         {
             auto combined = Ref<MeshSource>::Create();
             u32 baseVertex = 0;
@@ -210,7 +210,7 @@ namespace OloEngine
         // Split a combined MeshSource back into per-submesh MeshSources.
         bool SplitCombinedMeshSource(
             const Ref<MeshSource>& combined,
-            std::vector<Ref<MeshSource>>& outMeshes,
+            TArray<Ref<MeshSource>>& outMeshes,
             Ref<Skeleton>& outSkeleton)
         {
             if (!combined || combined->GetSubmeshes().IsEmpty())
@@ -241,7 +241,7 @@ namespace OloEngine
                 }
 
                 // Validate all skeleton matrices for non-finite values before copying
-                auto const validateMat4Array = [](const std::vector<glm::mat4>& arr, const char* name) -> bool
+                auto const validateMat4Array = [](std::span<const glm::mat4> arr, const char* name) -> bool
                 {
                     for (sizet i = 0; i < arr.size(); ++i)
                     {
@@ -291,8 +291,8 @@ namespace OloEngine
             const auto& allBones = combined->GetBoneInfluences();
             const auto& allBoneInfo = combined->GetBoneInfo();
 
-            std::vector<Ref<MeshSource>> localMeshes;
-            localMeshes.reserve(static_cast<sizet>(combined->GetSubmeshes().Num()));
+            TArray<Ref<MeshSource>> localMeshes;
+            localMeshes.Reserve(combined->GetSubmeshes().Num());
 
             auto submeshCount = combined->GetSubmeshes().Num();
             for (i32 s = 0; s < submeshCount; ++s)
@@ -368,7 +368,7 @@ namespace OloEngine
                 }
                 mesh->Build();
 
-                localMeshes.push_back(mesh);
+                localMeshes.Add(mesh);
             }
 
             // Split combined morph targets back into per-mesh sets.
@@ -406,7 +406,7 @@ namespace OloEngine
                     }
                 }
 
-                for (i32 s = 0; s < submeshCount && s < static_cast<i32>(localMeshes.size()); ++s)
+                for (i32 s = 0; s < submeshCount && s < localMeshes.Num(); ++s)
                 {
                     const auto& submesh = combined->GetSubmeshes()[s];
                     auto meshMorphs = Ref<MorphTargetSet>::Create();
@@ -499,12 +499,12 @@ namespace OloEngine
         // Collect material indices from the Assimp scene in DFS traversal
         // order to match the original ProcessNode order used to build m_Meshes.
         const auto CollectMaterialIndices = [](const aiNode* node, const aiScene* scene,
-                                               std::vector<u32>& out, auto&& self) -> void
+                                               TArray<u32>& out, auto&& self) -> void
         {
             for (u32 i = 0; i < node->mNumMeshes; ++i)
             {
                 const auto* mesh = scene->mMeshes[node->mMeshes[i]];
-                out.push_back(mesh->mMaterialIndex);
+                out.Add(mesh->mMaterialIndex);
             }
             for (u32 i = 0; i < node->mNumChildren; ++i)
             {
@@ -527,10 +527,10 @@ namespace OloEngine
 
         // Reset per-load state so stale data from a previous load never leaks through
         // if the new load partially fails or takes a different code path.
-        m_Meshes.clear();
+        m_Meshes.Reset();
         m_Skeleton = nullptr;
-        m_Materials.clear();
-        m_Animations.clear();
+        m_Materials.Reset();
+        m_Animations.Reset();
         m_BoneInfoMap.clear();
         m_LoadedTextures.clear();
         m_HasMeshNodeTransform = false;
@@ -558,13 +558,13 @@ namespace OloEngine
                     if (!MeshCache::IsAnimationCacheValid(sourcePath))
                     {
                         OLO_CORE_WARN("AnimatedModel::LoadModel: Mesh cache valid but animation cache invalid for '{}', re-importing", path);
-                        m_Meshes.clear();
+                        m_Meshes.Reset();
                         m_Skeleton = nullptr;
                         MeshCache::InvalidateCache(sourcePath, kAnimCachePrefix);
                     }
                     else
                     {
-                        m_Animations = MeshCache::LoadAnimationsFromCache(sourcePath);
+                        m_Animations.Append(MeshCache::LoadAnimationsFromCache(sourcePath));
 
                         // Load materials from the source file. We must re-import with the
                         // SAME flags the fresh-load path used, otherwise Assimp can produce
@@ -581,12 +581,12 @@ namespace OloEngine
                             const aiScene* matScene = matImporter.ReadFile(path, kAnimCacheLoadFlags);
                             if (matScene && !(matScene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) && matScene->mRootNode)
                             {
-                                std::vector<u32> materialIndices;
-                                materialIndices.reserve(m_Meshes.size());
+                                TArray<u32> materialIndices;
+                                materialIndices.Reserve(static_cast<sizet>(m_Meshes.Num()));
                                 CollectMaterialIndices(matScene->mRootNode, matScene, materialIndices, CollectMaterialIndices);
 
-                                m_Materials.resize(m_Meshes.size());
-                                auto numMaterials = std::min(materialIndices.size(), m_Meshes.size());
+                                m_Materials.SetNum(m_Meshes.Num(), EAllowShrinking::No);
+                                auto numMaterials = std::min<sizet>(materialIndices.Num(), static_cast<sizet>(m_Meshes.Num()));
                                 for (sizet i = 0; i < numMaterials; ++i)
                                 {
                                     if (materialIndices[i] < matScene->mNumMaterials)
@@ -598,7 +598,7 @@ namespace OloEngine
                             else
                             {
                                 OLO_CORE_WARN("AnimatedModel::LoadModel: Failed to load materials from '{}' for cached geometry", path);
-                                m_Materials.resize(m_Meshes.size());
+                                m_Materials.SetNum(m_Meshes.Num(), EAllowShrinking::No);
                             }
                         }
 
@@ -618,7 +618,7 @@ namespace OloEngine
                         }
 
                         OLO_CORE_INFO("AnimatedModel::LoadModel: Loaded from cache - {} meshes, {} animations",
-                                      m_Meshes.size(), m_Animations.size());
+                                      static_cast<sizet>(m_Meshes.Num()), static_cast<sizet>(m_Animations.Num()));
                         return;
                     } // end animation-cache-valid block
                 }
@@ -626,7 +626,7 @@ namespace OloEngine
                 {
                     // SplitCombinedMeshSource failed — invalidate corrupt cache so next load re-imports
                     OLO_CORE_WARN("AnimatedModel::LoadModel: SplitCombinedMeshSource failed for '{}', invalidating cache", path);
-                    m_Meshes.clear();
+                    m_Meshes.Reset();
                     m_Skeleton = nullptr;
                     MeshCache::InvalidateCache(sourcePath, kAnimCachePrefix);
                 }
@@ -710,27 +710,27 @@ namespace OloEngine
             }
             // Always write .oanim when skeleton exists (even if empty) so that
             // IsAnimationCacheValid succeeds on re-load.
-            if (m_Skeleton || !m_Animations.empty())
+            if (m_Skeleton || !m_Animations.IsEmpty())
             {
-                MeshCache::SaveAnimationsToCache(sourcePath, m_Animations);
+                MeshCache::SaveAnimationsToCache(sourcePath, GetAnimations());
             }
         }
 
         OLO_CORE_INFO("AnimatedModel::LoadModel: Successfully loaded animated model with {} meshes, {} animations",
-                      m_Meshes.size(), m_Animations.size());
+                      static_cast<sizet>(m_Meshes.Num()), static_cast<sizet>(m_Animations.Num()));
     }
 
     Ref<MeshSource> AnimatedModel::CreateCombinedMeshSource() const
     {
         OLO_PROFILE_FUNCTION();
 
-        if (m_Meshes.empty())
+        if (m_Meshes.IsEmpty())
         {
             OLO_CORE_WARN("AnimatedModel::CreateCombinedMeshSource: No meshes to combine");
             return nullptr;
         }
 
-        auto combined = CombineMeshSourcesForCache(m_Meshes, m_Skeleton);
+        auto combined = CombineMeshSourcesForCache(GetMeshes(), m_Skeleton);
         if (!combined)
         {
             return nullptr;
@@ -750,17 +750,17 @@ namespace OloEngine
         // material, or indexes off the end into engine-default grey. Renumber to the
         // ordinal that actually addresses the table we are attaching.
         {
-            std::vector<Ref<Material>> materials;
-            materials.reserve(m_Materials.size());
+            TArray<Ref<Material>> materials;
+            materials.Reserve(m_Materials.Num());
             for (const auto& material : m_Materials)
             {
-                materials.push_back(Ref<Material>::Create(material));
+                materials.Add(Ref<Material>::Create(material));
             }
 
             auto& submeshes = combined->GetSubmeshes();
             for (i32 i = 0; i < submeshes.Num(); ++i)
             {
-                submeshes[i].m_MaterialIndex = (static_cast<sizet>(i) < materials.size())
+                submeshes[i].m_MaterialIndex = (i < materials.Num())
                                                    ? static_cast<u32>(i)
                                                    : UINT32_MAX;
             }
@@ -777,7 +777,7 @@ namespace OloEngine
 
         OLO_CORE_INFO("AnimatedModel::CreateCombinedMeshSource: Combined {} meshes into {} vertices, "
                       "{} indices, {} submeshes (rigged={}, morphTargets={})",
-                      m_Meshes.size(), combined->GetVertices().Num(), combined->GetIndices().Num(),
+                      static_cast<sizet>(m_Meshes.Num()), combined->GetVertices().Num(), combined->GetIndices().Num(),
                       combined->GetSubmeshes().Num(), combined->HasBoneInfluences(),
                       combined->HasMorphTargets());
 
@@ -798,7 +798,7 @@ namespace OloEngine
             auto meshSource = ProcessMesh(mesh, scene);
             if (meshSource)
             {
-                m_Meshes.push_back(meshSource);
+                m_Meshes.Add(meshSource);
 
                 // Store the first skinned mesh node's global transform for axis correction
                 if (!m_HasMeshNodeTransform && mesh->mNumBones > 0)
@@ -846,7 +846,7 @@ namespace OloEngine
                         material = Material{}; // Default constructed material
                     }
                 }
-                m_Materials.push_back(material);
+                m_Materials.Add(material);
             }
         }
 
@@ -861,14 +861,14 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::vector<Vertex> vertices; // Use regular Vertex instead of specialized vertex types
-        std::vector<u32> indices;
-        std::vector<BoneInfluence> boneInfluences; // Separate bone data
+        TArray<Vertex> vertices; // Use regular Vertex instead of specialized vertex types
+        TArray<u32> indices;
+        TArray<BoneInfluence> boneInfluences; // Separate bone data
 
         // Reserve space to reduce allocations during mesh processing
-        vertices.reserve(mesh->mNumVertices);
-        indices.reserve(mesh->mNumFaces * 3);       // Assuming triangulated mesh
-        boneInfluences.reserve(mesh->mNumVertices); // One per vertex for bone influences
+        vertices.Reserve(mesh->mNumVertices);
+        indices.Reserve(mesh->mNumFaces * 3);       // Assuming triangulated mesh
+        boneInfluences.Reserve(mesh->mNumVertices); // One per vertex for bone influences
 
         OLO_CORE_TRACE("AnimatedModel::ProcessMesh: Processing mesh with {} vertices, {} faces, {} bones",
                        mesh->mNumVertices, mesh->mNumFaces, mesh->mNumBones);
@@ -909,11 +909,11 @@ namespace OloEngine
                 vertex.TexCoord = glm::vec2(0.0f);
             }
 
-            vertices.push_back(vertex);
+            vertices.Add(vertex);
         }
 
         // Initialize bone influences (one per vertex)
-        boneInfluences.resize(vertices.size());
+        boneInfluences.SetNum(vertices.Num(), EAllowShrinking::No);
 
         // Process bone data if available
         if (mesh->mNumBones > 0)
@@ -927,13 +927,13 @@ namespace OloEngine
             const aiFace& face = mesh->mFaces[i];
             for (u32 j = 0; j < face.mNumIndices; ++j)
             {
-                indices.push_back(face.mIndices[j]);
+                indices.Add(face.mIndices[j]);
             }
         }
 
         // Store sizes before moving data to avoid use-after-move issues
-        const u32 vertexCount = static_cast<u32>(vertices.size());
-        const u32 indexCount = static_cast<u32>(indices.size());
+        const u32 vertexCount = static_cast<u32>(vertices.Num());
+        const u32 indexCount = static_cast<u32>(indices.Num());
 
         // Create MeshSource with separated data
         auto meshSource = Ref<MeshSource>::Create(std::move(vertices), std::move(indices));
@@ -960,7 +960,7 @@ namespace OloEngine
         // info to write, which is what the empty table below says.
         if (m_Skeleton)
         {
-            meshSource->GetBoneInfo().SetNum(static_cast<i32>(m_Skeleton->m_BoneNames.size()));
+            meshSource->GetBoneInfo().SetNum(static_cast<i32>(m_Skeleton->m_BoneNames.size()), EAllowShrinking::No);
 
             // Initialize all entries with identity transforms and sequential IDs to ensure no uninitialized data
             for (sizet i = 0; i < m_Skeleton->m_BoneNames.size(); ++i)
@@ -1045,7 +1045,7 @@ namespace OloEngine
         return meshSource;
     }
 
-    void AnimatedModel::ProcessBones(const aiMesh* mesh, std::vector<BoneInfluence>& outBoneInfluences)
+    void AnimatedModel::ProcessBones(const aiMesh* mesh, TArray<BoneInfluence>& outBoneInfluences)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -1071,7 +1071,7 @@ namespace OloEngine
                 u32 vertexId = weights[weightIndex].mVertexId;
                 f32 weight = weights[weightIndex].mWeight;
 
-                if (vertexId >= outBoneInfluences.size())
+                if (vertexId >= outBoneInfluences.Num())
                 {
                     OLO_CORE_WARN("AnimatedModel::ProcessBones: Invalid vertex ID: {}", vertexId);
                     continue;
@@ -1505,14 +1505,14 @@ namespace OloEngine
                 }
             }
 
-            m_Animations.push_back(animClip);
+            m_Animations.Add(animClip);
         }
 
-        OLO_CORE_INFO("AnimatedModel::ProcessAnimations: Successfully processed {} animations", m_Animations.size());
+        OLO_CORE_INFO("AnimatedModel::ProcessAnimations: Successfully processed {} animations", static_cast<sizet>(m_Animations.Num()));
     }
 
     // New optimized sampling functions for separate keyframe channels
-    glm::vec3 AnimatedModel::SampleBonePosition(const std::vector<BonePositionKey>& keys, f32 time)
+    glm::vec3 AnimatedModel::SampleBonePosition(std::span<const BonePositionKey> keys, f32 time)
     {
         if (keys.empty())
             return glm::vec3(0.0f);
@@ -1537,7 +1537,7 @@ namespace OloEngine
         return glm::mix(keys[keyIndex].Position, keys[keyIndex + 1].Position, static_cast<f32>(t));
     }
 
-    glm::quat AnimatedModel::SampleBoneRotation(const std::vector<BoneRotationKey>& keys, f32 time)
+    glm::quat AnimatedModel::SampleBoneRotation(std::span<const BoneRotationKey> keys, f32 time)
     {
         if (keys.empty())
             return glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
@@ -1562,7 +1562,7 @@ namespace OloEngine
         return glm::slerp(keys[keyIndex].Rotation, keys[keyIndex + 1].Rotation, static_cast<f32>(t));
     }
 
-    glm::vec3 AnimatedModel::SampleBoneScale(const std::vector<BoneScaleKey>& keys, f32 time)
+    glm::vec3 AnimatedModel::SampleBoneScale(std::span<const BoneScaleKey> keys, f32 time)
     {
         if (keys.empty())
             return glm::vec3(1.0f);
@@ -1587,9 +1587,9 @@ namespace OloEngine
         return glm::mix(keys[keyIndex].Scale, keys[keyIndex + 1].Scale, static_cast<f32>(t));
     }
 
-    std::vector<Ref<Texture2D>> AnimatedModel::LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type, i32 semanticIndex)
+    TArray<Ref<Texture2D>> AnimatedModel::LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type, i32 semanticIndex)
     {
-        std::vector<Ref<Texture2D>> textures;
+        TArray<Ref<Texture2D>> textures;
 
         // Colour textures (albedo / base-color / emissive) live in sRGB space
         // and need GPU linearisation. Data textures (normal / metallic /
@@ -1618,15 +1618,15 @@ namespace OloEngine
         //
         // So a caller that wants a specific index says so, and gets exactly that
         // index probed rather than a count-derived guess.
-        std::vector<u32> semanticIndices;
+        TArray<u32> semanticIndices;
         if (semanticIndex >= 0)
         {
-            semanticIndices.push_back(static_cast<u32>(semanticIndex));
+            semanticIndices.Add(static_cast<u32>(semanticIndex));
         }
         else
         {
             for (u32 i = 0; i < mat->GetTextureCount(type); ++i)
-                semanticIndices.push_back(i);
+                semanticIndices.Add(i);
         }
 
         for (const u32 i : semanticIndices)
@@ -1667,13 +1667,13 @@ namespace OloEngine
                 }
             }
 
-            std::filesystem::path path = std::filesystem::path(m_Directory) / filename;
+            std::filesystem::path path = std::filesystem::path(m_Directory.ToStdString()) / filename;
             const std::string pathKey = path.string() + std::string(srgbSuffix);
 
             // Check if texture was loaded before
             if (m_LoadedTextures.find(pathKey) != m_LoadedTextures.end())
             {
-                textures.push_back(m_LoadedTextures[pathKey]);
+                textures.Add(m_LoadedTextures[pathKey]);
             }
             else
             {
@@ -1703,7 +1703,7 @@ namespace OloEngine
                 }
                 if (texture && texture->IsLoaded())
                 {
-                    textures.push_back(texture);
+                    textures.Add(texture);
                     m_LoadedTextures[pathKey] = texture;
                 }
                 else
@@ -1739,7 +1739,7 @@ namespace OloEngine
                         }
                         else
                         {
-                            auto subdir = std::filesystem::path(m_Directory) / filenamePath.parent_path();
+                            auto subdir = std::filesystem::path(m_Directory.ToStdString()) / filenamePath.parent_path();
                             auto discovered = FindTextureInDirectory(subdir, filenameOnly);
 
                             // If the exact subdirectory didn't exist or had no match, try a case-insensitive
@@ -1747,7 +1747,7 @@ namespace OloEngine
                             // like "Textures/Characters" and case mismatches ("textures/" vs "Textures/").
                             if (discovered.empty())
                             {
-                                std::filesystem::path resolvedDir = m_Directory;
+                                std::filesystem::path resolvedDir = m_Directory.ToStdString();
                                 bool resolved = true;
 
                                 for (const auto& component : parentPath)
@@ -1803,7 +1803,7 @@ namespace OloEngine
                                 const std::string discoveredKey = discovered.string() + std::string(srgbSuffix);
                                 if (m_LoadedTextures.find(discoveredKey) != m_LoadedTextures.end())
                                 {
-                                    textures.push_back(m_LoadedTextures[discoveredKey]);
+                                    textures.Add(m_LoadedTextures[discoveredKey]);
                                     loaded = true;
                                 }
                                 else
@@ -1812,7 +1812,7 @@ namespace OloEngine
                                     if (discoveredTexture && discoveredTexture->IsLoaded())
                                     {
                                         m_LoadedTextures[discoveredKey] = discoveredTexture;
-                                        textures.push_back(discoveredTexture);
+                                        textures.Add(discoveredTexture);
                                         loaded = true;
                                     }
                                 }
@@ -1823,13 +1823,13 @@ namespace OloEngine
                     // Fallback: try just the filename in the model root directory
                     if (!loaded)
                     {
-                        std::filesystem::path fallbackPath = std::filesystem::path(m_Directory) / filenameOnly;
+                        std::filesystem::path fallbackPath = std::filesystem::path(m_Directory.ToStdString()) / filenameOnly;
                         const std::string fallbackPathStr = fallbackPath.string();
                         const std::string fallbackKey = fallbackPathStr + std::string(srgbSuffix);
 
                         if (fallbackPathStr != path.string() && m_LoadedTextures.find(fallbackKey) != m_LoadedTextures.end())
                         {
-                            textures.push_back(m_LoadedTextures[fallbackKey]);
+                            textures.Add(m_LoadedTextures[fallbackKey]);
                             loaded = true;
                         }
                         else if (fallbackPathStr != path.string())
@@ -1847,7 +1847,7 @@ namespace OloEngine
                             }
                             if (fallbackTexture && fallbackTexture->IsLoaded())
                             {
-                                textures.push_back(fallbackTexture);
+                                textures.Add(fallbackTexture);
                                 m_LoadedTextures[fallbackKey] = fallbackTexture;
                                 loaded = true;
                             }
@@ -1862,7 +1862,7 @@ namespace OloEngine
                     // Handles FBX referencing .tga when the actual file is .png, and case mismatches on Linux.
                     if (!loaded)
                     {
-                        auto discovered = FindTextureInDirectory(std::filesystem::path(m_Directory), filenameOnly);
+                        auto discovered = FindTextureInDirectory(std::filesystem::path(m_Directory.ToStdString()), filenameOnly);
                         if (!discovered.empty())
                         {
                             const std::string discoveredStr = discovered.string();
@@ -1871,7 +1871,7 @@ namespace OloEngine
                                            discoveredStr, filenameOnly.string());
                             if (m_LoadedTextures.find(discoveredKey) != m_LoadedTextures.end())
                             {
-                                textures.push_back(m_LoadedTextures[discoveredKey]);
+                                textures.Add(m_LoadedTextures[discoveredKey]);
                                 loaded = true;
                             }
                             else
@@ -1880,7 +1880,7 @@ namespace OloEngine
                                 if (discoveredTexture && discoveredTexture->IsLoaded())
                                 {
                                     m_LoadedTextures[discoveredKey] = discoveredTexture;
-                                    textures.push_back(discoveredTexture);
+                                    textures.Add(discoveredTexture);
                                     loaded = true;
                                 }
                             }
@@ -1972,32 +1972,32 @@ namespace OloEngine
 
         // Load PBR textures
         auto albedoMaps = LoadMaterialTextures(mat, aiTextureType_DIFFUSE);
-        if (albedoMaps.empty())
+        if (albedoMaps.IsEmpty())
         {
             // Try base color for newer PBR/glTF materials
             albedoMaps = LoadMaterialTextures(mat, aiTextureType_BASE_COLOR);
         }
-        if (!albedoMaps.empty())
+        if (!albedoMaps.IsEmpty())
         {
             material.SetAlbedoMap(albedoMaps[0]);
         }
 
-        if (auto metallicRoughnessMaps = LoadMaterialTextures(mat, aiTextureType_METALNESS); !metallicRoughnessMaps.empty())
+        if (auto metallicRoughnessMaps = LoadMaterialTextures(mat, aiTextureType_METALNESS); !metallicRoughnessMaps.IsEmpty())
         {
             material.SetMetallicRoughnessMap(metallicRoughnessMaps[0]);
         }
 
-        if (auto normalMaps = LoadMaterialTextures(mat, aiTextureType_NORMALS); !normalMaps.empty())
+        if (auto normalMaps = LoadMaterialTextures(mat, aiTextureType_NORMALS); !normalMaps.IsEmpty())
         {
             material.SetNormalMap(normalMaps[0]);
         }
 
-        if (auto aoMaps = LoadMaterialTextures(mat, aiTextureType_AMBIENT_OCCLUSION); !aoMaps.empty())
+        if (auto aoMaps = LoadMaterialTextures(mat, aiTextureType_AMBIENT_OCCLUSION); !aoMaps.IsEmpty())
         {
             material.SetAOMap(aoMaps[0]);
         }
 
-        if (auto emissiveMaps = LoadMaterialTextures(mat, aiTextureType_EMISSIVE); !emissiveMaps.empty())
+        if (auto emissiveMaps = LoadMaterialTextures(mat, aiTextureType_EMISSIVE); !emissiveMaps.IsEmpty())
         {
             material.SetEmissiveMap(emissiveMaps[0]);
         }
@@ -2014,7 +2014,7 @@ namespace OloEngine
         // before #1242 a thickness texture raised ThicknessMapsIgnored and was
         // dropped, so an authored ear arrived uniformly thick.
         if (auto thicknessMaps = LoadMaterialTextures(mat, aiTextureType_TRANSMISSION, /*semanticIndex=*/1);
-            !thicknessMaps.empty())
+            !thicknessMaps.IsEmpty())
         {
             material.SetThicknessMap(thicknessMaps[0]);
         }
@@ -2060,7 +2060,7 @@ namespace OloEngine
 
     void AnimatedModel::CalculateBounds()
     {
-        if (m_Meshes.empty())
+        if (m_Meshes.IsEmpty())
         {
             m_BoundingBox = BoundingBox();
             m_BoundingSphere = BoundingSphere();
@@ -2071,7 +2071,7 @@ namespace OloEngine
         m_BoundingBox = m_Meshes[0]->GetBoundingBox();
 
         // Expand to include all meshes
-        for (sizet i = 1; i < m_Meshes.size(); ++i)
+        for (sizet i = 1; i < static_cast<sizet>(m_Meshes.Num()); ++i)
         {
             m_BoundingBox = m_BoundingBox.Union(m_Meshes[i]->GetBoundingBox());
         }

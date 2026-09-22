@@ -1,5 +1,7 @@
 #pragma once
 
+#include "OloEngine/Containers/Array.h"
+
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/ComputeShader.h"
@@ -72,7 +74,7 @@ namespace OloEngine
 
         // Pre-stroke copy of the sculpt rect, so the Smooth tool's neighbour reads
         // are order-independent. The CPU brush copied the WHOLE heightmap into a
-        // std::vector for this on every apply; here it is a rect-sized GPU-to-GPU
+        // TArray for this on every apply; here it is a rect-sized GPU-to-GPU
         // copy, and only the sculpt path pays for it.
         Ref<Texture2D> m_HeightScratch;
         u32 m_ScratchSize = 0;

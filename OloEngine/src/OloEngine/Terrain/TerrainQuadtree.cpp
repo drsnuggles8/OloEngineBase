@@ -26,16 +26,16 @@ namespace OloEngine
         }
     } // namespace
 
-    std::vector<glm::vec2> TerrainQuadtree::BuildHeightPyramid(const TerrainData& terrainData,
-                                                               f32 heightScale, u32 maxDepth)
+    TArray<glm::vec2> TerrainQuadtree::BuildHeightPyramid(const TerrainData& terrainData,
+                                                          f32 heightScale, u32 maxDepth)
     {
-        return BuildHeightPyramid(terrainData.GetHeightData(), terrainData.GetResolution(),
+        return BuildHeightPyramid(std::span(terrainData.GetHeightData().GetData(), static_cast<sizet>(terrainData.GetHeightData().Num())), terrainData.GetResolution(),
                                   heightScale, maxDepth);
     }
 
-    std::vector<glm::vec2> TerrainQuadtree::BuildHeightPyramid(std::span<const f32> heights,
-                                                               u32 resolution, f32 heightScale,
-                                                               u32 maxDepth)
+    TArray<glm::vec2> TerrainQuadtree::BuildHeightPyramid(std::span<const f32> heights,
+                                                          u32 resolution, f32 heightScale,
+                                                          u32 maxDepth)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -57,7 +57,7 @@ namespace OloEngine
         {
             total += static_cast<sizet>(1) << (2 * d);
         }
-        std::vector<glm::vec2> pyramid(total, glm::vec2(0.0f));
+        TArray<glm::vec2> pyramid(total, glm::vec2(0.0f));
 
         // Finest level: sample the heightmap directly. The inclusive texel range
         // is derived exactly as the pre-#714 BuildNode did, so adjacent nodes
@@ -154,13 +154,13 @@ namespace OloEngine
 
         m_HeightScale = heightScale;
 
-        if (u32 resolution = terrainData.GetResolution(); resolution == 0 || terrainData.GetHeightData().size() < static_cast<sizet>(resolution) * resolution)
+        if (u32 resolution = terrainData.GetResolution(); resolution == 0 || terrainData.GetHeightData().Num() < static_cast<sizet>(resolution) * resolution)
         {
             OLO_CORE_ERROR("TerrainQuadtree::Build: Invalid terrain data (resolution={}, heights={})",
-                           resolution, terrainData.GetHeightData().size());
-            m_Nodes.clear();
-            m_SelectedNodes.clear();
-            m_NodeHeightPyramid.clear();
+                           resolution, terrainData.GetHeightData().Num());
+            m_Nodes.Reset();
+            m_SelectedNodes.Reset();
+            m_NodeHeightPyramid.Reset();
             m_RootIndex = -1;
             return;
         }
@@ -177,7 +177,7 @@ namespace OloEngine
                          worldSizeX, worldSizeZ, maxDepth);
     }
 
-    void TerrainQuadtree::BuildFromPyramid(std::vector<glm::vec2> pyramid,
+    void TerrainQuadtree::BuildFromPyramid(TArray<glm::vec2> pyramid,
                                            f32 worldSizeX, f32 worldSizeZ, u32 maxDepth)
     {
         OLO_PROFILE_FUNCTION();
@@ -186,8 +186,8 @@ namespace OloEngine
         m_WorldSizeZ = worldSizeZ;
         m_MaxDepth = std::min(maxDepth, TerrainLODConfig::MAX_LOD_LEVELS);
 
-        m_Nodes.clear();
-        m_SelectedNodes.clear();
+        m_Nodes.Reset();
+        m_SelectedNodes.Reset();
         m_NodeHeightPyramid = std::move(pyramid);
 
         sizet expectedNodes = 0;
@@ -195,27 +195,27 @@ namespace OloEngine
         {
             expectedNodes += static_cast<sizet>(1) << (2 * d); // 4^d
         }
-        if (m_NodeHeightPyramid.size() != expectedNodes)
+        if (m_NodeHeightPyramid.Num() != expectedNodes)
         {
             OLO_CORE_ERROR("TerrainQuadtree::BuildFromPyramid: pyramid has {} entries, expected {} for depth {}",
-                           m_NodeHeightPyramid.size(), expectedNodes, m_MaxDepth);
-            m_NodeHeightPyramid.clear();
+                           m_NodeHeightPyramid.Num(), expectedNodes, m_MaxDepth);
+            m_NodeHeightPyramid.Reset();
             m_RootIndex = -1;
             return;
         }
 
-        m_Nodes.reserve(std::min(expectedNodes, static_cast<sizet>(100000)));
+        m_Nodes.Reserve(std::min(expectedNodes, static_cast<sizet>(100000)));
         m_RootIndex = BuildNode(worldSizeX, worldSizeZ, 0.0f, 0.0f, 1.0f, 1.0f, 0);
 
-        OLO_CORE_INFO("TerrainQuadtree: Built {} nodes, max depth {}", m_Nodes.size(), m_MaxDepth);
+        OLO_CORE_INFO("TerrainQuadtree: Built {} nodes, max depth {}", m_Nodes.Num(), m_MaxDepth);
     }
 
     i32 TerrainQuadtree::BuildNode(f32 worldSizeX, f32 worldSizeZ,
                                    f32 minX, f32 minZ, f32 maxX, f32 maxZ,
                                    u32 depth)
     {
-        auto nodeIndex = static_cast<i32>(m_Nodes.size());
-        m_Nodes.emplace_back();
+        auto nodeIndex = static_cast<i32>(m_Nodes.Num());
+        m_Nodes.Emplace();
 
         // Set node properties — use index-based access since recursive BuildNode
         // calls below may reallocate m_Nodes, invalidating any references.
@@ -276,7 +276,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        m_SelectedNodes.clear();
+        m_SelectedNodes.Reset();
         m_SelectedNodeSet.clear();
 
         if (m_RootIndex < 0)
@@ -287,7 +287,7 @@ namespace OloEngine
         SelectNode(m_RootIndex, frustum, cameraPos, viewProjection, viewportHeight);
 
         // Build O(1) lookup set for neighbor resolution
-        m_SelectedNodeSet.insert(m_SelectedNodes.begin(), m_SelectedNodes.end());
+        m_SelectedNodeSet.insert(m_SelectedNodes.GetData(), m_SelectedNodes.GetData() + m_SelectedNodes.Num());
 
         // After selecting nodes, resolve neighbor LODs for crack-free stitching
         ResolveNeighborLODs();
@@ -310,7 +310,7 @@ namespace OloEngine
         if (node.IsLeaf)
         {
             node.LODLevel = node.Depth;
-            m_SelectedNodes.push_back(&node);
+            m_SelectedNodes.Add(&node);
             return;
         }
 
@@ -328,7 +328,7 @@ namespace OloEngine
                                    : 0.0f;
             node.MorphFactor = glm::clamp(node.MorphFactor, 0.0f, 1.0f);
 
-            m_SelectedNodes.push_back(&node);
+            m_SelectedNodes.Add(&node);
             return;
         }
 
@@ -374,7 +374,7 @@ namespace OloEngine
         for (const auto* nodePtr : m_SelectedNodes)
         {
             // We need mutable access to write NeighborLODs
-            auto& node = m_Nodes[static_cast<sizet>(nodePtr - m_Nodes.data())];
+            auto& node = m_Nodes[static_cast<sizet>(nodePtr - m_Nodes.GetData())];
 
             f32 cx = (node.MinX + node.MaxX) * 0.5f;
             f32 cz = (node.MinZ + node.MaxZ) * 0.5f;

@@ -102,7 +102,7 @@ namespace OloEngine
             },
             Tasks::ETaskPriority::BackgroundNormal);
 
-        m_InFlight.Add(FInFlightLoad{ handle, std::move(task) });
+        m_InFlight.Add(FInFlightAssetLoad{ handle, std::move(task) });
     }
 
     bool RuntimeAssetSystem::RetrieveCompletedAssets(TArray<FCompletedAssetLoad>& outAssets)
@@ -118,7 +118,7 @@ namespace OloEngine
         // (its internal wait is already satisfied) and never blocks under the lock.
         for (i32 i = m_InFlight.Num() - 1; i >= 0; --i)
         {
-            FInFlightLoad& load = m_InFlight[i];
+            FInFlightAssetLoad& load = m_InFlight[i];
             if (!load.Task.IsCompleted())
                 continue;
 

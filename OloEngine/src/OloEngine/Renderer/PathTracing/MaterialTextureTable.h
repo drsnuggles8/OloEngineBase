@@ -8,7 +8,8 @@
 
 #include <glm/glm.hpp>
 
-#include <vector>
+#include "OloEngine/Containers/Array.h"
+#include <span>
 
 namespace OloEngine
 {
@@ -67,7 +68,7 @@ namespace OloEngine
         }
         [[nodiscard]] u32 GetRecordCount() const noexcept
         {
-            return static_cast<u32>(m_Records.size());
+            return static_cast<u32>(m_Records.Num());
         }
         // A material slot's record, or an all-Invalid one past the end.
         [[nodiscard]] MaterialTextureRecord GetRecord(u32 materialSlot) const noexcept;
@@ -106,8 +107,8 @@ namespace OloEngine
 
         bool m_Gathering = false;
         bool m_ChangedThisFrame = false;
-        std::vector<MaterialTextureRecord> m_Records;
-        std::vector<MaterialTextureRecord> m_Uploaded;
+        TArray<MaterialTextureRecord> m_Records;
+        TArray<MaterialTextureRecord> m_Uploaded;
         u32 m_SamplerOffset = RHI::HeapOffset::Invalid;
         bool m_SamplerResolved = false;
         u32 m_Unresolved = 0;

@@ -9,7 +9,7 @@
 
 #include <cmath>
 #include <numeric>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine::WaterSpray
 {
@@ -276,11 +276,11 @@ namespace OloEngine::WaterSpray
     /// kMaxSampleCells cells.
     template<typename SampleCrest>
     [[nodiscard("the emitted particles are the only effect")]]
-    std::vector<GPUParticle> Emit(const WaterSpraySettings& settings, f32 foamThreshold,
-                                  glm::vec2 cameraXZ, f32 timeSeconds, f32 deltaSeconds,
-                                  SampleCrest&& sampleCrest)
+    TArray<GPUParticle> Emit(const WaterSpraySettings& settings, f32 foamThreshold,
+                             glm::vec2 cameraXZ, f32 timeSeconds, f32 deltaSeconds,
+                             SampleCrest&& sampleCrest)
     {
-        std::vector<GPUParticle> particles;
+        TArray<GPUParticle> particles;
         if (!settings.m_Enabled)
             return particles;
         if (!std::isfinite(deltaSeconds) || deltaSeconds <= 0.0f || !std::isfinite(timeSeconds))
@@ -335,7 +335,7 @@ namespace OloEngine::WaterSpray
             if (count == 0u)
                 continue;
 
-            count = glm::min(count, kMaxEmitPerFrame - static_cast<u32>(particles.size()));
+            count = glm::min(count, kMaxEmitPerFrame - static_cast<u32>(particles.Num()));
             for (u32 i = 0; i < count; ++i)
             {
                 // Three CONSECUTIVE streams per particle, not three fixed
@@ -377,10 +377,10 @@ namespace OloEngine::WaterSpray
                 p.InitialColor = color;
                 p.InitialVelocitySize = glm::vec4(velocity, size * (0.6f + 0.8f * r2));
                 p.Misc = glm::vec4(size * (0.6f + 0.8f * r2), 0.0f, 1.0f, -1.0f);
-                particles.push_back(p);
+                particles.Add(p);
             }
 
-            if (particles.size() >= kMaxEmitPerFrame)
+            if (particles.Num() >= kMaxEmitPerFrame)
                 break;
         }
 

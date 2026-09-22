@@ -625,8 +625,8 @@ class VulkanParallelRecordingDevice : public ::testing::Test
         texSpec.Format = ImageFormat::RGBA8;
         texSpec.GenerateMips = false;
         kit.White = Texture2D::Create(texSpec);
-        std::vector<u8> white(4 * 4 * 4, 0xFF);
-        kit.White->SetData(white.data(), static_cast<u32>(white.size()));
+        TArray64<u8> white(4 * 4 * 4, 0xFF);
+        kit.White->SetData(white.GetData(), static_cast<u32>(white.Num()));
 
         kit.Shader = Ref<VulkanShader>::Create("ParallelRecordingTriangle", kVertexSrc, kFragmentSrc);
         return kit;
@@ -655,12 +655,12 @@ class VulkanParallelRecordingDevice : public ::testing::Test
         const auto attachment = vkFramebuffer->GetColorAttachmentImage(attachmentIndex);
         if (attachment == nullptr)
             return 0xFFFFFFFFu;
-        std::vector<u8> pixels;
+        TArray64<u8> pixels;
         if (!attachment->GetData(pixels, 0))
             return 0xFFFFFFFFu;
         const u32 width = target->GetSpecification().Width;
         const u32 height = target->GetSpecification().Height;
-        if (pixels.size() != static_cast<sizet>(width) * height * 4u)
+        if (pixels.Num() != static_cast<sizet>(width) * height * 4u)
             return 0xFFFFFFFFu;
         u32 wrong = 0;
         for (u32 y = 0; y < height; ++y)
@@ -801,12 +801,12 @@ TEST_F(VulkanParallelRecordingDevice, GraphRecordsSharedUnboundUniformAndTimesOr
     }
     second.Program = mrtShader;
     second.DrawBuffers = { 0u, 1u };
-    const std::vector<std::string> order{ first.GetName(), second.GetName() };
-    const auto plan = RenderGraphSubmissionPlan::BuildPlan({ .ExecutionOrder = order, .Dependencies = {}, .PlannedBarriers = {}, .Transitions = {}, .Batches = {}, .EnableSplitBarriers = false, .GetPassWorkType = [](const std::string&)
-                                                                                                                                                                                                 { return RenderGraphPassWorkType::Graphics; },
-                                                             .ResolveNodePointer = [&](const std::string& name) -> RenderGraphNode*
+    const TArray64<FString> order{ FString(first.GetName()), FString(second.GetName()) };
+    const auto plan = RenderGraphSubmissionPlan::BuildPlan({ .ExecutionOrder = std::span<const FString>(order.GetData(), static_cast<sizet>(order.Num())), .Dependencies = {}, .PlannedBarriers = {}, .Transitions = {}, .Batches = {}, .EnableSplitBarriers = false, .GetPassWorkType = [](std::string_view)
+                                                                                                                                                                                                                                                                      { return RenderGraphPassWorkType::Graphics; },
+                                                             .ResolveNodePointer = [&](std::string_view name) -> RenderGraphNode*
                                                              { return name == first.GetName() ? &first : &second; } });
-    ASSERT_EQ(plan.size(), 2u);
+    ASSERT_EQ(plan.Num(), 2u);
     ASSERT_EQ(plan[0].RecordingGroup, plan[1].RecordingGroup);
     ASSERT_NE(plan[0].RecordingGroup, UINT32_MAX);
     // MeshPrimitives::Shutdown stays UNCONDITIONAL despite being a process-wide
@@ -853,9 +853,9 @@ TEST_F(VulkanParallelRecordingDevice, GraphRecordsSharedUnboundUniformAndTimesOr
             api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &extraTarget, 1 });
             timers.BeginFrame();
             const auto cpu = RenderGraphPlanExecutor::ExecutePlan({
-                .SubmissionPlan = plan, .Context = context, .RuntimeBarrierExecutionEnabled = false,
-                .IsPassReachable = [](const std::string&) { return true; } });
-            EXPECT_EQ(cpu.size(), 2u);
+                .SubmissionPlan = std::span<const RenderGraph::SubmissionCommand>(plan.GetData(), static_cast<sizet>(plan.Num())), .Context = context, .RuntimeBarrierExecutionEnabled = false,
+                .IsPassReachable = [](std::string_view) { return true; } });
+            EXPECT_EQ(cpu.Num(), 2u);
             timers.EndFrame();
             extraTarget.Before = RHI::Access::ColorAttachmentWrite;
             extraTarget.After = RHI::Access::ShaderSampleRead;
@@ -868,10 +868,12 @@ TEST_F(VulkanParallelRecordingDevice, GraphRecordsSharedUnboundUniformAndTimesOr
     ASSERT_EQ(stats.Regions, 1u);
     EXPECT_EQ(stats.SecondariesExecuted, 2u);
     EXPECT_EQ(stats.MergeConflicts, 0u);
-    ASSERT_EQ(stats.RegionTimings.size(), 1u);
-    EXPECT_EQ(stats.RegionTimings[0].ItemPassNames, order);
+    ASSERT_EQ(stats.RegionTimings.Num(), 1u);
+    ASSERT_EQ(stats.RegionTimings[0].ItemPassNames.Num(), static_cast<i32>(order.Num()));
+    for (sizet item = 0; item < order.Num(); ++item)
+        EXPECT_EQ(stats.RegionTimings[0].ItemPassNames[static_cast<i32>(item)].ToView(), order[item]);
     const auto gpu = timers.GetLastFrameTimings().Passes;
-    ASSERT_EQ(gpu.size(), 2u);
+    ASSERT_EQ(gpu.Num(), 2u);
     EXPECT_EQ(gpu[0].Name, first.GetName());
     EXPECT_EQ(gpu[1].Name, second.GetName());
 }
@@ -930,7 +932,7 @@ TEST_F(VulkanParallelRecordingDevice, MeshParticleRangesMatchInlinePixels)
         instance.Color = i < 32 ? glm::vec4(1, 0, 0, 1) : (i < 64 ? glm::vec4(0, 1, 0, 1) : glm::vec4(0, 0, 1, 1));
         instance.IDs = glm::ivec4(static_cast<i32>(i), 0, 0, 0);
     }
-    std::vector<u8> reference;
+    TArray64<u8> reference;
     for (const auto lever : { Levers::Tristate::Off, Levers::Tristate::On })
     {
         Levers::SetVulkanParallelRecording(lever);
@@ -949,13 +951,13 @@ TEST_F(VulkanParallelRecordingDevice, MeshParticleRangesMatchInlinePixels)
             ParticleBatchRenderer::RenderMeshParticles(cube, instances, nullptr);
             target.Target->Unbind(); });
         const auto* framebuffer = static_cast<const VulkanFramebuffer*>(target.Target.Raw());
-        std::vector<u8> pixels;
+        TArray64<u8> pixels;
         ASSERT_TRUE(framebuffer->GetColorAttachmentImage(0)->GetData(pixels, 0));
         if (lever == Levers::Tristate::Off)
         {
             reference = pixels;
             std::array<u32, 3> colorPixels{};
-            for (sizet i = 0; i < pixels.size(); i += 4)
+            for (sizet i = 0; i < pixels.Num(); i += 4)
                 for (u32 channel = 0; channel < 3; ++channel)
                     colorPixels[channel] += pixels[i + channel] > 128 ? 1u : 0u;
             for (const auto count : colorPixels)
@@ -1253,10 +1255,10 @@ TEST_F(VulkanParallelRecordingDevice, SharedTargetItemsOpenIdentityScopesWithout
     EXPECT_EQ(stats.Regions, 1u);
     EXPECT_EQ(stats.SecondariesExecuted, 2u);
     EXPECT_EQ(stats.MergeConflicts, 0u) << "identity scope-opens on a shared attachment are not a conflict";
-    ASSERT_EQ(stats.RegionTimings.size(), 1u);
+    ASSERT_EQ(stats.RegionTimings.Num(), 1u);
     EXPECT_EQ(stats.RegionTimings[0].PassName, "SharedTargetTest");
     EXPECT_TRUE(stats.RegionTimings[0].Parallel);
-    EXPECT_EQ(stats.RegionTimings[0].ItemRecordMs.size(), 2u);
+    EXPECT_EQ(stats.RegionTimings[0].ItemRecordMs.Num(), 2u);
     EXPECT_GE(stats.RegionTimings[0].JoinWaitMs, 0.0);
     EXPECT_EQ(CountWrongPixels(shared.Target, left, 0, 16), 0u) << "left half: item 0's tint";
     EXPECT_EQ(CountWrongPixels(shared.Target, right, 16, 32), 0u) << "right half: item 1's tint";

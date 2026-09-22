@@ -264,12 +264,12 @@ namespace OloEngine
 
     // ---- Registry-driven discovery -----------------------------------------
 
-    void VulkanResourceInspectorBackend::DiscoverResources(std::vector<DiscoveredResource>& out)
+    void VulkanResourceInspectorBackend::DiscoverResources(TArray<DiscoveredResource>& out)
     {
-        out.clear();
+        out.Reset();
 
         const auto snapshot = RHI::ResourceRegistry::Get().Snapshot();
-        out.reserve(snapshot.size());
+        out.Reserve(snapshot.Num());
 
         for (const auto& slot : snapshot)
         {
@@ -295,7 +295,7 @@ namespace OloEngine
                         // Registered as a texture but absent from the image
                         // registry: a real inconsistency worth SEEING rather
                         // than dropping, so it lands as a row with no extent.
-                        entry.Name = std::format("VkImage 0x{:X} (no image-info entry)", slot.Native);
+                        entry.Name = FString(std::format("VkImage 0x{:X} (no image-info entry)", slot.Native));
                         entry.FormatName = "unknown";
                         break;
                     }
@@ -306,13 +306,13 @@ namespace OloEngine
                     entry.MipLevels = std::max(info->MipLevels, 1u);
                     entry.ArrayLayers = std::max(info->ArrayLayers, 1u);
                     entry.NativeFormat = static_cast<u32>(info->Format);
-                    entry.FormatName = VkFormatName(info->Format);
+                    entry.FormatName = FString(VkFormatName(info->Format));
                     entry.SizeBytes = EstimateImageBytes(*info);
-                    entry.Name = std::format("{} {}x{} {}", ViewTypeName(info->ViewType), info->Width,
-                                             info->Height, entry.FormatName);
-                    entry.DebugName = std::format("mips {}, layers {}{}{}", entry.MipLevels, entry.ArrayLayers,
-                                                  info->HasDepth ? ", depth" : "",
-                                                  info->HasStencil ? "+stencil" : "");
+                    entry.Name = FString(std::format("{} {}x{} {}", ViewTypeName(info->ViewType), info->Width,
+                                                     info->Height, entry.FormatName.ToView()));
+                    entry.DebugName = FString(std::format("mips {}, layers {}{}{}", entry.MipLevels, entry.ArrayLayers,
+                                                          info->HasDepth ? ", depth" : "",
+                                                          info->HasStencil ? "+stencil" : ""));
                     break;
                 }
                 case RHI::ResourceKind::Framebuffer:
@@ -327,7 +327,7 @@ namespace OloEngine
                         const auto& spec = framebuffer->GetSpecification();
                         entry.Width = spec.Width;
                         entry.Height = spec.Height;
-                        entry.Name = std::format("Framebuffer {}x{}", spec.Width, spec.Height);
+                        entry.Name = FString(std::format("Framebuffer {}x{}", spec.Width, spec.Height));
                     }
                     else
                     {
@@ -345,7 +345,7 @@ namespace OloEngine
                     {
                         entry.SizeBytes = size;
                         entry.NativeTarget = target;
-                        entry.Name = std::move(name);
+                        entry.Name = FString(std::move(name));
                     }
                     else if (const auto* raw = VulkanRawBufferRegistry::Get().Lookup(slot.Handle); raw != nullptr)
                     {
@@ -357,7 +357,7 @@ namespace OloEngine
                     {
                         // No object and no raw entry: size genuinely unknown.
                         // Say so rather than reporting 0 bytes as a fact.
-                        entry.Name = std::format("VkBuffer 0x{:X} (size unknown)", slot.Native);
+                        entry.Name = FString(std::format("VkBuffer 0x{:X} (size unknown)", slot.Native));
                     }
                     break;
                 }
@@ -373,33 +373,33 @@ namespace OloEngine
                     if (rootEntry != nullptr && rootEntry->Object != nullptr)
                     {
                         if (rootEntry->Kind == VulkanRootObjectKind::Shader)
-                            entry.Name = static_cast<const VulkanShader*>(rootEntry->Object)->GetName();
+                            entry.Name = FString(static_cast<const VulkanShader*>(rootEntry->Object)->GetName());
                         else if (rootEntry->Kind == VulkanRootObjectKind::ComputeShader)
-                            entry.Name = static_cast<const VulkanComputeShader*>(rootEntry->Object)->GetName();
+                            entry.Name = FString(static_cast<const VulkanComputeShader*>(rootEntry->Object)->GetName());
                     }
-                    if (entry.Name.empty())
+                    if (entry.Name.IsEmpty())
                         entry.Name = "Shader";
                     break;
                 }
                 case RHI::ResourceKind::Query:
                 {
-                    entry.Name = std::format("Query 0x{:X}", slot.Native);
+                    entry.Name = FString(std::format("Query 0x{:X}", slot.Native));
                     break;
                 }
                 case RHI::ResourceKind::Unknown:
                 {
-                    entry.Name = std::format("Unknown 0x{:X}", slot.Native);
+                    entry.Name = FString(std::format("Unknown 0x{:X}", slot.Native));
                     break;
                 }
             }
 
-            out.push_back(std::move(entry));
+            out.Add(std::move(entry));
         }
     }
 
-    bool VulkanResourceInspectorBackend::QueryMemoryHeaps(std::vector<MemoryHeap>& out)
+    bool VulkanResourceInspectorBackend::QueryMemoryHeaps(TArray<MemoryHeap>& out)
     {
-        out.clear();
+        out.Reset();
 
         auto* device = VulkanDevice::Get();
         if (device == nullptr || device->GetAllocator() == VK_NULL_HANDLE)
@@ -414,7 +414,7 @@ namespace OloEngine
         if (heapCount == 0u)
             return false;
 
-        out.reserve(heapCount);
+        out.Reserve(heapCount);
         for (u32 index = 0u; index < heapCount && index < budgets.size(); ++index)
         {
             MemoryHeap heap;
@@ -426,9 +426,9 @@ namespace OloEngine
             heap.BlockBytes = budgets[index].statistics.blockBytes;
             heap.AllocationCount = budgets[index].statistics.allocationCount;
             heap.BlockCount = budgets[index].statistics.blockCount;
-            out.push_back(heap);
+            out.Add(heap);
         }
-        return !out.empty();
+        return !out.IsEmpty();
     }
 
     // ---- Introspection ------------------------------------------------------

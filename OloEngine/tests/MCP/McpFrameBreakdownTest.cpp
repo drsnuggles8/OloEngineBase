@@ -60,14 +60,14 @@ namespace
         frame.Stats.ExecuteTimeMs = 0.678;
         frame.Stats.TotalFrameTimeMs = 1.234;
 
-        frame.PreSortCommands.push_back(MakeCmd(CommandType::SetViewport, "viewport", 0, 0, 0, 0, 0, false, 0));
-        frame.PreSortCommands.push_back(MakeCmd(CommandType::DrawMesh, "cube", 7, 11, 100, 1, 1, true, 1));
-        frame.PreSortCommands.push_back(MakeCmd(CommandType::DrawMesh, "sphere", 7, 12, 200, 2, 2, false, 2));
+        frame.PreSortCommands.Add(MakeCmd(CommandType::SetViewport, "viewport", 0, 0, 0, 0, 0, false, 0));
+        frame.PreSortCommands.Add(MakeCmd(CommandType::DrawMesh, "cube", 7, 11, 100, 1, 1, true, 1));
+        frame.PreSortCommands.Add(MakeCmd(CommandType::DrawMesh, "sphere", 7, 12, 200, 2, 2, false, 2));
 
         // Post-sort: same commands but reordered (state first, draws sorted).
-        frame.PostSortCommands.push_back(MakeCmd(CommandType::SetViewport, "viewport", 0, 0, 0, 0, 0, false, 0));
-        frame.PostSortCommands.push_back(MakeCmd(CommandType::DrawMesh, "cube", 7, 11, 100, 1, 1, true, 1));
-        frame.PostSortCommands.push_back(MakeCmd(CommandType::DrawMesh, "sphere", 7, 12, 200, 2, 2, false, 2));
+        frame.PostSortCommands.Add(MakeCmd(CommandType::SetViewport, "viewport", 0, 0, 0, 0, 0, false, 0));
+        frame.PostSortCommands.Add(MakeCmd(CommandType::DrawMesh, "cube", 7, 11, 100, 1, 1, true, 1));
+        frame.PostSortCommands.Add(MakeCmd(CommandType::DrawMesh, "sphere", 7, 12, 200, 2, 2, false, 2));
         return frame;
     }
 } // namespace
@@ -150,7 +150,7 @@ TEST(McpFrameBreakdown, GpuTimeIsReportedRounded)
     CapturedFrameData frame;
     CapturedCommandData cmd = MakeCmd(CommandType::DrawMesh, "timed", 1, 1, 0, 0, 0, false, 0);
     cmd.SetGpuTimeMs(0.123456);
-    frame.PostSortCommands.push_back(std::move(cmd));
+    frame.PostSortCommands.Add(std::move(cmd));
 
     const Json j = BuildBreakdown(frame, ViewMode::PostSort, 200);
     EXPECT_NEAR(0.1235, j["commands"][0]["gpuMs"].get<double>(), 1e-9);
@@ -160,8 +160,8 @@ TEST(McpFrameBreakdown, MaxCommandsTruncatesButReportsFullCountAndHistogram)
 {
     CapturedFrameData frame;
     for (u32 i = 0; i < 5; ++i)
-        frame.PostSortCommands.push_back(MakeCmd(CommandType::DrawMesh, "m", 1, i, i, i, i, false, i));
-    frame.PostSortCommands.push_back(MakeCmd(CommandType::SetViewport, "vp", 0, 0, 0, 5, 5, false, 5));
+        frame.PostSortCommands.Add(MakeCmd(CommandType::DrawMesh, "m", 1, i, i, i, i, false, i));
+    frame.PostSortCommands.Add(MakeCmd(CommandType::SetViewport, "vp", 0, 0, 0, 5, 5, false, 5));
 
     const Json j = BuildBreakdown(frame, ViewMode::PostSort, /*maxCommands*/ 2);
 
@@ -179,7 +179,7 @@ TEST(McpFrameBreakdown, MaxCommandsTruncatesButReportsFullCountAndHistogram)
 TEST(McpFrameBreakdown, ViewModeFallsBackToPreSortWhenLaterStagesEmpty)
 {
     CapturedFrameData frame;
-    frame.PreSortCommands.push_back(MakeCmd(CommandType::DrawMesh, "only", 1, 1, 0, 0, 0, false, 0));
+    frame.PreSortCommands.Add(MakeCmd(CommandType::DrawMesh, "only", 1, 1, 0, 0, 0, false, 0));
     // PostSort and PostBatch are empty.
 
     const Json jPostBatch = BuildBreakdown(frame, ViewMode::PostBatch, 200);
@@ -314,7 +314,7 @@ TEST(McpFrameBreakdown, CaptureSourceFallsBackToAttributionWhenFrameUnset)
     // Frame has no recorded source pass, but the attribution carries one — the
     // breakdown still attributes to it and flags the matching pass.
     CapturedFrameData frame = MakeFrame();
-    frame.SourcePassName.clear();
+    frame.SourcePassName.Empty();
     const GraphAttribution attr = MakeGraphAttribution();
 
     const Json j = BuildBreakdown(frame, ViewMode::PostSort, 200, &attr);
@@ -340,8 +340,8 @@ namespace
         u32 idx = 0;
         for (const char* dn : drawNames)
         {
-            pass.PreSortCommands.push_back(MakeCmd(CommandType::DrawMesh, dn, 1, idx, idx * 10, idx, idx, false, idx));
-            pass.PostSortCommands.push_back(MakeCmd(CommandType::DrawMesh, dn, 1, idx, idx * 10, idx, idx, false, idx));
+            pass.PreSortCommands.Add(MakeCmd(CommandType::DrawMesh, dn, 1, idx, idx * 10, idx, idx, false, idx));
+            pass.PostSortCommands.Add(MakeCmd(CommandType::DrawMesh, dn, 1, idx, idx * 10, idx, idx, false, idx));
             ++idx;
         }
         pass.HasPreSort = true;
@@ -361,11 +361,11 @@ namespace
         CapturedPassData scene = MakePassEntry("SceneRenderPass", { "cube", "sphere", "plane" });
         scene.PostBatchCommands = scene.PostSortCommands; // pretend batching collapsed nothing
         scene.HasPostBatch = true;
-        frame.Passes.push_back(scene);
-        frame.Passes.push_back(MakePassEntry("FoliageRenderPass", { "grass" }));
-        frame.Passes.push_back(MakePassEntry("WaterRenderPass", { "waterA", "waterB" }));
-        frame.Passes.push_back(MakePassEntry("DecalRenderPass", { "decal" }));
-        frame.Passes.push_back(MakePassEntry("ForwardOverlayPass", { "skybox", "grid" }));
+        frame.Passes.Add(scene);
+        frame.Passes.Add(MakePassEntry("FoliageRenderPass", { "grass" }));
+        frame.Passes.Add(MakePassEntry("WaterRenderPass", { "waterA", "waterB" }));
+        frame.Passes.Add(MakePassEntry("DecalRenderPass", { "decal" }));
+        frame.Passes.Add(MakePassEntry("ForwardOverlayPass", { "skybox", "grid" }));
 
         // Top-level (legacy) view = the source/scene pass's lists.
         frame.PreSortCommands = frame.Passes[0].PreSortCommands;
@@ -469,8 +469,8 @@ TEST(McpFrameBreakdown, CulledCommandBucketPassIsExcludedFromRunningCount)
     // the culled pass, so it still matches the captured count.
     CapturedFrameData frame;
     frame.SourcePassName = "SceneRenderPass";
-    frame.Passes.push_back(MakePassEntry("SceneRenderPass", { "cube" }));
-    frame.Passes.push_back(MakePassEntry("WaterRenderPass", { "waterA" }));
+    frame.Passes.Add(MakePassEntry("SceneRenderPass", { "cube" }));
+    frame.Passes.Add(MakePassEntry("WaterRenderPass", { "waterA" }));
     frame.PreSortCommands = frame.Passes[0].PreSortCommands;
     frame.PostSortCommands = frame.Passes[0].PostSortCommands;
 

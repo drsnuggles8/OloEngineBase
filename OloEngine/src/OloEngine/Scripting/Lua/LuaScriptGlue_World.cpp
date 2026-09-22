@@ -464,7 +464,7 @@ namespace OloEngine
                                                     a.m_HasTarget = true;
                                                     a.m_HasPath = false;
                                                     a.m_TargetUnreachable = false;
-                                                    a.m_PathCorners.clear();
+                                                    a.m_PathCorners.Reset();
                                                     a.m_CurrentCornerIndex = 0; }),
                                             "hasTarget", sol::readonly(&NavAgentComponent::m_HasTarget),
                                             "hasPath", sol::readonly(&NavAgentComponent::m_HasPath),
@@ -477,7 +477,7 @@ namespace OloEngine
                                                 agent.m_HasTarget = false;
                                                 agent.m_HasPath = false;
                                                 agent.m_TargetUnreachable = false;
-                                                agent.m_PathCorners.clear();
+                                                agent.m_PathCorners.Reset();
                                                 agent.m_CurrentCornerIndex = 0; });
 
         // --- BoidComponent (issue #731) ---

@@ -389,7 +389,7 @@ namespace OloEngine::Tests
 
     namespace
     {
-        [[nodiscard]] bool SnapshotContains(const std::vector<RHI::ResourceRegistry::SnapshotEntry>& entries,
+        [[nodiscard]] bool SnapshotContains(const TArray<RHI::ResourceRegistry::SnapshotEntry>& entries,
                                             RHI::ResourceHandle handle)
         {
             return std::any_of(entries.begin(), entries.end(),
@@ -460,7 +460,7 @@ namespace OloEngine::Tests
         // Snapshot() and GetStats() read the same state under the same lock, so
         // a disagreement means one of them is miscounting the freelist — the
         // bug that would make the inspector's totals quietly wrong.
-        const auto before = registry.Snapshot().size();
+        const auto before = registry.Snapshot().Num();
         const auto beforeLive = registry.GetStats().LiveCount;
         EXPECT_EQ(before, static_cast<sizet>(beforeLive));
 
@@ -468,12 +468,37 @@ namespace OloEngine::Tests
         for (u32 i = 0u; i < 8u; ++i)
             handles.push_back(registry.Register(RHI::ResourceKind::Query, i + 1u, RHI::Backend::OpenGL));
 
-        EXPECT_EQ(registry.Snapshot().size(), before + handles.size());
-        EXPECT_EQ(registry.Snapshot().size(), static_cast<sizet>(registry.GetStats().LiveCount));
+        EXPECT_EQ(registry.Snapshot().Num(), before + handles.size());
+        EXPECT_EQ(registry.Snapshot().Num(), static_cast<sizet>(registry.GetStats().LiveCount));
 
         for (const auto handle : handles)
             registry.Unregister(handle);
 
-        EXPECT_EQ(registry.Snapshot().size(), before);
+        EXPECT_EQ(registry.Snapshot().Num(), before);
+    }
+    TEST(RHIResourceRegistry, ScopedHandlesSurviveArrayGrowthAndRetireOnce)
+    {
+        auto& registry = RHI::ResourceRegistry::Get();
+        const auto baseline = registry.GetStats().LiveCount;
+        TArray<RHI::ResourceHandle> identities;
+        {
+            TArray<RHI::ScopedResourceHandle> owners;
+            for (u32 i = 0; i < 128; ++i)
+            {
+                owners.Emplace(RHI::ResourceKind::Texture, 0x1000u + i, RHI::Backend::OpenGL);
+                identities.Add(owners.Last().Get());
+            }
+            for (i32 i = 0; i < identities.Num(); ++i)
+            {
+                EXPECT_TRUE(registry.IsLive(identities[i]));
+                EXPECT_EQ(owners[i].Get(), identities[i]);
+            }
+            auto moved = std::move(owners);
+            EXPECT_EQ(moved.Num(), identities.Num());
+            EXPECT_EQ(registry.GetStats().LiveCount, baseline + identities.Num());
+        }
+        EXPECT_EQ(registry.GetStats().LiveCount, baseline);
+        for (const auto handle : identities)
+            EXPECT_FALSE(registry.IsLive(handle));
     }
 } // namespace OloEngine::Tests

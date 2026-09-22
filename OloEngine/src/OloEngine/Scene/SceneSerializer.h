@@ -43,7 +43,7 @@ namespace OloEngine
 
         // Additive deserialization: merge entities from YAML node into existing scene
         // Returns UUIDs of all entities created
-        std::vector<UUID> DeserializeAdditive(const YAML::Node& entitiesNode);
+        TArray<UUID> DeserializeAdditive(const YAML::Node& entitiesNode);
 
         // Serialize a single entity with all its components to a YAML emitter
         static void SerializeEntity(YAML::Emitter& out, Entity entity);

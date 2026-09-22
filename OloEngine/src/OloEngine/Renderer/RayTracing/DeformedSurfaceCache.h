@@ -48,7 +48,7 @@
 #include <span>
 #include <unordered_map>
 #include <unordered_set>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -303,7 +303,7 @@ namespace OloEngine::RayTracing
 
         [[nodiscard]] bool HasWork() const
         {
-            return !m_Queue.empty();
+            return !m_Queue.IsEmpty();
         }
 
         // --- Policy, exposed because it is the testable half -----------------
@@ -376,8 +376,8 @@ namespace OloEngine::RayTracing
         u64 m_FrameNumber = 0;
 
         std::unordered_map<DeformedSurfaceKey, Entry, DeformedSurfaceKeyHash> m_Surfaces;
-        std::vector<QueuedDispatch> m_Queue;
-        std::vector<DeformedSurfaceKey> m_PendingRetires;
+        TArray<QueuedDispatch> m_Queue;
+        TArray<DeformedSurfaceKey> m_PendingRetires;
         // Surfaces already counted in SurfacesRequested this frame. Acquire is
         // called once per SUBMESH and a character is many submeshes sharing one
         // deformed stream, so without this the census reports one idle fox as
@@ -388,7 +388,7 @@ namespace OloEngine::RayTracing
         // buffer for every surface rather than one per surface: a palette is
         // 100 mat4s at most and a per-surface allocation would be the dominant
         // cost of a crowd.
-        std::vector<glm::mat4> m_PaletteStaging;
+        TArray<glm::mat4> m_PaletteStaging;
         Ref<StorageBuffer> m_PaletteBuffer;
         u64 m_PaletteBufferBytes = 0;
         u64 m_PaletteAddress = 0;

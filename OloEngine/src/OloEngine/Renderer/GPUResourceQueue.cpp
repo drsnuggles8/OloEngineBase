@@ -7,7 +7,7 @@
 namespace OloEngine
 {
     // Static member definitions
-    std::queue<std::unique_ptr<GPUResourceCommand>> GPUResourceQueue::s_CommandQueue;
+    TDoubleLinkedList<std::unique_ptr<GPUResourceCommand>> GPUResourceQueue::s_CommandQueue;
     FMutex GPUResourceQueue::s_QueueMutex;
     std::atomic<u64> GPUResourceQueue::s_QueuedCount{ 0 };
     std::atomic<u64> GPUResourceQueue::s_ProcessedCount{ 0 };
@@ -17,18 +17,18 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::queue<std::unique_ptr<GPUResourceCommand>> localQueue;
+        TDoubleLinkedList<std::unique_ptr<GPUResourceCommand>> localQueue;
 
         // Move all commands to local queue under lock
         {
             TUniqueLock<FMutex> lock(s_QueueMutex);
-            std::swap(localQueue, s_CommandQueue);
+            localQueue = std::move(s_CommandQueue);
         }
 
         u32 processed = 0;
-        while (!localQueue.empty())
+        while (localQueue.Num() != 0)
         {
-            const auto& cmd = localQueue.front();
+            const auto& cmd = localQueue.GetHead()->GetValue();
             try
             {
                 OLO_PROFILE_SCOPE("GPUResourceCommand::Execute");
@@ -46,7 +46,7 @@ namespace OloEngine
                 OLO_CORE_ERROR("GPUResourceQueue: Command execution failed with unknown error");
                 s_FailedCount.fetch_add(1, std::memory_order_relaxed);
             }
-            localQueue.pop();
+            localQueue.RemoveNode(localQueue.GetHead());
         }
 
         if (processed > 0)
@@ -64,16 +64,16 @@ namespace OloEngine
         if (maxCommands == 0)
             return 0;
 
-        std::vector<std::unique_ptr<GPUResourceCommand>> batch;
-        batch.reserve(maxCommands);
+        TDoubleLinkedList<std::unique_ptr<GPUResourceCommand>> batch;
 
         // Extract up to maxCommands from the queue
         {
             TUniqueLock<FMutex> lock(s_QueueMutex);
-            while (!s_CommandQueue.empty() && batch.size() < maxCommands)
+            while (s_CommandQueue.Num() != 0 && static_cast<u32>(batch.Num()) < maxCommands)
             {
-                batch.push_back(std::move(s_CommandQueue.front()));
-                s_CommandQueue.pop();
+                auto* node = s_CommandQueue.GetHead();
+                s_CommandQueue.RemoveNode(node, false);
+                batch.AddTail(node);
             }
         }
 
@@ -148,15 +148,15 @@ namespace OloEngine
             if (texture)
             {
                 // Set the pixel data
-                u32 dataSize = static_cast<u32>(m_Data.PixelData.size());
-                texture->SetData(const_cast<u8*>(m_Data.PixelData.data()), dataSize);
+                u32 dataSize = static_cast<u32>(m_Data.PixelData.Num());
+                texture->SetData(const_cast<u8*>(m_Data.PixelData.GetData()), dataSize);
 
                 OLO_CORE_TRACE("CreateTexture2DCommand: Created texture '{}' ({}x{}, {} channels)",
-                               m_Data.DebugName, m_Data.Width, m_Data.Height, m_Data.Channels);
+                               m_Data.DebugName.ToView(), m_Data.Width, m_Data.Height, m_Data.Channels);
             }
             else
             {
-                OLO_CORE_ERROR("CreateTexture2DCommand: Failed to create texture '{}'", m_Data.DebugName);
+                OLO_CORE_ERROR("CreateTexture2DCommand: Failed to create texture '{}'", m_Data.DebugName.ToView());
             }
 
             // Invoke callback with the created texture (or nullptr on failure)
@@ -181,7 +181,7 @@ namespace OloEngine
 
         if (!m_Data.IsValid())
         {
-            OLO_CORE_ERROR("CreateShaderCommand: No shader source provided for '{}'", m_Data.Name);
+            OLO_CORE_ERROR("CreateShaderCommand: No shader source provided for '{}'", m_Data.Name.ToView());
             if (m_Callback)
                 m_Callback(nullptr);
             return;
@@ -189,29 +189,29 @@ namespace OloEngine
 
         try
         {
-            if (!m_Data.ComputeSource.empty())
+            if (!m_Data.ComputeSource.IsEmpty())
             {
                 // A compute shader is a Ref<ComputeShader>, an unrelated sibling
                 // type to Shader, so it cannot be delivered through this command's
                 // Ref<Shader> callback — enqueue a CreateComputeShaderCommand instead.
                 OLO_CORE_ERROR("CreateShaderCommand: '{}' carries a compute source; "
                                "enqueue a CreateComputeShaderCommand instead",
-                               m_Data.Name);
+                               m_Data.Name.ToView());
                 if (m_Callback)
                     m_Callback(nullptr);
                 return;
             }
 
             // Traditional vertex/fragment shader
-            Ref<Shader> shader = Shader::Create(m_Data.Name, m_Data.VertexSource, m_Data.FragmentSource);
+            Ref<Shader> shader = Shader::Create(m_Data.Name.ToStdString(), m_Data.VertexSource.ToStdString(), m_Data.FragmentSource.ToStdString());
 
             if (shader)
             {
-                OLO_CORE_TRACE("CreateShaderCommand: Created shader '{}'", m_Data.Name);
+                OLO_CORE_TRACE("CreateShaderCommand: Created shader '{}'", m_Data.Name.ToView());
             }
             else
             {
-                OLO_CORE_ERROR("CreateShaderCommand: Failed to create shader '{}'", m_Data.Name);
+                OLO_CORE_ERROR("CreateShaderCommand: Failed to create shader '{}'", m_Data.Name.ToView());
             }
 
             if (m_Callback)
@@ -220,7 +220,7 @@ namespace OloEngine
         catch (const std::exception& e)
         {
             OLO_CORE_ERROR("CreateShaderCommand: Exception during shader creation for '{}': {}",
-                           m_Data.Name, e.what());
+                           m_Data.Name.ToView(), e.what());
             if (m_Callback)
                 m_Callback(nullptr);
         }
@@ -234,9 +234,9 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (m_Data.ComputeSource.empty())
+        if (m_Data.ComputeSource.IsEmpty())
         {
-            OLO_CORE_ERROR("CreateComputeShaderCommand: No compute source provided for '{}'", m_Data.Name);
+            OLO_CORE_ERROR("CreateComputeShaderCommand: No compute source provided for '{}'", m_Data.Name.ToView());
             if (m_Callback)
                 m_Callback(nullptr);
             return;
@@ -245,15 +245,15 @@ namespace OloEngine
         try
         {
             // Mirrors the synchronous path: ComputeShader::CreateFromSource().
-            Ref<ComputeShader> shader = ComputeShader::CreateFromSource(m_Data.Name, m_Data.ComputeSource);
+            Ref<ComputeShader> shader = ComputeShader::CreateFromSource(m_Data.Name.ToStdString(), m_Data.ComputeSource.ToStdString());
 
             if (shader)
             {
-                OLO_CORE_TRACE("CreateComputeShaderCommand: Created compute shader '{}'", m_Data.Name);
+                OLO_CORE_TRACE("CreateComputeShaderCommand: Created compute shader '{}'", m_Data.Name.ToView());
             }
             else
             {
-                OLO_CORE_ERROR("CreateComputeShaderCommand: Failed to create compute shader '{}'", m_Data.Name);
+                OLO_CORE_ERROR("CreateComputeShaderCommand: Failed to create compute shader '{}'", m_Data.Name.ToView());
             }
 
             if (m_Callback)
@@ -262,7 +262,7 @@ namespace OloEngine
         catch (const std::exception& e)
         {
             OLO_CORE_ERROR("CreateComputeShaderCommand: Exception during compute shader creation for '{}': {}",
-                           m_Data.Name, e.what());
+                           m_Data.Name.ToView(), e.what());
             if (m_Callback)
                 m_Callback(nullptr);
         }

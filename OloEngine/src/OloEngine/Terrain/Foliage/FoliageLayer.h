@@ -1,19 +1,19 @@
 #pragma once
 
+#include "OloEngine/Containers/String.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/Texture.h"
 
 #include <glm/glm.hpp>
-#include <string>
 
 namespace OloEngine
 {
     // One foliage type within a foliage system (grass, flowers, bushes, trees, etc.)
     struct FoliageLayer
     {
-        std::string Name = "Grass";
+        FString Name = "Grass";
 
         // Authored plant mesh (issue #1233). Rendered as REAL GEOMETRY up close
         // and baked into the octahedral impostor atlas for distance (#433).
@@ -25,10 +25,10 @@ namespace OloEngine
         // never differently near vs far. FoliageRenderer reports a deviation
         // rather than silently rescaling, because rescaling here and not in the
         // bake is exactly how the near and far silhouettes drift apart.
-        std::string MeshPath;
+        FString MeshPath;
 
         // Albedo texture for the foliage (with alpha channel for cutout)
-        std::string AlbedoPath;
+        FString AlbedoPath;
 
         // Density / placement
         f32 Density = 1.0f;        // Instances per world unit squared
@@ -216,9 +216,9 @@ namespace OloEngine
         // Authored as PATHS rather than AssetHandles, matching AlbedoPath and
         // MeshPath beside them — FoliageRenderer loads them directly, as it
         // already does for the albedo cutout.
-        std::string NormalMapPath;    // tangent-space leaf normals; veins and curl
-        std::string RoughnessMapPath; // greyscale, MULTIPLIES Roughness above
-        std::string ThicknessMapPath; // greyscale, MULTIPLIES Thickness below
+        FString NormalMapPath;    // tangent-space leaf normals; veins and curl
+        FString RoughnessMapPath; // greyscale, MULTIPLIES Roughness above
+        FString ThicknessMapPath; // greyscale, MULTIPLIES Thickness below
 
         // Tangential scale of the normal map. 0 is exactly the geometric
         // normal, 1 is exactly the map.
@@ -339,6 +339,91 @@ namespace OloEngine
         {
             return Name == other.Name && MeshPath == other.MeshPath && AlbedoPath == other.AlbedoPath && Math::BitwiseEqual(Density, other.Density) && SplatmapChannel == other.SplatmapChannel && Math::BitwiseEqual(MinSlopeAngle, other.MinSlopeAngle) && Math::BitwiseEqual(MaxSlopeAngle, other.MaxSlopeAngle) && Math::BitwiseEqual(MinScale, other.MinScale) && Math::BitwiseEqual(MaxScale, other.MaxScale) && Math::BitwiseEqual(MinHeight, other.MinHeight) && Math::BitwiseEqual(MaxHeight, other.MaxHeight) && RandomRotation == other.RandomRotation && Math::BitwiseEqual(SlopeFeather, other.SlopeFeather) && UseAltitudeBand == other.UseAltitudeBand && Math::BitwiseEqual(MinAltitude, other.MinAltitude) && Math::BitwiseEqual(MaxAltitude, other.MaxAltitude) && Math::BitwiseEqual(AltitudeFeather, other.AltitudeFeather) && UseMoisture == other.UseMoisture && Math::BitwiseEqual(MinMoisture, other.MinMoisture) && Math::BitwiseEqual(MaxMoisture, other.MaxMoisture) && Math::BitwiseEqual(MoistureFeather, other.MoistureFeather) && ExclusionSplatmapChannel == other.ExclusionSplatmapChannel && Math::BitwiseEqual(ExclusionThreshold, other.ExclusionThreshold) && Math::BitwiseEqual(ClumpStrength, other.ClumpStrength) && Math::BitwiseEqual(ClumpScale, other.ClumpScale) && Math::BitwiseEqual(ClumpFalloff, other.ClumpFalloff) && Math::BitwiseEqual(ClumpScaleInfluence, other.ClumpScaleInfluence) && ClumpGroup == other.ClumpGroup && Math::BitwiseEqual(GroundOffset, other.GroundOffset) && Math::BitwiseEqual(SlopeSinkFactor, other.SlopeSinkFactor) && DecorrelatedVariation == other.DecorrelatedVariation && Math::BitwiseEqual(ViewDistance, other.ViewDistance) && Math::BitwiseEqual(FadeStartDistance, other.FadeStartDistance) && UseAuthoredMesh == other.UseAuthoredMesh && Math::BitwiseEqual(MeshViewDistance, other.MeshViewDistance) && Math::BitwiseEqual(MeshFadeStartDistance, other.MeshFadeStartDistance) && Math::BitwiseEqual(WindStrength, other.WindStrength) && Math::BitwiseEqual(WindSpeed, other.WindSpeed) && Math::BitwiseEqual(WindStiffness, other.WindStiffness) && Math::BitwiseEqual(WindBranchWeight, other.WindBranchWeight) && Math::BitwiseEqual(WindLeafWeight, other.WindLeafWeight) && WindDebugDisplacement == other.WindDebugDisplacement && Math::BitwiseEqual(InteractionResponse, other.InteractionResponse) && Math::BitwiseEqual(BaseColor, other.BaseColor) && Math::BitwiseEqual(Roughness, other.Roughness) && Math::BitwiseEqual(AlphaCutoff, other.AlphaCutoff) && NormalMapPath == other.NormalMapPath && RoughnessMapPath == other.RoughnessMapPath && ThicknessMapPath == other.ThicknessMapPath && Math::BitwiseEqual(NormalStrength, other.NormalStrength) && Math::BitwiseEqual(TransmissionStrength, other.TransmissionStrength) && Math::BitwiseEqual(TransmissionColor, other.TransmissionColor) && Math::BitwiseEqual(Thickness, other.Thickness) && Math::BitwiseEqual(TransmissionDistortion, other.TransmissionDistortion) && Math::BitwiseEqual(TransmissionPower, other.TransmissionPower) && Math::BitwiseEqual(TransmissionWrap, other.TransmissionWrap) && Math::BitwiseEqual(TransmissionAmbient, other.TransmissionAmbient) && UseImpostor == other.UseImpostor && Math::BitwiseEqual(ImpostorStartDistance, other.ImpostorStartDistance) && Math::BitwiseEqual(ImpostorTransitionBand, other.ImpostorTransitionBand) && ImpostorFramesPerAxis == other.ImpostorFramesPerAxis && ImpostorAtlasResolution == other.ImpostorAtlasResolution && ImpostorHemiOctahedral == other.ImpostorHemiOctahedral && Math::BitwiseEqual(LodTransitionSpread, other.LodTransitionSpread) && Math::BitwiseEqual(LodHysteresis, other.LodHysteresis) && LodStochasticCoverage == other.LodStochasticCoverage && UseDensityLod == other.UseDensityLod && Math::BitwiseEqual(DensityLodStartDistance, other.DensityLodStartDistance) && Math::BitwiseEqual(DensityLodEndDistance, other.DensityLodEndDistance) && Math::BitwiseEqual(DensityLodMinFraction, other.DensityLodMinFraction) && Math::BitwiseEqual(DensityLodFadeFraction, other.DensityLodFadeFraction) && Math::BitwiseEqual(DensityLodMaxScale, other.DensityLodMaxScale) && Enabled == other.Enabled;
         }
+    };
+
+    // All six strings own external buffers; the four Ref<Texture2D> members
+    // point to external objects. Remaining members are scalar values and glm
+    // vectors. None stores an address into this layer. Re-audit on member changes.
+    template<>
+    struct TIsTriviallyRelocatable<FoliageLayer>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(FoliageLayer::Name)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::MeshPath)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::AlbedoPath)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::Density)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::SplatmapChannel)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::MinSlopeAngle)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::MaxSlopeAngle)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::MinScale)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::MaxScale)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::MinHeight)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::MaxHeight)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::RandomRotation)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::SlopeFeather)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::UseAltitudeBand)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::MinAltitude)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::MaxAltitude)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::AltitudeFeather)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::UseMoisture)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::MinMoisture)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::MaxMoisture)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::MoistureFeather)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::ExclusionSplatmapChannel)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::ExclusionThreshold)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::ClumpStrength)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::ClumpScale)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::ClumpFalloff)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::ClumpScaleInfluence)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::ClumpGroup)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::GroundOffset)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::SlopeSinkFactor)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::DecorrelatedVariation)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::ViewDistance)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::FadeStartDistance)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::UseAuthoredMesh)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::MeshViewDistance)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::MeshFadeStartDistance)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::WindStrength)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::WindSpeed)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::WindStiffness)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::WindBranchWeight)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::WindLeafWeight)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::WindDebugDisplacement)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::InteractionResponse)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::BaseColor)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::Roughness)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::AlphaCutoff)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::NormalMapPath)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::RoughnessMapPath)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::ThicknessMapPath)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::NormalStrength)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::TransmissionStrength)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::TransmissionColor)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::Thickness)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::TransmissionDistortion)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::TransmissionPower)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::TransmissionWrap)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::TransmissionAmbient)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::UseImpostor)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::ImpostorStartDistance)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::ImpostorTransitionBand)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::ImpostorFramesPerAxis)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::ImpostorAtlasResolution)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::ImpostorHemiOctahedral)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::LodTransitionSpread)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::LodHysteresis)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::LodStochasticCoverage)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::UseDensityLod)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::DensityLodStartDistance)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::DensityLodEndDistance)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::DensityLodMinFraction)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::DensityLodFadeFraction)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::DensityLodMaxScale)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::AlbedoTexture)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::NormalTexture)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::RoughnessTexture)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::ThicknessTexture)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayer::Enabled)>::Value;
     };
 
     // Per-instance data for GPU (must match shader layout)

@@ -32,6 +32,8 @@
 // =============================================================================
 
 #include "OloEnginePCH.h"
+#include <span>
+#include "OloEngine/Containers/Array.h"
 #include "../../TestOptions.h"
 
 #include "RendererAttachedTest.h"
@@ -247,12 +249,12 @@ namespace OloEngine::Tests
                       census.m_AuthoredMeshInstances + census.m_UnsupportedInstances,
                   census.m_CanonicalInstances)
             << "a plant is represented by exactly one of the four variants";
-        EXPECT_EQ(registry.GetRecords().size(), uploaded);
+        EXPECT_EQ(registry.GetRecords().Num(), uploaded);
 
         // Identity survives command submission: each draw carries the layer it
         // came from, and every row of that layer's stream resolves to a live id.
         const auto drawInfos = foliage.m_Renderer->GetActiveLayerDrawInfo();
-        ASSERT_FALSE(drawInfos.empty());
+        ASSERT_FALSE(drawInfos.IsEmpty());
         for (const auto& info : drawInfos)
         {
             ASSERT_GT(info.InstanceCount, 0u);
@@ -269,7 +271,7 @@ namespace OloEngine::Tests
         }
 
         // (2) Groups partition the instances and bound them in WORLD space.
-        ASSERT_FALSE(registry.GetGroups().empty()) << "spatial groups were never built";
+        ASSERT_FALSE(registry.GetGroups().IsEmpty()) << "spatial groups were never built";
         // A partition: every live id in exactly one group. A cardinality check
         // alone would pass with one id in two groups and another in none.
         std::set<FoliageInstanceId> groupedIds;
@@ -308,8 +310,8 @@ namespace OloEngine::Tests
         // (3a) Nothing was retired, nothing reissued.
         EXPECT_EQ(LiveIds(registry), idsBefore)
             << "a regeneration with unchanged inputs renumbered plants — identity is not stable";
-        EXPECT_TRUE(registry.GetLastDelta().m_Retired.empty());
-        EXPECT_TRUE(registry.GetLastDelta().m_Added.empty());
+        EXPECT_TRUE(registry.GetLastDelta().m_Retired.IsEmpty());
+        EXPECT_TRUE(registry.GetLastDelta().m_Added.IsEmpty());
         EXPECT_EQ(registry.GetCensus(), censusBefore);
 
         // (3b) ...and it is the same picture. Grass coverage rather than an exact
@@ -350,7 +352,7 @@ namespace OloEngine::Tests
             RunEditorFrames(camera, 2);
 
             EXPECT_EQ(LiveIds(registry), idsBefore) << "moving the terrain must not touch identity";
-            ASSERT_FALSE(registry.GetGroups().empty());
+            ASSERT_FALSE(registry.GetGroups().IsEmpty());
             for (const auto& group : registry.GetGroups())
             {
                 const BoundingBox world = group.m_LocalBounds.Transform(expected);

@@ -322,8 +322,8 @@ namespace OloEngine
 
         constexpr u32 S = VoxelChunk::CHUNK_SIZE;
 
-        std::vector<VoxelVertex> vertices;
-        std::vector<u32> indices;
+        TArray<VoxelVertex> vertices;
+        TArray<u32> indices;
 
         static const glm::ivec3 cornerOffsets[8] = {
             { 0, 0, 0 }, { 1, 0, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 0, 1 }, { 1, 0, 1 }, { 1, 1, 1 }, { 0, 1, 1 }
@@ -390,7 +390,7 @@ namespace OloEngine
 
                     for (i32 t = 0; s_TriTable[cubeIndex][t] != -1; t += 3)
                     {
-                        u32 baseIdx = static_cast<u32>(vertices.size());
+                        u32 baseIdx = static_cast<u32>(vertices.Num());
 
                         for (i32 v = 0; v < 3; ++v)
                         {
@@ -403,21 +403,21 @@ namespace OloEngine
                             u32 nz = z + static_cast<u32>(cornerOffsets[c0].z);
                             glm::vec3 normal = ComputeGradient(chunk, nx, ny, nz);
 
-                            vertices.push_back({ pos, normal });
+                            vertices.Add({ pos, normal });
 
                             boundsMin = glm::min(boundsMin, pos);
                             boundsMax = glm::max(boundsMax, pos);
                         }
 
-                        indices.push_back(baseIdx);
-                        indices.push_back(baseIdx + 1);
-                        indices.push_back(baseIdx + 2);
+                        indices.Add(baseIdx);
+                        indices.Add(baseIdx + 1);
+                        indices.Add(baseIdx + 2);
                     }
                 }
             }
         }
 
-        if (vertices.empty())
+        if (vertices.IsEmpty())
         {
             return false;
         }
@@ -445,17 +445,17 @@ namespace OloEngine
             { ShaderDataType::Float3, "a_Normal" }
         };
 
-        auto vbo = VertexBuffer::Create(vertices.data(), static_cast<u32>(vertices.size() * sizeof(VoxelVertex)));
+        auto vbo = VertexBuffer::Create(vertices.GetData(), static_cast<u32>(vertices.Num() * sizeof(VoxelVertex)));
         vbo->SetLayout(layout);
         vao->AddVertexBuffer(vbo);
 
-        auto ibo = IndexBuffer::Create(indices.data(), static_cast<u32>(indices.size()));
+        auto ibo = IndexBuffer::Create(indices.GetData(), static_cast<u32>(indices.Num()));
         vao->SetIndexBuffer(ibo);
 
         outMesh.ChunkCoord = coord;
         outMesh.Bounds = BoundingBox(boundsMin, boundsMax);
         outMesh.VAO = vao;
-        outMesh.IndexCount = static_cast<u32>(indices.size());
+        outMesh.IndexCount = static_cast<u32>(indices.Num());
 
         return true;
     }
@@ -465,7 +465,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::vector<VoxelCoord> dirtyCoords;
+        TArray<VoxelCoord> dirtyCoords;
         voxels.GetDirtyChunks(dirtyCoords);
 
         // Voxel undo can restore the sparse map to a state where a chunk did

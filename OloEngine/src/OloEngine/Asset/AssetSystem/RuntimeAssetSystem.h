@@ -21,6 +21,25 @@ namespace OloEngine
         Ref<Asset> LoadedAsset; // named LoadedAsset (not Asset) so it doesn't shadow the Asset type
     };
 
+    // Task results remain in heap storage; these records own only handles.
+    struct FInFlightAssetLoad
+    {
+        AssetHandle Handle = 0;
+        Tasks::TTask<Ref<Asset>> Task;
+    };
+    template<>
+    struct TIsTriviallyRelocatable<FInFlightAssetLoad>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(FInFlightAssetLoad::Handle)> &&
+                                      TIsTriviallyRelocatable_V<decltype(FInFlightAssetLoad::Task)>;
+    };
+    template<>
+    struct TIsTriviallyRelocatable<FCompletedAssetLoad>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(FCompletedAssetLoad::Handle)> &&
+                                      TIsTriviallyRelocatable_V<decltype(FCompletedAssetLoad::LoadedAsset)>;
+    };
+
     /**
      * @brief Runtime asset system for optimized async loading
      *
@@ -114,14 +133,6 @@ namespace OloEngine
         Ref<Asset> LoadAssetFromPack(AssetHandle handle);
 
       private:
-        /// One in-flight load. The TTask both signals completion (IsCompleted) and
-        /// carries the loaded asset as its result (GetResult).
-        struct FInFlightLoad
-        {
-            AssetHandle Handle = 0;
-            Tasks::TTask<Ref<Asset>> Task;
-        };
-
         RuntimeAssetManager* m_Manager = nullptr;
 
         // m_Running and m_InFlight are both guarded by m_StateMutex (a UE-ported
@@ -129,7 +140,7 @@ namespace OloEngine
         // uses std::atomic internally — so this system keeps its own state under the
         // mutex rather than introducing parallel atomics.
         bool m_Running = true;
-        TArray<FInFlightLoad> m_InFlight;
+        TArray<FInFlightAssetLoad> m_InFlight;
         mutable FMutex m_StateMutex;
     };
 

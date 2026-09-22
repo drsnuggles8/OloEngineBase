@@ -1,5 +1,8 @@
 #pragma once
 
+#include "OloEngine/Containers/Array.h"
+#include <span>
+
 #include "Physics3DTypes.h"
 #include "SceneQueries.h"
 #include "JoltUtils.h"
@@ -168,7 +171,7 @@ namespace OloEngine
         // single-tile body, the body's shape is not a height field, or the input is bad.
         bool UpdateTerrainBodyHeights(UUID terrainEntityID, u32 regionX, u32 regionZ,
                                       u32 regionWidth, u32 regionHeight,
-                                      const std::vector<f32>& fullHeights, u32 resolution);
+                                      std::span<const f32> fullHeights, u32 resolution);
 
         // Cloth / soft-body management (issue #460). Like terrain bodies, a cloth entity
         // carries no Rigidbody3DComponent / JoltBody wrapper — its Jolt soft body is a raw
@@ -196,7 +199,7 @@ namespace OloEngine
         // entity or the body lock fails; on success outWorldPositions has one entry per
         // particle. Called each frame by Scene to drive the deforming render mesh and by the
         // functional tests to assert the cloth drapes / rests on the floor.
-        [[nodiscard("cloth vertex readback result must be used")]] bool GetClothVertices(UUID entityID, std::vector<glm::vec3>& outWorldPositions) const;
+        [[nodiscard("cloth vertex readback result must be used")]] bool GetClothVertices(UUID entityID, TArray<glm::vec3>& outWorldPositions) const;
 
         // Live world-space centre-of-mass position of a cloth's soft body, read directly from
         // Jolt (JPH::Body::GetCenterOfMassPosition) rather than the cached ECS
@@ -214,7 +217,7 @@ namespace OloEngine
         // from a skeleton bone (issue #460 cape slice). Returns false (outIndices cleared)
         // if entityID has no live cloth body or the body lock fails; the returned indices
         // are into the same row-major particle order as GetClothVertices.
-        [[nodiscard("cloth pinned-index query result must be used")]] bool GetClothPinnedVertexIndices(UUID entityID, std::vector<u32>& outIndices) const;
+        [[nodiscard("cloth pinned-index query result must be used")]] bool GetClothPinnedVertexIndices(UUID entityID, TArray<u32>& outIndices) const;
 
         // Drive a cloth's pinned (kinematic, inverse-mass-0) particles toward per-vertex
         // world-space target positions by setting their velocity (issue #460 cape slice) —
@@ -227,8 +230,8 @@ namespace OloEngine
         // (a free particle is never perturbed). Wakes the body so a moving attachment keeps
         // it simulating. No-op if entityID has no cloth body, dt is non-positive/non-finite,
         // or the arrays mismatch.
-        void DriveClothAttachment(UUID entityID, const std::vector<u32>& vertexIndices,
-                                  const std::vector<glm::vec3>& targetWorldPositions, f32 dt);
+        void DriveClothAttachment(UUID entityID, std::span<const u32> vertexIndices,
+                                  std::span<const glm::vec3> targetWorldPositions, f32 dt);
 
         // Queue a uniform whole-body force (Newtons, world space) on a cloth's soft body —
         // e.g. wind (ClothWindSystem, issue #460). Delegates to JPH::BodyInterface::AddForce,

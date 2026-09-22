@@ -89,7 +89,7 @@ namespace
         return data ? data->Glyphs.size() : 0u;
     }
 
-    [[nodiscard]] bool RangesEqual(const std::vector<FontCodepointRange>& a, const std::vector<FontCodepointRange>& b)
+    [[nodiscard]] bool RangesEqual(std::span<const FontCodepointRange> a, std::span<const FontCodepointRange> b)
     {
         const sizet count = a.size();
         if (count != b.size())
@@ -167,7 +167,7 @@ TEST(FontMemoryLoadTest, SanitizesOutOfRangeCodepoints)
     Ref<Font> font = Font::Create("probe", std::span<const u8>(bytes), dirty);
     ASSERT_TRUE(font && font->IsLoaded()) << "load must complete (not hang) and succeed";
 
-    const std::vector<FontCodepointRange>& got = font->GetRanges();
+    const auto got = font->GetRanges();
     ASSERT_EQ(got.size(), 1u) << "inverted range must be dropped";
     EXPECT_EQ(got[0].First, 0x10FFF0u);
     EXPECT_EQ(got[0].Last, 0x10FFFFu) << "Last must be clamped to the max Unicode scalar";

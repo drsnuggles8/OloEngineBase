@@ -113,7 +113,7 @@ namespace OloEngine::Tests
             return values[values.size() / 2u];
         }
 
-        [[nodiscard]] f64 FindTiming(const std::vector<GPUPassTimerPool::PassTiming>& timings,
+        [[nodiscard]] f64 FindTiming(const TArray<GPUPassTimerPool::PassTiming>& timings,
                                      std::string_view name)
         {
             for (const auto& t : timings)

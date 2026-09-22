@@ -25,7 +25,7 @@
 
 #include <glm/glm.hpp>
 
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -43,6 +43,13 @@ namespace OloEngine
         Ref<EnvironmentMap> Environment; // must HasIBL(); parallax additionally needs HasProbeDistanceField()
     };
 
+    template<>
+    struct TIsTriviallyRelocatable<ReflectionProbeRenderData>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<Ref<EnvironmentMap>>::Value &&
+                                      std::is_trivially_copyable_v<glm::vec3>;
+    };
+
     class ReflectionProbeArray
     {
       public:
@@ -52,7 +59,7 @@ namespace OloEngine
         // Per-frame probe set from the Scene (already camera-sorted; entries
         // beyond ReflectionProbeUBO::MAX_PROBES are dropped). Cleared by
         // PrepareFrame — a frame with no submission shades with zero probes.
-        void SetProbes(std::vector<ReflectionProbeRenderData>&& probes);
+        void SetProbes(TArray<ReflectionProbeRenderData>&& probes);
 
         // Uploads new/changed layers, fills + uploads the probe UBO, and
         // dispatches the per-cluster cull. Call once per frame from
@@ -82,12 +89,8 @@ namespace OloEngine
         bool EnsureArrays(u32 requiredLayers, const Ref<TextureCubemap>& referencePrefilter);
         bool UploadLayer(u32 layer, const EnvironmentMap& environment);
 
-        struct LayerSlot
-        {
-            Ref<EnvironmentMap> Environment; // null = free; identity keys the layer (a re-bake mints a new object)
-        };
-
-        std::vector<LayerSlot> m_Layers;
+        // Null references mark free layers; each reference points outside this array.
+        TArray<Ref<EnvironmentMap>> m_Layers;
         Ref<TextureCubemapArray> m_RadianceArray;
         Ref<TextureCubemapArray> m_DistanceArray;
         // 1-layer stand-ins published while no probe is uploaded, so the
@@ -102,7 +105,7 @@ namespace OloEngine
         // per dispatch, the HZB pattern.
         Ref<UniformBuffer> m_CullParamsUBO;
 
-        std::vector<ReflectionProbeRenderData> m_Submitted;
+        TArray<ReflectionProbeRenderData> m_Submitted;
         u32 m_UploadedCount = 0;
         bool m_GridValid = false;
         bool m_Initialized = false;

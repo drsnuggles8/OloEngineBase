@@ -159,7 +159,7 @@ namespace OloEngine::ImportedMaterialCodec
                 return texture->GetHandle();
             }
 
-            const std::string& path = texture->GetPath();
+            const auto path = texture->GetPath();
             if (path.empty())
             {
                 return AssetHandle(0);
@@ -272,7 +272,7 @@ namespace OloEngine::ImportedMaterialCodec
         }
     } // namespace
 
-    std::vector<MaterialDesc> Describe(const std::vector<Ref<Material>>& materials)
+    std::vector<MaterialDesc> Describe(std::span<const Ref<Material>> materials)
     {
         std::vector<MaterialDesc> descs;
         descs.reserve(materials.size());
@@ -290,7 +290,7 @@ namespace OloEngine::ImportedMaterialCodec
             }
 
             desc.Present = true;
-            desc.Name = material->GetName();
+            desc.Name = material->GetName().ToStdString();
             desc.Type = static_cast<i32>(material->GetType());
             desc.Flags = material->GetFlags();
             desc.AlphaMode = static_cast<i32>(material->GetAlphaMode());
@@ -409,7 +409,7 @@ namespace OloEngine::ImportedMaterialCodec
         return materials;
     }
 
-    bool CanPersistEveryTexture(const std::vector<Ref<Material>>& materials)
+    bool CanPersistEveryTexture(std::span<const Ref<Material>> materials)
     {
         for (const auto& material : materials)
         {
@@ -427,7 +427,7 @@ namespace OloEngine::ImportedMaterialCodec
                 {
                     OLO_CORE_WARN("ImportedMaterialCodec: material '{}' carries a texture with neither an asset "
                                   "handle nor a source path, so it cannot be persisted",
-                                  material->GetName());
+                                  material->GetName().ToView());
                     return false;
                 }
             }
@@ -637,7 +637,7 @@ namespace OloEngine::ImportedMaterialCodec
         return true;
     }
 
-    std::vector<u8> EncodeMaterials(const std::vector<Ref<Material>>& materials)
+    std::vector<u8> EncodeMaterials(std::span<const Ref<Material>> materials)
     {
         return Encode(Describe(materials));
     }

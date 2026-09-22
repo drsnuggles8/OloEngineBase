@@ -109,14 +109,14 @@ namespace OloEngine
     GroomDeformationStats EvaluateGroomRootTransforms(const GroomAsset& groom, const GroomBindingAsset& binding,
                                                       const GroomDeformationInputs& inputs,
                                                       std::optional<std::span<const u32>> selectedCurves,
-                                                      std::vector<GroomRootTransform>& outTransforms)
+                                                      TArray<GroomRootTransform>& outTransforms)
     {
         GroomDeformationStats stats;
 
         const u32 curveCount = groom.GetCurveCount();
         // Fully written, never partially: an index into this array must be safe
         // for every curve whether or not it was selected — see the header.
-        outTransforms.assign(curveCount, GroomRootTransform{});
+        outTransforms.Init(GroomRootTransform{}, static_cast<i32>(curveCount));
 
         if (binding.GetRootCount() != curveCount || !inputs.Surface.IsUsable())
         {

@@ -252,13 +252,13 @@ namespace OloEngine::Tests
     {
         const SplatCloud cloud = MakeRandomCloud(1000, 1039u);
 
-        std::vector<u32> order;
-        std::vector<u32> offsets;
+        TArray<u32> order;
+        TArray<u32> offsets;
         BuildClusters(cloud.Splats(), 4, order, offsets);
 
-        ASSERT_GE(offsets.size(), 2u);
-        EXPECT_EQ(offsets.front(), 0u);
-        EXPECT_EQ(offsets.back(), cloud.Count());
+        ASSERT_GE(offsets.Num(), 2u);
+        EXPECT_EQ(offsets.First(), 0u);
+        EXPECT_EQ(offsets.Last(), cloud.Count());
 
         std::vector<u32> seen(cloud.Count(), 0u);
         for (const u32 index : order)
@@ -269,7 +269,7 @@ namespace OloEngine::Tests
         for (const u32 timesSeen : seen)
             EXPECT_EQ(timesSeen, 1u) << "a splat landed in two clusters, or none";
 
-        for (sizet c = 0; c + 1 < offsets.size(); ++c)
+        for (sizet c = 0; c + 1 < offsets.Num(); ++c)
         {
             const u32 size = offsets[c + 1] - offsets[c];
             EXPECT_GT(size, 0u);
@@ -289,10 +289,10 @@ namespace OloEngine::Tests
         SplatCloud cloud;
         cloud.Build(positions, shDc, logit, logScale, rotation);
 
-        std::vector<u32> orderA;
-        std::vector<u32> offsetsA;
-        std::vector<u32> orderB;
-        std::vector<u32> offsetsB;
+        TArray<u32> orderA;
+        TArray<u32> offsetsA;
+        TArray<u32> orderB;
+        TArray<u32> offsetsB;
         BuildClusters(cloud.Splats(), 4, orderA, offsetsA);
         BuildClusters(cloud.Splats(), 4, orderB, offsetsB);
 

@@ -8,7 +8,7 @@
 #include "DebugUtils.h"
 
 #include <imgui.h>
-#include <deque>
+#include "OloEngine/Containers/Array.h"
 #include <vector>
 #include <string>
 #include <unordered_map>
@@ -91,7 +91,7 @@ namespace OloEngine
         bool m_StaticFilter = true;
 
         // Cached frame data for RenderFrameSelector (avoids per-frame deep copy)
-        std::deque<CapturedFrameData> m_CachedFrames;
+        TArray<CapturedFrameData> m_CachedFrames;
         sizet m_CachedFrameCount = 0;
         u64 m_CachedGeneration = 0;
     };

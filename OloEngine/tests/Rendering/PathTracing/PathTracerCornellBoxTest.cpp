@@ -136,7 +136,7 @@ namespace OloEngine::Tests
                 return;
             }
 
-            std::vector<u8> rgba;
+            TArray64<u8> rgba;
             // Reinhard + gamma: the engine's DEFAULT display transform
             // (PostProcessSettings), so the evidence reads like a viewport
             // screenshot rather than a raw HDR dump.
@@ -144,7 +144,7 @@ namespace OloEngine::Tests
 
             const std::string path = (dir / (name + ".png")).string();
             const int wrote = ::stbi_write_png(path.c_str(), static_cast<int>(film.GetWidth()),
-                                               static_cast<int>(film.GetHeight()), 4, rgba.data(),
+                                               static_cast<int>(film.GetHeight()), 4, rgba.GetData(),
                                                static_cast<int>(film.GetWidth()) * 4);
             if (wrote == 0)
                 std::cout << "[evidence] stbi_write_png failed for " << path << "\n";

@@ -245,7 +245,7 @@ namespace OloEngine
         // packing two single-channel maps into one.
         struct DecodedBitmap
         {
-            std::vector<u8> RGBA;
+            TArray64<u8> RGBA;
             u32 Width = 0;
             u32 Height = 0;
         };
@@ -282,7 +282,7 @@ namespace OloEngine
                 return std::nullopt;
             }
 
-            std::vector<u8> packed(pixelCount * 4u);
+            TArray64<u8> packed(pixelCount * 4u);
             const auto metallicFallbackByte = FloatFactorToByte(metallicFallback);
             const auto roughnessFallbackByte = FloatFactorToByte(roughnessFallback);
 
@@ -364,7 +364,7 @@ namespace OloEngine
 
                 out.Width = static_cast<u32>(w);
                 out.Height = static_cast<u32>(h);
-                out.RGBA.assign(decoded, decoded + (static_cast<sizet>(out.Width) * out.Height * 4u));
+                out.RGBA.Append(decoded, static_cast<i64>(out.Width) * out.Height * 4u);
                 ::stbi_image_free(decoded);
             }
             else
@@ -382,7 +382,7 @@ namespace OloEngine
                     return std::nullopt;
                 }
 
-                out.RGBA.resize(static_cast<sizet>(out.Width) * out.Height * 4u);
+                out.RGBA.SetNum(static_cast<sizet>(out.Width) * out.Height * 4u, EAllowShrinking::No);
                 for (sizet i = 0; i < static_cast<sizet>(out.Width) * out.Height; ++i)
                 {
                     const aiTexel& src = embedded->pcData[i];
@@ -397,7 +397,7 @@ namespace OloEngine
         }
 
         // Reverse the row order of a tightly-packed RGBA8 image in place.
-        void FlipRowsInPlace(std::vector<u8>& rgba, u32 width, u32 height)
+        void FlipRowsInPlace(TArray64<u8>& rgba, u32 width, u32 height)
         {
             const sizet stride = static_cast<sizet>(width) * 4u;
             for (u32 y = 0; y < height / 2u; ++y)
@@ -444,7 +444,7 @@ namespace OloEngine
             if (!texture || !texture->IsLoaded())
                 return nullptr;
 
-            texture->SetData(decoded->RGBA.data(), static_cast<u32>(decoded->RGBA.size()));
+            texture->SetData(decoded->RGBA.GetData(), static_cast<u32>(decoded->RGBA.Num()));
             return texture;
         }
 
@@ -583,7 +583,7 @@ namespace OloEngine
                 const int written = ::stbi_write_png(
                     tempPath.string().c_str(),
                     static_cast<int>(decoded->Width), static_cast<int>(decoded->Height), 4,
-                    decoded->RGBA.data(), static_cast<int>(decoded->Width * 4u));
+                    decoded->RGBA.GetData(), static_cast<int>(decoded->Width * 4u));
                 if (written == 0)
                 {
                     OLO_CORE_WARN("Model: Failed to write cooked texture '{}'", tempPath.string());
@@ -764,7 +764,9 @@ namespace OloEngine
                 // CreateCombinedMeshSource attaches whatever is in it — so without this the
                 // blob is silently EMPTY on every warm-cache load, and any Model-based
                 // consumer would hand the registry a source with no precooked DAG.
-                m_CookedVirtualMeshBlob = cachedMesh->GetVirtualMeshBlob();
+                m_CookedVirtualMeshBlob.Reset();
+                const auto cachedBlob = cachedMesh->GetVirtualMeshBlob();
+                m_CookedVirtualMeshBlob.Append(cachedBlob.data(), static_cast<i32>(cachedBlob.size()));
                 m_CachedCombinedSource = cachedMesh;
                 // The cache is the ONLY place a warm load can learn that the source file was
                 // rigged: this path never opens the source (since v4 it does not even
@@ -778,7 +780,7 @@ namespace OloEngine
                 cachedMesh->Build();
                 for (i32 i = 0; i < cachedMesh->GetSubmeshes().Num(); ++i)
                 {
-                    m_Meshes.push_back(Ref<Mesh>::Create(cachedMesh, static_cast<u32>(i)));
+                    m_Meshes.Add(Ref<Mesh>::Create(cachedMesh, static_cast<u32>(i)));
                 }
 
                 // Materials: take them from the cache when it has them.
@@ -828,7 +830,8 @@ namespace OloEngine
 
                     if (tableAddressesEverySubmesh)
                     {
-                        m_Materials = cachedMaterials;
+                        m_Materials.Reset();
+                        m_Materials.Append(cachedMaterials.data(), static_cast<i32>(cachedMaterials.size()));
                         materialsFromCache = true;
                     }
                 }
@@ -881,13 +884,13 @@ namespace OloEngine
                     const aiScene* scene = importer.ReadFile(path, kCacheLoadFlags);
                     if (scene && scene->mRootNode)
                     {
-                        std::vector<u32> sceneMeshIndices;
-                        sceneMeshIndices.reserve(m_Meshes.size());
+                        TArray<u32> sceneMeshIndices;
+                        sceneMeshIndices.Reserve(static_cast<sizet>(m_Meshes.Num()));
 
-                        const auto collectDFS = [](const aiNode* node, std::vector<u32>& out, auto&& self) -> void
+                        const auto collectDFS = [](const aiNode* node, TArray<u32>& out, auto&& self) -> void
                         {
                             for (u32 i = 0; i < node->mNumMeshes; ++i)
-                                out.push_back(node->mMeshes[i]);
+                                out.Add(node->mMeshes[i]);
                             for (u32 i = 0; i < node->mNumChildren; ++i)
                                 self(node->mChildren[i], out, self);
                         };
@@ -896,9 +899,9 @@ namespace OloEngine
                         // Deduplicate exactly as ProcessMesh does on the cold path: one
                         // entry per UNIQUE aiMaterial, in order of first DFS appearance.
                         // The cached submeshes' m_MaterialIndex values index THIS array.
-                        m_Materials.clear();
+                        m_Materials.Reset();
                         m_MaterialIndexMap.clear();
-                        const auto numToProcess = std::min(sceneMeshIndices.size(), m_Meshes.size());
+                        const auto numToProcess = std::min<sizet>(sceneMeshIndices.Num(), static_cast<sizet>(m_Meshes.Num()));
                         for (sizet i = 0; i < numToProcess; ++i)
                         {
                             const u32 sceneMeshIdx = sceneMeshIndices[i];
@@ -909,27 +912,27 @@ namespace OloEngine
                                 continue;
                             if (m_MaterialIndexMap.contains(matIdx))
                                 continue;
-                            m_MaterialIndexMap[matIdx] = static_cast<u32>(m_Materials.size());
-                            m_Materials.push_back(ProcessMaterial(scene->mMaterials[matIdx], scene));
+                            m_MaterialIndexMap[matIdx] = static_cast<u32>(m_Materials.Num());
+                            m_Materials.Add(ProcessMaterial(scene->mMaterials[matIdx], scene));
                         }
 
-                        if (sceneMeshIndices.size() != m_Meshes.size())
+                        if (sceneMeshIndices.Num() != static_cast<sizet>(m_Meshes.Num()))
                         {
                             OLO_CORE_WARN("Model::LoadModel: cache has {} submeshes but DFS walk produced {} — "
                                           "some submeshes will resolve to a default material. Stale cache?",
-                                          m_Meshes.size(), sceneMeshIndices.size());
+                                          static_cast<sizet>(m_Meshes.Num()), sceneMeshIndices.Num());
                         }
                     }
                     else
                     {
                         OLO_CORE_WARN("Model::LoadModel: Failed to load materials from '{}' for cached geometry", path);
-                        m_Materials.clear(); // every submesh resolves to the caller's default
+                        m_Materials.Reset(); // every submesh resolves to the caller's default
                     }
                 }
 
                 CalculateBounds();
 
-                OLO_CORE_TRACE("Model::LoadModel: Loaded {} meshes from cache '{}'", m_Meshes.size(), cachePrefix.empty() ? "<default>" : cachePrefix);
+                OLO_CORE_TRACE("Model::LoadModel: Loaded {} meshes from cache '{}'", static_cast<sizet>(m_Meshes.Num()), cachePrefix.empty() ? "<default>" : cachePrefix);
 
                 // Diagnostic: per-submesh material resolution. Mirrors the
                 // path Scene.cpp will take at render time, so what we print
@@ -937,14 +940,14 @@ namespace OloEngine
                 // for normal loads; set OLO_MODEL_IMPORT_DIAGNOSTICS=1 to enable.
                 if (IsModelImportDiagnosticsEnabled())
                 {
-                    for (sizet i = 0; i < m_Meshes.size(); ++i)
+                    for (sizet i = 0; i < static_cast<sizet>(m_Meshes.Num()); ++i)
                     {
                         if (!m_Meshes[i])
                             continue;
                         const auto& sub = m_Meshes[i]->GetSubmesh();
                         const u32 matIdx = sub.m_MaterialIndex;
-                        const bool inRange = matIdx < m_Materials.size();
-                        const std::string matName = (inRange && m_Materials[matIdx]) ? m_Materials[matIdx]->GetName() : "<oob>";
+                        const bool inRange = matIdx < static_cast<sizet>(m_Materials.Num());
+                        const std::string matName = (inRange && m_Materials[matIdx]) ? m_Materials[matIdx]->GetName().ToStdString() : "<oob>";
                         OLO_CORE_INFO("Model: cache submesh[{}] '{}' -> matIdx={} ({})",
                                       i, sub.m_NodeName.IsEmpty() ? "<unnamed>" : *sub.m_NodeName,
                                       matIdx, matName);
@@ -1029,8 +1032,8 @@ namespace OloEngine
         OLO_CORE_TRACE("Loading model: {0} ({1} meshes, {2} materials, flipUV={3})", path, scene->mNumMeshes, scene->mNumMaterials, m_FlipUV);
 
         // Reserve space for expected number of meshes and materials to reduce allocations
-        m_Meshes.reserve(scene->mNumMeshes);
-        m_Materials.reserve(scene->mNumMaterials);
+        m_Meshes.Reserve(scene->mNumMeshes);
+        m_Materials.Reserve(scene->mNumMaterials);
 
         // Pre-size the material index map to reduce rehashing overhead
         m_MaterialIndexMap.reserve(scene->mNumMaterials);
@@ -1050,7 +1053,7 @@ namespace OloEngine
             if (combinedMeshSource)
             {
                 CookVirtualMesh(*combinedMeshSource);
-                if (!m_CookedVirtualMeshBlob.empty())
+                if (!m_CookedVirtualMeshBlob.IsEmpty())
                 {
                     combinedMeshSource->SetVirtualMeshBlob(m_CookedVirtualMeshBlob);
                 }
@@ -1087,7 +1090,7 @@ namespace OloEngine
             }
         }
 
-        OLO_CORE_TRACE("Model loaded successfully: {0} meshes processed", m_Meshes.size());
+        OLO_CORE_TRACE("Model loaded successfully: {0} meshes processed", static_cast<sizet>(m_Meshes.Num()));
     }
 
     void Model::ProcessNode(const aiNode* node, const aiScene* scene)
@@ -1098,7 +1101,7 @@ namespace OloEngine
         for (u32 i = 0; i < node->mNumMeshes; ++i)
         {
             const aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
-            m_Meshes.push_back(ProcessMesh(mesh, scene));
+            m_Meshes.Add(ProcessMesh(mesh, scene));
         }
 
         // Then do the same for each of its children
@@ -1112,12 +1115,12 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::vector<Vertex> vertices;
-        std::vector<u32> indices;
+        TArray<Vertex> vertices;
+        TArray<u32> indices;
 
         // Reserve space to reduce allocations during mesh processing
-        vertices.resize(mesh->mNumVertices);  // Use resize so we can write in parallel
-        indices.reserve(mesh->mNumFaces * 3); // Assuming triangulated mesh
+        vertices.SetNum(mesh->mNumVertices, EAllowShrinking::No); // Use resize so we can write in parallel
+        indices.Reserve(mesh->mNumFaces * 3);                     // Assuming triangulated mesh
 
         // Threshold for parallel vertex processing
         constexpr u32 PARALLEL_VERTEX_THRESHOLD = 1024;
@@ -1210,7 +1213,7 @@ namespace OloEngine
             const aiFace face = mesh->mFaces[i];
             for (u32 j = 0; j < face.mNumIndices; ++j)
             {
-                indices.push_back(face.mIndices[j]);
+                indices.Add(face.mIndices[j]);
             }
         }
 
@@ -1223,22 +1226,22 @@ namespace OloEngine
             if (mapIt == m_MaterialIndexMap.end())
             {
                 // Check for potential overflow before casting to u32
-                if (m_Materials.size() >= UINT32_MAX)
+                if (static_cast<sizet>(m_Materials.Num()) >= UINT32_MAX)
                 {
                     OLO_CORE_ERROR("Model: Material count exceeds u32 maximum ({}), cannot add more materials", UINT32_MAX);
                     return nullptr; // Early return to prevent overflow
                 }
 
                 // Add new material and create mapping
-                u32 newMaterialIndex = static_cast<u32>(m_Materials.size());
-                m_Materials.push_back(ProcessMaterial(material, scene));
+                u32 newMaterialIndex = static_cast<u32>(m_Materials.Num());
+                m_Materials.Add(ProcessMaterial(material, scene));
                 m_MaterialIndexMap[mesh->mMaterialIndex] = newMaterialIndex;
             }
         }
 
         // Store sizes before moving to avoid undefined behavior
-        const sizet indexCount = indices.size();
-        const sizet vertexCount = vertices.size();
+        const sizet indexCount = indices.Num();
+        const sizet vertexCount = vertices.Num();
 
         // Check for potential overflow before creating meshSource and moving data
         if (indexCount > UINT32_MAX)
@@ -1264,7 +1267,7 @@ namespace OloEngine
         submesh.m_VertexCount = static_cast<u32>(vertexCount);
 
         // Use mapped material index with bounds checking
-        if (auto mapIt = m_MaterialIndexMap.find(mesh->mMaterialIndex); mapIt != m_MaterialIndexMap.end() && mapIt->second < m_Materials.size())
+        if (auto mapIt = m_MaterialIndexMap.find(mesh->mMaterialIndex); mapIt != m_MaterialIndexMap.end() && mapIt->second < static_cast<sizet>(m_Materials.Num()))
         {
             submesh.m_MaterialIndex = mapIt->second;
         }
@@ -1300,11 +1303,11 @@ namespace OloEngine
         return primaryMesh;
     }
 
-    std::vector<Ref<Texture2D>> Model::LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type, const aiScene* scene, i32 semanticIndex)
+    TArray<Ref<Texture2D>> Model::LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type, const aiScene* scene, i32 semanticIndex)
     {
         OLO_PROFILE_FUNCTION();
 
-        std::vector<Ref<Texture2D>> textures;
+        TArray<Ref<Texture2D>> textures;
 
         // Albedo/base-color/emissive textures encode authored colour in sRGB;
         // the GPU should convert to linear on sample. Normal / metallic /
@@ -1336,15 +1339,15 @@ namespace OloEngine
         //
         // So a caller that wants a specific index says so, and gets exactly that
         // index probed rather than a count-derived guess.
-        std::vector<u32> semanticIndices;
+        TArray<u32> semanticIndices;
         if (semanticIndex >= 0)
         {
-            semanticIndices.push_back(static_cast<u32>(semanticIndex));
+            semanticIndices.Add(static_cast<u32>(semanticIndex));
         }
         else
         {
             for (u32 i = 0; i < mat->GetTextureCount(type); ++i)
-                semanticIndices.push_back(i);
+                semanticIndices.Add(i);
         }
 
         for (const u32 i : semanticIndices)
@@ -1371,7 +1374,7 @@ namespace OloEngine
                     const std::string cacheKey = std::string{ "embedded|" } + str.C_Str() + std::string(srgbSuffix);
                     if (auto it = m_LoadedTextures.find(cacheKey); it != m_LoadedTextures.end())
                     {
-                        textures.push_back(it->second);
+                        textures.Add(it->second);
                         continue;
                     }
 
@@ -1385,7 +1388,7 @@ namespace OloEngine
                     // byte-for-byte the one the codec will resolve later, so the editor
                     // session and a reload cannot disagree.
                     Ref<Texture2D> texture;
-                    if (auto cooked = CookEmbeddedTexture(embedded, m_SourcePath, str.C_Str(), srgb))
+                    if (auto cooked = CookEmbeddedTexture(embedded, m_SourcePath.ToStdString(), str.C_Str(), srgb))
                     {
                         texture = Texture2D::Create(cooked->string(), srgb);
                         if (texture && !texture->IsLoaded())
@@ -1401,7 +1404,7 @@ namespace OloEngine
                     if (texture && texture->IsLoaded())
                     {
                         m_LoadedTextures[cacheKey] = texture;
-                        textures.push_back(texture);
+                        textures.Add(texture);
                     }
                     else
                     {
@@ -1438,7 +1441,7 @@ namespace OloEngine
                 }
             }
 
-            std::filesystem::path texturePath = std::filesystem::path(m_Directory) / relativePath;
+            std::filesystem::path texturePath = std::filesystem::path(m_Directory.ToStdString()) / relativePath;
             const std::string texturePathStr = texturePath.string() + std::string(srgbSuffix);
 
             if (!m_LoadedTextures.contains(texturePathStr))
@@ -1448,14 +1451,14 @@ namespace OloEngine
                 if (texture && texture->IsLoaded())
                 {
                     m_LoadedTextures[texturePathStr] = texture;
-                    textures.push_back(texture);
+                    textures.Add(texture);
                 }
                 else
                 {
                     // Fallback: FBX files often embed absolute or nested relative paths
                     // that don't match the filesystem. Try just the filename in the model directory.
                     std::filesystem::path filenameOnly = relativePath.filename();
-                    std::filesystem::path fallbackPath = std::filesystem::path(m_Directory) / filenameOnly;
+                    std::filesystem::path fallbackPath = std::filesystem::path(m_Directory.ToStdString()) / filenameOnly;
                     const std::string fallbackPathStr = fallbackPath.string() + std::string(srgbSuffix);
 
                     bool loaded = false;
@@ -1468,13 +1471,13 @@ namespace OloEngine
                         if (fallbackTexture && fallbackTexture->IsLoaded())
                         {
                             m_LoadedTextures[fallbackPathStr] = fallbackTexture;
-                            textures.push_back(fallbackTexture);
+                            textures.Add(fallbackTexture);
                             loaded = true;
                         }
                     }
                     else if (m_LoadedTextures.contains(fallbackPathStr))
                     {
-                        textures.push_back(m_LoadedTextures[fallbackPathStr]);
+                        textures.Add(m_LoadedTextures[fallbackPathStr]);
                         loaded = true;
                     }
                     else
@@ -1486,7 +1489,7 @@ namespace OloEngine
                     // Handles FBX referencing .tga when the actual file is .png, and case mismatches on Linux.
                     if (!loaded)
                     {
-                        auto discovered = FindTextureInDirectory(std::filesystem::path(m_Directory), filenameOnly);
+                        auto discovered = FindTextureInDirectory(std::filesystem::path(m_Directory.ToStdString()), filenameOnly);
                         if (!discovered.empty())
                         {
                             const std::string discoveredStr = discovered.string() + std::string(srgbSuffix);
@@ -1494,7 +1497,7 @@ namespace OloEngine
                                           discovered.string(), filenameOnly.string());
                             if (m_LoadedTextures.contains(discoveredStr))
                             {
-                                textures.push_back(m_LoadedTextures[discoveredStr]);
+                                textures.Add(m_LoadedTextures[discoveredStr]);
                                 loaded = true;
                             }
                             else
@@ -1503,7 +1506,7 @@ namespace OloEngine
                                 if (discoveredTexture && discoveredTexture->IsLoaded())
                                 {
                                     m_LoadedTextures[discoveredStr] = discoveredTexture;
-                                    textures.push_back(discoveredTexture);
+                                    textures.Add(discoveredTexture);
                                     loaded = true;
                                 }
                             }
@@ -1519,7 +1522,7 @@ namespace OloEngine
             }
             else
             {
-                textures.push_back(m_LoadedTextures[texturePathStr]);
+                textures.Add(m_LoadedTextures[texturePathStr]);
             }
         }
 
@@ -1544,7 +1547,7 @@ namespace OloEngine
 
         // If texture overrides are used, set base color to white so texture colors come through properly
         glm::vec3 finalBaseColor = glm::vec3(baseColor.r, baseColor.g, baseColor.b);
-        if (m_TextureOverride && !m_TextureOverride->AlbedoPath.empty())
+        if (m_TextureOverride && !m_TextureOverride->AlbedoPath.IsEmpty())
         {
             finalBaseColor = glm::vec3(1.0f, 1.0f, 1.0f);
         }
@@ -1596,7 +1599,7 @@ namespace OloEngine
         // Load PBR textures - prioritize overrides if provided
         // Track the albedo filename for PBR companion texture discovery
         std::filesystem::path albedoFilename;
-        const auto modelDirectory = std::filesystem::path(m_Directory);
+        const auto modelDirectory = std::filesystem::path(m_Directory.ToStdString());
 
         // Cache key includes the sRGB intent so a path loaded as linear here
         // doesn't collide with the same path loaded as sRGB by
@@ -1623,17 +1626,17 @@ namespace OloEngine
             return nullptr;
         };
 
-        const auto getFirstTexturePath = [](const std::vector<Ref<Texture2D>>& textures) -> std::filesystem::path
+        const auto getFirstTexturePath = [](const TArray<Ref<Texture2D>>& textures) -> std::filesystem::path
         {
-            if (!textures.empty() && textures[0])
-                return textures[0]->GetPath();
+            if (!textures.IsEmpty() && textures[0])
+                return std::filesystem::path(textures[0]->GetPath());
             return {};
         };
 
         // Albedo/Diffuse textures
-        if (m_TextureOverride && !m_TextureOverride->AlbedoPath.empty())
+        if (m_TextureOverride && !m_TextureOverride->AlbedoPath.IsEmpty())
         {
-            auto overrideTexture = Texture2D::Create(m_TextureOverride->AlbedoPath, /*srgb=*/true);
+            auto overrideTexture = Texture2D::Create(m_TextureOverride->AlbedoPath.ToStdString(), /*srgb=*/true);
             if (overrideTexture && overrideTexture->IsLoaded())
             {
                 materialRef->SetAlbedoMap(overrideTexture);
@@ -1643,12 +1646,12 @@ namespace OloEngine
         {
             // Fall back to FBX textures
             auto albedoMaps = LoadMaterialTextures(mat, aiTextureType_DIFFUSE, scene);
-            if (albedoMaps.empty())
+            if (albedoMaps.IsEmpty())
             {
                 // Try base color for newer PBR materials
                 albedoMaps = LoadMaterialTextures(mat, aiTextureType_BASE_COLOR, scene);
             }
-            if (!albedoMaps.empty())
+            if (!albedoMaps.IsEmpty())
             {
                 materialRef->SetAlbedoMap(albedoMaps[0]);
                 // Remember albedo filename for companion discovery below
@@ -1657,9 +1660,9 @@ namespace OloEngine
         }
 
         // Metallic/Roughness textures
-        if (m_TextureOverride && !m_TextureOverride->MetallicPath.empty())
+        if (m_TextureOverride && !m_TextureOverride->MetallicPath.IsEmpty())
         {
-            auto overrideTexture = Texture2D::Create(m_TextureOverride->MetallicPath);
+            auto overrideTexture = Texture2D::Create(m_TextureOverride->MetallicPath.ToStdString());
             if (overrideTexture && overrideTexture->IsLoaded())
             {
                 materialRef->SetMetallicRoughnessMap(overrideTexture);
@@ -1673,12 +1676,12 @@ namespace OloEngine
         {
             // Fall back to FBX textures
             auto metallicRoughnessMaps = LoadMaterialTextures(mat, aiTextureType_METALNESS, scene);
-            if (metallicRoughnessMaps.empty())
+            if (metallicRoughnessMaps.IsEmpty())
             {
                 // Try alternative metallic texture types
                 metallicRoughnessMaps = LoadMaterialTextures(mat, aiTextureType_REFLECTION, scene);
             }
-            if (!metallicRoughnessMaps.empty())
+            if (!metallicRoughnessMaps.IsEmpty())
             {
                 materialRef->SetMetallicRoughnessMap(metallicRoughnessMaps[0]);
                 if (!hasMetallicFactor)
@@ -1767,9 +1770,9 @@ namespace OloEngine
         }
 
         // Normal textures
-        if (m_TextureOverride && !m_TextureOverride->NormalPath.empty())
+        if (m_TextureOverride && !m_TextureOverride->NormalPath.IsEmpty())
         {
-            auto overrideTexture = Texture2D::Create(m_TextureOverride->NormalPath);
+            auto overrideTexture = Texture2D::Create(m_TextureOverride->NormalPath.ToStdString());
             if (overrideTexture && overrideTexture->IsLoaded())
             {
                 materialRef->SetNormalMap(overrideTexture);
@@ -1779,19 +1782,19 @@ namespace OloEngine
         {
             // Fall back to FBX textures
             auto normalMaps = LoadMaterialTextures(mat, aiTextureType_NORMALS, scene);
-            if (normalMaps.empty())
+            if (normalMaps.IsEmpty())
             {
                 // Try height maps as normal maps
                 normalMaps = LoadMaterialTextures(mat, aiTextureType_HEIGHT, scene);
             }
-            if (!normalMaps.empty())
+            if (!normalMaps.IsEmpty())
             {
                 materialRef->SetNormalMap(normalMaps[0]);
             }
             else if (!albedoFilename.empty())
             {
                 // Auto-discover normal companion by naming convention (e.g., cerberus_A → cerberus_N)
-                auto discovered = DiscoverPBRCompanion(std::filesystem::path(m_Directory), albedoFilename.filename(), "_N");
+                auto discovered = DiscoverPBRCompanion(std::filesystem::path(m_Directory.ToStdString()), albedoFilename.filename(), "_N");
                 if (discovered.empty())
                     discovered = FindFirstTextureByStem(modelDirectory, { "normal", "normals", "normalmap", "normal_map" });
                 if (!discovered.empty())
@@ -1811,18 +1814,18 @@ namespace OloEngine
         }
 
         // AO textures
-        if (m_TextureOverride && !m_TextureOverride->AOPath.empty())
+        if (m_TextureOverride && !m_TextureOverride->AOPath.IsEmpty())
         {
-            auto overrideTexture = Texture2D::Create(m_TextureOverride->AOPath);
+            auto overrideTexture = Texture2D::Create(m_TextureOverride->AOPath.ToStdString());
             if (overrideTexture && overrideTexture->IsLoaded())
             {
                 materialRef->SetAOMap(overrideTexture);
             }
         }
-        else if (m_TextureOverride && !m_TextureOverride->RoughnessPath.empty())
+        else if (m_TextureOverride && !m_TextureOverride->RoughnessPath.IsEmpty())
         {
             // Use roughness texture as AO if no dedicated AO texture (common for Cerberus-style models)
-            auto overrideTexture = Texture2D::Create(m_TextureOverride->RoughnessPath);
+            auto overrideTexture = Texture2D::Create(m_TextureOverride->RoughnessPath.ToStdString());
             if (overrideTexture && overrideTexture->IsLoaded())
             {
                 materialRef->SetAOMap(overrideTexture);
@@ -1832,25 +1835,25 @@ namespace OloEngine
         {
             // Fall back to FBX textures
             auto aoMaps = LoadMaterialTextures(mat, aiTextureType_AMBIENT_OCCLUSION, scene);
-            if (aoMaps.empty())
+            if (aoMaps.IsEmpty())
             {
                 // Try lightmap as AO
                 aoMaps = LoadMaterialTextures(mat, aiTextureType_LIGHTMAP, scene);
             }
-            if (!aoMaps.empty())
+            if (!aoMaps.IsEmpty())
             {
                 materialRef->SetAOMap(aoMaps[0]);
             }
             else if (!albedoFilename.empty())
             {
-                auto discovered = DiscoverPBRCompanion(std::filesystem::path(m_Directory), albedoFilename.filename(), "_AO");
+                auto discovered = DiscoverPBRCompanion(std::filesystem::path(m_Directory.ToStdString()), albedoFilename.filename(), "_AO");
                 if (discovered.empty())
                     discovered = FindFirstTextureByStem(modelDirectory, { "ao", "ambient_occlusion", "ambientocclusion", "occlusion" });
 
                 // If no dedicated AO map exists, keep the older roughness-as-AO fallback
                 // for assets that only ship a single monochrome detail map.
                 if (discovered.empty())
-                    discovered = DiscoverPBRCompanion(std::filesystem::path(m_Directory), albedoFilename.filename(), "_R");
+                    discovered = DiscoverPBRCompanion(std::filesystem::path(m_Directory.ToStdString()), albedoFilename.filename(), "_R");
                 if (discovered.empty())
                     discovered = FindFirstTextureByStem(modelDirectory, { "roughness", "rough" });
 
@@ -1871,9 +1874,9 @@ namespace OloEngine
         }
 
         // Emissive textures
-        if (m_TextureOverride && !m_TextureOverride->EmissivePath.empty())
+        if (m_TextureOverride && !m_TextureOverride->EmissivePath.IsEmpty())
         {
-            auto overrideTexture = Texture2D::Create(m_TextureOverride->EmissivePath, /*srgb=*/true);
+            auto overrideTexture = Texture2D::Create(m_TextureOverride->EmissivePath.ToStdString(), /*srgb=*/true);
             if (overrideTexture && overrideTexture->IsLoaded())
             {
                 materialRef->SetEmissiveMap(overrideTexture);
@@ -1883,7 +1886,7 @@ namespace OloEngine
         {
             // Fall back to FBX textures
             auto emissiveMaps = LoadMaterialTextures(mat, aiTextureType_EMISSIVE, scene);
-            if (!emissiveMaps.empty())
+            if (!emissiveMaps.IsEmpty())
             {
                 materialRef->SetEmissiveMap(emissiveMaps[0]);
             }
@@ -1901,7 +1904,7 @@ namespace OloEngine
         // before #1242 a thickness texture raised ThicknessMapsIgnored and was
         // dropped, so an authored ear arrived uniformly thick.
         if (auto thicknessMaps = LoadMaterialTextures(mat, aiTextureType_TRANSMISSION, scene, /*semanticIndex=*/1);
-            !thicknessMaps.empty())
+            !thicknessMaps.IsEmpty())
         {
             materialRef->SetThicknessMap(thicknessMaps[0]);
         }
@@ -1950,7 +1953,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (m_Meshes.empty())
+        if (m_Meshes.IsEmpty())
         {
             // Default to a unit cube and sphere around origin if no meshes
             m_BoundingBox = BoundingBox(glm::vec3(-0.5f), glm::vec3(0.5f));
@@ -1963,7 +1966,7 @@ namespace OloEngine
         m_BoundingSphere = m_Meshes[0]->GetBoundingSphere();
 
         // Expand to include all other meshes
-        for (sizet i = 1; i < m_Meshes.size(); ++i)
+        for (sizet i = 1; i < static_cast<sizet>(m_Meshes.Num()); ++i)
         {
             const BoundingBox& meshBox = m_Meshes[i]->GetBoundingBox();
 
@@ -1982,20 +1985,20 @@ namespace OloEngine
         m_BoundingSphere = BoundingSphere(center, radius);
     }
 
-    void Model::GetDrawCommands(const glm::mat4& transform, const Material& material, std::vector<CommandPacket*>& outCommands) const
+    void Model::GetDrawCommands(const glm::mat4& transform, const Material& material, TArray<CommandPacket*>& outCommands) const
     {
         OLO_PROFILE_FUNCTION();
-        outCommands.clear();
-        outCommands.reserve(m_Meshes.size());
+        outCommands.Reset();
+        outCommands.Reserve(static_cast<sizet>(m_Meshes.Num()));
 
-        for (sizet i = 0; i < m_Meshes.size(); ++i)
+        for (sizet i = 0; i < static_cast<sizet>(m_Meshes.Num()); ++i)
         {
             // Get the submesh to access its material index
             const Submesh& submesh = m_Meshes[i]->GetSubmesh();
 
             // Use the submesh's material index to look up the correct material
             Material meshMaterial;
-            if (submesh.m_MaterialIndex < m_Materials.size() && m_Materials[submesh.m_MaterialIndex])
+            if (submesh.m_MaterialIndex < static_cast<sizet>(m_Materials.Num()) && m_Materials[submesh.m_MaterialIndex])
             {
                 meshMaterial = *m_Materials[submesh.m_MaterialIndex];
             }
@@ -2006,17 +2009,17 @@ namespace OloEngine
 
             CommandPacket* cmd = OloEngine::Renderer3D::DrawMesh(m_Meshes[i], transform, meshMaterial);
             if (cmd)
-                outCommands.push_back(cmd);
+                outCommands.Add(cmd);
         }
     }
 
-    void Model::GetDrawCommands(const glm::mat4& transform, std::vector<CommandPacket*>& outCommands) const
+    void Model::GetDrawCommands(const glm::mat4& transform, TArray<CommandPacket*>& outCommands) const
     {
         OLO_PROFILE_FUNCTION();
-        outCommands.clear();
-        outCommands.reserve(m_Meshes.size());
+        outCommands.Reset();
+        outCommands.Reserve(static_cast<sizet>(m_Meshes.Num()));
 
-        for (sizet i = 0; i < m_Meshes.size(); ++i)
+        for (sizet i = 0; i < static_cast<sizet>(m_Meshes.Num()); ++i)
         {
             // Get the submesh to access its material index
             const Submesh& submesh = m_Meshes[i]->GetSubmesh();
@@ -2038,7 +2041,7 @@ namespace OloEngine
 
             // Use the submesh's material index to look up the correct material
             Material meshMaterial;
-            if (submesh.m_MaterialIndex < m_Materials.size() && m_Materials[submesh.m_MaterialIndex])
+            if (submesh.m_MaterialIndex < static_cast<sizet>(m_Materials.Num()) && m_Materials[submesh.m_MaterialIndex])
             {
                 meshMaterial = *m_Materials[submesh.m_MaterialIndex];
             }
@@ -2050,14 +2053,14 @@ namespace OloEngine
 
             CommandPacket* cmd = OloEngine::Renderer3D::DrawMesh(m_Meshes[i], transform, meshMaterial);
             if (cmd)
-                outCommands.push_back(cmd);
+                outCommands.Add(cmd);
         }
     }
 
     void Model::Draw(const glm::mat4& transform, const Material& material) const
     {
         // Material reference is always valid since it's passed by reference
-        std::vector<CommandPacket*> commands;
+        TArray<CommandPacket*> commands;
         GetDrawCommands(transform, material, commands);
         for (auto* cmd : commands)
         {
@@ -2074,7 +2077,7 @@ namespace OloEngine
         else
         {
             // Fallback to default Draw behavior when material is null
-            std::vector<CommandPacket*> commands;
+            TArray<CommandPacket*> commands;
             GetDrawCommands(transform, commands);
             for (auto* cmd : commands)
             {
@@ -2083,7 +2086,7 @@ namespace OloEngine
         }
     }
 
-    void Model::GetDrawCommands(const glm::mat4& transform, const Ref<const Material>& material, std::vector<CommandPacket*>& outCommands) const
+    void Model::GetDrawCommands(const glm::mat4& transform, const Ref<const Material>& material, TArray<CommandPacket*>& outCommands) const
     {
         if (material)
         {
@@ -2114,19 +2117,19 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (m_Meshes.empty())
+        if (m_Meshes.IsEmpty())
             return;
 
         // Collect mesh descriptors for parallel submission
-        std::vector<Renderer3D::MeshSubmitDesc> meshDescriptors;
-        meshDescriptors.reserve(m_Meshes.size());
+        TArray<Renderer3D::MeshSubmitDesc> meshDescriptors;
+        meshDescriptors.Reserve(static_cast<sizet>(m_Meshes.Num()));
 
-        for (sizet i = 0; i < m_Meshes.size(); ++i)
+        for (sizet i = 0; i < static_cast<sizet>(m_Meshes.Num()); ++i)
         {
             const Submesh& submesh = m_Meshes[i]->GetSubmesh();
 
             // override -> imported -> fallback, through the shared resolve (#629).
-            const Material* imported = (submesh.m_MaterialIndex < m_Materials.size() && m_Materials[submesh.m_MaterialIndex])
+            const Material* imported = (submesh.m_MaterialIndex < static_cast<sizet>(m_Materials.Num()) && m_Materials[submesh.m_MaterialIndex])
                                            ? m_Materials[submesh.m_MaterialIndex].get()
                                            : nullptr;
             Material meshMaterial = ResolveSubmeshMaterial(overrideMaterial, imported, fallbackMaterial);
@@ -2147,11 +2150,11 @@ namespace OloEngine
             {
                 descriptor.LightmapScaleOffset = lightmapRegionForMesh(i);
             }
-            meshDescriptors.push_back(std::move(descriptor));
+            meshDescriptors.Add(std::move(descriptor));
         }
 
         // Submit all meshes in parallel
-        Renderer3D::SubmitMeshesParallel(meshDescriptors);
+        Renderer3D::SubmitMeshesParallel({ meshDescriptors.GetData(), static_cast<sizet>(meshDescriptors.Num()) });
     }
 
     void Model::DrawParallel(const glm::mat4& transform, i32 entityID) const
@@ -2173,7 +2176,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (m_Meshes.empty())
+        if (m_Meshes.IsEmpty())
         {
             OLO_CORE_WARN("Model::CreateCombinedMeshSource: No meshes to combine");
             return nullptr;
@@ -2191,7 +2194,7 @@ namespace OloEngine
             Ref<MeshSource> combined = m_CachedCombinedSource;
             combined->SetSourceIsRigged(m_SourceIsRigged);
             combined->SetImportedMaterials(m_Materials);
-            if (!m_CookedVirtualMeshBlob.empty() && combined->GetVirtualMeshBlob().empty())
+            if (!m_CookedVirtualMeshBlob.IsEmpty() && combined->GetVirtualMeshBlob().empty())
             {
                 combined->SetVirtualMeshBlob(m_CookedVirtualMeshBlob);
             }
@@ -2228,7 +2231,7 @@ namespace OloEngine
         u32 baseVertex = 0;
         u32 baseIndex = 0;
 
-        for (sizet meshIdx = 0; meshIdx < m_Meshes.size(); ++meshIdx)
+        for (sizet meshIdx = 0; meshIdx < static_cast<sizet>(m_Meshes.Num()); ++meshIdx)
         {
             const auto& mesh = m_Meshes[meshIdx];
             if (!mesh || !mesh->GetMeshSource())
@@ -2312,7 +2315,7 @@ namespace OloEngine
 
         // Attach the virtualized-geometry cook if LoadModel produced one, so
         // the MeshSource returned to asset loaders matches the cached one.
-        if (!m_CookedVirtualMeshBlob.empty())
+        if (!m_CookedVirtualMeshBlob.IsEmpty())
         {
             combinedMeshSource->SetVirtualMeshBlob(m_CookedVirtualMeshBlob);
         }
@@ -2326,7 +2329,7 @@ namespace OloEngine
         combinedMeshSource->SetImportedMaterials(m_Materials);
 
         OLO_CORE_INFO("Model::CreateCombinedMeshSource: Combined {} meshes into {} vertices, {} indices, {} submeshes",
-                      m_Meshes.size(), combinedMeshSource->GetVertices().Num(),
+                      static_cast<sizet>(m_Meshes.Num()), combinedMeshSource->GetVertices().Num(),
                       combinedMeshSource->GetIndices().Num(), combinedMeshSource->GetSubmeshes().Num());
 
         return combinedMeshSource;
@@ -2336,7 +2339,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!m_CookedVirtualMeshBlob.empty())
+        if (!m_CookedVirtualMeshBlob.IsEmpty())
         {
             return; // already cooked for this Model
         }
@@ -2373,9 +2376,9 @@ namespace OloEngine
             return;
         }
 
-        m_CookedVirtualMeshBlob = VirtualMeshSerializer::SerializeSetToBlob(built);
+        m_CookedVirtualMeshBlob.Append(VirtualMeshSerializer::SerializeSetToBlob(built));
         OLO_CORE_INFO("Model::CookVirtualMesh: cooked {} triangles into {} part(s) / {} clusters ({} KB) in {:.1f} ms",
-                      triangleCount, built.Parts.size(), built.TotalClusters(),
-                      m_CookedVirtualMeshBlob.size() / 1024, cookMs);
+                      triangleCount, built.Parts.Num(), built.TotalClusters(),
+                      static_cast<sizet>(m_CookedVirtualMeshBlob.Num()) / 1024, cookMs);
     }
 } // namespace OloEngine

@@ -71,8 +71,8 @@ namespace OloEngine
         {
             return true;
         }
-        void DiscoverResources(std::vector<DiscoveredResource>& out) override;
-        [[nodiscard]] bool QueryMemoryHeaps(std::vector<MemoryHeap>& out) override;
+        void DiscoverResources(TArray<DiscoveredResource>& out) override;
+        [[nodiscard]] bool QueryMemoryHeaps(TArray<MemoryHeap>& out) override;
 
         // ---- Introspection -------------------------------------------------
         void QueryTexture(u64 nativeTextureId, bool isCubemap, TextureQuery& outInfo) override;

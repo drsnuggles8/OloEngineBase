@@ -228,6 +228,11 @@ equality-comparable → `operator==`; otherwise no undo. To opt in a non-trivial
   ([cpp-coding-quality.md §13](docs/agent-rules/cpp-coding-quality.md)).
 - Project headers `#include "..."`, third-party `#include <...>`; `#pragma once`; headers self-contained.
 - Never `==` / `!=` on floats or glm types; validate every float from YAML/JSON/network with `std::isfinite`.
+- New **engine-owned** sequence/string data is `TArray<T>` / `FString`. The binding surface (entt,
+  yaml-cpp, sol2, Mono, ImGui, Jolt, spdlog, and component `std::string` fields) keeps `std::`, and
+  so does every map — the `TMap` gate is closed (#1411). A relocation mistake is green on MSVC and
+  aborts under libstdc++, and the trait itself answers differently on clang-cl and MSVC for a
+  type holding a `std::atomic`: [engine-owned-containers.md](docs/agent-rules/engine-owned-containers.md).
 
 ## Common pitfalls
 

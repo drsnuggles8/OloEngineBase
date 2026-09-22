@@ -60,13 +60,13 @@ class DialogueAdvanceMovesToNextNodeTest : public FunctionalTest
         b.Properties.emplace("text", DialoguePropertyValue{ std::string(kTextB) });
 
         auto& nodes = m_TreeAsset->GetNodesWritable();
-        nodes.push_back(std::move(a));
-        nodes.push_back(std::move(b));
+        nodes.AddTail(std::move(a));
+        nodes.AddTail(std::move(b));
 
         DialogueConnection conn;
         conn.SourceNodeID = OloEngine::UUID{ kNodeA_ID };
         conn.TargetNodeID = OloEngine::UUID{ kNodeB_ID };
-        m_TreeAsset->GetConnectionsWritable().push_back(conn);
+        m_TreeAsset->GetConnectionsWritable().Add(conn);
 
         m_TreeAsset->SetRootNodeID(OloEngine::UUID{ kNodeA_ID });
         m_TreeAsset->RebuildNodeIndex();

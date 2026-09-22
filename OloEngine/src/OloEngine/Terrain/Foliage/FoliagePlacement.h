@@ -3,7 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Terrain/Foliage/FoliageLayer.h"
 
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -124,8 +124,8 @@ namespace OloEngine::FoliagePlacement
     // sampled through TerrainData::SampleHeight / SampleNormal, so the
     // sampling convention stays shared with every other CPU consumer.
     void GenerateLayer(const FoliageLayer& layer, u32 layerIndex,
-                       const std::vector<f32>& heights, u32 resolution,
+                       const TArray<f32>& heights, u32 resolution,
                        const TerrainMaterial* material,
                        f32 worldSizeX, f32 worldSizeZ, f32 heightScale,
-                       std::vector<Placement>& out);
+                       TArray<Placement>& out);
 } // namespace OloEngine::FoliagePlacement

@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include <span>
 #include "OloEngine/Terrain/Voxel/VoxelGreedyMesher.h"
 
 #include <algorithm>
@@ -82,9 +83,9 @@ namespace OloEngine
     {
         for (auto& columns : m_AxisColumns)
         {
-            columns.assign(VoxelNeighbourhood::COLUMN_COUNT, 0);
+            columns.Init(0, VoxelNeighbourhood::COLUMN_COUNT);
         }
-        m_FaceMask.assign(VoxelNeighbourhood::COLUMN_COUNT, 0);
+        m_FaceMask.Init(0, VoxelNeighbourhood::COLUMN_COUNT);
     }
 
     // -------------------------------------------------------------------------
@@ -96,7 +97,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         out.SolidY.fill(0);
-        out.Materials.clear();
+        out.Materials.Reset();
         out.Coord = coord;
 
         const auto& chunks = voxels.GetChunks();
@@ -131,7 +132,7 @@ namespace OloEngine
             }
         }
 
-        if (!centre->MaterialData.empty())
+        if (!centre->MaterialData.IsEmpty())
         {
             out.Materials = centre->MaterialData;
         }
@@ -207,7 +208,7 @@ namespace OloEngine
     // Greedy pass
     // -------------------------------------------------------------------------
 
-    void VoxelGreedyMesher::Mesh(const VoxelNeighbourhood& neighbourhood, std::vector<PackedQuad>& outQuads)
+    void VoxelGreedyMesher::Mesh(const VoxelNeighbourhood& neighbourhood, TArray<PackedQuad>& outQuads)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -219,9 +220,9 @@ namespace OloEngine
         // Axis 1 (bits along Y) IS the snapshot's own layout; the other two are
         // transposes of it. Iterating set bits keeps this O(solid voxels)
         // rather than O(padded volume).
-        std::ranges::copy(neighbourhood.SolidY, m_AxisColumns[1].begin());
-        std::ranges::fill(m_AxisColumns[0], 0);
-        std::ranges::fill(m_AxisColumns[2], 0);
+        std::ranges::copy(neighbourhood.SolidY, m_AxisColumns[1].GetData());
+        std::ranges::fill(std::span(m_AxisColumns[0].GetData(), static_cast<sizet>(m_AxisColumns[0].Num())), 0);
+        std::ranges::fill(std::span(m_AxisColumns[2].GetData(), static_cast<sizet>(m_AxisColumns[2].Num())), 0);
 
         for (u32 pz = 0; pz < CS_P; ++pz)
         {
@@ -249,14 +250,14 @@ namespace OloEngine
             // harmless: only slices [1, CS] are ever emitted.
             if (kFacePositive[face])
             {
-                for (sizet i = 0; i < columns.size(); ++i)
+                for (sizet i = 0; i < columns.Num(); ++i)
                 {
                     m_FaceMask[i] = columns[i] & ~(columns[i] >> 1);
                 }
             }
             else
             {
-                for (sizet i = 0; i < columns.size(); ++i)
+                for (sizet i = 0; i < columns.Num(); ++i)
                 {
                     m_FaceMask[i] = columns[i] & ~(columns[i] << 1);
                 }
@@ -267,7 +268,7 @@ namespace OloEngine
     }
 
     void VoxelGreedyMesher::MeshDirection(const VoxelNeighbourhood& neighbourhood, VoxelFace face,
-                                          const std::vector<u64>& faceMask, std::vector<PackedQuad>& outQuads)
+                                          const TArray<u64>& faceMask, TArray<PackedQuad>& outQuads)
     {
         const u32 faceIndex = static_cast<u32>(face);
         const u32 axis = kFaceAxis[faceIndex];
@@ -297,7 +298,7 @@ namespace OloEngine
         // A chunk with no material array is uniformly material 0, so every
         // material comparison below can be skipped — the merge is then purely
         // bitwise, which is the common case and the fast path.
-        const bool uniformMaterial = neighbourhood.Materials.empty();
+        const bool uniformMaterial = neighbourhood.Materials.IsEmpty();
 
         auto materialAt = [&](u32 slice, u32 inner, u32 outer) -> u8
         {
@@ -380,7 +381,7 @@ namespace OloEngine
                     fields.Height = kWidthIsInnerExtent[faceIndex] ? outerExtent : innerExtent;
 
                     OLO_CORE_ASSERT(VoxelQuadCodec::IsEncodable(fields), "Greedy quad outside the packed encoding range");
-                    outQuads.push_back(VoxelQuadCodec::Encode(fields, material));
+                    outQuads.Add(VoxelQuadCodec::Encode(fields, material));
 
                     rowBits &= ~runMask;
                 }
@@ -392,7 +393,7 @@ namespace OloEngine
     // Reference mesher (tests only)
     // -------------------------------------------------------------------------
 
-    void VoxelGreedyMesher::MeshNaive(const VoxelNeighbourhood& neighbourhood, std::vector<PackedQuad>& outQuads)
+    void VoxelGreedyMesher::MeshNaive(const VoxelNeighbourhood& neighbourhood, TArray<PackedQuad>& outQuads)
     {
         // Deliberately naive and deliberately independent of Mesh(): plain
         // per-voxel neighbour tests straight off the padded solidity, so a bug
@@ -428,14 +429,14 @@ namespace OloEngine
                         fields.Width = 1;
                         fields.Height = 1;
                         fields.Face = static_cast<VoxelFace>(faceIndex);
-                        outQuads.push_back(VoxelQuadCodec::Encode(fields, material));
+                        outQuads.Add(VoxelQuadCodec::Encode(fields, material));
                     }
                 }
             }
         }
     }
 
-    void VoxelGreedyMesher::ExpandQuad(const PackedQuad& quad, std::vector<PackedQuad>& outUnitQuads)
+    void VoxelGreedyMesher::ExpandQuad(const PackedQuad& quad, TArray<PackedQuad>& outUnitQuads)
     {
         const VoxelQuadFields fields = VoxelQuadCodec::DecodeGeometry(quad.Geometry);
         const u32 faceIndex = static_cast<u32>(fields.Face);
@@ -457,7 +458,7 @@ namespace OloEngine
                 unit.Height = 1;
                 unit.Face = fields.Face;
 
-                outUnitQuads.push_back(PackedQuad{ VoxelQuadCodec::EncodeGeometry(unit), quad.Material });
+                outUnitQuads.Add(PackedQuad{ VoxelQuadCodec::EncodeGeometry(unit), quad.Material });
             }
         }
     }

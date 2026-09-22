@@ -1,4 +1,5 @@
 #pragma once
+#include <span>
 #include "OloEngine/Core/Timer.h"
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -55,13 +56,13 @@ namespace OloEngine
             }
             return m_RHIHandle.Get();
         }
-        [[nodiscard("Store this!")]] const std::string& GetName() const override
+        [[nodiscard("Store this!")]] std::string GetName() const override
         {
-            return m_Name;
+            return m_Name.ToStdString();
         }
-        [[nodiscard("Store this!")]] const std::string& GetFilePath() const override
+        [[nodiscard("Store this!")]] std::string GetFilePath() const override
         {
-            return m_FilePath;
+            return m_FilePath.ToStdString();
         }
 
         bool Reload() override;
@@ -131,11 +132,11 @@ namespace OloEngine
         }
 
         // SPIR-V data access (for shader pack serialization)
-        [[nodiscard]] const std::unordered_map<GLenum, std::vector<u32>>& GetVulkanSPIRV() const
+        [[nodiscard]] const std::unordered_map<GLenum, TArray<u32>>& GetVulkanSPIRV() const
         {
             return m_VulkanSPIRV;
         }
-        [[nodiscard]] const std::unordered_map<GLenum, std::vector<u32>>& GetOpenGLSPIRV() const
+        [[nodiscard]] const std::unordered_map<GLenum, TArray<u32>>& GetOpenGLSPIRV() const
         {
             return m_OpenGLSPIRV;
         }
@@ -176,9 +177,14 @@ namespace OloEngine
         // compiled SPIR-V (issue #908: the input to
         // ComputeContentHashFromSources above). Empty until PrepareCPU() has
         // run.
-        [[nodiscard]] const std::unordered_map<GLenum, std::string>& GetOriginalSourceCode() const
+        [[nodiscard]] std::unordered_map<GLenum, std::string> GetOriginalSourceCode() const
         {
-            return m_OriginalSourceCode;
+            std::unordered_map<GLenum, std::string> source;
+            for (const auto& [stage, text] : m_OriginalSourceCode)
+            {
+                source.emplace(stage, text.ToStdString());
+            }
+            return source;
         }
 
         // Include processing — public so compute shaders can reuse it
@@ -189,8 +195,8 @@ namespace OloEngine
         static Ref<Shader> CreateFromPackData(
             const std::string& name,
             const std::string& filepath,
-            std::unordered_map<GLenum, std::vector<u32>> vulkanSPIRV,
-            std::unordered_map<GLenum, std::vector<u32>> openGLSPIRV);
+            std::unordered_map<GLenum, TArray<u32>> vulkanSPIRV,
+            std::unordered_map<GLenum, TArray<u32>> openGLSPIRV);
 
         // --- Batch loading with cross-shader CPU parallelism (issue #907) ---
         // See Shader::PrepareBatch/FinalizeBatch for the two-phase contract.
@@ -198,13 +204,13 @@ namespace OloEngine
         // its CPU-only compile (ReadFile/PreProcess/shaderc/SPIRV-Cross/disk
         // cache) in parallel across shaders via ParallelFor — no GL call is
         // made until FinalizeBatch() below, so this may run on any thread.
-        static std::vector<Ref<Shader>> PrepareBatch(const std::vector<std::string>& filepaths, std::atomic<u32>* progressCounter);
+        static TArray<Ref<Shader>> PrepareBatch(std::span<const FString> filepaths, std::atomic<u32>* progressCounter);
 
         // Issues the GL program creation/link for every CPU-prepared shader,
         // sequentially, on the calling thread — MUST be the render thread.
         // Entries where `alreadyFinal[i]` is true (pack-loaded, upstream of
         // PrepareBatch) pass through untouched.
-        static std::vector<Ref<Shader>> FinalizeBatch(std::vector<Ref<Shader>> prepared, const std::vector<bool>& alreadyFinal);
+        static TArray<Ref<Shader>> FinalizeBatch(TArray<Ref<Shader>> prepared, std::span<const bool> alreadyFinal);
 
       private:
         // Tag type for the pack-data constructor (internal only)
@@ -216,8 +222,8 @@ namespace OloEngine
         OpenGLShader(PackDataTag,
                      const std::string& name,
                      const std::string& filepath,
-                     std::unordered_map<GLenum, std::vector<u32>> vulkanSPIRV,
-                     std::unordered_map<GLenum, std::vector<u32>> openGLSPIRV);
+                     std::unordered_map<GLenum, TArray<u32>> vulkanSPIRV,
+                     std::unordered_map<GLenum, TArray<u32>> openGLSPIRV);
 
         // Tag type for the CPU-prepare-only constructor used by PrepareBatch()
         // (internal only — see the class-level comment above).
@@ -261,10 +267,10 @@ namespace OloEngine
         [[nodiscard]] bool CompileOpenGLBinariesForAmd(GLenum const& program, std::array<u32, 2>& glShadersIDs) const;
         void CreateProgramForAmd();
 
-        void Reflect(GLenum stage, const std::vector<u32>& shaderData);
+        void Reflect(GLenum stage, const TArray<u32>& shaderData);
 
         // Helper to finalize a compiled shader program with registration, memory tracking, and SPIR-V decompilation
-        void FinalizeProgram(GLenum const& program, const std::unordered_map<GLenum, std::vector<u32>>& spirvMap);
+        void FinalizeProgram(GLenum const& program, const std::unordered_map<GLenum, TArray<u32>>& spirvMap);
 
         // Async link helpers — called after glLinkProgram() returns (non-blocking with extension)
         void FinalizeAfterLink(); // Check link status, cache binary, call FinalizeProgram()
@@ -338,13 +344,13 @@ namespace OloEngine
         // native name. RAII retires the entry, so a handle to a destroyed
         // object can never resolve to a recycled GL name (issue #691).
         RHI::ScopedResourceHandle m_RHIHandle;
-        std::string m_Name;
-        std::string m_FilePath;
-        std::unordered_map<GLenum, std::vector<u32>> m_VulkanSPIRV;
-        std::unordered_map<GLenum, std::vector<u32>> m_OpenGLSPIRV;
+        FString m_Name;
+        FString m_FilePath;
+        std::unordered_map<GLenum, TArray<u32>> m_VulkanSPIRV;
+        std::unordered_map<GLenum, TArray<u32>> m_OpenGLSPIRV;
 
-        std::unordered_map<GLenum, std::string> m_OpenGLSourceCode;
-        std::unordered_map<GLenum, std::string> m_OriginalSourceCode; // Store original preprocessed source
+        std::unordered_map<GLenum, FString> m_OpenGLSourceCode;
+        std::unordered_map<GLenum, FString> m_OriginalSourceCode; // Store original preprocessed source
 
         // True when this program was built by CreateProgramFromRawGLSL, i.e. it
         // indexes the descriptor heap rather than sampler binding points. Read
@@ -373,7 +379,7 @@ namespace OloEngine
         bool m_IsDeferredCapable = false;
 
         // Shader stage IDs kept alive until link completes (then detached/deleted)
-        std::vector<u32> m_PendingShaderIDs;
+        TArray<u32> m_PendingShaderIDs;
 
         // --- PrepareCPU() / FinalizeGL() split state (issue #907) ---
         // Set by PrepareCPU(); read by FinalizeGL() to reproduce the exact

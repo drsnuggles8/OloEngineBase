@@ -24,6 +24,12 @@
 
 namespace OloEngine
 {
+    struct TerrainOwnedPage
+    {
+        u32 first;
+        u32 second;
+    };
+
     namespace
     {
         using SBL = ShaderBindingLayout;
@@ -315,8 +321,8 @@ namespace OloEngine
             Destroy();
             return false;
         }
-        m_Sectors.assign(m_Config.EffectiveSectorCount(), SectorImage{});
-        for (u32 i = 0; i < m_Sectors.size(); ++i)
+        m_Sectors.Init(SectorImage{}, m_Config.EffectiveSectorCount());
+        for (u32 i = 0; i < m_Sectors.Num(); ++i)
         {
             // Every sector starts at the minimum (for the fixed-grid config the
             // "minimum" IS the whole atlas); growth is earned through feedback.
@@ -325,7 +331,7 @@ namespace OloEngine
             {
                 OLO_CORE_ERROR("TerrainVirtualTexture: initial image allocation failed for sector {} of {} — "
                                "VT disabled",
-                               i, m_Sectors.size());
+                               i, m_Sectors.Num());
                 Destroy();
                 return false;
             }
@@ -343,7 +349,7 @@ namespace OloEngine
             m_Stats.m_IndirectionDelta = GpuTimingSample::Absent(GpuTimingStatus::Pending);
         }
         m_Stats.m_CacheTileCount = m_Config.CacheTileCount();
-        m_Stats.m_SectorCount = static_cast<u32>(m_Sectors.size());
+        m_Stats.m_SectorCount = static_cast<u32>(m_Sectors.Num());
         m_Stats.m_CacheCompressed = compressed;
         const u64 cacheTexels = static_cast<u64>(m_Config.CacheTexels()) * m_Config.CacheTexels();
         // BC7 is one byte per texel; the scratch/staging pair the compressed
@@ -370,7 +376,7 @@ namespace OloEngine
         {
             (void)pending.m_Task.Wait();
         }
-        m_PendingAnalyses.clear();
+        m_PendingAnalyses.Empty();
 
         DestroyReadbackSlots();
         DestroyTimingQueries();
@@ -383,12 +389,12 @@ namespace OloEngine
         m_PageCache.SetEvictionListener(nullptr);
         m_PageCache.Destroy();
         m_Resident.clear();
-        m_BakeList.clear();
-        m_Requests.clear();
+        m_BakeList.Reset();
+        m_Requests.Reset();
         m_IndirectionDelta.Reset(TerrainVirtualTextureConfig{});
         m_IndirectionUpdateCapacity = 0;
         m_IndirectionNeedsFullRebuild = false;
-        m_UploadScratch.clear();
+        m_UploadScratch.Reset();
 
         m_IndirectionTexture = nullptr;
         m_CacheTexture = nullptr;
@@ -410,8 +416,8 @@ namespace OloEngine
         // handles into this allocator, so dropping both together is what makes
         // per-element frees unnecessary (and a stale node impossible).
         m_AtlasAllocator = AtlasAllocator{};
-        m_Sectors.clear();
-        m_SectorFeedback.clear();
+        m_Sectors.Reset();
+        m_SectorFeedback.Reset();
         m_HasSectorFeedback = false;
         m_NextSizingSector = 0;
 
@@ -465,7 +471,7 @@ namespace OloEngine
             m_PageCache.DeallocateObject(key);
         }
         m_Resident.clear();
-        m_BakeList.clear();
+        m_BakeList.Reset();
         m_IndirectionDirty = true;
         m_ShadingReady = false;
     }
@@ -511,7 +517,7 @@ namespace OloEngine
         // its pixels take the splat path and the frame looks merely coarse
         // rather than wrong. Fail loudly in debug instead — the only way to get
         // here is a UBO array that no longer matches kTerrainVTMaxSectors.
-        OLO_CORE_ASSERT(outSectors.size() >= 2u * m_Sectors.size(),
+        OLO_CORE_ASSERT(outSectors.size() >= 2u * m_Sectors.Num(),
                         "TerrainVirtualTexture: sector-table span too small for the configured sector count");
 
         // Zero first: entries past the configured sector count decode as
@@ -520,7 +526,7 @@ namespace OloEngine
         std::ranges::fill(outSectors, glm::vec4(0.0f));
 
         const f32 atlasPages = static_cast<f32>(m_Config.VirtualPagesWide);
-        const sizet count = std::min(m_Sectors.size(), outSectors.size() / 2u);
+        const sizet count = std::min(static_cast<sizet>(m_Sectors.Num()), outSectors.size() / 2u);
         for (sizet i = 0; i < count; ++i)
         {
             const SectorImage& sector = m_Sectors[i];
@@ -771,7 +777,7 @@ namespace OloEngine
         {
             (void)pending.m_Task.Wait();
         }
-        m_PendingAnalyses.clear();
+        m_PendingAnalyses.Empty();
         DestroyReadbackSlots();
 
         m_FeedbackDims = dims;
@@ -865,8 +871,8 @@ namespace OloEngine
                 continue;
             }
 
-            auto feedback = std::make_shared<std::vector<u32>>(m_FeedbackWords);
-            RenderCommand::ReadBufferSubData(slot.m_Buffer, 0, m_FeedbackWords * sizeof(u32), feedback->data());
+            auto feedback = std::make_shared<TArray<u32>>(m_FeedbackWords);
+            RenderCommand::ReadBufferSubData(slot.m_Buffer, 0, m_FeedbackWords * sizeof(u32), feedback->GetData());
 
             RenderCommand::DestroyFence(slot.m_Fence);
             slot.m_Fence = 0;
@@ -888,11 +894,12 @@ namespace OloEngine
                 "TerrainVTFeedbackAnalyze",
                 [feedback, analyzer, sectors, atlasMaxMip]() -> bool
                 {
-                    analyzer->Analyze(*feedback, *sectors, atlasMaxMip);
+                    analyzer->Analyze(std::span(feedback->GetData(), static_cast<sizet>(feedback->Num())),
+                                      std::span(sectors->GetData(), static_cast<sizet>(sectors->Num())), atlasMaxMip);
                     return true;
                 },
                 Tasks::ETaskPriority::BackgroundNormal);
-            m_PendingAnalyses.push_back(std::move(pending));
+            m_PendingAnalyses.AddTail(std::move(pending));
         }
         m_Stats.m_ReadbackSlotsInFlight = inFlight;
     }
@@ -901,11 +908,13 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        for (auto it = m_PendingAnalyses.begin(); it != m_PendingAnalyses.end();)
+        for (auto* node = m_PendingAnalyses.GetHead(); node != nullptr;)
         {
+            auto* next = node->GetNextNode();
+            auto* it = &node->GetValue();
             if (!it->m_Task.IsCompleted())
             {
-                ++it;
+                node = next;
                 continue;
             }
             // THE NEWEST CAPTURE WINS, and the sequence number is what decides
@@ -925,28 +934,29 @@ namespace OloEngine
                 m_Requests = it->m_Analyzer->GetRequests();
                 m_SectorFeedback = it->m_Analyzer->GetSectorFeedback();
                 m_HasSectorFeedback = true;
-                m_Stats.m_PagesRequested = static_cast<u32>(m_Requests.size());
+                m_Stats.m_PagesRequested = static_cast<u32>(m_Requests.Num());
                 m_Stats.m_FeedbackTexelsWritten = it->m_Analyzer->GetWrittenTexelCount();
                 m_Stats.m_StaleFeedbackTexels = it->m_Analyzer->GetStaleTexelCount();
             }
-            it = m_PendingAnalyses.erase(it);
+            m_PendingAnalyses.RemoveNode(node);
+            node = next;
         }
     }
 
-    std::shared_ptr<std::vector<VTSectorSnapshot>> TerrainVirtualTexture::SnapshotSectors() const
+    std::shared_ptr<TArray<VTSectorSnapshot>> TerrainVirtualTexture::SnapshotSectors() const
     {
-        auto snapshot = std::make_shared<std::vector<VTSectorSnapshot>>();
-        snapshot->reserve(m_Sectors.size());
+        auto snapshot = std::make_shared<TArray<VTSectorSnapshot>>();
+        snapshot->Reserve(m_Sectors.Num());
         for (const SectorImage& sector : m_Sectors)
         {
-            snapshot->push_back(sector.m_Snapshot);
+            snapshot->Add(sector.m_Snapshot);
         }
         return snapshot;
     }
 
     u32 TerrainVirtualTexture::FindOwningSector(u32 pageKey) const
     {
-        for (u32 i = 0; i < m_Sectors.size(); ++i)
+        for (u32 i = 0; i < m_Sectors.Num(); ++i)
         {
             if (m_Sectors[i].m_Snapshot.Contains(pageKey))
             {
@@ -992,12 +1002,12 @@ namespace OloEngine
             // nowhere to go.
             //
             // Collected first: the walk mutates m_Resident.
-            std::vector<std::pair<u32, u32>> owned;
+            TArray<TerrainOwnedPage> owned;
             for (const auto& [key, tile] : m_Resident)
             {
                 if (oldSnapshot.Contains(key))
                 {
-                    owned.emplace_back(key, tile);
+                    owned.Emplace(key, tile);
                 }
             }
             for (const auto& [key, tile] : owned)
@@ -1066,7 +1076,7 @@ namespace OloEngine
         // that keeps wanting one cannot hold the budget forever.
         u32 resizes = 0;
         u32 served = 0;
-        const u32 sectorCount = static_cast<u32>(m_Sectors.size());
+        const u32 sectorCount = static_cast<u32>(m_Sectors.Num());
         for (u32 step = 0; step < sectorCount; ++step)
         {
             const u32 index = (m_NextSizingSector + step) % sectorCount;
@@ -1076,7 +1086,7 @@ namespace OloEngine
                 continue;
             }
             const VTSectorFeedback feedback =
-                index < m_SectorFeedback.size() ? m_SectorFeedback[index] : VTSectorFeedback{};
+                index < m_SectorFeedback.Num() ? m_SectorFeedback[index] : VTSectorFeedback{};
             const u32 wanted = VTDesiredImageSize(
                 sector.m_Snapshot.m_SizePages, feedback, sector.m_Sizing, m_Config.EffectiveMinImagePagesWide(),
                 m_Config.EffectiveMaxImagePagesWide(), resizes < kVTMaxResizesPerFrame);
@@ -1113,12 +1123,12 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        m_BakeList.clear();
+        m_BakeList.Reset();
         m_Stats.m_TilesBakedThisFrame = 0;
         m_Stats.m_BudgetStarvedRequests = 0;
         m_Stats.m_WorkingSetExceedsCache = false;
 
-        if (m_Requests.empty())
+        if (m_Requests.IsEmpty())
         {
             return;
         }
@@ -1129,10 +1139,10 @@ namespace OloEngine
         // image owns any more. Allocating one would bake terrain content into
         // whatever image now occupies that atlas space — plausible pixels,
         // wrong place.
-        std::erase_if(m_Requests,
-                      [this](const VTPageRequest& request)
-                      { return FindOwningSector(request.m_PageKey) >= m_Sectors.size(); });
-        if (m_Requests.empty())
+        m_Requests.RemoveAll(
+            [this](const VTPageRequest& request)
+            { return FindOwningSector(request.m_PageKey) >= m_Sectors.Num(); });
+        if (m_Requests.IsEmpty())
         {
             return;
         }
@@ -1153,11 +1163,11 @@ namespace OloEngine
             // how big that image currently is — resolved here, where the live
             // table is, so the bake kernel just samples the rect it is handed.
             const u32 sectorIndex = FindOwningSector(pageKey);
-            OLO_CORE_ASSERT(sectorIndex < m_Sectors.size(),
+            OLO_CORE_ASSERT(sectorIndex < m_Sectors.Num(),
                             "TerrainVirtualTexture: mapped a page the filter above should have dropped");
             request.m_UVRect =
                 VTPageTerrainUVRect(m_Config, m_Sectors[sectorIndex].m_Snapshot, sectorIndex, pageKey);
-            m_BakeList.push_back(request);
+            m_BakeList.Add(request);
             // Recorded AFTER the allocation that may have evicted somebody: the
             // listener above already wrote that page's unmap, so the delta ends
             // the frame with both halves of the swap in the right order.
@@ -1174,7 +1184,7 @@ namespace OloEngine
         // reports its misses as deferred, and a frame whose working set exceeds
         // the cache reports m_WorkingSetExceedsCache, so neither lands here.
         const bool allocationStalled =
-            outcome.m_Mapped.empty() && outcome.m_Deferred == 0u && outcome.m_Touched < m_Requests.size();
+            outcome.m_Mapped.IsEmpty() && outcome.m_Deferred == 0u && outcome.m_Touched < m_Requests.Num();
         if (allocationStalled && !m_AllocationWarned)
         {
             m_AllocationWarned = true;
@@ -1185,7 +1195,7 @@ namespace OloEngine
 
         m_Stats.m_BudgetStarvedRequests = outcome.m_Deferred;
         m_Stats.m_WorkingSetExceedsCache = outcome.m_WorkingSetExceedsCache;
-        m_Stats.m_TilesBakedThisFrame = static_cast<u32>(m_BakeList.size());
+        m_Stats.m_TilesBakedThisFrame = static_cast<u32>(m_BakeList.Num());
         m_Stats.m_TilesBakedTotal += m_Stats.m_TilesBakedThisFrame;
         m_Stats.m_ResidentTiles = static_cast<u32>(m_Resident.size());
     }
@@ -1194,7 +1204,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (m_BakeList.empty() || !m_TileBakeShader || !m_BakeBuffer)
+        if (m_BakeList.IsEmpty() || !m_TileBakeShader || !m_BakeBuffer)
         {
             return;
         }
@@ -1217,7 +1227,7 @@ namespace OloEngine
 
         VTBakeHeader header;
         header.m_Config0 = glm::uvec4(m_Config.VirtualPagesWide, m_Config.PageTexels, m_Config.BorderTexels,
-                                      static_cast<u32>(m_BakeList.size()));
+                                      static_cast<u32>(m_BakeList.Num()));
         header.m_Config1 = glm::uvec4(layerCount, m_Config.TileTexels(), material.GetLayerResolution(), 0u);
         header.m_World = glm::vec4(inputs.m_WorldSizeX, inputs.m_WorldSizeZ, inputs.m_HeightScale,
                                    inputs.m_TriplanarSharpness);
@@ -1235,10 +1245,10 @@ namespace OloEngine
             header.m_Sharp1[static_cast<i32>(i - 4u)] = material.GetLayer(i).HeightBlendSharpness;
         }
 
-        const sizet requestBytes = m_BakeList.size() * sizeof(VTBakeRequest);
-        m_UploadScratch.resize(sizeof(VTBakeHeader) + requestBytes);
-        std::memcpy(m_UploadScratch.data(), &header, sizeof(VTBakeHeader));
-        std::memcpy(m_UploadScratch.data() + sizeof(VTBakeHeader), m_BakeList.data(), requestBytes);
+        const sizet requestBytes = m_BakeList.Num() * sizeof(VTBakeRequest);
+        m_UploadScratch.SetNum(sizeof(VTBakeHeader) + requestBytes, EAllowShrinking::No);
+        std::memcpy(m_UploadScratch.GetData(), &header, sizeof(VTBakeHeader));
+        std::memcpy(m_UploadScratch.GetData() + sizeof(VTBakeHeader), m_BakeList.GetData(), requestBytes);
         const bool compressed = m_Config.CompressedCache;
         if (compressed)
         {
@@ -1247,14 +1257,14 @@ namespace OloEngine
             // a coordinate patch on the UPLOAD copy: slot i at (i, 0).
             // m_BakeList keeps the real cache coordinates — that is what the
             // per-tile copies in CompressAndCopyTiles aim at.
-            auto* requests = reinterpret_cast<VTBakeRequest*>(m_UploadScratch.data() + sizeof(VTBakeHeader));
-            for (u32 i = 0; i < static_cast<u32>(m_BakeList.size()); ++i)
+            auto* requests = reinterpret_cast<VTBakeRequest*>(m_UploadScratch.GetData() + sizeof(VTBakeHeader));
+            for (u32 i = 0; i < static_cast<u32>(m_BakeList.Num()); ++i)
             {
                 requests[i].m_TileX = i;
                 requests[i].m_TileY = 0u;
             }
         }
-        m_BakeBuffer->SetData(m_UploadScratch.data(), static_cast<u32>(m_UploadScratch.size()), 0);
+        m_BakeBuffer->SetData(m_UploadScratch.GetData(), static_cast<u32>(m_UploadScratch.Num()), 0);
 
         // BIND THE PROGRAM FIRST, then the resources.
         //
@@ -1297,7 +1307,7 @@ namespace OloEngine
                                        RHI::Access::StorageWrite, RHI::Format::RGBA8UNorm, Persistent);
 
         const u32 groups = DivRoundUp(m_Config.TileTexels(), kTileBakeGroupSize);
-        RenderCommand::DispatchCompute(groups, groups, static_cast<u32>(m_BakeList.size()));
+        RenderCommand::DispatchCompute(groups, groups, static_cast<u32>(m_BakeList.Num()));
         if (compressed)
         {
             // The compress kernel imageLoads the scratch the dispatch above
@@ -1326,7 +1336,7 @@ namespace OloEngine
         using enum RHI::HeapSlotLifetime;
         const u32 tileTexels = m_Config.TileTexels();
         const u32 tileBlocks = tileTexels / 4u;
-        const u32 count = static_cast<u32>(m_BakeList.size());
+        const u32 count = static_cast<u32>(m_BakeList.Num());
 
         // Program first, then resources — same seam rules as the bake. The
         // kernel reads the bake SSBO's header (still bound) for the batch
@@ -1446,8 +1456,8 @@ namespace OloEngine
         if (!m_IndirectionDelta.IsEmpty())
         {
             const auto& updates = m_IndirectionDelta.GetUpdates();
-            m_IndirectionUpdateBuffer->SetData(updates.data(),
-                                               static_cast<u32>(updates.size() * sizeof(VTIndirectionUpdate)),
+            m_IndirectionUpdateBuffer->SetData(updates.GetData(),
+                                               static_cast<u32>(updates.Num() * sizeof(VTIndirectionUpdate)),
                                                static_cast<u32>(sizeof(VTIndirectionHeader)));
         }
         RenderCommand::BindStorageBuffer(SBL::SSBO_TERRAIN_VT, m_IndirectionUpdateBuffer->GetRHIHandle());

@@ -172,17 +172,17 @@ namespace OloEngine
     TEST(ReflectionProbeDistanceFieldTest, MaxMipChainIsAConservativeUpperBound)
     {
         constexpr u32 kRes = 8;
-        std::vector<f32> mip0(static_cast<sizet>(kRes) * kRes * 6u, 10.0f);
+        TArray<f32> mip0(static_cast<sizet>(kRes) * kRes * 6u, 10.0f);
         mip0[0] = 2.0f; // one near texel must NOT survive a MAX-downsample
 
-        auto const mip1 = BuildNextMaxMip(mip0, kRes);
-        ASSERT_EQ(mip1.size(), static_cast<sizet>(4) * 4 * 6);
+        auto const mip1 = BuildNextMaxMip({ mip0.GetData(), static_cast<sizet>(mip0.Num()) }, kRes);
+        ASSERT_EQ(mip1.Num(), static_cast<sizet>(4) * 4 * 6);
         EXPECT_FLOAT_EQ(mip1[0], 10.0f); // max(2, 10, 10, 10)
 
         // Chain to 1x1: every face's single texel is the face max.
-        auto const mip2 = BuildNextMaxMip(mip1, 4);
-        auto const mip3 = BuildNextMaxMip(mip2, 2);
-        ASSERT_EQ(mip3.size(), 6u);
+        auto const mip2 = BuildNextMaxMip({ mip1.GetData(), static_cast<sizet>(mip1.Num()) }, 4);
+        auto const mip3 = BuildNextMaxMip({ mip2.GetData(), static_cast<sizet>(mip2.Num()) }, 2);
+        ASSERT_EQ(mip3.Num(), 6u);
         for (sizet face = 0; face < 6; ++face)
         {
             EXPECT_FLOAT_EQ(mip3[face], 10.0f);
@@ -192,14 +192,14 @@ namespace OloEngine
     TEST(ReflectionProbeDistanceFieldTest, MaxFiniteDistanceIgnoresTheMissSentinel)
     {
         constexpr u32 kRes = 4;
-        std::vector<f32> mip0(static_cast<sizet>(kRes) * kRes * 6u, 7.5f);
+        TArray<f32> mip0(static_cast<sizet>(kRes) * kRes * 6u, 7.5f);
         mip0[3] = kProbeDistanceFar;           // sky texel — excluded
         mip0[9] = kProbeDistanceMissThreshold; // exactly at threshold — excluded
-        EXPECT_FLOAT_EQ(ComputeMaxFiniteProbeDistance(mip0), 7.5f);
+        EXPECT_FLOAT_EQ(ComputeMaxFiniteProbeDistance({ mip0.GetData(), static_cast<sizet>(mip0.Num()) }), 7.5f);
 
         // All-sky probes keep a valid (if useless) march bound.
-        std::vector<f32> allSky(static_cast<sizet>(kRes) * kRes * 6u, kProbeDistanceFar);
-        EXPECT_FLOAT_EQ(ComputeMaxFiniteProbeDistance(allSky), kProbeDistanceFar);
+        TArray<f32> allSky(static_cast<sizet>(kRes) * kRes * 6u, kProbeDistanceFar);
+        EXPECT_FLOAT_EQ(ComputeMaxFiniteProbeDistance({ allSky.GetData(), static_cast<sizet>(allSky.Num()) }), kProbeDistanceFar);
     }
 
     TEST(ReflectionProbeDistanceFieldTest, CubeFaceSelectionMatchesTheGLMajorAxisRule)
@@ -225,7 +225,7 @@ namespace OloEngine
     TEST(ReflectionProbeDistanceFieldTest, CreateBuildsTheFullChainAndSamplesPerFace)
     {
         constexpr u32 kRes = 8;
-        std::vector<f32> mip0(static_cast<sizet>(kRes) * kRes * 6u);
+        TArray<f32> mip0(static_cast<sizet>(kRes) * kRes * 6u);
         for (u32 face = 0; face < 6; ++face)
         {
             for (u32 i = 0; i < kRes * kRes; ++i)
@@ -248,9 +248,9 @@ namespace OloEngine
         EXPECT_FLOAT_EQ(field->SampleNearest({ 0.0f, 0.0f, -1.0f }, 5), 15.0f); // mip clamped to last
 
         // Malformed inputs fail loudly at the boundary, not downstream.
-        std::vector<f32> wrongSize(10, 1.0f);
+        TArray<f32> wrongSize(10, 1.0f);
         EXPECT_EQ(ReflectionProbeDistanceField::Create(std::move(wrongSize), kRes), nullptr);
-        std::vector<f32> notPow2(static_cast<sizet>(6) * 6 * 6, 1.0f);
+        TArray<f32> notPow2(static_cast<sizet>(6) * 6 * 6, 1.0f);
         EXPECT_EQ(ReflectionProbeDistanceField::Create(std::move(notPow2), 6), nullptr);
     }
 
@@ -289,7 +289,7 @@ namespace OloEngine
         // through a real field object — exercises Create + SampleNearest +
         // the cube addressing inside the march loop.
         constexpr u32 kRes = 64;
-        std::vector<f32> mip0(static_cast<sizet>(kRes) * kRes * 6u, 5.0f);
+        TArray<f32> mip0(static_cast<sizet>(kRes) * kRes * 6u, 5.0f);
         auto field = ReflectionProbeDistanceField::Create(std::move(mip0), kRes);
         ASSERT_NE(field, nullptr);
 

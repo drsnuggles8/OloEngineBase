@@ -3,6 +3,7 @@
 #include "TestTempDir.h"
 
 #include "OloEngine/Renderer/ShaderPack.h"
+#include "OloEngine/Renderer/ShaderLibrary.h"
 
 #include <filesystem>
 #include <fstream>
@@ -187,21 +188,21 @@ TEST_F(ShaderPackTest, LoadEntryValid)
     auto entry = pack.LoadEntry(kTestShaderName);
     ASSERT_NE(entry, nullptr);
     EXPECT_EQ(entry->Name, kTestShaderName);
-    ASSERT_EQ(entry->Stages.size(), 2u);
+    ASSERT_EQ(entry->Stages.Num(), 2u);
 
     // Vert stage
     EXPECT_EQ(entry->Stages[0].Stage, 1u); // Vertex
-    EXPECT_EQ(entry->Stages[0].VulkanSPIRV.size(), 5u);
+    EXPECT_EQ(entry->Stages[0].VulkanSPIRV.Num(), 5u);
     EXPECT_EQ(entry->Stages[0].VulkanSPIRV[0], 0x07230203u); // SPIR-V magic
     EXPECT_EQ(entry->Stages[0].VulkanSPIRV[2], 1u);
-    EXPECT_EQ(entry->Stages[0].OpenGLSPIRV.size(), 5u);
+    EXPECT_EQ(entry->Stages[0].OpenGLSPIRV.Num(), 5u);
     EXPECT_EQ(entry->Stages[0].OpenGLSPIRV[2], 10u);
 
     // Frag stage
     EXPECT_EQ(entry->Stages[1].Stage, 2u); // Fragment
-    EXPECT_EQ(entry->Stages[1].VulkanSPIRV.size(), 6u);
+    EXPECT_EQ(entry->Stages[1].VulkanSPIRV.Num(), 6u);
     EXPECT_EQ(entry->Stages[1].VulkanSPIRV[2], 4u);
-    EXPECT_EQ(entry->Stages[1].OpenGLSPIRV.size(), 6u);
+    EXPECT_EQ(entry->Stages[1].OpenGLSPIRV.Num(), 6u);
     EXPECT_EQ(entry->Stages[1].OpenGLSPIRV[2], 40u);
 }
 
@@ -302,4 +303,29 @@ TEST_F(ShaderPackTest, EmptyPack)
     EXPECT_TRUE(pack.IsLoaded());
     EXPECT_EQ(pack.GetShaderCount(), 0u);
     EXPECT_TRUE(pack.GetShaderNames().empty());
+}
+
+TEST_F(ShaderPackTest, DecodedBatchStagesSurviveGrowthCopyAndMove)
+{
+    ShaderLibrary::PreparedShaderBatch batch;
+    ShaderLibrary::PackEntryCPUData entry;
+    entry.m_Name = "short";
+    entry.m_FilePath = std::string(256, 'p');
+    ShaderPackStageData stage;
+    stage.Stage = 1;
+    stage.VulkanSPIRV = { 0x07230203u, 1u, 2u };
+    stage.OpenGLSPIRV = { 0x07230203u, 10u, 20u };
+    entry.m_Stages.Add(std::move(stage));
+    batch.m_PackEntries.Add(std::move(entry));
+    batch.m_PackEntries.Reserve(128);
+    auto copy = batch;
+    batch.m_PackEntries.Reset();
+    auto moved = std::move(copy);
+    ASSERT_EQ(moved.m_PackEntries.Num(), 1);
+    const auto& decoded = moved.m_PackEntries[0];
+    EXPECT_EQ(decoded.m_Name, "short");
+    EXPECT_EQ(decoded.m_FilePath.Len(), 256);
+    ASSERT_EQ(decoded.m_Stages.Num(), 1);
+    EXPECT_EQ(decoded.m_Stages[0].VulkanSPIRV, (TArray<u32>{ 0x07230203u, 1u, 2u }));
+    EXPECT_EQ(decoded.m_Stages[0].OpenGLSPIRV, (TArray<u32>{ 0x07230203u, 10u, 20u }));
 }

@@ -142,13 +142,13 @@ namespace OloEngine::Ocean
             unit.m_Amplitude = 1.0f;
             // Reuse the cached draws when the seed and grid are unchanged — the
             // usual case, because the thing that moved was the wind.
-            if (c.Noise.empty() || c.NoiseSeed != unit.m_Seed || c.NoiseResolution != N)
+            if (c.Noise.IsEmpty() || c.NoiseSeed != unit.m_Seed || c.NoiseResolution != N)
             {
                 c.Noise = GenerateSpectrumNoise(unit.m_Seed, N);
                 c.NoiseSeed = unit.m_Seed;
                 c.NoiseResolution = N;
             }
-            std::vector<Complex> h0 = GenerateH0FromNoise(unit, c.Noise);
+            TArray<Complex> h0 = GenerateH0FromNoise(unit, c.Noise);
             ApplyBandLimit(h0, N, band.m_PatchSize, band.m_KMin, band.m_KMax);
 
             // SPECTRAL DENSITY: each band's amplitude must carry its own bin
@@ -202,8 +202,8 @@ namespace OloEngine::Ocean
             Cascade& c = m_Cascades[i];
             for (Complex& v : c.H0Unit)
                 v *= unitScale;
-            c.PhysicsH0Unit.clear();
-            c.PhysicsH0.clear();
+            c.PhysicsH0Unit.Reset();
+            c.PhysicsH0.Reset();
             c.PhysicsResolution = 0u;
         }
         m_AppliedAmplitude = -1.0f; // force ApplyAmplitude to re-bake
@@ -229,11 +229,11 @@ namespace OloEngine::Ocean
             // Rescale from the UNIT spectrum every time, never in place from the
             // last scale: an easing sea state would otherwise multiply a ratio
             // into the same buffer thousands of times a minute.
-            c.H0.resize(c.H0Unit.size());
-            for (sizet j = 0; j < c.H0Unit.size(); ++j)
+            c.H0.SetNum(c.H0Unit.Num(), EAllowShrinking::No);
+            for (sizet j = 0; j < c.H0Unit.Num(); ++j)
                 c.H0[j] = c.H0Unit[j] * scale;
-            c.PhysicsH0.resize(c.PhysicsH0Unit.size());
-            for (sizet j = 0; j < c.PhysicsH0Unit.size(); ++j)
+            c.PhysicsH0.SetNum(c.PhysicsH0Unit.Num(), EAllowShrinking::No);
+            for (sizet j = 0; j < c.PhysicsH0Unit.Num(); ++j)
                 c.PhysicsH0[j] = c.PhysicsH0Unit[j] * scale;
             c.GpuH0Dirty = true;
         }
@@ -275,15 +275,15 @@ namespace OloEngine::Ocean
             // single-cascade path keeps the authored N un-floored), which is
             // exactly the case the floor is otherwise reaching for.
             const u32 proxyRes = std::min(std::max(m_Preset.m_Bands[i].m_PhysicsResolution, 8u), N);
-            if (c.PhysicsH0Unit.empty() || c.PhysicsResolution != proxyRes)
+            if (c.PhysicsH0Unit.IsEmpty() || c.PhysicsResolution != proxyRes)
             {
                 // Extracted from the UNIT spectrum, then scaled, so an amplitude
                 // change never re-extracts.
                 c.PhysicsH0Unit = ExtractBandLimitedH0(c.H0Unit, N, proxyRes);
                 c.PhysicsResolution = proxyRes;
                 const f32 scale = m_AppliedAmplitude * kRmsMetresPerAmplitude;
-                c.PhysicsH0.resize(c.PhysicsH0Unit.size());
-                for (sizet j = 0; j < c.PhysicsH0Unit.size(); ++j)
+                c.PhysicsH0.SetNum(c.PhysicsH0Unit.Num(), EAllowShrinking::No);
+                for (sizet j = 0; j < c.PhysicsH0Unit.Num(); ++j)
                     c.PhysicsH0[j] = c.PhysicsH0Unit[j] * scale;
             }
             SpectrumParams proxyParams = c.Params;
@@ -393,8 +393,8 @@ namespace OloEngine::Ocean
             return;
 
         const sizet count = static_cast<sizet>(N) * N;
-        m_DisplacementScratch.resize(count);
-        m_DerivativesScratch.resize(count);
+        m_DisplacementScratch.SetNum(count, EAllowShrinking::No);
+        m_DerivativesScratch.SetNum(count, EAllowShrinking::No);
 
         for (u32 layer = 0u; layer < m_Preset.m_Count; ++layer)
         {
@@ -413,8 +413,8 @@ namespace OloEngine::Ocean
                 m_DerivativesScratch[i] = glm::vec4(n.x, n.y, n.z, j);
             }
 
-            m_DisplacementTex->SetLayerData(layer, m_DisplacementScratch.data(), N, N);
-            m_DerivativesTex->SetLayerData(layer, m_DerivativesScratch.data(), N, N);
+            m_DisplacementTex->SetLayerData(layer, m_DisplacementScratch.GetData(), N, N);
+            m_DerivativesTex->SetLayerData(layer, m_DerivativesScratch.GetData(), N, N);
         }
     }
 

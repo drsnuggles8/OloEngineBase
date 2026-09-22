@@ -24,7 +24,7 @@ namespace OloEngine
 
     void Renderer3D::SubmitFluidDraw(const FluidRenderData& draw)
     {
-        s_Data.PendingFluidDraws.push_back(draw);
+        s_Data.PendingFluidDraws.Add(draw);
     }
 
     void Renderer3D::SetUICompositeRenderCallback(RenderCallback callback)
@@ -32,9 +32,10 @@ namespace OloEngine
         s_Data.PendingUICompositeRenderCallback = std::move(callback);
     }
 
-    void Renderer3D::SetSelectionOutlineEntityIDs(const std::vector<i32>& ids)
+    void Renderer3D::SetSelectionOutlineEntityIDs(std::span<const i32> ids)
     {
-        s_Data.SelectionOutlineEntityIDs = ids;
+        s_Data.SelectionOutlineEntityIDs.Reset();
+        s_Data.SelectionOutlineEntityIDs.Append(ids.data(), static_cast<i64>(ids.size()));
     }
 
     void Renderer3D::GenerateOcclusionHZB()
@@ -229,7 +230,9 @@ namespace OloEngine
             // frame's request vector directly and keeps nothing past the
             // call, so a second camera replacing that vector cannot leave a
             // dangling read behind.
-            s_Data.GroomSurfaces.Extract(s_Data.SceneGPU, s_Data.GroomStrandRequests,
+            s_Data.GroomSurfaces.Extract(s_Data.SceneGPU,
+                                         std::span<const GroomStrandRequest>(s_Data.GroomStrandRequests.GetData(),
+                                                                             static_cast<sizet>(s_Data.GroomStrandRequests.Num())),
                                          WantsRayTracingGrooms());
             if (s_Data.RGraph && s_Data.VegetationSurfaces.GetStats().HistoryReset)
             {
@@ -267,9 +270,9 @@ namespace OloEngine
             // hit shades with, and a table whose upload failed turns a term off,
             // neither with a dirty range of its own.
             if (s_Data.RGraph &&
-                (!frameUpdate.m_InstanceDirtyRanges.empty() || !frameUpdate.m_GeometryDirtyRanges.empty() ||
-                 !frameUpdate.m_MaterialDirtyRanges.empty() || !frameUpdate.m_LightDirtyRanges.empty() ||
-                 !frameUpdate.m_EnvironmentDirtyRanges.empty() || s_Data.PathTracerMaterialTextures.ChangedThisFrame() ||
+                (!frameUpdate.m_InstanceDirtyRanges.IsEmpty() || !frameUpdate.m_GeometryDirtyRanges.IsEmpty() ||
+                 !frameUpdate.m_MaterialDirtyRanges.IsEmpty() || !frameUpdate.m_LightDirtyRanges.IsEmpty() ||
+                 !frameUpdate.m_EnvironmentDirtyRanges.IsEmpty() || s_Data.PathTracerMaterialTextures.ChangedThisFrame() ||
                  s_Data.PathTracerEmissive.ChangedThisFrame()))
             {
                 s_Data.RGraph->InvalidateTemporalHistories(TemporalHistoryInvalidationCause::SceneMutated);
@@ -360,11 +363,11 @@ namespace OloEngine
         if (validateCompiledHazards)
         {
             const auto compiledHazards = s_Data.RGraph->ValidateCompiledResourceHazards();
-            if (!compiledHazards.empty())
+            if (!compiledHazards.IsEmpty())
             {
                 OLO_CORE_ERROR("Renderer3D::EndScene: compiled RenderGraph validation found {} resource hazards — see previous log entries for details.",
-                               compiledHazards.size());
-                OLO_CORE_ASSERT(compiledHazards.empty(), "Compiled RenderGraph resource hazard detected (see log). Fix the offending setup-time resource declarations or ordering edges.");
+                               compiledHazards.Num());
+                OLO_CORE_ASSERT(compiledHazards.IsEmpty(), "Compiled RenderGraph resource hazard detected (see log). Fix the offending setup-time resource declarations or ordering edges.");
             }
             else if (Levers::RenderGraphDiagnostics() && buildStatsChanged)
             {

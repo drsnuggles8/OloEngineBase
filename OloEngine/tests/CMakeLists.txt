@@ -145,6 +145,7 @@ add_executable(OloEngine-Tests
 		ComponentTupleCoverageTest.cpp
 		ComponentHandlerCoverageTest.cpp
 		OloHeaderToolOutputsTest.cpp
+		OloHeaderToolClassifierTest.cpp
 		SceneSerializerFuzzRegressionTest.cpp
 		SceneVersionMigrationTest.cpp
 		EngineSubsystemSmokeTest.cpp
@@ -190,6 +191,8 @@ add_executable(OloEngine-Tests
 		Tasks/TaskSystemTest.cpp
 		HAL/ThreadManagerTest.cpp
 		Containers/ConcurrentQueuesTest.cpp
+		Containers/LinkedListTest.cpp
+		Containers/OwnedContainerInvariantsTest.cpp
 		Containers/StringTest.cpp
 		Memory/MemoryViewTest.cpp
 		Memory/LockFreeAllocatorConcurrencyTest.cpp
@@ -1633,6 +1636,7 @@ if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
 endif()
 
 target_link_libraries(OloEngine-Tests
+	OloHeaderToolClassifier
 	OloEngine
 	# The editor's headless automation/MCP core, linked rather than recompiled (#1314).
 	# It carries its own include directories and httplib, so neither is restated here.

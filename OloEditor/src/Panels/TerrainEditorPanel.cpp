@@ -274,12 +274,12 @@ namespace OloEngine
             }
 
             // Compact per-rule band editor (LayerIndex + height/slope ranges).
-            for (sizet i = 0; i < tc.m_LayerRules.size(); ++i)
+            for (sizet i = 0; i < tc.m_LayerRules.Num(); ++i)
             {
                 ImGui::PushID(static_cast<int>(i));
                 TerrainLayerRule& rule = tc.m_LayerRules[i];
                 const char* layerName = (tc.m_Material && rule.LayerIndex < tc.m_Material->GetLayerCount())
-                                            ? tc.m_Material->GetLayer(rule.LayerIndex).Name.c_str()
+                                            ? tc.m_Material->GetLayer(rule.LayerIndex).Name.GetData()
                                             : "Layer";
                 if (ImGui::TreeNodeEx(layerName, ImGuiTreeNodeFlags_DefaultOpen))
                 {
@@ -363,7 +363,7 @@ namespace OloEngine
             if (tc.m_Material && m_PaintSettings.TargetLayer < tc.m_Material->GetLayerCount())
             {
                 ImGui::SameLine();
-                ImGui::TextDisabled("(%s)", tc.m_Material->GetLayer(m_PaintSettings.TargetLayer).Name.c_str());
+                ImGui::TextDisabled("(%s)", tc.m_Material->GetLayer(m_PaintSettings.TargetLayer).Name.GetData());
                 break;
             }
         }
@@ -715,7 +715,8 @@ namespace OloEngine
                 {
                     // Extract old heights for the dirty region from the full snapshot
                     u32 resolution = m_StrokeTerrainData->GetResolution();
-                    std::vector<f32> oldRegion(m_StrokeDirtyW * m_StrokeDirtyH);
+                    TArray<f32> oldRegion;
+                    oldRegion.SetNumUninitialized(m_StrokeDirtyW * m_StrokeDirtyH);
                     for (u32 row = 0; row < m_StrokeDirtyH; ++row)
                     {
                         u32 srcIdx = (m_StrokeDirtyY + row) * resolution + m_StrokeDirtyX;
@@ -725,7 +726,8 @@ namespace OloEngine
 
                     // Capture new heights from the dirty region
                     const auto& fullData = m_StrokeTerrainData->GetHeightData();
-                    std::vector<f32> newHeights(m_StrokeDirtyW * m_StrokeDirtyH);
+                    TArray<f32> newHeights;
+                    newHeights.SetNumUninitialized(m_StrokeDirtyW * m_StrokeDirtyH);
                     for (u32 row = 0; row < m_StrokeDirtyH; ++row)
                     {
                         u32 srcIdx = (m_StrokeDirtyY + row) * resolution + m_StrokeDirtyX;
@@ -764,7 +766,8 @@ namespace OloEngine
                     constexpr u32 channels = 4;
 
                     // Extract old splatmap0 region from full snapshot
-                    std::vector<u8> oldRegion0(m_StrokeDirtyW * m_StrokeDirtyH * channels);
+                    TArray<u8> oldRegion0;
+                    oldRegion0.SetNumUninitialized(m_StrokeDirtyW * m_StrokeDirtyH * channels);
                     for (u32 row = 0; row < m_StrokeDirtyH; ++row)
                     {
                         u32 srcIdx = ((m_StrokeDirtyY + row) * resolution + m_StrokeDirtyX) * channels;
@@ -774,7 +777,8 @@ namespace OloEngine
 
                     // Capture new splatmap data
                     auto& splatmap0 = m_StrokeMaterial->GetSplatmapData(0);
-                    std::vector<u8> newSplatmap0(m_StrokeDirtyW * m_StrokeDirtyH * channels);
+                    TArray<u8> newSplatmap0;
+                    newSplatmap0.SetNumUninitialized(m_StrokeDirtyW * m_StrokeDirtyH * channels);
                     for (u32 row = 0; row < m_StrokeDirtyH; ++row)
                     {
                         u32 srcIdx = ((m_StrokeDirtyY + row) * resolution + m_StrokeDirtyX) * channels;
@@ -783,7 +787,7 @@ namespace OloEngine
                     }
 
                     // If using second splatmap (>4 layers), create a compound command
-                    if (m_StrokeMaterial->GetLayerCount() > 4 && !m_StrokeOldSplatmap1.empty())
+                    if (m_StrokeMaterial->GetLayerCount() > 4 && !m_StrokeOldSplatmap1.IsEmpty())
                     {
                         auto compound = std::make_unique<CompoundCommand>("Terrain Paint");
 
@@ -792,7 +796,8 @@ namespace OloEngine
                             m_StrokeDirtyX, m_StrokeDirtyY, m_StrokeDirtyW, m_StrokeDirtyH,
                             std::move(oldRegion0), std::move(newSplatmap0)));
 
-                        std::vector<u8> oldRegion1(m_StrokeDirtyW * m_StrokeDirtyH * channels);
+                        TArray<u8> oldRegion1;
+                        oldRegion1.SetNumUninitialized(m_StrokeDirtyW * m_StrokeDirtyH * channels);
                         for (u32 row = 0; row < m_StrokeDirtyH; ++row)
                         {
                             u32 srcIdx = ((m_StrokeDirtyY + row) * resolution + m_StrokeDirtyX) * channels;
@@ -801,7 +806,8 @@ namespace OloEngine
                         }
 
                         auto& splatmap1 = m_StrokeMaterial->GetSplatmapData(1);
-                        std::vector<u8> newSplatmap1(m_StrokeDirtyW * m_StrokeDirtyH * channels);
+                        TArray<u8> newSplatmap1;
+                        newSplatmap1.SetNumUninitialized(m_StrokeDirtyW * m_StrokeDirtyH * channels);
                         for (u32 row = 0; row < m_StrokeDirtyH; ++row)
                         {
                             u32 srcIdx = ((m_StrokeDirtyY + row) * resolution + m_StrokeDirtyX) * channels;
@@ -835,9 +841,9 @@ namespace OloEngine
             m_StrokeUsesGPU = false;
             m_StrokeTargetHeight = 0.0f;
             m_StrokeDirtyX = m_StrokeDirtyY = m_StrokeDirtyW = m_StrokeDirtyH = 0;
-            m_StrokeOldHeights.clear();
-            m_StrokeOldSplatmap0.clear();
-            m_StrokeOldSplatmap1.clear();
+            m_StrokeOldHeights.Reset();
+            m_StrokeOldSplatmap0.Reset();
+            m_StrokeOldSplatmap1.Reset();
             m_StrokeTerrainData = nullptr;
             m_StrokeChunkManager = nullptr;
             m_StrokeMaterial = nullptr;

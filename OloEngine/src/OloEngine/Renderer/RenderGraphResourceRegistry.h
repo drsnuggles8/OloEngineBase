@@ -26,22 +26,22 @@ namespace OloEngine::RenderGraphResourceRegistry
 
     struct BuildInput
     {
-        const std::unordered_map<std::string, RGResourceDesc>& ImportedResources;
-        const std::unordered_map<std::string, RGResourceDesc>& TransientResourceDescs;
-        const std::unordered_map<std::string, RGResourceDesc>& TextureViewResourceDescs;
-        std::span<const std::string> InsertionOrder;
-        const std::unordered_map<std::string, std::vector<RGAccessDeclaration>>& PassAccessDeclarations;
+        const RGTransparentStringMap<RGResourceDesc>& ImportedResources;
+        const RGTransparentStringMap<RGResourceDesc>& TransientResourceDescs;
+        const RGTransparentStringMap<RGResourceDesc>& TextureViewResourceDescs;
+        std::span<const FString> InsertionOrder;
+        const RGTransparentStringMap<TArray64<RGAccessDeclaration>>& PassAccessDeclarations;
         std::function<bool(std::string_view)> IsExternallyBackedTransientResource;
     };
 
     struct BuildResult
     {
-        std::unordered_map<std::string, RenderGraph::ResourceInfo> Registry;
+        RGTransparentStringMap<RenderGraph::ResourceInfo> Registry;
         // `Sorted` is the canonical execution-order view used by downstream
         // stages (hazard validator, transient planner). Sort key is resource
         // name (lexicographic) so the order is deterministic across rebuilds.
-        std::vector<RenderGraph::ResourceInfo> Sorted;
-        std::vector<RenderGraph::Hazard> Diagnostics;
+        TArray64<RenderGraph::ResourceInfo> Sorted;
+        TArray64<RenderGraph::Hazard> Diagnostics;
     };
 
     [[nodiscard]] auto Build(const BuildInput& input) -> BuildResult;

@@ -66,7 +66,7 @@ class SubtitlesFollowDialogueStateTest : public FunctionalTest
         root.Name = "Opening";
         root.Properties.emplace("text", DialoguePropertyValue{ std::string(kLine) });
         root.Properties.emplace("speaker", DialoguePropertyValue{ std::string(kSpeaker) });
-        m_TreeAsset->GetNodesWritable().push_back(std::move(root));
+        m_TreeAsset->GetNodesWritable().AddTail(std::move(root));
         m_TreeAsset->SetRootNodeID(OloEngine::UUID{ static_cast<u64>(0x200ULL) });
         m_TreeAsset->RebuildNodeIndex();
 

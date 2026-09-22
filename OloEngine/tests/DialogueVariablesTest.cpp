@@ -52,6 +52,22 @@ TEST(DialogueVariables, MissingKeysReturnTheCallerProvidedDefault)
     EXPECT_EQ(vars.GetString("nope", "fallback"), "fallback");
 }
 
+TEST(DialogueVariables, OwnedStringsPreserveBytesAcrossMapGrowthAndCopies)
+{
+    DialogueVariables vars;
+    const std::string value("short\0value", 11);
+    vars.SetString("original", value);
+    for (i32 i = 0; i < 128; ++i)
+    {
+        vars.SetString("key" + std::to_string(i), std::string(80, 'x'));
+    }
+    auto copied = vars;
+    vars.SetString("original", "replaced");
+    EXPECT_EQ(copied.GetString("original"), value);
+    EXPECT_EQ(vars.GetString("original"), "replaced");
+    EXPECT_EQ(copied.GetString("key127"), std::string(80, 'x'));
+}
+
 TEST(DialogueVariables, HasReportsPresenceAndClearWipesEverything)
 {
     DialogueVariables vars;

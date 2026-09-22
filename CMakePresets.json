@@ -40,6 +40,7 @@
 				"VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "${sourceDir}/cmake/ClangCLToolchain.cmake",
 				"VCPKG_TARGET_TRIPLET": "x64-windows-static-md",
 				"FETCHCONTENT_BASE_DIR": "${sourceDir}/OloEngine/vendor/clang",
+				"CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
 				"BUILD_TESTS": "ON"
 			}
 		},

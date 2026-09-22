@@ -43,12 +43,12 @@ namespace OloEngine
         Ref<Scene>& scene,
         const glm::vec3& position,
         u32 resolution,
-        std::vector<glm::vec3>& outPixels)
+        TArray<glm::vec3>& outPixels)
     {
         OLO_PROFILE_FUNCTION();
 
         auto const totalPixels = static_cast<size_t>(resolution) * resolution * 6;
-        outPixels.resize(totalPixels);
+        outPixels.SetNum(totalPixels, EAllowShrinking::No);
 
         FramebufferSpecification spec;
         spec.Width = resolution;
@@ -59,7 +59,7 @@ namespace OloEngine
         Camera const captureCamera(glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 1000.0f));
 
         // Temporary buffer for RGBA16F readback (4 floats per pixel)
-        std::vector<f32> rgbaBuffer(static_cast<size_t>(resolution) * resolution * 4);
+        TArray<f32> rgbaBuffer(static_cast<size_t>(resolution) * resolution * 4);
 
         for (u32 face = 0; face < 6; ++face)
         {
@@ -78,7 +78,7 @@ namespace OloEngine
             RHI::ResourceHandle const colorAttachment = fbo->GetColorAttachmentHandle(0);
             const bool readOk = RenderCommand::ReadTextureImage(
                 colorAttachment, 0, RHI::Format::RGBA32Float,
-                rgbaBuffer.size() * sizeof(f32), rgbaBuffer.data());
+                rgbaBuffer.Num() * sizeof(f32), rgbaBuffer.GetData());
 
             fbo->Unbind();
 
@@ -107,7 +107,7 @@ namespace OloEngine
     }
 
     SHCoefficients LightProbeBaker::ProjectToSH(
-        const std::vector<glm::vec3>& cubemapPixels,
+        std::span<const glm::vec3> cubemapPixels,
         u32 resolution)
     {
         OLO_PROFILE_FUNCTION();
@@ -201,7 +201,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::vector<glm::vec3> pixels;
+        TArray<glm::vec3> pixels;
         if (!RenderCubemapAtPosition(scene, position, cubemapResolution, pixels))
         {
             // Readback failed — report the probe as invalid so the caller stores
@@ -213,7 +213,7 @@ namespace OloEngine
             return {};
         }
 
-        SHCoefficients sh = ProjectToSH(pixels, cubemapResolution);
+        SHCoefficients sh = ProjectToSH({ pixels.GetData(), static_cast<sizet>(pixels.Num()) }, cubemapResolution);
 
         if (outValid)
         {
@@ -429,7 +429,7 @@ namespace OloEngine
 
         i32 const totalProbes = volume.GetTotalProbeCount();
         if (totalProbes <= 0 ||
-            asset->CoefficientData.size() != static_cast<size_t>(totalProbes) * SH_COEFFICIENT_COUNT)
+            asset->CoefficientData.Num() != static_cast<size_t>(totalProbes) * SH_COEFFICIENT_COUNT)
         {
             OLO_CORE_ERROR("LightProbeBaker::BakeVolumePathTraced: empty or over-budget probe grid ({} probes)", totalProbes);
             return false;

@@ -30,11 +30,11 @@ namespace OloEngine
     /// Optional properties to apply when a node is created (e.g., during paste)
     struct AddNodeProperties
     {
-        std::string ParameterName;
-        std::string CustomFunctionBody;
+        FString ParameterName;
+        FString CustomFunctionBody;
         glm::ivec3 WorkgroupSize{ 16, 16, 1 };
         int BufferBinding = 0;
-        std::vector<ShaderGraphPinValue> InputDefaultValues;
+        TArray<ShaderGraphPinValue> InputDefaultValues;
         bool HasProperties = false;
     };
 
@@ -42,12 +42,12 @@ namespace OloEngine
     class AddNodeCommand final : public ShaderGraphCommand
     {
       public:
-        AddNodeCommand(const std::string& typeName, const glm::vec2& position)
+        AddNodeCommand(const FString& typeName, const glm::vec2& position)
             : m_TypeName(typeName), m_Position(position)
         {
         }
 
-        AddNodeCommand(const std::string& typeName, const glm::vec2& position, AddNodeProperties properties)
+        AddNodeCommand(const FString& typeName, const glm::vec2& position, AddNodeProperties properties)
             : m_TypeName(typeName), m_Position(position), m_Properties(std::move(properties))
         {
             m_Properties.HasProperties = true;
@@ -70,7 +70,7 @@ namespace OloEngine
                 node->CustomFunctionBody = m_Properties.CustomFunctionBody;
                 node->WorkgroupSize = m_Properties.WorkgroupSize;
                 node->BufferBinding = m_Properties.BufferBinding;
-                for (size_t i = 0; i < node->Inputs.size() && i < m_Properties.InputDefaultValues.size(); ++i)
+                for (size_t i = 0; i < node->Inputs.Num() && i < m_Properties.InputDefaultValues.Num(); ++i)
                     node->Inputs[i].DefaultValue = m_Properties.InputDefaultValues[i];
             }
 
@@ -85,7 +85,7 @@ namespace OloEngine
 
         [[nodiscard]] std::string GetDescription() const override
         {
-            return "Add " + m_TypeName;
+            return "Add " + m_TypeName.ToStdString();
         }
 
         [[nodiscard]] UUID GetNodeID() const
@@ -94,7 +94,7 @@ namespace OloEngine
         }
 
       private:
-        std::string m_TypeName;
+        FString m_TypeName;
         glm::vec2 m_Position;
         UUID m_NodeID = 0;
         AddNodeProperties m_Properties;
@@ -128,16 +128,16 @@ namespace OloEngine
             m_SavedOutputs = node->Outputs;
 
             // Save all links connected to this node
-            m_SavedLinks.clear();
+            m_SavedLinks.Reset();
             for (const auto& pin : node->Inputs)
             {
                 if (const auto* link = graph.GetLinkForInputPin(pin.ID))
-                    m_SavedLinks.push_back(*link);
+                    m_SavedLinks.Add(*link);
             }
             for (const auto& pin : node->Outputs)
             {
                 for (const auto* link : graph.GetLinksForOutputPin(pin.ID))
-                    m_SavedLinks.push_back(*link);
+                    m_SavedLinks.Add(*link);
             }
 
             graph.RemoveNode(m_NodeID);
@@ -164,25 +164,25 @@ namespace OloEngine
 
             // Restore links with their original IDs (bypass validation — they were valid before removal)
             for (const auto& link : m_SavedLinks)
-                graph.m_Links.push_back(link);
+                graph.m_Links.Add(link);
         }
 
         [[nodiscard]] std::string GetDescription() const override
         {
-            return "Remove " + m_SavedTypeName;
+            return "Remove " + m_SavedTypeName.ToStdString();
         }
 
       private:
         UUID m_NodeID;
-        std::string m_SavedTypeName;
+        FString m_SavedTypeName;
         glm::vec2 m_SavedPosition{};
-        std::string m_SavedParameterName;
-        std::string m_SavedCustomFunctionBody;
+        FString m_SavedParameterName;
+        FString m_SavedCustomFunctionBody;
         glm::ivec3 m_SavedWorkgroupSize{ 16, 16, 1 };
         int m_SavedBufferBinding = 0;
-        std::vector<ShaderGraphPin> m_SavedInputs;
-        std::vector<ShaderGraphPin> m_SavedOutputs;
-        std::vector<ShaderGraphLink> m_SavedLinks;
+        TArray<ShaderGraphPin> m_SavedInputs;
+        TArray<ShaderGraphPin> m_SavedOutputs;
+        TArray<ShaderGraphLink> m_SavedLinks;
     };
 
     /// Command to add a link between two pins
@@ -311,7 +311,7 @@ namespace OloEngine
 
         void Add(Scope<ShaderGraphCommand> command)
         {
-            m_Commands.push_back(std::move(command));
+            m_Commands.AddTail(std::move(command));
         }
 
         bool Execute(ShaderGraph& graph) override
@@ -323,18 +323,18 @@ namespace OloEngine
 
         void Undo(ShaderGraph& graph) override
         {
-            for (auto it = m_Commands.rbegin(); it != m_Commands.rend(); ++it)
-                (*it)->Undo(graph);
+            for (auto* entry = m_Commands.GetTail(); entry; entry = entry->GetPrevNode())
+                entry->GetValue()->Undo(graph);
         }
 
         [[nodiscard]] std::string GetDescription() const override
         {
-            return m_Description;
+            return m_Description.ToStdString();
         }
 
       private:
-        std::string m_Description;
-        std::vector<Scope<ShaderGraphCommand>> m_Commands;
+        FString m_Description;
+        TDoubleLinkedList<Scope<ShaderGraphCommand>> m_Commands;
     };
 
     /// Command to change a pin's default value
@@ -376,7 +376,7 @@ namespace OloEngine
     class RenameParameterCommand final : public ShaderGraphCommand
     {
       public:
-        RenameParameterCommand(UUID nodeID, std::string oldName, std::string newName)
+        RenameParameterCommand(UUID nodeID, FString oldName, FString newName)
             : m_NodeID(nodeID), m_OldName(std::move(oldName)), m_NewName(std::move(newName))
         {
         }
@@ -403,15 +403,15 @@ namespace OloEngine
 
       private:
         UUID m_NodeID;
-        std::string m_OldName;
-        std::string m_NewName;
+        FString m_OldName;
+        FString m_NewName;
     };
 
     /// Command to change a custom function node's GLSL body
     class SetCustomFunctionBodyCommand final : public ShaderGraphCommand
     {
       public:
-        SetCustomFunctionBodyCommand(UUID nodeID, std::string oldBody, std::string newBody)
+        SetCustomFunctionBodyCommand(UUID nodeID, FString oldBody, FString newBody)
             : m_NodeID(nodeID), m_OldBody(std::move(oldBody)), m_NewBody(std::move(newBody))
         {
         }
@@ -438,8 +438,8 @@ namespace OloEngine
 
       private:
         UUID m_NodeID;
-        std::string m_OldBody;
-        std::string m_NewBody;
+        FString m_OldBody;
+        FString m_NewBody;
     };
 
     /// Command to change a compute output node's workgroup size
@@ -522,70 +522,70 @@ namespace OloEngine
         {
             if (!command->Execute(graph))
                 return;
-            m_UndoStack.push_back(std::move(command));
-            m_RedoStack.clear();
+            m_UndoStack.AddTail(std::move(command));
+            m_RedoStack.Empty();
         }
 
         /// Push a command that has already been applied to the graph.
         /// Used for ImGui interactive edits where the widget directly mutated the graph.
         void PushExecuted(Scope<ShaderGraphCommand> command)
         {
-            m_UndoStack.push_back(std::move(command));
-            m_RedoStack.clear();
+            m_UndoStack.AddTail(std::move(command));
+            m_RedoStack.Empty();
         }
 
         /// Undo the last command
         void Undo(ShaderGraph& graph)
         {
-            if (m_UndoStack.empty())
+            if (m_UndoStack.IsEmpty())
                 return;
 
-            auto& command = m_UndoStack.back();
+            auto& command = m_UndoStack.GetTail()->GetValue();
             command->Undo(graph);
-            m_RedoStack.push_back(std::move(command));
-            m_UndoStack.pop_back();
+            m_RedoStack.AddTail(std::move(command));
+            m_UndoStack.RemoveNode(m_UndoStack.GetTail());
         }
 
         /// Redo the last undone command
         void Redo(ShaderGraph& graph)
         {
-            if (m_RedoStack.empty())
+            if (m_RedoStack.IsEmpty())
                 return;
 
-            auto& command = m_RedoStack.back();
+            auto& command = m_RedoStack.GetTail()->GetValue();
             command->Execute(graph);
-            m_UndoStack.push_back(std::move(command));
-            m_RedoStack.pop_back();
+            m_UndoStack.AddTail(std::move(command));
+            m_RedoStack.RemoveNode(m_RedoStack.GetTail());
         }
 
         [[nodiscard]] bool CanUndo() const
         {
-            return !m_UndoStack.empty();
+            return !m_UndoStack.IsEmpty();
         }
         [[nodiscard]] bool CanRedo() const
         {
-            return !m_RedoStack.empty();
+            return !m_RedoStack.IsEmpty();
         }
 
         [[nodiscard]] std::string GetUndoDescription() const
         {
-            return m_UndoStack.empty() ? "" : m_UndoStack.back()->GetDescription();
+            return m_UndoStack.IsEmpty() ? "" : m_UndoStack.GetTail()->GetValue()->GetDescription();
         }
 
         [[nodiscard]] std::string GetRedoDescription() const
         {
-            return m_RedoStack.empty() ? "" : m_RedoStack.back()->GetDescription();
+            return m_RedoStack.IsEmpty() ? "" : m_RedoStack.GetTail()->GetValue()->GetDescription();
         }
 
         void Clear()
         {
-            m_UndoStack.clear();
-            m_RedoStack.clear();
+            m_UndoStack.Empty();
+            m_RedoStack.Empty();
         }
 
       private:
-        std::vector<Scope<ShaderGraphCommand>> m_UndoStack;
-        std::vector<Scope<ShaderGraphCommand>> m_RedoStack;
+        TDoubleLinkedList<Scope<ShaderGraphCommand>> m_UndoStack;
+        TDoubleLinkedList<Scope<ShaderGraphCommand>> m_RedoStack;
     };
 
 } // namespace OloEngine

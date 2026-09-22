@@ -94,8 +94,8 @@ namespace OloEngine
             constexpr u32 K = TerrainGPUQuadtree::kPatchGridResolution;
             constexpr u32 vertsPerSide = K + 1;
 
-            std::vector<TerrainVertex> vertices;
-            vertices.reserve(static_cast<sizet>(vertsPerSide) * vertsPerSide);
+            TArray<TerrainVertex> vertices;
+            vertices.Reserve(static_cast<sizet>(vertsPerSide) * vertsPerSide);
             for (u32 z = 0; z < vertsPerSide; ++z)
             {
                 for (u32 x = 0; x < vertsPerSide; ++x)
@@ -106,12 +106,12 @@ namespace OloEngine
                     // rounds it back to an integer grid index to apply the seam
                     // snapping, so it must reproduce x/K exactly. Y is unused —
                     // the tess_eval stage displaces from the heightmap.
-                    vertices.emplace_back(glm::vec3(u, 0.0f, v), glm::vec2(u, v), glm::vec3(0.0f, 1.0f, 0.0f));
+                    vertices.Emplace(glm::vec3(u, 0.0f, v), glm::vec2(u, v), glm::vec3(0.0f, 1.0f, 0.0f));
                 }
             }
 
-            std::vector<u32> indices;
-            indices.reserve(static_cast<sizet>(K) * K * 6);
+            TArray<u32> indices;
+            indices.Reserve(static_cast<sizet>(K) * K * 6);
             for (u32 z = 0; z < K; ++z)
             {
                 for (u32 x = 0; x < K; ++x)
@@ -124,24 +124,24 @@ namespace OloEngine
                     // Same winding as TerrainChunk::BuildGeometry — the tess_eval
                     // stage declares `ccw`, so a flipped patch here would be
                     // back-face culled and the terrain would vanish.
-                    indices.push_back(topLeft);
-                    indices.push_back(bottomLeft);
-                    indices.push_back(topRight);
+                    indices.Add(topLeft);
+                    indices.Add(bottomLeft);
+                    indices.Add(topRight);
 
-                    indices.push_back(topRight);
-                    indices.push_back(bottomLeft);
-                    indices.push_back(bottomRight);
+                    indices.Add(topRight);
+                    indices.Add(bottomLeft);
+                    indices.Add(bottomRight);
                 }
             }
 
             s_PatchMesh = VertexArray::Create();
-            auto vbo = VertexBuffer::Create(vertices.data(), static_cast<u32>(vertices.size() * sizeof(TerrainVertex)));
+            auto vbo = VertexBuffer::Create(vertices.GetData(), static_cast<u32>(vertices.Num() * sizeof(TerrainVertex)));
             vbo->SetLayout(TerrainVertex::GetLayout());
             s_PatchMesh->AddVertexBuffer(vbo);
 
-            auto ibo = IndexBuffer::Create(indices.data(), static_cast<u32>(indices.size()));
+            auto ibo = IndexBuffer::Create(indices.GetData(), static_cast<u32>(indices.Num()));
             s_PatchMesh->SetIndexBuffer(ibo);
-            s_PatchIndexCount = static_cast<u32>(indices.size());
+            s_PatchIndexCount = static_cast<u32>(indices.Num());
         }
     } // namespace
 
@@ -302,7 +302,7 @@ namespace OloEngine
         return true;
     }
 
-    void TerrainGPUQuadtree::Build(const std::vector<glm::vec2>& nodeMinMaxY, u32 maxDepth,
+    void TerrainGPUQuadtree::Build(const TArray<glm::vec2>& nodeMinMaxY, u32 maxDepth,
                                    f32 worldSizeX, f32 worldSizeZ)
     {
         OLO_PROFILE_FUNCTION();
@@ -324,10 +324,10 @@ namespace OloEngine
         }
 
         const u32 expected = TotalNodeCount(maxDepth);
-        if (nodeMinMaxY.size() != expected)
+        if (nodeMinMaxY.Num() != expected)
         {
             OLO_CORE_ERROR("TerrainGPUQuadtree::Build: node pyramid has {} entries, expected {} for depth {}",
-                           nodeMinMaxY.size(), expected, maxDepth);
+                           nodeMinMaxY.Num(), expected, maxDepth);
             m_MaxDepth = 0;
             m_NodeBoundsBuffer = nullptr;
             return;
@@ -341,8 +341,8 @@ namespace OloEngine
 
         m_WorldSizeX = worldSizeX;
         m_WorldSizeZ = worldSizeZ;
-        m_NodeBoundsBuffer->SetData(nodeMinMaxY.data(),
-                                    static_cast<u32>(nodeMinMaxY.size() * sizeof(glm::vec2)), 0);
+        m_NodeBoundsBuffer->SetData(nodeMinMaxY.GetData(),
+                                    static_cast<u32>(nodeMinMaxY.Num() * sizeof(glm::vec2)), 0);
     }
 
     void TerrainGPUQuadtree::UploadCullParams(const CullInputs& inputs)

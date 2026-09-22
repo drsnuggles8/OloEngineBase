@@ -40,7 +40,7 @@
 #include <atomic>
 #include <mutex>
 #include <string_view>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine::RHI
 {
@@ -160,7 +160,7 @@ namespace OloEngine::RHI
             ResourceKind Kind = ResourceKind::Unknown;
             Backend Owner = Backend::None;
         };
-        [[nodiscard]] auto Snapshot() const -> std::vector<SnapshotEntry>;
+        [[nodiscard]] auto Snapshot() const -> TArray<SnapshotEntry>;
 
         // Test/diagnostic affordance. Not called by the engine.
         void ResetCounters();
@@ -198,7 +198,7 @@ namespace OloEngine::RHI
         mutable std::mutex m_WriteMutex;
         std::array<std::atomic<Slot*>, kMaxChunks> m_Chunks{};
         std::atomic<u32> m_SlotCount{ 0u };
-        std::vector<u32> m_FreeList;
+        TArray<u32> m_FreeList;
         u64 m_TotalRegistered = 0u;
         mutable std::atomic<u64> m_StaleRejections{ 0u };
         u64 m_StaleUnregisters = 0u;
@@ -328,6 +328,18 @@ namespace OloEngine::RHI
         }
 
       private:
+        friend struct OloEngine::TIsTriviallyRelocatable<ScopedResourceHandle>;
         ResourceHandle m_Handle;
     };
 } // namespace OloEngine::RHI
+
+namespace OloEngine
+{
+    // Relocation transfers the sole registry-entry ownership token without retiring it.
+    // The registry never stores an address into the wrapper.
+    template<>
+    struct TIsTriviallyRelocatable<RHI::ScopedResourceHandle>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(RHI::ScopedResourceHandle::m_Handle)>::Value;
+    };
+} // namespace OloEngine

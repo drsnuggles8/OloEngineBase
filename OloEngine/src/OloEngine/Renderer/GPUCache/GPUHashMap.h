@@ -9,7 +9,7 @@
 #include <concepts>
 #include <limits>
 #include <utility>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -335,13 +335,13 @@ namespace OloEngine
             OLO_CORE_ASSERT(table != nullptr, "GPUHashMap used before Create / after Destroy");
 
             const u32 capacity = m_Table.GetCount();
-            std::vector<Entry> live;
-            live.reserve(capacity / 2);
+            TArray<Entry> live;
+            live.Reserve(capacity / 2);
             for (u32 i = 0; i < capacity; ++i)
             {
                 if (table[i].m_Key != kEmptyKey && table[i].m_Key != kTombstoneKey)
                 {
-                    live.push_back(table[i]);
+                    live.Add(table[i]);
                 }
                 table[i].m_Key = kEmptyKey;
             }

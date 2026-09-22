@@ -1,5 +1,7 @@
 #pragma once
 
+#include "OloEngine/Containers/Array.h"
+
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Renderer/Mesh.h"
@@ -52,7 +54,7 @@ namespace OloEngine
         };
 
         Ref<Mesh> m_ProxyCube;
-        std::vector<PendingQuery> m_PendingQueries;
+        TArray64<PendingQuery> m_PendingQueries;
         bool m_Initialized = false;
     };
 } // namespace OloEngine

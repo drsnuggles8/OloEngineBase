@@ -1,4 +1,6 @@
 #include "OloEnginePCH.h"
+
+#include <span>
 #include "OloEngine/Animation/Retargeting/RetargetingSystem.h"
 
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
@@ -121,7 +123,7 @@ namespace OloEngine::Animation
 
             // Resolve the SOURCE skeleton + clips: scene entity first, file second.
             Ref<Skeleton> sourceSkeleton;
-            const std::vector<Ref<AnimationClip>>* sourceClips = nullptr;
+            std::span<const Ref<AnimationClip>> sourceClips;
             Ref<AnimatedModel> sourceModel; // keeps file-route data alive through the bake
             if (settings.m_SourceEntity != 0)
             {
@@ -130,7 +132,7 @@ namespace OloEngine::Animation
                                                                                         source->HasComponent<AnimationStateComponent>())
                 {
                     sourceSkeleton = source->GetComponent<SkeletonComponent>().m_Skeleton;
-                    sourceClips = &source->GetComponent<AnimationStateComponent>().m_AvailableClips;
+                    sourceClips = source->GetComponent<AnimationStateComponent>().m_AvailableClips;
                 }
             }
             else
@@ -139,10 +141,10 @@ namespace OloEngine::Animation
                 if (sourceModel && sourceModel->GetSkeleton() && sourceModel->HasAnimations())
                 {
                     sourceSkeleton = sourceModel->GetSkeleton();
-                    sourceClips = &sourceModel->GetAnimations();
+                    sourceClips = sourceModel->GetAnimations();
                 }
             }
-            if (!sourceSkeleton || sourceSkeleton->m_BoneNames.empty() || !sourceClips || sourceClips->empty())
+            if (!sourceSkeleton || sourceSkeleton->m_BoneNames.empty() || sourceClips.empty())
             {
                 OLO_CORE_WARN("RetargetingSystem: no source skeleton/clips for entity '{}' (path '{}', source entity {})",
                               entity.GetName(), settings.m_SourcePath, static_cast<u64>(settings.m_SourceEntity));
@@ -161,7 +163,7 @@ namespace OloEngine::Animation
                                                : AnimationRetargeter::ComputeRootTranslationScale(*sourceSkeleton, *skelComp.m_Skeleton);
 
             auto& animState = view.template get<AnimationStateComponent>(e);
-            for (const auto& sourceClip : *sourceClips)
+            for (const auto& sourceClip : sourceClips)
             {
                 if (!sourceClip)
                 {

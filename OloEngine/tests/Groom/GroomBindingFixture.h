@@ -241,7 +241,7 @@ namespace OloEngine::GroomBindingTest
     /// than about the geometry expansion around it.
     [[nodiscard]] inline std::vector<glm::vec3> DeformAllPoints(const GroomAsset& groom,
                                                                 const GroomBindingAsset& binding,
-                                                                const std::vector<GroomRootTransform>& transforms,
+                                                                const TArray<GroomRootTransform>& transforms,
                                                                 bool previous = false)
     {
         std::vector<glm::vec3> out = groom.GetPoints();

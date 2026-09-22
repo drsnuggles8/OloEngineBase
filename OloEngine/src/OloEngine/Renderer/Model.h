@@ -2,6 +2,9 @@
 
 #include <functional>
 #include <string>
+#include <span>
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/String.h"
 #include <vector>
 #include <unordered_map>
 #include <optional>
@@ -25,17 +28,17 @@ namespace OloEngine
     // Configuration for overriding texture paths when model's embedded paths are incorrect
     struct TextureOverride
     {
-        std::string AlbedoPath;
-        std::string MetallicPath;
-        std::string NormalPath;
-        std::string RoughnessPath;
-        std::string AOPath;
-        std::string EmissivePath;
+        FString AlbedoPath;
+        FString MetallicPath;
+        FString NormalPath;
+        FString RoughnessPath;
+        FString AOPath;
+        FString EmissivePath;
 
         bool HasAnyTexture() const
         {
-            return !AlbedoPath.empty() || !MetallicPath.empty() || !NormalPath.empty() ||
-                   !RoughnessPath.empty() || !AOPath.empty() || !EmissivePath.empty();
+            return !AlbedoPath.IsEmpty() || !MetallicPath.IsEmpty() || !NormalPath.IsEmpty() ||
+                   !RoughnessPath.IsEmpty() || !AOPath.IsEmpty() || !EmissivePath.IsEmpty();
         }
     };
 
@@ -70,9 +73,9 @@ namespace OloEngine
                           const Material& fallbackMaterial, i32 entityID,
                           const std::function<glm::vec4(sizet)>& lightmapRegionForMesh) const;
 
-        void GetDrawCommands(const glm::mat4& transform, const Material& material, std::vector<CommandPacket*>& outCommands) const;
-        void GetDrawCommands(const glm::mat4& transform, const Ref<const Material>& material, std::vector<CommandPacket*>& outCommands) const;
-        void GetDrawCommands(const glm::mat4& transform, std::vector<CommandPacket*>& outCommands) const;
+        void GetDrawCommands(const glm::mat4& transform, const Material& material, TArray<CommandPacket*>& outCommands) const;
+        void GetDrawCommands(const glm::mat4& transform, const Ref<const Material>& material, TArray<CommandPacket*>& outCommands) const;
+        void GetDrawCommands(const glm::mat4& transform, TArray<CommandPacket*>& outCommands) const;
 
         // Calculate bounding volumes for the entire model
         void CalculateBounds();
@@ -98,41 +101,41 @@ namespace OloEngine
         }
 
         // Accessors for materials
-        [[nodiscard]] const std::vector<Ref<Material>>& GetMaterials() const
+        [[nodiscard]] std::span<const Ref<Material>> GetMaterials() const
         {
-            return m_Materials;
+            return { m_Materials.GetData(), static_cast<sizet>(m_Materials.Num()) };
         }
 
         // Index-based material accessors with proper const-correctness
         [[nodiscard]] Ref<Material> GetMaterial(sizet index)
         {
-            return index < m_Materials.size() ? m_Materials[index] : nullptr;
+            return index < static_cast<sizet>(m_Materials.Num()) ? m_Materials[index] : nullptr;
         }
         [[nodiscard]] const Ref<Material>& GetMaterial(sizet index) const
         {
-            return index < m_Materials.size() ? m_Materials[index] : GetNullMaterialRef();
+            return index < static_cast<sizet>(m_Materials.Num()) ? m_Materials[index] : GetNullMaterialRef();
         }
 
         // Get material count for safe iteration
         [[nodiscard]] sizet GetMaterialCount() const
         {
-            return m_Materials.size();
+            return static_cast<sizet>(m_Materials.Num());
         }
 
         // Mesh accessors for extracting mesh data after loading
-        [[nodiscard]] const std::vector<Ref<Mesh>>& GetMeshes() const
+        [[nodiscard]] std::span<const Ref<Mesh>> GetMeshes() const
         {
-            return m_Meshes;
+            return { m_Meshes.GetData(), static_cast<sizet>(m_Meshes.Num()) };
         }
 
         [[nodiscard]] sizet GetMeshCount() const
         {
-            return m_Meshes.size();
+            return static_cast<sizet>(m_Meshes.Num());
         }
 
         [[nodiscard]] Ref<Mesh> GetMesh(sizet index) const
         {
-            return index < m_Meshes.size() ? m_Meshes[index] : nullptr;
+            return index < static_cast<sizet>(m_Meshes.Num()) ? m_Meshes[index] : nullptr;
         }
 
         // Create a combined MeshSource from all meshes in the model
@@ -179,8 +182,8 @@ namespace OloEngine
         // volume THICKNESS map, since it shares aiTextureType_TRANSMISSION with
         // the transmission map and is distinguished only by index 1 (issue
         // #1242). -1, the default, keeps the historical count-driven behaviour.
-        std::vector<Ref<Texture2D>> LoadMaterialTextures(const aiMaterial* mat, aiTextureType type,
-                                                         const aiScene* scene, i32 semanticIndex = -1);
+        TArray<Ref<Texture2D>> LoadMaterialTextures(const aiMaterial* mat, aiTextureType type,
+                                                    const aiScene* scene, i32 semanticIndex = -1);
         Ref<Material> ProcessMaterial(const aiMaterial* mat, const aiScene* scene);
         // Builds the virtualized-geometry cluster DAG (issue #629) for the
         // combined source and serializes it into m_CookedVirtualMeshBlob, so
@@ -188,19 +191,19 @@ namespace OloEngine
         // result carry the cook. No-op for multi-submesh / rigged / tiny meshes.
         void CookVirtualMesh(const MeshSource& combined);
 
-        std::vector<Ref<Mesh>> m_Meshes;
+        TArray<Ref<Mesh>> m_Meshes;
         // The already-combined MeshSource restored from the .omesh cache. On that path every
         // m_Meshes[i] is a submesh *view* into this one source rather than a source of its own,
         // so CreateCombinedMeshSource must return it instead of concatenating (see there).
         Ref<MeshSource> m_CachedCombinedSource;
-        std::vector<u8> m_CookedVirtualMeshBlob;         // OVGM cook; attached by CreateCombinedMeshSource
-        std::vector<Ref<Material>> m_Materials;          // Materials corresponding to each mesh
+        TArray<u8> m_CookedVirtualMeshBlob;              // OVGM cook; attached by CreateCombinedMeshSource
+        TArray<Ref<Material>> m_Materials;               // Materials corresponding to each mesh
         std::unordered_map<u32, u32> m_MaterialIndexMap; // Maps Assimp material indices to m_Materials indices
-        std::string m_Directory;
+        FString m_Directory;
         // The model file this Model was loaded from. Used (with the Assimp texture
         // reference) to derive the STABLE cooked filename of an embedded texture, so
         // re-importing the same model reuses the same cooked asset and its handle.
-        std::string m_SourcePath;
+        FString m_SourcePath;
         std::unordered_map<std::string, Ref<Texture2D>> m_LoadedTextures;
         std::optional<TextureOverride> m_TextureOverride;
         bool m_FlipUV = false;

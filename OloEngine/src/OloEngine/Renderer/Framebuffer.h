@@ -2,6 +2,7 @@
 
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Containers/Array.h"
 #include "OloEngine/Core/Ref.h"
 
 #include <glm/glm.hpp>
@@ -53,7 +54,7 @@ namespace OloEngine
         FramebufferAttachmentSpecification(std::initializer_list<FramebufferTextureSpecification> attachments)
             : Attachments(attachments) {}
 
-        std::vector<FramebufferTextureSpecification> Attachments;
+        TArray<FramebufferTextureSpecification> Attachments;
     };
 
     struct FramebufferSpecification

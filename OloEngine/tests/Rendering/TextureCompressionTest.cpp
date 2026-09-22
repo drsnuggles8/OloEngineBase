@@ -29,10 +29,10 @@ namespace
     // Peak signal-to-noise ratio (dB) between two equal-length 8-bit buffers over the
     // given channel count, sampling only `compareChannels` of each `stride`-byte texel.
     // Returns a large finite value when the buffers are identical.
-    double ComputePSNR(const std::vector<u8>& a, const std::vector<u8>& b, u32 stride, u32 compareChannels)
+    double ComputePSNR(const std::vector<u8>& a, const TArray64<u8>& b, u32 stride, u32 compareChannels)
     {
-        EXPECT_EQ(a.size(), b.size());
-        if (a.size() != b.size() || a.empty())
+        EXPECT_EQ(a.size(), b.Num());
+        if (a.size() != b.Num() || a.empty())
             return 0.0;
 
         double mse = 0.0;
@@ -119,10 +119,10 @@ namespace
     }
 
     // Peak-normalized PSNR (dB) over `compareChannels` of each `stride`-float texel.
-    double ComputePSNRFloat(const std::vector<f32>& a, const std::vector<f32>& b, u32 stride, u32 compareChannels, double peak)
+    double ComputePSNRFloat(const std::vector<f32>& a, const TArray64<f32>& b, u32 stride, u32 compareChannels, double peak)
     {
-        EXPECT_EQ(a.size(), b.size());
-        if (a.size() != b.size() || a.empty())
+        EXPECT_EQ(a.size(), b.Num());
+        if (a.size() != b.Num() || a.empty())
             return 0.0;
         double mse = 0.0;
         sizet samples = 0;
@@ -158,7 +158,7 @@ namespace
     [[nodiscard]] bool MipMeanRGB(const CompressedTextureImage& image, u32 mipLevel, double& outMean)
     {
         outMean = 0.0;
-        std::vector<u8> decoded;
+        TArray64<u8> decoded;
         u32 dw = 0;
         u32 dh = 0;
         if (!TextureCompression::DecodeToRGBA8(image, mipLevel, decoded, dw, dh))
@@ -166,7 +166,7 @@ namespace
 
         double sum = 0.0;
         sizet samples = 0;
-        for (sizet texel = 0; texel + 4 <= decoded.size(); texel += 4)
+        for (sizet texel = 0; texel + 4 <= decoded.Num(); texel += 4)
         {
             for (u32 c = 0; c < 3; ++c)
             {
@@ -248,9 +248,9 @@ TEST(TextureCompression, EncodeBC7RoundTripWithinTolerance)
     ASSERT_TRUE(image.IsValid());
     EXPECT_EQ(image.Format, TextureCompressionFormat::BC7);
     EXPECT_EQ(image.MipLevels(), 1u); // generateMips=false
-    EXPECT_EQ(image.Mips[0].size(), TextureCompression::MipByteSize(TextureCompressionFormat::BC7, kW, kH));
+    EXPECT_EQ(image.Mips[0].Num(), TextureCompression::MipByteSize(TextureCompressionFormat::BC7, kW, kH));
 
-    std::vector<u8> decoded;
+    TArray64<u8> decoded;
     u32 dw = 0;
     u32 dh = 0;
     ASSERT_TRUE(TextureCompression::DecodeToRGBA8(image, 0, decoded, dw, dh));
@@ -272,7 +272,7 @@ TEST(TextureCompression, EncodeBC5RoundTripWithinTolerance)
     ASSERT_TRUE(image.IsValid());
     EXPECT_EQ(image.Format, TextureCompressionFormat::BC5);
 
-    std::vector<u8> decoded; // RGBA8: R,G carry the two channels, B=0, A=255
+    TArray64<u8> decoded; // RGBA8: R,G carry the two channels, B=0, A=255
     u32 dw = 0;
     u32 dh = 0;
     ASSERT_TRUE(TextureCompression::DecodeToRGBA8(image, 0, decoded, dw, dh));
@@ -304,7 +304,7 @@ TEST(TextureCompression, GeneratesFullMipChain)
     {
         const u32 mw = std::max(1u, kW >> level);
         const u32 mh = std::max(1u, kH >> level);
-        EXPECT_EQ(image.Mips[level].size(), TextureCompression::MipByteSize(TextureCompressionFormat::BC7, mw, mh))
+        EXPECT_EQ(image.Mips[level].Num(), TextureCompression::MipByteSize(TextureCompressionFormat::BC7, mw, mh))
             << "mip " << level << " byte size mismatch";
     }
 }
@@ -320,13 +320,13 @@ TEST(TextureCompression, HandlesNonMultipleOf4Dimensions)
     EXPECT_EQ(image.Width, kW);
     EXPECT_EQ(image.Height, kH);
 
-    std::vector<u8> decoded;
+    TArray64<u8> decoded;
     u32 dw = 0;
     u32 dh = 0;
     ASSERT_TRUE(TextureCompression::DecodeToRGBA8(image, 0, decoded, dw, dh));
     EXPECT_EQ(dw, kW);
     EXPECT_EQ(dh, kH);
-    EXPECT_EQ(decoded.size(), static_cast<sizet>(kW) * kH * 4);
+    EXPECT_EQ(decoded.Num(), static_cast<sizet>(kW) * kH * 4);
 
     const double psnr = ComputePSNR(source, decoded, 4, 3);
     EXPECT_GT(psnr, 30.0) << "partial-block PSNR too low: " << psnr << " dB";
@@ -389,13 +389,13 @@ TEST(TextureCompression, SRGBMipFilteringLeavesAlphaAlone)
     ASSERT_TRUE(image.IsValid());
     ASSERT_GT(image.MipLevels(), 1u);
 
-    std::vector<u8> decoded;
+    TArray64<u8> decoded;
     u32 dw = 0;
     u32 dh = 0;
     ASSERT_TRUE(TextureCompression::DecodeToRGBA8(image, 1, decoded, dw, dh));
     double sum = 0.0;
     sizet samples = 0;
-    for (sizet texel = 0; texel + 4 <= decoded.size(); texel += 4)
+    for (sizet texel = 0; texel + 4 <= decoded.Num(); texel += 4)
     {
         sum += static_cast<double>(decoded[texel + 3]);
         ++samples;
@@ -575,7 +575,7 @@ TEST(TextureCompression, OfflineCookFromPngProducesLoadableOloTex)
     // The .olotex should be materially smaller than the raw RGBA8 source it came from.
     sizet compressedBytes = 0;
     for (const auto& mip : loaded.Mips)
-        compressedBytes += mip.size();
+        compressedBytes += mip.Num();
     EXPECT_LT(compressedBytes, source.size()) << "compressed size should be below raw RGBA8";
 
     std::error_code ec;
@@ -603,9 +603,9 @@ TEST(TextureCompression, EncodeBC6HRoundTripWithinTolerance)
     EXPECT_FALSE(image.SRGB);
     EXPECT_FALSE(image.HasAlpha);
     EXPECT_EQ(image.MipLevels(), 1u); // generateMips=false
-    EXPECT_EQ(image.Mips[0].size(), TextureCompression::MipByteSize(TextureCompressionFormat::BC6H, kW, kH));
+    EXPECT_EQ(image.Mips[0].Num(), TextureCompression::MipByteSize(TextureCompressionFormat::BC6H, kW, kH));
 
-    std::vector<f32> decoded; // RGBA float: R,G,B and A=1
+    TArray64<f32> decoded; // RGBA float: R,G,B and A=1
     u32 dw = 0;
     u32 dh = 0;
     ASSERT_TRUE(TextureCompression::DecodeToRGBAFloat(image, 0, decoded, dw, dh));
@@ -647,7 +647,7 @@ TEST(TextureCompression, BC6HFlatBlockIsNearLossless)
     const CompressedTextureImage image = TextureCompression::EncodeBC6H(source.data(), kW, kH, 3, /*isSigned*/ false, false);
     ASSERT_TRUE(image.IsValid());
 
-    std::vector<f32> decoded;
+    TArray64<f32> decoded;
     u32 dw = 0;
     u32 dh = 0;
     ASSERT_TRUE(TextureCompression::DecodeToRGBAFloat(image, 0, decoded, dw, dh));
@@ -673,7 +673,7 @@ TEST(TextureCompression, BC6HGeneratesFullMipChain)
     {
         const u32 mw = std::max(1u, kW >> level);
         const u32 mh = std::max(1u, kH >> level);
-        EXPECT_EQ(image.Mips[level].size(), TextureCompression::MipByteSize(TextureCompressionFormat::BC6H, mw, mh))
+        EXPECT_EQ(image.Mips[level].Num(), TextureCompression::MipByteSize(TextureCompressionFormat::BC6H, mw, mh))
             << "mip " << level << " byte size mismatch";
     }
 }
@@ -690,13 +690,13 @@ TEST(TextureCompression, BC6HHandlesNonMultipleOf4Dimensions)
     EXPECT_EQ(image.Width, kW);
     EXPECT_EQ(image.Height, kH);
 
-    std::vector<f32> decoded;
+    TArray64<f32> decoded;
     u32 dw = 0;
     u32 dh = 0;
     ASSERT_TRUE(TextureCompression::DecodeToRGBAFloat(image, 0, decoded, dw, dh));
     EXPECT_EQ(dw, kW);
     EXPECT_EQ(dh, kH);
-    EXPECT_EQ(decoded.size(), static_cast<sizet>(kW) * kH * 4);
+    EXPECT_EQ(decoded.Num(), static_cast<sizet>(kW) * kH * 4);
 }
 
 TEST(TextureCompression, BC6HContainerBlobRoundTripIsBitExact)
@@ -767,8 +767,8 @@ TEST(TextureCompression, SignedBC6HPreservesNegativesThatUnsignedClampsAway)
     ASSERT_TRUE(unsignedImage.IsValid());
     EXPECT_EQ(unsignedImage.Format, TextureCompressionFormat::BC6H);
 
-    std::vector<f32> signedDecoded;
-    std::vector<f32> unsignedDecoded;
+    TArray64<f32> signedDecoded;
+    TArray64<f32> unsignedDecoded;
     u32 dw = 0;
     u32 dh = 0;
     ASSERT_TRUE(TextureCompression::DecodeToRGBAFloat(signedImage, 0, signedDecoded, dw, dh));
@@ -852,7 +852,7 @@ TEST(TextureCompression, SignedBC6HRoundTripsAConstantNegative)
     const CompressedTextureImage image = TextureCompression::EncodeBC6H(negatives.data(), kW, kH, 3, /*isSigned*/ true, false);
     ASSERT_TRUE(image.IsValid());
 
-    std::vector<f32> decoded;
+    TArray64<f32> decoded;
     u32 dw = 0;
     u32 dh = 0;
     ASSERT_TRUE(TextureCompression::DecodeToRGBAFloat(image, 0, decoded, dw, dh));
@@ -870,7 +870,7 @@ TEST(TextureCompression, DecodeToRGBA8RejectsBC6H)
     const CompressedTextureImage image = TextureCompression::EncodeBC6H(source.data(), kW, kH, 3, /*isSigned*/ false, false);
     ASSERT_TRUE(image.IsValid());
 
-    std::vector<u8> rgba8;
+    TArray64<u8> rgba8;
     u32 dw = 0;
     u32 dh = 0;
     EXPECT_FALSE(TextureCompression::DecodeToRGBA8(image, 0, rgba8, dw, dh));
@@ -942,7 +942,7 @@ TEST(TextureCompression, CompressImageFileProducesInMemoryChain)
     EXPECT_EQ(image.Height, kH);
     EXPECT_GT(image.MipLevels(), 1u);
 
-    std::vector<u8> decoded;
+    TArray64<u8> decoded;
     u32 dw = 0;
     u32 dh = 0;
     ASSERT_TRUE(TextureCompression::DecodeToRGBA8(image, 0, decoded, dw, dh));

@@ -6,6 +6,8 @@
 #include <cstring>
 #include <functional>
 #include <string>
+#include <string_view>
+#include <span>
 
 namespace OloEngine
 {
@@ -28,9 +30,9 @@ namespace OloEngine
             return static_cast<u64>(bits);
         }
 
-        [[nodiscard]] u64 HashString(const std::string& text)
+        [[nodiscard]] u64 HashString(std::string_view text)
         {
-            return static_cast<u64>(std::hash<std::string>{}(text));
+            return static_cast<u64>(std::hash<std::string_view>{}(text));
         }
 
         // Everything about a plant that is not its identity, by bit pattern
@@ -51,7 +53,7 @@ namespace OloEngine
 
     } // namespace
 
-    void FoliageInstanceRegistry::BeginGeneration(const std::vector<FoliageLayer>& layers)
+    void FoliageInstanceRegistry::BeginGeneration(const TArray<FoliageLayer>& layers)
     {
         OLO_PROFILE_FUNCTION();
         OLO_CORE_ASSERT(!m_Generating, "FoliageInstanceRegistry: BeginGeneration without EndGeneration");
@@ -62,12 +64,12 @@ namespace OloEngine
 
         // Ordinals over the WHOLE list, so a skipped layer cannot shift a
         // sibling with the same name onto a different stable key.
-        m_OrdinalByLayerIndex.assign(layers.size(), 0);
+        m_OrdinalByLayerIndex.Init(0, layers.Num());
         {
             std::unordered_map<std::string, u32> seen;
-            for (sizet i = 0; i < layers.size(); ++i)
+            for (sizet i = 0; i < layers.Num(); ++i)
             {
-                m_OrdinalByLayerIndex[i] = seen[layers[i].Name]++;
+                m_OrdinalByLayerIndex[i] = seen[layers[i].Name.ToStdString()]++;
             }
         }
 
@@ -75,23 +77,23 @@ namespace OloEngine
         // grew one dead descriptor per keystroke while a mesh or albedo path
         // was being typed in the inspector, and every generation scanned the
         // whole thing linearly.
-        m_Materials.clear();
+        m_Materials.Reset();
 
         // Everything live becomes a candidate for survival. Whatever is still
         // here at EndGeneration was not re-emitted, and retires.
         m_Previous.clear();
-        m_Previous.reserve(m_Records.size());
+        m_Previous.reserve(m_Records.Num());
         for (const auto& record : m_Records)
         {
             m_Previous.emplace(record.m_Key, PreviousRecord{ record.m_Id, record.m_StateHash });
         }
 
-        m_Records.clear();
+        m_Records.Reset();
         m_ById.clear();
         m_ByPlacement.clear();
-        m_BufferRows.clear();
-        m_LastDelta.m_Added.clear();
-        m_LastDelta.m_Retired.clear();
+        m_BufferRows.Reset();
+        m_LastDelta.m_Added.Reset();
+        m_LastDelta.m_Retired.Reset();
         m_LastDelta.m_Survived = 0;
         m_LastDelta.m_Updated = 0;
     }
@@ -99,9 +101,9 @@ namespace OloEngine
     u32 FoliageInstanceRegistry::AcquireLayerKey(const std::string& name, u32 nameOrdinal)
     {
         auto& keys = m_LayerKeysByName[name];
-        while (keys.size() <= nameOrdinal)
+        while (keys.Num() <= nameOrdinal)
         {
-            keys.push_back(m_NextLayerKey++);
+            keys.Add(m_NextLayerKey++);
         }
         return keys[nameOrdinal];
     }
@@ -115,7 +117,7 @@ namespace OloEngine
         desc.m_Roughness = layer.Roughness;
         desc.m_AlphaCutoff = layer.AlphaCutoff;
 
-        for (sizet i = 0; i < m_Materials.size(); ++i)
+        for (sizet i = 0; i < m_Materials.Num(); ++i)
         {
             if (m_Materials[i] == desc)
             {
@@ -123,8 +125,8 @@ namespace OloEngine
             }
         }
 
-        m_Materials.push_back(std::move(desc));
-        return static_cast<FoliageMaterialKey>(m_Materials.size() - 1);
+        m_Materials.Add(std::move(desc));
+        return static_cast<FoliageMaterialKey>(m_Materials.Num() - 1);
     }
 
     void FoliageInstanceRegistry::BeginLayer(u32 layerIndex, const FoliageLayer& layer,
@@ -144,8 +146,8 @@ namespace OloEngine
         // every generation, so an index can move while the material did not.
         {
             u64 h = 0xA5A5F00DC0FFEE11ull;
-            HashCombine(h, HashString(layer.MeshPath));
-            HashCombine(h, HashString(layer.AlbedoPath));
+            HashCombine(h, HashString(layer.MeshPath.ToView()));
+            HashCombine(h, HashString(layer.AlbedoPath.ToView()));
             HashCombine(h, FloatBits(layer.BaseColor.r));
             HashCombine(h, FloatBits(layer.BaseColor.g));
             HashCombine(h, FloatBits(layer.BaseColor.b));
@@ -176,7 +178,7 @@ namespace OloEngine
             m_CurrentMaterialHash = h;
         }
 
-        const u32 ordinal = layerIndex < m_OrdinalByLayerIndex.size() ? m_OrdinalByLayerIndex[layerIndex] : 0;
+        const u32 ordinal = layerIndex < m_OrdinalByLayerIndex.Num() ? m_OrdinalByLayerIndex[layerIndex] : 0;
 
         // The placement signature covers exactly the inputs that map a grid
         // cell to a position: the generator seed, the grid spacing and the
@@ -201,7 +203,7 @@ namespace OloEngine
         HashCombine(signature, layer.DecorrelatedVariation ? 1ull : 0ull);
 
         m_CurrentKeyPrototype = FoliagePlacementKey{
-            .m_LayerKey = AcquireLayerKey(layer.Name, ordinal),
+            .m_LayerKey = AcquireLayerKey(layer.Name.ToStdString(), ordinal),
             .m_PlacementSignature = signature,
             .m_CellX = 0,
             .m_CellZ = 0,
@@ -212,9 +214,9 @@ namespace OloEngine
             ++m_PendingUnsupportedVariants;
         }
 
-        if (m_BufferRows.size() <= layerIndex)
+        if (m_BufferRows.Num() <= layerIndex)
         {
-            m_BufferRows.resize(static_cast<sizet>(layerIndex) + 1);
+            m_BufferRows.SetNum(static_cast<sizet>(layerIndex) + 1, EAllowShrinking::No);
         }
     }
 
@@ -258,17 +260,18 @@ namespace OloEngine
         else
         {
             record.m_Id = m_NextId++;
-            m_LastDelta.m_Added.push_back(record.m_Id);
+            m_LastDelta.m_Added.Add(record.m_Id);
         }
 
         auto& rows = m_BufferRows[m_CurrentLayerIndex];
-        if (rows.size() <= bufferIndex)
+        if (rows.Num() <= bufferIndex)
         {
-            rows.resize(static_cast<sizet>(bufferIndex) + 1, kInvalidFoliageInstanceId);
+            while (rows.Num() <= static_cast<i32>(bufferIndex))
+                rows.Add(kInvalidFoliageInstanceId);
         }
         rows[bufferIndex] = record.m_Id;
 
-        m_Records.push_back(record);
+        m_Records.Add(record);
     }
 
     void FoliageInstanceRegistry::EndLayer()
@@ -285,21 +288,21 @@ namespace OloEngine
 
         // Whatever was not re-emitted is gone. Ids are monotonic, so these can
         // never be handed out again — retirement is permanent by construction.
-        m_LastDelta.m_Retired.reserve(m_Previous.size());
+        m_LastDelta.m_Retired.Reserve(m_Previous.size());
         for (const auto& [key, previous] : m_Previous)
         {
-            m_LastDelta.m_Retired.push_back(previous.m_Id);
+            m_LastDelta.m_Retired.Add(previous.m_Id);
         }
         m_Previous.clear();
 
         // Deterministic order so a delta is comparable run to run; the hash
         // map's iteration order is not.
-        std::ranges::sort(m_LastDelta.m_Retired);
-        std::ranges::sort(m_LastDelta.m_Added);
+        std::ranges::sort(std::span(m_LastDelta.m_Retired.GetData(), static_cast<sizet>(m_LastDelta.m_Retired.Num())));
+        std::ranges::sort(std::span(m_LastDelta.m_Added.GetData(), static_cast<sizet>(m_LastDelta.m_Added.Num())));
 
-        m_ById.reserve(m_Records.size());
-        m_ByPlacement.reserve(m_Records.size());
-        for (u32 i = 0; i < static_cast<u32>(m_Records.size()); ++i)
+        m_ById.reserve(m_Records.Num());
+        m_ByPlacement.reserve(m_Records.Num());
+        for (u32 i = 0; i < static_cast<u32>(m_Records.Num()); ++i)
         {
             const auto& record = m_Records[i];
             [[maybe_unused]] const auto idInserted = m_ById.emplace(record.m_Id, i).second;
@@ -311,7 +314,7 @@ namespace OloEngine
         RebuildGroups();
 
         m_Census = FoliageCensus{};
-        m_Census.m_CanonicalInstances = static_cast<u32>(m_Records.size());
+        m_Census.m_CanonicalInstances = static_cast<u32>(m_Records.Num());
         for (const auto& record : m_Records)
         {
             switch (record.m_Representation)
@@ -333,9 +336,9 @@ namespace OloEngine
             }
         }
         m_Census.m_UnsupportedVariants = m_PendingUnsupportedVariants;
-        m_Census.m_SpatialGroups = static_cast<u32>(m_Groups.size());
+        m_Census.m_SpatialGroups = static_cast<u32>(m_Groups.Num());
 
-        if (!m_LastDelta.m_Added.empty() || !m_LastDelta.m_Retired.empty() || m_LastDelta.m_Updated > 0)
+        if (!m_LastDelta.m_Added.IsEmpty() || !m_LastDelta.m_Retired.IsEmpty() || m_LastDelta.m_Updated > 0)
         {
             ++m_Generation;
         }
@@ -347,10 +350,10 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        m_Groups.clear();
+        m_Groups.Reset();
 
         std::unordered_map<GroupKey, u32, GroupKeyHash> groupLookup;
-        groupLookup.reserve(m_Records.size() / 8 + 1);
+        groupLookup.reserve(m_Records.Num() / 8 + 1);
 
         for (auto& record : m_Records)
         {
@@ -366,8 +369,8 @@ namespace OloEngine
                 group.m_LayerIndex = record.m_LayerIndex;
                 group.m_Cell = glm::ivec2(cellX, cellZ);
                 group.m_LocalBounds = record.m_LocalBounds;
-                m_Groups.push_back(std::move(group));
-                it = groupLookup.emplace(key, static_cast<u32>(m_Groups.size() - 1)).first;
+                m_Groups.Add(std::move(group));
+                it = groupLookup.emplace(key, static_cast<u32>(m_Groups.Num() - 1)).first;
             }
             else
             {
@@ -375,7 +378,7 @@ namespace OloEngine
             }
 
             auto& group = m_Groups[it->second];
-            group.m_Instances.push_back(record.m_Id);
+            group.m_Instances.Add(record.m_Id);
             if (record.m_Representation == FoliageRepresentation::Unsupported)
             {
                 ++group.m_UnsupportedCount;
@@ -393,7 +396,7 @@ namespace OloEngine
         // every frame to get a stable grouping.
         for (auto& group : m_Groups)
         {
-            std::sort(group.m_Instances.begin(), group.m_Instances.end());
+            std::sort(group.m_Instances.GetData(), group.m_Instances.GetData() + group.m_Instances.Num());
         }
 
         RecomputeWorldBounds();
@@ -414,27 +417,27 @@ namespace OloEngine
         // census is part of what must already be empty — returning before
         // resetting it left a switched-off system still reporting unsupported
         // variants it no longer has.
-        if (m_Records.empty() && m_Groups.empty() && !m_Generating && m_Census == FoliageCensus{})
+        if (m_Records.IsEmpty() && m_Groups.IsEmpty() && !m_Generating && m_Census == FoliageCensus{})
         {
             return;
         }
 
-        m_Records.clear();
+        m_Records.Reset();
         m_ById.clear();
         m_ByPlacement.clear();
-        m_Groups.clear();
-        m_BufferRows.clear();
+        m_Groups.Reset();
+        m_BufferRows.Reset();
         m_Previous.clear();
         m_Generating = false;
         m_InLayer = false;
 
-        m_LastDelta.m_Added.clear();
-        m_LastDelta.m_Retired.clear();
+        m_LastDelta.m_Added.Reset();
+        m_LastDelta.m_Retired.Reset();
         m_LastDelta.m_Survived = 0;
         m_LastDelta.m_Updated = 0;
         m_Census = FoliageCensus{};
-        m_Materials.clear();
-        m_OrdinalByLayerIndex.clear();
+        m_Materials.Reset();
+        m_OrdinalByLayerIndex.Reset();
 
         // m_NextId and m_NextLayerKey deliberately NOT reset: an id this
         // registry once issued must never name a different plant, even after a
@@ -470,29 +473,29 @@ namespace OloEngine
 
     FoliageInstanceId FoliageInstanceRegistry::GetIdForBufferRow(u32 layerIndex, u32 row) const
     {
-        if (layerIndex >= m_BufferRows.size())
+        if (layerIndex >= m_BufferRows.Num())
         {
             return kInvalidFoliageInstanceId;
         }
         const auto& rows = m_BufferRows[layerIndex];
-        return row < rows.size() ? rows[row] : kInvalidFoliageInstanceId;
+        return row < rows.Num() ? rows[row] : kInvalidFoliageInstanceId;
     }
 
     const FoliageMaterialDesc* FoliageInstanceRegistry::GetMaterial(FoliageMaterialKey key) const
     {
-        return key < m_Materials.size() ? &m_Materials[key] : nullptr;
+        return key < m_Materials.Num() ? &m_Materials[key] : nullptr;
     }
 
-    std::vector<u32> FoliageInstanceRegistry::FindGroupsInWorldBounds(const BoundingBox& query) const
+    TArray<u32> FoliageInstanceRegistry::FindGroupsInWorldBounds(const BoundingBox& query) const
     {
-        std::vector<u32> result;
-        for (u32 i = 0; i < static_cast<u32>(m_Groups.size()); ++i)
+        TArray<u32> result;
+        for (u32 i = 0; i < static_cast<u32>(m_Groups.Num()); ++i)
         {
             const auto& bounds = m_Groups[i].m_WorldBounds;
             const bool disjoint = bounds.Max.x < query.Min.x || bounds.Min.x > query.Max.x || bounds.Max.y < query.Min.y || bounds.Min.y > query.Max.y || bounds.Max.z < query.Min.z || bounds.Min.z > query.Max.z;
             if (!disjoint)
             {
-                result.push_back(i);
+                result.Add(i);
             }
         }
         return result;

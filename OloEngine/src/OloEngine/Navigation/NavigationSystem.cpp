@@ -6,6 +6,7 @@
 #include "OloEngine/Scene/Components.h"
 
 #include <glm/glm.hpp>
+#include <vector>
 
 namespace OloEngine
 {
@@ -110,8 +111,12 @@ namespace OloEngine
             // BTMoveTo) spin forever. The unreachable flag is the terminal signal.
             if (!agent.m_HasPath && agent.m_HasTarget && !agent.m_TargetUnreachable)
             {
+                // NavMeshQuery exposes a std::vector output; the component owns native storage.
+                std::vector<glm::vec3> pathCorners;
                 const FindPathResult result =
-                    navQuery->FindPath(transform.Translation, agent.m_TargetPosition, agent.m_PathCorners);
+                    navQuery->FindPath(transform.Translation, agent.m_TargetPosition, pathCorners);
+                agent.m_PathCorners.Reset();
+                agent.m_PathCorners.Append(pathCorners.data(), static_cast<i32>(pathCorners.size()));
                 agent.m_CurrentCornerIndex = 0;
 
                 if (result == FindPathResult::Failed)
@@ -131,7 +136,7 @@ namespace OloEngine
                 }
             }
 
-            if (!agent.m_HasPath || agent.m_PathCorners.empty())
+            if (!agent.m_HasPath || agent.m_PathCorners.IsEmpty())
                 continue;
 
             // Move toward current corner (full 3D, or XZ-only when LockYAxis)
@@ -145,10 +150,10 @@ namespace OloEngine
             if (dist < std::max(agent.m_StoppingDistance, EPSILON))
             {
                 ++agent.m_CurrentCornerIndex;
-                if (agent.m_CurrentCornerIndex >= static_cast<u32>(agent.m_PathCorners.size()))
+                if (agent.m_CurrentCornerIndex >= static_cast<u32>(agent.m_PathCorners.Num()))
                 {
                     agent.m_HasPath = false;
-                    agent.m_PathCorners.clear();
+                    agent.m_PathCorners.Reset();
                     agent.m_CurrentCornerIndex = 0;
                     // Only clear the target when we actually reached it. For a partial
                     // path we've walked to the nearest reachable point but the target is

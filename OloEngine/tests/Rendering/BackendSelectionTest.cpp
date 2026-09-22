@@ -67,7 +67,7 @@ namespace
         const BackendSelection selection = Select<1>({ "app.exe" });
         EXPECT_EQ(selection.Api, RendererAPI::API::OpenGL);
         EXPECT_EQ(selection.Source, "default");
-        EXPECT_TRUE(selection.Diagnostic.empty());
+        EXPECT_TRUE(selection.Diagnostic.IsEmpty());
     }
 
     TEST(BackendSelection, FlagSelectsOpenGLExplicitly)
@@ -75,14 +75,14 @@ namespace
         const BackendSelection selection = Select<2>({ "app.exe", "--rhi=opengl" });
         EXPECT_EQ(selection.Api, RendererAPI::API::OpenGL);
         EXPECT_EQ(selection.Source, "--rhi flag");
-        EXPECT_TRUE(selection.Diagnostic.empty());
+        EXPECT_TRUE(selection.Diagnostic.IsEmpty());
     }
 
     TEST(BackendSelection, FlagIsCaseInsensitive)
     {
         const BackendSelection selection = Select<2>({ "app.exe", "--rhi=OpenGL" });
         EXPECT_EQ(selection.Api, RendererAPI::API::OpenGL);
-        EXPECT_TRUE(selection.Diagnostic.empty());
+        EXPECT_TRUE(selection.Diagnostic.IsEmpty());
     }
 
     TEST(BackendSelection, VulkanRequestHonouredOrLoudlyDegraded)
@@ -90,12 +90,12 @@ namespace
         const BackendSelection selection = Select<2>({ "app.exe", "--rhi=vulkan" });
 #if OLO_WITH_VULKAN
         EXPECT_EQ(selection.Api, RendererAPI::API::Vulkan);
-        EXPECT_TRUE(selection.Diagnostic.empty());
+        EXPECT_TRUE(selection.Diagnostic.IsEmpty());
 #else
         // Not compiled in: degrade to GL, but NEVER silently — the diagnostic is
         // what Application logs at error level.
         EXPECT_EQ(selection.Api, RendererAPI::API::OpenGL);
-        EXPECT_FALSE(selection.Diagnostic.empty());
+        EXPECT_FALSE(selection.Diagnostic.IsEmpty());
 #endif
         EXPECT_EQ(selection.Source, "--rhi flag");
     }
@@ -104,7 +104,7 @@ namespace
     {
         const BackendSelection selection = Select<2>({ "app.exe", "--rhi=metal" });
         EXPECT_EQ(selection.Api, RendererAPI::API::OpenGL);
-        EXPECT_FALSE(selection.Diagnostic.empty());
+        EXPECT_FALSE(selection.Diagnostic.IsEmpty());
     }
 
     TEST(BackendSelection, ConfigFileSuppliesTheFallback)
@@ -116,7 +116,7 @@ namespace
         EXPECT_EQ(selection.Source, "config file");
 #else
         EXPECT_EQ(selection.Api, RendererAPI::API::OpenGL);
-        EXPECT_FALSE(selection.Diagnostic.empty());
+        EXPECT_FALSE(selection.Diagnostic.IsEmpty());
 #endif
     }
 
@@ -131,7 +131,7 @@ namespace
         const BackendSelection selection = Select<1>({ "app.exe" }, config.Path());
         EXPECT_EQ(selection.Api, RendererAPI::API::OpenGL);
         EXPECT_EQ(selection.Source, "config file");
-        EXPECT_FALSE(selection.Diagnostic.empty());
+        EXPECT_FALSE(selection.Diagnostic.IsEmpty());
     }
 
     TEST(BackendSelection, FlagWinsOverConfigFile)
@@ -140,7 +140,7 @@ namespace
         const BackendSelection selection = Select<2>({ "app.exe", "--rhi=opengl" }, config.Path());
         EXPECT_EQ(selection.Api, RendererAPI::API::OpenGL);
         EXPECT_EQ(selection.Source, "--rhi flag");
-        EXPECT_TRUE(selection.Diagnostic.empty());
+        EXPECT_TRUE(selection.Diagnostic.IsEmpty());
     }
 
     TEST(BackendSelection, MalformedConfigFallsBackToDefaultSilently)
@@ -149,7 +149,7 @@ namespace
         const BackendSelection selection = Select<1>({ "app.exe" }, config.Path());
         EXPECT_EQ(selection.Api, RendererAPI::API::OpenGL);
         EXPECT_EQ(selection.Source, "default");
-        EXPECT_TRUE(selection.Diagnostic.empty());
+        EXPECT_TRUE(selection.Diagnostic.IsEmpty());
     }
 
     TEST(BackendSelection, AbsentConfigFileIsSilent)
@@ -158,7 +158,7 @@ namespace
             Select<1>({ "app.exe" }, std::filesystem::path("definitely") / "not" / "here.yaml");
         EXPECT_EQ(selection.Api, RendererAPI::API::OpenGL);
         EXPECT_EQ(selection.Source, "default");
-        EXPECT_TRUE(selection.Diagnostic.empty());
+        EXPECT_TRUE(selection.Diagnostic.IsEmpty());
     }
 
     // #691: the writer and the parser share one schema owner. This is
@@ -171,10 +171,10 @@ namespace
         const BackendSelection vulkan = Select<1>({ "app.exe" }, path);
 #if OLO_WITH_VULKAN
         EXPECT_EQ(vulkan.Api, RendererAPI::API::Vulkan);
-        EXPECT_TRUE(vulkan.Diagnostic.empty());
+        EXPECT_TRUE(vulkan.Diagnostic.IsEmpty());
 #else
         EXPECT_EQ(vulkan.Api, RendererAPI::API::OpenGL);
-        EXPECT_FALSE(vulkan.Diagnostic.empty());
+        EXPECT_FALSE(vulkan.Diagnostic.IsEmpty());
 #endif
         EXPECT_EQ(vulkan.Source, "config file");
 
@@ -182,7 +182,7 @@ namespace
         const BackendSelection opengl = Select<1>({ "app.exe" }, path);
         EXPECT_EQ(opengl.Api, RendererAPI::API::OpenGL);
         EXPECT_EQ(opengl.Source, "config file");
-        EXPECT_TRUE(opengl.Diagnostic.empty());
+        EXPECT_TRUE(opengl.Diagnostic.IsEmpty());
 
         std::error_code ec;
         std::filesystem::remove(path, ec);

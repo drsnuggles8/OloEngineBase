@@ -44,6 +44,19 @@ namespace OloEngine
         }
     };
 
+    // Texture refs own external objects; the atlas budget is an integer identity.
+    template<>
+    struct TIsTriviallyRelocatable<ImpostorAtlas>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(ImpostorAtlas::Albedo)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ImpostorAtlas::NormalDepth)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ImpostorAtlas::FramesPerAxis)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ImpostorAtlas::Hemi)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ImpostorAtlas::Radius)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ImpostorAtlas::Center)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ImpostorAtlas::BudgetNode)>::Value;
+    };
+
     // Bakes a mesh into an octahedral impostor atlas by rendering it from N*N
     // view angles with an orthographic camera per tile. Requires a live GL 4.6
     // context (call from the render thread). Modelled on IBLPrecompute /

@@ -603,13 +603,13 @@ namespace OloEngine::Tests
             RenderGraph::SubmissionCommand signal;
             signal.CommandKind = RenderGraph::SubmissionCommand::Kind::FenceSignal;
             signal.Lane = RenderGraph::QueueLane::Graphics;
-            signal.FenceEdges.push_back(edge);
+            signal.FenceEdges.Add(edge);
             plan.push_back(std::move(signal));
 
             RenderGraph::SubmissionCommand wait;
             wait.CommandKind = RenderGraph::SubmissionCommand::Kind::FenceWait;
             wait.Lane = RenderGraph::QueueLane::Compute;
-            wait.FenceEdges.push_back(std::move(edge));
+            wait.FenceEdges.Add(std::move(edge));
             plan.push_back(std::move(wait));
         }
 
@@ -622,7 +622,7 @@ namespace OloEngine::Tests
                 .SubmissionPlan = plan,
                 .Context = context,
                 .RuntimeBarrierExecutionEnabled = false,
-                .IsPassReachable = [](const std::string&)
+                .IsPassReachable = [](std::string_view)
                 { return true; },
                 .SupportsFenceSubmission = []()
                 { return true; },
@@ -631,7 +631,7 @@ namespace OloEngine::Tests
                 .CreateGpuFence = []() -> Ref<RHI::GpuFence>
                 { return Ref<PerfGpuFence>::Create(); },
             });
-            return timings.size();
+            return timings.Num();
         };
 
         const auto measure = [&]() -> u64
@@ -1787,13 +1787,12 @@ namespace OloEngine::Tests
         // -1.0 for "no entry" AND for "the entry carries no measurement"
         // (#1337): an unmeasured bracket must not enter the statistics as a
         // 0.0 ms one, which would drag every minimum to zero.
-        const auto bracketMs = [](const std::vector<GPUPassTimerPool::PassTiming>& timings,
+        const auto bracketMs = [](const TArray<GPUPassTimerPool::PassTiming>& timings,
                                   std::string_view suffix) -> f64
         {
             for (const auto& timing : timings)
             {
-                if (timing.Name.size() >= suffix.size() &&
-                    std::string_view(timing.Name).substr(timing.Name.size() - suffix.size()) == suffix)
+                if (timing.Name.ToView().ends_with(suffix))
                     return timing.IsValid() ? timing.Sample.GpuMs : -1.0;
             }
             return -1.0;
@@ -2480,7 +2479,7 @@ namespace OloEngine::Tests
                 pines.WindBranchWeight = 0.7f;
                 pines.WindLeafWeight = 0.8f;
                 pines.BaseColor = glm::vec3(0.18f, 0.42f, 0.14f);
-                foliage.m_Layers.push_back(pines);
+                foliage.m_Layers.Add(pines);
                 foliage.m_NeedsRebuild = true;
             }
         }

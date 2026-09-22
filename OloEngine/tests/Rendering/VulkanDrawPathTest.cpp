@@ -305,8 +305,8 @@ TEST_F(VulkanDrawPath, FacadeDrawRendersTintedTextureThroughRootData)
     texSpec.GenerateMips = false;
     auto texture = Texture2D::Create(texSpec);
     ASSERT_NE(texture, nullptr);
-    std::vector<u8> white(4 * 4 * 4, 0xFF);
-    texture->SetData(white.data(), static_cast<u32>(white.size()));
+    TArray64<u8> white(4 * 4 * 4, 0xFF);
+    texture->SetData(white.GetData(), static_cast<u32>(white.Num()));
 
     auto tintUbo = UniformBuffer::Create(16, 3);
     const f32 green[4] = { 0.0f, 1.0f, 0.0f, 1.0f };
@@ -357,13 +357,13 @@ TEST_F(VulkanDrawPath, FacadeDrawRendersTintedTextureThroughRootData)
     auto* vkFramebuffer = static_cast<VulkanFramebuffer*>(framebuffer.Raw());
     const auto attachment = vkFramebuffer->GetColorAttachmentImage(0);
     ASSERT_NE(attachment, nullptr);
-    std::vector<u8> pixels;
+    TArray64<u8> pixels;
     ASSERT_TRUE(attachment->GetData(pixels, 0));
-    ASSERT_EQ(pixels.size(), sizet{ 64 * 64 * 4 });
+    ASSERT_EQ(pixels.Num(), sizet{ 64 * 64 * 4 });
 
     // Fullscreen triangle x white texel x green tint: every pixel pure green.
     u32 wrongPixels = 0;
-    for (sizet i = 0; i < pixels.size(); i += 4)
+    for (sizet i = 0; i < pixels.Num(); i += 4)
     {
         const bool green = pixels[i + 0] == 0x00 && pixels[i + 1] == 0xFF && pixels[i + 2] == 0x00 &&
                            pixels[i + 3] == 0xFF;
@@ -454,8 +454,8 @@ TEST_F(VulkanDrawPath, EngineHeapServesShaderReachableSlotsAndPoisonsFreedOnes)
     texSpec.GenerateMips = false;
     auto texture = Texture2D::Create(texSpec);
     ASSERT_NE(texture, nullptr);
-    std::vector<u8> white(4 * 4 * 4, 0xFF);
-    texture->SetData(white.data(), static_cast<u32>(white.size()));
+    TArray64<u8> white(4 * 4 * 4, 0xFF);
+    texture->SetData(white.GetData(), static_cast<u32>(white.Num()));
 
     auto tintUbo = UniformBuffer::Create(16, 3);
     const f32 green[4] = { 0.0f, 1.0f, 0.0f, 1.0f };
@@ -519,7 +519,7 @@ TEST_F(VulkanDrawPath, EngineHeapServesShaderReachableSlotsAndPoisonsFreedOnes)
     // Live view: white texel x green tint = green everywhere.
     drawWithSlot(offset.Value, RHI::Access::Undefined);
     auto* vkFramebuffer = static_cast<VulkanFramebuffer*>(framebuffer.Raw());
-    std::vector<u8> pixels;
+    TArray64<u8> pixels;
     ASSERT_TRUE(vkFramebuffer->GetColorAttachmentImage(0)->GetData(pixels, 0));
     EXPECT_EQ(pixels[1], 0xFFu) << "live engine-heap slot must sample the white texture (green output)";
     EXPECT_EQ(pixels[0], 0x00u);
@@ -536,7 +536,7 @@ TEST_F(VulkanDrawPath, EngineHeapServesShaderReachableSlotsAndPoisonsFreedOnes)
     engineHeap.Flush(); // publish the poison write
 
     drawWithSlot(offset.Value, RHI::Access::ShaderSampleRead);
-    std::vector<u8> poisoned;
+    TArray64<u8> poisoned;
     ASSERT_TRUE(vkFramebuffer->GetColorAttachmentImage(0)->GetData(poisoned, 0));
     EXPECT_EQ(poisoned[1], 0x00u) << "a freed slot must sample zeros (poison), not the dead texture";
     EXPECT_EQ(poisoned[3], 0x00u) << "null-descriptor alpha reads zero too";
@@ -657,11 +657,11 @@ void main()
 
     EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u) << "the dispatch path must not fall through to a stub";
 
-    std::vector<u8> pixels;
+    TArray64<u8> pixels;
     ASSERT_TRUE(sampledCopy->GetData(pixels, 0));
-    ASSERT_EQ(pixels.size(), sizet{ 16 * 16 * 4 });
+    ASSERT_EQ(pixels.Num(), sizet{ 16 * 16 * 4 });
     u32 wrongPixels = 0;
-    for (sizet i = 0; i < pixels.size(); i += 4)
+    for (sizet i = 0; i < pixels.Num(); i += 4)
     {
         const bool magentaPixel = pixels[i + 0] == 0xFF && pixels[i + 1] == 0x00 && pixels[i + 2] == 0xFF &&
                                   pixels[i + 3] == 0xFF;
@@ -872,10 +872,10 @@ void main()
     EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u);
     EXPECT_EQ(api.GetGpuWrittenRootDrawsThisRecording(), 1u)
         << "the indirect draw must consume the compute-written root buffer, not the CPU root fallback";
-    std::vector<u8> pixels;
+    TArray64<u8> pixels;
     ASSERT_TRUE(static_cast<VulkanFramebuffer*>(framebuffer.Raw())->GetColorAttachmentImage(0)->GetData(pixels, 0));
-    ASSERT_EQ(pixels.size(), sizet{ 32 * 32 * 4 });
-    for (sizet i = 0; i < pixels.size(); i += 4)
+    ASSERT_EQ(pixels.Num(), sizet{ 32 * 32 * 4 });
+    for (sizet i = 0; i < pixels.Num(); i += 4)
     {
         EXPECT_EQ(pixels[i + 0], 0x00u);
         EXPECT_EQ(pixels[i + 1], 0xFFu);
@@ -1048,8 +1048,8 @@ void main()
         const auto attachment = vkFramebuffer->GetColorAttachmentImage(attachmentIndex);
         if (attachment == nullptr)
             return false;
-        std::vector<u8> pixels;
-        if (!attachment->GetData(pixels, 0) || pixels.size() != sizet{ kSize } * kSize * 4)
+        TArray64<u8> pixels;
+        if (!attachment->GetData(pixels, 0) || pixels.Num() != sizet{ kSize } * kSize * 4)
             return false;
         const sizet offset = ((sizet{ kSize } / 2) * kSize + kSize / 2) * 4;
         out = { pixels[offset + 0], pixels[offset + 1], pixels[offset + 2], pixels[offset + 3] };
@@ -1267,8 +1267,8 @@ void main()
         const auto attachment = vkFramebuffer->GetColorAttachmentImage(attachmentIndex);
         if (attachment == nullptr)
             return false;
-        std::vector<u8> pixels;
-        if (!attachment->GetData(pixels, 0) || pixels.size() != sizet{ kSize } * kSize * 4)
+        TArray64<u8> pixels;
+        if (!attachment->GetData(pixels, 0) || pixels.Num() != sizet{ kSize } * kSize * 4)
             return false;
         const sizet offset = ((sizet{ kSize } / 2) * kSize + kSize / 2) * 4;
         out = { pixels[offset + 0], pixels[offset + 1], pixels[offset + 2], pixels[offset + 3] };
@@ -1915,9 +1915,9 @@ void main()
     auto* vkFramebuffer = static_cast<VulkanFramebuffer*>(framebuffer.Raw());
     const auto attachment = vkFramebuffer->GetColorAttachmentImage(0);
     ASSERT_NE(attachment, nullptr);
-    std::vector<u8> pixels;
+    TArray64<u8> pixels;
     ASSERT_TRUE(attachment->GetData(pixels, 0));
-    ASSERT_EQ(pixels.size(), sizet{ 32 * 32 * 4 });
+    ASSERT_EQ(pixels.Num(), sizet{ 32 * 32 * 4 });
     EXPECT_EQ(pixels[0], 0x00);
     EXPECT_EQ(pixels[1], 0xFF) << "the indexed draws must have covered the target, not left the red clear";
     EXPECT_EQ(pixels[2], 0x00);
@@ -2108,7 +2108,7 @@ void main() {
         material.HeapOffsets[2] = { nullTexture.Value, nullTexture.Value, nullTexture.Value, sampler.Value };
         return material;
     };
-    using Images = std::array<std::vector<u8>, 6>;
+    using Images = std::array<TArray64<u8>, 6>;
     const auto capture = [&](bool merged, u32 phase, u32 invalidMode, Images& images, bool fallbackOnly = false)
     {
         culler->BeginFrame();
@@ -2199,10 +2199,10 @@ void main() {
         EXPECT_EQ(stale[attachment], fallbackReference[attachment]) << "stale MRT " << attachment;
         EXPECT_EQ(outOfRange[attachment], fallbackReference[attachment]) << "out-of-range MRT " << attachment;
     }
-    const auto pixel = [](const std::vector<u8>& rgba, u32 x)
+    const auto pixel = [](const TArray64<u8>& rgba, u32 x)
     {
         const sizet offset = (kSize / 2u * kSize + x) * 4u;
-        return std::array<u8, 3>{ rgba.at(offset), rgba.at(offset + 1u), rgba.at(offset + 2u) };
+        return std::array<u8, 3>{ rgba[offset], rgba[offset + 1u], rgba[offset + 2u] };
     };
     EXPECT_EQ(pixel(merged[0], kSize / 4u), (std::array<u8, 3>{ 255, 0, 0 }));
     EXPECT_EQ(pixel(merged[0], kSize * 3u / 4u), (std::array<u8, 3>{ 0, 255, 0 }));
@@ -2214,7 +2214,7 @@ void main() {
              { { "reference", &reference }, { "merged", &merged }, { "switched", &switched }, { "stale", &stale } } })
     {
         const auto path = (evidenceDir / (std::string(name) + ".png")).string();
-        EXPECT_NE(stbi_write_png(path.c_str(), kSize, kSize, 4, (*images)[0].data(), kSize * 4u), 0);
+        EXPECT_NE(stbi_write_png(path.c_str(), kSize, kSize, 4, (*images)[0].GetData(), kSize * 4u), 0);
     }
     RecordProperty("ReferenceDraws", 2);
     RecordProperty("IndirectDraws", 1);
@@ -2759,7 +2759,7 @@ void main() {}
     ASSERT_NE(compute->GetModule(), VK_NULL_HANDLE);
     ASSERT_EQ(graphics->GetCompilationStatus(), ShaderCompilationStatus::Ready);
     VulkanResourceInspectorBackend inspector;
-    std::vector<IResourceInspectorBackend::DiscoveredResource> resources;
+    TArray<IResourceInspectorBackend::DiscoveredResource> resources;
     inspector.DiscoverResources(resources);
     for (const auto& [handle, name] : std::array{
              std::pair{ compute->GetRHIHandle(), std::string("InspectorCompute") },
@@ -2767,7 +2767,7 @@ void main() {}
     {
         const auto row = std::ranges::find(resources, handle, &IResourceInspectorBackend::DiscoveredResource::Handle);
         ASSERT_NE(row, resources.end());
-        EXPECT_EQ(row->Name, name);
+        EXPECT_EQ(row->Name.ToView(), name);
     }
     VulkanRootObjectRegistry::Get().ReleaseSurvivingShaderModules();
     EXPECT_EQ(compute->GetModule(), VK_NULL_HANDLE);

@@ -700,10 +700,7 @@ namespace OloEngine
     template<>
     struct TIsTriviallyRelocatable<FString>
     {
-        enum
-        {
-            Value = true
-        };
+        static constexpr bool Value = true;
     };
 
     [[nodiscard("Store this!")]] inline u32 GetTypeHash(const FString& s)

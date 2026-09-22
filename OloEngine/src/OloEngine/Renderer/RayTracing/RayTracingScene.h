@@ -41,7 +41,7 @@
 #include <optional>
 #include <span>
 #include <unordered_map>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -361,8 +361,8 @@ namespace OloEngine::RayTracing
         Capabilities m_Capabilities{};
 
         std::unordered_map<GeometryKey, BlasState, GeometryKeyHash> m_Blas;
-        std::vector<InstanceRecord> m_Instances;
-        std::vector<BlasBuildRequest> m_PendingBuilds;
+        TArray<InstanceRecord> m_Instances;
+        TArray<BlasBuildRequest> m_PendingBuilds;
         // EVERYTHING a resident structure believes about itself, held back until
         // RecordBlasBuilds has said the build it belongs to was recorded. A
         // request the backend drops leaves the PREVIOUS structure resident and
@@ -392,8 +392,8 @@ namespace OloEngine::RayTracing
             u32 ConsecutiveRefits = 0;
             bool HasDeformation = false;
         };
-        std::vector<PendingBlasCommit> m_PendingBlasCommits;
-        std::vector<GeometryKey> m_PendingRetires;
+        TArray<PendingBlasCommit> m_PendingBlasCommits;
+        TArray<GeometryKey> m_PendingRetires;
 
         SceneStats m_Stats{};
         bool m_VegetationProducerReady = true;

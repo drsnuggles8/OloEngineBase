@@ -368,7 +368,7 @@ namespace OloEngine::Tests
 
         SplatCloud cloud;
         const LoadResult result = cloud.LoadPly(path);
-        ASSERT_TRUE(result.Ok) << result.Error;
+        ASSERT_TRUE(result.Ok) << result.Error.ToStdString();
         EXPECT_EQ(result.SplatsRead, 4096u);
         EXPECT_EQ(cloud.Count(), 4096u);
 
@@ -449,8 +449,8 @@ namespace OloEngine::Tests
             SplatCloud cloud;
             const LoadResult result = cloud.LoadPlyFromMemory(bytes, "case");
             EXPECT_FALSE(result.Ok) << "accepted a file it should have rejected";
-            EXPECT_TRUE(result.Error.find(expectedSubstring) != std::string::npos)
-                << "error was: " << result.Error << "\nexpected it to mention: " << expectedSubstring;
+            EXPECT_TRUE(result.Error.ToView().find(expectedSubstring) != std::string::npos)
+                << "error was: " << result.Error.ToStdString() << "\nexpected it to mention: " << expectedSubstring;
             EXPECT_EQ(cloud.Count(), 0u) << "a rejected load must leave the cloud empty";
         };
 
@@ -532,7 +532,7 @@ namespace OloEngine::Tests
             SplatCloud cloud;
             const std::vector<u8> bytes = typed.Build();
             const LoadResult result = cloud.LoadPlyFromMemory(bytes, type);
-            ASSERT_TRUE(result.Ok) << type << ": " << result.Error;
+            ASSERT_TRUE(result.Ok) << type << ": " << result.Error.ToStdString();
             ASSERT_EQ(cloud.Count(), 1u) << type;
             EXPECT_NEAR(cloud.Splats()[0].Position.x, 7.0f, 1e-5f) << "property declared as " << type;
 
@@ -558,7 +558,7 @@ namespace OloEngine::Tests
         SplatCloud cloud;
         const std::vector<u8> bytes = tail.Build();
         const LoadResult result = cloud.LoadPlyFromMemory(bytes, "trailing-ushort");
-        ASSERT_TRUE(result.Ok) << result.Error;
+        ASSERT_TRUE(result.Ok) << result.Error.ToStdString();
         EXPECT_EQ(cloud.Count(), 1u);
         EXPECT_NEAR(cloud.Splats()[0].Position.x, 1.0f, 1e-5f);
         // Two bytes of the record are not this representation's, so they are
@@ -580,7 +580,7 @@ namespace OloEngine::Tests
         SplatCloud cloud;
         const std::vector<u8> bytes = shuffled.Build();
         const LoadResult result = cloud.LoadPlyFromMemory(bytes, "shuffled");
-        ASSERT_TRUE(result.Ok) << result.Error;
+        ASSERT_TRUE(result.Ok) << result.Error.ToStdString();
         ASSERT_EQ(cloud.Count(), 1u);
         EXPECT_NEAR(cloud.Splats()[0].Position.x, 5.0f, 1e-6f);
         EXPECT_NEAR(cloud.Splats()[0].Position.z, 7.0f, 1e-6f);
@@ -637,8 +637,8 @@ namespace OloEngine::Tests
                                  [](const auto& a, const auto& b)
                                  { return a.first > b.first; });
 
-                std::vector<u32> keyScratch;
-                std::vector<u32> indexScratch;
+                TArray<u32> keyScratch;
+                TArray<u32> indexScratch;
                 RadixSortDescending(keys, indices, keyScratch, indexScratch);
 
                 for (sizet i = 0; i < count; ++i)
@@ -666,7 +666,7 @@ namespace OloEngine::Tests
         BuildViewOrdering(cloud, view, projection, viewport, ViewSettings{}, ordering);
 
         ASSERT_GT(ordering.Stats.Drawn, 3000u) << "most of the fixture should be visible from this pose";
-        EXPECT_EQ(ordering.Indices.size(), ordering.Stats.Drawn);
+        EXPECT_EQ(ordering.Indices.Num(), ordering.Stats.Drawn);
 
         const glm::vec3 forward(-view[0][2], -view[1][2], -view[2][2]);
         const f32 forwardOffset = -view[3][2];

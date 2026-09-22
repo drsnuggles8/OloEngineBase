@@ -234,10 +234,10 @@ namespace OloEngine
         // Title text
         f32 const fontSize = 13.0f * zoom;
         ImVec2 const textPos = ImVec2(nodePos.x + 8.0f * zoom, nodePos.y + 5.0f * zoom);
-        drawList->AddText(nullptr, fontSize, textPos, IM_COL32(255, 255, 255, 255), node.TypeName.c_str());
+        drawList->AddText(nullptr, fontSize, textPos, IM_COL32(255, 255, 255, 255), *node.TypeName);
 
         // Per-node preview thumbnail (color swatch for color/vector parameter nodes)
-        if (!node.ParameterName.empty() || node.TypeName == ShaderGraphNodeTypes::CustomFunction)
+        if (!node.ParameterName.IsEmpty() || node.TypeName == ShaderGraphNodeTypes::CustomFunction)
         {
             constexpr f32 swatchSize = 16.0f;
             f32 const swatchSizeScaled = swatchSize * zoom;
@@ -294,35 +294,35 @@ namespace OloEngine
             f32 const labelFontSize = 11.0f * zoom;
             if (pin.IsOutput)
             {
-                ImVec2 textSize = ImGui::CalcTextSize(pin.Name.c_str());
+                ImVec2 textSize = ImGui::CalcTextSize(*pin.Name);
                 textSize.x *= (labelFontSize / ImGui::GetFontSize());
                 drawList->AddText(nullptr, labelFontSize,
                                   ImVec2(pin.Position.x - s_PinRadius * zoom - 4.0f * zoom - textSize.x, pin.Position.y - labelFontSize * 0.5f),
-                                  IM_COL32(200, 200, 200, 255), pin.Name.c_str());
+                                  IM_COL32(200, 200, 200, 255), *pin.Name);
             }
             else
             {
                 drawList->AddText(nullptr, labelFontSize,
                                   ImVec2(pin.Position.x + s_PinRadius * zoom + 4.0f * zoom, pin.Position.y - labelFontSize * 0.5f),
-                                  IM_COL32(200, 200, 200, 255), pin.Name.c_str());
+                                  IM_COL32(200, 200, 200, 255), *pin.Name);
             }
         }
     }
 
     ImVec2 ShaderGraphEditorPanel::GetNodeSize(const ShaderGraphNode& node) const
     {
-        f32 const pinCount = static_cast<f32>(std::max(node.Inputs.size(), node.Outputs.size()));
+        f32 const pinCount = static_cast<f32>(std::max(node.Inputs.Num(), node.Outputs.Num()));
         f32 const bodyHeight = s_HeaderHeight + (pinCount + 1) * s_PinSpacing;
         return ImVec2(s_NodeWidth * m_Canvas.GetZoom(), bodyHeight * m_Canvas.GetZoom());
     }
 
-    std::vector<ShaderGraphEditorPanel::PinInfo> ShaderGraphEditorPanel::GetNodePins(const ShaderGraphNode& node, const ImVec2& nodeScreenPos) const
+    TArray<ShaderGraphEditorPanel::PinInfo> ShaderGraphEditorPanel::GetNodePins(const ShaderGraphNode& node, const ImVec2& nodeScreenPos) const
     {
-        std::vector<PinInfo> result;
+        TArray<PinInfo> result;
         ImVec2 const nodeSize = GetNodeSize(node);
 
         // Input pins on left
-        for (size_t i = 0; i < node.Inputs.size(); ++i)
+        for (size_t i = 0; i < node.Inputs.Num(); ++i)
         {
             PinInfo pin;
             pin.Position = ImVec2(nodeScreenPos.x, nodeScreenPos.y + (s_HeaderHeight + (static_cast<f32>(i) + 1) * s_PinSpacing) * m_Canvas.GetZoom());
@@ -331,11 +331,11 @@ namespace OloEngine
             pin.Name = node.Inputs[i].Name;
             pin.Type = node.Inputs[i].Type;
             pin.IsOutput = false;
-            result.push_back(pin);
+            result.Add(pin);
         }
 
         // Output pins on right
-        for (size_t i = 0; i < node.Outputs.size(); ++i)
+        for (size_t i = 0; i < node.Outputs.Num(); ++i)
         {
             PinInfo pin;
             pin.Position = ImVec2(nodeScreenPos.x + nodeSize.x, nodeScreenPos.y + (s_HeaderHeight + (static_cast<f32>(i) + 1) * s_PinSpacing) * m_Canvas.GetZoom());
@@ -344,7 +344,7 @@ namespace OloEngine
             pin.Name = node.Outputs[i].Name;
             pin.Type = node.Outputs[i].Type;
             pin.IsOutput = true;
-            result.push_back(pin);
+            result.Add(pin);
         }
 
         return result;
@@ -687,14 +687,14 @@ namespace OloEngine
                 for (const auto& type : allTypes)
                 {
                     // Case-insensitive substring match
-                    std::string typeLower = type;
+                    std::string typeLower = type.ToStdString();
                     std::ranges::transform(typeLower, typeLower.begin(),
                                            [](unsigned char c)
                                            { return static_cast<char>(std::tolower(c)); });
 
                     if (typeLower.find(filterLower) != std::string::npos)
                     {
-                        if (ImGui::MenuItem(type.c_str()))
+                        if (ImGui::MenuItem(*type))
                             CreateNode(type, worldPos);
                     }
                 }
@@ -709,7 +709,7 @@ namespace OloEngine
                         auto types = GetNodeTypeNamesByCategory(category);
                         for (const auto& type : types)
                         {
-                            if (ImGui::MenuItem(type.c_str()))
+                            if (ImGui::MenuItem(*type))
                                 CreateNode(type, worldPos);
                         }
                         ImGui::EndMenu();
@@ -742,14 +742,14 @@ namespace OloEngine
 
     void ShaderGraphEditorPanel::DrawNodeProperties(ShaderGraphNode& node)
     {
-        ImGui::Text("Node: %s", node.TypeName.c_str());
+        ImGui::Text("Node: %s", *node.TypeName);
         ImGui::Separator();
 
         // Parameter name
-        if (IsParameterNode(node.TypeName))
+        if (IsParameterNode(node.TypeName.ToStdString()))
         {
             char buf[128];
-            std::strncpy(buf, node.ParameterName.c_str(), sizeof(buf) - 1);
+            std::strncpy(buf, *node.ParameterName, sizeof(buf) - 1);
             buf[sizeof(buf) - 1] = '\0';
             bool textChanged = ImGui::InputText("Parameter Name", buf, sizeof(buf));
             if (ImGui::IsItemActivated())
@@ -771,7 +771,7 @@ namespace OloEngine
         if (node.TypeName == ShaderGraphNodeTypes::CustomFunction)
         {
             char bodyBuf[512];
-            std::strncpy(bodyBuf, node.CustomFunctionBody.c_str(), sizeof(bodyBuf) - 1);
+            std::strncpy(bodyBuf, *node.CustomFunctionBody, sizeof(bodyBuf) - 1);
             bodyBuf[sizeof(bodyBuf) - 1] = '\0';
             ImGui::Text("GLSL Expression:");
             ImGui::TextWrapped("Use input pin names (A, B) in the expression");
@@ -846,7 +846,7 @@ namespace OloEngine
             // Only show defaults for unconnected pins
             if (m_GraphAsset->GetGraph().GetLinkForInputPin(pin.ID))
             {
-                ImGui::TextDisabled("  %s (connected)", pin.Name.c_str());
+                ImGui::TextDisabled("  %s (connected)", *pin.Name);
                 continue;
             }
 
@@ -857,7 +857,7 @@ namespace OloEngine
             {
                 f32 val = std::holds_alternative<f32>(pin.DefaultValue) ? std::get<f32>(pin.DefaultValue) : 0.0f;
                 f32 preVal = val;
-                if (ImGui::DragFloat(pin.Name.c_str(), &val, 0.01f))
+                if (ImGui::DragFloat(*pin.Name, &val, 0.01f))
                 {
                     pin.DefaultValue = val;
                     changed = true;
@@ -871,7 +871,7 @@ namespace OloEngine
             {
                 glm::vec2 val = std::holds_alternative<glm::vec2>(pin.DefaultValue) ? std::get<glm::vec2>(pin.DefaultValue) : glm::vec2(0.0f);
                 glm::vec2 preVal = val;
-                if (ImGui::DragFloat2(pin.Name.c_str(), &val.x, 0.01f))
+                if (ImGui::DragFloat2(*pin.Name, &val.x, 0.01f))
                 {
                     pin.DefaultValue = val;
                     changed = true;
@@ -885,7 +885,7 @@ namespace OloEngine
             {
                 glm::vec3 val = std::holds_alternative<glm::vec3>(pin.DefaultValue) ? std::get<glm::vec3>(pin.DefaultValue) : glm::vec3(0.0f);
                 glm::vec3 preVal = val;
-                if (ImGui::ColorEdit3(pin.Name.c_str(), &val.x))
+                if (ImGui::ColorEdit3(*pin.Name, &val.x))
                 {
                     pin.DefaultValue = val;
                     changed = true;
@@ -899,7 +899,7 @@ namespace OloEngine
             {
                 glm::vec4 val = std::holds_alternative<glm::vec4>(pin.DefaultValue) ? std::get<glm::vec4>(pin.DefaultValue) : glm::vec4(0.0f);
                 glm::vec4 preVal = val;
-                if (ImGui::ColorEdit4(pin.Name.c_str(), &val.x))
+                if (ImGui::ColorEdit4(*pin.Name, &val.x))
                 {
                     pin.DefaultValue = val;
                     changed = true;
@@ -911,7 +911,7 @@ namespace OloEngine
             }
             else
             {
-                ImGui::Text("  %s (%s)", pin.Name.c_str(), PinTypeToString(pin.Type));
+                ImGui::Text("  %s (%s)", *pin.Name, PinTypeToString(pin.Type));
             }
 
             if (changed)
@@ -957,14 +957,14 @@ namespace OloEngine
         if (m_LastCompileResult.Success)
         {
             ImGui::TextColored(ImVec4(0.2f, 0.9f, 0.2f, 1.0f), "Compilation Successful");
-            ImGui::Text("Parameters: %zu", m_LastCompileResult.ExposedParameters.size());
+            ImGui::Text("Parameters: %d", m_LastCompileResult.ExposedParameters.Num());
 
             // List exposed parameters with types
-            if (!m_LastCompileResult.ExposedParameters.empty() && ImGui::TreeNode("Exposed Parameters"))
+            if (!m_LastCompileResult.ExposedParameters.IsEmpty() && ImGui::TreeNode("Exposed Parameters"))
             {
                 for (const auto& param : m_LastCompileResult.ExposedParameters)
                 {
-                    ImGui::BulletText("%s : %s", param.Name.c_str(),
+                    ImGui::BulletText("%s : %s", *param.Name,
                                       PinTypeToGLSL(param.Type));
                 }
                 ImGui::TreePop();
@@ -978,21 +978,21 @@ namespace OloEngine
                 ImGui::TreePop();
             }
         }
-        else if (!m_LastCompileResult.ErrorLog.empty())
+        else if (!m_LastCompileResult.ErrorLog.IsEmpty())
         {
             ImGui::TextColored(ImVec4(0.9f, 0.2f, 0.2f, 1.0f), "Compilation Failed");
-            ImGui::TextWrapped("%s", m_LastCompileResult.ErrorLog.c_str());
+            ImGui::TextWrapped("%s", *m_LastCompileResult.ErrorLog);
         }
         else
         {
             // No additional handling required.
         }
 
-        if (!m_LastCompileResult.ErrorLog.empty() && m_LastCompileResult.Success)
+        if (!m_LastCompileResult.ErrorLog.IsEmpty() && m_LastCompileResult.Success)
         {
             if (ImGui::TreeNode("Warnings"))
             {
-                ImGui::TextWrapped("%s", m_LastCompileResult.ErrorLog.c_str());
+                ImGui::TextWrapped("%s", *m_LastCompileResult.ErrorLog);
                 ImGui::TreePop();
             }
         }
@@ -1071,7 +1071,7 @@ namespace OloEngine
     // Node operations
     // =========================================================================
 
-    UUID ShaderGraphEditorPanel::CreateNode(const std::string& typeName, const glm::vec2& position)
+    UUID ShaderGraphEditorPanel::CreateNode(const FString& typeName, const glm::vec2& position)
     {
         if (!m_GraphAsset)
             return 0;
@@ -1138,7 +1138,7 @@ namespace OloEngine
 
         auto& graph = m_GraphAsset->GetMutableGraph();
         const auto& nodes = graph.GetNodes();
-        if (nodes.empty())
+        if (nodes.IsEmpty())
             return;
 
         // Save old positions for undo
@@ -1297,7 +1297,7 @@ namespace OloEngine
         props.WorkgroupSize = m_CopiedWorkgroupSize;
         props.BufferBinding = m_CopiedBufferBinding;
         for (const auto& input : m_CopiedInputs)
-            props.InputDefaultValues.push_back(input.DefaultValue);
+            props.InputDefaultValues.Add(input.DefaultValue);
 
         auto cmd = CreateScope<AddNodeCommand>(m_CopiedNodeTypeName, position, std::move(props));
         const auto* cmdPtr = cmd.get();

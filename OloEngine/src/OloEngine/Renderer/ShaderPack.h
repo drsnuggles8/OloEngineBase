@@ -2,6 +2,8 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Containers/String.h"
+#include "OloEngine/Containers/Array.h"
 
 #include <filesystem>
 #include <optional>
@@ -27,15 +29,23 @@ namespace OloEngine
     struct ShaderPackStageData
     {
         u8 Stage = 0; // GL_VERTEX_SHADER mapped to 1=Vert, 2=Frag, 3=TessCtrl, 4=TessEval, 5=Compute
-        std::vector<u32> VulkanSPIRV;
-        std::vector<u32> OpenGLSPIRV;
+        TArray<u32> VulkanSPIRV;
+        TArray<u32> OpenGLSPIRV;
+    };
+
+    template<>
+    struct TIsTriviallyRelocatable<ShaderPackStageData>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(ShaderPackStageData::Stage)> &&
+                                      TIsTriviallyRelocatable_V<decltype(ShaderPackStageData::VulkanSPIRV)> &&
+                                      TIsTriviallyRelocatable_V<decltype(ShaderPackStageData::OpenGLSPIRV)>;
     };
 
     // All data for a single shader program in the pack
     struct ShaderPackEntry
     {
-        std::string Name;
-        std::vector<ShaderPackStageData> Stages;
+        FString Name;
+        TArray<ShaderPackStageData> Stages;
     };
 
     class ShaderPack
@@ -108,8 +118,8 @@ namespace OloEngine
         // On-disk index entry (where to find each shader's data in the file)
         struct IndexEntry
         {
-            std::string Name;
-            std::string ContentHash; // issue #908 — see GetContentHash()
+            FString Name;
+            FString ContentHash; // issue #908 — see GetContentHash()
             u32 StageCount = 0;
 
             struct StageRef
@@ -121,7 +131,7 @@ namespace OloEngine
                 u64 OpenGLSizeWords = 0;
             };
 
-            std::vector<StageRef> StageRefs;
+            TArray<StageRef> StageRefs;
         };
 
         // One shader's data, in the shape the on-disk writer needs — shared by
@@ -130,15 +140,25 @@ namespace OloEngine
         // written and tested exactly once.
         struct PackShaderInfo
         {
-            std::string Name;
-            std::string ContentHash;
-            const std::unordered_map<unsigned int, std::vector<u32>>* VulkanSPIRV = nullptr;
-            const std::unordered_map<unsigned int, std::vector<u32>>* OpenGLSPIRV = nullptr;
+            FString Name;
+            FString ContentHash;
+            const std::unordered_map<unsigned int, TArray<u32>>* VulkanSPIRV = nullptr;
+            const std::unordered_map<unsigned int, TArray<u32>>* OpenGLSPIRV = nullptr;
         };
-        static bool WritePackFile(const std::vector<PackShaderInfo>& shaders, const std::filesystem::path& outputPath);
+        friend struct TIsTriviallyRelocatable<PackShaderInfo>;
+        static bool WritePackFile(const TArray<PackShaderInfo>& shaders, const std::filesystem::path& outputPath);
 
         bool m_Loaded = false;
         std::filesystem::path m_Path;
         std::unordered_map<std::string, IndexEntry> m_Index;
+    };
+    template<>
+    struct TIsTriviallyRelocatable<ShaderPack::PackShaderInfo>
+    {
+        using Info = ShaderPack::PackShaderInfo;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Info::Name)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Info::ContentHash)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Info::VulkanSPIRV)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Info::OpenGLSPIRV)>;
     };
 } // namespace OloEngine

@@ -6,7 +6,7 @@
 
 #include <array>
 #include <span>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 // =============================================================================
 // CPU mirror of the draw-side primitive -> line-segment expansion (issue #725).
@@ -112,11 +112,11 @@ namespace OloEngine::ShaderDebugDrawExpansion
 
     // Convenience allocating overload for tests / tools.
     template<typename TEntry>
-    [[nodiscard]] std::vector<Segment> ExpandToVector(const TEntry& entry)
+    [[nodiscard]] TArray<Segment> ExpandToArray(const TEntry& entry)
     {
-        std::vector<Segment> segments(ShaderDebugDrawContract::SegmentCount(kPrimitiveOf<TEntry>));
-        const u32 written = Expand(entry, std::span<Segment>(segments));
-        segments.resize(written);
+        TArray<Segment> segments(ShaderDebugDrawContract::SegmentCount(kPrimitiveOf<TEntry>));
+        const u32 written = Expand(entry, std::span<Segment>(segments.GetData(), static_cast<sizet>(segments.Num())));
+        segments.SetNum(written, EAllowShrinking::No);
         return segments;
     }
 } // namespace OloEngine::ShaderDebugDrawExpansion

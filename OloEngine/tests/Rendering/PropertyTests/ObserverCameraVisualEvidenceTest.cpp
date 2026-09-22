@@ -448,7 +448,7 @@ namespace OloEngine::Tests
             if (cube)
                 imc.MeshSource = cube->GetMeshSource();
             imc.CastShadows = false;
-            imc.Instances.reserve(static_cast<sizet>(kGridX) * kGridZ);
+            imc.Instances.Reserve(static_cast<sizet>(kGridX) * kGridZ);
             for (i32 gz = 0; gz < kGridZ; ++gz)
             {
                 for (i32 gx = 0; gx < kGridX; ++gx)
@@ -462,7 +462,7 @@ namespace OloEngine::Tests
                     // Same warm colour the BandCubePixels test relies on: the
                     // scene is otherwise entirely neutral.
                     inst.Color = glm::vec4(0.95f, 0.55f, 0.15f, 1.0f);
-                    imc.Instances.push_back(inst);
+                    imc.Instances.Add(inst);
                 }
             }
         }

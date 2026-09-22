@@ -40,12 +40,12 @@ namespace OloEngine
             entry.Dependencies = dependencies;
             if (!debugName.empty())
             {
-                if (debugName != entry.DebugName)
+                if (debugName != entry.DebugName.ToView())
                 {
-                    m_DebugNameOwners.erase(entry.DebugName);
+                    m_DebugNameOwners.erase(entry.DebugName.ToStdString());
                     m_DebugNameOwners.emplace(debugName, key);
                 }
-                entry.DebugName = std::move(debugName);
+                entry.DebugName = FString(debugName);
             }
 
             if (descriptorChanged)
@@ -62,16 +62,16 @@ namespace OloEngine
             };
         }
 
-        const u32 index = static_cast<u32>(m_Entries.size());
-        m_Entries.push_back(Entry{
+        const u32 index = static_cast<u32>(m_Entries.Num());
+        m_Entries.Add(Entry{
             .Key = key,
             .Descriptor = descriptor,
             .Dependencies = dependencies,
-            .DebugName = std::move(debugName),
+            .DebugName = FString(debugName),
         });
         m_Indices.emplace(key, index);
-        if (!m_Entries.back().DebugName.empty())
-            m_DebugNameOwners.emplace(m_Entries.back().DebugName, key);
+        if (!m_Entries.Last().DebugName.IsEmpty())
+            m_DebugNameOwners.emplace(m_Entries.Last().DebugName.ToStdString(), key);
         return {
             .Token = { index, 1 },
             .Created = true,
@@ -80,7 +80,7 @@ namespace OloEngine
 
     TemporalHistoryRegistry::Entry* TemporalHistoryRegistry::Resolve(TemporalHistoryToken token)
     {
-        if (!token.IsValid() || token.Index >= m_Entries.size())
+        if (!token.IsValid() || token.Index >= m_Entries.Num())
             return nullptr;
         Entry& entry = m_Entries[token.Index];
         return entry.Generation == token.Generation ? &entry : nullptr;
@@ -88,7 +88,7 @@ namespace OloEngine
 
     const TemporalHistoryRegistry::Entry* TemporalHistoryRegistry::Resolve(TemporalHistoryToken token) const
     {
-        if (!token.IsValid() || token.Index >= m_Entries.size())
+        if (!token.IsValid() || token.Index >= m_Entries.Num())
             return nullptr;
         const Entry& entry = m_Entries[token.Index];
         return entry.Generation == token.Generation ? &entry : nullptr;
@@ -122,7 +122,7 @@ namespace OloEngine
     std::string_view TemporalHistoryRegistry::GetDebugName(TemporalHistoryToken token) const
     {
         const Entry* entry = Resolve(token);
-        return entry ? std::string_view(entry->DebugName) : std::string_view{};
+        return entry ? entry->DebugName.ToView() : std::string_view{};
     }
 
     Ref<Texture2D> TemporalHistoryRegistry::GetTexture(TemporalHistoryToken token) const
@@ -216,17 +216,17 @@ namespace OloEngine
     {
         m_Indices.clear();
         m_DebugNameOwners.clear();
-        m_Entries.clear();
+        m_Entries.Reset();
     }
 
-    std::vector<TemporalHistorySnapshot> TemporalHistoryRegistry::Snapshot() const
+    TArray<TemporalHistorySnapshot> TemporalHistoryRegistry::Snapshot() const
     {
-        std::vector<TemporalHistorySnapshot> result;
-        result.reserve(m_Entries.size());
-        for (u32 index = 0; index < static_cast<u32>(m_Entries.size()); ++index)
+        TArray<TemporalHistorySnapshot> result;
+        result.Reserve(m_Entries.Num());
+        for (u32 index = 0; index < static_cast<u32>(m_Entries.Num()); ++index)
         {
             const Entry& entry = m_Entries[index];
-            result.push_back(TemporalHistorySnapshot{
+            result.Add(TemporalHistorySnapshot{
                 .Key = entry.Key,
                 .Descriptor = entry.Descriptor,
                 .Token = { index, entry.Generation },

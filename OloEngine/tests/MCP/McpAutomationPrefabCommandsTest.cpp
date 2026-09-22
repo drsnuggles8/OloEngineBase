@@ -289,7 +289,7 @@ namespace OloEngine::Automation::Tests
         // Both the root and the child are linked, each to its OWN copy -- not both
         // to the prefab root, which is what a fallback resolution would produce and
         // what would later apply a child's override onto the root.
-        Entity child = *m_Host.ActiveScene->TryGetEntityWithUUID(m_Source.Children().front());
+        Entity child = *m_Host.ActiveScene->TryGetEntityWithUUID(m_Source.Children()[0]);
         ASSERT_TRUE(m_Source.HasComponent<PrefabComponent>());
         ASSERT_TRUE(child.HasComponent<PrefabComponent>());
         const UUID rootSource = m_Source.GetComponent<PrefabComponent>().m_PrefabEntityID;
@@ -336,22 +336,22 @@ namespace OloEngine::Automation::Tests
         EXPECT_TRUE(instance.HasComponent<SpriteRendererComponent>());
         // The prefab carried a non-default translation; so must the instance.
         EXPECT_FLOAT_EQ(instance.GetComponent<TransformComponent>().Translation.y, 2.0f);
-        ASSERT_EQ(anchor.Children().size(), 1u);
+        ASSERT_EQ(anchor.Children().Num(), 1u);
 
         m_Host.History.Undo();
         EXPECT_FALSE(m_Host.ActiveScene->TryGetEntityWithUUID(UUID(std::stoull(rootId))).has_value());
         EXPECT_FALSE(m_Host.ActiveScene->TryGetEntityWithUUID(UUID(std::stoull(childId))).has_value());
-        EXPECT_TRUE(anchor.Children().empty());
+        EXPECT_TRUE(anchor.Children().IsEmpty());
         EXPECT_GT(m_Host.SelectionClears, 0);
 
         m_Host.History.Redo();
         Entity again = Find(rootId);
         ASSERT_TRUE(again);
         EXPECT_EQ(again.GetName(), "TurretA");
-        ASSERT_EQ(again.Children().size(), 1u);
-        EXPECT_EQ(static_cast<u64>(again.Children().front()), std::stoull(childId));
+        ASSERT_EQ(again.Children().Num(), 1u);
+        EXPECT_EQ(static_cast<u64>(again.Children()[0]), std::stoull(childId));
         EXPECT_EQ(static_cast<u64>(again.GetParentUUID()), static_cast<u64>(anchor.GetUUID()));
-        ASSERT_EQ(anchor.Children().size(), 1u);
+        ASSERT_EQ(anchor.Children().Num(), 1u);
     }
 
     // ACCEPTANCE (b): the override query answers "what has this instance diverged
@@ -1002,11 +1002,11 @@ namespace OloEngine::Automation::Tests
         EXPECT_FLOAT_EQ(b.GetComponent<TransformComponent>().Translation.x, 50.0f);
 
         // A prefab CHILD's transform is the prefab's own layout, never skipped.
-        Entity child = *m_Host.ActiveScene->TryGetEntityWithUUID(a.Children().front());
+        Entity child = *m_Host.ActiveScene->TryGetEntityWithUUID(a.Children()[0]);
         child.GetComponent<TransformComponent>().Translation = { 0.0f, 9.0f, 0.0f };
         const Json childApply = Ok("olo_prefab_apply", { { "entity", Id(child) } });
         EXPECT_TRUE(childApply.at("skippedComponents").empty());
-        Entity peerChild = *m_Host.ActiveScene->TryGetEntityWithUUID(b.Children().front());
+        Entity peerChild = *m_Host.ActiveScene->TryGetEntityWithUUID(b.Children()[0]);
         EXPECT_FLOAT_EQ(peerChild.GetComponent<TransformComponent>().Translation.y, 9.0f);
 
         // ... and revert never skips the root transform: move A again and put it
@@ -1086,7 +1086,7 @@ namespace OloEngine::Automation::Tests
     {
         const std::string handle = MakeDetachedPrefab();
         Entity a = Instantiate(handle);
-        Entity child = *m_Host.ActiveScene->TryGetEntityWithUUID(a.Children().front());
+        Entity child = *m_Host.ActiveScene->TryGetEntityWithUUID(a.Children()[0]);
         child.GetComponent<PrefabComponent>().m_PrefabEntityID = UUID(987654321);
 
         const Json overrides = Ok("olo_prefab_overrides", { { "entity", Id(a) } });

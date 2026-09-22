@@ -44,8 +44,8 @@ namespace OloEngine::GaussianSplat
 
         struct PlyProperty
         {
-            std::string Name;
-            std::string Type;
+            std::string_view Name;
+            std::string_view Type;
             sizet Offset = 0;
         };
 
@@ -118,9 +118,9 @@ namespace OloEngine::GaussianSplat
         }
 
         // Splits on runs of spaces and tabs.
-        [[nodiscard]] std::vector<std::string_view> Tokenize(std::string_view line)
+        [[nodiscard]] TArray<std::string_view> Tokenize(std::string_view line)
         {
-            std::vector<std::string_view> out;
+            TArray<std::string_view> out;
             sizet i = 0;
             while (i < line.size())
             {
@@ -130,7 +130,7 @@ namespace OloEngine::GaussianSplat
                 while (i < line.size() && line[i] != ' ' && line[i] != '\t')
                     ++i;
                 if (i > start)
-                    out.push_back(line.substr(start, i - start));
+                    out.Add(line.substr(start, i - start));
             }
             return out;
         }
@@ -235,18 +235,18 @@ namespace OloEngine::GaussianSplat
 
     void SplatCloud::Clear()
     {
-        m_Splats.clear();
+        m_Splats.Reset();
         m_Bounds = BoundingBox{};
         m_MaxRadius = 0.0f;
     }
 
-    void SplatCloud::Adopt(std::vector<GpuSplat>&& splats)
+    void SplatCloud::Adopt(TArray<GpuSplat>&& splats)
     {
         OLO_PROFILE_FUNCTION();
 
         Clear();
         m_Splats = std::move(splats);
-        if (m_Splats.empty())
+        if (m_Splats.IsEmpty())
             return;
 
         glm::vec3 lo(std::numeric_limits<f32>::max());
@@ -288,7 +288,12 @@ namespace OloEngine::GaussianSplat
             return;
         }
 
-        m_Splats.resize(count);
+        if (count > static_cast<sizet>(std::numeric_limits<i32>::max()))
+        {
+            OLO_CORE_ERROR("GaussianSplat::SplatCloud::Build: splat count exceeds array capacity");
+            return;
+        }
+        m_Splats.SetNum(static_cast<i32>(count), EAllowShrinking::No);
 
         glm::vec3 lo(std::numeric_limits<f32>::max());
         glm::vec3 hi(std::numeric_limits<f32>::lowest());
@@ -322,7 +327,7 @@ namespace OloEngine::GaussianSplat
     {
         OLO_PROFILE_FUNCTION();
 
-        std::ifstream file(path, std::ios::binary);
+        std::ifstream file(path, std::ios::binary | std::ios::ate);
         if (!file)
         {
             LoadResult bad;
@@ -330,8 +335,22 @@ namespace OloEngine::GaussianSplat
             return bad;
         }
 
-        const std::vector<u8> bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-        return LoadPlyFromMemory(bytes, path.string());
+        const std::streamoff byteCount = file.tellg();
+        if (byteCount < 0 || byteCount > std::numeric_limits<i32>::max())
+        {
+            LoadResult bad;
+            bad.Error = "GaussianSplat: '" + path.string() + "': file size exceeds array capacity";
+            return bad;
+        }
+        TArray<u8> bytes(static_cast<i32>(byteCount));
+        file.seekg(0);
+        if (byteCount > 0 && !file.read(reinterpret_cast<char*>(bytes.GetData()), byteCount))
+        {
+            LoadResult bad;
+            bad.Error = "GaussianSplat: '" + path.string() + "': cannot read complete file";
+            return bad;
+        }
+        return LoadPlyFromMemory({ bytes.GetData(), static_cast<sizet>(bytes.Num()) }, path.string());
     }
 
     auto SplatCloud::LoadPlyFromMemory(std::span<const u8> bytes, std::string_view sourceName) -> LoadResult
@@ -357,7 +376,7 @@ namespace OloEngine::GaussianSplat
         bool sawVertexElement = false;
         bool afterVertexElement = false;
         bool sawEndHeader = false;
-        std::vector<PlyProperty> props;
+        TArray<PlyProperty> props;
         sizet stride = 0;
         sizet cursor = 0;
 
@@ -369,8 +388,8 @@ namespace OloEngine::GaussianSplat
             const std::string_view line = TrimTrailing(text.substr(cursor, newline - cursor));
             cursor = newline + 1;
 
-            const std::vector<std::string_view> tok = Tokenize(line);
-            if (tok.empty())
+            const TArray<std::string_view> tok = Tokenize(line);
+            if (tok.IsEmpty())
                 continue;
 
             if (tok[0] == "end_header")
@@ -381,7 +400,7 @@ namespace OloEngine::GaussianSplat
 
             if (tok[0] == "format")
             {
-                if (tok.size() < 2)
+                if (tok.Num() < 2)
                     return fail("malformed 'format' line");
                 if (tok[1] == "binary_little_endian")
                     binaryLittleEndian = true;
@@ -393,7 +412,7 @@ namespace OloEngine::GaussianSplat
             }
             else if (tok[0] == "element")
             {
-                if (tok.size() < 3)
+                if (tok.Num() < 3)
                     return fail("malformed 'element' line");
                 if (tok[1] == "vertex")
                 {
@@ -422,14 +441,14 @@ namespace OloEngine::GaussianSplat
             }
             else if (tok[0] == "property" && sawVertexElement && !afterVertexElement)
             {
-                if (tok.size() < 3)
+                if (tok.Num() < 3)
                     return fail("malformed 'property' line");
                 if (tok[1] == "list")
                     return fail("'property list' inside the vertex element is not supported");
                 const sizet size = PlyTypeSize(tok[1]);
                 if (size == 0)
                     return fail("unknown property type '" + std::string(tok[1]) + "'");
-                props.push_back({ std::string(tok[2]), std::string(tok[1]), stride });
+                props.Add({ tok[2], tok[1], stride });
                 stride += size;
             }
         }
@@ -443,17 +462,17 @@ namespace OloEngine::GaussianSplat
 
         // ---- required properties -------------------------------------------
         std::unordered_map<std::string_view, const PlyProperty*> byName;
-        byName.reserve(props.size());
+        byName.reserve(props.Num());
         for (const PlyProperty& prop : props)
             byName.emplace(prop.Name, &prop);
 
-        std::vector<std::string> missing;
+        TArray<std::string_view> missing;
         const auto need = [&](std::string_view name) -> const PlyProperty*
         {
             const auto it = byName.find(name);
             if (it == byName.end())
             {
-                missing.emplace_back(name);
+                missing.Emplace(name);
                 return nullptr;
             }
             return it->second;
@@ -467,13 +486,13 @@ namespace OloEngine::GaussianSplat
         const std::array<const PlyProperty*, 3> pScale{ need("scale_0"), need("scale_1"), need("scale_2") };
         const std::array<const PlyProperty*, 4> pRot{ need("rot_0"), need("rot_1"), need("rot_2"), need("rot_3") };
 
-        if (!missing.empty())
+        if (!missing.IsEmpty())
         {
             std::string list;
-            for (const std::string& name : missing)
-                list += (list.empty() ? "" : ", ") + name;
+            for (std::string_view name : missing)
+                list += (list.empty() ? "" : ", ") + std::string(name);
             return fail("vertex element is missing required propert" +
-                        std::string(missing.size() == 1 ? "y " : "ies ") + list);
+                        std::string(missing.Num() == 1 ? "y " : "ies ") + list);
         }
 
         // ---- payload --------------------------------------------------------
@@ -494,7 +513,7 @@ namespace OloEngine::GaussianSplat
             // be empty here (the required-property check above would have
             // failed), but the guard keeps the subtraction from wrapping if
             // that ever stops being true.
-            const sizet asciiMinimum = props.empty() ? 1 : (2 * props.size() - 1);
+            const sizet asciiMinimum = props.IsEmpty() ? 1 : (2 * static_cast<sizet>(props.Num()) - 1);
             const sizet minimumBytesPerVertex = binaryLittleEndian ? stride : asciiMinimum;
             const sizet maximumPossible = (minimumBytesPerVertex > 0) ? (remaining / minimumBytesPerVertex) : 0;
             if (static_cast<sizet>(vertexCount) > maximumPossible)
@@ -503,11 +522,14 @@ namespace OloEngine::GaussianSplat
                             " bytes can hold at most " + std::to_string(maximumPossible));
         }
 
-        std::vector<glm::vec3> positions(vertexCount);
-        std::vector<glm::vec3> shDc(vertexCount);
-        std::vector<f32> opacity(vertexCount);
-        std::vector<glm::vec3> logScale(vertexCount);
-        std::vector<glm::vec4> rotation(vertexCount);
+        if (vertexCount > static_cast<u32>(std::numeric_limits<i32>::max()))
+            return fail("vertex count exceeds array capacity");
+
+        TArray<glm::vec3> positions(vertexCount);
+        TArray<glm::vec3> shDc(vertexCount);
+        TArray<f32> opacity(vertexCount);
+        TArray<glm::vec3> logScale(vertexCount);
+        TArray<glm::vec4> rotation(vertexCount);
 
         if (binaryLittleEndian)
         {
@@ -533,10 +555,10 @@ namespace OloEngine::GaussianSplat
         else
         {
             // ASCII: one whitespace-separated record per line, in header order.
-            std::vector<f32> values(props.size());
+            TArray<f32> values(props.Num());
             const auto columnOf = [&props](const PlyProperty* prop)
             {
-                return static_cast<sizet>(prop - props.data());
+                return static_cast<sizet>(prop - props.GetData());
             };
             for (u32 i = 0; i < vertexCount; ++i)
             {
@@ -548,11 +570,11 @@ namespace OloEngine::GaussianSplat
                 const std::string_view line = TrimTrailing(text.substr(cursor, end - cursor));
                 cursor = (newline == std::string_view::npos) ? text.size() : newline + 1;
 
-                const std::vector<std::string_view> tok = Tokenize(line);
-                if (tok.size() < props.size())
-                    return fail("vertex " + std::to_string(i) + " has " + std::to_string(tok.size()) +
-                                " values, expected " + std::to_string(props.size()));
-                for (sizet c = 0; c < props.size(); ++c)
+                const TArray<std::string_view> tok = Tokenize(line);
+                if (tok.Num() < props.Num())
+                    return fail("vertex " + std::to_string(i) + " has " + std::to_string(tok.Num()) +
+                                " values, expected " + std::to_string(props.Num()));
+                for (sizet c = 0; c < props.Num(); ++c)
                 {
                     if (!ParseFloat(tok[c], values[c]))
                         return fail("vertex " + std::to_string(i) + " column " + std::to_string(c) +
@@ -581,7 +603,11 @@ namespace OloEngine::GaussianSplat
                 return fail("vertex " + std::to_string(i) + " contains a non-finite value");
         }
 
-        Build(positions, shDc, opacity, logScale, rotation);
+        Build({ positions.GetData(), static_cast<sizet>(positions.Num()) },
+              { shDc.GetData(), static_cast<sizet>(shDc.Num()) },
+              { opacity.GetData(), static_cast<sizet>(opacity.Num()) },
+              { logScale.GetData(), static_cast<sizet>(logScale.Num()) },
+              { rotation.GetData(), static_cast<sizet>(rotation.Num()) });
 
         sizet keptBytes = 0;
         const auto countKept = [&](const PlyProperty* prop)

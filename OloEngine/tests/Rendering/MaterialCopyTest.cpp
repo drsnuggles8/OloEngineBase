@@ -175,3 +175,31 @@ TEST(MaterialCopyTest, StaticCopyRenamesButKeepsFields)
     EXPECT_FLOAT_EQ(copy->GetAlphaCutoff(), 0.375f);
     EXPECT_FLOAT_EQ(copy->GetMetallicFactor(), 0.625f);
 }
+
+TEST(MaterialCopyTest, OwnedNamesAndUniformsSurviveArrayGrowthAndRemoval)
+{
+    static_assert(TIsTriviallyRelocatable_V<Material>);
+    TArray<Material> materials;
+    for (i32 index = 0; index < 96; ++index)
+    {
+        Material material;
+        // Short names exercise the libstdc++ SSO failure that prompted ADR 0012.
+        material.SetName("m" + std::to_string(index));
+        material.Set("sentinel", static_cast<f32>(index));
+        materials.Add(material);
+    }
+
+    // Force a separate allocation, then overlapping relocation on removal.
+    materials.Reserve(materials.Max() + 128);
+    materials.RemoveAt(0);
+    for (i32 index = 0; index < materials.Num(); ++index)
+    {
+        EXPECT_EQ(materials[index].GetName().ToStdString(), "m" + std::to_string(index + 1));
+        EXPECT_FLOAT_EQ(materials[index].GetFloat("sentinel"), static_cast<f32>(index + 1));
+    }
+
+    Material copy = materials[0];
+    copy.SetName("renamed");
+    EXPECT_EQ(materials[0].GetName(), "m1");
+    EXPECT_EQ(copy.GetName(), "renamed");
+}

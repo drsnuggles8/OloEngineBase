@@ -250,7 +250,7 @@ namespace OloEngine::Automation
             if (!value.is_number_integer() || (!value.is_number_unsigned() && value.get<i64>() < 0))
                 return "siblingIndex must be a nonnegative integer.";
             const auto requested = value.get<u64>();
-            sizet remaining = parent.Children().size();
+            sizet remaining = parent.Children().Num();
             if (child && std::ranges::find(parent.Children(), child.GetUUID()) != parent.Children().end())
                 --remaining;
             if (requested > remaining)
@@ -266,8 +266,8 @@ namespace OloEngine::Automation
             {
                 auto& children = parent.GetOrCreateChildren();
                 const UUID id = child.GetUUID();
-                std::erase(children, id);
-                children.insert(children.begin() + static_cast<std::ptrdiff_t>(*index), id);
+                children.Remove(id);
+                children.Insert(id, static_cast<i32>(*index));
             }
         }
 

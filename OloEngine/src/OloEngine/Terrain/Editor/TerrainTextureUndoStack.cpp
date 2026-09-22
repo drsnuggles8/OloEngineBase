@@ -55,7 +55,7 @@ namespace OloEngine
         {
             return false;
         }
-        return std::ranges::any_of(m_Entries, [id](const Entry& e)
+        return std::ranges::any_of(std::span(m_Entries.GetData(), static_cast<sizet>(m_Entries.Num())), [id](const Entry& e)
                                    { return e.Id == id; });
     }
 
@@ -122,7 +122,7 @@ namespace OloEngine
 
         m_BytesUsed += entry.Bytes;
         const SnapshotId id = entry.Id;
-        m_Entries.push_back(std::move(entry));
+        m_Entries.Add(std::move(entry));
 
         // After the push, so the newest snapshot is itself subject to the budget —
         // a single stroke larger than the whole budget must not be allowed to sit
@@ -146,9 +146,9 @@ namespace OloEngine
             return false;
         }
 
-        const auto it = std::ranges::find_if(m_Entries, [id](const Entry& e)
-                                             { return e.Id == id; });
-        if (it == m_Entries.end() || !it->Snapshot)
+        const auto it = std::find_if(m_Entries.GetData(), m_Entries.GetData() + m_Entries.Num(), [id](const Entry& e)
+                                     { return e.Id == id; });
+        if (it == m_Entries.GetData() + m_Entries.Num() || !it->Snapshot)
         {
             return false;
         }
@@ -243,24 +243,24 @@ namespace OloEngine
             return;
         }
 
-        const auto it = std::ranges::find_if(m_Entries, [id](const Entry& e)
-                                             { return e.Id == id; });
-        if (it == m_Entries.end())
+        const auto it = std::find_if(m_Entries.GetData(), m_Entries.GetData() + m_Entries.Num(), [id](const Entry& e)
+                                     { return e.Id == id; });
+        if (it == m_Entries.GetData() + m_Entries.Num())
         {
             return;
         }
 
         m_BytesUsed -= std::min(m_BytesUsed, it->Bytes);
-        m_Entries.erase(it);
+        m_Entries.RemoveAt(static_cast<i32>(it - m_Entries.GetData()), 1, EAllowShrinking::No);
     }
 
     void TerrainTextureUndoStack::EvictUntilWithinBudget()
     {
-        while (!m_Entries.empty() &&
-               (m_Entries.size() > m_MaxEntries || m_BytesUsed > m_MaxBytes))
+        while (!m_Entries.IsEmpty() &&
+               (m_Entries.Num() > m_MaxEntries || m_BytesUsed > m_MaxBytes))
         {
-            m_BytesUsed -= std::min(m_BytesUsed, m_Entries.front().Bytes);
-            m_Entries.erase(m_Entries.begin());
+            m_BytesUsed -= std::min(m_BytesUsed, m_Entries[0].Bytes);
+            m_Entries.RemoveAt(0, 1, EAllowShrinking::No);
             ++m_EvictionCount;
         }
     }

@@ -1,4 +1,5 @@
 #pragma once
+#include "OloEngine/Containers/String.h"
 
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include <functional>
@@ -50,8 +51,8 @@ namespace OloEngine
         // every caller has moved. Turning a handle back into a native object is
         // Platform/<Backend>/'s business.
         [[nodiscard]] virtual RHI::ResourceHandle GetRHIHandle() const = 0;
-        [[nodiscard]] virtual const std::string& GetName() const = 0;
-        [[nodiscard]] virtual const std::string& GetFilePath() const = 0;
+        [[nodiscard]] virtual std::string GetName() const = 0;
+        [[nodiscard]] virtual std::string GetFilePath() const = 0;
 
         virtual void Reload() = 0;
 

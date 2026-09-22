@@ -83,7 +83,8 @@
 #include <memory>
 #include <span>
 #include <utility>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/LinkedList.h"
 
 namespace OloEngine
 {
@@ -247,15 +248,15 @@ namespace OloEngine::PathTracing
 
         [[nodiscard]] sizet GetPendingGeometryCount() const
         {
-            return m_Geometries.size();
+            return m_Geometries.Num();
         }
         [[nodiscard]] sizet GetPendingInstanceCount() const
         {
-            return m_Instances.size();
+            return m_Instances.Num();
         }
         [[nodiscard]] sizet GetPendingLightCount() const
         {
-            return m_Lights.size();
+            return m_Lights.Num();
         }
         [[nodiscard]] bool IsConsumed() const
         {
@@ -263,10 +264,12 @@ namespace OloEngine::PathTracing
         }
 
       private:
+        template<typename>
+        friend struct OloEngine::TIsTriviallyRelocatable;
         struct PendingGeometry
         {
-            std::vector<Vertex> Vertices;
-            std::vector<u32> Indices;
+            TArray<Vertex> Vertices;
+            TArray<u32> Indices;
         };
 
         struct PendingInstance
@@ -291,15 +294,16 @@ namespace OloEngine::PathTracing
         // Resolved materials, stored directly as ReferenceMaterial. Their
         // LambertianDiffuseOnly stays at its default here — that is a
         // Build-time option, stamped onto every entry when Build() runs.
-        std::vector<ReferenceMaterial> m_Materials;
+        TDoubleLinkedList<ReferenceMaterial> m_MaterialStorage;
+        TArray<ReferenceMaterial*> m_Materials;
         // The Material each entry was resolved from, parallel to m_Materials.
         // Build() hands these to ReferenceSceneBuildOptions::MaterialMapProvider;
         // m_MaterialCache already keys on the same pointers, so this stores no
         // reference the builder did not already hold.
-        std::vector<const Material*> m_MaterialSources;
-        std::vector<PendingGeometry> m_Geometries;
-        std::vector<PendingInstance> m_Instances;
-        std::vector<ReferenceLight> m_Lights;
+        TArray<const Material*> m_MaterialSources;
+        TArray<PendingGeometry> m_Geometries;
+        TArray<PendingInstance> m_Instances;
+        TArray<ReferenceLight> m_Lights;
 
         std::map<const Material*, u32> m_MaterialCache;
         std::map<std::pair<const MeshSource*, u32>, u32> m_GeometryCache;
@@ -313,3 +317,13 @@ namespace OloEngine::PathTracing
         bool m_Consumed = false;
     };
 } // namespace OloEngine::PathTracing
+
+namespace OloEngine
+{
+    template<>
+    struct TIsTriviallyRelocatable<PathTracing::ReferenceSceneBuilder::PendingGeometry>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(PathTracing::ReferenceSceneBuilder::PendingGeometry::Vertices)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(PathTracing::ReferenceSceneBuilder::PendingGeometry::Indices)>::Value;
+    };
+} // namespace OloEngine

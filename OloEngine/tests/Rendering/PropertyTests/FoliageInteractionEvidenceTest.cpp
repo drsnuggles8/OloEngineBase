@@ -176,7 +176,7 @@ namespace OloEngine::Tests
                 grass.WindStiffness = 0.35f; // the anchored bend profile; no wind amplitude
                 grass.InteractionResponse = 1.0f;
                 grass.BaseColor = glm::vec3(0.18f, 0.48f, 0.14f);
-                foliage.m_Layers.push_back(grass);
+                foliage.m_Layers.Add(grass);
                 foliage.m_NeedsRebuild = true;
             }
 

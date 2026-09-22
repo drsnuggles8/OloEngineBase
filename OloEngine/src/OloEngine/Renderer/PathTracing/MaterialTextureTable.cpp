@@ -18,7 +18,7 @@ namespace OloEngine
     {
         m_Gathering = gather;
         m_ChangedThisFrame = false;
-        m_Records.clear();
+        m_Records.Reset();
         m_Unresolved = 0;
     }
 
@@ -38,7 +38,7 @@ namespace OloEngine
 
     u32 MaterialTextureTable::EndFrame(const GPUScene& scene)
     {
-        m_Records.clear();
+        m_Records.Reset();
         m_UploadedCount = 0;
         if (!m_Gathering)
             return 0;
@@ -60,8 +60,8 @@ namespace OloEngine
         // the slot is what the shader indexes with (instance.MaterialIndex),
         // and an instance carries the generation the slot lookup needs.
         const u32 materialSlots = scene.GetMaterialSlotCount();
-        m_Records.assign(materialSlots, MaterialTextureRecord{});
-        std::vector<bool> filled(materialSlots, false);
+        m_Records.Init(MaterialTextureRecord{}, static_cast<i32>(materialSlots));
+        TArray<bool> filled(materialSlots, false);
         const u32 instanceSlots = scene.GetInstanceSlotCount();
         for (u32 slot = 0; slot < instanceSlots; ++slot)
         {
@@ -88,20 +88,20 @@ namespace OloEngine
             if ((material->Flags & GPUSceneMaterialFlagEmissiveMap) != 0u)
                 record.Emissive = ResolveTexture(material->EmissiveTextureIndex, material->EmissiveTextureGeneration);
         }
-        if (m_Records.empty())
+        if (m_Records.IsEmpty())
             return 0;
 
-        const auto requiredBytes = static_cast<u32>(m_Records.size() * sizeof(MaterialTextureRecord));
+        const auto requiredBytes = static_cast<u32>(m_Records.Num() * sizeof(MaterialTextureRecord));
         // Same write discipline as the emissive table: only when the bytes
         // changed, and then into a fresh buffer, because the previous frame's
         // draw reads the old one by address and an in-place write would race
         // it (EmissiveTriangleTable::EndFrame says why dropping the old Ref
         // is safe).
-        const bool unchanged = m_Buffer && m_Uploaded.size() == m_Records.size() &&
-                               std::memcmp(m_Uploaded.data(), m_Records.data(), requiredBytes) == 0;
+        const bool unchanged = m_Buffer && m_Uploaded.Num() == m_Records.Num() &&
+                               std::memcmp(m_Uploaded.GetData(), m_Records.GetData(), requiredBytes) == 0;
         if (!unchanged)
         {
-            const u32 capacityRecords = std::max<u32>(kMinimumRecordCapacity, static_cast<u32>(m_Records.size()));
+            const u32 capacityRecords = std::max<u32>(kMinimumRecordCapacity, static_cast<u32>(m_Records.Num()));
             const auto capacityBytes = static_cast<u32>(capacityRecords * sizeof(MaterialTextureRecord));
             m_Buffer = StorageBuffer::Create(capacityBytes, StorageBuffer::kNoBinding, StorageBufferUsage::DynamicDraw);
             // Either way the integrand changed: with the new bytes, or — on a
@@ -110,20 +110,20 @@ namespace OloEngine
             m_ChangedThisFrame = true;
             if (!m_Buffer)
             {
-                m_Uploaded.clear();
+                m_Uploaded.Reset();
                 m_UploadedCount = 0;
                 return 0;
             }
-            m_Buffer->SetData(m_Records.data(), requiredBytes);
+            m_Buffer->SetData(m_Records.GetData(), requiredBytes);
             m_Uploaded = m_Records;
         }
-        m_UploadedCount = static_cast<u32>(m_Records.size());
+        m_UploadedCount = static_cast<u32>(m_Records.Num());
         return m_UploadedCount;
     }
 
     MaterialTextureRecord MaterialTextureTable::GetRecord(u32 materialSlot) const noexcept
     {
-        if (materialSlot < m_Records.size())
+        if (materialSlot < m_Records.Num())
             return m_Records[materialSlot];
         return MaterialTextureRecord{};
     }
@@ -138,10 +138,10 @@ namespace OloEngine
     void MaterialTextureTable::Shutdown()
     {
         m_Gathering = false;
-        m_Records.clear();
-        m_Records.shrink_to_fit();
-        m_Uploaded.clear();
-        m_Uploaded.shrink_to_fit();
+        m_Records.Reset();
+        m_Records.Shrink();
+        m_Uploaded.Reset();
+        m_Uploaded.Shrink();
         m_ChangedThisFrame = false;
         m_SamplerOffset = RHI::HeapOffset::Invalid;
         m_SamplerResolved = false;

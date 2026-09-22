@@ -13,7 +13,6 @@
 #include <initializer_list>
 #include <string>
 #include <utility>
-#include <vector>
 
 namespace OloEngine::Tests::GPUSceneRecordTesting
 {
@@ -35,7 +34,7 @@ namespace OloEngine::Tests::GPUSceneRecordTesting
                                    .m_HeapOffset = heapOffset };
     }
 
-    [[nodiscard]] inline std::string Describe(const std::vector<GPUSceneDirtyRange>& ranges)
+    [[nodiscard]] inline std::string Describe(const TArray<GPUSceneDirtyRange>& ranges)
     {
         std::string text = "{";
         for (const GPUSceneDirtyRange& range : ranges)
@@ -45,10 +44,10 @@ namespace OloEngine::Tests::GPUSceneRecordTesting
         return text + " }";
     }
 
-    [[nodiscard]] inline ::testing::AssertionResult DirtyRangesAre(const std::vector<GPUSceneDirtyRange>& actual,
+    [[nodiscard]] inline ::testing::AssertionResult DirtyRangesAre(const TArray<GPUSceneDirtyRange>& actual,
                                                                    std::initializer_list<GPUSceneDirtyRange> expected)
     {
-        const std::vector<GPUSceneDirtyRange> wanted(expected);
+        const TArray<GPUSceneDirtyRange> wanted(expected);
         if (actual == wanted)
         {
             return ::testing::AssertionSuccess();

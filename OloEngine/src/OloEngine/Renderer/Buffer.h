@@ -3,6 +3,7 @@
 #pragma once
 
 #include "ShaderDataTypes.h"
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -16,7 +17,7 @@ namespace OloEngine
 
     struct BufferElement
     {
-        std::string name;
+        FString name;
         ShaderDataType dataType{};
         u32 size{};
         sizet offset{};
@@ -24,7 +25,7 @@ namespace OloEngine
 
         BufferElement() = default;
 
-        BufferElement(ShaderDataType const type, const std::string& elementName, const bool isNormalized = false)
+        BufferElement(ShaderDataType const type, std::string_view elementName, const bool isNormalized = false)
             : name(elementName), dataType(type), size(ShaderUniformDeclaration::ShaderDataTypeSize(type)), offset(0), normalized(isNormalized)
         {
         }
@@ -68,6 +69,16 @@ namespace OloEngine
         }
     };
 
+    template<>
+    struct TIsTriviallyRelocatable<BufferElement>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(BufferElement::name)> &&
+                                      TIsTriviallyRelocatable_V<decltype(BufferElement::dataType)> &&
+                                      TIsTriviallyRelocatable_V<decltype(BufferElement::size)> &&
+                                      TIsTriviallyRelocatable_V<decltype(BufferElement::offset)> &&
+                                      TIsTriviallyRelocatable_V<decltype(BufferElement::normalized)>;
+    };
+
     struct VertexData
     {
         const void* data;
@@ -96,24 +107,24 @@ namespace OloEngine
         {
             return m_Stride;
         }
-        [[nodiscard("Store this!")]] std::vector<BufferElement> GetElements() const
+        [[nodiscard("Store this!")]] TArray<BufferElement> GetElements() const
         {
             return m_Elements;
         }
 
-        [[nodiscard("Store this!")]] std::vector<BufferElement>::iterator begin()
+        [[nodiscard("Store this!")]] auto begin()
         {
             return m_Elements.begin();
         }
-        [[nodiscard("Store this!")]] std::vector<BufferElement>::iterator end()
+        [[nodiscard("Store this!")]] auto end()
         {
             return m_Elements.end();
         }
-        [[nodiscard("Store this!")]] std::vector<BufferElement>::const_iterator begin() const
+        [[nodiscard("Store this!")]] auto begin() const
         {
             return m_Elements.begin();
         }
-        [[nodiscard("Store this!")]] std::vector<BufferElement>::const_iterator end() const
+        [[nodiscard("Store this!")]] auto end() const
         {
             return m_Elements.end();
         }
@@ -132,7 +143,7 @@ namespace OloEngine
         }
 
       private:
-        std::vector<BufferElement> m_Elements;
+        TArray<BufferElement> m_Elements;
         u32 m_Stride = 0;
     };
 } // namespace OloEngine

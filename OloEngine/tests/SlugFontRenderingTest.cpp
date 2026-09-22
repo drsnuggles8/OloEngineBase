@@ -425,10 +425,10 @@ TEST(SlugDeferredUploadTest, EnsureGpuTexturesUploadsRetainedData)
     data.GpuUploadPending = true;
     data.PendingCurveWidth = 2;
     data.PendingCurveHeight = 1;
-    data.PendingCurveTexels.assign(static_cast<sizet>(2) * 4, 0.25f); // RGBA16F: 4 floats/texel
+    data.PendingCurveTexels = TArray<f32>(2 * 4, 0.25f); // RGBA16F: 4 floats/texel
     data.PendingBandWidth = 2;
     data.PendingBandHeight = 1;
-    data.PendingBandTexels.assign(static_cast<sizet>(2) * 2, static_cast<u16>(3)); // RG16UI: 2 u16s/texel
+    data.PendingBandTexels = TArray<u16>(2 * 2, static_cast<u16>(3)); // RG16UI: 2 u16s/texel
 
     ASSERT_EQ(data.CurveTexture.Raw(), nullptr);
     ASSERT_EQ(data.BandTexture.Raw(), nullptr);
@@ -438,8 +438,8 @@ TEST(SlugDeferredUploadTest, EnsureGpuTexturesUploadsRetainedData)
     EXPECT_NE(data.CurveTexture.Raw(), nullptr) << "deferred curve texture was not uploaded once a context existed";
     EXPECT_NE(data.BandTexture.Raw(), nullptr) << "deferred band texture was not uploaded once a context existed";
     EXPECT_FALSE(data.GpuUploadPending) << "pending flag not cleared after upload";
-    EXPECT_TRUE(data.PendingCurveTexels.empty()) << "retained curve texels not freed after upload";
-    EXPECT_TRUE(data.PendingBandTexels.empty()) << "retained band texels not freed after upload";
+    EXPECT_TRUE(data.PendingCurveTexels.IsEmpty()) << "retained curve texels not freed after upload";
+    EXPECT_TRUE(data.PendingBandTexels.IsEmpty()) << "retained band texels not freed after upload";
 
     // Idempotent: a second call with nothing pending must not re-create the texture.
     const Texture2D* const curveBefore = data.CurveTexture.Raw();

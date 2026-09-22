@@ -8,6 +8,8 @@
 #include <unordered_map>
 #include <vector>
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Renderer/ShaderPack.h"
+#include "OloEngine/Renderer/Shader.h"
 
 namespace OloEngine
 {
@@ -44,10 +46,9 @@ namespace OloEngine
         // (CreateShaderFromPackEntry, below) split out — see PreparedShaderBatch.
         struct PackEntryCPUData
         {
-            std::string m_Name;
-            std::string m_FilePath;
-            std::unordered_map<u32, std::vector<u32>> m_VulkanSPIRV;
-            std::unordered_map<u32, std::vector<u32>> m_OpenGLSPIRV;
+            FString m_Name;
+            FString m_FilePath;
+            TArray<ShaderPackStageData> m_Stages;
         };
 
         // Two-phase form: PrepareParallel() may run on ANY thread — it makes
@@ -67,19 +68,19 @@ namespace OloEngine
         // all touch m_Shaders/m_ShaderPack without a lock.
         struct PreparedShaderBatch
         {
-            std::vector<std::string> m_FilePaths;                       // same order/size as passed to PrepareParallel() — every array below is indexed against this
-            std::vector<Ref<Shader>> m_Prepared;                        // non-pack entries: CPU-prepared, GL not yet created (null if PrepareBatch() couldn't even prepare it — see FinalizeParallel()). Pack entries: null until FinalizeParallel() materializes them from m_PackEntries.
-            std::vector<bool> m_IsPackLoaded;                           // same size as m_Prepared — true where the entry came from a shader pack
-            std::vector<std::optional<PackEntryCPUData>> m_PackEntries; // same size — decoded pack data for m_IsPackLoaded[i]==true entries, nullopt otherwise
+            TArray<FString> m_FilePaths;            // same order/size as passed to PrepareParallel() — every array below is indexed against this
+            TArray<Ref<Shader>> m_Prepared;         // non-pack entries: CPU-prepared, GL not yet created (null if PrepareBatch() couldn't even prepare it — see FinalizeParallel()). Pack entries: null until FinalizeParallel() materializes them from m_PackEntries.
+            TArray<bool> m_IsPackLoaded;            // same size as m_Prepared — true where the entry came from a shader pack
+            TArray<PackEntryCPUData> m_PackEntries; // same size — decoded pack data for m_IsPackLoaded[i]==true entries, empty otherwise
         };
         [[nodiscard]] PreparedShaderBatch PrepareParallel(const std::vector<std::string>& filepaths, std::atomic<u32>* progressCounter = nullptr) const;
-        std::vector<Ref<Shader>> FinalizeParallel(PreparedShaderBatch batch);
+        TArray<Ref<Shader>> FinalizeParallel(PreparedShaderBatch batch);
 
         // Convenience one-call form: PrepareParallel() + FinalizeParallel()
         // with no progress polling, called synchronously on this thread
         // (which must then be the render thread). Use the two-phase form
         // above instead when a UI needs to stay responsive during the load.
-        std::vector<Ref<Shader>> LoadParallel(const std::vector<std::string>& filepaths);
+        TArray<Ref<Shader>> LoadParallel(const std::vector<std::string>& filepaths);
 
         Ref<Shader> Get(const std::string& name);
 
@@ -149,5 +150,13 @@ namespace OloEngine
         std::unique_ptr<ShaderPack> m_ShaderPack;
 
         static Ref<Shader> s_FallbackShader;
+    };
+    template<>
+    struct TIsTriviallyRelocatable<ShaderLibrary::PackEntryCPUData>
+    {
+        using Entry = ShaderLibrary::PackEntryCPUData;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Entry::m_Name)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Entry::m_FilePath)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Entry::m_Stages)>;
     };
 } // namespace OloEngine

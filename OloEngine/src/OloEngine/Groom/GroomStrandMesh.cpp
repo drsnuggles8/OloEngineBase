@@ -345,9 +345,9 @@ namespace OloEngine
     }
 
     void SelectGroomStrandCurves(const GroomBuildSource& source, const GroomStrandBuildSettings& settings,
-                                 std::vector<u32>& outCurves, const GroomCoatContext* coat)
+                                 TArray<u32>& outCurves, const GroomCoatContext* coat)
     {
-        outCurves.clear();
+        outCurves.Reset();
         const GroomCurveView& groom = source.Curves;
 
         // Deliberately the SAME eligibility test and the SAME stride arithmetic
@@ -357,7 +357,7 @@ namespace OloEngine
         // not deformed, and the second of those is a coat with one stiff hair
         // in it that no assertion would ever catch.
         const Selection selection = SelectCurves(groom, settings, coat);
-        outCurves.reserve(selection.Selected);
+        outCurves.Reserve(static_cast<i32>(selection.Selected));
 
         RoleWalk walk;
         u64 segments = 0;
@@ -393,7 +393,7 @@ namespace OloEngine
                 {
                     break;
                 }
-                outCurves.push_back(curve);
+                outCurves.Add(curve);
                 segments += CountCurveSegments(groom, curve);
             }
         }
@@ -791,7 +791,7 @@ namespace OloEngine
     // GroomBuildSource is what keeps the LOD change invisible to the debug
     // preview, the tests and the binding authoring tools.
     void SelectGroomStrandCurves(const GroomAsset& groom, const GroomStrandBuildSettings& settings,
-                                 std::vector<u32>& outCurves, const GroomCoatContext* coat)
+                                 TArray<u32>& outCurves, const GroomCoatContext* coat)
     {
         SelectGroomStrandCurves(GroomBuildSource::FromAsset(groom), settings, outCurves, coat);
     }

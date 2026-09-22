@@ -70,11 +70,11 @@ namespace
         {
             return {};
         }
-        [[nodiscard]] const std::string& GetName() const override
+        [[nodiscard]] std::string GetName() const override
         {
             return m_Name;
         }
-        [[nodiscard]] const std::string& GetFilePath() const override
+        [[nodiscard]] std::string GetFilePath() const override
         {
             return m_Name;
         }
@@ -133,11 +133,11 @@ namespace
         {
             return {};
         }
-        [[nodiscard]] const std::string& GetName() const override
+        [[nodiscard]] std::string GetName() const override
         {
             return m_Name;
         }
-        [[nodiscard]] const std::string& GetFilePath() const override
+        [[nodiscard]] std::string GetFilePath() const override
         {
             return m_Name;
         }

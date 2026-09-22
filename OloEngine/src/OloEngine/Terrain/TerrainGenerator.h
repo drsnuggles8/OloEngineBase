@@ -5,7 +5,7 @@
 #include "OloEngine/Terrain/TerrainLayer.h"
 
 #include <array>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -149,7 +149,7 @@ namespace OloEngine
         // row-major). No GPU access — safe to call headless / in unit tests. When
         // params.ErosionIterations > 0 the shaped field is run through the
         // deterministic erosion post-pass (ApplyErosion) before returning.
-        static void GenerateHeightField(std::vector<f32>& outHeights, const HeightParams& params);
+        static void GenerateHeightField(TArray<f32>& outHeights, const HeightParams& params);
 
         // Generate the field and push it into a TerrainData (re-uploads to GPU).
         static void GenerateHeightmap(TerrainData& data, const HeightParams& params);
@@ -161,7 +161,7 @@ namespace OloEngine
         // run sequentially, unlike the GPU editor brush whose parallel writes
         // race. Pure CPU; safe headless / in unit tests. A no-op if iterations or
         // resolution is 0, or `heights` isn't resolution² long.
-        static void ApplyErosion(std::vector<f32>& heights, u32 resolution, u32 iterations,
+        static void ApplyErosion(TArray<f32>& heights, u32 resolution, u32 iterations,
                                  const ErosionParams& params, i32 seed);
 
         // ── Material / splatmap auto-assignment ─────────────────────────────
@@ -171,7 +171,7 @@ namespace OloEngine
         // a GL context (allocates the splatmap textures via InitializeCPUSplatmaps).
         // Height comes from data.GetHeightAt; slope from data.GetNormalAt.
         static void GenerateSplatmap(TerrainMaterial& material, const TerrainData& data,
-                                     const std::vector<TerrainLayerRule>& rules, u32 splatmapResolution,
+                                     const TArray<TerrainLayerRule>& rules, u32 splatmapResolution,
                                      f32 worldSizeX, f32 worldSizeZ, f32 heightScale);
 
         // ── Pure helpers (unit-tested) ──────────────────────────────────────
@@ -187,7 +187,7 @@ namespace OloEngine
         // to 1. If no rule matches, falls back to layer 0 fully on (so the terrain
         // is never left with an all-zero splat texel).
         static void EvaluateLayerWeights(f32 height01, f32 slopeDeg,
-                                         const std::vector<TerrainLayerRule>& rules,
+                                         const TArray<TerrainLayerRule>& rules,
                                          std::array<f32, MAX_TERRAIN_LAYERS>& outWeights);
 
         // Quantize normalized layer weights into the two RGBA8 splatmap texels.
@@ -200,8 +200,8 @@ namespace OloEngine
         // texture files required) and the matching height/slope rules. Together
         // they turn "enable procedural + auto material" into a textured planet
         // out of the box.
-        [[nodiscard]] static std::vector<TerrainLayer> MakeDefaultLayers();
-        [[nodiscard]] static std::vector<TerrainLayerRule> MakeDefaultRules();
+        [[nodiscard]] static TArray<TerrainLayer> MakeDefaultLayers();
+        [[nodiscard]] static TArray<TerrainLayerRule> MakeDefaultRules();
 
         // ── Foliage auto-population ─────────────────────────────────────────
 
@@ -223,11 +223,11 @@ namespace OloEngine
         // (no painted texture → no vegetation), and bare rock / snow get none.
         // Pure CPU — safe headless / in unit tests; the returned layers are
         // ordinary serialized FoliageLayers (no new ECS state).
-        [[nodiscard]] static std::vector<FoliageLayer> MakeFoliageLayersFromRules(const std::vector<TerrainLayerRule>& rules);
+        [[nodiscard]] static TArray<FoliageLayer> MakeFoliageLayersFromRules(const TArray<TerrainLayerRule>& rules);
 
         // One-click preset: the foliage that matches MakeDefaultLayers() /
         // MakeDefaultRules(). Equivalent to
         // MakeFoliageLayersFromRules(MakeDefaultRules()).
-        [[nodiscard]] static std::vector<FoliageLayer> MakeDefaultFoliageLayers();
+        [[nodiscard]] static TArray<FoliageLayer> MakeDefaultFoliageLayers();
     };
 } // namespace OloEngine

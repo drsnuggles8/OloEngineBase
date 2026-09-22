@@ -236,7 +236,7 @@ namespace OloEngine::Tests
         {
             Entity e = GetScene().FindEntityByName(tag);
             ASSERT_TRUE(e) << "missing cloth entity '" << tag << "'";
-            const std::vector<glm::vec3>* verts = GetScene().GetClothVertexPositions(e.GetUUID());
+            const TArray<glm::vec3>* verts = GetScene().GetClothVertexPositions(e.GetUUID());
             ASSERT_NE(verts, nullptr) << "cloth '" << tag << "' has no live soft body";
             f32 minY = std::numeric_limits<f32>::max();
             for (const glm::vec3& p : *verts)
@@ -336,19 +336,19 @@ namespace OloEngine::Tests
 
     TEST_F(ClothWindScene, WindVisiblyBillowsHangingClothSideways)
     {
-        auto averageX = [](const std::vector<glm::vec3>& positions) -> f32
+        auto averageX = [](const TArray<glm::vec3>& positions) -> f32
         {
             f32 sum = 0.0f;
             for (const glm::vec3& p : positions)
                 sum += p.x;
-            return positions.empty() ? 0.0f : sum / static_cast<f32>(positions.size());
+            return positions.IsEmpty() ? 0.0f : sum / static_cast<f32>(positions.Num());
         };
 
         const UUID clothID = m_Cloth.GetUUID();
 
-        const std::vector<glm::vec3>* initial = GetScene().GetClothVertexPositions(clothID);
+        const TArray<glm::vec3>* initial = GetScene().GetClothVertexPositions(clothID);
         ASSERT_NE(initial, nullptr) << "cloth soft body was not created / has no readback";
-        ASSERT_GT(initial->size(), 0u);
+        ASSERT_GT(initial->Num(), 0u);
         const f32 startAvgX = averageX(*initial);
 
         // ~1.5 s of simulation — enough for a clean, visible billow without the
@@ -386,7 +386,7 @@ namespace OloEngine::Tests
 
         // Behaviour cross-check (driver-independent): the cloth billowed measurably
         // downwind (+X) from where it spawned, under the real Jolt simulation.
-        const std::vector<glm::vec3>* settled = GetScene().GetClothVertexPositions(clothID);
+        const TArray<glm::vec3>* settled = GetScene().GetClothVertexPositions(clothID);
         ASSERT_NE(settled, nullptr);
         const f32 endAvgX = averageX(*settled);
         EXPECT_GT(endAvgX - startAvgX, 0.05f)

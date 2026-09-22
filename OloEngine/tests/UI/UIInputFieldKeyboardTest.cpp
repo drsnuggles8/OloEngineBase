@@ -35,7 +35,7 @@ namespace
         UIKeyboardInput kb;
         for (const char c : text)
         {
-            kb.m_TypedCharacters.push_back(static_cast<u32>(static_cast<unsigned char>(c)));
+            kb.m_TypedCharacters.Add(static_cast<u32>(static_cast<unsigned char>(c)));
         }
         return kb;
     }

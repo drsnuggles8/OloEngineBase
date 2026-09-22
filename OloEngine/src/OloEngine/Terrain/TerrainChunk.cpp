@@ -37,11 +37,11 @@ namespace OloEngine
         u32 quadCount = CHUNK_RESOLUTION * CHUNK_RESOLUTION;
         m_IndexCount = quadCount * 6;
 
-        m_StagedVertices.clear();
-        m_StagedVertices.reserve(vertCount);
+        m_StagedVertices.Reset();
+        m_StagedVertices.Reserve(vertCount);
 
-        m_StagedIndices.clear();
-        m_StagedIndices.reserve(m_IndexCount);
+        m_StagedIndices.Reset();
+        m_StagedIndices.Reserve(m_IndexCount);
 
         // Chunk world-space extents
         f32 chunkWorldW = worldSizeX / static_cast<f32>(numChunksX);
@@ -66,7 +66,7 @@ namespace OloEngine
                 f32 worldX = chunkOriginX + static_cast<f32>(x) / static_cast<f32>(CHUNK_RESOLUTION) * chunkWorldW;
                 f32 worldZ = chunkOriginZ + static_cast<f32>(z) / static_cast<f32>(CHUNK_RESOLUTION) * chunkWorldD;
 
-                m_StagedVertices.emplace_back(
+                m_StagedVertices.Emplace(
                     glm::vec3(worldX, height, worldZ),
                     glm::vec2(normX, normZ),
                     normal);
@@ -96,14 +96,14 @@ namespace OloEngine
                 u32 bottomRight = bottomLeft + 1;
 
                 // First triangle
-                m_StagedIndices.push_back(topLeft);
-                m_StagedIndices.push_back(bottomLeft);
-                m_StagedIndices.push_back(topRight);
+                m_StagedIndices.Add(topLeft);
+                m_StagedIndices.Add(bottomLeft);
+                m_StagedIndices.Add(topRight);
 
                 // Second triangle
-                m_StagedIndices.push_back(topRight);
-                m_StagedIndices.push_back(bottomLeft);
-                m_StagedIndices.push_back(bottomRight);
+                m_StagedIndices.Add(topRight);
+                m_StagedIndices.Add(bottomLeft);
+                m_StagedIndices.Add(bottomRight);
             }
         }
     }
@@ -112,24 +112,24 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (m_StagedVertices.empty() || m_StagedIndices.empty())
+        if (m_StagedVertices.IsEmpty() || m_StagedIndices.IsEmpty())
         {
             return;
         }
 
         m_VAO = VertexArray::Create();
 
-        auto vbo = VertexBuffer::Create(m_StagedVertices.data(), static_cast<u32>(m_StagedVertices.size() * sizeof(TerrainVertex)));
+        auto vbo = VertexBuffer::Create(m_StagedVertices.GetData(), static_cast<u32>(m_StagedVertices.Num() * sizeof(TerrainVertex)));
         vbo->SetLayout(TerrainVertex::GetLayout());
         m_VAO->AddVertexBuffer(vbo);
 
-        auto ibo = IndexBuffer::Create(m_StagedIndices.data(), static_cast<u32>(m_StagedIndices.size()));
+        auto ibo = IndexBuffer::Create(m_StagedIndices.GetData(), static_cast<u32>(m_StagedIndices.Num()));
         m_VAO->SetIndexBuffer(ibo);
 
         // Free staging memory
-        m_StagedVertices.clear();
-        m_StagedVertices.shrink_to_fit();
-        m_StagedIndices.clear();
-        m_StagedIndices.shrink_to_fit();
+        m_StagedVertices.Reset();
+        m_StagedVertices.Shrink();
+        m_StagedIndices.Reset();
+        m_StagedIndices.Shrink();
     }
 } // namespace OloEngine

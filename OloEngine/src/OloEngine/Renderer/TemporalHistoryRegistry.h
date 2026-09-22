@@ -10,7 +10,8 @@
 #include <string_view>
 #include <unordered_map>
 #include <utility>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/String.h"
 
 namespace OloEngine
 {
@@ -183,7 +184,47 @@ namespace OloEngine
         TemporalHistoryInvalidationCause LastInvalidation = TemporalHistoryInvalidationCause::None;
         bool Valid = false;
         bool HasTexture = false;
-        std::string DebugName;
+        FString DebugName;
+    };
+
+    struct TemporalHistoryEntry
+    {
+        TemporalHistoryKey Key{};
+        TemporalHistoryDescriptor Descriptor{};
+        TemporalHistoryDependency Dependencies = TemporalHistoryDependency::None;
+        TemporalHistoryInvalidationCause LastInvalidation = TemporalHistoryInvalidationCause::FirstUse;
+        u32 Generation = 1;
+        bool Valid = false;
+        Ref<Texture2D> Texture;
+        FString DebugName;
+    };
+
+    // Descriptor/key are scalar value records; Ref and FString own external storage without self-pointers.
+    template<>
+    struct TIsTriviallyRelocatable<TemporalHistoryEntry>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(TemporalHistoryEntry::Key)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TemporalHistoryEntry::Descriptor)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TemporalHistoryEntry::Dependencies)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TemporalHistoryEntry::LastInvalidation)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TemporalHistoryEntry::Generation)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TemporalHistoryEntry::Valid)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TemporalHistoryEntry::Texture)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TemporalHistoryEntry::DebugName)>::Value;
+    };
+
+    // Same scalar metadata as Entry with an owned string and no texture reference.
+    template<>
+    struct TIsTriviallyRelocatable<TemporalHistorySnapshot>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(TemporalHistorySnapshot::Key)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TemporalHistorySnapshot::Descriptor)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TemporalHistorySnapshot::Token)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TemporalHistorySnapshot::Dependencies)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TemporalHistorySnapshot::LastInvalidation)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TemporalHistorySnapshot::Valid)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TemporalHistorySnapshot::HasTexture)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TemporalHistorySnapshot::DebugName)>::Value;
     };
 
     // Persistent, graph-owned temporal state. RenderGraph handles are deliberately
@@ -212,27 +253,17 @@ namespace OloEngine
                        std::optional<TemporalHistoryEffect> effect = std::nullopt);
         void Clear();
 
-        [[nodiscard]] std::vector<TemporalHistorySnapshot> Snapshot() const;
+        [[nodiscard]] TArray<TemporalHistorySnapshot> Snapshot() const;
         [[nodiscard]] static TemporalHistoryDependency DependencyForCause(TemporalHistoryInvalidationCause cause);
 
       private:
-        struct Entry
-        {
-            TemporalHistoryKey Key{};
-            TemporalHistoryDescriptor Descriptor{};
-            TemporalHistoryDependency Dependencies = TemporalHistoryDependency::None;
-            TemporalHistoryInvalidationCause LastInvalidation = TemporalHistoryInvalidationCause::FirstUse;
-            u32 Generation = 1;
-            bool Valid = false;
-            Ref<Texture2D> Texture;
-            std::string DebugName;
-        };
+        using Entry = TemporalHistoryEntry;
 
         [[nodiscard]] Entry* Resolve(TemporalHistoryToken token);
         [[nodiscard]] const Entry* Resolve(TemporalHistoryToken token) const;
 
         std::unordered_map<TemporalHistoryKey, u32, TemporalHistoryKeyHash> m_Indices;
         std::unordered_map<std::string, TemporalHistoryKey> m_DebugNameOwners;
-        std::vector<Entry> m_Entries;
+        TArray<Entry> m_Entries;
     };
 } // namespace OloEngine

@@ -126,7 +126,7 @@ namespace OloEngine
         // block size, so an odd resolution is padded up by one row/column (edge-replicated),
         // which extends collision a negligible fraction past the far edge. Returns nullptr on
         // invalid input or Jolt build error.
-        static JPH::Ref<JPH::Shape> CreateTerrainHeightFieldShape(const std::vector<f32>& heights, u32 resolution,
+        static JPH::Ref<JPH::Shape> CreateTerrainHeightFieldShape(std::span<const f32> heights, u32 resolution,
                                                                   f32 worldSizeX, f32 worldSizeZ, f32 heightScale,
                                                                   const glm::vec3& scale = glm::vec3(1.0f));
 

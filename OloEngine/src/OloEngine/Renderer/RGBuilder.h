@@ -1,18 +1,69 @@
 #pragma once
 
+#include "OloEngine/Containers/String.h"
+
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 
+#include <concepts>
 #include <functional>
 #include <string>
+#include <type_traits>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace OloEngine
 {
+    // Heterogeneous hash + equality so a `std::unordered_map<std::string, V>`
+    // can be looked up via `std::string_view` / `const char*` without
+    // allocating a temporary `std::string` per call. Use these as the third
+    // and fourth template arguments to `unordered_map` / `unordered_set` to
+    // get free transparent lookup. Also used internally by `RGStringInterner`
+    // for the same reason.
+    // A single template each, not an overload set: a `const char*` key converts
+    // implicitly to std::string, std::string_view AND FString, so any overload
+    // pair over those types is ambiguous for a string-literal lookup. Normalising
+    // every key to a view first keeps heterogeneous lookup allocation-free.
+    namespace RGStringKey
+    {
+        template<typename T>
+        [[nodiscard]] inline std::string_view AsView(const T& s) noexcept
+        {
+            if constexpr (std::same_as<std::remove_cvref_t<T>, FString>)
+                return s.ToView();
+            else
+                return std::string_view(s);
+        }
+    } // namespace RGStringKey
+
+    struct RGStringTransparentHash
+    {
+        using is_transparent = void;
+        template<typename T>
+        [[nodiscard]] size_t operator()(const T& s) const noexcept
+        {
+            return std::hash<std::string_view>{}(RGStringKey::AsView(s));
+        }
+    };
+
+    struct RGStringTransparentEqual
+    {
+        using is_transparent = void;
+        template<typename L, typename R>
+        [[nodiscard]] bool operator()(const L& a, const R& b) const noexcept
+        {
+            return RGStringKey::AsView(a) == RGStringKey::AsView(b);
+        }
+    };
+
+    template<typename V>
+    using RGTransparentStringMap = std::unordered_map<std::string, V, RGStringTransparentHash, RGStringTransparentEqual>;
+    using RGTransparentStringSet = std::unordered_set<std::string, RGStringTransparentHash, RGStringTransparentEqual>;
+
     class Framebuffer;
     class RenderGraph;
     struct FrameBlackboard;
@@ -109,7 +160,7 @@ namespace OloEngine
 
     struct RGAccessDeclaration
     {
-        std::string ResourceName;
+        FString ResourceName;
         bool IsWrite = false;
         RGReadUsage ReadUsage = RGReadUsage::ShaderSample;
         RGWriteUsage WriteUsage = RGWriteUsage::RenderTarget;
@@ -118,7 +169,7 @@ namespace OloEngine
 
     struct RGFeedbackDeclaration
     {
-        std::string ResourceName;
+        FString ResourceName;
         RGSubresourceRange Range = RGSubresourceRange::Full();
     };
 
@@ -358,27 +409,27 @@ namespace OloEngine
         // writer is the current pass itself.
         void DependsOnPreviousWriter(std::string_view resourceName);
 
-        [[nodiscard]] const std::vector<std::string>& GetDeclaredReads() const noexcept
+        [[nodiscard]] const TArray64<FString>& GetDeclaredReads() const noexcept
         {
             return m_DeclaredReads;
         }
 
-        [[nodiscard]] const std::vector<std::string>& GetDeclaredWrites() const noexcept
+        [[nodiscard]] const TArray64<FString>& GetDeclaredWrites() const noexcept
         {
             return m_DeclaredWrites;
         }
 
-        [[nodiscard]] const std::vector<RGAccessDeclaration>& GetDeclaredAccesses() const noexcept
+        [[nodiscard]] const TArray64<RGAccessDeclaration>& GetDeclaredAccesses() const noexcept
         {
             return m_DeclaredAccesses;
         }
 
-        [[nodiscard]] const std::vector<RGFeedbackDeclaration>& GetDeclaredFeedbacks() const noexcept
+        [[nodiscard]] const TArray64<RGFeedbackDeclaration>& GetDeclaredFeedbacks() const noexcept
         {
             return m_DeclaredFeedbacks;
         }
 
-        [[nodiscard]] const std::vector<std::string>& GetDeclaredPassDependencies() const noexcept
+        [[nodiscard]] const TArray64<FString>& GetDeclaredPassDependencies() const noexcept
         {
             return m_DeclaredPassDependencies;
         }
@@ -394,7 +445,7 @@ namespace OloEngine
         // (b) get expanded by expandTextureViewAccesses back down onto every
         // sibling attachment view, falsely implying this pass wrote views it
         // never touched. Consumed only by RenderGraphTransientPlanner.
-        [[nodiscard]] const std::vector<std::string>& GetDeclaredLifetimeExtensions() const noexcept
+        [[nodiscard]] const TArray64<FString>& GetDeclaredLifetimeExtensions() const noexcept
         {
             return m_DeclaredLifetimeExtensions;
         }
@@ -419,14 +470,31 @@ namespace OloEngine
 
         RenderGraph& m_Graph;
         const FrameBlackboard& m_Blackboard;
-        std::string m_CurrentPassName;
-        std::vector<std::string> m_DeclaredReads;
-        std::vector<std::string> m_DeclaredWrites;
-        std::vector<RGAccessDeclaration> m_DeclaredAccesses;
-        std::vector<RGFeedbackDeclaration> m_DeclaredFeedbacks;
-        std::vector<std::string> m_DeclaredPassDependencies;
-        std::vector<std::string> m_DeclaredLifetimeExtensions;
-        std::unordered_map<std::string, u32> m_NextVersionOrdinalByResource;
+        FString m_CurrentPassName;
+        TArray64<FString> m_DeclaredReads;
+        TArray64<FString> m_DeclaredWrites;
+        TArray64<RGAccessDeclaration> m_DeclaredAccesses;
+        TArray64<RGFeedbackDeclaration> m_DeclaredFeedbacks;
+        TArray64<FString> m_DeclaredPassDependencies;
+        TArray64<FString> m_DeclaredLifetimeExtensions;
+        RGTransparentStringMap<u32> m_NextVersionOrdinalByResource;
     };
 
+    // The owned name is heap-backed; all access metadata is value state.
+    template<>
+    struct TIsTriviallyRelocatable<RGAccessDeclaration>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(RGAccessDeclaration::ResourceName)> &&
+                                      TIsTriviallyRelocatable_V<decltype(RGAccessDeclaration::IsWrite)> &&
+                                      TIsTriviallyRelocatable_V<decltype(RGAccessDeclaration::ReadUsage)> &&
+                                      TIsTriviallyRelocatable_V<decltype(RGAccessDeclaration::WriteUsage)> &&
+                                      TIsTriviallyRelocatable_V<decltype(RGAccessDeclaration::Range)>;
+    };
+    // The owned name is heap-backed; all access metadata is value state.
+    template<>
+    struct TIsTriviallyRelocatable<RGFeedbackDeclaration>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(RGFeedbackDeclaration::ResourceName)> &&
+                                      TIsTriviallyRelocatable_V<decltype(RGFeedbackDeclaration::Range)>;
+    };
 } // namespace OloEngine

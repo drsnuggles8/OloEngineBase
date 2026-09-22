@@ -35,12 +35,12 @@ namespace OloEngine
                                                 "parentHandle", sol::readonly_property([](const RelationshipComponent& r)
                                                                                        { return static_cast<u64>(r.m_ParentHandle); }),
                                                 "childCount", sol::readonly_property([](const RelationshipComponent& r)
-                                                                                     { return r.m_Children.size(); }),
+                                                                                     { return r.m_Children.Num(); }),
                                                 "children", sol::readonly_property([](const RelationshipComponent& r, sol::this_state s) -> sol::table
                                                                                    {
             sol::state_view lua_state(s);
-            sol::table t = lua_state.create_table(static_cast<int>(r.m_Children.size()), 0);
-            for (sizet i = 0; i < r.m_Children.size(); ++i)
+            sol::table t = lua_state.create_table(static_cast<int>(r.m_Children.Num()), 0);
+            for (sizet i = 0; i < r.m_Children.Num(); ++i)
                 t[i + 1] = static_cast<u64>(r.m_Children[i]);
             return t; }));
 
@@ -179,9 +179,9 @@ namespace OloEngine
         // material are authored in editor / via YAML — Lua exposes the
         // behavioural fields plus instance-list manipulation.
         lua.new_usertype<InstancedMeshComponent>("InstancedMeshComponent", "cast_shadows", &InstancedMeshComponent::CastShadows, "frustum_cull_per_instance", &InstancedMeshComponent::FrustumCullPerInstance, "cull_distance", &InstancedMeshComponent::CullDistance, "lightmap_static", &InstancedMeshComponent::LightmapStatic, "instance_count", sol::readonly_property([](const InstancedMeshComponent& c) -> int
-                                                                                                                                                                                                                                                                                                                                                                            { return static_cast<int>(c.Instances.size()); }),
+                                                                                                                                                                                                                                                                                                                                                                            { return static_cast<int>(c.Instances.Num()); }),
                                                  "clear_instances", [](InstancedMeshComponent& c)
-                                                 { c.Instances.clear(); }, "add_instance", [](InstancedMeshComponent& c, f32 px, f32 py, f32 pz, f32 ex, f32 ey, f32 ez, f32 sx, f32 sy, f32 sz, f32 cr, f32 cg, f32 cb, f32 ca, f32 custom, i32 instanceEntityID)
+                                                 { c.Instances.Reset(); }, "add_instance", [](InstancedMeshComponent& c, f32 px, f32 py, f32 pz, f32 ex, f32 ey, f32 ez, f32 sx, f32 sy, f32 sz, f32 cr, f32 cg, f32 cb, f32 ca, f32 custom, i32 instanceEntityID)
                                                  {
                                 // Fifteen raw floats straight from script. A NaN in any of
                                 // them, or a zero scale component, makes the transform
@@ -219,7 +219,7 @@ namespace OloEngine
                                 inst.Color = glm::vec4(cr, cg, cb, ca);
                                 inst.Custom = custom;
                                 inst.EntityID = instanceEntityID;
-                                c.Instances.push_back(inst); });
+                                c.Instances.Add(inst); });
 
         // --- UICanvasComponent ---
         lua.new_usertype<UICanvasComponent>("UICanvasComponent",

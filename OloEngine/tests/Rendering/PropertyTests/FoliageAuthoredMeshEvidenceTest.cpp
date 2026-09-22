@@ -49,6 +49,8 @@
 // =============================================================================
 
 #include "OloEnginePCH.h"
+#include <span>
+#include "OloEngine/Containers/Array.h"
 #include "../../TestOptions.h"
 
 #include "RendererAttachedTest.h"
@@ -184,7 +186,7 @@ namespace OloEngine::Tests
                 pines.AlphaCutoff = 0.25f;
                 pines.WindStrength = 0.0f; // deterministic silhouette across the A/B
                 pines.BaseColor = glm::vec3(0.18f, 0.42f, 0.14f);
-                foliage.m_Layers.push_back(pines);
+                foliage.m_Layers.Add(pines);
                 foliage.m_NeedsRebuild = true;
             }
         }
@@ -284,7 +286,7 @@ namespace OloEngine::Tests
             << "a layer asked for a representation it did not get; see OloEngine.log";
 
         const auto draws = foliage.m_Renderer->GetActiveLayerDrawInfo();
-        ASSERT_GE(draws.size(), 2u) << "a layer with an authored mesh must emit its mesh AND its card";
+        ASSERT_GE(draws.Num(), 2u) << "a layer with an authored mesh must emit its mesh AND its card";
 
         u32 meshDraws = 0;
         u32 cardDraws = 0;
@@ -314,7 +316,7 @@ namespace OloEngine::Tests
         // Conservative bounds came from the real mesh: a pine 8-12 m tall with a
         // canopy is not bounded by a 1 m quad.
         const auto& records = foliage.m_Renderer->GetInstanceRegistry().GetRecords();
-        ASSERT_FALSE(records.empty());
+        ASSERT_FALSE(records.IsEmpty());
         bool sawWideBound = false;
         for (const auto& record : records)
         {

@@ -66,7 +66,7 @@ TEST(SystemSchedulerTest, EmptySchedulerBuildsAndReportsNoSystems)
     SystemScheduler sched;
     EXPECT_NO_THROW(sched.Build());
     EXPECT_EQ(sched.SystemCount(), 0u);
-    EXPECT_TRUE(sched.GetOrderedNames().empty());
+    EXPECT_TRUE(sched.GetOrderedNames().IsEmpty());
 }
 
 TEST(SystemSchedulerTest, NoConstraintsPreservesRegistrationOrder)
@@ -76,7 +76,7 @@ TEST(SystemSchedulerTest, NoConstraintsPreservesRegistrationOrder)
     sched.AddSystem("B", NoOp());
     sched.AddSystem("C", NoOp());
 
-    const std::vector<std::string> expected{ "A", "B", "C" };
+    const TArray<FString> expected{ "A", "B", "C" };
     EXPECT_EQ(sched.GetOrderedNames(), expected);
 }
 
@@ -89,7 +89,7 @@ TEST(SystemSchedulerTest, AfterConstraintReordersAgainstRegistrationOrder)
     sched.AddSystem("B", NoOp());
     sched.AddSystem("C", NoOp());
 
-    const std::vector<std::string> expected{ "B", "C", "A" };
+    const TArray<FString> expected{ "B", "C", "A" };
     EXPECT_EQ(sched.GetOrderedNames(), expected);
 }
 
@@ -101,7 +101,7 @@ TEST(SystemSchedulerTest, BeforeConstraintReordersAgainstRegistrationOrder)
     sched.AddSystem("B", NoOp());
     sched.AddSystem("C", NoOp()).Before("A");
 
-    const std::vector<std::string> expected{ "B", "C", "A" };
+    const TArray<FString> expected{ "B", "C", "A" };
     EXPECT_EQ(sched.GetOrderedNames(), expected);
 }
 
@@ -111,7 +111,7 @@ TEST(SystemSchedulerTest, ExplicitAfterAndBeforeAgreeOnTheSameEdge)
     sched.AddSystem("Writer", NoOp()).Before("Reader");
     sched.AddSystem("Reader", NoOp()).After("Writer");
 
-    const std::vector<std::string> expected{ "Writer", "Reader" };
+    const TArray<FString> expected{ "Writer", "Reader" };
     EXPECT_EQ(sched.GetOrderedNames(), expected);
 }
 
@@ -153,7 +153,7 @@ TEST(SystemSchedulerTest, ReadOnlySystemsSharingAResourceAreIndependent)
     sched.AddSystem("R2", NoOp()).Reads("World");
     sched.AddSystem("R1", NoOp()).Reads("World");
 
-    const std::vector<std::string> expected{ "R2", "R1" };
+    const TArray<FString> expected{ "R2", "R1" };
     EXPECT_EQ(sched.GetOrderedNames(), expected);
 }
 
@@ -164,7 +164,7 @@ TEST(SystemSchedulerTest, ReadModifyWriteDoesNotSelfDeadlock)
     SystemScheduler sched;
     sched.AddSystem("Physics", NoOp()).ReadsWrites("Transforms");
     EXPECT_NO_THROW(sched.Build());
-    ASSERT_EQ(sched.GetOrderedNames().size(), 1u);
+    ASSERT_EQ(sched.GetOrderedNames().Num(), 1u);
     EXPECT_EQ(sched.GetOrderedNames()[0], "Physics");
 }
 
@@ -232,6 +232,36 @@ TEST(SystemSchedulerTest, ExecuteRunsEverySystemOnceInDerivedOrder)
     EXPECT_EQ(log, expected);
 }
 
+TEST(SystemSchedulerTest, OwnedCallbacksAndBuilderIndicesSurviveNodeGrowth)
+{
+    SystemScheduler sched;
+    std::vector<std::string> log;
+    const auto record = [&log](std::string label) -> SystemScheduler::ExecFn
+    {
+        // A short captured std::string exercises the callback's address-sensitive
+        // small-string representation while its owning scheduler nodes relocate.
+        return [&log, label = std::move(label)](Scene&, Timestep)
+        { log.push_back(label); };
+    };
+    auto first = sched.AddSystem("first", record("short"));
+    for (i32 i = 0; i < 128; ++i)
+    {
+        sched.AddSystem("filler_" + std::to_string(i), NoOp());
+    }
+    const std::string longName(256, 'x');
+    sched.AddSystem(longName, record(longName));
+    first.After(longName);
+
+    Ref<Scene> scene = Scene::Create();
+    sched.Execute(*scene, Timestep{ 0.016f });
+    EXPECT_EQ(log, (std::vector<std::string>{ longName, "short" }));
+    EXPECT_TRUE(sched.DependsOn("first", longName));
+    const auto graph = sched.ExportGraph();
+    ASSERT_EQ(graph.Nodes.size(), 130u);
+    EXPECT_EQ(graph.Nodes.back().Name, "first");
+    EXPECT_EQ(graph.Nodes.back().After, (std::vector<std::string>{ longName }));
+}
+
 // ── The canonical-order acceptance test ──────────────────────────────────────
 // The derived gameplay-system order must equal this canonical sequence exactly.
 // If a future edit reorders a system or adds/removes one, this pins the change
@@ -247,7 +277,7 @@ TEST(SystemSchedulerTest, ExecuteRunsEverySystemOnceInDerivedOrder)
 //     their slot relative to systems they share no data with.
 TEST(SystemSchedulerTest, GameplayScheduleMatchesCanonicalOrder)
 {
-    const std::vector<std::string> expected{
+    const TArray<FString> expected{
         "Scripts",
         // Node-graph gameplay logic (issue #634): After("Scripts") so a graph
         // sees this tick's text-script writes, and a LocalTransforms
@@ -414,10 +444,10 @@ TEST(SystemSchedulerTest, ExportGraphAgreesWithDependsOnOnTheRealSchedule)
     ASSERT_FALSE(graph.Nodes.empty());
     EXPECT_EQ(graph.Nodes.size(), sched.SystemCount());
 
-    std::vector<std::string> exportedOrder;
-    exportedOrder.reserve(graph.Nodes.size());
+    TArray<FString> exportedOrder;
+    exportedOrder.Reserve(static_cast<i32>(graph.Nodes.size()));
     for (const auto& node : graph.Nodes)
-        exportedOrder.push_back(node.Name);
+        exportedOrder.Emplace(node.Name);
     EXPECT_EQ(exportedOrder, Scene::GetGameplaySystemOrderForTesting());
 
     // Transitive reachability over the exported edges must reproduce DependsOn.
@@ -454,20 +484,20 @@ TEST(SystemSchedulerTest, ExportGraphAgreesWithDependsOnOnTheRealSchedule)
     // nothing.
     ASSERT_TRUE(reaches("Scripts", "Cinematics")) << "sanity: the real schedule has at least one derived path";
     sizet checked = 0;
-    for (const std::string& from : exportedOrder)
+    for (const FString& from : exportedOrder)
     {
-        for (const std::string& to : exportedOrder)
+        for (const FString& to : exportedOrder)
         {
             if (from == to)
                 continue; // DependsOn reports no self-dependency by contract
             // Note the reversed argument order: reaches(from, to) is an edge path
             // from -> to, which is exactly DependsOn(to, from) ("to depends on from").
-            ASSERT_EQ(reaches(from, to), sched.DependsOn(to, from))
-                << "export and DependsOn disagree on whether " << to << " depends on " << from;
+            ASSERT_EQ(reaches(from.ToStdString(), to.ToStdString()), sched.DependsOn(to.ToView(), from.ToView()))
+                << "export and DependsOn disagree on whether " << to.ToStdString() << " depends on " << from.ToStdString();
             ++checked;
         }
     }
-    EXPECT_EQ(checked, exportedOrder.size() * (exportedOrder.size() - 1));
+    EXPECT_EQ(checked, static_cast<sizet>(exportedOrder.Num()) * static_cast<sizet>(exportedOrder.Num() - 1));
 }
 
 // The critical cross-subsystem seams the historical comments call out must hold

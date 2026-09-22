@@ -420,9 +420,9 @@ namespace OloEngine::Tests
             // re-writing EditorLayer::BakeLightmaps' loop is the point: this
             // suite is the only thing that renders the whole chain, so it should
             // render the code the editor actually runs. ──
-            const std::vector<LightmapReceiver> receivers = GatherLightmapReceivers(scene);
+            const TArray<LightmapReceiver> receivers = GatherLightmapReceivers(scene);
             std::vector<LightmapBakeInput> inputs;
-            inputs.reserve(receivers.size());
+            inputs.reserve(receivers.Num());
             for (const LightmapReceiver& receiver : receivers)
             {
                 LightmapBakeInput input;
@@ -463,7 +463,7 @@ namespace OloEngine::Tests
             ASSERT_TRUE(LightmapBaker::Prepare(inputs, bakeSettings, prepared, prepareError)) << prepareError;
             EXPECT_EQ(prepared.BakedEntityCount, ExpectedReceiverCount());
             EXPECT_EQ(prepared.SkippedEntityCount, 0u);
-            EXPECT_GT(prepared.Jobs.size(), 200u) << "the room's charts cover too little of the atlas";
+            EXPECT_GT(prepared.Jobs.Num(), 200u) << "the room's charts cover too little of the atlas";
             m_BakedPageCount = prepared.PageCount;
             m_BakedEntries = prepared.Entries;
 
@@ -483,7 +483,7 @@ namespace OloEngine::Tests
             // recomputes the key against the POST-unwrap meshes at sample time. A
             // key computed before Prepare can never match — the runtime would
             // (correctly) refuse the bake as stale.
-            bakeSettings.BakeKey = SceneLightmapRuntime::ComputeBakeKey(scene, lmSettings, receivers);
+            bakeSettings.BakeKey = SceneLightmapRuntime::ComputeBakeKey(scene, lmSettings, { receivers.GetData(), static_cast<sizet>(receivers.Num()) });
 
             // ── The reference world, from the SAME receiver list the bake is
             // about to consume (issue #867). AddScene's MeshComponent predicate
@@ -491,13 +491,13 @@ namespace OloEngine::Tests
             // no MeshComponent, so the bake would have traced a room they were
             // missing from — no occlusion, no bounce, and no error to say so. ──
             PathTracing::ReferenceSceneBuilder builder;
-            builder.AddLightmapReceivers(scene, receivers);
+            builder.AddLightmapReceivers(scene, { receivers.GetData(), static_cast<sizet>(receivers.Num()) });
             EXPECT_EQ(builder.GetPendingLightCount(), 1u);
             const PathTracing::ReferenceScene world = builder.Build(PathTracing::ReferenceSceneBuildOptions{});
 
             // ── Stage 2: the texel bake ──
             const LightmapBakeResult result = LightmapBaker::BakeTexels(prepared, world, bakeSettings);
-            ASSERT_TRUE(result.Success) << result.Error;
+            ASSERT_TRUE(result.Success) << result.Error.ToStdString();
             ASSERT_TRUE(result.Asset);
             EXPECT_TRUE(result.Asset->Validate());
             EXPECT_EQ(result.Asset->GetBakeKey(), bakeSettings.BakeKey);
@@ -553,7 +553,7 @@ namespace OloEngine::Tests
 
         // What the last BakeAndResolve() actually packed (issue #868).
         u32 m_BakedPageCount = 0;
-        std::vector<LightmapEntityEntry> m_BakedEntries;
+        TArray<LightmapEntityEntry> m_BakedEntries;
     };
 
     TEST_F(LightmapBleedRoom, BakedBleedTintsTheFloorAndTogglesWithEnabled)
@@ -930,7 +930,7 @@ namespace OloEngine::Tests
         ASSERT_EQ(m_BakedPageCount, 4u)
             << "a 16px atlas with a 16px minimum region holds exactly one entity per page — "
                "the packer did not open one page per room piece";
-        ASSERT_EQ(m_BakedEntries.size(), 4u);
+        ASSERT_EQ(m_BakedEntries.Num(), 4u);
         std::vector<u32> pages;
         for (const LightmapEntityEntry& entry : m_BakedEntries)
         {
@@ -1076,8 +1076,8 @@ namespace OloEngine::Tests
                 instance.StableID = stableID;
                 return instance;
             };
-            imc.Instances.push_back(tile(-1.5f, kLeftTileStableID)); // beside the RED wall
-            imc.Instances.push_back(tile(1.5f, kRightTileStableID)); // beside the GREEN wall
+            imc.Instances.Add(tile(-1.5f, kLeftTileStableID)); // beside the RED wall
+            imc.Instances.Add(tile(1.5f, kRightTileStableID)); // beside the GREEN wall
 
             // The grey the MeshComponent floor uses, so the two rooms are
             // photometrically comparable.
@@ -1197,7 +1197,7 @@ namespace OloEngine::Tests
         // this batch's any more.
         {
             auto& imc = m_Floor.GetComponent<InstancedMeshComponent>();
-            ASSERT_FALSE(imc.Instances.empty());
+            ASSERT_FALSE(imc.Instances.IsEmpty());
             ASSERT_GT(imc.Instances[0].LightmapScaleOffset.x, 0.0f)
                 << "the draw never wrote a region into the instance buffer at all";
 

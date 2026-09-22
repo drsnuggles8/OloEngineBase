@@ -137,12 +137,12 @@ namespace OloEngine::Ocean
         return std::sqrt(std::max(gravity * kMagnitude, 0.0f));
     }
 
-    std::vector<glm::vec2> GenerateSpectrumNoise(u32 seed, u32 resolution)
+    TArray<glm::vec2> GenerateSpectrumNoise(u32 seed, u32 resolution)
     {
         const u32 N = resolution;
         OLO_CORE_ASSERT(IsPowerOfTwo(N), "Ocean spectrum resolution must be a power of two");
 
-        std::vector<glm::vec2> noise(static_cast<sizet>(N) * N);
+        TArray<glm::vec2> noise(static_cast<sizet>(N) * N);
         std::mt19937 rng(seed);
 
         // BOX-MULLER BY HAND, not std::normal_distribution.
@@ -185,13 +185,13 @@ namespace OloEngine::Ocean
         return noise;
     }
 
-    std::vector<Complex> GenerateH0FromNoise(const SpectrumParams& params, const std::vector<glm::vec2>& noise)
+    TArray<Complex> GenerateH0FromNoise(const SpectrumParams& params, const TArray<glm::vec2>& noise)
     {
         const u32 N = params.m_Resolution;
         OLO_CORE_ASSERT(IsPowerOfTwo(N), "Ocean spectrum resolution must be a power of two");
-        OLO_CORE_ASSERT(noise.size() == static_cast<sizet>(N) * N, "GenerateH0FromNoise: noise size mismatch");
+        OLO_CORE_ASSERT(noise.Num() == static_cast<sizet>(N) * N, "GenerateH0FromNoise: noise size mismatch");
 
-        std::vector<Complex> h0(static_cast<sizet>(N) * N);
+        TArray<Complex> h0(static_cast<sizet>(N) * N);
         const f32 invSqrt2 = 0.70710678118654752440f;
         for (u32 m = 0u; m < N; ++m)
         {
@@ -206,15 +206,15 @@ namespace OloEngine::Ocean
         return h0;
     }
 
-    std::vector<Complex> GenerateH0(const SpectrumParams& params)
+    TArray<Complex> GenerateH0(const SpectrumParams& params)
     {
         return GenerateH0FromNoise(params, GenerateSpectrumNoise(params.m_Seed, params.m_Resolution));
     }
 
-    void ApplyBandLimit(std::vector<Complex>& h0, u32 resolution, f32 patchSize, f32 kMin, f32 kMax)
+    void ApplyBandLimit(TArray<Complex>& h0, u32 resolution, f32 patchSize, f32 kMin, f32 kMax)
     {
         const u32 N = resolution;
-        OLO_CORE_ASSERT(h0.size() == static_cast<sizet>(N) * N, "ApplyBandLimit: h0 size mismatch");
+        OLO_CORE_ASSERT(h0.Num() == static_cast<sizet>(N) * N, "ApplyBandLimit: h0 size mismatch");
         if (kMin <= 0.0f && !(kMax < std::numeric_limits<f32>::infinity()))
             return; // the whole spectrum — the single-cascade case, untouched
 
@@ -229,12 +229,12 @@ namespace OloEngine::Ocean
         }
     }
 
-    std::vector<Complex> ExtractBandLimitedH0(const std::vector<Complex>& h0, u32 resolution, u32 targetResolution)
+    TArray<Complex> ExtractBandLimitedH0(const TArray<Complex>& h0, u32 resolution, u32 targetResolution)
     {
         const u32 N = resolution;
         const u32 Ns = targetResolution;
         OLO_CORE_ASSERT(IsPowerOfTwo(N) && IsPowerOfTwo(Ns), "ExtractBandLimitedH0: resolutions must be powers of two");
-        OLO_CORE_ASSERT(h0.size() == static_cast<sizet>(N) * N, "ExtractBandLimitedH0: h0 size mismatch");
+        OLO_CORE_ASSERT(h0.Num() == static_cast<sizet>(N) * N, "ExtractBandLimitedH0: h0 size mismatch");
 
         if (Ns >= N)
             return h0;
@@ -246,7 +246,7 @@ namespace OloEngine::Ocean
         // spatial amplitudes (in metres) as the band-limited full surface.
         const f32 scale = (static_cast<f32>(Ns) / static_cast<f32>(N)) * (static_cast<f32>(Ns) / static_cast<f32>(N));
 
-        std::vector<Complex> small(static_cast<sizet>(Ns) * Ns, Complex(0.0f, 0.0f));
+        TArray<Complex> small(static_cast<sizet>(Ns) * Ns, Complex(0.0f, 0.0f));
         const i32 nyquist = static_cast<i32>(Ns / 2u);
         for (u32 m = 0u; m < Ns; ++m)
         {
@@ -268,10 +268,10 @@ namespace OloEngine::Ocean
         return small;
     }
 
-    f32 ReferenceHeightRms(const std::vector<Complex>& h0, u32 resolution)
+    f32 ReferenceHeightRms(const TArray<Complex>& h0, u32 resolution)
     {
         const u32 N = resolution;
-        OLO_CORE_ASSERT(h0.size() == static_cast<sizet>(N) * N, "ReferenceHeightRms: h0 size mismatch");
+        OLO_CORE_ASSERT(h0.Num() == static_cast<sizet>(N) * N, "ReferenceHeightRms: h0 size mismatch");
         if (N == 0u)
             return 0.0f;
 
@@ -296,11 +296,11 @@ namespace OloEngine::Ocean
         return static_cast<f32>(std::sqrt(sumSq / (nSqr * nSqr)));
     }
 
-    DisplacementField EvaluateField(const SpectrumParams& params, const std::vector<Complex>& h0, f32 time)
+    DisplacementField EvaluateField(const SpectrumParams& params, const TArray<Complex>& h0, f32 time)
     {
         const u32 N = params.m_Resolution;
         OLO_CORE_ASSERT(IsPowerOfTwo(N), "Ocean spectrum resolution must be a power of two");
-        OLO_CORE_ASSERT(h0.size() == static_cast<sizet>(N) * N, "h0 size mismatch with resolution");
+        OLO_CORE_ASSERT(h0.Num() == static_cast<sizet>(N) * N, "h0 size mismatch with resolution");
 
         const sizet count = static_cast<sizet>(N) * N;
 
@@ -309,14 +309,14 @@ namespace OloEngine::Ocean
         //   dispX/dispZ  — horizontal displacement (choppiness) spectra
         //   slopeX/slopeZ— slope spectra (for analytic normals)
         //   dxdx/dzdz/dxdz — displacement-gradient spectra (for the Jacobian)
-        std::vector<Complex> hTilde(count);
-        std::vector<Complex> dispX(count);
-        std::vector<Complex> dispZ(count);
-        std::vector<Complex> slopeX(count);
-        std::vector<Complex> slopeZ(count);
-        std::vector<Complex> dxdx(count);
-        std::vector<Complex> dzdz(count);
-        std::vector<Complex> dxdz(count);
+        TArray<Complex> hTilde(count);
+        TArray<Complex> dispX(count);
+        TArray<Complex> dispZ(count);
+        TArray<Complex> slopeX(count);
+        TArray<Complex> slopeZ(count);
+        TArray<Complex> dxdx(count);
+        TArray<Complex> dzdz(count);
+        TArray<Complex> dxdz(count);
 
         for (u32 m = 0u; m < N; ++m)
         {
@@ -383,10 +383,10 @@ namespace OloEngine::Ocean
 
         DisplacementField field;
         field.m_Resolution = N;
-        field.m_Height.resize(count);
-        field.m_HorizontalDisplacement.resize(count);
-        field.m_Normal.resize(count);
-        field.m_Jacobian.resize(count);
+        field.m_Height.SetNum(count, EAllowShrinking::No);
+        field.m_HorizontalDisplacement.SetNum(count, EAllowShrinking::No);
+        field.m_Normal.SetNum(count, EAllowShrinking::No);
+        field.m_Jacobian.SetNum(count, EAllowShrinking::No);
 
         const f32 lambda = params.m_Choppiness;
         for (sizet i = 0; i < count; ++i)

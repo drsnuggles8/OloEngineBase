@@ -5,8 +5,8 @@
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 
 #include <cstring>
-#include <string>
-#include <vector>
+#include "OloEngine/Containers/String.h"
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -39,8 +39,8 @@ namespace OloEngine
         {
             if (rawData && dataSize > 0)
             {
-                m_CommandData.resize(dataSize);
-                std::memcpy(m_CommandData.data(), rawData, dataSize);
+                m_CommandData.SetNum(dataSize, EAllowShrinking::No);
+                std::memcpy(m_CommandData.GetData(), rawData, dataSize);
             }
 
             if (debugName)
@@ -63,20 +63,20 @@ namespace OloEngine
         template<typename T>
         const T* GetCommandData() const
         {
-            if (m_CommandData.size() >= sizeof(T))
+            if (m_CommandData.Num() >= sizeof(T))
             {
-                return reinterpret_cast<const T*>(m_CommandData.data());
+                return reinterpret_cast<const T*>(m_CommandData.GetData());
             }
             return nullptr;
         }
 
         const void* GetRawData() const
         {
-            return m_CommandData.empty() ? nullptr : m_CommandData.data();
+            return m_CommandData.IsEmpty() ? nullptr : m_CommandData.GetData();
         }
         sizet GetDataSize() const
         {
-            return m_CommandData.size();
+            return m_CommandData.Num();
         }
 
         CommandType GetCommandType() const
@@ -107,7 +107,7 @@ namespace OloEngine
         {
             return m_DependsOnPrevious;
         }
-        const std::string& GetDebugName() const
+        const FString& GetDebugName() const
         {
             return m_DebugName;
         }
@@ -197,21 +197,39 @@ namespace OloEngine
             return m_CommandType == CommandType::BindTexture || m_CommandType == CommandType::BindDefaultFramebuffer || m_CommandType == CommandType::SetShaderResource;
         }
 
+        friend struct TIsTriviallyRelocatable<CapturedCommandData>;
+
       private:
         CommandType m_CommandType = CommandType::Invalid;
-        std::vector<u8> m_CommandData; // Deep-copied POD bytes
-        u32 m_OriginalIndex = 0;       // Position in original submission order
+        TArray<u8> m_CommandData; // Deep-copied POD bytes
+        u32 m_OriginalIndex = 0;  // Position in original submission order
         u32 m_GroupID = 0;
         u32 m_ExecutionOrder = 0;
         DrawKey m_SortKey;
         bool m_IsStatic = false;
         bool m_DependsOnPrevious = false;
-        std::string m_DebugName;
+        FString m_DebugName;
         // GPU timing for this command (filled by GPU timer query readback).
         // Note: GPU timing values come from the *previous* frame's queries due to
         // double-buffered readback in GPUTimerQueryPool. They should be interpreted
         // as approximate per-command GPU costs rather than exact current-frame timings.
         f64 m_GpuTimeMs = 0.0;
+    };
+
+    // Owns external TArray byte storage and FString text; remaining command metadata is scalar/DrawKey values.
+    template<>
+    struct TIsTriviallyRelocatable<CapturedCommandData>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(CapturedCommandData::m_CommandType)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(CapturedCommandData::m_CommandData)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(CapturedCommandData::m_OriginalIndex)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(CapturedCommandData::m_GroupID)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(CapturedCommandData::m_ExecutionOrder)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(CapturedCommandData::m_SortKey)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(CapturedCommandData::m_IsStatic)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(CapturedCommandData::m_DependsOnPrevious)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(CapturedCommandData::m_DebugName)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(CapturedCommandData::m_GpuTimeMs)>::Value;
     };
 
     // One render-graph pass's captured command bucket. The whole-frame capture
@@ -229,17 +247,31 @@ namespace OloEngine
     // pass did not record them — only the scene pass does today).
     struct CapturedPassData
     {
-        std::string PassName;
+        FString PassName;
 
-        std::vector<CapturedCommandData> PreSortCommands;   // Submission order
-        std::vector<CapturedCommandData> PostSortCommands;  // After radix sort
-        std::vector<CapturedCommandData> PostBatchCommands; // After batching
+        TArray<CapturedCommandData> PreSortCommands;   // Submission order
+        TArray<CapturedCommandData> PostSortCommands;  // After radix sort
+        TArray<CapturedCommandData> PostBatchCommands; // After batching
 
         bool HasPreSort = false;
         bool HasPostSort = false;
         bool HasPostBatch = false;
 
         FrameCaptureStats Stats;
+    };
+
+    // Owns FString and command arrays; capture flags and FrameCaptureStats are values.
+    template<>
+    struct TIsTriviallyRelocatable<CapturedPassData>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(CapturedPassData::PassName)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(CapturedPassData::PreSortCommands)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(CapturedPassData::PostSortCommands)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(CapturedPassData::PostBatchCommands)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(CapturedPassData::HasPreSort)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(CapturedPassData::HasPostSort)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(CapturedPassData::HasPostBatch)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(CapturedPassData::Stats)>::Value;
     };
 
     // A fully captured frame with commands at different pipeline stages
@@ -255,40 +287,56 @@ namespace OloEngine
         // to a real graph pass). Empty when the capture was produced outside a named
         // pass (e.g. a synthetic test frame). The top-level lists describe THIS
         // (source) pass; `Passes` below holds every captured pass including this one.
-        std::string SourcePassName;
+        FString SourcePassName;
 
         // Commands at different pipeline stages (the SOURCE / scene pass — kept as
         // the top-level view for backward compatibility with olo_perf_capture_frame,
         // the Command Bucket Inspector markdown report, and the single-pass tests).
-        std::vector<CapturedCommandData> PreSortCommands;   // Submission order
-        std::vector<CapturedCommandData> PostSortCommands;  // After radix sort
-        std::vector<CapturedCommandData> PostBatchCommands; // After batching
+        TArray<CapturedCommandData> PreSortCommands;   // Submission order
+        TArray<CapturedCommandData> PostSortCommands;  // After radix sort
+        TArray<CapturedCommandData> PostBatchCommands; // After batching
 
         // Per-pass captured command buckets for the whole render graph (issue
         // #463 / #316). One entry per command-bucket pass that executed
         // this frame, in execution order. Empty for a legacy single-pass capture
         // (the top-level lists above are then the only view).
-        std::vector<CapturedPassData> Passes;
+        TArray<CapturedPassData> Passes;
 
         // Deep-copied snapshots of per-frame render state and material data tables.
         // These are captured at frame-end so that the debugger can inspect the exact
         // data that was active during the captured frame, rather than reading the live
         // FrameDataBuffer (which gets overwritten every frame).
-        std::vector<PODRenderState> RenderStateSnapshot;
-        std::vector<PODMaterialData> MaterialDataSnapshot;
+        TArray<PODRenderState> RenderStateSnapshot;
+        TArray<PODMaterialData> MaterialDataSnapshot;
 
         const PODRenderState* GetSnapshotRenderState(u16 index) const
         {
-            return index < static_cast<u16>(RenderStateSnapshot.size()) ? &RenderStateSnapshot[index] : nullptr;
+            return index < static_cast<u16>(RenderStateSnapshot.Num()) ? &RenderStateSnapshot[index] : nullptr;
         }
 
         const PODMaterialData* GetSnapshotMaterialData(u16 index) const
         {
-            return index < static_cast<u16>(MaterialDataSnapshot.size()) ? &MaterialDataSnapshot[index] : nullptr;
+            return index < static_cast<u16>(MaterialDataSnapshot.Num()) ? &MaterialDataSnapshot[index] : nullptr;
         }
 
         FrameCaptureStats Stats;
-        std::string Notes;
+        FString Notes;
     };
 
+    // All owned storage is FString/TArray; frame counters, timestamps and stats are values.
+    template<>
+    struct TIsTriviallyRelocatable<CapturedFrameData>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(CapturedFrameData::FrameNumber)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(CapturedFrameData::TimestampSeconds)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(CapturedFrameData::SourcePassName)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(CapturedFrameData::PreSortCommands)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(CapturedFrameData::PostSortCommands)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(CapturedFrameData::PostBatchCommands)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(CapturedFrameData::Passes)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(CapturedFrameData::RenderStateSnapshot)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(CapturedFrameData::MaterialDataSnapshot)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(CapturedFrameData::Stats)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(CapturedFrameData::Notes)>::Value;
+    };
 } // namespace OloEngine

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <span>
+
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 
@@ -37,7 +39,7 @@ namespace OloEngine
     namespace AnimationBinarySerializer
     {
         // Serialize one or more AnimationClips to a binary .oanim file.
-        bool Write(const std::filesystem::path& path, const std::vector<Ref<AnimationClip>>& clips, u64 sourceTimestamp = 0);
+        bool Write(const std::filesystem::path& path, std::span<const Ref<AnimationClip>> clips, u64 sourceTimestamp = 0);
 
         // Deserialize all AnimationClips from a binary .oanim file.
         // Returns empty vector on failure.

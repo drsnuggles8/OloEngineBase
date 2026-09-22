@@ -40,14 +40,14 @@ using OloEngine::Ocean::Complex;
 
 namespace
 {
-    f32 Rms(const std::vector<f32>& v)
+    f32 Rms(const TArray<f32>& v)
     {
-        if (v.empty())
+        if (v.IsEmpty())
             return 0.0f;
         f64 acc = 0.0;
         for (f32 x : v)
             acc += static_cast<f64>(x) * x;
-        return static_cast<f32>(std::sqrt(acc / static_cast<f64>(v.size())));
+        return static_cast<f32>(std::sqrt(acc / static_cast<f64>(v.Num())));
     }
 } // namespace
 
@@ -78,13 +78,13 @@ TEST(OceanFFT, SignedFrequencyOrdering)
 TEST(OceanFFT, RoundTrip1D)
 {
     constexpr u32 N = 64u;
-    std::vector<Complex> original(N);
+    TArray<Complex> original(N);
     std::mt19937 rng(42u);
     std::uniform_real_distribution<f32> dist(-1.0f, 1.0f);
     for (auto& c : original)
         c = Complex(dist(rng), dist(rng));
 
-    std::vector<Complex> data = original;
+    TArray<Complex> data = original;
     Ocean::FFT1D(data, /*inverse=*/false);
     Ocean::FFT1D(data, /*inverse=*/true);
 
@@ -99,7 +99,7 @@ TEST(OceanFFT, ImpulseTransformsToConstant)
 {
     // FFT of a unit impulse at n=0 is all-ones (every bin equal).
     constexpr u32 N = 16u;
-    std::vector<Complex> data(N, Complex(0.0f, 0.0f));
+    TArray<Complex> data(N, Complex(0.0f, 0.0f));
     data[0] = Complex(1.0f, 0.0f);
     Ocean::FFT1D(data, false);
     for (u32 i = 0; i < N; ++i)
@@ -113,7 +113,7 @@ TEST(OceanFFT, ConstantTransformsToDCImpulse)
 {
     // FFT of a constant signal concentrates all energy in the DC bin.
     constexpr u32 N = 16u;
-    std::vector<Complex> data(N, Complex(2.0f, 0.0f));
+    TArray<Complex> data(N, Complex(2.0f, 0.0f));
     Ocean::FFT1D(data, false);
     EXPECT_NEAR(data[0].real(), 2.0f * N, 1e-4f);
     EXPECT_NEAR(data[0].imag(), 0.0f, 1e-4f);
@@ -128,7 +128,7 @@ TEST(OceanFFT, ParsevalEnergyConservation)
 {
     // Unnormalised forward DFT: sum|X|^2 == N * sum|x|^2.
     constexpr u32 N = 32u;
-    std::vector<Complex> x(N);
+    TArray<Complex> x(N);
     std::mt19937 rng(7u);
     std::uniform_real_distribution<f32> dist(-1.0f, 1.0f);
     for (auto& c : x)
@@ -138,7 +138,7 @@ TEST(OceanFFT, ParsevalEnergyConservation)
     for (const auto& c : x)
         spatialEnergy += static_cast<f64>(std::norm(c));
 
-    std::vector<Complex> X = x;
+    TArray<Complex> X = x;
     Ocean::FFT1D(X, false);
     f64 freqEnergy = 0.0;
     for (const auto& c : X)
@@ -150,17 +150,17 @@ TEST(OceanFFT, ParsevalEnergyConservation)
 TEST(OceanFFT, RoundTrip2D)
 {
     constexpr u32 W = 16u, H = 8u;
-    std::vector<Complex> original(static_cast<sizet>(W) * H);
+    TArray<Complex> original(static_cast<sizet>(W) * H);
     std::mt19937 rng(99u);
     std::uniform_real_distribution<f32> dist(-1.0f, 1.0f);
     for (auto& c : original)
         c = Complex(dist(rng), dist(rng));
 
-    std::vector<Complex> data = original;
+    TArray<Complex> data = original;
     Ocean::FFT2D(data, W, H, false);
     Ocean::FFT2D(data, W, H, true);
 
-    for (sizet i = 0; i < original.size(); ++i)
+    for (sizet i = 0; i < original.Num(); ++i)
     {
         EXPECT_NEAR(data[i].real(), original[i].real(), 1e-4f) << "idx " << i;
         EXPECT_NEAR(data[i].imag(), original[i].imag(), 1e-4f) << "idx " << i;
@@ -389,12 +389,12 @@ TEST(OceanSpectrum, GenerateH0RoutesThroughSelectedSpectrum)
 
     const auto a = Ocean::GenerateH0(phillips);
     const auto b = Ocean::GenerateH0(jonswap);
-    ASSERT_EQ(a.size(), b.size());
+    ASSERT_EQ(a.Num(), b.Num());
     sizet diff = 0;
-    for (sizet i = 0; i < a.size(); ++i)
+    for (sizet i = 0; i < a.Num(); ++i)
         if (a[i] != b[i])
             ++diff;
-    EXPECT_GT(diff, a.size() / 2) << "the spectrum selector did not reach GenerateH0";
+    EXPECT_GT(diff, a.Num() / 2) << "the spectrum selector did not reach GenerateH0";
 }
 
 // ---------------------------------------------------------------------------
@@ -407,8 +407,8 @@ TEST(OceanSpectrum, GenerateH0IsDeterministic)
     p.m_Resolution = 32u;
     const auto a = Ocean::GenerateH0(p);
     const auto b = Ocean::GenerateH0(p);
-    ASSERT_EQ(a.size(), b.size());
-    for (sizet i = 0; i < a.size(); ++i)
+    ASSERT_EQ(a.Num(), b.Num());
+    for (sizet i = 0; i < a.Num(); ++i)
         EXPECT_EQ(a[i], b[i]) << "idx " << i;
 }
 
@@ -420,10 +420,10 @@ TEST(OceanSpectrum, GenerateH0SeedChangesField)
     p.m_Seed = 9001u;
     const auto b = Ocean::GenerateH0(p);
     sizet diff = 0;
-    for (sizet i = 0; i < a.size(); ++i)
+    for (sizet i = 0; i < a.Num(); ++i)
         if (a[i] != b[i])
             ++diff;
-    EXPECT_GT(diff, a.size() / 2);
+    EXPECT_GT(diff, a.Num() / 2);
 }
 
 TEST(OceanSpectrum, GenerateH0ZeroAtDC)
@@ -450,7 +450,7 @@ TEST(OceanSpectrum, AnimatedSpectrumIsHermitianSoFieldIsReal)
     const auto h0 = Ocean::GenerateH0(p);
 
     const f32 time = 3.0f;
-    std::vector<Complex> hTilde(static_cast<sizet>(N) * N);
+    TArray<Complex> hTilde(static_cast<sizet>(N) * N);
     constexpr f32 kTwoPi = 6.28318530718f;
     for (u32 m = 0; m < N; ++m)
         for (u32 n = 0; n < N; ++n)
@@ -487,7 +487,7 @@ TEST(OceanSpectrum, EvaluateFieldIsDeterministic)
     const auto a = Ocean::EvaluateField(p, h0, 1.5f);
     const auto b = Ocean::EvaluateField(p, h0, 1.5f);
     ASSERT_TRUE(a.IsValid());
-    for (sizet i = 0; i < a.m_Height.size(); ++i)
+    for (sizet i = 0; i < a.m_Height.Num(); ++i)
         EXPECT_FLOAT_EQ(a.m_Height[i], b.m_Height[i]) << "idx " << i;
 }
 
@@ -500,7 +500,7 @@ TEST(OceanSpectrum, EvaluateFieldAnimatesOverTime)
     const auto b = Ocean::EvaluateField(p, h0, 2.0f);
 
     f32 maxDelta = 0.0f;
-    for (sizet i = 0; i < a.m_Height.size(); ++i)
+    for (sizet i = 0; i < a.m_Height.Num(); ++i)
         maxDelta = std::max(maxDelta, std::abs(a.m_Height[i] - b.m_Height[i]));
     EXPECT_GT(maxDelta, 1e-3f) << "the surface did not evolve with time";
 }
@@ -514,7 +514,7 @@ TEST(OceanSpectrum, ZeroAmplitudeProducesFlatSea)
     const auto field = Ocean::EvaluateField(p, h0, 1.0f);
     ASSERT_TRUE(field.IsValid());
 
-    for (sizet i = 0; i < field.m_Height.size(); ++i)
+    for (sizet i = 0; i < field.m_Height.Num(); ++i)
     {
         EXPECT_NEAR(field.m_Height[i], 0.0f, 1e-5f);
         EXPECT_NEAR(field.m_HorizontalDisplacement[i].x, 0.0f, 1e-5f);
@@ -551,7 +551,7 @@ TEST(OceanSpectrum, NormalsAreUnitLengthAndMostlyUpward)
         EXPECT_NEAR(glm::length(n), 1.0f, 1e-4f);
         meanUp += static_cast<f64>(n.y);
     }
-    meanUp /= static_cast<f64>(field.m_Normal.size());
+    meanUp /= static_cast<f64>(field.m_Normal.Num());
     EXPECT_GT(meanUp, 0.5) << "ocean normals should on average face upward";
 }
 
@@ -563,7 +563,7 @@ TEST(OceanSpectrum, NoChoppinessGivesUnitJacobianAndNoHorizontalShift)
     const auto field = Ocean::EvaluateField(p, Ocean::GenerateH0(p), 1.0f);
     ASSERT_TRUE(field.IsValid());
 
-    for (sizet i = 0; i < field.m_Jacobian.size(); ++i)
+    for (sizet i = 0; i < field.m_Jacobian.Num(); ++i)
     {
         EXPECT_NEAR(field.m_HorizontalDisplacement[i].x, 0.0f, 1e-5f);
         EXPECT_NEAR(field.m_HorizontalDisplacement[i].y, 0.0f, 1e-5f);
@@ -669,7 +669,7 @@ TEST(OceanFFTField, NormalisesToMetreScaleWaveHeight)
         f64 sumSq = 0.0;
         for (f32 h : f.m_Height)
             sumSq += static_cast<f64>(h) * h;
-        return f.m_Height.empty() ? 0.0 : std::sqrt(sumSq / static_cast<f64>(f.m_Height.size()));
+        return f.m_Height.IsEmpty() ? 0.0 : std::sqrt(sumSq / static_cast<f64>(f.m_Height.Num()));
     };
 
     auto field = Ref<Ocean::OceanFFTField>::Create();
@@ -709,7 +709,7 @@ TEST(OceanFFTField, JonswapProducesValidMetreScaleFieldAndDiffersFromPhillips)
         f64 sumSq = 0.0;
         for (f32 h : f.m_Height)
             sumSq += static_cast<f64>(h) * h;
-        return f.m_Height.empty() ? 0.0 : std::sqrt(sumSq / static_cast<f64>(f.m_Height.size()));
+        return f.m_Height.IsEmpty() ? 0.0 : std::sqrt(sumSq / static_cast<f64>(f.m_Height.Num()));
     };
 
     Ocean::SpectrumParams phillips{};
@@ -742,9 +742,9 @@ TEST(OceanFFTField, JonswapProducesValidMetreScaleFieldAndDiffersFromPhillips)
     // Same wind/seed, different spectrum ⇒ a different surface.
     const auto& a = phillipsField->GetField().m_Height;
     const auto& b = jonswapField->GetField().m_Height;
-    ASSERT_EQ(a.size(), b.size());
+    ASSERT_EQ(a.Num(), b.Num());
     f32 maxDelta = 0.0f;
-    for (sizet i = 0; i < a.size(); ++i)
+    for (sizet i = 0; i < a.Num(); ++i)
         maxDelta = std::max(maxDelta, std::abs(a[i] - b[i]));
     EXPECT_GT(maxDelta, 1e-2f) << "JONSWAP and Phillips fields are indistinguishable";
 }
@@ -762,7 +762,7 @@ TEST(OceanSpectrum, BandLimitedH0CopiesMatchingFrequencyBins)
     p.m_Resolution = 128u;
     const auto h0 = Ocean::GenerateH0(p);
     const auto small = Ocean::ExtractBandLimitedH0(h0, 128u, 32u);
-    ASSERT_EQ(small.size(), static_cast<sizet>(32u) * 32u);
+    ASSERT_EQ(small.Num(), static_cast<sizet>(32u) * 32u);
 
     constexpr u32 N = 128u, Ns = 32u;
     // Bins are scaled by (Ns/N)² so the small grid's 1/Ns² inverse-FFT factor
@@ -797,8 +797,8 @@ TEST(OceanSpectrum, BandLimitedH0SameOrLargerResolutionIsIdentity)
     p.m_Resolution = 32u;
     const auto h0 = Ocean::GenerateH0(p);
     const auto same = Ocean::ExtractBandLimitedH0(h0, 32u, 32u);
-    ASSERT_EQ(same.size(), h0.size());
-    for (sizet i = 0; i < h0.size(); ++i)
+    ASSERT_EQ(same.Num(), h0.Num());
+    for (sizet i = 0; i < h0.Num(); ++i)
         EXPECT_EQ(same[i], h0[i]) << "idx " << i;
 }
 
@@ -861,7 +861,7 @@ TEST(OceanSpectrumNoise, IsPortableBoxMullerAndNotALibraryDistribution)
     constexpr u32 kSeed = 1337u;
     constexpr u32 kResolution = 32u;
     const auto noise = Ocean::GenerateSpectrumNoise(kSeed, kResolution);
-    ASSERT_EQ(noise.size(), static_cast<sizet>(kResolution) * kResolution);
+    ASSERT_EQ(noise.Num(), static_cast<sizet>(kResolution) * kResolution);
 
     std::mt19937 rng(kSeed);
     const auto uniform01 = [&rng]()
@@ -870,7 +870,7 @@ TEST(OceanSpectrumNoise, IsPortableBoxMullerAndNotALibraryDistribution)
         return (static_cast<f32>(rng() >> 8) + 1.0f) * kInv24;
     };
     constexpr f32 kTwoPiF = 6.28318530717958647692f;
-    for (sizet i = 0; i < noise.size(); ++i)
+    for (sizet i = 0; i < noise.Num(); ++i)
     {
         const f32 u1 = uniform01();
         const f32 u2 = uniform01();
@@ -889,7 +889,7 @@ TEST(OceanSpectrumNoise, IsPortableBoxMullerAndNotALibraryDistribution)
         sum += v.x + v.y;
         sumSq += static_cast<f64>(v.x) * v.x + static_cast<f64>(v.y) * v.y;
     }
-    const f64 count = static_cast<f64>(noise.size()) * 2.0;
+    const f64 count = static_cast<f64>(noise.Num()) * 2.0;
     const f64 mean = sum / count;
     const f64 variance = sumSq / count - mean * mean;
     EXPECT_NEAR(mean, 0.0, 0.05) << "spectrum noise is not zero-mean";

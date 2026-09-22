@@ -215,9 +215,9 @@ namespace OloEngine
         // defined in the anonymous namespace next to OnPhysics3DStart (far below), but
         // OnUpdateRuntime — which sits above that — recomputes cloth normals each tick,
         // so it needs them declared first.
-        void ComputeClothNormals(const std::vector<glm::vec3>& positions, u32 columns, u32 rows,
-                                 std::vector<glm::vec3>& outNormals);
-        std::vector<u32> BuildClothGridIndices(u32 columns, u32 rows);
+        void ComputeClothNormals(const TArray<glm::vec3>& positions, u32 columns, u32 rows,
+                                 TArray<glm::vec3>& outNormals);
+        TArray<u32> BuildClothGridIndices(u32 columns, u32 rows);
 
         // Box2D velocity iterations, shared by the synchronous step (StepPhysics)
         // and the async kick's world-step task so the two can never drift.
@@ -916,7 +916,7 @@ namespace OloEngine
         // Snapshot the child UUIDs first: each recursive destroy mutates the
         // parent's RelationshipComponent child vector (RemoveChild erases from
         // it), so walking the live list would invalidate the iteration.
-        const std::vector<UUID> children = entity.Children();
+        const TArray<UUID> children = entity.Children();
         for (const UUID childUUID : children)
         {
             if (auto childOpt = TryGetEntityWithUUID(childUUID))
@@ -951,7 +951,7 @@ namespace OloEngine
         {
             std::scoped_lock lock(m_EntityCommandMutex);
             m_PendingSpawnIDs.insert(id);
-            m_PendingEntityCommands.push_back(std::move(cmd));
+            m_PendingEntityCommands.Add(std::move(cmd));
         }
         return id;
     }
@@ -977,7 +977,7 @@ namespace OloEngine
         {
             std::scoped_lock lock(m_EntityCommandMutex);
             m_PendingSpawnIDs.insert(id);
-            m_PendingEntityCommands.push_back(std::move(cmd));
+            m_PendingEntityCommands.Add(std::move(cmd));
         }
         return id;
     }
@@ -998,13 +998,13 @@ namespace OloEngine
         // erased by the first and report the entity live again in between.
         if (!m_PendingDestroyIDs.insert(entityID).second)
             return;
-        m_PendingEntityCommands.push_back(std::move(cmd));
+        m_PendingEntityCommands.Add(std::move(cmd));
     }
 
     void Scene::ClearPendingEntityCommands()
     {
         std::scoped_lock lock(m_EntityCommandMutex);
-        m_PendingEntityCommands.clear();
+        m_PendingEntityCommands.Reset();
         m_PendingSpawnIDs.clear();
         m_PendingDestroyIDs.clear();
     }
@@ -1012,7 +1012,7 @@ namespace OloEngine
     sizet Scene::GetPendingEntityCommandCount() const
     {
         std::scoped_lock lock(m_EntityCommandMutex);
-        return m_PendingEntityCommands.size();
+        return m_PendingEntityCommands.Num();
     }
 
     bool Scene::IsEntitySpawnPending(UUID entityID) const
@@ -1051,7 +1051,7 @@ namespace OloEngine
         // the two can never disagree about whether a drain is in progress.
         {
             std::scoped_lock lock(m_EntityCommandMutex);
-            if (m_DrainingEntityCommands || m_PendingEntityCommands.empty())
+            if (m_DrainingEntityCommands || m_PendingEntityCommands.IsEmpty())
                 return;
             m_DrainingEntityCommands = true;
         }
@@ -1060,14 +1060,14 @@ namespace OloEngine
 
         // Reused across rounds: swapping an already-cleared vector back in
         // keeps the queue's capacity instead of reallocating each round.
-        std::vector<PendingEntityCommand> batch;
+        TArray<PendingEntityCommand> batch;
         for (u32 round = 0; round < kMaxEntityCommandDrainRounds; ++round)
         {
             {
                 std::scoped_lock lock(m_EntityCommandMutex);
-                if (m_PendingEntityCommands.empty())
+                if (m_PendingEntityCommands.IsEmpty())
                     break;
-                batch.swap(m_PendingEntityCommands);
+                Swap(batch, m_PendingEntityCommands);
             }
 
             // In request order, so a script's spawn-then-destroy of the same
@@ -1077,7 +1077,7 @@ namespace OloEngine
             // m_PendingEntityCommands and are picked up by the next round.
             for (auto& cmd : batch)
                 ApplyPendingEntityCommand(cmd);
-            batch.clear();
+            batch.Reset();
         }
         {
             std::scoped_lock lock(m_EntityCommandMutex);
@@ -1111,7 +1111,7 @@ namespace OloEngine
                                   static_cast<u64>(spawnID), static_cast<u64>(cmd.m_EntityID));
                 }
 
-                Entity entity = CreateEntityWithUUID(spawnID, cmd.m_Name);
+                Entity entity = CreateEntityWithUUID(spawnID, cmd.m_Name.ToStdString());
                 {
                     std::scoped_lock lock(m_EntityCommandMutex);
                     m_PendingSpawnIDs.erase(cmd.m_EntityID);
@@ -1221,7 +1221,7 @@ namespace OloEngine
 
         // Snapshot: an OnCreate callback is allowed to reparent or destroy, so
         // the child list can change underneath the walk.
-        const std::vector<UUID> children = entity.Children();
+        const TArray<UUID> children = entity.Children();
         for (const UUID childUUID : children)
         {
             if (auto childOpt = TryGetEntityWithUUID(childUUID))
@@ -1465,7 +1465,7 @@ namespace OloEngine
     static void SeedParticleSystemComponent(ParticleSystemComponent& psc, u64 baseSeed, u64 entityUUID)
     {
         psc.System.SeedRandom(ParticleSystem::DeriveSeed(baseSeed, entityUUID));
-        for (sizet c = 0; c < psc.ChildSystems.size(); ++c)
+        for (sizet c = 0; c < psc.ChildSystems.Num(); ++c)
         {
             psc.ChildSystems[c].SeedRandom(ParticleSystem::DeriveSeed(baseSeed, entityUUID, static_cast<u32>(c) + 1));
         }
@@ -1566,8 +1566,8 @@ namespace OloEngine
         // host, and re-firing it here would bounce straight back out of the
         // scene we just started.
         m_PendingReload = false;
-        m_PendingSceneLoad.clear();
-        m_PendingSceneLoadSaveSlot.clear();
+        m_PendingSceneLoad.Reset();
+        m_PendingSceneLoadSaveSlot.Reset();
         // Floating-origin (issue #429): every play-through starts at the authored
         // coordinates, so the rebased origin coincides with absolute origin.
         m_WorldOrigin = glm::vec3(0.0f);
@@ -1807,11 +1807,11 @@ namespace OloEngine
             glm::vec3 m_Target;
             bool m_HadTarget;
         };
-        std::vector<SavedAgentTarget> savedTargets;
+        TArray<SavedAgentTarget> savedTargets;
         for (auto e : GetAllEntitiesWith<NavAgentComponent>())
         {
             const auto& agent = m_Registry.get<NavAgentComponent>(e);
-            savedTargets.push_back({ e, agent.m_TargetPosition + shift, agent.m_HasTarget });
+            savedTargets.Add({ e, agent.m_TargetPosition + shift, agent.m_HasTarget });
         }
 
         // Regenerate from the (already-shifted) scene geometry at the shifted
@@ -1901,9 +1901,9 @@ namespace OloEngine
 
         // Snapshot entity IDs before dispatching Lua OnDestroy — callbacks may
         // destroy other entities and mutate the underlying view.
-        std::vector<entt::entity> luaEntities;
+        TArray<entt::entity> luaEntities;
         for (const auto luaView = m_Registry.view<LuaScriptComponent>(); const auto e : luaView)
-            luaEntities.push_back(e);
+            luaEntities.Add(e);
 
         for (const auto e : luaEntities)
         {
@@ -2132,7 +2132,7 @@ namespace OloEngine
             agent.m_CrowdAgentId = -1;
             agent.m_HasTarget = false;
             agent.m_HasPath = false;
-            agent.m_PathCorners.clear();
+            agent.m_PathCorners.Reset();
             agent.m_CurrentCornerIndex = 0;
         }
     }
@@ -2144,14 +2144,14 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         const auto& triggers = psc.System.GetPendingTriggers();
-        if (triggers.empty() || psc.ChildSystems.empty())
+        if (triggers.IsEmpty() || psc.ChildSystems.IsEmpty())
         {
             return;
         }
 
         for (const auto& trigger : triggers)
         {
-            if (trigger.ChildSystemIndex < 0 || static_cast<u32>(trigger.ChildSystemIndex) >= psc.ChildSystems.size())
+            if (trigger.ChildSystemIndex < 0 || static_cast<u32>(trigger.ChildSystemIndex) >= psc.ChildSystems.Num())
             {
                 continue; // Legacy parent-pool trigger or invalid index
             }
@@ -2587,30 +2587,30 @@ namespace OloEngine
         // (no resolvable parent) so a parent always precedes its children.
         // Buffers are persistent Scene members (issue #499 perf follow-up) —
         // clear() keeps prior capacity, avoiding a fresh allocation every tick.
-        std::vector<entt::entity>& order = m_TransformOrder;
-        order.clear();
-        order.reserve(view.size());
+        TArray<entt::entity>& order = m_TransformOrder;
+        order.Reset();
+        order.Reserve(view.size());
 
         std::unordered_set<entt::entity>& visited = m_TransformVisited;
         visited.clear();
         visited.reserve(view.size());
 
-        std::vector<entt::entity>& queue = m_TransformQueue;
-        queue.clear();
-        queue.reserve(view.size());
+        TArray<entt::entity>& queue = m_TransformQueue;
+        queue.Reset();
+        queue.Reserve(view.size());
         for (auto entity : view)
         {
             if (resolveParent(entity) == entt::null)
-                queue.push_back(entity);
+                queue.Add(entity);
         }
 
-        for (sizet head = 0; head < queue.size(); ++head)
+        for (sizet head = 0; head < queue.Num(); ++head)
         {
             entt::entity const entity = queue[head];
             if (!visited.insert(entity).second)
                 continue;
 
-            order.push_back(entity);
+            order.Add(entity);
 
             auto const* rel = m_Registry.try_get<RelationshipComponent>(entity);
             if (!rel)
@@ -2629,7 +2629,7 @@ namespace OloEngine
                 if (resolveParent(*childEntity) != entity)
                     continue;
 
-                queue.push_back(*childEntity);
+                queue.Add(*childEntity);
             }
         }
 
@@ -2641,7 +2641,7 @@ namespace OloEngine
         for (auto entity : view)
         {
             if (visited.insert(entity).second)
-                order.push_back(entity);
+                order.Add(entity);
         }
 
         // One linear sweep: parents are guaranteed to precede their children,
@@ -4048,7 +4048,7 @@ namespace OloEngine
         return s_Scheduler;
     }
 
-    const std::vector<std::string>& Scene::GetGameplaySystemOrderForTesting()
+    const TArray<FString>& Scene::GetGameplaySystemOrderForTesting()
     {
         return GetGameplayScheduler().GetOrderedNames();
     }
@@ -4719,8 +4719,8 @@ namespace OloEngine
         // Through the sanitiser inside ScheduleAnimalPopulation, never raw:
         // every one of these crossed a settings struct an MCP write can reach.
 
-        std::vector<AnimalWorkItem> items;
-        std::vector<UUID> ids;
+        TArray<AnimalWorkItem> items;
+        TArray<UUID> ids;
         std::unordered_set<UUID> liveAnimals;
 
         for (const auto entity : budgetView)
@@ -4871,12 +4871,12 @@ namespace OloEngine
                     authored[static_cast<sizet>(AnimalWorkAxis::Visibility)]);
             }
 
-            items.push_back(item);
-            ids.push_back(id);
+            items.Add(item);
+            ids.Add(id);
             liveAnimals.insert(id);
         }
 
-        if (items.empty())
+        if (items.IsEmpty())
         {
             m_AnimalScheduleRuntime.clear();
             return;
@@ -4891,26 +4891,26 @@ namespace OloEngine
                           [&liveAnimals](const auto& entry)
                           { return !liveAnimals.contains(entry.first); });
         }
-        m_AnimalScheduleRuntime.reserve(items.size());
+        m_AnimalScheduleRuntime.reserve(items.Num());
         for (const UUID id : ids)
         {
             m_AnimalScheduleRuntime.try_emplace(id);
         }
 
-        std::vector<AnimalScheduleSlot> slots;
-        slots.reserve(items.size());
-        for (sizet i = 0; i < items.size(); ++i)
+        TArray<AnimalScheduleSlot> slots;
+        slots.Reserve(items.Num());
+        for (sizet i = 0; i < items.Num(); ++i)
         {
             AnimalScheduleSlot slot;
             slot.Item = items[i];
             slot.State = &m_AnimalScheduleRuntime[ids[i]];
-            slots.push_back(slot);
+            slots.Add(slot);
         }
 
-        const std::vector<AnimalSchedule> schedules =
-            ScheduleAnimalPopulation(policy, AnimalCostModel{}, slots, &m_AnimalSchedulerStats);
+        const TArray<AnimalSchedule> schedules =
+            ScheduleAnimalPopulation(policy, AnimalCostModel{}, std::span<const AnimalScheduleSlot>(slots.GetData(), static_cast<sizet>(slots.Num())), &m_AnimalSchedulerStats);
 
-        m_AnimalSchedules.reserve(schedules.size());
+        m_AnimalSchedules.reserve(schedules.Num());
         for (const AnimalSchedule& schedule : schedules)
         {
             m_AnimalSchedules.emplace(schedule.Id, schedule);
@@ -4955,7 +4955,7 @@ namespace OloEngine
             i32 selectedIndex = -1;
 
             if (isAnimatedSurface && lodComp.m_Enabled && meshComp.m_MeshSource &&
-                !lodComp.m_LODGroup.Levels.empty())
+                !lodComp.m_LODGroup.Levels.IsEmpty())
             {
                 // Submesh 0 stands for the entity, exactly as it does in the culling
                 // above: LOD generation refuses a multi-submesh source, so a mesh
@@ -5427,8 +5427,13 @@ namespace OloEngine
         // member because TransformComponent is incomplete in Scene.h (which
         // deliberately doesn't include the heavy Components.h); render is
         // synchronous per game thread, so a per-thread reused buffer is safe.
-        static thread_local std::vector<std::pair<entt::entity, TransformComponent>> restorePoses;
-        restorePoses.clear();
+        struct SavedRenderPose
+        {
+            entt::entity Entity;
+            TransformComponent Pose;
+        };
+        static thread_local TArray<SavedRenderPose> restorePoses;
+        restorePoses.Reset();
         if (interpolateThisFrame)
         {
             if (mainCamera && !primaryCameraIsFlyCam)
@@ -5450,7 +5455,7 @@ namespace OloEngine
                 auto& tc = view.get<TransformComponent>(entity);
                 // Save the authoritative pose before overwriting so it can be
                 // restored verbatim after the draw.
-                restorePoses.emplace_back(entity, tc);
+                restorePoses.Add({ entity, tc });
                 tc.Translation = interp.Translation;
                 tc.Scale = interp.Scale;
                 tc.SetRotation(interp.Rotation);
@@ -5458,7 +5463,7 @@ namespace OloEngine
 
             // Recompose parent-chain world matrices from the interpolated locals
             // so GetWorldTransform() reads see the blended pose.
-            if (!restorePoses.empty())
+            if (!restorePoses.IsEmpty())
             {
                 PropagateWorldTransforms();
             }
@@ -5491,7 +5496,8 @@ namespace OloEngine
             // Gather keyboard input for focused UI text fields: typed characters
             // come from the Input char buffer; edit keys are edge-triggered.
             UIKeyboardInput keyboard;
-            keyboard.m_TypedCharacters = Input::GetTypedCharacters();
+            keyboard.m_TypedCharacters.Reset();
+            keyboard.m_TypedCharacters.Append(Input::GetTypedCharacters());
             keyboard.m_Backspace = Input::IsKeyJustPressed(Key::Backspace);
             keyboard.m_Delete = Input::IsKeyJustPressed(Key::Delete);
             keyboard.m_CursorLeft = Input::IsKeyJustPressed(Key::Left);
@@ -5593,11 +5599,11 @@ namespace OloEngine
                     SetParticleBlendMode(sys.BlendMode);
                     ParticleRenderer::RenderParticles2D(sys.GetPool(), psc.Texture, offset, static_cast<int>(std::to_underlying(entity)), nullptr, sheet);
 
-                    for (sizet c = 0; c < psc.ChildSystems.size(); ++c)
+                    for (sizet c = 0; c < psc.ChildSystems.Num(); ++c)
                     {
                         auto& childSys = psc.ChildSystems[c];
                         SetParticleBlendMode(childSys.BlendMode);
-                        Ref<Texture2D> childTex = (c < psc.ChildTextures.size()) ? psc.ChildTextures[c] : nullptr;
+                        Ref<Texture2D> childTex = (c < psc.ChildTextures.Num()) ? psc.ChildTextures[c] : nullptr;
                         ParticleRenderer::RenderParticles2D(childSys.GetPool(), childTex, offset, static_cast<int>(std::to_underlying(entity)), nullptr, nullptr);
                     }
 
@@ -5623,7 +5629,7 @@ namespace OloEngine
         // Restore the authoritative fixed-tick poses overwritten for the
         // interpolated draw above, then recompose world matrices so any
         // post-render reader this frame sees the exact simulation state (#502).
-        if (!restorePoses.empty())
+        if (!restorePoses.IsEmpty())
         {
             for (const auto& [entity, pose] : restorePoses)
             {
@@ -5633,7 +5639,7 @@ namespace OloEngine
                 }
             }
             PropagateWorldTransforms();
-            restorePoses.clear();
+            restorePoses.Reset();
         }
     }
 
@@ -6038,7 +6044,7 @@ namespace OloEngine
         {
             auto& rel = newEntity.GetComponent<RelationshipComponent>();
             rel.m_ParentHandle = UUID(0);
-            rel.m_Children.clear();
+            rel.m_Children.Reset();
         }
 
         // CameraComponent: force Primary = false to avoid multiple primaries
@@ -6790,8 +6796,8 @@ namespace OloEngine
                 return;
 
             u32 resolution = 0;
-            const std::vector<f32>* heightsPtr = nullptr;
-            std::vector<f32> generated;
+            const TArray<f32>* heightsPtr = nullptr;
+            TArray<f32> generated;
 
             if (terrain.m_TerrainData && terrain.m_TerrainData->GetResolution() > 0)
             {
@@ -6817,7 +6823,7 @@ namespace OloEngine
             {
                 // Flat terrain — mirrors the render path's CreateFlat(256, 0).
                 resolution = 256;
-                generated.assign(static_cast<sizet>(resolution) * resolution, 0.0f);
+                generated.SetNumZeroed(static_cast<i32>(resolution * resolution));
                 heightsPtr = &generated;
             }
             else
@@ -6831,7 +6837,7 @@ namespace OloEngine
 
             const auto& transform = entity.GetComponent<TransformComponent>();
             JPH::Ref<JPH::Shape> shape = JoltShapes::CreateTerrainHeightFieldShape(
-                *heightsPtr, resolution, terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale, transform.Scale);
+                std::span{ heightsPtr->GetData(), static_cast<sizet>(heightsPtr->Num()) }, resolution, terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale, transform.Scale);
             if (!shape)
             {
                 terrain.m_RuntimeCollisionBodyToken = 0;
@@ -6852,7 +6858,7 @@ namespace OloEngine
         // translate(tile.WorldOrigin) — see submitChunkPackets), so collision coincides
         // with the rendered tile.
         void ReconcileStreamingTerrainCollision(JoltScene& joltScene, Entity entity,
-                                                const std::vector<Ref<TerrainTile>>& readyTiles)
+                                                const TArray<Ref<TerrainTile>>& readyTiles)
         {
             const UUID entityID = entity.GetUUID();
 
@@ -6871,7 +6877,7 @@ namespace OloEngine
             };
 
             std::unordered_set<i64> desired;
-            desired.reserve(readyTiles.size());
+            desired.reserve(readyTiles.Num());
             for (const auto& tile : readyTiles)
             {
                 if (!tile)
@@ -6888,7 +6894,7 @@ namespace OloEngine
                     continue;
 
                 JPH::Ref<JPH::Shape> shape = JoltShapes::CreateTerrainHeightFieldShape(
-                    data->GetHeightData(), data->GetResolution(),
+                    std::span{ data->GetHeightData().GetData(), static_cast<sizet>(data->GetHeightData().Num()) }, data->GetResolution(),
                     tile->WorldSizeX, tile->WorldSizeZ, tile->HeightScale, transform.Scale);
                 if (!shape)
                     continue;
@@ -6910,12 +6916,12 @@ namespace OloEngine
         // ── Cloth soft bodies (issue #460) ─────────────────────────────────────
         // Row-major triangle indices for a columns×rows cloth grid (two triangles per
         // cell). Winding matches the soft-body faces built in CreateClothSharedSettings.
-        std::vector<u32> BuildClothGridIndices(u32 columns, u32 rows)
+        TArray<u32> BuildClothGridIndices(u32 columns, u32 rows)
         {
-            std::vector<u32> indices;
+            TArray<u32> indices;
             if (columns < 2 || rows < 2)
                 return indices;
-            indices.reserve(static_cast<sizet>(columns - 1) * (rows - 1) * 6);
+            indices.Reserve(static_cast<i32>(static_cast<sizet>(columns - 1) * (rows - 1) * 6));
             for (u32 row = 0; row + 1 < rows; ++row)
             {
                 for (u32 col = 0; col + 1 < columns; ++col)
@@ -6924,12 +6930,12 @@ namespace OloEngine
                     const u32 i1 = i0 + 1;
                     const u32 i2 = i0 + columns;
                     const u32 i3 = i2 + 1;
-                    indices.push_back(i0);
-                    indices.push_back(i2);
-                    indices.push_back(i1);
-                    indices.push_back(i1);
-                    indices.push_back(i2);
-                    indices.push_back(i3);
+                    indices.Add(i0);
+                    indices.Add(i2);
+                    indices.Add(i1);
+                    indices.Add(i1);
+                    indices.Add(i2);
+                    indices.Add(i3);
                 }
             }
             return indices;
@@ -6938,11 +6944,11 @@ namespace OloEngine
         // Smooth per-vertex normals for the deformed cloth: accumulate each grid triangle's
         // face normal onto its three vertices, then normalize. Lets the render mesh shade
         // correctly as the sheet folds. outNormals is resized to match positions.
-        void ComputeClothNormals(const std::vector<glm::vec3>& positions, u32 columns, u32 rows,
-                                 std::vector<glm::vec3>& outNormals)
+        void ComputeClothNormals(const TArray<glm::vec3>& positions, u32 columns, u32 rows,
+                                 TArray<glm::vec3>& outNormals)
         {
-            outNormals.assign(positions.size(), glm::vec3(0.0f));
-            if (positions.size() != static_cast<sizet>(columns) * rows || columns < 2 || rows < 2)
+            outNormals.Init(glm::vec3(0.0f), positions.Num());
+            if (static_cast<sizet>(positions.Num()) != static_cast<sizet>(columns) * rows || columns < 2 || rows < 2)
                 return;
 
             auto addTri = [&](u32 a, u32 b, u32 c)
@@ -7216,7 +7222,7 @@ namespace OloEngine
 
         // Fast path: mutate the existing height-field body in place over the dirty rect.
         if (m_JoltScene->UpdateTerrainBodyHeights(entityID, regionX, regionZ, regionWidth, regionHeight,
-                                                  terrain.m_TerrainData->GetHeightData(), resolution))
+                                                  std::span{ terrain.m_TerrainData->GetHeightData().GetData(), static_cast<sizet>(terrain.m_TerrainData->GetHeightData().Num()) }, resolution))
             return true;
 
         // No live body yet (terrain built after OnPhysics3DStart, or a prior build failed).
@@ -7225,10 +7231,10 @@ namespace OloEngine
         return m_JoltScene->HasTerrainBody(entityID);
     }
 
-    const std::vector<glm::vec3>* Scene::GetClothVertexPositions(UUID entityID) const
+    const TArray<glm::vec3>* Scene::GetClothVertexPositions(UUID entityID) const
     {
         auto it = m_ClothRuntime.find(entityID);
-        if (it == m_ClothRuntime.end() || it->second.m_Positions.empty())
+        if (it == m_ClothRuntime.end() || it->second.m_Positions.IsEmpty())
             return nullptr;
         return &it->second.m_Positions;
     }
@@ -7280,8 +7286,8 @@ namespace OloEngine
         }
 
         // Which particles are pinned (inverse mass 0) — the set to drive from the bone.
-        std::vector<u32> pinned;
-        if (!m_JoltScene->GetClothPinnedVertexIndices(clothEntity.GetUUID(), pinned) || pinned.empty())
+        TArray<u32> pinned;
+        if (!m_JoltScene->GetClothPinnedVertexIndices(clothEntity.GetUUID(), pinned) || pinned.IsEmpty())
         {
             // No pinned vertices (e.g. ClothAttachment::None) → nothing to weld. The
             // cloth free-falls; the attachment is inert but harmless.
@@ -7304,18 +7310,18 @@ namespace OloEngine
             // bad transform.
             state.m_AttachEntity = 0;
             state.m_AttachBoneIndex = -1;
-            state.m_AttachedVertices.clear();
+            state.m_AttachedVertices.Reset();
             state.m_AttachmentActive = false;
             return;
         }
 
         const glm::mat4 invBoneWorldBind = glm::inverse(boneWorldBind);
-        state.m_AttachedLocalOffsets.clear();
-        state.m_AttachedLocalOffsets.reserve(state.m_AttachedVertices.size());
+        state.m_AttachedLocalOffsets.Reset();
+        state.m_AttachedLocalOffsets.Reserve(state.m_AttachedVertices.Num());
         for (u32 idx : state.m_AttachedVertices)
         {
-            const glm::vec3 vertexWorld = (idx < state.m_Positions.size()) ? state.m_Positions[idx] : glm::vec3(0.0f);
-            state.m_AttachedLocalOffsets.push_back(glm::vec3(invBoneWorldBind * glm::vec4(vertexWorld, 1.0f)));
+            const glm::vec3 vertexWorld = (idx < static_cast<u32>(state.m_Positions.Num())) ? state.m_Positions[idx] : glm::vec3(0.0f);
+            state.m_AttachedLocalOffsets.Add(glm::vec3(invBoneWorldBind * glm::vec4(vertexWorld, 1.0f)));
         }
         state.m_AttachmentActive = true;
     }
@@ -7354,10 +7360,10 @@ namespace OloEngine
         if (!m_JoltScene || m_ClothRuntime.empty() || !std::isfinite(dt) || dt <= 0.0f)
             return;
 
-        std::vector<glm::vec3> targets; // reused per cloth; few cloths, low frequency
+        TArray<glm::vec3> targets; // reused per cloth; few cloths, low frequency
         for (auto& [entityID, state] : m_ClothRuntime)
         {
-            if (!state.m_AttachmentActive || state.m_AttachedVertices.empty())
+            if (!state.m_AttachmentActive || state.m_AttachedVertices.IsEmpty())
                 continue;
 
             glm::mat4 boneWorld;
@@ -7369,12 +7375,13 @@ namespace OloEngine
                 continue;
             }
 
-            targets.clear();
-            targets.reserve(state.m_AttachedVertices.size());
+            targets.Reset();
+            targets.Reserve(state.m_AttachedVertices.Num());
             for (const glm::vec3& localOffset : state.m_AttachedLocalOffsets)
-                targets.push_back(glm::vec3(boneWorld * glm::vec4(localOffset, 1.0f)));
+                targets.Add(glm::vec3(boneWorld * glm::vec4(localOffset, 1.0f)));
 
-            m_JoltScene->DriveClothAttachment(entityID, state.m_AttachedVertices, targets, dt);
+            m_JoltScene->DriveClothAttachment(entityID, std::span{ state.m_AttachedVertices.GetData(), static_cast<sizet>(state.m_AttachedVertices.Num()) },
+                                              std::span{ targets.GetData(), static_cast<sizet>(targets.Num()) }, dt);
         }
     }
 
@@ -7394,10 +7401,10 @@ namespace OloEngine
         }
 
         auto deformerView = m_Registry.view<TransformComponent, SnowDeformerComponent>();
-        std::vector<glm::vec4> stamps;
+        TArray<glm::vec4> stamps;
         if (accumActive)
         {
-            stamps.reserve(deformerView.size_hint() * 2);
+            stamps.Reserve(deformerView.size_hint() * 2);
         }
 
         for (auto entity : deformerView)
@@ -7409,8 +7416,8 @@ namespace OloEngine
 
             if (accumActive)
             {
-                stamps.emplace_back(pos.x, pos.y, pos.z, deformer.m_DeformRadius);
-                stamps.emplace_back(deformer.m_DeformDepth, deformer.m_FalloffExponent, deformer.m_CompactionFactor, 0.0f);
+                stamps.Emplace_GetRef(pos.x, pos.y, pos.z, deformer.m_DeformRadius);
+                stamps.Emplace_GetRef(deformer.m_DeformDepth, deformer.m_FalloffExponent, deformer.m_CompactionFactor, 0.0f);
             }
 
             // Always track position so toggling m_EmitEjecta doesn't cause velocity spikes
@@ -7441,10 +7448,10 @@ namespace OloEngine
             }
         }
 
-        if (accumActive && !stamps.empty())
+        if (accumActive && !stamps.IsEmpty())
         {
-            SnowAccumulationSystem::SubmitDeformers(stamps.data(),
-                                                    static_cast<u32>(stamps.size() / 2));
+            SnowAccumulationSystem::SubmitDeformers(stamps.GetData(),
+                                                    static_cast<u32>(stamps.Num() / 2));
         }
     }
 
@@ -7475,10 +7482,10 @@ namespace OloEngine
 
         // Build sorted draw order based on UICanvasComponent::m_SortOrder
         auto resolvedView = GetAllEntitiesWith<UIResolvedRectComponent>();
-        std::vector<entt::entity> uiEntities;
+        TArray<entt::entity> uiEntities;
         for (const auto entity : resolvedView)
         {
-            uiEntities.push_back(entity);
+            uiEntities.Add(entity);
         }
         std::ranges::sort(uiEntities,
                           [this](entt::entity a, entt::entity b)
@@ -7739,11 +7746,11 @@ namespace OloEngine
                 SetParticleBlendMode(sys.BlendMode);
                 ParticleRenderer::RenderParticles2D(sys.GetPool(), psc.Texture, offset, static_cast<int>(std::to_underlying(entity)), nullptr, sheet);
 
-                for (sizet c = 0; c < psc.ChildSystems.size(); ++c)
+                for (sizet c = 0; c < psc.ChildSystems.Num(); ++c)
                 {
                     auto& childSys = psc.ChildSystems[c];
                     SetParticleBlendMode(childSys.BlendMode);
-                    Ref<Texture2D> childTex = (c < psc.ChildTextures.size()) ? psc.ChildTextures[c] : nullptr;
+                    Ref<Texture2D> childTex = (c < psc.ChildTextures.Num()) ? psc.ChildTextures[c] : nullptr;
                     ParticleRenderer::RenderParticles2D(childSys.GetPool(), childTex, offset, static_cast<int>(std::to_underlying(entity)), nullptr, nullptr);
                 }
 
@@ -8050,7 +8057,7 @@ namespace OloEngine
                     if (!basePath.empty() && basePath.back() != '/' && basePath.back() != '\\')
                         basePath += '/';
 
-                    std::vector<std::string> skyboxFaces = {
+                    std::array<FString, 6> skyboxFaces = {
                         basePath + "right.jpg",
                         basePath + "left.jpg",
                         basePath + "top.jpg",
@@ -8115,12 +8122,12 @@ namespace OloEngine
         // without a scene; this loop is just the runtime view-iteration side.
         auto view = m_Registry.view<TransformComponent, ReflectionProbeComponent>();
 
-        std::vector<ReflectionProbeRef> probeRefs;
-        std::vector<const ReflectionProbeComponent*> probePtrs;
-        std::vector<ReflectionProbeRenderData> renderProbes;
-        probeRefs.reserve(8);
-        probePtrs.reserve(8);
-        renderProbes.reserve(8);
+        TArray<ReflectionProbeRef> probeRefs;
+        TArray<const ReflectionProbeComponent*> probePtrs;
+        TArray<ReflectionProbeRenderData> renderProbes;
+        probeRefs.Reserve(8);
+        probePtrs.Reserve(8);
+        renderProbes.Reserve(8);
 
         for (auto entity : view)
         {
@@ -8129,8 +8136,8 @@ namespace OloEngine
             {
                 continue;
             }
-            probeRefs.push_back({ transform.Translation, probe.m_InfluenceRadius });
-            probePtrs.push_back(&probe);
+            probeRefs.Add({ transform.Translation, probe.m_InfluenceRadius });
+            probePtrs.Add(&probe);
 
             ReflectionProbeRenderData renderData;
             renderData.Position = transform.Translation;
@@ -8138,7 +8145,7 @@ namespace OloEngine
             renderData.BlendDistance = probe.m_BlendDistance;
             renderData.Intensity = probe.m_Intensity;
             renderData.Environment = probe.m_BakedEnvironment;
-            renderProbes.push_back(std::move(renderData));
+            renderProbes.Add(std::move(renderData));
         }
 
         // Per-pixel specular path (issue #705): hand the frame's probe set to
@@ -8154,7 +8161,7 @@ namespace OloEngine
                   });
         Renderer3D::GetReflectionProbes().SetProbes(std::move(renderProbes));
 
-        i32 const winner = SelectDominantReflectionProbe(cameraPosition, probeRefs);
+        i32 const winner = SelectDominantReflectionProbe(cameraPosition, { probeRefs.GetData(), static_cast<sizet>(probeRefs.Num()) });
         if (winner < 0)
         {
             return; // no probe applies — keep env-map IBL
@@ -8495,11 +8502,9 @@ namespace OloEngine
                     }
                 }
 
-                const std::vector<glm::mat4> bones(boneMatrices.begin(), boneMatrices.end());
-                const std::vector<glm::mat4> prevBones(
-                    prevBoneMatrices.size() == boneMatrices.size()
-                        ? std::vector<glm::mat4>(prevBoneMatrices.begin(), prevBoneMatrices.end())
-                        : bones);
+                const std::span<const glm::mat4> bones = boneMatrices;
+                const std::span<const glm::mat4> prevBones =
+                    prevBoneMatrices.size() == boneMatrices.size() ? prevBoneMatrices : boneMatrices;
                 // The expression stamp (issue #1243). Applied to the DRAW's
                 // material only, never to the record staged above: a GPUScene
                 // material key that moved with the expression would re-key every
@@ -8793,7 +8798,7 @@ namespace OloEngine
         for (auto& [id, state] : m_GroomSimulationRuntime)
         {
             state.m_Solver.Clear();
-            state.m_PrevDisplacements.clear();
+            state.m_PrevDisplacements.Reset();
             state.m_HasHistory = false;
             state.m_ResetCause = cause;
         }
@@ -8820,7 +8825,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::vector<GroomStrandRequest> groomRequests;
+        TArray64<GroomStrandRequest> groomRequests;
         // Every root-UV map handle a groom asked for this frame; the tail of this
         // function evicts the cached pixels of every map that is not in it.
         std::unordered_set<AssetHandle> liveRegionMaps;
@@ -9072,7 +9077,7 @@ namespace OloEngine
             liveGrooms.insert(groomComponent.m_Groom);
             DeformGroomAgainstSurface(groomEntity, *groom, request);
 
-            groomRequests.push_back(std::move(request));
+            groomRequests.Add(std::move(request));
         }
 
         // Drop the CPU copy of any root-UV map no groom asked for this frame.
@@ -9162,7 +9167,7 @@ namespace OloEngine
         entry.m_Map = nullptr;
         entry.m_Failed = false;
 
-        std::vector<u8> pixels;
+        TArray64<u8> pixels;
         if (!texture->GetData(pixels))
         {
             // LOUD AND ONCE. A coat whose density map silently did nothing is
@@ -9175,7 +9180,7 @@ namespace OloEngine
             return nullptr;
         }
 
-        entry.m_Map = GroomRegionMap::FromRGBA8(texture->GetWidth(), texture->GetHeight(), pixels);
+        entry.m_Map = GroomRegionMap::FromRGBA8(texture->GetWidth(), texture->GetHeight(), { pixels.GetData(), static_cast<sizet>(pixels.Num()) });
         if (!entry.m_Map)
         {
             // FromRGBA8 refuses a buffer that is not exactly width*height*4,
@@ -9184,7 +9189,7 @@ namespace OloEngine
             // a density map of noise, and noise looks like authored variation.
             OLO_CORE_WARN("GroomCoat: region map {} is {}x{} but read back {} bytes, not {} of tightly packed RGBA8; "
                           "the coat will render without it. Use an uncompressed 8-bit RGBA texture.",
-                          static_cast<u64>(handle), texture->GetWidth(), texture->GetHeight(), pixels.size(),
+                          static_cast<u64>(handle), texture->GetWidth(), texture->GetHeight(), pixels.Num(),
                           static_cast<u64>(texture->GetWidth()) * texture->GetHeight() * 4u);
             entry.m_Failed = true;
         }
@@ -9193,7 +9198,7 @@ namespace OloEngine
 
     bool Scene::SelectGroomSimulationGuides(Entity groomEntity, const GroomAsset& groom,
                                             const GroomCoatContext& coat, const GroomStrandRequest& request,
-                                            std::vector<u32>& selectedCurves)
+                                            TArray<u32>& selectedCurves)
     {
         const UUID groomId = groomEntity.GetUUID();
         const auto* component = m_Registry.try_get<GroomSimulationComponent>(groomEntity);
@@ -9266,13 +9271,13 @@ namespace OloEngine
         // continuously and it would never move at all.
         const bool budgetMoved = state.m_BudgetGroom != request.Handle ||
                                  !std::ranges::equal(state.m_BudgetByRole, budgetByRole) ||
-                                 state.m_GuideOfSlot.size() != slotCount;
+                                 static_cast<u32>(state.m_GuideOfSlot.Num()) != slotCount;
         if (budgetMoved)
         {
             state.m_BudgetGroom = request.Handle;
             std::ranges::copy(budgetByRole, std::begin(state.m_BudgetByRole));
-            state.m_GuideOfSlot.assign(slotCount, GroomNoGuide);
-            state.m_SlotOfGuide.clear();
+            state.m_GuideOfSlot.Init(GroomNoGuide, static_cast<i32>(slotCount));
+            state.m_SlotOfGuide.Reset();
 
             // Counted per role first, so the stride is derived from the role's
             // own population rather than from the whole guide set.
@@ -9316,12 +9321,12 @@ namespace OloEngine
                     continue;
                 }
                 ++takenByRole[role];
-                state.m_GuideOfSlot[slot] = static_cast<u32>(state.m_SlotOfGuide.size());
-                state.m_SlotOfGuide.push_back(slot);
+                state.m_GuideOfSlot[slot] = static_cast<u32>(state.m_SlotOfGuide.Num());
+                state.m_SlotOfGuide.Add(slot);
             }
         }
 
-        if (state.m_SlotOfGuide.empty())
+        if (state.m_SlotOfGuide.IsEmpty())
         {
             return false;
         }
@@ -9334,16 +9339,17 @@ namespace OloEngine
         // BIND POSE while the body moves, and the coat would lag its own animal
         // by a whole animation. Merged rather than appended because the
         // evaluation walks the span in order and both inputs are ascending.
-        std::vector<u32> guideCurves;
-        guideCurves.reserve(state.m_SlotOfGuide.size());
+        TArray<u32> guideCurves;
+        guideCurves.Reserve(state.m_SlotOfGuide.Num());
         for (const u32 slot : state.m_SlotOfGuide)
         {
-            guideCurves.push_back(influence->GetGuideCurves()[slot]);
+            guideCurves.Add(influence->GetGuideCurves()[slot]);
         }
-        std::vector<u32> merged;
-        merged.reserve(selectedCurves.size() + guideCurves.size());
-        std::ranges::set_union(selectedCurves, guideCurves, std::back_inserter(merged));
-        selectedCurves.swap(merged);
+        TArray<u32> merged;
+        merged.SetNumUninitialized(selectedCurves.Num() + guideCurves.Num());
+        const auto mergedEnd = std::ranges::set_union(selectedCurves, guideCurves, merged.GetData());
+        merged.SetNum(static_cast<i32>(mergedEnd.out - merged.GetData()), EAllowShrinking::No);
+        std::swap(selectedCurves, merged);
         return true;
     }
 
@@ -9364,12 +9370,12 @@ namespace OloEngine
         }
         auto& state = found->second;
         const auto* component = m_Registry.try_get<GroomSimulationComponent>(groomEntity);
-        if (component == nullptr || state.m_SlotOfGuide.empty())
+        if (component == nullptr || state.m_SlotOfGuide.IsEmpty())
         {
             return;
         }
         auto influence = ResolveGroomGuideInfluence(request.Handle, request.Groom);
-        if (!influence || influence->GetGuideCount() != state.m_GuideOfSlot.size())
+        if (!influence || influence->GetGuideCount() != static_cast<u32>(state.m_GuideOfSlot.Num()))
         {
             return;
         }
@@ -9393,12 +9399,12 @@ namespace OloEngine
         const auto& rootUVs = groom.GetRootUVs();
         const auto& groupIds = groom.GetCurveGroupIds();
 
-        state.m_Targets.clear();
-        std::vector<u32> offsets;
-        offsets.reserve(state.m_SlotOfGuide.size() + 1u);
-        offsets.push_back(0u);
-        std::vector<u32> guideCurves;
-        guideCurves.reserve(state.m_SlotOfGuide.size());
+        state.m_Targets.Reset();
+        TArray<u32> offsets;
+        offsets.Reserve(state.m_SlotOfGuide.Num() + 1);
+        offsets.Add(0u);
+        TArray<u32> guideCurves;
+        guideCurves.Reserve(state.m_SlotOfGuide.Num());
 
         // COUNTED, not folded into a single flag. A guide whose root has no
         // deformed frame is already handled per guide by
@@ -9426,10 +9432,10 @@ namespace OloEngine
                                                              strand.Length, 0.0f, glm::vec3(0.0f));
                 const glm::vec3 deformed =
                     ApplyGroomRootTransform(binding.GetRoot(curve), transform, shaped, false);
-                state.m_Targets.push_back(glm::vec3(request.Transform * glm::vec4(deformed, 1.0f)));
+                state.m_Targets.Add(glm::vec3(request.Transform * glm::vec4(deformed, 1.0f)));
             }
-            offsets.push_back(static_cast<u32>(state.m_Targets.size()));
-            guideCurves.push_back(curve);
+            offsets.Add(static_cast<u32>(state.m_Targets.Num()));
+            guideCurves.Add(curve);
         }
 
         // == The body proxy, re-fitted only when the surface's identity moved ==
@@ -9463,13 +9469,13 @@ namespace OloEngine
             // is applied inside, from the shared deformation output -- the same
             // array the strand roots are carried by, so the coat and its
             // colliders cannot end up a frame apart.
-            ResolveGroomBodyColliders(state.m_ColliderBindings, skinning.Palette,
+            ResolveGroomBodyColliders(std::span{ state.m_ColliderBindings.GetData(), static_cast<sizet>(state.m_ColliderBindings.Num()) }, skinning.Palette,
                                       request.Transform * surfaceToGroom,
                                       MakeGroomColliderRadiusScale(*component), state.m_Colliders);
         }
         else
         {
-            state.m_Colliders.clear();
+            state.m_Colliders.Reset();
         }
 
         // == Is the previous frame comparable? ==
@@ -9529,13 +9535,13 @@ namespace OloEngine
         // Rotating unconditionally makes a held frame emit prev == current, i.e.
         // EXACTLY zero motion, which is the same rule
         // GroomStrandVertex::PrevPosition is written under.
-        state.m_PrevDisplacements.swap(state.m_Displacements);
+        std::swap(state.m_PrevDisplacements, state.m_Displacements);
 
         GroomSimulationInputs inputs;
-        inputs.GuideOffsets = offsets;
-        inputs.GuideCurves = guideCurves;
-        inputs.TargetPoints = state.m_Targets;
-        inputs.Colliders = state.m_Colliders;
+        inputs.GuideOffsets = std::span{ offsets.GetData(), static_cast<sizet>(offsets.Num()) };
+        inputs.GuideCurves = std::span{ guideCurves.GetData(), static_cast<sizet>(guideCurves.Num()) };
+        inputs.TargetPoints = std::span{ state.m_Targets.GetData(), static_cast<sizet>(state.m_Targets.Num()) };
+        inputs.Colliders = std::span{ state.m_Colliders.GetData(), static_cast<sizet>(state.m_Colliders.Num()) };
         inputs.Params = params;
         inputs.DeltaTime = m_GroomSimulationDeltaSeconds;
         inputs.HasHistory = hasHistory;
@@ -9549,8 +9555,8 @@ namespace OloEngine
             // The solver cleared its own state; clearing ours is what stops the
             // renderer interpolating from displacements that belong to a guide
             // set that no longer exists.
-            state.m_Displacements.clear();
-            state.m_PrevDisplacements.clear();
+            state.m_Displacements.Reset();
+            state.m_PrevDisplacements.Reset();
             state.m_HasHistory = false;
             state.m_ResetCause = GroomHistoryResetCause::Manual;
             state.m_WorldPosition = worldPosition;
@@ -9577,8 +9583,8 @@ namespace OloEngine
         const glm::mat4 worldToObject = glm::inverse(request.Transform);
         if (!Math::IsFinite(worldToObject))
         {
-            state.m_Displacements.clear();
-            state.m_PrevDisplacements.clear();
+            state.m_Displacements.Reset();
+            state.m_PrevDisplacements.Reset();
             state.m_HasHistory = false;
             state.m_ResetCause = GroomHistoryResetCause::Manual;
             state.m_WorldPosition = worldPosition;
@@ -9595,8 +9601,8 @@ namespace OloEngine
             return;
         }
 
-        state.m_Displacements.assign(state.m_Targets.size(), glm::vec3(0.0f));
-        for (sizet i = 0; i < state.m_Targets.size(); ++i)
+        state.m_Displacements.Init(glm::vec3(0.0f), state.m_Targets.Num());
+        for (i32 i = 0; i < state.m_Targets.Num(); ++i)
         {
             const glm::vec3 simulated = glm::vec3(worldToObject * glm::vec4(state.m_Solver.Curr[i], 1.0f));
             const glm::vec3 rest = glm::vec3(worldToObject * glm::vec4(state.m_Targets[i], 1.0f));
@@ -9607,9 +9613,9 @@ namespace OloEngine
         // displacements are DROPPED rather than reused. The sample then aliases
         // the current frame and the coat emits exactly zero motion, which is the
         // same rule GroomStrandVertex::PrevPosition is written under.
-        if (stats.Reseeded || state.m_PrevDisplacements.size() != state.m_Displacements.size())
+        if (stats.Reseeded || state.m_PrevDisplacements.Num() != state.m_Displacements.Num())
         {
-            state.m_PrevDisplacements.clear();
+            state.m_PrevDisplacements.Reset();
         }
 
         request.Influence = influence;
@@ -9649,11 +9655,11 @@ namespace OloEngine
             {
                 if (GroomDebugViewShowsGuides(request.SimulationDebug))
                 {
-                    (void)DrawGroomGuidePreview(state.m_Solver.Curr, offsets);
+                    (void)DrawGroomGuidePreview(std::span{ state.m_Solver.Curr.data(), state.m_Solver.Curr.size() }, std::span<const u32>(offsets.GetData(), static_cast<sizet>(offsets.Num())));
                 }
                 if (GroomDebugViewShowsColliders(request.SimulationDebug))
                 {
-                    (void)DrawGroomColliderPreview(state.m_Colliders);
+                    (void)DrawGroomColliderPreview(std::span{ state.m_Colliders.GetData(), static_cast<sizet>(state.m_Colliders.Num()) });
                 }
             }
         }
@@ -9677,7 +9683,7 @@ namespace OloEngine
         {
             request.BindingReject = reason;
             request.Binding = nullptr;
-            request.RootTransforms.clear();
+            request.RootTransforms.Reset();
             // A refusal is a discontinuity: on the frame it happens, whatever
             // previous positions this entity held describe a coat that is no
             // longer being deformed. Clearing the flag makes the frame AFTER a
@@ -9966,7 +9972,7 @@ namespace OloEngine
 
         request.DeformationStats =
             EvaluateGroomRootTransforms(groom, *bindingAsset, inputs,
-                                        std::span<const u32>(state.m_SelectedCurves), state.m_Transforms);
+                                        std::span<const u32>{ state.m_SelectedCurves.GetData(), static_cast<sizet>(state.m_SelectedCurves.Num()) }, state.m_Transforms);
         request.Binding = bindingAsset;
         request.BindingReject = GroomBindingRejectReason::None;
 
@@ -9978,7 +9984,7 @@ namespace OloEngine
         {
             SimulateGroomGuides(groomEntity, groom, *bindingAsset, coat, view, inputs.Skinning,
                                 inputs.SurfaceToGroom, targetEntity.GetUUID(), surface->GetGeneration(),
-                                state.m_Transforms, hasHistory, request);
+                                std::span{ state.m_Transforms.GetData(), static_cast<sizet>(state.m_Transforms.Num()) }, hasHistory, request);
         }
 
         // The binding preview is drawn HERE, not in the gizmo loop, and the
@@ -9996,7 +10002,7 @@ namespace OloEngine
                 settings.EditorDebugDrawsEnabled && settings.ShowComponentGizmos)
             {
                 GroomBindingPreviewSettings previewSettings;
-                (void)DrawGroomBindingPreview(*bindingAsset, state.m_Transforms, request.Transform,
+                (void)DrawGroomBindingPreview(*bindingAsset, std::span{ state.m_Transforms.GetData(), static_cast<sizet>(state.m_Transforms.Num()) }, request.Transform,
                                               previewSettings);
             }
         }
@@ -10120,7 +10126,7 @@ namespace OloEngine
             // Hybrid ray-traced shadow candidates (issue #1056), gathered
             // alongside the raster ones. Every light type appends to it, and it
             // is published to the renderer once at the end of this block.
-            std::vector<RayTracedShadowLightRequest> rayTracedShadowRequests;
+            TArray<RayTracedShadowLightRequest> rayTracedShadowRequests;
 
             // Canonical light record first (issue #993): the registry gets the
             // authored input, and every raster entry below is derived from the
@@ -10186,7 +10192,7 @@ namespace OloEngine
                         // penumbra here and any future PCSS parity.
                         request.Shape =
                             Renderer3D::GetShadowMap().GetSettings().RayTraced.LightAngularRadiusDegrees;
-                        rayTracedShadowRequests.push_back(request);
+                        rayTracedShadowRequests.Add(request);
                     }
                 }
 
@@ -10225,9 +10231,9 @@ namespace OloEngine
             // culled, so they are not gathered here. These vectors are not
             // bounded by the MultiLightUBO MAX_LIGHTS cap — the cull buffer
             // clamps to its own (larger) capacity in LightCullingBuffer::Update.
-            std::vector<GPUPointLight> fpPointLights;
-            std::vector<GPUSpotLight> fpSpotLights;
-            std::vector<GPUSphereAreaLight> fpSphereAreaLights;
+            TArray<GPUPointLight> fpPointLights;
+            TArray<GPUSpotLight> fpSpotLights;
+            TArray<GPUSphereAreaLight> fpSphereAreaLights;
 
             // Shadow-casting local lights become CANDIDATES for the budgeted
             // shadow atlas (issue #435) instead of grabbing fixed slots
@@ -10254,11 +10260,11 @@ namespace OloEngine
                 f32 OuterCutoff = 0.0f; // spot only (degrees)
                 f32 Intensity = 0.0f;
             };
-            std::vector<LocalShadowCandidate> shadowCandidates;
+            TArray<LocalShadowCandidate> shadowCandidates;
 
             // Collect point lights
             auto pointLightView = m_Registry.view<TransformComponent, PointLightComponent>();
-            fpPointLights.reserve(pointLightView.size_hint());
+            fpPointLights.Reserve(pointLightView.size_hint());
             for (auto entity : pointLightView)
             {
                 const auto& [transform, pointLight] = pointLightView.get<TransformComponent, PointLightComponent>(entity);
@@ -10272,7 +10278,7 @@ namespace OloEngine
                 const GPUSceneLight canonical =
                     extractCanonicalLight(entity, MakeGPUSceneLightInput(transform.Translation, pointLight));
 
-                fpPointLights.push_back(GPUSceneLightAdapter::ToForwardPlusPoint(canonical));
+                fpPointLights.Add(GPUSceneLightAdapter::ToForwardPlusPoint(canonical));
 
                 const bool inUbo = lightIndex < static_cast<i32>(UBOStructures::MultiLightUBO::MAX_LIGHTS);
                 if (inUbo)
@@ -10293,7 +10299,7 @@ namespace OloEngine
                     // which is a defensible default but not an obvious one.
                     request.Shape = Renderer3D::GetShadowMap().GetSettings().RayTraced.LightAngularRadiusDegrees;
                     request.Range = pointLight.m_Range;
-                    rayTracedShadowRequests.push_back(request);
+                    rayTracedShadowRequests.Add(request);
                 }
 
                 if (pointLight.m_CastShadows)
@@ -10301,12 +10307,12 @@ namespace OloEngine
                     LocalShadowCandidate candidate;
                     candidate.SourceKind = LocalShadowCandidate::Kind::Point;
                     candidate.UboLightIndex = inUbo ? lightIndex : -1;
-                    candidate.FpIndex = static_cast<u32>(fpPointLights.size()) - 1;
+                    candidate.FpIndex = static_cast<u32>(fpPointLights.Num()) - 1;
                     candidate.LightEntity = GetShadowCandidateEntityUuid(m_Registry, entity);
                     candidate.Position = transform.Translation;
                     candidate.Range = pointLight.m_Range;
                     candidate.Intensity = pointLight.m_Intensity;
-                    shadowCandidates.push_back(candidate);
+                    shadowCandidates.Add(candidate);
                 }
 
                 if (inUbo)
@@ -10315,7 +10321,7 @@ namespace OloEngine
 
             // Collect spot lights
             auto spotLightView = m_Registry.view<TransformComponent, SpotLightComponent>();
-            fpSpotLights.reserve(spotLightView.size_hint());
+            fpSpotLights.Reserve(spotLightView.size_hint());
             for (auto entity : spotLightView)
             {
                 const auto& [transform, spotLight] = spotLightView.get<TransformComponent, SpotLightComponent>(entity);
@@ -10332,7 +10338,7 @@ namespace OloEngine
                 // and the MultiLightUBO entry, both derived from the record.
                 const GPUSceneLight canonical = extractCanonicalLight(entity, lightInput);
 
-                fpSpotLights.push_back(GPUSceneLightAdapter::ToForwardPlusSpot(canonical));
+                fpSpotLights.Add(GPUSceneLightAdapter::ToForwardPlusSpot(canonical));
 
                 const bool inUbo = lightIndex < static_cast<i32>(UBOStructures::MultiLightUBO::MAX_LIGHTS);
                 if (inUbo)
@@ -10348,7 +10354,7 @@ namespace OloEngine
                     request.Vector = transform.Translation;
                     request.Shape = Renderer3D::GetShadowMap().GetSettings().RayTraced.LightAngularRadiusDegrees;
                     request.Range = spotLight.m_Range;
-                    rayTracedShadowRequests.push_back(request);
+                    rayTracedShadowRequests.Add(request);
                 }
 
                 if (spotLight.m_CastShadows)
@@ -10356,14 +10362,14 @@ namespace OloEngine
                     LocalShadowCandidate candidate;
                     candidate.SourceKind = LocalShadowCandidate::Kind::Spot;
                     candidate.UboLightIndex = inUbo ? lightIndex : -1;
-                    candidate.FpIndex = static_cast<u32>(fpSpotLights.size()) - 1;
+                    candidate.FpIndex = static_cast<u32>(fpSpotLights.Num()) - 1;
                     candidate.LightEntity = GetShadowCandidateEntityUuid(m_Registry, entity);
                     candidate.Position = transform.Translation;
                     candidate.Direction = spotDir;
                     candidate.Range = spotLight.m_Range;
                     candidate.OuterCutoff = spotLight.m_OuterCutoff;
                     candidate.Intensity = spotLight.m_Intensity;
-                    shadowCandidates.push_back(candidate);
+                    shadowCandidates.Add(candidate);
                 }
 
                 if (inUbo)
@@ -10374,7 +10380,7 @@ namespace OloEngine
             // SPHERE_AREA_LIGHT type tag (w=3) and the emitter sphere radius
             // stored in SpotParams.z — see PBRCommon.glsl for the decoder side.
             auto sphereAreaLightView = m_Registry.view<TransformComponent, SphereAreaLightComponent>();
-            fpSphereAreaLights.reserve(sphereAreaLightView.size_hint());
+            fpSphereAreaLights.Reserve(sphereAreaLightView.size_hint());
             for (auto entity : sphereAreaLightView)
             {
                 const auto& [transform, areaLight] = sphereAreaLightView.get<TransformComponent, SphereAreaLightComponent>(entity);
@@ -10385,7 +10391,7 @@ namespace OloEngine
                 const GPUSceneLight canonical =
                     extractCanonicalLight(entity, MakeGPUSceneLightInput(transform.Translation, areaLight));
 
-                fpSphereAreaLights.push_back(GPUSceneLightAdapter::ToForwardPlusSphereArea(canonical));
+                fpSphereAreaLights.Add(GPUSceneLightAdapter::ToForwardPlusSphereArea(canonical));
 
                 const bool inUbo = lightIndex < static_cast<i32>(UBOStructures::MultiLightUBO::MAX_LIGHTS);
                 if (inUbo)
@@ -10404,7 +10410,7 @@ namespace OloEngine
                     request.Vector = transform.Translation;
                     request.Shape = areaLight.m_Radius;
                     request.Range = areaLight.m_Range;
-                    rayTracedShadowRequests.push_back(request);
+                    rayTracedShadowRequests.Add(request);
                 }
 
                 // Sphere area lights cast hard shadows by treating the emitter
@@ -10415,12 +10421,12 @@ namespace OloEngine
                     LocalShadowCandidate candidate;
                     candidate.SourceKind = LocalShadowCandidate::Kind::SphereArea;
                     candidate.UboLightIndex = inUbo ? lightIndex : -1;
-                    candidate.FpIndex = static_cast<u32>(fpSphereAreaLights.size()) - 1;
+                    candidate.FpIndex = static_cast<u32>(fpSphereAreaLights.Num()) - 1;
                     candidate.LightEntity = GetShadowCandidateEntityUuid(m_Registry, entity);
                     candidate.Position = transform.Translation;
                     candidate.Range = areaLight.m_Range;
                     candidate.Intensity = areaLight.m_Intensity;
-                    shadowCandidates.push_back(candidate);
+                    shadowCandidates.Add(candidate);
                 }
 
                 if (inUbo)
@@ -10466,7 +10472,7 @@ namespace OloEngine
             // of an atlas base entry — same field, two meanings, and the shaders
             // fork on VSM_LOCAL_ENABLED (see vsmLocalShadow).
             //
-            // Deliberately NOT inside the `!shadowCandidates.empty()` guard: the
+            // Deliberately NOT inside the `!shadowCandidates.IsEmpty()` guard: the
             // Begin/End pair must run every frame the system is active, because
             // End is what retires the layers of lights that stopped casting. Skip
             // it on an empty frame and their pages stay resident and their
@@ -10480,8 +10486,8 @@ namespace OloEngine
 
                 virtualShadowMap.BeginLocalLights();
 
-                std::vector<ShadowMap::AtlasCasterRecord> layout;
-                layout.reserve(shadowCandidates.size());
+                TArray<ShadowMap::AtlasCasterRecord> layout;
+                layout.Reserve(shadowCandidates.Num());
                 u32 rank = 0;
 
                 for (const auto& candidate : shadowCandidates)
@@ -10534,7 +10540,7 @@ namespace OloEngine
                         }
                     }
 
-                    layout.push_back(record);
+                    layout.Add(record);
                 }
 
                 virtualShadowMap.EndLocalLights();
@@ -10544,15 +10550,15 @@ namespace OloEngine
                 // ShadowRenderPass into the atlas block to clear and rasterize
                 // tiles nothing samples.
                 shadowMap.SetAtlasEntryCount(0);
-                shadowMap.SetAtlasLayout(std::move(layout));
+                shadowMap.SetAtlasLayout(std::span<const ShadowMap::AtlasCasterRecord>(layout.GetData(), static_cast<sizet>(layout.Num())));
             }
 
-            if (!useVirtualLocalLights && shadowMap.IsEnabled() && !shadowCandidates.empty())
+            if (!useVirtualLocalLights && shadowMap.IsEnabled() && !shadowCandidates.IsEmpty())
             {
                 const Frustum cameraFrustum(viewProjection);
 
-                std::vector<ShadowAtlas::Candidate> scored;
-                scored.reserve(shadowCandidates.size());
+                TArray<ShadowAtlas::Candidate> scored;
+                scored.Reserve(shadowCandidates.Num());
                 for (const auto& candidate : shadowCandidates)
                 {
                     ShadowAtlas::Candidate entry;
@@ -10567,7 +10573,7 @@ namespace OloEngine
                     // frames and keep its existing tile instead of a fresh
                     // repack. 0 (unknown UUID) just means "always reallocate".
                     entry.UserData = candidate.LightEntity;
-                    scored.push_back(entry);
+                    scored.Add(entry);
                 }
 
                 // Persistent allocation (issue #718): a caster that keeps
@@ -10575,16 +10581,16 @@ namespace OloEngine
                 // across frames instead of the whole atlas being repacked
                 // from nothing every call — see ShadowMap::AllocateAtlasTiles
                 // / ShadowAtlas::PersistentAllocator.
-                const auto allocation = shadowMap.AllocateAtlasTiles(scored);
+                const auto allocation = shadowMap.AllocateAtlasTiles(std::span<const ShadowAtlas::Candidate>(scored.GetData(), static_cast<sizet>(scored.Num())));
 
                 // Diagnostics record of the FULL candidate list — winners and
                 // starved losers alike (issue #607, olo_shadow_atlas_layout).
                 // Built here because this is the only place both the inputs
                 // (which light, what score) and the outcome exist; everything
                 // below discards the losers.
-                std::vector<ShadowMap::AtlasCasterRecord> layout;
-                layout.reserve(shadowCandidates.size());
-                for (sizet i = 0; i < shadowCandidates.size(); ++i)
+                TArray<ShadowMap::AtlasCasterRecord> layout;
+                layout.Reserve(shadowCandidates.Num());
+                for (sizet i = 0; i < shadowCandidates.Num(); ++i)
                 {
                     ShadowMap::AtlasCasterRecord record;
                     record.LightEntity = shadowCandidates[i].LightEntity;
@@ -10595,7 +10601,7 @@ namespace OloEngine
                                             ? "PointLight"
                                             : "SphereAreaLight";
                     record.Score = scored[i].Score;
-                    layout.push_back(record);
+                    layout.Add(record);
                 }
 
                 u32 totalEntries = 0;
@@ -10642,14 +10648,14 @@ namespace OloEngine
                     totalEntries = std::max(totalEntries, accepted.BaseEntry + accepted.EntryCount);
                 }
                 shadowMap.SetAtlasEntryCount(totalEntries);
-                shadowMap.SetAtlasLayout(std::move(layout));
+                shadowMap.SetAtlasLayout(std::span<const ShadowMap::AtlasCasterRecord>(layout.GetData(), static_cast<sizet>(layout.Num())));
             }
 
             // Publish this frame's ray-traced shadow candidates (issue #1056).
             // After the atlas allocation, because a light that lost its atlas
             // tile is still a legitimate ray-tracing candidate — the two tiers
             // are independent, which is the point of the technique seam.
-            Renderer3D::SetRayTracedShadowLightRequests(std::move(rayTracedShadowRequests));
+            Renderer3D::SetRayTracedShadowLightRequests(std::span<const RayTracedShadowLightRequest>(rayTracedShadowRequests.GetData(), static_cast<sizet>(rayTracedShadowRequests.Num())));
 
             // Publish this frame's grooms for the production strand pass
             // (issue #1246).
@@ -10817,7 +10823,9 @@ namespace OloEngine
 
             // Hand the point/spot/sphere lights gathered above to Forward+ for
             // tile-based culling (no second scene iteration).
-            Renderer3D::GetForwardPlus().SetLights(fpPointLights, fpSpotLights, fpSphereAreaLights);
+            Renderer3D::GetForwardPlus().SetLights(std::span<const GPUPointLight>(fpPointLights.GetData(), static_cast<sizet>(fpPointLights.Num())),
+                                                   std::span<const GPUSpotLight>(fpSpotLights.GetData(), static_cast<sizet>(fpSpotLights.Num())),
+                                                   std::span<const GPUSphereAreaLight>(fpSphereAreaLights.GetData(), static_cast<sizet>(fpSphereAreaLights.Num())));
 
             // Baked lightmap (issue #439): resolve (throttled — Resolve() does
             // its O(scene) recheck every few frames and returns immediately on
@@ -10876,8 +10884,8 @@ namespace OloEngine
                         if (probeAsset && probeAsset->HasBakedData())
                         {
                             probeUBO.Enabled = 1;
-                            auto dataSize = static_cast<u32>(probeAsset->CoefficientData.size() * sizeof(glm::vec4));
-                            Renderer3D::UploadLightProbeData(probeUBO, probeAsset->CoefficientData.data(), dataSize);
+                            auto dataSize = static_cast<u32>(probeAsset->CoefficientData.Num() * sizeof(glm::vec4));
+                            Renderer3D::UploadLightProbeData(probeUBO, probeAsset->CoefficientData.GetData(), dataSize);
                         }
                         else
                         {
@@ -11041,10 +11049,10 @@ namespace OloEngine
                 const TransformComponent* tc;
                 const FogVolumeComponent* fv;
             };
-            std::vector<VolumeEntry> entries;
+            TArray<VolumeEntry> entries;
 
             auto fogVolumeView = m_Registry.view<TransformComponent, FogVolumeComponent>();
-            entries.reserve(fogVolumeView.size_hint());
+            entries.Reserve(fogVolumeView.size_hint());
             for (auto entity : fogVolumeView)
             {
                 const auto& fogVol = fogVolumeView.get<FogVolumeComponent>(entity);
@@ -11052,9 +11060,9 @@ namespace OloEngine
                 {
                     continue;
                 }
-                entries.push_back({ fogVol.m_Priority,
-                                    &fogVolumeView.get<TransformComponent>(entity),
-                                    &fogVol });
+                entries.Add({ fogVol.m_Priority,
+                              &fogVolumeView.get<TransformComponent>(entity),
+                              &fogVol });
             }
 
             // Sort by priority (higher priority processed last for consistent blending)
@@ -11271,7 +11279,7 @@ namespace OloEngine
                     // height field or the rules change.
                     if (terrain.m_AutoMaterial && terrain.m_AutoSplatNeedsRebuild && terrain.m_TerrainData &&
                         terrain.m_TerrainData->GetResolution() > 0 && terrain.m_Material &&
-                        terrain.m_Material->GetLayerCount() > 0 && !terrain.m_LayerRules.empty())
+                        terrain.m_Material->GetLayerCount() > 0 && !terrain.m_LayerRules.IsEmpty())
                     {
                         TerrainGenerator::GenerateSplatmap(
                             *terrain.m_Material, *terrain.m_TerrainData, terrain.m_LayerRules,
@@ -11502,7 +11510,7 @@ namespace OloEngine
                     auto& terrain = foliageView.get<TerrainComponent>(entity);
                     auto& foliage = foliageView.get<FoliageComponent>(entity);
 
-                    if (!foliage.m_Enabled || foliage.m_Layers.empty())
+                    if (!foliage.m_Enabled || foliage.m_Layers.IsEmpty())
                     {
                         // Nothing draws, so nothing should still be claiming to
                         // exist. Without this the registry kept the records of a
@@ -11620,7 +11628,7 @@ namespace OloEngine
             // can advance it by an exact number of seconds.
             {
                 OLO_PROFILE_SCOPE("Scene::FoliageInteractionField");
-                std::vector<FoliageInteractionSource> influences;
+                TArray<FoliageInteractionSource> influences;
                 auto influenceView = m_Registry.view<TransformComponent, FoliageInteractionComponent>();
                 for (auto influenceEntity : influenceView)
                 {
@@ -11643,9 +11651,9 @@ namespace OloEngine
                     influence.Falloff = source.m_Falloff;
                     influence.RecoverySeconds = source.m_RecoverySeconds;
                     influence.TrailSpacing = source.m_TrailSpacing;
-                    influences.push_back(influence);
+                    influences.Add(influence);
                 }
-                FoliageInteractionField::Update(std::span<const FoliageInteractionSource>(influences),
+                FoliageInteractionField::Update(std::span<const FoliageInteractionSource>(influences.GetData(), static_cast<sizet>(influences.Num())),
                                                 animationTime - prevAnimationTime);
             }
             {
@@ -11693,7 +11701,7 @@ namespace OloEngine
                     // BEFORE the terrainShader gate so collision never depends on the terrain
                     // shader being loaded. The streamer already advanced in the update loop
                     // above; nothing mutates its tile set between there and here.
-                    std::vector<Ref<TerrainTile>> readyTiles;
+                    TArray<Ref<TerrainTile>> readyTiles;
                     if (terrain.m_StreamingEnabled && terrain.m_Streamer)
                         terrain.m_Streamer->GetReadyTiles(readyTiles);
 
@@ -11912,7 +11920,7 @@ namespace OloEngine
                                     ShaderBindingLayout::TerrainUBO shadowUBO = terrainUBOData;
                                     shadowUBO.TessFactors = glm::vec4(1.0f);
                                     shadowUBO.TessFactors2.w = 1.0f;
-                                    std::vector<const TerrainChunk*> shadowChunks;
+                                    TArray<const TerrainChunk*> shadowChunks;
                                     chunkMgr.GetVisibleChunks(tileCull.ViewFrustum, shadowChunks);
                                     for (const auto* chunk : shadowChunks)
                                     {
@@ -11961,7 +11969,7 @@ namespace OloEngine
                             {
                                 terrainUBOData.TessFactors = glm::vec4(1.0f);
                                 terrainUBOData.TessFactors2.w = 1.0f;
-                                std::vector<const TerrainChunk*> visibleChunks;
+                                TArray<const TerrainChunk*> visibleChunks;
                                 chunkMgr.GetVisibleChunks(tileCull.ViewFrustum, visibleChunks);
                                 for (const auto* chunk : visibleChunks)
                                 {
@@ -13037,7 +13045,7 @@ namespace OloEngine
                     // fingerprints its inputs and returns immediately when
                     // nothing moved (WaterShoreDepthSystem::BuildSignature). The
                     // per-frame cost is this walk over a handful of terrains.
-                    std::vector<SeabedTerrain> seabed;
+                    TArray<SeabedTerrain> seabed;
                     auto terrainView = m_Registry.view<TransformComponent, TerrainComponent>();
                     for (auto terrainEntity : terrainView)
                     {
@@ -13048,8 +13056,8 @@ namespace OloEngine
                         const u32 resolution = terrain.m_TerrainData->GetResolution();
                         if (resolution == 0)
                             continue;
-                        const std::vector<f32>& heights = terrain.m_TerrainData->GetHeightData();
-                        if (heights.size() != static_cast<sizet>(resolution) * resolution)
+                        const TArray<f32>& heights = terrain.m_TerrainData->GetHeightData();
+                        if (heights.Num() != static_cast<sizet>(resolution) * resolution)
                             continue;
 
                         // A terrain entity's translation is its tile's CORNER,
@@ -13069,9 +13077,9 @@ namespace OloEngine
                         // GetHeightData() above already synced the mirror, so
                         // this revision describes the samples just read.
                         tile.HeightRevision = terrain.m_TerrainData->GetHeightRevision();
-                        seabed.push_back(tile);
+                        seabed.Add(tile);
                     }
-                    WaterShoreDepthSystem::Rebuild(shoreRequest, seabed);
+                    WaterShoreDepthSystem::Rebuild(shoreRequest, std::span<const SeabedTerrain>(seabed.GetData(), static_cast<sizet>(seabed.Num())));
                 }
             }
 
@@ -13794,13 +13802,14 @@ namespace OloEngine
                                              ? clothEntity.GetComponent<MaterialComponent>().m_Material
                                              : GetDefaultMaterial();
                 clothMaterial.SetFlag(MaterialFlag::TwoSided, true);
-                const sizet count = state.m_Positions.size();
-                if (count == 0 || state.m_Normals.size() != count || state.m_Columns < 2 || state.m_Rows < 2)
+                const i32 count = state.m_Positions.Num();
+                if (count == 0 || state.m_Normals.Num() != count || state.m_Columns < 2 || state.m_Rows < 2)
                     continue;
 
                 if (!state.m_RenderMesh)
                 {
-                    std::vector<Vertex> vertices(count);
+                    TArray<Vertex> vertices;
+                    vertices.SetNum(static_cast<i32>(count), EAllowShrinking::No);
                     for (u32 row = 0; row < state.m_Rows; ++row)
                     {
                         for (u32 col = 0; col < state.m_Columns; ++col)
@@ -13813,7 +13822,7 @@ namespace OloEngine
                                 static_cast<f32>(row) / static_cast<f32>(state.m_Rows - 1));
                         }
                     }
-                    std::vector<u32> indices = BuildClothGridIndices(state.m_Columns, state.m_Rows);
+                    TArray<u32> indices = BuildClothGridIndices(state.m_Columns, state.m_Rows);
 
                     Ref<MeshSource> meshSource = Ref<MeshSource>::Create(std::move(vertices), std::move(indices));
                     meshSource->SetPreOptimized(true); // preserve grid-index ↔ VBO-slot mapping
@@ -13869,16 +13878,16 @@ namespace OloEngine
                 // data pointer all match the cached fingerprint — saves the
                 // 256 B / instance memcpy for steady-state scatter scenes.
                 auto& cache = imc._MergedCache;
-                const InstanceData* inlineDataPtr = imc.Instances.data();
-                bool stableInputsChanged = cache.InlineSize != imc.Instances.size() ||
+                const InstanceData* inlineDataPtr = imc.Instances.GetData();
+                bool stableInputsChanged = cache.InlineSize != imc.Instances.Num() ||
                                            cache.InlineDataPtr != inlineDataPtr;
                 if (stableInputsChanged)
                 {
-                    (void)InstancedMeshComponent::EnsureStableIDs(imc.Instances);
-                    inlineDataPtr = imc.Instances.data();
+                    (void)InstancedMeshComponent::EnsureStableIDs(std::span{ imc.Instances.GetData(), static_cast<sizet>(imc.Instances.Num()) });
+                    inlineDataPtr = imc.Instances.GetData();
                 }
 
-                const std::vector<InstanceData>* assetInstances = nullptr;
+                std::span<const InstanceData> assetInstances;
                 if (imc.PlacementAssetHandle != 0)
                 {
                     if (auto placement = AssetManager::GetAsset<InstancePlacementAsset>(imc.PlacementAssetHandle))
@@ -13893,12 +13902,17 @@ namespace OloEngine
                             (void)InstancedMeshComponent::EnsureStableIDs(placementInstances);
                             stableInputsChanged = true;
                         }
-                        assetInstances = &placementInstances;
+                        assetInstances = placementInstances;
                     }
                 }
 
-                const sizet inlineCount = imc.Instances.size();
-                const sizet assetCount = assetInstances ? assetInstances->size() : 0;
+                const sizet inlineCount = imc.Instances.Num();
+                const sizet assetCount = assetInstances.size();
+                if (assetCount > static_cast<sizet>(std::numeric_limits<i32>::max()) - inlineCount)
+                {
+                    OLO_CORE_ERROR("Instance merge exceeds native array capacity");
+                    continue;
+                }
                 if (inlineCount + assetCount == 0)
                     continue;
 
@@ -13909,7 +13923,7 @@ namespace OloEngine
                     // Inline-only fast path — the InstancedMeshComponent's
                     // own `Instances` vector is already the contiguous buffer
                     // the submission needs. No copy and no cache involvement.
-                    instData = imc.Instances.data();
+                    instData = imc.Instances.GetData();
                     totalCount = inlineCount;
                     if (cache.InlineSize != inlineCount || cache.InlineDataPtr != inlineDataPtr ||
                         cache.PlacementHandle != imc.PlacementAssetHandle || cache.AssetSize != 0)
@@ -13927,14 +13941,14 @@ namespace OloEngine
                 }
                 else
                 {
-                    const InstanceData* currentAssetDataPtr = assetInstances->data();
+                    const InstanceData* currentAssetDataPtr = assetInstances.data();
                     const bool cacheValid = !stableInputsChanged &&
                                             cache.InlineSize == inlineCount &&
                                             cache.InlineDataPtr == inlineDataPtr &&
                                             cache.PlacementHandle == imc.PlacementAssetHandle &&
                                             cache.AssetSize == assetCount &&
                                             cache.AssetDataPtr == currentAssetDataPtr &&
-                                            cache.Data.size() == (inlineCount + assetCount);
+                                            static_cast<sizet>(cache.Data.Num()) == (inlineCount + assetCount);
                     if (!cacheValid)
                     {
                         // A rebuilt merge re-copies from the source lists, which
@@ -13942,18 +13956,18 @@ namespace OloEngine
                         // cache.Data — so the fill below has to run again
                         // (issue #867).
                         cache.LightmapResolveGeneration = 0;
-                        cache.Data.clear();
-                        cache.Data.reserve(inlineCount + assetCount);
-                        cache.Data.insert(cache.Data.end(), imc.Instances.begin(), imc.Instances.end());
-                        cache.Data.insert(cache.Data.end(), assetInstances->begin(), assetInstances->end());
+                        cache.Data.Reset();
+                        cache.Data.Reserve(static_cast<i32>(inlineCount + assetCount));
+                        cache.Data.Append(imc.Instances);
+                        cache.Data.Append(assetInstances.data(), static_cast<i32>(assetInstances.size()));
                         cache.InlineSize = inlineCount;
                         cache.InlineDataPtr = inlineDataPtr;
                         cache.PlacementHandle = imc.PlacementAssetHandle;
                         cache.AssetSize = assetCount;
                         cache.AssetDataPtr = currentAssetDataPtr;
                     }
-                    instData = cache.Data.data();
-                    totalCount = cache.Data.size();
+                    instData = cache.Data.GetData();
+                    totalCount = static_cast<sizet>(cache.Data.Num());
                 }
 
                 // Baked lightmap regions, one PER INSTANCE (issue #867). This is
@@ -13998,7 +14012,7 @@ namespace OloEngine
                     {
                         const bool covered =
                             imc.LightmapStatic && m_LightmapRuntime->HasAnyRegionForEntity(uuid);
-                        InstanceData* writable = (assetCount == 0) ? imc.Instances.data() : cache.Data.data();
+                        InstanceData* writable = (assetCount == 0) ? imc.Instances.GetData() : cache.Data.GetData();
                         for (sizet k = 0; k < totalCount; ++k)
                         {
                             // A stale bake, a cleared handle or an uncovered
@@ -14410,11 +14424,10 @@ namespace OloEngine
                 //
                 // This is the live animated submission path, so the guard must
                 // remain here rather than on an unused renderer helper.
-                static const std::vector<glm::mat4> s_NoBoneHistory;
-                const auto& boneMatrices = skeleton.m_Skeleton->m_FinalBoneMatrices;
-                const auto& prevBoneMatrices = skeleton.m_Skeleton->HasBoneHistory()
-                                                   ? skeleton.m_Skeleton->m_PrevFinalBoneMatrices
-                                                   : s_NoBoneHistory;
+                const std::span<const glm::mat4> boneMatrices = skeleton.m_Skeleton->m_FinalBoneMatrices;
+                const std::span<const glm::mat4> prevBoneMatrices = skeleton.m_Skeleton->HasBoneHistory()
+                                                                        ? std::span<const glm::mat4>(skeleton.m_Skeleton->m_PrevFinalBoneMatrices)
+                                                                        : std::span<const glm::mat4>{};
 
                 // Convert entt entity to int for entity ID picking
                 i32 entityID = static_cast<i32>(std::to_underlying(entity));
@@ -14548,11 +14561,11 @@ namespace OloEngine
                     for (u32 x = 0; x < tileComp.Width; ++x)
                     {
                         u32 cellIndex = z * tileComp.Width + x;
-                        u8 matIdx = (cellIndex < tileComp.MaterialIDs.size())
+                        u8 matIdx = (cellIndex < tileComp.MaterialIDs.Num())
                                         ? tileComp.MaterialIDs[cellIndex]
                                         : static_cast<u8>(0);
 
-                        const Material& material = (matIdx < tileComp.Materials.size())
+                        const Material& material = (matIdx < tileComp.Materials.Num())
                                                        ? tileComp.Materials[matIdx]
                                                        : GetDefaultMaterial();
 
@@ -14938,7 +14951,7 @@ namespace OloEngine
                                     {
                                         const auto& records = ddgiPass->GetProbeRecords();
                                         i32 const idx = vol.GridIndex(x, y, z);
-                                        if (idx >= 0 && static_cast<sizet>(idx) < records.size())
+                                        if (idx >= 0 && idx < records.Num())
                                         {
                                             const auto& rec = records[static_cast<sizet>(idx)];
                                             probePos = DDGI::ProbeWorldPosition({ x, y, z }, vol.m_BoundsMin,
@@ -14965,7 +14978,7 @@ namespace OloEngine
                                 {
                                     i32 const idx = vol.GridIndex(x, y, z);
                                     i32 const baseOffset = idx * static_cast<i32>(SH_COEFFICIENT_COUNT);
-                                    if (baseOffset < static_cast<i32>(probeAsset->CoefficientData.size()))
+                                    if (baseOffset < static_cast<i32>(probeAsset->CoefficientData.Num()))
                                     {
                                         f32 const validity = probeAsset->CoefficientData[baseOffset].w;
                                         if (validity > 0.5f)
@@ -15234,17 +15247,22 @@ namespace OloEngine
         // Reuses the ParticleSystemComponent owning group (issue #443); a group
         // exposes an exact size(), so reserve is precise (not a hint).
         auto psView = m_Registry.group<ParticleSystemComponent>(entt::get<TransformComponent>);
-        std::vector<std::pair<f32, entt::entity>> sortedSystems;
-        sortedSystems.reserve(psView.size());
+        struct SortedParticleSystem
+        {
+            f32 Distance;
+            entt::entity Entity;
+        };
+        TArray<SortedParticleSystem> sortedSystems;
+        sortedSystems.Reserve(psView.size());
         for (auto entity : psView)
         {
             const auto& tc = psView.get<TransformComponent>(entity);
             f32 dist = glm::length2(glm::vec3(tc.Translation) - camPos);
-            sortedSystems.emplace_back(dist, entity);
+            sortedSystems.Add({ dist, entity });
         }
         std::ranges::sort(sortedSystems,
                           [](const auto& a, const auto& b)
-                          { return a.first > b.first; });
+                          { return a.Distance > b.Distance; });
 
         for (const auto& [dist, entity] : sortedSystems)
         {
@@ -15261,7 +15279,7 @@ namespace OloEngine
 
             glm::vec3 offset = (sys.SimulationSpace == ParticleSpace::Local) ? sys.GetEmitterPosition() : glm::vec3(0.0f);
 
-            const std::vector<u32>* sorted = nullptr;
+            const TArray<u32>* sorted = nullptr;
             if (sys.DepthSortEnabled && sys.BlendMode != ParticleBlendMode::Additive)
             {
                 sys.SortByDepth(camPos);
@@ -15313,10 +15331,10 @@ namespace OloEngine
             }
 
             // Render child systems
-            for (sizet c = 0; c < psc.ChildSystems.size(); ++c)
+            for (sizet c = 0; c < psc.ChildSystems.Num(); ++c)
             {
                 auto& childSys = psc.ChildSystems[c];
-                const std::vector<u32>* childSorted = nullptr;
+                const TArray<u32>* childSorted = nullptr;
                 if (childSys.DepthSortEnabled && childSys.BlendMode != ParticleBlendMode::Additive)
                 {
                     childSys.SortByDepth(camPos);
@@ -15324,7 +15342,7 @@ namespace OloEngine
                 }
                 ParticleBatchRenderer::Flush();
                 SetParticleBlendMode(childSys.BlendMode);
-                Ref<Texture2D> childTex = (c < psc.ChildTextures.size()) ? psc.ChildTextures[c] : nullptr;
+                Ref<Texture2D> childTex = (c < psc.ChildTextures.Num()) ? psc.ChildTextures[c] : nullptr;
                 ParticleRenderer::RenderParticlesBillboard(childSys.GetPool(), childTex, offset, static_cast<int>(std::to_underlying(entity)), childSorted, nullptr);
             }
 

@@ -191,7 +191,7 @@ namespace OloEngine
                              Ref<TerrainChunkManager> chunkManager,
                              f32 worldSizeX, f32 worldSizeZ, f32 heightScale,
                              u32 regionX, u32 regionY, u32 regionW, u32 regionH,
-                             std::vector<f32> oldHeights, std::vector<f32> newHeights,
+                             TArray<f32> oldHeights, TArray<f32> newHeights,
                              WeakRef<Scene> scene = {}, UUID terrainEntity = UUID(0))
             : m_TerrainData(std::move(terrainData)), m_ChunkManager(std::move(chunkManager)), m_WorldSizeX(worldSizeX), m_WorldSizeZ(worldSizeZ), m_HeightScale(heightScale), m_RegionX(regionX), m_RegionY(regionY), m_RegionW(regionW), m_RegionH(regionH), m_OldHeights(std::move(oldHeights)), m_NewHeights(std::move(newHeights)), m_Scene(std::move(scene)), m_TerrainEntity(terrainEntity)
         {
@@ -213,7 +213,7 @@ namespace OloEngine
         }
 
       private:
-        void ApplyHeights(const std::vector<f32>& heights)
+        void ApplyHeights(const TArray<f32>& heights)
         {
             if (!m_TerrainData)
             {
@@ -228,7 +228,7 @@ namespace OloEngine
             {
                 return;
             }
-            if (heights.size() < static_cast<sizet>(m_RegionW) * m_RegionH)
+            if (heights.Num() < static_cast<sizet>(m_RegionW) * m_RegionH)
             {
                 return;
             }
@@ -272,8 +272,8 @@ namespace OloEngine
         u32 m_RegionY;
         u32 m_RegionW;
         u32 m_RegionH;
-        std::vector<f32> m_OldHeights;
-        std::vector<f32> m_NewHeights;
+        TArray<f32> m_OldHeights;
+        TArray<f32> m_NewHeights;
         // Held WEAKLY so an entry in the undo history never keeps the whole Scene alive;
         // used to refresh terrain collision on redo/undo (issue #469 review).
         WeakRef<Scene> m_Scene;
@@ -289,7 +289,7 @@ namespace OloEngine
         TerrainPaintCommand(Ref<TerrainMaterial> material,
                             u32 splatmapIndex,
                             u32 regionX, u32 regionY, u32 regionW, u32 regionH,
-                            std::vector<u8> oldData, std::vector<u8> newData)
+                            TArray<u8> oldData, TArray<u8> newData)
             : m_Material(std::move(material)), m_SplatmapIndex(splatmapIndex), m_RegionX(regionX), m_RegionY(regionY), m_RegionW(regionW), m_RegionH(regionH), m_OldData(std::move(oldData)), m_NewData(std::move(newData))
         {
         }
@@ -310,7 +310,7 @@ namespace OloEngine
         }
 
       private:
-        void ApplyData(const std::vector<u8>& data)
+        void ApplyData(const TArray<u8>& data)
         {
             if (!m_Material || !m_Material->HasCPUSplatmaps())
             {
@@ -331,7 +331,7 @@ namespace OloEngine
             {
                 return;
             }
-            if (data.size() < static_cast<sizet>(m_RegionW) * m_RegionH * channels)
+            if (data.Num() < static_cast<sizet>(m_RegionW) * m_RegionH * channels)
             {
                 return;
             }
@@ -352,8 +352,8 @@ namespace OloEngine
         u32 m_RegionY;
         u32 m_RegionW;
         u32 m_RegionH;
-        std::vector<u8> m_OldData;
-        std::vector<u8> m_NewData;
+        TArray<u8> m_OldData;
+        TArray<u8> m_NewData;
     };
 
     // =========================================================================

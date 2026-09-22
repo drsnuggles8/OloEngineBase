@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "UILayoutSystem.h"
+#include "OloEngine/Containers/Array.h"
 
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
@@ -125,7 +126,7 @@ namespace OloEngine
                 // No additional handling required.
             }
 
-            for (sizet i = 0; i < children.size(); ++i)
+            for (sizet i = 0; i < children.Num(); ++i)
             {
                 auto childOpt = scene.TryGetEntityWithUUID(children[i]);
                 if (!childOpt)
@@ -204,10 +205,10 @@ namespace OloEngine
         // Clear stale resolved rects so removed UIRectTransformComponents don't linger
         {
             auto resolvedView = scene.GetAllEntitiesWith<UIResolvedRectComponent>();
-            std::vector<entt::entity> toRemove;
+            TArray<entt::entity> toRemove;
             for (const auto entity : resolvedView)
             {
-                toRemove.push_back(entity);
+                toRemove.Add(entity);
             }
             for (const auto entity : toRemove)
             {

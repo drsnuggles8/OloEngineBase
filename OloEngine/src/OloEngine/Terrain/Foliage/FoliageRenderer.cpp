@@ -57,7 +57,7 @@ namespace OloEngine
         const f32 transformNorm = std::sqrt(maxColumn * maxRow);
         for (const auto& group : m_Registry.GetGroups())
         {
-            if (group.m_LayerIndex >= m_Layers.size())
+            if (group.m_LayerIndex >= m_Layers.Num())
                 continue;
             const auto& layer = m_Layers[group.m_LayerIndex];
             if (layer.UseImpostor && layer.Impostor.IsValid() && !layer.MeshVBO)
@@ -67,7 +67,7 @@ namespace OloEngine
                 cache.Queue({});
                 continue;
             }
-            std::vector<const FoliageInstanceRecord*> meshRecords, impostorRecords, cardRecords;
+            TArray<const FoliageInstanceRecord*> meshRecords, impostorRecords, cardRecords;
             // RebuildGroups keeps these in ascending canonical ID for us.
             for (const auto id : group.m_Instances)
             {
@@ -80,22 +80,22 @@ namespace OloEngine
                     continue;
                 // Retain the authored canopy for an octahedral far LOD: a
                 // single main-view-facing card is not a ray-space silhouette.
-                const bool mesh = layer.MeshVBO && (!layer.MeshParts.empty()) &&
+                const bool mesh = layer.MeshVBO && (!layer.MeshParts.IsEmpty()) &&
                                   ((layer.UseImpostor && layer.Impostor.IsValid()) || distance <= layer.MeshViewDistance);
                 const bool impostor = mesh && layer.UseImpostor && layer.Impostor.IsValid() &&
                                       distance > layer.MeshViewDistance;
-                (impostor ? impostorRecords : (mesh ? meshRecords : cardRecords)).push_back(record);
+                (impostor ? impostorRecords : (mesh ? meshRecords : cardRecords)).Add(record);
             }
             for (const u32 representation : { 0u, 1u, 2u })
             {
                 const bool mesh = representation != 2u, impostor = representation == 1u;
                 const auto& records = impostor ? impostorRecords : (mesh ? meshRecords : cardRecords);
                 const u32 plantsPerGroup = mesh ? RayTracing::VegetationPolicy::PlantsPerGroup : RayTracing::VegetationPolicy::CardPlantsPerGroup;
-                for (sizet first = 0u; first < records.size(); first += plantsPerGroup)
+                for (sizet first = 0u; first < records.Num(); first += plantsPerGroup)
                 {
-                    const sizet count = std::min(records.size() - first, static_cast<sizet>(plantsPerGroup));
+                    const sizet count = std::min(records.Num() - first, static_cast<sizet>(plantsPerGroup));
                     const u64 estimatedBytes = count * ((mesh ? static_cast<u64>(layer.MeshVertexCount) : 4u) * sizeof(Vertex) +
-                                                        (mesh ? static_cast<u64>(layer.MeshRayTracingIndices.size()) : 6u) * sizeof(u32) + sizeof(FoliageInstanceData));
+                                                        (mesh ? static_cast<u64>(layer.MeshRayTracingIndices.Num()) : 6u) * sizeof(u32) + sizeof(FoliageInstanceData));
                     if (!cache.HasQueueCapacity() || estimatedBytes > RayTracing::VegetationPolicy::GeometryBytes)
                     {
                         cache.Queue({});
@@ -109,7 +109,7 @@ namespace OloEngine
                     input.WorldTransform = m_TerrainTransform;
                     input.DetailedDistance = mesh ? std::max(50.0f, layer.MeshFadeStartDistance) : RayTracing::VegetationPolicy::DetailedCardDistance;
                     input.DistanceToView = std::numeric_limits<f32>::infinity();
-                    const u32 partCount = mesh ? static_cast<u32>(layer.MeshParts.size()) : 1u;
+                    const u32 partCount = mesh ? static_cast<u32>(layer.MeshParts.Num()) : 1u;
                     bool validParts = true;
                     for (u32 part = 0u; part < partCount; ++part)
                     {
@@ -120,13 +120,13 @@ namespace OloEngine
                             const auto& range = layer.MeshParts[part];
                             if (range.IndexCount == 0u)
                                 continue;
-                            if (static_cast<u64>(range.BaseIndex) + range.IndexCount > layer.MeshRayTracingIndices.size())
+                            if (static_cast<u64>(range.BaseIndex) + range.IndexCount > layer.MeshRayTracingIndices.Num())
                             {
                                 validParts = false;
                                 break;
                             }
-                            surface.Indices.assign(layer.MeshRayTracingIndices.begin() + range.BaseIndex,
-                                                   layer.MeshRayTracingIndices.begin() + range.BaseIndex + range.IndexCount);
+                            surface.Indices.Append(layer.MeshRayTracingIndices.GetData() + range.BaseIndex,
+                                                   static_cast<i32>(range.IndexCount));
                         }
                         else
                             surface.Indices = { 0u, 1u, 2u, 2u, 3u, 0u };
@@ -145,20 +145,20 @@ namespace OloEngine
                                                                          albedo->GetRHIHandle(), HeapBinding::MaterialTexture2DSampler())
                                                                          .Value;
                         }
-                        input.Parts.push_back(std::move(surface));
+                        input.Parts.Add(std::move(surface));
                     }
                     if (!validParts)
                     {
                         cache.Queue({});
                         continue;
                     }
-                    const sizet end = std::min(records.size(), first + plantsPerGroup);
+                    const sizet end = std::min(static_cast<sizet>(records.Num()), first + plantsPerGroup);
                     for (sizet plant = first; plant < end; ++plant)
                     {
                         const auto& record = *records[plant];
-                        input.Rows.push_back({ glm::vec4(record.m_Position, record.m_Scale),
-                                               glm::vec4(record.m_Rotation, record.m_Height, 1.0f, FoliageWindPhase(record.m_Id)),
-                                               glm::vec4(layer.BaseColor, layer.AlphaCutoff) });
+                        input.Rows.Add({ glm::vec4(record.m_Position, record.m_Scale),
+                                         glm::vec4(record.m_Rotation, record.m_Height, 1.0f, FoliageWindPhase(record.m_Id)),
+                                         glm::vec4(layer.BaseColor, layer.AlphaCutoff) });
                         const auto worldRoot = glm::vec3(m_TerrainTransform * glm::vec4(record.m_Position, 1.0f));
                         input.DistanceToView = std::min(input.DistanceToView, glm::length(worldRoot - cameraPosition));
                     }
@@ -246,21 +246,21 @@ namespace OloEngine
         data.MeshVAO = nullptr;
         data.MeshVBO = nullptr;
         data.MeshIBO = nullptr;
-        data.MeshParts.clear();
-        data.MeshRayTracingIndices.clear();
+        data.MeshParts.Reset();
+        data.MeshRayTracingIndices.Reset();
         data.MeshModel = nullptr;
         data.MeshVertexCount = 0;
         data.MeshIndexCount = 0;
-        data.MeshGeometryPath.clear();
+        data.MeshGeometryPath.Empty();
         data.BoundsProfile = FoliageBoundsProfile{};
 
-        auto model = Ref<Model>::Create(layer.MeshPath);
+        auto model = Ref<Model>::Create(layer.MeshPath.ToStdString());
         if (model->GetMeshCount() == 0)
         {
             OLO_CORE_ERROR("FoliageRenderer: layer '{}' asks for the authored mesh '{}' and it did not load. The "
                            "layer draws its flat card at ALL distances instead; the census counts the variant as "
                            "unavailable. Fix the path or clear UseAuthoredMesh.",
-                           layer.Name, layer.MeshPath);
+                           layer.Name.ToView(), layer.MeshPath.ToView());
             return false;
         }
 
@@ -275,7 +275,7 @@ namespace OloEngine
         {
             OLO_CORE_ERROR("FoliageRenderer: layer '{}' mesh '{}' loaded but carries no geometry "
                            "({} vertices, {} indices). Drawing the flat card instead.",
-                           layer.Name, layer.MeshPath,
+                           layer.Name.ToView(), layer.MeshPath.ToView(),
                            source ? source->GetVertices().Num() : 0,
                            source ? source->GetIndices().Num() : 0);
             return false;
@@ -285,14 +285,14 @@ namespace OloEngine
         const auto& srcIndices = source->GetIndices();
         const auto& submeshes = source->GetSubmeshes();
 
-        std::vector<u32> indices;
-        indices.reserve(static_cast<sizet>(srcIndices.Num()));
+        TArray<u32> indices;
+        indices.Reserve(static_cast<sizet>(srcIndices.Num()));
 
         const sizet submeshCount = submeshes.Num() > 0 ? static_cast<sizet>(submeshes.Num()) : 1;
         for (sizet i = 0; i < submeshCount; ++i)
         {
             LayerDrawPart part;
-            part.BaseIndex = static_cast<u32>(indices.size());
+            part.BaseIndex = static_cast<u32>(indices.Num());
 
             if (submeshes.Num() > 0)
             {
@@ -302,9 +302,9 @@ namespace OloEngine
                     const u32 srcSlot = sub.m_BaseIndex + k;
                     if (srcSlot >= static_cast<u32>(srcIndices.Num()))
                         break;
-                    indices.push_back(srcIndices[static_cast<i32>(srcSlot)] + sub.m_BaseVertex);
+                    indices.Add(srcIndices[static_cast<i32>(srcSlot)] + sub.m_BaseVertex);
                 }
-                part.IndexCount = static_cast<u32>(indices.size()) - part.BaseIndex;
+                part.IndexCount = static_cast<u32>(indices.Num()) - part.BaseIndex;
                 // Per-submesh material assignment, through the submesh's OWN
                 // material index — NOT the loop index.
                 //
@@ -334,30 +334,30 @@ namespace OloEngine
             else
             {
                 for (i32 k = 0; k < srcIndices.Num(); ++k)
-                    indices.push_back(srcIndices[k]);
-                part.IndexCount = static_cast<u32>(indices.size());
+                    indices.Add(srcIndices[k]);
+                part.IndexCount = static_cast<u32>(indices.Num());
             }
 
             if (part.IndexCount > 0)
-                data.MeshParts.push_back(std::move(part));
+                data.MeshParts.Add(std::move(part));
         }
 
-        if (data.MeshParts.empty() || indices.empty())
+        if (data.MeshParts.IsEmpty() || indices.IsEmpty())
         {
             OLO_CORE_ERROR("FoliageRenderer: layer '{}' mesh '{}' produced no drawable submesh range. "
                            "Drawing the flat card instead.",
-                           layer.Name, layer.MeshPath);
-            data.MeshParts.clear();
+                           layer.Name.ToView(), layer.MeshPath.ToView());
+            data.MeshParts.Reset();
             return false;
         }
 
         data.MeshVBO = VertexBuffer::Create(srcVertices.GetData(),
                                             static_cast<u32>(srcVertices.Num() * sizeof(Vertex)));
         data.MeshVBO->SetLayout(Vertex::GetLayout());
-        data.MeshIBO = IndexBuffer::Create(indices.data(), static_cast<u32>(indices.size()));
+        data.MeshIBO = IndexBuffer::Create(indices.GetData(), static_cast<u32>(indices.Num()));
         data.MeshRayTracingIndices = indices;
         data.MeshVertexCount = static_cast<u32>(srcVertices.Num());
-        data.MeshIndexCount = static_cast<u32>(indices.size());
+        data.MeshIndexCount = static_cast<u32>(indices.Num());
         data.MeshModel = model;
         data.MeshGeometryPath = layer.MeshPath;
 
@@ -408,13 +408,13 @@ namespace OloEngine
                           "unit height ([0, 1]) foliage authoring assumes. It is scaled by the instance's "
                           "height * scale as-is, so every plant is drawn {:.2f}x the authored height — near mesh and "
                           "far impostor alike. Re-author the mesh or compensate with MinHeight/MaxHeight.",
-                          layer.Name, layer.MeshPath, box.Min.y, box.Max.y,
+                          layer.Name.ToView(), layer.MeshPath.ToView(), box.Min.y, box.Max.y,
                           std::max(box.Max.y - std::min(box.Min.y, 0.0f), 1e-3f));
         }
 
         OLO_CORE_INFO("FoliageRenderer: layer '{}' authored mesh '{}' ready — {} vertices, {} indices, {} submesh(es), "
                       "{:.1f} KiB geometry",
-                      layer.Name, layer.MeshPath, data.MeshVertexCount, data.MeshIndexCount, data.MeshParts.size(),
+                      layer.Name.ToView(), layer.MeshPath.ToView(), data.MeshVertexCount, data.MeshIndexCount, data.MeshParts.Num(),
                       static_cast<f32>(data.MeshVertexCount * sizeof(Vertex) + data.MeshIndexCount * sizeof(u32)) / 1024.0f);
         return true;
     }
@@ -477,16 +477,16 @@ namespace OloEngine
         }
     }
 
-    void FoliageRenderer::UploadInstances(LayerRenderData& data, const std::vector<FoliageInstanceData>& instances)
+    void FoliageRenderer::UploadInstances(LayerRenderData& data, const TArray<FoliageInstanceData>& instances)
     {
-        if (instances.empty())
+        if (instances.IsEmpty())
         {
             data.InstanceCount = 0;
             return;
         }
 
-        auto requiredCount = static_cast<u32>(instances.size());
-        auto dataSize = static_cast<u32>(instances.size() * sizeof(FoliageInstanceData));
+        auto requiredCount = static_cast<u32>(instances.Num());
+        auto dataSize = static_cast<u32>(instances.Num() * sizeof(FoliageInstanceData));
 
         const bool grew = data.InstanceVBO && data.InstanceCapacity < requiredCount;
         if (!data.InstanceVBO || grew)
@@ -517,7 +517,7 @@ namespace OloEngine
             RebuildVertexArrays(data);
         }
 
-        data.InstanceVBO->SetData({ instances.data(), dataSize });
+        data.InstanceVBO->SetData({ instances.GetData(), dataSize });
         data.InstanceCount = requiredCount;
     }
 
@@ -539,13 +539,13 @@ namespace OloEngine
         }
     } // namespace
 
-    void FoliageRenderer::EnumerateLayerDraws(const LayerRenderData& data, std::vector<LayerDraw>& out) const
+    void FoliageRenderer::EnumerateLayerDraws(const LayerRenderData& data, TArray<LayerDraw>& out) const
     {
-        out.clear();
+        out.Reset();
         if (data.InstanceCount == 0)
             return;
 
-        const bool meshDrawable = data.MeshVAO && !data.MeshParts.empty() && data.MeshViewDistance > 0.0f;
+        const bool meshDrawable = data.MeshVAO && !data.MeshParts.IsEmpty() && data.MeshViewDistance > 0.0f;
         const f32 handoverStart = meshDrawable ? data.MeshFadeStartDistance : 0.0f;
         const f32 handoverEnd = meshDrawable ? data.MeshViewDistance : 0.0f;
 
@@ -568,7 +568,7 @@ namespace OloEngine
                 draw.ViewDistance = data.ViewDistance;
                 draw.LodTransition0 = FoliageLodTransition0(data.Lod);
                 draw.LodTransition1 = FoliageLodTransition1(data.Lod);
-                out.push_back(std::move(draw));
+                out.Add(std::move(draw));
             }
         }
 
@@ -590,12 +590,12 @@ namespace OloEngine
             draw.ViewDistance = data.ViewDistance;
             draw.LodTransition0 = FoliageLodTransition0(data.Lod);
             draw.LodTransition1 = FoliageLodTransition1(data.Lod);
-            out.push_back(std::move(draw));
+            out.Add(std::move(draw));
         }
     }
 
     void FoliageRenderer::GenerateInstances(
-        const std::vector<FoliageLayer>& layers,
+        const TArray<FoliageLayer>& layers,
         const TerrainData& terrainData,
         const TerrainMaterial* material,
         f32 worldSizeX, f32 worldSizeZ, f32 heightScale)
@@ -608,9 +608,9 @@ namespace OloEngine
         // below — free their impostor VRAM budget claims first, or resize()
         // destroying them silently leaks the claims for the rest of the
         // process (issue #718; ImpostorAtlas has no destructor of its own).
-        for (sizet i = layers.size(); i < m_Layers.size(); ++i)
+        for (sizet i = layers.Num(); i < m_Layers.Num(); ++i)
             ImpostorBaker::Free(m_Layers[i].Impostor);
-        m_Layers.resize(layers.size());
+        m_Layers.SetNum(layers.Num(), EAllowShrinking::No);
 
         // Canonical identity (issue #1230). Everything live becomes a candidate
         // for survival; a placement this pass does not re-emit — because its
@@ -621,13 +621,13 @@ namespace OloEngine
         // One CPU/GPU height sync for the whole generation rather than two per
         // grid cell, which is what going through TerrainData::GetHeightAt and
         // GetNormalAt cost (each calls SyncFromGPU).
-        const std::vector<f32>& heights = terrainData.GetHeightData();
+        const TArray<f32>& heights = terrainData.GetHeightData();
         const u32 heightResolution = terrainData.GetResolution();
 
-        std::vector<FoliagePlacement::Placement> placements;
-        std::vector<FoliageInstanceData> instances;
+        TArray<FoliagePlacement::Placement> placements;
+        TArray<FoliageInstanceData> instances;
 
-        for (sizet layerIdx = 0; layerIdx < layers.size(); ++layerIdx)
+        for (sizet layerIdx = 0; layerIdx < layers.Num(); ++layerIdx)
         {
             const auto& layer = layers[layerIdx];
             auto& renderData = m_Layers[layerIdx];
@@ -654,19 +654,19 @@ namespace OloEngine
                 geometryChanged = true;
             }
 
-            const bool meshRequested = layer.UseAuthoredMesh && !layer.MeshPath.empty();
+            const bool meshRequested = layer.UseAuthoredMesh && !layer.MeshPath.IsEmpty();
             if (!meshRequested)
             {
-                if (renderData.MeshVBO || !renderData.MeshGeometryPath.empty())
+                if (renderData.MeshVBO || !renderData.MeshGeometryPath.IsEmpty())
                 {
                     renderData.MeshVAO = nullptr;
                     renderData.MeshVBO = nullptr;
                     renderData.MeshIBO = nullptr;
-                    renderData.MeshParts.clear();
+                    renderData.MeshParts.Reset();
                     renderData.MeshModel = nullptr;
                     renderData.MeshVertexCount = 0;
                     renderData.MeshIndexCount = 0;
-                    renderData.MeshGeometryPath.clear();
+                    renderData.MeshGeometryPath.Empty();
                     renderData.BoundsProfile = FoliageBoundsProfile{};
                     geometryChanged = true;
                 }
@@ -726,7 +726,7 @@ namespace OloEngine
             // Near-field hand-over band (issue #1233). Sanitised here rather
             // than trusted: these reach a smoothstep in the vertex and fragment
             // stages, where a NaN or an inverted band silently drops the layer.
-            const bool meshDrawable = meshRequested && renderData.MeshVBO && !renderData.MeshParts.empty();
+            const bool meshDrawable = meshRequested && renderData.MeshVBO && !renderData.MeshParts.IsEmpty();
             if (meshDrawable)
             {
                 renderData.MeshViewDistance = std::isfinite(layer.MeshViewDistance)
@@ -746,9 +746,9 @@ namespace OloEngine
 
             // Load albedo texture if needed — foliage albedo is authored
             // colour and needs sRGB->linear conversion on sample.
-            if (!layer.AlbedoPath.empty() && !renderData.AlbedoTexture)
+            if (!layer.AlbedoPath.IsEmpty() && !renderData.AlbedoTexture)
             {
-                renderData.AlbedoTexture = Texture2D::Create(layer.AlbedoPath, /*srgb=*/true);
+                renderData.AlbedoTexture = Texture2D::Create(layer.AlbedoPath.ToStdString(), /*srgb=*/true);
             }
 
             // ── The leaf material (issue #1234) ─────────────────────────────
@@ -760,7 +760,7 @@ namespace OloEngine
             // Keyed on the PATH: a changed path re-opens, an unchanged one does
             // not, and CLEARING the path drops the Ref so the map bitfield goes
             // back to "not authored" instead of leaving the last texture bound.
-            const auto loadLeafMap = [](const std::string& path, std::string& loadedPath,
+            const auto loadLeafMap = [](const FString& path, FString& loadedPath,
                                         Ref<Texture2D>& texture)
             {
                 // The PATH is the cache key, and it is recorded even when the
@@ -772,7 +772,7 @@ namespace OloEngine
                 if (loadedPath == path)
                     return;
                 loadedPath = path;
-                texture = path.empty() ? nullptr : Texture2D::Create(path, /*srgb=*/false);
+                texture = path.IsEmpty() ? nullptr : Texture2D::Create(path.ToStdString(), /*srgb=*/false);
 
                 // Texture2D::Create NEVER RETURNS NULL — a file that will not
                 // open still yields a Ref, and IsLoaded() is the only thing
@@ -787,7 +787,7 @@ namespace OloEngine
                 {
                     OLO_CORE_WARN("FoliageRenderer - leaf map '{}' could not be loaded; the layer shades with its "
                                   "authored constant instead of the map.",
-                                  path);
+                                  path.ToView());
                     texture = nullptr;
                 }
             };
@@ -909,20 +909,20 @@ namespace OloEngine
             // the record. Identity comes from the placement cell, so a
             // regeneration that emits the same plants in a different order
             // leaves every id untouched.
-            instances.clear();
-            instances.reserve(placements.size());
+            instances.Reset();
+            instances.Reserve(placements.Num());
             for (const auto& placement : placements)
             {
                 m_Registry.AddInstance(placement.m_CellX, placement.m_CellZ, placement.m_Row,
-                                       static_cast<u32>(instances.size()));
+                                       static_cast<u32>(instances.Num()));
                 auto row = placement.m_Row;
-                row.RotationHeight.w = FoliageWindPhase(m_Registry.GetRecords().back().m_Id);
-                instances.push_back(row);
+                row.RotationHeight.w = FoliageWindPhase(m_Registry.GetRecords().Last().m_Id);
+                instances.Add(row);
             }
             m_Registry.EndLayer();
 
             // Compute bounding box from all instance positions (with height expansion)
-            if (!instances.empty())
+            if (!instances.IsEmpty())
             {
                 glm::vec3 bMin(std::numeric_limits<f32>::max());
                 glm::vec3 bMax(std::numeric_limits<f32>::lowest());
@@ -1019,7 +1019,7 @@ namespace OloEngine
         const glm::vec3 renderRelativeViewPos =
             MakePositionRelative(CommandDispatch::GetViewPosition(), Renderer3D::GetRenderOrigin());
 
-        std::vector<LayerDraw> draws;
+        TArray<LayerDraw> draws;
         for (auto& layer : m_Layers)
         {
             if (layer.InstanceCount == 0)
@@ -1177,7 +1177,7 @@ namespace OloEngine
         const glm::vec3 renderRelativeViewPos =
             MakePositionRelative(CommandDispatch::GetViewPosition(), Renderer3D::GetRenderOrigin());
 
-        std::vector<LayerDraw> draws;
+        TArray<LayerDraw> draws;
         for (auto& layer : m_Layers)
         {
             if (layer.InstanceCount == 0)
@@ -1298,13 +1298,13 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!layer.UseImpostor || layer.MeshPath.empty())
+        if (!layer.UseImpostor || layer.MeshPath.IsEmpty())
         {
             // Impostor turned off (or no mesh) — drop any stale atlas. Free
             // its VRAM budget claim (issue #718) before discarding it.
             ImpostorBaker::Free(data.Impostor);
             data.Impostor = ImpostorAtlas{};
-            data.ImpostorBakedMeshPath.clear();
+            data.ImpostorBakedMeshPath.Empty();
             data.ImpostorBakedFrames = 0;
             data.ImpostorBakedResolution = 0;
             return;
@@ -1324,12 +1324,12 @@ namespace OloEngine
         // also what keeps the impostor card and the mesh the same tree.
         Ref<Model> owned;
         if (!data.MeshModel || data.MeshGeometryPath != layer.MeshPath)
-            owned = Ref<Model>::Create(layer.MeshPath);
+            owned = Ref<Model>::Create(layer.MeshPath.ToStdString());
         const Model& model = owned ? *owned : *data.MeshModel;
         if (model.GetMeshCount() == 0)
         {
             OLO_CORE_WARN("FoliageRenderer: impostor layer '{}' mesh '{}' failed to load — impostor disabled for this layer",
-                          layer.Name, layer.MeshPath);
+                          layer.Name.ToView(), layer.MeshPath.ToView());
             ImpostorBaker::Free(data.Impostor);
             data.Impostor = ImpostorAtlas{};
             return;
@@ -1360,13 +1360,13 @@ namespace OloEngine
         }
     }
 
-    std::vector<FoliageLayerDrawInfo> FoliageRenderer::GetActiveLayerDrawInfo() const
+    TArray<FoliageLayerDrawInfo> FoliageRenderer::GetActiveLayerDrawInfo() const
     {
-        std::vector<FoliageLayerDrawInfo> result;
-        result.reserve(m_Layers.size());
+        TArray<FoliageLayerDrawInfo> result;
+        result.Reserve(m_Layers.Num());
 
-        std::vector<LayerDraw> draws;
-        for (u32 layerIndex = 0; layerIndex < static_cast<u32>(m_Layers.size()); ++layerIndex)
+        TArray<LayerDraw> draws;
+        for (u32 layerIndex = 0; layerIndex < static_cast<u32>(m_Layers.Num()); ++layerIndex)
         {
             const auto& layer = m_Layers[layerIndex];
             if (layer.InstanceCount == 0)
@@ -1458,7 +1458,7 @@ namespace OloEngine
                     info.ImpostorRadius = layer.Impostor.Radius;
                 }
 
-                result.push_back(info);
+                result.Add(info);
             }
         }
 
@@ -1491,7 +1491,7 @@ namespace OloEngine
                                        FoliageGPUCuller::Readback& out) const
     {
         out = {};
-        if (layerIndex >= m_Layers.size())
+        if (layerIndex >= m_Layers.Num())
             return false;
 
         const auto& layer = m_Layers[layerIndex];
@@ -1588,10 +1588,10 @@ namespace OloEngine
         }
 
         bool any = false;
-        std::vector<LayerDraw> draws;
-        std::vector<FoliageGPUCuller::Part> parts;
+        TArray<LayerDraw> draws;
+        TArray<FoliageGPUCuller::Part> parts;
 
-        for (u32 layerIndex = 0; layerIndex < static_cast<u32>(m_Layers.size()); ++layerIndex)
+        for (u32 layerIndex = 0; layerIndex < static_cast<u32>(m_Layers.Num()); ++layerIndex)
         {
             auto& layer = m_Layers[layerIndex];
             if (layer.InstanceCount == 0 || !layer.InstanceVBO)
@@ -1605,9 +1605,9 @@ namespace OloEngine
             // the indirect args block is draw i here, so the two cannot disagree
             // about which index range a command describes.
             EnumerateLayerDraws(layer, draws);
-            if (draws.empty())
+            if (draws.IsEmpty())
                 continue;
-            if (draws.size() > FoliageGPUCuller::kMaxParts)
+            if (draws.Num() > FoliageGPUCuller::kMaxParts)
             {
                 // Latched. This runs per layer per view slot per frame, so an
                 // unlatched warning about a condition that does not change is
@@ -1617,16 +1617,16 @@ namespace OloEngine
                     OLO_CORE_WARN("FoliageRenderer: layer {} emits {} draws, more than the {} an indirect args "
                                   "block holds — this layer keeps the uncompacted path. Further layers not "
                                   "logged.",
-                                  layerIndex, draws.size(), FoliageGPUCuller::kMaxParts);
+                                  layerIndex, draws.Num(), FoliageGPUCuller::kMaxParts);
                     m_WarnedTooManyParts = true;
                 }
                 continue;
             }
 
-            parts.clear();
-            parts.reserve(draws.size());
+            parts.Reset();
+            parts.Reserve(draws.Num());
             for (const auto& draw : draws)
-                parts.push_back(FoliageGPUCuller::Part{ draw.IndexCount, draw.BaseIndex });
+                parts.Add(FoliageGPUCuller::Part{ draw.IndexCount, draw.BaseIndex });
 
             auto& view = layer.CullViews[slotIndex];
             const bool recreated =
@@ -1647,7 +1647,7 @@ namespace OloEngine
             FoliageGPUCuller::LodInputs lodInputs;
             lodInputs.Transition0 = FoliageLodTransition0(layer.Lod);
             lodInputs.Transition1 = FoliageLodTransition1(layer.Lod);
-            if (m_Culler.Cull(layer.CullLayer, view.Resources, layer.InstanceVBO->GetRHIHandle(), parts, layerInputs,
+            if (m_Culler.Cull(layer.CullLayer, view.Resources, layer.InstanceVBO->GetRHIHandle(), std::span(parts.GetData(), static_cast<sizet>(parts.Num())), layerInputs,
                               emitStats, lodInputs))
             {
                 view.Active = true;

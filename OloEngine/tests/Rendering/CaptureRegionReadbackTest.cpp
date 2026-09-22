@@ -93,10 +93,10 @@ namespace
         int Channels = 0;
     };
 
-    [[nodiscard]] DecodedPng DecodePng(const std::vector<u8>& bytes)
+    [[nodiscard]] DecodedPng DecodePng(const OloEngine::TArray64<u8>& bytes)
     {
         DecodedPng out;
-        stbi_uc* data = ::stbi_load_from_memory(bytes.data(), static_cast<int>(bytes.size()),
+        stbi_uc* data = ::stbi_load_from_memory(bytes.GetData(), static_cast<int>(bytes.Num()),
                                                 &out.Width, &out.Height, &out.Channels, 0);
         if (data == nullptr)
             return out;
@@ -120,7 +120,7 @@ TEST(CaptureRegionReadback, RegionReadsExactlyTheRequestedTopLeftRect)
         const auto whole = GPUResourceInspector::CaptureTexturePng(texture, 0, 0,
                                                                    GPUResourceInspector::CaptureNormalizeMode::Off,
                                                                    /*maxWidth*/ 0);
-        ASSERT_TRUE(whole.Error.empty()) << whole.Error;
+        ASSERT_TRUE(whole.Error.IsEmpty()) << whole.Error.ToView();
         EXPECT_EQ(whole.Width, kWidth);
         EXPECT_EQ(whole.Height, kHeight);
         EXPECT_EQ(whole.RegionWidth, kWidth) << "a whole capture should echo the full mip as its region";
@@ -150,7 +150,7 @@ TEST(CaptureRegionReadback, RegionReadsExactlyTheRequestedTopLeftRect)
     const auto capture = GPUResourceInspector::CaptureTexturePng(
         texture, 0, 0, GPUResourceInspector::CaptureNormalizeMode::Off, /*maxWidth*/ 0,
         GPUResourceInspector::CaptureRegion{ kRegionX, kRegionY, kRegionW, kRegionH });
-    ASSERT_TRUE(capture.Error.empty()) << capture.Error;
+    ASSERT_TRUE(capture.Error.IsEmpty()) << capture.Error.ToView();
 
     EXPECT_EQ(capture.Width, kRegionW);
     EXPECT_EQ(capture.Height, kRegionH);
@@ -200,29 +200,29 @@ TEST(CaptureRegionReadback, OutOfBoundsRegionIsAnErrorNotASilentClamp)
     const auto tooWide = GPUResourceInspector::CaptureTexturePng(
         texture, 0, 0, GPUResourceInspector::CaptureNormalizeMode::Off, 0,
         GPUResourceInspector::CaptureRegion{ 0, 0, kWidth + 1, kHeight });
-    EXPECT_FALSE(tooWide.Error.empty());
-    EXPECT_TRUE(tooWide.PngBytes.empty());
+    EXPECT_FALSE(tooWide.Error.IsEmpty());
+    EXPECT_TRUE(tooWide.PngBytes.IsEmpty());
 
     const auto offRight = GPUResourceInspector::CaptureTexturePng(
         texture, 0, 0, GPUResourceInspector::CaptureNormalizeMode::Off, 0,
         GPUResourceInspector::CaptureRegion{ kWidth - 4, 0, 8, 8 });
-    EXPECT_FALSE(offRight.Error.empty()) << "a rect that starts inside but runs past the right edge must fail";
+    EXPECT_FALSE(offRight.Error.IsEmpty()) << "a rect that starts inside but runs past the right edge must fail";
 
     const auto offBottom = GPUResourceInspector::CaptureTexturePng(
         texture, 0, 0, GPUResourceInspector::CaptureNormalizeMode::Off, 0,
         GPUResourceInspector::CaptureRegion{ 0, kHeight - 2, 8, 8 });
-    EXPECT_FALSE(offBottom.Error.empty()) << "a rect that runs past the bottom edge must fail";
+    EXPECT_FALSE(offBottom.Error.IsEmpty()) << "a rect that runs past the bottom edge must fail";
 
     const auto originOutside = GPUResourceInspector::CaptureTexturePng(
         texture, 0, 0, GPUResourceInspector::CaptureNormalizeMode::Off, 0,
         GPUResourceInspector::CaptureRegion{ kWidth, 0, 1, 1 });
-    EXPECT_FALSE(originOutside.Error.empty());
+    EXPECT_FALSE(originOutside.Error.IsEmpty());
 
     // Huge offset + huge extent must not wrap the u32 addition into a "valid" rect.
     const auto wrapping = GPUResourceInspector::CaptureTexturePng(
         texture, 0, 0, GPUResourceInspector::CaptureNormalizeMode::Off, 0,
         GPUResourceInspector::CaptureRegion{ 0xFFFFFF00u, 0, 0x200u, 1 });
-    EXPECT_FALSE(wrapping.Error.empty()) << "an overflowing offset+extent pair must be rejected, not wrapped";
+    EXPECT_FALSE(wrapping.Error.IsEmpty()) << "an overflowing offset+extent pair must be rejected, not wrapped";
 
     ::glDeleteTextures(1, &texture);
 }
@@ -240,7 +240,7 @@ TEST(CaptureRegionReadback, RegionUnderMaxWidthStaysNativeAndOverItDownscales)
     const auto native = GPUResourceInspector::CaptureTexturePng(
         texture, 0, 0, GPUResourceInspector::CaptureNormalizeMode::Off, /*maxWidth*/ 32,
         GPUResourceInspector::CaptureRegion{ 4, 4, 16, 16 });
-    ASSERT_TRUE(native.Error.empty()) << native.Error;
+    ASSERT_TRUE(native.Error.IsEmpty()) << native.Error.ToView();
     EXPECT_EQ(native.Width, 16u);
     EXPECT_EQ(native.Height, 16u);
     EXPECT_EQ(native.Width, native.RegionWidth) << "width == region width is what 'nativeResolution' reports";
@@ -250,7 +250,7 @@ TEST(CaptureRegionReadback, RegionUnderMaxWidthStaysNativeAndOverItDownscales)
     const auto scaled = GPUResourceInspector::CaptureTexturePng(
         texture, 0, 0, GPUResourceInspector::CaptureNormalizeMode::Off, /*maxWidth*/ 8,
         GPUResourceInspector::CaptureRegion{ 0, 0, 32, 16 });
-    ASSERT_TRUE(scaled.Error.empty()) << scaled.Error;
+    ASSERT_TRUE(scaled.Error.IsEmpty()) << scaled.Error.ToView();
     EXPECT_EQ(scaled.Width, 8u);
     EXPECT_LT(scaled.Width, scaled.RegionWidth);
     EXPECT_EQ(scaled.RegionWidth, 32u) << "the region echo must stay the REQUESTED rect, not the encoded size";

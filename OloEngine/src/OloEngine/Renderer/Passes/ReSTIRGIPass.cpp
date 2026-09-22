@@ -399,7 +399,7 @@ namespace OloEngine
                 target.Bind();
                 const auto& spec = target.GetSpecification();
                 context.SetViewport(0, 0, spec.Width, spec.Height);
-                const u32 attachmentCount = static_cast<u32>(spec.Attachments.Attachments.size());
+                const u32 attachmentCount = static_cast<u32>(spec.Attachments.Attachments.Num());
                 std::array<u32, 5> attachmentIndices{ 0u, 1u, 2u, 3u, 4u };
                 RenderCommand::SetDrawBuffers(
                     std::span<const u32>(attachmentIndices.data(), std::min(attachmentCount, 5u)));

@@ -8,11 +8,12 @@
 #include "OloEngine/Renderer/GPUCache/GPUPagedBuffer.h"
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <functional>
 #include <optional>
 #include <utility>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -427,11 +428,11 @@ namespace OloEngine
         // ascending address order (element units). Chain pages are full except
         // the one holding the data tail, so a range never spans the garbage
         // beyond the tail — a partially-used page always ends its range.
-        [[nodiscard]] std::vector<BufferRange> GetObjectBufferRanges(const ObjectID& obj)
+        [[nodiscard]] TArray<BufferRange> GetObjectBufferRanges(const ObjectID& obj)
         {
             OLO_PROFILE_FUNCTION();
 
-            std::vector<BufferRange> result;
+            TArray<BufferRange> result;
             ObjectAllocation alloc;
             const bool found = m_ObjectPages.Mutate(obj,
                                                     [this, &alloc](ObjectAllocation& stored)
@@ -452,35 +453,35 @@ namespace OloEngine
 
             // (page index, atoms used) per chain page, in CHAIN order — every
             // page full except the last one data reaches.
-            std::vector<std::pair<u32, sizet>> usedPages;
+            TArray<std::array<sizet, 2>> usedPages;
             sizet remaining = alloc.m_TotalElementCount;
             for (u32 current = alloc.m_StartPage; current != kInvalidPage && remaining > 0;
                  current = m_PageNodes.Data()[current].m_Next)
             {
                 const sizet used = std::min(remaining, pageSize);
-                usedPages.emplace_back(current, used);
+                usedPages.Add({ current, used });
                 remaining -= used;
             }
 
             std::ranges::sort(usedPages);
-            for (sizet i = 0; i < usedPages.size();)
+            for (sizet i = 0; i < static_cast<sizet>(usedPages.Num());)
             {
-                const sizet rangeStartAtom = static_cast<sizet>(usedPages[i].first) * pageSize;
+                const sizet rangeStartAtom = static_cast<sizet>(usedPages[i][0]) * pageSize;
                 sizet rangeAtoms = 0;
                 // Extend while pages are address-adjacent AND the previous page
                 // was completely full (a partial page ends the readable run).
                 sizet j = i;
                 while (true)
                 {
-                    rangeAtoms += usedPages[j].second;
-                    const bool partial = usedPages[j].second < pageSize;
+                    rangeAtoms += usedPages[j][1];
+                    const bool partial = usedPages[j][1] < pageSize;
                     ++j;
-                    if (partial || j >= usedPages.size() || usedPages[j].first != usedPages[j - 1].first + 1)
+                    if (partial || j >= static_cast<sizet>(usedPages.Num()) || usedPages[j][0] != usedPages[j - 1][0] + 1)
                     {
                         break;
                     }
                 }
-                result.push_back({ rangeStartAtom, rangeAtoms });
+                result.Add({ rangeStartAtom, rangeAtoms });
                 i = j;
             }
             return result;
@@ -585,33 +586,33 @@ namespace OloEngine
             // page load, so this path shouldn't either. Safe because cache
             // mutation is single-writer and the eviction listener is forbidden
             // from re-entering the cache.
-            m_ScratchPages.clear();
+            m_ScratchPages.Reset();
             const u32 reserved = m_PagedBuffer.ReserveUpToPages(pageCount, m_ScratchPages);
             AppendChain(alloc, m_ScratchPages);
             return reserved;
         }
 
-        void AppendChain(ObjectAllocation& alloc, const std::vector<u32>& pages)
+        void AppendChain(ObjectAllocation& alloc, const TArray<u32>& pages)
         {
-            if (pages.empty())
+            if (pages.IsEmpty())
             {
                 return;
             }
             if (alloc.IsEmpty())
             {
-                alloc.m_StartPage = pages.front();
+                alloc.m_StartPage = pages[0];
             }
             else
             {
-                SetNodeNext(alloc.m_EndPage, pages.front());
+                SetNodeNext(alloc.m_EndPage, pages[0]);
             }
-            const sizet pageCount = pages.size();
+            const sizet pageCount = static_cast<sizet>(pages.Num());
             for (sizet i = 0; i + 1 < pageCount; ++i)
             {
                 SetNodeNext(pages[i], pages[i + 1]);
             }
-            SetNodeNext(pages.back(), kInvalidPage);
-            alloc.m_EndPage = pages.back();
+            SetNodeNext(pages.Last(), kInvalidPage);
+            alloc.m_EndPage = pages.Last();
         }
 
         [[nodiscard]] EvictOutcome EvictAndTakePages(const ObjectID& obj, ObjectAllocation& targetAlloc,
@@ -766,6 +767,6 @@ namespace OloEngine
         GPUCacheStorage<PageNode> m_PageNodes;
         GPUPagedBuffer<TAtom> m_PagedBuffer;
         EvictionListener m_EvictionListener;
-        std::vector<u32> m_ScratchPages; // TryReservePages scratch (single-writer)
+        TArray<u32> m_ScratchPages; // TryReservePages scratch (single-writer)
     };
 } // namespace OloEngine

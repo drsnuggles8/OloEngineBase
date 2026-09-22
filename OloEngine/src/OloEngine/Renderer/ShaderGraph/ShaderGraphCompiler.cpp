@@ -15,7 +15,7 @@ namespace OloEngine
     std::string ShaderGraphCompiler::MakeVarName(const ShaderGraphNode& node, const ShaderGraphPin& pin)
     {
         // Produces e.g. "node_12345_Result"
-        return "node_" + std::to_string(static_cast<u64>(node.ID)) + "_" + pin.Name;
+        return "node_" + std::to_string(static_cast<u64>(node.ID)) + "_" + pin.Name.ToStdString();
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -64,15 +64,15 @@ namespace OloEngine
         {
             // These read from a uniform, variable already declared in uniform block
             // Just map the output pin to the uniform name
-            if (!node.Outputs.empty())
-                pinVarNames[static_cast<u64>(node.Outputs[0].ID)] = node.ParameterName;
+            if (!node.Outputs.IsEmpty())
+                pinVarNames[static_cast<u64>(node.Outputs[0].ID)] = node.ParameterName.ToStdString();
             return {};
         }
 
         if (typeName == ShaderGraphNodeTypes::FloatConstant || typeName == ShaderGraphNodeTypes::Vec3Constant)
         {
             // Constant nodes emit their default value as a literal (no uniform)
-            if (!node.Outputs.empty())
+            if (!node.Outputs.IsEmpty())
                 pinVarNames[static_cast<u64>(node.Outputs[0].ID)] = node.Outputs[0].GetDefaultValueGLSL();
             return {};
         }
@@ -80,35 +80,35 @@ namespace OloEngine
         if (typeName == ShaderGraphNodeTypes::Texture2DParameter)
         {
             // Sampler — pin maps to sampler name; no code emitted
-            if (!node.Outputs.empty())
-                pinVarNames[static_cast<u64>(node.Outputs[0].ID)] = node.ParameterName;
+            if (!node.Outputs.IsEmpty())
+                pinVarNames[static_cast<u64>(node.Outputs[0].ID)] = node.ParameterName.ToStdString();
             return {};
         }
 
         if (typeName == ShaderGraphNodeTypes::Time)
         {
-            if (!node.Outputs.empty())
+            if (!node.Outputs.IsEmpty())
                 pinVarNames[static_cast<u64>(node.Outputs[0].ID)] = "u_Time";
             return {};
         }
 
         if (typeName == ShaderGraphNodeTypes::UV)
         {
-            if (!node.Outputs.empty())
+            if (!node.Outputs.IsEmpty())
                 pinVarNames[static_cast<u64>(node.Outputs[0].ID)] = "v_TexCoord";
             return {};
         }
 
         if (typeName == ShaderGraphNodeTypes::WorldPosition)
         {
-            if (!node.Outputs.empty())
+            if (!node.Outputs.IsEmpty())
                 pinVarNames[static_cast<u64>(node.Outputs[0].ID)] = "v_WorldPosition";
             return {};
         }
 
         if (typeName == ShaderGraphNodeTypes::WorldNormal)
         {
-            if (!node.Outputs.empty())
+            if (!node.Outputs.IsEmpty())
                 pinVarNames[static_cast<u64>(node.Outputs[0].ID)] = "v_Normal";
             return {};
         }
@@ -337,12 +337,12 @@ namespace OloEngine
         else if (typeName == ShaderGraphNodeTypes::CustomFunction)
         {
             // Substitute input names in the custom expression
-            std::string body = node.CustomFunctionBody;
+            std::string body = node.CustomFunctionBody.ToStdString();
             for (const auto& inputPin : node.Inputs)
             {
                 std::string resolved = ResolveInputExpression(graph, inputPin, pinVarNames);
                 // Replace whole-word occurrences of the pin name with the resolved expression
-                std::string search = inputPin.Name;
+                std::string search = inputPin.Name.ToStdString();
                 std::string::size_type pos = 0;
                 while ((pos = body.find(search, pos)) != std::string::npos)
                 {
@@ -370,24 +370,24 @@ namespace OloEngine
 
         else if (typeName == ShaderGraphNodeTypes::GlobalInvocationID)
         {
-            if (!node.Outputs.empty())
+            if (!node.Outputs.IsEmpty())
                 pinVarNames[static_cast<u64>(node.Outputs[0].ID)] = "vec3(gl_GlobalInvocationID)";
         }
         else if (typeName == ShaderGraphNodeTypes::WorkgroupID)
         {
-            if (!node.Outputs.empty())
+            if (!node.Outputs.IsEmpty())
                 pinVarNames[static_cast<u64>(node.Outputs[0].ID)] = "vec3(gl_WorkGroupID)";
         }
         else if (typeName == ShaderGraphNodeTypes::LocalInvocationID)
         {
-            if (!node.Outputs.empty())
+            if (!node.Outputs.IsEmpty())
                 pinVarNames[static_cast<u64>(node.Outputs[0].ID)] = "vec3(gl_LocalInvocationID)";
         }
         else if (typeName == ShaderGraphNodeTypes::ComputeBufferInput)
         {
             // Buffer read: maps output to buffer_NAME[gl_GlobalInvocationID.x]
-            std::string bufName = node.ParameterName.empty() ? "inputBuffer" : node.ParameterName;
-            if (!node.Outputs.empty())
+            std::string bufName = node.ParameterName.IsEmpty() ? "inputBuffer" : node.ParameterName.ToStdString();
+            if (!node.Outputs.IsEmpty())
             {
                 std::string var = MakeVarName(node, node.Outputs[0]);
                 code << "    float " << var << " = " << bufName << ".data[gl_GlobalInvocationID.x];\n";
@@ -397,7 +397,7 @@ namespace OloEngine
         else if (typeName == ShaderGraphNodeTypes::ComputeBufferStore)
         {
             // Buffer write — handled in GenerateComputeShader as the "output"
-            std::string bufName = node.ParameterName.empty() ? "outputBuffer" : node.ParameterName;
+            std::string bufName = node.ParameterName.IsEmpty() ? "outputBuffer" : node.ParameterName.ToStdString();
             std::string valueExpr = resolveInput("Value");
             code << "    " << bufName << ".data[gl_GlobalInvocationID.x] = " << valueExpr << ";\n";
         }
@@ -465,8 +465,8 @@ void main()
 
     std::string ShaderGraphCompiler::GenerateFragmentShader(
         const ShaderGraph& graph,
-        const std::vector<const ShaderGraphNode*>& sortedNodes,
-        std::vector<ShaderGraphParameterInfo>& outParameters) const
+        const TArray<const ShaderGraphNode*>& sortedNodes,
+        TArray<ShaderGraphParameterInfo>& outParameters) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -509,29 +509,23 @@ void main()
         int nextTextureBinding = ShaderBindingLayout::TEX_SHADER_GRAPH_0; // Start past engine-reserved texture slots
 
         // First pass: collect parameter info
-        struct ParamInfo
-        {
-            std::string Name;
-            ShaderGraphPinType Type;
-            ShaderGraphPinValue Default;
-        };
-        std::vector<ParamInfo> scalarParams;
-        std::vector<ParamInfo> textureParams;
+        TArray<ShaderGraphParameterInfo> scalarParams;
+        TArray<ShaderGraphParameterInfo> textureParams;
 
         for (const auto* node : sortedNodes)
         {
-            if (node->ParameterName.empty())
+            if (node->ParameterName.IsEmpty())
                 continue;
             if (node->TypeName == ShaderGraphNodeTypes::Texture2DParameter)
             {
-                textureParams.push_back({ node->ParameterName, ShaderGraphPinType::Texture2D, {} });
+                textureParams.Add(ShaderGraphParameterInfo{ node->ParameterName, ShaderGraphPinType::Texture2D, {} });
             }
             else if (node->TypeName == ShaderGraphNodeTypes::FloatParameter || node->TypeName == ShaderGraphNodeTypes::Vec3Parameter || node->TypeName == ShaderGraphNodeTypes::Vec4Parameter || node->TypeName == ShaderGraphNodeTypes::ColorParameter)
             {
                 ShaderGraphPinValue defaultVal;
-                if (!node->Outputs.empty())
+                if (!node->Outputs.IsEmpty())
                     defaultVal = node->Outputs[0].DefaultValue;
-                scalarParams.push_back({ node->ParameterName, node->Outputs[0].Type, defaultVal });
+                scalarParams.Add(ShaderGraphParameterInfo{ node->ParameterName, node->Outputs[0].Type, defaultVal });
             }
             else
             {
@@ -551,18 +545,18 @@ void main()
         }
 
         // Emit scalar parameter UBO (non-conflicting with engine bindings)
-        if (!scalarParams.empty() || usesTime)
+        if (!scalarParams.IsEmpty() || usesTime)
         {
             frag << "layout(std140, binding = " << ShaderBindingLayout::UBO_SHADER_GRAPH << ") uniform ShaderGraphParams\n";
             frag << "{\n";
             for (const auto& param : scalarParams)
             {
-                frag << "    " << PinTypeToGLSL(param.Type) << " " << param.Name << ";\n";
+                frag << "    " << PinTypeToGLSL(param.Type) << " " << param.Name.ToView() << ";\n";
                 // std140 padding for vec3
                 if (param.Type == ShaderGraphPinType::Vec3)
-                    frag << "    float " << param.Name << "_pad;\n";
+                    frag << "    float " << param.Name.ToView() << "_pad;\n";
 
-                outParameters.push_back({ param.Name, param.Type, param.Default });
+                outParameters.Add(ShaderGraphParameterInfo{ param.Name, param.Type, param.DefaultValue });
             }
             if (usesTime)
             {
@@ -585,18 +579,18 @@ void main()
         // deriving the cap from it is what keeps the two from drifting again.
         if (constexpr int maxShaderGraphTextures =
                 static_cast<int>(80u - ShaderBindingLayout::TEX_SHADER_GRAPH_0);
-            static_cast<int>(textureParams.size()) > maxShaderGraphTextures)
+            static_cast<int>(textureParams.Num()) > maxShaderGraphTextures)
         {
-            OLO_CORE_ERROR("ShaderGraphCompiler: Too many texture parameters ({}, max {})", textureParams.size(), maxShaderGraphTextures);
+            OLO_CORE_ERROR("ShaderGraphCompiler: Too many texture parameters ({}, max {})", textureParams.Num(), maxShaderGraphTextures);
             return {};
         }
         for (const auto& param : textureParams)
         {
-            frag << "layout(binding = " << nextTextureBinding << ") uniform sampler2D " << param.Name << ";\n";
-            outParameters.push_back({ param.Name, ShaderGraphPinType::Texture2D, {} });
+            frag << "layout(binding = " << nextTextureBinding << ") uniform sampler2D " << param.Name.ToView() << ";\n";
+            outParameters.Add(ShaderGraphParameterInfo{ param.Name, ShaderGraphPinType::Texture2D, {} });
             ++nextTextureBinding;
         }
-        if (!textureParams.empty())
+        if (!textureParams.IsEmpty())
             frag << "\n";
 
         // Octahedral normal encoding function for SSAO MRT output
@@ -689,7 +683,7 @@ void main()
 
         // Get topological order
         auto sortedNodes = graph.GetTopologicalOrder();
-        if (sortedNodes.empty())
+        if (sortedNodes.IsEmpty())
         {
             result.Success = false;
             result.ErrorLog = "Error: Failed to produce topological ordering (possible cycle)\n";
@@ -738,8 +732,8 @@ void main()
 
     std::string ShaderGraphCompiler::GenerateComputeShader(
         const ShaderGraph& graph,
-        const std::vector<const ShaderGraphNode*>& sortedNodes,
-        std::vector<ShaderGraphParameterInfo>& outParams) const
+        const TArray<const ShaderGraphNode*>& sortedNodes,
+        TArray<ShaderGraphParameterInfo>& outParams) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -769,9 +763,9 @@ void main()
             if (node->TypeName == ShaderGraphNodeTypes::ComputeBufferInput ||
                 node->TypeName == ShaderGraphNodeTypes::ComputeBufferStore)
             {
-                std::string bufName = node->ParameterName.empty()
+                std::string bufName = node->ParameterName.IsEmpty()
                                           ? (node->TypeName == ShaderGraphNodeTypes::ComputeBufferInput ? "inputBuffer" : "outputBuffer")
-                                          : node->ParameterName;
+                                          : node->ParameterName.ToStdString();
                 cs << "layout(std430, binding = " << node->BufferBinding << ") buffer SSBO_" << bufName << "\n";
                 cs << "{\n";
                 cs << "    float data[];\n";
@@ -792,7 +786,7 @@ void main()
                      node->TypeName == ShaderGraphNodeTypes::Vec4Parameter ||
                      node->TypeName == ShaderGraphNodeTypes::ColorParameter)
             {
-                std::string uniformName = node->ParameterName;
+                std::string uniformName = node->ParameterName.ToStdString();
                 std::string type;
                 if (node->TypeName == ShaderGraphNodeTypes::FloatParameter)
                     type = "float";
@@ -811,7 +805,7 @@ void main()
                     param.Type = ShaderGraphPinType::Vec3;
                 else
                     param.Type = ShaderGraphPinType::Vec4;
-                outParams.push_back(param);
+                outParams.Add(param);
             }
             else
             {

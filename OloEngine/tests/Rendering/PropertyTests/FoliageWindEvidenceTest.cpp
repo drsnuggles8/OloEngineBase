@@ -143,7 +143,7 @@ namespace OloEngine::Tests
                 pines.WindBranchWeight = 0.7f;
                 pines.WindLeafWeight = 0.8f;
                 pines.BaseColor = glm::vec3(0.18f, 0.42f, 0.14f);
-                foliage.m_Layers.push_back(pines);
+                foliage.m_Layers.Add(pines);
                 foliage.m_NeedsRebuild = true;
             }
         }
@@ -363,7 +363,7 @@ namespace OloEngine::Tests
         OLO_ENSURE_GPU_OR_SKIP();
         auto& foliage = m_TerrainEntity.GetComponent<FoliageComponent>();
         auto& layer = foliage.m_Layers[0];
-        layer.AlbedoPath.clear();
+        layer.AlbedoPath.Empty();
         layer.UseAuthoredMesh = false;
         layer.UseImpostor = false;
         layer.WindStrength = 0.0f;
@@ -374,8 +374,8 @@ namespace OloEngine::Tests
         RunEditorFrames(camera, 4);
         ASSERT_TRUE(foliage.m_Renderer);
         const auto draws = foliage.m_Renderer->GetActiveLayerDrawInfo();
-        ASSERT_FALSE(draws.empty());
-        ASSERT_TRUE(std::ranges::all_of(draws, [](const auto& draw)
+        ASSERT_FALSE(draws.IsEmpty());
+        ASSERT_TRUE(std::ranges::all_of(std::span(draws.GetData(), static_cast<sizet>(draws.Num())), [](const auto& draw)
                                         { return draw.InstanceCount > 0 && !draw.AlbedoTextureID.IsValid(); }));
 
         GLStateGuard guard("MissingAlbedoShadow", GLStateGuard::Policy::Restore);
@@ -486,7 +486,7 @@ namespace OloEngine::Tests
         if (GoldenRebaseRequested())
             WritePng("FoliageWind_GL_Deferred_Impostor.png", distantCapture);
         auto info = foliage.m_Renderer->GetActiveLayerDrawInfo();
-        ASSERT_TRUE(std::ranges::any_of(info, [](const auto& draw)
+        ASSERT_TRUE(std::ranges::any_of(std::span(info.GetData(), static_cast<sizet>(info.Num())), [](const auto& draw)
                                         { return draw.UseImpostor; }));
 
         // LOD authoring changes reset wind once. Reprojecting the same new

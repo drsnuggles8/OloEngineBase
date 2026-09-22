@@ -8,7 +8,7 @@
 
 #include <glm/mat4x4.hpp>
 #include <glm/vec3.hpp>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -42,6 +42,16 @@ namespace OloEngine
         }
     };
 
+    // The level owns only its value handle and scalar thresholds, with no interior pointers.
+    template<>
+    struct TIsTriviallyRelocatable<LODLevel>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(LODLevel::MeshHandle)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(LODLevel::MaxDistance)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(LODLevel::TriangleCount)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(LODLevel::Error)>::Value;
+    };
+
     // Everything LOD selection needs about the viewer, gathered once per frame.
     //
     // Deliberately NOT the camera's view or projection MATRIX: pixel-error
@@ -65,8 +75,8 @@ namespace OloEngine
     // Group of LOD levels, ordered coarsest-last.
     struct LODGroup
     {
-        std::vector<LODLevel> Levels; // Sorted by ascending MaxDistance / Error
-        f32 Bias = 1.0f;              // Multiplier for tuning LOD selection distances
+        TArray<LODLevel> Levels; // Sorted by ascending MaxDistance / Error
+        f32 Bias = 1.0f;         // Multiplier for tuning LOD selection distances
 
         LODGroup() = default;
 

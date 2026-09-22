@@ -10,7 +10,7 @@
 #include "OloEngine/Renderer/VertexArray.h"
 
 #include <glm/glm.hpp>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -123,7 +123,7 @@ namespace OloEngine
         // major — and holds each node's world-space height extremes, exactly
         // what `TerrainQuadtree` computed for its own `Bounds`. Safe to call
         // again after a sculpt; buffers are reused when the shape is unchanged.
-        void Build(const std::vector<glm::vec2>& nodeMinMaxY, u32 maxDepth,
+        void Build(const TArray<glm::vec2>& nodeMinMaxY, u32 maxDepth,
                    f32 worldSizeX, f32 worldSizeZ);
 
         // Run the whole descent for one frame. Must be called on the render

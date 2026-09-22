@@ -9,7 +9,7 @@
 #include <algorithm>
 #include <string>
 #include <unordered_map>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -202,8 +202,8 @@ namespace OloEngine
     // that changes.
     struct FoliageMaterialDesc
     {
-        std::string m_MeshPath;
-        std::string m_AlbedoPath;
+        FString m_MeshPath;
+        FString m_AlbedoPath;
         glm::vec3 m_BaseColor{ 1.0f };
         f32 m_Roughness = 0.8f;
         f32 m_AlphaCutoff = 0.5f;
@@ -213,6 +213,17 @@ namespace OloEngine
         {
             return m_MeshPath == other.m_MeshPath && m_AlbedoPath == other.m_AlbedoPath && Math::BitwiseEqual(m_BaseColor, other.m_BaseColor) && Math::BitwiseEqual(m_Roughness, other.m_Roughness) && Math::BitwiseEqual(m_AlphaCutoff, other.m_AlphaCutoff);
         }
+    };
+
+    // Two FStrings own external buffers; remaining material fields are scalar/glm values.
+    template<>
+    struct TIsTriviallyRelocatable<FoliageMaterialDesc>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(FoliageMaterialDesc::m_MeshPath)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageMaterialDesc::m_AlbedoPath)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageMaterialDesc::m_BaseColor)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageMaterialDesc::m_Roughness)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageMaterialDesc::m_AlphaCutoff)>::Value;
     };
 
     using FoliageMaterialKey = u32;
@@ -273,17 +284,30 @@ namespace OloEngine
         // m_LocalBounds through the terrain transform. Recomputed when the
         // transform changes; no instance is invalidated by a terrain move.
         BoundingBox m_WorldBounds;
-        std::vector<FoliageInstanceId> m_Instances;
+        TArray<FoliageInstanceId> m_Instances;
         u32 m_RepresentedCount = 0;
         u32 m_UnsupportedCount = 0;
+    };
+
+    // The instance TArray owns external storage; coordinates, bounds and counters are values.
+    template<>
+    struct TIsTriviallyRelocatable<FoliageSpatialGroup>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(FoliageSpatialGroup::m_LayerIndex)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageSpatialGroup::m_Cell)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageSpatialGroup::m_LocalBounds)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageSpatialGroup::m_WorldBounds)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageSpatialGroup::m_Instances)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageSpatialGroup::m_RepresentedCount)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageSpatialGroup::m_UnsupportedCount)>::Value;
     };
 
     // What one reconcile did. The counts are always maintained; the id lists
     // make the contract assertable (and are what a test reads).
     struct FoliageRegistryDelta
     {
-        std::vector<FoliageInstanceId> m_Added;
-        std::vector<FoliageInstanceId> m_Retired;
+        TArray<FoliageInstanceId> m_Added;
+        TArray<FoliageInstanceId> m_Retired;
         // Survived = kept its id. Updated = survived AND its state hash moved
         // (a sculpt lifted it, a tint edit changed its material, ...).
         u32 m_Survived = 0;
@@ -335,7 +359,7 @@ namespace OloEngine
         // counting the ordinal over only the emitting layers made disabling
         // one of two same-named layers shift the other onto a different key,
         // silently retiring and reissuing every id it owned.
-        void BeginGeneration(const std::vector<FoliageLayer>& layers);
+        void BeginGeneration(const TArray<FoliageLayer>& layers);
 
         // spacing, worldSizeX and worldSizeZ are the cell -> XZ mapping;
         // placementSeed is the generator seed (today derived from the layer's
@@ -402,23 +426,23 @@ namespace OloEngine
         // from a buffer row back to identity.
         [[nodiscard]] FoliageInstanceId GetIdForBufferRow(u32 layerIndex, u32 row) const;
 
-        [[nodiscard]] const std::vector<FoliageInstanceRecord>& GetRecords() const
+        [[nodiscard]] const TArray<FoliageInstanceRecord>& GetRecords() const
         {
             return m_Records;
         }
 
-        [[nodiscard]] const std::vector<FoliageSpatialGroup>& GetGroups() const
+        [[nodiscard]] const TArray<FoliageSpatialGroup>& GetGroups() const
         {
             return m_Groups;
         }
 
         // Groups whose WORLD bounds intersect the query box. The hook #1240 /
         // #1233 will drive visibility and residency from.
-        [[nodiscard]] std::vector<u32> FindGroupsInWorldBounds(const BoundingBox& query) const;
+        [[nodiscard]] TArray<u32> FindGroupsInWorldBounds(const BoundingBox& query) const;
 
         [[nodiscard]] const FoliageMaterialDesc* GetMaterial(FoliageMaterialKey key) const;
 
-        [[nodiscard]] const std::vector<FoliageMaterialDesc>& GetMaterials() const
+        [[nodiscard]] const TArray<FoliageMaterialDesc>& GetMaterials() const
         {
             return m_Materials;
         }
@@ -474,19 +498,19 @@ namespace OloEngine
         void RebuildGroups();
         void RecomputeWorldBounds();
 
-        std::vector<FoliageInstanceRecord> m_Records;
+        TArray<FoliageInstanceRecord> m_Records;
         std::unordered_map<FoliageInstanceId, u32> m_ById;                                   // id -> index into m_Records
         std::unordered_map<FoliagePlacementKey, u32, FoliagePlacementKeyHash> m_ByPlacement; // -> index into m_Records
-        std::vector<FoliageSpatialGroup> m_Groups;
-        std::vector<FoliageMaterialDesc> m_Materials;
+        TArray<FoliageSpatialGroup> m_Groups;
+        TArray<FoliageMaterialDesc> m_Materials;
 
         // Row -> id, per physical layer slot.
-        std::vector<std::vector<FoliageInstanceId>> m_BufferRows;
+        TArray<TArray<FoliageInstanceId>> m_BufferRows;
 
         // Stable layer keys, keyed on (name, ordinal-among-same-name) so a
         // reordered-but-unrenamed layer keeps its key while its placement
         // signature changes. Persists across generations.
-        std::unordered_map<std::string, std::vector<u32>> m_LayerKeysByName;
+        std::unordered_map<std::string, TArray<u32>> m_LayerKeysByName;
         u32 m_NextLayerKey = 1;
 
         FoliageInstanceId m_NextId = 1; // 0 is kInvalidFoliageInstanceId
@@ -513,7 +537,7 @@ namespace OloEngine
         // Per layer index, its ordinal among layers sharing its name.
         // Computed in BeginGeneration over the WHOLE list so an enabled layer's
         // key never depends on whether a sibling was skipped.
-        std::vector<u32> m_OrdinalByLayerIndex;
+        TArray<u32> m_OrdinalByLayerIndex;
         u32 m_CurrentLayerIndex = 0;
         FoliagePlacementKey m_CurrentKeyPrototype;
         FoliageMaterialKey m_CurrentMaterialKey = kInvalidFoliageMaterialKey;

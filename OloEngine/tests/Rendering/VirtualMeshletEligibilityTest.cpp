@@ -138,9 +138,9 @@ TEST(VirtualMeshletEligibility, PackWritesPerClusterVertexCounts)
     ASSERT_TRUE(vm.IsValid());
     auto packed = PackVirtualMeshForGpu(vm);
     ASSERT_TRUE(packed.IsValid());
-    ASSERT_EQ(packed.Clusters.size(), vm.Clusters.size());
+    ASSERT_EQ(static_cast<sizet>(packed.Clusters.Num()), static_cast<sizet>(vm.Clusters.Num()));
 
-    sizet const clusterCount = packed.Clusters.size();
+    sizet const clusterCount = static_cast<sizet>(packed.Clusters.Num());
     for (sizet i = 0; i < clusterCount; ++i)
     {
         const VirtualClusterGpuRecord& record = packed.Clusters[i];

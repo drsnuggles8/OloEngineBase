@@ -249,8 +249,8 @@ namespace OloEngine::Tests
 
         // Every entry must name a page inside the reported count, and the
         // region table must agree with it entity-for-entity.
-        ASSERT_EQ(prepared.Entries.size(), prepared.Regions.size());
-        for (sizet i = 0; i < prepared.Entries.size(); ++i)
+        ASSERT_EQ(prepared.Entries.Num(), prepared.Regions.Num());
+        for (sizet i = 0; i < prepared.Entries.Num(); ++i)
         {
             EXPECT_LT(prepared.Entries[i].Page, prepared.PageCount);
             EXPECT_EQ(prepared.Entries[i].Page, prepared.Regions[i].Page);
@@ -308,9 +308,9 @@ namespace OloEngine::Tests
         ASSERT_TRUE(LightmapBaker::Prepare(inputsB, settings, second, error)) << error;
 
         ASSERT_EQ(first.PageCount, second.PageCount);
-        ASSERT_EQ(first.Entries.size(), second.Entries.size());
-        ASSERT_EQ(first.Regions.size(), second.Regions.size());
-        for (sizet i = 0; i < first.Entries.size(); ++i)
+        ASSERT_EQ(first.Entries.Num(), second.Entries.Num());
+        ASSERT_EQ(first.Regions.Num(), second.Regions.Num());
+        for (sizet i = 0; i < first.Entries.Num(); ++i)
         {
             EXPECT_EQ(first.Entries[i].EntityUUID, second.Entries[i].EntityUUID) << "entry " << i;
             EXPECT_EQ(first.Entries[i].Page, second.Entries[i].Page) << "entry " << i;
@@ -350,9 +350,9 @@ namespace OloEngine::Tests
         std::vector<LightmapBakeInput> inputsB = MakeInstanceField(48, 4.0f);
         ASSERT_TRUE(LightmapBaker::Prepare(inputsB, settings, second, error)) << error;
 
-        ASSERT_EQ(first.Entries.size(), 48u) << "every instance must get its own region";
-        ASSERT_EQ(first.Entries.size(), second.Entries.size());
-        for (sizet i = 0; i < first.Entries.size(); ++i)
+        ASSERT_EQ(first.Entries.Num(), 48u) << "every instance must get its own region";
+        ASSERT_EQ(first.Entries.Num(), second.Entries.Num());
+        for (sizet i = 0; i < first.Entries.Num(); ++i)
         {
             EXPECT_EQ(first.Entries[i].EntityUUID, second.Entries[i].EntityUUID) << "entry " << i;
             EXPECT_EQ(first.Entries[i].SubKey, second.Entries[i].SubKey) << "entry " << i;
@@ -401,11 +401,11 @@ namespace OloEngine::Tests
         const PathTracing::ReferenceScene world = builder.Build(PathTracing::ReferenceSceneBuildOptions{});
 
         const LightmapBakeResult result = LightmapBaker::BakeTexels(prepared, world, settings);
-        ASSERT_TRUE(result.Success) << result.Error;
+        ASSERT_TRUE(result.Success) << result.Error.ToStdString();
         ASSERT_TRUE(result.Asset);
 
         EXPECT_EQ(result.Asset->GetPageCount(), 3u);
-        EXPECT_EQ(result.Asset->GetTexelData().size(), result.Asset->GetExpectedTexelCount());
+        EXPECT_EQ(result.Asset->GetTexelData().Num(), result.Asset->GetExpectedTexelCount());
         EXPECT_TRUE(result.Asset->Validate()) << "a multi-page asset must validate";
 
         // Every page must carry coverage — a bake that wrote everything into
@@ -449,7 +449,7 @@ namespace OloEngine::Tests
             LightmapAsset asset;
             asset.SetDimensions(8, 8, pageCount);
             asset.AllocateTexels();
-            asset.SetEntries(std::vector<LightmapEntityEntry>{ entry });
+            asset.SetEntries(TArray<LightmapEntityEntry>{ entry });
             return asset.Validate();
         };
 

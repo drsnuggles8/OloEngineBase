@@ -104,14 +104,14 @@ namespace OloEngine
             }
         }
 
-        [[nodiscard]] bool HasMeaningfulFloatPayload(const std::vector<u8>& data)
+        [[nodiscard]] bool HasMeaningfulFloatPayload(const TArray64<u8>& data)
         {
             constexpr f32 kMinimumMeaningfulValue = 1.0e-7f;
-            const auto floatCount = data.size() / sizeof(f32);
+            const auto floatCount = data.Num() / sizeof(f32);
             for (sizet i = 0; i < floatCount; ++i)
             {
                 f32 value = 0.0f;
-                std::memcpy(&value, data.data() + i * sizeof(f32), sizeof(value));
+                std::memcpy(&value, data.GetData() + i * sizeof(f32), sizeof(value));
                 if (std::isfinite(value) && std::abs(value) > kMinimumMeaningfulValue)
                 {
                     return true;
@@ -120,7 +120,7 @@ namespace OloEngine
             return false;
         }
 
-        [[nodiscard]] bool IsInvalidBRDFLutPayload(ImageFormat format, const std::vector<u8>& data)
+        [[nodiscard]] bool IsInvalidBRDFLutPayload(ImageFormat format, const TArray64<u8>& data)
         {
             return format == ImageFormat::RG32F && !HasMeaningfulFloatPayload(data);
         }
@@ -625,8 +625,8 @@ namespace OloEngine
 
             for (u32 face = 0; face < 6; ++face)
             {
-                std::vector<u8> faceData(faceSize);
-                file.read(reinterpret_cast<char*>(faceData.data()), static_cast<std::streamsize>(faceSize));
+                TArray64<u8> faceData(faceSize);
+                file.read(reinterpret_cast<char*>(faceData.GetData()), static_cast<std::streamsize>(faceSize));
 
                 if (!file.good())
                 {
@@ -634,7 +634,7 @@ namespace OloEngine
                     return nullptr;
                 }
 
-                if (!cubemap->SetFaceDataMip(face, mip, faceData.data(), static_cast<u32>(faceSize)))
+                if (!cubemap->SetFaceDataMip(face, mip, faceData.GetData(), static_cast<u32>(faceSize)))
                 {
                     OLO_CORE_ERROR("IBLCache: SetFaceDataMip failed for mip {} face {} from {}", mip, face, path.string());
                     return nullptr;
@@ -691,14 +691,14 @@ namespace OloEngine
         {
             for (u32 face = 0; face < 6; ++face)
             {
-                std::vector<u8> faceData;
+                TArray64<u8> faceData;
                 if (!cubemap->GetFaceData(face, faceData, mip))
                 {
                     OLO_CORE_ERROR("IBLCache: Failed to read face {} mip {} for caching", face, mip);
                     return false;
                 }
-                file.write(reinterpret_cast<const char*>(faceData.data()),
-                           static_cast<std::streamsize>(faceData.size()));
+                file.write(reinterpret_cast<const char*>(faceData.GetData()),
+                           static_cast<std::streamsize>(faceData.Num()));
             }
         }
 
@@ -767,8 +767,8 @@ namespace OloEngine
         Ref<Texture2D> texture = Texture2D::Create(spec);
 
         // Read texture data
-        std::vector<u8> data(header.DataSize);
-        file.read(reinterpret_cast<char*>(data.data()), static_cast<std::streamsize>(header.DataSize));
+        TArray64<u8> data(header.DataSize);
+        file.read(reinterpret_cast<char*>(data.GetData()), static_cast<std::streamsize>(header.DataSize));
 
         if (!file.good())
         {
@@ -782,7 +782,7 @@ namespace OloEngine
             return nullptr;
         }
 
-        texture->SetData(data.data(), static_cast<u32>(header.DataSize));
+        texture->SetData(data.GetData(), static_cast<u32>(header.DataSize));
 
         return texture;
     }
@@ -821,7 +821,7 @@ namespace OloEngine
         file.write(reinterpret_cast<const char*>(&header), sizeof(header));
 
         // Read back texture data
-        std::vector<u8> data;
+        TArray64<u8> data;
         if (!texture->GetData(data, 0))
         {
             OLO_CORE_ERROR("IBLCache: Failed to read texture data for caching");
@@ -834,8 +834,8 @@ namespace OloEngine
             return false;
         }
 
-        file.write(reinterpret_cast<const char*>(data.data()),
-                   static_cast<std::streamsize>(data.size()));
+        file.write(reinterpret_cast<const char*>(data.GetData()),
+                   static_cast<std::streamsize>(data.Num()));
 
         file.flush();
         if (!file.good())

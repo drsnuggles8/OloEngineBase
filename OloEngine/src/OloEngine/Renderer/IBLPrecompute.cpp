@@ -239,14 +239,14 @@ namespace OloEngine
         // broken upload from a broken bake.
         if (Levers::EnvironmentBakeDump())
         {
-            std::vector<u8> up;
-            if (hdrTexture->GetData(up, 0) && !up.empty())
+            TArray64<u8> up;
+            if (hdrTexture->GetData(up, 0) && !up.IsEmpty())
             {
                 // memcpy decode — reading the byte buffer through a
                 // reinterpret_cast<const f32*> is an aliasing violation.
-                std::vector<f32> upf(up.size() / sizeof(f32));
-                std::memcpy(upf.data(), up.data(), upf.size() * sizeof(f32));
-                const sizet upCount = upf.size();
+                TArray64<f32> upf(up.Num() / sizeof(f32));
+                std::memcpy(upf.GetData(), up.GetData(), upf.Num() * sizeof(f32));
+                const sizet upCount = upf.Num();
                 const int upCh = static_cast<int>(upCount / (static_cast<sizet>(width) * height));
                 f64 upSum[3] = {};
                 const sizet upTexels = static_cast<sizet>(width) * height;
@@ -310,14 +310,14 @@ namespace OloEngine
         {
             for (u32 face = 0; face < 6; ++face)
             {
-                std::vector<u8> faceData;
+                TArray64<u8> faceData;
                 if (!cubemap->GetFaceData(face, faceData, 0))
                 {
                     OLO_CORE_ERROR("[EnvBakeDump] face {} readback FAILED", face);
                     continue;
                 }
-                const auto* px = reinterpret_cast<const f32*>(faceData.data());
-                const sizet texels = faceData.size() / (4 * sizeof(f32));
+                const auto* px = reinterpret_cast<const f32*>(faceData.GetData());
+                const sizet texels = faceData.Num() / (4 * sizeof(f32));
                 f64 sum[3] = {};
                 for (sizet i = 0; i < texels; ++i)
                 {
@@ -328,7 +328,7 @@ namespace OloEngine
                 OLO_CORE_INFO("[EnvBakeDump] face {}: {} texels, mean HDR = ({:.3f}, {:.3f}, {:.3f})", face, texels,
                               sum[0] / texels, sum[1] / texels, sum[2] / texels);
                 // Tonemapped PNG for eyeballing
-                std::vector<u8> ldr(texels * 3);
+                TArray64<u8> ldr(texels * 3);
                 for (sizet i = 0; i < texels; ++i)
                 {
                     for (int c = 0; c < 3; ++c)
@@ -340,7 +340,7 @@ namespace OloEngine
                 }
                 const u32 side = cubemap->GetWidth();
                 const std::string path = std::format("{}/face{}.png", *dumpDir, face);
-                stbi_write_png(path.c_str(), static_cast<int>(side), static_cast<int>(side), 3, ldr.data(),
+                stbi_write_png(path.c_str(), static_cast<int>(side), static_cast<int>(side), 3, ldr.GetData(),
                                static_cast<int>(side * 3));
             }
         }
@@ -349,7 +349,7 @@ namespace OloEngine
         return cubemap;
     }
 
-    Ref<TextureCubemap> IBLPrecompute::CreateCubemapFromFaces(const std::vector<std::string>& facePaths)
+    Ref<TextureCubemap> IBLPrecompute::CreateCubemapFromFaces(std::span<const FString> facePaths)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -809,7 +809,7 @@ namespace OloEngine
         // EnvironmentMap::ConvertEquirectangularToCubemap, so RGBA32F is the
         // expected hot path; the other branches cover hand-authored cubemaps
         // that bypass the HDR conversion (face-list constructors etc.).
-        bool DecodeCubemapBytesToVec3(const std::vector<u8>& bytes,
+        bool DecodeCubemapBytesToVec3(const TArray64<u8>& bytes,
                                       ImageFormat format,
                                       u32 pixelCount,
                                       glm::vec3* outPixels)
@@ -818,7 +818,7 @@ namespace OloEngine
             {
                 case ImageFormat::RGBA32F:
                 {
-                    if (bytes.size() < pixelCount * 16)
+                    if (bytes.Num() < pixelCount * 16)
                         return false;
                     // Use memcpy rather than `reinterpret_cast<const f32*>` to
                     // avoid the strict-aliasing UB of reading floats through
@@ -829,26 +829,26 @@ namespace OloEngine
                     for (u32 i = 0; i < pixelCount; ++i)
                     {
                         f32 rgb[3];
-                        std::memcpy(rgb, bytes.data() + i * 16, sizeof(rgb));
+                        std::memcpy(rgb, bytes.GetData() + i * 16, sizeof(rgb));
                         outPixels[i] = glm::vec3(rgb[0], rgb[1], rgb[2]);
                     }
                     return true;
                 }
                 case ImageFormat::RGB32F:
                 {
-                    if (bytes.size() < pixelCount * 12)
+                    if (bytes.Num() < pixelCount * 12)
                         return false;
                     for (u32 i = 0; i < pixelCount; ++i)
                     {
                         f32 rgb[3];
-                        std::memcpy(rgb, bytes.data() + i * 12, sizeof(rgb));
+                        std::memcpy(rgb, bytes.GetData() + i * 12, sizeof(rgb));
                         outPixels[i] = glm::vec3(rgb[0], rgb[1], rgb[2]);
                     }
                     return true;
                 }
                 case ImageFormat::RGBA8:
                 {
-                    if (bytes.size() < pixelCount * 4)
+                    if (bytes.Num() < pixelCount * 4)
                         return false;
                     constexpr f32 inv255 = 1.0f / 255.0f;
                     for (u32 i = 0; i < pixelCount; ++i)
@@ -859,7 +859,7 @@ namespace OloEngine
                 }
                 case ImageFormat::RGB8:
                 {
-                    if (bytes.size() < pixelCount * 3)
+                    if (bytes.Num() < pixelCount * 3)
                         return false;
                     constexpr f32 inv255 = 1.0f / 255.0f;
                     for (u32 i = 0; i < pixelCount; ++i)
@@ -899,20 +899,20 @@ namespace OloEngine
         const auto& spec = environmentMap->GetCubemapSpecification();
         const u32 faceTexels = width * height;
 
-        std::vector<glm::vec3> pixels;
-        pixels.resize(static_cast<sizet>(6) * faceTexels);
+        TArray64<glm::vec3> pixels;
+        pixels.SetNum(static_cast<sizet>(6) * faceTexels, EAllowShrinking::No);
 
-        std::vector<u8> faceBytes;
+        TArray64<u8> faceBytes;
         for (u32 face = 0; face < 6; ++face)
         {
-            faceBytes.clear();
+            faceBytes.Reset();
             if (!environmentMap->GetFaceData(face, faceBytes, /*mipLevel=*/0))
             {
                 OLO_CORE_ERROR("IBLPrecompute::ProjectCubemapToSH: GetFaceData failed for face {}", face);
                 return zero;
             }
 
-            glm::vec3* faceDst = pixels.data() + static_cast<sizet>(face) * faceTexels;
+            glm::vec3* faceDst = pixels.GetData() + static_cast<sizet>(face) * faceTexels;
             if (!DecodeCubemapBytesToVec3(faceBytes, spec.Format, faceTexels, faceDst))
             {
                 OLO_CORE_ERROR("IBLPrecompute::ProjectCubemapToSH: byte decode failed for face {}", face);
@@ -920,7 +920,7 @@ namespace OloEngine
             }
         }
 
-        return LightProbeBaker::ProjectToSH(pixels, width);
+        return LightProbeBaker::ProjectToSH(std::span<const glm::vec3>(pixels.GetData(), static_cast<sizet>(pixels.Num())), width);
     }
 
     SHCoefficients IBLPrecompute::GenerateIrradianceMapFromSH(const Ref<TextureCubemap>& environmentMap,

@@ -10,7 +10,7 @@
 #include <glm/glm.hpp>
 
 #include <array>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine::Ocean
 {
@@ -64,7 +64,7 @@ namespace OloEngine::Ocean
         /// Upload the (already amplitude-normalised) base spectrum h0 and
         /// (re)build the per-resolution butterfly LUT and ping-pong arrays.
         /// `h0` is the GenerateH0()-layout N×N grid.
-        void SetH0(const std::vector<Complex>& h0, u32 resolution, f32 patchSize, f32 gravity);
+        void SetH0(const TArray<Complex>& h0, u32 resolution, f32 patchSize, f32 gravity);
 
         [[nodiscard]] bool HasH0() const noexcept
         {
@@ -93,7 +93,7 @@ namespace OloEngine::Ocean
         /// where the production path defers it to the assemble pass). Lets the
         /// riskiest math be pinned against the CPU FFT2D directly. Returns an
         /// empty vector when the GPU path is unavailable.
-        [[nodiscard]] std::vector<Complex> DebugInverseFFT2D(const std::vector<Complex>& freq, u32 resolution);
+        [[nodiscard]] TArray<Complex> DebugInverseFFT2D(const TArray<Complex>& freq, u32 resolution);
 
       private:
         [[nodiscard]] bool EnsureShaders();
@@ -115,6 +115,6 @@ namespace OloEngine::Ocean
         Ref<Texture2D> m_ButterflyTex;                 // log2(N)×N: rg = ±twiddle, ba = gather indices
         std::array<Ref<Texture2DArray>, 2> m_PingPong; // 4-layer RGBA32F spectra arrays
 
-        std::vector<glm::vec4> m_Scratch; // CPU staging for uploads
+        TArray<glm::vec4> m_Scratch; // CPU staging for uploads
     };
 } // namespace OloEngine::Ocean

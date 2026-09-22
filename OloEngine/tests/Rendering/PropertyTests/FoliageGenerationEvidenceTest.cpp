@@ -31,6 +31,8 @@
 // =============================================================================
 
 #include "OloEnginePCH.h"
+#include <span>
+#include "OloEngine/Containers/Array.h"
 #include "../../TestOptions.h"
 
 #include "RendererAttachedTest.h"
@@ -210,7 +212,7 @@ namespace OloEngine::Tests
         // generated terrain — the closed loop, camera-independent CI gate.
         ASSERT_TRUE(m_TerrainEntity && m_TerrainEntity.HasComponent<FoliageComponent>());
         auto& foliage = m_TerrainEntity.GetComponent<FoliageComponent>();
-        ASSERT_FALSE(foliage.m_Layers.empty()) << "MakeFoliageLayersFromRules emitted no layers for the default biome";
+        ASSERT_FALSE(foliage.m_Layers.IsEmpty()) << "MakeFoliageLayersFromRules emitted no layers for the default biome";
         ASSERT_TRUE(foliage.m_Renderer) << "foliage renderer was never created on the editor render path";
         EXPECT_GT(foliage.m_Renderer->GetTotalInstanceCount(), 0u)
             << "generated FoliageLayers scattered zero instances on the generated terrain — "

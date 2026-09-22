@@ -19,7 +19,7 @@ namespace OloEngine
         // depending on any one island's height.
         constexpr f32 kMarkerLiftAboveTriggerCentre = 30.0f;
 
-        bool Contains(const std::vector<UUID>& set, UUID id)
+        bool Contains(const TArray<UUID>& set, UUID id)
         {
             // UUID's implicit operator u64() makes `a == b` ambiguous on
             // MSVC (C2666) — same reason RelationshipComponent compares by
@@ -84,7 +84,7 @@ namespace OloEngine
             if (Contains(discovered, landmarkID))
                 return false;
 
-            discovered.push_back(landmarkID);
+            discovered.Add(landmarkID);
             return true;
         }
 

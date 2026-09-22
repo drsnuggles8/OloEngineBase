@@ -5,7 +5,7 @@
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphLink.h"
 
 #include <string>
-#include <vector>
+#include "OloEngine/Containers/LinkedList.h"
 
 namespace OloEngine
 {
@@ -13,8 +13,8 @@ namespace OloEngine
     struct ShaderGraphValidationResult
     {
         bool IsValid = true;
-        std::vector<std::string> Errors;
-        std::vector<std::string> Warnings;
+        TArray<FString> Errors;
+        TArray<FString> Warnings;
     };
 
     /// The shader graph data model.
@@ -45,7 +45,7 @@ namespace OloEngine
         ShaderGraphNode* FindNodeByPinID(UUID pinID);
         const ShaderGraphNode* FindNodeByPinID(UUID pinID) const;
 
-        const std::vector<Scope<ShaderGraphNode>>& GetNodes() const
+        const TDoubleLinkedList<Scope<ShaderGraphNode>>& GetNodes() const
         {
             return m_Nodes;
         }
@@ -71,12 +71,12 @@ namespace OloEngine
         const ShaderGraphLink* GetLinkForInputPin(UUID inputPinID) const;
 
         /// Get all links connected to a specific output pin
-        std::vector<const ShaderGraphLink*> GetLinksForOutputPin(UUID outputPinID) const;
+        TArray<const ShaderGraphLink*> GetLinksForOutputPin(UUID outputPinID) const;
 
         /// Get the source pin connected to an input pin (follows the link)
         const ShaderGraphPin* GetConnectedOutputPin(UUID inputPinID) const;
 
-        const std::vector<ShaderGraphLink>& GetLinks() const
+        const TArray<ShaderGraphLink>& GetLinks() const
         {
             return m_Links;
         }
@@ -88,7 +88,7 @@ namespace OloEngine
 
         /// Returns nodes in topological order (output node last).
         /// Returns empty if the graph has cycles.
-        std::vector<const ShaderGraphNode*> GetTopologicalOrder() const;
+        TArray<const ShaderGraphNode*> GetTopologicalOrder() const;
 
         /// Find the PBR output node (there should be exactly one)
         const ShaderGraphNode* FindOutputNode() const;
@@ -98,19 +98,19 @@ namespace OloEngine
 
         // ── Metadata ─────────────────────────────────────────
 
-        const std::string& GetName() const
+        const FString& GetName() const
         {
             return m_Name;
         }
-        void SetName(const std::string& name)
+        void SetName(const FString& name)
         {
             m_Name = name;
         }
 
       private:
-        std::vector<Scope<ShaderGraphNode>> m_Nodes;
-        std::vector<ShaderGraphLink> m_Links;
-        std::string m_Name = "Untitled";
+        TDoubleLinkedList<Scope<ShaderGraphNode>> m_Nodes;
+        TArray<ShaderGraphLink> m_Links;
+        FString m_Name = "Untitled";
 
         friend class ShaderGraphSerializer;
         friend class ShaderGraphCompiler;

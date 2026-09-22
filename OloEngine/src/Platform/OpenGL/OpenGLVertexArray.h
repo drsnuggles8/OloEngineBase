@@ -19,9 +19,9 @@ namespace OloEngine
         void AddConstantVertexBuffer(const Ref<VertexBuffer>& vertexBuffer) override;
         void SetIndexBuffer(const Ref<IndexBuffer>& indexBuffer) override;
 
-        [[nodiscard("Store this!")]] const std::vector<Ref<VertexBuffer>>& GetVertexBuffers() const override
+        [[nodiscard("Store this!")]] std::span<const Ref<VertexBuffer>> GetVertexBuffers() const override
         {
-            return m_VertexBuffers;
+            return { m_VertexBuffers.GetData(), static_cast<sizet>(m_VertexBuffers.Num()) };
         }
         [[nodiscard("Store this!")]] const Ref<IndexBuffer>& GetIndexBuffer() const override
         {
@@ -53,7 +53,7 @@ namespace OloEngine
         // object can never resolve to a recycled GL name (issue #691).
         RHI::ScopedResourceHandle m_RHIHandle;
         u32 m_VertexBufferIndex = 0;
-        std::vector<Ref<VertexBuffer>> m_VertexBuffers;
+        TArray<Ref<VertexBuffer>> m_VertexBuffers;
         Ref<IndexBuffer> m_IndexBuffer;
     };
 } // namespace OloEngine

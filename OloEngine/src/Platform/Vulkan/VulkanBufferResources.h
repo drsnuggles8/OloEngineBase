@@ -501,9 +501,9 @@ namespace OloEngine
         }
         void SetIndexBuffer(const Ref<IndexBuffer>& indexBuffer) override;
 
-        [[nodiscard]] const std::vector<Ref<VertexBuffer>>& GetVertexBuffers() const override
+        [[nodiscard]] std::span<const Ref<VertexBuffer>> GetVertexBuffers() const override
         {
-            return m_VertexBuffers;
+            return { m_VertexBuffers.GetData(), static_cast<sizet>(m_VertexBuffers.Num()) };
         }
         [[nodiscard]] const Ref<IndexBuffer>& GetIndexBuffer() const override
         {
@@ -567,7 +567,7 @@ namespace OloEngine
 #endif
 
       private:
-        std::vector<Ref<VertexBuffer>> m_VertexBuffers;
+        TArray<Ref<VertexBuffer>> m_VertexBuffers;
         Ref<IndexBuffer> m_IndexBuffer;
         /// Non-owning: the raw index arena's lifetime belongs to whoever minted
         /// the handle (VulkanRawBufferRegistry holds the storage). See

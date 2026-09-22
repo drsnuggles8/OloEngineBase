@@ -21,7 +21,7 @@ namespace OloEngine
 
         YAML::Emitter out;
         out << YAML::BeginMap;
-        out << YAML::Key << "Region" << YAML::Value << region->m_Name;
+        out << YAML::Key << "Region" << YAML::Value << region->m_Name.ToStdString();
         out << YAML::Key << "RegionID" << YAML::Value << static_cast<u64>(region->m_RegionID);
         out << YAML::Key << "BoundsMin" << YAML::Value << region->m_BoundsMin;
         out << YAML::Key << "BoundsMax" << YAML::Value << region->m_BoundsMax;

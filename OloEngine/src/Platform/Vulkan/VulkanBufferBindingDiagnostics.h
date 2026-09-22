@@ -58,7 +58,7 @@ namespace OloEngine
         std::string_view shaderName, const VulkanShaderBinding& binding, VulkanMissingBufferSeverity severity)
     {
         return std::format("{}:{}:{}:{}:{}:{}", shaderName, binding.Set, binding.Binding,
-                           static_cast<u32>(binding.BindingKind), binding.Name, static_cast<u32>(severity));
+                           static_cast<u32>(binding.BindingKind), binding.Name.ToView(), static_cast<u32>(severity));
     }
 } // namespace OloEngine
 

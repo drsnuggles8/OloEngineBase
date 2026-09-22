@@ -49,17 +49,17 @@ namespace OloEngine
             return Math::BitwiseEqual(lhs, rhs);
         }
 
-        [[nodiscard]] std::vector<GPUSceneDirtyRange> CoalesceDirtyRanges(const std::set<u32>& indices)
+        [[nodiscard]] TArray<GPUSceneDirtyRange> CoalesceDirtyRanges(const std::set<u32>& indices)
         {
-            std::vector<GPUSceneDirtyRange> ranges;
+            TArray<GPUSceneDirtyRange> ranges;
             for (u32 index : indices)
             {
-                if (!ranges.empty() && ranges.back().m_FirstIndex + ranges.back().m_Count == index)
+                if (!ranges.IsEmpty() && ranges.Last().m_FirstIndex + ranges.Last().m_Count == index)
                 {
-                    ++ranges.back().m_Count;
+                    ++ranges.Last().m_Count;
                     continue;
                 }
-                ranges.push_back(GPUSceneDirtyRange{ index, 1 });
+                ranges.Add(GPUSceneDirtyRange{ index, 1 });
             }
             return ranges;
         }
@@ -72,10 +72,10 @@ namespace OloEngine
             return count * static_cast<u32>(sizeof(T));
         }
 
-        [[nodiscard]] std::vector<GPUSceneDirtyRange> FullRange(u32 count)
+        [[nodiscard]] TArray<GPUSceneDirtyRange> FullRange(u32 count)
         {
-            return count > 0 ? std::vector<GPUSceneDirtyRange>{ GPUSceneDirtyRange{ 0, count } }
-                             : std::vector<GPUSceneDirtyRange>{};
+            return count > 0 ? TArray<GPUSceneDirtyRange>{ GPUSceneDirtyRange{ 0, count } }
+                             : TArray<GPUSceneDirtyRange>{};
         }
 
         struct RetiredSlot
@@ -281,12 +281,12 @@ namespace OloEngine
                 }
             }
 
-            [[nodiscard]] std::vector<GPUSceneDirtyRange> TakeDirtyRanges()
+            [[nodiscard]] TArray<GPUSceneDirtyRange> TakeDirtyRanges()
             {
                 return CoalesceDirtyRanges(std::exchange(m_PendingDirtySlots, {}));
             }
 
-            [[nodiscard]] std::vector<GPUSceneDirtyRange> PendingDirtyRanges() const
+            [[nodiscard]] TArray<GPUSceneDirtyRange> PendingDirtyRanges() const
             {
                 return CoalesceDirtyRanges(m_PendingDirtySlots);
             }
@@ -333,10 +333,10 @@ namespace OloEngine
             // Growth resizes the buffer in place (the RHI identity survives) and
             // uploads every record. Resize binds and unbinds the aliased slot,
             // which is why every consumer of these slots binds per pass.
-            [[nodiscard]] u64 Upload(const std::vector<GPUSceneDirtyRange>& ranges, u32& growthEvents)
+            [[nodiscard]] u64 Upload(const TArray<GPUSceneDirtyRange>& ranges, u32& growthEvents)
             {
-                std::vector<GPUSceneDirtyRange> grown;
-                const std::vector<GPUSceneDirtyRange>* toUpload = &ranges;
+                TArray<GPUSceneDirtyRange> grown;
+                const TArray<GPUSceneDirtyRange>* toUpload = &ranges;
                 if (const auto required = static_cast<u32>(m_Records.size()); required > m_BufferCapacity)
                 {
                     m_BufferCapacity = GPUSceneAllocationPolicy::GrowCapacity(m_BufferCapacity, required);

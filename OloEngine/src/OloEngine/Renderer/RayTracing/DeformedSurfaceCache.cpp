@@ -12,7 +12,7 @@
 #include "OloEngine/Renderer/VertexBuffer.h"
 
 #include <algorithm>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine::RayTracing
 {
@@ -128,10 +128,10 @@ namespace OloEngine::RayTracing
             ReleaseEntry(entry);
         }
         m_Surfaces.clear();
-        m_Queue.clear();
-        m_PendingRetires.clear();
+        m_Queue.Reset();
+        m_PendingRetires.Reset();
         m_CountedThisFrame.clear();
-        m_PaletteStaging.clear();
+        m_PaletteStaging.Reset();
         m_PaletteBuffer.Reset();
         m_PaletteBufferBytes = 0;
         m_PaletteAddress = 0;
@@ -183,8 +183,8 @@ namespace OloEngine::RayTracing
         // frame and did not get one. ResetFrame runs AFTER this in BeginFrame,
         // so a rollback of last frame's leftovers cannot leak into the new
         // frame's number.
-        m_Stats.Refused += static_cast<u32>(m_Queue.size());
-        m_Queue.clear();
+        m_Stats.Refused += static_cast<u32>(m_Queue.Num());
+        m_Queue.Reset();
     }
 
     void DeformedSurfaceCache::BeginFrame()
@@ -201,8 +201,8 @@ namespace OloEngine::RayTracing
         RollbackQueuedDispatches();
         ++m_FrameNumber;
         m_Stats.ResetFrame();
-        m_PaletteStaging.clear();
-        m_PendingRetires.clear();
+        m_PaletteStaging.Reset();
+        m_PendingRetires.Reset();
         m_CountedThisFrame.clear();
     }
 
@@ -375,8 +375,8 @@ namespace OloEngine::RayTracing
             // surface rather than drawing something wrong in one place. Zeros
             // are degenerate triangles at the origin: bounded, harmless, and
             // replaced by the first dispatch that lands.
-            const std::vector<unsigned char> zeroed(static_cast<sizet>(bytes), 0u);
-            allocated->SetData(VertexData{ .data = zeroed.data(), .size = static_cast<u32>(bytes) });
+            const TArray<unsigned char> zeroed(static_cast<sizet>(bytes), 0u);
+            allocated->SetData(VertexData{ .data = zeroed.GetData(), .size = static_cast<u32>(bytes) });
             entry.Output = allocated;
             entry.Capacity = capacity;
             entry.DeviceAddress = allocated->GetDeviceAddress();
@@ -415,10 +415,10 @@ namespace OloEngine::RayTracing
         // submeshes of one entity Acquire with the same key and therefore reach
         // this point once — the second call sees an unchanged revision and an
         // unchanged count and takes the skip above.
-        const auto paletteOffsetBytes = static_cast<u32>(m_PaletteStaging.size() * sizeof(glm::mat4));
-        m_PaletteStaging.insert(m_PaletteStaging.end(), palette.begin(), palette.end());
+        const auto paletteOffsetBytes = static_cast<u32>(m_PaletteStaging.Num() * sizeof(glm::mat4));
+        m_PaletteStaging.Append(palette.data(), static_cast<i32>(palette.size()));
 
-        m_Queue.push_back(QueuedDispatch{
+        m_Queue.Add(QueuedDispatch{
             .Key = key,
             .RestAddress = restAddress,
             .InfluenceAddress = influenceAddress,
@@ -510,7 +510,7 @@ namespace OloEngine::RayTracing
         {
             if (entry.LastSeenFrame != m_FrameNumber)
             {
-                m_PendingRetires.push_back(key);
+                m_PendingRetires.Add(key);
             }
         }
         for (const DeformedSurfaceKey& key : m_PendingRetires)
@@ -522,14 +522,14 @@ namespace OloEngine::RayTracing
                 ++m_Stats.Retired;
             }
         }
-        m_PendingRetires.clear();
+        m_PendingRetires.Reset();
 
-        if (!m_PaletteStaging.empty())
+        if (!m_PaletteStaging.IsEmpty())
         {
-            const u64 bytes = m_PaletteStaging.size() * sizeof(glm::mat4);
+            const u64 bytes = m_PaletteStaging.Num() * sizeof(glm::mat4);
             if (EnsurePaletteBuffer(bytes))
             {
-                m_PaletteBuffer->SetData(m_PaletteStaging.data(), static_cast<u32>(bytes), 0);
+                m_PaletteBuffer->SetData(m_PaletteStaging.GetData(), static_cast<u32>(bytes), 0);
             }
             else
             {
@@ -539,7 +539,7 @@ namespace OloEngine::RayTracing
                 // stranded at a pose that was never written.
                 OLO_CORE_WARN("[RayTracing] could not stage {} bone-palette bytes; {} animated surfaces keep their "
                               "previous pose this frame",
-                              bytes, m_Queue.size());
+                              bytes, m_Queue.Num());
                 RollbackQueuedDispatches();
             }
         }
@@ -558,7 +558,7 @@ namespace OloEngine::RayTracing
 
     u32 DeformedSurfaceCache::Dispatch()
     {
-        if (!m_Enabled || m_Queue.empty())
+        if (!m_Enabled || m_Queue.IsEmpty())
         {
             return 0;
         }
@@ -592,7 +592,7 @@ namespace OloEngine::RayTracing
         }
 
         m_Stats.Dispatched = recorded;
-        m_Queue.clear();
+        m_Queue.Reset();
         return recorded;
     }
 } // namespace OloEngine::RayTracing

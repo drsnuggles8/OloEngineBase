@@ -1,5 +1,8 @@
 #pragma once
 
+#include "OloEngine/Containers/LinkedList.h"
+#include <span>
+
 // =============================================================================
 // GroomRenderPass.h — the production strand visibility pass. Issue #1246.
 //
@@ -214,9 +217,15 @@ namespace OloEngine
         void OnReset() override;
 
         /// Set once per frame by RenderPipeline, before Setup.
-        void SetRequests(std::vector<GroomStrandRequest> requests) noexcept
+        void SetRequests(std::span<const GroomStrandRequest> requests)
         {
-            m_Requests = std::move(requests);
+            m_Requests.Empty(static_cast<i64>(requests.size()));
+            for (const auto& request : requests)
+                m_Requests.Add(request);
+        }
+        void SetRequests(const TArray64<GroomStrandRequest>& requests)
+        {
+            m_Requests = requests;
         }
         void SetFrameState(const GroomFrameState& state) noexcept
         {
@@ -345,7 +354,8 @@ namespace OloEngine
         [[nodiscard]] CacheEntry* AcquireGeometry(const GroomStrandRequest& request);
         void EvictToBudget();
 
-        std::vector<GroomStrandRequest> m_Requests;
+        // Root-transform ownership is not bitwise relocatable; stable nodes preserve it.
+        TArray64<GroomStrandRequest> m_Requests;
         GroomFrameState m_FrameState;
         GroomRenderStats m_Stats;
 

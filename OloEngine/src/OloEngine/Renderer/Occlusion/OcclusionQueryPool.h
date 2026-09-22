@@ -1,5 +1,7 @@
 #pragma once
 
+#include "OloEngine/Containers/Array.h"
+
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 
@@ -82,9 +84,9 @@ namespace OloEngine
         OcclusionQueryPool& operator=(const OcclusionQueryPool&) = delete;
 
         // Double-buffered: index 0 and 1
-        std::vector<RHI::ResourceHandle> m_QueryObjects[2]; // query identities
-        std::vector<bool> m_QueryIssued[2];                 // Per-index: was a query actually issued this frame?
-        std::vector<bool> m_Results;                        // Readback visibility results
+        TArray64<RHI::ResourceHandle> m_QueryObjects[2]; // query identities
+        TArray64<bool> m_QueryIssued[2];                 // Per-index: was a query actually issued this frame?
+        TArray64<bool> m_Results;                        // Readback visibility results
 
         u32 m_MaxQueries = 0;
         u32 m_WriteBuffer = 0;        // Buffer currently being written to

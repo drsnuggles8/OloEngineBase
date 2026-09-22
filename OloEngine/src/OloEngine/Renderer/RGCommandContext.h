@@ -15,7 +15,7 @@
 
 #include <functional>
 #include <span>
-#include <string>
+#include "OloEngine/Containers/String.h"
 #include <string_view>
 
 namespace OloEngine
@@ -49,7 +49,7 @@ namespace OloEngine
 
         void EndPass()
         {
-            m_ActivePassName.clear();
+            m_ActivePassName.Reset();
             m_IsPassActive = false;
         }
 
@@ -60,7 +60,7 @@ namespace OloEngine
 
         [[nodiscard]] std::string_view GetActivePassName() const
         {
-            return m_ActivePassName;
+            return m_ActivePassName.ToView();
         }
 
         void SetViewport(u32 x, u32 y, u32 width, u32 height) const;
@@ -169,7 +169,7 @@ namespace OloEngine
         // because the whole context surface is const — it is a command
         // recorder, not a value.
         mutable bool m_AsyncBatchOnComputeQueue = false;
-        std::string m_ActivePassName;
+        FString m_ActivePassName;
         bool m_IsPassActive = false;
         RenderGraph* m_RenderGraph = nullptr;
         u32 m_RecordingLane = UINT32_MAX;

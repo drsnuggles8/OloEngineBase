@@ -137,7 +137,7 @@ namespace OloEngine
         std::filesystem::path m_CurrentFilePath;
         AssetHandle m_CurrentAssetHandle = 0;
         std::vector<DialogueNodeData> m_Nodes;
-        std::vector<DialogueConnection> m_Connections;
+        TArray<DialogueConnection> m_Connections;
         UUID m_RootNodeID = 0;
         bool m_IsDirty = false;
 

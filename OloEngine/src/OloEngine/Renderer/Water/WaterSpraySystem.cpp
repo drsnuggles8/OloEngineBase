@@ -9,7 +9,7 @@
 #include <algorithm>
 #include <cmath>
 #include <span>
-#include <vector>
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -46,7 +46,7 @@ namespace OloEngine
             constexpr f32 centre = static_cast<f32>(texSize) * 0.5f;
             constexpr f32 invRadius = 1.0f / centre;
 
-            std::vector<u32> pixels(static_cast<sizet>(texSize) * texSize);
+            TArray<u32> pixels(static_cast<sizet>(texSize) * texSize);
             for (u32 y = 0; y < texSize; ++y)
             {
                 for (u32 x = 0; x < texSize; ++x)
@@ -72,8 +72,8 @@ namespace OloEngine
             s_Data.m_DropletTexture = Texture2D::Create(spec);
             if (s_Data.m_DropletTexture)
             {
-                s_Data.m_DropletTexture->SetData(pixels.data(),
-                                                 static_cast<u32>(pixels.size() * sizeof(u32)));
+                s_Data.m_DropletTexture->SetData(pixels.GetData(),
+                                                 static_cast<u32>(pixels.Num() * sizeof(u32)));
             }
         }
 
@@ -155,14 +155,14 @@ namespace OloEngine
                 return { s.Foam, s.Height, s.Horizontal };
             };
 
-            std::vector<GPUParticle> particles =
+            TArray<GPUParticle> particles =
                 WaterSpray::Emit(s_Data.m_Settings, s_Data.m_FoamThreshold,
                                  glm::vec2(cameraPos.x, cameraPos.z), s_Data.m_AccumulatedTime,
                                  deltaTime, sampleCrest);
 
-            s_Data.m_LastEmitCount = static_cast<u32>(particles.size());
-            if (!particles.empty())
-                s_Data.m_System->EmitParticles(std::span<const GPUParticle>(particles));
+            s_Data.m_LastEmitCount = static_cast<u32>(particles.Num());
+            if (!particles.IsEmpty())
+                s_Data.m_System->EmitParticles(std::span<const GPUParticle>(particles.GetData(), static_cast<sizet>(particles.Num())));
 
             // Throttled, because "spray emitted nothing" and "spray emitted and
             // is invisible" look identical on screen and are diagnosed

@@ -1,4 +1,6 @@
 #include "OloEnginePCH.h"
+#include <span>
+#include "OloEngine/Containers/Array.h"
 
 // OLO_TEST_LAYER: L8
 // =============================================================================
@@ -135,7 +137,7 @@ namespace OloEngine::Tests
         /// Strip the #1254 rules off a layer set, leaving the pre-#1254 scatter.
         /// This is the A/B control arm: same species, same densities, same
         /// textures, uniform placement.
-        [[nodiscard]] std::vector<FoliageLayer> WithoutHabitatRules(std::vector<FoliageLayer> layers)
+        [[nodiscard]] TArray<FoliageLayer> WithoutHabitatRules(TArray<FoliageLayer> layers)
         {
             for (auto& layer : layers)
             {
@@ -224,7 +226,7 @@ namespace OloEngine::Tests
             }
         }
 
-        void UseLayers(const std::vector<FoliageLayer>& layers)
+        void UseLayers(const TArray<FoliageLayer>& layers)
         {
             auto& foliage = m_TerrainEntity.GetComponent<FoliageComponent>();
             foliage.m_Layers = layers;
@@ -298,8 +300,8 @@ namespace OloEngine::Tests
         }
 
         Entity m_TerrainEntity;
-        std::vector<FoliageLayer> m_HabitatLayers;
-        std::vector<FoliageLayer> m_ControlLayers;
+        TArray<FoliageLayer> m_HabitatLayers;
+        TArray<FoliageLayer> m_ControlLayers;
     };
 
     // ── Criterion 2 + 4: the rules reach the frame, on every path ───────────

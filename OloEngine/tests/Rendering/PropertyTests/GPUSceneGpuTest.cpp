@@ -125,10 +125,10 @@ namespace OloEngine::Tests
                               GPUSceneInstanceInput{});
         const GPUSceneFrameUpdate restartedUpdate = scene.EndExtraction();
 
-        ASSERT_EQ(restartedUpdate.m_InstanceDirtyRanges.size(), 1u);
+        ASSERT_EQ(restartedUpdate.m_InstanceDirtyRanges.Num(), 1u);
         EXPECT_EQ(restartedUpdate.m_InstanceDirtyRanges[0], (GPUSceneDirtyRange{ 0, 3 }))
             << "restart extraction must retain full initialization, including old tombstones";
-        ASSERT_EQ(restartedUpdate.m_GeometryDirtyRanges.size(), 1u);
+        ASSERT_EQ(restartedUpdate.m_GeometryDirtyRanges.Num(), 1u);
         EXPECT_EQ(restartedUpdate.m_GeometryDirtyRanges[0], (GPUSceneDirtyRange{ 0, 3 }));
 
         const GPUSceneHandle restarted = scene.FindInstance(firstInstanceKey);

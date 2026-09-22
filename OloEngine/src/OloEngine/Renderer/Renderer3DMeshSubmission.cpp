@@ -242,7 +242,7 @@ namespace OloEngine
             const bool proxyCastsShadow = castShadows && resolvedMaterial.GetAlphaMode() != AlphaMode::Mask;
             const bool staged = Renderer3D::ExtractGPUSceneVirtualProxy(
                 stableEntityId, partIndex, entry.ProxyVertexBuffer, entry.ProxyIndexBuffer,
-                static_cast<u32>(entry.Proxy.Indices.size()), static_cast<u32>(entry.Proxy.Vertices.size()),
+                static_cast<u32>(entry.Proxy.Indices.Num()), static_cast<u32>(entry.Proxy.Vertices.Num()),
                 modelMatrix, materialKey, proxyCastsShadow);
             if (staged)
             {
@@ -325,8 +325,8 @@ namespace OloEngine
         // once per mesh when it sees that, so the drop is not silent.
         if (!boneMatrices.empty() && registry.MeshIsSkinned(meshHandle))
         {
-            submission.BoneMatrices.assign(boneMatrices.begin(), boneMatrices.end());
-            submission.PrevBoneMatrices.assign(prevBoneMatrices.begin(), prevBoneMatrices.end());
+            submission.BoneMatrices.Append(boneMatrices.data(), static_cast<i32>(boneMatrices.size()));
+            submission.PrevBoneMatrices.Append(prevBoneMatrices.data(), static_cast<i32>(prevBoneMatrices.size()));
         }
         else if (!boneMatrices.empty())
         {
@@ -399,9 +399,9 @@ namespace OloEngine
         // One material slot per part. Precedence: an explicit MaterialComponent overrides
         // everything, else the material the SUBMESH was imported with (so a multi-material
         // mesh like Sponza shades each part correctly), else the caller's default.
-        submission.MaterialDataIndices.reserve(parts.Count);
-        submission.PartAlphaMasked.reserve(parts.Count);
-        submission.PartTwoSided.reserve(parts.Count);
+        submission.MaterialDataIndices.Reserve(parts.Count);
+        submission.PartAlphaMasked.Reserve(parts.Count);
+        submission.PartTwoSided.Reserve(parts.Count);
         for (u32 partIndex = 0; partIndex < parts.Count; ++partIndex)
         {
             const auto& entry = registry.GetEntry(parts.FirstEntry + partIndex);
@@ -410,16 +410,16 @@ namespace OloEngine
             const Material* material = &resolved;
 
             PODMaterialData const materialData = CreatePODMaterialDataForMaterial(*material, RHI::NullResource);
-            submission.MaterialDataIndices.push_back(FrameDataBufferManager::Get().AllocateMaterialData(materialData));
+            submission.MaterialDataIndices.Add(FrameDataBufferManager::Get().AllocateMaterialData(materialData));
 
             // Anything that is not fully opaque needs the cutout/blend test, which only the
             // hardware fragment shader can run — flag it so the cull keeps it off the compute
             // rasterizer (VirtualInstanceGpuRecord::kFlagAlphaMasked).
-            submission.PartAlphaMasked.push_back(material->GetAlphaMode() != AlphaMode::Opaque ? 1u : 0u);
+            submission.PartAlphaMasked.Add(material->GetAlphaMode() != AlphaMode::Opaque ? 1u : 0u);
 
             // Two-sided geometry (foliage sheets) must not be backface-culled — the classic
             // path does the same in Renderer3DDrawHelpers::BuildRenderState.
-            submission.PartTwoSided.push_back(material->GetFlag(MaterialFlag::TwoSided) ? 1u : 0u);
+            submission.PartTwoSided.Add(material->GetFlag(MaterialFlag::TwoSided) ? 1u : 0u);
 
             if (stageProxies)
             {
@@ -775,9 +775,9 @@ namespace OloEngine
         // camera produced.
         if (auto lodResult = SelectLODMesh(mesh, modelMatrix, s_Data.LODView, lodGroup, meshToUse); lodResult.SelectedLODIndex >= 0)
         {
-            if (lodResult.SelectedLODIndex >= static_cast<i32>(s_Data.Stats.ObjectsPerLODLevel.size()))
+            if (lodResult.SelectedLODIndex >= s_Data.Stats.ObjectsPerLODLevel.Num())
             {
-                s_Data.Stats.ObjectsPerLODLevel.resize(lodResult.SelectedLODIndex + 1, 0);
+                s_Data.Stats.ObjectsPerLODLevel.SetNumZeroed(static_cast<i64>(lodResult.SelectedLODIndex + 1));
             }
             ++s_Data.Stats.ObjectsPerLODLevel[lodResult.SelectedLODIndex];
             if (lodResult.Switched)
@@ -994,7 +994,7 @@ namespace OloEngine
         return routing;
     }
 
-    CommandPacket* Renderer3D::DrawMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic, u64 ownerKey)
+    CommandPacket* Renderer3D::DrawMeshInstanced(const Ref<Mesh>& mesh, std::span<const glm::mat4> transforms, const Material& material, bool isStatic, u64 ownerKey)
     {
         OLO_PROFILE_FUNCTION();
         bool overlayRoute = false;
@@ -1010,7 +1010,7 @@ namespace OloEngine
         return packet;
     }
 
-    CommandPacket* Renderer3D::BuildDrawMeshInstancedPacket(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms,
+    CommandPacket* Renderer3D::BuildDrawMeshInstancedPacket(const Ref<Mesh>& mesh, std::span<const glm::mat4> transforms,
                                                             const Material& material, bool isStatic, u64 ownerKey,
                                                             bool& outOverlayRoute)
     {
@@ -1044,7 +1044,7 @@ namespace OloEngine
             return SubmitGPUCulledInstanced(mesh, transforms, material, isStatic, ownerKey);
         }
 
-        const std::vector<glm::mat4>* activeTransforms = &transforms;
+        std::span<const glm::mat4> activeTransforms = transforms;
         std::vector<glm::mat4> filteredTransforms;
         // Index map from post-cull visible slot -> pre-cull stable instance
         // index. Passed to GetAndRecordPrevInstanceTransforms so history
@@ -1075,19 +1075,19 @@ namespace OloEngine
             {
                 return nullptr;
             }
-            activeTransforms = &filteredTransforms;
+            activeTransforms = filteredTransforms;
         }
 
         // Allocate space in FrameDataBuffer for instance transforms.
         FrameDataBuffer& frameBuffer = FrameDataBufferManager::Get();
-        u32 transformCount = static_cast<u32>(activeTransforms->size());
+        u32 transformCount = static_cast<u32>(activeTransforms.size());
         u32 transformOffset = frameBuffer.AllocateTransforms(transformCount);
         if (transformOffset == UINT32_MAX)
         {
             OLO_CORE_ERROR("Renderer3D::DrawMeshInstanced: Failed to allocate transform buffer space");
             return nullptr;
         }
-        frameBuffer.WriteTransforms(transformOffset, activeTransforms->data(), transformCount);
+        frameBuffer.WriteTransforms(transformOffset, activeTransforms.data(), transformCount);
 
         // Previous-frame transforms (Deferred per-instance velocity). Cache keyed by
         // (mesh, ownerKey) so two submission sources that render the same mesh with
@@ -1113,17 +1113,17 @@ namespace OloEngine
             // so slot i in prevTransforms lines up with slot i in
             // activeTransforms. Without this, a different frustum-visible
             // subset next frame would silently alias unrelated instances.
-            const std::vector<u32>* idxPtr = visibleIndices.empty() ? nullptr : &visibleIndices;
-            std::vector<glm::mat4> prevTransforms = GetAndRecordPrevInstanceTransforms(meshKey, ownerKey, transforms, idxPtr, &usedFallback);
+            const auto visible = visibleIndices.empty() ? std::nullopt : std::optional{ std::span<const u32>(visibleIndices) };
+            auto prevTransforms = GetAndRecordPrevInstanceTransforms(meshKey, ownerKey, transforms, visible, &usedFallback);
             // Use the explicit flag rather than pointer identity — the function
             // returns a projected vector by value in the fallback path, so
-            // prevTransforms.data() is always a distinct buffer.
-            if (!usedFallback && prevTransforms.size() == activeTransforms->size())
+            // prevTransforms.GetData() is always a distinct buffer.
+            if (!usedFallback && static_cast<sizet>(prevTransforms.Num()) == activeTransforms.size())
             {
                 u32 prevOffset = frameBuffer.AllocateTransforms(transformCount);
                 if (prevOffset != UINT32_MAX)
                 {
-                    frameBuffer.WriteTransforms(prevOffset, prevTransforms.data(), transformCount);
+                    frameBuffer.WriteTransforms(prevOffset, prevTransforms.GetData(), transformCount);
                     prevTransformOffset = prevOffset;
                 }
             }
@@ -1183,7 +1183,7 @@ namespace OloEngine
         PacketMetadata metadata = packet->GetMetadata();
         u32 shaderID = shaderRendererID.Index & 0xFFFF;
         u32 materialID = ComputeMaterialID(material);
-        u32 depth = activeTransforms->empty() ? 0 : ComputeDepthForSortKey((*activeTransforms)[0]);
+        u32 depth = activeTransforms.empty() ? 0 : ComputeDepthForSortKey(activeTransforms[0]);
         if (material.GetFlag(MaterialFlag::Blend))
             metadata.m_SortKey = DrawKey::CreateTransparent(0, ViewLayerType::ThreeD, shaderID, materialID, depth);
         else
@@ -1355,7 +1355,7 @@ namespace OloEngine
     }
 
     CommandPacket* Renderer3D::SubmitGPUCulledInstanced(const Ref<Mesh>& mesh,
-                                                        const std::vector<glm::mat4>& transforms,
+                                                        std::span<const glm::mat4> transforms,
                                                         const Material& material, bool isStatic,
                                                         u64 ownerKey)
     {
@@ -1368,24 +1368,27 @@ namespace OloEngine
         // copying each slot's PrevTransform along with its Transform.
         const u64 meshKey = static_cast<u64>(mesh->GetHandle());
         bool usedFallback = false;
-        std::vector<glm::mat4> prevTransforms = GetAndRecordPrevInstanceTransforms(meshKey, ownerKey, transforms, nullptr, &usedFallback);
-        if (usedFallback || prevTransforms.size() != transforms.size())
-            prevTransforms = transforms; // first frame / size mismatch -> zero velocity
+        auto prevTransforms = GetAndRecordPrevInstanceTransforms(meshKey, ownerKey, transforms, std::nullopt, &usedFallback);
+        if (usedFallback || static_cast<sizet>(prevTransforms.Num()) != transforms.size())
+        {
+            prevTransforms.Reset();
+            prevTransforms.Append(transforms.data(), static_cast<i64>(transforms.size())); // first frame / size mismatch -> zero velocity
+        }
 
         // Build the InstanceData[] the cull compute reads. Color / Custom /
         // EntityID stay at their identity defaults — the transform-only
         // overload doesn't carry that per-instance data. The InstanceData
         // overload of DrawMeshInstanced overwrites them with the real values
         // once the GPU-cull path is wired into it as a future follow-up.
-        std::vector<InstanceData> packed;
-        packed.reserve(transforms.size());
+        TArray<InstanceData> packed;
+        packed.Reserve(transforms.size());
         for (sizet i = 0; i < transforms.size(); ++i)
         {
             InstanceData inst;
             inst.Transform = transforms[i];
             inst.Normal = glm::transpose(glm::inverse(transforms[i]));
             inst.PrevTransform = prevTransforms[i];
-            packed.push_back(inst);
+            packed.Add(inst);
         }
 
         // Run the GPU cull. RadiusExpansion folds the CPU path's two safety
@@ -1489,7 +1492,7 @@ namespace OloEngine
         if (GPUDrivenOcclusionPass* occlusionPass = (hzbOcclusion && !deferred) ? GetGPUOcclusionPass() : nullptr)
         {
             auto twoPhase = s_Data.GPUFrustumCuller->CullTwoPhasePhase1(
-                packed, mesh->GetIndexCount(), mesh->GetBaseIndex(), sphereUniform, kRadiusExpansion);
+                std::span<const InstanceData>{ packed.GetData(), static_cast<sizet>(packed.Num()) }, mesh->GetIndexCount(), mesh->GetBaseIndex(), sphereUniform, kRadiusExpansion);
 
             CommandPacket* phase1Packet = buildPacket(twoPhase.Phase1Output->GetStorage()->GetRHIHandle(),
                                                       twoPhase.Phase1Indirect->GetRHIHandle());
@@ -1518,7 +1521,7 @@ namespace OloEngine
         if (DeferredGPUOcclusionPass* deferredOcclusionPass = (hzbOcclusion && deferred && !overlayRoute) ? GetDeferredGPUOcclusionPass() : nullptr)
         {
             auto twoPhase = s_Data.GPUFrustumCuller->CullTwoPhasePhase1(
-                packed, mesh->GetIndexCount(), mesh->GetBaseIndex(), sphereUniform, kRadiusExpansion);
+                std::span<const InstanceData>{ packed.GetData(), static_cast<sizet>(packed.Num()) }, mesh->GetIndexCount(), mesh->GetBaseIndex(), sphereUniform, kRadiusExpansion);
 
             if (CommandPacket* phase2Packet = buildPacket(twoPhase.Phase2Output->GetStorage()->GetRHIHandle(),
                                                           twoPhase.Phase2Indirect->GetRHIHandle()))
@@ -1541,7 +1544,7 @@ namespace OloEngine
         // ordinary CPU-assembled root path.
 
         auto cullResult = s_Data.GPUFrustumCuller->Cull(
-            packed, mesh->GetIndexCount(), mesh->GetBaseIndex(), sphereUniform, kRadiusExpansion, reflectedRootLayout);
+            std::span<const InstanceData>{ packed.GetData(), static_cast<sizet>(packed.Num()) }, mesh->GetIndexCount(), mesh->GetBaseIndex(), sphereUniform, kRadiusExpansion, reflectedRootLayout);
         CommandPacket* packet = buildPacket(cullResult.OutputBuffer->GetStorage()->GetRHIHandle(),
                                             cullResult.IndirectBuffer->GetRHIHandle(),
                                             cullResult.RootDataBuffer ? cullResult.RootDataBuffer->GetRHIHandle()
@@ -1556,16 +1559,16 @@ namespace OloEngine
         return packet;
     }
 
-    CommandPacket* Renderer3D::DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic, i32 entityID, u32 gpuSceneDrawLink)
+    CommandPacket* Renderer3D::DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, std::span<const glm::mat4> boneMatrices, bool isStatic, i32 entityID, u32 gpuSceneDrawLink)
     {
         // Delegate to the variant that accepts previous-frame bone matrices; pass an empty
         // vector so the callee treats prev as "same as current" (zero per-bone motion).
-        static const std::vector<glm::mat4> s_EmptyPrev;
+        constexpr std::span<const glm::mat4> s_EmptyPrev;
         return DrawAnimatedMesh(mesh, modelMatrix, material, boneMatrices, s_EmptyPrev, isStatic, entityID,
                                 gpuSceneDrawLink);
     }
 
-    CommandPacket* Renderer3D::DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, const std::vector<glm::mat4>& prevBoneMatrices, bool isStatic, i32 entityID, u32 gpuSceneDrawLink)
+    CommandPacket* Renderer3D::DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, std::span<const glm::mat4> boneMatrices, std::span<const glm::mat4> prevBoneMatrices, bool isStatic, i32 entityID, u32 gpuSceneDrawLink)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -2157,9 +2160,9 @@ namespace OloEngine
         // single-threaded twin in DrawMesh().
         if (const auto lodResult = SelectLODMesh(mesh, modelMatrix, ctx.SceneContext->LODView, lodGroup, meshToUse); lodResult.SelectedLODIndex >= 0)
         {
-            if (lodResult.SelectedLODIndex >= static_cast<i32>(ctx.ObjectsPerLODLevel.size()))
+            if (lodResult.SelectedLODIndex >= ctx.ObjectsPerLODLevel.Num())
             {
-                ctx.ObjectsPerLODLevel.resize(lodResult.SelectedLODIndex + 1, 0);
+                ctx.ObjectsPerLODLevel.SetNumZeroed(static_cast<i64>(lodResult.SelectedLODIndex + 1));
             }
             ++ctx.ObjectsPerLODLevel[lodResult.SelectedLODIndex];
             if (lodResult.Switched)
@@ -2321,7 +2324,7 @@ namespace OloEngine
                                                         const Ref<Mesh>& mesh,
                                                         const glm::mat4& modelMatrix,
                                                         const Material& material,
-                                                        const std::vector<glm::mat4>& boneMatrices,
+                                                        std::span<const glm::mat4> boneMatrices,
                                                         bool isStatic,
                                                         i32 entityID,
                                                         u32 gpuSceneDrawLink)
@@ -2329,7 +2332,7 @@ namespace OloEngine
         // Legacy entry point: no prev-pose information available. Alias current
         // bones and transform into the prev slot so motion-vector shaders see
         // zero per-bone and per-object motion for this draw.
-        static const std::vector<glm::mat4> s_EmptyPrev;
+        constexpr std::span<const glm::mat4> s_EmptyPrev;
         return DrawAnimatedMeshParallel(ctx, mesh, modelMatrix, material, boneMatrices,
                                         s_EmptyPrev, modelMatrix, /*hasPrevTransform*/ false, isStatic,
                                         entityID, gpuSceneDrawLink);
@@ -2339,8 +2342,8 @@ namespace OloEngine
                                                         const Ref<Mesh>& mesh,
                                                         const glm::mat4& modelMatrix,
                                                         const Material& material,
-                                                        const std::vector<glm::mat4>& boneMatrices,
-                                                        const std::vector<glm::mat4>& prevBoneMatrices,
+                                                        std::span<const glm::mat4> boneMatrices,
+                                                        std::span<const glm::mat4> prevBoneMatrices,
                                                         const glm::mat4& prevModelMatrix,
                                                         bool hasPrevTransform,
                                                         bool isStatic,
@@ -2554,7 +2557,7 @@ namespace OloEngine
 
 #endif
 
-    u32 Renderer3D::SubmitMeshesParallel(const std::vector<MeshSubmitDesc>& meshes,
+    u32 Renderer3D::SubmitMeshesParallel(std::span<const MeshSubmitDesc> meshes,
                                          i32 minBatchSize)
     {
         OLO_PROFILE_FUNCTION();
@@ -2656,8 +2659,7 @@ namespace OloEngine
             u32 Culled = 0;
         };
 
-        TArray<WorkerStats> workerStats;
-        workerStats.SetNum(MAX_RENDER_WORKERS);
+        std::array<WorkerStats, MAX_RENDER_WORKERS> workerStats;
         for (u32 worker = 0; worker < MAX_RENDER_WORKERS; ++worker)
         {
             workerStats[worker].Context = GetWorkerContext(worker);
@@ -2665,7 +2667,7 @@ namespace OloEngine
 
         ParallelForWithExistingTaskContext(
             "SubmitMeshesParallel",
-            TArrayView<WorkerStats>(workerStats),
+            TArrayView<WorkerStats>(workerStats.data(), MAX_RENDER_WORKERS),
             numMeshes,
             minBatchSize,
             // Body - process one mesh descriptor.
@@ -2734,15 +2736,15 @@ namespace OloEngine
 
         // Aggregate statistics.
         u32 totalSubmitted = 0;
-        for (i32 i = 0; i < workerStats.Num(); ++i)
+        for (i32 i = 0; i < MAX_RENDER_WORKERS; ++i)
         {
             totalSubmitted += workerStats[i].Submitted;
             s_Data.Stats.LODSwitches += workerStats[i].Context.LODSwitches;
-            for (sizet j = 0; j < workerStats[i].Context.ObjectsPerLODLevel.size(); ++j)
+            for (sizet j = 0; j < static_cast<sizet>(workerStats[i].Context.ObjectsPerLODLevel.Num()); ++j)
             {
-                if (j >= s_Data.Stats.ObjectsPerLODLevel.size())
+                if (j >= static_cast<sizet>(s_Data.Stats.ObjectsPerLODLevel.Num()))
                 {
-                    s_Data.Stats.ObjectsPerLODLevel.resize(j + 1, 0);
+                    s_Data.Stats.ObjectsPerLODLevel.SetNumZeroed(static_cast<i64>(j + 1));
                 }
                 s_Data.Stats.ObjectsPerLODLevel[j] += workerStats[i].Context.ObjectsPerLODLevel[j];
             }

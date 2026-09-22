@@ -1620,6 +1620,17 @@ namespace OloEngine
     // TIsSparseSet Specializations
     // ============================================================================
 
+    // The set stores sparse elements, hash allocator storage, and a scalar hash
+    // size. KeyFuncs and the allocator policy itself are not stored. Inline
+    // elements must satisfy the same relocation contract as heap elements.
+    template<typename ElementType, typename KeyFuncs, typename Allocator>
+    struct TIsTriviallyRelocatable<TSparseSet<ElementType, KeyFuncs, Allocator>>
+    {
+        static constexpr bool Value =
+            TIsTriviallyRelocatable_V<TSparseArray<TSparseSetElement<ElementType>, typename Allocator::SparseArrayAllocator>> &&
+            TIsContainerAllocatorRelocatable<typename Allocator::HashAllocator>::Value;
+    };
+
     template<typename ElementType, typename KeyFuncs, typename Allocator>
     struct TIsSparseSet<TSparseSet<ElementType, KeyFuncs, Allocator>>
     {

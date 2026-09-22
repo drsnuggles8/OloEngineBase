@@ -1,10 +1,10 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Containers/Array.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include <array>
-#include <vector>
 #include <unordered_map>
 #include <chrono>
 
@@ -19,7 +19,7 @@ namespace OloEngine
         // @brief Data for a single frame in flight
         struct FrameData
         {
-            std::vector<Ref<UniformBuffer>> UniformBuffers;
+            TArray<Ref<UniformBuffer>> UniformBuffers;
             std::unordered_map<std::string, u32> BufferAllocations;
             bool IsComplete = false;
             std::chrono::steady_clock::time_point StartTime;

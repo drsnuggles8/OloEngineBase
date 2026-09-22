@@ -28,7 +28,7 @@ namespace OloEngine::RenderGraphSubmissionPlan
         }
 
         bool CanPlaceBatchFencesAtBoundaries(std::span<const RenderGraph::SubmissionCommand> plan,
-                                             const std::unordered_map<std::string, sizet>& positions,
+                                             const RGTransparentStringMap<sizet>& positions,
                                              sizet begin, sizet end)
         {
             using Kind = RenderGraph::SubmissionCommand::Kind;
@@ -46,8 +46,8 @@ namespace OloEngine::RenderGraphSubmissionPlan
                 {
                     for (const auto& edge : command.FenceEdges)
                     {
-                        const auto producer = positions.find(edge.ProducerPass);
-                        const auto consumer = positions.find(edge.ConsumerPass);
+                        const auto producer = positions.find(edge.ProducerPass.ToStdString());
+                        const auto consumer = positions.find(edge.ConsumerPass.ToStdString());
                         if (producer == positions.end() || consumer == positions.end())
                         {
                             movable = false;
@@ -67,30 +67,30 @@ namespace OloEngine::RenderGraphSubmissionPlan
             return movable && eligible >= 2u;
         }
 
-        void PlaceRecordingBatchFencesAtBoundaries(std::vector<RenderGraph::SubmissionCommand>& plan)
+        void PlaceRecordingBatchFencesAtBoundaries(TArray64<RenderGraph::SubmissionCommand>& plan)
         {
             using Command = RenderGraph::SubmissionCommand;
             using Kind = Command::Kind;
-            std::unordered_map<std::string, sizet> positions;
-            for (sizet index = 0; index < plan.size(); ++index)
+            RGTransparentStringMap<sizet> positions;
+            for (sizet index = 0; index < plan.Num(); ++index)
                 if (plan[index].CommandKind == Kind::Pass)
-                    positions.emplace(plan[index].NodeName, index);
+                    positions.emplace(plan[index].NodeName.ToStdString(), index);
 
-            std::vector<Command> normalized;
-            normalized.reserve(plan.size());
-            for (sizet begin = 0; begin < plan.size(); ++begin)
+            TArray64<Command> normalized;
+            normalized.Reserve(plan.Num());
+            for (sizet begin = 0; begin < plan.Num(); ++begin)
             {
                 if (plan[begin].CommandKind != Kind::BatchBegin)
                 {
-                    normalized.push_back(std::move(plan[begin]));
+                    normalized.Add(std::move(plan[begin]));
                     continue;
                 }
                 sizet end = begin + 1;
-                while (end < plan.size() && plan[end].CommandKind != Kind::BatchEnd)
+                while (end < plan.Num() && plan[end].CommandKind != Kind::BatchEnd)
                     ++end;
-                if (!CanPlaceBatchFencesAtBoundaries(plan, positions, begin, end))
+                if (!CanPlaceBatchFencesAtBoundaries({ plan.GetData(), static_cast<sizet>(plan.Num()) }, positions, begin, end))
                 {
-                    normalized.push_back(std::move(plan[begin]));
+                    normalized.Add(std::move(plan[begin]));
                     continue;
                 }
 
@@ -99,33 +99,33 @@ namespace OloEngine::RenderGraphSubmissionPlan
                 // a producer submit from splitting an open batch debug label.
                 for (sizet index = begin + 1; index < end; ++index)
                     if (plan[index].CommandKind == Kind::FenceWait)
-                        normalized.push_back(std::move(plan[index]));
-                normalized.push_back(std::move(plan[begin]));
+                        normalized.Add(std::move(plan[index]));
+                normalized.Add(std::move(plan[begin]));
                 for (sizet index = begin + 1; index < end; ++index)
                     if (plan[index].CommandKind != Kind::FenceWait && plan[index].CommandKind != Kind::FenceSignal)
-                        normalized.push_back(std::move(plan[index]));
-                normalized.push_back(std::move(plan[end]));
+                        normalized.Add(std::move(plan[index]));
+                normalized.Add(std::move(plan[end]));
                 for (sizet index = begin + 1; index < end; ++index)
                     if (plan[index].CommandKind == Kind::FenceSignal)
-                        normalized.push_back(std::move(plan[index]));
+                        normalized.Add(std::move(plan[index]));
                 begin = end;
             }
             plan = std::move(normalized);
         }
 
-        void AssignRecordingGroups(std::vector<RenderGraph::SubmissionCommand>& plan,
-                                   const std::unordered_map<std::string, std::vector<std::string>>& dependencies,
+        void AssignRecordingGroups(TArray64<RenderGraph::SubmissionCommand>& plan,
+                                   const RGTransparentStringMap<TArray64<FString>>& dependencies,
                                    const std::function<bool(const std::string&)>& isPassReachable)
         {
             using Kind = RenderGraph::SubmissionCommand::Kind;
             constexpr sizet maxPasses = 16;
             u32 group = 0;
-            for (sizet begin = 0; begin < plan.size();)
+            for (sizet begin = 0; begin < plan.Num();)
             {
                 std::vector<sizet> passes;
                 passes.reserve(maxPasses);
                 sizet cursor = begin;
-                for (; cursor < plan.size() && passes.size() < maxPasses; ++cursor)
+                for (; cursor < plan.Num() && passes.size() < maxPasses; ++cursor)
                 {
                     const auto& command = plan[cursor];
                     if (command.CommandKind == Kind::MemoryBarrier)
@@ -133,12 +133,12 @@ namespace OloEngine::RenderGraphSubmissionPlan
                     // Submission/fence/debug-batch boundaries require a join.
                     if (command.CommandKind != Kind::Pass || !command.NodePointer ||
                         !command.NodePointer->IsEnabled() || !command.NodePointer->SupportsWholePassRecording() ||
-                        (isPassReachable && !isPassReachable(command.NodeName)))
+                        (isPassReachable && !isPassReachable(command.NodeName.ToStdString())))
                         break;
-                    const auto incoming = dependencies.find(command.NodeName);
+                    const auto incoming = dependencies.find(command.NodeName.ToStdString());
                     const bool consumesGroup = incoming != dependencies.end() &&
                                                std::ranges::any_of(passes, [&](sizet producer)
-                                                                   { return std::ranges::find(incoming->second, plan[producer].NodeName) != incoming->second.end(); });
+                                                                   { return std::ranges::find(incoming->second, plan[producer].NodeName.ToStdString()) != incoming->second.end(); });
                     if (consumesGroup)
                         break;
                     passes.push_back(cursor);
@@ -158,111 +158,115 @@ namespace OloEngine::RenderGraphSubmissionPlan
         }
     } // namespace
 
-    auto ComputeBatches(const BatchesInput& input) -> std::vector<RenderGraph::AsyncComputeBatch>
+    auto ComputeBatches(const BatchesInput& input) -> TArray64<RenderGraph::AsyncComputeBatch>
     {
         OLO_PROFILE_FUNCTION();
 
         using AsyncComputeBatch = RenderGraph::AsyncComputeBatch;
         using BatchResourceDependency = RenderGraph::BatchResourceDependency;
 
-        std::vector<AsyncComputeBatch> batches;
+        TArray64<AsyncComputeBatch> batches;
 
         // Step 1: group consecutive AsyncComputeCandidate passes.
         AsyncComputeBatch current;
         for (const auto& passName : input.ExecutionOrder)
         {
-            const bool isCandidate = input.IsGraphEntryAsyncComputeCandidate(passName);
+            const bool isCandidate = input.IsGraphEntryAsyncComputeCandidate(passName.ToView());
             if (isCandidate)
             {
-                current.ComputeNodes.push_back(passName);
+                current.ComputeNodes.Add(passName);
             }
             else
             {
-                if (!current.ComputeNodes.empty())
+                if (!current.ComputeNodes.IsEmpty())
                 {
-                    batches.push_back(std::move(current));
+                    batches.Add(std::move(current));
                     current = {};
                 }
             }
         }
-        if (!current.ComputeNodes.empty())
-            batches.push_back(std::move(current));
+        if (!current.ComputeNodes.IsEmpty())
+            batches.Add(std::move(current));
 
-        if (batches.empty())
+        if (batches.IsEmpty())
             return batches;
 
         // Step 2: build successor map (A → passes that depend on A).
         std::unordered_set<std::string_view> passSet;
         passSet.reserve(input.ExecutionOrder.size());
         for (const auto& name : input.ExecutionOrder)
-            passSet.insert(name);
+            passSet.insert(name.ToView());
 
-        std::unordered_map<std::string, std::vector<std::string>> successors;
+        RGTransparentStringMap<TArray64<FString>> successors;
         successors.reserve(input.ExecutionOrder.size());
         for (const auto& name : input.ExecutionOrder)
         {
-            const auto depIt = input.Dependencies.find(name);
+            const auto depIt = input.Dependencies.find(name.ToView());
             if (depIt == input.Dependencies.end())
                 continue;
             for (const auto& dep : depIt->second)
             {
-                if (passSet.contains(dep))
-                    successors[dep].push_back(name);
+                if (passSet.contains(dep.ToView()))
+                    successors[dep.ToStdString()].Add(name);
             }
         }
 
         // Step 3: fill WaitNodes / SignalNodes for each batch.
         for (auto& batch : batches)
         {
-            std::unordered_set<std::string> batchSet(batch.ComputeNodes.begin(),
-                                                     batch.ComputeNodes.end());
-            std::unordered_set<std::string> waitSet;
-            std::unordered_set<std::string> signalSet;
+            RGTransparentStringSet batchSet;
+            for (const auto& name : batch.ComputeNodes)
+                batchSet.emplace(name.ToStdString());
+            RGTransparentStringSet waitSet;
+            RGTransparentStringSet signalSet;
 
             for (const auto& computePass : batch.ComputeNodes)
             {
                 // WaitNodes: direct predecessors not in this batch.
-                if (const auto depIt = input.Dependencies.find(computePass);
+                if (const auto depIt = input.Dependencies.find(computePass.ToStdString());
                     depIt != input.Dependencies.end())
                 {
                     for (const auto& dep : depIt->second)
                     {
-                        if (!batchSet.contains(dep) && passSet.contains(dep))
-                            waitSet.insert(dep);
+                        if (!batchSet.contains(dep.ToView()) && passSet.contains(dep.ToView()))
+                            waitSet.insert(dep.ToStdString());
                     }
                 }
 
                 // SignalNodes: direct successors not in this batch.
-                if (const auto sucIt = successors.find(computePass); sucIt != successors.end())
+                if (const auto sucIt = successors.find(computePass.ToStdString()); sucIt != successors.end())
                 {
                     for (const auto& succ : sucIt->second)
                     {
-                        if (!batchSet.contains(succ))
-                            signalSet.insert(succ);
+                        if (!batchSet.contains(succ.ToView()))
+                            signalSet.insert(succ.ToStdString());
                     }
                 }
             }
 
-            batch.WaitNodes = std::vector<std::string>(waitSet.begin(), waitSet.end());
-            batch.SignalNodes = std::vector<std::string>(signalSet.begin(), signalSet.end());
+            for (const auto& name : waitSet)
+                batch.WaitNodes.Emplace(name);
+            for (const auto& name : signalSet)
+                batch.SignalNodes.Emplace(name);
         }
 
         // Step 4: fill InputResources / OutputResources for each batch.
-        std::unordered_map<std::string, sizet> passOrderIndex;
+        RGTransparentStringMap<sizet> passOrderIndex;
         passOrderIndex.reserve(input.ExecutionOrder.size());
         for (sizet i = 0; i < input.ExecutionOrder.size(); ++i)
-            passOrderIndex[input.ExecutionOrder[i]] = i;
+            passOrderIndex[input.ExecutionOrder[i].ToStdString()] = i;
 
         for (auto& batch : batches)
         {
-            const std::unordered_set<std::string> batchSet(batch.ComputeNodes.begin(),
-                                                           batch.ComputeNodes.end());
+            RGTransparentStringSet batchSet;
+            for (const auto& name : batch.ComputeNodes)
+                batchSet.emplace(name.ToStdString());
 
             sizet batchStart = input.ExecutionOrder.size();
             sizet batchEnd = 0;
             for (const auto& cp : batch.ComputeNodes)
             {
-                if (const auto idxIt = passOrderIndex.find(cp); idxIt != passOrderIndex.end())
+                if (const auto idxIt = passOrderIndex.find(cp.ToStdString()); idxIt != passOrderIndex.end())
                 {
                     batchStart = std::min(batchStart, idxIt->second);
                     batchEnd = std::max(batchEnd, idxIt->second);
@@ -272,74 +276,74 @@ namespace OloEngine::RenderGraphSubmissionPlan
                 continue;
 
             // Collect all resources read / written by batch passes.
-            std::unordered_set<std::string> batchReadResources;
-            std::unordered_set<std::string> batchWrittenResources;
+            RGTransparentStringSet batchReadResources;
+            RGTransparentStringSet batchWrittenResources;
             for (const auto& cp : batch.ComputeNodes)
             {
-                if (const auto accessIt = input.PassAccessDeclarations.find(cp);
+                if (const auto accessIt = input.PassAccessDeclarations.find(cp.ToStdString());
                     accessIt != input.PassAccessDeclarations.end())
                 {
                     for (const auto& acc : accessIt->second)
                     {
                         if (acc.IsWrite)
-                            batchWrittenResources.insert(acc.ResourceName);
+                            batchWrittenResources.insert(acc.ResourceName.ToStdString());
                         else
-                            batchReadResources.insert(acc.ResourceName);
+                            batchReadResources.insert(acc.ResourceName.ToStdString());
                     }
                 }
             }
 
             // InputResources: scan passes before batchStart for the last
             // external writer of each batch-read resource.
-            std::unordered_map<std::string, std::string> inputByResource;
+            RGTransparentStringMap<std::string> inputByResource;
             for (sizet i = 0; i < batchStart; ++i)
             {
                 const auto& passName = input.ExecutionOrder[i];
-                if (batchSet.contains(passName))
+                if (batchSet.contains(passName.ToView()))
                     continue;
-                if (const auto accessIt = input.PassAccessDeclarations.find(passName);
+                if (const auto accessIt = input.PassAccessDeclarations.find(passName.ToView());
                     accessIt != input.PassAccessDeclarations.end())
                 {
                     for (const auto& acc : accessIt->second)
                     {
-                        if (acc.IsWrite && batchReadResources.contains(acc.ResourceName))
-                            inputByResource[acc.ResourceName] = passName; // last writer wins
+                        if (acc.IsWrite && batchReadResources.contains(acc.ResourceName.ToView()))
+                            inputByResource[acc.ResourceName.ToStdString()] = passName.ToStdString(); // last writer wins
                     }
                 }
             }
 
             // OutputResources: scan passes after batchEnd for the first
             // external reader of each batch-written resource.
-            std::unordered_map<std::string, std::string> outputByResource;
+            RGTransparentStringMap<std::string> outputByResource;
             for (sizet i = batchEnd + 1; i < input.ExecutionOrder.size(); ++i)
             {
                 const auto& passName = input.ExecutionOrder[i];
-                if (batchSet.contains(passName))
+                if (batchSet.contains(passName.ToView()))
                     continue;
-                if (const auto accessIt = input.PassAccessDeclarations.find(passName);
+                if (const auto accessIt = input.PassAccessDeclarations.find(passName.ToView());
                     accessIt != input.PassAccessDeclarations.end())
                 {
                     for (const auto& acc : accessIt->second)
                     {
-                        if (!acc.IsWrite && batchWrittenResources.contains(acc.ResourceName) &&
-                            !outputByResource.contains(acc.ResourceName))
+                        if (!acc.IsWrite && batchWrittenResources.contains(acc.ResourceName.ToView()) &&
+                            !outputByResource.contains(acc.ResourceName.ToView()))
                         {
-                            outputByResource[acc.ResourceName] = passName; // first reader wins
+                            outputByResource[acc.ResourceName.ToStdString()] = passName.ToStdString(); // first reader wins
                         }
                     }
                 }
             }
 
-            batch.InputResources.reserve(inputByResource.size());
+            batch.InputResources.Reserve(inputByResource.size());
             for (const auto& [res, externalNode] : inputByResource)
-                batch.InputResources.push_back({ res, externalNode });
+                batch.InputResources.Add({ res, externalNode });
             std::ranges::sort(batch.InputResources,
                               [](const BatchResourceDependency& a, const BatchResourceDependency& b)
                               { return a.ResourceName < b.ResourceName; });
 
-            batch.OutputResources.reserve(outputByResource.size());
+            batch.OutputResources.Reserve(outputByResource.size());
             for (const auto& [res, externalNode] : outputByResource)
-                batch.OutputResources.push_back({ res, externalNode });
+                batch.OutputResources.Add({ res, externalNode });
             std::ranges::sort(batch.OutputResources,
                               [](const BatchResourceDependency& a, const BatchResourceDependency& b)
                               { return a.ResourceName < b.ResourceName; });
@@ -348,15 +352,15 @@ namespace OloEngine::RenderGraphSubmissionPlan
         return batches;
     }
 
-    auto BuildPlan(const PlanInput& input) -> std::vector<RenderGraph::SubmissionCommand>
+    auto BuildPlan(const PlanInput& input) -> TArray64<RenderGraph::SubmissionCommand>
     {
         OLO_PROFILE_FUNCTION();
 
         using SubmissionCommand = RenderGraph::SubmissionCommand;
         using AsyncComputeBatch = RenderGraph::AsyncComputeBatch;
 
-        std::vector<SubmissionCommand> plan;
-        plan.reserve(input.ExecutionOrder.size() * 2); // rough upper bound
+        TArray64<SubmissionCommand> plan;
+        plan.Reserve(input.ExecutionOrder.size() * 2); // rough upper bound
 
         // Build a set of passes that are members of some async batch so we
         // can quickly look up which batch (if any) a pass belongs to.
@@ -365,7 +369,7 @@ namespace OloEngine::RenderGraphSubmissionPlan
         for (u32 batchIdx = 0; batchIdx < static_cast<u32>(input.Batches.size()); ++batchIdx)
             batchByIndex.emplace(batchIdx, &input.Batches[batchIdx]);
 
-        std::unordered_map<std::string, u32> passToBatch;
+        RGTransparentStringMap<u32> passToBatch;
         for (u32 batchIdx = 0; batchIdx < static_cast<u32>(input.Batches.size()); ++batchIdx)
         {
             for (const auto& passName : input.Batches[batchIdx].ComputeNodes)
@@ -375,10 +379,10 @@ namespace OloEngine::RenderGraphSubmissionPlan
         // Map: passName → barrier flags from the compiled barrier plan.
         // Barriers are keyed on the pass AFTER which they should fire — i.e.
         // the consumer pass that triggered them. Insert before that pass.
-        std::unordered_map<std::string, MemoryBarrierFlags> barrierForPass;
+        RGTransparentStringMap<MemoryBarrierFlags> barrierForPass;
         for (const auto& planned : input.PlannedBarriers)
         {
-            auto& flags = barrierForPass[planned.BeforePass];
+            auto& flags = barrierForPass[planned.BeforePass.ToStdString()];
             flags = flags | planned.Flags;
         }
 
@@ -392,10 +396,10 @@ namespace OloEngine::RenderGraphSubmissionPlan
         // subresources of one resource collapse to the last writer's stage
         // and access masks; sync validation is the instrument that would
         // surface a real graph relying on that (a hardening item).
-        std::unordered_map<std::string, std::vector<RenderGraph::ResourceTransition>> transitionsForPass;
+        RGTransparentStringMap<TArray64<RenderGraph::ResourceTransition>> transitionsForPass;
         for (const auto& transition : input.Transitions)
         {
-            auto& list = transitionsForPass[transition.ConsumerPass];
+            auto& list = transitionsForPass[transition.ConsumerPass.ToStdString()];
             const bool duplicate = std::ranges::any_of(
                 list,
                 [&transition](const RenderGraph::ResourceTransition& existing)
@@ -406,7 +410,7 @@ namespace OloEngine::RenderGraphSubmissionPlan
                            existing.ToAccess == transition.ToAccess;
                 });
             if (!duplicate)
-                list.push_back(transition);
+                list.Add(transition);
         }
 
         // Build the concrete signal/wait edge set from the graph's complete
@@ -416,15 +420,15 @@ namespace OloEngine::RenderGraphSubmissionPlan
         // its resources; the normal MemoryBarrier remains in the plan because
         // timeline submission ordering supplements visibility/layout work, it
         // does not replace it (ADR 0011 §6).
-        std::vector<RenderGraph::FenceEdge> fenceEdges;
+        TArray64<RenderGraph::FenceEdge> fenceEdges;
         if (input.EnableSplitBarriers)
         {
-            const auto passIsScheduled = [&input](const std::string& passName)
+            const auto passIsScheduled = [&input](std::string_view passName)
             {
                 return std::ranges::contains(input.ExecutionOrder, passName);
             };
-            const auto findOrAddEdge = [&fenceEdges, &input](const std::string& producerPass,
-                                                             const std::string& consumerPass)
+            const auto findOrAddEdge = [&fenceEdges, &input](std::string_view producerPass,
+                                                             std::string_view consumerPass)
                 -> RenderGraph::FenceEdge*
             {
                 const auto producerLane = MapWorkTypeToLane(input.GetPassWorkType(producerPass));
@@ -440,8 +444,7 @@ namespace OloEngine::RenderGraphSubmissionPlan
                     });
                 if (existing == fenceEdges.end())
                 {
-                    existing = fenceEdges.emplace(
-                        fenceEdges.end(),
+                    const auto addedIndex = fenceEdges.Add(
                         RenderGraph::FenceEdge{
                             .ProducerPass = producerPass,
                             .ConsumerPass = consumerPass,
@@ -449,6 +452,7 @@ namespace OloEngine::RenderGraphSubmissionPlan
                             .ConsumerLane = consumerLane,
                             .Resources = {},
                         });
+                    return &fenceEdges[addedIndex];
                 }
                 return &*existing;
             };
@@ -459,24 +463,24 @@ namespace OloEngine::RenderGraphSubmissionPlan
                     continue;
                 for (const auto& producerPass : producerPasses)
                 {
-                    if (passIsScheduled(producerPass))
-                        findOrAddEdge(producerPass, consumerPass);
+                    if (passIsScheduled(producerPass.ToView()))
+                        findOrAddEdge(producerPass.ToView(), consumerPass);
                 }
             }
 
             for (const auto& transition : input.Transitions)
             {
-                if (!transition.IsCrossLane || transition.ProducerPass.empty() ||
-                    transition.ProducerPass == "external" || transition.ConsumerPass.empty() ||
-                    !passIsScheduled(transition.ProducerPass) || !passIsScheduled(transition.ConsumerPass))
+                if (!transition.IsCrossLane || transition.ProducerPass.IsEmpty() ||
+                    transition.ProducerPass == "external" || transition.ConsumerPass.IsEmpty() ||
+                    !passIsScheduled(transition.ProducerPass.ToStdString()) || !passIsScheduled(transition.ConsumerPass.ToStdString()))
                 {
                     continue;
                 }
 
-                if (auto* edge = findOrAddEdge(transition.ProducerPass, transition.ConsumerPass);
+                if (auto* edge = findOrAddEdge(transition.ProducerPass.ToStdString(), transition.ConsumerPass.ToStdString());
                     edge != nullptr && !std::ranges::contains(edge->Resources, transition.ResourceName))
                 {
-                    edge->Resources.push_back(transition.ResourceName);
+                    edge->Resources.Add(transition.ResourceName);
                 }
             }
 
@@ -490,20 +494,20 @@ namespace OloEngine::RenderGraphSubmissionPlan
                     return std::tie(a.ProducerPass, a.ConsumerPass, a.ProducerLane, a.ConsumerLane) <
                            std::tie(b.ProducerPass, b.ConsumerPass, b.ProducerLane, b.ConsumerLane);
                 });
-            for (u32 index = 0; index < static_cast<u32>(fenceEdges.size()); ++index)
+            for (u32 index = 0; index < static_cast<u32>(fenceEdges.Num()); ++index)
             {
                 auto& edge = fenceEdges[index];
                 edge.Index = index;
-                std::ranges::sort(edge.Resources);
+                edge.Resources.Sort();
             }
         }
 
-        std::unordered_map<std::string, std::vector<const RenderGraph::FenceEdge*>> waitsByPass;
-        std::unordered_map<std::string, std::vector<const RenderGraph::FenceEdge*>> signalsByPass;
+        RGTransparentStringMap<std::vector<const RenderGraph::FenceEdge*>> waitsByPass;
+        RGTransparentStringMap<std::vector<const RenderGraph::FenceEdge*>> signalsByPass;
         for (const auto& edge : fenceEdges)
         {
-            waitsByPass[edge.ConsumerPass].push_back(&edge);
-            signalsByPass[edge.ProducerPass].push_back(&edge);
+            waitsByPass[edge.ConsumerPass.ToStdString()].push_back(&edge);
+            signalsByPass[edge.ProducerPass.ToStdString()].push_back(&edge);
         }
 
         // Walk the execution order and emit commands.
@@ -511,7 +515,7 @@ namespace OloEngine::RenderGraphSubmissionPlan
 
         for (const auto& passName : input.ExecutionOrder)
         {
-            const auto batchIt = passToBatch.find(passName);
+            const auto batchIt = passToBatch.find(passName.ToView());
             const bool inBatch = (batchIt != passToBatch.end());
             // Batch-boundary open.
             if (const u32 batchIdx = inBatch ? batchIt->second : std::numeric_limits<u32>::max(); inBatch && batchIdx != currentBatch)
@@ -523,7 +527,7 @@ namespace OloEngine::RenderGraphSubmissionPlan
                     end.CommandKind = SubmissionCommand::Kind::BatchEnd;
                     end.BatchIndex = currentBatch;
                     end.Lane = RenderGraph::QueueLane::Compute;
-                    plan.push_back(std::move(end));
+                    plan.Add(std::move(end));
                 }
 
                 SubmissionCommand begin;
@@ -535,7 +539,7 @@ namespace OloEngine::RenderGraphSubmissionPlan
                     begin.WaitNodes = batchInfoIt->second->WaitNodes;
                     begin.InputResources = batchInfoIt->second->InputResources;
                 }
-                plan.push_back(std::move(begin));
+                plan.Add(std::move(begin));
                 currentBatch = batchIdx;
             }
 
@@ -551,27 +555,27 @@ namespace OloEngine::RenderGraphSubmissionPlan
                     end.SignalNodes = batchInfoIt->second->SignalNodes;
                     end.OutputResources = batchInfoIt->second->OutputResources;
                 }
-                plan.push_back(std::move(end));
+                plan.Add(std::move(end));
                 currentBatch = std::numeric_limits<u32>::max();
             }
 
-            auto passWorkType = input.GetPassWorkType(passName);
-            auto* nodePtr = input.ResolveNodePointer(passName);
+            auto passWorkType = input.GetPassWorkType(passName.ToView());
+            auto* nodePtr = input.ResolveNodePointer(passName.ToView());
             const auto passLane = MapWorkTypeToLane(passWorkType);
 
             // Queue waits attach to the consumer submission BEFORE its normal
             // barrier and pass body. The barrier still carries the resource
             // visibility/layout transition; the wait only orders distinct
             // submissions/queues.
-            if (const auto waitIt = waitsByPass.find(passName); waitIt != waitsByPass.end())
+            if (const auto waitIt = waitsByPass.find(passName.ToView()); waitIt != waitsByPass.end())
             {
                 SubmissionCommand wait;
                 wait.CommandKind = SubmissionCommand::Kind::FenceWait;
                 wait.Lane = passLane;
-                wait.FenceEdges.reserve(waitIt->second.size());
+                wait.FenceEdges.Reserve(waitIt->second.size());
                 for (const auto* edge : waitIt->second)
-                    wait.FenceEdges.push_back(*edge);
-                plan.push_back(std::move(wait));
+                    wait.FenceEdges.Add(*edge);
+                plan.Add(std::move(wait));
             }
 
             // Memory barrier before this pass (if any).
@@ -583,7 +587,7 @@ namespace OloEngine::RenderGraphSubmissionPlan
                 barrier.Lane = passLane;
                 if (const auto trIt = transitionsForPass.find(passName); trIt != transitionsForPass.end())
                     barrier.Transitions = trIt->second;
-                plan.push_back(std::move(barrier));
+                plan.Add(std::move(barrier));
             }
 
             // Pass command.
@@ -593,7 +597,7 @@ namespace OloEngine::RenderGraphSubmissionPlan
             passCmd.NodePointer = nodePtr;
             passCmd.WorkType = passWorkType;
             passCmd.Lane = passLane;
-            plan.push_back(std::move(passCmd));
+            plan.Add(std::move(passCmd));
 
             // Signals are emitted after the producer body. The executor
             // submits this command-buffer segment only after it has staged all
@@ -604,10 +608,10 @@ namespace OloEngine::RenderGraphSubmissionPlan
                 SubmissionCommand signal;
                 signal.CommandKind = SubmissionCommand::Kind::FenceSignal;
                 signal.Lane = passLane;
-                signal.FenceEdges.reserve(signalIt->second.size());
+                signal.FenceEdges.Reserve(signalIt->second.size());
                 for (const auto* edge : signalIt->second)
-                    signal.FenceEdges.push_back(*edge);
-                plan.push_back(std::move(signal));
+                    signal.FenceEdges.Add(*edge);
+                plan.Add(std::move(signal));
             }
         }
 
@@ -623,7 +627,7 @@ namespace OloEngine::RenderGraphSubmissionPlan
                 end.SignalNodes = batchInfoIt->second->SignalNodes;
                 end.OutputResources = batchInfoIt->second->OutputResources;
             }
-            plan.push_back(std::move(end));
+            plan.Add(std::move(end));
         }
 
         PlaceRecordingBatchFencesAtBoundaries(plan);

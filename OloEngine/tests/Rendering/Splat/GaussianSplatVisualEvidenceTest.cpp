@@ -178,9 +178,9 @@ namespace OloEngine::Tests
                                   GL_STATIC_DRAW);
             }
 
-            void UploadOrder(const std::vector<u32>& indices)
+            void UploadOrder(const TArray<u32>& indices)
             {
-                glNamedBufferData(m_OrderSsbo, static_cast<GLsizeiptr>(indices.size() * sizeof(u32)), indices.data(),
+                glNamedBufferData(m_OrderSsbo, static_cast<GLsizeiptr>(indices.Num() * sizeof(u32)), indices.GetData(),
                                   GL_STREAM_DRAW);
             }
 
@@ -298,7 +298,7 @@ namespace OloEngine::Tests
             ASSERT_FALSE(path.empty()) << "fixture_discs.ply not found from " << fs::current_path().string()
                                        << " -- run the suite from OloEditor/";
             const LoadResult result = m_Cloud.LoadPly(path);
-            ASSERT_TRUE(result.Ok) << result.Error;
+            ASSERT_TRUE(result.Ok) << result.Error.ToStdString();
 
             m_Shader = Shader::Create("assets/shaders/tests/SplatSpike_Gaussian.glsl");
             ASSERT_TRUE(m_Shader) << "SplatSpike_Gaussian.glsl failed to compile";
@@ -314,7 +314,7 @@ namespace OloEngine::Tests
         }
 
         // Renders `cloud` with `order` and returns the RGBA8 frame.
-        [[nodiscard]] std::vector<u8> RenderFrame(const SplatCloud& cloud, const std::vector<u32>& order,
+        [[nodiscard]] std::vector<u8> RenderFrame(const SplatCloud& cloud, const TArray<u32>& order,
                                                   const glm::mat4& view, const Ref<Shader>& shader, bool blend)
         {
             const SplatViewUniforms uniforms = MakeUniforms(view, Projection());
@@ -336,7 +336,7 @@ namespace OloEngine::Tests
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
             shader->Bind();
-            m_Rig->Draw(static_cast<u32>(order.size()), blend);
+            m_Rig->Draw(static_cast<u32>(order.Num()), blend);
             m_Target->Unbind();
 
             std::vector<u8> pixels;
@@ -419,7 +419,7 @@ namespace OloEngine::Tests
 
         const std::vector<u8> correct = RenderFrame(m_Cloud, ordering.Indices, view, m_Shader, true);
 
-        std::vector<u32> reversed = ordering.Indices;
+        TArray<u32> reversed = ordering.Indices;
         std::reverse(reversed.begin(), reversed.end());
         const std::vector<u8> wrong = RenderFrame(m_Cloud, reversed, view, m_Shader, true);
         WritePng("Splat_Corner_ReversedOrder.png", wrong, kWidth, kHeight);
@@ -635,7 +635,7 @@ namespace OloEngine::Tests
 
             // The same sort through std::sort, so the writeup can say what the
             // radix pass is worth rather than assuming it is worth something.
-            std::vector<std::pair<u32, u32>> pairs(ordering.Indices.size());
+            std::vector<std::pair<u32, u32>> pairs(ordering.Indices.Num());
             const glm::vec3 forward(-view[0][2], -view[1][2], -view[2][2]);
             const f32 forwardOffset = -view[3][2];
             for (sizet i = 0; i < pairs.size(); ++i)
@@ -666,12 +666,12 @@ namespace OloEngine::Tests
                 glClearColor(kClear, kClear, kClear, 1.0f);
                 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
                 shader->Bind();
-                m_Rig->Draw(static_cast<u32>(ordering.Indices.size()), blend); // warm-up
+                m_Rig->Draw(static_cast<u32>(ordering.Indices.Num()), blend); // warm-up
                 glFinish();
 
                 glBeginQuery(GL_TIME_ELAPSED, query);
                 shader->Bind();
-                m_Rig->Draw(static_cast<u32>(ordering.Indices.size()), blend);
+                m_Rig->Draw(static_cast<u32>(ordering.Indices.Num()), blend);
                 glEndQuery(GL_TIME_ELAPSED);
                 glFinish();
                 m_Target->Unbind();

@@ -91,7 +91,7 @@ namespace
             }
         }
 
-        std::vector<AnimalSchedule> Step(AnimalSchedulerStats* outStats = nullptr)
+        TArray<AnimalSchedule> Step(AnimalSchedulerStats* outStats = nullptr)
         {
             std::vector<AnimalScheduleSlot> slots;
             slots.reserve(m_Items.size());
@@ -195,9 +195,9 @@ TEST(AnimalSchedulerPolicy, DisabledPassesEveryAnimalThroughAtItsOwnDesiredStep)
     }
 
     PopulationRun run(items, policy);
-    const std::vector<AnimalSchedule> schedules = run.Step();
+    const TArray<AnimalSchedule> schedules = run.Step();
 
-    ASSERT_EQ(schedules.size(), items.size());
+    ASSERT_EQ(static_cast<sizet>(schedules.Num()), items.size());
     for (const AnimalSchedule& schedule : schedules)
     {
         EXPECT_EQ(schedule.Outcome, AnimalBudgetOutcome::NotScheduled);
@@ -264,7 +264,7 @@ TEST(AnimalSchedulerStarvation, NoAnimalIsPassedOverWhileAPeerSitsAtItsDesiredSt
 
     for (u32 frame = 0; frame < 200u; ++frame)
     {
-        const std::vector<AnimalSchedule> schedules = run.Step();
+        const TArray<AnimalSchedule> schedules = run.Step();
 
         for (sizet a = 0; a < AnimalWorkAxisCount; ++a)
         {
@@ -354,8 +354,8 @@ TEST(AnimalSchedulerStarvation, TheLongestStarvedAnimalIsServedBeforeALessStarve
     run.StateOf(10u).StarvedFrames[kVis] = 5u;
     run.StateOf(11u).StarvedFrames[kVis] = 0u;
 
-    const std::vector<AnimalSchedule> schedules = run.Step();
-    ASSERT_EQ(schedules.size(), 2u);
+    const TArray<AnimalSchedule> schedules = run.Step();
+    ASSERT_EQ(static_cast<sizet>(schedules.Num()), 2u);
 
     const AnimalSchedule& starved = schedules[0].Id == UUID{ 10u } ? schedules[0] : schedules[1];
     const AnimalSchedule& fresh = schedules[0].Id == UUID{ 10u } ? schedules[1] : schedules[0];
@@ -559,9 +559,9 @@ TEST(AnimalSchedulerFloor, TheFloorCounterSeesTheLadderBeingRefusedAndNotOnlyThe
 
     PopulationRun run({ item }, policy);
     AnimalSchedulerStats stats;
-    const std::vector<AnimalSchedule> schedules = run.Step(&stats);
+    const TArray<AnimalSchedule> schedules = run.Step(&stats);
 
-    ASSERT_EQ(schedules.size(), 1u);
+    ASSERT_EQ(static_cast<sizet>(schedules.Num()), 1u);
     EXPECT_EQ(stats.AnimalsCoarsened, 0u) << "there is no budget pressure here at all";
     EXPECT_EQ(stats.AnimalsAtVisibilityFloor, 1u)
         << "the floor refused the distance ladder and the counter did not notice — which is the exact blind spot "
@@ -611,14 +611,14 @@ TEST(AnimalSchedulerFloor, AnAnimalHeldByItsAuthoredCapIsNotCountedAgainstTheFlo
     // first-frame one.
     PopulationRun run({ item }, policy);
     AnimalSchedulerStats stats;
-    std::vector<AnimalSchedule> schedules;
+    TArray<AnimalSchedule> schedules;
     for (u32 frame = 0; frame < 16u; ++frame)
     {
         stats = AnimalSchedulerStats{};
         schedules = run.Step(&stats);
     }
 
-    ASSERT_EQ(schedules.size(), 1u);
+    ASSERT_EQ(static_cast<sizet>(schedules.Num()), 1u);
     ASSERT_EQ(schedules[0].Step[kVis], kAuthoredMax)
         << "the budget did not actually drive this animal to its cap, so the counter's branch never ran";
     EXPECT_EQ(stats.AnimalsAtVisibilityFloor, 0u)
@@ -633,14 +633,14 @@ TEST(AnimalSchedulerFloor, AnAnimalHeldByItsAuthoredCapIsNotCountedAgainstTheFlo
     floorHeld.MaxStep[kVis] = MaxVisibilityStepForStrandFloor(kStrands, kFloor, 16u);
     PopulationRun floorRun({ floorHeld }, policy);
     AnimalSchedulerStats floorStats;
-    std::vector<AnimalSchedule> floorSchedules;
+    TArray<AnimalSchedule> floorSchedules;
     for (u32 frame = 0; frame < 16u; ++frame)
     {
         floorStats = AnimalSchedulerStats{};
         floorSchedules = floorRun.Step(&floorStats);
     }
 
-    ASSERT_EQ(floorSchedules.size(), 1u);
+    ASSERT_EQ(static_cast<sizet>(floorSchedules.Num()), 1u);
     ASSERT_EQ(floorSchedules[0].Step[kVis], floorOnlyCap);
     EXPECT_EQ(floorStats.AnimalsAtVisibilityFloor, 1u)
         << "the same pressure against the floor's own cap must still be counted, or the fix above has simply "
@@ -678,9 +678,9 @@ TEST(AnimalSchedulerFloor, TheDistanceLadderAloneCannotThinAVisibleCoatPastTheFl
     item.MaxStep[kVis] = MaxVisibilityStepForStrandFloor(1000u, 256u, 8u);
 
     PopulationRun run({ item }, policy);
-    const std::vector<AnimalSchedule> schedules = run.Step();
+    const TArray<AnimalSchedule> schedules = run.Step();
 
-    ASSERT_EQ(schedules.size(), 1u);
+    ASSERT_EQ(static_cast<sizet>(schedules.Num()), 1u);
     EXPECT_EQ(schedules[0].Step[kVis], 1u) << "1000 strands over a 256 floor affords exactly one halving";
     EXPECT_GE(static_cast<u32>(1000.0f * schedules[0].Fraction[kVis]), 256u);
 }
@@ -765,7 +765,7 @@ TEST(AnimalSchedulerHero, BackgroundAnimalsAreExhaustedBeforeAFeaturedOneGivesWa
     policy.FrameBudgetUnits = 12000.0f;
 
     PopulationRun run(items, policy);
-    const std::vector<AnimalSchedule> schedules = run.Step();
+    const TArray<AnimalSchedule> schedules = run.Step();
 
     const auto featured = std::find_if(schedules.begin(), schedules.end(),
                                        [](const AnimalSchedule& s)
@@ -813,7 +813,7 @@ TEST(AnimalSchedulerAxes, AnOverSubscribedAxisDoesNotCoarsenAnAxisThatFits)
     PopulationRun run(items, policy);
 
     AnimalSchedulerStats stats;
-    const std::vector<AnimalSchedule> schedules = run.Step(&stats);
+    const TArray<AnimalSchedule> schedules = run.Step(&stats);
 
     bool anySimulationCoarsened = false;
     for (const AnimalSchedule& schedule : schedules)
@@ -848,16 +848,16 @@ TEST(AnimalSchedulerDeterminism, TheSameFrameSchedulesIdenticallyWhateverTheGath
 
     for (u32 frame = 0; frame < 30u; ++frame)
     {
-        std::vector<AnimalSchedule> sa = a.Step();
-        std::vector<AnimalSchedule> sb = b.Step();
-        ASSERT_EQ(sa.size(), sb.size());
+        TArray<AnimalSchedule> sa = a.Step();
+        TArray<AnimalSchedule> sb = b.Step();
+        ASSERT_EQ(static_cast<sizet>(sa.Num()), static_cast<sizet>(sb.Num()));
 
         const auto byId = [](const AnimalSchedule& l, const AnimalSchedule& r)
         { return static_cast<u64>(l.Id) < static_cast<u64>(r.Id); };
         std::sort(sa.begin(), sa.end(), byId);
         std::sort(sb.begin(), sb.end(), byId);
 
-        for (sizet i = 0; i < sa.size(); ++i)
+        for (sizet i = 0; i < static_cast<sizet>(sa.Num()); ++i)
         {
             EXPECT_TRUE(sa[i] == sb[i]) << "frame " << frame << " animal " << static_cast<u64>(sa[i].Id)
                                         << ": the schedule depended on the order the animals were gathered in";
@@ -873,10 +873,10 @@ TEST(AnimalSchedulerDeterminism, RepeatedRunsOfTheSamePopulationAreBitIdentical)
 
     for (u32 frame = 0; frame < 40u; ++frame)
     {
-        const std::vector<AnimalSchedule> sa = a.Step();
-        const std::vector<AnimalSchedule> sb = b.Step();
-        ASSERT_EQ(sa.size(), sb.size());
-        for (sizet i = 0; i < sa.size(); ++i)
+        const TArray<AnimalSchedule> sa = a.Step();
+        const TArray<AnimalSchedule> sb = b.Step();
+        ASSERT_EQ(static_cast<sizet>(sa.Num()), static_cast<sizet>(sb.Num()));
+        for (sizet i = 0; i < static_cast<sizet>(sa.Num()); ++i)
         {
             EXPECT_TRUE(sa[i] == sb[i]) << "frame " << frame << " index " << i;
         }
@@ -964,8 +964,8 @@ TEST(AnimalSchedulerSanitize, ANonFinitePixelSizeCannotBreakTheServiceOrder)
     items[7].PixelSize = -std::numeric_limits<f32>::infinity();
 
     PopulationRun run(items, TightPolicy());
-    const std::vector<AnimalSchedule> schedules = run.Step();
-    EXPECT_EQ(schedules.size(), items.size());
+    const TArray<AnimalSchedule> schedules = run.Step();
+    EXPECT_EQ(static_cast<sizet>(schedules.Num()), items.size());
 }
 
 // -----------------------------------------------------------------------------
@@ -1057,9 +1057,9 @@ TEST(AnimalSchedulerFloor, TheScheduleCarriesTheCapSoAConsumerCanClampAgainstIt)
     item.MaxStep[kVis] = MaxVisibilityStepForStrandFloor(kStrands, kFloor, 8u);
 
     PopulationRun run({ item }, policy);
-    const std::vector<AnimalSchedule> schedules = run.Step();
+    const TArray<AnimalSchedule> schedules = run.Step();
 
-    ASSERT_EQ(schedules.size(), 1u);
+    ASSERT_EQ(static_cast<sizet>(schedules.Num()), 1u);
     // 1000 strands over a 256 floor affords exactly one halving.
     EXPECT_EQ(schedules[0].MaxStep[kVis], 1u)
         << "the decision does not carry the floor-derived cap, so a consumer combining it with another ladder has "
@@ -1104,8 +1104,8 @@ TEST(AnimalSchedulerStarvation, AnAnimalAtTheStarvationBoundIsPassedOverWhileAPe
     run.StateOf(10u).StarvedFrames[kVis] = 4u; // at the bound
     run.StateOf(11u).StarvedFrames[kVis] = 0u;
 
-    const std::vector<AnimalSchedule> schedules = run.Step();
-    ASSERT_EQ(schedules.size(), 2u);
+    const TArray<AnimalSchedule> schedules = run.Step();
+    ASSERT_EQ(static_cast<sizet>(schedules.Num()), 2u);
 
     const AnimalSchedule& atBound = schedules[0].Id == UUID{ 10u } ? schedules[0] : schedules[1];
     const AnimalSchedule& fresh = schedules[0].Id == UUID{ 10u } ? schedules[1] : schedules[0];
@@ -1136,7 +1136,7 @@ TEST(AnimalSchedulerStarvation, WhenEveryCandidateIsAtTheBoundTheRuleIsDroppedRa
     run.StateOf(11u).StarvedFrames[kVis] = 9u;
 
     AnimalSchedulerStats stats;
-    const std::vector<AnimalSchedule> schedules = run.Step(&stats);
+    const TArray<AnimalSchedule> schedules = run.Step(&stats);
 
     const bool anythingCoarsened =
         std::ranges::any_of(schedules, [](const AnimalSchedule& s)

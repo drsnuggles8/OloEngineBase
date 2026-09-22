@@ -457,7 +457,7 @@ namespace OloEngine::Tests
             }
 
             const std::set<u32> actual(readback.SourceRows.begin(), readback.SourceRows.end());
-            EXPECT_EQ(actual.size(), readback.SourceRows.size())
+            EXPECT_EQ(actual.size(), readback.SourceRows.Num())
                 << "layer " << layerIndex << ": a source row appears twice in the compacted stream — the append "
                                              "handed two invocations the same slot";
 

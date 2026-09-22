@@ -296,7 +296,7 @@ TEST_F(McpAutomationEntities, DuplicatePreservesCloneUuidAndDataWithoutCloningCh
     EXPECT_EQ(EntityCount(), 3u);
     ASSERT_TRUE(Find(uuid));
     EXPECT_EQ(Find(uuid).GetName(), "Copy");
-    EXPECT_TRUE(Find(uuid).Children().empty());
+    EXPECT_TRUE(Find(uuid).Children().IsEmpty());
     EXPECT_FALSE(Find(uuid).GetParent());
     EXPECT_FALSE(Find(uuid).GetComponent<CameraComponent>().Primary);
     EXPECT_EQ(Id(child.GetParent()), Id(source));
@@ -311,7 +311,7 @@ TEST_F(McpAutomationEntities, DuplicatePreservesCloneUuidAndDataWithoutCloningCh
     EXPECT_EQ(Find(uuid).GetName(), "Copy");
     EXPECT_FLOAT_EQ(Find(uuid).GetComponent<MorphTargetComponent>().Weights.at("blink"), 0.5f);
     EXPECT_FLOAT_EQ(Find(uuid).GetComponent<TransformComponent>().Translation.x, 12.5f);
-    EXPECT_TRUE(Find(uuid).Children().empty());
+    EXPECT_TRUE(Find(uuid).Children().IsEmpty());
     EXPECT_FALSE(Find(uuid).GetComponent<CameraComponent>().Primary);
 }
 

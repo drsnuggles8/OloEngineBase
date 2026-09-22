@@ -29,7 +29,8 @@ namespace OloEngine
             return;
         }
 
-        std::vector<MaterialShaderHeapRecord> records(count);
+        TArray<MaterialShaderHeapRecord> records;
+        records.SetNum(static_cast<i32>(count));
         const u32 instanceCount = scene.GetInstanceSlotCount();
         for (u32 slot = 0; slot < instanceCount; ++slot)
         {
@@ -66,8 +67,8 @@ namespace OloEngine
         if (m_Unresolved > 0u)
             OLO_CORE_WARN("MaterialShaderHeapTable: {} material maps could not resolve; using their factors", m_Unresolved);
 
-        const auto bytes = static_cast<u32>(records.size() * sizeof(MaterialShaderHeapRecord));
-        if (m_Buffer && records.size() == m_Uploaded.size() && std::memcmp(records.data(), m_Uploaded.data(), bytes) == 0)
+        const auto bytes = static_cast<u32>(records.Num() * sizeof(MaterialShaderHeapRecord));
+        if (m_Buffer && records.Num() == m_Uploaded.Num() && std::memcmp(records.GetData(), m_Uploaded.GetData(), bytes) == 0)
             return;
 
         auto buffer = StorageBuffer::Create(bytes, StorageBuffer::kNoBinding);
@@ -76,7 +77,7 @@ namespace OloEngine
             Shutdown();
             return;
         }
-        buffer->SetData(records.data(), bytes);
+        buffer->SetData(records.GetData(), bytes);
         m_Buffer = std::move(buffer);
         m_Uploaded = std::move(records);
     }
@@ -88,13 +89,13 @@ namespace OloEngine
         const u64 address = m_Buffer->GetDeviceAddress();
         if (address == 0u)
             return glm::uvec3(0u);
-        return { static_cast<u32>(address), static_cast<u32>(address >> 32u), static_cast<u32>(m_Uploaded.size()) };
+        return { static_cast<u32>(address), static_cast<u32>(address >> 32u), static_cast<u32>(m_Uploaded.Num()) };
     }
 
     void MaterialShaderHeapTable::Shutdown()
     {
         m_Buffer.Reset();
-        m_Uploaded.clear();
+        m_Uploaded.Reset();
         m_Unresolved = 0u;
     }
 } // namespace OloEngine

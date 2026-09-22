@@ -55,7 +55,7 @@ namespace
     GPUPassTimerPool::PassTiming Pass(std::string name, GpuTimingSample sample, bool isSubPass = false,
                                       std::string parent = {})
     {
-        return GPUPassTimerPool::PassTiming{ std::move(name), sample, isSubPass, std::move(parent) };
+        return GPUPassTimerPool::PassTiming{ FString(name), sample, isSubPass, FString(parent) };
     }
 } // namespace
 
@@ -220,7 +220,7 @@ TEST(GpuTimingValidity, SumExcludesSubPassesSoNestedTimeIsNotDoubleCounted)
     // ScenePass's bracket CONTAINS its DepthPrepass and Color sub-brackets.
     // Summing all three reports 2.0 + 0.5 + 1.2 = 3.7 ms of GPU work for 2.0 ms
     // of GPU work.
-    const std::vector<GPUPassTimerPool::PassTiming> passes{
+    const TArray<GPUPassTimerPool::PassTiming> passes{
         Pass("ScenePass", GpuTimingSample::Measured(2.0)),
         Pass("ScenePass/DepthPrepass", GpuTimingSample::Measured(0.5), true, "ScenePass"),
         Pass("ScenePass/Color", GpuTimingSample::Measured(1.2), true, "ScenePass"),
@@ -240,7 +240,7 @@ TEST(GpuTimingValidity, SumSkipsUnmeasuredPassesAndSaysTheTotalIsAFloor)
     // NEGATIVE CONTROL for the total. A pass with no measurement contributes
     // nothing — correct — but a total that silently loses a pass and still
     // presents itself as the frame's pass time is the same lie one level up.
-    const std::vector<GPUPassTimerPool::PassTiming> passes{
+    const TArray<GPUPassTimerPool::PassTiming> passes{
         Pass("ScenePass", GpuTimingSample::Measured(2.0)),
         Pass("Shadow", GpuTimingSample::Absent(GpuTimingStatus::NotStamped)),
         Pass("GTAO", GpuTimingSample::Absent(GpuTimingStatus::Dropped)),
@@ -259,7 +259,7 @@ TEST(GpuTimingValidity, SubPassFlagIsTheProducersNotDerivedFromTheName)
     // REGRESSION GUARD for the old string-parsing rule. A pass whose own name
     // contains a slash used to be read as somebody's sub-pass and dropped out
     // of the total. The flag says it is top-level, so it counts.
-    const std::vector<GPUPassTimerPool::PassTiming> passes{
+    const TArray<GPUPassTimerPool::PassTiming> passes{
         Pass("Terrain/VirtualTexture", GpuTimingSample::Measured(1.5)),
     };
 
@@ -546,7 +546,7 @@ TEST(GpuTimingValidity, UninitializedPoolReportsUnavailableRatherThanZeros)
 
     EXPECT_EQ(snapshot.Frame.Status, GpuTimingStatus::Unavailable);
     EXPECT_FALSE(snapshot.Frame.IsValid());
-    EXPECT_TRUE(snapshot.Passes.empty());
+    EXPECT_TRUE(snapshot.Passes.IsEmpty());
     EXPECT_EQ(snapshot.FrameNumber, 0u);
     EXPECT_TRUE(snapshot.IsStale()) << "nothing has ever resolved, so nothing here is current";
 }
@@ -631,7 +631,7 @@ TEST(GpuTimingValidity, SumTopLevelCountsAnOrphanSubPass)
     // A sub-pass whose parent is NOT in the list has no enclosing bracket for
     // its time to be double-counted inside, so it counts — the same rule the
     // MCP shaping applied on its own before the two were unified.
-    const std::vector<GPUPassTimerPool::PassTiming> passes{
+    const TArray<GPUPassTimerPool::PassTiming> passes{
         Pass("ScenePass/DepthPrepass", GpuTimingSample::Measured(0.5), true, "ScenePass"),
         Pass("Bloom", GpuTimingSample::Measured(0.3)),
     };
@@ -654,9 +654,9 @@ TEST(GpuTimingValidity, TheMcpTotalIsTheSharedRuleNotALoopOfItsOwn)
         PT::GpuPassEntry{ "GTAOPass/HZB", GpuTimingSample::Measured(0.4), true, "GTAOPass" }, // orphan
         PT::GpuPassEntry{ "Shadow", GpuTimingSample::Absent(GpuTimingStatus::Dropped), false, {} },
     };
-    std::vector<GPUPassTimerPool::PassTiming> same;
+    TArray<GPUPassTimerPool::PassTiming> same;
     for (const auto& e : gpuPasses)
-        same.push_back(Pass(e.Name, e.Sample, e.IsSubPass, e.ParentName));
+        same.Add(Pass(e.Name, e.Sample, e.IsSubPass, e.ParentName));
 
     const GPUPassTimerPool::PassTotal total = GPUPassTimerPool::SumTopLevel(same);
     const auto json = PT::BuildPassTimings(gpuPasses, {}, ValidTotals(4.0));

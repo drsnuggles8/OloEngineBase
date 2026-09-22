@@ -190,12 +190,12 @@ namespace OloEngine
 
         const void* uploadData = data;
         u64 uploadSize = expected;
-        std::vector<u8> expanded;
+        TArray64<u8> expanded;
         if (m_CubemapSpecification.Format == ImageFormat::RGB8 || m_CubemapSpecification.Format == ImageFormat::RGB32F)
         {
             expanded = VulkanUpload::ExpandRgbToRgba(m_CubemapSpecification.Format, data, static_cast<u64>(mipWidth) * mipHeight);
-            uploadData = expanded.data();
-            uploadSize = expanded.size();
+            uploadData = expanded.GetData();
+            uploadSize = expanded.Num();
         }
 
         // Mid-frame (the IBL cache load runs inside the frame on this
@@ -362,10 +362,10 @@ namespace OloEngine
         VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VulkanDevice::Get()->GetSampledImageLayout());
     }
 
-    bool VulkanTextureCubemap::ReadFaces(u32 baseFace, u32 faceCount, u32 mipLevel, std::vector<u8>& outData,
+    bool VulkanTextureCubemap::ReadFaces(u32 baseFace, u32 faceCount, u32 mipLevel, TArray64<u8>& outData,
                                          const char* what) const
     {
-        outData.clear();
+        outData.Reset();
         auto* device = VulkanDevice::Get();
         const u32 clientBpp = VulkanUpload::EngineFormatClientBpp(m_CubemapSpecification.Format);
         if (device == nullptr || m_Image == VK_NULL_HANDLE || clientBpp == 0u || faceCount == 0u || baseFace >= 6u ||
@@ -473,16 +473,16 @@ namespace OloEngine
                 // the faces are packed back to back, so one pass over every
                 // texel covers them all.
                 const u64 texels = static_cast<u64>(mipWidth) * mipHeight * faceCount;
-                outData.resize(texels * clientBpp);
+                outData.SetNum(texels * clientBpp, EAllowShrinking::No);
                 for (u64 i = 0; i < texels; ++i)
                 {
-                    std::memcpy(outData.data() + i * clientBpp, stored + i * storedBpp,
+                    std::memcpy(outData.GetData() + i * clientBpp, stored + i * storedBpp,
                                 static_cast<sizet>(clientBpp));
                 }
             }
             else
             {
-                outData.assign(stored, stored + storedSize);
+                outData.Append(stored, static_cast<i64>(storedSize));
             }
         }
         else
@@ -494,12 +494,12 @@ namespace OloEngine
         return ok;
     }
 
-    bool VulkanTextureCubemap::GetFaceData(u32 faceIndex, std::vector<u8>& outData, u32 mipLevel) const
+    bool VulkanTextureCubemap::GetFaceData(u32 faceIndex, TArray64<u8>& outData, u32 mipLevel) const
     {
         return ReadFaces(faceIndex, 1u, mipLevel, outData, "VulkanTextureCubemap::GetFaceData");
     }
 
-    bool VulkanTextureCubemap::GetData(std::vector<u8>& outData, u32 mipLevel) const
+    bool VulkanTextureCubemap::GetData(TArray64<u8>& outData, u32 mipLevel) const
     {
         // GL contract (OpenGLTextureCubemap::GetData): all six faces
         // contiguous in face order. ONE flush (if mid-frame) + ONE one-shot

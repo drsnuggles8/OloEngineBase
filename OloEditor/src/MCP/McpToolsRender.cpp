@@ -209,12 +209,12 @@ namespace OloEngine::MCP
             const Json trigger = host.MarshalRead([]() -> Json
                                                   {
                 FrameCaptureManager& fcm = FrameCaptureManager::GetInstance();
-                const auto before = static_cast<u64>(fcm.GetCapturedFramesCopy().size());
+                const auto before = static_cast<u64>(fcm.GetCapturedFramesCopy().Num());
                 fcm.CaptureNextFrame();
                 return Json{ { "before", before } }; });
             const auto before = trigger.value("before", static_cast<u64>(0));
 
-            std::deque<CapturedFrameData> frames;
+            TArray<CapturedFrameData> frames;
             bool captured = false;
             int polls = 0;
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
@@ -223,7 +223,7 @@ namespace OloEngine::MCP
                 if (host.IsCurrentCallCancelled())
                     return ToolResult::Error("Cancelled while waiting for the frame capture.");
                 frames = FrameCaptureManager::GetInstance().GetCapturedFramesCopy();
-                if (static_cast<u64>(frames.size()) > before && !frames.empty())
+                if (static_cast<u64>(frames.Num()) > before && !frames.IsEmpty())
                 {
                     captured = true;
                     break;
@@ -234,7 +234,7 @@ namespace OloEngine::MCP
             if (!captured)
                 return ToolResult::Error("Frame capture timed out (is the editor rendering the viewport?).");
 
-            const CapturedFrameData& cap = frames.back();
+            const CapturedFrameData& cap = frames.Last();
 
             if (format == "markdown")
                 return ToolResult::Text(CommandPacketDebugger::BuildMarkdownReport(cap));
@@ -245,34 +245,36 @@ namespace OloEngine::MCP
             // MarshalRead; the shaping stays in the pure FrameBreakdown core. A
             // missing graph (2D mode / no frame yet) just omits the attribution.
             FrameBreakdown::GraphAttribution attribution;
-            attribution.CaptureSourcePass = cap.SourcePassName;
+            attribution.CaptureSourcePass = cap.SourcePassName.ToStdString();
             const Json gathered = host.MarshalRead([&attribution]() -> Json
                                                    {
                 const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph();
                 if (!graph)
                     return Json{ { "haveGraph", false } };
 
-                const std::vector<std::string>& order = graph->GetExecutionOrder();
+                const auto order = graph->GetExecutionOrder();
                 std::unordered_map<std::string, int> executionIndex;
                 executionIndex.reserve(order.size());
                 for (int i = 0; i < static_cast<int>(order.size()); ++i)
-                    executionIndex.emplace(order[i], i);
+                    executionIndex.emplace(order[i].ToStdString(), i);
 
                 const auto& culled = graph->GetCulledPasses();
-                const std::unordered_set<std::string> culledSet(culled.begin(), culled.end());
-                const std::string& finalPass = graph->GetFinalPassName();
+                std::unordered_set<std::string> culledSet;
+                for (const auto& name : culled)
+                    culledSet.emplace(name.ToStdString());
+                const std::string& finalPass = graph->GetFinalPassName().ToStdString();
 
                 for (const auto& info : graph->GetNodeSubmissionInfo())
                 {
                     FrameBreakdown::GraphPassInfo pass;
-                    pass.Name = info.NodeName;
+                    pass.Name = info.NodeName.ToStdString();
                     pass.WorkType = PassWorkTypeName(info.WorkType);
                     // A pass owns a command bucket iff it is a CommandBufferRenderPass
                     // (Ref::As uses dynamic_cast, so this is an exact type test).
-                    pass.UsesCommandBucket = graph->GetNode<CommandBufferRenderPass>(info.NodeName) != nullptr;
-                    pass.Culled = culledSet.contains(info.NodeName);
+                    pass.UsesCommandBucket = graph->GetNode<CommandBufferRenderPass>(info.NodeName.ToStdString()) != nullptr;
+                    pass.Culled = culledSet.contains(info.NodeName.ToStdString());
                     pass.IsFinalPass = !finalPass.empty() && info.NodeName == finalPass;
-                    if (const auto it = executionIndex.find(info.NodeName); it != executionIndex.end())
+                    if (const auto it = executionIndex.find(info.NodeName.ToStdString()); it != executionIndex.end())
                         pass.ExecutionIndex = it->second;
                     attribution.Passes.push_back(std::move(pass));
                 }
@@ -544,7 +546,7 @@ namespace OloEngine::MCP
                     if (!resource.TextureHandle.IsValid() && !resource.FramebufferHandle.IsValid())
                         continue;
                     Json e;
-                    e["name"] = resource.Name;
+                    e["name"] = resource.Name.ToStdString();
                     e["kind"] = std::string(ToString(resource.Desc.Kind));
                     if (resource.Desc.Format != RGResourceFormat::Unknown)
                         e["format"] = RGFormatName(resource.Desc.Format);
@@ -556,13 +558,17 @@ namespace OloEngine::MCP
                     // Layer count of an array / cube / 3D target, so an agent can
                     // DISCOVER how many cascades (or faces, or froxel slices) there
                     // are instead of guessing at olo_render_capture_target's 'layer'.
-                    const CaptureLayer::TargetLayers layers = ResolveTargetLayers(*graph, resource.Name);
+                    const CaptureLayer::TargetLayers layers = ResolveTargetLayers(*graph, resource.Name.ToStdString());
                     if (CaptureLayer::IsArrayTarget(layers))
                         e["layers"] = layers.LayerCount;
                     if (layers.ViewLayer != 0)
                         e["viewOfParentLayer"] = layers.ViewLayer;
-                    if (!resource.Producers.empty())
-                        e["producers"] = resource.Producers;
+                    if (!resource.Producers.IsEmpty())
+                        {
+                        e["producers"] = Json::array();
+                        for (const auto& producer : resource.Producers)
+                            e["producers"].push_back(producer.ToStdString());
+                    }
                     targets.push_back(std::move(e));
                 }
                 Json j;
@@ -678,32 +684,35 @@ namespace OloEngine::MCP
                     return Json{ { "__error", "No active render graph (the editor is not in 3D mode, or no frame has been rendered yet)." } };
 
                 RenderGraphTopology::Snapshot snap;
-                snap.FinalPass = graph->GetFinalPassName();
+                snap.FinalPass = graph->GetFinalPassName().ToStdString();
 
                 const auto& culled = graph->GetCulledPasses();
-                const std::unordered_set<std::string> culledSet(culled.begin(), culled.end());
+                std::unordered_set<std::string> culledSet;
+                for (const auto& name : culled)
+                    culledSet.emplace(name.ToStdString());
 
                 for (const auto& info : graph->GetNodeSubmissionInfo())
                 {
                     RenderGraphTopology::PassInfo pass;
-                    pass.Name = info.NodeName;
+                    pass.Name = info.NodeName.ToStdString();
                     pass.WorkType = PassWorkTypeName(info.WorkType);
                     pass.DeclaresResources = info.DeclaresResources;
                     pass.AsyncComputeCandidate = info.AsyncComputeCandidate;
-                    pass.Culled = culledSet.contains(info.NodeName);
+                    pass.Culled = culledSet.contains(info.NodeName.ToStdString());
                     pass.IsFinalPass = !snap.FinalPass.empty() && info.NodeName == snap.FinalPass;
                     snap.Passes.push_back(std::move(pass));
                 }
 
-                snap.ExecutionOrder = graph->GetExecutionOrder();
+                for (const auto& name : graph->GetExecutionOrder())
+                    snap.ExecutionOrder.push_back(name.ToStdString());
 
                 for (const auto& connection : graph->GetConnections())
-                    snap.Edges.push_back(RenderGraphTopology::EdgeInfo{ connection.OutputPass, connection.InputPass });
+                    snap.Edges.push_back(RenderGraphTopology::EdgeInfo{ connection.OutputPass.ToStdString(), connection.InputPass.ToStdString() });
 
                 for (const auto& resource : graph->GetRegisteredResources())
                 {
                     RenderGraphTopology::ResourceInfo info;
-                    info.Name = resource.Name;
+                    info.Name = resource.Name.ToStdString();
                     info.Kind = std::string(ToString(resource.Desc.Kind));
                     if (resource.Desc.Format != RGResourceFormat::Unknown)
                         info.Format = RGFormatName(resource.Desc.Format);
@@ -712,8 +721,10 @@ namespace OloEngine::MCP
                     info.Samples = resource.Desc.Samples;
                     info.Imported = resource.Desc.Imported;
                     info.HasExternalBacking = resource.HasExternalBacking;
-                    info.Producers = resource.Producers;
-                    info.Consumers = resource.Consumers;
+                    for (const auto& producer : resource.Producers)
+                        info.Producers.push_back(producer.ToStdString());
+                    for (const auto& consumer : resource.Consumers)
+                        info.Consumers.push_back(consumer.ToStdString());
 
                     // Resolved physical backing (issue #607) — the one-call
                     // answer to "do these two passes touch the same physical
@@ -733,7 +744,7 @@ namespace OloEngine::MCP
                         info.NativeTextureHandle =
                             Debug::NativeHandleForDiagnostics(*graph, resource.TextureHandle);
                         info.TextureIdentity = RHI::HashKey(graph->ResolveTextureHandle(resource.TextureHandle));
-                        info.ViewOfParentLayer = graph->GetTextureViewLayerIndex(resource.Name);
+                        info.ViewOfParentLayer = graph->GetTextureViewLayerIndex(resource.Name.ToView());
                     }
                     if (resource.FramebufferHandle.IsValid())
                     {
@@ -784,7 +795,7 @@ namespace OloEngine::MCP
                 for (const auto& history : graph->GetTemporalHistoryRegistry().Snapshot())
                 {
                     snap.Histories.push_back(RenderGraphTopology::HistoryInfo{
-                        .Name = history.DebugName,
+                        .Name = history.DebugName.ToStdString(),
                         .Effect = TemporalEffectName(history.Key.Effect),
                         .Plane = TemporalPlaneName(history.Key.Plane),
                         .Resolution = TemporalResolutionName(history.Key.Resolution),
@@ -1227,12 +1238,12 @@ namespace OloEngine::MCP
                 encodeSrc = &scaled;
             }
 
-            std::vector<u8> png;
+            TArray64<u8> png;
             const auto appendToVector = [](void* context, void* data, int size)
             {
-                auto* out = static_cast<std::vector<u8>*>(context);
+                auto* out = static_cast<TArray64<u8>*>(context);
                 const auto* bytes = static_cast<const u8*>(data);
-                out->insert(out->end(), bytes, bytes + size);
+                out->Append(bytes, static_cast<i64>(size));
             };
             if (stbi_write_png_to_func(appendToVector, &png, static_cast<int>(outW), static_cast<int>(outH),
                                        outChannels, encodeSrc->data(), static_cast<int>(outW) * outChannels) == 0)
@@ -1411,8 +1422,8 @@ namespace OloEngine::MCP
                     *graph, name, mipLevel, selection.Layer, normalizeMode, maxWidth,
                     GPUResourceInspector::CaptureRegion{ region.X, region.Y, region.Width, region.Height },
                     cloneHandle);
-                if (!capture.Error.empty())
-                    return Json{ { "__error", "Capture of '" + name + "' failed: " + capture.Error } };
+                if (!capture.Error.IsEmpty())
+                    return Json{ { "__error", "Capture of '" + name + "' failed: " + capture.Error.ToStdString() } };
 
                 Json meta = CaptureStampJson(host.Context().GetFrameIndex ? host.Context().GetFrameIndex() : 0, host.Context());
                 meta["name"] = name;
@@ -1441,7 +1452,7 @@ namespace OloEngine::MCP
                 meta["region"] = CaptureRegionArg::MetaJson(
                     McpCaptureRegion{ capture.RegionX, capture.RegionY, capture.RegionWidth, capture.RegionHeight },
                     capture.Width, capture.Height);
-                meta["format"] = capture.FormatName;
+                meta["format"] = capture.FormatName.ToStdString();
                 meta["isDepth"] = capture.IsDepth;
                 meta["normalized"] = capture.Normalized;
                 if (capture.MaxValue > capture.MinValue)
@@ -1453,9 +1464,9 @@ namespace OloEngine::MCP
                 // Link mode hands the RAW bytes out (base64 happens lazily at
                 // resources/read); inline keeps encoding here, unchanged.
                 if (deliverLink)
-                    out["png"] = Json::binary(std::move(capture.PngBytes));
+                    out["png"] = Json::binary(std::vector<u8>(capture.PngBytes.begin(), capture.PngBytes.end()));
                 else
-                    out["b64"] = Base64Encode(capture.PngBytes);
+                    out["b64"] = Base64Encode(std::span{ capture.PngBytes.GetData(), static_cast<sizet>(capture.PngBytes.Num()) });
                 return out; });
 
             if (result.is_object() && result.contains("__error"))
@@ -3179,11 +3190,11 @@ namespace OloEngine::MCP
                 Json entries = Json::array();
                 for (const auto& entry : graph->GetTransientPlan())
                 {
-                    if (!filter.empty() && entry.Resource.find(filter) == std::string::npos)
+                    if (!filter.empty() && entry.Resource.ToView().find(filter) == std::string::npos)
                         continue;
 
                     Json j{
-                        { "resource", entry.Resource },
+                        { "resource", entry.Resource.ToStdString() },
                         { "kind", ResourceKindName(entry.Kind) },
                         { "reachable", entry.Reachable },
                         { "willAllocate", entry.WillAllocate },
@@ -3197,14 +3208,14 @@ namespace OloEngine::MCP
                     if (entry.FirstPassIndex != std::numeric_limits<u32>::max())
                         j["firstPassIndex"] = entry.FirstPassIndex;
                     j["lastPassIndex"] = entry.LastPassIndex;
-                    if (!entry.SkipReason.empty())
+                    if (!entry.SkipReason.IsEmpty())
                         j["skipReason"] = entry.SkipReason;
                     // A "version-alias" skip is meaningless without its target: the
                     // versioned name is a RENAME of the source's physical, and a
                     // version whose physical differs from its base's is the
                     // orphan-allocation bug this whole diagnostic exists to catch.
-                    if (const auto aliasIt = versionAliases.find(entry.Resource); aliasIt != versionAliases.end())
-                        j["versionAliasOf"] = aliasIt->second;
+                    if (const auto aliasIt = versionAliases.find(entry.Resource.ToStdString()); aliasIt != versionAliases.end())
+                        j["versionAliasOf"] = aliasIt->second.ToStdString();
                     // The resolved physical backing, so "did these two plan
                     // entries get the same GPU object" is one lookup rather
                     // than an inference from alias group + slot. Compare
@@ -3214,7 +3225,7 @@ namespace OloEngine::MCP
                     {
                         bool depthFromFramebuffer = false;
                         const RHI::ResourceHandle texture =
-                            ResolveTargetHandle(entry.Resource, depthFromFramebuffer);
+                            ResolveTargetHandle(entry.Resource.ToStdString(), depthFromFramebuffer);
                         if (const u64 native = Debug::NativeHandleForDiagnostics(texture); native != 0)
                             j["nativeTexture"] = MCP::NativeHandleHex(native);
                         if (const std::string token = MCP::IdentityToken(RHI::HashKey(texture)); !token.empty())
@@ -3223,7 +3234,7 @@ namespace OloEngine::MCP
                     // Poison hue is reported unconditionally — knowing which colour
                     // a resource WOULD leak as is what lets you plan the hunt before
                     // turning poison mode on.
-                    j["poisonColor"] = std::string(RenderGraph::PoisonColorNameForResource(entry.Resource));
+                    j["poisonColor"] = std::string(RenderGraph::PoisonColorNameForResource(entry.Resource.ToView()));
                     entries.push_back(std::move(j));
                 }
 
@@ -3250,7 +3261,7 @@ namespace OloEngine::MCP
                     Json buckets = Json::array();
                     for (const auto& bucket : pool.GetBucketReport())
                     {
-                        Json b{ { "kind", bucket.Kind }, { "key", bucket.Key }, { "pooledCount", bucket.PooledCount } };
+                        Json b{ { "kind", bucket.Kind.ToStdString() }, { "key", bucket.Key }, { "pooledCount", bucket.PooledCount } };
                         if (bucket.Kind == "texture")
                         {
                             b["width"] = bucket.Width;
@@ -3285,7 +3296,7 @@ namespace OloEngine::MCP
                         bool liveFrame = false;
                         for (const auto& acquired : pool.GetAcquireOrder(&liveFrame))
                         {
-                            Json a{ { "kind", acquired.Kind },
+                            Json a{ { "kind", acquired.Kind.ToStdString() },
                                     { "nativeHandle", MCP::NativeHandleHex(
                                                           Debug::NativeHandleForDiagnostics(acquired.Handle)) },
                                     { "identity", MCP::IdentityToken(RHI::HashKey(acquired.Handle)) },
@@ -3390,8 +3401,8 @@ namespace OloEngine::MCP
                     {
                         for (const auto& entry : graph->GetTransientPlan())
                         {
-                            map.push_back(Json{ { "resource", entry.Resource },
-                                                { "color", std::string(RenderGraph::PoisonColorNameForResource(entry.Resource)) } });
+                            map.push_back(Json{ { "resource", entry.Resource.ToStdString() },
+                                                { "color", std::string(RenderGraph::PoisonColorNameForResource(entry.Resource.ToView())) } });
                         }
                     }
                     out["poisonColorMap"] = std::move(map);
@@ -3549,7 +3560,7 @@ namespace OloEngine::MCP
                             const auto& imc = entity.GetComponent<InstancedMeshComponent>();
                             f.GeometryRequired = true;
                             const bool hasMesh = static_cast<bool>(imc.MeshSource);
-                            const bool hasInstances = !imc.Instances.empty() || imc.PlacementAssetHandle != 0;
+                            const bool hasInstances = !imc.Instances.IsEmpty() || imc.PlacementAssetHandle != 0;
                             f.GeometryPresent = hasMesh && hasInstances;
                             if (!hasMesh)
                                 f.GeometryDetail = "the InstancedMeshComponent's MeshSource is null";
@@ -4003,17 +4014,16 @@ namespace OloEngine::MCP
                     {
                         if (!valid.empty())
                             valid += ", ";
-                        valid += pass;
+                        valid += pass.ToView();
                     }
                     return Json{ { "__error", "Unknown pass '" + passName +
                                                   "' for afterPass. Passes in this frame's execution order: " + valid + "." } };
                 }
 
-                std::vector<RenderGraphPassSnapshot::Request> requests;
-                requests.reserve(resources.size());
+                TDoubleLinkedList<RenderGraphPassSnapshot::Request> requests;
                 for (const auto& resourceName : resources)
                 {
-                    requests.push_back(RenderGraphPassSnapshot::Request{
+                    requests.AddTail(RenderGraphPassSnapshot::Request{
                         resourceName,
                         [resourceName]() -> RHI::ResourceHandle
                         {
@@ -4055,7 +4065,7 @@ namespace OloEngine::MCP
             if (snapshot.GetPassName() != passName)
             {
                 return "Another tool call re-armed the afterPass snapshot concurrently (now armed for pass '" +
-                       snapshot.GetPassName() + "', expected '" + passName +
+                       snapshot.GetPassName().ToStdString() + "', expected '" + passName +
                        "'). afterPass requests are one-at-a-time; retry.";
             }
             if (snapshot.IsPending())
@@ -4074,7 +4084,7 @@ namespace OloEngine::MCP
                     continue;
                 if (!result.Captured)
                 {
-                    const std::string error = result.Error;
+                    const std::string error = result.Error.ToStdString();
                     snapshot.Disarm();
                     return error;
                 }
@@ -4656,37 +4666,37 @@ namespace OloEngine::MCP
                 std::vector<RenderValidate::HazardInfo> hazards;
                 for (const auto& hazard : mutableGraph.ValidateCompiledResourceHazards())
                 {
-                    hazards.push_back(RenderValidate::HazardInfo{ HazardKindName(hazard.Kind), hazard.Resource,
-                                                                  hazard.Producer, hazard.Consumer, hazard.Message });
+                    hazards.push_back(RenderValidate::HazardInfo{ HazardKindName(hazard.Kind), hazard.Resource.ToStdString(),
+                                                                  hazard.Producer.ToStdString(), hazard.Consumer.ToStdString(), hazard.Message.ToStdString() });
                 }
 
                 std::vector<RenderValidate::DiagnosticInfo> barrierDiagnostics;
                 for (const auto& diagnostic : graph->GetBarrierDiagnostics())
                 {
                     barrierDiagnostics.push_back(RenderValidate::DiagnosticInfo{
-                        BarrierDiagnosticKindName(diagnostic.Kind), diagnostic.PassName, diagnostic.Resource,
-                        diagnostic.Message });
+                        BarrierDiagnosticKindName(diagnostic.Kind), diagnostic.PassName.ToStdString(), diagnostic.Resource.ToStdString(),
+                        diagnostic.Message.ToStdString() });
                 }
 
                 std::vector<RenderValidate::DiagnosticInfo> buildDiagnostics;
                 for (const auto& diagnostic : graph->GetBuildDiagnostics())
                 {
                     buildDiagnostics.push_back(RenderValidate::DiagnosticInfo{
-                        "RegistrationOrderSensitivity", std::string{}, diagnostic.Resource, diagnostic.Message });
+                        "RegistrationOrderSensitivity", std::string{}, diagnostic.Resource.ToStdString(), diagnostic.Message.ToStdString() });
                 }
 
                 std::vector<RenderValidate::ResolveFailureInfo> resolveFailures;
                 for (const auto& failure : graph->GetResolveFailures())
                 {
                     resolveFailures.push_back(
-                        RenderValidate::ResolveFailureInfo{ failure.PassName, failure.Reason, failure.Count });
+                        RenderValidate::ResolveFailureInfo{ failure.PassName.ToStdString(), failure.Reason.ToStdString(), failure.Count });
                 }
 
                 std::vector<RenderValidate::ResourceIdentity> identities;
                 for (const auto& resource : graph->GetRegisteredResources())
                 {
                     RenderValidate::ResourceIdentity identity;
-                    identity.Name = resource.Name;
+                    identity.Name = resource.Name.ToStdString();
 
                     // BOTH currencies, and the BACKING verdict comes from the
                     // identity leg (issue #890, ADR 0011 amendment (90)). The
@@ -4714,7 +4724,7 @@ namespace OloEngine::MCP
                         // 11 of the Vulkan false positives.
                         bool depthFromFramebuffer = false;
                         const RHI::ResourceHandle attachment =
-                            ResolveTargetHandle(resource.Name, depthFromFramebuffer);
+                            ResolveTargetHandle(resource.Name.ToStdString(), depthFromFramebuffer);
                         identity.NativeTextureHandle = Debug::NativeHandleForDiagnostics(attachment);
                         identity.TextureIdentity = RHI::HashKey(attachment);
                         identity.TextureHasStorage = Debug::HasLiveTextureStorage(attachment);
@@ -4729,9 +4739,9 @@ namespace OloEngine::MCP
                                              : static_cast<u64>(graph->ResolveBuffer(resource.BufferHandle));
                         identity.BufferIdentity = RHI::HashKey(buffer);
                     }
-                    identity.HasProducers = !resource.Producers.empty();
-                    identity.HasConsumers = !resource.Consumers.empty();
-                    identity.LastWriter = graph->GetLastWriterPassName(resource.Name);
+                    identity.HasProducers = !resource.Producers.IsEmpty();
+                    identity.HasConsumers = !resource.Consumers.IsEmpty();
+                    identity.LastWriter = graph->GetLastWriterPassName(resource.Name.ToView()).ToStdString();
                     identities.push_back(std::move(identity));
                 }
 
@@ -4751,7 +4761,7 @@ namespace OloEngine::MCP
                         if (snapshot.GetPassName() != compare.AfterPass)
                         {
                             compareResult.Error = "Another tool call re-armed the afterPass snapshot concurrently "
-                                                  "(now armed for pass '" + snapshot.GetPassName() +
+                                                  "(now armed for pass '" + snapshot.GetPassName().ToStdString() +
                                                   "'). afterPass requests are one-at-a-time; retry.";
                         }
                         else if (snapshot.IsPending())
@@ -4770,7 +4780,7 @@ namespace OloEngine::MCP
                             {
                                 if (!snapshotResult.Captured)
                                 {
-                                    compareResult.Error = snapshotResult.Error;
+                                    compareResult.Error = snapshotResult.Error.ToStdString();
                                     continue;
                                 }
                                 if (snapshotResult.ResourceName == compare.A)
@@ -5855,7 +5865,7 @@ namespace OloEngine::MCP
             Json j;
             j["submesh"] = submeshIndex;
             j["source"] = std::string(source);
-            j["name"] = material.GetName();
+            j["name"] = material.GetName().ToStdString();
             j["pbr"] = data.enablePBR;
             j["alphaMode"] = AlphaModeToken(material.GetAlphaMode());
             j["alphaCutoff"] = data.alphaCutoff;
@@ -6457,8 +6467,8 @@ namespace OloEngine::MCP
 
                     if (!typeFilter.empty() && typeName != typeFilter)
                         continue;
-                    if (!nameFilter.empty() && row.Name.find(nameFilter) == std::string::npos &&
-                        row.DebugName.find(nameFilter) == std::string::npos)
+                    if (!nameFilter.empty() && row.Name.ToView().find(nameFilter) == std::string::npos &&
+                        row.DebugName.ToView().find(nameFilter) == std::string::npos)
                         continue;
                     ++matched;
                     if (entries.size() >= limit)
@@ -6466,9 +6476,9 @@ namespace OloEngine::MCP
 
                     Json e;
                     e["type"] = typeName;
-                    e["name"] = row.Name;
-                    if (!row.DebugName.empty() && row.DebugName != row.Name)
-                        e["debugName"] = row.DebugName;
+                    e["name"] = row.Name.ToStdString();
+                    if (!row.DebugName.IsEmpty() && row.DebugName != row.Name)
+                        e["debugName"] = row.DebugName.ToStdString();
                     // BOTH currencies, always.
                     e["nativeHandle"] = std::format("0x{:X}", row.NativeHandle);
                     if (row.Handle.IsValid())
@@ -6488,8 +6498,8 @@ namespace OloEngine::MCP
                         e["mipLevels"] = row.MipLevels;
                     if (row.SizeBytes > 0)
                         e["sizeBytes"] = row.SizeBytes;
-                    if (!row.FormatName.empty())
-                        e["format"] = row.FormatName;
+                    if (!row.FormatName.IsEmpty())
+                        e["format"] = row.FormatName.ToStdString();
                     e["nativeFormat"] = std::format("0x{:X}", row.NativeFormat);
                     if (row.IsBound)
                     {
@@ -6516,7 +6526,7 @@ namespace OloEngine::MCP
                                                           : RendererAPI::GetAPI() == RendererAPI::API::OpenGL
                                                                 ? RHI::Backend::OpenGL
                                                                 : RHI::Backend::None);
-                j["trackedCount"] = static_cast<u64>(rows.size());
+                j["trackedCount"] = static_cast<u64>(rows.Num());
                 j["matchedCount"] = static_cast<u64>(matched);
                 j["returnedCount"] = static_cast<u64>(entries.size());
                 j["trackedBytes"] = totalBytes;
@@ -6530,7 +6540,7 @@ namespace OloEngine::MCP
                 // no suballocation slack, nothing created before the inspector
                 // existed), while these are what the allocator and the OS
                 // actually say. When they disagree, believe these.
-                std::vector<IResourceInspectorBackend::MemoryHeap> heaps;
+                TArray<IResourceInspectorBackend::MemoryHeap> heaps;
                 if (inspector.QueryMemoryHeaps(heaps))
                 {
                     Json heapJson = Json::array();
@@ -6547,7 +6557,7 @@ namespace OloEngine::MCP
                     j["memoryHeaps"] = std::move(heapJson);
                 }
 
-                if (rows.empty())
+                if (rows.IsEmpty())
                 {
                     j["note"] = "No tracked GPU resources. In a Debug editor this means the inspector never "
                                 "initialised (it is compiled out of Release/Dist builds); otherwise the "
@@ -6613,7 +6623,7 @@ namespace OloEngine::MCP
 
             const Renderer3D::Statistics& stats = Renderer3D::GetStats();
             snapshot.LODSwitches = stats.LODSwitches;
-            snapshot.ObjectsPerLODLevel = stats.ObjectsPerLODLevel;
+            snapshot.ObjectsPerLODLevel.assign(stats.ObjectsPerLODLevel.begin(), stats.ObjectsPerLODLevel.end());
             return RenderLODStats::BuildReport(snapshot);
         }
 
@@ -6875,10 +6885,10 @@ namespace OloEngine::MCP
             // was consumed and no answer is coming, so reporting pending would
             // make the caller wait out the whole settle window and then blame
             // the editor rather than read the reason.
-            if (!isOurs && !probe.HasPendingBatch() && !probe.GetUnavailableReason().empty() &&
+            if (!isOurs && !probe.HasPendingBatch() && !probe.GetUnavailableReason().IsEmpty() &&
                 probe.GetUnavailableBatchId() == batchId)
             {
-                snapshot.UnavailableReason = probe.GetUnavailableReason();
+                snapshot.UnavailableReason = probe.GetUnavailableReason().ToStdString();
                 return RayTraceRay::BuildResult(snapshot);
             }
             if (!isOurs)
@@ -6894,7 +6904,7 @@ namespace OloEngine::MCP
             // actually traced, normalization and all, so the reported position
             // and the reported ray are arithmetically consistent.
             snapshot.Input.Rays.clear();
-            snapshot.Input.Rays.reserve(latest.Rays.size());
+            snapshot.Input.Rays.reserve(latest.Rays.Num());
             for (const auto& ray : latest.Rays)
             {
                 snapshot.Input.Rays.push_back(RayTraceRay::Ray{ ray.Origin, ray.Direction, ray.TMin, ray.TMax });
@@ -6904,7 +6914,7 @@ namespace OloEngine::MCP
                 (latest.RayFlags & RayTracing::RayTracingProbe::kFlagTerminateOnFirstHit) != 0u;
             snapshot.Input.InstanceMask = latest.InstanceMask;
 
-            snapshot.Hits.reserve(latest.Hits.size());
+            snapshot.Hits.reserve(latest.Hits.Num());
             for (const auto& hit : latest.Hits)
             {
                 RayTraceRay::Hit out;
@@ -6998,10 +7008,10 @@ namespace OloEngine::MCP
                     batch.RayFlags =
                         (request.CullBackFaces ? RayTracing::RayTracingProbe::kFlagCullBackFaces : 0u) |
                         (request.TerminateOnFirstHit ? RayTracing::RayTracingProbe::kFlagTerminateOnFirstHit : 0u);
-                    batch.Rays.reserve(request.Rays.size());
+                    batch.Rays.Reserve(request.Rays.size());
                     for (const auto& ray : request.Rays)
                     {
-                        batch.Rays.push_back(
+                        batch.Rays.Add(
                             RayTracing::RayTracingProbe::Ray{ ray.Origin, ray.TMin, ray.Direction, ray.TMax });
                     }
 

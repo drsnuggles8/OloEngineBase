@@ -48,10 +48,10 @@ namespace
         sizet count = 0;
     };
 
-    VertBounds ComputeBounds(const std::vector<glm::vec3>& positions)
+    VertBounds ComputeBounds(const TArray<glm::vec3>& positions)
     {
         VertBounds b;
-        b.count = positions.size();
+        b.count = positions.Num();
         f32 sum = 0.0f;
         for (const glm::vec3& p : positions)
         {
@@ -61,8 +61,8 @@ namespace
             b.maxY = std::max(b.maxY, p.y);
             sum += p.y;
         }
-        if (!positions.empty())
-            b.avgY = sum / static_cast<f32>(positions.size());
+        if (!positions.IsEmpty())
+            b.avgY = sum / static_cast<f32>(positions.Num());
         return b;
     }
 } // namespace
@@ -112,7 +112,7 @@ TEST_F(ClothFallsOntoFloorTest, FreeClothFallsAndRestsOnFloor)
     const UUID clothID = m_Cloth.GetUUID();
 
     // The cloth is live and starts well above the floor.
-    const std::vector<glm::vec3>* initial = GetScene().GetClothVertexPositions(clothID);
+    const TArray<glm::vec3>* initial = GetScene().GetClothVertexPositions(clothID);
     ASSERT_NE(initial, nullptr) << "cloth soft body was not created / has no readback";
     const VertBounds start = ComputeBounds(*initial);
     ASSERT_GT(start.count, 0u);
@@ -121,7 +121,7 @@ TEST_F(ClothFallsOntoFloorTest, FreeClothFallsAndRestsOnFloor)
     // Let it fall and settle on the static floor.
     TickFor(4.0f);
 
-    const std::vector<glm::vec3>* settled = GetScene().GetClothVertexPositions(clothID);
+    const TArray<glm::vec3>* settled = GetScene().GetClothVertexPositions(clothID);
     ASSERT_NE(settled, nullptr);
     const VertBounds end = ComputeBounds(*settled);
 
@@ -166,14 +166,14 @@ TEST_F(ClothHangsFromPinnedEdgeTest, PinnedEdgeHoldsWhileFreePartSags)
 {
     const UUID clothID = m_Cloth.GetUUID();
 
-    const std::vector<glm::vec3>* initial = GetScene().GetClothVertexPositions(clothID);
+    const TArray<glm::vec3>* initial = GetScene().GetClothVertexPositions(clothID);
     ASSERT_NE(initial, nullptr);
     const VertBounds start = ComputeBounds(*initial);
     ASSERT_GT(start.count, 0u);
 
     TickFor(3.0f);
 
-    const std::vector<glm::vec3>* draped = GetScene().GetClothVertexPositions(clothID);
+    const TArray<glm::vec3>* draped = GetScene().GetClothVertexPositions(clothID);
     ASSERT_NE(draped, nullptr);
     const VertBounds end = ComputeBounds(*draped);
 
@@ -230,12 +230,12 @@ class ClothWindTest : public FunctionalTest
         EnablePhysics3D();
     }
 
-    static f32 AverageX(const std::vector<glm::vec3>& positions)
+    static f32 AverageX(const TArray<glm::vec3>& positions)
     {
         f32 sum = 0.0f;
         for (const glm::vec3& p : positions)
             sum += p.x;
-        return positions.empty() ? 0.0f : sum / static_cast<f32>(positions.size());
+        return positions.IsEmpty() ? 0.0f : sum / static_cast<f32>(positions.Num());
     }
 
     static constexpr f32 kClothY = 6.0f;
@@ -251,8 +251,8 @@ TEST_F(ClothWindTest, WindInfluenceDrivesSidewaysBillowRelativeToNoWindControl)
 
     TickFor(4.0f);
 
-    const std::vector<glm::vec3>* noWindVerts = GetScene().GetClothVertexPositions(noWindID);
-    const std::vector<glm::vec3>* windVerts = GetScene().GetClothVertexPositions(windID);
+    const TArray<glm::vec3>* noWindVerts = GetScene().GetClothVertexPositions(noWindID);
+    const TArray<glm::vec3>* windVerts = GetScene().GetClothVertexPositions(windID);
     ASSERT_NE(noWindVerts, nullptr) << "no-wind control cloth has no live soft body";
     ASSERT_NE(windVerts, nullptr) << "wind-driven cloth has no live soft body";
 

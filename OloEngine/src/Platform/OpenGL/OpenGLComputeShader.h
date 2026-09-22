@@ -1,4 +1,5 @@
 #pragma once
+#include "OloEngine/Containers/String.h"
 
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "OloEngine/Renderer/ComputeShader.h"
@@ -40,13 +41,13 @@ namespace OloEngine
         {
             return m_RHIHandle.Get();
         }
-        [[nodiscard]] const std::string& GetName() const override
+        [[nodiscard]] std::string GetName() const override
         {
-            return m_Name;
+            return m_Name.ToStdString();
         }
-        [[nodiscard]] const std::string& GetFilePath() const override
+        [[nodiscard]] std::string GetFilePath() const override
         {
-            return m_FilePath;
+            return m_FilePath.ToStdString();
         }
 
         void Reload() override;
@@ -78,8 +79,8 @@ namespace OloEngine
         // glShaderSource, never through shaderc — so "the bindless variant" here
         // is just the prologue injection, not a second compile path.
         bool m_IsBindlessVariant = false;
-        std::string m_Name;
-        std::string m_FilePath;
+        FString m_Name;
+        FString m_FilePath;
         mutable std::unordered_map<std::string, GLint> m_UniformLocationCache;
     };
 } // namespace OloEngine

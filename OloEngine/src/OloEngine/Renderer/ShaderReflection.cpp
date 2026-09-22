@@ -8,11 +8,11 @@
 
 namespace OloEngine
 {
-    bool ShaderReflection::ReflectFromSPIRV(const std::vector<u32>& spirvBytecode)
+    bool ShaderReflection::ReflectFromSPIRV(std::span<const u32> spirvBytecode)
     {
         try
         {
-            spirv_cross::Compiler compiler(spirvBytecode);
+            spirv_cross::Compiler compiler(spirvBytecode.data(), spirvBytecode.size());
             spirv_cross::ShaderResources resources = compiler.get_shader_resources();
 
             // Clear existing data
@@ -86,12 +86,12 @@ namespace OloEngine
                     variable.Size = ShaderUniformDeclaration::ShaderDataTypeSize(variable.Type);
                     variable.ArraySize = memberType.array.empty() ? 1 : memberType.array[0];
 
-                    blockInfo.Variables.push_back(variable);
+                    blockInfo.Variables.Add(variable);
                 }
 
                 // Add to collections
-                u32 index = static_cast<u32>(m_UniformBlocks.size());
-                m_UniformBlocks.push_back(blockInfo);
+                u32 index = static_cast<u32>(m_UniformBlocks.Num());
+                m_UniformBlocks.Add(blockInfo);
                 m_BlockNameToIndex[name] = index;
 
                 OLO_CORE_TRACE("ShaderReflection: Found uniform block '{0}' at binding {1}, size {2} bytes",
@@ -119,7 +119,7 @@ namespace OloEngine
                 else
                     textureInfo.Type = ShaderResourceType::None;
 
-                m_Textures.push_back(textureInfo);
+                m_Textures.Add(textureInfo);
 
                 // Also add to generic resources
                 ResourceInfo resourceInfo;
@@ -127,7 +127,7 @@ namespace OloEngine
                 resourceInfo.BindingPoint = binding;
                 resourceInfo.Type = textureInfo.Type;
                 resourceInfo.Size = 0; // Textures don't have a meaningful size in this context
-                m_Resources.push_back(resourceInfo);
+                m_Resources.Add(resourceInfo);
 
                 OLO_CORE_TRACE("ShaderReflection: Found texture '{0}' at binding {1}, type {2}",
                                name, binding, static_cast<int>(textureInfo.Type));
@@ -159,9 +159,9 @@ namespace OloEngine
 
     void ShaderReflection::Clear()
     {
-        m_UniformBlocks.clear();
-        m_Textures.clear();
-        m_Resources.clear();
+        m_UniformBlocks.Reset();
+        m_Textures.Reset();
+        m_Resources.Reset();
         m_BlockNameToIndex.clear();
     }
 
