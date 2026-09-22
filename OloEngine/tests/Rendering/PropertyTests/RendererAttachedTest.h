@@ -64,6 +64,7 @@
 #include "OloEngine/Core/Timestep.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/RenderingPath.h"
+#include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Scene/Scene.h"
 
 #include <gtest/gtest.h>
@@ -176,6 +177,10 @@ namespace OloEngine::Tests
         // while GLStateGuard's raw-GL restore reports nothing wrong.
         RendererSettings m_SavedRendererSettings{};
         PostProcessSettings m_SavedPostProcessSettings{};
+        // The shadow map's settings live on the ShadowMap, not in either struct
+        // above, and a test that leaves PCSS on softens every golden shadow
+        // after it (FoliageWind/FoliageInteraction, SSIM 0.95 against 0.985).
+        ShadowSettings m_SavedShadowSettings{};
         bool m_SettingsSnapshotted = false;
     };
 } // namespace OloEngine::Tests
