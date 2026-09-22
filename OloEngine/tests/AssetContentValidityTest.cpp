@@ -118,17 +118,46 @@ namespace OloEngine::Tests
                 return std::nullopt;
             }
 
+            // An asset is one or more FILES. A single-file asset writes `dest` at
+            // the top level; one that only makes sense as a set — a glTF and the
+            // buffer it references — lists them under `files`, each with its own
+            // `dest`. Fetch-Assets.ps1 understands both, and so must this: the
+            // manifest has TWO readers, and teaching only the one that downloads
+            // leaves this allowlist incomplete, which fails closed below.
+            const auto collectDest = [&](const nlohmann::json& node, std::set<std::string>& out)
+            {
+                const auto destIt = node.find("dest");
+                if (destIt == node.end() || !destIt->is_string() || destIt->get<std::string>().empty())
+                    return false;
+                out.insert((repoRoot / destIt->get<std::string>()).lexically_normal().generic_string());
+                return true;
+            };
+
             std::set<std::string> fetchOnDemand;
             for (const auto& asset : *assetsIt)
             {
-                const auto destIt = asset.find("dest");
-                if (destIt == asset.end() || !destIt->is_string() || destIt->get<std::string>().empty())
+                const auto filesIt = asset.find("files");
+                if (filesIt != asset.end() && filesIt->is_array() && !filesIt->empty())
                 {
-                    outFailureReason = manifestPath.generic_string() + " has an asset entry with no usable 'dest' — the allowlist would be "
+                    for (const auto& part : *filesIt)
+                    {
+                        if (!collectDest(part, fetchOnDemand))
+                        {
+                            outFailureReason = manifestPath.generic_string() + " has a multi-file asset whose 'files' entry has no usable 'dest' — the "
+                                                                               "allowlist would be incomplete and that asset's registry entry could be deleted";
+                            return std::nullopt;
+                        }
+                    }
+                    continue;
+                }
+
+                if (!collectDest(asset, fetchOnDemand))
+                {
+                    outFailureReason = manifestPath.generic_string() + " has an asset entry with neither a usable 'dest' nor a "
+                                                                       "'files' array — the allowlist would be "
                                                                        "incomplete and that asset's registry entry could be deleted";
                     return std::nullopt;
                 }
-                fetchOnDemand.insert((repoRoot / destIt->get<std::string>()).lexically_normal().generic_string());
             }
             return fetchOnDemand;
         }
