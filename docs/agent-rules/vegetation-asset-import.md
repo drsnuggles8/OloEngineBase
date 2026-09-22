@@ -59,6 +59,13 @@ fills a fraction of its bounding square).
 Two-sided assertions beat floors. A coverage floor alone passes a solid opaque rectangle — which is
 exactly what pointing a billboard at a source UV atlas produces.
 
+The engine applies this rule itself at layer load
+([FoliageAlphaCoverage.h](../../OloEngine/src/OloEngine/Terrain/Foliage/FoliageAlphaCoverage.h),
+issue #1399). It logs one `FoliageRenderer: layer '…'` warning when a texture passes an implausible
+share of its surface at the layer's `AlphaCutoff`, with a band per role: card 2–90%, authored-mesh
+part and impostor bake at least 30%. The editor's foliage inspector shows the figure under the
+Alpha Cutoff slider. Read that warning before hunting a see-through plant in the renderer.
+
 ## 4. glTF and OBJ disagree about which way v runs
 
 glTF puts UV (0,0) at the **top-left**, v increasing downward. Wavefront OBJ puts it at the

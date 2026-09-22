@@ -1419,6 +1419,8 @@
 		"OloEngine/Terrain/Foliage/FoliageInteraction.cpp"
 		"OloEngine/Terrain/Foliage/FoliageGPUCuller.h"
 		"OloEngine/Terrain/Foliage/FoliageGPUCuller.cpp"
+		"OloEngine/Terrain/Foliage/FoliageAlphaCoverage.h"
+		"OloEngine/Terrain/Foliage/FoliageAlphaCoverage.cpp"
 		"OloEngine/Terrain/Foliage/FoliageRenderer.h"
 		"OloEngine/Terrain/Foliage/FoliageRenderer.cpp"
 

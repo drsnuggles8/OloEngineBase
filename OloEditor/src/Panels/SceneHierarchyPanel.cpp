@@ -8,6 +8,7 @@
 #include "OloEngine/Scene/ModelImporter.h"
 #include "OloEngine/Localization/LocalizationManager.h"
 #include "OloEngine/Renderer/Instancing/InstancedMeshComponent.h"
+#include "OloEngine/Terrain/Foliage/FoliageAlphaCoverage.h"
 #include "OloEngine/Terrain/Foliage/FoliageLodTransition.h"
 
 #include <random>
@@ -7340,6 +7341,47 @@ namespace OloEngine
                         // rebuild this slider moved a number nothing read.
                         if (ImGui::DragFloat("Alpha Cutoff", &layer.AlphaCutoff, 0.01f, 0.0f, 1.0f))
                             component.m_NeedsRebuild = true;
+
+                        // What the cutoff does to each texture the layer draws
+                        // (issue #1399), evaluated here every frame from the
+                        // renderer's cached histograms — so it follows the
+                        // slider while it is dragged, without waiting for the
+                        // rebuild. The same verdict the log warns with.
+                        if (component.m_Renderer)
+                        {
+                            for (const auto& entry : component.m_Renderer->GetAlphaCoverage(static_cast<u32>(i)))
+                            {
+                                namespace AC = OloEngine::FoliageAlphaCoverage;
+                                const std::string file =
+                                    std::filesystem::path(entry.Texture.ToStdString()).filename().string();
+                                if (!entry.Measured)
+                                {
+                                    ImGui::TextDisabled("  %s  %s: not measured", AC::RoleName(entry.Kind), file.c_str());
+                                    ImGui::SetItemTooltip("The texture could not be decoded on the CPU (a cooked "
+                                                          "container?). OloEngine.log says why.");
+                                    continue;
+                                }
+                                const f32 fraction = entry.Coverage.PassFraction(layer.AlphaCutoff);
+                                const AC::Band band = AC::PlausibleBand(entry.Kind);
+                                if (AC::Judge(entry.Kind, fraction) == AC::Verdict::Plausible)
+                                {
+                                    ImGui::TextDisabled("  %s  %s: %.1f%% passes", AC::RoleName(entry.Kind), file.c_str(),
+                                                        100.0f * fraction);
+                                }
+                                else
+                                {
+                                    ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.2f, 1.0f),
+                                                       "  %s  %s: %.1f%% passes (expected %.0f-%.0f%%)",
+                                                       AC::RoleName(entry.Kind), file.c_str(), 100.0f * fraction,
+                                                       100.0f * band.Min, 100.0f * band.Max);
+                                }
+                                ImGui::SetItemTooltip(
+                                    "Share of %s that survives the alpha test at this cutoff, measured over the "
+                                    "surface that samples '%s' rather than the whole image. A diagnostic only: "
+                                    "nothing is clamped or refused.",
+                                    entry.Surface.GetData(), entry.Texture.GetData());
+                            }
+                        }
 
                         // ── Leaf material (issue #1234) ──────────────────────
                         ImGui::SeparatorText("Leaf Material");

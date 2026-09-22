@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Terrain/Foliage/FoliageWind.h"
+#include "OloEngine/Terrain/Foliage/FoliageAlphaCoverage.h"
 #include "OloEngine/Terrain/Foliage/FoliageInteraction.h"
 #include "OloEngine/Wind/WindSystem.h"
 #include "FoliageRenderer.h"
@@ -31,6 +32,11 @@
 #include "OloEngine/Renderer/PBRModel.h"
 
 #include <glm/gtc/constants.hpp>
+
+#include <filesystem>
+#include <format>
+#include <span>
+#include <string>
 
 namespace OloEngine
 {
@@ -247,6 +253,8 @@ namespace OloEngine
         data.MeshVBO = nullptr;
         data.MeshIBO = nullptr;
         data.MeshParts.Reset();
+        data.MeshPartSurfaceUVs.Reset();
+        data.AlphaCoverageDirty = true;
         data.MeshRayTracingIndices.Reset();
         data.MeshModel = nullptr;
         data.MeshVertexCount = 0;
@@ -363,6 +371,23 @@ namespace OloEngine
         data.MeshVBO->SetLayout(Vertex::GetLayout());
         data.MeshIBO = IndexBuffer::Create(indices.GetData(), static_cast<u32>(indices.Num()));
         data.MeshRayTracingIndices = indices;
+
+        // The surfaces the alpha-coverage diagnostic measures (issue #1399),
+        // sampled here because this is the one place the plant's CPU vertices
+        // are in hand. Per part for the near mesh, whose parts carry their own
+        // textures; whole for the impostor bake, which draws every part with
+        // the layer albedo.
+        {
+            const std::span<const Vertex> vertexSpan(srcVertices.GetData(), static_cast<sizet>(srcVertices.Num()));
+            for (const auto& part : data.MeshParts)
+            {
+                data.MeshPartSurfaceUVs.Add(FoliageAlphaCoverage::SampleSurfaceUVs(
+                    vertexSpan, std::span<const u32>(indices.GetData() + part.BaseIndex, part.IndexCount)));
+            }
+            data.MeshSurfaceUVs = FoliageAlphaCoverage::SampleSurfaceUVs(
+                vertexSpan, std::span<const u32>(indices.GetData(), static_cast<sizet>(indices.Num())));
+            data.MeshSurfaceUVsPath = layer.MeshPath;
+        }
         data.MeshVertexCount = static_cast<u32>(srcVertices.Num());
         data.MeshIndexCount = static_cast<u32>(indices.Num());
         data.MeshModel = model;
@@ -670,6 +695,8 @@ namespace OloEngine
                     renderData.MeshVBO = nullptr;
                     renderData.MeshIBO = nullptr;
                     renderData.MeshParts.Reset();
+                    renderData.MeshPartSurfaceUVs.Reset();
+                    renderData.AlphaCoverageDirty = true;
                     renderData.MeshModel = nullptr;
                     renderData.MeshVertexCount = 0;
                     renderData.MeshIndexCount = 0;
@@ -763,6 +790,7 @@ namespace OloEngine
                 renderData.AlbedoTexture = layer.AlbedoPath.IsEmpty()
                                                ? nullptr
                                                : Texture2D::Create(layer.AlbedoPath.ToStdString(), /*srgb=*/true);
+                renderData.AlphaCoverageDirty = true;
             }
 
             // ── The leaf material (issue #1234) ─────────────────────────────
@@ -846,6 +874,12 @@ namespace OloEngine
             // counted rather than left to the one-off log line.
             const bool impostorRequested = layer.UseImpostor;
             const bool impostorAvailable = impostorRequested && renderData.Impostor.IsValid();
+
+            // Judged against exactly what EnumerateLayerDraws will draw: the
+            // mesh only while it has a band to cover, the impostor in place of
+            // the flat card when there is one.
+            UpdateAlphaCoverage(renderData, layer, meshDrawable && renderData.MeshViewDistance > 0.0f,
+                                impostorAvailable);
             if (impostorAvailable)
             {
                 if (!m_ImpostorDepthShader)
@@ -1308,6 +1342,163 @@ namespace OloEngine
         return total;
     }
 
+    namespace
+    {
+        // The whole surface of `model`, sampled for the alpha-coverage
+        // diagnostic (issue #1399) when the impostor bake loaded a model the
+        // authored-mesh path never saw. The combined source's indices are
+        // already global, so the whole index buffer is the whole plant.
+        [[nodiscard]] TArray<glm::vec2> SampleModelSurface(const Model& model)
+        {
+            const Ref<MeshSource> source = model.CreateCombinedMeshSource();
+            if (!source)
+                return {};
+            const auto& vertices = source->GetVertices();
+            const auto& indices = source->GetIndices();
+            return FoliageAlphaCoverage::SampleSurfaceUVs(
+                std::span<const Vertex>(vertices.GetData(), static_cast<sizet>(vertices.Num())),
+                std::span<const u32>(indices.GetData(), static_cast<sizet>(indices.Num())));
+        }
+    } // namespace
+
+    std::span<const FoliageAlphaCoverage::Entry> FoliageRenderer::GetAlphaCoverage(u32 layerIndex) const
+    {
+        if (layerIndex >= static_cast<u32>(m_Layers.Num()))
+            return {};
+        const auto& coverage = m_Layers[static_cast<i32>(layerIndex)].AlphaCoverage;
+        return { coverage.GetData(), static_cast<sizet>(coverage.Num()) };
+    }
+
+    void FoliageRenderer::UpdateAlphaCoverage(LayerRenderData& data, const FoliageLayer& layer, bool meshDrawn,
+                                              bool impostorDrawn)
+    {
+        namespace AC = FoliageAlphaCoverage;
+
+        if (data.AlphaCoverageMeshDrawn != meshDrawn || data.AlphaCoverageImpostorDrawn != impostorDrawn)
+            data.AlphaCoverageDirty = true;
+
+        // Re-measured only when a texture, a surface or the set of drawn
+        // representations moved. A cutoff change does not get here: the
+        // histograms already answer every cutoff.
+        if (data.AlphaCoverageDirty)
+        {
+            OLO_PROFILE_SCOPE("FoliageRenderer::UpdateAlphaCoverage - measure");
+            data.AlphaCoverageDirty = false;
+            data.AlphaCoverageMeshDrawn = meshDrawn;
+            data.AlphaCoverageImpostorDrawn = impostorDrawn;
+            data.AlphaCoverage.Reset();
+
+            // A texture's alpha, decoded from the file it was loaded from. One
+            // that loaded on the GPU but will not decode on the CPU (a cooked
+            // block-compressed container) is recorded as NOT measured and said
+            // so — never read as "fine".
+            const auto decode = [&layer](const Texture2D& texture, AC::AlphaPlane& plane) -> bool
+            {
+                std::string error;
+                const std::filesystem::path path = Texture2D::ResolveStoredSourcePath(texture.GetPath());
+                if (path.empty())
+                    error = "its source path does not resolve";
+                else if (AC::DecodeAlpha(path, plane, error))
+                    return true;
+                OLO_CORE_INFO("FoliageRenderer: layer '{}' - alpha coverage of '{}' was not measured ({}), so the "
+                              "AlphaCutoff plausibility check cannot vouch for it.",
+                              layer.Name.ToView(), texture.GetPath(), error);
+                return false;
+            };
+
+            // A texture that did not load at all is skipped: Texture2D already
+            // logged the failure, and nothing is drawn from it to judge.
+            const Ref<Texture2D>& albedo = data.AlbedoTexture;
+            const bool albedoDrawable = albedo && albedo->IsLoaded();
+            AC::AlphaPlane albedoAlpha;
+            const bool albedoDecoded = albedoDrawable && decode(*albedo, albedoAlpha);
+            const std::string meshName = std::filesystem::path(layer.MeshPath.ToStdString()).filename().string();
+
+            // The flat card — unless the impostor rides the card draw in its
+            // place, in which case the layer albedo is never drawn flat.
+            if (albedoDrawable && !impostorDrawn)
+            {
+                AC::Entry entry;
+                entry.Kind = AC::Role::Card;
+                entry.Texture = layer.AlbedoPath;
+                entry.Surface = "the card";
+                entry.Measured = albedoDecoded;
+                if (albedoDecoded)
+                    entry.Coverage = AC::MeasureSheet(albedoAlpha);
+                data.AlphaCoverage.Add(std::move(entry));
+            }
+
+            // Each part of the near mesh, with the texture EnumerateLayerDraws
+            // binds for it: its own, else the layer albedo. A part with
+            // neither draws white, which passes everywhere.
+            if (meshDrawn)
+            {
+                for (i32 i = 0; i < data.MeshParts.Num(); ++i)
+                {
+                    const auto& part = data.MeshParts[i];
+                    const Ref<Texture2D>& drawn = part.Albedo ? part.Albedo : albedo;
+                    if (!drawn || !drawn->IsLoaded())
+                        continue;
+
+                    AC::Entry entry;
+                    entry.Kind = AC::Role::AuthoredMesh;
+                    entry.Texture = part.Albedo ? FString(part.Albedo->GetPath()) : layer.AlbedoPath;
+                    entry.Surface = FString(std::format("part {} of '{}'", i, meshName));
+                    AC::AlphaPlane partAlpha;
+                    const AC::AlphaPlane* plane = nullptr;
+                    if (part.Albedo)
+                        plane = decode(*part.Albedo, partAlpha) ? &partAlpha : nullptr;
+                    else
+                        plane = albedoDecoded ? &albedoAlpha : nullptr;
+                    const bool haveSurface = i < data.MeshPartSurfaceUVs.Num() && !data.MeshPartSurfaceUVs[i].IsEmpty();
+                    entry.Measured = plane && haveSurface;
+                    if (entry.Measured)
+                    {
+                        const auto& uvs = data.MeshPartSurfaceUVs[i];
+                        entry.Coverage = AC::MeasureAtUVs(*plane, { uvs.GetData(), static_cast<sizet>(uvs.Num()) });
+                    }
+                    data.AlphaCoverage.Add(std::move(entry));
+                }
+            }
+
+            // The impostor bake: the layer albedo over the WHOLE mesh. With no
+            // albedo the bake draws a white fallback, which passes everywhere.
+            if (impostorDrawn && albedoDrawable)
+            {
+                AC::Entry entry;
+                entry.Kind = AC::Role::ImpostorBake;
+                entry.Texture = layer.AlbedoPath;
+                entry.Surface = FString(std::format("the surface of '{}'", meshName));
+                const bool haveSurface = data.MeshSurfaceUVsPath == layer.MeshPath && !data.MeshSurfaceUVs.IsEmpty();
+                entry.Measured = albedoDecoded && haveSurface;
+                if (entry.Measured)
+                {
+                    entry.Coverage = AC::MeasureAtUVs(
+                        albedoAlpha, { data.MeshSurfaceUVs.GetData(), static_cast<sizet>(data.MeshSurfaceUVs.Num()) });
+                }
+                data.AlphaCoverage.Add(std::move(entry));
+            }
+        }
+
+        // Judged on every regeneration at the CURRENT cutoff. The latch is
+        // what keeps a slider dragged through an implausible range to one
+        // line; it re-arms once the entry is plausible again, so dragging back
+        // in warns again, and a re-measure starts every entry fresh.
+        for (auto& entry : data.AlphaCoverage)
+        {
+            const std::string warning = AC::Describe(entry, layer.Name.ToView(), layer.AlphaCutoff);
+            if (warning.empty())
+            {
+                entry.Warned = false;
+                continue;
+            }
+            if (entry.Warned)
+                continue;
+            entry.Warned = true;
+            OLO_CORE_WARN("{}", warning);
+        }
+    }
+
     void FoliageRenderer::UpdateImpostorAtlas(LayerRenderData& data, const FoliageLayer& layer)
     {
         OLO_PROFILE_FUNCTION();
@@ -1364,6 +1555,17 @@ namespace OloEngine
 
         if (data.Impostor.IsValid())
         {
+            // The surface the bake just drew, for the alpha-coverage diagnostic
+            // (issue #1399). Free when the authored-mesh path already sampled
+            // this exact mesh; otherwise sampled once here, from the model the
+            // bake used.
+            if (data.MeshSurfaceUVsPath != layer.MeshPath)
+            {
+                data.MeshSurfaceUVs = SampleModelSurface(model);
+                data.MeshSurfaceUVsPath = layer.MeshPath;
+                data.AlphaCoverageDirty = true;
+            }
+
             data.ImpostorBakedMeshPath = layer.MeshPath;
             data.ImpostorBakedAlbedoPath = layer.AlbedoPath;
             data.ImpostorBakedBaseColor = layer.BaseColor;
