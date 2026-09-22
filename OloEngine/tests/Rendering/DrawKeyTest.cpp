@@ -48,7 +48,9 @@ TEST(DrawKey, BitwiseRoundTrip_Transparent)
     EXPECT_EQ(key.GetRenderMode(), RenderMode::Transparent) << PrintKeyBits(key);
     EXPECT_EQ(key.GetShaderID(), shaderID) << PrintKeyBits(key);
     EXPECT_EQ(key.GetMaterialID(), materialID) << PrintKeyBits(key);
-    // Transparent inverts depth: stored = 0xFFFFFF - depth
+    // Transparent inverts depth: stored = 0xFFFFFF - depth. The accessors read
+    // the transparent payload's own field positions (issue #1327), so the
+    // round-trip is unchanged by the depth-major layout.
     EXPECT_EQ(key.GetDepth(), 0xFFFFFFu - depth) << PrintKeyBits(key);
 }
 
@@ -142,6 +144,12 @@ TEST(DrawKey, TransparentDepthBackToFront)
     //
     // Ascending sort puts lower stored value first → far object sorts first → back-to-front.
     // This is the correct transparent convention.
+    //
+    // NOTE: both keys here share a shader and a material, which is the case the
+    // inversion alone always handled. The guarantee ACROSS materials — the one
+    // the depth-major payload provides (issue #1327) — is pinned in
+    // Rendering/TransparentDepthOrderingTest.cpp, not here. This test passed
+    // throughout the period the cross-material order was wrong.
 
     DrawKey nearKey = DrawKey::CreateTransparent(0, ViewLayerType::ThreeD, 1, 1, 100);
     DrawKey farKey = DrawKey::CreateTransparent(0, ViewLayerType::ThreeD, 1, 1, 1000);
