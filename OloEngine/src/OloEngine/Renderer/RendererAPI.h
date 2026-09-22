@@ -876,10 +876,40 @@ namespace OloEngine
         // timestamp query returns NANOSECONDS on both backends: the Vulkan arm
         // owes the timestampPeriod scaling so GPUPassTimerPool's subtraction
         // math is backend-blind (#691).
-        virtual void WriteTimestamp(RHI::ResourceHandle query) = 0;
+        //
+        // RETURNS whether the stamp was actually recorded (#1337). A refusal is
+        // routine rather than exceptional — Vulkan declines a timestamp from a
+        // RecordParallel worker and outside a recording bracket, GL declines a
+        // retired handle — and it used to be invisible: the query kept whatever
+        // it held, the reader subtracted two stale or zero values, and a pass
+        // that was never timed published a perfectly plausible 0.0 ms. A caller
+        // that keeps the result can say "not stamped" instead.
+        [[nodiscard("A refused timestamp is the #1337 silent-zero path — record it")]] virtual bool
+        WriteTimestamp(RHI::ResourceHandle query) = 0;
         [[nodiscard("Store this!")]] virtual bool IsQueryResultAvailable(RHI::ResourceHandle query) = 0;
         [[nodiscard("Store this!")]] virtual u32 GetQueryResultU32(RHI::ResourceHandle query) = 0;
         [[nodiscard("Store this!")]] virtual u64 GetQueryResultU64(RHI::ResourceHandle query) = 0;
+        // The same read as GetQueryResultU64, with the failure reported instead
+        // of folded into the value (#1337). GetQueryResultU64 returns 0 when the
+        // result cannot be read at all — a stale handle, a device that has
+        // gone away — which is a legal timestamp value and a legal occlusion
+        // count, so no caller can tell the two apart. This overload leaves
+        // `outValue` untouched and returns false instead.
+        //
+        // WHAT IT CANNOT TELL YOU, and this is a backend asymmetry rather than
+        // an oversight: on GL, a query object that exists but was NEVER STAMPED
+        // answers GL_QUERY_RESULT_AVAILABLE with TRUE and GL_QUERY_RESULT with
+        // 0, and there is no GL state to distinguish that from a stamped query
+        // whose result really is 0. So GL returns true-with-0 there, while
+        // Vulkan (which tracks `Recorded` per query) returns false.
+        //
+        // That is exactly why WriteTimestamp returns a bool: "was this query
+        // stamped" is the CALLER's to remember, and GPUPassTimerPool does
+        // remember it, checking its own per-query ledger before ever reading.
+        // Do not rely on a false return to mean "never stamped"; rely on it to
+        // mean "there is no readable result".
+        [[nodiscard("The false return IS the answer — a zero out-value is not")]] virtual bool
+        TryGetQueryResultU64(RHI::ResourceHandle query, u64& outValue) = 0;
 
         // --- Fences ---------------------------------------------------------------
         // An opaque u64 rather than a handle type: GLsync is a pointer and

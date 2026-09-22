@@ -567,14 +567,14 @@ TEST(ReferenceFixtureManifest, NativeCaptureRecordsKeepResultJsonAndFileBytes)
     RunInfo info;
     info.Backend = "opengl";
     info.Host = "unit-test";
-    info.PassTimings.Add(PassTimingRecord{ "ScenePass", 0.25 });
+    info.PassTimings.Add(PassTimingRecord{ "ScenePass", GpuTimingSample::Measured(0.25), false, {} });
     const auto outputPath = Tests::TempFile("native-capture-output");
     ASSERT_TRUE(WriteResultDirectory(*manifest, manifestPath, outputPath,
                                      std::span{ sets.GetData(), static_cast<sizet>(sets.Num()) }, info, error))
         << error;
     std::ifstream metadata(outputPath / "result.json");
     const auto json = nlohmann::json::parse(metadata);
-    EXPECT_EQ(json["resultSchemaVersion"], 1);
+    EXPECT_EQ(json["resultSchemaVersion"], 2);
     EXPECT_EQ(json["manifest"]["id"], manifest->Id.ToStdString());
     EXPECT_EQ(json["provenance"]["backend"], "opengl");
     EXPECT_EQ(json["cameras"][0]["attachments"][0]["file"], "beauty.png");

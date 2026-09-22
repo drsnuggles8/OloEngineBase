@@ -2413,7 +2413,7 @@ namespace OloEngine
         glEndQuery(Utils::ToGL(type));
     }
 
-    void OpenGLRendererAPI::WriteTimestamp(RHI::ResourceHandle query)
+    bool OpenGLRendererAPI::WriteTimestamp(RHI::ResourceHandle query)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -2421,10 +2421,18 @@ namespace OloEngine
         // rejects with GL_INVALID_OPERATION rather than stamping someone
         // else's query — acceptable for a debug-instrument path, and the
         // resolve guard keeps the failure local.
-        if (const GLuint name = Utils::ResolveNativeAs(query, RHI::ResourceKind::Query); name != 0u)
+        //
+        // The bool is what the caller needs to avoid #1337's silent zero: a
+        // query object that was never stamped still answers
+        // GL_QUERY_RESULT_AVAILABLE with TRUE and GL_QUERY_RESULT with 0, so
+        // "did the stamp happen" cannot be recovered from the query afterwards.
+        const GLuint name = Utils::ResolveNativeAs(query, RHI::ResourceKind::Query);
+        if (name == 0u)
         {
-            glQueryCounter(name, GL_TIMESTAMP);
+            return false;
         }
+        glQueryCounter(name, GL_TIMESTAMP);
+        return true;
     }
 
     bool OpenGLRendererAPI::IsQueryResultAvailable(RHI::ResourceHandle query)
@@ -2463,13 +2471,27 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        GLuint64 result = 0;
-        const GLuint name = Utils::ResolveNativeAs(query, RHI::ResourceKind::Query);
-        if (name != 0u)
-        {
-            glGetQueryObjectui64v(name, GL_QUERY_RESULT, &result);
-        }
+        u64 result = 0;
+        (void)TryGetQueryResultU64(query, result);
         return result;
+    }
+
+    bool OpenGLRendererAPI::TryGetQueryResultU64(RHI::ResourceHandle query, u64& outValue)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // A stale handle has no result and never will — the same reasoning
+        // IsQueryResultAvailable gives. Leaving outValue alone (rather than
+        // zeroing it) keeps this honest for a caller that pre-seeded it.
+        const GLuint name = Utils::ResolveNativeAs(query, RHI::ResourceKind::Query);
+        if (name == 0u)
+        {
+            return false;
+        }
+        GLuint64 result = 0;
+        glGetQueryObjectui64v(name, GL_QUERY_RESULT, &result);
+        outValue = static_cast<u64>(result);
+        return true;
     }
 
     // --- Fences -------------------------------------------------------------------------------

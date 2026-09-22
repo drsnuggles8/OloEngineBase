@@ -288,6 +288,8 @@ TEST(BenchmarkCapture, RunWhenRequested)
     // one warm frame, so frameIndex >= 1 here.)
     runInfo.FinalMockTimeSeconds = manifest->StartTimeSeconds + static_cast<f32>(frameIndex - 1) * dt;
     runInfo.PassTimings = Benchmark::SnapshotPassTimings();
+    runInfo.Timing = Benchmark::SnapshotTimingValidity();
+    runInfo.Resolution = Benchmark::SnapshotResolution();
     runInfo.Counters = Benchmark::SnapshotRendererCounters();
 
     const fs::path outDir = !opts.CaptureOutDir.empty()

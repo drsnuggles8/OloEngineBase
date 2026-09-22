@@ -112,8 +112,27 @@ namespace OloEngine::MCP
                 o["fps"] = f.m_FrameTime > 0.0 ? Round2(1000.0 / f.m_FrameTime) : 0.0;
                 o["frameTimeMs"] = Round2(f.m_FrameTime);
                 o["cpuMs"] = Round2(f.m_CPUTime);
-                o["gpuMs"] = Round2(f.m_GPUTime);
+                // The number AND its validity (#1337). A frame the timer pool
+                // could not measure reaches here as null with a reason, never
+                // as 0.00 ms of GPU work, which reads as the fastest frame of
+                // the session.
+                if (f.m_GPUTimeStatus == GpuTimingStatus::Valid)
+                {
+                    o["gpuMs"] = Round2(f.m_GPUTime);
+                }
+                else
+                {
+                    o["gpuMs"] = nullptr;
+                }
+                o["gpuStatus"] = std::string(ToString(f.m_GPUTimeStatus));
                 o["gpuWaitMs"] = Round2(f.m_GPUWaitTime);
+                // Split by cause. A fence wait means the GPU is behind. The
+                // "present" half is the SwapBuffers span: a real vsync/present
+                // wait on OpenGL, but on Vulkan the backend records and submits
+                // the frame INSIDE SwapBuffers (#691), so there it contains the
+                // frame's render work and is not a pacing signal.
+                o["fenceWaitMs"] = Round2(f.m_FenceWaitTime);
+                o["presentWaitMs"] = Round2(f.m_PresentWaitTime);
                 o["drawCalls"] = f.m_DrawCalls;
                 o["instancedDrawCalls"] = f.m_InstancedDrawCalls;
                 o["instancesRendered"] = f.m_InstancesRendered;
@@ -136,6 +155,17 @@ namespace OloEngine::MCP
                     const auto& spec = sceneFB->GetSpecification();
                     o["renderWidth"] = spec.Width;
                     o["renderHeight"] = spec.Height;
+                }
+                // The DISPLAY resolution beside the render one (#1337 criterion
+                // 4). They differ whenever the render scale is not 1.0, and a
+                // measurement compared across two runs at different scales is
+                // not a comparison at all. Both are reported so the reader does
+                // not have to infer one from the other.
+                if (const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph())
+                {
+                    o["displayWidth"] = graph->GetPhysicalWidth();
+                    o["displayHeight"] = graph->GetPhysicalHeight();
+                    o["renderScale"] = Round2(static_cast<f64>(graph->GetRenderScale()));
                 }
                 // Is the editor actually running frames at all (issue #607)? Every
                 // number above describes the last COMPLETED frame, which may be
@@ -306,9 +336,16 @@ namespace OloEngine::MCP
                                       {
                 const auto& pool = GPUPassTimerPool::GetInstance();
 
+                // ONE snapshot, so the pass list, the frame identity and the age
+                // all describe the same frame. Reading them through separate
+                // calls could pair a pass list with an age from the next one.
+                const GPUPassTimerPool::FrameTimings gpuFrame = pool.GetLastFrameTimings();
+
                 std::vector<PassTimings::GpuPassEntry> gpuPasses;
-                for (const auto& timing : pool.GetLastPassTimingsCopy())
-                    gpuPasses.push_back(PassTimings::GpuPassEntry{ timing.Name.ToStdString(), timing.GpuMs });
+                gpuPasses.reserve(static_cast<sizet>(gpuFrame.Passes.Num()));
+                for (const auto& timing : gpuFrame.Passes)
+                    gpuPasses.push_back(PassTimings::GpuPassEntry{ timing.Name.ToStdString(), timing.Sample,
+                                                                   timing.IsSubPass, timing.ParentName.ToStdString() });
 
                 std::vector<PassTimings::CpuPassEntry> cpuPasses;
                 if (const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph())
@@ -323,8 +360,14 @@ namespace OloEngine::MCP
                 PassTimings::FrameTotals totals;
                 totals.FrameTimeMs = f.m_FrameTime;
                 totals.CpuMs = f.m_CPUTime;
-                totals.GpuMs = f.m_GPUTime;
+                // The whole-frame GPU time comes from the SAME snapshot as the
+                // passes, not from the profiler's copy of it: the profiler's is
+                // written at BeginFrame and could be one frame apart from this
+                // read (#1337 criterion 4 — the frame IDs have to agree).
+                totals.Gpu = gpuFrame.Frame;
                 totals.GpuWaitMs = f.m_GPUWaitTime;
+                totals.FenceWaitMs = f.m_FenceWaitTime;
+                totals.PresentWaitMs = f.m_PresentWaitTime;
                 // Parallel command recorder telemetry (#806): the profiler pulled
                 // it at that frame's EndFrame(), so it describes the same frame
                 // as the totals above.
@@ -357,10 +400,11 @@ namespace OloEngine::MCP
                 totals.AsyncCompute.OwnershipTransfers = ac.OwnershipTransfers;
                 totals.AsyncCompute.ComputeSubmits = ac.ComputeSubmits;
                 totals.AsyncCompute.DeclineReason = std::string(ac.DeclineReason);
-                totals.GpuResultsAgeFrames =
-                    (pool.GetLastResolvedFrameNumber() > 0 && pool.GetCurrentFrameNumber() >= pool.GetLastResolvedFrameNumber())
-                        ? pool.GetCurrentFrameNumber() - pool.GetLastResolvedFrameNumber()
-                        : 0;
+                totals.GpuResultsAgeFrames = gpuFrame.AgeFrames;
+                totals.GpuMeasurementFrameId = gpuFrame.FrameNumber;
+                totals.CurrentFrameId = gpuFrame.CurrentFrameNumber;
+                totals.GpuDroppedSlots = gpuFrame.DroppedSlots;
+                totals.GpuUnstampedFrames = gpuFrame.UnstampedFrames;
                 return PassTimings::BuildPassTimings(gpuPasses, cpuPasses, totals); });
             return ToolResult::Structured(j);
         }
@@ -460,7 +504,8 @@ namespace OloEngine::MCP
                                     .Prop("fps", Schema::Number())
                                     .Prop("frameTimeMs", Schema::Number())
                                     .Prop("cpuMs", Schema::Number())
-                                    .Prop("gpuMs", Schema::Number())
+                                    .Prop("gpuMs", Schema::NullableNumber().Desc("Null when unmeasured; see gpuStatus. Never 0 for an unmeasured frame."))
+                                    .Prop("gpuStatus", Schema::String().Desc("valid|pending|dropped|notStamped|outOfOrder|notTimed|unavailable."))
                                     .Prop("drawCalls", Schema::Int().Min(0))
                                     .Prop("instancedDrawCalls", Schema::Int().Min(0))
                                     .Prop("instancesRendered", Schema::Int().Min(0))
@@ -473,9 +518,14 @@ namespace OloEngine::MCP
                                     .Prop("commandPackets", Schema::Int().Min(0))
                                     .Prop("sortingMs", Schema::Number())
                                     .Prop("cullingMs", Schema::Number())
-                                    .Prop("gpuWaitMs", Schema::Number().Desc("CPU ms spent blocked on the GPU frame fence — high values mean GPU-bound."))
-                                    .Prop("renderWidth", Schema::Int().Min(0).Desc("Actual SceneColor render-target width in pixels. Compare against your viewport override to detect a stale/incorrect render size. Omitted when no render graph is live."))
+                                    .Prop("gpuWaitMs", Schema::Number().Desc("fenceWaitMs + presentWaitMs."))
+                                    .Prop("fenceWaitMs", Schema::Number().Desc("Blocked on the frame fence: the GPU is behind."))
+                                    .Prop("presentWaitMs", Schema::Number().Desc("CPU time inside SwapBuffers. OpenGL: the present/vsync wait. Vulkan: the backend renders the frame inside SwapBuffers (#691), so this contains the frame's render work and is NOT a pacing signal; read fenceWaitMs instead."))
+                                    .Prop("renderWidth", Schema::Int().Min(0).Desc("Actual SceneColor render-target width. Compare against a viewport override to spot a stale render size. Omitted when no graph is live."))
                                     .Prop("renderHeight", Schema::Int().Min(0).Desc("Actual SceneColor render-target height in pixels."))
+                                    .Prop("displayWidth", Schema::Int().Min(0).Desc("Presented framebuffer width; differs from renderWidth when renderScale < 1."))
+                                    .Prop("displayHeight", Schema::Int().Min(0))
+                                    .Prop("renderScale", Schema::Number().Desc("Render scale in force, [0.25, 1.0]."))
                                     .Prop("liveness", EditorLiveness::SchemaNode())
                                     .Required({ "fps", "frameTimeMs", "cpuMs", "gpuMs", "drawCalls", "triangles" });
             tool.MainMarshaled = true;
@@ -584,12 +634,22 @@ namespace OloEngine::MCP
                 "frames after issue) and its CPU dispatch time from the live graph. ScenePass "
                 "additionally reports subPasses splitting its GPU time into DepthPrepass vs Color (no "
                 "DepthPrepass sub-entry = depth prepass off; sub-pass times are inside the parent's gpuMs, "
-                "not additional). Frame totals include gpuWaitMs (CPU blocked on the GPU fence AND any "
-                "SwapBuffers/vsync stall — the direct GPU-bound signal); unattributedGpuMs is frame GPU time "
-                "spent between/outside the timed passes. Check gpuResultsStale before trusting the numbers on "
-                "very long/GPU-backlogged frames: true means the GPU fell behind far enough that a timestamp "
-                "slot was dropped rather than resolved, so gpuMs/passes describe an old, possibly "
-                "unrepresentative frame. parallelRecording is the parallel command recorder's telemetry "
+                "not additional). EVERY gpuMs is null-or-a-number with a gpuStatus beside it (issue #1337): "
+                "null means no measurement exists and gpuStatus says which of pending/dropped/notStamped/"
+                "outOfOrder/notTimed/unavailable applied — it never means the pass was free. passGpuTotalMs "
+                "sums only the measured top-level passes, so check passGpuTotalIsComplete (and "
+                "unmeasuredPasses) before treating it as the frame's pass time; unattributedGpuMs is frame "
+                "GPU time spent between/outside the timed passes and is null unless the frame span and every "
+                "pass were measured. gpuMeasurementFrameId vs currentFrameId say which frame each half "
+                "describes. Frame totals split the GPU-bound signal three ways: gpuWaitMs (the sum), "
+                "fenceWaitMs (blocked on the frame fence — the GPU is behind) and presentWaitMs (the "
+                "SwapBuffers span: a present/vsync wait on OpenGL, but on Vulkan the frame is recorded and "
+                "submitted inside SwapBuffers, so there it contains the render work and is not a pacing "
+                "signal — use recordingBreakdown.elapsedRecordingWallMs). Check gpuResultsStale before trusting the "
+                "numbers on very long/GPU-backlogged frames: true means the GPU fell behind far enough that a "
+                "timestamp slot was dropped rather than resolved, so the numbers describe an old, possibly "
+                "unrepresentative frame; gpuDroppedSlots counts how many frames were lost that way. "
+                "parallelRecording is the parallel command recorder's telemetry "
                 "for the same frame (issue #806): regions (RecordParallel calls that forked) vs inlineRegions, "
                 "secondariesExecuted, workerRecordMs (summed per-item record time) vs regionWallMs "
                 "(fork-to-join wall time); all zero on OpenGL, whose facade default reports nothing. Vulkan reports item and region timings for both inline and parallel execution. "
@@ -600,8 +660,13 @@ namespace OloEngine::MCP
                                     .Prop("frame", Schema::Object()
                                                        .Prop("frameTimeMs", Schema::Number())
                                                        .Prop("cpuMs", Schema::Number())
-                                                       .Prop("gpuMs", Schema::Number())
-                                                       .Prop("gpuWaitMs", Schema::Number()))
+                                                       .Prop("gpuMs", Schema::NullableNumber().Desc("Whole-frame GPU time, or null when no measurement exists — see gpuStatus. Never 0 for an unmeasured frame (#1337)."))
+                                                       .Prop("gpuStatus", Schema::String().Desc("valid | pending | dropped | notStamped | outOfOrder | notTimed | unavailable."))
+                                                       .Prop("gpuWaitMs", Schema::Number().Desc("fenceWaitMs + presentWaitMs — the combined GPU-bound signal."))
+                                                       .Prop("fenceWaitMs", Schema::Number().Desc("CPU blocked on the frame fence: the GPU is behind."))
+                                                       .Prop("presentWaitMs", Schema::Number().Desc("CPU time inside SwapBuffers. A present/vsync wait on OpenGL; on Vulkan it contains the frame's recording and submit (#691), so it is not a pacing signal."))
+                                                       .Prop("gpuMeasurementFrameId", Schema::Int().Min(0).Desc("Frame the GPU numbers describe."))
+                                                       .Prop("currentFrameId", Schema::Int().Min(0).Desc("Frame the CPU numbers describe; normally 1-3 ahead of gpuMeasurementFrameId.")))
                                     .Prop("parallelRecording", Schema::Object()
                                                                    .Prop("regions", Schema::Int().Min(0).Desc("RecordParallel calls that forked onto task workers this frame."))
                                                                    .Prop("inlineRegions", Schema::Int().Min(0).Desc("RecordParallel calls that ran inline on the render thread (backend unsupported, declined, or fewer than 2 items)."))
@@ -625,15 +690,33 @@ namespace OloEngine::MCP
                                                                    .Desc("Parallel recorder telemetry for the same frame as `frame`; Vulkan reports both inline and parallel regions in execution order. OpenGL reports zeros."))
                                     .Prop("passes", Schema::Array(Schema::Object()
                                                                       .Prop("pass", Schema::String())
-                                                                      .Prop("gpuMs", Schema::Number())
+                                                                      .Prop("gpuMs", Schema::NullableNumber().Desc("This pass's GPU time, or null when it was not measured — see gpuStatus."))
+                                                                      .Prop("gpuStatus", Schema::String().Desc("valid | pending | dropped | notStamped | outOfOrder | notTimed | unavailable."))
                                                                       .Prop("cpuMs", Schema::Number())
                                                                       .Prop("subPasses", Schema::Array(Schema::Object()
                                                                                                            .Prop("name", Schema::String())
-                                                                                                           .Prop("gpuMs", Schema::Number()))
+                                                                                                           .Prop("gpuMs", Schema::NullableNumber())
+                                                                                                           .Prop("gpuStatus", Schema::String()))
                                                                                              .Desc("GPU sub-pass brackets stamped inside this pass (e.g. ScenePass DepthPrepass/Color). Contained in the parent's gpuMs; absent when the pass has no sub-brackets."))))
-                                    .Prop("passGpuTotalMs", Schema::Number())
-                                    .Prop("unattributedGpuMs", Schema::Number())
+                                    .Prop("recordingBreakdown", Schema::Object()
+                                                                    .Prop("elapsedRecordingWallMs", Schema::Number().Desc("ELAPSED: fork-to-join wall time on the render thread."))
+                                                                    .Prop("summedWorkerCpuMs", Schema::Number().Desc("A SUM across workers, NOT elapsed time. Legitimately exceeds elapsedRecordingWallMs when work ran concurrently."))
+                                                                    .Prop("joinWaitMs", Schema::Number().Desc("ELAPSED, inside the wall time: waiting for the last worker."))
+                                                                    .Prop("summedCpuPrepareMs", Schema::Number().Desc("A SUM: caller-side setup per region. Zero unless OLO_VK_RECORDING_COSTS=1."))
+                                                                    .Prop("fenceWaitMs", Schema::Number().Desc("ELAPSED: CPU blocked on the frame fence."))
+                                                                    .Prop("presentWaitMs", Schema::Number().Desc("ELAPSED: CPU time inside SwapBuffers. Vsync on OpenGL; on Vulkan it overlaps elapsedRecordingWallMs because the frame renders inside SwapBuffers."))
+                                                                    .Prop("gpuExecutionMs", Schema::NullableNumber().Desc("ELAPSED on the GPU timeline, or null when unmeasured."))
+                                                                    .Prop("gpuExecutionStatus", Schema::String())
+                                                                    .Prop("note", Schema::String())
+                                                                    .Desc("The seven distinct frame measurements, each labelled ELAPSED or SUM so they are not added together (#1337 criterion 2)."))
+                                    .Prop("passGpuTotalMs", Schema::Number().Desc("Sum of the MEASURED top-level passes. A lower bound unless passGpuTotalIsComplete."))
+                                    .Prop("unmeasuredPasses", Schema::Int().Min(0).Desc("Passes that carried no GPU measurement, so are missing from passGpuTotalMs."))
+                                    .Prop("passGpuTotalIsComplete", Schema::Bool().Desc("True when every pass contributed to passGpuTotalMs."))
+                                    .Prop("unattributedGpuMs", Schema::NullableNumber().Desc("Frame GPU time outside the timed passes, or null when the frame span or any pass was unmeasured (the subtraction would attribute the missing passes' time to it)."))
                                     .Prop("gpuResultsAgeFrames", Schema::Int().Min(0).Desc("How many frames old the GPU numbers are (results resolve 1-3 frames after issue)."))
+                                    .Prop("gpuDroppedSlots", Schema::Int().Min(0).Desc("Timestamp slots discarded since startup because the GPU fell more than a ring behind. Each is a frame never measured."))
+                                    .Prop("gpuUnstampedFrames", Schema::Int().Min(0).Desc("Frames the backend declined to stamp at all. A different fault from gpuDroppedSlots: the instrument is not working, rather than the GPU being behind."))
+                                    .Prop("gpuResultsStatus", Schema::String().Desc("The frame sample's status, repeated at top level as the one word to branch on."))
                                     .Prop("gpuResultsStale", Schema::Bool().Desc("True when gpuResultsAgeFrames is at or beyond the timer pool's slot count — a slot was dropped rather than resolved, so gpuMs/passes are from a stale frame."))
                                     .Required({ "frame", "passes", "passGpuTotalMs", "parallelRecording" });
             tool.MainMarshaled = true;

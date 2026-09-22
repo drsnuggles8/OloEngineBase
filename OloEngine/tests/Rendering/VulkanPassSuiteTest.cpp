@@ -7344,9 +7344,12 @@ TEST_F(VulkanPassSuite, VirtualGeometrySoftwareRasterReportsGpuTimingsOnVulkan)
             });
     }
 
-    const TArray<GPUPassTimerPool::PassTiming> timings = timers.GetLastPassTimingsCopy();
-    const u64 resolvedFrame = timers.GetLastResolvedFrameNumber();
-    const f64 frameMs = timers.GetLastFrameGpuMs();
+    // ONE snapshot: the passes, the frame span and the frame identity all
+    // have to describe the same resolved frame (#1337).
+    const GPUPassTimerPool::FrameTimings resolved = timers.GetLastFrameTimings();
+    const TArray<GPUPassTimerPool::PassTiming>& timings = resolved.Passes;
+    const u64 resolvedFrame = resolved.FrameNumber;
+    const GpuTimingSample frameSample = resolved.Frame;
 
     // Retire the query objects while this fixture's device is still alive — a
     // VkQueryPool outliving vkDestroyDevice is a validation error the suite's
@@ -7381,19 +7384,38 @@ TEST_F(VulkanPassSuite, VirtualGeometrySoftwareRasterReportsGpuTimingsOnVulkan)
     // is an invariant of the pool's own nesting at any speed on any device, and
     // it is what a mismatched BeginSubPass/EndSubPass pair — the harness bug
     // this tenant could plausibly grow — actually violates.
-    EXPECT_TRUE(std::isfinite(swRaster->GpuMs)) << "SwRaster GPU time is not finite";
-    EXPECT_GT(swRaster->GpuMs, 0.0) << "SwRaster GPU time resolved as zero — the timestamps did not bracket work";
+    // VALIDITY FIRST, and it is an assertion rather than a skip: this tenant
+    // exists to prove vkCmdWriteTimestamp and the readback reach the device, so
+    // "the sample is not a measurement" is the failure it is looking for. Since
+    // #1337 the reason is in the status instead of being flattened to 0.0.
+    ASSERT_TRUE(swRaster->IsValid())
+        << "SwRaster produced no GPU measurement on Vulkan: " << ToString(swRaster->Sample.Status) << " — "
+        << DescribeGpuTimingStatus(swRaster->Sample.Status);
+    ASSERT_TRUE(frameSample.IsValid())
+        << "the frame span produced no GPU measurement on Vulkan: " << ToString(frameSample.Status) << " — "
+        << DescribeGpuTimingStatus(frameSample.Status);
+
+    const f64 swRasterMs = swRaster->Sample.GpuMs;
+    const f64 frameMs = frameSample.GpuMs;
+    EXPECT_TRUE(std::isfinite(swRasterMs)) << "SwRaster GPU time is not finite";
+    EXPECT_GT(swRasterMs, 0.0) << "SwRaster GPU time resolved as zero — the timestamps did not bracket work";
     EXPECT_TRUE(std::isfinite(frameMs)) << "the frame GPU time is not finite";
     EXPECT_GE(frameMs, 0.0);
-    EXPECT_LE(swRaster->GpuMs, frameMs)
-        << "the SwRaster sub-pass (" << swRaster->GpuMs << " ms) outlasted the frame it nests inside ("
-        << frameMs << " ms) — the sub-pass bracket is mismatched";
+    EXPECT_LE(swRasterMs, frameMs)
+        << "the SwRaster sub-pass (" << swRasterMs << " ms) outlasted the frame it nests inside (" << frameMs
+        << " ms) — the sub-pass bracket is mismatched";
+
+    // The nesting is also STATED by the producer now, not inferred from the
+    // name: a mismatched BeginSubPass/EndSubPass pair that still produced a
+    // plausible duration would pass the span check above but not this one.
+    EXPECT_TRUE(swRaster->IsSubPass) << "SwRaster must be published as a sub-pass bracket";
+    EXPECT_EQ(swRaster->ParentName.ToView(), "VirtualGeometryPass");
 
     // The A/B line. Shaders are runtime assets, so the same binary against two
     // versions of VirtualClusterRaster.comp compares directly on this number.
     std::cout << "vg-sw-raster-timing clusters=" << kClusterCount << " viewport=" << kSize << "x" << kSize
-              << " sw_raster_ms=" << swRaster->GpuMs << " frame_ms=" << frameMs
-              << " resolved_frame=" << resolvedFrame << std::endl;
+              << " sw_raster_ms=" << swRasterMs << " frame_ms=" << frameMs << " resolved_frame=" << resolvedFrame
+              << " age_frames=" << resolved.AgeFrames << " dropped_slots=" << resolved.DroppedSlots << std::endl;
 }
 
 // =============================================================================

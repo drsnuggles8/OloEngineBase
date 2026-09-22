@@ -448,9 +448,15 @@ namespace OloEngine
         // earlier frame's timestamps (non-blocking) and stamp this frame's
         // begin. Feed the resolved whole-frame GPU time to the profiler — it
         // lags 1-3 frames, which is fine for steady-state metrics.
+        //
+        // The VALIDITY travels with it (#1337). A frame whose timestamps were
+        // dropped, refused or read back out of order has no GPU time, and
+        // publishing 0.0 for it made the profiler, the MCP snapshot and the
+        // bottleneck analysis all report a frame with no GPU work — which reads
+        // as the fastest frame of the session rather than as a missing one.
         auto& gpuTimers = GPUPassTimerPool::GetInstance();
         gpuTimers.BeginFrame();
-        profiler.SetValue(RendererProfiler::MetricType::GPUTime, gpuTimers.GetLastFrameGpuMs());
+        profiler.SetFrameGpuSample(gpuTimers.GetLastFrameGpuSample(), gpuTimers.GetLastResolvedFrameNumber());
 
         if (!FrameCorePasses.Scene)
         {

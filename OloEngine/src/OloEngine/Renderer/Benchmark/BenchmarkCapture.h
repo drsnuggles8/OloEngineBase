@@ -21,6 +21,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/Benchmark/BenchmarkManifest.h"
+#include "OloEngine/Renderer/Debug/GPUTimingStatus.h"
 
 #include <filesystem>
 #include <string>
@@ -82,7 +83,15 @@ namespace OloEngine::Benchmark
     struct PassTimingRecord
     {
         FString Name;
-        f64 GpuMs = 0.0;
+        // The measurement and its validity (#1337). A pass whose timestamps
+        // were dropped, refused or read back out of order has NO number, and
+        // result.json writes null with a status rather than 0.0 — which a
+        // reader of a persisted export has no way to question later.
+        GpuTimingSample Sample{};
+        // Stated by the producer: a sub-pass interval is inside its parent's,
+        // so a consumer that sums the list must skip it.
+        bool IsSubPass = false;
+        FString ParentName;
     };
 
 } // namespace OloEngine::Benchmark
@@ -102,7 +111,9 @@ namespace OloEngine
     {
         using Record = Benchmark::PassTimingRecord;
         static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::Name)> &&
-                                      TIsTriviallyRelocatable_V<decltype(Record::GpuMs)>;
+                                      TIsTriviallyRelocatable_V<decltype(Record::Sample)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::IsSubPass)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::ParentName)>;
     };
 } // namespace OloEngine
 
@@ -110,12 +121,55 @@ namespace OloEngine::Benchmark
 {
     // Frame-level renderer counters recorded into result.json ("renderer
     // timings and memory counters" — the issue-#974 metadata requirement).
+    //
+    // Every field here has a live producer, and that is a TEST rather than a
+    // claim: GpuTimingPoolEvidenceTest.EveryExportedRendererCounterHasALive
+    // Producer renders real frames and requires each one to have moved. #1337
+    // criterion 3 requires a field with no producer to be removed or marked,
+    // never left reading a plausible zero.
     struct RendererCounters
     {
         u32 DrawCalls = 0;
         u32 TrianglesRendered = 0;
         u32 InstancesRendered = 0;
         u64 GpuMemoryTotalBytes = 0;
+    };
+
+    // The resolution the frame was actually rendered and presented at (#1337
+    // criterion 4). The manifest's declared Width/Height is a REQUEST: the
+    // render graph applies its own render scale on top, so the scene can be
+    // rasterized at one size and displayed at another, and a benchmark record
+    // that carries only the request cannot be compared against one taken at a
+    // different scale.
+    //
+    // Known issue #1397: a non-native UpscaleMode crops the editor viewport
+    // instead of scaling it, so on the editor host these dimensions describe
+    // the buffers while the visible framing is a crop of them. Recorded as
+    // measured; the discrepancy belongs to #1397.
+    struct ResolutionRecord
+    {
+        u32 RenderWidth = 0; ///< Rasterization size (physical * render scale).
+        u32 RenderHeight = 0;
+        u32 DisplayWidth = 0; ///< Presented/physical framebuffer size.
+        u32 DisplayHeight = 0;
+        f32 RenderScale = 1.0f;
+        bool Measured = false; ///< False when no live graph could be asked.
+    };
+
+    // How trustworthy this run's GPU timings are, recorded beside them (#1337
+    // criterion 4). A persisted export outlives the session that made it, so
+    // "the numbers were stale" has to be IN the file.
+    struct TimingValidity
+    {
+        u64 MeasurementFrameId = 0; ///< Frame the pass timings describe.
+        u64 CurrentFrameId = 0;     ///< Frame the counters describe.
+        u64 AgeFrames = 0;          ///< Difference; 1-3 is the designed latency.
+        u32 DroppedSlots = 0;       ///< Frames the timer ring never measured.
+        u32 UnstampedFrames = 0;    ///< Frames the backend declined to stamp. A
+                                    ///< separate fault: the instrument is not
+                                    ///< working, rather than the GPU being behind.
+        bool Stale = false;         ///< Age at or beyond the ring size.
+        GpuTimingStatus FrameStatus = GpuTimingStatus::Unavailable;
     };
 
     // Host-supplied provenance for result.json.
@@ -138,6 +192,8 @@ namespace OloEngine::Benchmark
         bool WarmupTimedOut = false;
         f32 FinalMockTimeSeconds = 0.0f;
         TArray<PassTimingRecord> PassTimings;
+        TimingValidity Timing;
+        ResolutionRecord Resolution;
         RendererCounters Counters;
     };
 
@@ -171,8 +227,17 @@ namespace OloEngine::Benchmark
                                                     u32 captureFrameIndex, std::string_view backend,
                                                     const CaptureContext& context);
 
-    /// The per-pass GPU timings of the most recently resolved frame.
+    /// The per-pass GPU timings of the most recently resolved frame, each with
+    /// its validity.
     [[nodiscard]] TArray<PassTimingRecord> SnapshotPassTimings();
+
+    /// How trustworthy those timings are: which frame they describe, how old
+    /// they are, and how many frames the timer ring lost outright.
+    [[nodiscard]] TimingValidity SnapshotTimingValidity();
+
+    /// The resolution the active render graph is actually rendering and
+    /// presenting at. `Measured` is false when there is no live graph.
+    [[nodiscard]] ResolutionRecord SnapshotResolution();
 
     /// Frame-level draw/triangle/instance counters + tracked GPU memory.
     [[nodiscard]] RendererCounters SnapshotRendererCounters();

@@ -198,6 +198,17 @@ namespace OloEngine::MCP::Schema
     {
         return Node(Json{ { "type", "number" } });
     }
+    // A number that may be JSON null, `{"type":["number","null"]}`.
+    //
+    // The shape every measurement that can fail to exist goes out in (#1337): a
+    // GPU timing with no measurement behind it publishes null and a status
+    // saying why, because 0 is a legal timing and a caller cannot tell the two
+    // apart. Declaring the union means a client validating against this schema
+    // accepts the null instead of rejecting the whole response.
+    [[nodiscard]] inline Node NullableNumber()
+    {
+        return Node(Json{ { "type", Json::array({ "number", "null" }) } });
+    }
     [[nodiscard]] inline Node Bool()
     {
         return Node(Json{ { "type", "boolean" } });

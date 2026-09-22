@@ -541,7 +541,8 @@ namespace OloEngine
         void DeleteQueries(std::span<const RHI::ResourceHandle> queries) override;
         void BeginQuery(RHI::QueryType type, RHI::ResourceHandle query) override;
         void EndQuery(RHI::QueryType type) override;
-        void WriteTimestamp(RHI::ResourceHandle query) override;
+        [[nodiscard]] bool WriteTimestamp(RHI::ResourceHandle query) override;
+        [[nodiscard]] bool TryGetQueryResultU64(RHI::ResourceHandle query, u64& outValue) override;
 
         // The bind-time layout seam, callable by BOTH descriptor routes (#691
         // closes the "amendment (63) covers the slot path only" debt

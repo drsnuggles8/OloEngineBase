@@ -872,7 +872,7 @@ TEST_F(VulkanParallelRecordingDevice, GraphRecordsSharedUnboundUniformAndTimesOr
     ASSERT_EQ(stats.RegionTimings[0].ItemPassNames.Num(), static_cast<i32>(order.Num()));
     for (sizet item = 0; item < order.Num(); ++item)
         EXPECT_EQ(stats.RegionTimings[0].ItemPassNames[static_cast<i32>(item)].ToView(), order[item]);
-    const auto gpu = timers.GetLastPassTimingsCopy();
+    const auto gpu = timers.GetLastFrameTimings().Passes;
     ASSERT_EQ(gpu.Num(), 2u);
     EXPECT_EQ(gpu[0].Name, first.GetName());
     EXPECT_EQ(gpu[1].Name, second.GetName());

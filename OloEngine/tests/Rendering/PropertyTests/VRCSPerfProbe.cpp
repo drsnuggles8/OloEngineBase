@@ -118,8 +118,11 @@ namespace OloEngine::Tests
         {
             for (const auto& t : timings)
             {
+                // -1.0 for an entry that carries no measurement too (#1337):
+                // the caller's `>= 0.0` filter is what keeps an unmeasured
+                // bracket out of the median, and a 0.0 would have passed it.
                 if (t.Name == name)
-                    return t.GpuMs;
+                    return t.IsValid() ? t.Sample.GpuMs : -1.0;
             }
             return -1.0;
         }
@@ -238,7 +241,7 @@ namespace OloEngine::Tests
             for (u32 i = 0; i < kSampledFramesPerBlock; ++i)
             {
                 RunEditorFrames(camera, 1);
-                const auto timings = GPUPassTimerPool::GetInstance().GetLastPassTimingsCopy();
+                const auto timings = GPUPassTimerPool::GetInstance().GetLastFrameTimings().Passes;
                 const f64 g = FindTiming(timings, "GTAOPass/GTAO");
                 const f64 c = FindTiming(timings, "GTAOPass/VRCSClassify");
                 const f64 d = FindTiming(timings, "GTAOPass/GTAO_Denoise");

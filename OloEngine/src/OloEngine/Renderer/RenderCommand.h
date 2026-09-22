@@ -897,9 +897,12 @@ namespace OloEngine
             s_RendererAPI->EndQuery(type);
         }
 
-        static void WriteTimestamp(RHI::ResourceHandle query)
+        // Returns whether the backend actually recorded the stamp (#1337).
+        // A discarded false is how an untimed pass became a 0.0 ms one.
+        [[nodiscard("A refused timestamp is the #1337 silent-zero path — record it")]] static bool
+        WriteTimestamp(RHI::ResourceHandle query)
         {
-            s_RendererAPI->WriteTimestamp(query);
+            return s_RendererAPI->WriteTimestamp(query);
         }
 
         [[nodiscard("Store this!")]] static bool IsQueryResultAvailable(RHI::ResourceHandle query)
@@ -915,6 +918,15 @@ namespace OloEngine
         [[nodiscard("Store this!")]] static u64 GetQueryResultU64(RHI::ResourceHandle query)
         {
             return s_RendererAPI->GetQueryResultU64(query);
+        }
+
+        // Reads a u64 query result, reporting an unreadable query as FALSE
+        // rather than as the value 0 (#1337). Prefer this wherever a zero would
+        // be a legal answer — every timestamp and every occlusion count.
+        [[nodiscard("The false return IS the answer — a zero out-value is not")]] static bool
+        TryGetQueryResultU64(RHI::ResourceHandle query, u64& outValue)
+        {
+            return s_RendererAPI->TryGetQueryResultU64(query, outValue);
         }
 
         // Fences

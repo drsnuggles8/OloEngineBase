@@ -545,9 +545,6 @@ namespace OloEngine
                         if (stats.HitsShadedUntextured)
                             ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
                                                "hits shaded UNTEXTURED - blocked on #805");
-                        if (stats.MaskedGeometryReflectsAsSolid)
-                            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
-                                               "masked geometry reflects as solid");
                     }
                     else
                     {

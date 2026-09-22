@@ -6775,8 +6775,18 @@ namespace OloEngine
                                 stats.m_IndirectionFullRebuilds);
                     ImGui::Text("Last publish: %u texels stamped, %u re-propagated",
                                 stats.m_IndirectionTexelsWritten, stats.m_IndirectionTexelsFilled);
-                    ImGui::Text("Indirection GPU (best sample): %.4f ms delta / %.4f ms rebuild",
-                                stats.m_IndirectionDeltaGpuMs, stats.m_IndirectionRebuildGpuMs);
+                    // A sample that never resolved prints its REASON, not
+                    // "0.0000 ms" (#1337) — the two were the same value here.
+                    const auto vtSampleText = [](const GpuTimingSample& sample) -> std::string
+                    {
+                        if (!sample.IsValid())
+                            return std::string(ToString(sample.Status));
+                        return std::to_string(sample.GpuMs) + " ms";
+                    };
+                    const std::string deltaText = vtSampleText(stats.m_IndirectionDelta);
+                    const std::string rebuildText = vtSampleText(stats.m_IndirectionRebuild);
+                    ImGui::Text("Indirection GPU (best sample): %s delta / %s rebuild", deltaText.c_str(),
+                                rebuildText.c_str());
 
                     // The checkbox and OLO_TERRAIN_VT_FULL_REBUILD are one
                     // switch, not two: the lever registry IS the state, so a

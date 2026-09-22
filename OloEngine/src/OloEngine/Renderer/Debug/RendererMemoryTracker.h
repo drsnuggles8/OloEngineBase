@@ -53,15 +53,15 @@ namespace OloEngine
             bool m_IsGPU = false;
         };
 
-        // Memory pool statistics
-        struct PoolStats
-        {
-            sizet m_TotalSize = 0;
-            sizet m_UsedSize = 0;
-            sizet m_FreeSize = 0;
-            u32 m_AllocationCount = 0;
-            f32 m_FragmentationPercentage = 0.0f;
-        };
+        // NO PoolStats STRUCT HERE, and no m_PoolStats map. Both existed;
+        // neither was ever written, and nothing read them either —
+        // RenderPoolStatsTab() computes its whole table from m_Allocations on
+        // the spot. A named, plausible-looking "pool statistics" type that is
+        // always zero is worse than no type, because the next person to need
+        // pool numbers fills it in at one site and believes the rest (#1337
+        // criterion 3: remove an unwritten field or mark it, never leave it
+        // reading zero). Removed rather than marked: it had no consumer to
+        // mark it for.
 
         // Memory leak detection
         struct LeakInfo
@@ -147,7 +147,6 @@ namespace OloEngine
         u32 m_HistoryIndex = 0;
 
         // Pool statistics (placeholder for future implementation)
-        std::unordered_map<std::string, PoolStats> m_PoolStats;
         // Leak detection parameters
         f64 m_LeakDetectionThreshold = 30.0; // seconds
         f64 m_LastLeakCheck = 0.0;

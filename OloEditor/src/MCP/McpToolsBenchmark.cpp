@@ -274,6 +274,10 @@ namespace OloEngine::MCP
             // product.
             auto cameraSets = std::make_shared<TArray<Benchmark::CameraCaptureSet>>();
             auto passTimings = std::make_shared<TArray<Benchmark::PassTimingRecord>>();
+            // Taken in the SAME marshal as the timings, so the validity block
+            // describes the pass list it ships with (#1337 criterion 4).
+            auto timingValidity = std::make_shared<Benchmark::TimingValidity>();
+            auto resolution = std::make_shared<Benchmark::ResolutionRecord>();
             const FString backendCopy = backend;
             u32 totalWarmFrames = 0;
             bool warmupTimedOut = false;
@@ -364,9 +368,15 @@ namespace OloEngine::MCP
 
             auto counters = std::make_shared<Benchmark::RendererCounters>();
             host.MarshalRead(
-                [&host, applied, passTimings, counters]() -> Json
+                [&host, applied, passTimings, timingValidity, resolution, counters]() -> Json
                 {
                     *passTimings = Benchmark::SnapshotPassTimings();
+                    *timingValidity = Benchmark::SnapshotTimingValidity();
+                    // Read BEFORE the restore below puts the editor's own
+                    // render scale and viewport override back: afterwards the
+                    // graph would report the editor's dimensions, not the
+                    // benchmark's.
+                    *resolution = Benchmark::SnapshotResolution();
                     *counters = Benchmark::SnapshotRendererCounters();
                     // Put the user's editor session back: camera, renderer +
                     // post-process configuration, render scale, viewport
@@ -421,6 +431,8 @@ namespace OloEngine::MCP
             runInfo.WarmupTimedOut = warmupTimedOut;
             runInfo.FinalMockTimeSeconds = 0.0f; // live clock — no mock stepping in this host
             runInfo.PassTimings = *passTimings;
+            runInfo.Timing = *timingValidity;
+            runInfo.Resolution = *resolution;
             runInfo.Counters = *counters;
 
             // A distinct default from the test-binary front door, so the two

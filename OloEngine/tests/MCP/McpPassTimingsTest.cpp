@@ -25,24 +25,50 @@ namespace
     using OloEngine::MCP::PassTimings::Round3;
     using Json = OloEngine::MCP::PassTimings::Json;
 
+    using OloEngine::GpuTimingSample;
+    using OloEngine::GpuTimingStatus;
+
     FrameTotals MakeTotals()
     {
         FrameTotals totals;
         totals.FrameTimeMs = 12.65;
         totals.CpuMs = 4.2;
-        totals.GpuMs = 8.1;
+        // Since #1337 the frame's GPU time carries its validity; these helpers
+        // build MEASURED samples so the existing shape tests keep testing the
+        // shape. The unmeasured cases are GpuTimingValidityTest.cpp's subject.
+        totals.Gpu = GpuTimingSample::Measured(8.1);
         totals.GpuWaitMs = 3.4;
         totals.GpuResultsAgeFrames = 2;
+        // A frame really did resolve. Without this the staleness flag reads
+        // "nothing has ever resolved" and reports stale regardless of age —
+        // which is correct behaviour for a pool that never produced a frame,
+        // and not what these shape tests are about.
+        totals.GpuMeasurementFrameId = 4100;
+        totals.CurrentFrameId = 4102;
         return totals;
+    }
+
+    // A measured top-level pass entry.
+    GpuPassEntry P(std::string name, double gpuMs)
+    {
+        return GpuPassEntry{ std::move(name), GpuTimingSample::Measured(gpuMs), false, {} };
+    }
+
+    // A measured sub-pass entry. The nesting is stated by the producer now,
+    // not derived from the '/' in the name.
+    GpuPassEntry Sub(std::string parent, std::string leaf, double gpuMs)
+    {
+        std::string full = parent + "/" + leaf;
+        return GpuPassEntry{ std::move(full), GpuTimingSample::Measured(gpuMs), true, std::move(parent) };
     }
 } // namespace
 
 TEST(McpPassTimingsTest, JoinsGpuAndCpuByPassName)
 {
     const std::vector<GpuPassEntry> gpu = {
-        { "ShadowPass", 1.25 },
-        { "ScenePass", 5.5 },
-        { "GTAOPass", 0.7 },
+        P("ShadowPass", 1.25),
+        P("ScenePass", 5.5),
+        P("GTAOPass", 0.7),
     };
     const std::vector<CpuPassEntry> cpu = {
         { "ScenePass", 2.0 },
@@ -67,9 +93,9 @@ TEST(McpPassTimingsTest, JoinsGpuAndCpuByPassName)
     EXPECT_DOUBLE_EQ(o["passGpuTotalMs"].get<double>(), 7.45);
 }
 
-TEST(McpPassTimingsTest, AppendsCpuOnlyPassesWithZeroGpu)
+TEST(McpPassTimingsTest, AppendsCpuOnlyPassesAsNotTimedRatherThanZero)
 {
-    const std::vector<GpuPassEntry> gpu = { { "ScenePass", 5.0 } };
+    const std::vector<GpuPassEntry> gpu = { P("ScenePass", 5.0) };
     const std::vector<CpuPassEntry> cpu = {
         { "ScenePass", 2.0 },
         { "BloomPass", 0.3 }, // ran on CPU this frame, not in the resolved GPU frame
@@ -79,15 +105,18 @@ TEST(McpPassTimingsTest, AppendsCpuOnlyPassesWithZeroGpu)
 
     ASSERT_EQ(o["passes"].size(), 2u);
     EXPECT_EQ(o["passes"][1]["pass"], "BloomPass");
-    EXPECT_DOUBLE_EQ(o["passes"][1]["gpuMs"].get<double>(), 0.0);
+    // Was `gpuMs: 0`, which is the same claim as "this pass is free on the
+    // GPU". #1337: null, with the reason beside it.
+    EXPECT_TRUE(o["passes"][1]["gpuMs"].is_null());
+    EXPECT_EQ(o["passes"][1]["gpuStatus"].get<std::string>(), "notTimed");
     EXPECT_DOUBLE_EQ(o["passes"][1]["cpuMs"].get<double>(), 0.3);
 }
 
 TEST(McpPassTimingsTest, SSGIRemainsASeparateTopLevelTimingRow)
 {
     const std::vector<GpuPassEntry> gpu = {
-        { "SSGIPass", 0.43 },
-        { "DeferredLightingPass", 1.25 },
+        P("SSGIPass", 0.43),
+        P("DeferredLightingPass", 1.25),
     };
     const std::vector<CpuPassEntry> cpu = {
         { "SSGIPass", 0.08 },
@@ -107,8 +136,8 @@ TEST(McpPassTimingsTest, DuplicatePassNamesJoinPositionally)
     // Two passes with the same name (e.g. a pass that runs twice): each GPU
     // entry consumes a distinct CPU entry instead of double-counting the first.
     const std::vector<GpuPassEntry> gpu = {
-        { "BlurPass", 1.0 },
-        { "BlurPass", 2.0 },
+        P("BlurPass", 1.0),
+        P("BlurPass", 2.0),
     };
     const std::vector<CpuPassEntry> cpu = {
         { "BlurPass", 0.25 },
@@ -125,8 +154,8 @@ TEST(McpPassTimingsTest, DuplicatePassNamesJoinPositionally)
 TEST(McpPassTimingsTest, FrameTotalsAndUnattributedGpu)
 {
     const std::vector<GpuPassEntry> gpu = {
-        { "ScenePass", 5.0 },
-        { "ToneMapPass", 1.0 },
+        P("ScenePass", 5.0),
+        P("ToneMapPass", 1.0),
     };
 
     const Json o = BuildPassTimings(gpu, {}, MakeTotals());
@@ -134,6 +163,7 @@ TEST(McpPassTimingsTest, FrameTotalsAndUnattributedGpu)
     EXPECT_DOUBLE_EQ(o["frame"]["frameTimeMs"].get<double>(), 12.65);
     EXPECT_DOUBLE_EQ(o["frame"]["cpuMs"].get<double>(), 4.2);
     EXPECT_DOUBLE_EQ(o["frame"]["gpuMs"].get<double>(), 8.1);
+    EXPECT_EQ(o["frame"]["gpuStatus"].get<std::string>(), "valid");
     EXPECT_DOUBLE_EQ(o["frame"]["gpuWaitMs"].get<double>(), 3.4);
     EXPECT_EQ(o["gpuResultsAgeFrames"].get<std::uint64_t>(), 2u);
 
@@ -168,8 +198,8 @@ TEST(McpPassTimingsTest, FlagsGpuResultsAsStaleAtOrBeyondSlotCount)
 TEST(McpPassTimingsTest, UnattributedGpuClampsToZeroWhenPassesExceedFrameSpan)
 {
     FrameTotals totals = MakeTotals();
-    totals.GpuMs = 4.0;
-    const std::vector<GpuPassEntry> gpu = { { "ScenePass", 5.0 } }; // overlap artifact
+    totals.Gpu = GpuTimingSample::Measured(4.0);
+    const std::vector<GpuPassEntry> gpu = { P("ScenePass", 5.0) }; // overlap artifact
 
     const Json o = BuildPassTimings(gpu, {}, totals);
 
@@ -178,12 +208,17 @@ TEST(McpPassTimingsTest, UnattributedGpuClampsToZeroWhenPassesExceedFrameSpan)
 
 TEST(McpPassTimingsTest, EmptyInputsProduceEmptyPassListAndZeroTotals)
 {
-    FrameTotals totals; // all zeros
+    FrameTotals totals; // default-constructed: nothing was measured
     const Json o = BuildPassTimings({}, {}, totals);
 
     EXPECT_TRUE(o["passes"].empty());
     EXPECT_DOUBLE_EQ(o["passGpuTotalMs"].get<double>(), 0.0);
-    EXPECT_DOUBLE_EQ(o["unattributedGpuMs"].get<double>(), 0.0);
+    // A default FrameTotals has no frame measurement, so there is no
+    // subtraction to do. It used to report 0.0 ms of unattributed GPU time,
+    // which is a claim about a frame nobody measured (#1337).
+    EXPECT_TRUE(o["frame"]["gpuMs"].is_null());
+    EXPECT_EQ(o["frame"]["gpuStatus"].get<std::string>(), "unavailable");
+    EXPECT_TRUE(o["unattributedGpuMs"].is_null());
     EXPECT_EQ(o["gpuResultsAgeFrames"].get<std::uint64_t>(), 0u);
 
     // The parallel-recording block is always present, so a caller can rely on
@@ -256,11 +291,11 @@ TEST(McpPassTimingsTest, RoundsToThreeDecimals)
 TEST(McpPassTimingsTest, GroupsSubPassEntriesUnderParent)
 {
     const std::vector<GpuPassEntry> gpu = {
-        { "ShadowPass", 1.0 },
-        { "ScenePass", 46.6 },
-        { "ScenePass/DepthPrepass", 21.9 },
-        { "ScenePass/Color", 24.2 },
-        { "GTAOPass", 0.7 },
+        P("ShadowPass", 1.0),
+        P("ScenePass", 46.6),
+        Sub("ScenePass", "DepthPrepass", 21.9),
+        Sub("ScenePass", "Color", 24.2),
+        P("GTAOPass", 0.7),
     };
     const std::vector<CpuPassEntry> cpu = { { "ScenePass", 2.0 } };
 
@@ -276,6 +311,7 @@ TEST(McpPassTimingsTest, GroupsSubPassEntriesUnderParent)
     ASSERT_EQ(scene["subPasses"].size(), 2u);
     EXPECT_EQ(scene["subPasses"][0]["name"], "DepthPrepass");
     EXPECT_DOUBLE_EQ(scene["subPasses"][0]["gpuMs"].get<double>(), 21.9);
+    EXPECT_EQ(scene["subPasses"][0]["gpuStatus"].get<std::string>(), "valid");
     EXPECT_EQ(scene["subPasses"][1]["name"], "Color");
     EXPECT_DOUBLE_EQ(scene["subPasses"][1]["gpuMs"].get<double>(), 24.2);
 
@@ -292,7 +328,7 @@ TEST(McpPassTimingsTest, GroupsSubPassEntriesUnderParent)
 TEST(McpPassTimingsTest, OrphanSubPassEntryStaysTopLevel)
 {
     const std::vector<GpuPassEntry> gpu = {
-        { "ScenePass/Color", 24.2 },
+        Sub("ScenePass", "Color", 24.2),
     };
 
     const Json o = BuildPassTimings(gpu, {}, MakeTotals());
@@ -309,9 +345,9 @@ TEST(McpPassTimingsTest, OrphanSubPassEntryStaysTopLevel)
 TEST(McpPassTimingsTest, SubPassAttachesToMostRecentParent)
 {
     const std::vector<GpuPassEntry> gpu = {
-        { "BlurPass", 1.0 },
-        { "BlurPass", 2.0 },
-        { "BlurPass/Horizontal", 0.9 },
+        P("BlurPass", 1.0),
+        P("BlurPass", 2.0),
+        Sub("BlurPass", "Horizontal", 0.9),
     };
 
     const Json o = BuildPassTimings(gpu, {}, MakeTotals());

@@ -177,14 +177,16 @@ namespace OloEngine::RayTracing
         // so the deformation's GPU cost is reported through the same per-pass
         // channel as every other pass and needs no counter of its own.
         //
-        // The alternative was tried in this very header's neighbour and does
-        // not work: RayTracing::FrameCounters has BlasBuildGpuNs and
+        // The alternative was tried in this very header's neighbour and did
+        // not work: RayTracing::FrameCounters carried BlasBuildGpuNs and
         // TlasBuildGpuNs, both declared by #978, both read by the Statistics
         // panel, and neither ever WRITTEN by anything. They read zero forever,
-        // and the panel hides them behind `if (> 0)`, so nothing says so. A
-        // field that is always zero is worse than an absent one — it answers
-        // the question wrongly instead of sending the reader to the channel
-        // that can answer it.
+        // and the panel hid them behind `if (> 0)`, so nothing said so. A field
+        // that is always zero is worse than an absent one — it answers the
+        // question wrongly instead of sending the reader to the channel that
+        // can answer it. #1337 deleted both and repointed their consumers at
+        // the "AccelerationStructureBuild" sub-pass, which is where this header
+        // had already sent its own reader.
 
         void ResetFrame()
         {

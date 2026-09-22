@@ -7447,28 +7447,33 @@ namespace OloEngine
         ctx.Query = {};
     }
 
-    void VulkanRendererAPI::WriteTimestamp(RHI::ResourceHandle query)
+    bool VulkanRendererAPI::WriteTimestamp(RHI::ResourceHandle query)
     {
+        // Every `return false` below is a stamp that did NOT happen. Reporting
+        // it is the whole point of the bool (#1337): the worker refusal in
+        // particular is a routine, per-frame event under parallel recording,
+        // and it used to leave the caller subtracting two untouched queries and
+        // publishing the difference as a real 0.0 ms pass time.
         if (RefuseOnWorker("WriteTimestamp"))
         {
-            return;
+            return false;
         }
         auto& ctx = Ctx();
         if (ctx.Cmd == VK_NULL_HANDLE)
         {
             UnimplementedStub("WriteTimestamp(outside recording bracket)", StubKind::OutsideRecording);
-            return;
+            return false;
         }
         auto* entry = VulkanQueryRegistry::Get().Lookup(query);
         if (entry == nullptr)
         {
             UnimplementedStub("WriteTimestamp(unresolved query)", StubKind::PreconditionFailure);
-            return;
+            return false;
         }
         if (entry->Type != RHI::QueryType::Timestamp)
         {
             OLO_CORE_WARN("[RHI/Vulkan] WriteTimestamp on a non-Timestamp query — ignored");
-            return;
+            return false;
         }
         // Reset + stamp, both outside a render pass instance. The slot is
         // rewritten every ring cycle by its pool owner (GPUPassTimerPool's
@@ -7478,6 +7483,7 @@ namespace OloEngine
         vkCmdResetQueryPool(ctx.Cmd, entry->Pool, entry->Index, 1u);
         vkCmdWriteTimestamp2(ctx.Cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, entry->Pool, entry->Index);
         entry->Recorded = true;
+        return true;
     }
 
     bool VulkanRendererAPI::ReadQueryResult(RHI::ResourceHandle query, bool wait, u64& outValue) const
@@ -7583,6 +7589,23 @@ namespace OloEngine
         u64 value = 0;
         (void)ReadQueryResult(query, true, value);
         return value;
+    }
+
+    bool VulkanRendererAPI::TryGetQueryResultU64(RHI::ResourceHandle query, u64& outValue)
+    {
+        CacheDeviceLimits(); // the timestamp period — see IsQueryResultAvailable
+        u64 value = 0;
+        // The bool ReadQueryResult already computes and GetQueryResultU64
+        // discards. A stale handle, a query the backend never recorded and a
+        // departed device all land here as false instead of as the value 0,
+        // which on a timestamp query is indistinguishable from a real reading
+        // (#1337).
+        if (!ReadQueryResult(query, true, value))
+        {
+            return false;
+        }
+        outValue = value;
+        return true;
     }
 
     // --- Fences (the u64-token facade) -------------------------------------

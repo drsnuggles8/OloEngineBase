@@ -338,6 +338,16 @@ namespace OloEngine
         }
 
         m_Stats = Stats{};
+        // AFTER the wipe, not in EnsureTimingQueries() above: that ran earlier in
+        // Configure() and this assignment resets both samples to their
+        // default-constructed `Unavailable`, which would make the seeding there
+        // dead code and the panel read "GPU timing is not running on this device
+        // or session" for an instrument that is, in fact, running.
+        if (m_TimingQueriesReady)
+        {
+            m_Stats.m_IndirectionRebuild = GpuTimingSample::Absent(GpuTimingStatus::Pending);
+            m_Stats.m_IndirectionDelta = GpuTimingSample::Absent(GpuTimingStatus::Pending);
+        }
         m_Stats.m_CacheTileCount = m_Config.CacheTileCount();
         m_Stats.m_SectorCount = static_cast<u32>(m_Sectors.Num());
         m_Stats.m_CacheCompressed = compressed;
@@ -588,6 +598,10 @@ namespace OloEngine
         }
         m_NextTimingSlot = 0;
         m_TimingQueriesReady = true;
+        // The Pending seeding lives in Configure(), AFTER its `m_Stats = Stats{}`
+        // reset — doing it here looked right and was dead code, because that
+        // reset runs later in the same call and restores both samples to
+        // `Unavailable`. Its only caller is Configure().
     }
 
     void TerrainVirtualTexture::DestroyTimingQueries()
@@ -628,29 +642,53 @@ namespace OloEngine
         // A slot the GPU has not finished is simply left for a later frame.
         for (auto& slot : m_TimingSlots)
         {
-            if (!slot.m_Pending || !RenderCommand::IsQueryResultAvailable(slot.m_End))
+            if (!slot.m_Pending)
             {
                 continue;
             }
-            const u64 begin = RenderCommand::GetQueryResultU64(slot.m_Begin);
-            const u64 end = RenderCommand::GetQueryResultU64(slot.m_End);
-            slot.m_Pending = false;
-            // Timestamps are NANOSECONDS on both backends (RHI::QueryType docs).
-            // The guard is not paranoia: a driver that reorders the two stamps
-            // would otherwise wrap the unsigned subtraction into a plausible
-            // multi-second reading.
-            if (end >= begin)
+            // A pair the backend refused to stamp is classified NOW, not once
+            // its end query is "available": on Vulkan a never-recorded query
+            // is never available, so gating on availability first would leave
+            // the slot pending forever and the NotStamped status unreachable
+            // (GPUPassTimerPool::TryResolveSlot retires its frame-end the same
+            // way). Only a fully stamped pair waits on the device.
+            const bool stamped = slot.m_BeginStamped && slot.m_EndStamped;
+            if (stamped && !RenderCommand::IsQueryResultAvailable(slot.m_End))
             {
-                const f64 ms = static_cast<f64>(end - begin) / 1.0e6;
-                f64& best = slot.m_WasFullRebuild ? m_Stats.m_IndirectionRebuildGpuMs
-                                                  : m_Stats.m_IndirectionDeltaGpuMs;
-                // Minimum, not latest — see the field's note. `!(best > 0.0)` is
-                // "no sample yet"; an equality test against 0.0 is forbidden here
-                // (cpp-coding-quality.md §2) and would read worse anyway.
-                if (!(best > 0.0) || ms < best)
-                {
-                    best = ms;
-                }
+                continue;
+            }
+
+            // Classified through the shared #1337 decision rather than by an
+            // inline guard. Timestamps are NANOSECONDS on both backends
+            // (RHI::QueryType docs), and every way this pair can fail to be a
+            // measurement — a stamp the backend refused, a result that will
+            // not read, a pair that came back backwards — used to leave the
+            // published minimum untouched at 0.0, which the panel then showed
+            // as a 0.000 ms rebuild.
+            GpuTimingPairReadout readout;
+            readout.BeginStamped = slot.m_BeginStamped;
+            readout.EndStamped = slot.m_EndStamped;
+            if (readout.BeginStamped)
+                readout.BeginReadable = RenderCommand::TryGetQueryResultU64(slot.m_Begin, readout.BeginNs);
+            if (readout.EndStamped)
+                readout.EndReadable = RenderCommand::TryGetQueryResultU64(slot.m_End, readout.EndNs);
+
+            const GpuTimingSample sample = ResolveGpuTimingPair(readout);
+            slot.m_Pending = false;
+            if (!sample.IsValid())
+            {
+                continue;
+            }
+
+            GpuTimingSample& best = slot.m_WasFullRebuild ? m_Stats.m_IndirectionRebuild
+                                                          : m_Stats.m_IndirectionDelta;
+            // Minimum, not latest — see the field's note. The status now carries
+            // "no sample yet" instead of a zero standing in for it, so this is a
+            // plain validity test rather than a comparison against 0.0
+            // (forbidden on floats here, cpp-coding-quality.md §2).
+            if (!best.IsValid() || sample.GpuMs < best.GpuMs)
+            {
+                best = sample;
             }
         }
     }
@@ -668,7 +706,8 @@ namespace OloEngine
             // measurement rather than stall for it; the number is diagnostics.
             return kTimingSlots;
         }
-        RenderCommand::WriteTimestamp(m_TimingSlots[slot].m_Begin);
+        m_TimingSlots[slot].m_BeginStamped = RenderCommand::WriteTimestamp(m_TimingSlots[slot].m_Begin);
+        m_TimingSlots[slot].m_EndStamped = false;
         return slot;
     }
 
@@ -678,7 +717,7 @@ namespace OloEngine
         {
             return;
         }
-        RenderCommand::WriteTimestamp(m_TimingSlots[slot].m_End);
+        m_TimingSlots[slot].m_EndStamped = RenderCommand::WriteTimestamp(m_TimingSlots[slot].m_End);
         m_TimingSlots[slot].m_Pending = true;
         m_TimingSlots[slot].m_WasFullRebuild = wasFullRebuild;
         m_NextTimingSlot = (slot + 1u) % kTimingSlots;
