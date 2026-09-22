@@ -11,7 +11,7 @@ avoid.
 >
 > **Local environment (maintainer's machine).** A few rules below describe one specific setup
 > rather than the project: the **`C:\repos` worktree root** (§4), **VS Code Insiders** as the
-> editor (§5b), and the **Opus 5 / Sonnet 5 / Fable 5** model rubric (§5a). Adapt them if you
+> editor (§5b), and the **Opus 5.5 / Sonnet 5 / Fable 5.1** model rubric (§5a). Adapt them if you
 > work somewhere else; everything else is repo-general.
 
 ## 0. How many tasks to start (the count argument)
@@ -208,14 +208,14 @@ BATCHED task that clears a whole class at once — "fix every `-Wfoo` in `<modul
 
 **For a genuinely large Tier 1/4 epic, default to keeping it whole, not slicing it.** The old
 default here was "scope it to the first shippable slice and leave the rest as a follow-up
-issue" — don't do that automatically anymore. Instead recommend a **long-running Fable 5
+issue" — don't do that automatically anymore. Instead recommend a **long-running Fable 5.1
 session that fans sub-pieces out to subagents** (via the Agent tool) to absorb the epic's
 size and parallelism, landing the *entire* issue as one branch/PR that closes it outright.
 This worked well in practice (2026-07-16 RPG-progression / atmosphere-sky rework, after an
 initial first-slice-plus-follow-up split was explicitly rejected in favor of this) and avoids
 the churn a slice-and-defer approach creates: follow-up-issue bookkeeping, partial-closure
 tracking on the parent issue, and re-onboarding a future `/start-work` batch to the same
-subsystem context from scratch. See the Fable 5 rubric entry below for how to structure the
+subsystem context from scratch. See the Fable 5.1 rubric entry below for how to structure the
 subagent fan-out in the handover.
 
 Only fall back to a first-slice-plus-follow-up split when:
@@ -319,10 +319,20 @@ die with the worktree — that stranded 229 files across 143 dead worktrees befo
 junction makes the worktree session **read and write the one shared store**, so it starts with every
 durable fact already known and nothing it learns can be orphaned:
 
-    $slugOf   = { param($p) $p -replace ':','-' -replace '[\\/]','-' }   # C:\repos\OloEngine-foo -> c--repos-OloEngine-foo
+    # C:\repos\OloEngine-foo -> c--repos-OloEngine-foo. Two traps, both of which produced a wrong
+    # slug that only surfaced AFTER `git worktree add` had already run (2026-09-10, a 5-task batch):
+    #   1. Do NOT chain these as `$p -replace ':','-' -replace '[\\/]','-'`. PowerShell's
+    #      comma-separated argument list absorbs the second operator, so it parses as
+    #      `$p -replace ':', ('-' -replace '[\\/]','-')` and only the colon is replaced.
+    #   2. The drive letter must be lowercased — the project dir is `c--repos-...`, not `C--repos-...`.
+    function Get-ProjSlug([string]$p) {
+        $s = $p -replace ':', '-'
+        $s = $s -replace '[\\/]', '-'
+        return $s.Substring(0,1).ToLower() + $s.Substring(1)
+    }
     $projects = "$env:USERPROFILE\.claude\projects"
-    $base     = Join-Path $projects "$(& $slugOf $BASE)\memory"          # derived from $BASE (§1), not hardcoded
-    $dir      = Join-Path $projects  (& $slugOf $WT)
+    $base     = Join-Path $projects "$(Get-ProjSlug $BASE)\memory"       # derived from $BASE (§1), not hardcoded
+    $dir      = Join-Path $projects  (Get-ProjSlug $WT)
     if (-not (Test-Path $base)) { throw "base memory dir not found: $base" }
     if (-not (Test-Path $dir))  { New-Item -ItemType Directory -Path $dir | Out-Null }
     $mem = Join-Path $dir 'memory'
@@ -383,7 +393,7 @@ about this conversation:
     one line on why it was picked — cite the rank, or the Pull-override / "justify going
     down" reason if it wasn't simply the top unblocked issue.
 - **Branch / worktree** — `feature/<slug>` at `<worktreePath>`, based on `origin/master` @ <sha>.
-- **Recommended model + effort** — one of Opus 5 / Sonnet 5 / Fable 5 and an effort
+- **Recommended model + effort** — one of Opus 5.5 / Sonnet 5 / Fable 5.1 and an effort
     level, per the rubric below, so the new window's session can `/model` to it and set
     effort before starting. State one line of *why* (what about the task drives the choice).
 - **Registry snapshot** — the off-limits list from step 2 (so the next session won't
@@ -393,7 +403,7 @@ about this conversation:
 - **Plan** — the intended approach / steps, covering the FULL scope of the task (every
     acceptance criterion on the issue, if it's issue-sourced) unless you deliberately sliced
     per "Right-size the unit of work" above — in which case say so explicitly and name what's
-    deferred. **If the plan is a whole-epic Fable 5 + subagents session (the default for a
+    deferred. **If the plan is a whole-epic Fable 5.1 + subagents session (the default for a
     large Tier 1/4 epic now)**, structure this section as a subagent fan-out strategy, not
     just a linear step list: what to research in parallel first (read-only), which
     cross-cutting contracts the orchestrating session must fix itself before delegating
@@ -447,16 +457,19 @@ Match the recommendation to the task's *reasoning difficulty and verification bu
 leverage tier — a high-leverage task can still be mechanical, and a small diff can still be
 correctness-critical. Pick a model:
 
-- **Opus 5** — hardest reasoning / subtle correctness / architecture / high blast-radius,
-    or work gated on a mandatory visual-or-runtime verification loop where a plausible-but-wrong
-    result is costly to catch (e.g. renderer changes that "pass tests but look broken",
-    cross-subsystem invariants, tricky concurrency). Default for renderer-correctness and
-    anything where the failure mode is silent.
-- **Sonnet 5** — well-scoped engine work with a clear existing pattern to copy and test guards
-    that catch mistakes (a codegen slice mirroring a prior slice, a settings-plumbing fix with a
-    reference implementation, a new read-only tool mirroring ~36 siblings). **The sensible
-    default for most start-work tasks.**
-- **Fable 5** — two distinct use cases, don't conflate them:
+- **Opus 5.5** — **the default for start-work tasks** (it supersedes Opus 5 — never recommend
+    Opus 5 any more). Always for the hardest reasoning / subtle correctness / architecture /
+    high blast-radius, and for work gated on a mandatory visual-or-runtime verification loop
+    where a plausible-but-wrong result is costly to catch (e.g. renderer changes that "pass
+    tests but look broken", cross-subsystem invariants, tricky concurrency, cache invalidation).
+    Most tasks this loop picks are renderer or engine work whose failure mode is silent, so it is
+    the right call unless the task clearly fits one of the two lanes below.
+- **Sonnet 5** — the cheaper lane, only when the task is well-scoped with a clear existing
+    pattern to copy **and** test guards that catch mistakes (a codegen slice mirroring a prior
+    slice, a settings-plumbing fix with a reference implementation, a new read-only tool
+    mirroring ~36 siblings, an allowlist entry shaped like its neighbours). If you find
+    yourself writing "but watch out for…" in the why-line, that is an Opus 5.5 task.
+- **Fable 5.1** — two distinct use cases, don't conflate them:
     (a) the fast lane for mechanical, highly-patterned, low-ambiguity slices: rename sweeps,
     boilerplate, docs passes, a Tier-2 warning/smell batch, following a very explicit template
     under strong tests — reach for it when the *how* is obvious and only the *typing* is left;
@@ -474,14 +487,14 @@ correctness-critical. Pick a model:
     touch-point edits and any cross-part integration wiring in the main session, sequentially,
     since that's exactly where a missed edge fails silently; verify every subagent's actual diff
     before trusting its summary. Any mandatory verification loop (visual, runtime) from the
-    Opus guidance above still applies regardless of the driving model — a Fable-orchestrated
+    Opus 5.5 guidance above still applies regardless of the driving model — a Fable-orchestrated
     session doesn't get to skip screenshot evidence on a rendering change.
 Then pick an effort level: **high / xhigh** for tricky correctness, subtle bugs, a heavy
 verify loop, or a whole-epic Fable session per (b) above (the orchestration/integration
 decisions are hard even when individual delegated pieces are mechanical); **medium** for
 standard feature work with tests; **low** for mechanical edits per Fable (a). When unsure,
 round *up* one level for correctness-critical or hard-to-verify work. (These map to the same
-three names the user selects in Claude Code — Opus 5 / Sonnet 5 / Fable 5 — plus the effort
+three names the user selects in Claude Code — Opus 5.5 / Sonnet 5 / Fable 5.1 — plus the effort
 control.)
 
 **5b. Open the worktree in a NEW window.** The user runs VS Code Insiders — open one
