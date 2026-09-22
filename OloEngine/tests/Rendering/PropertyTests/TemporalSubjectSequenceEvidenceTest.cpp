@@ -364,7 +364,7 @@ namespace OloEngine::Tests
             meadow.WindBranchWeight = 0.7f;
             meadow.WindLeafWeight = 0.8f;
             meadow.BaseColor = glm::vec3(0.20f, 0.44f, 0.16f);
-            foliage.m_Layers.push_back(meadow);
+            foliage.m_Layers.Add(meadow);
             foliage.m_NeedsRebuild = true;
         }
 
