@@ -7334,7 +7334,12 @@ namespace OloEngine
                             "deferred paths alike since issue #1234 — before that the deferred "
                             "G-Buffer hard-coded 0.9 and this value was authored but unread. A "
                             "Roughness Map below MULTIPLIES it, so a white map is a no-op.");
-                        ImGui::DragFloat("Alpha Cutoff", &layer.AlphaCutoff, 0.01f, 0.0f, 1.0f);
+                        // Dirties the layer for the same reason Roughness does:
+                        // the cutoff reaches the shaders (and the impostor
+                        // bake) only through the generate step, so without the
+                        // rebuild this slider moved a number nothing read.
+                        if (ImGui::DragFloat("Alpha Cutoff", &layer.AlphaCutoff, 0.01f, 0.0f, 1.0f))
+                            component.m_NeedsRebuild = true;
 
                         // ── Leaf material (issue #1234) ──────────────────────
                         ImGui::SeparatorText("Leaf Material");
