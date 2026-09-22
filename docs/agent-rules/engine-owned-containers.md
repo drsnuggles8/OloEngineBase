@@ -91,6 +91,47 @@ that no test caught. Use `.ToView()` when the container borrows and the owner ou
 structs — holding garbage, because `MemoryOps.h`'s zeroing whitelist covered bare scalars only.
 Fixed engine-side by value-initialising, but the asymmetry is worth knowing when reading UE code.
 
+## The trait answers differently on clang-cl and MSVC
+
+`std::is_trivially_copyable_v<T>` is **not** portable for a class whose copy *and* move
+operations are all deleted. clang-cl calls it vacuously trivial; MSVC does not:
+
+| | `std::is_trivially_copyable_v<std::atomic<int*>>` |
+|---|---|
+| clang-cl (`dev-cached`, what you build locally) | `true` |
+| MSVC (`msvc` preset, and every Windows CI job) | `false` |
+
+So `TArray<T>` where `T` holds a `std::atomic`, `std::mutex` or any all-deleted-copy member
+**compiles here and fails the hard `static_assert` on CI**, with the same shape as the
+libstdc++ traps — except this one is the *compiler*, not the standard library, so a Linux
+job will not catch it either. It cost a CI round on `TaskConcurrencyLimiter.h`'s
+`FPaddedSharedTask` (#738).
+
+`std::atomic<T>` itself now carries a specialisation derived from `T`, so the direct case is
+portable. A **wrapper struct** holding one still needs its own, derived the usual way:
+
+```cpp
+template<>
+struct TIsTriviallyRelocatable<Tasks::Private::FPaddedSharedTask>
+{
+    static constexpr bool Value =
+        TIsTriviallyRelocatable_V<decltype(Tasks::Private::FPaddedSharedTask::Task)>;
+};
+```
+
+Two mechanics that are easy to get wrong:
+
+- The specialisation must be **visible before the container is instantiated**. Declaring it
+  after the class that holds the `TArray` member is too late and is IFNDR.
+- A specialisation **cannot name a private nested type**, which is why `FPaddedSharedTask`
+  sits at namespace scope rather than inside its class.
+
+To check without a CI round, compile one TU with real `cl.exe`: take the flags from
+`build-cached/compile_commands.json`, drop the clang-cl-only spellings (`-clang:`, `-Xclang`,
+`-Wno-`), turn `-imsvc` into `/external:I`, add `/std:c++latest`, and run it under
+`vcvars64.bat`. Assert the *opposite* of what you expect so the diagnostic prints the real
+value instead of you guessing it.
+
 ## Heterogeneous lookup, if you keep a `std::` map keyed by string
 
 C++20 gives transparent comparators `find` / `count` / `contains` / `equal_range` — and **not**

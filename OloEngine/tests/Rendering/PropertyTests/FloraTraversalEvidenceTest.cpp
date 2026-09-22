@@ -1612,7 +1612,7 @@ namespace OloEngine::Tests
         // a configuration the fixture never declared, while the code claims to
         // have put things back.
         std::vector<bool> authoredMeshFlags;
-        authoredMeshFlags.reserve(foliage.m_Layers.size());
+        authoredMeshFlags.reserve(static_cast<sizet>(foliage.m_Layers.Num()));
         for (const auto& layer : foliage.m_Layers)
             authoredMeshFlags.push_back(layer.UseAuthoredMesh);
 
@@ -1622,7 +1622,7 @@ namespace OloEngine::Tests
         std::vector<u8> cardsOnly;
         Capture(closePose, cardsOnly);
 
-        for (std::size_t i = 0; i < foliage.m_Layers.size(); ++i)
+        for (i32 i = 0; i < foliage.m_Layers.Num(); ++i)
             foliage.m_Layers[i].UseAuthoredMesh = authoredMeshFlags[i];
         foliage.m_NeedsRebuild = true;
 

@@ -73,25 +73,68 @@ namespace OloEngine::Tasks
             atomic_queue::AtomicQueueB<u32> FreeSlots;
         };
 
+        // Reference-counted wrapper for FTask so the task's lifetime can be shared
+        // between the worker thread that runs it and any thread that retracts it in
+        // Wait(). NOTE: uses FThreadSafeRefCountedObject (the *atomic* base) because
+        // the refcount is touched from multiple threads concurrently. UE5.8 derives
+        // FLimiterTask from FRefCountedObject, but in UE5.8 FRefCountedObject was made
+        // atomic and FThreadSafeRefCountedObject deprecated as an alias for it; this
+        // engine is UE5.7-based, where FRefCountedObject is still the non-atomic legacy
+        // type, so the equivalent here is FThreadSafeRefCountedObject.
+        struct FLimiterTask : FThreadSafeRefCountedObject
+        {
+            LowLevelTasks::FTask Task;
+        };
+
+        // Cache-line padded so adjacent slots, read/written from different threads in
+        // ProcessQueue and Wait(), don't false-share.
+        //
+        // At namespace scope, not nested in FTaskConcurrencyLimiterImpl: TArray's
+        // relocation gate needs a TIsTriviallyRelocatable specialisation for this type,
+        // a specialisation cannot name a private nested type, and it has to be visible
+        // before the constructor instantiates TArray<FPaddedSharedTask>.
+        struct alignas(OLO_PLATFORM_CACHE_LINE_SIZE) FPaddedSharedTask
+        {
+            std::atomic<FLimiterTask*> Task{ nullptr };
+        };
+    } // namespace Private
+} // namespace OloEngine::Tasks
+
+namespace OloEngine
+{
+    // FPaddedSharedTask is one std::atomic pointer plus padding: no self-pointer and
+    // no registered address, so its bytes survive a relocation. It is not trivially
+    // COPYABLE, because std::atomic deletes every copy and move operation — and that
+    // is where the compilers part company. A class with no eligible copy or move is
+    // vacuously trivial to clang-cl and non-trivial to MSVC, so the DEFAULT trait
+    // answers differently per compiler: TArray<FPaddedSharedTask> compiled under
+    // clang-cl and failed the hard static_assert under MSVC, which no build on a
+    // clang-cl box can reproduce (issue #738).
+    //
+    // Derived from the member rather than hardcoded true, so a field that cannot be
+    // relocated re-closes the gate by itself.
+    //
+    // This says nothing about relocating a LIVE atomic, which would be a data race
+    // whatever the trait says. m_ScheduledTasks is sized once in the constructor,
+    // before any other thread can observe the limiter.
+    template<>
+    struct TIsTriviallyRelocatable<Tasks::Private::FPaddedSharedTask>
+    {
+        static constexpr bool Value =
+            TIsTriviallyRelocatable_V<decltype(Tasks::Private::FPaddedSharedTask::Task)>;
+    };
+} // namespace OloEngine
+
+namespace OloEngine::Tasks
+{
+    namespace Private
+    {
         // @class FTaskConcurrencyLimiterImpl
         // @brief Lock-free implementation of FTaskConcurrencyLimiter
         //
         // Uses lock-free lists for both slot allocation and work queue.
         class FTaskConcurrencyLimiterImpl : public TSharedFromThis<FTaskConcurrencyLimiterImpl>
         {
-            // Reference-counted wrapper for FTask so the task's lifetime can be shared
-            // between the worker thread that runs it and any thread that retracts it in
-            // Wait(). NOTE: uses FThreadSafeRefCountedObject (the *atomic* base) because
-            // the refcount is touched from multiple threads concurrently. UE5.8 derives
-            // FLimiterTask from FRefCountedObject, but in UE5.8 FRefCountedObject was made
-            // atomic and FThreadSafeRefCountedObject deprecated as an alias for it; this
-            // engine is UE5.7-based, where FRefCountedObject is still the non-atomic legacy
-            // type, so the equivalent here is FThreadSafeRefCountedObject.
-            struct FLimiterTask : FThreadSafeRefCountedObject
-            {
-                LowLevelTasks::FTask Task;
-            };
-
           public:
             explicit FTaskConcurrencyLimiterImpl(u32 InMaxConcurrency, LowLevelTasks::ETaskPriority InTaskPriority)
                 : m_ConcurrencySlots(InMaxConcurrency), m_TaskPriority(InTaskPriority)
@@ -356,13 +399,6 @@ namespace OloEngine::Tasks
             }
 
           private:
-            // Cache-line padded so adjacent slots, read/written from different threads in
-            // ProcessQueue and Wait(), don't false-share.
-            struct alignas(OLO_PLATFORM_CACHE_LINE_SIZE) FPaddedSharedTask
-            {
-                std::atomic<FLimiterTask*> Task{ nullptr };
-            };
-
             FConcurrencySlots m_ConcurrencySlots;
             LowLevelTasks::ETaskPriority m_TaskPriority;
 

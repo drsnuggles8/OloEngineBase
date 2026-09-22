@@ -231,7 +231,8 @@ equality-comparable → `operator==`; otherwise no undo. To opt in a non-trivial
 - New **engine-owned** sequence/string data is `TArray<T>` / `FString`. The binding surface (entt,
   yaml-cpp, sol2, Mono, ImGui, Jolt, spdlog, and component `std::string` fields) keeps `std::`, and
   so does every map — the `TMap` gate is closed (#1411). A relocation mistake is green on MSVC and
-  aborts under libstdc++: [engine-owned-containers.md](docs/agent-rules/engine-owned-containers.md).
+  aborts under libstdc++, and the trait itself answers differently on clang-cl and MSVC for a
+  type holding a `std::atomic`: [engine-owned-containers.md](docs/agent-rules/engine-owned-containers.md).
 
 ## Common pitfalls
 

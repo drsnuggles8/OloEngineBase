@@ -13,6 +13,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Templates/UnrealTemplate.h"
+#include <atomic>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -723,6 +724,35 @@ namespace OloEngine
 
     template<typename T>
     inline constexpr bool TIsTriviallyRelocatable_V = TIsTriviallyRelocatable<T>::Value;
+
+    // std::atomic<T> holds a T and nothing else — no self-pointer, no registered
+    // address — so its bytes survive a relocation exactly as T's do. It is NOT
+    // trivially copyable, because every one of its copy and move operations is
+    // deleted, and that is where the compilers part company:
+    //
+    //   clang-cl  std::is_trivially_copyable_v<std::atomic<int*>> == true
+    //   MSVC      std::is_trivially_copyable_v<std::atomic<int*>> == false
+    //
+    // A class with no eligible copy or move operation is vacuously trivial to
+    // clang and non-trivial to MSVC. Without this specialisation the default
+    // inherits that disagreement, so `TArray<FPaddedSharedTask>` in
+    // TaskConcurrencyLimiter.h compiled under clang-cl and failed the hard
+    // static_assert under MSVC — a build break no local clang-cl run can see
+    // (issue #738).
+    //
+    // Derived from T, not hardcoded: an atomic over something unrelocatable is
+    // still unrelocatable, and the gate stays closed for it.
+    //
+    // This says nothing about whether relocating a LIVE atomic is safe. Moving
+    // one while another thread reads it is a data race whatever this trait
+    // says; that is the container owner's business, as it is for every other
+    // shared member.
+    template<typename T>
+    struct TIsTriviallyRelocatable<std::atomic<T>>
+    {
+        static constexpr bool Value =
+            TIsTriviallyRelocatable<T>::Value && std::is_trivially_destructible_v<std::atomic<T>>;
+    };
 
     // std::basic_string uses SSO with self-referencing pointers on some implementations
     // (notably libstdc++), making it unsafe to relocate via memmove.
