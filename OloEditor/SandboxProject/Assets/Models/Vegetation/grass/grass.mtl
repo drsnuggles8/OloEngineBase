@@ -1,0 +1,10 @@
+# Imported by tools/vegetation-import. Do not hand-edit.
+
+newmtl grass_blades
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+illum 1
+map_Kd Textures/grass_blades.png
+map_d Textures/grass_blades.png

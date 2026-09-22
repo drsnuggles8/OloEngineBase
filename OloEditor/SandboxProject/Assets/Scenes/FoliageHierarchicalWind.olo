@@ -185,8 +185,8 @@ Entities:
       Enabled: true
       Layers:
         - Name: Woody Wind
-          MeshPath: SandboxProject/Assets/Models/Vegetation/pine.obj
-          AlbedoPath: assets/textures/grass.png
+          MeshPath: SandboxProject/Assets/Models/Vegetation/pine/pine.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/pine/Textures/pine_card.png
           Density: 0.05
           SplatmapChannel: -1
           MinSlopeAngle: 0
@@ -228,8 +228,8 @@ Entities:
           ImpostorHemiOctahedral: true
           Enabled: true
         - Name: Shrub
-          MeshPath: ""
-          AlbedoPath: assets/textures/grass.png
+          MeshPath: SandboxProject/Assets/Models/Vegetation/shrub/shrub.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/shrub/Textures/shrub_card.png
           Density: 0.9
           SplatmapChannel: -1
           MinSlopeAngle: 0

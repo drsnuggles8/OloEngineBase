@@ -519,9 +519,9 @@ Entities:
     FoliageComponent:
       Enabled: true
       Layers:
-        - Name: Palms
-          MeshPath: SandboxProject/Assets/Models/Vegetation/palm.obj
-          AlbedoPath: assets/textures/grass.png
+        - Name: Broadleaf
+          MeshPath: SandboxProject/Assets/Models/Vegetation/broadleaf/broadleaf.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/broadleaf/Textures/broadleaf_card.png
           Density: 0.014
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -546,8 +546,8 @@ Entities:
           ImpostorHemiOctahedral: true
           Enabled: true
         - Name: Dune grass
-          MeshPath: ""
-          AlbedoPath: assets/textures/grass.png
+          MeshPath: SandboxProject/Assets/Models/Vegetation/grass_dry/grass_dry.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
           Density: 0.16
           SplatmapChannel: 0
           MinSlopeAngle: 0
@@ -559,6 +559,8 @@ Entities:
           RandomRotation: true
           ViewDistance: 200
           FadeStartDistance: 150
+          MeshViewDistance: 18
+          MeshFadeStartDistance: 13
           WindStrength: 0.5
           WindSpeed: 1.3
           BaseColor: [0.62, 0.6, 0.34]

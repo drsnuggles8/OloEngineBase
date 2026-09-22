@@ -1,0 +1,10 @@
+# Imported by tools/vegetation-import. Do not hand-edit.
+
+newmtl flower_blooms
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+illum 1
+map_Kd Textures/flower_blooms.png
+map_d Textures/flower_blooms.png

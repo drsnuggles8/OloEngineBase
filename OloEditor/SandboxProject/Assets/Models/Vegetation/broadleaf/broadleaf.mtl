@@ -1,0 +1,18 @@
+# Imported by tools/vegetation-import. Do not hand-edit.
+
+newmtl broadleaf_trunk
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+illum 1
+map_Kd Textures/broadleaf_trunk.png
+
+newmtl broadleaf_foliage
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+illum 1
+map_Kd Textures/broadleaf_foliage.png
+map_d Textures/broadleaf_foliage.png

@@ -181,8 +181,8 @@ Entities:
       Enabled: true
       Layers:
         - Name: Backlit Clump
-          MeshPath: SandboxProject/Assets/Models/Vegetation/pine.obj
-          AlbedoPath: assets/textures/grass.png
+          MeshPath: SandboxProject/Assets/Models/Vegetation/broadleaf/broadleaf.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/broadleaf/Textures/broadleaf_card.png
           Density: 0.05
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -221,8 +221,8 @@ Entities:
           ImpostorHemiOctahedral: true
           Enabled: true
         - Name: Shrub
-          MeshPath: ""
-          AlbedoPath: assets/textures/grass.png
+          MeshPath: SandboxProject/Assets/Models/Vegetation/shrub/shrub.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/shrub/Textures/shrub_card.png
           Density: 0.9
           SplatmapChannel: 1
           MinSlopeAngle: 0

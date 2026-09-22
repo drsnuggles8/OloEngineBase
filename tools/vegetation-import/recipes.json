@@ -1,0 +1,180 @@
+{
+  "$comment": [
+    "What to import, and the budget each species is allowed. Driven by",
+    "tools/vegetation-import/import_vegetation.py — see its README.md.",
+    "",
+    "Per species: `source` is the Poly Haven asset id (CC0 1.0), `meshes` selects which of",
+    "the source's meshes to take (a Poly Haven plant asset usually ships several variants in",
+    "one file; taking all of them stacks them on top of each other), and `groups` splits the",
+    "result into submeshes. One group becomes one OBJ `usemtl` block, one albedo texture and",
+    "one FoliageRenderer draw part, so the split IS the per-species texture assignment.",
+    "",
+    "Modes:",
+    "  direct   take the geometry as scanned. For ground cover, whose blades and fronds are",
+    "           already at a sensible triangle count and whose shape is the point.",
+    "  solid    grid vertex-cluster decimation to `target_tris`. Trunks and bark only — a",
+    "           closed surface survives this; thin foliage does not.",
+    "  foliage  rebuild as cross-cards, `cards` of them, textured from an atlas of `tiles`",
+    "           tiles baked out of the scan itself. The only workable treatment for a canopy",
+    "           of individually modelled needles or leaves.",
+    "",
+    "Budgets are triangles, chosen against issue #1398's bar that a hero conifer belongs two",
+    "orders of magnitude above the 48-face stand-in it replaced.",
+    "",
+    "A BRANCH BUDGET IS NOT A TRUNK BUDGET. A trunk is one thick surface and decimates 17x",
+    "happily; the pine's `bark` submesh is its BRANCH structure - thin tubes - which clustering",
+    "merges across each other. At 3,500 the budget search could only reach the target by",
+    "coarsening the UV bucket count from 6 to 3, and that weakened the seam protection enough to",
+    "leave 98 zero-UV-area triangles (the engine logs them: MeshOptimization, 98 of 3279). 14,000",
+    "is where the search meets the budget at the full 6 buckets. Set a branchy submesh's budget",
+    "above the point where decimate_to_budget has to trade UV buckets away - it reports the count",
+    "it settled on, so the number is visible rather than inferred.",
+    "",
+    "THE SIZE TRAP: `resolution` selects TEXTURES ONLY. The source mesh buffer is identical",
+    "at 1k, 2k and 4k — pine_tree_01.bin is 949 MB whichever tier you name."
+  ],
+  "species": [
+    {
+      "name": "pine",
+      "source": "pine_tree_01",
+      "note": "hero conifer, replaces the 48-face pine.obj",
+      "resolution": "1k",
+      "meshes": [0],
+      "alpha_cutoff": 0.5,
+      "groups": [
+        {
+          "mode": "solid",
+          "submesh": "trunk",
+          "target_tris": 4500,
+          "texture_size": 512,
+          "materials": [{ "name": "pine_tree_01_trunk_a", "diffuse": "trunk_a_diff" }]
+        },
+        {
+          "mode": "solid",
+          "submesh": "bark",
+          "target_tris": 14000,
+          "texture_size": 512,
+          "materials": [{ "name": "pine_tree_01_bark", "diffuse": "bark_diff" }]
+        },
+        {
+          "mode": "foliage",
+          "submesh": "foliage",
+          "cards": 2000,
+          "tiles": 4,
+          "tile_size": 512,
+          "texture_size": 1024,
+          "materials": [{ "name": "pine_tree_01_twig", "diffuse": "twig_diff", "alpha": "twig_alpha" }]
+        }
+      ]
+    },
+    {
+      "name": "broadleaf",
+      "source": "island_tree_01",
+      "note": "hero broadleaf; also the explicit substitute for the palm (see README)",
+      "resolution": "1k",
+      "meshes": [0],
+      "alpha_cutoff": 0.5,
+      "groups": [
+        {
+          "mode": "solid",
+          "submesh": "trunk",
+          "target_tris": 5000,
+          "texture_size": 512,
+          "materials": [{ "name": "island_tree_01", "diffuse": "Diffuse" }]
+        },
+        {
+          "mode": "foliage",
+          "submesh": "foliage",
+          "cards": 1400,
+          "tiles": 4,
+          "tile_size": 512,
+          "texture_size": 1024,
+          "materials": [
+            { "name": "island_tree_01_leaves", "diffuse": "leaves_diff", "alpha": "leaves_alpha" },
+            { "name": "island_tree_01_branches", "diffuse": "branches_diff" }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "grass",
+      "source": "grass_medium_01",
+      "note": "lush meadow tuft, replaces grass.png as the grass layer albedo",
+      "resolution": "1k",
+      "meshes": [2],
+      "alpha_cutoff": 0.5,
+      "groups": [
+        {
+          "mode": "direct",
+          "submesh": "blades",
+          "texture_size": 1024,
+          "materials": [{ "name": "grass_medium_01", "diffuse": "Diffuse", "alpha": "Alpha" }]
+        }
+      ]
+    },
+    {
+      "name": "grass_dry",
+      "source": "grass_medium_02",
+      "note": "drier tuft, so a meadow is not one plant repeated",
+      "resolution": "1k",
+      "meshes": [2],
+      "alpha_cutoff": 0.5,
+      "groups": [
+        {
+          "mode": "direct",
+          "submesh": "blades",
+          "texture_size": 1024,
+          "materials": [{ "name": "grass_medium_02", "diffuse": "Diffuse", "alpha": "Alpha" }]
+        }
+      ]
+    },
+    {
+      "name": "flower",
+      "source": "celandine_01",
+      "note": "flowering ground cover, so a Flowers layer is not textured with grass",
+      "resolution": "1k",
+      "meshes": [2],
+      "alpha_cutoff": 0.5,
+      "groups": [
+        {
+          "mode": "direct",
+          "submesh": "blooms",
+          "texture_size": 1024,
+          "materials": [{ "name": "celandine_01", "diffuse": "Diffuse", "alpha": "Alpha" }]
+        }
+      ]
+    },
+    {
+      "name": "fern",
+      "source": "fern_02",
+      "note": "undergrowth; the scan is already at a sensible triangle count",
+      "resolution": "1k",
+      "meshes": [0],
+      "alpha_cutoff": 0.5,
+      "groups": [
+        {
+          "mode": "direct",
+          "submesh": "fronds",
+          "texture_size": 1024,
+          "materials": [{ "name": "fern_02", "diffuse": "Diffuse", "alpha": "Alpha" }]
+        }
+      ]
+    },
+    {
+      "name": "shrub",
+      "source": "shrub_02",
+      "note": "waist-high bush; its leaves are already leaf-sized, so taken as scanned",
+      "resolution": "1k",
+      "meshes": [1],
+      "alpha_cutoff": 0.5,
+      "groups": [
+        {
+          "mode": "direct",
+          "submesh": "foliage",
+          "texture_size": 1024,
+          "materials": [{ "name": "shrub_02", "diffuse": "Diffuse", "alpha": "Alpha" }]
+        }
+      ]
+    }
+  ]
+}

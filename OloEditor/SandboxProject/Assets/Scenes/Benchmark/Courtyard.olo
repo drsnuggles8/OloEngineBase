@@ -342,8 +342,8 @@ Entities:
       Enabled: true
       Layers:
         - Name: Grass
-          MeshPath: ""
-          AlbedoPath: assets/textures/grass.png
+          MeshPath: SandboxProject/Assets/Models/Vegetation/grass/grass.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/grass/Textures/grass_card.png
           Density: 5
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -355,6 +355,8 @@ Entities:
           RandomRotation: true
           ViewDistance: 170
           FadeStartDistance: 135
+          MeshViewDistance: 12
+          MeshFadeStartDistance: 9
           WindStrength: 0.4
           WindSpeed: 1.6
           BaseColor: [0.3, 0.46, 0.16]
@@ -362,8 +364,8 @@ Entities:
           AlphaCutoff: 0.5
           Enabled: true
         - Name: Pines
-          MeshPath: SandboxProject/Assets/Models/Vegetation/pine.obj
-          AlbedoPath: assets/textures/grass.png
+          MeshPath: SandboxProject/Assets/Models/Vegetation/pine/pine.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/pine/Textures/pine_card.png
           Density: 0.02
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -387,9 +389,9 @@ Entities:
           ImpostorAtlasResolution: 1024
           ImpostorHemiOctahedral: true
           Enabled: true
-        - Name: Palms
-          MeshPath: SandboxProject/Assets/Models/Vegetation/palm.obj
-          AlbedoPath: assets/textures/grass.png
+        - Name: Broadleaf
+          MeshPath: SandboxProject/Assets/Models/Vegetation/broadleaf/broadleaf.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/broadleaf/Textures/broadleaf_card.png
           Density: 0.012
           SplatmapChannel: 0
           MinSlopeAngle: 0
