@@ -149,15 +149,15 @@ namespace OloEngine::Tests
         // Shipped foliage parts, as the engine samples them: broadleaf 44.8%,
         // fern 52.5%, pine 54.4%, dry grass 87.6%, shrub 92.8%; trunks and
         // bark are fully opaque. The stand-in grass-on-pine the issue was found
-        // on passes 19.4% of the pine's surface, and the pine impostor bake
-        // 12.0%.
+        // on passes 19.4% of the pine's surface, and so does an impostor baked
+        // from it.
         for (const f32 shipped : { 0.448f, 0.525f, 0.544f, 0.876f, 0.928f, 1.0f })
         {
             EXPECT_EQ(AC::Judge(AC::Role::AuthoredMesh, shipped), AC::Verdict::Plausible) << shipped;
             EXPECT_EQ(AC::Judge(AC::Role::ImpostorBake, shipped), AC::Verdict::Plausible) << shipped;
         }
         EXPECT_EQ(AC::Judge(AC::Role::AuthoredMesh, 0.194f), AC::Verdict::TooSparse);
-        EXPECT_EQ(AC::Judge(AC::Role::ImpostorBake, 0.120f), AC::Verdict::TooSparse);
+        EXPECT_EQ(AC::Judge(AC::Role::ImpostorBake, 0.194f), AC::Verdict::TooSparse);
     }
 
     TEST(FoliageAlphaCoverage, BandEdgesAreInclusive)
@@ -338,11 +338,11 @@ namespace OloEngine::Tests
 
         AC::Entry impostor = card;
         impostor.Kind = AC::Role::ImpostorBake;
-        impostor.Surface = "the surface of 'pine.obj'";
-        impostor.Coverage = MakeCoverage(120, 1000);
+        impostor.Surface = "part 0 of 'pine.obj'";
+        impostor.Coverage = MakeCoverage(192, 1000);
         const std::string text = AC::Describe(impostor, "L", 0.3f);
-        EXPECT_NE(text.find("impostor"), std::string::npos) << text;
-        EXPECT_NE(text.find("not the mesh's own materials"), std::string::npos) << text;
+        EXPECT_NE(text.find("bakes part 0 of 'pine.obj' into its impostor"), std::string::npos) << text;
+        EXPECT_NE(text.find("19.2%"), std::string::npos) << text;
     }
 
     TEST(FoliageAlphaCoverage, APlausibleOrUnmeasuredEntryProducesNoWarning)

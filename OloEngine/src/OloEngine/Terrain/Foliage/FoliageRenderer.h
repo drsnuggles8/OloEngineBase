@@ -270,15 +270,16 @@ namespace OloEngine
         // see FoliageAlphaCoverage.h. The surfaces are cached here, and the
         // entries hold histograms, so a cutoff change re-judges without
         // decoding or sampling anything:
-        //   MeshPartSurfaceUVs  one surface sample set per MeshParts entry
-        //   MeshSurfaceUVs      the whole mesh, which is what the impostor
-        //                       bake draws; keyed by MeshSurfaceUVsPath
+        //   MeshPartSurfaceUVs      one surface sample set per MeshParts entry
+        //   ImpostorParts           what the impostor was baked from — the same
+        //                           parts and textures the near mesh draws
+        //   ImpostorPartSurfaceUVs  one sample set per ImpostorParts entry
         // AlphaCoverageDirty says an input moved and the entries must be
         // re-measured; each entry's own Warned latch is what keeps the log
         // line to once per implausible configuration.
         TArray<TArray<glm::vec2>> MeshPartSurfaceUVs;
-        TArray<glm::vec2> MeshSurfaceUVs;
-        FString MeshSurfaceUVsPath;
+        TArray<ImpostorBakePart> ImpostorParts;
+        TArray<TArray<glm::vec2>> ImpostorPartSurfaceUVs;
         TArray<FoliageAlphaCoverage::Entry> AlphaCoverage;
         bool AlphaCoverageDirty = true;
         bool AlphaCoverageMeshDrawn = false;
@@ -366,8 +367,8 @@ namespace OloEngine
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::ImpostorBakedHemi)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::Lod)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::MeshPartSurfaceUVs)>::Value &&
-                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::MeshSurfaceUVs)>::Value &&
-                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::MeshSurfaceUVsPath)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::ImpostorParts)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::ImpostorPartSurfaceUVs)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::AlphaCoverage)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::AlphaCoverageDirty)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::AlphaCoverageMeshDrawn)>::Value &&
@@ -577,6 +578,15 @@ namespace OloEngine
         // cutoff without a rebuild. Empty for an out-of-range slot or a layer
         // that has not been generated.
         [[nodiscard]] std::span<const FoliageAlphaCoverage::Entry> GetAlphaCoverage(u32 layerIndex) const;
+
+        // The layer's baked octahedral impostor, or null when it has none —
+        // for inspecting what the far field is actually made of.
+        [[nodiscard]] const ImpostorAtlas* GetImpostorAtlas(u32 layerIndex) const
+        {
+            if (layerIndex >= static_cast<u32>(m_Layers.Num()) || !m_Layers[static_cast<i32>(layerIndex)].Impostor.IsValid())
+                return nullptr;
+            return &m_Layers[static_cast<i32>(layerIndex)].Impostor;
+        }
 
         [[nodiscard]] u32 GetTotalInstanceCount() const;
         [[nodiscard]] u32 GetVisibleInstanceCount() const

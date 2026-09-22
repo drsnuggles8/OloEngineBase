@@ -68,9 +68,11 @@
 //                 procedural pine — passes 19.4% of the pine's surface, and
 //                 that tree was visibly see-through. 30% sits between them.
 //                 There is no ceiling: solid geometry may be fully opaque.
-//   ImpostorBake  the same floor as AuthoredMesh. The bake draws the layer
-//                 albedo onto the mesh's UVs and alpha-tests it, so it is
-//                 solid geometry textured exactly as the near mesh would be.
+//   ImpostorBake  the same floor as AuthoredMesh. The bake draws the mesh's
+//                 parts with the textures the near mesh uses and alpha-tests
+//                 them, so it is the same solid geometry. Judged only for a
+//                 layer that does not also draw the near mesh, whose entries
+//                 would otherwise repeat these number for number.
 //
 // ── Matching the shader's comparison exactly ────────────────────────────────
 //
@@ -87,7 +89,7 @@ namespace OloEngine::FoliageAlphaCoverage
     {
         Card,         // the layer albedo on the flat billboard quad
         AuthoredMesh, // one submesh of the authored plant mesh, with its own texture
-        ImpostorBake, // the layer albedo on the whole mesh, as the impostor bake draws it
+        ImpostorBake, // one part of the mesh as the impostor bake draws it, measured when the mesh is not
     };
 
     enum class Verdict : u8

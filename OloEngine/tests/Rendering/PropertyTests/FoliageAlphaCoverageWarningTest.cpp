@@ -7,9 +7,12 @@
 //
 //   * the configuration the issue was found on — grass.png mapped onto the
 //     procedural pine — warns, once, naming the layer and the mesh part;
-//   * the shipped Woodland Pines layer's near mesh stays quiet, and its
-//     impostor bake, which paints the pine's BILLBOARD over the pine's atlas
-//     UVs, warns;
+//   * the shipped Woodland Pines layer stays quiet, near mesh and impostor
+//     alike — and its impostor atlas is made of the pine's own materials. It
+//     used to be baked with the layer's BILLBOARD painted over the pine's atlas
+//     UVs (12% of the surface passed), which after the OBJ v fix left the far
+//     pines all but invisible;
+//   * an impostor-only layer is judged through its bake, part by part;
 //   * a correctly authored grass card stays quiet, and an opaque texture on a
 //     card warns as a solid rectangle;
 //   * a slider dragged within an implausible range does not repeat the line,
@@ -36,6 +39,7 @@
 
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
+#include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Terrain/Foliage/FoliageAlphaCoverage.h"
@@ -73,6 +77,7 @@ namespace OloEngine::Tests
             kMeadowSlot,
             kSolidCardSlot,
             kGrassMeshSlot,
+            kImpostorOnlySlot,
             kSlotCount
         };
 
@@ -112,6 +117,13 @@ namespace OloEngine::Tests
             std::shared_ptr<spdlog::sinks::ringbuffer_sink_mt> m_Sink =
                 std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(4096);
         };
+
+        // Share of the Woodland pine's impostor atlas its baked silhouettes
+        // cover, read back from the GPU. Measured with the parts baked from
+        // their own materials: 8.7%. With the layer billboard painted over
+        // every part, as before #1399: 3.9% (a probe of the old behaviour).
+        // The floor sits between the two.
+        constexpr f64 kImpostorFloor = 0.06;
 
         [[nodiscard]] const AC::Entry* FindEntry(std::span<const AC::Entry> entries, AC::Role kind,
                                                  std::string_view texture = {})
@@ -184,6 +196,17 @@ namespace OloEngine::Tests
             grass.AlbedoPath = kGrassCard;
             grass.UseAuthoredMesh = true;
             grass.AlphaCutoff = 0.5f;
+
+            // The stand-in configuration again, drawn ONLY as an impostor: its
+            // one part has no material texture, so the bake uses the layer
+            // albedo, and the near mesh never measures it.
+            FoliageLayer& impostorOnly = foliage.m_Layers[kImpostorOnlySlot];
+            impostorOnly.Name = "ImpostorOnlyPine";
+            impostorOnly.MeshPath = kStandInPine;
+            impostorOnly.AlbedoPath = kStandInAlbedo;
+            impostorOnly.UseAuthoredMesh = false;
+            impostorOnly.UseImpostor = true;
+            impostorOnly.AlphaCutoff = 0.3f;
 
             for (auto& layer : foliage.m_Layers)
             {
@@ -273,16 +296,38 @@ namespace OloEngine::Tests
             ASSERT_NE(foliage, nullptr);
             EXPECT_NEAR(foliage->Coverage.PassFraction(0.3f), 0.544f, 0.02f);
 
-            const AC::Entry* impostor = FindEntry(entries, AC::Role::ImpostorBake);
-            ASSERT_NE(impostor, nullptr) << "no impostor was baked, so its coverage could not be judged";
-            ASSERT_TRUE(impostor->Measured);
-            EXPECT_NEAR(impostor->Coverage.PassFraction(0.3f), 0.120f, 0.02f)
-                << "the billboard painted over the pine's atlas UVs";
-            EXPECT_EQ(FindEntry(entries, AC::Role::Card), nullptr)
-                << "the impostor rides the card draw, so the flat card is never drawn and must not be judged";
+            // The bake draws the near mesh's own parts and textures, so with the
+            // mesh drawn it is not judged a second time; and the impostor rides
+            // the card draw, so the flat card is never drawn either.
+            EXPECT_EQ(FindEntry(entries, AC::Role::ImpostorBake), nullptr);
+            EXPECT_EQ(FindEntry(entries, AC::Role::Card), nullptr);
+            EXPECT_EQ(warnings.Count("layer 'WoodlandPines'"), 0u) << "the shipped pines are correct and must stay quiet";
 
-            EXPECT_EQ(warnings.Count("layer 'WoodlandPines' bakes its impostor"), 1u);
-            EXPECT_EQ(warnings.Count("layer 'WoodlandPines' draws part"), 0u);
+            // What the far pines are made of, read back from the GPU: the share
+            // of the atlas the baked silhouettes cover. See kImpostorFloor.
+            const ImpostorAtlas* atlas = Foliage().m_Renderer->GetImpostorAtlas(kWoodlandSlot);
+            ASSERT_NE(atlas, nullptr) << "Woodland Pines baked no impostor";
+            TArray64<u8> texels;
+            ASSERT_TRUE(atlas->Albedo->GetData(texels)) << "impostor atlas readback failed";
+            ASSERT_FALSE(texels.IsEmpty());
+            u64 covered = 0;
+            for (i64 i = 3; i < texels.Num(); i += 4)
+                covered += texels[i] > 0 ? 1u : 0u;
+            const f64 atlasCoverage = static_cast<f64>(covered) / static_cast<f64>(texels.Num() / 4);
+            EXPECT_GT(atlasCoverage, kImpostorFloor)
+                << "the far pines are baked mostly empty: is the impostor painted with the layer billboard instead of "
+                   "the pine's own materials?";
+        }
+
+        // ── An impostor-only layer, judged through its bake ──────────────────
+        {
+            const auto entries = Coverage(kImpostorOnlySlot);
+            const AC::Entry* baked = FindEntry(entries, AC::Role::ImpostorBake, "grass.png");
+            ASSERT_NE(baked, nullptr) << "the impostor-only layer's bake was not measured";
+            ASSERT_TRUE(baked->Measured);
+            EXPECT_NEAR(baked->Coverage.PassFraction(0.3f), 0.194f, 0.02f) << "the stand-in pine's surface, again";
+            EXPECT_EQ(FindEntry(entries, AC::Role::AuthoredMesh), nullptr) << "UseAuthoredMesh is off";
+            EXPECT_EQ(warnings.Count("layer 'ImpostorOnlyPine' bakes part 0 of 'pine.obj' into its impostor"), 1u);
         }
 
         // ── Cards ────────────────────────────────────────────────────────────

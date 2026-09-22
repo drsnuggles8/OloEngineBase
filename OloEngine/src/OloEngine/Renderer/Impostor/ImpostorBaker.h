@@ -6,10 +6,33 @@
 
 #include <glm/glm.hpp>
 
+#include <span>
+
 namespace OloEngine
 {
     class Mesh;
     class Texture2D;
+    class VertexArray;
+    struct BoundingBox;
+
+    // One index range of a bake's vertex array and the albedo it is drawn with
+    // — a plant's trunk, bark and canopy each carry their own texture, and the
+    // impostor has to be made of the same materials as the mesh it replaces.
+    struct ImpostorBakePart
+    {
+        u32 BaseIndex = 0;
+        u32 IndexCount = 0;
+        Ref<Texture2D> Albedo; // null bakes this part tint-only (white fallback)
+    };
+
+    // Scalar index range plus an intrusive texture Ref.
+    template<>
+    struct TIsTriviallyRelocatable<ImpostorBakePart>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(ImpostorBakePart::BaseIndex)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ImpostorBakePart::IndexCount)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(ImpostorBakePart::Albedo)>::Value;
+    };
 
     // Result of an octahedral impostor bake (issue #433). Two atlases sharing
     // one N*N tile grid: Albedo (rgb + coverage) and NormalDepth (object-space
@@ -77,6 +100,22 @@ namespace OloEngine
         [[nodiscard]] static ImpostorAtlas Bake(
             const Ref<Mesh>& mesh,
             const Ref<Texture2D>& albedoTexture,
+            const glm::vec3& tint,
+            u32 framesPerAxis,
+            u32 atlasResolution,
+            bool hemi,
+            f32 alphaCutoff);
+
+        // The general form: `parts` are index ranges of `vertexArray`, each
+        // drawn with its own albedo, framed to `bounds` (object space). The
+        // overload above is this with the mesh's whole index buffer as one part.
+        //
+        // `vertexArray` must carry only per-vertex streams — no instance
+        // buffer — because the bake issues plain indexed draws.
+        [[nodiscard]] static ImpostorAtlas Bake(
+            const Ref<VertexArray>& vertexArray,
+            const BoundingBox& bounds,
+            std::span<const ImpostorBakePart> parts,
             const glm::vec3& tint,
             u32 framesPerAxis,
             u32 atlasResolution,

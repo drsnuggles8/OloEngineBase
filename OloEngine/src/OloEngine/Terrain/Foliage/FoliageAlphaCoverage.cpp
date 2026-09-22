@@ -210,11 +210,11 @@ namespace OloEngine::FoliageAlphaCoverage
                                    100.0f * band.Min);
                 break;
             case Role::ImpostorBake:
-                text = std::format("FoliageRenderer: layer '{}' bakes its impostor by drawing the layer albedo '{}' "
-                                   "over {}, and only {:.1f}% of that surface passes at AlphaCutoff {:.2f} - a solid "
-                                   "plant should pass at least {:.0f}%, so the far impostor is baked mostly empty. The "
-                                   "bake applies Albedo Path, not the mesh's own materials.",
-                                   layerName, entry.Texture.ToView(), entry.Surface.ToView(), percent, cutoff,
+                text = std::format("FoliageRenderer: layer '{}' bakes {} into its impostor with '{}', and only "
+                                   "{:.1f}% of that surface passes at AlphaCutoff {:.2f} - solid plant geometry should "
+                                   "pass at least {:.0f}%, so the far impostor is baked mostly empty there. Is this "
+                                   "the texture the mesh was modelled for?",
+                                   layerName, entry.Surface.ToView(), entry.Texture.ToView(), percent, cutoff,
                                    100.0f * band.Min);
                 break;
         }
