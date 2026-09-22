@@ -2728,6 +2728,8 @@ namespace OloEngine
                     if (isStorage)
                     {
                         m_UnfedStorageBindings.fetch_add(1, std::memory_order_relaxed);
+                        if (severity == VulkanMissingBufferSeverity::Error)
+                            m_UnfedRequiredStorageBindings.fetch_add(1, std::memory_order_relaxed);
                     }
                     address = VulkanFrameArena::Get().GetNullBlockAddress();
                 }

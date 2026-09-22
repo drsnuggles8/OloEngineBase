@@ -21,8 +21,9 @@ namespace OloEngine
     };
 
     // Optional means a reviewed shader declaration with a gate before its read,
-    // not a binding number: 17 also holds indirect arguments, and 63 also holds
-    // bones, foliage and particle data. Those tenants require real buffers.
+    // not a binding number: 17 also holds indirect arguments, 63 also holds
+    // bones, foliage and particle data, and 79 also holds the VT bake and
+    // indirection-update blocks. Those tenants require real buffers.
     // occupantAbsent must be false when a published buffer failed to resolve an
     // address (e.g. arena exhaustion); that failure is never an optional absence.
     [[nodiscard]] inline VulkanMissingBufferSeverity ClassifyMissingVulkanBuffer(
@@ -46,7 +47,18 @@ namespace OloEngine
             const bool optionalMaterials = shaderName == "PBR_GBuffer" &&
                                            binding.Binding == ShaderBindingLayout::SSBO_INSTANCE_DRAW_INDIRECT &&
                                            binding.Name == "OloGPUSceneMaterials" && binding.Stages == VK_SHADER_STAGE_FRAGMENT_BIT;
-            if (optionalLightmap || optionalMaterials)
+
+            // Terrain VT feedback (issue #1390). b_TerrainVTFeedback is written only
+            // by oloVTWriteFeedback, called only from oloVTResolveSurface, which both
+            // terrain shaders call only under `useSplatmap && vtParams.Enabled > 0.5`.
+            // Enabled comes from TerrainVirtualTexture::FillShaderParams, filled in
+            // the same branch that supplies the feedback buffer, and DrawTerrainPatch
+            // rejects a partial VT binding set. The VT bake and indirection kernels
+            // declare other blocks at this binding; those require real buffers.
+            const bool terrainShader = shaderName == "Terrain_PBR" || shaderName == "Terrain_GBuffer";
+            const bool optionalVTFeedback = terrainShader && binding.Binding == ShaderBindingLayout::SSBO_TERRAIN_VT &&
+                                            binding.Name == "TerrainVTFeedback" && binding.Stages == VK_SHADER_STAGE_FRAGMENT_BIT;
+            if (optionalLightmap || optionalMaterials || optionalVTFeedback)
                 return VulkanMissingBufferSeverity::Trace;
         }
         return VulkanMissingBufferSeverity::Error;
