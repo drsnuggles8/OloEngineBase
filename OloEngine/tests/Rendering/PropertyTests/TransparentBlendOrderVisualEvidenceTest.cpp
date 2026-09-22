@@ -3,7 +3,8 @@
 // TransparentBlendOrderVisualEvidenceTest.cpp
 //
 // Real-pixel evidence for issue #1327 — conventional alpha-blended draws must
-// composite back-to-front across DIFFERENT materials, not in material-ID order.
+// composite back-to-front across DIFFERENT materials, rather than in the order
+// their shader and material IDs happen to fall.
 //
 // The scene is the issue's worked example made renderable: a black backdrop,
 // a 50%-alpha RED quad and a 50%-alpha BLUE quad, both filling the centre of
@@ -49,6 +50,7 @@
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
+#include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Renderer3DDrawHelpers.h"
@@ -80,6 +82,8 @@ namespace OloEngine::Tests
         // down -Z from +Z, so a smaller Z is FARTHER from the camera.
         constexpr f32 kNearZ = 1.0f;
         constexpr f32 kFarZ = -1.0f;
+        // Behind both, for the batch-candidate slab (see BuildScene).
+        constexpr f32 kBackZ = -3.0f;
 
         struct Rgb
         {
@@ -171,11 +175,29 @@ namespace OloEngine::Tests
                 mat.m_Material.SetMetallicFactor(0.0f);
             }
 
-            m_Red = AddBlendedQuad("RedQuad", glm::vec3(1.0f, 0.0f, 0.0f), kNearZ);
-            m_Blue = AddBlendedQuad("BlueQuad", glm::vec3(0.0f, 0.0f, 1.0f), kFarZ);
+            m_Red = AddBlendedQuad("RedQuad", glm::vec3(1.0f, 0.0f, 0.0f), kNearZ, m_RedAlbedo);
+            m_Blue = AddBlendedQuad("BlueQuad", glm::vec3(0.0f, 0.0f, 1.0f), kFarZ, m_BlueAlbedo);
+
+            // A THIRD slab, behind the other two, carrying byte-identical
+            // material content to m_Red (same base colour, same albedo texture
+            // object) and the same MeshSource.
+            //
+            // This one exists solely so the batching cell is not vacuous.
+            // FrameDataBuffer::AllocateMaterialData dedupes on content, so
+            // m_Red and m_RedBack resolve to the SAME materialDataIndex, the
+            // same vertexArrayID and the same renderStateIndex — i.e. they are
+            // a real instance-group candidate, and the only thing keeping them
+            // apart is the depth-major blendOrderKey this PR adds. m_Red and
+            // m_Blue deliberately differ in material and could never have
+            // grouped, so a batching comparison built on that pair proves
+            // nothing.
+            m_RedBack = AddBlendedQuad("RedQuadBack", glm::vec3(1.0f, 0.0f, 0.0f), kBackZ, m_RedAlbedo);
         }
 
-        Entity AddBlendedQuad(const char* name, const glm::vec3& albedo, f32 z)
+        // `albedoMap` is passed in rather than created per quad: two quads that
+        // are meant to be batch candidates must share the texture OBJECT, since
+        // the material POD carries its RHI handle.
+        Entity AddBlendedQuad(const char* name, const glm::vec3& albedo, f32 z, Ref<Texture2D>& albedoMap)
         {
             Scene& scene = GetScene();
             Entity e = scene.CreateEntity(name);
@@ -186,8 +208,12 @@ namespace OloEngine::Tests
             tc.Scale = { 6.0f, 6.0f, 0.02f };
             auto& mc = e.AddComponent<MeshComponent>();
             mc.m_Primitive = MeshPrimitive::Cube;
-            if (Ref<Mesh> mesh = MeshPrimitives::CreateCube())
-                mc.m_MeshSource = mesh->GetMeshSource();
+            if (!m_SharedCube)
+            {
+                if (Ref<Mesh> mesh = MeshPrimitives::CreateCube())
+                    m_SharedCube = mesh->GetMeshSource();
+            }
+            mc.m_MeshSource = m_SharedCube;
 
             auto& mat = e.AddComponent<MaterialComponent>();
             Material& material = mat.m_Material;
@@ -200,7 +226,9 @@ namespace OloEngine::Tests
             // camera ends up on, and so a back-face cull cannot silently drop
             // one of the two subjects.
             material.SetFlag(MaterialFlag::TwoSided, true);
-            material.SetAlbedoMap(CreateWhitePixel());
+            if (!albedoMap)
+                albedoMap = CreateWhitePixel();
+            material.SetAlbedoMap(albedoMap);
             return e;
         }
 
@@ -312,6 +340,15 @@ namespace OloEngine::Tests
 
         Entity m_Red;
         Entity m_Blue;
+        Entity m_RedBack;
+
+        // Shared so the batch-candidate pair really is one: the instance group
+        // key is (vertexArrayID, indexCount, baseIndex, materialDataIndex,
+        // renderStateIndex, …), and the material POD carries the albedo map's
+        // RHI handle.
+        Ref<MeshSource> m_SharedCube;
+        Ref<Texture2D> m_RedAlbedo;
+        Ref<Texture2D> m_BlueAlbedo;
     };
 
     TEST_F(TransparentBlendOrderVisualEvidence, ForwardBlendsTheNearerQuadLast)
@@ -363,10 +400,17 @@ namespace OloEngine::Tests
     TEST_F(TransparentBlendOrderVisualEvidence, BatchingDisabledProducesTheSameImage)
     {
         OLO_ENSURE_GPU_OR_SKIP();
-        // Criterion 2's "batching on/off" cell, on real pixels: the two quads
-        // share a mesh and differ only in material, so they are adjacent in the
-        // batcher's candidate set. Turning auto-batching off must not move the
-        // image.
+        // Criterion 2's "batching on/off" cell, on real pixels.
+        //
+        // The subject is m_Red and m_RedBack, NOT m_Red and m_Blue: the batcher
+        // groups on (vertexArrayID, indexCount, baseIndex, materialDataIndex,
+        // renderStateIndex, …), and m_Red/m_Blue differ in material, so they
+        // could never have grouped and a comparison built on them would pass
+        // whatever the batcher did. m_Red and m_RedBack share a MeshSource and
+        // byte-identical material content, so they ARE a candidate group — and
+        // the blue slab sits between them in depth. If the batcher collapsed
+        // them onto the nearer one's key, the blue would stop compositing
+        // between them and the image would move.
         Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
         Renderer3D::ApplyRendererSettings();
 
@@ -375,10 +419,28 @@ namespace OloEngine::Tests
         CommandBucket& bucket = geometry->GetCommandBucket();
         const CommandBucketConfig savedConfig = bucket.GetConfig();
 
+        // Precondition: the pair really is batchable apart from depth. If this
+        // ever stops holding, the comparison below becomes vacuous and this
+        // says so instead of passing.
+        const Material& redNear = m_Red.GetComponent<MaterialComponent>().m_Material;
+        const Material& redBack = m_RedBack.GetComponent<MaterialComponent>().m_Material;
+        ASSERT_EQ(ComputeMaterialID(redNear), ComputeMaterialID(redBack))
+            << "the two red slabs no longer share a material, so nothing here can batch";
+        ASSERT_EQ(m_Red.GetComponent<MeshComponent>().m_MeshSource.Raw(),
+                  m_RedBack.GetComponent<MeshComponent>().m_MeshSource.Raw())
+            << "the two red slabs no longer share a mesh, so nothing here can batch";
+
         CommandBucketConfig config = savedConfig;
         config.EnableBatching = true;
         bucket.SetConfig(config);
+        // `BatchedCommands` is cumulative for the bucket's lifetime — `Clear()`
+        // (the per-frame path) does not reset it, only `Reset(allocator)` does —
+        // and this bucket is process-global, so by the time this test runs it
+        // already carries whatever earlier tests in the process batched. The
+        // delta across the batching-ON window is the only honest reading.
+        const u32 batchedBefore = bucket.GetStatistics().BatchedCommands;
         const Rgb batched = CaptureWithNear("Forward_BatchingOn", m_Red, m_Blue);
+        const u32 batchedDuring = bucket.GetStatistics().BatchedCommands - batchedBefore;
 
         config.EnableBatching = false;
         bucket.SetConfig(config);
@@ -387,6 +449,16 @@ namespace OloEngine::Tests
         bucket.SetConfig(savedConfig);
         if (::testing::Test::HasFatalFailure())
             return;
+
+        // The guarantee: two blended draws at different depths are never
+        // collapsed, however batchable they otherwise are. The scene's only
+        // opaque mesh is the backdrop, which is alone in its group, so any
+        // collapse counted here is the red pair.
+        EXPECT_EQ(batchedDuring, 0u)
+            << "auto-batching collapsed " << batchedDuring
+            << " source draw(s) while rendering this scene. The only group candidate here is the "
+               "red pair, which sits at two different depths — the #1327 guarantee is exactly "
+               "that it must not be collapsed.";
 
         EXPECT_GT(batched.R, batched.B) << "batched: red is nearer and must dominate";
         EXPECT_GT(unbatched.R, unbatched.B) << "unbatched: red is nearer and must dominate";

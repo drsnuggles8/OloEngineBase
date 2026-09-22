@@ -123,7 +123,8 @@ namespace OloEngine
         // produces both orders in the same eight passes. Depth used to be the
         // LEAST significant field for transparents too, which ordered them only
         // within one shader+material bucket: two overlapping 50% surfaces with
-        // different materials blended in material-ID order.
+        // different materials blended by shader ID and then material ID, and
+        // never by depth.
         //
         // Tie-breaking, for transparents, is therefore depth, then shader, then
         // material, then submission order (the radix sort is stable).

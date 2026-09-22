@@ -25,9 +25,9 @@ using namespace OloEngine; // NOLINT(google-build-using-namespace) — test file
 // `DrawKey::CreateTransparent` inverts depth so that back-to-front falls out of
 // an ascending raw-key sort, but depth used to sit in the LEAST significant
 // field, below shader and material. Inverting it therefore only ordered draws
-// WITHIN one shader+material bucket; across buckets the blend order was
-// material-ID order. Two overlapping 50% surfaces with different materials
-// composited in whichever order their material IDs happened to fall.
+// WITHIN one shader+material bucket; across buckets the blend order was shader
+// ID and then material ID, never depth. Two overlapping 50% surfaces with
+// different materials composited in whichever order their IDs happened to fall.
 //
 // These tests drive the real CommandBucket radix sort (not `operator<`) and
 // composite the sorted sequence with the source-over operator the GL/Vulkan
