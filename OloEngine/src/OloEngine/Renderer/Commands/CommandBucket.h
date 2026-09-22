@@ -259,6 +259,13 @@ namespace OloEngine
         // Reset the bucket and free all memory
         void Reset(CommandAllocator& allocator);
 
+        // Zero the statistics Reset zeroes, without touching an allocator.
+        // For a bucket whose allocator is shared and reset by its owner.
+        void ResetStatistics()
+        {
+            m_Stats = Statistics();
+        }
+
         // Statistics
         struct Statistics
         {

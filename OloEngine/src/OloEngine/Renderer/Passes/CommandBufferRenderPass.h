@@ -45,9 +45,16 @@ namespace OloEngine
         {
             OLO_CORE_ASSERT(m_Allocator, "CommandBufferRenderPass::ResetCommandBucket: No allocator available!");
             if (m_Allocator == m_OwnedAllocator.get())
+            {
                 m_CommandBucket.Reset(*m_Allocator);
+            }
             else
+            {
+                // Everything Reset does except the allocator: the bucket's
+                // statistics are per frame, and tests and the profiler read them.
                 m_CommandBucket.Clear();
+                m_CommandBucket.ResetStatistics();
+            }
         }
 
         void SetCommandAllocator(CommandAllocator* allocator)
