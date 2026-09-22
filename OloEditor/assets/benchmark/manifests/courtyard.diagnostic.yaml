@@ -144,18 +144,69 @@ Assets:
   - Path: SandboxProject/Assets/Models/Sponza/Sponza.gltf
     Origin: Crytek Sponza via KhronosGroup glTF-Sample-Assets (CRYENGINE Marketplace original)
     License: LicenseRef-CRYENGINE-Agreement
-  - Path: SandboxProject/Assets/Models/Vegetation/pine.obj
-    Origin: generated in-repo by generate_vegetation.py
-    License: repository license (no third-party rights)
-  - Path: SandboxProject/Assets/Models/Vegetation/palm.obj
-    Origin: generated in-repo by generate_vegetation.py
-    License: repository license (no third-party rights)
-  - Path: assets/textures/grass.png
-    Origin: in-repo editor asset; upstream origin not recorded
-    License: unverified (no license file in-repo)
   - Path: Assets/Textures/Checkerboard.png
     Origin: in-repo sandbox asset; upstream origin not recorded
     License: unverified (no license file in-repo)
   - Path: assets/textures/hdr/newport_loft.hdr
     Origin: Newport Loft HDR (sIBL Archive / HDR Labs)
     License: unverified (no license file in-repo)
+  - Path: SandboxProject/Assets/Models/Vegetation/broadleaf/broadleaf.obj
+    Origin: Poly Haven asset 'island_tree_01' (https://polyhaven.com/a/island_tree_01), imported
+      and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
+    License: CC0 1.0 Universal - https://polyhaven.com/license
+  - Path: SandboxProject/Assets/Models/Vegetation/broadleaf/broadleaf.mtl
+    Origin: Poly Haven asset 'island_tree_01' (https://polyhaven.com/a/island_tree_01), imported
+      and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
+    License: CC0 1.0 Universal - https://polyhaven.com/license
+  - Path: SandboxProject/Assets/Models/Vegetation/broadleaf/Textures/broadleaf_card.png
+    Origin: Poly Haven asset 'island_tree_01' (https://polyhaven.com/a/island_tree_01), imported
+      and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
+    License: CC0 1.0 Universal - https://polyhaven.com/license
+  - Path: SandboxProject/Assets/Models/Vegetation/broadleaf/Textures/broadleaf_foliage.png
+    Origin: Poly Haven asset 'island_tree_01' (https://polyhaven.com/a/island_tree_01), imported
+      and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
+    License: CC0 1.0 Universal - https://polyhaven.com/license
+  - Path: SandboxProject/Assets/Models/Vegetation/broadleaf/Textures/broadleaf_trunk.png
+    Origin: Poly Haven asset 'island_tree_01' (https://polyhaven.com/a/island_tree_01), imported
+      and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
+    License: CC0 1.0 Universal - https://polyhaven.com/license
+  - Path: SandboxProject/Assets/Models/Vegetation/grass/grass.obj
+    Origin: Poly Haven asset 'grass_medium_01' (https://polyhaven.com/a/grass_medium_01), imported
+      and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
+    License: CC0 1.0 Universal - https://polyhaven.com/license
+  - Path: SandboxProject/Assets/Models/Vegetation/grass/grass.mtl
+    Origin: Poly Haven asset 'grass_medium_01' (https://polyhaven.com/a/grass_medium_01), imported
+      and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
+    License: CC0 1.0 Universal - https://polyhaven.com/license
+  - Path: SandboxProject/Assets/Models/Vegetation/grass/Textures/grass_blades.png
+    Origin: Poly Haven asset 'grass_medium_01' (https://polyhaven.com/a/grass_medium_01), imported
+      and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
+    License: CC0 1.0 Universal - https://polyhaven.com/license
+  - Path: SandboxProject/Assets/Models/Vegetation/grass/Textures/grass_card.png
+    Origin: Poly Haven asset 'grass_medium_01' (https://polyhaven.com/a/grass_medium_01), imported
+      and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
+    License: CC0 1.0 Universal - https://polyhaven.com/license
+  - Path: SandboxProject/Assets/Models/Vegetation/pine/pine.obj
+    Origin: Poly Haven asset 'pine_tree_01' (https://polyhaven.com/a/pine_tree_01), imported
+      and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
+    License: CC0 1.0 Universal - https://polyhaven.com/license
+  - Path: SandboxProject/Assets/Models/Vegetation/pine/pine.mtl
+    Origin: Poly Haven asset 'pine_tree_01' (https://polyhaven.com/a/pine_tree_01), imported
+      and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
+    License: CC0 1.0 Universal - https://polyhaven.com/license
+  - Path: SandboxProject/Assets/Models/Vegetation/pine/Textures/pine_bark.png
+    Origin: Poly Haven asset 'pine_tree_01' (https://polyhaven.com/a/pine_tree_01), imported
+      and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
+    License: CC0 1.0 Universal - https://polyhaven.com/license
+  - Path: SandboxProject/Assets/Models/Vegetation/pine/Textures/pine_card.png
+    Origin: Poly Haven asset 'pine_tree_01' (https://polyhaven.com/a/pine_tree_01), imported
+      and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
+    License: CC0 1.0 Universal - https://polyhaven.com/license
+  - Path: SandboxProject/Assets/Models/Vegetation/pine/Textures/pine_foliage.png
+    Origin: Poly Haven asset 'pine_tree_01' (https://polyhaven.com/a/pine_tree_01), imported
+      and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
+    License: CC0 1.0 Universal - https://polyhaven.com/license
+  - Path: SandboxProject/Assets/Models/Vegetation/pine/Textures/pine_trunk.png
+    Origin: Poly Haven asset 'pine_tree_01' (https://polyhaven.com/a/pine_tree_01), imported
+      and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
+    License: CC0 1.0 Universal - https://polyhaven.com/license

@@ -5,7 +5,11 @@ Scene: Meadow.olo
 # An open 192 m field of dense alpha-masked grass and flower billboards over
 # procedural terrain, with wind on.
 #
-# CURRENT LIMITATION THIS FIXTURE RECORDS: ground cover is CAMERA-FACING
+# Ground cover is real scanned geometry inside MeshViewDistance since #1398
+# (grass, dry grass and celandine, each with its own albedo), handing over to
+# a billboard baked from that same plant beyond it.
+#
+# CURRENT LIMITATION THIS FIXTURE RECORDS: past the hand-over it is CAMERA-FACING
 # CARDS, not geometry. Expect the card silhouette to read at grazing angles,
 # expect alpha-test aliasing under motion, and expect no self-shadowing
 # within a clump. #1230 (foliage instance identity) and #1244 are measured
@@ -277,8 +281,8 @@ Entities:
       Enabled: true
       Layers:
         - Name: Grass
-          MeshPath: ""
-          AlbedoPath: assets/textures/grass.png
+          MeshPath: SandboxProject/Assets/Models/Vegetation/grass/grass.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/grass/Textures/grass_card.png
           Density: 9
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -290,6 +294,8 @@ Entities:
           RandomRotation: true
           ViewDistance: 150
           FadeStartDistance: 120
+          MeshViewDistance: 12
+          MeshFadeStartDistance: 9
           WindStrength: 0.55
           WindSpeed: 1.8
           BaseColor: [0.32, 0.48, 0.17]
@@ -297,8 +303,8 @@ Entities:
           AlphaCutoff: 0.5
           Enabled: true
         - Name: TallGrass
-          MeshPath: ""
-          AlbedoPath: assets/textures/grass.png
+          MeshPath: SandboxProject/Assets/Models/Vegetation/grass_dry/grass_dry.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
           Density: 3.5
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -310,6 +316,8 @@ Entities:
           RandomRotation: true
           ViewDistance: 170
           FadeStartDistance: 135
+          MeshViewDistance: 18
+          MeshFadeStartDistance: 13
           WindStrength: 0.7
           WindSpeed: 1.4
           BaseColor: [0.4, 0.5, 0.2]
@@ -317,8 +325,8 @@ Entities:
           AlphaCutoff: 0.5
           Enabled: true
         - Name: Flowers
-          MeshPath: ""
-          AlbedoPath: assets/textures/grass.png
+          MeshPath: SandboxProject/Assets/Models/Vegetation/flower/flower.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/flower/Textures/flower_card.png
           Density: 1.2
           SplatmapChannel: 3
           MinSlopeAngle: 0
@@ -330,6 +338,8 @@ Entities:
           RandomRotation: true
           ViewDistance: 90
           FadeStartDistance: 70
+          MeshViewDistance: 22
+          MeshFadeStartDistance: 16
           WindStrength: 0.5
           WindSpeed: 2.1
           BaseColor: [0.78, 0.72, 0.34]

@@ -1059,8 +1059,8 @@ Entities:
       Enabled: true
       Layers:
         - Name: Scrub
-          MeshPath: ""
-          AlbedoPath: assets/textures/grass.png
+          MeshPath: SandboxProject/Assets/Models/Vegetation/shrub/shrub.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/shrub/Textures/shrub_card.png
           Density: 0.45
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -1072,6 +1072,8 @@ Entities:
           RandomRotation: true
           ViewDistance: 260
           FadeStartDistance: 200
+          MeshViewDistance: 30
+          MeshFadeStartDistance: 22
           WindStrength: 0.4
           WindSpeed: 1.6
           BaseColor: [0.28, 0.44, 0.18]
@@ -1079,8 +1081,8 @@ Entities:
           AlphaCutoff: 0.5
           Enabled: true
         - Name: Dune grass
-          MeshPath: ""
-          AlbedoPath: assets/textures/grass.png
+          MeshPath: SandboxProject/Assets/Models/Vegetation/grass_dry/grass_dry.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
           Density: 0.16
           SplatmapChannel: 0
           MinSlopeAngle: 0
@@ -1092,6 +1094,8 @@ Entities:
           RandomRotation: true
           ViewDistance: 200
           FadeStartDistance: 150
+          MeshViewDistance: 18
+          MeshFadeStartDistance: 13
           WindStrength: 0.5
           WindSpeed: 1.3
           BaseColor: [0.62, 0.6, 0.34]
@@ -1099,8 +1103,8 @@ Entities:
           AlphaCutoff: 0.5
           Enabled: true
         - Name: Pines
-          MeshPath: SandboxProject/Assets/Models/Vegetation/pine.obj
-          AlbedoPath: assets/textures/grass.png
+          MeshPath: SandboxProject/Assets/Models/Vegetation/pine/pine.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/pine/Textures/pine_card.png
           Density: 0.016
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -1314,8 +1318,8 @@ Entities:
       Enabled: true
       Layers:
         - Name: Scrub
-          MeshPath: ""
-          AlbedoPath: assets/textures/grass.png
+          MeshPath: SandboxProject/Assets/Models/Vegetation/shrub/shrub.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/shrub/Textures/shrub_card.png
           Density: 0.45
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -1327,6 +1331,8 @@ Entities:
           RandomRotation: true
           ViewDistance: 260
           FadeStartDistance: 200
+          MeshViewDistance: 30
+          MeshFadeStartDistance: 22
           WindStrength: 0.4
           WindSpeed: 1.6
           BaseColor: [0.28, 0.44, 0.18]
@@ -1334,8 +1340,8 @@ Entities:
           AlphaCutoff: 0.5
           Enabled: true
         - Name: Dune grass
-          MeshPath: ""
-          AlbedoPath: assets/textures/grass.png
+          MeshPath: SandboxProject/Assets/Models/Vegetation/grass_dry/grass_dry.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
           Density: 0.16
           SplatmapChannel: 0
           MinSlopeAngle: 0
@@ -1347,15 +1353,17 @@ Entities:
           RandomRotation: true
           ViewDistance: 200
           FadeStartDistance: 150
+          MeshViewDistance: 18
+          MeshFadeStartDistance: 13
           WindStrength: 0.5
           WindSpeed: 1.3
           BaseColor: [0.62, 0.6, 0.34]
           Roughness: 0.8
           AlphaCutoff: 0.5
           Enabled: true
-        - Name: Palms
-          MeshPath: SandboxProject/Assets/Models/Vegetation/palm.obj
-          AlbedoPath: assets/textures/grass.png
+        - Name: Broadleaf
+          MeshPath: SandboxProject/Assets/Models/Vegetation/broadleaf/broadleaf.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/broadleaf/Textures/broadleaf_card.png
           Density: 0.014
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -1569,8 +1577,8 @@ Entities:
       Enabled: true
       Layers:
         - Name: Scrub
-          MeshPath: ""
-          AlbedoPath: assets/textures/grass.png
+          MeshPath: SandboxProject/Assets/Models/Vegetation/shrub/shrub.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/shrub/Textures/shrub_card.png
           Density: 0.45
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -1582,6 +1590,8 @@ Entities:
           RandomRotation: true
           ViewDistance: 260
           FadeStartDistance: 200
+          MeshViewDistance: 30
+          MeshFadeStartDistance: 22
           WindStrength: 0.4
           WindSpeed: 1.6
           BaseColor: [0.28, 0.44, 0.18]
@@ -1589,8 +1599,8 @@ Entities:
           AlphaCutoff: 0.5
           Enabled: true
         - Name: Dune grass
-          MeshPath: ""
-          AlbedoPath: assets/textures/grass.png
+          MeshPath: SandboxProject/Assets/Models/Vegetation/grass_dry/grass_dry.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
           Density: 0.16
           SplatmapChannel: 0
           MinSlopeAngle: 0
@@ -1602,15 +1612,17 @@ Entities:
           RandomRotation: true
           ViewDistance: 200
           FadeStartDistance: 150
+          MeshViewDistance: 18
+          MeshFadeStartDistance: 13
           WindStrength: 0.5
           WindSpeed: 1.3
           BaseColor: [0.62, 0.6, 0.34]
           Roughness: 0.8
           AlphaCutoff: 0.5
           Enabled: true
-        - Name: Palms
-          MeshPath: SandboxProject/Assets/Models/Vegetation/palm.obj
-          AlbedoPath: assets/textures/grass.png
+        - Name: Broadleaf
+          MeshPath: SandboxProject/Assets/Models/Vegetation/broadleaf/broadleaf.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/broadleaf/Textures/broadleaf_card.png
           Density: 0.014
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -1823,9 +1835,9 @@ Entities:
     FoliageComponent:
       Enabled: true
       Layers:
-        - Name: Lichen
-          MeshPath: ""
-          AlbedoPath: assets/textures/grass.png
+        - Name: Ferns
+          MeshPath: SandboxProject/Assets/Models/Vegetation/fern/fern.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/fern/Textures/fern_card.png
           Density: 0.3
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -1837,6 +1849,8 @@ Entities:
           RandomRotation: true
           ViewDistance: 170
           FadeStartDistance: 130
+          MeshViewDistance: 16
+          MeshFadeStartDistance: 12
           WindStrength: 0.2
           WindSpeed: 1.4
           BaseColor: [0.3, 0.34, 0.26]
@@ -2029,8 +2043,8 @@ Entities:
       Enabled: true
       Layers:
         - Name: Scrub
-          MeshPath: ""
-          AlbedoPath: assets/textures/grass.png
+          MeshPath: SandboxProject/Assets/Models/Vegetation/shrub/shrub.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/shrub/Textures/shrub_card.png
           Density: 0.45
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -2042,6 +2056,8 @@ Entities:
           RandomRotation: true
           ViewDistance: 260
           FadeStartDistance: 200
+          MeshViewDistance: 30
+          MeshFadeStartDistance: 22
           WindStrength: 0.4
           WindSpeed: 1.6
           BaseColor: [0.28, 0.44, 0.18]
@@ -2049,8 +2065,8 @@ Entities:
           AlphaCutoff: 0.5
           Enabled: true
         - Name: Dune grass
-          MeshPath: ""
-          AlbedoPath: assets/textures/grass.png
+          MeshPath: SandboxProject/Assets/Models/Vegetation/grass_dry/grass_dry.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
           Density: 0.16
           SplatmapChannel: 0
           MinSlopeAngle: 0
@@ -2062,15 +2078,17 @@ Entities:
           RandomRotation: true
           ViewDistance: 200
           FadeStartDistance: 150
+          MeshViewDistance: 18
+          MeshFadeStartDistance: 13
           WindStrength: 0.5
           WindSpeed: 1.3
           BaseColor: [0.62, 0.6, 0.34]
           Roughness: 0.8
           AlphaCutoff: 0.5
           Enabled: true
-        - Name: Palms
-          MeshPath: SandboxProject/Assets/Models/Vegetation/palm.obj
-          AlbedoPath: assets/textures/grass.png
+        - Name: Broadleaf
+          MeshPath: SandboxProject/Assets/Models/Vegetation/broadleaf/broadleaf.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/broadleaf/Textures/broadleaf_card.png
           Density: 0.014
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -2284,8 +2302,8 @@ Entities:
       Enabled: true
       Layers:
         - Name: Scrub
-          MeshPath: ""
-          AlbedoPath: assets/textures/grass.png
+          MeshPath: SandboxProject/Assets/Models/Vegetation/shrub/shrub.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/shrub/Textures/shrub_card.png
           Density: 0.45
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -2297,6 +2315,8 @@ Entities:
           RandomRotation: true
           ViewDistance: 260
           FadeStartDistance: 200
+          MeshViewDistance: 30
+          MeshFadeStartDistance: 22
           WindStrength: 0.4
           WindSpeed: 1.6
           BaseColor: [0.28, 0.44, 0.18]
@@ -2304,8 +2324,8 @@ Entities:
           AlphaCutoff: 0.5
           Enabled: true
         - Name: Dune grass
-          MeshPath: ""
-          AlbedoPath: assets/textures/grass.png
+          MeshPath: SandboxProject/Assets/Models/Vegetation/grass_dry/grass_dry.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
           Density: 0.16
           SplatmapChannel: 0
           MinSlopeAngle: 0
@@ -2317,6 +2337,8 @@ Entities:
           RandomRotation: true
           ViewDistance: 200
           FadeStartDistance: 150
+          MeshViewDistance: 18
+          MeshFadeStartDistance: 13
           WindStrength: 0.5
           WindSpeed: 1.3
           BaseColor: [0.62, 0.6, 0.34]
@@ -2324,8 +2346,8 @@ Entities:
           AlphaCutoff: 0.5
           Enabled: true
         - Name: Pines
-          MeshPath: SandboxProject/Assets/Models/Vegetation/pine.obj
-          AlbedoPath: assets/textures/grass.png
+          MeshPath: SandboxProject/Assets/Models/Vegetation/pine/pine.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/pine/Textures/pine_card.png
           Density: 0.016
           SplatmapChannel: 1
           MinSlopeAngle: 0
