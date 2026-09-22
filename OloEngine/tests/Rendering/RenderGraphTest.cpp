@@ -3900,7 +3900,14 @@ TEST(RenderGraph, AllPassesPresentInOrder)
     EXPECT_EQ(order.size(), names.size());
 
     // Verify all names present
-    std::unordered_set<std::string> orderSet(order.begin(), order.end());
+    // GetExecutionOrder() yields FString. libstdc++ range-constructs a
+    // std::string container by copy-ASSIGNING each element, which needs an
+    // implicit conversion FString does not offer; MSVC direct-initialises and
+    // accepts it. Build the set element-wise so both toolchains agree.
+    std::unordered_set<std::string> orderSet;
+    orderSet.reserve(order.size());
+    for (const auto& passName : order)
+        orderSet.emplace(passName.ToView());
     for (const auto& n : names)
     {
         EXPECT_TRUE(orderSet.count(n) > 0) << "Pass '" << n << "' missing from execution order";

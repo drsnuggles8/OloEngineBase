@@ -305,7 +305,7 @@ TEST_F(ShaderPackTest, EmptyPack)
     EXPECT_TRUE(pack.GetShaderNames().empty());
 }
 
-TEST(ShaderPackTest, DecodedBatchStagesSurviveGrowthCopyAndMove)
+TEST_F(ShaderPackTest, DecodedBatchStagesSurviveGrowthCopyAndMove)
 {
     ShaderLibrary::PreparedShaderBatch batch;
     ShaderLibrary::PackEntryCPUData entry;
