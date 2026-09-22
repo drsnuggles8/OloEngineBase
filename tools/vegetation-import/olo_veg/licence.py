@@ -12,9 +12,37 @@ import was broken.
 """
 
 import os
-from datetime import date
+import re
+from datetime import date, datetime, timezone
 
 from .polyhaven import LICENCE_NAME, LICENCE_URL
+
+_IMPORT_DATE_RE = re.compile(r"^Imported (\d{4}-\d{2}-\d{2}) at the ", re.M)
+
+
+def import_date(directory):
+    """The date to stamp into LICENSE.md, chosen so a re-run is reproducible.
+
+    `date.today()` would rewrite every LICENSE.md the next calendar day even when
+    the recipe and the source asset are identical, which contradicts the file's
+    own "re-run the import to reproduce this directory exactly".
+
+    In order: SOURCE_DATE_EPOCH (the reproducible-builds convention), then the
+    date already recorded in this asset's LICENSE.md, then today for a genuinely
+    new import.
+    """
+    epoch = os.environ.get("SOURCE_DATE_EPOCH")
+    if epoch:
+        return datetime.fromtimestamp(int(epoch), tz=timezone.utc).date().isoformat()
+
+    existing = os.path.join(directory, "LICENSE.md")
+    if os.path.exists(existing):
+        with open(existing, "r", encoding="utf-8") as handle:
+            found = _IMPORT_DATE_RE.search(handle.read())
+        if found:
+            return found.group(1)
+
+    return date.today().isoformat()
 
 
 def write_licence(directory, asset_id, info, source_urls, modifications, resolution):
@@ -34,7 +62,7 @@ def write_licence(directory, asset_id, info, source_urls, modifications, resolut
         "\n",
         f"Original author(s): **{credit}**\n",
         "\n",
-        f"Imported {date.today().isoformat()} at the {resolution} texture tier by\n",
+        f"Imported {import_date(directory)} at the {resolution} texture tier by\n",
         "`tools/vegetation-import/import_vegetation.py`.\n",
         "\n",
         "## Downloaded from\n",

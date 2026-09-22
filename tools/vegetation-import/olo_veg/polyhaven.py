@@ -18,6 +18,8 @@ No API key is needed and the endpoints take no authentication:
 
 import json
 import os
+import urllib.error
+import urllib.parse
 import urllib.request
 
 API = "https://api.polyhaven.com"
@@ -26,10 +28,50 @@ LICENCE_URL = "https://polyhaven.com/license"
 
 _USER_AGENT = "OloEngine-vegetation-import/1.0 (+https://github.com/drsnuggles8/OloEngineBase)"
 
+# Every URL this module opens comes from a REMOTE response: asset_files() returns
+# the download URLs, and the importer hands them straight to download(). That is
+# the whole shape of an SSRF - a changed or spoofed metadata response could point
+# the fetch at localhost, at a cloud metadata endpoint, or at file:// - so the
+# host is pinned here rather than trusted.
+#
+# The redirect check is the half that is easy to miss: urlopen follows redirects
+# itself, so inspecting response.geturl() afterwards is too late. The handler
+# below validates each hop BEFORE it is followed.
+_ALLOWED_HOSTS = frozenset({
+    "api.polyhaven.com",
+    "dl.polyhaven.org",
+    "cdn.polyhaven.com",
+})
+
+
+def _check_url(url, what="url"):
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme != "https":
+        raise ValueError(f"refusing a non-https {what}: {url!r}")
+    if parts.hostname not in _ALLOWED_HOSTS:
+        raise ValueError(f"refusing a {what} outside Poly Haven ({parts.hostname!r}): {url!r}")
+    if parts.port not in (None, 443):
+        raise ValueError(f"refusing a {what} on port {parts.port}: {url!r}")
+    return url
+
+
+class _PinnedRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        _check_url(newurl, "redirect target")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_OPENER = urllib.request.build_opener(_PinnedRedirectHandler)
+
+
+def _open(url, timeout):
+    _check_url(url)
+    request = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+    return _OPENER.open(request, timeout=timeout)
+
 
 def _get(url, timeout=120):
-    request = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
-    with urllib.request.urlopen(request, timeout=timeout) as response:
+    with _open(url, timeout) as response:
         return response.read()
 
 
@@ -81,8 +123,7 @@ def download(url, dest, expected_size=None, log=print):
     part = dest + ".part"
     size_note = f" ({expected_size / 1e6:.1f} MB)" if expected_size else ""
     log(f"    fetch {os.path.basename(dest)}{size_note}")
-    request = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
-    with urllib.request.urlopen(request, timeout=900) as response, open(part, "wb") as handle:
+    with _open(url, 900) as response, open(part, "wb") as handle:
         while True:
             chunk = response.read(1 << 20)
             if not chunk:

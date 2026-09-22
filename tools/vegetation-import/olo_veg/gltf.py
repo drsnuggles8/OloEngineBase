@@ -21,6 +21,7 @@ card and the mistake looks like a plausible dead tree.
 
 import json
 import os
+import urllib.parse
 
 import numpy as np
 
@@ -60,8 +61,25 @@ class Gltf:
                 raise GltfError(f"{self.path}: buffer {index} has no uri (.glb is not supported)")
             if uri.startswith("data:"):
                 raise GltfError(f"{self.path}: embedded data: buffers are not supported")
-            self._buffers[index] = np.fromfile(os.path.join(self.dir, uri), dtype=np.uint8)
+            self._buffers[index] = np.fromfile(self._resolve(uri, f"buffer {index}"), dtype=np.uint8)
         return self._buffers[index]
+
+    def _resolve(self, uri, what):
+        """Resolve a glTF-relative uri, refusing anything outside the document's directory.
+
+        The uri comes out of a DOWNLOADED document, so it is remote input: an
+        absolute path, a drive letter or a `../` chain would make the importer
+        read a file elsewhere on the machine. Containment is checked on the
+        RESOLVED path rather than by scanning the uri for "..", because a
+        symlinked cache directory escapes without "..'" appearing anywhere.
+        """
+        if urllib.parse.urlsplit(uri).scheme not in ("", "file"):
+            raise GltfError(f"{self.path}: {what} uri is not a relative path: {uri!r}")
+        candidate = os.path.realpath(os.path.join(self.dir, urllib.parse.unquote(uri)))
+        root = os.path.realpath(self.dir)
+        if os.path.commonpath([candidate, root]) != root:
+            raise GltfError(f"{self.path}: {what} uri escapes the asset directory: {uri!r}")
+        return candidate
 
     def accessor(self, index):
         """Return accessor `index` as an (count, components) numpy array."""

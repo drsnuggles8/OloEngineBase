@@ -36,6 +36,7 @@
 #include "OloEnginePCH.h"
 
 #include <gtest/gtest.h>
+#include <nlohmann/json.hpp>
 #include <stb_image/stb_image.h>
 
 #include <algorithm>
@@ -43,6 +44,7 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -173,10 +175,22 @@ namespace OloEngine::Tests
             return obj;
         }
 
-        /// material name -> map_Kd path, as written in the MTL.
-        [[nodiscard]] std::map<std::string, std::string> ParseMtl(const fs::path& path)
+        struct MtlEntry
         {
-            std::map<std::string, std::string> maps;
+            std::string m_Albedo;    ///< map_Kd, as written in the MTL
+            bool m_IsCutout = false; ///< the MTL declares map_d — this material is alpha-tested
+        };
+
+        /// material name -> its map_Kd, and whether the MTL calls it a cutout.
+        ///
+        /// `map_d` is the AUTHORED statement that a material is alpha-tested;
+        /// the importer writes it only for a submesh whose albedo carries a real
+        /// mask. Reading intent from the MTL rather than inferring it from the
+        /// pixels is what lets the coverage check below stay honest — see the
+        /// comment there.
+        [[nodiscard]] std::map<std::string, MtlEntry> ParseMtl(const fs::path& path)
+        {
+            std::map<std::string, MtlEntry> maps;
             std::ifstream file(path);
             std::string line;
             std::string material;
@@ -188,16 +202,67 @@ namespace OloEngine::Tests
                 if (tag == "newmtl")
                 {
                     stream >> material;
-                    maps.try_emplace(material, std::string{});
+                    maps.try_emplace(material, MtlEntry{});
                 }
                 else if (tag == "map_Kd" && !material.empty())
                 {
                     std::string texture;
                     stream >> texture;
-                    maps[material] = texture;
+                    maps[material].m_Albedo = texture;
+                }
+                else if (tag == "map_d" && !material.empty())
+                {
+                    maps[material].m_IsCutout = true;
                 }
             }
             return maps;
+        }
+
+        /// The species the importer is configured to produce, read from
+        /// tools/vegetation-import/recipes.json.
+        ///
+        /// Read rather than duplicated: a hard-coded list in this file would be a
+        /// second place to update and would drift. The recipe file is the
+        /// authoritative statement of what this repository imports, so "a recipe
+        /// exists but its directory does not" is exactly the failure to catch.
+        [[nodiscard]] std::vector<std::string> RecipeSpeciesNames(std::string& outFailure)
+        {
+            const fs::path root = ResolveRepoPath("tools/vegetation-import");
+            if (root.empty())
+            {
+                outFailure = "tools/vegetation-import not found";
+                return {};
+            }
+            std::ifstream file(root / "recipes.json");
+            if (!file.is_open())
+            {
+                outFailure = "recipes.json could not be opened";
+                return {};
+            }
+            nlohmann::json recipes;
+            try
+            {
+                file >> recipes;
+            }
+            catch (const std::exception& e)
+            {
+                outFailure = std::string("recipes.json does not parse: ") + e.what();
+                return {};
+            }
+            const auto speciesIt = recipes.find("species");
+            if (speciesIt == recipes.end() || !speciesIt->is_array())
+            {
+                outFailure = "recipes.json has no top-level 'species' array";
+                return {};
+            }
+            std::vector<std::string> names;
+            for (const auto& entry : *speciesIt)
+            {
+                const auto nameIt = entry.find("name");
+                if (nameIt != entry.end() && nameIt->is_string())
+                    names.push_back(nameIt->get<std::string>());
+            }
+            return names;
         }
 
         struct Image
@@ -326,7 +391,25 @@ namespace OloEngine::Tests
         ASSERT_FALSE(species.empty())
             << "no imported vegetation found under " << kVegetationRoot
             << " — rebuild it with: python tools/vegetation-import/import_vegetation.py";
-        EXPECT_GE(species.size(), 4u) << "issue #1398 asks for grass, shrubs and trees at minimum";
+
+        // BY NAME, not by count. A count is satisfied by the wrong set: drop the
+        // pine and six directories still clear any "at least four" bar, and
+        // every other case in this file then iterates the survivors and passes.
+        // The named check is the only one that fails when a species goes missing.
+        std::string failure;
+        const std::vector<std::string> expected = RecipeSpeciesNames(failure);
+        ASSERT_FALSE(expected.empty()) << "could not read the expected species set: " << failure;
+
+        std::set<std::string> present;
+        for (const fs::path& dir : species)
+            present.insert(dir.filename().string());
+
+        for (const std::string& want : expected)
+        {
+            EXPECT_TRUE(present.contains(want))
+                << "recipes.json imports '" << want << "' but " << kVegetationRoot << "/" << want
+                << "/ is missing — rebuild it with: python tools/vegetation-import/import_vegetation.py " << want;
+        }
     }
 
     TEST(VegetationAssetContract, EverySpeciesCarriesItsProvenance)
@@ -385,9 +468,10 @@ namespace OloEngine::Tests
                 ASSERT_NE(entry, maps.end())
                     << name << ": usemtl '" << group.m_Material << "' has no newmtl. FoliageRenderer "
                     << "would fall back to the LAYER albedo for this submesh, which is the defect #1398 is about";
-                ASSERT_FALSE(entry->second.empty()) << name << ": material '" << group.m_Material << "' has no map_Kd";
-                EXPECT_TRUE(fs::exists(dir / entry->second))
-                    << name << ": map_Kd '" << entry->second << "' does not exist";
+                ASSERT_FALSE(entry->second.m_Albedo.empty())
+                    << name << ": material '" << group.m_Material << "' has no map_Kd";
+                EXPECT_TRUE(fs::exists(dir / entry->second.m_Albedo))
+                    << name << ": map_Kd '" << entry->second.m_Albedo << "' does not exist";
             }
         }
     }
@@ -400,20 +484,31 @@ namespace OloEngine::Tests
             const Obj obj = ParseObj(dir / (name + ".obj"));
             const auto maps = ParseMtl(dir / obj.m_MtlLib);
 
+            u32 cutoutSubmeshes = 0;
             for (const ObjGroup& group : obj.m_Groups)
             {
                 const auto entry = maps.find(group.m_Material);
-                if (entry == maps.end() || entry->second.empty())
+                if (entry == maps.end() || entry->second.m_Albedo.empty())
                     continue;
-                const Image image = LoadImage(dir / entry->second);
-                ASSERT_TRUE(image.Valid()) << name << ": cannot decode " << entry->second;
+
+                // Which submeshes carry a coverage claim is read from the MTL's
+                // `map_d`, NOT from how opaque the texture happens to be.
+                //
+                // An earlier version skipped any material whose texture measured
+                // over 99% opaque, reasoning that trunks are opaque. That test
+                // could not fail: a foliage albedo that lost its cutout and went
+                // opaque is EXACTLY the regression this case exists to catch, and
+                // it would have been skipped for being opaque. The authored
+                // intent has to come from the asset, not from the pixels being
+                // checked against it.
+                if (!entry->second.m_IsCutout)
+                    continue;
+                ++cutoutSubmeshes;
+
+                const Image image = LoadImage(dir / entry->second.m_Albedo);
+                ASSERT_TRUE(image.Valid()) << name << ": cannot decode " << entry->second.m_Albedo;
 
                 const f32 coverage = SurfaceCoverage(obj, group, image);
-                // Trunks and bark are opaque; only the cut-out submeshes carry a
-                // coverage claim, and they are the ones the issue is about.
-                if (TexelCoverage(image) > 99.0f)
-                    continue;
-
                 // One floor, not two. An earlier version also asserted
                 // `> kRetiredCutoutCoverage * 1.5` (26.85%), which is strictly
                 // weaker than the 30% floor above it and could therefore never
@@ -422,7 +517,15 @@ namespace OloEngine::Tests
                 EXPECT_GT(coverage, kFoliageCoverageFloor)
                     << name << "/" << group.m_Material << ": " << coverage << "% of the drawn surface survives the "
                     << "alpha test. The shared grass cutout this replaced passed " << kRetiredCutoutCoverage << "%";
+                EXPECT_LT(TexelCoverage(image), 99.0f)
+                    << name << "/" << group.m_Material << " is declared a cutout (map_d) but its albedo is "
+                    << "effectively opaque — the alpha channel was lost somewhere in the import";
             }
+
+            // A species whose cutout submeshes all vanished would otherwise pass
+            // this case by having nothing left to check.
+            EXPECT_GT(cutoutSubmeshes, 0u)
+                << name << " declares no alpha-tested submesh at all; every plant here has foliage";
         }
     }
 
