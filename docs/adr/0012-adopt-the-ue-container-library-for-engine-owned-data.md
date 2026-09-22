@@ -13,8 +13,13 @@ existing solely so `TMap` can hold a string — is the actual defect. Deleting t
 port removes the symptom and keeps the condition that produced it. Finishing the
 migration removes both.
 
-Nothing in this ADR is implemented. It records the decision, the constraint that
-makes it safe, and the order the work has to happen in.
+**Implemented by [#738](https://github.com/drsnuggles8/OloEngineBase/issues/738) /
+PR #1385** (2026-09-22), with one deliberate exception: the `TMap` / `TSet` gate in
+decision 6 **closed** under reversal condition 2 — the `clang-query` matcher cannot
+reach an acceptable false-negative rate, so standard maps stay and the array/string
+work stands without them. Reopening it is
+[#1411](https://github.com/drsnuggles8/OloEngineBase/issues/1411). Below, the
+decision, the constraint that makes it safe, and the order the work happened in.
 
 ---
 
@@ -54,6 +59,35 @@ migration, and `docs/analysis/dead-code.md` already reached part of it by
 include-graph reachability — a method that structurally cannot see the
 `TSparseSet` case, since the header *is* reachable and only the instantiation is
 absent.
+
+### Correction: the `TSet` default alias is `TSparseSet`, not `TCompactSet` (2026-09-22)
+
+Found by a compilation probe during #738. The review's line count survives; its
+*reason* does not, and the reason is what a later reader would build on.
+
+[`Set.h:42`](../../OloEngine/src/OloEngine/Containers/Set.h) does not hardcode
+anything — it is an `#ifndef` fallback. `Set.h:17` includes
+[`ContainerAllocationPolicies.h`](../../OloEngine/src/OloEngine/Containers/ContainerAllocationPolicies.h)
+first, and that header's own `#ifndef` at `:1741` gets there earlier and defines
+`OLO_USE_COMPACT_SET_AS_DEFAULT 0`. By the time `Set.h:41` is reached the macro is
+already defined, the fallback does not fire, and the `#else` branch at `Set.h:74`
+takes: **`TSet` is `TSparseSet`**. No build file defines the macro, so those two
+headers decide it alone.
+
+Two consequences:
+
+- The claim that `TSparseSet` is "unreachable *by construction* until someone flips
+  `OLO_USE_COMPACT_SET_AS_DEFAULT`" is false — the flip is already in the tree, in
+  the opposite direction from the one the review read.
+- It is nevertheless still uninstantiated, for a different reason: **nothing outside
+  `Containers/` names `TSet`, `TCompactSet` or `TSparseSet` at all.** By the review's
+  own standard `TCompactSet` (1,838) is then equally unreachable, and it was not
+  counted. The ~7,000-line figure is an undercount, not an overcount.
+
+This does not disturb the decision, and it does not reopen the map gate: both set
+implementations relocate their element storage, so neither is reference-stable.
+What it does invalidate is any dead-code argument that rests on *which* set
+implementation the alias resolves to.
 
 ## 1. Why adopt rather than delete
 
@@ -228,9 +262,11 @@ every conversion made before it.
 8. **No container is deleted, including the currently-unreachable ones.**
    Committing to the port means committing to its shape; deleting parts now means
    re-porting them later. Accepted cost: roughly 5,000 lines of compile time and
-   test surface that may never acquire a user, and `TSparseSet` in particular
-   stays unreachable *by construction* until someone flips
-   `OLO_USE_COMPACT_SET_AS_DEFAULT`.
+   test surface that may never acquire a user. (The parenthetical this decision
+   originally carried — that `TSparseSet` stays unreachable until someone flips
+   `OLO_USE_COMPACT_SET_AS_DEFAULT` — was wrong; see the 2026-09-22 correction in
+   §0. It is the default alias, and both set implementations are uninstantiated
+   because nothing names either one.)
 
 9. **Conversion follows the four element types outward**, in this order:
    Renderer (`Material`), Terrain (`FoliageLayer`), Dialogue (`DialogueChoice`),

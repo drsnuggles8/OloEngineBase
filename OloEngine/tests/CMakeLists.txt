@@ -192,6 +192,7 @@ add_executable(OloEngine-Tests
 		HAL/ThreadManagerTest.cpp
 		Containers/ConcurrentQueuesTest.cpp
 		Containers/LinkedListTest.cpp
+		Containers/OwnedContainerInvariantsTest.cpp
 		Containers/StringTest.cpp
 		Memory/MemoryViewTest.cpp
 		Memory/LockFreeAllocatorConcurrencyTest.cpp
