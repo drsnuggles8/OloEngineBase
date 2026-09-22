@@ -228,10 +228,29 @@ TEST(McpExposureProfile, DefaultToolsListIsASmallFractionOfTheFullCatalogue)
     // bytes and this ceiling moves deliberately (say so in the commit), or it is
     // not and it stays discoverable through olo_tool_search.
     // Measured at 38 144 bytes (16 of 96 tools) when this landed. The ceiling sits
-    // ~18% above that: enough that a core tool growing a description or a schema
-    // property does not fail the build, tight enough that adding a whole tool to the
-    // core set does.
-    constexpr sizet kCoreProfileByteCeiling = 45000;
+    // above that by enough that a core tool growing a description or a schema
+    // property does not fail the build, and tight enough that adding a whole tool to
+    // the core set does — one core tool is ~2 670 bytes at the current 17.
+    //
+    // MOVED 45 000 -> 46 000 by #1337, deliberately and with the arithmetic written
+    // down, because the comment above asks for exactly that rather than a silent bump:
+    //
+    //   * Before that change the payload measured ~44 737 bytes, i.e. 263 bytes of
+    //     headroom. The ratchet was already all but exhausted by growth that had
+    //     nothing to do with this change.
+    //   * #1337 added six properties to olo_perf_snapshot (a CORE tool) and widened
+    //     one: gpuStatus, fenceWaitMs, presentWaitMs, displayWidth, displayHeight,
+    //     renderScale, and a nullable gpuMs. 686 bytes. Every one of them exists so a
+    //     perf reading says whether it IS a measurement — which is the single most
+    //     load-bearing thing the most-called perf tool can report, and the exact
+    //     defect that issue was filed for. Trimming them to fit would mean shipping a
+    //     core tool whose gpuMs still cannot be told apart from a free frame.
+    //   * 340 bytes of genuine verbosity were trimmed out of this tool first,
+    //     including one pre-existing description, so the net cost is ~346 bytes.
+    //
+    // 46 000 leaves ~577 bytes of headroom at the 45 423 this now measures: still a
+    // fifth of one tool, so adding a tool to the core set fails here as designed.
+    constexpr sizet kCoreProfileByteCeiling = 46000;
     EXPECT_LE(metrics.ListedBytes, kCoreProfileByteCeiling)
         << "the default tools/list is " << metrics.ListedBytes << " bytes (~" << metrics.ApproxListedTokens()
         << " tokens); ceiling is " << kCoreProfileByteCeiling;

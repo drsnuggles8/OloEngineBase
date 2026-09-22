@@ -214,7 +214,18 @@ namespace OloEngine
             static_cast<f32>(frameData.m_GPUTime), 8.0f, 16.0f);
 
         ImGui::TextColored(cpuColor, "  CPU: %s", DebugUtils::FormatDuration(frameData.m_CPUTime).c_str());
-        ImGui::TextColored(gpuColor, "  GPU: %s", DebugUtils::FormatDuration(frameData.m_GPUTime).c_str());
+        // A frame the timer pool could not measure shows its REASON, not
+        // "0.00 ms" in reassuring green (#1337). The colour ramp above would
+        // have rated an unmeasured frame the best one of the session.
+        if (frameData.m_GPUTimeStatus == GpuTimingStatus::Valid)
+        {
+            ImGui::TextColored(gpuColor, "  GPU: %s", DebugUtils::FormatDuration(frameData.m_GPUTime).c_str());
+        }
+        else
+        {
+            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "  GPU: unavailable (%s)",
+                               std::string(ToString(frameData.m_GPUTimeStatus)).c_str());
+        }
 
         if (frameData.m_SortingTime > 0.0)
         {
@@ -407,7 +418,11 @@ namespace OloEngine
             auto const& fd = RendererProfiler::GetInstance().GetCurrentFrameData();
             out << "Renderer (current frame):\n";
             out << "  CPU:           " << fd.m_CPUTime << " ms\n";
-            out << "  GPU:           " << fd.m_GPUTime << " ms\n";
+            out << "  GPU:           "
+                << (fd.m_GPUTimeStatus == GpuTimingStatus::Valid
+                        ? std::to_string(fd.m_GPUTime) + " ms"
+                        : "unavailable (" + std::string(ToString(fd.m_GPUTimeStatus)) + ")")
+                << "\n";
             out << "  Sort:          " << fd.m_SortingTime << " ms\n";
             out << "  Cull:          " << fd.m_CullingTime << " ms\n";
             out << "  Draw calls:    " << fd.m_DrawCalls << "\n";

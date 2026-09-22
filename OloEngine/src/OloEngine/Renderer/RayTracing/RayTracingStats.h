@@ -34,16 +34,27 @@ namespace OloEngine::RayTracing
         u32 InstancesTraced = 0;  ///< Instances written into the TLAS build.
         u32 InstancesSkipped = 0; ///< Live GPU Scene instances that could not be traced.
 
-        // GPU time, nanoseconds, resolved a frame or more late through
-        // GPUPassTimerPool. Zero means "no sample resolved yet", which is the
-        // normal state for the first few frames — not "it was free".
-        u64 BlasBuildGpuNs = 0;
-        u64 TlasBuildGpuNs = 0;
-
-        // Masked-candidate accounting, only non-zero in the diagnostic trace
-        // mode (the counters are GPU-side otherwise and cost a readback).
-        u32 MaskedCandidatesAccepted = 0;
-        u32 MaskedCandidatesRejected = 0;
+        // NO GPU-TIME FIELDS HERE. There were two — BlasBuildGpuNs and
+        // TlasBuildGpuNs, declared by #978 — and nothing ever wrote either. They
+        // read zero forever while the Statistics panel and
+        // `olo_ray_tracing_stats` reported them as measurements, which is the
+        // defect #1337 exists to remove: a field that is always zero answers
+        // the question wrongly instead of sending the reader to the channel
+        // that can answer it.
+        //
+        // The channel that can: RayTracingScenePass brackets its builds with
+        // GPUPassTimerPool::BeginSubPass("AccelerationStructureBuild"), so the
+        // AS build cost is reported per frame through the same per-pass channel
+        // as every other pass — with the validity status a bare u64 could never
+        // carry. Read `olo_perf_pass_timings` and look for that sub-pass.
+        // DeformedSurfaceCache's neighbouring header made the same call for the
+        // same reason.
+        //
+        // The masked-candidate pair (MaskedCandidatesAccepted/Rejected) is gone
+        // for the same reason and with less to say for itself: never written,
+        // and never read either. The counters it described are GPU-side and
+        // would cost a readback to surface, so reinstating them is a decision
+        // with a price rather than a missing assignment.
 
         void Reset()
         {

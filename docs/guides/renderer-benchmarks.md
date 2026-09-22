@@ -179,6 +179,38 @@ applied renderer/post-process settings, warm-up frame count and capture frame in
 per-pass GPU/CPU timings (`GPUPassTimerPool`), renderer memory/stat counters, and per
 attachment: file name, source resource, format, dimensions, min/max values.
 
+### Schema v2 — a timing is a number **and** a status (issue #1337)
+
+`resultSchemaVersion` is `2`. A GPU timing that could not be measured is written as
+`null` with a `status` beside it, never as `0.0`.
+
+| field | v1 | v2 |
+|---|---|---|
+| `passTimingsMs[].gpuMs` | always a number | the number, or `null` when unmeasured |
+| `passTimingsMs[].status` | — | `valid` \| `pending` \| `dropped` \| `notStamped` \| `outOfOrder` \| `notTimed` \| `unavailable` |
+| `passTimingsMs[].isSubPass` / `.parent` | — | the interval nests inside `parent`, so summing both double-counts |
+| `timingValidity` | — | `measurementFrameId`, `currentFrameId`, `ageFrames`, `droppedSlots`, `stale`, `frameStatus` |
+| `output.actual` | — | `renderWidth/Height` and `displayWidth/Height` as the graph really ran, or `null` |
+| `output.requested` | — | an explicit echo of the manifest's declared numbers |
+| `units` | — | what every number is in |
+
+**Why `null` and not a sentinel.** `0.0` is a legal pass time. A persisted export outlives
+the session that produced it, so "was that pass free, or did the readback fail?" has to be
+answerable from the file alone. It now is.
+
+**Compatibility with an export written by the old code.** Nothing in this repo reads
+`result.json` except [`tools/benchmark/compare_captures.py`](../../tools/benchmark/compare_captures.py),
+and that reads only `determinism.repeatRmseTolerance` and `manifest.id` — both unchanged.
+So a v1 directory still compares against a v2 one and a v1 file still loads. No migration
+is written and none is needed: v1 files are read-only evidence of past runs, and their
+`gpuMs: 0` entries stay as ambiguous as they were. **Do not mix v1 and v2 timings in one
+comparison** — a v1 zero may be either a free pass or a failed readback, which is exactly
+what this version exists to separate. `resultSchemaVersion` is how you tell.
+
+**Reading it.** Filter to `status == "valid"` before doing arithmetic; skip
+`isSubPass` entries when totalling, because their time is already inside a parent's
+bracket; and check `timingValidity.stale` before comparing two runs.
+
 ## Determinism contract
 
 The engine clock is mocked and **stepped**: `Time::SetMockTime(t0 + n·dt)` each frame.

@@ -4,6 +4,7 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/AtlasAllocator.h"
 #include "OloEngine/Renderer/GPUCache/GPUCachePolicy.h"
+#include "OloEngine/Renderer/Debug/GPUTimingStatus.h"
 #include "OloEngine/Renderer/GPUCache/GPUPagedCache.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Task/Task.h"
@@ -151,8 +152,13 @@ namespace OloEngine
             // makes "the delta is cheaper" a number rather than a claim.
             // OLO_TERRAIN_VT_FULL_REBUILD drives the rebuild figure under
             // ordinary camera movement instead of only at startup.
-            f64 m_IndirectionRebuildGpuMs = 0.0;
-            f64 m_IndirectionDeltaGpuMs = 0.0;
+            //
+            // **Carried as GpuTimingSample, not f64 (#1337).** "No sample yet"
+            // and "the publish cost nothing" are different answers and used to
+            // share the value 0.0; the panel and `olo_terrain_vt_stats` showed
+            // the first as the second. The status says which.
+            GpuTimingSample m_IndirectionRebuild{};
+            GpuTimingSample m_IndirectionDelta{};
 
             // ── Adaptive images (slice 3) ────────────────────────────────
             u32 m_SectorCount = 0;  // sectors the terrain is cut into
@@ -309,6 +315,11 @@ namespace OloEngine
             RHI::ResourceHandle m_Begin{};
             RHI::ResourceHandle m_End{};
             bool m_Pending = false;
+            // Whether the BACKEND took each stamp (#1337). A refused stamp
+            // leaves the query holding its previous cycle's value, which reads
+            // back cleanly and subtracts to something plausible.
+            bool m_BeginStamped = false;
+            bool m_EndStamped = false;
             // Which of the two publish paths this pair is timing. Recorded at
             // ISSUE time: by the time it resolves, several more publishes of the
             // other kind may have happened.

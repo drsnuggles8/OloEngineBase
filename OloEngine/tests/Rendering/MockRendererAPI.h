@@ -1264,12 +1264,16 @@ namespace OloEngine::Testing
         {
             Record("EndQuery");
         }
-        void WriteTimestamp(RHI::ResourceHandle query) override
+        // Returns m_TimestampStampsSucceed so a test can drive the #1337
+        // refusal path: the pool must report NotStamped, never a 0.0 ms pass.
+        [[nodiscard]] bool WriteTimestamp(RHI::ResourceHandle query) override
         {
             RecordedCall c{ "WriteTimestamp" };
             c.ParamU32_0 = Native(query, RHI::ResourceKind::Query);
             m_Calls.push_back(c);
+            return m_TimestampStampsSucceed;
         }
+        bool m_TimestampStampsSucceed = true;
         [[nodiscard("Store this!")]] bool IsQueryResultAvailable(RHI::ResourceHandle /*query*/) override
         {
             Record("IsQueryResultAvailable");
@@ -1284,6 +1288,15 @@ namespace OloEngine::Testing
         {
             Record("GetQueryResultU64");
             return 0;
+        }
+        // Mirrors IsQueryResultAvailable's default: this mock has no device, so
+        // no query result can be read. Reporting false (rather than the value
+        // 0) is the #1337 contract — a zero out-value is not an answer.
+        [[nodiscard("The false return IS the answer")]] bool
+        TryGetQueryResultU64(RHI::ResourceHandle /*query*/, u64& /*outValue*/) override
+        {
+            Record("TryGetQueryResultU64");
+            return false;
         }
 
         [[nodiscard("Store this!")]] u64 CreateFence() override

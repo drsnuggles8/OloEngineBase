@@ -270,7 +270,8 @@ namespace OloEngine
         void DeleteQueries(std::span<const RHI::ResourceHandle> queries) override;
         void BeginQuery(RHI::QueryType type, RHI::ResourceHandle query) override;
         void EndQuery(RHI::QueryType type) override;
-        void WriteTimestamp(RHI::ResourceHandle query) override;
+        [[nodiscard]] bool WriteTimestamp(RHI::ResourceHandle query) override;
+        [[nodiscard]] bool TryGetQueryResultU64(RHI::ResourceHandle query, u64& outValue) override;
         [[nodiscard("Store this!")]] bool IsQueryResultAvailable(RHI::ResourceHandle query) override;
         [[nodiscard("Store this!")]] u32 GetQueryResultU32(RHI::ResourceHandle query) override;
         [[nodiscard("Store this!")]] u64 GetQueryResultU64(RHI::ResourceHandle query) override;

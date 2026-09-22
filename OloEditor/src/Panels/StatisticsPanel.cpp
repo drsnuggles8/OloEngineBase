@@ -569,19 +569,14 @@ namespace OloEngine
                                 std::string(RayTracing::ToString(rt.LastTlasReason)).c_str());
                     ImGui::Text("Instances traced: %u   skipped: %u", rt.Frame.InstancesTraced,
                                 rt.Frame.InstancesSkipped);
-                    // A zero here means "no sample has resolved yet", which is
-                    // the normal state for the first frames after a build —
-                    // not "it was free". Say so rather than printing 0.00 ms.
-                    if (rt.Frame.BlasBuildGpuNs > 0 || rt.Frame.TlasBuildGpuNs > 0)
-                    {
-                        ImGui::Text("GPU: BLAS %.3f ms   TLAS %.3f ms",
-                                    static_cast<f64>(rt.Frame.BlasBuildGpuNs) / 1.0e6,
-                                    static_cast<f64>(rt.Frame.TlasBuildGpuNs) / 1.0e6);
-                    }
-                    else
-                    {
-                        ImGui::TextDisabled("GPU time: no sample resolved yet");
-                    }
+                    // This row used to read BlasBuildGpuNs/TlasBuildGpuNs and
+                    // hide them behind `if (> 0)`. Nothing ever wrote either
+                    // counter, so the guard was always false and the panel said
+                    // "no sample resolved yet" forever — a wrong answer that
+                    // looked like a patient one (#1337 criterion 3). The
+                    // builds ARE timed, through the pass timer; name the
+                    // channel instead of implying one that does not exist.
+                    ImGui::TextDisabled("GPU time: see the AccelerationStructureBuild sub-pass in Pass Timings");
                 }
             }
         }
