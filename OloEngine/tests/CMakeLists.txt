@@ -201,6 +201,7 @@ add_executable(OloEngine-Tests
 
 		# Rendering subsystem tests (Tiers 1-5)
 		Rendering/DrawKeyTest.cpp
+		Rendering/TransparentDepthOrderingTest.cpp
 		Rendering/TextureCompressionTest.cpp
 		Rendering/BC6HBlockModeReader.h
 		Rendering/BC6HQualityTest.cpp
@@ -633,6 +634,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/StarNestSkyVisualTest.cpp
 		Rendering/PropertyTests/StarNestReflectionEvidenceTest.cpp
 		Rendering/PropertyTests/TransmissionVisualEvidenceTest.cpp
+		Rendering/PropertyTests/TransparentBlendOrderVisualEvidenceTest.cpp
 		Rendering/PropertyTests/MorphDeformationVisualEvidenceTest.cpp
 		Rendering/PropertyTests/WaterVisualEvidenceTest.cpp
 		Rendering/PropertyTests/TilemapVisualEvidenceTest.cpp
@@ -1776,8 +1778,34 @@ set(OLO_MESH_CACHE_TESTS
 #
 # The memory ceiling in the test binary (--olo-rss-ceiling-mb, default 6 GiB)
 # is the backstop for a case that grows past what this weighting assumes.
+#
+# THE GROOM COMPARISON FAMILIES ARE HERE FOR A SECOND REASON: the per-suite
+# bucket below shares ONE 600 s budget across all of a suite's cases, and these
+# suites have single cases that eat most of it. On the ASan + LSan (Linux) run
+# of PR #1406 the NINE slowest ctest entries of 2 024 were all groom per-suite
+# entries:
+#
+#   GroomCoverageComparison.*        600.04 s  ***Timeout  (NearSilhouette alone 533.9 s)
+#   GroomFibreEnergyTest.*           461.76 s  77% of budget
+#   GroomCoverageStability.*         368.32 s  61%
+#   GroomCoatShadowComparison.*      289.42 s  48%
+#   GroomLodComparisonHumanScalp.*   262.36 s  44%
+#   GroomLodComparisonLongCoat.*     196.63 s  33%
+#   GroomLodShellTier.*              181.70 s  30%
+#   GroomLodComparisonShortCoat.*    135.97 s  23%
+#   GroomCoatShadowReference.*        93.41 s  16%
+#
+# The tenth entry was a PathTracer case at 93 s — which is already listed here,
+# so it runs per case against ctest's 1500 s default and 93 s is 6% of ITS
+# budget. That contrast is the whole point: the same wall-clock cost is fine
+# per case and fatal per suite.
+#
+# A suite that fits today at 77% is one slower neighbour away from not fitting,
+# and which neighbour it gets depends on the shard partition, which moves
+# whenever anyone adds a test file. So these do not belong in a shared budget at
+# all, and listing them here is the fix rather than raising a timeout.
 set(OLO_HEAVY_TESTS
-	"*VisualEvidence*:*Evidence*:*VisualTest*:*GpuContract*:*GPUContract*:*Benchmark*:*PerfProbe*:*Perf.*:PathTracer*:ReSTIRDIOracle.*:ReSTIRGIOracle.*:DDGIReferenceParity*:DriftSailingTest.*:SailTest.*:CPUFluidSolver.*:FluidCouplingTest.*:GaussianSplat*:VulkanPassSuite.*:VulkanParallelRecordingDevice.*:AssetSceneLoad.*:RuntimeAssetPackTest.*:ProceduralSkyBake*:StarNestSkyBake*:ModelLoadDeterminism.*:VirtualGeometry*:OceanFFT*:LightmapBleedRoom.*:LightmapInstancedBleedRoom.*:AutoMeshLODScene.*:DeferredOccludedInstanceFieldScene.*:ModelComponentGPUSceneScene.*:GPUSceneRasterMigrationScene.*:SubmeshMaterialPathParity.*:ShaderDebugDraw*:TerrainGPUPick*:TerrainGPUQuadtree*:TwoSidedShadowCast.*:McpHeadlessAttachTest.*:SceneRenders3D.*:WorldTransformPropagation*:RenderPathDrift.*:BindlessShaderPipeline.*:GPUScene.*:GPUSceneAntiDuplicationRatchet.*:DebugLevers.*:FunctionalTestFixtureCoverage.*:FlockingViaSceneTickTest.*:ShaderUBOSizeConsistency.*:ShaderReflectionBinding.*:ShaderCrossConsistency.*")
+	"*VisualEvidence*:*Evidence*:*VisualTest*:*GpuContract*:*GPUContract*:*Benchmark*:*PerfProbe*:*Perf.*:PathTracer*:ReSTIRDIOracle.*:ReSTIRGIOracle.*:DDGIReferenceParity*:DriftSailingTest.*:SailTest.*:CPUFluidSolver.*:FluidCouplingTest.*:GaussianSplat*:VulkanPassSuite.*:VulkanParallelRecordingDevice.*:AssetSceneLoad.*:RuntimeAssetPackTest.*:ProceduralSkyBake*:StarNestSkyBake*:ModelLoadDeterminism.*:VirtualGeometry*:OceanFFT*:LightmapBleedRoom.*:LightmapInstancedBleedRoom.*:AutoMeshLODScene.*:DeferredOccludedInstanceFieldScene.*:ModelComponentGPUSceneScene.*:GPUSceneRasterMigrationScene.*:SubmeshMaterialPathParity.*:ShaderDebugDraw*:TerrainGPUPick*:TerrainGPUQuadtree*:TwoSidedShadowCast.*:McpHeadlessAttachTest.*:SceneRenders3D.*:WorldTransformPropagation*:RenderPathDrift.*:BindlessShaderPipeline.*:GPUScene.*:GPUSceneAntiDuplicationRatchet.*:DebugLevers.*:FunctionalTestFixtureCoverage.*:FlockingViaSceneTickTest.*:ShaderUBOSizeConsistency.*:ShaderReflectionBinding.*:ShaderCrossConsistency.*:GroomCoverageComparison.*:GroomCoverageStability.*:GroomFibreEnergyTest.*:GroomCoatShadowComparison.*:GroomCoatShadowReference.*:GroomLodShellTier.*:GroomLodComparisonHumanScalp.*:GroomLodComparisonLongCoat.*:GroomLodComparisonShortCoat.*")
 
 # --olo-* flags for every ctest-launched test process (a CMake list, so
 # `-DOLO_TESTS_CTEST_ARGS=--olo-gl-backend=none` is one flag and
