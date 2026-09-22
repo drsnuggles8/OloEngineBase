@@ -700,8 +700,14 @@ namespace OloEngine
                 continue;
 
             auto const* cmd = m_Packets[i]->GetCommandData<DrawMeshCommand>();
+            // Conventional alpha draws carry their whole sort key into the
+            // group key (issue #1327), so a batch can never merge two draws
+            // the sort would have separated. Every other mode passes 0 and
+            // groups exactly as before.
+            const DrawKey sortKey = m_Packets[i]->GetMetadata().m_SortKey;
+            const u64 blendOrderKey = sortKey.IsDepthMajor() ? sortKey.GetKey() : 0ull;
             InstanceGroupKey key{ cmd->vertexArrayID, cmd->indexCount, cmd->baseIndex,
-                                  cmd->materialDataIndex, cmd->renderStateIndex, 0 };
+                                  cmd->materialDataIndex, cmd->renderStateIndex, 0, blendOrderKey };
             if (cmd->isAnimatedMesh)
             {
                 // Skinned draws carry a bone palette each and the batched draw

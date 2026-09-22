@@ -66,6 +66,22 @@ namespace OloEngine
         // the comparison never runs for a scene with one character.
         u64 bonePaletteID = 0;
 
+        // Blend-order partition (issue #1327). 0 for every state-major render
+        // mode, which is the whole opaque/additive/subtractive population and
+        // leaves their grouping exactly as it was. For a conventional
+        // alpha-blended draw it is the packet's COMPLETE raw DrawKey, so such
+        // draws may only group with others that sort to precisely the same
+        // place.
+        //
+        // A batch takes the FIRST member's key and nulls the rest, so grouping
+        // blended draws at different depths would collapse them onto one depth,
+        // and grouping draws that differ only in material would re-order them
+        // against a third draw that should have sorted between. Draws sharing a
+        // complete key were already an unordered tie run, so collapsing THOSE
+        // changes nothing — and the instanced draw lays them out in submission
+        // order, which is exactly what the stable radix sort would produce.
+        u64 blendOrderKey = 0;
+
         bool operator==(const InstanceGroupKey& other) const = default;
     };
 
@@ -79,6 +95,7 @@ namespace OloEngine
             h ^= std::hash<u16>{}(key.materialDataIndex) + 0x9e3779b9 + (h << 6) + (h >> 2);
             h ^= std::hash<u16>{}(key.renderStateIndex) + 0x9e3779b9 + (h << 6) + (h >> 2);
             h ^= std::hash<u64>{}(key.bonePaletteID) + 0x9e3779b9 + (h << 6) + (h >> 2);
+            h ^= std::hash<u64>{}(key.blendOrderKey) + 0x9e3779b9 + (h << 6) + (h >> 2);
             return h;
         }
     };
