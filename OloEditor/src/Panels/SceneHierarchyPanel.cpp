@@ -7339,7 +7339,12 @@ namespace OloEngine
                         // the cutoff reaches the shaders (and the impostor
                         // bake) only through the generate step, so without the
                         // rebuild this slider moved a number nothing read.
-                        if (ImGui::DragFloat("Alpha Cutoff", &layer.AlphaCutoff, 0.01f, 0.0f, 1.0f))
+                        // On RELEASE rather than per tick: a cutoff change
+                        // re-bakes the layer's impostor, and the coverage
+                        // read-out below follows the drag live from cached
+                        // histograms anyway.
+                        ImGui::DragFloat("Alpha Cutoff", &layer.AlphaCutoff, 0.01f, 0.0f, 1.0f);
+                        if (ImGui::IsItemDeactivatedAfterEdit())
                             component.m_NeedsRebuild = true;
 
                         // What the cutoff does to each texture the layer draws

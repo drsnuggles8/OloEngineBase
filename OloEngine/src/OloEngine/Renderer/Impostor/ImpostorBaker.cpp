@@ -172,7 +172,12 @@ namespace OloEngine
             OLO_CORE_WARN("ImpostorBaker::Bake: no vertex array or no parts — skipping bake");
             return atlas;
         }
-        if (!(bounds.Max.x >= bounds.Min.x) || !(bounds.Max.y >= bounds.Min.y) || !(bounds.Max.z >= bounds.Min.z))
+        // Inverted, non-finite, or a single point — the default box that
+        // MeshSource::GetBoundingBox() returns on a warm .omesh load. Any of
+        // them frames the bake around nothing, so refuse loudly instead.
+        const glm::vec3 extent = bounds.Max - bounds.Min;
+        if (!(extent.x >= 0.0f) || !(extent.y >= 0.0f) || !(extent.z >= 0.0f) ||
+            !(glm::length(extent) > 0.0f) || !std::isfinite(glm::length(extent)))
         {
             OLO_CORE_WARN("ImpostorBaker::Bake: empty bounds — skipping bake rather than framing nothing");
             return atlas;

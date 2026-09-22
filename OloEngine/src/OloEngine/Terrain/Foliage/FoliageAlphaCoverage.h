@@ -168,7 +168,9 @@ namespace OloEngine::FoliageAlphaCoverage
     inline constexpr u32 kDefaultSurfaceSamples = 8192;
 
     // `sampleCount` UVs spread over the triangles `indices` names, each
-    // triangle receiving samples in proportion to its WORLD area. Stratified
+    // triangle receiving samples in proportion to its OBJECT-SPACE area — the
+    // same proportions as on screen, because a plant mesh and its impostor
+    // are scaled uniformly (by height * scale) per instance. Stratified
     // and seeded, so the same mesh always yields the same points on every
     // platform. Degenerate or out-of-range triangles are skipped; an empty
     // result means the surface has no area to measure.

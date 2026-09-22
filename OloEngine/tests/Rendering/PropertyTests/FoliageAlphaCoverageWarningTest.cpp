@@ -387,5 +387,19 @@ namespace OloEngine::Tests
 
         // A diagnostic: the authored value is never touched.
         EXPECT_FLOAT_EQ(layer.AlphaCutoff, 0.3f);
+
+        // The same through an impostor, where every cutoff step RE-BAKES the
+        // atlas. The bake's parts and textures do not change, so the entries
+        // must not be re-measured — a re-measure would re-arm the latch and
+        // repeat the line on every step.
+        constexpr std::string_view kImpostorMarker = "layer 'ImpostorOnlyPine' bakes part 0";
+        ASSERT_EQ(warnings.Count(kImpostorMarker), 1u);
+        auto& impostorLayer = Foliage().m_Layers[kImpostorOnlySlot];
+        for (const f32 cutoff : { 0.32f, 0.35f, 0.4f })
+        {
+            impostorLayer.AlphaCutoff = cutoff;
+            Regenerate();
+        }
+        EXPECT_EQ(warnings.Count(kImpostorMarker), 1u) << "an impostor re-bake must not re-arm the warning";
     }
 } // namespace OloEngine::Tests

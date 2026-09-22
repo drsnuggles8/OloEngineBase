@@ -37,6 +37,8 @@
 #include <format>
 #include <span>
 #include <string>
+#include <string_view>
+#include <unordered_map>
 
 namespace OloEngine
 {
@@ -691,6 +693,11 @@ namespace OloEngine
                 // the old ones, which is the deterministic answer and never a
                 // silent reuse.
                 renderData.InstanceCount = 0;
+                // Nor does it draw any texture, so it has no coverage to
+                // report — the inspector would otherwise keep judging the
+                // textures it drew before it was switched off.
+                renderData.AlphaCoverage.Reset();
+                renderData.AlphaCoverageDirty = true;
                 continue;
             }
 
@@ -1388,111 +1395,95 @@ namespace OloEngine
             data.AlphaCoverageImpostorDrawn = impostorDrawn;
             data.AlphaCoverage.Reset();
 
-            // A texture's alpha, decoded from the file it was loaded from. One
-            // that loaded on the GPU but will not decode on the CPU (a cooked
+            // Each texture's alpha, decoded ONCE per pass from the file it was
+            // loaded from: a plant's parts often share one atlas, and a part
+            // with no texture of its own draws the layer albedo. One that
+            // loaded on the GPU but will not decode on the CPU (a cooked
             // block-compressed container) is recorded as NOT measured and said
             // so — never read as "fine".
-            const auto decode = [&layer](const Texture2D& texture, AC::AlphaPlane& plane) -> bool
+            std::unordered_map<const Texture2D*, AC::AlphaPlane> decoded;
+            const auto planeFor = [&decoded, &layer](const Texture2D& texture) -> const AC::AlphaPlane*
             {
-                std::string error;
-                const std::filesystem::path path = Texture2D::ResolveStoredSourcePath(texture.GetPath());
-                if (path.empty())
-                    error = "its source path does not resolve";
-                else if (AC::DecodeAlpha(path, plane, error))
-                    return true;
-                OLO_CORE_INFO("FoliageRenderer: layer '{}' - alpha coverage of '{}' was not measured ({}), so the "
-                              "AlphaCutoff plausibility check cannot vouch for it.",
-                              layer.Name.ToView(), texture.GetPath(), error);
-                return false;
+                auto [it, inserted] = decoded.try_emplace(&texture);
+                if (inserted)
+                {
+                    std::string error;
+                    const std::filesystem::path path = Texture2D::ResolveStoredSourcePath(texture.GetPath());
+                    if (path.empty())
+                        error = "its source path does not resolve";
+                    if (path.empty() || !AC::DecodeAlpha(path, it->second, error))
+                    {
+                        OLO_CORE_INFO("FoliageRenderer: layer '{}' - alpha coverage of '{}' was not measured ({}), "
+                                      "so the AlphaCutoff plausibility check cannot vouch for it.",
+                                      layer.Name.ToView(), texture.GetPath(), error);
+                    }
+                }
+                return it->second.IsEmpty() ? nullptr : &it->second;
             };
 
-            // A texture that did not load at all is skipped: Texture2D already
-            // logged the failure, and nothing is drawn from it to judge.
+            // A texture that did not load at all is not measured: Texture2D
+            // already logged the failure, and the bake and the shadow pass
+            // treat it as white, which passes everywhere.
+            const auto drawable = [](const Ref<Texture2D>& texture)
+            { return texture && texture->IsLoaded(); };
             const Ref<Texture2D>& albedo = data.AlbedoTexture;
-            const bool albedoDrawable = albedo && albedo->IsLoaded();
-            AC::AlphaPlane albedoAlpha;
-            const bool albedoDecoded = albedoDrawable && decode(*albedo, albedoAlpha);
             const std::string meshName = std::filesystem::path(layer.MeshPath.ToStdString()).filename().string();
 
             // The flat card — unless the impostor rides the card draw in its
             // place, in which case the layer albedo is never drawn flat.
-            if (albedoDrawable && !impostorDrawn)
+            if (drawable(albedo) && !impostorDrawn)
             {
                 AC::Entry entry;
                 entry.Kind = AC::Role::Card;
                 entry.Texture = layer.AlbedoPath;
                 entry.Surface = "the card";
-                entry.Measured = albedoDecoded;
-                if (albedoDecoded)
-                    entry.Coverage = AC::MeasureSheet(albedoAlpha);
+                if (const AC::AlphaPlane* plane = planeFor(*albedo))
+                {
+                    entry.Coverage = AC::MeasureSheet(*plane);
+                    entry.Measured = true;
+                }
                 data.AlphaCoverage.Add(std::move(entry));
             }
 
-            // Each part of the near mesh, with the texture EnumerateLayerDraws
-            // binds for it: its own, else the layer albedo. A part with
-            // neither draws white, which passes everywhere.
+            // One part of a mesh, over its own surface samples.
+            const auto measurePart = [&](AC::Role kind, i32 index, const Ref<Texture2D>& texture,
+                                         const TArray<TArray<glm::vec2>>& surfaces)
+            {
+                if (!drawable(texture))
+                    return;
+                AC::Entry entry;
+                entry.Kind = kind;
+                entry.Texture = FString(texture->GetPath());
+                entry.Surface = FString(std::format("part {} of '{}'", index, meshName));
+                const AC::AlphaPlane* plane = planeFor(*texture);
+                if (plane && index < surfaces.Num() && !surfaces[index].IsEmpty())
+                {
+                    const auto& uvs = surfaces[index];
+                    entry.Coverage = AC::MeasureAtUVs(*plane, { uvs.GetData(), static_cast<sizet>(uvs.Num()) });
+                    entry.Measured = true;
+                }
+                data.AlphaCoverage.Add(std::move(entry));
+            };
+
+            // The near mesh, with the texture EnumerateLayerDraws binds for
+            // each part: its own, else the layer albedo.
             if (meshDrawn)
             {
                 for (i32 i = 0; i < data.MeshParts.Num(); ++i)
                 {
                     const auto& part = data.MeshParts[i];
-                    const Ref<Texture2D>& drawn = part.Albedo ? part.Albedo : albedo;
-                    if (!drawn || !drawn->IsLoaded())
-                        continue;
-
-                    AC::Entry entry;
-                    entry.Kind = AC::Role::AuthoredMesh;
-                    entry.Texture = part.Albedo ? FString(part.Albedo->GetPath()) : layer.AlbedoPath;
-                    entry.Surface = FString(std::format("part {} of '{}'", i, meshName));
-                    AC::AlphaPlane partAlpha;
-                    const AC::AlphaPlane* plane = nullptr;
-                    if (part.Albedo)
-                        plane = decode(*part.Albedo, partAlpha) ? &partAlpha : nullptr;
-                    else
-                        plane = albedoDecoded ? &albedoAlpha : nullptr;
-                    const bool haveSurface = i < data.MeshPartSurfaceUVs.Num() && !data.MeshPartSurfaceUVs[i].IsEmpty();
-                    entry.Measured = plane && haveSurface;
-                    if (entry.Measured)
-                    {
-                        const auto& uvs = data.MeshPartSurfaceUVs[i];
-                        entry.Coverage = AC::MeasureAtUVs(*plane, { uvs.GetData(), static_cast<sizet>(uvs.Num()) });
-                    }
-                    data.AlphaCoverage.Add(std::move(entry));
+                    measurePart(AC::Role::AuthoredMesh, i, part.Albedo ? part.Albedo : albedo, data.MeshPartSurfaceUVs);
                 }
             }
 
-            // The impostor bake, part by part, with the textures it was baked
-            // with. Only when the near mesh is NOT drawn: the bake draws exactly
-            // the near mesh's parts and textures, so with both drawn these
-            // entries would repeat the ones above number for number.
+            // The impostor bake, with the textures it was baked with. Only when
+            // the near mesh is NOT drawn: the bake draws exactly the near mesh's
+            // parts and textures, so with both drawn these entries would repeat
+            // the ones above number for number.
             if (impostorDrawn && !meshDrawn)
             {
                 for (i32 i = 0; i < data.ImpostorParts.Num(); ++i)
-                {
-                    const auto& part = data.ImpostorParts[i];
-                    if (!part.Albedo || !part.Albedo->IsLoaded())
-                        continue; // white fallback: passes everywhere
-
-                    AC::Entry entry;
-                    entry.Kind = AC::Role::ImpostorBake;
-                    entry.Texture = FString(part.Albedo->GetPath());
-                    entry.Surface = FString(std::format("part {} of '{}'", i, meshName));
-                    AC::AlphaPlane partAlpha;
-                    const AC::AlphaPlane* plane = nullptr;
-                    if (part.Albedo == albedo)
-                        plane = albedoDecoded ? &albedoAlpha : nullptr;
-                    else
-                        plane = decode(*part.Albedo, partAlpha) ? &partAlpha : nullptr;
-                    const bool haveSurface =
-                        i < data.ImpostorPartSurfaceUVs.Num() && !data.ImpostorPartSurfaceUVs[i].IsEmpty();
-                    entry.Measured = plane && haveSurface;
-                    if (entry.Measured)
-                    {
-                        const auto& uvs = data.ImpostorPartSurfaceUVs[i];
-                        entry.Coverage = AC::MeasureAtUVs(*plane, { uvs.GetData(), static_cast<sizet>(uvs.Num()) });
-                    }
-                    data.AlphaCoverage.Add(std::move(entry));
-                }
+                    measurePart(AC::Role::ImpostorBake, i, data.ImpostorParts[i].Albedo, data.ImpostorPartSurfaceUVs);
             }
         }
 
@@ -1553,9 +1544,16 @@ namespace OloEngine
         if (!data.MeshModel || data.MeshGeometryPath != layer.MeshPath)
             owned = Ref<Model>::Create(layer.MeshPath.ToStdString());
         const Model& model = owned ? *owned : *data.MeshModel;
-        data.ImpostorParts.Reset();
-        data.ImpostorPartSurfaceUVs.Reset();
-        data.AlphaCoverageDirty = true;
+        // The coverage diagnostic re-measures only when what is baked changes.
+        // A bake that fails, or bakes nothing, leaves nothing to judge.
+        const auto dropBakedParts = [&data]()
+        {
+            if (data.ImpostorParts.IsEmpty())
+                return;
+            data.ImpostorParts.Reset();
+            data.ImpostorPartSurfaceUVs.Reset();
+            data.AlphaCoverageDirty = true;
+        };
         PlantGeometry plant;
         const char* failure = model.GetMeshCount() == 0 ? "it failed to load" : ExtractPlantGeometry(model, plant);
         if (failure)
@@ -1564,6 +1562,7 @@ namespace OloEngine
                           layer.Name.ToView(), layer.MeshPath.ToView(), failure);
             ImpostorBaker::Free(data.Impostor);
             data.Impostor = ImpostorAtlas{};
+            dropBakedParts();
             return;
         }
 
@@ -1571,11 +1570,17 @@ namespace OloEngine
         // material albedo and the layer albedo only where the mesh has none —
         // the rule EnumerateLayerDraws applies — tinted by BaseColor. Through a
         // private, uninstanced vertex array: the layer's MeshVAO carries the
-        // instance stream, and an impostor-only layer never builds one.
+        // instance stream, and an impostor-only layer never builds one. A
+        // texture that failed to load bakes as white rather than as whatever
+        // the failed texture object samples to.
         TArray<ImpostorBakePart> parts;
         parts.Reserve(plant.Parts.Num());
         for (const auto& part : plant.Parts)
-            parts.Add(ImpostorBakePart{ part.BaseIndex, part.IndexCount, part.Albedo ? part.Albedo : data.AlbedoTexture });
+        {
+            const Ref<Texture2D>& albedo = part.Albedo ? part.Albedo : data.AlbedoTexture;
+            parts.Add(ImpostorBakePart{ part.BaseIndex, part.IndexCount,
+                                        albedo && albedo->IsLoaded() ? albedo : Ref<Texture2D>{} });
+        }
 
         const auto& vertices = plant.Source->GetVertices();
         Ref<VertexBuffer> bakeVBO =
@@ -1596,20 +1601,41 @@ namespace OloEngine
             layer.BaseColor, layer.ImpostorFramesPerAxis, layer.ImpostorAtlasResolution,
             layer.ImpostorHemiOctahedral, layer.AlphaCutoff);
 
-        if (data.Impostor.IsValid())
+        if (!data.Impostor.IsValid())
         {
-            // What the atlas was baked from, for the alpha-coverage diagnostic.
-            data.ImpostorParts = std::move(parts);
-            data.ImpostorPartSurfaceUVs = std::move(plant.PartSurfaceUVs);
-
-            data.ImpostorBakedMeshPath = layer.MeshPath;
-            data.ImpostorBakedAlbedoPath = layer.AlbedoPath;
-            data.ImpostorBakedBaseColor = layer.BaseColor;
-            data.ImpostorBakedAlphaCutoff = layer.AlphaCutoff;
-            data.ImpostorBakedFrames = layer.ImpostorFramesPerAxis;
-            data.ImpostorBakedResolution = layer.ImpostorAtlasResolution;
-            data.ImpostorBakedHemi = layer.ImpostorHemiOctahedral;
+            dropBakedParts();
+            return;
         }
+
+        // What the atlas was baked from, for the alpha-coverage diagnostic.
+        // Replaced — and the entries re-measured — only when the parts or
+        // their textures changed. A cutoff or tint re-bake bakes the same
+        // parts, and re-measuring would re-arm every warning latch, so a
+        // slider dragged across an implausible range would warn on every
+        // step. Compared by texture PATH: an impostor-only layer re-imports
+        // its model per bake, so its Texture2D objects are new each time.
+        const auto samePart = [](const ImpostorBakePart& a, const ImpostorBakePart& b)
+        {
+            const std::string_view pathA = a.Albedo ? a.Albedo->GetPath() : std::string_view{};
+            const std::string_view pathB = b.Albedo ? b.Albedo->GetPath() : std::string_view{};
+            return a.BaseIndex == b.BaseIndex && a.IndexCount == b.IndexCount && pathA == pathB;
+        };
+        const bool sameParts = data.ImpostorBakedMeshPath == layer.MeshPath &&
+                               std::ranges::equal(data.ImpostorParts, parts, samePart);
+        data.ImpostorParts = std::move(parts);
+        if (!sameParts)
+        {
+            data.ImpostorPartSurfaceUVs = std::move(plant.PartSurfaceUVs);
+            data.AlphaCoverageDirty = true;
+        }
+
+        data.ImpostorBakedMeshPath = layer.MeshPath;
+        data.ImpostorBakedAlbedoPath = layer.AlbedoPath;
+        data.ImpostorBakedBaseColor = layer.BaseColor;
+        data.ImpostorBakedAlphaCutoff = layer.AlphaCutoff;
+        data.ImpostorBakedFrames = layer.ImpostorFramesPerAxis;
+        data.ImpostorBakedResolution = layer.ImpostorAtlasResolution;
+        data.ImpostorBakedHemi = layer.ImpostorHemiOctahedral;
     }
 
     TArray<FoliageLayerDrawInfo> FoliageRenderer::GetActiveLayerDrawInfo() const
