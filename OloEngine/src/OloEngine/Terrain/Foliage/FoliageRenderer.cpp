@@ -264,12 +264,19 @@ namespace OloEngine
             return false;
         }
 
-        // Concatenate every submesh into ONE private vertex/index buffer, with
-        // each submesh's base vertex folded into its indices. That makes a
-        // submesh a plain [BaseIndex, IndexCount) range of a single buffer, so
-        // the per-submesh draws differ only in a first-index offset and a
-        // texture — no base-vertex plumbing through the command packet, and one
-        // vertex array for the whole plant.
+        // ONE private vertex/index buffer for the whole plant, each submesh a
+        // plain [BaseIndex, IndexCount) range of it, so the per-submesh draws
+        // differ only in a first-index offset and a texture — no base-vertex
+        // plumbing through the command packet, and one vertex array.
+        //
+        // The combined source's indices are already GLOBAL: Submesh::m_BaseVertex
+        // describes the submesh's vertex RANGE, it is not an offset still to be
+        // applied (AssimpMeshExporter and MeshCookingFactory subtract it to get
+        // back to local indices). Adding it again here pushed every submesh past
+        // the first onto the wrong vertices, or past the end of the buffer — a
+        // shipped pine drew its bark on shifted triangles and its canopy out of
+        // range (found by the #1399 coverage measurement, which sampled those
+        // triangles and got nothing back).
         const Ref<MeshSource> source = model->CreateCombinedMeshSource();
         if (!source || source->GetVertices().Num() == 0 || source->GetIndices().Num() == 0)
         {
@@ -302,7 +309,7 @@ namespace OloEngine
                     const u32 srcSlot = sub.m_BaseIndex + k;
                     if (srcSlot >= static_cast<u32>(srcIndices.Num()))
                         break;
-                    indices.Add(srcIndices[static_cast<i32>(srcSlot)] + sub.m_BaseVertex);
+                    indices.Add(srcIndices[static_cast<i32>(srcSlot)]);
                 }
                 part.IndexCount = static_cast<u32>(indices.Num()) - part.BaseIndex;
                 // Per-submesh material assignment, through the submesh's OWN
