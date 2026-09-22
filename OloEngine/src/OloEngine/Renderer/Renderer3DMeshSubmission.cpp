@@ -2649,7 +2649,9 @@ namespace OloEngine
         // The scheduler may expose more tasks than the renderer's fixed worker
         // slots (including the calling thread). Existing contexts bound both
         // the worker tasks and the caller to valid allocator/bucket indices.
-        BeginParallelSubmission();
+        // Each descriptor yields at most one packet, so numMeshes bounds the
+        // slots the bucket must reserve before any worker starts.
+        BeginParallelSubmission(static_cast<u32>(numMeshes));
 
         // Per-worker accumulator to track statistics.
         struct WorkerStats

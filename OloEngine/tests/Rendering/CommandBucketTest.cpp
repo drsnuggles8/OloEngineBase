@@ -11,6 +11,9 @@
 #include "OloEngine/Math/Math.h"
 
 #include <algorithm>
+#include <barrier>
+#include <memory>
+#include <thread>
 #include <numeric>
 #include <random>
 #include <vector>
@@ -331,6 +334,74 @@ TEST_F(CommandBucketTest, ParallelSubmissionMerge)
     bucket.SortCommands();
     EXPECT_TRUE(bucket.IsSorted());
     EXPECT_EQ(bucket.GetSortedCommands().size(), numWorkers * commandsPerWorker);
+}
+
+// Parallel submission sizes its slot array once, before any worker runs, and
+// never resizes it while they write. It used to grow inside ClaimBatch — under
+// the bucket lock, but the workers' own slot writes take no lock, so the array
+// moved under them: a frame of more than InitialCapacity (1024) submitted meshes
+// could lose packets or write freed memory. Eight real threads push 6000 packets
+// through a bucket whose configured capacity is 64; every one must arrive.
+TEST_F(CommandBucketTest, ParallelSubmissionBeyondInitialCapacityLosesNothing)
+{
+    CommandBucketConfig config;
+    config.InitialCapacity = 64;
+    CommandBucket bucket(config);
+
+    constexpr u32 kThreads = 8;
+    constexpr u32 kPerThread = 750;
+    bucket.PrepareForParallelSubmission(kThreads * kPerThread);
+
+    std::vector<std::unique_ptr<CommandAllocator>> allocators;
+    for (u32 t = 0; t < kThreads; ++t)
+        allocators.push_back(std::make_unique<CommandAllocator>());
+
+    std::barrier start(static_cast<std::ptrdiff_t>(kThreads));
+    {
+        std::vector<std::jthread> workers;
+        for (u32 t = 0; t < kThreads; ++t)
+        {
+            workers.emplace_back([&, t]
+                                 {
+                start.arrive_and_wait();
+                for (u32 i = 0; i < kPerThread; ++i)
+                {
+                    const i32 entity = static_cast<i32>(t * kPerThread + i);
+                    auto cmd = MakeSyntheticDrawMeshCommand(1, 1, 0.5f, entity);
+                    CommandPacket* packet = allocators[t]->CreateCommandPacket(cmd, PacketMetadata{});
+                    bucket.SubmitPacketParallel(packet, t);
+                } });
+        }
+    }
+    bucket.MergeThreadLocalCommands();
+
+    ASSERT_EQ(bucket.GetCommandCount(), kThreads * kPerThread);
+    std::vector<i32> seen;
+    for (const CommandPacket* packet : bucket.GetPackets())
+        seen.push_back(packet->GetCommandData<DrawMeshCommand>()->entityID);
+    std::ranges::sort(seen);
+    for (u32 i = 0; i < kThreads * kPerThread; ++i)
+        ASSERT_EQ(seen[i], static_cast<i32>(i)) << "packet for entity " << i << " was lost or duplicated";
+}
+
+// An estimate that is too small is refused loudly at the bound rather than
+// growing the array under the workers: 1000 packets into 512 slots (the
+// configured 64, raised to one batch per worker slot) keep the first 512.
+TEST_F(CommandBucketTest, ParallelSubmissionPastItsBoundIsRefusedNotRegrown)
+{
+    CommandBucketConfig config;
+    config.InitialCapacity = 64;
+    CommandBucket bucket(config);
+    bucket.PrepareForParallelSubmission(0);
+
+    for (u32 i = 0; i < 1000; ++i)
+    {
+        auto cmd = MakeSyntheticDrawMeshCommand(1, 1, 0.5f, static_cast<i32>(i));
+        bucket.SubmitPacketParallel(m_Allocator->CreateCommandPacket(cmd, PacketMetadata{}), 0);
+    }
+    bucket.MergeThreadLocalCommands();
+
+    EXPECT_EQ(bucket.GetCommandCount(), static_cast<sizet>(MAX_RENDER_WORKERS) * TLS_BATCH_SIZE);
 }
 
 // =============================================================================

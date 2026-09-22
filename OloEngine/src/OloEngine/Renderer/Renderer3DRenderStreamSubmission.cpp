@@ -6,7 +6,7 @@
 
 namespace OloEngine
 {
-    void Renderer3D::BeginParallelSubmission()
+    void Renderer3D::BeginParallelSubmission(u32 expectedPackets)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -18,7 +18,7 @@ namespace OloEngine
         }
 
         // Prepare command bucket for parallel submission
-        geometryNode->GetCommandBucket().PrepareForParallelSubmission();
+        geometryNode->GetCommandBucket().PrepareForParallelSubmission(expectedPackets);
 
         // Worker allocators already reset in BeginFrame — no separate prepare needed
 

@@ -1418,7 +1418,7 @@ namespace OloEngine
     // Thread-Local Storage for Parallel Command Generation
     // ========================================================================
 
-    void CommandBucket::PrepareForParallelSubmission()
+    void CommandBucket::PrepareForParallelSubmission(u32 expectedPackets)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -1426,9 +1426,15 @@ namespace OloEngine
         if (RefuseIfFrozen("CommandBucket::PrepareForParallelSubmission"))
             return;
 
-        // Reset parallel command array with sufficient capacity
+        // Size the slot array ONCE, for the whole region. Every worker leaves
+        // at most one partly used batch behind, so `expectedPackets` plus one
+        // batch per worker slot bounds every index ClaimBatch can hand out.
+        const sizet bound = static_cast<sizet>(expectedPackets) + static_cast<sizet>(MAX_RENDER_WORKERS) * TLS_BATCH_SIZE;
+        const sizet capacity = std::max<sizet>(m_Config.InitialCapacity, bound);
         m_ParallelCommands.Reset();
-        m_ParallelCommands.SetNumZeroed(static_cast<i64>(m_Config.InitialCapacity));
+        m_ParallelCommands.SetNumZeroed(static_cast<i64>(capacity));
+        m_ParallelCapacity = static_cast<u32>(std::min<sizet>(capacity, UINT32_MAX));
+        m_ParallelOverflow.store(0, std::memory_order_relaxed);
 
         // Reset atomic counters
         m_NextBatchStart.store(0, std::memory_order_relaxed);
@@ -1463,23 +1469,12 @@ namespace OloEngine
 
     u32 CommandBucket::ClaimBatch()
     {
-        // Atomically claim a batch of TLS_BATCH_SIZE slots
-        u32 batchStart = m_NextBatchStart.fetch_add(TLS_BATCH_SIZE, std::memory_order_relaxed);
-
-        // Grow the parallel commands array if needed
-        if (u32 requiredCapacity = batchStart + TLS_BATCH_SIZE; requiredCapacity > static_cast<sizet>(m_ParallelCommands.Num()))
-        {
-            TUniqueLock<FMutex> lock(m_Mutex);
-            if (requiredCapacity > static_cast<sizet>(m_ParallelCommands.Num()))
-            {
-                // Double the capacity or grow to required size
-                sizet newCapacity = std::max(
-                    static_cast<sizet>(m_ParallelCommands.Num()) * 2,
-                    static_cast<sizet>(requiredCapacity));
-                m_ParallelCommands.SetNumZeroed(static_cast<i64>(newCapacity));
-            }
-        }
-
+        // Atomically claim a batch of TLS_BATCH_SIZE slots. The array is not
+        // grown here: other workers are writing into it without a lock, and a
+        // reallocation would move it under their writes.
+        const u32 batchStart = m_NextBatchStart.fetch_add(TLS_BATCH_SIZE, std::memory_order_relaxed);
+        if (static_cast<u64>(batchStart) + TLS_BATCH_SIZE > m_ParallelCapacity)
+            return UINT32_MAX;
         return batchStart;
     }
 
@@ -1500,7 +1495,14 @@ namespace OloEngine
         // If no remaining slots in current batch, claim a new batch
         if (slot.remaining == 0)
         {
-            slot.batchStart = ClaimBatch();
+            const u32 batchStart = ClaimBatch();
+            if (batchStart == UINT32_MAX)
+            {
+                // Counted and reported once, by MergeThreadLocalCommands.
+                m_ParallelOverflow.fetch_add(1, std::memory_order_relaxed);
+                return;
+            }
+            slot.batchStart = batchStart;
             slot.offset = 0;
             slot.remaining = TLS_BATCH_SIZE;
         }
@@ -1529,6 +1531,14 @@ namespace OloEngine
         {
             OLO_CORE_WARN("CommandBucket::MergeThreadLocalCommands: Not in parallel submission mode!");
             return;
+        }
+
+        if (const u32 dropped = m_ParallelOverflow.exchange(0, std::memory_order_relaxed); dropped > 0)
+        {
+            OLO_CORE_ERROR("CommandBucket::MergeThreadLocalCommands: {} packet(s) were refused because parallel "
+                           "submission ran out of the {} slots PrepareForParallelSubmission sized; they are missing "
+                           "from this frame. Pass the number of packets to expect.",
+                           dropped, m_ParallelCapacity);
         }
 
         if (u32 totalCommands = m_ParallelCommandCount.load(std::memory_order_acquire); totalCommands == 0)

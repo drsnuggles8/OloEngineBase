@@ -419,7 +419,15 @@ namespace OloEngine
         // Prepare the bucket for parallel submission
         // Resets thread-local state and prepares arrays
         // Call at the start of each frame (in BeginScene)
-        void PrepareForParallelSubmission();
+        //
+        // `expectedPackets` is an upper bound on the packets the workers will
+        // submit. The slot array is sized for it here, on one thread, and is
+        // NEVER resized while workers write into it: a resize there moved the
+        // array under a worker's unlocked write, losing the packet or writing
+        // freed memory. A submission beyond the bound is refused and reported.
+        // Zero means "no estimate" and sizes for CommandBucketConfig::
+        // InitialCapacity.
+        void PrepareForParallelSubmission(u32 expectedPackets = 0);
 
         void SetAllocator(CommandAllocator* allocator)
         {
@@ -647,8 +655,17 @@ namespace OloEngine
         // Whether we're currently in parallel submission mode
         bool m_ParallelSubmissionActive = false;
 
-        // Claim a batch of slots for a worker thread
-        // Returns the start index of the claimed batch
+        // Claim a batch of slots for a worker thread. Returns the start index
+        // of the claimed batch, or UINT32_MAX when the slots sized by
+        // PrepareForParallelSubmission are exhausted.
         u32 ClaimBatch();
+
+        // Slots available to workers this frame. Written by
+        // PrepareForParallelSubmission before any worker runs, read-only
+        // while they do.
+        u32 m_ParallelCapacity = 0;
+        // Packets refused because the slots ran out, reported once by the
+        // merge. Non-zero means the caller's expectedPackets was too small.
+        std::atomic<u32> m_ParallelOverflow{ 0 };
     };
 } // namespace OloEngine
