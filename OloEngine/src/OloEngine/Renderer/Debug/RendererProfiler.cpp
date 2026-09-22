@@ -373,7 +373,15 @@ namespace OloEngine
                 m_CurrentFrame.m_GPUTimeStatus = GpuTimingStatus::Valid;
                 break;
             case MetricType::GPUWaitTime:
+                // FrameData documents m_GPUWaitTime as the SUM of the fence and
+                // present waits, so setting the aggregate alone would leave the
+                // three fields disagreeing in the CSV and in every MCP reply.
+                // A caller that names "GPU wait" without naming a cause means
+                // the fence — that is what this metric meant before #1337 split
+                // it, and AddGPUWaitTime attributes the same way.
                 m_CurrentFrame.m_GPUWaitTime = value;
+                m_CurrentFrame.m_FenceWaitTime = value;
+                m_CurrentFrame.m_PresentWaitTime = 0.0;
                 break;
             default:
                 break;
@@ -831,6 +839,11 @@ namespace OloEngine
         ImGui::PlotLines("Draw Calls", drawCallData.data(), OLO_FRAME_HISTORY_SIZE, 0, nullptr, 0.0f, FLT_MAX, ImVec2(0, 60));
     }
 
+    // The share of the frame the CPU must spend blocked on the frame fence
+    // before that alone decides the verdict. Named because it is now used from
+    // two branches — with and without a GPU measurement — and they must agree.
+    static constexpr f64 kSignificantFenceWaitShare = 0.15;
+
     RendererProfiler::BottleneckInfo RendererProfiler::AnalyzeBottlenecks() const
     {
         BottleneckInfo info;
@@ -838,7 +851,6 @@ namespace OloEngine
         const f64 frameTime = m_CurrentFrame.m_FrameTime;
         const f64 cpuTime = m_CurrentFrame.m_CPUTime; // fence waits already subtracted (EndFrame)
         const f64 gpuTime = m_CurrentFrame.m_GPUTime; // measured by GPUPassTimerPool, lags 1-3 frames
-        const f64 gpuWait = m_CurrentFrame.m_GPUWaitTime;
 
         if (frameTime <= 0.0)
         {
@@ -848,18 +860,71 @@ namespace OloEngine
             return info;
         }
 
-        // Without a GPU time there is no CPU-vs-GPU comparison to make (#1337).
-        // The old code read the unmeasured frame's 0.0 as "the GPU did nothing"
-        // and declared the frame CPU-bound with high confidence — the most
-        // actively misleading verdict this analysis can produce, because it
-        // sends a reader optimizing the wrong side.
+        // FENCE wait explicitly, rather than the combined `m_GPUWaitTime` this
+        // used to read. The two are EQUAL on this path today and this is not a
+        // bug fix — worth stating plainly, because the opposite is easy to
+        // assume once the split exists.
+        //
+        // Why they are equal here: AnalyzeBottlenecks reads m_CurrentFrame, the
+        // IN-PROGRESS frame. AddPostFrameGPUWaitTime (the SwapBuffers/vsync
+        // stall) cannot land there — it is known only after EndFrame, so it is
+        // accumulated into m_PendingPostFrameGPUWaitTime and patched into
+        // m_PreviousFrame and the history slot at the next BeginFrame. So
+        // m_CurrentFrame.m_PresentWaitTime is always 0 and
+        // m_CurrentFrame.m_GPUWaitTime only ever holds fence time.
+        //
+        // The conflation IS real on the COMPLETED-frame surfaces, which is
+        // where it was measured: olo_perf_snapshot reported gpuWaitMs 17.515
+        // against presentWaitMs 17.485 on a vsync-capped Vulkan frame. Those
+        // read GetLastCompletedFrameData(), which is the patched one. Naming
+        // the field here keeps this analysis correct if anyone ever folds the
+        // present wait into the in-progress frame, and says which of the two
+        // quantities the verdict is entitled to use.
+        //
+        // Declared up here because BOTH branches below need it: the one with a
+        // GPU measurement and the one without.
+        const f64 fenceShare = m_CurrentFrame.m_FenceWaitTime / frameTime;
+
+        const auto formatShares = [&]
+        {
+            std::ostringstream oss;
+            oss << std::fixed << std::setprecision(1)
+                << " (cpu " << cpuTime << " ms, gpu " << gpuTime
+                << " ms, fenceWait " << m_CurrentFrame.m_FenceWaitTime
+                << " ms, presentWait " << m_CurrentFrame.m_PresentWaitTime
+                << " ms, frame " << frameTime << " ms)";
+            return oss.str();
+        };
+
+        // Without a GPU time there is no CPU-vs-GPU UTILIZATION comparison to
+        // make (#1337). The old code read the unmeasured frame's 0.0 as "the GPU
+        // did nothing" and declared the frame CPU-bound with high confidence —
+        // the most actively misleading verdict this analysis can produce,
+        // because it sends a reader optimizing the wrong side.
+        //
+        // But the FENCE WAIT is still a measurement, and it still answers the
+        // question on its own: the CPU finished its work and sat blocked until
+        // the GPU caught up. That does not need a GPU timer. An earlier
+        // revision of this change returned Balanced/0 here unconditionally and
+        // threw that away, which traded one wrong answer for a different one.
         if (m_CurrentFrame.m_GPUTimeStatus != GpuTimingStatus::Valid)
         {
+            if (fenceShare > kSignificantFenceWaitShare)
+            {
+                info.m_Type = BottleneckInfo::GPU_Bound;
+                info.m_Confidence = (f32)std::min(0.6 + fenceShare, 1.0);
+                info.m_Description = "CPU spends a large share of the frame blocked on GPU fences; the GPU time "
+                                     "itself is unavailable (" +
+                                     std::string(DescribeGpuTimingStatus(m_CurrentFrame.m_GPUTimeStatus)) + ")." +
+                                     formatShares();
+                return info;
+            }
             info.m_Type = BottleneckInfo::Balanced;
             info.m_Confidence = 0.0f;
             info.m_Description = std::string("No GPU time for this frame — ") +
                                  std::string(DescribeGpuTimingStatus(m_CurrentFrame.m_GPUTimeStatus)) +
-                                 ". CPU/GPU balance cannot be judged.";
+                                 ", and the fence wait is not large enough to decide on its own. "
+                                 "CPU/GPU balance cannot be judged.";
             info.m_Recommendations.emplace_back(
                 "Check olo_perf_pass_timings: gpuResultsStatus says why the timings are missing.");
             return info;
@@ -867,21 +932,11 @@ namespace OloEngine
 
         const f64 cpuUtilization = cpuTime / frameTime;
         const f64 gpuUtilization = gpuTime / frameTime;
-        const f64 waitShare = gpuWait / frameTime;
-
-        const auto formatShares = [&]
-        {
-            std::ostringstream oss;
-            oss << std::fixed << std::setprecision(1)
-                << " (cpu " << cpuTime << " ms, gpu " << gpuTime
-                << " ms, gpuWait " << gpuWait << " ms, frame " << frameTime << " ms)";
-            return oss.str();
-        };
 
         // The explicit fence wait (glClientWaitSync on the frame-resource fence)
         // is the most direct signal: the CPU finished its work and sat blocked
         // until the GPU caught up.
-        const bool significantWait = waitShare > 0.15;
+        const bool significantWait = fenceShare > kSignificantFenceWaitShare;
 
         if (gpuTime <= 0.0)
         {
@@ -889,7 +944,7 @@ namespace OloEngine
             if (significantWait)
             {
                 info.m_Type = BottleneckInfo::GPU_Bound;
-                info.m_Confidence = (f32)std::min(0.6 + waitShare, 1.0);
+                info.m_Confidence = (f32)std::min(0.6 + fenceShare, 1.0);
                 info.m_Description = "CPU spends a large share of the frame blocked on GPU fences." + formatShares();
             }
             else if (frameTime > (1000.0 / m_TargetFrameRate) && cpuUtilization > 0.8)
@@ -910,7 +965,7 @@ namespace OloEngine
         if (significantWait || (gpuUtilization > 0.8 && gpuTime > cpuTime))
         {
             info.m_Type = BottleneckInfo::GPU_Bound;
-            info.m_Confidence = (f32)std::min(std::max(gpuUtilization, 0.6 + waitShare), 1.0);
+            info.m_Confidence = (f32)std::min(std::max(gpuUtilization, 0.6 + fenceShare), 1.0);
             info.m_Description = "GPU is the primary bottleneck." + formatShares();
             info.m_Recommendations = {
                 "Optimize shader performance (fragment cost scales with resolution)",

@@ -60,17 +60,30 @@ namespace
             cube.AddComponent<MeshComponent>();
         }
 
-        // Render until the pool publishes a frame it actually measured, or give
-        // up. Results resolve 1-3 frames after issue, so the first frames are
-        // legitimately Pending and asserting on them would be a flake.
+        // Render until the pool publishes a frame it actually measured AND that
+        // frame was ISSUED AFTER THIS CALL STARTED.
+        //
+        // The second half is what makes the configuration-changing tests mean
+        // anything. Results resolve 1-3 frames after issue, so immediately
+        // after a rendering-path or MSAA switch the newest published snapshot
+        // still describes a frame rendered under the PREVIOUS configuration.
+        // Accepting it would let `EveryRenderingPathPublishesValidityRatherThanZeros`
+        // pass three times over without ever measuring Forward+ or Deferred —
+        // a test that asserts hard and checks nothing, which is the failure
+        // this whole file exists to make impossible for GPU timings.
+        //
+        // The pool's frame counter is monotonic from renderer init, so a
+        // snapshot whose FrameNumber is past the counter we saw on entry was
+        // necessarily issued after the caller's change.
         [[nodiscard]] GPUPassTimerPool::FrameTimings RenderUntilResolved(u32 maxFrames = 32)
         {
+            const u64 baseline = GPUPassTimerPool::GetInstance().GetCurrentFrameNumber();
             GPUPassTimerPool::FrameTimings snapshot;
             for (u32 i = 0; i < maxFrames; ++i)
             {
                 RunFrames(1);
                 snapshot = GPUPassTimerPool::GetInstance().GetLastFrameTimings();
-                if (snapshot.FrameNumber > 0 && snapshot.Frame.IsValid())
+                if (snapshot.FrameNumber > baseline && snapshot.Frame.IsValid())
                 {
                     return snapshot;
                 }
@@ -164,7 +177,8 @@ TEST_F(GpuTimingPoolEvidence, RealFramesPublishMeasuredPassesWithFrameIdentity)
     const GPUPassTimerPool::FrameTimings snapshot = RenderUntilResolved();
 
     ASSERT_GT(snapshot.FrameNumber, 0u)
-        << "the pool resolved no frame at all after 32 rendered frames — the timestamps are not reaching the device";
+        << "the pool resolved no frame issued during this test after 32 rendered frames — the timestamps are "
+           "not reaching the device";
     ASSERT_TRUE(snapshot.Frame.IsValid())
         << "frame span: " << ToString(snapshot.Frame.Status) << " — " << DescribeGpuTimingStatus(snapshot.Frame.Status);
 

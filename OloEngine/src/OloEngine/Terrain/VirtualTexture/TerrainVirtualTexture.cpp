@@ -332,6 +332,16 @@ namespace OloEngine
         }
 
         m_Stats = Stats{};
+        // AFTER the wipe, not in EnsureTimingQueries() above: that ran earlier in
+        // Configure() and this assignment resets both samples to their
+        // default-constructed `Unavailable`, which would make the seeding there
+        // dead code and the panel read "GPU timing is not running on this device
+        // or session" for an instrument that is, in fact, running.
+        if (m_TimingQueriesReady)
+        {
+            m_Stats.m_IndirectionRebuild = GpuTimingSample::Absent(GpuTimingStatus::Pending);
+            m_Stats.m_IndirectionDelta = GpuTimingSample::Absent(GpuTimingStatus::Pending);
+        }
         m_Stats.m_CacheTileCount = m_Config.CacheTileCount();
         m_Stats.m_SectorCount = static_cast<u32>(m_Sectors.size());
         m_Stats.m_CacheCompressed = compressed;
@@ -582,12 +592,10 @@ namespace OloEngine
         }
         m_NextTimingSlot = 0;
         m_TimingQueriesReady = true;
-        // The instrument is running now, so "no sample yet" is Pending rather
-        // than Unavailable (#1337). The default-constructed GpuTimingSample is
-        // Unavailable, which reads as "GPU timing is not running on this device
-        // or session" — true before this point and a lie after it.
-        m_Stats.m_IndirectionRebuild = GpuTimingSample::Absent(GpuTimingStatus::Pending);
-        m_Stats.m_IndirectionDelta = GpuTimingSample::Absent(GpuTimingStatus::Pending);
+        // The Pending seeding lives in Configure(), AFTER its `m_Stats = Stats{}`
+        // reset — doing it here looked right and was dead code, because that
+        // reset runs later in the same call and restores both samples to
+        // `Unavailable`. Its only caller is Configure().
     }
 
     void TerrainVirtualTexture::DestroyTimingQueries()
