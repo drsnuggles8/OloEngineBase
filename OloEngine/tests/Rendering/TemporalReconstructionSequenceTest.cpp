@@ -20,10 +20,11 @@
 // arm is expected to move, that movement is asserted too: an instrument that
 // reads zero on both arms is broken, not passing.
 //
-// Reproduction 6 and the TemporalReactivitySeparation cases below are the
+// Reproduction 6a and the TemporalReactivitySeparation cases below are the
 // exception and have no control arm, deliberately: they assert closed-form
 // arithmetic on the model rather than a measured improvement, so there is no
-// second arm for them to be compared against.
+// second arm for them to be compared against. 6b is the sequence half of the
+// same condition and does carry one.
 //
 // It is CPU-only and needs no GL context, deliberately. A live pixel A/B
 // cannot answer these questions at all — 69 % of pixels move between two
@@ -106,8 +107,13 @@ namespace OloEngine::Tests
         /// produces identical numbers on any machine.
         using SceneFn = std::function<PixelState(u32, u32)>;
 
+        /// The resolve's own configuration, as a function of the frame index.
+        /// Constant for every scenario but the dynamic-resolution one, where
+        /// the render scale — and therefore PixelSize — moves mid-sequence.
+        using ConfigFn = std::function<ResolveConfig(u32)>;
+
         [[nodiscard]] std::vector<std::vector<f32>> RunSequence(u32 frameCount, u32 pixelCount,
-                                                                const ResolveConfig& config, const SceneFn& describe)
+                                                                const ConfigFn& configure, const SceneFn& describe)
         {
             std::vector<std::vector<f32>> frames;
             frames.reserve(frameCount);
@@ -117,6 +123,7 @@ namespace OloEngine::Tests
 
             for (u32 frame = 0u; frame < frameCount; ++frame)
             {
+                const ResolveConfig config = configure(frame);
                 std::vector<f32> resolved(pixelCount, 0.0f);
                 std::vector<PixelState> currentStates(pixelCount);
                 for (u32 pixel = 0u; pixel < pixelCount; ++pixel)
@@ -130,6 +137,13 @@ namespace OloEngine::Tests
                 frames.push_back(std::move(resolved));
             }
             return frames;
+        }
+
+        [[nodiscard]] std::vector<std::vector<f32>> RunSequence(u32 frameCount, u32 pixelCount,
+                                                                const ResolveConfig& config, const SceneFn& describe)
+        {
+            return RunSequence(frameCount, pixelCount, [&config](u32)
+                               { return config; }, describe);
         }
 
         [[nodiscard]] SurfaceHistoryRecord StableSurface()
@@ -479,7 +493,7 @@ namespace OloEngine::Tests
     }
 
     // -------------------------------------------------------------------------
-    // Reproduction 6 — DYNAMIC RESOLUTION
+    // Reproduction 6a — DYNAMIC RESOLUTION, as closed-form arithmetic
     // -------------------------------------------------------------------------
     // Ghosting is a PIXEL-space phenomenon, so the motion term must be measured
     // in pixels. The same UV motion at half resolution is half the pixel
@@ -513,6 +527,137 @@ namespace OloEngine::Tests
         // Neither resolution touched the other two causes.
         EXPECT_NEAR(atFull.CoverageChange, 0.0f, 1.0e-6f);
         EXPECT_NEAR(atFull.MaterialChange, 0.0f, 1.0e-6f);
+    }
+
+    // Reproduction 6b — DYNAMIC RESOLUTION, as an actual SEQUENCE.
+    //
+    // 6a above is closed-form arithmetic on one evaluation, which pins the
+    // ramp but says nothing about what a RESOLUTION CHANGE does to a running
+    // accumulator — and criterion 1 asks for a sequence. This is that
+    // sequence, and it carries the control arm 6a has no room for.
+    //
+    // THE BUG IT MODELS is a real one and specific to dynamic resolution: a
+    // resolve that samples its pixel size ONCE, at init, and never updates it
+    // when the render scale moves. Nothing about such a resolve looks wrong
+    // at the resolution it was initialised at, which is the resolution
+    // everybody tests at.
+    //
+    // The scene pans at a constant UV velocity throughout. At full resolution
+    // that is 5.12 px/frame, past the 5 px saturation, so the motion term
+    // sits at its 0.5 cap. At frame 16 the render scale drops to the
+    // UltraPerformance preset's 0.333, so the SAME UV motion is only 1.70
+    // px/frame — a third of the resampling error, and a resolve that noticed
+    // would keep correspondingly more history.
+    //
+    //   * live    — PixelSize tracks the render scale, so the motion term
+    //               falls to 0.176 after the step and the blend keeps more.
+    //   * control — PixelSize latched at the full-resolution value, so the
+    //               term stays pinned at the 0.5 cap and the resolve throws
+    //               away history it should have kept.
+    //
+    // The signal ALTERNATES, so the arms are separated by how much of that
+    // alternation survives — shimmer, measured, rather than a re-derived
+    // reactivity number that would pass even if the resolve ignored it.
+    TEST(TemporalReconstructionSequence, ADynamicResolutionDropKeepsMoreHistoryAndTheLatchedControlDoesNot)
+    {
+        constexpr u32 kFrames = 48u;
+        constexpr u32 kStepFrame = 16u;
+        constexpr f32 kFullWidth = 1280.0f;
+        constexpr f32 kFullHeight = 720.0f;
+        // The shipping UltraPerformance preset rather than a round number, so
+        // this is a resolution the engine can actually be in.
+        constexpr f32 kScale = 0.333f;
+
+        const auto scene = [](u32 frame, u32) -> PixelState
+        {
+            PixelState state{};
+            state.Record = StableSurface();
+            state.Record.Motion = { 0.004f, 0.0f }; // constant UV pan, both arms
+            state.Signal = (frame % 2u == 0u) ? 0.2f : 0.8f;
+            return state;
+        };
+
+        const auto pixelSizeFor = [](f32 scale)
+        { return glm::vec2{ 1.0f / (kFullWidth * scale), 1.0f / (kFullHeight * scale) }; };
+
+        // Live: PixelSize follows the render scale.
+        const auto live = [&](u32 frame)
+        {
+            ResolveConfig config{};
+            config.Reactivity = PinnedReactivity(0.12f);
+            config.Reactivity.PixelSize = pixelSizeFor(frame >= kStepFrame ? kScale : 1.0f);
+            return config;
+        };
+
+        // Control: latched at full resolution for the whole sequence.
+        const auto control = [&](u32)
+        {
+            ResolveConfig config{};
+            config.Reactivity = PinnedReactivity(0.12f);
+            config.Reactivity.PixelSize = pixelSizeFor(1.0f);
+            return config;
+        };
+
+        const auto liveFrames = RunSequence(kFrames, kPixels, ConfigFn(live), scene);
+        const auto controlFrames = RunSequence(kFrames, kPixels, ConfigFn(control), scene);
+
+        // Measured only AFTER the step, and after the accumulator has had a
+        // few frames to reach its new steady state. Before the step the two
+        // arms are identical by construction, which is asserted below.
+        const auto afterStep = [](const std::vector<std::vector<f32>>& frames)
+        { return std::span<const std::vector<f32>>(frames).subspan(kStepFrame + 8u); };
+
+        const ShimmerResult liveShimmer = MeasureShimmer(afterStep(liveFrames));
+        const ShimmerResult controlShimmer = MeasureShimmer(afterStep(controlFrames));
+
+        EXPECT_GT(liveShimmer.ComparedPixels, 0u) << "the instrument measured nothing";
+        EXPECT_GT(controlShimmer.ComparedPixels, 0u);
+
+        // The two arms are the same resolve until the step. If they differ
+        // here the scenario is not isolating the resolution change.
+        for (u32 frame = 0u; frame < kStepFrame; ++frame)
+        {
+            EXPECT_NEAR(liveFrames[frame][0u], controlFrames[frame][0u], 1.0e-6f)
+                << "arms diverged at frame " << frame << ", before the resolution step";
+        }
+
+        // The instrument: the control must actually pass the alternation
+        // through, or the live arm's stillness proves nothing.
+        EXPECT_GT(controlShimmer.MeanFrameDelta, 0.1);
+
+        // The prediction, computed rather than observed. With the other two
+        // causes at zero, confidence is 1 - SurfaceMotion. The input alternates
+        // between 0.2 and 0.8, so its AMPLITUDE about the mean is 0.3 (the
+        // swing is 0.6 — the two are easy to confuse and differ by the factor
+        // of two that MeanFrameDelta then doubles back in). Under blend weight
+        // w the steady-state output amplitude is 0.3(1-w)/(1+w), and
+        // MeanFrameDelta is twice that:
+        //
+        //   live    motion 1.704 px -> ramp 0.176, w = 0.9 * 0.824 = 0.742
+        //           -> amplitude 0.3 * 0.258/1.742 = 0.0444, delta 0.089
+        //   control motion 5.12 px  -> capped 0.5,  w = 0.9 * 0.5   = 0.45
+        //           -> amplitude 0.3 * 0.55/1.45   = 0.1138, delta 0.228
+        //
+        // a predicted ratio of 0.39, so half is a floor the mechanism clears.
+        // The control measures 0.2276 against the 0.228 predicted here.
+        //
+        // NEGATIVE CONTROL, run deliberately: latching the LIVE arm's PixelSize
+        // at full resolution too — which is exactly the bug described above —
+        // makes both arms measure 0.2276 and fails this assertion. The test
+        // catches the defect it names.
+        EXPECT_LT(liveShimmer.MeanFrameDelta, controlShimmer.MeanFrameDelta * 0.5)
+            << "tracking the render scale did not keep more history: live " << liveShimmer.MeanFrameDelta
+            << " vs control " << controlShimmer.MeanFrameDelta;
+
+        // And the mechanism directly: the motion term must genuinely differ
+        // between the two arms after the step, rather than the shimmer gap
+        // coming from somewhere else.
+        const PixelState stepped = scene(kStepFrame, 0u);
+        const SurfaceHistoryRecord prior = scene(kStepFrame - 1u, 0u).Record;
+        EXPECT_NEAR(EvaluateTemporalReactivity(stepped.Record, prior, live(kStepFrame).Reactivity).SurfaceMotion,
+                    (1.704f - 1.0f) / 4.0f, 1.0e-2f);
+        EXPECT_NEAR(EvaluateTemporalReactivity(stepped.Record, prior, control(kStepFrame).Reactivity).SurfaceMotion,
+                    0.5f, 1.0e-5f);
     }
 
     // -------------------------------------------------------------------------

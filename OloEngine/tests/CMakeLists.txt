@@ -755,6 +755,12 @@ add_executable(OloEngine-Tests
 		# scans in front of the GPU parity test.
 		Rendering/PropertyTests/GBufferBakedGIContractTest.cpp
 		Rendering/PropertyTests/CoverageChannelEvidenceTest.cpp
+		# #1256 criteria 3 and 4: the three temporal defects measured over real
+		# SEQUENCES of the real subjects (skin, hair, moving foliage) through the
+		# real render graph, plus the render-path / upscale / MSAA / resolution
+		# matrix. A settled capture cannot see any of these, which is what the
+		# issue means by "static accumulated captures are insufficient".
+		Rendering/PropertyTests/TemporalSubjectSequenceEvidenceTest.cpp
 		Rendering/PropertyTests/GBufferCoverageChannelContractTest.cpp
 		Rendering/PropertyTests/GBufferFlagsResolveEvidenceTest.cpp
 		Rendering/PropertyTests/OITPropertyTests.cpp
