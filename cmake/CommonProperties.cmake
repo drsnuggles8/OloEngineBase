@@ -58,13 +58,31 @@ endfunction()
 # the compiler under an existing build tree is not supported here anyway (it
 # needs a fresh tree -- see docs/agent-rules/build-trees-and-windows-asan.md).
 function(olo_check_lto_support out_var out_output)
+    # RELEASE AND DIST MUST SHARE A LINKER, or there is no answer to give. One
+    # probe answers for both (see below), and concatenating two differing sets is
+    # not a valid probe -- `-fuse-ld=` is last-one-wins, so the answer would
+    # describe one configuration and be reported for both. Report NO instead.
+    # Checked ahead of the cache so an earlier cached YES cannot hide a later
+    # divergence, and never cached so the NO does not outlive a fix to the flags.
+    # olo_enable_lto() prints the reason through its "not supported" warning.
+    if(NOT MSVC AND NOT "${CMAKE_EXE_LINKER_FLAGS_RELEASE}" STREQUAL "${CMAKE_EXE_LINKER_FLAGS_DIST}")
+        string(CONCAT _olo_divergence
+            "CMAKE_EXE_LINKER_FLAGS_RELEASE ('${CMAKE_EXE_LINKER_FLAGS_RELEASE}') and "
+            "CMAKE_EXE_LINKER_FLAGS_DIST ('${CMAKE_EXE_LINKER_FLAGS_DIST}') differ, and a single "
+            "IPO/LTO probe cannot answer for both. Give them the same linker to enable LTO.")
+        set(${out_var} NO PARENT_SCOPE)
+        set(${out_output} "${_olo_divergence}" PARENT_SCOPE)
+        return()
+    endif()
+
     if(NOT DEFINED OLO_LTO_SUPPORTED)
         # GIVE THE PROBE THE SAME LINKER THE BUILD USES. check_ipo_supported()
         # configures and links its own generated `_CMakeLTOTest-<lang>` project,
-        # and CheckIPOSupported.cmake forwards only CMAKE_<LANG>_FLAGS into it
-        # (and only under CMP0138 NEW -- we are on cmake_minimum_required 3.25,
-        # so it is). CMAKE_EXE_LINKER_FLAGS is NOT forwarded. Every Linux
-        # configure line in this repo selects the linker there, as
+        # and CheckIPOSupported.cmake forwards only CMAKE_<LANG>_FLAGS and
+        # CMAKE_<LANG>_FLAGS_DEBUG into it (and only under CMP0138 NEW -- we are
+        # on cmake_minimum_required 3.25, so it is). No linker-flag variable is
+        # forwarded, in any configuration. Every Linux configure line in this
+        # repo selects the linker there, as
         # `-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld`, so the probe alone ignored it
         # and fell back to clang's default /usr/bin/ld.
         #
@@ -92,14 +110,33 @@ function(olo_check_lto_support out_var out_output)
         # is a link-only flag and the probe compiles with these flags too --
         # harmless today, and it keeps this from becoming a compile error if
         # -Werror is ever added.
-        if(NOT MSVC AND CMAKE_EXE_LINKER_FLAGS)
-            get_property(_olo_probe_langs GLOBAL PROPERTY ENABLED_LANGUAGES)
-            foreach(_olo_probe_lang IN LISTS _olo_probe_langs)
-                if(_olo_probe_lang STREQUAL "C" OR _olo_probe_lang STREQUAL "CXX")
-                    string(APPEND CMAKE_${_olo_probe_lang}_FLAGS
-                        " ${CMAKE_EXE_LINKER_FLAGS} -Wno-unused-command-line-argument")
-                endif()
-            endforeach()
+        # THE CONFIG-SPECIFIC LINKER FLAGS COUNT TOO. olo_enable_lto() only ever
+        # sets INTERPROCEDURAL_OPTIMIZATION_RELEASE / _DIST, so the configurations
+        # whose linker this probe has to match are Release and Dist -- and a linker
+        # can be selected in CMAKE_EXE_LINKER_FLAGS_<CONFIG> just as well as in the
+        # config-agnostic variable. Neither reaches the probe on its own:
+        # CheckIPOSupported.cmake pins CMAKE_TRY_COMPILE_CONFIGURATION to Debug and
+        # forwards only CMAKE_<LANG>_FLAGS and CMAKE_<LANG>_FLAGS_DEBUG, so a
+        # ..._RELEASE / ..._DIST linker selection would be absent from the probe
+        # while the build that LTO is applied to uses it.
+        #
+        # ONE probe still answers for both configurations, deliberately.
+        # SetupConfigurations.cmake defines CMAKE_EXE_LINKER_FLAGS_DIST as a copy of
+        # ..._RELEASE, so they are identical unless a configure line overrides them
+        # apart (handled at the top of this function), and this probe is a full
+        # nested configure that the caching above exists to run exactly once.
+        if(NOT MSVC)
+            set(_olo_probe_link_flags "${CMAKE_EXE_LINKER_FLAGS} ${CMAKE_EXE_LINKER_FLAGS_RELEASE}")
+            string(STRIP "${_olo_probe_link_flags}" _olo_probe_link_flags)
+            if(_olo_probe_link_flags)
+                get_property(_olo_probe_langs GLOBAL PROPERTY ENABLED_LANGUAGES)
+                foreach(_olo_probe_lang IN LISTS _olo_probe_langs)
+                    if(_olo_probe_lang STREQUAL "C" OR _olo_probe_lang STREQUAL "CXX")
+                        string(APPEND CMAKE_${_olo_probe_lang}_FLAGS
+                            " ${_olo_probe_link_flags} -Wno-unused-command-line-argument")
+                    endif()
+                endforeach()
+            endif()
         endif()
 
         check_ipo_supported(RESULT _olo_lto_supported OUTPUT _olo_lto_output)
