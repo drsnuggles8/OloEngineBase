@@ -126,8 +126,11 @@ namespace OloEngine::MCP
                 }
                 o["gpuStatus"] = std::string(ToString(f.m_GPUTimeStatus));
                 o["gpuWaitMs"] = Round2(f.m_GPUWaitTime);
-                // Split by cause: a fence wait means the GPU is behind, a
-                // present wait means the display is pacing you.
+                // Split by cause. A fence wait means the GPU is behind. The
+                // "present" half is the SwapBuffers span: a real vsync/present
+                // wait on OpenGL, but on Vulkan the backend records and submits
+                // the frame INSIDE SwapBuffers (#691), so there it contains the
+                // frame's render work and is not a pacing signal.
                 o["fenceWaitMs"] = Round2(f.m_FenceWaitTime);
                 o["presentWaitMs"] = Round2(f.m_PresentWaitTime);
                 o["drawCalls"] = f.m_DrawCalls;
@@ -510,7 +513,7 @@ namespace OloEngine::MCP
                                     .Prop("cullingMs", Schema::Number())
                                     .Prop("gpuWaitMs", Schema::Number().Desc("fenceWaitMs + presentWaitMs."))
                                     .Prop("fenceWaitMs", Schema::Number().Desc("Blocked on the frame fence: the GPU is behind."))
-                                    .Prop("presentWaitMs", Schema::Number().Desc("Blocked in SwapBuffers/vsync: the display is pacing."))
+                                    .Prop("presentWaitMs", Schema::Number().Desc("CPU time inside SwapBuffers. OpenGL: the present/vsync wait. Vulkan: the backend renders the frame inside SwapBuffers (#691), so this contains the frame's render work and is NOT a pacing signal; read fenceWaitMs instead."))
                                     .Prop("renderWidth", Schema::Int().Min(0).Desc("Actual SceneColor render-target width. Compare against a viewport override to spot a stale render size. Omitted when no graph is live."))
                                     .Prop("renderHeight", Schema::Int().Min(0).Desc("Actual SceneColor render-target height in pixels."))
                                     .Prop("displayWidth", Schema::Int().Min(0).Desc("Presented framebuffer width; differs from renderWidth when renderScale < 1."))
@@ -632,8 +635,10 @@ namespace OloEngine::MCP
                 "GPU time spent between/outside the timed passes and is null unless the frame span and every "
                 "pass were measured. gpuMeasurementFrameId vs currentFrameId say which frame each half "
                 "describes. Frame totals split the GPU-bound signal three ways: gpuWaitMs (the sum), "
-                "fenceWaitMs (blocked on the frame fence — the GPU is behind) and presentWaitMs "
-                "(SwapBuffers/vsync — the display is pacing you). Check gpuResultsStale before trusting the "
+                "fenceWaitMs (blocked on the frame fence — the GPU is behind) and presentWaitMs (the "
+                "SwapBuffers span: a present/vsync wait on OpenGL, but on Vulkan the frame is recorded and "
+                "submitted inside SwapBuffers, so there it contains the render work and is not a pacing "
+                "signal — use recordingBreakdown.elapsedRecordingWallMs). Check gpuResultsStale before trusting the "
                 "numbers on very long/GPU-backlogged frames: true means the GPU fell behind far enough that a "
                 "timestamp slot was dropped rather than resolved, so the numbers describe an old, possibly "
                 "unrepresentative frame; gpuDroppedSlots counts how many frames were lost that way. "
@@ -652,7 +657,7 @@ namespace OloEngine::MCP
                                                        .Prop("gpuStatus", Schema::String().Desc("valid | pending | dropped | notStamped | outOfOrder | notTimed | unavailable."))
                                                        .Prop("gpuWaitMs", Schema::Number().Desc("fenceWaitMs + presentWaitMs — the combined GPU-bound signal."))
                                                        .Prop("fenceWaitMs", Schema::Number().Desc("CPU blocked on the frame fence: the GPU is behind."))
-                                                       .Prop("presentWaitMs", Schema::Number().Desc("CPU blocked in SwapBuffers/vsync: the display is pacing the frame."))
+                                                       .Prop("presentWaitMs", Schema::Number().Desc("CPU time inside SwapBuffers. A present/vsync wait on OpenGL; on Vulkan it contains the frame's recording and submit (#691), so it is not a pacing signal."))
                                                        .Prop("gpuMeasurementFrameId", Schema::Int().Min(0).Desc("Frame the GPU numbers describe."))
                                                        .Prop("currentFrameId", Schema::Int().Min(0).Desc("Frame the CPU numbers describe; normally 1-3 ahead of gpuMeasurementFrameId.")))
                                     .Prop("parallelRecording", Schema::Object()
@@ -692,7 +697,7 @@ namespace OloEngine::MCP
                                                                     .Prop("joinWaitMs", Schema::Number().Desc("ELAPSED, inside the wall time: waiting for the last worker."))
                                                                     .Prop("summedCpuPrepareMs", Schema::Number().Desc("A SUM: caller-side setup per region. Zero unless OLO_VK_RECORDING_COSTS=1."))
                                                                     .Prop("fenceWaitMs", Schema::Number().Desc("ELAPSED: CPU blocked on the frame fence."))
-                                                                    .Prop("presentWaitMs", Schema::Number().Desc("ELAPSED: CPU blocked in SwapBuffers/vsync."))
+                                                                    .Prop("presentWaitMs", Schema::Number().Desc("ELAPSED: CPU time inside SwapBuffers. Vsync on OpenGL; on Vulkan it overlaps elapsedRecordingWallMs because the frame renders inside SwapBuffers."))
                                                                     .Prop("gpuExecutionMs", Schema::NullableNumber().Desc("ELAPSED on the GPU timeline, or null when unmeasured."))
                                                                     .Prop("gpuExecutionStatus", Schema::String())
                                                                     .Prop("note", Schema::String())

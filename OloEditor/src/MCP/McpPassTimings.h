@@ -15,6 +15,7 @@
 // McpFrameBreakdown.h / McpRenderExplain.h.
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/Debug/GPUTimingStatus.h"
 
 #include <nlohmann/json.hpp>
@@ -117,10 +118,12 @@ namespace OloEngine::MCP::PassTimings
         // Whole-frame GPU time (timestamp span) AND whether it is a
         // measurement (#1337).
         GpuTimingSample Gpu{};
-        // CPU time blocked on GPU/present sync, split by cause: a fence wait
-        // means the GPU is behind, a present wait means the display is pacing
-        // you. GpuWaitMs stays as their sum for callers that want the single
-        // "GPU-bound" signal.
+        // CPU time blocked on GPU/present sync, split by cause. A fence wait
+        // means the GPU is behind. PresentWaitMs is the SwapBuffers span: on
+        // OpenGL a present/vsync wait, on Vulkan the frame's own recording and
+        // submit as well (#691: the backend renders inside SwapBuffers), so it
+        // is a pacing signal on one backend only. GpuWaitMs stays as their sum
+        // for callers that want the single "GPU-bound" signal.
         f64 GpuWaitMs = 0.0;
         f64 FenceWaitMs = 0.0;
         f64 PresentWaitMs = 0.0;
@@ -188,10 +191,17 @@ namespace OloEngine::MCP::PassTimings
                                                const FrameTotals& totals)
     {
         Json passes = Json::array();
-        f64 passGpuTotal = 0.0;
-        // A total assembled out of a list with holes is a LOWER BOUND, and says
-        // so rather than presenting itself as the frame's pass time.
-        u32 unmeasuredPasses = 0;
+        // The total comes from the pool's own rule, not a loop of this file's:
+        // a sub-pass whose parent is in the list is inside that bracket and
+        // excluded, an orphan counts, an unmeasured pass makes the total a
+        // LOWER BOUND and is counted. One rule, one place (#1337).
+        std::vector<GPUPassTimerPool::PassTiming> forTotal;
+        forTotal.reserve(gpuPasses.size());
+        for (const auto& gpuPass : gpuPasses)
+            forTotal.push_back({ gpuPass.Name, gpuPass.Sample, gpuPass.IsSubPass, gpuPass.ParentName });
+        const GPUPassTimerPool::PassTotal total = GPUPassTimerPool::SumTopLevel(forTotal);
+        const f64 passGpuTotal = total.GpuMs;
+        const u32 unmeasuredPasses = total.UnmeasuredPasses;
 
         std::vector<bool> cpuUsed(cpuPasses.size(), false);
         const auto findCpuMs = [&cpuPasses, &cpuUsed](const std::string& name) -> f64
@@ -240,13 +250,9 @@ namespace OloEngine::MCP::PassTimings
                 }
                 // Orphan sub-entry: its parent was not GPU-timed this frame, so
                 // there is no bracket for its time to be double-counted inside.
-                // Publish it top-level under its full name and DO count it.
+                // Publish it top-level under its full name; SumTopLevel above
+                // counts it by the same rule.
             }
-            if (gpuPass.Sample.IsValid())
-                passGpuTotal += gpuPass.Sample.GpuMs;
-            else
-                ++unmeasuredPasses;
-
             Json entry{ { "pass", gpuPass.Name }, { "cpuMs", Round3(findCpuMs(gpuPass.Name)) } };
             EmitSample(entry, "gpuMs", "gpuStatus", gpuPass.Sample);
             passes.push_back(std::move(entry));
@@ -356,7 +362,9 @@ namespace OloEngine::MCP::PassTimings
                   { "summedCpuPrepareMs", Round3(cpuPrepareMs) },
                   // ELAPSED. CPU blocked on the frame fence: the GPU is behind.
                   { "fenceWaitMs", Round3(totals.FenceWaitMs) },
-                  // ELAPSED. CPU blocked in SwapBuffers/vsync: display pacing.
+                  // ELAPSED. CPU inside SwapBuffers. Vsync on OpenGL; on Vulkan
+                  // it overlaps elapsedRecordingWallMs (the frame renders in
+                  // SwapBuffers), so it is not display pacing there.
                   { "presentWaitMs", Round3(totals.PresentWaitMs) },
                   // ELAPSED on the GPU timeline, or null when unmeasured.
                   { "gpuExecutionMs", totals.Gpu.IsValid() ? Json(Round3(totals.Gpu.GpuMs)) : Json(nullptr) },

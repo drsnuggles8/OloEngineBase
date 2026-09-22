@@ -173,9 +173,9 @@ namespace OloEngine
         // whenever the tier ran at all, because every hit in this slice is
         // untextured — it is a standing limitation, not an occasional one.
         bool HitsShadedUntextured = false;
-        // Masked geometry reflects as its full quad (no any-hit alpha test
-        // without the sampler heap), the same trade RayTracedShadowPass makes.
-        bool MaskedGeometryReflectsAsSolid = false;
+        // No MaskedGeometryReflectsAsSolid here (#1337). It was declared, never
+        // written, and no longer true: the tier requires the material shader
+        // heap and RayTracedReflection.glsl alpha-tests masked candidates.
 
         void Reset() noexcept
         {

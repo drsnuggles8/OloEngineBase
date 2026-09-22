@@ -200,9 +200,10 @@ namespace
         // The reporting surface, which is where the conflation was real and
         // where it was measured: a live Vulkan session reported gpuWaitMs
         // 17.515 against presentWaitMs 17.485 in a 17.906 ms frame — i.e.
-        // essentially all of that "GPU wait" was the display pacing the frame,
-        // not the GPU being behind. Before the split there was one number and
-        // no way to tell those apart.
+        // essentially none of that "GPU wait" was the fence. (On Vulkan the
+        // SwapBuffers span is the frame's own recording, #691, so it is not a
+        // vsync reading either; the split is what makes the fence half
+        // readable on its own.) Before the split there was one number.
         //
         // Deliberately NOT a bottleneck-verdict assertion. AnalyzeBottlenecks
         // reads the IN-PROGRESS frame, where a present wait can never appear:
@@ -227,6 +228,45 @@ namespace
             << "gpuWaitMs must stay the sum of its two halves, or the CSV and every MCP reply disagree";
         EXPECT_GT(completed.m_PresentWaitTime, completed.m_FenceWaitTime * 100.0)
             << "this frame is display-paced, and the split is what makes that legible";
+    }
+
+    TEST_F(RendererProfilerTimingTest, AStalledPoolsRepublishedFrameIsSampledOnce)
+    {
+        // While the GPU is behind, GPUPassTimerPool keeps publishing its last
+        // resolved frame with a growing age. RenderPipeline hands that to the
+        // profiler every frame; without the frame id the same measurement was
+        // sampled once per frame and the aggregate drifted toward whichever
+        // frame preceded the stall.
+        auto& profiler = OloEngine::RendererProfiler::GetInstance();
+        const auto frame = [&profiler](double gpuMs, u64 poolFrame)
+        {
+            profiler.BeginFrame();
+            profiler.SetFrameGpuSample(OloEngine::GpuTimingSample::Measured(gpuMs), poolFrame);
+            profiler.SetValue(OloEngine::RendererProfiler::MetricType::FrameTime, 16.0);
+            profiler.EndFrame();
+        };
+        frame(4.0, 10);
+        frame(4.0, 10); // the pool republished frame 10
+        frame(4.0, 10); // ... and again
+        frame(6.0, 11); // a new resolve
+
+        const auto& counter = profiler.GetCounter(OloEngine::RendererProfiler::MetricType::GPUTime);
+        EXPECT_EQ(counter.m_SampleCount, 2u) << "frame 10 was sampled once per republish";
+        EXPECT_NEAR(counter.m_Average, 5.0, 1e-9);
+    }
+
+    TEST_F(RendererProfilerTimingTest, AnUnknownFrameIdStillSamplesEveryMeasuredFrame)
+    {
+        // The dedupe keys on the pool frame id; a producer that does not carry
+        // one (frameId 0) must not have its second frame swallowed.
+        auto& profiler = OloEngine::RendererProfiler::GetInstance();
+        for (int i = 0; i < 3; ++i)
+        {
+            profiler.BeginFrame();
+            profiler.SetFrameGpuSample(OloEngine::GpuTimingSample::Measured(2.0));
+            profiler.EndFrame();
+        }
+        EXPECT_EQ(profiler.GetCounter(OloEngine::RendererProfiler::MetricType::GPUTime).m_SampleCount, 3u);
     }
 
 } // namespace

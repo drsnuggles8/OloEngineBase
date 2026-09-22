@@ -208,13 +208,15 @@ namespace OloEngine
             // ones, so they are true whenever the tier ran at all. Counted
             // instead of commented because neither is visible in a still frame.
             m_Stats.HitsShadedUntextured = true; // #805 — untextured material factors
-            // Written, finally. The field was declared beside the one above and
-            // documented as the same kind of standing limitation, the panel has
-            // a warning wired to it — and nothing ever set it, so the warning
-            // could not fire (#1337 criterion 3). Masked geometry does reflect
-            // as its full quad here: there is no any-hit alpha test without the
-            // sampler heap, exactly as RayTracedShadowPass trades it.
-            m_Stats.MaskedGeometryReflectsAsSolid = true;
+            // No "masked geometry reflects as solid" flag beside it. One was
+            // declared, never written, and by the time #1337 audited it the
+            // statement had stopped being true: this tier stands down unless
+            // the material shader heap is resolved (GPUSceneUnavailable above),
+            // and RayTracedReflection.glsl alpha-tests every candidate through
+            // oloHybridRayTracingProceed. Writing `true` would have shipped a
+            // panel warning about a limitation that no longer exists, so the
+            // field was deleted instead (criterion 3: remove or mark, never
+            // leave a plausible constant).
         }
 
         return m_Stats.RayQueryTierActive;

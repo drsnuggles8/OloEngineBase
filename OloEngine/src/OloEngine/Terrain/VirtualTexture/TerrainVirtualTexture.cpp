@@ -636,7 +636,18 @@ namespace OloEngine
         // A slot the GPU has not finished is simply left for a later frame.
         for (auto& slot : m_TimingSlots)
         {
-            if (!slot.m_Pending || !RenderCommand::IsQueryResultAvailable(slot.m_End))
+            if (!slot.m_Pending)
+            {
+                continue;
+            }
+            // A pair the backend refused to stamp is classified NOW, not once
+            // its end query is "available": on Vulkan a never-recorded query
+            // is never available, so gating on availability first would leave
+            // the slot pending forever and the NotStamped status unreachable
+            // (GPUPassTimerPool::TryResolveSlot retires its frame-end the same
+            // way). Only a fully stamped pair waits on the device.
+            const bool stamped = slot.m_BeginStamped && slot.m_EndStamped;
+            if (stamped && !RenderCommand::IsQueryResultAvailable(slot.m_End))
             {
                 continue;
             }

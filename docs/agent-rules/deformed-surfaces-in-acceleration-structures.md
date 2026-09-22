@@ -156,9 +156,10 @@ between them.
 
 ## 9. Do not add a counter you never write
 
-`RayTracing::FrameCounters` has `BlasBuildGpuNs` and `TlasBuildGpuNs`, both declared by #978, both
+`RayTracing::FrameCounters` had `BlasBuildGpuNs` and `TlasBuildGpuNs`, both declared by #978, both
 read by the Statistics panel, and **neither ever written**. They read zero forever, and the panel
-hides them behind `if (> 0)`, so nothing says so.
+hid them behind `if (> 0)`, so nothing said so. #1337 removed both and pointed their readers at the
+`AccelerationStructureBuild` sub-pass in `olo_perf_pass_timings`.
 
 So the deformation pass has no GPU-time field of its own: it brackets its dispatches with
 `GPUPassTimerPool::BeginSubPass("SkeletalDeformToBuffer")` and its cost arrives through the same

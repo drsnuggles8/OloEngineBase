@@ -125,7 +125,7 @@ The six, and what happened to each:
 |---|---|
 | `RayTracing::FrameCounters::BlasBuildGpuNs` / `TlasBuildGpuNs` | removed; consumers repointed at the `AccelerationStructureBuild` sub-pass, which does time it |
 | `RayTracing::FrameCounters::MaskedCandidatesAccepted` / `Rejected` | removed; never read either |
-| `ReflectionTierStats::MaskedGeometryReflectsAsSolid` | now written — the panel's warning had never fired |
+| `ReflectionTierStats::MaskedGeometryReflectsAsSolid` | removed. A first revision wrote `true`; review found the statement had stopped being true (the tier requires the material heap and the shader alpha-tests), so writing it would have shipped a false warning. "Never written" is not evidence the claim is still correct |
 | `RendererMemoryTracker::PoolStats` (struct + map) | removed; the panel computed its whole table locally |
 
 **When a counter has no producer, prefer deleting it over writing one.** A field that is always

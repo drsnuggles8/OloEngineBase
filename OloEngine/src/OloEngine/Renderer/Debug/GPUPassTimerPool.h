@@ -190,12 +190,13 @@ namespace OloEngine
         [[nodiscard]] FrameTimings GetLastFrameTimings() const;
 
         /// @brief Sum the valid top-level intervals of a pass list, excluding
-        /// sub-passes and naming what could not be added.
+        /// a sub-pass whose parent is present (its time is inside the parent's
+        /// bracket), counting an orphan sub-pass, and naming what could not
+        /// be added.
         ///
-        /// Free-standing and static so every consumer — the MCP shaping, the
-        /// benchmark export, the editor panels — totals a pass list the same
-        /// way instead of each writing its own loop. The three previous loops
-        /// differed in whether they excluded sub-passes.
+        /// Free-standing and static so every consumer totals a pass list the
+        /// same way: the MCP shaping (McpPassTimings.h) calls it rather than
+        /// keeping a loop of its own, and the evidence tests call it directly.
         [[nodiscard]] static PassTotal SumTopLevel(const std::vector<PassTiming>& passes);
 
         /// @brief Whole-frame GPU time of the most recently resolved frame, with

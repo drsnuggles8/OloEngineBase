@@ -5694,10 +5694,18 @@ namespace OloEngine::MCP
             // The millisecond value NEVER travels without its status (#1337):
             // "no sample resolved yet" and "the publish cost nothing" used to be
             // the same 0.0 here, and a caller had no way to tell them apart.
-            j["indirectionRebuildGpuMs"] = stats.m_IndirectionRebuild.RawMsForSerialization();
-            j["indirectionRebuildStatus"] = std::string(ToString(stats.m_IndirectionRebuild.Status));
-            j["indirectionDeltaGpuMs"] = stats.m_IndirectionDelta.RawMsForSerialization();
-            j["indirectionDeltaStatus"] = std::string(ToString(stats.m_IndirectionDelta.Status));
+            // Null, not 0.0, when there is no measurement — the same wire rule
+            // as every other GPU timing this tool surface publishes.
+            const auto emitSample = [&j](const char* msKey, const char* statusKey, const GpuTimingSample& s)
+            {
+                if (s.IsValid())
+                    j[msKey] = s.GpuMs;
+                else
+                    j[msKey] = nullptr;
+                j[statusKey] = std::string(ToString(s.Status));
+            };
+            emitSample("indirectionRebuildGpuMs", "indirectionRebuildStatus", stats.m_IndirectionRebuild);
+            emitSample("indirectionDeltaGpuMs", "indirectionDeltaStatus", stats.m_IndirectionDelta);
             j["sectorCount"] = stats.m_SectorCount;
             j["sectorsReady"] = stats.m_SectorsReady;
             j["imageResizesTotal"] = stats.m_ImageResizesTotal;
@@ -10123,8 +10131,10 @@ namespace OloEngine::MCP
                                                                                            .Prop("indirectionPublishes", Schema::Int().Min(0))
                                                                                            .Prop("indirectionFullRebuilds", Schema::Int().Min(0).Desc("Of the publishes, how many rebuilt the whole map."))
                                                                                            .Prop("framesUpdated", Schema::Int().Min(0).Desc("Frames Update() ran — the denominator for the publish counters."))
-                                                                                           .Prop("indirectionRebuildGpuMs", Schema::Number().Desc("LOWEST resolved sample since Configure(), not the latest; 0 until one resolves."))
-                                                                                           .Prop("indirectionDeltaGpuMs", Schema::Number().Desc("LOWEST resolved sample since Configure(), not the latest; 0 until one resolves."))
+                                                                                           .Prop("indirectionRebuildGpuMs", Schema::NullableNumber().Desc("LOWEST resolved sample since Configure(), not the latest; null until one resolves — see indirectionRebuildStatus."))
+                                                                                           .Prop("indirectionRebuildStatus", Schema::String())
+                                                                                           .Prop("indirectionDeltaGpuMs", Schema::NullableNumber().Desc("LOWEST resolved sample since Configure(), not the latest; null until one resolves — see indirectionDeltaStatus."))
+                                                                                           .Prop("indirectionDeltaStatus", Schema::String())
                                                                                            .Prop("sectorCount", Schema::Int().Min(0))
                                                                                            .Prop("sectorsReady", Schema::Int().Min(0).Desc("Sectors whose coarsest page is resident + published."))
                                                                                            .Prop("imageResizesTotal", Schema::Int().Min(0))

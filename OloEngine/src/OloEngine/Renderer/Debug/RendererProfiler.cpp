@@ -86,6 +86,16 @@ namespace OloEngine
 
         OLO_CORE_INFO("Renderer Profiler shutdown");
     }
+    const RendererProfiler::PerformanceCounter& RendererProfiler::GetCounter(MetricType type) const
+    {
+        // Declared for years, defined here for the first time: the #1337 tests
+        // read the GPUTime aggregate through it. A metric that has never been
+        // sampled reads as an empty counter rather than inserting one.
+        static const PerformanceCounter s_Empty{};
+        const auto it = m_Counters.find(type);
+        return it == m_Counters.end() ? s_Empty : it->second;
+    }
+
     void RendererProfiler::Reset()
     {
         OLO_PROFILE_FUNCTION();
@@ -271,9 +281,14 @@ namespace OloEngine
         // frames is what an honest trend line looks like, and the plot has no
         // way to draw "no data" (see the GPUTimeStatus column in the CSV
         // export for the per-frame truth).
-        if (m_CurrentFrame.m_GPUTimeStatus == GpuTimingStatus::Valid)
+        // And only ONCE per resolved frame: a stalled pool republishes its
+        // last measurement with a growing age (see SetFrameGpuSample).
+        const bool alreadySampled =
+            m_CurrentFrame.m_GPUTimeFrameId != 0 && m_CurrentFrame.m_GPUTimeFrameId == m_LastSampledGpuFrameId;
+        if (m_CurrentFrame.m_GPUTimeStatus == GpuTimingStatus::Valid && !alreadySampled)
         {
             m_Counters[MetricType::GPUTime].AddSample(m_CurrentFrame.m_GPUTime);
+            m_LastSampledGpuFrameId = m_CurrentFrame.m_GPUTimeFrameId;
         }
         m_Counters[MetricType::DrawCalls].AddSample(m_CurrentFrame.m_DrawCalls);
         m_Counters[MetricType::StateChanges].AddSample(m_CurrentFrame.m_StateChanges);
@@ -534,10 +549,10 @@ namespace OloEngine
                 ImGui::ProgressBar(gpuPercent / 100.0f, ImVec2(0.0f, 0.0f));
             }
 
-            // Fence waits and present waits say opposite things — the GPU is
-            // behind, versus the display is pacing you — so they are shown
-            // apart (#1337 criterion 2).
-            ImGui::Text("GPU wait: %.2f ms fence / %.2f ms present", m_CurrentFrame.m_FenceWaitTime,
+            // Fence waits and the SwapBuffers span are shown apart (#1337
+            // criterion 2). The fence half means the GPU is behind; the swap
+            // half is vsync on OpenGL and the frame's own render on Vulkan.
+            ImGui::Text("GPU wait: %.2f ms fence / %.2f ms swap", m_CurrentFrame.m_FenceWaitTime,
                         m_CurrentFrame.m_PresentWaitTime);
         }
 
@@ -875,7 +890,9 @@ namespace OloEngine
         //
         // The conflation IS real on the COMPLETED-frame surfaces, which is
         // where it was measured: olo_perf_snapshot reported gpuWaitMs 17.515
-        // against presentWaitMs 17.485 on a vsync-capped Vulkan frame. Those
+        // against presentWaitMs 17.485 on a Vulkan frame — and on Vulkan that
+        // span is the frame's own recording (#691), not vsync, which is one
+        // more reason the fence half is the only one a verdict may use. Those
         // read GetLastCompletedFrameData(), which is the patched one. Naming
         // the field here keeps this analysis correct if anyone ever folds the
         // present wait into the in-progress frame, and says which of the two
@@ -1237,6 +1254,7 @@ namespace OloEngine
         m_CPUTime = 0.0;
         m_GPUTime = 0.0;
         m_GPUTimeStatus = GpuTimingStatus::Unavailable;
+        m_GPUTimeFrameId = 0;
         m_FenceWaitTime = 0.0;
         m_PresentWaitTime = 0.0;
         m_DrawCalls = 0;

@@ -3,6 +3,8 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 
+#include <algorithm>
+
 namespace OloEngine
 {
     GPUPassTimerPool& GPUPassTimerPool::GetInstance()
@@ -426,11 +428,20 @@ namespace OloEngine
     GPUPassTimerPool::PassTotal GPUPassTimerPool::SumTopLevel(const std::vector<PassTiming>& passes)
     {
         PassTotal total;
+        const auto hasTopLevelParent = [&passes](const PassTiming& sub)
+        {
+            return std::ranges::any_of(passes, [&sub](const PassTiming& candidate)
+                                       { return !candidate.IsSubPass && candidate.Name == sub.ParentName; });
+        };
         for (const PassTiming& pass : passes)
         {
             // A sub-pass interval is INSIDE its parent's. Adding both is the
-            // double-count criterion 2 of #1337 forbids.
-            if (pass.IsSubPass)
+            // double-count criterion 2 of #1337 forbids. An ORPHAN sub-pass —
+            // flagged as nested but with no top-level entry of its parent's
+            // name in this list — has no bracket to be double-counted inside,
+            // so its measured time counts. The MCP shaping applies the same
+            // rule by calling this; the two must not drift apart again.
+            if (pass.IsSubPass && hasTopLevelParent(pass))
             {
                 ++total.ExcludedSubPasses;
                 continue;

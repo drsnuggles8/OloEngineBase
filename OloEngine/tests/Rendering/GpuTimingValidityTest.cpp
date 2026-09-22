@@ -620,3 +620,50 @@ TEST(GpuTimingValidity, GpuExecutionInTheBreakdownIsNullWhenUnmeasured)
     EXPECT_TRUE(json["recordingBreakdown"]["gpuExecutionMs"].is_null());
     EXPECT_EQ(json["recordingBreakdown"]["gpuExecutionStatus"].get<std::string>(), "notStamped");
 }
+
+// =============================================================================
+// 5. One summation rule. The MCP shaping totals through SumTopLevel, so the
+//    two cannot disagree about orphans or holes — they did once.
+// =============================================================================
+
+TEST(GpuTimingValidity, SumTopLevelCountsAnOrphanSubPass)
+{
+    // A sub-pass whose parent is NOT in the list has no enclosing bracket for
+    // its time to be double-counted inside, so it counts — the same rule the
+    // MCP shaping applied on its own before the two were unified.
+    const std::vector<GPUPassTimerPool::PassTiming> passes{
+        Pass("ScenePass/DepthPrepass", GpuTimingSample::Measured(0.5), true, "ScenePass"),
+        Pass("Bloom", GpuTimingSample::Measured(0.3)),
+    };
+
+    const GPUPassTimerPool::PassTotal total = GPUPassTimerPool::SumTopLevel(passes);
+
+    EXPECT_DOUBLE_EQ(total.GpuMs, 0.8);
+    EXPECT_EQ(total.ExcludedSubPasses, 0u) << "an orphan has no parent bracket to be excluded from";
+    EXPECT_EQ(total.ValidPasses, 2u);
+}
+
+TEST(GpuTimingValidity, TheMcpTotalIsTheSharedRuleNotALoopOfItsOwn)
+{
+    // Nested, orphaned, measured and unmeasured in one list. passGpuTotalMs
+    // and unmeasuredPasses must equal what SumTopLevel says about the same
+    // entries, or the MCP tool and the export are answering with two rules.
+    const std::vector<PT::GpuPassEntry> gpuPasses{
+        PT::GpuPassEntry{ "ScenePass", GpuTimingSample::Measured(2.0), false, {} },
+        PT::GpuPassEntry{ "ScenePass/Color", GpuTimingSample::Measured(1.2), true, "ScenePass" },
+        PT::GpuPassEntry{ "GTAOPass/HZB", GpuTimingSample::Measured(0.4), true, "GTAOPass" }, // orphan
+        PT::GpuPassEntry{ "Shadow", GpuTimingSample::Absent(GpuTimingStatus::Dropped), false, {} },
+    };
+    std::vector<GPUPassTimerPool::PassTiming> same;
+    for (const auto& e : gpuPasses)
+        same.push_back(Pass(e.Name, e.Sample, e.IsSubPass, e.ParentName));
+
+    const GPUPassTimerPool::PassTotal total = GPUPassTimerPool::SumTopLevel(same);
+    const auto json = PT::BuildPassTimings(gpuPasses, {}, ValidTotals(4.0));
+
+    EXPECT_DOUBLE_EQ(total.GpuMs, 2.4);
+    EXPECT_DOUBLE_EQ(json["passGpuTotalMs"].get<f64>(), total.GpuMs);
+    EXPECT_EQ(json["unmeasuredPasses"].get<u32>(), total.UnmeasuredPasses);
+    EXPECT_EQ(total.UnmeasuredPasses, 1u);
+    EXPECT_EQ(total.ExcludedSubPasses, 1u);
+}

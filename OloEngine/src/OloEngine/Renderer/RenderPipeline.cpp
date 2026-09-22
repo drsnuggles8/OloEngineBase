@@ -456,7 +456,7 @@ namespace OloEngine
         // as the fastest frame of the session rather than as a missing one.
         auto& gpuTimers = GPUPassTimerPool::GetInstance();
         gpuTimers.BeginFrame();
-        profiler.SetFrameGpuSample(gpuTimers.GetLastFrameGpuSample());
+        profiler.SetFrameGpuSample(gpuTimers.GetLastFrameGpuSample(), gpuTimers.GetLastResolvedFrameNumber());
 
         if (!FrameCorePasses.Scene)
         {
