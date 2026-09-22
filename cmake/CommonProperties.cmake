@@ -58,6 +58,23 @@ endfunction()
 # the compiler under an existing build tree is not supported here anyway (it
 # needs a fresh tree -- see docs/agent-rules/build-trees-and-windows-asan.md).
 function(olo_check_lto_support out_var out_output)
+    # RELEASE AND DIST MUST SHARE A LINKER, or there is no answer to give. One
+    # probe answers for both (see below), and concatenating two differing sets is
+    # not a valid probe -- `-fuse-ld=` is last-one-wins, so the answer would
+    # describe one configuration and be reported for both. Report NO instead.
+    # Checked ahead of the cache so an earlier cached YES cannot hide a later
+    # divergence, and never cached so the NO does not outlive a fix to the flags.
+    # olo_enable_lto() prints the reason through its "not supported" warning.
+    if(NOT MSVC AND NOT "${CMAKE_EXE_LINKER_FLAGS_RELEASE}" STREQUAL "${CMAKE_EXE_LINKER_FLAGS_DIST}")
+        string(CONCAT _olo_divergence
+            "CMAKE_EXE_LINKER_FLAGS_RELEASE ('${CMAKE_EXE_LINKER_FLAGS_RELEASE}') and "
+            "CMAKE_EXE_LINKER_FLAGS_DIST ('${CMAKE_EXE_LINKER_FLAGS_DIST}') differ, and a single "
+            "IPO/LTO probe cannot answer for both. Give them the same linker to enable LTO.")
+        set(${out_var} NO PARENT_SCOPE)
+        set(${out_output} "${_olo_divergence}" PARENT_SCOPE)
+        return()
+    endif()
+
     if(NOT DEFINED OLO_LTO_SUPPORTED)
         # GIVE THE PROBE THE SAME LINKER THE BUILD USES. check_ipo_supported()
         # configures and links its own generated `_CMakeLTOTest-<lang>` project,
@@ -106,20 +123,10 @@ function(olo_check_lto_support out_var out_output)
         # ONE probe still answers for both configurations, deliberately.
         # SetupConfigurations.cmake defines CMAKE_EXE_LINKER_FLAGS_DIST as a copy of
         # ..._RELEASE, so they are identical unless a configure line overrides them
-        # apart, and this probe is a full nested configure that the caching above
-        # exists to run exactly once. If they ever DO diverge, concatenating both is
-        # not a valid probe -- `-fuse-ld=` is last-one-wins, so a single answer would
-        # silently describe one configuration and be reported for both. Say so
-        # rather than cache a result we cannot stand behind.
+        # apart (handled at the top of this function), and this probe is a full
+        # nested configure that the caching above exists to run exactly once.
         if(NOT MSVC)
             set(_olo_probe_link_flags "${CMAKE_EXE_LINKER_FLAGS} ${CMAKE_EXE_LINKER_FLAGS_RELEASE}")
-            if(NOT "${CMAKE_EXE_LINKER_FLAGS_RELEASE}" STREQUAL "${CMAKE_EXE_LINKER_FLAGS_DIST}")
-                message(WARNING
-                    "CMAKE_EXE_LINKER_FLAGS_RELEASE ('${CMAKE_EXE_LINKER_FLAGS_RELEASE}') and "
-                    "CMAKE_EXE_LINKER_FLAGS_DIST ('${CMAKE_EXE_LINKER_FLAGS_DIST}') differ, but "
-                    "IPO/LTO is probed once. Probing with the Release set; the cached answer may "
-                    "not hold for Dist.")
-            endif()
             string(STRIP "${_olo_probe_link_flags}" _olo_probe_link_flags)
             if(_olo_probe_link_flags)
                 get_property(_olo_probe_langs GLOBAL PROPERTY ENABLED_LANGUAGES)
