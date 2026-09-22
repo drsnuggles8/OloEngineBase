@@ -180,13 +180,34 @@ namespace OloEngine
             const auto* dc = p->GetCommandData<DrawDecalCommand>();
             return dc && dc->transparent != 0;
         };
-        const auto replaySelected = [&](RendererAPI& api)
+        // `oitProgramOverride`, when valid, is installed on COPIES of the
+        // decal packets rather than on the queued ones (issue #1335). In the
+        // Deferred path ExecuteOnGBuffer has already replayed this bucket, so
+        // its packets are frozen; the copies start out in preparation, get
+        // the override, and are frozen by the replay below. The per-draw cost
+        // is one packet copy for each transparent decal, on the OIT path only.
+        const auto replaySelected = [&](RendererAPI& api, RHI::ResourceHandle oitProgramOverride = {})
         {
-            std::vector<CommandPacket*> selected;
+            std::vector<const CommandPacket*> selected;
             selected.reserve(m_CommandBucket.GetCommandCount());
-            for (auto* packet : m_CommandBucket.GetPackets())
-                if (shouldDrawHere(packet))
-                    selected.push_back(packet);
+            for (const CommandPacket* packet : m_CommandBucket.GetPackets())
+            {
+                if (!shouldDrawHere(packet))
+                    continue;
+                if (oitProgramOverride.IsValid() && packet->GetCommandType() == CommandType::DrawDecal)
+                {
+                    CommandPacket* variant = packet->Clone(*m_Allocator);
+                    if (!variant)
+                    {
+                        OLO_CORE_ERROR("DecalRenderPass: could not copy a decal packet for the OIT variant; the decal is skipped this frame");
+                        continue;
+                    }
+                    variant->GetCommandData<DrawDecalCommand>()->oitProgramOverride = oitProgramOverride;
+                    selected.push_back(variant);
+                    continue;
+                }
+                selected.push_back(packet);
+            }
             (void)CommandBucket::RecordPackets(api, selected, m_CommandBucket.GetViewState());
         };
 
@@ -244,18 +265,11 @@ namespace OloEngine
             RenderCommand::SetBlendFuncForAttachment(0, RHI::BlendFactor::One, RHI::BlendFactor::One);
             RenderCommand::SetBlendFuncForAttachment(1, RHI::BlendFactor::Zero, RHI::BlendFactor::OneMinusSrcColor);
 
-            // Install Decal_OIT program override directly on each queued
-            // DrawDecalCommand packet. Keeping the override on the command
-            // (instead of a global on CommandDispatch) preserves the
-            // stateless, replay-safe contract of the bucket.
+            // The Decal_OIT program override rides on the command (instead of
+            // a global on CommandDispatch), which keeps the dispatcher
+            // stateless and the replay safe. replaySelected installs it on
+            // copies, because the queued packets may already be frozen.
             const RHI::ResourceHandle decalOITProgram = m_OITShader->GetRHIHandle();
-            for (CommandPacket* packet : m_CommandBucket.GetPackets())
-            {
-                if (!packet || packet->GetCommandType() != CommandType::DrawDecal)
-                    continue;
-                if (auto* cmd = packet->GetCommandData<DrawDecalCommand>())
-                    cmd->oitProgramOverride = decalOITProgram;
-            }
 
             // Bind scene depth (for decal projection) — the OIT variant needs
             // the same `u_SceneDepth` at TEX_POSTPROCESS_DEPTH that the
@@ -273,7 +287,7 @@ namespace OloEngine
             if (capturing)
                 captureManager.OnPostSort(m_CommandBucket);
             auto& rendererAPI = RenderCommand::GetRendererAPI();
-            replaySelected(rendererAPI);
+            replaySelected(rendererAPI, decalOITProgram);
 
             // Withdraw the per-attachment opinions this path stated — see
             // issue #896: `false` is a standing DISABLE, not a restore.
@@ -383,6 +397,11 @@ namespace OloEngine
         HeapBinding::FlushOffsets();
 
         m_CommandBucket.SortCommands();
+        // This pass replays through its own per-packet loop below rather than
+        // RecordPackets, so it freezes the bucket and brackets the loop itself
+        // (issue #1335). Execute() later replays the transparent remainder of
+        // the same, now frozen, bucket.
+        m_CommandBucket.Freeze();
 
         auto& rendererAPI = RenderCommand::GetRendererAPI();
 
@@ -412,9 +431,9 @@ namespace OloEngine
         const std::array<u32, kGBufferCount> fullDrawBufs = { 0, 1, 2, 3, 4, 5 };
 
         bool anyTransparentQueued = false;
-        std::vector<CommandPacket*> opaquePackets;
+        std::vector<const CommandPacket*> opaquePackets;
         opaquePackets.reserve(m_CommandBucket.GetCommandCount());
-        for (auto* packet : m_CommandBucket.GetPackets())
+        for (const CommandPacket* packet : m_CommandBucket.GetPackets())
         {
             if (!packet)
                 continue;
@@ -429,7 +448,8 @@ namespace OloEngine
         // routing and channel masks, preserving sorted blend order.
         RenderCommand::SetFramebufferDrawAttachments(gbufferID, fullDrawBufs);
         const auto plan = CommandBucket::PlanParallelReplay(opaquePackets);
-        RenderCommand::RecordParallel(opaquePackets.empty() ? 0u : plan.ItemCount, [&](u32 item)
+        const bool replayable = CommandBucket::BeginReplay(opaquePackets);
+        RenderCommand::RecordParallel(opaquePackets.empty() || !replayable ? 0u : plan.ItemCount, [&](u32 item)
                                       {
                                           using DecalMode = DrawDecalCommand::DecalMode;
                                           // Sentinel outside the valid enumerator range — forces the first
@@ -511,6 +531,7 @@ namespace OloEngine
 
                                               packet->Execute(rendererAPI);
                                           } }, plan.InstanceCapacity);
+        CommandBucket::EndReplay(opaquePackets);
 
         RenderCommand::SetDepthMask(true);
         RenderCommand::SetBlendState(false);

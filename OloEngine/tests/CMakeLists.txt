@@ -401,6 +401,9 @@ add_executable(OloEngine-Tests
 		Rendering/CommandPacketTest.cpp
 		Rendering/CommandAllocatorTest.cpp
 		Rendering/CommandBucketTest.cpp
+		Rendering/CommandLifecycleCostTest.cpp
+		Rendering/CommandLifecycleTest.cpp
+		Rendering/CommandLifecycleCheck.cpp
 		Rendering/CommandDispatchRecordingTest.cpp
 		Rendering/RenderGraphParallelRecordingTest.cpp
 		Rendering/PODRenderStateChannelMaskTest.cpp

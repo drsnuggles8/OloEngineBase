@@ -192,6 +192,8 @@ namespace OloEngine
         CommandPacket* Submit(const T& commandData, const PacketMetadata& metadata = {}, CommandAllocator* allocator = nullptr)
         {
             TUniqueLock<FMutex> lock(m_Mutex);
+            if (RefuseIfFrozen("CommandBucket::Submit"))
+                return nullptr;
 
             CommandAllocator* alloc = allocator ? allocator : m_Allocator;
             OLO_CORE_ASSERT(alloc, "CommandBucket::Submit: No allocator available (neither passed nor set on bucket)!");
@@ -218,6 +220,21 @@ namespace OloEngine
             if (!packet)
                 return nullptr;
             return reinterpret_cast<T*>(packet->template GetCommandData<T>());
+        }
+
+        // ——— Lifecycle (issue #1335, see CommandLifecycle.h) ———
+        //
+        // Freeze the bucket for replay: its order and every packet's bytes
+        // become final, and the frame's FrameDataBuffer publishes what has
+        // been allocated so far. Idempotent. Every replay entry point below
+        // calls it, so an explicit call is only needed to freeze early.
+        // After it, Submit / AddCommand / SubmitPacket(Parallel) / Sort /
+        // Batch / RemapBoneOffsets / Merge report a violation and do nothing;
+        // Clear() and Reset() retire the bucket back to preparation.
+        void Freeze();
+        [[nodiscard]] bool IsFrozen() const
+        {
+            return m_Lifecycle == Lifecycle::Frozen;
         }
 
         // Sort commands for optimal rendering (minimizes state changes)
@@ -267,16 +284,40 @@ namespace OloEngine
 
         // Immutable replay for an already prepared range. Concurrent replays of
         // this bucket keep statistics in their callers, never in the bucket.
+        // The bucket must already be frozen; an unfrozen one is reported and
+        // not replayed, because this entry point is const and cannot freeze it.
         [[nodiscard]] Statistics ReplayRange(RendererAPI& rendererAPI, sizet begin, sizet end) const;
         struct ParallelReplayPlan
         {
             u32 ItemCount = 1;
             u32 InstanceCapacity = 1;
         };
-        [[nodiscard]] static ParallelReplayPlan PlanParallelReplay(std::span<CommandPacket* const> packets,
+        [[nodiscard]] static ParallelReplayPlan PlanParallelReplay(std::span<const CommandPacket* const> packets,
                                                                    u32 minCommandsPerItem = 32u);
-        [[nodiscard]] static Statistics RecordPackets(RendererAPI& rendererAPI, std::span<CommandPacket* const> packets,
+        // Replays a span of packets, in parallel where the backend and the
+        // packets allow. A loose span has no bucket to freeze it, so this
+        // freezes every packet in it first (the packet-level half of the
+        // lifecycle) and, with validation on, checks every already-frozen one
+        // against its digest before any worker starts and again after they
+        // all finish. A packet that changed before the replay makes the call
+        // return without replaying anything.
+        [[nodiscard]] static Statistics RecordPackets(RendererAPI& rendererAPI, std::span<const CommandPacket* const> packets,
                                                       const std::optional<BucketViewState>& view = {}, u32 minCommandsPerItem = 32u);
+
+        // The bracket every replay goes through. RecordPackets and the Execute
+        // family call it themselves; a pass that walks packets with its own
+        // loop (DecalRenderPass::ExecuteOnGBuffer) must call it around that loop.
+        //
+        // BeginReplay publishes the frame's FrameDataBuffer payloads, freezes
+        // every unfrozen packet in `packets` and, with validation on, checks
+        // every already-frozen one against its digest. False if any failed
+        // that check: the caller must then replay nothing. Call it on the
+        // thread that will hand the packets to workers, before it does.
+        [[nodiscard]] static bool BeginReplay(std::span<const CommandPacket* const> packets);
+        // With validation on, reports every packet whose bytes moved while
+        // the replay that just finished was reading them. Call it after every
+        // worker has finished.
+        static void EndReplay(std::span<const CommandPacket* const> packets);
 
         // Get execution statistics
         Statistics GetStatistics() const
@@ -308,12 +349,16 @@ namespace OloEngine
             return m_CommandCount;
         }
 
-        // Debugging/analysis methods to access commands
-        std::span<CommandPacket* const> GetSortedCommands() const
+        // The bucket's packets, in replay order. A CONST view: this is what
+        // passes, captures and diagnostics read, and a packet that has been
+        // frozen for replay must not be edited through it. Preparation
+        // happens through the bucket's own operations, or on the packet the
+        // producer got back from Submit / CreateDrawCall before it froze.
+        std::span<const CommandPacket* const> GetSortedCommands() const
         {
-            return { m_Packets.GetData(), static_cast<sizet>(m_Packets.Num()) };
+            return GetPackets();
         }
-        std::span<CommandPacket* const> GetPackets() const
+        std::span<const CommandPacket* const> GetPackets() const
         {
             return { m_Packets.GetData(), static_cast<sizet>(m_Packets.Num()) };
         }
@@ -338,6 +383,8 @@ namespace OloEngine
         {
             OLO_CORE_ASSERT(packet, "CommandBucket::SubmitPacket: Null packet!");
             TUniqueLock<FMutex> lock(m_Mutex);
+            if (RefuseIfFrozen("CommandBucket::SubmitPacket"))
+                return;
 
             m_Keys.Add(packet->GetMetadata().m_SortKey.GetKey());
             m_Packets.Add(packet);
@@ -427,9 +474,31 @@ namespace OloEngine
         {
             s_ParallelReplayClassifier = classifier;
         }
+        [[nodiscard]] static ParallelReplayClassifier GetParallelReplayClassifier()
+        {
+            return s_ParallelReplayClassifier;
+        }
 
       private:
-        [[nodiscard]] static Statistics ReplayPackets(RendererAPI& rendererAPI, std::span<CommandPacket* const> packets,
+        enum class Lifecycle : u8
+        {
+            Preparing,
+            Frozen
+        };
+
+        // True, after reporting, when the bucket is frozen: the caller must
+        // then leave the bucket untouched. One well-predicted branch on the
+        // submission path.
+        [[nodiscard]] bool RefuseIfFrozen(const char* where) const
+        {
+            if (m_Lifecycle != Lifecycle::Frozen) [[likely]]
+                return false;
+            ReportMutationAfterFreeze(where);
+            return true;
+        }
+        static void ReportMutationAfterFreeze(const char* where);
+
+        [[nodiscard]] static Statistics ReplayPackets(RendererAPI& rendererAPI, std::span<const CommandPacket* const> packets,
                                                       const std::optional<BucketViewState>& view);
         static inline ViewStateReadFn s_ViewStateReader = nullptr;
         static inline ViewStateWriteFn s_ViewStateWriter = nullptr;
@@ -539,6 +608,7 @@ namespace OloEngine
         // Flags for bucket state
         bool m_IsSorted = false;
         bool m_IsBatched = false;
+        Lifecycle m_Lifecycle = Lifecycle::Preparing;
 
         // Statistics
         Statistics m_Stats;

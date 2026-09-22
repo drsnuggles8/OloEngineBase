@@ -341,11 +341,13 @@ namespace OloEngine
           m_Config(other.m_Config),
           m_IsSorted(other.m_IsSorted),
           m_IsBatched(other.m_IsBatched),
+          m_Lifecycle(other.m_Lifecycle),
           m_Stats(other.m_Stats)
     {
         other.m_CommandCount = 0;
         other.m_IsSorted = false;
         other.m_IsBatched = false;
+        other.m_Lifecycle = Lifecycle::Preparing;
         other.m_Stats = Statistics();
     }
 
@@ -359,11 +361,13 @@ namespace OloEngine
             m_Config = other.m_Config;
             m_IsSorted = other.m_IsSorted;
             m_IsBatched = other.m_IsBatched;
+            m_Lifecycle = other.m_Lifecycle;
             m_Stats = other.m_Stats;
 
             other.m_CommandCount = 0;
             other.m_IsSorted = false;
             other.m_IsBatched = false;
+            other.m_Lifecycle = Lifecycle::Preparing;
             other.m_Stats = Statistics();
         }
         return *this;
@@ -377,6 +381,8 @@ namespace OloEngine
             return;
 
         TUniqueLock<FMutex> lock(m_Mutex);
+        if (RefuseIfFrozen("CommandBucket::AddCommand"))
+            return;
 
         m_Keys.Add(packet->GetMetadata().m_SortKey.GetKey());
         m_Packets.Add(packet);
@@ -394,7 +400,95 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         TUniqueLock<FMutex> lock(m_Mutex);
+        if (m_Lifecycle == Lifecycle::Frozen)
+        {
+            // Asking a frozen, already-ordered bucket to sort is how a pass
+            // that replays a bucket more than once says "make sure it is
+            // sorted" (DecalRenderPass does, after ExecuteOnGBuffer). That is
+            // a no-op, not an edit. Reordering a frozen bucket is.
+            if (m_Config.EnableSorting && !m_IsSorted && m_CommandCount > 1)
+                ReportMutationAfterFreeze("CommandBucket::SortCommands");
+            return;
+        }
         SortCommandsInternal();
+    }
+
+    void CommandBucket::ReportMutationAfterFreeze(const char* where)
+    {
+        CommandLifecycle::ReportViolation(CommandLifecycle::Violation::BucketMutatedAfterFreeze, where);
+    }
+
+    namespace
+    {
+        // Every range the frame has allocated so far becomes read-only: the
+        // packets about to replay may reference any of it. Appends stay legal.
+        void PublishFramePayloadsForReplay()
+        {
+            if (FrameDataBufferManager::IsInitialized())
+                FrameDataBufferManager::Get().PublishForReplay();
+        }
+    } // namespace
+
+    void CommandBucket::Freeze()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        TUniqueLock<FMutex> lock(m_Mutex);
+        if (m_Lifecycle == Lifecycle::Frozen)
+            return;
+
+        // Workers may still be writing packets into m_ParallelCommands, none
+        // of which are in m_Packets yet: this replay would silently miss them,
+        // and the merge that follows will be refused.
+        if (m_ParallelSubmissionActive)
+            ReportMutationAfterFreeze("CommandBucket::Freeze (parallel submission still open)");
+
+        const bool recordDigests = CommandLifecycle::IsValidationEnabled();
+        for (const CommandPacket* packet : m_Packets)
+        {
+            if (packet)
+                packet->Freeze(recordDigests);
+        }
+        PublishFramePayloadsForReplay();
+        m_Lifecycle = Lifecycle::Frozen;
+    }
+
+    bool CommandBucket::BeginReplay(std::span<const CommandPacket* const> packets)
+    {
+        PublishFramePayloadsForReplay();
+        const bool validate = CommandLifecycle::IsValidationEnabled();
+        bool intact = true;
+        for (const CommandPacket* packet : packets)
+        {
+            if (!packet)
+                continue;
+            if (!packet->IsFrozen())
+            {
+                packet->Freeze(validate);
+                continue;
+            }
+            if (validate && !packet->MatchesFrozenContent())
+            {
+                CommandLifecycle::ReportViolation(CommandLifecycle::Violation::PacketChangedAfterFreeze,
+                                                  "CommandBucket replay (checked before the first worker started)");
+                intact = false;
+            }
+        }
+        return intact;
+    }
+
+    void CommandBucket::EndReplay(std::span<const CommandPacket* const> packets)
+    {
+        if (!CommandLifecycle::IsValidationEnabled())
+            return;
+        for (const CommandPacket* packet : packets)
+        {
+            if (packet && !packet->MatchesFrozenContent())
+            {
+                CommandLifecycle::ReportViolation(CommandLifecycle::Violation::PacketChangedDuringReplay,
+                                                  "CommandBucket replay (checked after every worker finished)");
+            }
+        }
     }
 
     void CommandBucket::SortCommandsInternal()
@@ -658,6 +752,11 @@ namespace OloEngine
         TUniqueLock<FMutex> lock(m_Mutex);
 
         if (!m_Config.EnableBatching || m_IsBatched || m_CommandCount <= 1)
+        {
+            m_LastBatchTimeMs = 0.0;
+            return;
+        }
+        if (RefuseIfFrozen("CommandBucket::BatchCommands"))
         {
             m_LastBatchTimeMs = 0.0;
             return;
@@ -1044,10 +1143,15 @@ namespace OloEngine
     CommandBucket::Statistics CommandBucket::ReplayRange(RendererAPI& rendererAPI, sizet begin, sizet end) const
     {
         OLO_CORE_ASSERT(begin <= end && end <= static_cast<sizet>(m_Packets.Num()), "Invalid replay range");
-        return ReplayPackets(rendererAPI, std::span<CommandPacket* const>(m_Packets.GetData(), static_cast<sizet>(m_Packets.Num())).subspan(begin, end - begin), m_ViewState);
+        if (m_Lifecycle != Lifecycle::Frozen)
+        {
+            CommandLifecycle::ReportViolation(CommandLifecycle::Violation::ReplayOfUnfrozenBucket, "CommandBucket::ReplayRange");
+            return {};
+        }
+        return ReplayPackets(rendererAPI, GetPackets().subspan(begin, end - begin), m_ViewState);
     }
 
-    CommandBucket::Statistics CommandBucket::ReplayPackets(RendererAPI& rendererAPI, std::span<CommandPacket* const> packets, const std::optional<BucketViewState>& view)
+    CommandBucket::Statistics CommandBucket::ReplayPackets(RendererAPI& rendererAPI, std::span<const CommandPacket* const> packets, const std::optional<BucketViewState>& view)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -1111,13 +1215,19 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         const auto start = std::chrono::steady_clock::now();
-        const auto stats = ReplayRange(rendererAPI, 0, static_cast<sizet>(m_Packets.Num()));
+        Freeze();
+        Statistics stats;
+        if (BeginReplay(GetPackets()))
+        {
+            stats = ReplayRange(rendererAPI, 0, static_cast<sizet>(m_Packets.Num()));
+            EndReplay(GetPackets());
+        }
         m_Stats.DrawCalls = stats.DrawCalls;
         m_Stats.StateChanges = stats.StateChanges;
         m_LastExecuteTimeMs = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - start).count();
     }
 
-    CommandBucket::ParallelReplayPlan CommandBucket::PlanParallelReplay(std::span<CommandPacket* const> packets, u32 minCommandsPerItem)
+    CommandBucket::ParallelReplayPlan CommandBucket::PlanParallelReplay(std::span<const CommandPacket* const> packets, u32 minCommandsPerItem)
     {
         ParallelReplayPlan plan;
         if (!s_ParallelReplayClassifier)
@@ -1137,10 +1247,14 @@ namespace OloEngine
         return plan;
     }
 
-    CommandBucket::Statistics CommandBucket::RecordPackets(RendererAPI& rendererAPI, std::span<CommandPacket* const> packets,
+    CommandBucket::Statistics CommandBucket::RecordPackets(RendererAPI& rendererAPI, std::span<const CommandPacket* const> packets,
                                                            const std::optional<BucketViewState>& view, u32 minCommandsPerItem)
     {
         if (packets.empty())
+            return {};
+        // Freeze and check on the calling thread, BEFORE RecordParallel hands
+        // the span to workers: after this point a write is a race, not an edit.
+        if (!BeginReplay(packets))
             return {};
         const auto plan = PlanParallelReplay(packets, minCommandsPerItem);
         std::array<Statistics, MAX_RENDER_WORKERS> results;
@@ -1149,6 +1263,7 @@ namespace OloEngine
             const sizet begin = packets.size() * item / plan.ItemCount;
             const sizet end = packets.size() * (item + 1u) / plan.ItemCount;
             results[item] = ReplayPackets(rendererAPI, packets.subspan(begin, end - begin), view); }, plan.InstanceCapacity);
+        EndReplay(packets);
         Statistics stats;
         for (u32 item = 0; item < plan.ItemCount; ++item)
         {
@@ -1162,6 +1277,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         const auto start = std::chrono::steady_clock::now();
+        Freeze();
         const auto stats = RecordPackets(rendererAPI, GetPackets(), m_ViewState, minCommandsPerItem);
         m_Stats.DrawCalls = stats.DrawCalls;
         m_Stats.StateChanges = stats.StateChanges;
@@ -1193,6 +1309,15 @@ namespace OloEngine
         m_Stats.DrawCalls = 0;
         m_Stats.StateChanges = 0;
 
+        Freeze();
+        const std::span<const CommandPacket* const> packets = GetPackets();
+        if (!BeginReplay(packets))
+        {
+            gpuTimer.EndFrame();
+            m_LastExecuteTimeMs = 0.0;
+            return;
+        }
+
         // Bind per-bucket view state if set
         BucketViewState savedState;
         bool restoreState = false;
@@ -1204,7 +1329,7 @@ namespace OloEngine
         }
 
         u32 cmdIndex = 0;
-        for (const auto* packet : m_Packets)
+        for (const CommandPacket* packet : packets)
         {
             if (!packet)
                 continue;
@@ -1255,6 +1380,7 @@ namespace OloEngine
             s_ViewStateWriter(savedState);
         }
 
+        EndReplay(packets);
         gpuTimer.EndFrame();
 
         auto execEnd = std::chrono::high_resolution_clock::now();
@@ -1282,6 +1408,10 @@ namespace OloEngine
 
         m_IsSorted = false;
         m_IsBatched = false;
+
+        // Retire: the packets are dropped and their memory goes back with the
+        // allocator's next reset, so the bucket prepares a new frame.
+        m_Lifecycle = Lifecycle::Preparing;
     }
 
     // ========================================================================
@@ -1293,6 +1423,8 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         TUniqueLock<FMutex> lock(m_Mutex);
+        if (RefuseIfFrozen("CommandBucket::PrepareForParallelSubmission"))
+            return;
 
         // Reset parallel command array with sufficient capacity
         m_ParallelCommands.Reset();
@@ -1360,6 +1492,8 @@ namespace OloEngine
                         "CommandBucket::SubmitPacketParallel: Invalid worker index {}!", workerIndex);
         OLO_CORE_ASSERT(m_ParallelSubmissionActive,
                         "CommandBucket::SubmitPacketParallel: Not in parallel submission mode!");
+        if (RefuseIfFrozen("CommandBucket::SubmitPacketParallel"))
+            return;
 
         TLSBucketSlot& slot = m_TLSSlots[workerIndex];
 
@@ -1388,6 +1522,8 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         TUniqueLock<FMutex> lock(m_Mutex);
+        if (RefuseIfFrozen("CommandBucket::MergeThreadLocalCommands"))
+            return;
 
         if (!m_ParallelSubmissionActive)
         {
@@ -1536,6 +1672,10 @@ namespace OloEngine
     void CommandBucket::RemapBoneOffsets(FrameDataBuffer& frameDataBuffer)
     {
         OLO_PROFILE_FUNCTION();
+
+        TUniqueLock<FMutex> lock(m_Mutex);
+        if (RefuseIfFrozen("CommandBucket::RemapBoneOffsets"))
+            return;
 
         u32 remappedCount = 0;
 

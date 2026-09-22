@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "FrameDataBuffer.h"
 #include "OloEngine/Threading/UniqueLock.h"
+#include "OloEngine/Renderer/Commands/CommandLifecycle.h"
 
 #include <cstring>
 
@@ -30,31 +31,37 @@ namespace OloEngine
         {
             TUniqueLock<FMutex> boneLock(m_BoneMutex);
             m_BoneMatrixOffset = 0;
+            m_PublishedBoneMatrices = 0;
             m_BoneOverflowLogged = false;
         }
         {
             TUniqueLock<FMutex> transformLock(m_TransformMutex);
             m_TransformOffset = 0;
+            m_PublishedTransforms = 0;
             m_TransformOverflowLogged = false;
         }
         {
             TUniqueLock<FMutex> entityIDLock(m_EntityIDMutex);
             m_EntityIDOffset = 0;
+            m_PublishedEntityIDs = 0;
             m_EntityIDOverflowLogged = false;
         }
         {
             TUniqueLock<FMutex> colorLock(m_ColorMutex);
             m_ColorOffset = 0;
+            m_PublishedColors = 0;
             m_ColorOverflowLogged = false;
         }
         {
             TUniqueLock<FMutex> customLock(m_CustomMutex);
             m_CustomOffset = 0;
+            m_PublishedCustoms = 0;
             m_CustomOverflowLogged = false;
         }
         {
             TUniqueLock<FMutex> gpuSceneRefLock(m_GPUSceneRefMutex);
             m_GPUSceneRefOffset = 0;
+            m_PublishedGPUSceneRefs = 0;
             m_GPUSceneRefOverflowLogged = false;
         }
 
@@ -80,6 +87,49 @@ namespace OloEngine
         {
             scratch.Reset();
         }
+    }
+
+    void FrameDataBuffer::PublishForReplay()
+    {
+        // Each watermark is moved under its stream's own lock, the same lock
+        // every Allocate and Write of that stream takes, so a write racing
+        // this call is either entirely before the watermark moved (legal) or
+        // is checked against the new one.
+        {
+            TUniqueLock<FMutex> lock(m_BoneMutex);
+            m_PublishedBoneMatrices = m_BoneMatrixOffset;
+        }
+        {
+            TUniqueLock<FMutex> lock(m_TransformMutex);
+            m_PublishedTransforms = m_TransformOffset;
+        }
+        {
+            TUniqueLock<FMutex> lock(m_EntityIDMutex);
+            m_PublishedEntityIDs = m_EntityIDOffset;
+        }
+        {
+            TUniqueLock<FMutex> lock(m_ColorMutex);
+            m_PublishedColors = m_ColorOffset;
+        }
+        {
+            TUniqueLock<FMutex> lock(m_CustomMutex);
+            m_PublishedCustoms = m_CustomOffset;
+        }
+        {
+            TUniqueLock<FMutex> lock(m_GPUSceneRefMutex);
+            m_PublishedGPUSceneRefs = m_GPUSceneRefOffset;
+        }
+    }
+
+    bool FrameDataBuffer::RefusePublishedWrite(u32 offset, u32 published, const char* where)
+    {
+        // Allocations are bump-only, so everything below the watermark was
+        // handed out before the replay that published it, and a packet in that
+        // replay may be reading it. Everything at or above it is new.
+        if (offset >= published) [[likely]]
+            return false;
+        CommandLifecycle::ReportViolation(CommandLifecycle::Violation::PayloadWrittenAfterPublish, where);
+        return true;
     }
 
     u32 FrameDataBuffer::AllocateBoneMatrices(u32 count)
@@ -134,17 +184,6 @@ namespace OloEngine
         return offset;
     }
 
-    glm::mat4* FrameDataBuffer::GetBoneMatrixPtr(u32 offset)
-    {
-        TUniqueLock<FMutex> lock(m_BoneMutex);
-        if (offset >= static_cast<sizet>(m_BoneMatrices.Num()))
-        {
-            OLO_CORE_ERROR("FrameDataBuffer: Invalid bone matrix offset {}", offset);
-            return nullptr;
-        }
-        return &m_BoneMatrices[offset];
-    }
-
     const glm::mat4* FrameDataBuffer::GetBoneMatrixPtr(u32 offset) const
     {
         TUniqueLock<FMutex> lock(m_BoneMutex);
@@ -170,17 +209,6 @@ namespace OloEngine
         return &m_BoneMatrices[offset];
     }
 
-    glm::mat4* FrameDataBuffer::GetTransformPtr(u32 offset)
-    {
-        TUniqueLock<FMutex> lock(m_TransformMutex);
-        if (offset >= static_cast<sizet>(m_Transforms.Num()))
-        {
-            OLO_CORE_ERROR("FrameDataBuffer: Invalid transform offset {}", offset);
-            return nullptr;
-        }
-        return &m_Transforms[offset];
-    }
-
     const glm::mat4* FrameDataBuffer::GetTransformPtr(u32 offset) const
     {
         TUniqueLock<FMutex> lock(m_TransformMutex);
@@ -195,6 +223,8 @@ namespace OloEngine
     void FrameDataBuffer::WriteBoneMatrices(u32 offset, const glm::mat4* data, u32 count)
     {
         TUniqueLock<FMutex> lock(m_BoneMutex);
+        if (RefusePublishedWrite(offset, m_PublishedBoneMatrices, "FrameDataBuffer::WriteBoneMatrices"))
+            return;
         if (offset + count > static_cast<sizet>(m_BoneMatrices.Num()))
         {
             OLO_CORE_ERROR("FrameDataBuffer: WriteBoneMatrices out of bounds: offset={}, count={}, capacity={}",
@@ -207,6 +237,8 @@ namespace OloEngine
     void FrameDataBuffer::WriteTransforms(u32 offset, const glm::mat4* data, u32 count)
     {
         TUniqueLock<FMutex> lock(m_TransformMutex);
+        if (RefusePublishedWrite(offset, m_PublishedTransforms, "FrameDataBuffer::WriteTransforms"))
+            return;
         if (offset + count > static_cast<sizet>(m_Transforms.Num()))
         {
             OLO_CORE_ERROR("FrameDataBuffer: WriteTransforms out of bounds: offset={}, count={}, capacity={}",
@@ -237,14 +269,6 @@ namespace OloEngine
         return offset;
     }
 
-    i32* FrameDataBuffer::GetEntityIDPtr(u32 offset)
-    {
-        TUniqueLock<FMutex> lock(m_EntityIDMutex);
-        if (offset >= static_cast<sizet>(m_EntityIDs.Num()))
-            return nullptr;
-        return &m_EntityIDs[offset];
-    }
-
     const i32* FrameDataBuffer::GetEntityIDPtr(u32 offset) const
     {
         TUniqueLock<FMutex> lock(m_EntityIDMutex);
@@ -256,6 +280,8 @@ namespace OloEngine
     void FrameDataBuffer::WriteEntityIDs(u32 offset, const i32* data, u32 count)
     {
         TUniqueLock<FMutex> lock(m_EntityIDMutex);
+        if (RefusePublishedWrite(offset, m_PublishedEntityIDs, "FrameDataBuffer::WriteEntityIDs"))
+            return;
         if (offset + count > static_cast<sizet>(m_EntityIDs.Num()))
         {
             OLO_CORE_ERROR("FrameDataBuffer: WriteEntityIDs out of bounds: offset={}, count={}, capacity={}",
@@ -286,14 +312,6 @@ namespace OloEngine
         return offset;
     }
 
-    glm::vec4* FrameDataBuffer::GetColorPtr(u32 offset)
-    {
-        TUniqueLock<FMutex> lock(m_ColorMutex);
-        if (offset >= static_cast<sizet>(m_Colors.Num()))
-            return nullptr;
-        return &m_Colors[offset];
-    }
-
     const glm::vec4* FrameDataBuffer::GetColorPtr(u32 offset) const
     {
         TUniqueLock<FMutex> lock(m_ColorMutex);
@@ -305,6 +323,8 @@ namespace OloEngine
     void FrameDataBuffer::WriteColors(u32 offset, const glm::vec4* data, u32 count)
     {
         TUniqueLock<FMutex> lock(m_ColorMutex);
+        if (RefusePublishedWrite(offset, m_PublishedColors, "FrameDataBuffer::WriteColors"))
+            return;
         if (offset + count > static_cast<sizet>(m_Colors.Num()))
         {
             OLO_CORE_ERROR("FrameDataBuffer: WriteColors out of bounds: offset={}, count={}, capacity={}",
@@ -335,14 +355,6 @@ namespace OloEngine
         return offset;
     }
 
-    f32* FrameDataBuffer::GetCustomPtr(u32 offset)
-    {
-        TUniqueLock<FMutex> lock(m_CustomMutex);
-        if (offset >= static_cast<sizet>(m_Customs.Num()))
-            return nullptr;
-        return &m_Customs[offset];
-    }
-
     const f32* FrameDataBuffer::GetCustomPtr(u32 offset) const
     {
         TUniqueLock<FMutex> lock(m_CustomMutex);
@@ -354,6 +366,8 @@ namespace OloEngine
     void FrameDataBuffer::WriteCustoms(u32 offset, const f32* data, u32 count)
     {
         TUniqueLock<FMutex> lock(m_CustomMutex);
+        if (RefusePublishedWrite(offset, m_PublishedCustoms, "FrameDataBuffer::WriteCustoms"))
+            return;
         if (offset + count > static_cast<sizet>(m_Customs.Num()))
         {
             OLO_CORE_ERROR("FrameDataBuffer: WriteCustoms out of bounds: offset={}, count={}, capacity={}",
@@ -380,12 +394,6 @@ namespace OloEngine
         return offset;
     }
 
-    glm::uvec4* FrameDataBuffer::GetGPUSceneRefPtr(u32 offset)
-    {
-        TUniqueLock<FMutex> lock(m_GPUSceneRefMutex);
-        return offset < static_cast<sizet>(m_GPUSceneRefs.Num()) ? &m_GPUSceneRefs[offset] : nullptr;
-    }
-
     const glm::uvec4* FrameDataBuffer::GetGPUSceneRefPtr(u32 offset) const
     {
         TUniqueLock<FMutex> lock(m_GPUSceneRefMutex);
@@ -395,6 +403,8 @@ namespace OloEngine
     void FrameDataBuffer::WriteGPUSceneRefs(u32 offset, const glm::uvec4* data, u32 count)
     {
         TUniqueLock<FMutex> lock(m_GPUSceneRefMutex);
+        if (RefusePublishedWrite(offset, m_PublishedGPUSceneRefs, "FrameDataBuffer::WriteGPUSceneRefs"))
+            return;
         if (offset + count > static_cast<sizet>(m_GPUSceneRefs.Num()))
         {
             OLO_CORE_ERROR("FrameDataBuffer: WriteGPUSceneRefs out of bounds: offset={}, count={}, capacity={}", offset, count, static_cast<sizet>(m_GPUSceneRefs.Num()));

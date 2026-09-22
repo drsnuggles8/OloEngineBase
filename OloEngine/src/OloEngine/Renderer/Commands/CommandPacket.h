@@ -2,16 +2,20 @@
 
 #include "RenderCommand.h"
 #include "DrawKey.h"
+#include "CommandLifecycle.h"
 #include "OloEngine/Core/Base.h"
 #include <glm/glm.hpp>
 
 /*
- * CommandPacket — Immutable command wrapper.
+ * CommandPacket — a command plus its metadata, prepared and then frozen.
  *
- * Once a packet is created and initialized, both its inline command data
- * and its metadata (including sort key) are considered sealed.  Callers
- * (e.g. Renderer3D::DrawMesh) are responsible for computing the correct
- * sort key *before* submission; there is no post-creation mutation API.
+ * A packet is written while it is being PREPARED: filled in by its producer
+ * (Renderer3D::DrawMesh and friends), bone-remapped and batched by its
+ * bucket. Its first replay FREEZES it, and from then on the bytes are fixed:
+ * parallel replay reads them from several workers with no lock. The mutating
+ * accessors below report a CommandLifecycle violation on a frozen packet; a
+ * pass that needs a different version of one clones it and edits the clone.
+ * See CommandLifecycle.h for the whole contract.
  */
 
 namespace OloEngine
@@ -63,6 +67,7 @@ namespace OloEngine
                           "Initialize() uses memcpy and requires trivially copyable types. "
                           "For non-trivial types like DrawMeshInstancedCommand, use "
                           "CommandAllocator::AllocatePacketWithCommand() instead.");
+            NotePreparationWrite("CommandPacket::Initialize");
 
             // Copy the command data into inline storage right after the packet header
             std::memcpy(GetInlineData(), &commandData, sizeof(T));
@@ -74,11 +79,35 @@ namespace OloEngine
             // (which transitively includes Application, Renderer3D, AssetManager,
             //  glad, etc. — heavy statics that crash test executables).
 
-            // Metadata (including sort key) is caller-provided and sealed here.
-            // Callers (Renderer3D::DrawMesh, etc.) are responsible for computing
+            // Metadata (including sort key) is caller-provided. Callers
+            // (Renderer3D::DrawMesh, etc.) are responsible for computing
             // ShaderID, MaterialID and Depth in the sort key before submission.
             m_Metadata = metadata;
         }
+
+        // ——— Lifecycle (issue #1335) ———
+
+        [[nodiscard]] bool IsFrozen() const
+        {
+            return m_Lifecycle == Lifecycle::Frozen;
+        }
+
+        // Freeze the packet for replay. Idempotent. Const because a replay
+        // view is const and freezing is the one transition it makes: the
+        // packet's content is not changed, only declared final. With
+        // `recordDigest` (CommandLifecycle::IsValidationEnabled(), read once
+        // by the caller for the whole span) also records the digest
+        // MatchesFrozenContent checks.
+        void Freeze(bool recordDigest) const;
+
+        // False only when validation recorded a digest at freeze time and
+        // the packet's bytes no longer match it. Always true for a packet
+        // that is not frozen, or was frozen with validation off.
+        [[nodiscard]] bool MatchesFrozenContent() const;
+
+        // Digest of everything replay reads: type, size, dispatch function,
+        // metadata and the inline command bytes.
+        [[nodiscard]] u64 ComputeContentDigest() const;
 
         // Execute the command with a RendererAPI
         void Execute(RendererAPI& rendererAPI) const;
@@ -102,12 +131,19 @@ namespace OloEngine
         // Set command data size (inline data lives at this + sizeof(CommandPacket))
         void SetCommandSize(sizet size)
         {
+            NotePreparationWrite("CommandPacket::SetCommandSize");
             m_CommandSize = size;
         }
 
+        // The mutable accessor is for PREPARATION. Reading a frozen packet
+        // goes through the const overload (a bucket's GetPackets() is a const
+        // view for exactly this reason); calling this one on a frozen packet
+        // is reported, because the pointer it returns is how a write would
+        // reach bytes another thread is replaying.
         template<typename T>
         T* GetCommandData()
         {
+            NotePreparationWrite("CommandPacket::GetCommandData");
             return reinterpret_cast<T*>(GetInlineData());
         }
 
@@ -124,6 +160,7 @@ namespace OloEngine
         }
         void* GetRawCommandData()
         {
+            NotePreparationWrite("CommandPacket::GetRawCommandData");
             return GetInlineData();
         }
 
@@ -145,14 +182,17 @@ namespace OloEngine
         // Setters for command properties when working with raw data
         void SetCommandType(CommandType type)
         {
+            NotePreparationWrite("CommandPacket::SetCommandType");
             m_CommandType = type;
         }
         void SetDispatchFunction(CommandDispatchFn fn)
         {
+            NotePreparationWrite("CommandPacket::SetDispatchFunction");
             m_DispatchFn = fn;
         }
         void SetMetadata(const PacketMetadata& metadata)
         {
+            NotePreparationWrite("CommandPacket::SetMetadata");
             m_Metadata = metadata;
         }
 
@@ -161,8 +201,26 @@ namespace OloEngine
         // Keeps CommandPacket.obj free of any link-time dependency on CommandDispatch.obj.
         using DispatchResolverFn = CommandDispatchFn (*)(CommandType);
         static void SetDispatchResolver(DispatchResolverFn resolver);
+        [[nodiscard]] static DispatchResolverFn GetDispatchResolver()
+        {
+            return s_DispatchResolver;
+        }
 
       private:
+        enum class Lifecycle : u8
+        {
+            Preparing,
+            Frozen
+        };
+
+        // One predictable branch on the preparation path; the report itself
+        // is out of line so the accessors stay small enough to inline.
+        void NotePreparationWrite(const char* where) const
+        {
+            if (m_Lifecycle == Lifecycle::Frozen) [[unlikely]]
+                CommandLifecycle::ReportViolation(CommandLifecycle::Violation::PacketMutatedAfterFreeze, where);
+        }
+
         // Inline command data lives in the allocation immediately after the packet header.
         // Eliminates pointer indirection — data is always at (u8*)this + sizeof(CommandPacket).
         void* GetInlineData()
@@ -177,7 +235,16 @@ namespace OloEngine
         static DispatchResolverFn s_DispatchResolver;
         sizet m_CommandSize = 0;
         CommandType m_CommandType = CommandType::Invalid;
+        // Sits in the padding after the u8 CommandType, so it costs no size.
+        // Mutable: see Freeze().
+        mutable Lifecycle m_Lifecycle = Lifecycle::Preparing;
         CommandDispatchFn m_DispatchFn = nullptr;
         PacketMetadata m_Metadata;
+        // Recorded by Freeze() when validation is on; 0 otherwise. Also keeps
+        // the header a multiple of COMMAND_ALIGNMENT (64 bytes, was 56).
+        mutable u64 m_FrozenDigest = 0;
     };
+
+    static_assert(sizeof(CommandPacket) % 16 == 0,
+                  "CommandPacket's header stays a multiple of CommandAllocator::COMMAND_ALIGNMENT, so every payload placed after it is 16-aligned");
 } // namespace OloEngine

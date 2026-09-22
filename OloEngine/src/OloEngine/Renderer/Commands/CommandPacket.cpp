@@ -18,6 +18,78 @@ namespace OloEngine
         // No dynamic resources to clean up
     }
 
+    namespace
+    {
+        // FNV-1a consumed a WORD at a time: a DrawMeshCommand is ~300 bytes
+        // and validation digests every packet on every replay, so the
+        // eightfold difference to a byte-wise loop is most of the cost.
+        constexpr u64 kDigestOffsetBasis = 14695981039346656037ull;
+        constexpr u64 kDigestPrime = 1099511628211ull;
+
+        [[nodiscard]] u64 DigestBytes(u64 hash, const void* data, sizet size)
+        {
+            const auto* bytes = static_cast<const u8*>(data);
+            sizet offset = 0;
+            for (; offset + sizeof(u64) <= size; offset += sizeof(u64))
+            {
+                u64 word = 0;
+                std::memcpy(&word, bytes + offset, sizeof(u64));
+                hash ^= word;
+                hash *= kDigestPrime;
+            }
+            for (; offset < size; ++offset)
+            {
+                hash ^= bytes[offset];
+                hash *= kDigestPrime;
+            }
+            return hash;
+        }
+
+        template<typename T>
+        [[nodiscard]] u64 DigestValue(u64 hash, const T& value)
+        {
+            static_assert(std::is_trivially_copyable_v<T>);
+            return DigestBytes(hash, &value, sizeof(T));
+        }
+    } // namespace
+
+    u64 CommandPacket::ComputeContentDigest() const
+    {
+        // Field by field, not the header's bytes: PacketMetadata has padding
+        // no member owns, and a digest over it would compare garbage. The
+        // inline command, by contrast, is hashed as raw bytes — commands are
+        // memcpy'd or value-initialised into their slot and nothing writes
+        // their padding afterwards, so a change there is a real write.
+        u64 hash = kDigestOffsetBasis;
+        hash = DigestValue(hash, m_CommandSize);
+        hash = DigestValue(hash, m_CommandType);
+        hash = DigestValue(hash, m_DispatchFn);
+        hash = DigestValue(hash, m_Metadata.m_SortKey.GetKey());
+        hash = DigestValue(hash, m_Metadata.m_DependsOnPrevious);
+        hash = DigestValue(hash, m_Metadata.m_GroupID);
+        hash = DigestValue(hash, m_Metadata.m_ExecutionOrder);
+        hash = DigestValue(hash, m_Metadata.m_IsStatic);
+        hash = DigestValue(hash, m_Metadata.m_DebugName);
+        return DigestBytes(hash, GetInlineData(), m_CommandSize);
+    }
+
+    void CommandPacket::Freeze(bool recordDigest) const
+    {
+        if (m_Lifecycle == Lifecycle::Frozen)
+            return;
+        m_FrozenDigest = recordDigest ? ComputeContentDigest() : 0;
+        m_Lifecycle = Lifecycle::Frozen;
+    }
+
+    bool CommandPacket::MatchesFrozenContent() const
+    {
+        // A zero digest means "not recorded". A real digest of zero is
+        // possible and would merely go unchecked for that one packet.
+        if (m_Lifecycle != Lifecycle::Frozen || m_FrozenDigest == 0)
+            return true;
+        return ComputeContentDigest() == m_FrozenDigest;
+    }
+
     void CommandPacket::Execute(RendererAPI& rendererAPI) const
     {
         OLO_PROFILE_FUNCTION();
