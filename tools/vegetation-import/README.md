@@ -14,7 +14,7 @@ python tools/vegetation-import/measure_coverage.py --before-after
 ```
 
 Needs `numpy` and `Pillow`, nothing else. Sources download on demand into
-`.../Vegetation/_raw/` (git-ignored); `scripts/Fetch-Assets.ps1 -Tag vegetation` pre-fetches the two
+`.vegetation-source/` at the repo root (git-ignored); `scripts/Fetch-Assets.ps1 -Tag vegetation` pre-fetches the two
 heavy hero scans with checksums instead.
 
 ## Why a tool and not a download
@@ -94,7 +94,7 @@ the same class of mistake as the defect being fixed.
 2. Add a recipe. The material names come from the source glTF; print them with:
    ```bash
    python -c "import sys; sys.path.insert(0,'tools/vegetation-import'); from olo_veg.gltf import Gltf; \
-   g=Gltf('OloEditor/SandboxProject/Assets/Models/Vegetation/_raw/<id>/<id>_1k.gltf'); \
+   g=Gltf('.vegetation-source/<id>/<id>_1k.gltf'); \
    print([m.get('name') for m in g.doc['materials']])"
    ```
 3. Run the import, then `preview.py <name>` and **look at it**. A coverage percentage cannot tell

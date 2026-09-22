@@ -231,4 +231,7 @@ scripts/steam/generated/
 
 # Raw vegetation scans fetched by tools/vegetation-import and scripts/Fetch-Assets.ps1.
 # Hundreds of megabytes of source geometry; the IMPORTED result is what is committed.
-OloEditor/SandboxProject/Assets/Models/Vegetation/_raw/
+# Kept OUTSIDE SandboxProject/Assets/ because the editor registers everything it
+# finds there, git-ignored or not, and CI then fails on registry entries it cannot
+# resolve.
+.vegetation-source/

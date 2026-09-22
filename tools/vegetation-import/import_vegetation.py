@@ -50,7 +50,11 @@ from olo_veg.wavefront import write_mtl, write_obj  # noqa: E402
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 DEFAULT_OUT = os.path.join(REPO_ROOT, "OloEditor", "SandboxProject", "Assets", "Models", "Vegetation")
-DEFAULT_CACHE = os.path.join(REPO_ROOT, "OloEditor", "SandboxProject", "Assets", "Models", "Vegetation", "_raw")
+# OUTSIDE the sandbox project on purpose. The editor registers every asset it
+# finds under SandboxProject/Assets/, git-ignored or not, so a download cache
+# in there put 65 source .jpg textures into AssetRegistry.oar and CI - which
+# never fetches them - failed with "registered asset path missing on disk".
+DEFAULT_CACHE = os.path.join(REPO_ROOT, ".vegetation-source")
 
 
 # ---------------------------------------------------------------------------
