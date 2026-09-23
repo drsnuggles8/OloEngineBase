@@ -1260,12 +1260,12 @@ namespace OloEngine
             static_cast<u32>(std::min<sizet>(static_cast<sizet>(m_PendingInvalidations.Num()) / 2, kMaxInvalidations));
         {
             const glm::uvec4 header(invalidationCount, 0u, 0u, 0u);
-            m_Invalidations->SetData(&header, sizeof(header), 0);
+            RenderCommand::UploadBufferSubData(m_Invalidations->GetRHIHandle(), 0, sizeof(header), &header);
             if (invalidationCount > 0)
             {
-                m_Invalidations->SetData(m_PendingInvalidations.GetData(),
-                                         invalidationCount * 2 * static_cast<u32>(sizeof(glm::vec4)),
-                                         static_cast<u32>(sizeof(glm::vec4)));
+                RenderCommand::UploadBufferSubData(m_Invalidations->GetRHIHandle(), sizeof(glm::vec4),
+                                                   invalidationCount * 2 * sizeof(glm::vec4),
+                                                   m_PendingInvalidations.GetData());
             }
         }
         m_PendingInvalidations.Reset();
@@ -1623,8 +1623,9 @@ namespace OloEngine
 
         if (!m_CullInput.IsEmpty())
         {
-            m_CullInstances->SetData(m_CullInput.GetData(),
-                                     static_cast<u32>(static_cast<sizet>(m_CullInput.Num()) * sizeof(VSM::CullInstance)));
+            RenderCommand::UploadBufferSubData(m_CullInstances->GetRHIHandle(), 0,
+                                               static_cast<sizet>(m_CullInput.Num()) * sizeof(VSM::CullInstance),
+                                               m_CullInput.GetData());
         }
         if (!m_DrawCommandStaging.IsEmpty())
         {
