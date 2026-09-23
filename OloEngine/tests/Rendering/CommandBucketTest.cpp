@@ -352,6 +352,15 @@ TEST_F(CommandBucketTest, ParallelSubmissionBeyondInitialCapacityLosesNothing)
     constexpr u32 kPerThread = 750;
     bucket.PrepareForParallelSubmission(kThreads * kPerThread);
 
+    // Commands are built HERE, not on the workers: a value-initialised
+    // DrawMeshCommand default-constructs its AssetHandles, and UUID's default
+    // constructor draws from one process-wide generator that is not
+    // thread-safe (TSan flags it). The race under test is the bucket's.
+    std::vector<DrawMeshCommand> commands;
+    commands.reserve(kThreads * kPerThread);
+    for (u32 i = 0; i < kThreads * kPerThread; ++i)
+        commands.push_back(MakeSyntheticDrawMeshCommand(1, 1, 0.5f, static_cast<i32>(i)));
+
     std::vector<std::unique_ptr<CommandAllocator>> allocators;
     for (u32 t = 0; t < kThreads; ++t)
         allocators.push_back(std::make_unique<CommandAllocator>());
@@ -366,8 +375,7 @@ TEST_F(CommandBucketTest, ParallelSubmissionBeyondInitialCapacityLosesNothing)
                 start.arrive_and_wait();
                 for (u32 i = 0; i < kPerThread; ++i)
                 {
-                    const i32 entity = static_cast<i32>(t * kPerThread + i);
-                    auto cmd = MakeSyntheticDrawMeshCommand(1, 1, 0.5f, entity);
+                    const DrawMeshCommand& cmd = commands[t * kPerThread + i];
                     CommandPacket* packet = allocators[t]->CreateCommandPacket(cmd, PacketMetadata{});
                     bucket.SubmitPacketParallel(packet, t);
                 } });
