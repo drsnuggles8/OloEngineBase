@@ -31,6 +31,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Containers/String.h"
 #include "OloEngine/Renderer/RenderingPath.h"
+#include "OloEngine/Renderer/PostProcessSettings.h"
 
 #include <glm/glm.hpp>
 
@@ -123,6 +124,15 @@ namespace OloEngine::Benchmark
         glm::vec3 Position{ 0.0f };
         f32 YawDegrees = 0.0f;
         f32 PitchDegrees = 0.0f;
+    };
+
+    struct ManifestEntityMotion
+    {
+        FString Tag;
+        glm::vec3 Origin{ 0.0f };
+        glm::vec3 Amplitude{ 0.0f };
+        f32 FrequencyHz = 0.0f;
+        f32 PhaseRadians = 0.0f;
     };
 
     /// The pose for 0-based warm-up frame `frameInCamera` of `camera`.
@@ -237,6 +247,10 @@ namespace OloEngine::Benchmark
         // TAA is exactly that (the PostProcessSettings scene deserializer does
         // not carry TAAEnabled) — the temporal-history axis needs it pinned.
         std::optional<bool> TAAEnabled;
+        std::optional<bool> RayTracedShadowsEnabled;
+        std::optional<u32> MSAASampleCount;
+        std::optional<UpscaleMode> Upscale;
+        std::optional<UpscalerTechnique> UpscaleTechnique;
         // The GPU reference path tracer (#1055), stored in PostProcessSettings
         // like TAA but pinned here because a capture of its AOVs is only
         // meaningful with the tracer on and a stated sample budget: the warm-up
@@ -250,6 +264,16 @@ namespace OloEngine::Benchmark
 
 namespace OloEngine
 {
+    template<>
+    struct TIsTriviallyRelocatable<Benchmark::ManifestEntityMotion>
+    {
+        using Record = Benchmark::ManifestEntityMotion;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::Tag)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Origin)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Amplitude)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::FrequencyHz)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::PhaseRadians)>;
+    };
     template<>
     struct TIsTriviallyRelocatable<Benchmark::ManifestCamera>
     {
@@ -301,10 +325,12 @@ namespace OloEngine::Benchmark
         ManifestProduct Product = ManifestProduct::Golden;
         FString ScenePath; // project-relative, e.g. Scenes/Benchmark/MaterialLab.olo
 
-        TArray<FString> SupportedBackends;                             // "opengl", "vulkan"
+        TArray<FString> SupportedBackends; // "opengl", "vulkan"
+        std::map<std::string, FString> PresetIdsByBackend;
         std::map<std::string, TArray<FString>> UnsupportedAttachments; // backend -> attachment Names
 
         TArray<ManifestCamera> Cameras;
+        TArray<ManifestEntityMotion> EntityMotions;
 
         u32 Width = 1280;
         u32 Height = 720;
@@ -321,6 +347,12 @@ namespace OloEngine::Benchmark
 
         u32 WarmupFrames = 0;
         std::map<std::string, u32> WarmupPerFeature;
+
+        // Optional measured frames after each camera's warm-up. The capture is
+        // taken after these frames, from the last measured pose. A zero count
+        // preserves the original capture-only behavior.
+        u32 MeasurementFrames = 0;
+        f32 MeasurementDeadlineMs = 0.0f;
 
         TArray<ManifestAttachment> Attachments;
 

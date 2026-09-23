@@ -732,6 +732,33 @@ jobs:
         echo "unsharded ctest entries: ${total}"
         echo "total=${total}" >> "$GITHUB_OUTPUT"
 
+    # CPU-only contract gate for the production renderer presets. The second
+    # invocation changes one required capability and must exit nonzero from the
+    # same admission path; a skipped GPU test cannot make this proof green.
+    - name: Require renderer support presets and prove refusal
+      if: github.event_name != 'push'
+      shell: bash
+      working-directory: ${{github.workspace}}
+      run: |
+        set -euo pipefail
+        test_exe="${GITHUB_WORKSPACE}/build/OloEngine/tests/${BUILD_TYPE}/OloEngine-Tests.exe"
+        for preset in gl-forward-native gl-forward-plus-native gl-deferred-native vk-forward-native vk-forward-plus-native vk-deferred-native vk-hybrid-native; do
+          "$test_exe" --gtest_filter='RendererSupport.*' --olo-gl-backend=none \
+            "--olo-require-renderer-preset=${preset}"
+        done
+
+        set +e
+        refusal=$("$test_exe" --gtest_filter='RendererSupport.*' --olo-gl-backend=none \
+          --olo-require-renderer-preset=vk-hybrid-native --olo-renderer-no-ray-queries 2>&1)
+        status=$?
+        set -e
+        printf '%s\n' "$refusal"
+        if [ "$status" -ne 4 ] || ! printf '%s\n' "$refusal" | grep -Fq \
+          "required renderer preset 'vk-hybrid-native' unsupported: RayQueryUnavailable"; then
+          echo "::error::Required unsupported capability did not fail the renderer preset gate (exit ${status})."
+          exit 1
+        fi
+
     # WHAT A SHARD NEEDS, AND WHAT IT DOES NOT.
     #
     # Needs: the generated ctest lists, the exe, and the DLLs CMake staged beside it

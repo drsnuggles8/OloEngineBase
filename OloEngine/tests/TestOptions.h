@@ -117,6 +117,13 @@ namespace OloEngine::Tests
         // together with `--olo-gl-backend=none`, which pins "this run tests no
         // GPU" and which the Vulkan gate honours.
         bool RequireVulkan = false;
+        // --olo-require-renderer-preset=<name> checks the executable support
+        // matrix independently of GPU availability. CI uses this for its
+        // required-preset gate and for the forced-refusal negative control.
+        std::string RequiredRendererPreset;
+        // --olo-renderer-no-ray-queries injects an unavailable required
+        // capability for the preset gate. It is accepted only with the preset.
+        bool RendererNoRayQueries = false;
         // --olo-keep-temp : leave per-test temp directories on disk.
         bool KeepTemp = false;
         // --olo-video=<path> : an FFmpeg-decodable file for the real-decode

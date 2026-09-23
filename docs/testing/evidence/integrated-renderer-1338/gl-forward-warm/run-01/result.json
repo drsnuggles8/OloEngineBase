@@ -1,0 +1,697 @@
+{
+  "assets": [
+    {
+      "acquisition": "re-import OloEditor/SandboxProject/Assets/Grooms/reference-longcoat-animal.abc in the editor",
+      "colorSpace": "n/a",
+      "license": "repository license (no third-party rights)",
+      "licenseVerified": "in-repo-file",
+      "origin": "generated in-repo, cooked from reference-longcoat-animal.abc (issues",
+      "path": "SandboxProject/Assets/Grooms/reference-longcoat-animal.ologroom",
+      "redistribution": "committed",
+      "sha256": "64d67aee6715e00f8c1d9f688f1b119ef97ccbc4c28228348cf2796b7a60c503",
+      "units": "metres",
+      "upAxis": "+Y",
+      "version": "generated"
+    },
+    {
+      "acquisition": "re-import OloEditor/SandboxProject/Assets/Grooms/reference-shortcoat-animal.abc in the editor",
+      "colorSpace": "n/a",
+      "license": "repository license (no third-party rights)",
+      "licenseVerified": "in-repo-file",
+      "origin": "generated in-repo, cooked from reference-shortcoat-animal.abc (issues",
+      "path": "SandboxProject/Assets/Grooms/reference-shortcoat-animal.ologroom",
+      "redistribution": "committed",
+      "sha256": "6625c253547eb8ec14d44ea99e6de8c52043d0da66127c2f23ec693401c7e3ee",
+      "units": "metres",
+      "upAxis": "+Y",
+      "version": "generated"
+    },
+    {
+      "acquisition": "https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/Fox",
+      "colorSpace": "srgb",
+      "license": "CC0-1.0 AND CC-BY-4.0",
+      "licenseVerified": "upstream-declared",
+      "origin": "KhronosGroup glTF-Sample-Assets — \"Fox\" (model PixelMannen, rig/animation @tomkranis, conversion AsoboStudio)",
+      "path": "assets/models/Fox/Fox.gltf",
+      "redistribution": "committed",
+      "sha256": "681ae12c7eba99a68a1f8071889cadea95d01ade3b62816c3134bd63eead06c3",
+      "units": "centimetres",
+      "upAxis": "+Y",
+      "version": "glTF-Sample-Assets Models/Fox (in-repo copy; upstream revision not recorded)"
+    },
+    {
+      "acquisition": "https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/Fox",
+      "colorSpace": "n/a",
+      "license": "CC0-1.0 AND CC-BY-4.0",
+      "licenseVerified": "upstream-declared",
+      "origin": "KhronosGroup glTF-Sample-Assets — \"Fox\" geometry + animation buffer",
+      "path": "assets/models/Fox/Fox.bin",
+      "redistribution": "committed",
+      "sha256": "c7d0d8de28a84d5b25623037f88e063e1502495a2ee6c55f182c61161ad12f80",
+      "units": "centimetres",
+      "upAxis": "+Y",
+      "version": "glTF-Sample-Assets Models/Fox (in-repo copy)"
+    },
+    {
+      "acquisition": "Already in-tree. CC0 permits redistribution and modification, so the DERIVED plant is committed rather than fetched. Rebuild it from the Poly Haven source with: python tools/vegetation-import/import_vegetation.py flower",
+      "colorSpace": "n/a",
+      "license": "CC0 1.0 Universal - https://polyhaven.com/license",
+      "licenseVerified": "in-repo-file",
+      "origin": "Poly Haven asset 'celandine_01' (https://polyhaven.com/a/celandine_01), imported and reduced to a game-ready plant by tools/vegetation-import (issue",
+      "path": "SandboxProject/Assets/Models/Vegetation/flower/flower.obj",
+      "redistribution": "committed",
+      "sha256": "16530a24d2ac74f317e86533eec3d22e4245259ef1d3ac8244d76a1e20d16498",
+      "units": "metres",
+      "upAxis": "+Y",
+      "version": "derived asset; see SandboxProject/Assets/Models/Vegetation/flower/LICENSE.md for the source files, the import date and every modification made"
+    },
+    {
+      "acquisition": "Already in-tree. CC0 permits redistribution and modification, so the DERIVED plant is committed rather than fetched. Rebuild it from the Poly Haven source with: python tools/vegetation-import/import_vegetation.py flower",
+      "colorSpace": "n/a",
+      "license": "CC0 1.0 Universal - https://polyhaven.com/license",
+      "licenseVerified": "in-repo-file",
+      "origin": "Poly Haven asset 'celandine_01' (https://polyhaven.com/a/celandine_01), imported and reduced to a game-ready plant by tools/vegetation-import (issue",
+      "path": "SandboxProject/Assets/Models/Vegetation/flower/flower.mtl",
+      "redistribution": "committed",
+      "sha256": "069d299fb5b686da11bf138fa87e99684616c6a6bdc0379dcb1966dfe38393bd",
+      "units": "metres",
+      "upAxis": "+Y",
+      "version": "derived asset; see SandboxProject/Assets/Models/Vegetation/flower/LICENSE.md for the source files, the import date and every modification made"
+    },
+    {
+      "acquisition": "Already in-tree. CC0 permits redistribution and modification, so the DERIVED plant is committed rather than fetched. Rebuild it from the Poly Haven source with: python tools/vegetation-import/import_vegetation.py flower",
+      "colorSpace": "srgb",
+      "license": "CC0 1.0 Universal - https://polyhaven.com/license",
+      "licenseVerified": "in-repo-file",
+      "origin": "Poly Haven asset 'celandine_01' (https://polyhaven.com/a/celandine_01), imported and reduced to a game-ready plant by tools/vegetation-import (issue",
+      "path": "SandboxProject/Assets/Models/Vegetation/flower/Textures/flower_blooms.png",
+      "redistribution": "committed",
+      "sha256": "87c2b2ec9717a8200288a5d26514402a6fa13a257dde50b2a683f05879d1b46c",
+      "units": "unitless",
+      "upAxis": "n/a",
+      "version": "derived asset; see SandboxProject/Assets/Models/Vegetation/flower/LICENSE.md for the source files, the import date and every modification made"
+    },
+    {
+      "acquisition": "Already in-tree. CC0 permits redistribution and modification, so the DERIVED plant is committed rather than fetched. Rebuild it from the Poly Haven source with: python tools/vegetation-import/import_vegetation.py flower",
+      "colorSpace": "srgb",
+      "license": "CC0 1.0 Universal - https://polyhaven.com/license",
+      "licenseVerified": "in-repo-file",
+      "origin": "Poly Haven asset 'celandine_01' (https://polyhaven.com/a/celandine_01), imported and reduced to a game-ready plant by tools/vegetation-import (issue",
+      "path": "SandboxProject/Assets/Models/Vegetation/flower/Textures/flower_card.png",
+      "redistribution": "committed",
+      "sha256": "92d0e8df107a292278a8a4c39f80598ba6b07b763a9639abcb972d4cad972ef1",
+      "units": "unitless",
+      "upAxis": "n/a",
+      "version": "derived asset; see SandboxProject/Assets/Models/Vegetation/flower/LICENSE.md for the source files, the import date and every modification made"
+    },
+    {
+      "acquisition": "Already in-tree. CC0 permits redistribution and modification, so the DERIVED plant is committed rather than fetched. Rebuild it from the Poly Haven source with: python tools/vegetation-import/import_vegetation.py grass",
+      "colorSpace": "n/a",
+      "license": "CC0 1.0 Universal - https://polyhaven.com/license",
+      "licenseVerified": "in-repo-file",
+      "origin": "Poly Haven asset 'grass_medium_01' (https://polyhaven.com/a/grass_medium_01), imported and reduced to a game-ready plant by tools/vegetation-import (issue",
+      "path": "SandboxProject/Assets/Models/Vegetation/grass/grass.obj",
+      "redistribution": "committed",
+      "sha256": "899bd9323b7d8289c2d4a5371b17a64d2e0e6bdba83439606cca3baf3cb960c6",
+      "units": "metres",
+      "upAxis": "+Y",
+      "version": "derived asset; see SandboxProject/Assets/Models/Vegetation/grass/LICENSE.md for the source files, the import date and every modification made"
+    },
+    {
+      "acquisition": "Already in-tree. CC0 permits redistribution and modification, so the DERIVED plant is committed rather than fetched. Rebuild it from the Poly Haven source with: python tools/vegetation-import/import_vegetation.py grass",
+      "colorSpace": "n/a",
+      "license": "CC0 1.0 Universal - https://polyhaven.com/license",
+      "licenseVerified": "in-repo-file",
+      "origin": "Poly Haven asset 'grass_medium_01' (https://polyhaven.com/a/grass_medium_01), imported and reduced to a game-ready plant by tools/vegetation-import (issue",
+      "path": "SandboxProject/Assets/Models/Vegetation/grass/grass.mtl",
+      "redistribution": "committed",
+      "sha256": "a010cfd8925081bd8978e4aa650a522714b63236385cad3d53d758f4b72bd087",
+      "units": "metres",
+      "upAxis": "+Y",
+      "version": "derived asset; see SandboxProject/Assets/Models/Vegetation/grass/LICENSE.md for the source files, the import date and every modification made"
+    },
+    {
+      "acquisition": "Already in-tree. CC0 permits redistribution and modification, so the DERIVED plant is committed rather than fetched. Rebuild it from the Poly Haven source with: python tools/vegetation-import/import_vegetation.py grass",
+      "colorSpace": "srgb",
+      "license": "CC0 1.0 Universal - https://polyhaven.com/license",
+      "licenseVerified": "in-repo-file",
+      "origin": "Poly Haven asset 'grass_medium_01' (https://polyhaven.com/a/grass_medium_01), imported and reduced to a game-ready plant by tools/vegetation-import (issue",
+      "path": "SandboxProject/Assets/Models/Vegetation/grass/Textures/grass_blades.png",
+      "redistribution": "committed",
+      "sha256": "25fec6ff206d97a16c06ddab9572ccd03bd5d89f3b43877cb449f3ed21636b45",
+      "units": "unitless",
+      "upAxis": "n/a",
+      "version": "derived asset; see SandboxProject/Assets/Models/Vegetation/grass/LICENSE.md for the source files, the import date and every modification made"
+    },
+    {
+      "acquisition": "Already in-tree. CC0 permits redistribution and modification, so the DERIVED plant is committed rather than fetched. Rebuild it from the Poly Haven source with: python tools/vegetation-import/import_vegetation.py grass",
+      "colorSpace": "srgb",
+      "license": "CC0 1.0 Universal - https://polyhaven.com/license",
+      "licenseVerified": "in-repo-file",
+      "origin": "Poly Haven asset 'grass_medium_01' (https://polyhaven.com/a/grass_medium_01), imported and reduced to a game-ready plant by tools/vegetation-import (issue",
+      "path": "SandboxProject/Assets/Models/Vegetation/grass/Textures/grass_card.png",
+      "redistribution": "committed",
+      "sha256": "2bd6631c159ed4d630ae4880cbd4092652f7f2fdcd8fa47261a26911c2a700f8",
+      "units": "unitless",
+      "upAxis": "n/a",
+      "version": "derived asset; see SandboxProject/Assets/Models/Vegetation/grass/LICENSE.md for the source files, the import date and every modification made"
+    },
+    {
+      "acquisition": "Already in-tree. CC0 permits redistribution and modification, so the DERIVED plant is committed rather than fetched. Rebuild it from the Poly Haven source with: python tools/vegetation-import/import_vegetation.py grass_dry",
+      "colorSpace": "n/a",
+      "license": "CC0 1.0 Universal - https://polyhaven.com/license",
+      "licenseVerified": "in-repo-file",
+      "origin": "Poly Haven asset 'grass_medium_02' (https://polyhaven.com/a/grass_medium_02), imported and reduced to a game-ready plant by tools/vegetation-import (issue",
+      "path": "SandboxProject/Assets/Models/Vegetation/grass_dry/grass_dry.obj",
+      "redistribution": "committed",
+      "sha256": "e6e82fa508d5a0945d937e1c3da221889bfb39ea5e71b1607b3db4f04b214906",
+      "units": "metres",
+      "upAxis": "+Y",
+      "version": "derived asset; see SandboxProject/Assets/Models/Vegetation/grass_dry/LICENSE.md for the source files, the import date and every modification made"
+    },
+    {
+      "acquisition": "Already in-tree. CC0 permits redistribution and modification, so the DERIVED plant is committed rather than fetched. Rebuild it from the Poly Haven source with: python tools/vegetation-import/import_vegetation.py grass_dry",
+      "colorSpace": "n/a",
+      "license": "CC0 1.0 Universal - https://polyhaven.com/license",
+      "licenseVerified": "in-repo-file",
+      "origin": "Poly Haven asset 'grass_medium_02' (https://polyhaven.com/a/grass_medium_02), imported and reduced to a game-ready plant by tools/vegetation-import (issue",
+      "path": "SandboxProject/Assets/Models/Vegetation/grass_dry/grass_dry.mtl",
+      "redistribution": "committed",
+      "sha256": "bc3242e0a886fc837f9e33d4657c6e6e3840bc3934b123a51df44aaef1efb611",
+      "units": "metres",
+      "upAxis": "+Y",
+      "version": "derived asset; see SandboxProject/Assets/Models/Vegetation/grass_dry/LICENSE.md for the source files, the import date and every modification made"
+    },
+    {
+      "acquisition": "Already in-tree. CC0 permits redistribution and modification, so the DERIVED plant is committed rather than fetched. Rebuild it from the Poly Haven source with: python tools/vegetation-import/import_vegetation.py grass_dry",
+      "colorSpace": "srgb",
+      "license": "CC0 1.0 Universal - https://polyhaven.com/license",
+      "licenseVerified": "in-repo-file",
+      "origin": "Poly Haven asset 'grass_medium_02' (https://polyhaven.com/a/grass_medium_02), imported and reduced to a game-ready plant by tools/vegetation-import (issue",
+      "path": "SandboxProject/Assets/Models/Vegetation/grass_dry/Textures/grass_dry_blades.png",
+      "redistribution": "committed",
+      "sha256": "cc176d3367e68c0fe14fbf7706235a65ab348e813d7719e5c8845831480a99a9",
+      "units": "unitless",
+      "upAxis": "n/a",
+      "version": "derived asset; see SandboxProject/Assets/Models/Vegetation/grass_dry/LICENSE.md for the source files, the import date and every modification made"
+    },
+    {
+      "acquisition": "Already in-tree. CC0 permits redistribution and modification, so the DERIVED plant is committed rather than fetched. Rebuild it from the Poly Haven source with: python tools/vegetation-import/import_vegetation.py grass_dry",
+      "colorSpace": "srgb",
+      "license": "CC0 1.0 Universal - https://polyhaven.com/license",
+      "licenseVerified": "in-repo-file",
+      "origin": "Poly Haven asset 'grass_medium_02' (https://polyhaven.com/a/grass_medium_02), imported and reduced to a game-ready plant by tools/vegetation-import (issue",
+      "path": "SandboxProject/Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png",
+      "redistribution": "committed",
+      "sha256": "447a7c8f8a3fa9f59eaa102a60be1042496db99e74d6d49b6254916ec9923416",
+      "units": "unitless",
+      "upAxis": "n/a",
+      "version": "derived asset; see SandboxProject/Assets/Models/Vegetation/grass_dry/LICENSE.md for the source files, the import date and every modification made"
+    },
+    {
+      "acquisition": "run python scripts/perf/generate-integrated-benchmark.py",
+      "colorSpace": "n/a",
+      "license": "repository license (no third-party rights)",
+      "licenseVerified": "in-repo-file",
+      "origin": "generated in-repo from AnimalPopulation, Meadow, Courtyard and OceanCoast",
+      "path": "SandboxProject/Assets/Scenes/Benchmark/IntegratedRenderer.olo",
+      "redistribution": "committed",
+      "sha256": "732a1c41b975ddbb93a2b424c56eb2d66b4a9df409b405e24aff56f9f94ea132",
+      "units": "metres",
+      "upAxis": "+Y",
+      "version": "generated"
+    }
+  ],
+  "cameras": [
+    {
+      "attachments": [
+        {
+          "file": "stationary/Beauty.png",
+          "height": 1080,
+          "isDepth": false,
+          "maxValue": 1.0,
+          "minValue": 0.0,
+          "name": "Beauty",
+          "normalized": false,
+          "source": "UIComposite",
+          "sourceFormat": "Unknown",
+          "width": 1920
+        },
+        {
+          "file": "stationary/SceneColorHDR.hdr",
+          "height": 1080,
+          "isDepth": false,
+          "maxValue": 2.23828125,
+          "minValue": 0.0018110275268554688,
+          "name": "SceneColorHDR",
+          "normalized": false,
+          "source": "SceneColor",
+          "sourceFormat": "Unknown",
+          "width": 1920
+        },
+        {
+          "file": "stationary/SceneDepth.hdr",
+          "height": 1080,
+          "isDepth": true,
+          "maxValue": 1.0,
+          "minValue": 0.9780538082122803,
+          "name": "SceneDepth",
+          "normalized": false,
+          "source": "SceneDepth",
+          "sourceFormat": "Depth24Stencil8",
+          "width": 1920
+        }
+      ],
+      "captureFrameIndex": 244,
+      "capturedPose": {
+        "far": 400.0,
+        "fovDegrees": 50.0,
+        "near": 0.05000000074505806,
+        "pitchDegrees": 6.0,
+        "position": [
+          0.0,
+          3.4000000953674316,
+          16.0
+        ],
+        "yawDegrees": 0.0
+      },
+      "id": "stationary",
+      "warmupFrames": 64
+    },
+    {
+      "attachments": [
+        {
+          "file": "dolly/Beauty.png",
+          "height": 1080,
+          "isDepth": false,
+          "maxValue": 1.0,
+          "minValue": 0.0,
+          "name": "Beauty",
+          "normalized": false,
+          "source": "UIComposite",
+          "sourceFormat": "Unknown",
+          "width": 1920
+        },
+        {
+          "file": "dolly/SceneColorHDR.hdr",
+          "height": 1080,
+          "isDepth": false,
+          "maxValue": 2.125,
+          "minValue": 0.0003478527069091797,
+          "name": "SceneColorHDR",
+          "normalized": false,
+          "source": "SceneColor",
+          "sourceFormat": "Unknown",
+          "width": 1920
+        },
+        {
+          "file": "dolly/SceneDepth.hdr",
+          "height": 1080,
+          "isDepth": true,
+          "maxValue": 1.0,
+          "minValue": 0.9802703261375427,
+          "name": "SceneDepth",
+          "normalized": false,
+          "source": "SceneDepth",
+          "sourceFormat": "Depth24Stencil8",
+          "width": 1920
+        }
+      ],
+      "captureFrameIndex": 488,
+      "capturedPose": {
+        "far": 400.0,
+        "fovDegrees": 50.0,
+        "near": 0.05000000074505806,
+        "pitchDegrees": 6.0,
+        "position": [
+          0.0,
+          3.4000000953674316,
+          1.7500019073486328
+        ],
+        "yawDegrees": 0.0
+      },
+      "id": "dolly",
+      "motion": {
+        "pitchRateDegreesPerSecond": 0.0,
+        "velocityPerSecond": [
+          0.0,
+          0.0,
+          -5.0
+        ],
+        "yawRateDegreesPerSecond": 0.0
+      },
+      "warmupFrames": 64
+    },
+    {
+      "attachments": [
+        {
+          "file": "rapid-turn/Beauty.png",
+          "height": 1080,
+          "isDepth": false,
+          "maxValue": 1.0,
+          "minValue": 0.0,
+          "name": "Beauty",
+          "normalized": false,
+          "source": "UIComposite",
+          "sourceFormat": "Unknown",
+          "width": 1920
+        },
+        {
+          "file": "rapid-turn/SceneColorHDR.hdr",
+          "height": 1080,
+          "isDepth": false,
+          "maxValue": 1.2255859375,
+          "minValue": 0.0090484619140625,
+          "name": "SceneColorHDR",
+          "normalized": false,
+          "source": "SceneColor",
+          "sourceFormat": "Unknown",
+          "width": 1920
+        },
+        {
+          "file": "rapid-turn/SceneDepth.hdr",
+          "height": 1080,
+          "isDepth": true,
+          "maxValue": 1.0,
+          "minValue": 0.9845576286315918,
+          "name": "SceneDepth",
+          "normalized": false,
+          "source": "SceneDepth",
+          "sourceFormat": "Depth24Stencil8",
+          "width": 1920
+        }
+      ],
+      "captureFrameIndex": 732,
+      "capturedPose": {
+        "far": 400.0,
+        "fovDegrees": 60.0,
+        "near": 0.05000000074505806,
+        "pitchDegrees": 5.0,
+        "position": [
+          0.0,
+          4.0,
+          14.0
+        ],
+        "yawDegrees": 152.99998474121094
+      },
+      "id": "rapid-turn",
+      "motion": {
+        "pitchRateDegreesPerSecond": 0.0,
+        "velocityPerSecond": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "yawRateDegreesPerSecond": 60.0
+      },
+      "warmupFrames": 64
+    }
+  ],
+  "configuration": {
+    "consumption": "unknown without downstream evidence",
+    "production": "unknown without pass and counter evidence",
+    "requested": {
+      "msaaSamples": 1,
+      "path": "Forward",
+      "rayTracedShadows": false,
+      "upscaleMode": 0,
+      "upscaleTechnique": 0
+    },
+    "selectedSettings": {
+      "msaaSamples": 1,
+      "path": "Forward",
+      "rayTracedShadowsRequested": false,
+      "upscaleMode": 0,
+      "upscaleTechnique": 0
+    }
+  },
+  "determinism": {
+    "finalMockTimeSeconds": 24.183332443237305,
+    "fixedDtSeconds": 0.01666666567325592,
+    "repeatRmseTolerance": 0.0,
+    "seed": 1258,
+    "startTimeSeconds": 12.0,
+    "totalFramesRendered": 732,
+    "warmupTimedOut": false
+  },
+  "exposure": {
+    "exposure": 1.0,
+    "mode": "manual"
+  },
+  "manifest": {
+    "id": "integrated-forward",
+    "product": "diagnostic",
+    "scene": "Scenes/Benchmark/IntegratedRenderer.olo",
+    "sourceHashFnv1a64": 2044104976689400816,
+    "version": 2
+  },
+  "measurement": {
+    "deadlineMisses": 539,
+    "deadlineMs": 33.33300018310547,
+    "distinctValidGpuFrames": 540,
+    "liveTrackedRendererBytes": 862442213,
+    "maxMs": 531.777,
+    "memoryScope": "renderer tracker total mixes CPU and GPU allocations; post-scene-release value includes asset and renderer caches; retained pools, histories and AS bytes not isolated",
+    "metric": "wall-clock Scene::OnUpdateEditor call, excluding attachment readback",
+    "p50Ms": 364.8542,
+    "p95Ms": 395.6175,
+    "p99Ms": 411.6319,
+    "peakTrackedRendererBytes": 862442213,
+    "rawFile": "measurement.csv",
+    "sampleCount": 540,
+    "scenarios": [
+      {
+        "camera": "dolly",
+        "deadlineMisses": 180,
+        "maxMs": 531.777,
+        "p50Ms": 370.5906,
+        "p95Ms": 396.5624,
+        "p99Ms": 505.2774,
+        "sampleCount": 180
+      },
+      {
+        "camera": "rapid-turn",
+        "deadlineMisses": 179,
+        "maxMs": 411.6319,
+        "p50Ms": 355.2955,
+        "p95Ms": 391.9505,
+        "p99Ms": 402.3837,
+        "sampleCount": 180
+      },
+      {
+        "camera": "stationary",
+        "deadlineMisses": 180,
+        "maxMs": 440.2086,
+        "p50Ms": 364.1072,
+        "p95Ms": 393.1858,
+        "p99Ms": 432.1896,
+        "sampleCount": 180
+      }
+    ],
+    "trackedRendererBytesAfterSceneRelease": 529510976
+  },
+  "output": {
+    "actual": {
+      "displayHeight": 1080,
+      "displayWidth": 1920,
+      "renderHeight": 1080,
+      "renderScale": 1.0,
+      "renderWidth": 1920
+    },
+    "height": 1080,
+    "renderScale": 1.0,
+    "requested": {
+      "height": 1080,
+      "renderScale": 1.0,
+      "width": 1920
+    },
+    "width": 1920
+  },
+  "passTimingsMs": [
+    {
+      "gpuMs": 0.001024,
+      "isSubPass": false,
+      "pass": "SkeletalDeformPass",
+      "status": "valid"
+    },
+    {
+      "gpuMs": 0.0,
+      "isSubPass": false,
+      "pass": "RayTracingScenePass",
+      "status": "valid"
+    },
+    {
+      "gpuMs": 62.944256,
+      "isSubPass": false,
+      "pass": "ShadowPass",
+      "status": "valid"
+    },
+    {
+      "gpuMs": 0.001024,
+      "isSubPass": false,
+      "pass": "DDGIProbeUpdatePass",
+      "status": "valid"
+    },
+    {
+      "gpuMs": 3.101696,
+      "isSubPass": false,
+      "pass": "ScenePass",
+      "status": "valid"
+    },
+    {
+      "gpuMs": 0.308224,
+      "isSubPass": true,
+      "parent": "ScenePass",
+      "pass": "ScenePass/DepthPrepass",
+      "status": "valid"
+    },
+    {
+      "gpuMs": 2.68288,
+      "isSubPass": true,
+      "parent": "ScenePass",
+      "pass": "ScenePass/Color",
+      "status": "valid"
+    },
+    {
+      "gpuMs": 0.001024,
+      "isSubPass": false,
+      "pass": "GPUDrivenOcclusionPass",
+      "status": "valid"
+    },
+    {
+      "gpuMs": 0.4096,
+      "isSubPass": false,
+      "pass": "PlanarReflectionPass",
+      "status": "valid"
+    },
+    {
+      "gpuMs": 0.152576,
+      "isSubPass": false,
+      "pass": "SSAOPass",
+      "status": "valid"
+    },
+    {
+      "gpuMs": 0.001024,
+      "isSubPass": false,
+      "pass": "SphereProxyAOPass",
+      "status": "valid"
+    },
+    {
+      "gpuMs": 0.001024,
+      "isSubPass": false,
+      "pass": "VirtualShadowMapMarkPass",
+      "status": "valid"
+    },
+    {
+      "gpuMs": 9.1136,
+      "isSubPass": false,
+      "pass": "FoliagePass",
+      "status": "valid"
+    },
+    {
+      "gpuMs": 0.03072,
+      "isSubPass": false,
+      "pass": "GroomPass",
+      "status": "valid"
+    },
+    {
+      "gpuMs": 0.001024,
+      "isSubPass": false,
+      "pass": "FluidIntermediatesPass",
+      "status": "valid"
+    },
+    {
+      "gpuMs": 0.001024,
+      "isSubPass": false,
+      "pass": "SkinDiffusionPass",
+      "status": "valid"
+    },
+    {
+      "gpuMs": 0.004096,
+      "isSubPass": false,
+      "pass": "ParticlePass",
+      "status": "valid"
+    },
+    {
+      "gpuMs": 0.034816,
+      "isSubPass": false,
+      "pass": "AOApplyPass",
+      "status": "valid"
+    },
+    {
+      "gpuMs": 0.068608,
+      "isSubPass": false,
+      "pass": "BloomPass",
+      "status": "valid"
+    },
+    {
+      "gpuMs": 0.082944,
+      "isSubPass": false,
+      "pass": "TAAPass",
+      "status": "valid"
+    },
+    {
+      "gpuMs": 0.001024,
+      "isSubPass": false,
+      "pass": "VolumetricFogPass",
+      "status": "valid"
+    },
+    {
+      "gpuMs": 0.01536,
+      "isSubPass": false,
+      "pass": "ToneMapPass",
+      "status": "valid"
+    },
+    {
+      "gpuMs": 0.01024,
+      "isSubPass": false,
+      "pass": "UICompositePass",
+      "status": "valid"
+    },
+    {
+      "gpuMs": 0.004096,
+      "isSubPass": false,
+      "pass": "FinalPass",
+      "status": "valid"
+    }
+  ],
+  "provenance": {
+    "backend": "opengl",
+    "commitSha": "a746f360d872b2a9da1663233fc8f911358439c7",
+    "gpuRenderer": "NVIDIA GeForce RTX 4090/PCIe/SSE2",
+    "gpuVendor": "NVIDIA Corporation",
+    "host": "test-binary",
+    "machineTag": "unknown"
+  },
+  "rendererCounters": {
+    "drawCalls": 128,
+    "gpuMemoryTotalBytes": 862442213,
+    "instancesRendered": 10,
+    "trianglesRendered": 222571
+  },
+  "resultSchemaVersion": 2,
+  "timingValidity": {
+    "ageFrames": 2,
+    "currentFrameId": 732,
+    "droppedSlots": 0,
+    "frameStatus": "valid",
+    "measurementFrameId": 730,
+    "stale": false,
+    "unstampedFrames": 0
+  },
+  "units": {
+    "bytes": "bytes",
+    "cpuMs": "milliseconds",
+    "dimensions": "pixels",
+    "frameIds": "GPUPassTimerPool frame counter, monotonic from renderer init",
+    "gpuMs": "milliseconds"
+  },
+  "warmup": {
+    "frames": 64,
+    "perFeature": {
+      "Exposure": 30,
+      "SSAO": 4,
+      "TAA": 8
+    }
+  }
+}

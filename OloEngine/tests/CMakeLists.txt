@@ -430,6 +430,7 @@ add_executable(OloEngine-Tests
 		# reports the "not selected" no-op when OLO_WITH_VULKAN=OFF.
 		Rendering/VulkanCoverageReport.cpp
 		Rendering/VulkanCoverageReportTest.cpp
+		Rendering/RendererSupportTest.cpp
 		# #691 Phase 4: Vulkan device-selection gate (ADR 0010 capability contract).
 		# SKIPs cleanly without a loader/device; compiles to a single SKIP when
 		# OLO_WITH_VULKAN=OFF.

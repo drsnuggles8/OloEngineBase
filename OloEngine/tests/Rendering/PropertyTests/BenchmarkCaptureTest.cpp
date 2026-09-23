@@ -40,8 +40,10 @@
 #include "OloEngine/Renderer/Benchmark/BenchmarkManifest.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Utils/PlatformUtils.h"
@@ -50,6 +52,7 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -140,6 +143,20 @@ TEST(BenchmarkCapture, RunWhenRequested)
     {
         Renderer::Init(RendererType::Renderer3D, /*loadingWindow=*/nullptr);
     }
+    std::string presetError;
+    ASSERT_TRUE(Benchmark::ValidatePresetAdmission(*manifest, "opengl", presetError)) << presetError;
+    if (manifest->PresetIdsByBackend.contains("opengl"))
+    {
+        auto wrongBackend = *manifest;
+        wrongBackend.PresetIdsByBackend["opengl"] = "vk-forward-native";
+        EXPECT_FALSE(Benchmark::ValidatePresetAdmission(wrongBackend, "opengl", presetError));
+        EXPECT_NE(presetError.find("backend disagrees"), std::string::npos);
+
+        auto missingPath = *manifest;
+        missingPath.RendererSettings.Path.reset();
+        EXPECT_FALSE(Benchmark::ValidatePresetAdmission(missingPath, "opengl", presetError));
+        EXPECT_NE(presetError.find("path disagrees"), std::string::npos);
+    }
 
     // -- Project mount (the REAL SandboxProject — capture reads assets, and
     //    the .scenebin sidecar Deserialize writes next to the scene is
@@ -168,8 +185,10 @@ TEST(BenchmarkCapture, RunWhenRequested)
     const fs::path scenePath = Project::GetAssetDirectory() / manifest->ScenePath.ToStdString();
     ASSERT_TRUE(fs::exists(scenePath)) << "manifest Scene not found: " << scenePath.string();
     auto scene = Scene::Create();
-    SceneSerializer serializer(scene);
-    ASSERT_TRUE(serializer.Deserialize(scenePath)) << "scene failed to deserialize — see the engine log";
+    {
+        SceneSerializer serializer(scene);
+        ASSERT_TRUE(serializer.Deserialize(scenePath)) << "scene failed to deserialize — see the engine log";
+    }
 
     // A benchmark capture is a picture of the SCENE, not of the editor: turn
     // off every editor-only viewport helper the editor render path would
@@ -187,6 +206,7 @@ TEST(BenchmarkCapture, RunWhenRequested)
     // capture-mode narrowing) does not leak benchmark-scene fog/wind/snow
     // settings into them.
     const RendererSettings savedRendererSettings = Renderer3D::GetRendererSettings();
+    const ShadowSettings savedShadowSettings = Renderer3D::GetShadowMap().GetSettings();
     const PostProcessSettings savedPostProcessSettings = Renderer3D::GetPostProcessSettings();
     const auto savedSnowSettings = Renderer3D::GetSnowSettings();
     const auto savedWindSettings = Renderer3D::GetWindSettings();
@@ -231,6 +251,8 @@ TEST(BenchmarkCapture, RunWhenRequested)
     const f32 aspect = static_cast<f32>(width) / static_cast<f32>(height);
     u32 frameIndex = 0;
     TArray<Benchmark::CameraCaptureSet> cameraSets;
+    Benchmark::MeasurementRecord runInfoMeasurement;
+    runInfoMeasurement.DeadlineMs = manifest->MeasurementDeadlineMs;
 
     for (const auto& cameraSpec : manifest->Cameras)
     {
@@ -249,10 +271,29 @@ TEST(BenchmarkCapture, RunWhenRequested)
             camera.SetPose(pose.Position, glm::radians(pose.YawDegrees), glm::radians(pose.PitchDegrees));
 
             Time::SetMockTime(manifest->StartTimeSeconds + static_cast<f32>(frameIndex) * dt);
+            std::string entityMotionError;
+            ASSERT_TRUE(Benchmark::ApplyEntityMotion(*scene, *manifest, frameIndex, entityMotionError)) << entityMotionError;
             {
                 GLStateGuard guard("BenchmarkCapture", GLStateGuard::Policy::Restore);
                 scene->OnUpdateEditor(ts, camera);
             }
+            ++frameIndex;
+        }
+
+        for (u32 i = 0; i < manifest->MeasurementFrames; ++i)
+        {
+            const auto pose = Benchmark::CameraPoseAtFrame(cameraSpec, warmFrames + i, dt);
+            camera.SetPose(pose.Position, glm::radians(pose.YawDegrees), glm::radians(pose.PitchDegrees));
+            Time::SetMockTime(manifest->StartTimeSeconds + static_cast<f32>(frameIndex) * dt);
+            std::string entityMotionError;
+            ASSERT_TRUE(Benchmark::ApplyEntityMotion(*scene, *manifest, frameIndex, entityMotionError)) << entityMotionError;
+            const auto begin = std::chrono::steady_clock::now();
+            {
+                GLStateGuard guard("BenchmarkMeasurement", GLStateGuard::Policy::Restore);
+                scene->OnUpdateEditor(ts, camera);
+            }
+            const f64 renderCallMs = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - begin).count();
+            runInfoMeasurement.Frames.Add(Benchmark::SnapshotMeasuredFrame(cameraSpec.Id.ToView(), i, renderCallMs));
             ++frameIndex;
         }
 
@@ -291,6 +332,13 @@ TEST(BenchmarkCapture, RunWhenRequested)
     runInfo.Timing = Benchmark::SnapshotTimingValidity();
     runInfo.Resolution = Benchmark::SnapshotResolution();
     runInfo.Counters = Benchmark::SnapshotRendererCounters();
+    runInfo.Configuration = Benchmark::SnapshotAppliedConfiguration();
+    runInfo.Measurement = std::move(runInfoMeasurement);
+    // Keep the renderer and asset manager alive: this isolates the cost of
+    // releasing the scene while exposing caches and pools that remain live.
+    scene = nullptr;
+    runInfo.TrackedRendererBytesAfterSceneRelease =
+        static_cast<u64>(RendererMemoryTracker::GetInstance().GetTotalMemoryUsage());
 
     const fs::path outDir = !opts.CaptureOutDir.empty()
                                 ? fs::path(opts.CaptureOutDir)
@@ -303,6 +351,7 @@ TEST(BenchmarkCapture, RunWhenRequested)
     //    run overwrote, not just the two structs — see the snapshot above) ---
     Renderer3D::GetPostProcessSettings() = savedPostProcessSettings;
     Renderer3D::GetRendererSettings() = savedRendererSettings;
+    Renderer3D::GetShadowMap().SetSettings(savedShadowSettings);
     Renderer3D::GetSnowSettings() = savedSnowSettings;
     Renderer3D::GetWindSettings() = savedWindSettings;
     Renderer3D::GetSnowAccumulationSettings() = savedSnowAccumulationSettings;

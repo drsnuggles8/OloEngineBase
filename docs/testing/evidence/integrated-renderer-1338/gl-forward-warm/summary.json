@@ -1,0 +1,570 @@
+{
+  "manifest": {
+    "id": "integrated-forward",
+    "product": "diagnostic",
+    "scene": "Scenes/Benchmark/IntegratedRenderer.olo",
+    "sourceHashFnv1a64": 2044104976689400816,
+    "version": 2
+  },
+  "provenance": {
+    "backend": "opengl",
+    "commitSha": "a746f360d872b2a9da1663233fc8f911358439c7",
+    "gpuRenderer": "NVIDIA GeForce RTX 4090/PCIe/SSE2",
+    "gpuVendor": "NVIDIA Corporation",
+    "host": "test-binary",
+    "machineTag": "unknown"
+  },
+  "actualOutput": {
+    "displayHeight": 1080,
+    "displayWidth": 1920,
+    "renderHeight": 1080,
+    "renderScale": 1.0,
+    "renderWidth": 1920
+  },
+  "deadlineMs": 33.33300018310547,
+  "runs": [
+    "C:\\repos\\OloEngine-renderer-support-matrix-benchmark-1334-1338\\OloEditor\\assets\\benchmark\\captures\\integrated-forward-gl-warm\\run-01",
+    "C:\\repos\\OloEngine-renderer-support-matrix-benchmark-1334-1338\\OloEditor\\assets\\benchmark\\captures\\integrated-forward-gl-warm\\run-02",
+    "C:\\repos\\OloEngine-renderer-support-matrix-benchmark-1334-1338\\OloEditor\\assets\\benchmark\\captures\\integrated-forward-gl-warm\\run-03"
+  ],
+  "scenarios": {
+    "dolly": {
+      "perRun": [
+        {
+          "frames": 180,
+          "p50Ms": 370.591,
+          "p95Ms": 396.562,
+          "p99Ms": 505.277,
+          "maxMs": 531.777,
+          "deadlineMisses": 180,
+          "cpu": {
+            "frames": 180,
+            "p50Ms": 26.7568,
+            "p95Ms": 58.1539,
+            "p99Ms": 171.074,
+            "maxMs": 186.268,
+            "deadlineMisses": 35
+          },
+          "fenceWait": {
+            "frames": 180,
+            "p50Ms": 337.78,
+            "p95Ms": 361.424,
+            "p99Ms": 369.097,
+            "maxMs": 373.61,
+            "deadlineMisses": 180
+          },
+          "presentWait": {
+            "frames": 180,
+            "p50Ms": 0.0,
+            "p95Ms": 0.0,
+            "p99Ms": 0.0,
+            "maxMs": 0.0,
+            "deadlineMisses": 0
+          },
+          "gpu": {
+            "frames": 180,
+            "p50Ms": 368.336,
+            "p95Ms": 389.707,
+            "p99Ms": 395.911,
+            "maxMs": 401.195,
+            "deadlineMisses": 180
+          }
+        },
+        {
+          "frames": 180,
+          "p50Ms": 367.262,
+          "p95Ms": 397.526,
+          "p99Ms": 517.987,
+          "maxMs": 529.622,
+          "deadlineMisses": 180,
+          "cpu": {
+            "frames": 180,
+            "p50Ms": 18.3203,
+            "p95Ms": 41.3718,
+            "p99Ms": 92.344,
+            "maxMs": 208.688,
+            "deadlineMisses": 19
+          },
+          "fenceWait": {
+            "frames": 180,
+            "p50Ms": 344.282,
+            "p95Ms": 370.883,
+            "p99Ms": 388.079,
+            "maxMs": 416.833,
+            "deadlineMisses": 180
+          },
+          "presentWait": {
+            "frames": 180,
+            "p50Ms": 0.0,
+            "p95Ms": 0.0,
+            "p99Ms": 0.0,
+            "maxMs": 0.0,
+            "deadlineMisses": 0
+          },
+          "gpu": {
+            "frames": 180,
+            "p50Ms": 366.336,
+            "p95Ms": 392.645,
+            "p99Ms": 406.691,
+            "maxMs": 408.242,
+            "deadlineMisses": 180
+          }
+        },
+        {
+          "frames": 180,
+          "p50Ms": 396.227,
+          "p95Ms": 432.31,
+          "p99Ms": 490.066,
+          "maxMs": 541.618,
+          "deadlineMisses": 180,
+          "cpu": {
+            "frames": 180,
+            "p50Ms": 19.5944,
+            "p95Ms": 40.3305,
+            "p99Ms": 130.073,
+            "maxMs": 160.167,
+            "deadlineMisses": 13
+          },
+          "fenceWait": {
+            "frames": 180,
+            "p50Ms": 372.065,
+            "p95Ms": 407.803,
+            "p99Ms": 415.802,
+            "maxMs": 504.339,
+            "deadlineMisses": 180
+          },
+          "presentWait": {
+            "frames": 180,
+            "p50Ms": 0.0,
+            "p95Ms": 0.0,
+            "p99Ms": 0.0,
+            "maxMs": 0.0,
+            "deadlineMisses": 0
+          },
+          "gpu": {
+            "frames": 180,
+            "p50Ms": 394.526,
+            "p95Ms": 430.223,
+            "p99Ms": 438.26,
+            "maxMs": 439.869,
+            "deadlineMisses": 180
+          }
+        }
+      ],
+      "runLevelRange": {
+        "p50Ms": [
+          367.262,
+          396.227
+        ],
+        "p95Ms": [
+          396.562,
+          432.31
+        ],
+        "p99Ms": [
+          490.066,
+          517.987
+        ],
+        "maxMs": [
+          529.622,
+          541.618
+        ],
+        "deadlineMisses": [
+          180,
+          180
+        ]
+      },
+      "cpuP95MsRange": [
+        40.3305,
+        58.1539
+      ],
+      "validGpuP95MsRange": [
+        389.707,
+        430.223
+      ],
+      "fenceWaitP95MsRange": [
+        361.424,
+        407.803
+      ],
+      "presentWaitP95MsRange": [
+        0.0,
+        0.0
+      ]
+    },
+    "rapid-turn": {
+      "perRun": [
+        {
+          "frames": 180,
+          "p50Ms": 355.296,
+          "p95Ms": 391.95,
+          "p99Ms": 402.384,
+          "maxMs": 411.632,
+          "deadlineMisses": 179,
+          "cpu": {
+            "frames": 180,
+            "p50Ms": 19.5511,
+            "p95Ms": 29.5806,
+            "p99Ms": 45.3007,
+            "maxMs": 62.7256,
+            "deadlineMisses": 4
+          },
+          "fenceWait": {
+            "frames": 180,
+            "p50Ms": 323.66,
+            "p95Ms": 365.783,
+            "p99Ms": 378.919,
+            "maxMs": 389.834,
+            "deadlineMisses": 179
+          },
+          "presentWait": {
+            "frames": 180,
+            "p50Ms": 0.0,
+            "p95Ms": 0.0,
+            "p99Ms": 0.0,
+            "maxMs": 0.0,
+            "deadlineMisses": 0
+          },
+          "gpu": {
+            "frames": 180,
+            "p50Ms": 364.163,
+            "p95Ms": 390.283,
+            "p99Ms": 403.454,
+            "maxMs": 413.236,
+            "deadlineMisses": 180
+          }
+        },
+        {
+          "frames": 180,
+          "p50Ms": 255.045,
+          "p95Ms": 388.483,
+          "p99Ms": 398.164,
+          "maxMs": 514.518,
+          "deadlineMisses": 179,
+          "cpu": {
+            "frames": 180,
+            "p50Ms": 18.7035,
+            "p95Ms": 25.3732,
+            "p99Ms": 71.1967,
+            "maxMs": 114.757,
+            "deadlineMisses": 2
+          },
+          "fenceWait": {
+            "frames": 180,
+            "p50Ms": 340.345,
+            "p95Ms": 362.791,
+            "p99Ms": 369.683,
+            "maxMs": 392.971,
+            "deadlineMisses": 179
+          },
+          "presentWait": {
+            "frames": 180,
+            "p50Ms": 0.0,
+            "p95Ms": 0.0,
+            "p99Ms": 0.0,
+            "maxMs": 0.0,
+            "deadlineMisses": 0
+          },
+          "gpu": {
+            "frames": 180,
+            "p50Ms": 367.984,
+            "p95Ms": 387.745,
+            "p99Ms": 391.045,
+            "maxMs": 392.31,
+            "deadlineMisses": 180
+          }
+        },
+        {
+          "frames": 180,
+          "p50Ms": 340.761,
+          "p95Ms": 361.326,
+          "p99Ms": 376.578,
+          "maxMs": 380.846,
+          "deadlineMisses": 179,
+          "cpu": {
+            "frames": 180,
+            "p50Ms": 17.8647,
+            "p95Ms": 23.8445,
+            "p99Ms": 28.3831,
+            "maxMs": 62.4528,
+            "deadlineMisses": 1
+          },
+          "fenceWait": {
+            "frames": 180,
+            "p50Ms": 321.066,
+            "p95Ms": 337.154,
+            "p99Ms": 355.339,
+            "maxMs": 356.077,
+            "deadlineMisses": 179
+          },
+          "presentWait": {
+            "frames": 180,
+            "p50Ms": 0.0,
+            "p95Ms": 0.0,
+            "p99Ms": 0.0,
+            "maxMs": 0.0,
+            "deadlineMisses": 0
+          },
+          "gpu": {
+            "frames": 180,
+            "p50Ms": 339.293,
+            "p95Ms": 357.978,
+            "p99Ms": 378.828,
+            "maxMs": 381.315,
+            "deadlineMisses": 180
+          }
+        }
+      ],
+      "runLevelRange": {
+        "p50Ms": [
+          255.045,
+          355.296
+        ],
+        "p95Ms": [
+          361.326,
+          391.95
+        ],
+        "p99Ms": [
+          376.578,
+          402.384
+        ],
+        "maxMs": [
+          380.846,
+          514.518
+        ],
+        "deadlineMisses": [
+          179,
+          179
+        ]
+      },
+      "cpuP95MsRange": [
+        23.8445,
+        29.5806
+      ],
+      "validGpuP95MsRange": [
+        357.978,
+        390.283
+      ],
+      "fenceWaitP95MsRange": [
+        337.154,
+        365.783
+      ],
+      "presentWaitP95MsRange": [
+        0.0,
+        0.0
+      ]
+    },
+    "stationary": {
+      "perRun": [
+        {
+          "frames": 180,
+          "p50Ms": 364.107,
+          "p95Ms": 393.186,
+          "p99Ms": 432.19,
+          "maxMs": 440.209,
+          "deadlineMisses": 180,
+          "cpu": {
+            "frames": 180,
+            "p50Ms": 19.5024,
+            "p95Ms": 27.9156,
+            "p99Ms": 62.9729,
+            "maxMs": 63.5297,
+            "deadlineMisses": 6
+          },
+          "fenceWait": {
+            "frames": 180,
+            "p50Ms": 339.132,
+            "p95Ms": 369.332,
+            "p99Ms": 374.22,
+            "maxMs": 384.026,
+            "deadlineMisses": 180
+          },
+          "presentWait": {
+            "frames": 180,
+            "p50Ms": 0.0,
+            "p95Ms": 0.0,
+            "p99Ms": 0.0,
+            "maxMs": 0.0,
+            "deadlineMisses": 0
+          },
+          "gpu": {
+            "frames": 180,
+            "p50Ms": 363.103,
+            "p95Ms": 392.05,
+            "p99Ms": 398.615,
+            "maxMs": 403.681,
+            "deadlineMisses": 180
+          }
+        },
+        {
+          "frames": 180,
+          "p50Ms": 386.028,
+          "p95Ms": 410.377,
+          "p99Ms": 422.052,
+          "maxMs": 427.213,
+          "deadlineMisses": 180,
+          "cpu": {
+            "frames": 180,
+            "p50Ms": 19.4005,
+            "p95Ms": 26.4508,
+            "p99Ms": 29.4488,
+            "maxMs": 48.2216,
+            "deadlineMisses": 1
+          },
+          "fenceWait": {
+            "frames": 180,
+            "p50Ms": 361.364,
+            "p95Ms": 381.335,
+            "p99Ms": 394.032,
+            "maxMs": 396.397,
+            "deadlineMisses": 180
+          },
+          "presentWait": {
+            "frames": 180,
+            "p50Ms": 0.0,
+            "p95Ms": 0.0,
+            "p99Ms": 0.0,
+            "maxMs": 0.0,
+            "deadlineMisses": 0
+          },
+          "gpu": {
+            "frames": 180,
+            "p50Ms": 384.086,
+            "p95Ms": 406.525,
+            "p99Ms": 416.831,
+            "maxMs": 420.556,
+            "deadlineMisses": 180
+          }
+        },
+        {
+          "frames": 180,
+          "p50Ms": 356.267,
+          "p95Ms": 383.466,
+          "p99Ms": 408.352,
+          "maxMs": 409.436,
+          "deadlineMisses": 180,
+          "cpu": {
+            "frames": 180,
+            "p50Ms": 19.3081,
+            "p95Ms": 26.2651,
+            "p99Ms": 32.2116,
+            "maxMs": 37.1563,
+            "deadlineMisses": 1
+          },
+          "fenceWait": {
+            "frames": 180,
+            "p50Ms": 332.174,
+            "p95Ms": 361.952,
+            "p99Ms": 380.519,
+            "maxMs": 387.235,
+            "deadlineMisses": 180
+          },
+          "presentWait": {
+            "frames": 180,
+            "p50Ms": 0.0,
+            "p95Ms": 0.0,
+            "p99Ms": 0.0,
+            "maxMs": 0.0,
+            "deadlineMisses": 0
+          },
+          "gpu": {
+            "frames": 180,
+            "p50Ms": 355.887,
+            "p95Ms": 386.215,
+            "p99Ms": 400.348,
+            "maxMs": 410.305,
+            "deadlineMisses": 180
+          }
+        }
+      ],
+      "runLevelRange": {
+        "p50Ms": [
+          356.267,
+          386.028
+        ],
+        "p95Ms": [
+          383.466,
+          410.377
+        ],
+        "p99Ms": [
+          408.352,
+          432.19
+        ],
+        "maxMs": [
+          409.436,
+          440.209
+        ],
+        "deadlineMisses": [
+          180,
+          180
+        ]
+      },
+      "cpuP95MsRange": [
+        26.2651,
+        27.9156
+      ],
+      "validGpuP95MsRange": [
+        386.215,
+        406.525
+      ],
+      "fenceWaitP95MsRange": [
+        361.952,
+        381.335
+      ],
+      "presentWaitP95MsRange": [
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "uncertaintyMethod": "min/max of independent run-level statistics; frames within a run are correlated",
+  "gpuStatusCountsByRun": [
+    {
+      "valid": 540
+    },
+    {
+      "valid": 540
+    },
+    {
+      "valid": 540
+    }
+  ],
+  "memoryScope": "renderer tracker total mixes CPU and GPU allocations; post-scene-release value includes asset and renderer caches; retained pools, histories and AS bytes not isolated",
+  "trackedMemoryBytes": {
+    "peakTrackedRendererBytes": {
+      "perRun": [
+        862442213,
+        862442213,
+        862442213
+      ],
+      "runLevelRange": [
+        862442213,
+        862442213
+      ]
+    },
+    "liveTrackedRendererBytes": {
+      "perRun": [
+        862442213,
+        862442213,
+        862442213
+      ],
+      "runLevelRange": [
+        862442213,
+        862442213
+      ]
+    },
+    "trackedRendererBytesAfterSceneRelease": {
+      "perRun": [
+        529510976,
+        529510976,
+        529510976
+      ],
+      "runLevelRange": [
+        529510976,
+        529510976
+      ]
+    }
+  },
+  "environment": {
+    "presentation": "offscreen",
+    "vsync": "not-applicable"
+  }
+}

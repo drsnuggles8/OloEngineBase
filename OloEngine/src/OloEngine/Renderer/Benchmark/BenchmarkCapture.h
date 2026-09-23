@@ -24,8 +24,14 @@
 #include "OloEngine/Renderer/Debug/GPUTimingStatus.h"
 
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <span>
+
+namespace OloEngine
+{
+    class Scene;
+}
 
 namespace OloEngine::Benchmark
 {
@@ -172,6 +178,67 @@ namespace OloEngine::Benchmark
         GpuTimingStatus FrameStatus = GpuTimingStatus::Unavailable;
     };
 
+    struct MeasuredFrame
+    {
+        FString CameraId;
+        u32 Index = 0;
+        f64 RenderCallMs = 0.0; // wall-clock Scene::OnUpdateEditor call, excluding readback
+        f64 CpuMs = 0.0;        // profiler's last completed frame; independent clock
+        f64 FenceWaitMs = 0.0;
+        f64 PresentWaitMs = 0.0;
+        u64 GpuFrameId = 0; // may lag this row; never infer same-frame attribution
+        GpuTimingSample Gpu{};
+        u64 TrackedRendererBytes = 0; // tracker combines CPU and GPU allocations
+        u32 DrawCalls = 0;
+    };
+
+} // namespace OloEngine::Benchmark
+
+namespace OloEngine
+{
+    template<>
+    struct TIsTriviallyRelocatable<Benchmark::MeasuredFrame>
+    {
+        using Record = Benchmark::MeasuredFrame;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::CameraId)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Index)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::RenderCallMs)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::CpuMs)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::FenceWaitMs)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::PresentWaitMs)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::GpuFrameId)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Gpu)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::TrackedRendererBytes)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::DrawCalls)>;
+    };
+} // namespace OloEngine
+
+namespace OloEngine::Benchmark
+{
+
+    struct MeasurementRecord
+    {
+        TArray<MeasuredFrame> Frames;
+        f32 DeadlineMs = 0.0f;
+    };
+
+    [[nodiscard]] MeasuredFrame SnapshotMeasuredFrame(std::string_view cameraId, u32 index, f64 renderCallMs);
+    [[nodiscard]] MeasuredFrame SnapshotEditorMeasuredFrame(std::string_view cameraId, u32 index);
+
+    struct AppliedConfiguration
+    {
+        RenderingPath Path = RenderingPath::Deferred;
+        u32 MSAASampleCount = 1;
+        UpscaleMode Upscale = UpscaleMode::Off;
+        UpscalerTechnique Technique = UpscalerTechnique::Spatial;
+        bool RayTracedShadowsRequested = false;
+    };
+    [[nodiscard]] AppliedConfiguration SnapshotAppliedConfiguration();
+    [[nodiscard]] bool ApplyEntityMotion(Scene& scene, const BenchmarkManifest& manifest, u32 frameIndex,
+                                         std::string& outError);
+    [[nodiscard]] bool ValidatePresetAdmission(const BenchmarkManifest& manifest, std::string_view backend,
+                                               std::string& outError);
+
     // Host-supplied provenance for result.json.
     struct RunInfo
     {
@@ -195,6 +262,9 @@ namespace OloEngine::Benchmark
         TimingValidity Timing;
         ResolutionRecord Resolution;
         RendererCounters Counters;
+        MeasurementRecord Measurement;
+        std::optional<u64> TrackedRendererBytesAfterSceneRelease;
+        AppliedConfiguration Configuration;
     };
 
     // Per-capture context a derivation needs (Derive: linear-depth converts

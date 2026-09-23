@@ -55,6 +55,8 @@
 #include "OloEngine/Renderer/DDGI/DDGIProbeUpdatePass.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/Support/RendererSupport.h"
+#include "OloEngine/Renderer/Passes/FSR2RenderPass.h"
 
 #include <exception>
 #include <stb_image/stb_image_write.h>
@@ -1555,6 +1557,147 @@ namespace OloEngine::MCP
                     return "Deferred";
             }
             return "Unknown";
+        }
+
+        // Registry compatibility is a prediction. A frame's selected technique,
+        // produced buffers and downstream consumption need separate observations.
+        // Keep those stages null here rather than interpreting black pixels or
+        // zero counters as evidence of absence.
+        ToolResult Handle_RendererSupport(IAutomationHost& host, const Json&)
+        {
+            const Json result = host.MarshalRead([]() -> Json
+                                                 {
+                using namespace RendererSupport;
+                const auto api = RendererAPI::GetAPI();
+                if (api != RendererAPI::API::OpenGL && api != RendererAPI::API::Vulkan)
+                    return Json{ { "__error", "No active rendering backend." } };
+                const Backend backend = api == RendererAPI::API::Vulkan ? Backend::Vulkan : Backend::OpenGL;
+                const auto& settings = Renderer3D::GetRendererSettings();
+                const auto& post = Renderer3D::GetPostProcessSettings();
+                const u32 maxSamples = Renderer3D::GetMaxMSAASamples();
+                const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph();
+                const Ref<FSR2RenderPass> fsr2 = graph ? graph->GetNode<FSR2RenderPass>("FSR2Pass") : nullptr;
+
+                Capabilities capabilities;
+                capabilities.RayQueries = api == RendererAPI::API::Vulkan &&
+                                          RenderCommand::GetRayTracingCapabilities().Supported;
+                capabilities.TemporalUpscaler = fsr2 && fsr2->IsUpscalerAvailable();
+                // Renderer3D's cap is queried from GL. Zero means it has no
+                // device observation (including the current Vulkan path).
+                capabilities.MaxSamples = maxSamples == 0 ? 1 : maxSamples;
+
+                const bool rayShadowsRequested =
+                    Renderer3D::GetShadowMap().GetSettings().Technique == ShadowTechnique::RayTraced;
+                Request request;
+                request.Api = backend;
+                request.Path = settings.Path;
+                request.Samples = settings.Path == RenderingPath::Deferred
+                                      ? settings.Deferred.MSAASampleCount
+                                      : 1;
+                request.Upscale = post.Upscale == UpscaleMode::Off
+                                      ? Reconstruction::Native
+                                      : post.Technique == UpscalerTechnique::Temporal
+                                            ? Reconstruction::Temporal
+                                            : Reconstruction::Spatial;
+                request.LightingTechnique = Technique::Raster;
+                request.ShadowTechnique = rayShadowsRequested ? Shadow::RayTraced : Shadow::Raster;
+
+                const auto outcomeName = [](Outcome outcome) -> const char*
+                {
+                    switch (outcome)
+                    {
+                        case Outcome::Supported: return "Supported";
+                        case Outcome::Approximate: return "Approximate";
+                        case Outcome::Unsupported: return "Unsupported";
+                    }
+                    return "Unknown";
+                };
+                const auto report = [&](Decision decision, Json requested) -> Json
+                {
+                    return Json{
+                        { "outcome", outcomeName(decision.Status) },
+                        { "reason", std::string(ToString(decision.Why)) },
+                        { "requested", std::move(requested) },
+                        { "capable", decision.Status != Outcome::Unsupported },
+                        { "selected", nullptr },
+                        { "produced", nullptr },
+                        { "consumed", nullptr },
+                    };
+                };
+
+                // This is a probe for a static-mesh row under current settings;
+                // no scene census establishes that an entity requested it.
+                Json current = report(Evaluate(request, capabilities), nullptr);
+                current["scenario"] = "static-mesh probe under current settings";
+                current["geometry"] = "static-mesh";
+                current["material"] = "standard-opaque";
+                current["technique"] = rayShadowsRequested ? "ray-traced-shadow" : "raster";
+                current["shadow"] = rayShadowsRequested ? "ray-traced" : "raster";
+                current["reconstruction"] = request.Upscale == Reconstruction::Native
+                                                ? "native"
+                                                : request.Upscale == Reconstruction::Temporal ? "temporal" : "spatial";
+                current["samples"] = request.Samples;
+                if ((maxSamples == 0 && request.Samples > 1) ||
+                    (!fsr2 && request.Upscale == Reconstruction::Temporal))
+                {
+                    current["capable"] = nullptr;
+                    current["outcome"] = "Unknown";
+                    current["reason"] = maxSamples == 0 && request.Samples > 1
+                                            ? "DeviceSampleLimitUnknown"
+                                            : "TemporalUpscalerStatusUnknown";
+                }
+
+                Json presets = Json::array();
+                for (const auto& definition : Presets)
+                {
+                    Json item = {
+                        { "name", std::string(definition.Name) },
+                        { "qualityIntent", std::string(definition.QualityIntent) },
+                        { "requiredRepresentations", std::string(definition.RequiredRepresentations) },
+                        { "validationManifest", std::string(definition.ValidationManifest) },
+                        { "budgetEvidence", std::string(definition.BudgetEvidence) },
+                        { "backend", definition.Api == Backend::Vulkan ? "Vulkan" : "OpenGL" },
+                        { "path", RenderingPathName(definition.Path) },
+                    };
+                    if (definition.Api == backend)
+                    {
+                        item.update(report(EvaluatePreset(definition.Id, capabilities), nullptr));
+                        if (maxSamples == 0)
+                            item["sampleLimitNote"] = "Device sample limit has no observation; native single-sample preset evaluated with a conservative limit of 1.";
+                    }
+                    else
+                    {
+                        item["outcome"] = "Unknown";
+                        item["reason"] = "BackendNotActive";
+                        item["requested"] = nullptr;
+                        item["capable"] = nullptr;
+                        item["selected"] = nullptr;
+                        item["produced"] = nullptr;
+                        item["consumed"] = nullptr;
+                    }
+                    presets.push_back(std::move(item));
+                }
+                return Json{
+                    { "backend", backend == Backend::Vulkan ? "Vulkan" : "OpenGL" },
+                    { "path", RenderingPathName(settings.Path) },
+                    { "capabilities", Json{
+                        { "rayQueries", capabilities.RayQueries },
+                        { "rayQueriesSource", backend == Backend::Vulkan
+                                                  ? "RenderCommand::GetRayTracingCapabilities"
+                                                  : "OpenGL backend has no ray-query path" },
+                        { "temporalUpscaler", fsr2 ? Json(capabilities.TemporalUpscaler) : Json(nullptr) },
+                        { "temporalUpscalerSource", fsr2 ? "FSR2Pass::IsUpscalerAvailable" : "no live FSR2 pass" },
+                        { "maxSamples", maxSamples == 0 ? Json(nullptr) : Json(maxSamples) },
+                        { "maxSamplesSource", maxSamples == 0
+                                                  ? "no device observation"
+                                                  : "Renderer3D::GetMaxMSAASamples" },
+                    } },
+                    { "currentStaticMesh", std::move(current) },
+                    { "presets", std::move(presets) },
+                }; });
+            if (result.contains("__error"))
+                return ToolResult::Error(result["__error"].get<std::string>());
+            return ToolResult::Structured(result);
         }
 
         // Map a pass token to the single bool field it flips. PostProcess* fields
@@ -7537,6 +7680,29 @@ namespace OloEngine::MCP
 
     void RegisterRenderTools(AutomationRegistry& registry)
     {
+        {
+            ToolDef tool;
+            tool.Name = "olo_renderer_support";
+            tool.Toolset = "render";
+            tool.Title = "Renderer support and preset eligibility";
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "Report the active backend, render path and device capabilities; evaluate the current static-mesh "
+                "configuration and production presets through RendererSupport. The requested/capable/selected/"
+                "produced/consumed stages are separate: selected, produced and consumed are null until observed "
+                "by their own runtime oracles. Presets for the inactive backend have unknown eligibility.";
+            tool.InputSchema = Schema::Object();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("backend", Schema::String())
+                                    .Prop("path", Schema::String())
+                                    .Prop("capabilities", Schema::Object())
+                                    .Prop("currentStaticMesh", Schema::Object())
+                                    .Prop("presets", Schema::Array(Schema::Object()))
+                                    .Required({ "backend", "path", "capabilities", "currentStaticMesh", "presets" });
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_RendererSupport;
+            registry.Register(std::move(tool));
+        }
         {
             ToolDef tool;
             tool.Name = "olo_render_frame_breakdown";

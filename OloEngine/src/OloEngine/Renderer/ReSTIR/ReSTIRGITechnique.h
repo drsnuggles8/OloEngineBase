@@ -43,6 +43,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/ReSTIR/ReservoirGI.h"
+#include "OloEngine/Renderer/Support/RendererSupport.h"
 
 #include <algorithm>
 #include <array>
@@ -481,6 +482,8 @@ namespace OloEngine
         bool GPUSceneAvailable = false;   ///< Instance / geometry / material / light tables are addressable.
         bool TargetsAvailable = false;    ///< The graph produced this frame's reservoir targets.
         bool HistoryLayoutMatches = true; ///< The history planes were written at kGIReservoirLayoutVersion.
+        // Explicit backend; production fills this from RendererAPI::GetAPI().
+        RendererSupport::Backend Api = RendererSupport::Backend::Vulkan;
 
         ReSTIRGIEngageInputs Engagement{};
 
@@ -515,7 +518,12 @@ namespace OloEngine
             return fallback(ReSTIRGIFallbackReason::RenderingPathUnsupported);
         if (!inputs.ShadersReady)
             return fallback(ReSTIRGIFallbackReason::ShaderUnavailable);
-        if (!inputs.RayTracingAvailable)
+        const auto support = RendererSupport::Evaluate(
+            { .Api = inputs.Api,
+              .Path = RenderingPath::Deferred,
+              .LightingTechnique = RendererSupport::Technique::RayTracedGI },
+            { .RayQueries = inputs.RayTracingAvailable, .MaxSamples = 1 });
+        if (support.Status == RendererSupport::Outcome::Unsupported)
             return fallback(ReSTIRGIFallbackReason::RayTracingUnavailable);
         if (!inputs.TlasReady)
             return fallback(ReSTIRGIFallbackReason::AccelerationStructureEmpty);

@@ -225,6 +225,9 @@ namespace OloEngine
                 .RayTracingAvailable = rayTracingAvailable,
                 .TlasReady = tlasReady,
                 .MaskAvailable = maskAvailable,
+                .Api = RendererAPI::GetAPI() == RendererAPI::API::Vulkan
+                           ? RendererSupport::Backend::Vulkan
+                           : RendererSupport::Backend::OpenGL,
             };
             const auto decision = SelectShadowTechnique(inputs, assigned);
             m_Stats.Record(decision);

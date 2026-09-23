@@ -10,6 +10,11 @@
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Shadow/ShadowMap.h"
+#include "OloEngine/Renderer/Support/RendererSupport.h"
+#include "OloEngine/Scene/Scene.h"
+#include "OloEngine/Scene/Entity.h"
+#include "OloEngine/Scene/Components.h"
 #include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 
 #include <nlohmann/json.hpp>
@@ -22,6 +27,8 @@
 #include <cstring>
 #include <fstream>
 #include <limits>
+#include <numbers>
+#include <set>
 
 namespace OloEngine::Benchmark
 {
@@ -391,6 +398,10 @@ namespace OloEngine::Benchmark
         {
             rendererSettings.HZBOcclusionCullingEnabled = *wanted.HZBOcclusionCullingEnabled;
         }
+        if (wanted.MSAASampleCount)
+        {
+            rendererSettings.Deferred.MSAASampleCount = *wanted.MSAASampleCount;
+        }
 
         auto& postProcess = Renderer3D::GetPostProcessSettings();
         postProcess.AutoExposureEnabled = manifest.Exposure == ExposureMode::Auto;
@@ -398,6 +409,12 @@ namespace OloEngine::Benchmark
         if (wanted.TAAEnabled)
         {
             postProcess.TAAEnabled = *wanted.TAAEnabled;
+        }
+        if (wanted.RayTracedShadowsEnabled)
+        {
+            auto settings = Renderer3D::GetShadowMap().GetSettings();
+            settings.Technique = *wanted.RayTracedShadowsEnabled ? ShadowTechnique::RayTraced : ShadowTechnique::ShadowMap;
+            Renderer3D::GetShadowMap().SetSettings(settings);
         }
         if (wanted.GpuPathTracerEnabled)
         {
@@ -407,12 +424,8 @@ namespace OloEngine::Benchmark
         {
             postProcess.GpuPathTracer.SamplesPerFrame = *wanted.GpuPathTracerSamplesPerFrame;
         }
-        // The one setting a capture PINS regardless of the scene: FSR2's
-        // temporal locks decay on REAL elapsed time by contract (see
-        // RenderPipeline.cpp), so any upscaler makes a mock-clock capture
-        // nondeterministic — and a spatial upscale would also break the
-        // whole-texture readback's scale assumption.
-        postProcess.Upscale = UpscaleMode::Off;
+        postProcess.Upscale = wanted.Upscale.value_or(UpscaleMode::Off);
+        postProcess.Technique = wanted.UpscaleTechnique.value_or(UpscalerTechnique::Spatial);
 
         Renderer3D::ApplyRendererSettings();
         Renderer3D::SetRenderScale(manifest.RenderScale);
@@ -502,6 +515,113 @@ namespace OloEngine::Benchmark
             }
         }
         return tag;
+    }
+
+    MeasuredFrame SnapshotMeasuredFrame(std::string_view cameraId, u32 index, f64 renderCallMs)
+    {
+        MeasuredFrame sample;
+        sample.CameraId = cameraId;
+        sample.Index = index;
+        sample.RenderCallMs = renderCallMs;
+        const auto& frame = RendererProfiler::GetInstance().GetLastCompletedFrameData();
+        sample.CpuMs = frame.m_CPUTime;
+        sample.FenceWaitMs = frame.m_FenceWaitTime;
+        sample.PresentWaitMs = frame.m_PresentWaitTime;
+        sample.DrawCalls = frame.m_DrawCalls;
+        const auto gpu = GPUPassTimerPool::GetInstance().GetLastFrameTimings();
+        sample.GpuFrameId = gpu.FrameNumber;
+        sample.Gpu = gpu.Frame;
+        if (gpu.IsStale())
+        {
+            sample.Gpu = GpuTimingSample::Absent(GpuTimingStatus::Unavailable);
+        }
+        sample.TrackedRendererBytes = static_cast<u64>(RendererMemoryTracker::GetInstance().GetTotalMemoryUsage());
+        return sample;
+    }
+
+    MeasuredFrame SnapshotEditorMeasuredFrame(std::string_view cameraId, u32 index)
+    {
+        const auto& frame = RendererProfiler::GetInstance().GetLastCompletedFrameData();
+        return SnapshotMeasuredFrame(cameraId, index, frame.m_FrameTime);
+    }
+
+    AppliedConfiguration SnapshotAppliedConfiguration()
+    {
+        AppliedConfiguration applied;
+        applied.Path = Renderer3D::GetRendererSettings().Path;
+        applied.MSAASampleCount = Renderer3D::GetRendererSettings().Deferred.MSAASampleCount;
+        applied.Upscale = Renderer3D::GetPostProcessSettings().Upscale;
+        applied.Technique = Renderer3D::GetPostProcessSettings().Technique;
+        applied.RayTracedShadowsRequested = Renderer3D::GetShadowMap().GetSettings().Technique == ShadowTechnique::RayTraced;
+        return applied;
+    }
+
+    bool ApplyEntityMotion(Scene& scene, const BenchmarkManifest& manifest, u32 frameIndex,
+                           std::string& outError)
+    {
+        const f32 elapsed = static_cast<f32>(frameIndex) * manifest.FixedDtSeconds;
+        for (const auto& motion : manifest.EntityMotions)
+        {
+            Entity entity = scene.FindEntityByName(motion.Tag.ToView());
+            if (!entity || !entity.HasComponent<TransformComponent>())
+            {
+                outError = "EntityMotion tag missing or without transform: " + motion.Tag.ToStdString();
+                return false;
+            }
+            const f32 phase = motion.PhaseRadians + elapsed * (2.0f * std::numbers::pi_v<f32>)*motion.FrequencyHz;
+            entity.GetComponent<TransformComponent>().Translation = motion.Origin + motion.Amplitude * std::sin(phase);
+        }
+        return true;
+    }
+
+    bool ValidatePresetAdmission(const BenchmarkManifest& manifest, std::string_view backend,
+                                 std::string& outError)
+    {
+        const auto entry = manifest.PresetIdsByBackend.find(std::string(backend));
+        if (entry == manifest.PresetIdsByBackend.end())
+            return true; // legacy capture manifests have no production preset
+        for (const auto& preset : RendererSupport::Presets)
+        {
+            if (preset.Name != entry->second.ToView())
+                continue;
+            const auto requestedBackend = backend == "vulkan" ? RendererSupport::Backend::Vulkan
+                                                              : RendererSupport::Backend::OpenGL;
+            if (preset.Api != requestedBackend)
+            {
+                outError = "manifest backend disagrees with preset " + entry->second.ToStdString();
+                return false;
+            }
+            if (!manifest.RendererSettings.Path || *manifest.RendererSettings.Path != preset.Path)
+            {
+                outError = "manifest path disagrees with preset " + entry->second.ToStdString();
+                return false;
+            }
+            if (!manifest.RendererSettings.RayTracedShadowsEnabled)
+            {
+                outError = "manifest ray-traced shadow setting missing for preset " + entry->second.ToStdString();
+                return false;
+            }
+            const bool hybrid = preset.LightingTechnique != RendererSupport::Technique::Raster;
+            if (manifest.RendererSettings.RayTracedShadowsEnabled.value_or(false) != hybrid)
+            {
+                outError = "manifest ray-traced shadow setting disagrees with preset " + entry->second.ToStdString();
+                return false;
+            }
+            RendererSupport::Capabilities capabilities;
+            capabilities.RayQueries = RenderCommand::SupportsRayTracing();
+            capabilities.TemporalUpscaler = backend == "opengl";
+            capabilities.MaxSamples = std::max(1u, Renderer3D::GetMaxMSAASamples());
+            const auto decision = RendererSupport::EvaluatePreset(preset.Id, capabilities);
+            if (decision.Status == RendererSupport::Outcome::Unsupported)
+            {
+                outError = "preset " + entry->second.ToStdString() + " unsupported: " +
+                           std::string(RendererSupport::ToString(decision.Why));
+                return false;
+            }
+            return true;
+        }
+        outError = "unknown renderer-support preset " + entry->second.ToStdString();
+        return false;
     }
 
     TArray<PassTimingRecord> SnapshotPassTimings()
@@ -687,7 +807,8 @@ namespace OloEngine::Benchmark
                 spec != manifest.Cameras.end())
             {
                 const u32 warmFrames = spec->WarmupFrames.value_or(manifest.WarmupFrames);
-                const auto pose = CameraPoseAtFrame(*spec, warmFrames > 0u ? warmFrames - 1u : 0u,
+                const u32 cameraFrames = warmFrames + manifest.MeasurementFrames;
+                const auto pose = CameraPoseAtFrame(*spec, cameraFrames > 0u ? cameraFrames - 1u : 0u,
                                                     manifest.FixedDtSeconds);
                 cameraJson["warmupFrames"] = warmFrames;
                 if (runInfo.WarmupTimedOut)
@@ -843,6 +964,104 @@ namespace OloEngine::Benchmark
                                      { "trianglesRendered", runInfo.Counters.TrianglesRendered },
                                      { "instancesRendered", runInfo.Counters.InstancesRendered },
                                      { "gpuMemoryTotalBytes", runInfo.Counters.GpuMemoryTotalBytes } };
+        const auto pathName = [](RenderingPath path) -> const char*
+        {
+            switch (path)
+            {
+                case RenderingPath::Forward:
+                    return "Forward";
+                case RenderingPath::ForwardPlus:
+                    return "ForwardPlus";
+                case RenderingPath::Deferred:
+                    return "Deferred";
+            }
+            return "Unknown";
+        };
+        json["configuration"] = {
+            { "requested", { { "path", manifest.RendererSettings.Path ? pathName(*manifest.RendererSettings.Path) : "unfixed" }, { "msaaSamples", manifest.RendererSettings.MSAASampleCount.value_or(1u) }, { "upscaleMode", static_cast<i32>(manifest.RendererSettings.Upscale.value_or(UpscaleMode::Off)) }, { "upscaleTechnique", static_cast<i32>(manifest.RendererSettings.UpscaleTechnique.value_or(UpscalerTechnique::Spatial)) }, { "rayTracedShadows", manifest.RendererSettings.RayTracedShadowsEnabled.value_or(false) } } },
+            { "selectedSettings", { { "path", pathName(runInfo.Configuration.Path) }, { "msaaSamples", runInfo.Configuration.MSAASampleCount }, { "upscaleMode", static_cast<i32>(runInfo.Configuration.Upscale) }, { "upscaleTechnique", static_cast<i32>(runInfo.Configuration.Technique) }, { "rayTracedShadowsRequested", runInfo.Configuration.RayTracedShadowsRequested } } },
+            { "production", "unknown without pass and counter evidence" },
+            { "consumption", "unknown without downstream evidence" }
+        };
+
+        if (!runInfo.Measurement.Frames.IsEmpty())
+        {
+            // Preserve every frame in a separate raw file; a percentile alone
+            // cannot show transient stalls, warm/cold drift, or an invalid GPU
+            // timestamp being accidentally interpreted as a fast frame.
+            std::ofstream raw(outDir / "measurement.csv", std::ios::binary | std::ios::trunc);
+            raw << "camera,index,renderCallMs,cpuMs,fenceWaitMs,presentWaitMs,gpuFrameId,gpuMs,gpuStatus,trackedRendererBytes,drawCalls\n";
+            std::vector<f64> wall;
+            wall.reserve(runInfo.Measurement.Frames.Num());
+            std::map<std::string, std::vector<f64>> byCamera;
+            std::set<u64> validGpuFrames;
+            u32 missed = 0;
+            u64 peakTrackedBytes = 0;
+            for (const auto& frame : runInfo.Measurement.Frames)
+            {
+                wall.push_back(frame.RenderCallMs);
+                byCamera[frame.CameraId.ToStdString()].push_back(frame.RenderCallMs);
+                missed += frame.RenderCallMs > runInfo.Measurement.DeadlineMs ? 1u : 0u;
+                peakTrackedBytes = std::max(peakTrackedBytes, frame.TrackedRendererBytes);
+                raw << frame.CameraId.ToView() << ',' << frame.Index << ',' << frame.RenderCallMs << ','
+                    << frame.CpuMs << ',' << frame.FenceWaitMs << ',' << frame.PresentWaitMs << ','
+                    << frame.GpuFrameId << ',';
+                const bool uniqueGpu = frame.Gpu.IsValid() && frame.GpuFrameId != 0 &&
+                                       validGpuFrames.insert(frame.GpuFrameId).second;
+                if (uniqueGpu)
+                    raw << frame.Gpu.GpuMs;
+                raw << ',' << (frame.Gpu.IsValid() && !uniqueGpu ? "duplicate" : ToString(frame.Gpu.Status))
+                    << ',' << frame.TrackedRendererBytes << ',' << frame.DrawCalls << '\n';
+            }
+            if (!raw)
+            {
+                outError = "cannot write " + (outDir / "measurement.csv").string();
+                return false;
+            }
+            std::ranges::sort(wall);
+            const auto percentile = [&wall](f64 q) -> f64
+            {
+                const auto rank = static_cast<sizet>(std::ceil(q * static_cast<f64>(wall.size())));
+                return wall[std::clamp<sizet>(rank, 1, wall.size()) - 1];
+            };
+            json["measurement"] = { { "rawFile", "measurement.csv" },
+                                    { "metric", runInfo.Host == "editor-mcp"
+                                                    ? "completed editor frame interval; sampling marshals may perturb it"
+                                                    : "wall-clock Scene::OnUpdateEditor call, excluding attachment readback" },
+                                    { "sampleCount", wall.size() },
+                                    { "deadlineMs", runInfo.Measurement.DeadlineMs },
+                                    { "deadlineMisses", missed },
+                                    { "p50Ms", percentile(0.50) },
+                                    { "p95Ms", percentile(0.95) },
+                                    { "p99Ms", percentile(0.99) },
+                                    { "maxMs", wall.back() },
+                                    { "distinctValidGpuFrames", validGpuFrames.size() },
+                                    { "peakTrackedRendererBytes", peakTrackedBytes },
+                                    { "liveTrackedRendererBytes", runInfo.Counters.GpuMemoryTotalBytes },
+                                    { "trackedRendererBytesAfterSceneRelease", runInfo.TrackedRendererBytesAfterSceneRelease
+                                                                                   ? nlohmann::json(*runInfo.TrackedRendererBytesAfterSceneRelease)
+                                                                                   : nlohmann::json(nullptr) },
+                                    { "memoryScope", "renderer tracker total mixes CPU and GPU allocations; post-scene-release value includes asset and renderer caches; retained pools, histories and AS bytes not isolated" } };
+            json["measurement"]["scenarios"] = nlohmann::json::array();
+            for (auto& [camera, values] : byCamera)
+            {
+                std::ranges::sort(values);
+                const auto at = [&values](f64 q) -> f64
+                {
+                    const auto rank = static_cast<sizet>(std::ceil(q * static_cast<f64>(values.size())));
+                    return values[std::clamp<sizet>(rank, 1, values.size()) - 1];
+                };
+                const auto misses = std::ranges::count_if(values, [&](f64 ms)
+                                                          { return ms > runInfo.Measurement.DeadlineMs; });
+                json["measurement"]["scenarios"].push_back({ { "camera", camera },
+                                                             { "sampleCount", values.size() },
+                                                             { "deadlineMisses", misses },
+                                                             { "p50Ms", at(0.50) },
+                                                             { "p95Ms", at(0.95) },
+                                                             { "p99Ms", at(0.99) },
+                                                             { "maxMs", values.back() } });
+            }
+        }
 
         std::ofstream resultFile(outDir / "result.json", std::ios::binary | std::ios::trunc);
         const std::string serialized = json.dump(2);

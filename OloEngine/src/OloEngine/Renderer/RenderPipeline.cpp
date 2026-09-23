@@ -634,6 +634,9 @@ namespace OloEngine
         activation.SceneSampleCount = FrameCorePasses.Scene
                                           ? FrameCorePasses.Scene->GetFramebufferSpecification().Samples
                                           : 1u;
+        activation.Api = RendererAPI::GetAPI() == RendererAPI::API::Vulkan
+                             ? RendererSupport::Backend::Vulkan
+                             : RendererSupport::Backend::OpenGL;
         data.TemporalUpscaleActive = TemporalUpscalePolicy::ShouldRunTemporalUpscale(activation);
 
         // Say WHY when the user asked for FSR2 and did not get it. Silence here is

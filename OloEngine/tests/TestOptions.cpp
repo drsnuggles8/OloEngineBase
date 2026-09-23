@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "TestOptions.h"
+#include "OloEngine/Renderer/Support/RendererSupport.h"
 
 #include <algorithm>
 #include <charconv>
@@ -43,6 +44,8 @@ namespace OloEngine::Tests
                 "                                 `auto` is the default and may also be given explicitly\n"
                 "  --olo-require-gpu              fail, rather than skip, a GPU-gated test when no GL 4.6\n"
                 "                                 context could be created (a GPU job's own guard)\n"
+                "  --olo-require-renderer-preset=<name> fail if a required support-matrix row is unsupported\n"
+                "  --olo-renderer-no-ray-queries  force that capability off for the preset negative control\n"
                 "  --olo-keep-temp                leave per-test temp directories on disk\n"
                 "  --olo-rss-ceiling-mb=<n>       stop the process with exit code 77 when its resident set\n"
                 "                                 passes <n> MB, naming the running test (default 6144;\n"
@@ -205,6 +208,19 @@ namespace OloEngine::Tests
             {
                 s_Options.RequireVulkan = true;
             }
+            else if (const auto v = ValueOf(arg, "--olo-require-renderer-preset"))
+            {
+                const bool known = std::ranges::any_of(OloEngine::RendererSupport::Presets,
+                                                       [v](const auto& preset)
+                                                       { return preset.Name == *v; });
+                if (!known)
+                    Fail("unknown renderer preset", arg);
+                s_Options.RequiredRendererPreset = *v;
+            }
+            else if (arg == "--olo-renderer-no-ray-queries")
+            {
+                s_Options.RendererNoRayQueries = true;
+            }
             else if (const auto v = ValueOf(arg, "--olo-video"))
             {
                 s_Options.VideoPath = *v;
@@ -248,7 +264,8 @@ namespace OloEngine::Tests
                      arg == "--olo-gl-backend" || arg == "--olo-video" ||
                      arg == "--olo-mcp-attach-seconds" || arg == "--olo-bake-shader-pack" ||
                      arg == "--olo-rss-ceiling-mb" ||
-                     arg == "--olo-capture-manifest" || arg == "--olo-capture-out")
+                     arg == "--olo-capture-manifest" || arg == "--olo-capture-out" ||
+                     arg == "--olo-require-renderer-preset")
             {
                 // The name is right but the `=value` is missing — say that,
                 // rather than sending someone hunting for a typo.
@@ -277,6 +294,9 @@ namespace OloEngine::Tests
         {
             Fail("--olo-require-vulkan contradicts --olo-gl-backend=none", "--olo-require-vulkan");
         }
+
+        if (s_Options.RendererNoRayQueries && s_Options.RequiredRendererPreset.empty())
+            Fail("--olo-renderer-no-ray-queries requires --olo-require-renderer-preset", "--olo-renderer-no-ray-queries");
 
         for (sizet i = 0; i < kept.size(); ++i)
         {

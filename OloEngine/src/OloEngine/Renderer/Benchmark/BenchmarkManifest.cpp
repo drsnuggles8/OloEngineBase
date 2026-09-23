@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "BenchmarkManifest.h"
+#include "OloEngine/Renderer/Support/RendererSupport.h"
 
 #include "OloEngine/Core/Hash.h"
 #include "OloEngine/Core/YAMLConverters.h"
@@ -416,7 +417,7 @@ namespace OloEngine::Benchmark
         RequireKnownKeys(root,
                          { "ManifestVersion", "Id", "Product", "Scene", "Backends", "Camera", "Cameras", "Output",
                            "RendererSettings", "Exposure", "Determinism", "Warmup", "Attachments", "Tolerance",
-                           "Assets", "Description" },
+                           "Assets", "Description", "Measurement", "EntityMotion", "Presets" },
                          "manifest", errors);
 
         BenchmarkManifest manifest;
@@ -571,7 +572,8 @@ namespace OloEngine::Benchmark
             RequireKnownKeys(rs,
                              { "Path", "EnableDDGI", "DepthPrepassEnabled", "OcclusionCullingEnabled",
                                "HZBOcclusionCullingEnabled", "TAAEnabled", "GpuPathTracerEnabled",
-                               "GpuPathTracerSamplesPerFrame" },
+                               "GpuPathTracerSamplesPerFrame", "RayTracedShadowsEnabled",
+                               "MSAASampleCount", "Upscale", "UpscaleTechnique" },
                              "RendererSettings", errors);
             if (rs["Path"])
             {
@@ -613,6 +615,44 @@ namespace OloEngine::Benchmark
             if (rs["TAAEnabled"])
             {
                 manifest.RendererSettings.TAAEnabled = rs["TAAEnabled"].as<bool>(false);
+            }
+            if (rs["RayTracedShadowsEnabled"])
+            {
+                manifest.RendererSettings.RayTracedShadowsEnabled = rs["RayTracedShadowsEnabled"].as<bool>(false);
+            }
+            if (rs["MSAASampleCount"])
+            {
+                const u32 samples = rs["MSAASampleCount"].as<u32>(0u);
+                if (samples != 1u && samples != 2u && samples != 4u && samples != 8u)
+                    errors.Add("RendererSettings.MSAASampleCount must be 1 | 2 | 4 | 8");
+                else
+                    manifest.RendererSettings.MSAASampleCount = samples;
+            }
+            if (rs["Upscale"])
+            {
+                const auto mode = rs["Upscale"].as<std::string>("");
+                if (mode == "Off")
+                    manifest.RendererSettings.Upscale = UpscaleMode::Off;
+                else if (mode == "Quality")
+                    manifest.RendererSettings.Upscale = UpscaleMode::Quality;
+                else if (mode == "Balanced")
+                    manifest.RendererSettings.Upscale = UpscaleMode::Balanced;
+                else if (mode == "Performance")
+                    manifest.RendererSettings.Upscale = UpscaleMode::Performance;
+                else if (mode == "UltraPerformance")
+                    manifest.RendererSettings.Upscale = UpscaleMode::UltraPerformance;
+                else
+                    errors.Add("RendererSettings.Upscale must be Off | Quality | Balanced | Performance | UltraPerformance");
+            }
+            if (rs["UpscaleTechnique"])
+            {
+                const auto technique = rs["UpscaleTechnique"].as<std::string>("");
+                if (technique == "Spatial")
+                    manifest.RendererSettings.UpscaleTechnique = UpscalerTechnique::Spatial;
+                else if (technique == "Temporal")
+                    manifest.RendererSettings.UpscaleTechnique = UpscalerTechnique::Temporal;
+                else
+                    errors.Add("RendererSettings.UpscaleTechnique must be Spatial | Temporal");
             }
             if (rs["GpuPathTracerEnabled"])
             {
@@ -723,6 +763,75 @@ namespace OloEngine::Benchmark
         else
         {
             errors.Add("Warmup is required (Frames [+ PerFeature])");
+        }
+        if (const auto presets = root["Presets"]; presets)
+        {
+            if (!presets.IsMap())
+                errors.Add("Presets must map each supported backend to a renderer-support preset ID");
+            else
+            {
+                for (const auto& entry : presets)
+                {
+                    const std::string backend = entry.first.as<std::string>("");
+                    const std::string id = entry.second.as<std::string>("");
+                    bool known = false;
+                    for (const auto& preset : RendererSupport::Presets)
+                    {
+                        if (preset.Name == id &&
+                            ((preset.Api == RendererSupport::Backend::OpenGL && backend == "opengl") ||
+                             (preset.Api == RendererSupport::Backend::Vulkan && backend == "vulkan")))
+                            known = true;
+                    }
+                    if (!known || !manifest.SupportsBackend(backend))
+                        errors.Add("Presets." + backend + " does not name a preset for a supported backend: " + id);
+                    manifest.PresetIdsByBackend[backend] = id;
+                }
+                for (const auto& backend : manifest.SupportedBackends)
+                    if (!manifest.PresetIdsByBackend.contains(backend.ToStdString()))
+                        errors.Add("Presets is missing supported backend " + backend.ToStdString());
+            }
+        }
+        if (const auto motions = root["EntityMotion"]; motions)
+        {
+            if (!motions.IsSequence())
+                errors.Add("EntityMotion must be a sequence");
+            else
+            {
+                for (const auto& entry : motions)
+                {
+                    RequireKnownKeys(entry, { "Tag", "Origin", "Amplitude", "FrequencyHz", "PhaseRadians" },
+                                     "EntityMotion[]", errors);
+                    ManifestEntityMotion motion;
+                    motion.Tag = entry["Tag"].as<std::string>("");
+                    motion.Origin = entry["Origin"].as<glm::vec3>(glm::vec3(0.0f));
+                    motion.Amplitude = entry["Amplitude"].as<glm::vec3>(glm::vec3(0.0f));
+                    motion.FrequencyHz = entry["FrequencyHz"].as<f32>(0.0f);
+                    motion.PhaseRadians = entry["PhaseRadians"].as<f32>(0.0f);
+                    const auto finite = [](glm::vec3 v)
+                    { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); };
+                    if (motion.Tag.IsEmpty() || !finite(motion.Origin) || !finite(motion.Amplitude) ||
+                        !std::isfinite(motion.FrequencyHz) || motion.FrequencyHz <= 0.0f ||
+                        !std::isfinite(motion.PhaseRadians) ||
+                        glm::dot(motion.Amplitude, motion.Amplitude) <= 0.0f)
+                        errors.Add("EntityMotion requires a tag, finite origin/nonzero amplitude, positive finite frequency and finite phase");
+                    manifest.EntityMotions.Add(std::move(motion));
+                }
+            }
+        }
+
+        if (const auto measurement = root["Measurement"]; measurement)
+        {
+            RequireKnownKeys(measurement, { "Frames", "DeadlineMs" }, "Measurement", errors);
+            manifest.MeasurementFrames = measurement["Frames"].as<u32>(0u);
+            manifest.MeasurementDeadlineMs = measurement["DeadlineMs"].as<f32>(0.0f);
+            if (manifest.MeasurementFrames < 100u || manifest.MeasurementFrames > 10000u)
+            {
+                errors.Add("Measurement.Frames must be in [100, 10000] for a useful frame-time tail");
+            }
+            if (!std::isfinite(manifest.MeasurementDeadlineMs) || manifest.MeasurementDeadlineMs <= 0.0f)
+            {
+                errors.Add("Measurement.DeadlineMs must be finite and > 0");
+            }
         }
 
         if (const auto attachments = root["Attachments"]; attachments && attachments.IsSequence())
