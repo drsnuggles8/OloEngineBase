@@ -339,8 +339,11 @@ namespace OloEngine
                 renderFB->GetDepthAttachmentHandle(),
                 depthAwareInputs);
             gpuSubTimers.EndSubPass();
-            forwardPlus.BindForShading();
         }
+        // OUTSIDE the Forward+ gate: BindForShading publishes the light buffers
+        // on an inactive frame too, because every shader that includes
+        // ForwardPlusCommon.glsl declares them (see TiledForwardPlus.cpp).
+        forwardPlus.BindForShading();
 
         // Distance-impostor reflection probes (issue #705): upload changed
         // array layers + the probe UBO and fill the per-cluster probe mask,
@@ -414,8 +417,9 @@ namespace OloEngine
                     forwardPlus.RenderDebugOverlay(quadVAO->GetRHIHandle(), debugShader);
                 }
             }
-            forwardPlus.UnbindAfterShading();
         }
+        // Unconditional, to pair with the unconditional BindForShading above.
+        forwardPlus.UnbindAfterShading();
 
         ++m_FrameCounter;
 

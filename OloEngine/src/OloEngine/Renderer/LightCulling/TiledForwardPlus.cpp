@@ -144,13 +144,33 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!m_ActiveThisFrame)
+        if (!m_Initialized)
         {
             return;
         }
 
+        // PUBLISHED EVEN WHEN INACTIVE. Every shader that includes
+        // ForwardPlusCommon.glsl DECLARES bindings 9-12 and 18, and gates its
+        // reads on the UBO's Enabled flag rather than on the declaration. On
+        // Vulkan a declared storage binding with no published occupant is an
+        // error (issue #1052), and this pass's own UnbindAfterShading is what
+        // empties the slots: once a Deferred or Forward+ frame has bound and
+        // unbound them, the next frame with Forward+ inactive — a switch to
+        // Forward, or a light count under the threshold — drew PBR_MultiLight
+        // and DeferredLighting against empty slots and logged five errors per
+        // shader (issue #1394's live verification; reproduced on the skin-free
+        // MaterialLab.olo). Before that first unbind the slots only looked
+        // healthy because OTHER tenants of those binding numbers had left their
+        // buffers in them. Publishing our own buffers gives the declarations a
+        // defined occupant; the UBO still says Enabled = 0 when inactive
+        // (CommandDispatch::BindSceneResources), so nothing reads them.
         m_LightBuffer.Bind();
         m_LightGrid.Bind();
+
+        if (!m_ActiveThisFrame)
+        {
+            return;
+        }
 
         // Upload Forward+ clustered parameters UBO
         if (m_ForwardPlusUBO)
@@ -199,7 +219,10 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!m_ActiveThisFrame)
+        // Mirrors BindForShading, which publishes whenever initialised. Unbind
+        // only clears a slot this pass still occupies, so it is safe on a frame
+        // where another tenant rebound one in between.
+        if (!m_Initialized)
         {
             return;
         }
