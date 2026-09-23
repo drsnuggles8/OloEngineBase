@@ -36,6 +36,7 @@
 #include "OloEngine/Asset/MeshCache.h"
 #include "OloEngine/Renderer/Model.h"
 #include "OloEngine/Project/Project.h"
+#include "OloEngine/Renderer/MeshOptimization.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/Texture.h"
@@ -102,6 +103,8 @@ namespace
             submeshes.Add(submesh);
         }
         meshSource->SetSubmeshes(submeshes);
+        // Pack input must already have the index-corner order a decode returns.
+        MeshOptimization::OptimizeMesh(*meshSource);
         return meshSource;
     }
 

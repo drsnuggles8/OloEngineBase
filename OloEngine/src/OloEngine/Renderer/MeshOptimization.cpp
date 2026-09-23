@@ -357,6 +357,21 @@ namespace OloEngine::MeshOptimization
 
         // 4. Generate shadow index buffer (merges position-equivalent vertices)
         GenerateShadowIndices(meshSource);
+        auto& shadowIndices = meshSource.GetShadowIndices();
+        if (!shadowIndices.IsEmpty() && (shadowIndices.Num() % 3) == 0)
+        {
+            const auto shadowCount = static_cast<sizet>(shadowIndices.Num());
+            const EncodedMeshBuffer encoded = EncodeIndexBuffer(shadowIndices.GetData(), shadowCount, vertexCount);
+            TArray<u32> canonical(static_cast<i32>(shadowCount));
+            if (DecodeIndexBuffer(canonical.GetData(), shadowCount, encoded))
+            {
+                shadowIndices = MoveTemp(canonical);
+            }
+            else
+            {
+                OLO_CORE_WARN("MeshOptimization::OptimizeMesh: shadow index codec round trip failed");
+            }
+        }
 
         OLO_CORE_TRACE("MeshOptimization::OptimizeMesh: Optimized {} vertices, {} indices", vertexCount, indexCount);
     }

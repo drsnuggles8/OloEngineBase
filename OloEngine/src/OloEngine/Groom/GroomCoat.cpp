@@ -152,10 +152,15 @@ namespace OloEngine
             return nullptr;
         }
 
+        return Adopt(width, height, std::vector<u8>(rgba.begin(), rgba.end()));
+    }
+
+    Ref<GroomRegionMap> GroomRegionMap::Adopt(u32 width, u32 height, std::vector<u8>&& rgba)
+    {
         auto map = Ref<GroomRegionMap>::Create();
         map->m_Width = width;
         map->m_Height = height;
-        map->m_Pixels.assign(rgba.begin(), rgba.end());
+        map->m_Pixels = std::move(rgba);
 
         constexpr u64 offsetBasis = 14695981039346656037ull;
         constexpr u64 prime = 1099511628211ull;
@@ -192,7 +197,7 @@ namespace OloEngine
             rgba[(i * 4u) + 2u] = rgb[(i * 3u) + 2u];
             rgba[(i * 4u) + 3u] = 255u;
         }
-        return FromRGBA8(width, height, rgba);
+        return Adopt(width, height, std::move(rgba));
     }
 
     glm::vec3 GroomRegionMap::Sample(glm::vec2 uv) const noexcept

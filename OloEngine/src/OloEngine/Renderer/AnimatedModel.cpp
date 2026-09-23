@@ -543,6 +543,7 @@ namespace OloEngine
         m_BoneInfoMap.clear();
         m_LoadedTextures.clear();
         m_HasMeshNodeTransform = false;
+        m_MeshLoadedFromCache = false;
         m_MeshNodeGlobalTransform = glm::mat4(1.0f);
 
         // Try loading from binary cache first (skip Assimp entirely)
@@ -628,6 +629,7 @@ namespace OloEngine
 
                         OLO_CORE_INFO("AnimatedModel::LoadModel: Loaded from cache - {} meshes, {} animations",
                                       static_cast<sizet>(m_Meshes.Num()), static_cast<sizet>(m_Animations.Num()));
+                        m_MeshLoadedFromCache = true;
                         return;
                     } // end animation-cache-valid block
                 }
@@ -1050,6 +1052,19 @@ namespace OloEngine
         // Build() internally calls OptimizeMesh (which also remaps bone influences)
         // before uploading to GPU — do NOT call OptimizeMesh separately here.
         meshSource->Build();
+
+        // ...EXCEPT with no graphics device (OloServer, a headless cook): Build()
+        // then returns before optimizing and without latching m_Built, so the
+        // cache written below would hold UNoptimized, unflagged data and a later
+        // warm load on a device would optimize a different input than a cold
+        // import there does -- a different surface, which a groom binding
+        // refuses (#1223). Optimize here and say so, so every path writes the
+        // same surface.
+        if (!meshSource->IsBuilt() && !meshSource->IsPreOptimized())
+        {
+            MeshOptimization::OptimizeMesh(*meshSource);
+            meshSource->SetPreOptimized(true);
+        }
 
         return meshSource;
     }

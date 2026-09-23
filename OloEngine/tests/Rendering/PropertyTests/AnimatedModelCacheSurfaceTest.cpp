@@ -13,6 +13,7 @@
 #include "OloEnginePCH.h"
 
 #include "RenderPropertyTest.h" // OLO_ENSURE_GPU_OR_SKIP
+#include "TestTempDir.h"
 
 #include <gtest/gtest.h>
 
@@ -101,17 +102,32 @@ namespace OloEngine::Tests
 
         // The horse has TWO meshes (the body and its eyes), so the combined
         // .omesh is split back into two on a warm load. CesiumMan has one.
-        for (const char* relative : { "SandboxProject/Assets/Models/Horse/Horse.gltf", "assets/models/CesiumMan/CesiumMan.gltf" })
+        //
+        // Each model is COPIED into this test's temp directory first. The cache
+        // is keyed on the source path, so invalidating the committed files'
+        // caches would pull them out from under any other test process reading
+        // the same model at the same time.
+        for (const char* relative : { "SandboxProject/Assets/Models/Horse", "assets/models/CesiumMan" })
         {
-            const std::filesystem::path path = std::filesystem::path{ OLO_TEST_EDITOR_ROOT } / relative;
+            const std::filesystem::path source = std::filesystem::path{ OLO_TEST_EDITOR_ROOT } / relative;
+            ASSERT_TRUE(std::filesystem::exists(source)) << source.string();
+            const std::filesystem::path copy = TempDir(source.filename().string());
+            std::error_code ec;
+            std::filesystem::copy(source, copy, std::filesystem::copy_options::recursive | std::filesystem::copy_options::overwrite_existing,
+                                  ec);
+            ASSERT_FALSE(ec) << ec.message();
+            const std::filesystem::path path = copy / (source.filename().string() + ".gltf");
             SCOPED_TRACE(path.string());
             ASSERT_TRUE(std::filesystem::exists(path));
             MakeCold(path);
 
             const Ref<AnimatedModel> cold = Ref<AnimatedModel>::Create(path.string());
+            ASSERT_FALSE(cold->WasMeshLoadedFromCache());
             ASSERT_TRUE(MeshCache::IsMeshCacheValid(path, AnimatedModel::kCachePrefix))
                 << "the cold import wrote no cache; the warm half would re-run the cold one";
             const Ref<AnimatedModel> warm = Ref<AnimatedModel>::Create(path.string());
+            ASSERT_TRUE(warm->WasMeshLoadedFromCache())
+                << "the second load fell back to a fresh mesh import instead of using the cache";
 
             ASSERT_EQ(cold->GetMeshes().size(), warm->GetMeshes().size());
             for (sizet m = 0; m < cold->GetMeshes().size(); ++m)

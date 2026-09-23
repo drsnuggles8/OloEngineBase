@@ -263,6 +263,11 @@ namespace OloEngine
         /// apply: zero dimensions or a wrong-sized span return null.
         [[nodiscard]] static Ref<GroomRegionMap> FromRGB8(u32 width, u32 height, std::span<const u8> rgb);
 
+      private:
+        // Takes ownership of already-validated, tightly packed RGBA8 and hashes it.
+        [[nodiscard]] static Ref<GroomRegionMap> Adopt(u32 width, u32 height, std::vector<u8>&& rgba);
+
+      public:
         /// Bilinear, with CLAMPED addressing. Clamped rather than wrapped
         /// because a root UV is a position on a pelt's chart, and wrapping puts
         /// the muzzle's modulation on the tail across a seam.

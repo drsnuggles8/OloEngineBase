@@ -26,7 +26,7 @@
 
 #include <gtest/gtest.h>
 
-#include <optional>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include "GroomBindingFixture.h"
 
@@ -35,18 +35,31 @@
 #include "OloEngine/Groom/GroomBinding.h"
 #include "OloEngine/Groom/GroomBindingBuilder.h"
 #include "OloEngine/Groom/GroomBindingCooker.h"
+#include "OloEngine/Renderer/MeshOptimization.h"
+#include "OloEngine/Renderer/MeshPrimitives.h"
+#include "OloEngine/Renderer/Vertex.h"
 #include "OloEngine/Serialization/GroomBindingBinaryFormat.h"
 #include "OloEngine/Serialization/ZlibSection.h"
 
 #include <bit>
 #include <cstddef>
+#include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <functional>
+#include <iterator>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 using namespace OloEngine;
 using namespace OloEngine::GroomBindingTest;
+
+#ifndef OLO_TEST_EDITOR_ROOT
+#error "OLO_TEST_EDITOR_ROOT must be defined by the test target"
+#endif
 
 namespace
 {
@@ -126,6 +139,68 @@ namespace
     constexpr sizet kRootsPayloadOffset = kInfoPayloadOffset + sizeof(OloGroomBindingFormat::InfoSection) +
                                           sizeof(OloGroomBindingFormat::SectionFrame);
 } // namespace
+
+TEST(GroomBindingRoundTrip, ReferenceBristleBodyBindingMatchesTheCurrentSphere)
+{
+    namespace fs = std::filesystem;
+    const fs::path groomDir = fs::path(OLO_TEST_EDITOR_ROOT) / "SandboxProject/Assets/Grooms";
+    const fs::path groomPath = groomDir / "reference-human-scalp.ologroom";
+    const fs::path bindingPath = groomDir / "reference-human-scalp-BristleBody.ologroombinding";
+    const auto readBytes = [](const fs::path& path)
+    {
+        std::ifstream file(path, std::ios::binary);
+        return std::vector<u8>(std::istreambuf_iterator<char>(file), {});
+    };
+    const auto groomBytes = readBytes(groomPath);
+    ASSERT_FALSE(groomBytes.empty()) << groomPath.string();
+    Ref<GroomAsset> groom;
+    std::string reason;
+    ASSERT_TRUE(GroomSerializer::DecodeFromBytes(groomBytes.data(), groomBytes.size(), groom, reason)) << reason;
+
+    auto sphere = MeshPrimitives::CreateSphere();
+    ASSERT_TRUE(sphere);
+    auto surface = sphere->GetMeshSource();
+    ASSERT_TRUE(surface);
+    if (!surface->IsBuilt() && !surface->IsPreOptimized())
+    {
+        MeshOptimization::OptimizeMesh(*surface);
+    }
+    const auto& vertices = surface->GetVertices();
+    const auto& indices = surface->GetIndices();
+    GroomSurfaceView view;
+    view.PositionData = reinterpret_cast<const std::byte*>(vertices.GetData());
+    view.PositionStride = sizeof(Vertex);
+    view.VertexCount = static_cast<u32>(vertices.Num());
+    view.Indices = indices.GetData();
+    view.IndexCount = static_cast<u32>(indices.Num());
+    ASSERT_TRUE(view.IsUsable());
+
+    GroomBindingBuildSettings settings;
+    settings.SurfaceToGroom = glm::scale(glm::mat4(1.0f), glm::vec3(0.088f));
+    std::vector<u8> cookedBytes;
+    Ref<GroomBindingAsset> cooked;
+    GroomBindingBuildStats stats;
+    ASSERT_TRUE(GroomBindingCooker::CookPair(*groom, view, "BristleBody", settings, cookedBytes, cooked,
+                                             stats, reason))
+        << reason;
+
+    const char* exportFlag = std::getenv("OLO_GROOM_REFERENCE_BINDING_EXPORT");
+    if (exportFlag != nullptr && std::string_view(exportFlag) == "1")
+    {
+        std::ofstream out(bindingPath, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(out.is_open());
+        out.write(reinterpret_cast<const char*>(cookedBytes.data()), static_cast<std::streamsize>(cookedBytes.size()));
+        ASSERT_TRUE(out.good());
+    }
+
+    const auto storedBytes = readBytes(bindingPath);
+    Ref<GroomBindingAsset> stored;
+    ASSERT_TRUE(GroomBindingSerializer::DecodeFromBytes(storedBytes.data(), storedBytes.size(), stored, reason))
+        << reason;
+    EXPECT_EQ(stored->CheckCompatibility(GroomBindingBuilder::SignGroom(*groom),
+                                         GroomBindingBuilder::SignTarget(view)),
+              GroomBindingRejectReason::None);
+}
 
 // ── ROUND TRIP ──────────────────────────────────────────────────────────────
 

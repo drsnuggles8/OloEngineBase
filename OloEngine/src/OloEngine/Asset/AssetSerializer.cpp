@@ -2716,6 +2716,30 @@ namespace OloEngine
                            vertexCount, indexCount, submeshCount, materialCount);
             return false;
         }
+        // The index codec may rotate triangle corners. A pack must never turn a
+        // groom-bound surface into a different index-addressed surface. Require
+        // both streams to have passed the same codec round trip as OptimizeMesh.
+        const auto isCanonical = [vertexCount](const TArray<u32>& source) -> bool
+        {
+            const auto count = static_cast<sizet>(source.Num());
+            if (count == 0 || count % 3u != 0u)
+            {
+                return true; // Preserve the existing empty/non-triangle handling.
+            }
+            const auto encoded = MeshOptimization::EncodeIndexBuffer(source.GetData(), count, vertexCount);
+            TArray<u32> decoded(static_cast<i32>(count));
+            if (!MeshOptimization::DecodeIndexBuffer(decoded.GetData(), count, encoded))
+            {
+                return false;
+            }
+            return std::equal(source.GetData(), source.GetData() + count, decoded.GetData());
+        };
+        if (!isCanonical(indices) || (hasShadowIndices && !isCanonical(meshSource->GetShadowIndices())))
+        {
+            OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - index buffer is not codec-canonical; "
+                           "optimize the mesh and rebuild any index-addressed groom binding before packing");
+            return false;
+        }
         if (hasBoneInfluences)
         {
             if (static_cast<u32>(meshSource->GetBoneInfluences().Num()) != vertexCount)

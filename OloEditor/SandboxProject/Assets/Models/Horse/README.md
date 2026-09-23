@@ -57,7 +57,7 @@ All of it is in `prepare_horse.py`, so it can be re-run and reviewed:
 ## Regenerating
 
 ```
-blender -b riggedHorse.blend --python prepare_horse.py -- OloEditor/SandboxProject/Assets/Models/Horse <preview_dir>
+blender -b OloEditor/SandboxProject/Assets/Models/Horse/riggedHorse.blend --python OloEditor/SandboxProject/Assets/Models/Horse/prepare_horse.py -- OloEditor/SandboxProject/Assets/Models/Horse [<preview_dir>]
 ```
 
 The preview directory receives four frames of each gait, rendered with Blender's Workbench engine.

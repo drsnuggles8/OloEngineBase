@@ -38,6 +38,7 @@
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Asset/AssetSerializer.h"
+#include "OloEngine/Asset/MeshCache.h"
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Groom/GroomBinding.h"
 #include "OloEngine/Groom/GroomBindingBuilder.h"
@@ -1463,11 +1464,11 @@ namespace OloEngine::Tests
     }
 
     // =========================================================================
-    // Criterion 1, the negative controls: each child's lever, switched off on
-    // the moving long-coated animal, changes the frame. A child whose lever
-    // changes nothing is not integrated, whatever its counters say.
+    // Criterion 1, the negative controls: each active visual lever, switched
+    // off on the moving long-coated animal, changes the frame. Coat shadow is
+    // refused here and LOD is checked by the near-to-far case instead.
     // =========================================================================
-    TEST_F(GroomAnimalsAcceptanceEvidenceTest, EachChildIsLoadBearingOnTheMovingLongCoat)
+    TEST_F(GroomAnimalsAcceptanceEvidenceTest, ActiveVisualLeversChangeTheMovingLongCoat)
     {
         SetPath(RenderingPath::Forward);
         SubjectRig& s = m_LongCoat;
@@ -1772,7 +1773,7 @@ namespace OloEngine::Tests
     // =========================================================================
     TEST_F(GroomAnimalsAcceptanceEvidenceTest, CostScalesAcrossAHerd)
     {
-        // Low enough that twelve coated animals exceed it and three do not.
+        // Constrains even three coats; the 12-animal case exercises larger-herd shedding.
         constexpr f32 kHerdBudgetUnits = 1200.0f;
         SetPath(RenderingPath::Forward);
         const View view{ glm::vec3(0.0f, 4.0f, 14.0f), glm::vec3(0.0f, 1.0f, -8.0f), 55.0f };
@@ -1792,6 +1793,7 @@ namespace OloEngine::Tests
         report += "# GPU: " + gpuName + "\n";
         report += "# Release test binary, 1280x720, Forward, TAA on. GroomPass GPU ms is the mean of VALID samples\n";
         report += "# (GPUPassTimerPool, #1337) over 20 frames. Cache MiB is the strand geometry the pass holds.\n";
+        report += "# The 1200-unit budget also constrains three animals when scheduling is on; off is full density.\n";
         report += "herd  scheduler  groomsDrawn  strandsDrawn  guidesSimulated  cacheMiB  groomPassMs  validSamples  wallMsPerFrame\n";
 
         std::vector<Entity> herd;
@@ -1821,7 +1823,7 @@ namespace OloEngine::Tests
                 settings.AnimalSchedulingEnabled = scheduler;
                 settings.AnimalProtectHero = true;
                 settings.AnimalHoldFrames = 0u;
-                // A budget that BINDS for this herd. At the engine default the
+                // A budget that binds even for three animals. At the engine default the
                 // whole herd fits and both arms are the same frame, which
                 // measures nothing about the scheduler.
                 settings.AnimalFrameBudgetUnits = kHerdBudgetUnits;
@@ -1878,7 +1880,11 @@ namespace OloEngine::Tests
         }
         Renderer3D::GetRendererSettings().AnimalSchedulingEnabled = false;
 
-        std::ofstream(fs::path("assets") / "tests" / "visual" / "GroomAnimals_Cost.txt") << report;
+        const char* exportFlag = std::getenv("OLO_GROOM_ANIMALS_COST_EXPORT");
+        const fs::path reportPath = exportFlag != nullptr && std::string_view(exportFlag) == "1"
+                                        ? fs::path("assets") / "tests" / "visual" / "GroomAnimals_Cost.txt"
+                                        : TempDir("cost-report") / "GroomAnimals_Cost.txt";
+        std::ofstream(reportPath) << report;
         EXPECT_LT(strandsOnAt9, strandsOffAt9) << "#1258: the scheduler must shed strand work from a 12-animal herd";
         EXPECT_TRUE(heroOn == heroOff) << "#1258: while leaving the hero's coat exactly as it was";
     }
@@ -1969,18 +1975,28 @@ namespace OloEngine::Tests
         // load came back with rotated triangle corners and a moved topology
         // hash, and the editor drew the long coat at its bind pose while the
         // horse walked (AnimatedModelCacheSurfaceTest pins the mesh half).
+        //
+        // BOTH loads are forced: the cache is dropped first, so one reload is
+        // cold and the next is warm. Otherwise, on any tree whose cache already
+        // exists, the fixture's own load and the reload are both warm and this
+        // passes with the fix reverted.
         for (SubjectRig* subject : Subjects())
         {
             const fs::path modelPath = subject == &m_Human ? HeadPath() : HorsePath();
-            const Ref<AnimatedModel> reloaded = Ref<AnimatedModel>::Create(modelPath.string());
-            ASSERT_TRUE(reloaded);
-            ASSERT_FALSE(reloaded->GetMeshes().empty());
-            const MeshSource& body = *reloaded->GetMeshes().front();
-            const GroomSurfaceView view = MakeSurfaceView(body, reloaded->GetSkeleton().Raw());
-            EXPECT_EQ(subject->Binding->CheckCompatibility(GroomBindingBuilder::SignGroom(*subject->Grown.Groom),
-                                                           GroomBindingBuilder::SignTarget(view)),
-                      GroomBindingRejectReason::None)
-                << subject->Name << ": the binding must accept a second, cache-served load of its own body";
+            MeshCache::InvalidateCache(modelPath);
+            MeshCache::InvalidateCache(modelPath, AnimatedModel::kCachePrefix);
+            for (const char* which : { "cold", "warm" })
+            {
+                const Ref<AnimatedModel> reloaded = Ref<AnimatedModel>::Create(modelPath.string());
+                ASSERT_TRUE(reloaded);
+                ASSERT_FALSE(reloaded->GetMeshes().empty());
+                const MeshSource& body = *reloaded->GetMeshes().front();
+                const GroomSurfaceView view = MakeSurfaceView(body, reloaded->GetSkeleton().Raw());
+                EXPECT_EQ(subject->Binding->CheckCompatibility(GroomBindingBuilder::SignGroom(*subject->Grown.Groom),
+                                                               GroomBindingBuilder::SignTarget(view)),
+                          GroomBindingRejectReason::None)
+                    << subject->Name << ": the binding must accept a " << which << " load of its own body";
+            }
         }
 
         SetPath(RenderingPath::Forward);
@@ -2071,5 +2087,24 @@ namespace OloEngine::Tests
         SceneSerializer(GetSceneRef()).Serialize(scenePath);
         ASSERT_TRUE(fs::exists(scenePath));
         std::printf("[groom-animals] wrote %s\n", scenePath.string().c_str());
+
+        // Leave a SCRATCH project active, never the Sandbox one: every later
+        // fixture in this process takes BuildScene's "project already active"
+        // branch, and would otherwise write its cooked test assets into
+        // SandboxProject/Assets and its registry.
+        const fs::path scratch = TempDir("after-export");
+        fs::create_directories(scratch / "Assets", ec);
+        {
+            std::ofstream proj(scratch / "Scratch.oloproj");
+            proj << "Project:\n"
+                    "  Name: GroomAnimalsScratch\n"
+                    "  StartScene: \"\"\n"
+                    "  AssetDirectory: \"Assets\"\n"
+                    "  ScriptModulePath: \"\"\n";
+        }
+        ASSERT_TRUE(Project::Load(scratch / "Scratch.oloproj"));
+        auto scratchAssets = Ref<EditorAssetManager>::Create();
+        scratchAssets->Initialize(false);
+        Project::SetAssetManager(scratchAssets);
     }
 } // namespace OloEngine::Tests

@@ -15,5 +15,6 @@ produce a Vulkan frame, and every ray-traced cell is Vulkan Deferred only.
 | `GroomAnimalsNoTaa_GL_Forward_Live.png` | TAA off (the scene's default) | the coats fall back to the opaque tier and vanish (#1429) |
 
 The subjects move, so no two captures show the same pose, and these frames are not pixel-comparable
-with each other. They show that each cell renders every subject, coated and attached. The measured
+with each other. The coated captures show all three coated subjects; the upscale capture records
+their misregistration. The no-TAA capture shows the fallback in which the coats vanish. The measured
 claims are in `GroomAnimalsAcceptanceEvidenceTest`.
