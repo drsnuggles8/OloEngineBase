@@ -5527,16 +5527,12 @@ namespace OloEngine
             board.Scratch.SSRResolved.IsValid() && !board.Temporal.SSRHistory.IsValid();
         if (ssrHistoryDeclaredButNotImported)
         {
+            // The blackboard cache only. BuildFrameGraph keeps its own cache on
+            // the same key, and invalidating it HERE did nothing: this frame's
+            // BuildFrameGraph runs after this function and re-arms it. The next
+            // frame's re-populate re-runs every Setup() because
+            // RenderGraph::ClearImportedResources invalidates the build cache.
             pipeline.InvalidateBlackboardCache();
-            // BOTH caches, and the second one is the load-bearing half. The
-            // blackboard cache only decides whether this function re-runs;
-            // BuildFrameGraph keeps its OWN cache keyed on the same fingerprint
-            // value, and the fingerprint is identical next frame (it was hashed
-            // from the pre-EnsureHistoryStorage flag). So re-running the import
-            // without this would put the handle in the blackboard while every
-            // pass's Setup() stayed cached and never re-read it — the resolve
-            // would keep sampling a history it was never handed.
-            graph.InvalidateBuildFrameGraphCache();
         }
 
         // (The 2D FogHistory sink/import died with the screen-space fog

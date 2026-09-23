@@ -660,6 +660,17 @@ namespace OloEngine
         m_ExternallyBackedTransientTextures.clear();
         m_ExternallyBackedTransientFramebuffers.clear();
         m_ResourceRegistryDirty = true;
+
+        // Every view handle a pass's Setup() captured is retired above, so a
+        // cached build must not serve the next BuildFrameGraph whatever its key
+        // says. The two declaration caches share one key and usually miss
+        // together; they part when a populate invalidates the blackboard for
+        // the NEXT frame (the SSR history resize does), and an invalidation made
+        // then is re-armed by that frame's own build -- so the next frame
+        // re-populated under a cached graph and every pass resolved stale
+        // handles (AOApply's and SSR's asserts on every Deferred upscale toggle).
+        // Enforced here, where the handles die, not at one caller.
+        InvalidateBuildFrameGraphCache();
     }
 
     // =========================================================================

@@ -31,6 +31,10 @@
 //   * CameraAndObjectMotionDoNotRecompile: motion is execution data. Sixty
 //     frames of it must be sixty cache hits, with the CPU cost of a hit and of
 //     a compile measured and reported.
+//   * ARepopulatedBlackboardNeverServesACachedGraph: the two cache layers
+//     share a key but can disagree, and a re-populated blackboard under a
+//     cached graph hands every pass stale handles. Deferred + SSR + GTAO under
+//     upscale toggles, with the verifier OFF because it hides this.
 //
 // Evidence PNGs: DeclarationCache_GL_<Path>.png (a cached frame) and
 // DeclarationCacheRebuilt_GL_<Path>.png (the forced rebuild of the next
@@ -602,5 +606,67 @@ namespace OloEngine::Tests
                "from before the repeated invalidation and every MarkProduced since has been rejected. "
                "RenderGraph::RefreshHistorySinkTokens must run every frame after the capture.";
         EXPECT_GT(recovered->Token.Generation, warm->Token.Generation);
+    }
+
+    // A repopulated blackboard must re-run every pass's Setup(). Found live
+    // while verifying #1397: in Deferred with SSR on, an upscale toggle resizes
+    // the SSR history inside PopulateBlackboard, which invalidates BOTH caches
+    // -- but the build cache was invalidated before that frame's own
+    // BuildFrameGraph, which re-armed it under the same key. The next frame's
+    // key matched, so the blackboard re-populated (ClearImportedResources makes
+    // every view handle stale) while BuildFrameGraph served the cached Setup()
+    // output. GTAO's depth/normals and AOApply's input then resolved as stale
+    // handles, and AOApply's assert took the editor down.
+    //
+    // The verify lever stays OFF: it rebuilds every cache hit, which is exactly
+    // what hides this.
+    TEST_F(FrameGraphDeclarationCacheEvidenceTest, ARepopulatedBlackboardNeverServesACachedGraph)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        const ScopedVerifyLever verifyOff(false);
+        UseDeterministicPost();
+        SetPath(RenderingPath::Deferred);
+        auto& post = Renderer3D::GetPostProcessSettings();
+        post.SSREnabled = true;
+        post.ActiveAOTechnique = AOTechnique::GTAO;
+        post.GTAOEnabled = true;
+        const EditorCamera camera = MakeCamera();
+
+        const auto failuresThisFrame = []() -> std::string
+        {
+            const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph();
+            if (!graph)
+                return "no active graph";
+            std::string out;
+            for (const auto& failure : graph->GetResolveFailures())
+                out += failure.PassName.ToStdString() + ": " + failure.Reason.ToStdString() + "\n";
+            return out;
+        };
+
+        RunEditorFrames(camera, 4);
+        ASSERT_EQ(failuresThisFrame(), "") << "the settled native frame already fails to resolve";
+
+        constexpr std::array kModes{ UpscaleMode::Performance, UpscaleMode::Off, UpscaleMode::Quality, UpscaleMode::Off };
+        Renderer3D::ResetFrameGraphDeclarationStats();
+        for (const UpscaleMode mode : kModes)
+        {
+            post.Upscale = mode;
+            for (u32 frame = 0; frame < 3u; ++frame)
+            {
+                RunEditorFrames(camera, 1);
+                EXPECT_EQ(failuresThisFrame(), "")
+                    << "frame " << frame << " after switching upscale to " << static_cast<int>(mode)
+                    << " resolved stale graph handles: the blackboard re-populated under a cached graph";
+            }
+        }
+
+        // The premise: the SSR history resize re-populated the blackboard on a
+        // frame whose key did NOT move. Each toggle moves the key once; the
+        // out-of-band re-populate is the compile beyond that. Without one, the
+        // assertions above passed on ordinary key changes and proved nothing.
+        const auto stats = Renderer3D::GetFrameGraphDeclarationStats();
+        EXPECT_GT(stats.Compiles, static_cast<u64>(kModes.size()))
+            << "no toggle produced a second compile, so the re-populate-under-an-unchanged-key frame this test "
+               "exists for never happened (is SSR still declared on Deferred?)";
     }
 } // namespace OloEngine::Tests
