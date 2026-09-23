@@ -173,6 +173,28 @@ namespace OloEngine
         return map;
     }
 
+    Ref<GroomRegionMap> GroomRegionMap::FromRGB8(u32 width, u32 height, std::span<const u8> rgb)
+    {
+        if (width == 0u || height == 0u)
+        {
+            return nullptr;
+        }
+        const auto texels = static_cast<sizet>(width) * static_cast<sizet>(height);
+        if (rgb.size() != texels * 3u)
+        {
+            return nullptr;
+        }
+        std::vector<u8> rgba(texels * 4u);
+        for (sizet i = 0; i < texels; ++i)
+        {
+            rgba[(i * 4u) + 0u] = rgb[(i * 3u) + 0u];
+            rgba[(i * 4u) + 1u] = rgb[(i * 3u) + 1u];
+            rgba[(i * 4u) + 2u] = rgb[(i * 3u) + 2u];
+            rgba[(i * 4u) + 3u] = 255u;
+        }
+        return FromRGBA8(width, height, rgba);
+    }
+
     glm::vec3 GroomRegionMap::Sample(glm::vec2 uv) const noexcept
     {
         if (m_Width == 0u || m_Height == 0u)

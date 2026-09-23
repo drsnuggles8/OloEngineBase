@@ -9180,15 +9180,22 @@ namespace OloEngine
             return nullptr;
         }
 
-        entry.m_Map = GroomRegionMap::FromRGBA8(texture->GetWidth(), texture->GetHeight(), { pixels.GetData(), static_cast<sizet>(pixels.Num()) });
+        const std::span<const u8> bytes{ pixels.GetData(), static_cast<sizet>(pixels.Num()) };
+        // RGB8 is chosen by the texture's DECLARED format, never inferred from
+        // the byte count: every JPEG albedo loads as RGB8, and refusing it made
+        // an animal's own albedo unusable as its coat's colour map (#1223).
+        entry.m_Map = texture->GetSpecification().Format == ImageFormat::RGB8
+                          ? GroomRegionMap::FromRGB8(texture->GetWidth(), texture->GetHeight(), bytes)
+                          : GroomRegionMap::FromRGBA8(texture->GetWidth(), texture->GetHeight(), bytes);
         if (!entry.m_Map)
         {
-            // FromRGBA8 refuses a buffer that is not exactly width*height*4,
-            // which is what a compressed or single-channel texture gives back.
-            // Refused rather than reinterpreted: a BC7 payload read as RGBA8 is
-            // a density map of noise, and noise looks like authored variation.
+            // Both builders refuse a buffer that is not exactly width*height*
+            // channels, which is what a compressed or single-channel texture
+            // gives back. Refused rather than reinterpreted: a BC7 payload read
+            // as RGBA8 is a density map of noise, and noise looks like authored
+            // variation.
             OLO_CORE_WARN("GroomCoat: region map {} is {}x{} but read back {} bytes, not {} of tightly packed RGBA8; "
-                          "the coat will render without it. Use an uncompressed 8-bit RGBA texture.",
+                          "the coat will render without it. Use an uncompressed 8-bit RGB or RGBA texture.",
                           static_cast<u64>(handle), texture->GetWidth(), texture->GetHeight(), pixels.Num(),
                           static_cast<u64>(texture->GetWidth()) * texture->GetHeight() * 4u);
             entry.m_Failed = true;

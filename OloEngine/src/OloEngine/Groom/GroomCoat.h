@@ -256,6 +256,13 @@ namespace OloEngine
         /// was after the buffer.
         [[nodiscard]] static Ref<GroomRegionMap> FromRGBA8(u32 width, u32 height, std::span<const u8> rgba);
 
+        /// `rgb` is tightly packed 8-bit RGB, `width * height * 3` bytes -- what
+        /// an RGB8 texture reads back, and therefore what every JPEG albedo
+        /// gives. Only R, G and B are ever sampled, so this is the same map as
+        /// FromRGBA8 of the same pixels with an opaque alpha. The same refusals
+        /// apply: zero dimensions or a wrong-sized span return null.
+        [[nodiscard]] static Ref<GroomRegionMap> FromRGB8(u32 width, u32 height, std::span<const u8> rgb);
+
         /// Bilinear, with CLAMPED addressing. Clamped rather than wrapped
         /// because a root UV is a position on a pelt's chart, and wrapping puts
         /// the muzzle's modulation on the tail across a seam.
