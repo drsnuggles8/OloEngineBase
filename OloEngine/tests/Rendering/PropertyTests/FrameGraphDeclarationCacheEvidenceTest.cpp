@@ -630,6 +630,10 @@ namespace OloEngine::Tests
         post.SSREnabled = true;
         post.ActiveAOTechnique = AOTechnique::GTAO;
         post.GTAOEnabled = true;
+        // The AO technique reaches the graph only through ApplyRendererSettings,
+        // which reconciles it with the one SetPath configured; without it GTAO
+        // and AOApply are never wired in and half the coverage is imaginary.
+        Renderer3D::ApplyRendererSettings();
         const EditorCamera camera = MakeCamera();
 
         const auto failuresThisFrame = []() -> std::string
