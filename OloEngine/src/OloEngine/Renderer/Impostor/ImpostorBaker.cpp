@@ -146,8 +146,20 @@ namespace OloEngine
 
         // The whole shared index buffer as one part, framed to the whole
         // MeshSource, not just submesh 0: a multi-submesh model's other parts
-        // would otherwise be clipped.
-        const BoundingBox bounds = mesh->GetMeshSource() ? mesh->GetMeshSource()->GetBoundingBox() : mesh->GetBoundingBox();
+        // would otherwise be clipped. Measured from the source vertices when
+        // there are any: MeshSource::GetBoundingBox() is empty on a warm
+        // .omesh load, and a bake framed to it frames nothing.
+        BoundingBox bounds = mesh->GetBoundingBox();
+        if (const Ref<MeshSource>& source = mesh->GetMeshSource(); source && !source->GetVertices().IsEmpty())
+        {
+            bounds = BoundingBox{ glm::vec3(std::numeric_limits<f32>::max()),
+                                  glm::vec3(std::numeric_limits<f32>::lowest()) };
+            for (const Vertex& vertex : source->GetVertices())
+            {
+                bounds.Min = glm::min(bounds.Min, vertex.Position);
+                bounds.Max = glm::max(bounds.Max, vertex.Position);
+            }
+        }
         const ImpostorBakePart whole{ 0, mesh->GetVertexArray()->GetIndexBuffer()->GetCount(), albedoTexture };
         return Bake(mesh->GetVertexArray(), bounds, std::span<const ImpostorBakePart>(&whole, 1), tint,
                     framesPerAxis, atlasResolution, hemi, alphaCutoff);

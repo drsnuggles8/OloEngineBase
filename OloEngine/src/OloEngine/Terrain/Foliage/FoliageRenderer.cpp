@@ -1401,21 +1401,21 @@ namespace OloEngine
             // loaded on the GPU but will not decode on the CPU (a cooked
             // block-compressed container) is recorded as NOT measured and said
             // so — never read as "fine".
-            std::unordered_map<const Texture2D*, AC::AlphaPlane> decoded;
-            const auto planeFor = [&decoded, &layer](const Texture2D& texture) -> const AC::AlphaPlane*
+            std::unordered_map<std::string, AC::AlphaPlane> decoded;
+            const auto planeFor = [&decoded, &layer](std::string_view texturePath) -> const AC::AlphaPlane*
             {
-                auto [it, inserted] = decoded.try_emplace(&texture);
+                auto [it, inserted] = decoded.try_emplace(std::string(texturePath));
                 if (inserted)
                 {
                     std::string error;
-                    const std::filesystem::path path = Texture2D::ResolveStoredSourcePath(texture.GetPath());
+                    const std::filesystem::path path = Texture2D::ResolveStoredSourcePath(texturePath);
                     if (path.empty())
                         error = "its source path does not resolve";
                     if (path.empty() || !AC::DecodeAlpha(path, it->second, error))
                     {
                         OLO_CORE_INFO("FoliageRenderer: layer '{}' - alpha coverage of '{}' was not measured ({}), "
                                       "so the AlphaCutoff plausibility check cannot vouch for it.",
-                                      layer.Name.ToView(), texture.GetPath(), error);
+                                      layer.Name.ToView(), texturePath, error);
                     }
                 }
                 return it->second.IsEmpty() ? nullptr : &it->second;
@@ -1437,7 +1437,7 @@ namespace OloEngine
                 entry.Kind = AC::Role::Card;
                 entry.Texture = layer.AlbedoPath;
                 entry.Surface = "the card";
-                if (const AC::AlphaPlane* plane = planeFor(*albedo))
+                if (const AC::AlphaPlane* plane = planeFor(albedo->GetPath()))
                 {
                     entry.Coverage = AC::MeasureSheet(*plane);
                     entry.Measured = true;
@@ -1446,16 +1446,16 @@ namespace OloEngine
             }
 
             // One part of a mesh, over its own surface samples.
-            const auto measurePart = [&](AC::Role kind, i32 index, const Ref<Texture2D>& texture,
+            const auto measurePart = [&](AC::Role kind, i32 index, std::string_view texturePath,
                                          const TArray<TArray<glm::vec2>>& surfaces)
             {
-                if (!drawable(texture))
-                    return;
+                if (texturePath.empty())
+                    return; // white: passes everywhere
                 AC::Entry entry;
                 entry.Kind = kind;
-                entry.Texture = FString(texture->GetPath());
+                entry.Texture = FString(texturePath);
                 entry.Surface = FString(std::format("part {} of '{}'", index, meshName));
-                const AC::AlphaPlane* plane = planeFor(*texture);
+                const AC::AlphaPlane* plane = planeFor(texturePath);
                 if (plane && index < surfaces.Num() && !surfaces[index].IsEmpty())
                 {
                     const auto& uvs = surfaces[index];
@@ -1472,7 +1472,9 @@ namespace OloEngine
                 for (i32 i = 0; i < data.MeshParts.Num(); ++i)
                 {
                     const auto& part = data.MeshParts[i];
-                    measurePart(AC::Role::AuthoredMesh, i, part.Albedo ? part.Albedo : albedo, data.MeshPartSurfaceUVs);
+                    const Ref<Texture2D>& drawn = part.Albedo ? part.Albedo : albedo;
+                    measurePart(AC::Role::AuthoredMesh, i, drawable(drawn) ? drawn->GetPath() : std::string_view{},
+                                data.MeshPartSurfaceUVs);
                 }
             }
 
@@ -1482,8 +1484,9 @@ namespace OloEngine
             // the ones above number for number.
             if (impostorDrawn && !meshDrawn)
             {
-                for (i32 i = 0; i < data.ImpostorParts.Num(); ++i)
-                    measurePart(AC::Role::ImpostorBake, i, data.ImpostorParts[i].Albedo, data.ImpostorPartSurfaceUVs);
+                for (i32 i = 0; i < data.ImpostorPartTextures.Num(); ++i)
+                    measurePart(AC::Role::ImpostorBake, i, data.ImpostorPartTextures[i].ToView(),
+                                data.ImpostorPartSurfaceUVs);
             }
         }
 
@@ -1519,9 +1522,9 @@ namespace OloEngine
             data.ImpostorBakedMeshPath.Empty();
             data.ImpostorBakedFrames = 0;
             data.ImpostorBakedResolution = 0;
-            if (!data.ImpostorParts.IsEmpty())
+            if (!data.ImpostorPartTextures.IsEmpty())
             {
-                data.ImpostorParts.Reset();
+                data.ImpostorPartTextures.Reset();
                 data.ImpostorPartSurfaceUVs.Reset();
                 data.AlphaCoverageDirty = true;
             }
@@ -1548,9 +1551,9 @@ namespace OloEngine
         // A bake that fails, or bakes nothing, leaves nothing to judge.
         const auto dropBakedParts = [&data]()
         {
-            if (data.ImpostorParts.IsEmpty())
+            if (data.ImpostorPartTextures.IsEmpty())
                 return;
-            data.ImpostorParts.Reset();
+            data.ImpostorPartTextures.Reset();
             data.ImpostorPartSurfaceUVs.Reset();
             data.AlphaCoverageDirty = true;
         };
@@ -1612,19 +1615,19 @@ namespace OloEngine
         // their textures changed. A cutoff or tint re-bake bakes the same
         // parts, and re-measuring would re-arm every warning latch, so a
         // slider dragged across an implausible range would warn on every
-        // step. Compared by texture PATH: an impostor-only layer re-imports
-        // its model per bake, so its Texture2D objects are new each time.
-        const auto samePart = [](const ImpostorBakePart& a, const ImpostorBakePart& b)
-        {
-            const std::string_view pathA = a.Albedo ? a.Albedo->GetPath() : std::string_view{};
-            const std::string_view pathB = b.Albedo ? b.Albedo->GetPath() : std::string_view{};
-            return a.BaseIndex == b.BaseIndex && a.IndexCount == b.IndexCount && pathA == pathB;
-        };
+        // step. Kept and compared by texture PATH: an impostor-only layer
+        // re-imports its model per bake, so its Texture2D objects are new each
+        // time — and they are released with `parts` when this returns.
+        TArray<FString> textures;
+        textures.Reserve(parts.Num());
+        for (const auto& part : parts)
+            textures.Add(part.Albedo ? FString(part.Albedo->GetPath()) : FString{});
         const bool sameParts = data.ImpostorBakedMeshPath == layer.MeshPath &&
-                               std::ranges::equal(data.ImpostorParts, parts, samePart);
-        data.ImpostorParts = std::move(parts);
+                               data.ImpostorPartTextures == textures &&
+                               data.ImpostorPartSurfaceUVs.Num() == plant.PartSurfaceUVs.Num();
         if (!sameParts)
         {
+            data.ImpostorPartTextures = std::move(textures);
             data.ImpostorPartSurfaceUVs = std::move(plant.PartSurfaceUVs);
             data.AlphaCoverageDirty = true;
         }

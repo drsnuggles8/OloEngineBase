@@ -271,14 +271,18 @@ namespace OloEngine
         // entries hold histograms, so a cutoff change re-judges without
         // decoding or sampling anything:
         //   MeshPartSurfaceUVs      one surface sample set per MeshParts entry
-        //   ImpostorParts           what the impostor was baked from — the same
+        //   ImpostorPartTextures    the texture each impostor part was baked
+        //                           with, by PATH (empty: white) — the same
         //                           parts and textures the near mesh draws
-        //   ImpostorPartSurfaceUVs  one sample set per ImpostorParts entry
+        //   ImpostorPartSurfaceUVs  one sample set per ImpostorPartTextures entry
         // AlphaCoverageDirty says an input moved and the entries must be
         // re-measured; each entry's own Warned latch is what keeps the log
         // line to once per implausible configuration.
         TArray<TArray<glm::vec2>> MeshPartSurfaceUVs;
-        TArray<ImpostorBakePart> ImpostorParts;
+        // Paths, not Ref<Texture2D>: an impostor-only layer's part textures
+        // belong to a model that is dropped after the bake, and holding their
+        // Refs for a diagnostic would keep every one of them resident on the GPU.
+        TArray<FString> ImpostorPartTextures;
         TArray<TArray<glm::vec2>> ImpostorPartSurfaceUVs;
         TArray<FoliageAlphaCoverage::Entry> AlphaCoverage;
         bool AlphaCoverageDirty = true;
@@ -367,7 +371,7 @@ namespace OloEngine
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::ImpostorBakedHemi)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::Lod)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::MeshPartSurfaceUVs)>::Value &&
-                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::ImpostorParts)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::ImpostorPartTextures)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::ImpostorPartSurfaceUVs)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::AlphaCoverage)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::AlphaCoverageDirty)>::Value &&
