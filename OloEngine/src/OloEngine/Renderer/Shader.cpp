@@ -70,7 +70,9 @@ namespace OloEngine
             static auto* s_Set = new std::unordered_set<u32>();
             return *s_Set;
         }
-        bool s_BoundProgramReadsMaterialOffsets = false;
+        // Vulkan recording workers bind their own shaders. Material uploads must use
+        // the shader selected on this thread, not the render thread's last bind.
+        thread_local bool s_BoundProgramReadsMaterialOffsets = false;
     } // namespace
 
     auto Shader::IsBoundProgramBindless() -> bool

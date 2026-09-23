@@ -741,12 +741,13 @@ namespace OloEngine
         // HeapBinding::BindTextureOrOffset fallbacks inside shared pass bodies
         // (ParticleBatchRenderer, FoliageRenderer, VirtualGeometryPass) route
         // into the offset path with no heap staged (#691).
-        // Both flags are process-wide plain bools read by the heap-binding
-        // seam, which is not reachable from an item (rule 6) — so an item
-        // leaves them to the render thread rather than racing N writes of
-        // `false` against each other.
+        // The broad bindless flag remains render-thread state. The material
+        // offset flag is recording-thread state: CommandDispatch reads it
+        // inside each item when it builds the material UBO. Without publishing
+        // it here, a heap-reading shader receives zero texture offsets.
         if (CurrentVulkanWorkerContext() != nullptr)
         {
+            SetBoundProgramMaterialOffsets(m_ReadsMaterialHeapOffsets);
             return;
         }
         SetBoundProgramBindless(false);
@@ -758,8 +759,8 @@ namespace OloEngine
         // to land on and the offsets in the material UBO are what it reads.
         //
         // It is still WRITTEN on every bind rather than only when true, which is
-        // the half that was load-bearing before and still is: the flag is
-        // process-global, so a stale true left by the previously bound program —
+        // the half that was load-bearing before and still is: a stale true
+        // left by the previously bound program on this recording thread —
         // a GL bindless bind before a backend swap (#691), or a converted material
         // shader before an unconverted one — withholds the five binds from a
         // program that needs them and renders every mesh with null material lanes,
@@ -781,9 +782,11 @@ namespace OloEngine
             s_CurrentlyBound = nullptr;
         }
         // Match OpenGLShader::Unbind: no program means neither flag can be
-        // true (#691, the stale-flag pair). Render thread only, as in Bind.
+        // true (#691, the stale-flag pair). Material state is per recording
+        // thread; the broad bindless flag remains render-thread state.
         if (CurrentVulkanWorkerContext() != nullptr)
         {
+            SetBoundProgramMaterialOffsets(false);
             return;
         }
         SetBoundProgramBindless(false);
