@@ -85,3 +85,10 @@ allocates 3.20 MB instead of 3.12 MB.
   reading. The accessors are gone.
 - A second submission into a bucket after its replay would have been dropped silently by the next
   frame's reset. It is now refused and reported at the call.
+- **Retiring one bucket must not retire another's packets.** Every render-stream pass shares
+  `FrameResourceManager`'s per-frame allocator, and `CommandBufferRenderPass::ResetCommandBucket`
+  used to reset that allocator. A stream pass that retired its bucket early in the graph freed every
+  other stream's packets before they replayed. The Forward decal frame survived it only because
+  nothing allocated in between; the first allocation that did (the OIT clone) landed on the decal
+  packet and its type read back as `Invalid`. A pass now resets only an allocator it owns. If you
+  give a pass a shared allocator, its retire is `Clear()` plus `ResetStatistics()`, never `Reset`.
