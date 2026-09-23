@@ -356,6 +356,10 @@ namespace OloEngine
         // Returns 0 on arena overflow, which the arena counts and warns
         // about; root assembly then drops the draw.
         //
+        // EXCEPT a stream whose writes outgrow the arena (#1446): see
+        // IsCommandOrdered. Its draws read the persistent allocation, which
+        // its writes reach as copies recorded in command order.
+        //
         // Safe to call from several RecordParallel items at once. Unlike
         // VulkanUniformBuffer, whose address the fork primes before the region,
         // nothing primes a streamed vertex stream — the draw path reaches it
@@ -364,9 +368,34 @@ namespace OloEngine
         // push per stream per frame.
         [[nodiscard]] VkDeviceAddress GetPullAddress() const;
 
+        // Whether this stream's writes are recorded transfers into the
+        // persistent allocation rather than frame-arena snapshots (#1446).
+        //
+        // A snapshot is the whole written range pushed into a 16 MiB arena slot
+        // shared by every root-data allocation in the frame. A bound groom
+        // rewrites 125-219 MB every frame, so its snapshot could never fit and
+        // every one of its draws was dropped. Such a stream is written the way
+        // UploadBufferSubData writes: a staged vkCmdCopyBuffer in the frame's
+        // command buffer, between barriers. That keeps the two guarantees the
+        // snapshot exists for — a draw recorded between two writes sees the
+        // first (command order), and a write cannot race the previous frame's
+        // reads (queue order) — without any arena space. Sticky once set.
+        [[nodiscard]] bool IsCommandOrdered() const
+        {
+            return m_CommandOrdered;
+        }
+
+        // The written size above which a stream leaves the arena: half a slot.
+        // Below it the snapshot is cheaper (no transfer, no rendering-scope
+        // break per write) and every stream that worked before #1446 —
+        // particle batches, the 3.8 MB and 5.8 MB precipitation streams — stays
+        // exactly where it was.
+        [[nodiscard]] static u64 CommandOrderedThresholdBytes();
+
       private:
         void CreateBuffer(const void* initialData);
         void ReleaseBuffer();
+        void WriteCommandOrdered(const VertexData& data);
 
         BufferLayout m_Layout;
         u32 m_Size = 0;
@@ -384,6 +413,7 @@ namespace OloEngine
         bool m_Streamed = false;
         bool m_InitialUploadDone = false; ///< CreateBuffer's own upload is not a rewrite.
         bool m_HadInitialData = false;
+        bool m_CommandOrdered = false; ///< See IsCommandOrdered (#1446).
         mutable std::atomic<u64> m_PersistentDrawGeneration{ 0 };
         ///< (region << 32 | item) of the region's first RecordParallel writer — a streamed
         ///< stream is a written object like any other, and rule 6 applies to it.
