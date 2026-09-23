@@ -248,15 +248,12 @@ namespace OloEngine::RayTracing
         const bool reallocate = !entry.Vertices || !entry.Indices || entry.ShapeHash != shapeHash ||
                                 entry.VertexCount != proxyStats.VertexCount ||
                                 entry.IndexCount != proxyStats.IndexCount;
+        Ref<IndexBuffer> replacementIndices;
         if (reallocate)
         {
-            entry.Indices = IndexBuffer::Create(m_ProxyIndices.data(), proxyStats.IndexCount);
-            if (!entry.Indices)
-            {
-                entry.Vertices.Reset();
-                entry.Indices.Reset();
+            replacementIndices = IndexBuffer::Create(m_ProxyIndices.data(), proxyStats.IndexCount);
+            if (!replacementIndices)
                 return GroomProxyRefusalReason::BuildFailed;
-            }
         }
         if (reallocate || RendererAPI::GetAPI() == RendererAPI::API::Vulkan)
         {
@@ -266,6 +263,8 @@ namespace OloEngine::RayTracing
             replacement->SetLayout(Vertex::GetLayout());
             replacement->SetData({ m_ProxyVertices.data(), static_cast<u32>(proxyStats.VertexBytes) });
             entry.Vertices = std::move(replacement);
+            if (reallocate)
+                entry.Indices = std::move(replacementIndices);
         }
         else
         {
