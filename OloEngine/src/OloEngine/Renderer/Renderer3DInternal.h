@@ -482,6 +482,14 @@ namespace OloEngine
             SSRHistoryTexture.Reset();
             SSRHistoryValid = false;
             AtmosphereShadingUBO.Reset();
+            // The passes are gone, so the configuration and plan compiled from
+            // them are too; the next compile is a first compile, not a diff
+            // against a pipeline that no longer exists.
+            m_CompiledConfig = FrameGraphDeclarationConfig{};
+            m_HasCompiledConfig = false;
+            m_CompiledPassKeys.Reset();
+            m_CompiledPlanDigest = 0;
+            m_CompiledPlanEntries.clear();
             m_HasSSGIEnableState = false;
             m_PreviousSSGIEnabled = false;
             m_PreviousSSGIHalfResolution = true;

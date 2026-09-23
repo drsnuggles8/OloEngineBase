@@ -72,6 +72,7 @@ namespace OloEngine::Tests
             desc.Format = RGResourceFormat::RGBA16Float;
             desc.Width = width;
             desc.Height = width;
+            desc.MipLevels = 2;
             return desc;
         }
 
@@ -83,6 +84,7 @@ namespace OloEngine::Tests
         {
             RGTextureHandle Scratch{};
             RGTextureHandle Output{};
+            u32 ViewMip = 0;
         };
 
         struct TwoPassGraph
@@ -96,6 +98,8 @@ namespace OloEngine::Tests
             {
                 Shared->Scratch = graph.DeclareTransientTexture("Scratch", TextureDesc("Scratch", Producer->TargetWidth));
                 Shared->Output = graph.DeclareTransientTexture("Output", TextureDesc("Output", 64u));
+                [[maybe_unused]] const RGTextureHandle mipView =
+                    graph.CreateTextureMipView("ScratchMip", Shared->Scratch, Shared->ViewMip);
             }
 
             void Register(RenderGraph& graph) const
@@ -351,5 +355,28 @@ namespace OloEngine::Tests
         const auto sizeDiff = DifferingLabels(baseEntries, sizeEntries);
         EXPECT_NE(std::ranges::find(sizeDiff, std::string("resource:Scratch")), sizeDiff.end())
             << "A descriptor change must be named by resource: " << ::testing::PrintToString(sizeDiff);
+    }
+
+    // A view name is recorded in a pass's access, its linkage is not; the
+    // digest must carry the linkage itself, or the same view name bound to a
+    // different mip digests the same.
+    TEST(RenderGraphDeclarationIdentity, PlanDigestSeesAViewRelinkedUnderTheSameName)
+    {
+        RenderGraph graph;
+        auto nodes = MakeTwoPassGraph(RHI::ResourceHandle{ 13u, 1u });
+        nodes.Register(graph);
+
+        graph.BuildFrameGraph(1u);
+        std::vector<RenderGraph::PlanDigestEntry> baseEntries;
+        const u64 base = graph.ComputeCompiledPlanDigest(&baseEntries);
+
+        nodes.Shared->ViewMip = 1u;
+        nodes.Declare(graph);
+        graph.InvalidateBuildFrameGraphCache();
+        graph.BuildFrameGraph(1u);
+        std::vector<RenderGraph::PlanDigestEntry> relinkedEntries;
+        EXPECT_NE(graph.ComputeCompiledPlanDigest(&relinkedEntries), base);
+        const auto diff = DifferingLabels(baseEntries, relinkedEntries);
+        EXPECT_NE(std::ranges::find(diff, std::string("view:ScratchMip")), diff.end()) << ::testing::PrintToString(diff);
     }
 } // namespace OloEngine::Tests

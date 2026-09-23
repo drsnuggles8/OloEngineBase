@@ -127,7 +127,8 @@ as `VirtualMeshRegistry::ReadFrameCullStats`.
 **An enable that gates a graph DECLARATION must reach the declaration key.**
 Since #1333 it does by construction when the pass exposes it through
 `IsEnabled()`: `RenderPipeline::CaptureDeclarationConfig` folds every pass's
-`IsEnabled()`, `IsReadyForExecution()` and `AppendDeclarationInputs` into the
+`IsReadyForExecution()` and `AppendDeclarationInputs`, and its `IsEnabled()`
+unless the pass returns false from `IsEnableADeclarationInput()`, into the
 key ([render-graph-declaration-config.md](render-graph-declaration-config.md)).
 Before that, the hand-written fingerprint hashed readiness but not the enable,
 and `ShaderDebugDrawPass::Setup` returns before any declaration while disabled,

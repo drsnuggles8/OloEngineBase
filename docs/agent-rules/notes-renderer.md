@@ -317,7 +317,7 @@ scene band. Fixed in **#504** (every GTAO scratch resource now tracks `sceneBand
 
 FSR2 occupies **exactly the EASU slot**: it turns the reduced-resolution pre-Bloom HDR colour into a
 display-resolution one, early, before Bloom/DOF/ToneMap. Everything in §13 about reduced-size
-targets, the fingerprint hash and the "must not list `PostProcessColor` as an input" rule applies
+targets, the declaration-key inputs and the "must not list `PostProcessColor` as an input" rule applies
 unchanged. `FSR2Color` is the Temporal spelling of `EASUColor` — **exactly one of the two is ever
 declared in a frame**, and `Bloom`'s candidate list carries both so name resolution finds whichever
 ran.
@@ -605,11 +605,11 @@ up as "FSR2 did nothing on that machine", never as a crash.
 **MSAA is a hard guard, not a note.** A resolve has already averaged the per-pixel depth and motion
 vectors FSR2 reconstructs from, so the output is soft and crawling rather than wrong-looking.
 
-> **The fingerprint must hash the RESOLVED decision (`data.TemporalUpscaleActive`), not the
-> requested `Technique`.** The decision can flip without any setting moving — the backend coming up,
+> **The declaration key must carry the RESOLVED decision (`data.TemporalUpscaleActive`, a
+> `FrameGraphDeclarationConfig` field since #1333), not the requested `Technique`.** The decision can flip without any setting moving — the backend coming up,
 > MSAA being switched on — and it is what picks whether `FSR2Color` or `EASUColor` gets declared. Hash
 > the setting instead and the graph keeps whichever resource was declared when the decision last
-> changed, and the upscale silently stops running. Same rule as §13's `Upscale` hash, one level down.
+> changed, and the upscale silently stops running. Same rule as §13's `Upscale` input, one level down.
 
 **Exposure is the engine's, and FSR2 is told to leave it alone.** `FFX_FSR2_ENABLE_AUTO_EXPOSURE` is
 deliberately **not** set: FSR2's auto-exposure bakes its metered value *into* the output, and
@@ -875,7 +875,7 @@ volumetric proxy that is the right answer on both counts, but say so where the f
 documented rather than letting it read as a bug.
 
 **Gather in `ConfigurePassesForFrame`, never in the pass's `Setup()`.** `Setup` is
-fingerprint-cached and does not re-run every frame, so a per-frame list built there freezes at
+cached behind the declaration key and does not re-run every frame, so a per-frame list built there freezes at
 whatever the first frame saw (the same hazard as
 [virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md) §5). Arm the collection in
 `RenderPipeline::PrepareFrame` (which runs from every `BeginScene` overload, before traversal) and
@@ -1106,7 +1106,7 @@ clobbers a live value.
 
 **A new tier's enable flag MUST reach the render-graph declaration key.** Whether the flag is set
 decides whether `PopulateBlackboard` declares the tier's target, which is a TOPOLOGY change. Since
-#1333 the pass's `IsEnabled()` is keyed for every pass automatically; a gate that is NOT the pass's
+#1333 the pass's `IsEnabled()` is keyed for every pass whose `IsEnableADeclarationInput()` is true (the default; `PlanarReflectionRenderPass` opts out because it declares unconditionally); a gate that is NOT the pass's
 `IsEnabled()` must be reported from `AppendDeclarationInputs` or be a `FrameGraphDeclarationConfig`
 field ([render-graph-declaration-config.md](render-graph-declaration-config.md)). Miss it and the checkbox arms the pass while the cached
 graph still holds the version where the node declared nothing: the node stays culled, `Execute`

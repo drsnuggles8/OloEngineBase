@@ -420,8 +420,12 @@ namespace OloEngine::Tests
 
                 ASSERT_EQ(b.Intermediates.size(), c.Intermediates.size())
                     << "The rebuild resolved a different set of intermediate targets than the cache.";
+                ASSERT_EQ(a.Intermediates.size(), b.Intermediates.size())
+                    << "Two cached frames resolved different intermediate targets.";
                 for (sizet i = 0; i < b.Intermediates.size(); ++i)
                 {
+                    ASSERT_EQ(a.Intermediates[i].first, b.Intermediates[i].first);
+                    ASSERT_EQ(b.Intermediates[i].first, c.Intermediates[i].first);
                     const PixelDiff targetControl = Compare(a.Intermediates[i].second, b.Intermediates[i].second);
                     const PixelDiff targetRebuilt = Compare(b.Intermediates[i].second, c.Intermediates[i].second);
                     EXPECT_LE(targetRebuilt.Pixels, targetControl.Pixels)

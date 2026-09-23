@@ -8261,6 +8261,28 @@ namespace OloEngine
             out.push_back({ std::string("resource:").append(name), key.Get() });
         }
 
+        // Views: what each view name is linked to. A pass's access records the
+        // view name and range only, so without this a stable view name bound to
+        // a different parent, attachment, mip or layer would digest the same.
+        {
+            std::vector<std::string_view> viewNames;
+            viewNames.reserve(m_TextureViewDefinitions.size());
+            for (const auto& [name, view] : m_TextureViewDefinitions)
+                viewNames.emplace_back(name);
+            std::ranges::sort(viewNames);
+            for (const std::string_view name : viewNames)
+            {
+                const TextureViewDefinition& view = m_TextureViewDefinitions.find(name)->second;
+                RGDeclarationKey key;
+                key.Add(view.ParentResource.ToView());
+                key.Add(view.BackingResource.ToView());
+                key.Add(view.Kind);
+                key.Add(view.AttachmentIndex);
+                addRange(key, view.ParentRange);
+                out.push_back({ std::string("view:").append(name), key.Get() });
+            }
+        }
+
         {
             std::vector<const TemporalHistoryContract*> contracts;
             contracts.reserve(static_cast<sizet>(m_TemporalHistoryContracts.Num()));
