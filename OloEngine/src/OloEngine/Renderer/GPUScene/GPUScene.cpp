@@ -4,6 +4,7 @@
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
+#include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Math/Math.h"
 
 #include <algorithm>
@@ -11,6 +12,7 @@
 #include <map>
 #include <numeric>
 #include <set>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -67,8 +69,8 @@ namespace OloEngine
         template<typename T>
         [[nodiscard]] u32 BytesForRecords(u32 count)
         {
-            OLO_CORE_ASSERT(count <= std::numeric_limits<u32>::max() / sizeof(T),
-                            "GPUScene record buffer exceeds the 32-bit StorageBuffer size contract");
+            if (count > std::numeric_limits<u32>::max() / sizeof(T))
+                throw std::length_error("GPUScene record buffer exceeds the 32-bit StorageBuffer size contract");
             return count * static_cast<u32>(sizeof(T));
         }
 
@@ -330,11 +332,41 @@ namespace OloEngine
                 }
             }
 
-            // Growth resizes the buffer in place (the RHI identity survives) and
-            // uploads every record. Resize binds and unbinds the aliased slot,
-            // which is why every consumer of these slots binds per pass.
+            // GL growth resizes in place; Vulkan publishes a new complete
+            // version on any edit. Both paths require consumers to bind per pass.
             [[nodiscard]] u64 Upload(const TArray<GPUSceneDirtyRange>& ranges, u32& growthEvents)
             {
+                // Vulkan compute and ray-query consumers resolve persistent
+                // device addresses, not draw snapshots. Never write a table
+                // that an earlier submitted frame can still read. Publish a
+                // fresh allocation with the complete CPU mirror and let the
+                // backend defer the previous allocation's destruction.
+                if (RendererAPI::GetAPI() == RendererAPI::API::Vulkan)
+                {
+                    const u32 required = static_cast<u32>(m_Records.size());
+                    if (ranges.Num() == 0 && required <= m_BufferCapacity)
+                        return 0;
+
+                    const u32 newCapacity = required > m_BufferCapacity
+                                                ? GPUSceneAllocationPolicy::GrowCapacity(m_BufferCapacity, required)
+                                                : m_BufferCapacity;
+                    auto replacement = StorageBuffer::Create(BytesForRecords<Record>(newCapacity), m_Binding,
+                                                             StorageBufferUsage::DynamicDraw);
+                    if (!replacement)
+                    {
+                        throw std::runtime_error("GPUScene replacement allocation failed");
+                    }
+                    const u32 uploadBytes = BytesForRecords<Record>(required);
+                    if (uploadBytes > 0)
+                        replacement->SetData(m_Records.data(), uploadBytes);
+                    replacement->Unbind();
+                    m_Buffer = std::move(replacement);
+                    if (newCapacity != m_BufferCapacity)
+                        ++growthEvents;
+                    m_BufferCapacity = newCapacity;
+                    return uploadBytes;
+                }
+
                 TArray<GPUSceneDirtyRange> grown;
                 const TArray<GPUSceneDirtyRange>* toUpload = &ranges;
                 if (const auto required = static_cast<u32>(m_Records.size()); required > m_BufferCapacity)

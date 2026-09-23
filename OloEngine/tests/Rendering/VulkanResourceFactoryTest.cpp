@@ -62,6 +62,7 @@ TEST(VulkanResourceFactory, SkipsWhenNotCompiledIn)
 #include "Platform/Vulkan/VulkanTextureCubemap.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 #include "OloEngine/Renderer/Instancing/InstanceBuffer.h"
+#include "OloEngine/Renderer/GPUScene/GPUScene.h"
 
 #include <glad/gl.h>
 #include <volk.h>
@@ -345,6 +346,177 @@ TEST_F(VulkanResourceFactory, InstanceBufferRefusesUnrepresentableGrowthAndRange
     buffer->UploadRange(std::numeric_limits<u32>::max(), std::span<const InstanceData>(&one, 1));
     EXPECT_EQ(buffer->GetCapacity(), 1u);
     EXPECT_EQ(buffer->GetCount(), 0u);
+}
+
+TEST_F(VulkanResourceFactory, GPUScenePublishesDistinctPersistentVersionsAcrossFrames)
+{
+    ScopedVulkanApiSelection vulkanApi;
+    GPUScene scene;
+    scene.InitializeGPU(GPUSceneCapacities{ .m_Instances = 1, .m_Geometries = 1 });
+    const GPUSceneGeometryKey geometryKey{ .m_VertexBuffer = 10, .m_IndexBuffer = 20 };
+    const GPUSceneGeometryInput geometry{
+        .m_VertexBuffer = RHI::ResourceHandle{ 10, 1 },
+        .m_IndexBuffer = RHI::ResourceHandle{ 20, 1 },
+        .m_IndexCount = 3,
+        .m_VertexCount = 3,
+    };
+    const GPUSceneInstanceKey instanceKey{ .m_EntityId = 100, .m_Geometry = geometryKey };
+    const auto uploadFrame = [&](f32 x)
+    {
+        scene.BeginExtraction(1, glm::vec3(0.0f));
+        scene.ExtractGeometry(geometryKey, geometry);
+        GPUSceneInstanceInput instance;
+        instance.m_WorldTransform[3].x = x;
+        scene.ExtractInstance(instanceKey, instance);
+        (void)scene.EndExtraction();
+        scene.Upload();
+    };
+    const auto captureBuffer = [&]() -> Ref<VulkanStorageBuffer>
+    {
+        const auto* entry = VulkanRootObjectRegistry::Get().Lookup(scene.GetInstanceBufferHandle());
+        if (entry == nullptr || entry->Kind != VulkanRootObjectKind::StorageBuffer)
+            return nullptr;
+        return Ref<VulkanStorageBuffer>(static_cast<VulkanStorageBuffer*>(entry->Object));
+    };
+
+    uploadFrame(0.25f);
+    auto firstBuffer = captureBuffer();
+    ASSERT_TRUE(firstBuffer);
+    const u64 firstAddress = firstBuffer->GetDeviceAddress();
+    GPUSceneInstance firstBefore{};
+    firstBuffer->GetData(&firstBefore, sizeof(firstBefore));
+    EXPECT_FLOAT_EQ(firstBefore.CurrentTransform.Row0.w, 0.25f);
+
+    // The second upload happens before the first version has retired. Both
+    // persistent addresses must continue to return their own frame's bytes.
+    uploadFrame(0.75f);
+    auto secondBuffer = captureBuffer();
+    ASSERT_TRUE(secondBuffer);
+    EXPECT_NE(secondBuffer->GetDeviceAddress(), firstAddress);
+    GPUSceneInstance firstAfter{};
+    GPUSceneInstance secondAfter{};
+    firstBuffer->GetData(&firstAfter, sizeof(firstAfter));
+    secondBuffer->GetData(&secondAfter, sizeof(secondAfter));
+    EXPECT_FLOAT_EQ(firstAfter.CurrentTransform.Row0.w, 0.25f);
+    EXPECT_FLOAT_EQ(secondAfter.CurrentTransform.Row0.w, 0.75f);
+}
+
+TEST_F(VulkanResourceFactory, GPUSceneRetainsOldVersionUntilDelayedComputeReadCompletes)
+{
+    if (!m_Device->HasAsyncComputeQueue())
+        GTEST_SKIP() << "A separate compute queue is needed to hold the old read while the graphics queue uploads.";
+
+    ScopedVulkanApiSelection vulkanApi;
+    GPUScene scene;
+    scene.InitializeGPU(GPUSceneCapacities{ .m_Instances = 1, .m_Geometries = 1 });
+    const GPUSceneGeometryKey geometryKey{ .m_VertexBuffer = 10, .m_IndexBuffer = 20 };
+    const GPUSceneGeometryInput geometry{
+        .m_VertexBuffer = RHI::ResourceHandle{ 10, 1 },
+        .m_IndexBuffer = RHI::ResourceHandle{ 20, 1 },
+        .m_IndexCount = 3,
+        .m_VertexCount = 3,
+    };
+    const GPUSceneInstanceKey instanceKey{ .m_EntityId = 100, .m_Geometry = geometryKey };
+    const auto upload = [&](f32 x)
+    {
+        scene.BeginExtraction(1, glm::vec3(0.0f));
+        scene.ExtractGeometry(geometryKey, geometry);
+        GPUSceneInstanceInput instance;
+        instance.m_WorldTransform[3].x = x;
+        scene.ExtractInstance(instanceKey, instance);
+        (void)scene.EndExtraction();
+        scene.Upload();
+    };
+    upload(0.25f);
+    const auto* oldEntry = VulkanRootObjectRegistry::Get().Lookup(scene.GetInstanceBufferHandle());
+    ASSERT_NE(oldEntry, nullptr);
+    const VkBuffer oldVkBuffer = static_cast<VulkanStorageBuffer*>(oldEntry->Object)->GetVkBuffer();
+    auto readback = StorageBuffer::Create(sizeof(GPUSceneInstance), 0, StorageBufferUsage::DynamicCopy);
+    ASSERT_TRUE(readback);
+    const VkBuffer readbackVkBuffer = static_cast<VulkanStorageBuffer*>(readback.Raw())->GetVkBuffer();
+
+    VkCommandPool pool = VK_NULL_HANDLE;
+    VkSemaphore gate = VK_NULL_HANDLE;
+    VkFence fence = VK_NULL_HANDLE;
+    struct Cleanup
+    {
+        VkDevice Device;
+        VkCommandPool& Pool;
+        VkSemaphore& Gate;
+        VkFence& Fence;
+        ~Cleanup()
+        {
+            if (Fence != VK_NULL_HANDLE)
+                vkDestroyFence(Device, Fence, nullptr);
+            if (Gate != VK_NULL_HANDLE)
+                vkDestroySemaphore(Device, Gate, nullptr);
+            if (Pool != VK_NULL_HANDLE)
+                vkDestroyCommandPool(Device, Pool, nullptr);
+        }
+    } cleanup{ m_Device->GetDevice(), pool, gate, fence };
+
+    VkCommandPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+    poolInfo.queueFamilyIndex = m_Device->GetAsyncComputeQueueFamily();
+    ASSERT_EQ(vkCreateCommandPool(m_Device->GetDevice(), &poolInfo, nullptr, &pool), VK_SUCCESS);
+    VkCommandBufferAllocateInfo alloc{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+    alloc.commandPool = pool;
+    alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    alloc.commandBufferCount = 1;
+    VkCommandBuffer cmd = VK_NULL_HANDLE;
+    ASSERT_EQ(vkAllocateCommandBuffers(m_Device->GetDevice(), &alloc, &cmd), VK_SUCCESS);
+    VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+    ASSERT_EQ(vkBeginCommandBuffer(cmd, &begin), VK_SUCCESS);
+    VkBufferCopy copy{ 0, 0, sizeof(GPUSceneInstance) };
+    vkCmdCopyBuffer(cmd, oldVkBuffer, readbackVkBuffer, 1, &copy);
+    ASSERT_EQ(vkEndCommandBuffer(cmd), VK_SUCCESS);
+
+    VkSemaphoreTypeCreateInfo type{ VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO };
+    type.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+    VkSemaphoreCreateInfo semInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+    semInfo.pNext = &type;
+    ASSERT_EQ(vkCreateSemaphore(m_Device->GetDevice(), &semInfo, nullptr, &gate), VK_SUCCESS);
+    VkFenceCreateInfo fenceInfo{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+    ASSERT_EQ(vkCreateFence(m_Device->GetDevice(), &fenceInfo, nullptr, &fence), VK_SUCCESS);
+    const u64 waitValue = 1;
+    VkTimelineSemaphoreSubmitInfo timeline{ VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
+    timeline.waitSemaphoreValueCount = 1;
+    timeline.pWaitSemaphoreValues = &waitValue;
+    const VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    VkSubmitInfo submit{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+    submit.pNext = &timeline;
+    submit.waitSemaphoreCount = 1;
+    submit.pWaitSemaphores = &gate;
+    submit.pWaitDstStageMask = &waitStage;
+    submit.commandBufferCount = 1;
+    submit.pCommandBuffers = &cmd;
+    ASSERT_EQ(vkQueueSubmit(m_Device->GetAsyncComputeQueue(), 1, &submit, fence), VK_SUCCESS);
+
+    // The compute copy is blocked on an unsignaled timeline value here.
+    // Publish the next frame, dropping the scene's last owner of the old
+    // allocation before allowing the old read to execute.
+    upload(0.75f);
+    scene.Shutdown();
+    scene.InitializeGPU(GPUSceneCapacities{ .m_Instances = 1, .m_Geometries = 1 });
+    upload(1.25f); // retired slot forces growth after the renderer reset
+    const auto currentHandle = scene.FindInstance(instanceKey);
+    const auto* currentEntry = VulkanRootObjectRegistry::Get().Lookup(scene.GetInstanceBufferHandle());
+    if (!currentHandle.IsValid() || currentEntry == nullptr)
+        ADD_FAILURE() << "GPUScene reset/growth failed to publish the new instance";
+    else
+    {
+        GPUSceneInstance currentRecord{};
+        static_cast<VulkanStorageBuffer*>(currentEntry->Object)
+            ->GetData(&currentRecord, sizeof(currentRecord), currentHandle.m_Index * sizeof(currentRecord));
+        EXPECT_FLOAT_EQ(currentRecord.CurrentTransform.Row0.w, 1.25f);
+    }
+    VkSemaphoreSignalInfo signal{ VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO };
+    signal.semaphore = gate;
+    signal.value = waitValue;
+    ASSERT_EQ(vkSignalSemaphore(m_Device->GetDevice(), &signal), VK_SUCCESS);
+    ASSERT_EQ(vkWaitForFences(m_Device->GetDevice(), 1, &fence, VK_TRUE, UINT64_MAX), VK_SUCCESS);
+    GPUSceneInstance oldRecord{};
+    readback->GetData(&oldRecord, sizeof(oldRecord));
+    EXPECT_FLOAT_EQ(oldRecord.CurrentTransform.Row0.w, 0.25f);
 }
 
 TEST_F(VulkanResourceFactory, TextureUploadRoundTripsThroughGetData)
