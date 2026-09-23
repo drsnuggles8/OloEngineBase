@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/Renderer.h"
 #include "Rendering/PropertyTests/GLErrorStateCheck.h"
 #include "Rendering/PropertyTests/RendererStateCheck.h"
+#include "Rendering/CommandLifecycleCheck.h"
 #include "Rendering/PropertyTests/TestFailureCapture.h"
 #include "Rendering/VulkanCoverageReport.h"
 #include "MemoryCeiling.h"
@@ -182,6 +183,11 @@ int main(int argc, char** argv)
     // has no GL-level symptom at all and instead makes a later visual-evidence
     // test quietly measure the wrong pipeline.
     OloEngine::Tests::RendererState::RegisterListener();
+    // Run every replay with command-lifecycle validation on, and fail any test
+    // during which a frozen packet, bucket or frame payload was written (issue
+    // #1335). Every real-frame test becomes evidence that production submission
+    // finishes preparing before the first replay.
+    OloEngine::Tests::CommandLifecycleCheck::RegisterListener();
     // Give every test a freshly-emptied scratch directory on its first
     // TempDir()/TempFile() call — the clean slate the per-fixture `SetUp`
     // remove_all blocks used to provide, and which `--gtest_repeat` (same case,

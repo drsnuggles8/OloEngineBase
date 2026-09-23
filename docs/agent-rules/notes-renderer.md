@@ -1475,3 +1475,30 @@ to see those — and a failure in one may be cross-test state rather than a real
 failing case ALONE before believing it:
 `ReSTIRDIVisualEvidenceTest.ArmingTheTierOnANonRTDeviceStaysInsideTheRendererNoiseFloor` fails in a
 full sweep and passes in isolation.
+
+## A buffer a shader DECLARES must be published every frame, even when the shader gates its reads
+
+Publish every storage buffer a shader declares, on every frame that shader draws, even if a
+uniform tells the shader not to read it. Vulkan checks the declaration, not the read, and logs an
+`[error]` for a declared binding with no occupant (#1052).
+
+Forward+ broke this rule (#1394). `ForwardPlusCommon.glsl` declares bindings 9-12 and 18, and the
+shaders gate reads on the Forward+ UBO's `Enabled`. `TiledForwardPlus::BindForShading` published
+the buffers only while Forward+ was active, and its callers skipped the call otherwise. Early in a
+session the slots held **other tenants'** buffers (GPUScene uses 9 and 10, the culler uses 18), so
+nothing complained. After the first Deferred or Forward+ frame, `UnbindAfterShading` emptied them,
+and every later frame with Forward+ inactive logged five errors per shader.
+
+**Fix both halves.** The first fix changed only `BindForShading`, and its unit test passed while
+the live editor still logged the errors. `SceneRenderPass` and `DeferredLightingPass` both wrapped
+the call in `if (ShouldUseForwardPlus())`. When a fix lives in a callee, grep its call sites for a
+guard that skips it, and verify the fix on the real call path.
+
+## A post-process pass that writes INTO scene colour contaminates every material debug view
+
+`SkinDiffusionPass` adds `blur(aux) - aux` into scene colour in place. Under a material debug view
+scene colour holds the AOV, not the composite, so that high-pass landed on the Transmission,
+Specular, profile-id and mask views. The Transmission view of a version-1 head, where the term is
+exactly zero, showed every crease. `SkinDiffusionRunsThisFrame` (`RenderPipeline.cpp`) now turns
+the pass off under every view except Diffuse, and one helper feeds the pass settings, the scratch
+declaration and the graph fingerprint. Apply the same check to any other in-place pass.

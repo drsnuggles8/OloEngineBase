@@ -106,6 +106,17 @@ filed as "mesh/impostor layers do not render on Vulkan"; the actual split was
 forward `FoliagePass`). Reading a name in the scene YAML and assuming a draw is
 the trap either way — grep `EnumerateLayerDraws` before believing either story.
 
+## 5. Bake the impostor from the near mesh's own parts and materials
+
+The bake must draw what the near mesh draws: every submesh, each with its own albedo, and the layer
+`AlbedoPath` only where a part has none. `FoliageRenderer` gets both from one helper,
+`ExtractPlantGeometry`. Until #1399 the bake drew `Model::GetMesh(0)`'s vertex array with the
+layer's billboard as the only texture. On a cold import that vertex array is the trunk alone. With
+the billboard painted over the pine's atlas UVs, 12% of the surface passed, and once #1399
+corrected the OBJ UV orientation the far pines vanished. Frame the bake from bounds measured off
+the vertices too: `MeshSource::GetBoundingBox()` is empty on a warm `.omesh` load. The #1399
+integration test reads the atlas back: 8.7% covered as fixed, 3.9% with the billboard.
+
 ## Meta-lesson
 
 Every one of these produced "the impostors are mostly missing" and each looked

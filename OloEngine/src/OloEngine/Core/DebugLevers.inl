@@ -46,6 +46,13 @@ OLO_LEVER_EXACT(DisableGBufferFlagsResolve, "OLO_GBUFFER_NO_FLAGS_RESOLVE",
                 "ClosureV2 silhouettes in the resolved-MSAA deferred mode (MSAA > 1, per-sample lighting "
                 "off) — turn it ON and the fringe comes back.")
 
+// --- Command packets ----------------------------------------------------------
+OLO_LEVER_TRISTATE(CommandLifecycleValidation, "OLO_COMMAND_LIFECYCLE_VALIDATION",
+                   "Digest every command packet when its first replay freezes it, and re-check the digest before and "
+                   "after every replay (#1335). Catches a write into a frozen packet through a pointer taken during "
+                   "preparation, which no accessor check can see. \"1\" on, \"0\" off; unset keeps the build "
+                   "default (on in Debug, off in Release).")
+
 // --- RHI --------------------------------------------------------------------
 OLO_LEVER_TOGGLE(BindlessDescriptorHeap, "OLO_RHI_BINDLESS",
                  "Route texture binding through the bindless descriptor heap. Defaults off so a machine "

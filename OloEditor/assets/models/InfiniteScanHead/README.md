@@ -38,6 +38,7 @@ The upstream licence text is kept verbatim in [`LICENSE.md`](LICENSE.md). Its ow
 | `Textures/bump-lowRes.png` | a BUMP map, not a tangent-space normal map — do not bind it to `u_NormalMap` without converting it first |
 | `HeadRigged.gltf` + `.bin` | the same scan in metres (0.43 m bust, base on the origin, face toward +Z), skinned to a `Chest → Neck → Head` rig, with one looping clip, `LookAround` (6 s). The human hair subject of the groom epic (#1223) |
 | `prepare_head_rig.py` | the Blender 5.x script that writes `HeadRigged.*` from `Head.fbx` |
+| `SandboxProject/Assets/Textures/InfiniteScanHead_Thickness.png` | a skin **thickness map** baked from this mesh (issue #1394) by [`tools/skin-thickness`](../../../../tools/skin-thickness/README.md). It lives in the project, not here, because scene texture paths resolve against the project asset root. Author it with `ThicknessFactor: 0.02` |
 
 `HeadRigged` exists because the groom epic needs a head that MOVES and a scan is a still bust. The
 hair must be carried by the engine's skinning, binding and simulation path, so moving the entity's

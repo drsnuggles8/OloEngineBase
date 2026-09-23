@@ -12,8 +12,9 @@ source ever needs those the tool should fail loudly rather than half-read them.
 
 TEXTURE COORDINATE ORIGIN. glTF puts UV (0,0) at the TOP-LEFT of the image and v
 increases DOWNWARD; Wavefront OBJ puts it at the bottom-left with v increasing
-upward. Everything in this package works in glTF convention and flips exactly
-once, in wavefront.py, on the way out. Getting this wrong is not a subtle
+upward. Everything in this package works in glTF convention and writes it
+unchanged into the OBJ, because OloEngine's Model flips every OBJ's v on import
+(see wavefront.py) - that engine flip is the only one. Getting this wrong is not a subtle
 shading difference: pine_tree_01's twig atlas has needles in the lower half and
 pine cones in the upper, so a flipped v bakes brown cones onto every foliage
 card and the mistake looks like a plausible dead tree.

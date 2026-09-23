@@ -5,6 +5,7 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Renderer/Impostor/ImpostorBaker.h"
+#include "OloEngine/Terrain/Foliage/FoliageAlphaCoverage.h"
 #include "OloEngine/Terrain/Foliage/FoliageGPUCuller.h"
 #include "OloEngine/Terrain/Foliage/FoliageLodTransition.h"
 #include "OloEngine/Terrain/Foliage/FoliageInstanceRegistry.h"
@@ -14,6 +15,7 @@
 
 #include <glm/glm.hpp>
 #include <array>
+#include <span>
 #include <string>
 #include "OloEngine/Containers/Array.h"
 
@@ -216,13 +218,12 @@ namespace OloEngine
         glm::vec3 BaseColor{ 1.0f };
         f32 AlphaCutoff = 0.5f;
         Ref<Texture2D> AlbedoTexture;
+        FString LoadedAlbedoPath; // What AlbedoTexture was opened from
 
         // The leaf material (issue #1234). The maps are cached BY PATH —
         // `Loaded*Path` records what each Ref was opened from, so editing
         // the path in the inspector re-opens it and NOT editing it does not
-        // re-open anything. (The albedo above predates this and reloads
-        // only when its Ref is null, which is a separate pre-existing
-        // limitation, not one these three inherit.)
+        // re-open anything. The albedo above follows the same rule.
         Ref<Texture2D> LeafNormalTexture;
         Ref<Texture2D> LeafRoughnessTexture;
         Ref<Texture2D> LeafThicknessTexture;
@@ -263,6 +264,30 @@ namespace OloEngine
         // identity default is what a layer that did not author the feature
         // keeps.
         FoliageLod::Params Lod{};
+
+        // ── Alpha coverage diagnostic (issue #1399) ──────────────────────
+        // How much of each texture this layer draws survives its cutoff —
+        // see FoliageAlphaCoverage.h. The surfaces are cached here, and the
+        // entries hold histograms, so a cutoff change re-judges without
+        // decoding or sampling anything:
+        //   MeshPartSurfaceUVs      one surface sample set per MeshParts entry
+        //   ImpostorPartTextures    the texture each impostor part was baked
+        //                           with, by PATH (empty: white) — the same
+        //                           parts and textures the near mesh draws
+        //   ImpostorPartSurfaceUVs  one sample set per ImpostorPartTextures entry
+        // AlphaCoverageDirty says an input moved and the entries must be
+        // re-measured; each entry's own Warned latch is what keeps the log
+        // line to once per implausible configuration.
+        TArray<TArray<glm::vec2>> MeshPartSurfaceUVs;
+        // Paths, not Ref<Texture2D>: an impostor-only layer's part textures
+        // belong to a model that is dropped after the bake, and holding their
+        // Refs for a diagnostic would keep every one of them resident on the GPU.
+        TArray<FString> ImpostorPartTextures;
+        TArray<TArray<glm::vec2>> ImpostorPartSurfaceUVs;
+        TArray<FoliageAlphaCoverage::Entry> AlphaCoverage;
+        bool AlphaCoverageDirty = true;
+        bool AlphaCoverageMeshDrawn = false;
+        bool AlphaCoverageImpostorDrawn = false;
     };
 
     // Owns TArrays, FStrings and intrusive Refs; cull resources and impostor hold external GPU objects. Bounds and remaining state are values.
@@ -316,6 +341,7 @@ namespace OloEngine
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::BaseColor)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::AlphaCutoff)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::AlbedoTexture)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::LoadedAlbedoPath)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::LeafNormalTexture)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::LeafRoughnessTexture)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::LeafThicknessTexture)>::Value &&
@@ -343,7 +369,14 @@ namespace OloEngine
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::ImpostorBakedFrames)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::ImpostorBakedResolution)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::ImpostorBakedHemi)>::Value &&
-                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::Lod)>::Value;
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::Lod)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::MeshPartSurfaceUVs)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::ImpostorPartTextures)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::ImpostorPartSurfaceUVs)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::AlphaCoverage)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::AlphaCoverageDirty)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::AlphaCoverageMeshDrawn)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::AlphaCoverageImpostorDrawn)>::Value;
     };
 
     struct FoliageLayerDraw
@@ -542,6 +575,23 @@ namespace OloEngine
             return m_Registry;
         }
 
+        // What each texture a layer draws passes at its AlphaCutoff (issue
+        // #1399): the card, one entry per authored-mesh part, and the
+        // impostor bake — whichever of those the layer actually draws. Holds
+        // histograms rather than a fraction, so the inspector re-evaluates any
+        // cutoff without a rebuild. Empty for an out-of-range slot or a layer
+        // that has not been generated.
+        [[nodiscard]] std::span<const FoliageAlphaCoverage::Entry> GetAlphaCoverage(u32 layerIndex) const;
+
+        // The layer's baked octahedral impostor, or null when it has none —
+        // for inspecting what the far field is actually made of.
+        [[nodiscard]] const ImpostorAtlas* GetImpostorAtlas(u32 layerIndex) const
+        {
+            if (layerIndex >= static_cast<u32>(m_Layers.Num()) || !m_Layers[static_cast<i32>(layerIndex)].Impostor.IsValid())
+                return nullptr;
+            return &m_Layers[static_cast<i32>(layerIndex)].Impostor;
+        }
+
         [[nodiscard]] u32 GetTotalInstanceCount() const;
         [[nodiscard]] u32 GetVisibleInstanceCount() const
         {
@@ -616,6 +666,13 @@ namespace OloEngine
         // Bakes (or re-bakes) the layer's octahedral impostor atlas if UseImpostor
         // and the mesh/grid/layout differs from what was last baked. No-op otherwise.
         void UpdateImpostorAtlas(LayerRenderData& data, const FoliageLayer& layer);
+
+        // Re-measures the layer's alpha coverage when an input moved, then
+        // judges every entry at the layer's CURRENT cutoff and warns once per
+        // implausible one (issue #1399). A diagnostic: it reads the layer and
+        // writes only the coverage fields.
+        static void UpdateAlphaCoverage(LayerRenderData& data, const FoliageLayer& layer, bool meshDrawn,
+                                        bool impostorDrawn);
 
         TArray<LayerRenderData> m_Layers;
         FoliageInstanceRegistry m_Registry;
