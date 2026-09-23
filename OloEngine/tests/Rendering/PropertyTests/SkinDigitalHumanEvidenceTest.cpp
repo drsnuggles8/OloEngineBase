@@ -89,6 +89,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace OloEngine::Tests
@@ -1298,27 +1299,38 @@ namespace OloEngine::Tests
             ASSERT_NO_FATAL_FAILURE(MeasureRepeatFloor(path, /*frames=*/kMorphSettleFrames, floor));
             const u32 threshold = std::max(floor.MaxDelta * 3u, 2u);
 
-            // NEUTRAL: the gain has no expression to scale.
-            SetExpression(0.0f);
+            // The ThreeQuarter neutral frame, kept for the geometry check below.
             Capture neutral;
-            Capture neutralGainless;
-            ASSERT_NO_FATAL_FAILURE(captureGainPair(path, "DigitalHuman_GL_" + pathName + "_ExpressionNeutral",
-                                                    std::string(), neutral, neutralGainless));
-            // NOT zero, and the reason is measured rather than assumed: swapping
-            // the cranium onto another profile also moves the thin rims where
-            // the eyes and the lips meet it — about 1 700 px, up to 24/255, a
-            // mean of 0.015/255 over the frame, identical at neutral and at a
-            // full expression. The gain cannot reach those pixels, so the claim
-            // below is on the MEAN, which is where the pore band shows.
-            const Difference neutralGainMoved = Diff(neutral, neutralGainless);
 
-            // FULL EXPRESSION, the claim itself, from every angle.
-            SetExpression(1.0f);
             for (const AngleSetup& angle : kAngles)
             {
                 SCOPED_TRACE(angle.Name);
                 SetAngle(angle);
                 const std::string cell = std::string("_GL_") + pathName + "_" + angle.Name;
+                const bool isThreeQuarter = std::string_view(angle.Name) == kAngles[1].Name;
+
+                // NEUTRAL, from THIS angle: the gain has no expression to scale.
+                // Per angle and not once per path, because the rims it controls
+                // for (below) are a different set of pixels from each camera.
+                SetExpression(0.0f);
+                Capture neutralHere;
+                Capture neutralGainless;
+                ASSERT_NO_FATAL_FAILURE(captureGainPair(
+                    path, isThreeQuarter ? "DigitalHuman_GL_" + pathName + "_ExpressionNeutral" : std::string(),
+                    std::string(), neutralHere, neutralGainless));
+                // NOT zero, and the reason is measured rather than assumed:
+                // swapping the cranium onto another profile also moves the thin
+                // rims where the eyes and the lips meet it — about 1 700 px, up
+                // to 24/255, a mean of 0.015/255 over the frame, identical at
+                // neutral and at a full expression. The gain cannot reach those
+                // pixels, so the claim below is on the MEAN, which is where the
+                // pore band shows.
+                const Difference neutralGainMoved = Diff(neutralHere, neutralGainless);
+                if (isThreeQuarter)
+                    neutral = neutralHere;
+
+                // FULL EXPRESSION, the claim itself.
+                SetExpression(1.0f);
                 Capture expressed;
                 Capture expressedGainless;
                 ASSERT_NO_FATAL_FAILURE(captureGainPair(path, "DigitalHumanExpression" + cell,
