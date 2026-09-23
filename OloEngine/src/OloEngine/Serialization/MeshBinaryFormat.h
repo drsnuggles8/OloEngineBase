@@ -9,7 +9,7 @@
 namespace OloEngine
 {
     // ============================================================================
-    // .omesh Binary Mesh Format — Version 8
+    // .omesh Binary Mesh Format — Version 9
     //
     // Layout:
     //   [FileHeader]
@@ -82,7 +82,10 @@ namespace OloEngine
         // imported down the static path would stay unskinned forever. ReadTimestamp gates
         // validity on Version == CurrentVersion (strict), so moving it forces one cold
         // re-import.
-        constexpr u32 CurrentVersion = 8; // v8: adds FlagSourceRigged, invalidates v7 (#1272)
+        // v9 adds no section. It invalidates animated caches made before malformed
+        // bone weights were rejected and static caches made before authored node
+        // instances were kept distinct (#1350).
+        constexpr u32 CurrentVersion = 9;
 
         constexpr u32 MinSupportedVersion = 1;
         constexpr u32 FlagCompressed = 1;   // Payload is zlib-compressed

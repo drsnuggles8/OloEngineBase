@@ -1076,21 +1076,10 @@ namespace OloEngine::Tests
     // index. It now carries the submesh's real (deduplicated) material index on both paths,
     // and both paths build the same array.
     //
-    // WHAT THIS TEST CANNOT DO, AND WHY (measured, not assumed):
-    // Model::LoadModel imports with aiProcess_PreTransformVertices, which flattens the node
-    // hierarchy and MERGES primitives that share a material. Every model therefore comes out of
-    // Assimp with exactly one mesh per unique material - measured: deccer Colored 5 meshes / 5
-    // materials; deccer Textured_Complex 19 glTF primitives -> 5 meshes / 5 materials;
-    // With_Rotation 9 primitives -> 1 mesh / 1 material; Sponza 103 glTF primitives / 25
-    // materials -> 25 meshes / 25 materials. So through THIS importer path "submesh index" and
-    // "deduplicated material index" are always the same number, and NO fixture in the repo can
-    // tell the two conventions apart. An earlier version of this test asserted
-    // meshCount > materialCount to prove the fixture exercised deduplication; that assertion is
-    // unsatisfiable by any asset here, which is itself the finding: the old convention was
-    // coincidentally correct, so C1 is a LATENT bug, not an active one. It goes live the moment
-    // a load yields two meshes sharing one material (importer flags change, PTV dropped for
-    // instancing, a merge refused). The fix removes the coincidence; this test pins the
-    // invariant that the two index spaces agree - cold, warm, and across the two consumers.
+    // Model::LoadModel now keeps the node hierarchy while pre-transforming vertices, so
+    // multiple authored references can share a material. This test pins cold/warm material
+    // parity for the existing multi-material subject; ImportedCorpus pins the stronger
+    // 9-submesh / 6-material case from AlphaBlendModeTest.
     //
     // Needs a GL context (Model::LoadModel builds GPU buffers), so it SKIPs without a GPU.
     TEST(ModelCombinedMaterialIndex, ColdImportAndWarmCacheLoadResolveTheSameMaterialPerSubmesh)

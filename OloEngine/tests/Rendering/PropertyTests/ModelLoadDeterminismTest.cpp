@@ -203,23 +203,19 @@ namespace OloEngine::Tests
             s.m_SubmeshCount = static_cast<u32>(model.GetMeshes().size());
             s.m_MaterialCount = static_cast<u32>(model.GetMaterials().size());
 
-            // CRC the FIRST mesh's vertex + index buffers (the LearnOpenGL
-            // backpack collapses to a single merged mesh under
-            // aiProcess_PreTransformVertices, so [0] covers the whole model).
-            if (!model.GetMeshes().empty() && model.GetMeshes()[0])
+            // The static importer preserves authored node references, so the
+            // first cold mesh is only one submesh while a warm Mesh view points
+            // into the cached combined source. Compare the same complete
+            // geometry representation on both paths.
+            if (const auto src = model.CreateCombinedMeshSource())
             {
-                const auto& mesh = model.GetMeshes()[0];
-                const auto src = mesh->GetMeshSource();
-                if (src)
-                {
-                    const auto& verts = src->GetVertices();
-                    const auto& indices = src->GetIndices();
-                    s.m_VertexCount = static_cast<u32>(verts.Num());
-                    s.m_IndexCount = static_cast<u32>(indices.Num());
-                    s.m_VertexCRC = Hash::CRC32(reinterpret_cast<const u8*>(verts.GetData()),
-                                                static_cast<sizet>(verts.Num()) * sizeof(Vertex));
-                    s.m_TopologyCRC = ComputeTopologyCRC(indices);
-                }
+                const auto& verts = src->GetVertices();
+                const auto& indices = src->GetIndices();
+                s.m_VertexCount = static_cast<u32>(verts.Num());
+                s.m_IndexCount = static_cast<u32>(indices.Num());
+                s.m_VertexCRC = Hash::CRC32(reinterpret_cast<const u8*>(verts.GetData()),
+                                            static_cast<sizet>(verts.Num()) * sizeof(Vertex));
+                s.m_TopologyCRC = ComputeTopologyCRC(indices);
             }
 
             // CRC the albedo texture pixel data and write a PNG.
