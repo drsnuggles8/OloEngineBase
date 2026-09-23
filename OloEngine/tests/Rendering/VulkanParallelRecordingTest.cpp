@@ -773,6 +773,37 @@ TEST_F(VulkanParallelRecordingDevice, WorkerShaderBindPublishesMaterialHeapSelec
     EXPECT_FALSE(Shader::ReadsMaterialHeapOffsets());
 }
 
+TEST_F(VulkanParallelRecordingDevice, StaleShaderUnbindPreservesCurrentMaterialHeapSelection)
+{
+    auto earlier = Ref<VulkanShader>::Create("ParallelEarlierShader", kVertexSrc, kFragmentSrc);
+    std::string fragment = kFragmentSrc;
+    fragment.insert(fragment.find("layout(location = 0)"),
+                    "#define OLO_MATERIAL_VULKAN_HEAP_READER 1\n");
+    auto current = Ref<VulkanShader>::Create("ParallelCurrentHeapReader", kVertexSrc, fragment);
+    ASSERT_EQ(earlier->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+    ASSERT_EQ(current->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    auto verifySelection = [&]
+    {
+        earlier->Bind();
+        current->Bind();
+        earlier->Unbind();
+        EXPECT_EQ(VulkanShader::GetCurrentlyBound(), current.Raw());
+        EXPECT_TRUE(Shader::ReadsMaterialHeapOffsets());
+        current->Unbind();
+        EXPECT_EQ(VulkanShader::GetCurrentlyBound(), nullptr);
+        EXPECT_FALSE(Shader::ReadsMaterialHeapOffsets());
+    };
+
+    verifySelection();
+    std::thread worker([&]
+                       {
+        VulkanWorkerRecordingContext item;
+        const ScopedVulkanWorkerContext scope(&item);
+        verifySelection(); });
+    worker.join();
+}
+
 TEST_F(VulkanParallelRecordingDevice, GraphRecordsSharedUnboundUniformAndTimesOrderedPasses)
 {
     // This test asserts on the EXACT set of pass timings it recorded, so it

@@ -770,27 +770,23 @@ namespace OloEngine
 
     void VulkanShader::Unbind() const
     {
+        // Only the current shader may clear this recording thread's selection.
+        // A stale Unbind from an earlier shader must preserve the newer bind.
         if (VulkanWorkerRecordingContext* worker = CurrentVulkanWorkerContext(); worker != nullptr)
         {
             if (worker->CurrentShader == this)
             {
                 worker->CurrentShader = nullptr;
+                SetBoundProgramMaterialOffsets(false);
             }
-        }
-        else if (s_CurrentlyBound == this)
-        {
-            s_CurrentlyBound = nullptr;
-        }
-        // Match OpenGLShader::Unbind: no program means neither flag can be
-        // true (#691, the stale-flag pair). Material state is per recording
-        // thread; the broad bindless flag remains render-thread state.
-        if (CurrentVulkanWorkerContext() != nullptr)
-        {
-            SetBoundProgramMaterialOffsets(false);
             return;
         }
-        SetBoundProgramBindless(false);
-        SetBoundProgramMaterialOffsets(false);
+        if (s_CurrentlyBound == this)
+        {
+            s_CurrentlyBound = nullptr;
+            SetBoundProgramBindless(false);
+            SetBoundProgramMaterialOffsets(false);
+        }
     }
 
     VulkanShader* VulkanShader::GetCurrentlyBound()
