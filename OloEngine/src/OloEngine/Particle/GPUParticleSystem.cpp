@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "GPUParticleSystem.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 
@@ -139,11 +140,6 @@ namespace OloEngine
             sizeof(DrawElementsIndirectCommand),
             ShaderBindingLayout::SSBO_INDIRECT_DRAW,
             StorageBufferUsage::DynamicCopy);
-
-        m_EmitStagingSSBO = StorageBuffer::Create(
-            MAX_EMIT_BATCH * GPUParticle::GetSize(),
-            ShaderBindingLayout::SSBO_EMIT_STAGING,
-            StorageBufferUsage::DynamicDraw);
 
         // Previous-frame particle snapshot. Each slot carries:
         //   - prev position (vec4 xyz; w unused)
@@ -290,7 +286,32 @@ namespace OloEngine
 
         u32 emitCount = static_cast<u32>(std::min(newParticles.size(), static_cast<sizet>(MAX_EMIT_BATCH)));
 
-        // Upload new particles to staging SSBO
+        // Vulkan compute reads the persistent address: each dispatch needs
+        // its own allocation until the GPU retires it. GL uploads are ordered
+        // against dispatches, so one full-capacity staging buffer suffices.
+        const bool vulkan = RendererAPI::GetAPI() == RendererAPI::API::Vulkan;
+        if (vulkan || !m_EmitStagingSSBO)
+        {
+            const u32 capacity = vulkan ? emitCount : MAX_EMIT_BATCH;
+            Ref<StorageBuffer> nextStaging;
+            try
+            {
+                nextStaging = StorageBuffer::Create(capacity * GPUParticle::GetSize(),
+                                                    ShaderBindingLayout::SSBO_EMIT_STAGING,
+                                                    StorageBufferUsage::DynamicDraw);
+            }
+            catch (const std::exception& e)
+            {
+                OLO_CORE_ERROR("GPUParticleSystem::EmitParticles: staging allocation failed — refusing emit: {}", e.what());
+                return;
+            }
+            if (!nextStaging)
+            {
+                OLO_CORE_ERROR("GPUParticleSystem::EmitParticles: staging allocation failed — refusing emit");
+                return;
+            }
+            m_EmitStagingSSBO = std::move(nextStaging);
+        }
         m_EmitStagingSSBO->Bind();
         m_EmitStagingSSBO->SetData(newParticles.data(), emitCount * GPUParticle::GetSize());
 

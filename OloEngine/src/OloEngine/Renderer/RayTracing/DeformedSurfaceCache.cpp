@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
@@ -12,6 +13,7 @@
 #include "OloEngine/Renderer/VertexBuffer.h"
 
 #include <algorithm>
+#include <utility>
 #include "OloEngine/Containers/Array.h"
 
 namespace OloEngine::RayTracing
@@ -446,7 +448,8 @@ namespace OloEngine::RayTracing
         {
             return false;
         }
-        if (m_PaletteBuffer && m_PaletteBufferBytes >= requiredBytes)
+        const bool publishNewVersion = RendererAPI::GetAPI() == RendererAPI::API::Vulkan;
+        if (!publishNewVersion && m_PaletteBuffer && m_PaletteBufferBytes >= requiredBytes)
         {
             return true;
         }
@@ -455,8 +458,8 @@ namespace OloEngine::RayTracing
             return false;
         }
         // Grown, never shrunk, and rounded to a power-of-two-ish step by
-        // doubling: a crowd whose size oscillates by one character must not
-        // reallocate the shared palette buffer every frame.
+        // doubling. Vulkan still needs a fresh version at the same capacity:
+        // compute reads this persistent device address after EndFrame.
         u64 capacity = std::max<u64>(m_PaletteBufferBytes, sizeof(glm::mat4) * 128u);
         while (capacity < requiredBytes)
         {
@@ -469,27 +472,25 @@ namespace OloEngine::RayTracing
         // Binding 0 and never bound: the shader reaches this buffer by DEVICE
         // ADDRESS, so it consumes no number from the storage namespace, which
         // has had none free since SSBO_GPU_STATS.
-        // DynamicCopy, NOT DynamicDraw, and the difference is real work rather
-        // than a label. DynamicDraw makes every SetData inside a recording
-        // bracket push a whole-buffer snapshot into the frame arena so that
-        // draws recorded around it keep the bytes they were recorded with
-        // (vulkan-command-ordered-buffer-writes.md). Nothing here needs that:
-        // the palettes are uploaded ONCE per frame, before any dispatch is
-        // recorded, and the compute shader reads them through the PERSISTENT
-        // device address rather than a root-data snapshot. Under DynamicDraw
-        // the snapshot is pure waste — a write-combined read of the whole
-        // buffer plus arena space no one reads, in the same frame arena #1293
-        // is currently measuring for overflow.
-        m_PaletteBuffer = StorageBuffer::Create(static_cast<u32>(capacity), 0, StorageBufferUsage::DynamicCopy);
-        if (!m_PaletteBuffer)
+        // DynamicCopy avoids a draw-only snapshot that compute never reads.
+        // Replacing the allocation also keeps the previous frame's persistent
+        // address alive through deferred reclaim.
+        Ref<StorageBuffer> replacement;
+        try
         {
-            m_PaletteBufferBytes = 0;
-            m_PaletteAddress = 0;
+            replacement = StorageBuffer::Create(static_cast<u32>(capacity), 0, StorageBufferUsage::DynamicCopy);
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("DeformedSurfaceCache: palette allocation failed: {}", e.what());
             return false;
         }
+        if (!replacement || replacement->GetDeviceAddress() == 0u)
+            return false;
+        m_PaletteBuffer = std::move(replacement);
         m_PaletteBufferBytes = capacity;
         m_PaletteAddress = m_PaletteBuffer->GetDeviceAddress();
-        return m_PaletteAddress != 0u;
+        return true;
     }
 
     void DeformedSurfaceCache::EndFrame()

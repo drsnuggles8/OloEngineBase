@@ -24,10 +24,12 @@ namespace OloEngine::RayTracing
         // record's Generation and Flags change for reasons a BLAS does not
         // care about, and hashing them would rebuild every BLAS for nothing.
         //
-        // It also deliberately DOES include the two device addresses. A mesh
-        // rebuilt in place keeps its GPU Scene identity, and the address is
-        // the only field that moves — see the in-place-vertex-rewrite caveat
-        // in the header.
+        // Physical addresses normally distinguish a replacement geometry.
+        // Deformed groom proxies alone publish a fresh vertex allocation for
+        // each pose while keeping the same topology. Their content revision
+        // requests a refit; counting that vertex address as a shape change
+        // would force a full rebuild on every animated frame. The index
+        // address still changes whenever GroomSurfaceCache changes the shape.
         [[nodiscard]] u64 FingerprintGeometry(const GPUSceneGeometry& geometry)
         {
             u64 hash = 1469598103934665603ull; // FNV-1a offset basis
@@ -36,7 +38,11 @@ namespace OloEngine::RayTracing
                 hash ^= value;
                 hash *= 1099511628211ull;
             };
-            mix(geometry.VertexAddress);
+            if ((geometry.Flags & (GPUSceneGeometryFlagGroom | GPUSceneGeometryFlagDeformed)) !=
+                (GPUSceneGeometryFlagGroom | GPUSceneGeometryFlagDeformed))
+            {
+                mix(geometry.VertexAddress);
+            }
             mix(geometry.IndexAddress);
             mix(static_cast<u64>(geometry.FirstIndex) | (static_cast<u64>(geometry.IndexCount) << 32));
             mix(static_cast<u64>(static_cast<u32>(geometry.BaseVertex)) | (static_cast<u64>(geometry.VertexCount) << 32));

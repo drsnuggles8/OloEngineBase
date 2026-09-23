@@ -15,7 +15,7 @@
 namespace OloEngine
 {
     // =========================================================================
-    // GPUFluidSolver — OpenGL compute backend of the Position-Based Fluids
+    // GPUFluidSolver — graphics compute backend of the Position-Based Fluids
     // step (issue #630). Mirrors CPUFluidSolver formula-for-formula; the
     // parity contract lives in
     // OloEngine/tests/Rendering/PropertyTests/GPUFluidSolverParityTest.cpp.
@@ -31,8 +31,8 @@ namespace OloEngine
     // counter; the exact count is only read back every ~30 steps (or on
     // explicit RefreshExactCount()/ReadbackParticles() calls).
     //
-    // Requires a live GL 4.6 context and cwd = OloEditor/ (shader paths are
-    // cwd-relative). All methods must run on the thread owning the context.
+    // Requires a live selected graphics backend and cwd = OloEditor/ (shader
+    // paths are cwd-relative). All methods run on the rendering thread.
     // =========================================================================
     class GPUFluidSolver
     {
@@ -125,6 +125,7 @@ namespace OloEngine
       private:
         u32 m_MaxParticles = 0;
         bool m_Initialized = false;
+        bool m_HasDispatched = false; // Vulkan reset cannot rewrite live GPU output
 
         u32 m_ParticleUpperBound = 0;     // CPU-known conservative live count
         u32 m_PendingEmitCount = 0;       // staged entries awaiting the next Step

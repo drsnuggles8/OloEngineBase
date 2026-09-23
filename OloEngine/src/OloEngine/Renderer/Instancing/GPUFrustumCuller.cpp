@@ -206,9 +206,8 @@ namespace OloEngine
                 inst.Transform = MakeModelRelative(inst.Transform, origin);
                 inst.PrevTransform = MakeModelRelative(inst.PrevTransform, origin);
             }
-            slot.InputBuffer->SetData(scratch.GetData(),
-                                      inputCount * static_cast<u32>(sizeof(InstanceData)),
-                                      0);
+            RenderCommand::UploadBufferSubData(slot.InputBuffer->GetRHIHandle(), 0,
+                                               inputCount * sizeof(InstanceData), scratch.GetData());
         }
 
         // ── 2. Seed the indirect command (instanceCount = 0; compute atomic-adds)
@@ -220,7 +219,7 @@ namespace OloEngine
         seed.FirstIndex = baseIndex;
         seed.BaseVertex = 0;
         seed.BaseInstance = 0;
-        slot.IndirectBuffer->SetData(&seed, sizeof(seed), 0);
+        RenderCommand::UploadBufferSubData(slot.IndirectBuffer->GetRHIHandle(), 0, sizeof(seed), &seed);
 
         // ── 3. Bind SSBOs and dispatch ───────────────────────────────────
         // Pick the frustum-only or frustum + Hi-Z occlusion compute (#431).
@@ -410,7 +409,8 @@ namespace OloEngine
                 inst.Transform = MakeModelRelative(inst.Transform, origin);
                 inst.PrevTransform = MakeModelRelative(inst.PrevTransform, origin);
             }
-            slot.InputBuffer->SetData(scratch.GetData(), inputCount * static_cast<u32>(sizeof(InstanceData)), 0);
+            RenderCommand::UploadBufferSubData(slot.InputBuffer->GetRHIHandle(), 0,
+                                               inputCount * sizeof(InstanceData), scratch.GetData());
         }
 
         // Seed the phase-1 indirect command (compute atomic-adds survivors) and
@@ -418,13 +418,13 @@ namespace OloEngine
         IndirectCommandPOD seed{};
         seed.Count = indexCount;
         seed.FirstIndex = baseIndex;
-        slot.IndirectBuffer->SetData(&seed, sizeof(seed), 0);
+        RenderCommand::UploadBufferSubData(slot.IndirectBuffer->GetRHIHandle(), 0, sizeof(seed), &seed);
         // BOTH words. `Reserve` left over from the previous dispatch would start
         // this frame's reject cursor past the capacity, so every reject would be
         // refused and phase 2 would recover nothing — with an overflow flag
         // faithfully reporting a truncation that was really a stale counter.
         const RejectCounterPOD rejectSeed{};
-        slot.RejectedCounter->SetData(&rejectSeed, static_cast<u32>(sizeof(rejectSeed)), 0);
+        RenderCommand::UploadBufferSubData(slot.RejectedCounter->GetRHIHandle(), 0, sizeof(rejectSeed), &rejectSeed);
 
         slot.InputBuffer->Bind();    // 16 — full input
         slot.OutputBuffer->Bind();   // 15 — phase-1 survivors

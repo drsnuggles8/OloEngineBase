@@ -121,7 +121,7 @@ namespace OloEngine
     struct GPUFluidCounters
     {
         u32 Count;        // live particle count (atomicAdd'd by emit, rewritten after compact)
-        u32 EmitCount;    // staged emissions this step (written by CPU)
+        u32 EmitCount;    // reserved layout slot; FluidUBO::Counts.y supplies this value
         u32 KillCount;    // particles marked dead this step (atomicAdd'd by the kill pass)
         u32 ScratchCount; // compact pass's atomic append cursor; promoted to Count afterwards
     };

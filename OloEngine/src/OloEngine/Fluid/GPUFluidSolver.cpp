@@ -4,11 +4,11 @@
 #include "OloEngine/Fluid/FluidKernels.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 #include <algorithm>
 #include <cmath>
-#include <cstddef>
 #include <utility>
 
 namespace OloEngine
@@ -34,6 +34,7 @@ namespace OloEngine
     GPUFluidSolver::GPUFluidSolver(GPUFluidSolver&& other) noexcept
         : m_MaxParticles(other.m_MaxParticles),
           m_Initialized(other.m_Initialized),
+          m_HasDispatched(other.m_HasDispatched),
           m_ParticleUpperBound(other.m_ParticleUpperBound),
           m_PendingEmitCount(other.m_PendingEmitCount),
           m_StepsSinceCountRefresh(other.m_StepsSinceCountRefresh),
@@ -70,6 +71,7 @@ namespace OloEngine
           m_FinalizeShader(std::move(other.m_FinalizeShader))
     {
         other.m_Initialized = false;
+        other.m_HasDispatched = false;
         other.m_MaxParticles = 0;
         other.m_ParticleUpperBound = 0;
         other.m_PendingEmitCount = 0;
@@ -86,6 +88,7 @@ namespace OloEngine
             Shutdown();
             m_MaxParticles = other.m_MaxParticles;
             m_Initialized = other.m_Initialized;
+            m_HasDispatched = other.m_HasDispatched;
             m_ParticleUpperBound = other.m_ParticleUpperBound;
             m_PendingEmitCount = other.m_PendingEmitCount;
             m_StepsSinceCountRefresh = other.m_StepsSinceCountRefresh;
@@ -121,6 +124,7 @@ namespace OloEngine
             m_VelocityApplyShader = std::move(other.m_VelocityApplyShader);
             m_FinalizeShader = std::move(other.m_FinalizeShader);
             other.m_Initialized = false;
+            other.m_HasDispatched = false;
             other.m_MaxParticles = 0;
             other.m_ParticleUpperBound = 0;
             other.m_PendingEmitCount = 0;
@@ -148,6 +152,7 @@ namespace OloEngine
         }
 
         m_MaxParticles = maxParticles;
+        m_HasDispatched = false;
         m_ParticleUpperBound = 0;
         m_PendingEmitCount = 0;
         m_StepsSinceCountRefresh = 0;
@@ -300,6 +305,7 @@ namespace OloEngine
         m_VelocityApplyShader = nullptr;
         m_FinalizeShader = nullptr;
         m_Initialized = false;
+        m_HasDispatched = false;
         m_ParticleUpperBound = 0;
         m_PendingEmitCount = 0;
         m_StepsSinceCountRefresh = 0;
@@ -313,6 +319,15 @@ namespace OloEngine
 
         if (!m_Initialized)
         {
+            return;
+        }
+
+        // These three buffers are GPU-produced after the first Step. A host
+        // rewrite could overtake an earlier submitted dispatch, so require a
+        // fresh solver for a Vulkan reset until an ordered reset exists.
+        if (m_HasDispatched && RendererAPI::GetAPI() == RendererAPI::API::Vulkan)
+        {
+            OLO_CORE_ERROR("GPUFluidSolver::SeedParticles: Vulkan reset after dispatch refused; create a new solver");
             return;
         }
 
@@ -355,6 +370,31 @@ namespace OloEngine
         if (count == 0)
         {
             return;
+        }
+
+        // One staging allocation belongs to one pending emit batch. Vulkan
+        // compute resolves the persistent address, so the next batch cannot
+        // refill an allocation an earlier Step may still be reading.
+        if (m_PendingEmitCount == 0 && RendererAPI::GetAPI() == RendererAPI::API::Vulkan)
+        {
+            Ref<StorageBuffer> replacement;
+            try
+            {
+                replacement = StorageBuffer::Create(kEmitStagingCapacity * GPUFluidEmitEntry::GetSize(),
+                                                    ShaderBindingLayout::SSBO_FLUID_EMIT_STAGING,
+                                                    StorageBufferUsage::DynamicDraw);
+            }
+            catch (const std::exception& e)
+            {
+                OLO_CORE_ERROR("GPUFluidSolver::Emit: staging allocation failed — refusing batch: {}", e.what());
+                return;
+            }
+            if (!replacement)
+            {
+                OLO_CORE_ERROR("GPUFluidSolver::Emit: staging allocation failed — refusing batch");
+                return;
+            }
+            m_EmitStagingSSBO = std::move(replacement);
         }
 
         m_EmitStagingSSBO->SetData(entries.data(), count * GPUFluidEmitEntry::GetSize(),
@@ -429,18 +469,38 @@ namespace OloEngine
         // ---- Body proxies: clear last step's impulses + upload snapshots ----
         if (proxyCount > 0)
         {
+            if (RendererAPI::GetAPI() == RendererAPI::API::Vulkan)
+            {
+                Ref<StorageBuffer> replacement;
+                try
+                {
+                    replacement = StorageBuffer::Create(proxyCount * FluidBodyProxy::GetSize(),
+                                                        ShaderBindingLayout::SSBO_FLUID_BODY_PROXIES,
+                                                        StorageBufferUsage::DynamicDraw);
+                }
+                catch (const std::exception& e)
+                {
+                    OLO_CORE_ERROR("GPUFluidSolver::Step: body-proxy allocation failed — refusing step: {}", e.what());
+                    return;
+                }
+                if (!replacement)
+                {
+                    OLO_CORE_ERROR("GPUFluidSolver::Step: body-proxy allocation failed — refusing step");
+                    return;
+                }
+                m_BodyProxiesSSBO = std::move(replacement);
+            }
             m_BodyImpulsesSSBO->ClearData();
             m_BodyProxiesSSBO->SetData(bodyProxies.data(), proxyCount * FluidBodyProxy::GetSize());
         }
         m_LastProxyCount = proxyCount;
         m_LastSolverIterations = std::max(1u, params.SolverIterations);
+        if (emitCount > 0 || m_ParticleUpperBound > 0)
+            m_HasDispatched = true;
 
         // ---- Emit staged particles ------------------------------------------
         if (emitCount > 0)
         {
-            m_CountersSSBO->SetData(&emitCount, static_cast<u32>(sizeof(u32)),
-                                    static_cast<u32>(offsetof(GPUFluidCounters, EmitCount)));
-
             m_PositionsSSBO->Bind();
             m_VelocitiesSSBO->Bind();
             m_CountersSSBO->Bind();

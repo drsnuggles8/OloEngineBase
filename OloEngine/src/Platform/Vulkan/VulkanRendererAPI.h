@@ -782,8 +782,8 @@ namespace OloEngine
         // address its GPU-write participants require (#691).
         [[nodiscard]] bool AssembleAndPushRootData(const VulkanRootDataLayout& layout, const char* shaderName,
                                                    const VulkanVertexArray* vao, bool commandOrderedBufferReads);
-        void AssembleRootData(const VulkanRootDataLayout& layout, const char* shaderName,
-                              const VulkanVertexArray* vao, bool commandOrderedBufferReads);
+        [[nodiscard]] bool AssembleRootData(const VulkanRootDataLayout& layout, const char* shaderName,
+                                            const VulkanVertexArray* vao, bool commandOrderedBufferReads);
         [[nodiscard]] bool PushRootDataAddress(VkDeviceAddress rootAddress);
 
         // Selection-map plumbing (see FramebufferAttachmentSelection above).

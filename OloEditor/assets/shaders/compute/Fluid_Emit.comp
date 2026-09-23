@@ -28,7 +28,7 @@ layout(std430, binding = 22) buffer FluidVelocitiesBuffer
 layout(std430, binding = 28) buffer FluidCountersBuffer
 {
     uint Count;        // live particle count
-    uint EmitCount;    // staged emissions this step (CPU-written; UBO Counts.y is the authoritative copy)
+    uint EmitCount;    // reserved layout slot; UBO Counts.y is the authoritative copy
     uint KillCount;    // particles marked dead this step
     uint ScratchCount; // compact pass's append cursor
 } counters;

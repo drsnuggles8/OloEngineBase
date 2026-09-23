@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -548,7 +549,14 @@ namespace OloEngine
         {
             return;
         }
-        if (data.data == nullptr || data.size == 0)
+        if ((data.data == nullptr && data.size != 0) ||
+            data.size > std::numeric_limits<u32>::max() - data.offset)
+        {
+            OLO_CORE_ERROR("VulkanUniformBuffer::SetData: invalid source or range {}+{} — dropping", data.offset,
+                           data.size);
+            return;
+        }
+        if (data.size == 0)
         {
             return;
         }
@@ -684,7 +692,9 @@ namespace OloEngine
         if (initialData != nullptr && m_Size > 0)
         {
             SetData(VertexData{ .data = initialData, .size = m_Size });
+            m_HadInitialData = true;
         }
+        m_InitialUploadDone = true;
     }
 
     void VulkanVertexBuffer::ReleaseBuffer()
@@ -724,45 +734,46 @@ namespace OloEngine
             return;
         }
 
-        // Mesh data is upload-once at load time and stays on the persistent
-        // allocation below. A rewrite that lands INSIDE a recording frame is
-        // the streaming shape (ParticleBatchRenderer::Flush, #1171): the
-        // persistent buffer is a single piece of memory the GPU reads at
-        // execution time, so leaving such a stream here would give every draw
-        // in the frame the last rewrite's bytes and race the previous frame's
-        // submission. Shadow it and let GetPullAddress() snapshot it per
-        // rewrite, the VulkanUniformBuffer seam.
-        //
-        // The persistent buffer is still written: it is what a BLAS build and
-        // any non-pull consumer read, and keeping the two in step means the
-        // upload-once path is bit-for-bit what it always was.
-        // Detection, not configuration: a SECOND write inside one frame
-        // generation is the aliasing shape by definition — two sets of bytes,
-        // one allocation, and both draws read whatever survives. A stream that
-        // is written once (every mesh; the static ctor does not come through
-        // here at all) never trips it and never pays for a shadow.
-        // CreateBuffer routes its initial payload through here, so that write
-        // is construction, not streaming — counting it would latch a static
-        // mesh that is merely uploaded and then written once more in the same
-        // frame, and a latched mesh pays a full arena copy every frame forever.
-        const u64 generation = VulkanFrameArena::Get().GetFrameGeneration();
-        const bool countsTowardDetection = m_InitialUploadDone;
-        m_InitialUploadDone = true;
-        // Scope the BASELINE to the same condition as the check. Recording the
-        // construction write's generation here would make the next write in that
-        // same frame — the first that counts — look like a second write, and
-        // latch the static mesh this exclusion exists to protect.
-        if (countsTowardDetection)
+        // A mutable pull stream needs a snapshot on its FIRST external write.
+        // Waiting for a second write loses the first draw in that very frame;
+        // waiting for a second frame also races an unfinished prior submission.
+        if (m_InitialUploadDone && !m_Streamed)
         {
-            if (!m_Streamed && generation != 0 && generation == m_LastWriteGeneration)
+            const u64 lastPersistentDraw = m_PersistentDrawGeneration.load(std::memory_order_relaxed);
+            const u64 generation = VulkanFrameArena::Get().GetFrameGeneration();
+            if (lastPersistentDraw != 0 && lastPersistentDraw == generation)
             {
-                OLO_CORE_WARN("[RHI/Vulkan] vertex stream {:#x} ({} bytes) is rewritten more than once per frame "
-                              "— snapshotting it per draw from now on (issue #1171). Before this seam existed "
-                              "every draw in the frame read the LAST write's bytes.",
-                              m_DeviceAddress, m_Size);
-                m_Streamed = true;
+                OLO_CORE_ERROR("[RHI/Vulkan] vertex stream {:#x} was drawn through its persistent address before "
+                               "its first rewrite this frame — refusing the write to preserve that draw",
+                               m_DeviceAddress);
+                return;
             }
-            m_LastWriteGeneration = generation;
+            if (lastPersistentDraw != 0)
+            {
+                if (CurrentVulkanWorkerContext() != nullptr)
+                {
+                    OLO_CORE_ERROR("[RHI/Vulkan] first rewrite of a previously drawn vertex stream requires a "
+                                   "render-thread fence wait — refusing the worker write");
+                    return;
+                }
+                // This happens only on the first mutation of an upload-once
+                // mesh. A previous frame may still read its persistent bytes.
+                VkCheck(vkDeviceWaitIdle(VulkanDevice::Get()->GetDevice()), "vkDeviceWaitIdle (first vertex rewrite)");
+            }
+            if (m_HadInitialData && data.size < m_Size)
+            {
+                if (m_Mapped == nullptr)
+                {
+                    OLO_CORE_ERROR("[RHI/Vulkan] partial first rewrite of staged vertex stream {:#x} cannot "
+                                   "preserve its initial tail — refusing the write",
+                                   m_DeviceAddress);
+                    return;
+                }
+                m_Shadow.resize(m_Size);
+                std::memcpy(m_Shadow.data(), m_Mapped, m_Size);
+                m_ShadowSize = m_Size;
+            }
+            m_Streamed = true;
         }
 
         if (m_Streamed)
@@ -798,6 +809,7 @@ namespace OloEngine
     {
         if (!m_Streamed)
         {
+            m_PersistentDrawGeneration.store(VulkanFrameArena::Get().GetFrameGeneration(), std::memory_order_relaxed);
             return m_DeviceAddress;
         }
 
@@ -823,10 +835,8 @@ namespace OloEngine
         const auto allocation = arena.Push(m_Shadow.data(), m_ShadowSize, 256, VulkanFrameArenaConsumer::VertexSnapshot);
         if (!allocation.IsValid())
         {
-            // Arena overflow. The caller substitutes the null block, and its
-            // message blames "binding 57 has no published occupant" — which is
-            // the wrong cause and would send the next reader hunting a missing
-            // bind. Name the real one, with the size that did not fit.
+            // Arena overflow. The root writer drops a draw whose present pull
+            // stream returns zero; name the resource that could not fit.
             //
             // Deliberately NOT falling back to m_DeviceAddress: that would
             // silently serve one frame's last batch to every draw, which is
@@ -835,7 +845,7 @@ namespace OloEngine
             if (!s_WarnedOverflow.exchange(true, std::memory_order_relaxed))
             {
                 OLO_CORE_ERROR("[RHI/Vulkan] streamed vertex stream {:#x} ({} bytes) did not fit the {} MiB frame "
-                               "arena — the draw reads the null block, NOT stale geometry. Shrink the batch or "
+                               "arena — dropping the draw. Shrink the batch or "
                                "raise kSlotCapacityBytes (further overflows not logged)",
                                m_DeviceAddress, m_ShadowSize,
                                VulkanFrameArena::Get().GetSlotCapacityBytes() / (1024ull * 1024ull));

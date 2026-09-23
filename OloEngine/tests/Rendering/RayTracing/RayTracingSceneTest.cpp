@@ -745,6 +745,40 @@ namespace OloEngine::Tests
         EXPECT_EQ(m_Backend->Builds[0].Reason, BuildReason::DeformedRefit);
     }
 
+    TEST_F(RayTracingSceneFixture, GroomVertexVersionsRefitButShapeChangesRebuild)
+    {
+        const GPUSceneGeometryKey key = MakeGeometryKey(17, 23, std::numeric_limits<u32>::max());
+        auto groom = MakeTraceableGeometry(0x1000, 0x2000);
+        groom.m_Flags |= GPUSceneGeometryFlagGroom;
+        BeginFrame();
+        StageDeformedInstance(17, key, groom, MakeMaterial(), 1);
+        EndFrame();
+        m_Scene.Update(m_GPUScene);
+        ASSERT_EQ(m_Backend->Builds.size(), 1u);
+        m_Backend->ClearRecording();
+
+        // A new physical vertex version carries a new pose under the same
+        // logical coat identity and topology, so the existing BLAS can refit.
+        groom.m_VertexAddress = 0x3000;
+        BeginFrame();
+        StageDeformedInstance(17, key, groom, MakeMaterial(), 2);
+        EndFrame();
+        m_Scene.Update(m_GPUScene);
+        ASSERT_EQ(m_Backend->Builds.size(), 1u);
+        EXPECT_EQ(m_Backend->Builds[0].Reason, BuildReason::DeformedRefit);
+        EXPECT_EQ(m_Backend->Builds[0].VertexAddress, 0x3000u);
+        m_Backend->ClearRecording();
+
+        // A new index version means the emitted shape changed; it must build.
+        groom.m_IndexAddress = 0x4000;
+        BeginFrame();
+        StageDeformedInstance(17, key, groom, MakeMaterial(), 3);
+        EndFrame();
+        m_Scene.Update(m_GPUScene);
+        ASSERT_EQ(m_Backend->Builds.size(), 1u);
+        EXPECT_EQ(m_Backend->Builds[0].Reason, BuildReason::GeometryChanged);
+    }
+
     TEST_F(RayTracingSceneFixture, AnIdlePoseCostsNoAccelerationStructureWorkAtAll)
     {
         // A paused or idle character must not refit. The geometry record is

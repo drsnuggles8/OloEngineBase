@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/MaterialKind.h"
 #include "OloEngine/Renderer/PBRModel.h"
+#include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
 
 #include <algorithm>
@@ -16,6 +17,7 @@
 #include <cstdlib>
 #include <optional>
 #include <span>
+#include <utility>
 
 namespace OloEngine::RayTracing
 {
@@ -235,11 +237,9 @@ namespace OloEngine::RayTracing
 
         // ── The buffers ──────────────────────────────────────────────────
         //
-        // Reallocated only when the SHAPE changed; refilled otherwise. A bound
-        // groom refills every frame and its counts are stable by construction —
-        // deforming a strand moves its points and never changes how many
-        // segments it has — which is what makes the refill path the steady
-        // state rather than a special case.
+        // GL refills a stable shape in place. Vulkan BLAS builds consume the
+        // persistent device address, so even a same-shape refill publishes a
+        // fresh vertex allocation while earlier frame builds may be in flight.
         //
         // Sized-then-filled, never Create(data, size): the latter mints an
         // IMMUTABLE buffer on the GL backend and SetData on it is a silent
@@ -248,19 +248,37 @@ namespace OloEngine::RayTracing
         const bool reallocate = !entry.Vertices || !entry.Indices || entry.ShapeHash != shapeHash ||
                                 entry.VertexCount != proxyStats.VertexCount ||
                                 entry.IndexCount != proxyStats.IndexCount;
-        if (reallocate)
+        Ref<IndexBuffer> replacementIndices;
+        try
         {
-            entry.Vertices = VertexBuffer::Create(static_cast<u32>(proxyStats.VertexBytes));
-            entry.Indices = IndexBuffer::Create(m_ProxyIndices.data(), proxyStats.IndexCount);
-            if (!entry.Vertices || !entry.Indices)
+            if (reallocate)
             {
-                entry.Vertices.Reset();
-                entry.Indices.Reset();
-                return GroomProxyRefusalReason::BuildFailed;
+                replacementIndices = IndexBuffer::Create(m_ProxyIndices.data(), proxyStats.IndexCount);
+                if (!replacementIndices)
+                    return GroomProxyRefusalReason::BuildFailed;
             }
-            entry.Vertices->SetLayout(Vertex::GetLayout());
+            if (reallocate || RendererAPI::GetAPI() == RendererAPI::API::Vulkan)
+            {
+                auto replacement = VertexBuffer::Create(static_cast<u32>(proxyStats.VertexBytes));
+                if (!replacement)
+                    return GroomProxyRefusalReason::BuildFailed;
+                replacement->SetLayout(Vertex::GetLayout());
+                replacement->SetData({ m_ProxyVertices.data(), static_cast<u32>(proxyStats.VertexBytes) });
+                // Publish the pair only after both allocations and the upload succeed.
+                entry.Vertices = std::move(replacement);
+                if (reallocate)
+                    entry.Indices = std::move(replacementIndices);
+            }
+            else
+            {
+                entry.Vertices->SetData({ m_ProxyVertices.data(), static_cast<u32>(proxyStats.VertexBytes) });
+            }
         }
-        entry.Vertices->SetData({ m_ProxyVertices.data(), static_cast<u32>(proxyStats.VertexBytes) });
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("GroomSurfaceCache: proxy buffer allocation failed: {}", e.what());
+            return GroomProxyRefusalReason::BuildFailed;
+        }
 
         // A buffer with no device address cannot back a BLAS. Refused here
         // rather than staged: an acceleration structure built over address zero
@@ -493,8 +511,12 @@ namespace OloEngine::RayTracing
             entry.LastSeen = m_Frame;
 
             // ── The records ─────────────────────────────────────────────
-            const GPUSceneGeometryKey geometryKey{ RHI::HashKey(entry.Vertices->GetRHIHandle()),
-                                                   RHI::HashKey(entry.Indices->GetRHIHandle()), 0u };
+            // Identity belongs to the coat, not a physical vertex version. A
+            // fresh Vulkan address each frame must keep the same BLAS slot.
+            // The reserved submesh index separates this logical key from mesh keys.
+            const GPUSceneGeometryKey geometryKey{ static_cast<u64>(request.EntityID),
+                                                   static_cast<u64>(request.Handle),
+                                                   std::numeric_limits<u32>::max() };
             const GPUSceneMaterialKey materialKey{ static_cast<u64>(request.EntityID), 0u,
                                                    std::to_underlying(GPUSceneMaterialSource::Groom) };
 

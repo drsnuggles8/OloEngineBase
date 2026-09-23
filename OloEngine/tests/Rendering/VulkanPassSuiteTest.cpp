@@ -37,6 +37,8 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 
 #else
 
+#include "OloEngine/Particle/GPUParticleSystem.h"
+#include "OloEngine/Fluid/GPUFluidSolver.h"
 #include "OloEngine/Particle/ParticleBatchRenderer.h"
 #include "OloEngine/Precipitation/ScreenSpacePrecipitation.h"
 #include "OloEngine/Renderer/Camera/Camera.h"
@@ -2946,6 +2948,79 @@ TEST_F(VulkanPassSuite, GtaoIsOpenOnUniformDepthAndDarkensACrease)
 // compute ping-pong into the raw targets, driven by a scene-depth import) is
 // the remaining promotion for this tenant.
 // =============================================================================
+TEST_F(VulkanPassSuite, GpuProducedStorageSeedsStayOrderedAcrossTwoDispatches)
+{
+    auto shader = ComputeShader::Create("assets/shaders/compute/UploadOrderRead.comp");
+    ASSERT_TRUE(shader && shader->IsValid());
+    auto source = StorageBuffer::Create(sizeof(u32), 31, StorageBufferUsage::DynamicCopy);
+    auto firstOutput = StorageBuffer::Create(sizeof(u32), 32, StorageBufferUsage::DynamicCopy);
+    auto secondOutput = StorageBuffer::Create(sizeof(u32), 32, StorageBufferUsage::DynamicCopy);
+    ASSERT_TRUE(source && firstOutput && secondOutput);
+
+    SubmitFrame([&]()
+                {
+                    const u32 first = 17;
+                    source->SetData(&first, sizeof(first));
+                    source->Bind();
+                    firstOutput->Bind();
+                    shader->Bind();
+                    RenderCommand::DispatchCompute(1, 1, 1);
+
+                    const u32 second = 29;
+                    source->SetData(&second, sizeof(second));
+                    secondOutput->Bind();
+                    RenderCommand::DispatchCompute(1, 1, 1); });
+    u32 firstRead = 0;
+    u32 secondRead = 0;
+    firstOutput->GetData(&firstRead, sizeof(firstRead));
+    secondOutput->GetData(&secondRead, sizeof(secondRead));
+    EXPECT_EQ(firstRead, 17u);
+    EXPECT_EQ(secondRead, 29u);
+}
+
+TEST_F(VulkanPassSuite, FluidSolverConsumesTwoDistinctEmitBatches)
+{
+    GPUFluidSolver solver(16);
+    ASSERT_TRUE(solver.IsValid());
+
+    FluidSolverParams params;
+    params.BoundsMin = { -1.0f, -1.0f, -1.0f };
+    params.BoundsMax = { 1.0f, 1.0f, 1.0f };
+    params.SolverIterations = 1;
+
+    const GPUFluidEmitEntry first{ .Position = { -0.5f, 0.0f, 0.0f, 0.0f },
+                                   .Velocity = { 0.0f, 0.0f, 0.0f, 0.0f } };
+    const GPUFluidEmitEntry second{ .Position = { 0.5f, 0.0f, 0.0f, 0.0f },
+                                    .Velocity = { 0.0f, 0.0f, 0.0f, 0.0f } };
+    FluidBodyProxy proxy{};
+    proxy.Position = { 0.8f, 0.8f, 0.8f, static_cast<f32>(FluidBodyProxyShape::Sphere) };
+    proxy.Rotation = { 0.0f, 0.0f, 0.0f, 1.0f };
+    proxy.HalfExtents = { 0.1f, 0.0f, 0.0f, 0.0f };
+    SubmitFrame([&]()
+                {
+                    solver.Emit(std::span(&first, 1));
+                    solver.Step(params, 1.0f / 60.0f, std::span(&proxy, 1), {});
+                    proxy.Position.x = -0.8f;
+                    solver.Emit(std::span(&second, 1));
+                    solver.Step(params, 1.0f / 60.0f, std::span(&proxy, 1), {}); });
+    EXPECT_EQ(solver.RefreshExactCount(), 2u);
+    std::array<glm::vec4, 2> positions{};
+    solver.GetPositionsSSBO()->GetData(positions.data(), static_cast<u32>(sizeof(positions)));
+    EXPECT_LT(positions[0].x, -0.25f);
+    EXPECT_GT(positions[1].x, 0.25f);
+
+    solver.SeedParticles({}); // a post-dispatch Vulkan reset must fail closed
+    EXPECT_EQ(solver.RefreshExactCount(), 2u);
+
+    solver.Reload();
+    const GPUFluidEmitEntry afterReload{ .Position = { 0.0f, 0.0f, 0.5f, 0.0f },
+                                         .Velocity = { 0.0f, 0.0f, 0.0f, 0.0f } };
+    solver.Emit(std::span(&afterReload, 1));
+    SubmitFrame([&]()
+                { solver.Step(params, 1.0f / 60.0f, {}, {}); });
+    EXPECT_EQ(solver.RefreshExactCount(), 3u);
+}
+
 TEST_F(VulkanPassSuite, FluidIntermediatesBuildsRawTargetsAndPinsTheNoDrawEarlyOutThroughTheGraph)
 {
     constexpr u32 kSize = 128;
@@ -12064,6 +12139,229 @@ TEST_F(VulkanPassSuite, InterleavedInstanceBufferUploadsKeepCommandOrderAcrossDr
     EXPECT_EQ(px(5, 5)[0], 0) << "corner background keeps the clear";
 
     EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore);
+}
+
+TEST_F(VulkanPassSuite, FirstVertexStreamRewriteKeepsBothRecordedDraws)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    auto shader = Shader::Create("assets/shaders/tests/UploadOrderingProbe.glsl");
+    ASSERT_TRUE(shader);
+    ASSERT_EQ(shader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    // The first upload is to an empty buffer. The old second-write detector
+    // gave the first draw the persistent address, which the second upload
+    // overwrote before submission.
+    struct Vertex
+    {
+        f32 X, Y, R, G;
+    };
+    const Vertex left[] = { { -0.9f, -0.8f, 0.6f, 0.0f },
+                            { -0.1f, -0.8f, 0.6f, 0.0f },
+                            { -0.5f, 0.8f, 0.6f, 0.0f } };
+    const Vertex right[] = { { 0.1f, -0.8f, 0.0f, 0.7f },
+                             { 0.9f, -0.8f, 0.0f, 0.7f },
+                             { 0.5f, 0.8f, 0.0f, 0.7f } };
+    auto vao = VertexArray::Create();
+    auto vb = VertexBuffer::Create(sizeof(left));
+    vb->SetLayout({ { ShaderDataType::Float2, "a_Position" }, { ShaderDataType::Float2, "a_Colour" } });
+    vao->AddVertexBuffer(vb);
+    std::array<u32, 3> indices{ 0, 1, 2 };
+    vao->SetIndexBuffer(IndexBuffer::Create(indices.data(), 3));
+
+    const std::array<glm::vec4, 2> zeros{};
+    auto ubo = UniformBuffer::Create(sizeof(zeros), 18);
+    ubo->SetData(zeros.data(), sizeof(zeros));
+    auto ssbo = StorageBuffer::Create(sizeof(zeros), 15);
+    ssbo->SetData(zeros.data(), sizeof(zeros));
+    FramebufferSpecification spec;
+    spec.Width = kSize;
+    spec.Height = kSize;
+    spec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::Depth };
+    auto framebuffer = Framebuffer::Create(spec);
+    ASSERT_TRUE(framebuffer);
+
+    SubmitFrame([&]()
+                {
+                    framebuffer->Bind();
+                    RenderCommand::SetViewport(0, 0, kSize, kSize);
+                    RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+                    RenderCommand::Clear();
+                    RenderCommand::SetDepthTest(false);
+                    RenderCommand::SetBlendState(false);
+                    RenderCommand::DisableCulling();
+                    shader->Bind();
+                    vao->Bind();
+                    ubo->Bind();
+                    ssbo->Bind();
+                    vb->SetData({ left, sizeof(left) });
+                    RenderCommand::DrawIndexed(vao, 3);
+                    vb->SetData({ right, sizeof(right) });
+                    RenderCommand::DrawIndexed(vao, 3);
+
+                    RHI::Barrier toSampled{};
+                    toSampled.Resource = framebuffer->GetColorAttachmentHandle(0);
+                    toSampled.Before = RHI::Access::ColorAttachmentWrite;
+                    toSampled.After = RHI::Access::ShaderSampleRead;
+                    api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 }); });
+
+    EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 2u);
+    EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
+    TArray64<u8> pixels;
+    auto* vkFramebuffer = static_cast<VulkanFramebuffer*>(framebuffer.Raw());
+    ASSERT_TRUE(vkFramebuffer->GetColorAttachmentImage(0)->GetData(pixels, 0));
+    ASSERT_EQ(pixels.Num(), static_cast<sizet>(kSize) * kSize * 4);
+    const auto redAt = [&](u32 x)
+    { return pixels[(64u * kSize + x) * 4u]; };
+    const auto greenAt = [&](u32 x)
+    { return pixels[(64u * kSize + x) * 4u + 1u]; };
+    EXPECT_NEAR(redAt(32), 153, 3);
+    EXPECT_NEAR(greenAt(96), 179, 3);
+    EXPECT_EQ(redAt(96), 0);
+    EXPECT_EQ(greenAt(32), 0);
+
+    // Leave less than one vertex snapshot in the next frame's arena. A
+    // refused pull address must drop the draw, not pass the tiny null block to
+    // a shader whose vertex index can run past its end.
+    auto& arena = VulkanFrameArena::Get();
+    arena.BeginFrame(0);
+    // Leave one 256-byte-aligned root-data slot for the UBO, but no second
+    // slot for the 48-byte vertex snapshot. Exhausting the UBO first would
+    // drop the draw without exercising vertex-pull refusal.
+    ASSERT_TRUE(arena.Allocate(arena.GetSlotCapacityBytes() - 320u).IsValid());
+    SubmitFrame([&]()
+                {
+                    framebuffer->Bind();
+                    shader->Bind();
+                    vao->Bind();
+                    ubo->Bind();
+                    ssbo->Bind();
+                    vb->SetData({ left, sizeof(left) });
+                    RenderCommand::DrawIndexed(vao, 3); });
+    EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 0u);
+    EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 1u);
+    EXPECT_GT(arena.GetConsumerBytesThisFrame(VulkanFrameArenaConsumer::UniformSnapshot), 0u);
+    EXPECT_EQ(arena.GetConsumerBytesThisFrame(VulkanFrameArenaConsumer::VertexSnapshot), 0u);
+}
+
+TEST_F(VulkanPassSuite, PartialUniformAndStorageRewritesPreserveBothDrawsAndTheUntouchedPrefix)
+{
+    constexpr u32 kSize = 128;
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    auto shader = Shader::Create("assets/shaders/tests/UploadOrderingProbe.glsl");
+    ASSERT_TRUE(shader);
+    ASSERT_EQ(shader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    struct Vertex
+    {
+        f32 X, Y, R, G;
+    };
+    const Vertex left[] = { { -0.9f, -0.8f, 0.0f, 0.0f },
+                            { -0.1f, -0.8f, 0.0f, 0.0f },
+                            { -0.5f, 0.8f, 0.0f, 0.0f } };
+    const Vertex right[] = { { 0.1f, -0.8f, 0.0f, 0.0f },
+                             { 0.9f, -0.8f, 0.0f, 0.0f },
+                             { 0.5f, 0.8f, 0.0f, 0.0f } };
+    std::array<u32, 3> indices{ 0, 1, 2 };
+    const auto makeVao = [&](const Vertex* vertices)
+    {
+        auto vao = VertexArray::Create();
+        auto vb = VertexBuffer::Create(vertices, sizeof(left));
+        vb->SetLayout({ { ShaderDataType::Float2, "a_Position" }, { ShaderDataType::Float2, "a_Colour" } });
+        vao->AddVertexBuffer(vb);
+        vao->SetIndexBuffer(IndexBuffer::Create(indices.data(), 3));
+        return vao;
+    };
+    auto leftVao = makeVao(left);
+    auto rightVao = makeVao(right);
+    const std::array<glm::vec4, 2> zero{};
+    auto ubo = UniformBuffer::Create(sizeof(zero), 18);
+    auto ssbo = StorageBuffer::Create(sizeof(zero), 15);
+    FramebufferSpecification spec;
+    spec.Width = kSize;
+    spec.Height = kSize;
+    spec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::Depth };
+    auto framebuffer = Framebuffer::Create(spec);
+    ASSERT_TRUE(framebuffer);
+
+    for (const bool exerciseUniform : { true, false })
+    {
+        VulkanFrameArena::Get().BeginFrame(0);
+        ubo->SetData(zero.data(), sizeof(zero));
+        ssbo->SetData(zero.data(), sizeof(zero));
+        const glm::vec4 first(0.6f, 0.0f, 0.0f, 0.0f);
+        const glm::vec4 second(0.7f, 0.0f, 0.0f, 0.0f);
+        SubmitFrame([&]()
+                    {
+                        framebuffer->Bind();
+                        RenderCommand::SetViewport(0, 0, kSize, kSize);
+                        RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+                        RenderCommand::Clear();
+                        RenderCommand::SetDepthTest(false);
+                        RenderCommand::SetBlendState(false);
+                        RenderCommand::DisableCulling();
+                        shader->Bind();
+                        ubo->Bind();
+                        ssbo->Bind();
+                        if (exerciseUniform)
+                            ubo->SetData(&first, sizeof(first));
+                        else
+                            ssbo->SetData(&first, sizeof(first));
+                        leftVao->Bind();
+                        RenderCommand::DrawIndexed(leftVao, 3);
+                        if (exerciseUniform)
+                            ubo->SetData(&second, sizeof(second), sizeof(glm::vec4));
+                        else
+                            ssbo->SetData(&second, sizeof(second), sizeof(glm::vec4));
+                        rightVao->Bind();
+                        RenderCommand::DrawIndexed(rightVao, 3);
+
+                        RHI::Barrier toSampled{};
+                        toSampled.Resource = framebuffer->GetColorAttachmentHandle(0);
+                        toSampled.Before = RHI::Access::ColorAttachmentWrite;
+                        toSampled.After = RHI::Access::ShaderSampleRead;
+                        api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 }); });
+
+        EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 2u);
+        EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
+        TArray64<u8> pixels;
+        auto* vkFramebuffer = static_cast<VulkanFramebuffer*>(framebuffer.Raw());
+        ASSERT_TRUE(vkFramebuffer->GetColorAttachmentImage(0)->GetData(pixels, 0));
+        ASSERT_EQ(pixels.Num(), static_cast<sizet>(kSize) * kSize * 4);
+        const auto channelAt = [&](u32 x, u32 channel)
+        { return pixels[(64u * kSize + x) * 4u + channel]; };
+        EXPECT_NEAR(channelAt(32, 0), 153, 3) << "the first draw must keep its original prefix";
+        EXPECT_EQ(channelAt(32, 1), 0) << "the first draw must keep its untouched tail";
+        EXPECT_NEAR(channelAt(96, 0), 153, 3) << "the second draw must retain bytes outside the partial write";
+        EXPECT_NEAR(channelAt(96, 1), 179, 3) << "the partial write must reach the second draw";
+    }
+}
+
+TEST_F(VulkanPassSuite, InterleavedParticleEmitUploadsKeepDistinctComputeInputs)
+{
+    GPUParticleSystem particles(8);
+    ASSERT_TRUE(particles.IsInitialized());
+    ASSERT_TRUE(particles.GetShaderHealth().Emit);
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    GPUParticle first{};
+    first.PositionLifetime = glm::vec4(0.25f, 0.0f, 0.0f, 1.0f);
+    GPUParticle second{};
+    second.PositionLifetime = glm::vec4(0.75f, 0.0f, 0.0f, 1.0f);
+    SubmitFrame([&]()
+                {
+                    particles.EmitParticles(std::span<const GPUParticle>(&first, 1));
+                    particles.EmitParticles(std::span<const GPUParticle>(&second, 1)); });
+
+    std::array<GPUParticle, 8> actual{};
+    particles.GetParticleSSBO()->GetData(actual.data(), sizeof(actual));
+    EXPECT_NEAR(actual[7].PositionLifetime.x, 0.25f, 1e-6f)
+        << "the first dispatch must read its own staging allocation";
+    EXPECT_NEAR(actual[6].PositionLifetime.x, 0.75f, 1e-6f)
+        << "the second dispatch must read the second upload";
+    EXPECT_NEAR(actual[7].Misc.z, 1.0f, 1e-6f);
+    EXPECT_NEAR(actual[6].Misc.z, 1.0f, 1e-6f);
 }
 
 // =============================================================================

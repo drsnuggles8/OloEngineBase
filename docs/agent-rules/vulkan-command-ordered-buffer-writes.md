@@ -168,17 +168,60 @@ this document is about, in the one buffer family the fix skipped.
 Two lessons worth more than the fix:
 
 - **A comment asserting "nothing does X" ages into a bug** the moment something
-  does, and nothing checks it. The seam now *detects* the shape (a second write
-  inside one frame generation) and warns, instead of assuming it cannot happen.
+  does, and nothing checks it. The original seam detected a second write
+  inside one frame generation and warned; the current seam versions the first
+  external write, before any draw can consume it.
 - **Fixing a failure class in one buffer type is not fixing the class.** When
   amendment (80) gave UBOs and SSBOs per-write versioning, vertex buffers had
   the same facade, semantics and deferred execution. Ask which *other* types
   share the shape before closing such an issue.
 
-Not covered: a stream written exactly **once** per frame never trips the
-detector, because one write cannot alias between draws of that frame. It can
-still race the previous frame's submission, which needs a ring — the "own wave"
-the original comment promised and nothing has built.
+That detector left a once-per-frame in-flight race and lost the first draw of
+the frame that first had two writes. The current policy below replaces it.
+
+## Current buffer-family audit (#1351)
+
+The original second-write detector has been replaced: the first `SetData`
+after construction makes a vertex-pull stream mutable. Every subsequent pull
+draw uses an arena snapshot, including a stream written once per frame. The
+constructor's initial upload alone leaves a static mesh on its persistent
+address. A first rewrite after a persistent draw waits for earlier submissions;
+if that draw was recorded in the current frame, the rewrite is refused rather
+than silently changing its bytes. A partial first rewrite of a staged buffer
+with constructor data is also refused when its unwritten tail cannot be read.
+
+| Family and actual consumer | Producer and intended lifetime | Mechanism and remaining limit |
+|---|---|---|
+| UBO root addresses (`VulkanRendererAPI::AssembleAndPushRootData`) | CPU, per draw | `VulkanUniformBuffer` keeps a full CPU shadow and pushes a versioned, whole-buffer arena allocation. A refused snapshot returns zero; root assembly substitutes the null block and counts the unfed binding. |
+| Bound SSBO root addresses, including model instances | CPU, per draw | `VulkanStorageBuffer::PushSnapshot` preserves the whole buffer across partial writes; `DynamicDrawExactUpload` uses a draw-bounded prefix. Draw consumption prevents overwriting a published snapshot. A staged partial write with no readable prior bytes refuses the snapshot and still has last-write-wins ordering; this remains an explicit unsupported path. |
+| GPU Scene record tables read by compute | CPU records, persistent compute address for one published version | On Vulkan, each dirty `GPUScene::Upload` publishes a new complete SSBO allocation. Compute uses that version's persistent address, and the old allocation enters deferred reclaim after its last owner drops it. GL retains the incremental upload. A device test blocks an old-buffer copy on a timeline semaphore while publishing the next version, then checks the old bytes after its owner was dropped. Upload cost remains unmeasured. |
+| Vertex-pull binding 57/63 | CPU, per draw for mutable streams; persistent for constructor-uploaded meshes | `GetPullAddress` gives mutable draws a per-version frame-arena snapshot. Arena refusal returns zero; root assembly counts the unfed binding and drops that draw before it can index the small null block. Vertex data used by BLAS still uses the persistent allocation; a simultaneous BLAS read and rewrite needs separate coverage. |
+| Index buffer in `vkCmdBindIndexBuffer3KHR` | CPU at construction, persistent | `VulkanIndexBuffer` has no `SetData` API. Raw index arenas use `UploadBufferSubData`, a separate command-buffer copy path. |
+| `InstanceBuffer` at SSBO 15 | CPU per batch | `DynamicDrawExactUpload` snapshots its uploaded prefix; `UploadRange` with a nonzero offset takes the whole-buffer rule. Count-to-byte overflow and out-of-capacity writes are refused, clearing the live count. The interleaved instance-draw device test exercises the actual binding. |
+| GPU frustum-cull inputs, indirect seed and rejected counter | CPU per cull dispatch followed by compute-produced survivors and indirect args | `GPUFrustumCuller` now records input and seed copies through `UploadBufferSubData`; the command stream orders them with prior and later dispatches even when a pool slot is reused. The cull-to-indirect device suite covers the consumer, but a deliberately delayed pool-reuse test remains unrun. |
+| GPU-produced `DynamicCopy` SSBOs, including particle counters and indirect args | GPU output plus occasional CPU seed, persistent | `DynamicCopy` refuses draw snapshots. `SetData` during a Vulkan recording now records an ordered transfer; `ClearData` records a fill. The two-dispatch seed test checks that two writes to one buffer feed different dispatches. Outside a recording bracket, `SetData` still uses a one-shot copy, so cross-queue previous-frame reuse needs owner-specific lifetime discipline. |
+| Terrain GPU picker state and node-list seed | CPU query seed followed by GPU-produced indirect args and node lists | `TerrainGPUPicker` now seeds the persistent GPU-written buffers with `UploadBufferSubData`, which records a transfer and barriers inside the frame command buffer. A later pick's seed cannot overtake an earlier dispatch. A same-recording two-pick device test remains unrun. |
+| Terrain virtual-texture bake requests and indirection parameters | CPU per compute dispatch, persistent compute address | `TerrainVirtualTexture` now records the bake request and each indirection-list/parameter update through `UploadBufferSubData`. Draw-only SSBO snapshots never protected these compute reads. A multi-mip Vulkan image-result test remains unrun. |
+| VSM invalidation and caster-cull inputs | CPU per shadow update, compute reads | `VirtualShadowMap` now records CPU invalidation and cull-input copies in command order; GPU-written VSM buffers use `DynamicCopy` ordered seeds/fills. The existing Vulkan full-frame VSM test covers the consumer, but a deliberately delayed shadow frame remains unrun. |
+| Foliage GPU culler layer input | CPU on registry-generation change, persistent compute read | `FoliageGPUCuller::BuildLayer` now allocates a fresh Vulkan layer buffer even when the new generation has the same byte count; the prior version retires through deferred reclaim. GL keeps same-size reuse. A delayed-frame cull test remains unrun. |
+| GPU particle emit staging at SSBO 5 | CPU per compute dispatch | On Vulkan, each `EmitParticles` call creates a staging SSBO sized to that batch. The previous allocation retires through deferred reclaim, so two dispatches and adjacent frames cannot read the final CPU upload from the same mapped range. GL reuses one full-capacity buffer because its uploads order against dispatches. |
+| GPU fluid emit staging and body proxies | CPU per solver step, compute reads | Vulkan allocates one emit staging SSBO per pending batch and one body-proxy SSBO per nonempty step; earlier versions retire through deferred reclaim. The GL path retains its existing buffer. `EmitCount` comes from the Fluid UBO, so no CPU write to the GPU-produced counters is needed. Vulkan refuses `SeedParticles` after the first dispatch because a direct reset could race GPU output; recreate the solver. The Vulkan device test covers two emit/step pairs, reset refusal, and shader reload followed by another emit/step. A delayed-frame fluid device test remains unrun. |
+| Emissive triangle, material texture and shader-heap tables reached through device addresses | CPU on table change, persistent for an in-flight consumer | Each table allocates a fresh SSBO when its bytes change and publishes the new address. The old buffer enters `VulkanDeferredReclaim` and survives until completed frame generations drain. |
+| RT skeletal palette reached by device address | CPU once per populated deformation frame, compute reads | `DeformedSurfaceCache::EnsurePaletteBuffer` publishes a fresh Vulkan `DynamicCopy` allocation even at stable capacity; the old allocation retires through deferred reclaim. GL retains its capacity-reuse upload. A delayed-frame palette-consumer test remains unrun. |
+| RT surface vertex addresses (deformed, vegetation, groom) | GPU deformation or CPU groom conversion; persistent BLAS input | GPU deformation writes the persistent output by command, with explicit ordering needed before AS build. On Vulkan, `GroomSurfaceCache` publishes a fresh vertex allocation for each changed proxy while preserving the coat's logical GPU Scene identity. A same-shape, deformed vertex version refits its BLAS; a new index version rebuilds it. The old native buffer retires through deferred reclaim. GL continues to refill stable shapes in place. A delayed-frame BLAS-build test remains unrun. |
+
+The per-dispatch GPU-particle and per-batch GPU-fluid staging allocations fix
+their aliases, but still need L6 hot-path timing baselines before they are
+treated as performance-safe.
+
+The arena's frame slot is recycled only after its fence completes.
+`FrameArenaAdjacentSlotSurvivesDelayedReadAndFenceGatedWrap` holds a slot-0
+transfer read behind an unsignaled compute-queue semaphore, publishes into
+slot 1, then checks the old bytes and wraps back to slot 0 after its fence.
+The production frame loop waits for the slot fence before `BeginFrame`; the
+fixture exercises the slots and delayed read directly, not that frame-loop
+wait. A delayed GPUScene table read is also covered. Delayed palette, BLAS,
+foliage, fluid and shadow consumers remain separate untested paths.
 
 ## And again in the GPU particle counters (#1171)
 
