@@ -8062,14 +8062,12 @@ namespace OloEngine
         timing.SampledImagePrepareMs = RecordingCostMs(sampledStart);
         m_LayoutClaims.Reset();
         // Vulkan uses root-data texture slots, including when the first shader
-        // bind of a backend switch happens inside an item. Freeze these legacy
-        // GL program flags before workers enter HeapBinding.
+        // bind of a backend switch happens inside an item. Clear the legacy GL
+        // bindless flag and this thread's material selection before the fork.
         //
-        // Restored at the join, not left frozen: these are process-wide and
-        // published by OpenGLRendererAPI::BindShaderProgram, so a backend that
-        // never reads them must not be the one that decides their value for
-        // whoever does. Inert while only one backend is live; the restore is
-        // what keeps it inert in a process that has both.
+        // Restore both at the join so a backend switch preserves the caller's
+        // state. Recording workers publish their own material selection when
+        // they bind a shader; they never read this thread's saved value.
         const bool seededProgramBindless = Shader::IsBoundProgramBindless();
         const bool seededProgramMaterialOffsets = Shader::ReadsMaterialHeapOffsets();
         Shader::SetBoundProgramBindless(false);

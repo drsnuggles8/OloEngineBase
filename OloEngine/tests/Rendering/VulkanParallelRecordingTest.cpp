@@ -523,6 +523,22 @@ void main()
     };
 } // namespace
 
+TEST(VulkanParallelRecording, MaterialHeapSelectionIsLocalToRecordingThread)
+{
+    Shader::SetBoundProgramMaterialOffsets(false);
+    bool workerRead = false;
+    std::thread worker([&]
+                       {
+        Shader::SetBoundProgramMaterialOffsets(true);
+        workerRead = Shader::ReadsMaterialHeapOffsets(); });
+    worker.join();
+
+    const bool mainRead = Shader::ReadsMaterialHeapOffsets();
+    Shader::SetBoundProgramMaterialOffsets(false);
+    EXPECT_TRUE(workerRead);
+    EXPECT_FALSE(mainRead);
+}
+
 class VulkanParallelRecordingDevice : public ::testing::Test
 {
   protected:
@@ -730,6 +746,63 @@ class VulkanParallelRecordingDevice : public ::testing::Test
     VkCommandBuffer m_Cmd = VK_NULL_HANDLE;
     VkFence m_Fence = VK_NULL_HANDLE;
 };
+
+TEST_F(VulkanParallelRecordingDevice, WorkerShaderBindPublishesMaterialHeapSelection)
+{
+    std::string fragment = kFragmentSrc;
+    fragment.insert(fragment.find("layout(location = 0)"),
+                    "#define OLO_MATERIAL_VULKAN_HEAP_READER 1\n");
+    auto shader = Ref<VulkanShader>::Create("ParallelMaterialHeapReader", kVertexSrc, fragment);
+    ASSERT_EQ(shader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    Shader::SetBoundProgramMaterialOffsets(false);
+    bool boundRead = false;
+    bool unboundRead = true;
+    std::thread worker([&]
+                       {
+        VulkanWorkerRecordingContext item;
+        const ScopedVulkanWorkerContext scope(&item);
+        shader->Bind();
+        boundRead = Shader::ReadsMaterialHeapOffsets();
+        shader->Unbind();
+        unboundRead = Shader::ReadsMaterialHeapOffsets(); });
+    worker.join();
+
+    EXPECT_TRUE(boundRead);
+    EXPECT_FALSE(unboundRead);
+    EXPECT_FALSE(Shader::ReadsMaterialHeapOffsets());
+}
+
+TEST_F(VulkanParallelRecordingDevice, StaleShaderUnbindPreservesCurrentMaterialHeapSelection)
+{
+    auto earlier = Ref<VulkanShader>::Create("ParallelEarlierShader", kVertexSrc, kFragmentSrc);
+    std::string fragment = kFragmentSrc;
+    fragment.insert(fragment.find("layout(location = 0)"),
+                    "#define OLO_MATERIAL_VULKAN_HEAP_READER 1\n");
+    auto current = Ref<VulkanShader>::Create("ParallelCurrentHeapReader", kVertexSrc, fragment);
+    ASSERT_EQ(earlier->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+    ASSERT_EQ(current->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    auto verifySelection = [&]
+    {
+        earlier->Bind();
+        current->Bind();
+        earlier->Unbind();
+        EXPECT_EQ(VulkanShader::GetCurrentlyBound(), current.Raw());
+        EXPECT_TRUE(Shader::ReadsMaterialHeapOffsets());
+        current->Unbind();
+        EXPECT_EQ(VulkanShader::GetCurrentlyBound(), nullptr);
+        EXPECT_FALSE(Shader::ReadsMaterialHeapOffsets());
+    };
+
+    verifySelection();
+    std::thread worker([&]
+                       {
+        VulkanWorkerRecordingContext item;
+        const ScopedVulkanWorkerContext scope(&item);
+        verifySelection(); });
+    worker.join();
+}
 
 TEST_F(VulkanParallelRecordingDevice, GraphRecordsSharedUnboundUniformAndTimesOrderedPasses)
 {

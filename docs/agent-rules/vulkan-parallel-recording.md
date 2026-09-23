@@ -17,6 +17,7 @@ implementation coverage and the evidence still required for each family.
 | Bind-point mirror (`VulkanBindingState`), current program (`VulkanShader` / `VulkanComputeShader`) | `VulkanWorkerRecordingContext` for items; the process-wide accessors are the caller's only copy | same |
 | Dispatcher caches, camera override, per-draw material/camera/bone/terrain/decal/foliage/water uploads and model instances | `CommandDispatchRecordingState` within the item's `FrontendRecordingContext` | item; upload objects and capacity prepared before fork |
 | Heap offsets, epoch and offset-table UBO | item-owned `HeapBinding::RecordingState` | item |
+| Bound shader's material-heap selection (`Shader::ReadsMaterialHeapOffsets`) | thread-local; `VulkanShader::Bind` publishes it on every recording thread | item after binding its shader |
 | Dispatcher statistics, profiler counters and instanced-draw records | item tally, published in item order after join | item until join, then caller |
 | Dispatcher frame flags, committed frame data, GPU Scene records and shadow handles | shared and frozen during the region | reads only |
 | Image layouts (`VulkanImageLayoutTracker`) | an overlay per item over the render thread's tracker, merged at the join in item order | same; the base is frozen |
@@ -24,6 +25,15 @@ implementation coverage and the evidence still required for each family.
 | Descriptor slot cache, sampler heap, pipeline builder, descriptor-heap null-slot memo, framebuffer depth-layer view cache, texture attachment view | key hashed outside the lock; a shared lock on the hit path, exclusive on a miss | any thread |
 | Image info / root object / raw buffer registries, device limits, capabilities | read-only inside a region | any thread, reads only |
 | Backbuffer, queries, conditional rendering, readbacks, mid-frame flush, one-shots, resource creation | render thread only | refused on an item: Debug asserts, otherwise warn-once |
+
+When an item binds a shader, publish every shader-dependent choice that its
+dispatcher reads on that item's thread. A render-thread-only bind flag is not a
+valid source for worker material uploads. In #1424, `PBR_MultiLight` sampled a
+textured material through the Vulkan shader heap while `CommandDispatch` wrote
+zero material offsets because the worker bind returned before setting the flag.
+The MaterialLab scene faulted at the parallel replay threshold and survived with
+`OLO_VK_PARALLEL_RECORDING=0`; the reported path switch only exposed the pending
+Forward-frame device loss.
 
 `Ctx()` reads the `CurrentVulkanWorkerContext()` installed by `ScopedVulkanWorkerContext`.
 The caller also runs items through `ParallelFor`, so test whether a worker context is set,
