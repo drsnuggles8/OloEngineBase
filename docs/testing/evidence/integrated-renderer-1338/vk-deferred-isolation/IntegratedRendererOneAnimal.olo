@@ -1,0 +1,624 @@
+Scene: IntegratedRendererOneAnimal
+Entities:
+- Entity: 1258000000000001
+  TagComponent:
+    Tag: Camera
+  TransformComponent:
+    Translation:
+    - 0
+    - 1.6
+    - 9
+    Rotation:
+    - -0.06
+    - 0
+    - 0
+    Scale:
+    - 1
+    - 1
+    - 1
+  CameraComponent:
+    Camera:
+      ProjectionType: 0
+      PerspectiveFOV: 0.7854
+      PerspectiveNear: 0.05
+      PerspectiveFar: 400
+      OrthographicSize: 10
+      OrthographicNear: -1
+      OrthographicFar: 1
+    Primary: true
+    FixedAspectRatio: false
+- Entity: 1258000000000002
+  TagComponent:
+    Tag: Sun
+  TransformComponent:
+    Translation:
+    - 0
+    - 0
+    - 0
+    Rotation:
+    - 0
+    - 0
+    - 0
+    Scale:
+    - 1
+    - 1
+    - 1
+  DirectionalLightComponent:
+    Direction:
+    - -0.5
+    - -0.55
+    - -0.67
+    Color:
+    - 1
+    - 0.95
+    - 0.86
+    Intensity: 5
+    CastShadows: true
+    ShadowDepthBiasTexels: 2
+    ShadowNormalBias: 0.01
+    MaxShadowDistance: 220
+    CascadeSplitLambda: 0.9
+    CascadeDebugVisualization: false
+- Entity: 1258000000000003
+  TagComponent:
+    Tag: Hero
+  TransformComponent:
+    Translation:
+    - 0
+    - 0
+    - 5.6
+    Rotation:
+    - 0
+    - 3.1416
+    - 0
+    Scale:
+    - 0.014
+    - 0.014
+    - 0.014
+  MeshComponent: {}
+  AnimationStateComponent:
+    State: 0
+    CurrentTime: 0
+    BlendDuration: 0.3
+    CurrentClipIndex: 1
+    IsPlaying: true
+    SourceFilePath: ../../assets/models/Fox/Fox.gltf
+  SkeletonComponent: {}
+  GroomComponent:
+    Groom: 15952688685437936287
+    RenderStrands: true
+    MaxRenderStrands: 60000
+    WidthScale: 1
+    StrandColor:
+    - 0.58
+    - 0.44
+    - 0.31
+    ShowPreview: false
+  GroomLodComponent:
+    CardPixelSize: 220
+    MeshPixelSize: 8
+    Hysteresis: 0.15
+    MaxWidthCompensation: 8
+    VisibilityFullPixelSize: 512
+    SimulationFullPixelSize: 384
+    ShadowFullPixelSize: 512
+    HoldFrames: 4
+    VisibilitySteps: 4
+    SimulationSteps: 4
+    ShadowSteps: 3
+    Enabled: true
+  AnimalBudgetComponent:
+    FullRateMotionMetres: 0.06
+    MaxDeformationSteps: 3
+    MaxSimulationSteps: 4
+    MaxVisibilitySteps: 4
+    MaxShadowSteps: 3
+    Role: 0
+    Enabled: true
+- Entity: 1258000000000044
+  TagComponent:
+    Tag: Ground
+  TransformComponent:
+    Translation:
+    - 0
+    - -0.02
+    - 0
+    Rotation:
+    - 0
+    - 0
+    - 0
+    Scale:
+    - 240
+    - 0.04
+    - 240
+  MeshComponent:
+    Primitive: 1
+  MaterialComponent:
+    AlbedoColor:
+    - 0.24
+    - 0.26
+    - 0.18
+    Metallic: 0
+    Roughness: 0.92
+- Entity: 1239000004000001
+  TagComponent:
+    Tag: Sky
+  TransformComponent:
+    Translation:
+    - 0
+    - 0
+    - 0
+    Rotation:
+    - 0
+    - 0
+    - 0
+    Scale:
+    - 1
+    - 1
+    - 1
+  ProceduralSkyComponent:
+    SunDirection:
+    - 0.62
+    - 0.42
+    - 0.66
+    Turbidity: 2.4
+    Exposure: 0.1
+    SunIntensity: 1
+    SunDiskSize: 1
+    ShowSunDisk: true
+    EnableSkybox: true
+    EnableIBL: true
+    IBLIntensity: 0.9
+    CubemapResolution: 256
+- Entity: 1239000004000003
+  TagComponent:
+    Tag: Meadow Terrain
+  TransformComponent:
+    Translation:
+    - -96
+    - -5
+    - -96
+    Rotation:
+    - 0
+    - 0
+    - 0
+    Scale:
+    - 1
+    - 1
+    - 1
+  TerrainComponent:
+    HeightmapPath: ''
+    WorldSizeX: 192
+    WorldSizeZ: 192
+    HeightScale: 5
+    ProceduralEnabled: true
+    ProceduralSeed: 1239
+    ProceduralResolution: 256
+    ProceduralOctaves: 5
+    ProceduralFrequency: 2
+    ProceduralLacunarity: 2
+    ProceduralPersistence: 0.45
+    ShapingRidgeBlend: 0
+    ShapingWarpStrength: 0.12
+    ShapingWarpFrequency: 2
+    ShapingTerraceSteps: 0
+    ShapingTerraceSharpness: 0.6
+    ShapingHeightExponent: 1.2
+    AutoMaterial: true
+    SplatmapGenResolution: 256
+    LayerRules:
+    - LayerIndex: 0
+      MinHeight: 0
+      MaxHeight: 0.1
+      HeightBlend: 0.05
+      MinSlopeDeg: 0
+      MaxSlopeDeg: 30
+      SlopeBlend: 8
+      Strength: 1
+    - LayerIndex: 1
+      MinHeight: 0.05
+      MaxHeight: 0.85
+      HeightBlend: 0.12
+      MinSlopeDeg: 0
+      MaxSlopeDeg: 32
+      SlopeBlend: 8
+      Strength: 1
+    - LayerIndex: 2
+      MinHeight: 0
+      MaxHeight: 1
+      HeightBlend: 0
+      MinSlopeDeg: 34
+      MaxSlopeDeg: 90
+      SlopeBlend: 8
+      Strength: 1
+    - LayerIndex: 3
+      MinHeight: 0.8
+      MaxHeight: 1
+      HeightBlend: 0.1
+      MinSlopeDeg: 0
+      MaxSlopeDeg: 45
+      SlopeBlend: 8
+      Strength: 1
+    TessellationEnabled: false
+    TargetTriangleSize: 8
+    MorphRegion: 0.3
+    StreamingEnabled: false
+    TileDirectory: ''
+    TileFilePattern: tile_%d_%d.raw
+    TileWorldSize: 256
+    TileResolution: 513
+    StreamingLoadRadius: 3
+    StreamingMaxTiles: 25
+    VoxelEnabled: false
+    VoxelSize: 1
+    SplatmapPath0: ''
+    SplatmapPath1: ''
+    Layers:
+    - Name: Soil
+      AlbedoPath: ''
+      NormalPath: ''
+      ARMPath: ''
+      TilingScale: 16
+      HeightBlendSharpness: 4
+      TriplanarSharpness: 8
+      BaseColor:
+      - 0.34
+      - 0.28
+      - 0.2
+      Roughness: 0.95
+      Metallic: 0
+    - Name: Grass
+      AlbedoPath: ''
+      NormalPath: ''
+      ARMPath: ''
+      TilingScale: 22
+      HeightBlendSharpness: 4
+      TriplanarSharpness: 8
+      BaseColor:
+      - 0.3
+      - 0.46
+      - 0.18
+      Roughness: 0.9
+      Metallic: 0
+    - Name: Rock
+      AlbedoPath: ''
+      NormalPath: ''
+      ARMPath: ''
+      TilingScale: 12
+      HeightBlendSharpness: 4
+      TriplanarSharpness: 8
+      BaseColor:
+      - 0.42
+      - 0.4
+      - 0.38
+      Roughness: 0.8
+      Metallic: 0
+    - Name: DryGrass
+      AlbedoPath: ''
+      NormalPath: ''
+      ARMPath: ''
+      TilingScale: 20
+      HeightBlendSharpness: 4
+      TriplanarSharpness: 8
+      BaseColor:
+      - 0.52
+      - 0.48
+      - 0.26
+      Roughness: 0.9
+      Metallic: 0
+  FoliageComponent:
+    Enabled: true
+    Layers:
+    - Name: Grass
+      MeshPath: SandboxProject/Assets/Models/Vegetation/grass/grass.obj
+      AlbedoPath: SandboxProject/Assets/Models/Vegetation/grass/Textures/grass_card.png
+      Density: 9
+      SplatmapChannel: 1
+      MinSlopeAngle: 0
+      MaxSlopeAngle: 32
+      MinScale: 0.85
+      MaxScale: 1.7
+      MinHeight: 0.9
+      MaxHeight: 1.9
+      RandomRotation: true
+      ViewDistance: 150
+      FadeStartDistance: 120
+      MeshViewDistance: 12
+      MeshFadeStartDistance: 9
+      WindStrength: 0.55
+      WindSpeed: 1.8
+      BaseColor:
+      - 0.32
+      - 0.48
+      - 0.17
+      Roughness: 0.8
+      AlphaCutoff: 0.5
+      Enabled: true
+    - Name: TallGrass
+      MeshPath: SandboxProject/Assets/Models/Vegetation/grass_dry/grass_dry.obj
+      AlbedoPath: SandboxProject/Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
+      Density: 3.5
+      SplatmapChannel: 1
+      MinSlopeAngle: 0
+      MaxSlopeAngle: 28
+      MinScale: 1.2
+      MaxScale: 2.2
+      MinHeight: 1.6
+      MaxHeight: 2.8
+      RandomRotation: true
+      ViewDistance: 170
+      FadeStartDistance: 135
+      MeshViewDistance: 18
+      MeshFadeStartDistance: 13
+      WindStrength: 0.7
+      WindSpeed: 1.4
+      BaseColor:
+      - 0.4
+      - 0.5
+      - 0.2
+      Roughness: 0.8
+      AlphaCutoff: 0.5
+      Enabled: true
+    - Name: Flowers
+      MeshPath: SandboxProject/Assets/Models/Vegetation/flower/flower.obj
+      AlbedoPath: SandboxProject/Assets/Models/Vegetation/flower/Textures/flower_card.png
+      Density: 1.2
+      SplatmapChannel: 3
+      MinSlopeAngle: 0
+      MaxSlopeAngle: 24
+      MinScale: 0.6
+      MaxScale: 1.1
+      MinHeight: 0.5
+      MaxHeight: 1
+      RandomRotation: true
+      ViewDistance: 90
+      FadeStartDistance: 70
+      MeshViewDistance: 22
+      MeshFadeStartDistance: 16
+      WindStrength: 0.5
+      WindSpeed: 2.1
+      BaseColor:
+      - 0.78
+      - 0.72
+      - 0.34
+      Roughness: 0.8
+      AlphaCutoff: 0.5
+      Enabled: true
+- Entity: 974000002000012
+  TagComponent:
+    Tag: PLight Shadow 0
+  TransformComponent:
+    Translation:
+    - -3
+    - 3
+    - 0
+    Rotation:
+    - 0
+    - 0
+    - 0
+    Scale:
+    - 1
+    - 1
+    - 1
+  PointLightComponent:
+    Color:
+    - 1
+    - 0.75
+    - 0.45
+    Intensity: 7
+    Range: 9
+    Attenuation: 1
+    CastShadows: true
+    RayTracedShadows: true
+    ShadowBias: 0.005
+    ShadowNormalBias: 0.01
+- Entity: 974000002000013
+  TagComponent:
+    Tag: PLight Shadow 1
+  TransformComponent:
+    Translation:
+    - 3
+    - 3
+    - 0
+    Rotation:
+    - 0
+    - 0
+    - 0
+    Scale:
+    - 1
+    - 1
+    - 1
+  PointLightComponent:
+    Color:
+    - 0.55
+    - 0.75
+    - 1
+    Intensity: 7
+    Range: 9
+    Attenuation: 1
+    CastShadows: true
+    RayTracedShadows: true
+    ShadowBias: 0.005
+    ShadowNormalBias: 0.01
+- Entity: 974000002000018
+  TagComponent:
+    Tag: Spot Gallery 0
+  TransformComponent:
+    Translation:
+    - -3
+    - 4
+    - -8
+    Rotation:
+    - 0
+    - 0
+    - 0
+    Scale:
+    - 1
+    - 1
+    - 1
+  SpotLightComponent:
+    Direction:
+    - 0.12
+    - -1
+    - 0.55
+    Color:
+    - 1
+    - 0.9
+    - 0.7
+    Intensity: 10
+    Range: 14
+    InnerCutoff: 16
+    OuterCutoff: 28
+    Attenuation: 0.03
+    CastShadows: true
+    RayTracedShadows: true
+    ShadowBias: 0.005
+    ShadowNormalBias: 0.01
+- Entity: 974000002000019
+  TagComponent:
+    Tag: Spot Gallery 1
+  TransformComponent:
+    Translation:
+    - 3
+    - 4
+    - -8
+    Rotation:
+    - 0
+    - 0
+    - 0
+    Scale:
+    - 1
+    - 1
+    - 1
+  SpotLightComponent:
+    Direction:
+    - -0.12
+    - -1
+    - 0.55
+    Color:
+    - 1
+    - 0.9
+    - 0.7
+    Intensity: 10
+    Range: 14
+    InnerCutoff: 16
+    OuterCutoff: 28
+    Attenuation: 0.03
+    CastShadows: false
+    ShadowBias: 0.005
+    ShadowNormalBias: 0.01
+- Entity: 974000003000004
+  TagComponent:
+    Tag: Ocean
+  TransformComponent:
+    Translation:
+    - 7
+    - 1.5
+    - 7
+    Rotation:
+    - 0
+    - 0
+    - 0
+    Scale:
+    - 1
+    - 1
+    - 1
+  WaterComponent:
+    Enabled: true
+    WorldSizeX: 10
+    WorldSizeZ: 10
+    GridResolutionX: 128
+    GridResolutionZ: 128
+    WaveAmplitude: 0.2
+    WaveFrequency: 0.55
+    WaveSpeed: 1
+    WaveDir0:
+    - 0.25
+    - 1
+    WaveSteepness0: 0.25
+    WaveDir1:
+    - 0.8
+    - 0.6
+    WaveSteepness1: 0.15
+    WaterColor:
+    - 0.09
+    - 0.33
+    - 0.44
+    DeepColor:
+    - 0.015
+    - 0.075
+    - 0.14
+    Transparency: 0.5
+    Reflectivity: 0.02
+    FresnelPower: 5
+    SpecularIntensity: 1.4
+    NoiseIntensity: 0.65
+    NormalMapTiling: 5
+    NormalMapScrollDir0:
+    - 1
+    - 0.3
+    NormalMapScrollDir1:
+    - -0.3
+    - 1
+    NormalMapScrollSpeed0: 0.05
+    NormalMapScrollSpeed1: 0.035
+    NormalMap0: 0
+    NormalMap1: 0
+    NoiseTexture: 0
+    FoamTexture: 0
+    FoamHeightStart: 0.5
+    FoamFadeDistance: 0.8
+    FoamTiling: 2
+    FoamBrightness: 1
+    FoamAngleExponent: 2
+    ShorelineFoamPower: 3.5
+    FoamCoverage: 0.12
+    WakeFoamEnabled: false
+    WakeShapeEnabled: false
+    WakeShapeAffectsPhysics: false
+    RefractionDistortion: 0.018
+    RefractionHeightFactor: 0.25
+    DepthSofteningDistance: 1
+    SSSColor:
+    - 0.03
+    - 0.35
+    - 0.3
+    SSSIntensity: 0.3
+    PlanarReflectionsEnabled: true
+    PlanarReflectionIntensity: 1
+    PlanarReflectionDistortion: 0.02
+    SSREnabled: true
+    SSRMaxSteps: 64
+    SSRStepSize: 0.1
+    SSRMaxDistance: 50
+    SSRThickness: 0.5
+    TessellationEnabled: false
+    UnderwaterFogColor:
+    - 0.04
+    - 0.18
+    - 0.3
+    UnderwaterFogDensity: 0.09
+    RenderFromBelow: true
+    UseFFT: true
+    FFTResolution: 256
+    FFTPatchSize: 180
+    FFTWindSpeed: 7
+    FFTWindDirection:
+    - 0.25
+    - 1
+    FFTAmplitude: 2.2
+    FFTChoppiness: 1.3
+    FFTHeightScale: 1
+    FFTSeed: 974
+    FFTUseGpuCompute: true
+    FFTSpectrumType: 1
+    FFTJonswapGamma: 3.3
+    FFTJonswapFetch: 300000
+    FFTCascades: 3
+PostProcessSettings:
+  Tonemapping: 2
+  Exposure: 1
+  BloomEnabled: true
+  BloomIntensity: 0.25
+  SSAOEnabled: true
+  FXAAEnabled: false

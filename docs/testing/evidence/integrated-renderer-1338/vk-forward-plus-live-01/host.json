@@ -1,0 +1,27 @@
+{
+  "backend": "vulkan",
+  "host": "editor-mcp",
+  "buildConfig": "Debug",
+  "compiler": "clang-cl",
+  "os": "Windows 11 10.0.22631",
+  "cpu": "Intel Core i7-14700KF",
+  "physicalMemoryBytes": 68498157568,
+  "gpuProbeAfter": "NVIDIA GeForce RTX 4090, 616.64, 2640 MHz, 100 %, 5196 MiB, 56, 176.71 W",
+  "presentation": "editor swapchain",
+  "vsync": "unknown",
+  "shaderCacheState": "inherited; directory not pinned",
+  "sceneReload": "warm scene reload in same editor process",
+  "editorPid": 78120,
+  "captureResultExit": "success",
+  "validationVuidCountCumulative": 1,
+  "newBindingOccupantErrors": 15,
+  "sourceState": "commit 384d992a8",
+  "actualOutput": {
+    "displayHeight": 1080,
+    "displayWidth": 1920,
+    "renderHeight": 1080,
+    "renderScale": 1.0,
+    "renderWidth": 1920
+  },
+  "recordedAfter": "2026-09-23T14:24:32.3529845Z"
+}

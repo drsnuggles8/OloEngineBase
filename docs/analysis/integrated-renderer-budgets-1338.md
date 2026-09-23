@@ -58,6 +58,73 @@ includes renderer and asset caches. Isolated VRAM, histories, acceleration
 structures, and retained pool bytes are not available from this counter, so
 the retained-memory breakdown remains open.
 
+## Vulkan live editor
+
+The same 1920 × 1080 scene and three camera trajectories were captured through
+the real Vulkan editor, with 540 measured frames per completed run. These are
+single runs under concurrent machine load; they do not establish a run-to-run
+uncertainty interval. The Vulkan `completed editor frame interval` metric
+includes editor scheduling and is not directly comparable with the GL test
+host's `Scene::OnUpdateEditor` wall metric. All 540 GPU samples in each
+completed run had distinct valid frame IDs.
+
+| Configuration | p50 ms | p95 ms | p99 ms | maximum ms | misses / 540 | result |
+|---|---:|---:|---:|---:|---:|---|
+| Forward, native, raster | 397.77 | 539.19 | 669.55 | 2011.70 | 540 | `vk-forward-live-01` |
+| Forward+, native, raster | 315.60 | 376.48 | 383.97 | 414.86 | 540 | `vk-forward-plus-live-01` |
+| Deferred, native, raster | — | — | — | — | — | device fault in `RayTracingScenePass` before capture |
+| Deferred, native, hybrid RT shadows | — | — | — | — | — | same device fault before capture |
+
+The two completed captures include Beauty from all three camera poses and
+stationary HDR/depth. The Forward screenshot shows the foxes, grass and water,
+but its water reads as a raised flat sheet relative to the GL capture. The
+Forward+ path switch logged 15 unpublished storage-binding errors for
+`PBR_MultiLight`, `PBR_MultiLight_Skinned` and `Terrain_PBR`. The Forward run
+logged `VUID-vkDestroyImage-image-01000` during a 1920 × 1080 resize. Neither
+log is clean, and this report does not infer visual parity from valid timing
+samples. Full logs and raw measurements are retained with each result.
+
+Vulkan's renderer tracker reported only 6 MiB peak/live for both completed
+runs and no post-scene-release value. That clearly misses large GPU allocations
+visible in the GL counter; it is a telemetry scope gap, not a 6 MiB renderer
+memory budget. GPU clocks/load and interfering processes are captured in each
+`host.json`.
+
+Fresh Vulkan editor processes also faulted with Deferred preselected, so the
+failure is not confined to switching from Forward. Removing all groom
+components did not prevent the fault. A reduced scene with terrain, foliage,
+water, lights, ground and sky completed 100/100 frames at 960 × 540, while
+adding one animated fox reproduced the `RayTracingScenePass` invalid read at
+`0x10000000000`. This narrows the trigger to the animated-animal path, without
+proving the responsible instruction. The probe's 100-frame p50/p95/p99 were
+659.80/682.04/700.39 ms, 100/100 misses; this is diagnostic, not a substitute
+for the full integrated workload. The source variants, manifests, probe result
+and fault excerpts are in `vk-deferred-isolation/`. The full Deferred and hybrid
+fault logs are retained beside it. Declared Vulkan Deferred/hybrid support is
+therefore **unvalidated on this workload** pending the device-fault fix.
+
+## MSAA and upscale controls
+
+Short functional GL probes used the same scene at 1920 × 1080, one stationary
+camera and 100 measured frames each. Deferred with four MSAA samples completed
+100/100 valid GPU samples; the requested and selected settings both report
+four samples. Forward, Forward+ and Deferred with the `Quality` upscale mode
+also completed 100/100 samples each, but their actual internal and display
+resolutions were both 1920 × 1080. These runs prove settings admission and
+capture continuity at native resolution; `result.json` does not prove the
+upscale pass produced and consumed an image. Their raw files are in
+`gl-controls/` and are not used as independent budget runs.
+
+A separate Deferred probe requested `RenderScale: 0.67` with Quality upscale.
+The manifest parser refused it before rendering:
+`Output.RenderScale must be a finite 1.0 in schema v1 (sub-scale capture is not supported)`.
+Its manifest and failure log are in `gl-nonnative-upscale/`. This is an
+explicitly **unverified non-native cell** for all three GL paths; the parser
+gate applies before path selection. Issue #1397 separately records cropped
+non-native framing in the live editor, so a live editor A/B cannot substitute
+for an aligned headless capture. Vulkan non-native and MSAA controls have not
+been run while its Deferred integrated path faults.
+
 ## Image and technique evidence
 
 The representative stationary Beauty captures visibly contain the fox herd,
@@ -83,6 +150,14 @@ CPU, fence-wait and present-wait distributions are retained in each summary.
 - The 33.333 ms target fails on all measured native GL paths. Investigate
   shadow work and GPU occupancy on an uncontended host before making an
   optimization claim. Feed this baseline to #1259.
+- The two completed Vulkan raster paths also miss 33.333 ms on every sampled
+  frame. Deferred raster and hybrid remain blocked by the animated-animal
+  device fault; fix and remeasure them before using their declared presets.
+- Investigate the Vulkan resize image-lifetime VUID, the Forward+ storage
+  binding errors, and the visible water difference before claiming backend
+  parity.
+- Enable valid sub-scale benchmark readback and resolve the live-editor crop
+  (#1397) before evaluating non-native upscaling quality or performance.
 - Improve the integrated content fixture's grass/water boundary and bound
   groom assets before using it as a production visual quality gate (#1259,
   groom and flora owners).
@@ -101,6 +176,7 @@ Deferred has aligned HDR/component AOVs for all three camera trajectories;
 Forward and Forward+ preserve Beauty for each trajectory and stationary HDR.
 Deferred has one cold run and three warm runs. Capture
 results' `provenance.commitSha` field records the branch base because the
-binary was built while this task's source diff was uncommitted. The published
-PR diff plus the build and gate logs identify the source changes; this
-provenance limitation must be kept when comparing later runs.
+binary was built while this task's source diff was uncommitted. Vulkan Forward+
+records the task commit instead. The published PR diff plus the build and gate
+logs identify the source changes; the early provenance limitation must be kept
+when comparing later runs.
