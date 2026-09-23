@@ -657,6 +657,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/VirtualMeshAssetPackTest.cpp
 		Rendering/PropertyTests/VirtualMeshRealAssetCookTest.cpp
 		Rendering/PropertyTests/ImportedMaterialPackTest.cpp
+		Rendering/ImportedCorpus/ImportedCorpusFixtures.cpp
+		Rendering/ImportedCorpus/ImportedCorpusImportTest.cpp
 		Rendering/PropertyTests/FluidVisualEvidenceTest.cpp
 		Rendering/PropertyTests/WaterStaleTexturePublicationTest.cpp
 		Rendering/PropertyTests/CompressedTextureVisualEvidenceTest.cpp
