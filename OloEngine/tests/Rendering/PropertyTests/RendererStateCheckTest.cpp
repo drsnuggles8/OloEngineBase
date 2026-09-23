@@ -140,11 +140,18 @@ namespace OloEngine::Tests
         Renderer3D::ApplyRendererSettings();
         Renderer3D::EnableFrustumCulling(!before.FrustumCulling);
         Renderer3D::GetFogSettings().Enabled = !before.Fog.Enabled;
+        // And the leak that failed the foliage goldens: PCSS left on the shadow
+        // map, which lives outside every settings struct above.
+        ShadowSettings pcss = before.Shadow;
+        pcss.SoftShadows = !before.Shadow.SoftShadows;
+        pcss.Softness = before.Shadow.Softness + 0.5f;
+        Renderer3D::GetShadowMap().SetSettings(pcss);
 
         RendererState::Snapshot dirty;
         ASSERT_TRUE(RendererState::Capture(dirty));
         std::string leaked;
-        EXPECT_GE(RendererState::Describe(before, dirty, leaked), 2u) << leaked;
+        EXPECT_GE(RendererState::Describe(before, dirty, leaked), 3u) << leaked;
+        EXPECT_NE(leaked.find("ShadowSettings"), std::string::npos) << leaked;
 
         RendererState::Restore(before);
 
@@ -154,5 +161,25 @@ namespace OloEngine::Tests
         EXPECT_EQ(RendererState::Describe(before, restored, residue), 0u)
             << "Restore left renderer configuration changed: " << residue;
         EXPECT_EQ(Renderer3D::GetRendererSettings().Path, originalPath);
+        EXPECT_EQ(Renderer3D::GetShadowMap().GetSettings().SoftShadows, before.Shadow.SoftShadows)
+            << "Restore must put the shadow map's settings back through ShadowMap::SetSettings.";
+    }
+
+    // ShadowSettings is compared like the other entries, and named when it
+    // differs: a check that cannot see it is how PCSS leaked into every golden
+    // after PCSSVisualEvidenceTest.
+    TEST(RendererStateCheckTest, ReportsAChangedShadowSettings)
+    {
+        RendererState::Snapshot before;
+        before.Valid = true;
+        RendererState::Snapshot after = before;
+        after.Shadow.SoftShadows = !before.Shadow.SoftShadows;
+
+        std::string detail;
+        EXPECT_EQ(RendererState::Describe(before, after, detail), 1u);
+        EXPECT_EQ(detail, "ShadowSettings");
+
+        std::string unchanged;
+        EXPECT_EQ(RendererState::Describe(before, before, unchanged), 0u) << unchanged;
     }
 } // namespace OloEngine::Tests

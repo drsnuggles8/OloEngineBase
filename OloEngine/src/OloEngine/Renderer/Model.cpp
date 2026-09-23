@@ -1290,6 +1290,18 @@ namespace OloEngine
         // Build() internally calls OptimizeMesh before uploading to GPU
         meshSource->Build();
 
+        // ...EXCEPT with no graphics device (OloServer, a headless cook): Build()
+        // then returns before optimizing, yet CreateCombinedMeshSource marks the
+        // concatenation pre-optimized. The cache and the asset pack would then
+        // hold a different surface than a device-side import, and the pack
+        // refuses a non-canonical index buffer (#1223). Optimize here, as
+        // AnimatedModel::ProcessMesh does, so every path yields the same surface.
+        if (!meshSource->IsBuilt() && !meshSource->IsPreOptimized())
+        {
+            MeshOptimization::OptimizeMesh(*meshSource);
+            meshSource->SetPreOptimized(true);
+        }
+
         // Create Mesh objects for all submeshes in the MeshSource
         // Note: Currently each Assimp mesh creates one submesh, but this future-proofs
         // for cases where a MeshSource might have multiple submeshes

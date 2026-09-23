@@ -767,7 +767,8 @@ as a completion fraction.
 
 ### Hashing a driver name into a cache fingerprint cannot see a destroy-then-recreate
 
-Found while migrating DDGI, and general: `RenderPipeline::ComputeBlackboardFingerprint`
+Found while migrating DDGI, and general: the render-graph fingerprint (now the
+declaration key, #1333)
 hashed `GetIrradianceAtlasID(ping)` so that recreating the atlases would rebuild
 the frame graph and re-import them. But `DDGIProbeUpdatePass::EnsureResources`
 calls `DestroyResources()` **before** creating the replacements, so every atlas

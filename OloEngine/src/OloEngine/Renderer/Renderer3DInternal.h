@@ -64,6 +64,8 @@
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 
+#include <tuple>
+
 namespace OloEngine
 {
     struct RenderPipelineInputs;
@@ -110,46 +112,67 @@ namespace OloEngine
         Ref<ColorBlindRenderPass> ColorBlind; // #458 accessibility remap; runs after UIComposite so the HUD is adapted too
         Ref<FinalRenderPass> Final;
 
+        // Every pass in this set, once. Reset() and ForEachPass() both walk
+        // this list, and the static_assert in Reset() fails the build
+        // when a member is added without being listed here, so neither the
+        // shutdown path nor the declaration key (issue #1333) can miss one.
+        // Reset() runs from Renderer3D::Shutdown() while the GL context and the
+        // RendererAPI are still alive; a pass that survived it would release
+        // its shader / UBO / framebuffer afterwards, when the services that own
+        // those are gone. That exit-time crash is why the list must be
+        // exhaustive.
+        [[nodiscard]] static constexpr auto Members()
+        {
+            return std::tuple{
+                &PostProcessPassChain::SkinDiffusion,
+                &PostProcessPassChain::SSS,
+                &PostProcessPassChain::AOApply,
+                &PostProcessPassChain::SSGI,
+                &PostProcessPassChain::RayTracedReflection,
+                &PostProcessPassChain::SSR,
+                &PostProcessPassChain::ContactShadow,
+                &PostProcessPassChain::GpuPathTracer,
+                &PostProcessPassChain::EASU,
+                &PostProcessPassChain::FSR2,
+                &PostProcessPassChain::DepthVelocityUpscale,
+                &PostProcessPassChain::Bloom,
+                &PostProcessPassChain::DOF,
+                &PostProcessPassChain::MotionBlur,
+                &PostProcessPassChain::TAA,
+                &PostProcessPassChain::Precipitation,
+                &PostProcessPassChain::VolumetricFog,
+                &PostProcessPassChain::Cloudscape,
+                &PostProcessPassChain::Fog,
+                &PostProcessPassChain::ChromAberration,
+                &PostProcessPassChain::ColorGrading,
+                &PostProcessPassChain::ToneMap,
+                &PostProcessPassChain::Upscaler,
+                &PostProcessPassChain::Vignette,
+                &PostProcessPassChain::FXAA,
+                &PostProcessPassChain::SelectionOutline,
+                &PostProcessPassChain::Overdraw,
+                &PostProcessPassChain::UIComposite,
+                &PostProcessPassChain::ColorBlind,
+                &PostProcessPassChain::Final
+            };
+        }
+
+        template<typename TFunc>
+        void ForEachPass(TFunc&& func) const
+        {
+            std::apply([this, &func](auto... member)
+                       { (func(this->*member), ...); },
+                       Members());
+        }
+
         void Reset()
         {
-            // Every pass in this struct, and the list is exhaustive on purpose:
-            // Renderer3D::Shutdown() calls this while the GL context and the
-            // RendererAPI are still alive, and a pass that survives it releases
-            // its shader / UBO / framebuffer afterwards, when the services that
-            // own those are gone. A pass added to the struct and forgotten here
-            // is an exit-time crash that nothing else catches --
-            // DebugLiveGpuOwningStatics and RendererShutdownTest both inspect
-            // only the members they explicitly name.
-            SkinDiffusion.Reset();
-            SSS.Reset();
-            AOApply.Reset();
-            SSGI.Reset();
-            RayTracedReflection.Reset();
-            SSR.Reset();
-            ContactShadow.Reset();
-            GpuPathTracer.Reset();
-            EASU.Reset();
-            FSR2.Reset();
-            DepthVelocityUpscale.Reset();
-            Bloom.Reset();
-            DOF.Reset();
-            MotionBlur.Reset();
-            TAA.Reset();
-            Precipitation.Reset();
-            VolumetricFog.Reset();
-            Cloudscape.Reset();
-            Fog.Reset();
-            ChromAberration.Reset();
-            ColorGrading.Reset();
-            ToneMap.Reset();
-            Upscaler.Reset();
-            Vignette.Reset();
-            FXAA.Reset();
-            SelectionOutline.Reset();
-            Overdraw.Reset();
-            UIComposite.Reset();
-            ColorBlind.Reset();
-            Final.Reset();
+            // In a member body because the set is a private type of Renderer3D.
+            static_assert(sizeof(PostProcessPassChain) == std::tuple_size_v<decltype(Members())> * sizeof(Ref<RenderGraphNode>),
+                          "PostProcessPassChain has a member that Members() does not list.");
+            std::apply([this](auto... member)
+                       { ((this->*member).Reset(), ...); },
+                       Members());
         }
     };
 
@@ -181,22 +204,46 @@ namespace OloEngine
         Ref<OITPrepareRenderPass> OITPrepare;
         Ref<OITResolveRenderPass> OITResolve;
 
+        // Every pass in this set, once. Reset() and ForEachPass() both walk
+        // this list, and the static_assert in Reset() fails the build
+        // when a member is added without being listed here, so neither the
+        // shutdown path nor the declaration key (issue #1333) can miss one.
+        [[nodiscard]] static constexpr auto Members()
+        {
+            return std::tuple{
+                &SceneCompositionPassSet::DeferredLighting,
+                &SceneCompositionPassSet::DeferredOpaqueDecal,
+                &SceneCompositionPassSet::DeferredGPUOcclusion,
+                &SceneCompositionPassSet::PlanarReflection,
+                &SceneCompositionPassSet::SSAO,
+                &SceneCompositionPassSet::GTAO,
+                &SceneCompositionPassSet::SphereProxyAO,
+                &SceneCompositionPassSet::RayTracedShadow,
+                &SceneCompositionPassSet::ReSTIRDI,
+                &SceneCompositionPassSet::ReSTIRGI,
+                &SceneCompositionPassSet::ReSTIRPT,
+                &SceneCompositionPassSet::Particle,
+                &SceneCompositionPassSet::OITPrepare,
+                &SceneCompositionPassSet::OITResolve
+            };
+        }
+
+        template<typename TFunc>
+        void ForEachPass(TFunc&& func) const
+        {
+            std::apply([this, &func](auto... member)
+                       { (func(this->*member), ...); },
+                       Members());
+        }
+
         void Reset()
         {
-            DeferredLighting.Reset();
-            DeferredOpaqueDecal.Reset();
-            DeferredGPUOcclusion.Reset();
-            PlanarReflection.Reset();
-            SSAO.Reset();
-            GTAO.Reset();
-            SphereProxyAO.Reset();
-            RayTracedShadow.Reset();
-            ReSTIRDI.Reset();
-            ReSTIRGI.Reset();
-            ReSTIRPT.Reset();
-            Particle.Reset();
-            OITPrepare.Reset();
-            OITResolve.Reset();
+            // In a member body because the set is a private type of Renderer3D.
+            static_assert(sizeof(SceneCompositionPassSet) == std::tuple_size_v<decltype(Members())> * sizeof(Ref<RenderGraphNode>),
+                          "SceneCompositionPassSet has a member that Members() does not list.");
+            std::apply([this](auto... member)
+                       { ((this->*member).Reset(), ...); },
+                       Members());
         }
     };
 
@@ -219,14 +266,38 @@ namespace OloEngine
         Ref<SkeletalDeformPass> SkeletalDeform;
         Ref<RayTracingScenePass> RayTracingScene; // #978 BLAS/TLAS build, first in the frame
 
+        // Every pass in this set, once. Reset() and ForEachPass() both walk
+        // this list, and the static_assert in Reset() fails the build
+        // when a member is added without being listed here, so neither the
+        // shutdown path nor the declaration key (issue #1333) can miss one.
+        [[nodiscard]] static constexpr auto Members()
+        {
+            return std::tuple{
+                &FrameCorePassSet::Shadow,
+                &FrameCorePassSet::Scene,
+                &FrameCorePassSet::DDGIProbeUpdate,
+                &FrameCorePassSet::VirtualShadowMapMark,
+                &FrameCorePassSet::SkeletalDeform,
+                &FrameCorePassSet::RayTracingScene
+            };
+        }
+
+        template<typename TFunc>
+        void ForEachPass(TFunc&& func) const
+        {
+            std::apply([this, &func](auto... member)
+                       { (func(this->*member), ...); },
+                       Members());
+        }
+
         void Reset()
         {
-            Shadow.Reset();
-            Scene.Reset();
-            DDGIProbeUpdate.Reset();
-            VirtualShadowMapMark.Reset();
-            SkeletalDeform.Reset();
-            RayTracingScene.Reset();
+            // In a member body because the set is a private type of Renderer3D.
+            static_assert(sizeof(FrameCorePassSet) == std::tuple_size_v<decltype(Members())> * sizeof(Ref<RenderGraphNode>),
+                          "FrameCorePassSet has a member that Members() does not list.");
+            std::apply([this](auto... member)
+                       { ((this->*member).Reset(), ...); },
+                       Members());
         }
     };
 
@@ -248,18 +319,42 @@ namespace OloEngine
         // which deal in CommandBufferRenderPass.
         Ref<ShaderDebugDrawPass> ShaderDebugDraw;
 
+        // Every pass in this set, once. Reset() and ForEachPass() both walk
+        // this list, and the static_assert in Reset() fails the build
+        // when a member is added without being listed here, so neither the
+        // shutdown path nor the declaration key (issue #1333) can miss one.
+        [[nodiscard]] static constexpr auto Members()
+        {
+            return std::tuple{
+                &RenderStreamPassSet::ForwardOverlay,
+                &RenderStreamPassSet::Foliage,
+                &RenderStreamPassSet::Groom,
+                &RenderStreamPassSet::Water,
+                &RenderStreamPassSet::Decal,
+                &RenderStreamPassSet::GPUOcclusion,
+                &RenderStreamPassSet::FluidIntermediates,
+                &RenderStreamPassSet::FluidComposite,
+                &RenderStreamPassSet::VirtualGeometry,
+                &RenderStreamPassSet::ShaderDebugDraw
+            };
+        }
+
+        template<typename TFunc>
+        void ForEachPass(TFunc&& func) const
+        {
+            std::apply([this, &func](auto... member)
+                       { (func(this->*member), ...); },
+                       Members());
+        }
+
         void Reset()
         {
-            ForwardOverlay.Reset();
-            Foliage.Reset();
-            Groom.Reset();
-            Water.Reset();
-            Decal.Reset();
-            GPUOcclusion.Reset();
-            FluidIntermediates.Reset();
-            FluidComposite.Reset();
-            VirtualGeometry.Reset();
-            ShaderDebugDraw.Reset();
+            // In a member body because the set is a private type of Renderer3D.
+            static_assert(sizeof(RenderStreamPassSet) == std::tuple_size_v<decltype(Members())> * sizeof(Ref<RenderGraphNode>),
+                          "RenderStreamPassSet has a member that Members() does not list.");
+            std::apply([this](auto... member)
+                       { ((this->*member).Reset(), ...); },
+                       Members());
         }
     };
 
@@ -327,7 +422,51 @@ namespace OloEngine
         void PrepareFrame(Renderer3DData& data, ShaderLibrary& shaderLibrary);
         void ConfigurePassesForFrame(Renderer3DData& data);
         void UploadExecutionState(Renderer3DData& data);
-        void PopulateBlackboard(Renderer3DData& data);
+        void PopulateBlackboard(Renderer3DData& data, const FrameGraphDeclarationConfig& config);
+
+        // Every pass the pipeline owns, in a fixed order, null members included
+        // (the callback receives a `const Ref<T>&`). The declaration key walks
+        // this, so a pass cannot be left out of it by being left off a list.
+        template<typename TFunc>
+        void ForEachPass(TFunc&& func) const
+        {
+            FrameCorePasses.ForEachPass(func);
+            SceneCompositePasses.ForEachPass(func);
+            RenderStreamPasses.ForEachPass(func);
+            PostProcessPasses.ForEachPass(func);
+        }
+
+        // ------------------------------------------------------------------
+        // Declaration configuration (issue #1333)
+        // ------------------------------------------------------------------
+        // One frame's graph compilation, in the order the cache depends on:
+        //   1. PrepareDeclarationInputs: every resize and history-storage change
+        //      that alters an input, so nothing moves after the capture;
+        //   2. CaptureDeclarationConfig: the immutable configuration and its key;
+        //   3. PopulateBlackboard(config), UploadExecutionState, and
+        //      BuildFrameGraph(key), all keyed on that ONE key.
+        // Under OLO_RG_VERIFY_DECLARATION_CACHE a frame that would have been
+        // served from the cache is rebuilt and the two plans compared.
+        void CompileFrameGraph(Renderer3DData& data);
+
+        void PrepareDeclarationInputs(Renderer3DData& data);
+        // `passKeys`, when given, receives each pass's own key in ForEachPass
+        // order, for attributing a PassStates change to named passes.
+        [[nodiscard]] FrameGraphDeclarationConfig CaptureDeclarationConfig(const Renderer3DData& data,
+                                                                           TArray<u64>* passKeys = nullptr) const;
+        [[nodiscard]] u64 ComputeDeclarationKey(const Renderer3DData& data) const
+        {
+            return CaptureDeclarationConfig(data).ComputeKey();
+        }
+
+        [[nodiscard]] const FrameGraphDeclarationStats& GetDeclarationStats() const
+        {
+            return m_DeclarationStats;
+        }
+        void ResetDeclarationStats()
+        {
+            m_DeclarationStats = {};
+        }
         [[nodiscard]] auto BuildInputs(Renderer3DData& data) -> RenderPipelineInputs;
 
         void Reset()
@@ -343,6 +482,14 @@ namespace OloEngine
             SSRHistoryTexture.Reset();
             SSRHistoryValid = false;
             AtmosphereShadingUBO.Reset();
+            // The passes are gone, so the configuration and plan compiled from
+            // them are too; the next compile is a first compile, not a diff
+            // against a pipeline that no longer exists.
+            m_CompiledConfig = FrameGraphDeclarationConfig{};
+            m_HasCompiledConfig = false;
+            m_CompiledPassKeys.Reset();
+            m_CompiledPlanDigest = 0;
+            m_CompiledPlanEntries.clear();
             m_HasSSGIEnableState = false;
             m_PreviousSSGIEnabled = false;
             m_PreviousSSGIHalfResolution = true;
@@ -356,22 +503,14 @@ namespace OloEngine
             InvalidateBlackboardCache();
         }
 
-        // PopulateBlackboard caches its previous-frame result via a fingerprint
-        // hash of the inputs that drive its branches. When the hash matches the
-        // previous frame, the function short-circuits and the existing handles
-        // in FrameBlackboard remain valid. Call this to force a full repopulate
-        // (e.g., on resize, settings change, or pass set rebuild).
+        // PopulateBlackboard skips its body while the declaration key matches
+        // the one it last populated from. Call this to force a full repopulate
+        // for a reason the configuration cannot see; prefer adding the reason
+        // to FrameGraphDeclarationConfig instead.
         void InvalidateBlackboardCache()
         {
             m_HasValidBlackboardCache = false;
         }
-
-        // Computes a fingerprint of all per-frame inputs that affect both
-        // PopulateBlackboard's output and the per-pass Setup callbacks that run
-        // inside RenderGraph::BuildFrameGraph. The same fingerprint is used as
-        // the cache key for both layers so they short-circuit consistently
-        // whenever the inputs match the previous frame.
-        [[nodiscard]] u64 ComputeBlackboardFingerprint(const Renderer3DData& data) const;
 
         // The two ray-traced-shadow diagnostics (issue #1056) warn once per
         // CHANGE of verdict rather than once per frame. Members, not
@@ -406,6 +545,16 @@ namespace OloEngine
 
         u64 m_BlackboardFingerprint = 0;
         bool m_HasValidBlackboardCache = false;
+        // The configuration the cached blackboard and build were compiled
+        // from, and the per-pass keys that make up its PassStates, in
+        // ForEachPass order, so a rebuild can be attributed to named fields and
+        // named passes rather than to "the key moved".
+        FrameGraphDeclarationConfig m_CompiledConfig;
+        bool m_HasCompiledConfig = false;
+        TArray<u64> m_CompiledPassKeys;
+        u64 m_CompiledPlanDigest = 0;
+        std::vector<RenderGraph::PlanDigestEntry> m_CompiledPlanEntries;
+        FrameGraphDeclarationStats m_DeclarationStats;
         bool m_HasSSGIEnableState = false;
         bool m_PreviousSSGIEnabled = false;
         // Tracked alongside the enable because the #708 half-resolution toggle

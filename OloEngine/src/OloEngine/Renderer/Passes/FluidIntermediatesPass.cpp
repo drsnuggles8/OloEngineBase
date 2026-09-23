@@ -86,7 +86,7 @@ namespace OloEngine
 
         // Declares NOTHING when disabled or no fluid was submitted — the
         // pipeline fingerprint must hash this gate (issue #530 class).
-        if (!m_Enabled || m_FrameDraws.IsEmpty())
+        if (!m_Enabled || !HasPendingDraws())
             return;
 
         if (blackboard.Scene.SceneDepthAttachment.IsValid())

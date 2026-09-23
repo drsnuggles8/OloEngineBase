@@ -35,6 +35,11 @@ OLO_LEVER_TOGGLE(PoisonTransients, "OLO_RG_POISON_TRANSIENTS",
 OLO_LEVER_TOGGLE(DisableTransientAliasing, "OLO_RG_DISABLE_ALIASING",
                  "Give every transient its own physical backing. If an artifact disappears under this, the "
                  "transient planner's lifetime analysis let two live resources share one GPU object.")
+OLO_LEVER_TOGGLE(VerifyDeclarationCache, "OLO_RG_VERIFY_DECLARATION_CACHE",
+                 "On every frame whose declaration key matches the cached one, rebuild the blackboard and the "
+                 "frame graph anyway and compare the compiled plan with the cached plan (issue #1333). A "
+                 "difference is a declaration input missing from FrameGraphDeclarationConfig: it logs the passes "
+                 "that differ and counts a stale-cache detection. Costs a full rebuild per frame.")
 OLO_LEVER_TOGGLE(BlackSquareHunt, "OLO_RG_BLACKSQUARE_HUNT",
                  "Extra per-pass logging for the transient black-square artifact hunt.")
 OLO_LEVER_EXACT(RenderGraphSequential, "OLO_RENDERGRAPH_SEQUENTIAL",
@@ -45,6 +50,13 @@ OLO_LEVER_EXACT(DisableGBufferFlagsResolve, "OLO_GBUFFER_NO_FLAGS_RESOLVE",
                 "blit left it. That is the pre-#996 behaviour, so this is the A/B for the black fringe on "
                 "ClosureV2 silhouettes in the resolved-MSAA deferred mode (MSAA > 1, per-sample lighting "
                 "off) — turn it ON and the fringe comes back.")
+
+// --- Command packets ----------------------------------------------------------
+OLO_LEVER_TRISTATE(CommandLifecycleValidation, "OLO_COMMAND_LIFECYCLE_VALIDATION",
+                   "Digest every command packet when its first replay freezes it, and re-check the digest before and "
+                   "after every replay (#1335). Catches a write into a frozen packet through a pointer taken during "
+                   "preparation, which no accessor check can see. \"1\" on, \"0\" off; unset keeps the build "
+                   "default (on in Debug, off in Release).")
 
 // --- RHI --------------------------------------------------------------------
 OLO_LEVER_TOGGLE(BindlessDescriptorHeap, "OLO_RHI_BINDLESS",

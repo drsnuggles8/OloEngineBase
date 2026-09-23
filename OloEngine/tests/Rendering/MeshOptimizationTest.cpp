@@ -664,6 +664,47 @@ TEST(MeshOptimization, EncodeDecodeIndexBufferRoundTrip)
     }
 }
 
+// UsdMeshImporter's left-handed fan of one quad. The codec rotates the second
+// triangle, so the raw buffer is refused by the asset pack (#1223) unless the
+// importer canonicalizes it before marking it pre-optimized.
+TEST(MeshOptimization, CanonicalizeIndexRotationMakesALeftHandedFanSurviveTheIndexCodec)
+{
+    const TArray<u32> raw = { 0, 2, 1, 0, 3, 2 };
+    constexpr sizet kVertexCount = 4;
+    const auto roundTrip = [](const TArray<u32>& indices)
+    {
+        const auto count = static_cast<sizet>(indices.Num());
+        const auto encoded = MeshOptimization::EncodeIndexBuffer(indices.GetData(), count, kVertexCount);
+        TArray<u32> decoded(static_cast<i32>(count));
+        EXPECT_TRUE(MeshOptimization::DecodeIndexBuffer(decoded.GetData(), count, encoded));
+        return decoded;
+    };
+    ASSERT_NE(roundTrip(raw), raw) << "the fixture no longer exercises a corner rotation";
+
+    TArray<u32> canonical = raw;
+    ASSERT_TRUE(MeshOptimization::CanonicalizeIndexRotation(canonical, kVertexCount));
+    EXPECT_EQ(roundTrip(canonical), canonical);
+
+    // Same triangles, same order, same winding: only the first corner may move.
+    ASSERT_EQ(canonical.Num(), raw.Num());
+    for (i32 t = 0; t < raw.Num(); t += 3)
+    {
+        const bool sameCycle = [&]
+        {
+            for (i32 r = 0; r < 3; ++r)
+            {
+                if (canonical[t] == raw[t + r] && canonical[t + 1] == raw[t + (r + 1) % 3] &&
+                    canonical[t + 2] == raw[t + (r + 2) % 3])
+                {
+                    return true;
+                }
+            }
+            return false;
+        }();
+        EXPECT_TRUE(sameCycle) << "triangle " << t / 3 << " changed corners or winding";
+    }
+}
+
 TEST(MeshOptimization, EncodeVertexBufferCompresses)
 {
     auto mesh = MakeGridMesh(16); // Larger mesh for meaningful compression

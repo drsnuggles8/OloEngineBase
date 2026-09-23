@@ -190,6 +190,15 @@ namespace OloEngine
             // skips OptimizeMesh on reload (mirrors SplitCombinedMeshSource).
             // Only mark the bundle as pre-optimized when every non-null source mesh is.
             // Null entries are ignored rather than causing the flag to be false.
+            //
+            // A source that has been BUILT has been optimized too: Build() runs
+            // OptimizeMesh on the device path and only then latches m_Built.
+            // Counting only the explicit flag left every cold import's cache
+            // unflagged, so a warm load ran OptimizeMesh a SECOND time and came
+            // back with a different index and vertex order. Anything addressing
+            // the surface by index -- a groom binding refuses a body whose
+            // topology hash moved -- then broke depending on whether the cache
+            // was warm (#1223; AnimatedModelCacheSurfaceTest).
             if (auto anyNonNull = std::ranges::any_of(meshes,
                                                       [](const Ref<MeshSource>& s)
                                                       { return static_cast<bool>(s); });
@@ -197,7 +206,7 @@ namespace OloEngine
             {
                 if (auto allPreOpt = std::ranges::all_of(meshes,
                                                          [](const Ref<MeshSource>& src)
-                                                         { return !src || src->IsPreOptimized(); });
+                                                         { return !src || src->IsPreOptimized() || src->IsBuilt(); });
                     allPreOpt)
                 {
                     combined->SetPreOptimized(true);
@@ -534,6 +543,7 @@ namespace OloEngine
         m_BoneInfoMap.clear();
         m_LoadedTextures.clear();
         m_HasMeshNodeTransform = false;
+        m_MeshLoadedFromCache = false;
         m_MeshNodeGlobalTransform = glm::mat4(1.0f);
 
         // Try loading from binary cache first (skip Assimp entirely)
@@ -619,6 +629,7 @@ namespace OloEngine
 
                         OLO_CORE_INFO("AnimatedModel::LoadModel: Loaded from cache - {} meshes, {} animations",
                                       static_cast<sizet>(m_Meshes.Num()), static_cast<sizet>(m_Animations.Num()));
+                        m_MeshLoadedFromCache = true;
                         return;
                     } // end animation-cache-valid block
                 }
@@ -1041,6 +1052,19 @@ namespace OloEngine
         // Build() internally calls OptimizeMesh (which also remaps bone influences)
         // before uploading to GPU — do NOT call OptimizeMesh separately here.
         meshSource->Build();
+
+        // ...EXCEPT with no graphics device (OloServer, a headless cook): Build()
+        // then returns before optimizing and without latching m_Built, so the
+        // cache written below would hold UNoptimized, unflagged data and a later
+        // warm load on a device would optimize a different input than a cold
+        // import there does -- a different surface, which a groom binding
+        // refuses (#1223). Optimize here and say so, so every path writes the
+        // same surface.
+        if (!meshSource->IsBuilt() && !meshSource->IsPreOptimized())
+        {
+            MeshOptimization::OptimizeMesh(*meshSource);
+            meshSource->SetPreOptimized(true);
+        }
 
         return meshSource;
     }

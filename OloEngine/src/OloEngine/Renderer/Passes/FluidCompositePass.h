@@ -39,6 +39,12 @@ namespace OloEngine
 
         void Init(const FramebufferSpecification& spec) override;
         void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
+
+        // Setup() declares nothing unless its sibling has a fluid draw.
+        void AppendDeclarationInputs(RGDeclarationKey& key) const override
+        {
+            key.Add(m_IntermediatesPass && m_IntermediatesPass->HasPendingDraws());
+        }
         void Execute(RGCommandContext& context) override;
         [[nodiscard]] Ref<Framebuffer> GetTarget() const override;
 

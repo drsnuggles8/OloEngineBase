@@ -36,6 +36,17 @@ The upstream licence text is kept verbatim in [`LICENSE.md`](LICENSE.md). Its ow
 | `Head.fbx` | the scanned mesh, head and shoulders |
 | `Textures/lambertian.jpg` | diffuse albedo, 8.6 MB |
 | `Textures/bump-lowRes.png` | a BUMP map, not a tangent-space normal map — do not bind it to `u_NormalMap` without converting it first |
+| `HeadRigged.gltf` + `.bin` | the same scan in metres (0.43 m bust, base on the origin, face toward +Z), skinned to a `Chest → Neck → Head` rig, with one looping clip, `LookAround` (6 s). The human hair subject of the groom epic (#1223) |
+| `prepare_head_rig.py` | the Blender 5.x script that writes `HeadRigged.*` from `Head.fbx` |
+| `SandboxProject/Assets/Textures/InfiniteScanHead_Thickness.png` | a skin **thickness map** baked from this mesh (issue #1394) by [`tools/skin-thickness`](../../../../tools/skin-thickness/README.md). It lives in the project, not here, because scene texture paths resolve against the project asset root. Author it with `ThicknessFactor: 0.02` |
+
+`HeadRigged` exists because the groom epic needs a head that MOVES and a scan is a still bust. The
+hair must be carried by the engine's skinning, binding and simulation path, so moving the entity's
+transform would test the wrong thing. The rig is the smallest one that can turn a head. The jaw and
+chin are weighted to the skull, not the neck: they hang below the neck band, and height-only weights
+sheared the mouth sideways on every turn. `HeadRigged.gltf` references `Textures/lambertian.jpg`
+rather than shipping a second copy of it. It is a derivative of the scan and carries the same
+CC BY 3.0 attribution.
 
 ## Using it
 

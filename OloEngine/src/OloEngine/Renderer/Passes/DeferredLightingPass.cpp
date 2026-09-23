@@ -161,6 +161,14 @@ namespace OloEngine
         SetName("DeferredLightingPass");
     }
 
+    void DeferredLightingPass::AppendDeclarationInputs(RGDeclarationKey& key) const
+    {
+        key.Add(static_cast<bool>(m_GBuffer));
+        key.Add(m_PerSampleLighting);
+        key.Add(m_GBuffer ? m_GBuffer->GetSampleCount() : 0u);
+        key.Add(static_cast<bool>(m_ShaderMSAA));
+    }
+
     void DeferredLightingPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
     {
         RenderGraphNode::Setup(builder, blackboard);
@@ -394,10 +402,12 @@ namespace OloEngine
         // falls back to the 256-cap MultiLight UBO loop. Re-bind so the
         // deferred lighting draw consumes the same per-cluster lists as the
         // forward paths (this was silently dead in the 2D-tile era).
+        //
+        // Unconditional: on an inactive frame BindForShading still publishes the
+        // buffers (the lighting shader declares them) and the UBO keeps
+        // fplusActive at 0 — see TiledForwardPlus.cpp.
         auto& forwardPlus = Renderer3D::GetForwardPlus();
-        const bool clusteredActive = forwardPlus.ShouldUseForwardPlus();
-        if (clusteredActive)
-            forwardPlus.BindForShading();
+        forwardPlus.BindForShading();
 
         // Distance-impostor reflection probes (issue #705): re-publish the
         // probe arrays + UBO + cluster-mask SSBO for the fullscreen lighting
@@ -714,8 +724,7 @@ namespace OloEngine
         context.FlushHeapOffsets();
         context.DrawIndexed(va);
 
-        if (clusteredActive)
-            forwardPlus.UnbindAfterShading();
+        forwardPlus.UnbindAfterShading();
 
         // Restore the full multi-attachment draw-buffer list so later passes
         // writing into RT1 (normal) / RT2 (emissive) / RT3 (velocity) target

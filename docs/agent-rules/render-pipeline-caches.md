@@ -36,7 +36,9 @@ sites:
 
 - `RenderGraph::GetTopologyGeneration()` is a monotonic counter bumped by every
   `ResetTopology()` / `Shutdown()` (the two places that wipe the blackboard).
-  Hash it into any per-frame fingerprint (`ComputeBlackboardFingerprint` does)
+  Hash it into any per-frame key (`FrameGraphDeclarationConfig::TopologyGeneration`
+  does). Since #1333 the counter is process-wide, so a new or recreated graph can
+  never report a generation an earlier graph already used
   and the cache self-invalidates on **any** reconfigure — including a *future*
   reconfigure path that forgets to call an explicit invalidation hook.
 - An explicit `InvalidateBlackboardCache()` at each settings-change site is the

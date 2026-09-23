@@ -20,6 +20,9 @@ which is the file to read before changing any of it.
 4. **Optionally add a thickness map** — *Thickness Map*, red channel, unitless `[0,1]`, a per-pixel
    **modulation** of the factor. This is what makes an ear thin where the jaw behind it is not. It
    is glTF's `KHR_materials_volume` thickness texture, so an authored asset imports it directly.
+   For a **scanned mesh** with no authored map, bake one from the geometry with
+   [`tools/skin-thickness`](../../tools/skin-thickness/README.md). One mesh has one factor, so
+   without a map the ear and the cheek are the same thickness and the ear cannot be the thin region.
 
 ## Units, once
 

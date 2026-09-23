@@ -26,6 +26,18 @@ namespace OloEngine
         ReSTIRPTPass();
         void Init(const FramebufferSpecification& spec) override;
         void Setup(RGBuilder& builder, FrameBlackboard& board) override;
+
+        // Setup() declares nothing while the tier is stood down. It can also
+        // stand the tier down ITSELF, after the configuration captured Active
+        // as true, and Execute() may resolve Active back to true before the next
+        // capture; so the stand-down is recorded separately and keyed too, or
+        // the next frame would reproduce the key of a build that promised a tier
+        // Setup() withdrew.
+        void AppendDeclarationInputs(RGDeclarationKey& key) const override
+        {
+            key.Add(m_Stats.Active);
+            key.Add(m_StoodDownInSetup);
+        }
         void Execute(RGCommandContext& context) override;
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
@@ -92,6 +104,7 @@ namespace OloEngine
         ReSTIRPTSettings m_Settings{};
         ReSTIRPTStats m_Stats{};
         std::string_view m_LastFallback = "disabled";
+        bool m_StoodDownInSetup = false;
         Ref<Shader> m_Shader;
         Ref<UniformBuffer> m_Parameters;
         std::array<Ref<StorageBuffer>, 4> m_Pools{};

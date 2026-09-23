@@ -242,6 +242,11 @@ namespace OloEngine
         [[nodiscard]] bool IsCurrent(TemporalHistoryToken token) const;
         [[nodiscard]] bool IsValid(TemporalHistoryToken token) const;
         [[nodiscard]] TemporalHistoryToken Find(const TemporalHistoryKey& key) const;
+        // The same slot at its CURRENT generation, or an invalid token when the
+        // slot no longer exists. For a holder that latched a token when a
+        // history was acquired and must follow later invalidations, which bump
+        // the generation without changing the texture.
+        [[nodiscard]] TemporalHistoryToken Current(TemporalHistoryToken token) const;
         [[nodiscard]] const TemporalHistoryDescriptor* GetDescriptor(TemporalHistoryToken token) const;
         [[nodiscard]] std::string_view GetDebugName(TemporalHistoryToken token) const;
         [[nodiscard]] Ref<Texture2D> GetTexture(TemporalHistoryToken token) const;
@@ -254,6 +259,15 @@ namespace OloEngine
         void Clear();
 
         [[nodiscard]] TArray<TemporalHistorySnapshot> Snapshot() const;
+
+        // Which histories exist and which of them hold a usable previous frame,
+        // as one key (issue #1333). That is what decides whether a history is
+        // IMPORTED and read, so it is a render-graph declaration input. The
+        // generation is deliberately left out: Invalidate() bumps it on every
+        // matching entry, already-invalid ones included, so hashing it would
+        // rebuild the frame graph on every frame an object or the camera moves
+        // while declaring nothing different.
+        [[nodiscard]] u64 ComputeValidityKey() const;
         [[nodiscard]] static TemporalHistoryDependency DependencyForCause(TemporalHistoryInvalidationCause cause);
 
       private:

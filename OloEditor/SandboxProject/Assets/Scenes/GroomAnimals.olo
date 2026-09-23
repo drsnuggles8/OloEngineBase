@@ -1,0 +1,748 @@
+Scene: Untitled
+Version: 1
+PostProcessSettings:
+  TonemapOperator: 1
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: false
+  BloomThreshold: 1
+  BloomIntensity: 0.5
+  BloomIterations: 5
+  VignetteEnabled: false
+  VignetteIntensity: 0.3
+  VignetteSmoothness: 0.15
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.005
+  FXAAEnabled: false
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 8
+  ColorGradingEnabled: false
+  SphereProxyAOEnabled: false
+  SphereProxyAOStrength: 1
+  SphereProxyAOMaxProxies: 64
+  SphereProxyAOMaxRadius: 25
+  SphereProxyAOInfluenceScale: 4
+  SphereProxyAOMaxOcclusion: 1
+  SphereProxyAODebugView: false
+  SSAOEnabled: false
+  SSAORadius: 0.5
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 32
+  SSAODebugView: false
+  SSREnabled: false
+  SSRMaxDistance: 40
+  SSRThickness: 0.8
+  SSRStride: 0.25
+  SSRMaxSteps: 64
+  SSRBinarySearchSteps: 6
+  SSRIntensity: 1
+  SSRMaxRoughness: 0.8
+  SSREdgeFade: 0.1
+  SSRDebugView: false
+  SSRTemporalResolve: true
+  SSRTemporalFeedback: 0.92
+  SSRPreBlurRadius: 2
+  SSRPostBlurRadius: 3
+  RTReflectionEnabled: false
+  RTReflectionIntensity: 1
+  RTReflectionMaxRayDistance: 60
+  RTReflectionNormalBias: 0.02
+  RTReflectionRoughnessGateStart: 0.05
+  RTReflectionRoughnessGateEnd: 0.3
+  RTReflectionTraceSunShadowRay: true
+  RTReflectionSkyAmbientLod: 4
+  RTReflectionTierDebugView: false
+  GpuPathTracerEnabled: false
+  GpuPathTracerSamplesPerFrame: 1
+  GpuPathTracerMaxSamples: 0
+  GpuPathTracerMaxBounces: 8
+  GpuPathTracerRussianRouletteStartBounce: 4
+  GpuPathTracerSeed: 2654435769
+  GpuPathTracerNextEventEstimation: true
+  GpuPathTracerSampleTextures: true
+  GpuPathTracerMaxRadianceClamp: 0
+  GpuPathTracerRayEpsilon: 0.001
+  GpuPathTracerMaxRayDistance: 100000
+  GpuPathTracerUniformEnvironmentRadiance: [0, 0, 0]
+  GpuPathTracerEnvironmentCubeIntensity: 1
+  GpuPathTracerDebugView: 0
+  GpuPathTracerSampleCountDisplayScale: 0.00390625
+  GpuPathTracerVarianceDisplayScale: 100
+  ReSTIRDIEnabled: false
+  ReSTIRDIInitialCandidates: 32
+  ReSTIRDIVisibilityReuse: true
+  ReSTIRDITemporalReuse: true
+  ReSTIRDITemporalMCap: 20
+  ReSTIRDISpatialReuse: true
+  ReSTIRDISpatialNeighbours: 4
+  ReSTIRDISpatialRadiusPixels: 16
+  ReSTIRDISpatialPasses: 1
+  ReSTIRDIBiasMode: 1
+  ReSTIRDIEngagementMargin: 8
+  ReSTIRDIMaxRadianceClamp: 0
+  ReSTIRDIRayOriginNormalBias: 0.02
+  ReSTIRDIDebugView: 0
+  ReSTIRGIEnabled: false
+  ReSTIRGIInitialCandidates: 1
+  ReSTIRGIDDGITail: true
+  ReSTIRGITemporalReuse: true
+  ReSTIRGITemporalMCap: 20
+  ReSTIRGIMaxSampleAge: 64
+  ReSTIRGISpatialReuse: true
+  ReSTIRGISpatialNeighbours: 4
+  ReSTIRGISpatialRadiusPixels: 24
+  ReSTIRGISpatialPasses: 1
+  ReSTIRGIBiasMode: 1
+  ReSTIRGIReconnectionVisibility: true
+  ReSTIRGISpatialReconnectionVisibility: false
+  ReSTIRGIMinReconnectionDistance: 0.05
+  ReSTIRGIMaxBounceDistance: 10000
+  ReSTIRGIMaxRadianceClamp: 0
+  ReSTIRGIRayOriginNormalBias: 0.02
+  ReSTIRGIDebugView: 0
+  ReSTIRPT:
+    Enabled: false
+    TemporalReuse: true
+    SpatialReuse: true
+    InitialCandidates: 1
+    MappingMask: 7
+    Seed: 1211
+    SpatialRadius: 8
+    ConfidenceCap: 8
+    RayEpsilon: 0.001
+    NormalBias: 0.01
+    MaxRayDistance: 1000
+    RadianceClamp: 0
+    DebugView: 0
+  SSGIEnabled: false
+  SSGIIntensity: 1
+  SSGIMaxDistance: 8
+  SSGIThickness: 0.5
+  SSGIStride: 0.25
+  SSGIMaxSteps: 24
+  SSGIRayCount: 8
+  SSGIEdgeFade: 0.1
+  SSGIDebugView: false
+  SSGITemporalResolve: true
+  SSGITemporalFeedback: 0.92
+  SSGIHalfResolution: true
+  SSGIRayDistribution: true
+  SSGIPreBlurRadius: 1
+  SSGIPostBlurRadius: 4
+  ContactShadowEnabled: false
+  ContactShadowIntensity: 1
+  ContactShadowMaxDistance: 1
+  ContactShadowThickness: 0.3
+  ContactShadowStride: 0.04
+  ContactShadowMaxSteps: 24
+  ContactShadowBias: 0.02
+  ContactShadowEdgeFade: 0.1
+  ContactShadowDebugView: false
+  AutoExposureEnabled: false
+  AutoExposureMinLogLuminance: -8
+  AutoExposureMaxLogLuminance: 3.5
+  AutoExposureSpeedUp: 3
+  AutoExposureSpeedDown: 1
+  AutoExposureCompensation: 0
+  AutoExposureMinExposure: 0.05
+  AutoExposureMaxExposure: 16
+  CASEnabled: false
+  CASSharpness: 0.5
+  Upscale: 0
+  RCASSharpness: 0.5
+  UpscaleTechnique: 0
+  FSR2SharpeningEnabled: true
+  FSR2Sharpness: 0.5
+SnowSettings:
+  Enabled: false
+  HeightStart: -5
+  HeightFull: 5
+  SlopeStart: 0.7
+  SlopeFull: 0.3
+  Albedo: [0.92, 0.93, 0.98]
+  Roughness: 0.65
+  SSSColor: [0.4, 0.6, 0.9]
+  SSSIntensity: 0.6
+  SparkleIntensity: 0.8
+  SparkleDensity: 80
+  SparkleScale: 1
+  NormalPerturbStrength: 0.25
+  WindDriftFactor: 0
+  SSSBlurEnabled: false
+  SSSBlurRadius: 2
+  SSSBlurFalloff: 1
+FogSettings:
+  Enabled: false
+  Mode: 2
+  Color: [0.5, 0.6, 0.7]
+  Density: 0.02
+  Start: 10
+  End: 300
+  HeightFalloff: 0.1
+  HeightOffset: 0
+  MaxOpacity: 1
+  EnableScattering: false
+  RayleighStrength: 1
+  MieStrength: 0.005
+  MieDirectionality: 0.76
+  RayleighColor: [0.27, 0.51, 0.83]
+  SunIntensity: 22
+  EnableVolumetric: false
+  VolumetricSamples: 32
+  AbsorptionCoefficient: 0.02
+  EnableNoise: false
+  NoiseScale: 0.01
+  NoiseSpeed: 0.1
+  NoiseIntensity: 0.3
+  EnableLightShafts: false
+  LightShaftIntensity: 1
+  EnableVolumetricSelfShadow: true
+  VolumetricSelfShadowStrength: 1
+  VolumetricSelfShadowExtent: 300
+WindSettings:
+  Enabled: false
+  Direction: [1, 0, 0]
+  Speed: 5
+  GustStrength: 0.3
+  GustFrequency: 0.5
+  TurbulenceIntensity: 0.5
+  TurbulenceScale: 0.1
+  GridWorldSize: 200
+  GridResolution: 128
+SnowAccumulationSettings:
+  Enabled: false
+  AccumulationRate: 0.02
+  MaxDepth: 0.5
+  MeltRate: 0.005
+  RestorationRate: 0.01
+  DisplacementScale: 1
+  ClipmapResolution: 2048
+  ClipmapExtent: 128
+  NumClipmapRings: 3
+  SnowDensity: 0.3
+SnowEjectaSettings:
+  Enabled: false
+  ParticlesPerDeform: 8
+  EjectaSpeed: 2.5
+  SpeedVariance: 0.8
+  UpwardBias: 0.6
+  LifetimeMin: 0.4
+  LifetimeMax: 1.2
+  InitialSize: 0.04
+  SizeVariance: 0.02
+  GravityScale: 0.3
+  DragCoefficient: 2
+  Color: [0.95, 0.97, 1, 0.7]
+  VelocityThreshold: 0.1
+  MaxParticles: 8192
+  WindInfluence: 0.5
+  NoiseStrength: 0.3
+  NoiseFrequency: 2
+  GroundY: 0
+  CollisionBounce: 0
+  CollisionFriction: 1
+PrecipitationSettings:
+  Enabled: false
+  Type: 0
+  Intensity: 0.5
+  TransitionSpeed: 1
+  BaseEmissionRate: 4000
+  MaxParticlesNearField: 100000
+  MaxParticlesFarField: 200000
+  NearFieldExtent: [15, 20, 15]
+  NearFieldParticleSize: 0.04
+  NearFieldSizeVariance: 0.02
+  NearFieldSpeedMin: 0.8
+  NearFieldSpeedMax: 2
+  NearFieldLifetime: 10
+  FarFieldExtent: [60, 30, 60]
+  FarFieldParticleSize: 0.025
+  FarFieldSpeedMin: 0.5
+  FarFieldSpeedMax: 1.5
+  FarFieldLifetime: 15
+  FarFieldAlphaMultiplier: 0.5
+  GravityScale: 0.8
+  WindInfluence: 1
+  DragCoefficient: 0.3
+  TurbulenceStrength: 0.8
+  TurbulenceFrequency: 0.5
+  GroundCollisionEnabled: true
+  GroundY: 0
+  CollisionBounce: 0
+  CollisionFriction: 1
+  FeedAccumulation: true
+  AccumulationFeedRate: 0.0001
+  ScreenStreaksEnabled: true
+  ScreenStreakIntensity: 0.3
+  ScreenStreakLength: 0.15
+  LensImpactsEnabled: true
+  LensImpactRate: 3
+  LensImpactLifetime: 1.5
+  LensImpactSize: 0.03
+  LODNearDistance: 30
+  LODFarDistance: 120
+  FrameBudgetMs: 1
+  ParticleColor: [0.95, 0.97, 1, 0.85]
+  ColorVariance: 0.05
+  RotationSpeed: 30
+StreamingSettings:
+  Enabled: false
+  DefaultLoadRadius: 200
+  DefaultUnloadRadius: 250
+  MaxLoadedRegions: 16
+  RegionDirectory: ""
+WorldOriginSettings:
+  Enabled: false
+  RebaseThreshold: 2048
+  SnapGridSize: 1024
+LightmapSettings:
+  LightmapAsset: 0
+  Enabled: true
+  Intensity: 1
+  AtlasSize: 1024
+  SamplesPerTexel: 128
+  MaxBounces: 4
+  TexelsPerMeter: 8
+Entities:
+  - Entity: 216649799638179085
+    TagComponent:
+      Tag: Human
+    TransformComponent:
+      Translation: [0, 1.24, 3.6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 0
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/InfiniteScanHead/HeadRigged.gltf
+      CurrentClipName: LookAround
+    SkeletonComponent:
+      {}
+  - Entity: 1723051039467636769
+    TagComponent:
+      Tag: ShortCoatHorse
+    TransformComponent:
+      Translation: [-1.4, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 0
+      IsPlaying: true
+      SourceFilePath: Models/Horse/Horse.gltf
+      CurrentClipName: Walk
+    SkeletonComponent:
+      {}
+  - Entity: 4545716108641243465
+    TagComponent:
+      Tag: LongCoatHorse
+    TransformComponent:
+      Translation: [1.4, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0.55
+      BlendDuration: 0.3
+      CurrentClipIndex: 0
+      IsPlaying: true
+      SourceFilePath: Models/Horse/Horse.gltf
+      CurrentClipName: Walk
+    SkeletonComponent:
+      {}
+  - Entity: 9545103567296032664
+    TagComponent:
+      Tag: LongCoatHorseCoat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    GroomBindingComponent:
+      Binding: 15952688685437936318
+      TargetEntity: 4545716108641243465
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 15952688685437936313
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.1
+      ClumpCellSize: 0.03
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 4
+      Resolution: 64
+      StepVoxels: 3
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+    GroomComponent:
+      Groom: 15952688685437936317
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 93727
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [0.92, 0.9, 0.88]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.3
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 6
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 256
+      MeshPixelSize: 48
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+  - Entity: 11261822225598608977
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.4056161, -0.7605302, -0.5070201]
+      Color: [1, 0.97, 0.92]
+      Intensity: 3
+      CastShadows: true
+      CascadeDebugVisualization: false
+      RayTracedShadows: false
+      ShadowDepthBiasTexels: 2
+      ShadowNormalBias: 0.01
+      MaxShadowDistance: 200
+      CascadeSplitLambda: 0.5
+  - Entity: 11418595729513181806
+    TagComponent:
+      Tag: HumanCoat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    GroomBindingComponent:
+      Binding: 15952688685437936320
+      TargetEntity: 216649799638179085
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 0
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.1
+      ClumpCellSize: 0.03
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 4
+      Resolution: 64
+      StepVoxels: 3
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+    GroomComponent:
+      Groom: 15952688685437936319
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 44235
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [0.42, 0.26, 0.14]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 3
+      Pheomelanin: 0.25
+      LongitudinalRoughness: 0.3
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 3
+      HSamples: 4
+      PigmentMode: 0
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 256
+      MeshPixelSize: 48
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+  - Entity: 12266264342211104255
+    TagComponent:
+      Tag: Plinth
+    TransformComponent:
+      Translation: [0, 0.62, 3.6]
+      Rotation: [0, 0, 0]
+      Scale: [0.5, 1.24, 0.5]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.34, 0.33]
+      Metallic: 0
+      Roughness: 1
+  - Entity: 13372767590469035089
+    TagComponent:
+      Tag: RuntimeCamera
+    TransformComponent:
+      Translation: [0, 1.6, 5.5]
+      Rotation: [-0.12, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.7853982
+        PerspectiveNear: 0.05
+        PerspectiveFar: 400
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+      RuntimeControl: false
+      FlySpeed: 5
+  - Entity: 14559626425865806185
+    TagComponent:
+      Tag: ShortCoatHorseCoat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    GroomBindingComponent:
+      Binding: 15952688685437936316
+      TargetEntity: 1723051039467636769
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 15952688685437936313
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.1
+      ClumpCellSize: 0.03
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 4
+      Resolution: 64
+      StepVoxels: 3
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+    GroomComponent:
+      Groom: 15952688685437936315
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 56895
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [0.92, 0.9, 0.88]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.3
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 6
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 256
+      MeshPixelSize: 48
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+  - Entity: 18050182937947693544
+    TagComponent:
+      Tag: Ground
+    TransformComponent:
+      Translation: [0, -0.02, 0]
+      Rotation: [0, 0, 0]
+      Scale: [60, 0.04, 60]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.23, 0.21, 0.18]
+      Metallic: 0
+      Roughness: 1

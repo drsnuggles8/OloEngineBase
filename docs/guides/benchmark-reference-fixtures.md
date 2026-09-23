@@ -23,7 +23,7 @@ under `--rhi=vulkan`.
 
 | Fixture | Manifest `Id` | Subject | Records the absence of |
 |---|---|---|---|
-| `ReferenceHead.olo` | `reference-head` | Suzanne + DamagedHelmet | subsurface scattering, eye shading, groom |
+| `ReferenceHead.olo` | `reference-head` | Suzanne + DamagedHelmet | eye shading, groom, thin-region transmission (Suzanne is skin at transport version 3 but authors no thickness) |
 | `AnimalShortCoat.olo` | `animal-short-coat` | Khronos Fox, Walk clip | — this one is a real short coat |
 | `AnimalLongCoat.olo` | `animal-long-coat` | procedural quadruped | strand geometry, anisotropic specular, coat motion |
 | `Meadow.olo` | `meadow` | grass/flower billboards | foliage geometry, leaf translucency |

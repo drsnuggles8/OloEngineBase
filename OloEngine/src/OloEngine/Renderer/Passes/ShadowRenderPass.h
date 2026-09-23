@@ -132,6 +132,9 @@ namespace OloEngine
         ~ShadowRenderPass() override;
 
         void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
+
+        // Setup() declares nothing while shadows are off.
+        void AppendDeclarationInputs(RGDeclarationKey& key) const override;
         void Init(const FramebufferSpecification& spec) override;
         void Execute(RGCommandContext& context) override;
         [[nodiscard]] Ref<Framebuffer> GetTarget() const override;

@@ -63,6 +63,13 @@ namespace OloEngine
 
         void Init(const FramebufferSpecification& spec) override;
         void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
+
+        // Setup() declares nothing without a fluid draw; FluidCompositePass and
+        // PopulateBlackboard's FluidRefraction gate on the same call.
+        void AppendDeclarationInputs(RGDeclarationKey& key) const override
+        {
+            key.Add(HasPendingDraws());
+        }
         void Execute(RGCommandContext& context) override;
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;

@@ -35,6 +35,10 @@ namespace OloEngine
         ~DeferredLightingPass() override = default;
 
         void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
+
+        // Setup() picks per-sample shading, and the multisample inputs it reads, from
+        // these four.
+        void AppendDeclarationInputs(RGDeclarationKey& key) const override;
         void Init(const FramebufferSpecification& spec) override;
         void Execute(RGCommandContext& context) override;
         [[nodiscard]] Ref<Framebuffer> GetTarget() const override;

@@ -120,6 +120,10 @@ namespace OloEngine::Tests::RendererState
         OLO_RENDERER_STATE_STRUCT_ENTRIES(OLO_CAPTURE_STRUCT)
 #undef OLO_CAPTURE_STRUCT
 
+        static_assert(std::is_trivially_copyable_v<ShadowSettings>,
+                      "RendererState::Snapshot entries are captured with memcpy");
+        std::memcpy(&out.Shadow, &Renderer3D::GetShadowMap().GetSettings(), sizeof(out.Shadow));
+
 #define OLO_CAPTURE_SCALAR(member, label, getter, setter) out.member = (getter);
         OLO_RENDERER_STATE_SCALAR_ENTRIES(OLO_CAPTURE_SCALAR)
 #undef OLO_CAPTURE_SCALAR
@@ -144,6 +148,9 @@ namespace OloEngine::Tests::RendererState
         changed.emplace_back(label);
         OLO_RENDERER_STATE_STRUCT_ENTRIES(OLO_DIFF_STRUCT)
 #undef OLO_DIFF_STRUCT
+
+        if (!BytesEqual(before.Shadow, after.Shadow))
+            changed.emplace_back("ShadowSettings");
 
 #define OLO_DIFF_SCALAR(member, label, getter, setter)                                        \
     if (before.member != after.member)                                                        \
@@ -190,6 +197,10 @@ namespace OloEngine::Tests::RendererState
         Renderer3D::GetPrecipitationSettings() = snapshot.Precipitation;
         Renderer3D::SetCloudscapeState(snapshot.Cloudscape);
         Renderer3D::SetUnderwaterFogState(snapshot.UnderwaterFog);
+        // Only when it moved: SetSettings with a new resolution rebuilds the
+        // shadow textures, which no test should pay for when nothing leaked.
+        if (!BytesEqual(Renderer3D::GetShadowMap().GetSettings(), snapshot.Shadow))
+            Renderer3D::GetShadowMap().SetSettings(snapshot.Shadow);
 
 #define OLO_RESTORE_SCALAR(member, label, getter, setter) setter(snapshot.member);
         OLO_RENDERER_STATE_SCALAR_ENTRIES(OLO_RESTORE_SCALAR)

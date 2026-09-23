@@ -70,18 +70,17 @@ namespace OloEngine
     {
         RenderGraphNode::Setup(builder, blackboard);
 
-        // Order unconditionally — the graph topology is hashed on settings, not on
-        // this pass's per-frame enable flag, so Setup may not re-run when the flag
-        // flips. Declaring the dependency every time guarantees that whenever the
+        // Order unconditionally — this pass's per-frame enable flag is not a
+        // declaration input (IsEnableADeclarationInput), so Setup may not re-run
+        // when the flag flips. Declaring the dependency every time guarantees that whenever the
         // pass DOES replay, ScenePass has already batched the opaque bucket and the
         // shadow maps exist (otherwise it could run before either).
         builder.DependsOnPass("ScenePass");
         builder.DependsOnPass("ShadowPass");
 
         // The replayed bucket samples the shadow maps and IBL — declare the reads
-        // UNCONDITIONALLY (not gated on m_Enabled). As above, the graph topology
-        // is hashed on settings, not on this pass's per-frame enable flag, so
-        // Setup may not re-run when the flag flips. Declaring the reads every
+        // UNCONDITIONALLY (not gated on m_Enabled). As above, the enable is not
+        // a declaration input, so Setup may not re-run when the flag flips. Declaring the reads every
         // frame keeps those resources alive and orders us after their producers
         // whenever the pass DOES replay, even if the flip happened on a frame
         // that reused the cached graph.

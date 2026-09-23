@@ -159,6 +159,11 @@ namespace OloEngine
         ~DDGIProbeUpdatePass() override;
 
         void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
+
+        // Setup() imports both ping-pong atlases and the probe-data texture by
+        // identity, once a volume has been submitted. Both pings every build, so
+        // the ping index itself is execution data and not an input.
+        void AppendDeclarationInputs(RGDeclarationKey& key) const override;
         void Init(const FramebufferSpecification& spec) override;
         void Execute(RGCommandContext& context) override;
         void SetupFramebuffer(u32 width, u32 height) override;

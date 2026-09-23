@@ -26,6 +26,14 @@ namespace OloEngine
         ~DecalRenderPass() override = default;
 
         void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
+
+        // Setup() declares nothing without a submitted decal (#1315), and writes
+        // the OIT targets instead of SceneColor when OIT is on.
+        void AppendDeclarationInputs(RGDeclarationKey& key) const override
+        {
+            key.Add(HasSubmittedCommands());
+            key.Add(m_OITEnabled);
+        }
         void Execute(RGCommandContext& context) override;
         [[nodiscard]] Ref<Framebuffer> GetTarget() const override;
         void SetupFramebuffer(u32 width, u32 height) override;

@@ -106,8 +106,7 @@ namespace OloEngine
             builder.Write(board.GBuffer.Velocity, RGWriteUsage::TransferDest);
         }
 
-        const auto& rendererSettings = Renderer3D::GetRendererSettings();
-        if (rendererSettings.Path != RenderingPath::Deferred)
+        if (board.Config.Path != RenderingPath::Deferred)
         {
             if (board.Scene.SceneNormals.IsValid())
             {
@@ -339,8 +338,11 @@ namespace OloEngine
                 renderFB->GetDepthAttachmentHandle(),
                 depthAwareInputs);
             gpuSubTimers.EndSubPass();
-            forwardPlus.BindForShading();
         }
+        // OUTSIDE the Forward+ gate: BindForShading publishes the light buffers
+        // on an inactive frame too, because every shader that includes
+        // ForwardPlusCommon.glsl declares them (see TiledForwardPlus.cpp).
+        forwardPlus.BindForShading();
 
         // Distance-impostor reflection probes (issue #705): upload changed
         // array layers + the probe UBO and fill the per-cluster probe mask,
@@ -414,8 +416,10 @@ namespace OloEngine
                     forwardPlus.RenderDebugOverlay(quadVAO->GetRHIHandle(), debugShader);
                 }
             }
-            forwardPlus.UnbindAfterShading();
         }
+        // Unconditional: UnbindAfterShading releases the slots only after an
+        // active frame and leaves an inactive frame's buffers published.
+        forwardPlus.UnbindAfterShading();
 
         ++m_FrameCounter;
 

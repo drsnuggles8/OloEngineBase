@@ -18,6 +18,13 @@ namespace OloEngine
         ~OITPrepareRenderPass() override = default;
 
         void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
+
+        // Setup() declares nothing without a contributor (a particle callback or a
+        // submitted decal); the particle half of that was never in the key.
+        void AppendDeclarationInputs(RGDeclarationKey& key) const override
+        {
+            key.Add(m_HasContributors);
+        }
         void Init(const FramebufferSpecification& spec) override;
         void Execute(RGCommandContext& context) override;
         void SetupFramebuffer(u32 width, u32 height) override;

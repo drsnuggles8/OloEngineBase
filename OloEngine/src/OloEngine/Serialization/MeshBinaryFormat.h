@@ -9,7 +9,7 @@
 namespace OloEngine
 {
     // ============================================================================
-    // .omesh Binary Mesh Format — Version 9
+    // .omesh Binary Mesh Format — Version 10
     //
     // Layout:
     //   [FileHeader]
@@ -82,10 +82,22 @@ namespace OloEngine
         // imported down the static path would stay unskinned forever. ReadTimestamp gates
         // validity on Version == CurrentVersion (strict), so moving it forces one cold
         // re-import.
-        // v9 adds no section. It invalidates animated caches made before malformed
-        // bone weights were rejected and static caches made before authored node
-        // instances were kept distinct (#1350).
-        constexpr u32 CurrentVersion = 9;
+        //
+        // v9 appends no section. It exists to INVALIDATE every v8 cache (issue #1223):
+        // an animated model's cache was written WITHOUT FlagPreOptimized, so a warm load
+        // ran OptimizeMesh a second time, and the index codec had rotated every
+        // triangle's corners on the way through the file. A warm load therefore came back
+        // with a different vertex and index order than the cold import, and anything
+        // addressing the body by triangle corner -- a groom binding -- was refused
+        // depending on whether the cache was warm. Both writers are fixed
+        // (AnimatedModel counts a built source as optimized; OptimizeMesh canonicalises
+        // triangle rotation), but a v8 file on disk still reads back in the old order, so
+        // the version must move for it to be re-imported.
+        // v10 adds no section. It invalidates v9 caches made before malformed
+        // bone weights were rejected and static caches made before authored
+        // node instances were kept distinct (#1350). Both branches introduced
+        // a v9 writer independently, so another bump is required after merging.
+        constexpr u32 CurrentVersion = 10;
 
         constexpr u32 MinSupportedVersion = 1;
         constexpr u32 FlagCompressed = 1;   // Payload is zlib-compressed

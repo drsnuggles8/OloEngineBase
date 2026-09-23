@@ -125,7 +125,7 @@ namespace OloEngine::Tests
     }
 
     // The cache-fingerprint corollary of the test above, and the reason
-    // RenderPipeline::ComputeBlackboardFingerprint hashes RHI::HashKey(handle)
+    // the render-graph declaration key (RGDeclarationKey) hashes RHI::HashKey(handle)
     // rather than the raw id (issue #691).
     //
     // The concrete bug: DDGIProbeUpdatePass::EnsureResources calls

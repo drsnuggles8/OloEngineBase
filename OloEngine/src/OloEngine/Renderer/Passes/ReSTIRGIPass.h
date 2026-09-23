@@ -95,6 +95,17 @@ namespace OloEngine
         ~ReSTIRGIPass() override = default;
 
         void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
+
+        // Setup() fixes the reservoir history's extraction source.
+        void AppendDeclarationInputs(RGDeclarationKey& key) const override
+        {
+            // Only when the tier can run: on a device without the shaders, or
+            // with the tier off, the source changes no declaration, and keying
+            // it would rebuild the graph for a settings edit that cannot
+            // change a single resource.
+            if (IsEnabled() && IsReadyForExecution())
+                key.Add(ReservoirExtractionSource());
+        }
         void Init(const FramebufferSpecification& spec) override;
         void Execute(RGCommandContext& context) override;
         void SetupFramebuffer(u32 width, u32 height) override;
@@ -157,6 +168,19 @@ namespace OloEngine
         [[nodiscard]] const ReSTIRGISettings& GetSettings() const noexcept
         {
             return m_Settings;
+        }
+
+        // Which target next frame's reservoir history is extracted from: 0 for
+        // the temporal target, 1 + index for a spatial ping-pong target. Setup()
+        // declares the extraction contract from this, so it is a declaration
+        // input, and it is the RESOLVED choice rather than the two settings
+        // behind it: SpatialPasses 1 and 3 extract from the same target and
+        // must not rebuild the graph (issue #1333).
+        [[nodiscard]] u32 ReservoirExtractionSource() const noexcept
+        {
+            if (!m_Settings.SpatialReuse)
+                return 0u;
+            return 1u + ((std::max(m_Settings.SpatialPasses, 1u) - 1u) % 2u);
         }
 
         // The uniform environment a bounce ray that escapes collects, and the

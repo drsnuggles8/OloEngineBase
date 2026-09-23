@@ -83,6 +83,10 @@ namespace OloEngine
         {
             return m_Directory;
         }
+        [[nodiscard]] bool WasMeshLoadedFromCache() const noexcept
+        {
+            return m_MeshLoadedFromCache;
+        }
 
         // Get animation by name
         [[nodiscard]] Ref<AnimationClip> GetAnimation(const std::string& name) const;
@@ -160,6 +164,7 @@ namespace OloEngine
         // but skinning expects them relative to the scene root coordinate system.
         glm::mat4 m_MeshNodeGlobalTransform{ 1.0f };
         bool m_HasMeshNodeTransform = false;
+        bool m_MeshLoadedFromCache = false;
 
         u32 m_BoneCounter = 0;
     };
