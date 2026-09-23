@@ -695,8 +695,13 @@ namespace OloEngine
             // Say so when TAA runs that the user did not tick: it changes the
             // whole image (jitter, history), and a checkbox reading "off" over a
             // frame that is plainly being resolved is its own silent surprise.
-            // Latched on the answer, not logged per frame.
-            const bool onSceneBehalf = data.EngineTAAWanted && !data.PostProcess.TAAEnabled;
+            // Latched on the answer, not logged per frame. Keyed on the pass
+            // actually RUNNING: while FSR2 owns the frame it is the resolve and
+            // engine TAA is off, so "TAA is running" would be false — and the
+            // latch then reports again when FSR2 stops and engine TAA takes over.
+            const bool onSceneBehalf =
+                TemporalUpscalePolicy::ShouldRunEngineTAA(data.EngineTAAWanted, data.TemporalUpscaleActive) &&
+                !data.PostProcess.TAAEnabled;
             if (onSceneBehalf != m_ReportedSceneTemporalResolve)
             {
                 m_ReportedSceneTemporalResolve = onSceneBehalf;
