@@ -57,7 +57,8 @@ def obj_coverage(obj_path, cutoff, texture_override=None):
         # load_obj returns per-CORNER arrays; measure_coverage wants indexed ones.
         positions = tri_p.reshape(-1, 3)
         uvs = tri_uv.reshape(-1, 2).copy()
-        uvs[:, 1] = 1.0 - uvs[:, 1]            # OBJ v is bottom-up; sampling is top-down
+        # These OBJs carry top-down (glTF) v, which is what the engine samples:
+        # Model flips every OBJ's v and Texture2D flips rows on upload. No flip.
         tris = np.arange(len(positions), dtype=np.int64).reshape(-1, 3)
         v0, v1, v2 = positions[tris[:, 0]], positions[tris[:, 1]], positions[tris[:, 2]]
         area = float((0.5 * np.linalg.norm(np.cross(v1 - v0, v2 - v0), axis=1)).sum())
