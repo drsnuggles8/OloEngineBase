@@ -49,3 +49,7 @@ first thing to load a body twice, through two paths, was the editor.
 - A new mesh writer or reader: it must not reorder, rotate or re-optimize what it is given, or the
   loaded surface is a different mesh as far as a binding is concerned. If the format changes what
   comes back, bump the version so existing caches re-import.
+- A path that marks a mesh pre-optimized without running `OptimizeMesh` must first call
+  `MeshOptimization::CanonicalizeIndexRotation` (a multi-submesh buffer, as USD and Alembic import)
+  or `OptimizeMesh` (the headless `Model`/`AnimatedModel` import, where `Build()` returns before
+  optimizing). `SerializeToAssetPack` refuses an index buffer the codec would rotate.

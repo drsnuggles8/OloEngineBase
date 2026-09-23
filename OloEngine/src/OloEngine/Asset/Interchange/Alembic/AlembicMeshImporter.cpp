@@ -5,6 +5,7 @@
 
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Renderer/Material.h"
+#include "OloEngine/Renderer/MeshOptimization.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/Vertex.h"
 
@@ -358,6 +359,10 @@ namespace OloEngine
 
         // Multi-submesh combined data must not be re-optimized (would scramble cross-submesh
         // offsets); mark pre-optimized so Build() skips OptimizeMesh — same as the Assimp path.
+        // It still needs the corner rotation a pack or cache load decodes, or the asset pack
+        // refuses it (#1223); the codec round trip keeps triangle order, so ranges hold.
+        if (!MeshOptimization::CanonicalizeIndexRotation(meshSource->GetIndices(), meshSource->GetVertices().Num()))
+            OLO_CORE_WARN("AlembicMeshImporter: index codec round trip failed for '{}'; the mesh cannot be packed.", path.string());
         meshSource->SetPreOptimized(true);
 
         if (accumulator.AnyAnimated)

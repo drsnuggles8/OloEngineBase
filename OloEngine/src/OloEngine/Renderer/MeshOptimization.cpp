@@ -339,38 +339,17 @@ namespace OloEngine::MeshOptimization
         // same round trip here makes the cold import already the form every
         // later load decodes. Rasterisation is unaffected: the triangles and
         // their winding are identical.
-        if (indexCount > 0 && (indexCount % 3u) == 0u)
+        if (!CanonicalizeIndexRotation(indices, vertexCount))
         {
-            const EncodedMeshBuffer encoded = EncodeIndexBuffer(indices.GetData(), indexCount, vertexCount);
-            TArray<u32> canonical;
-            canonical.SetNum(static_cast<i32>(indexCount));
-            if (DecodeIndexBuffer(canonical.GetData(), indexCount, encoded))
-            {
-                indices = std::move(canonical);
-            }
-            else
-            {
-                OLO_CORE_WARN("MeshOptimization::OptimizeMesh: index codec round trip failed; keeping the "
-                              "optimizer's triangle rotation, so a cached load may address corners differently");
-            }
+            OLO_CORE_WARN("MeshOptimization::OptimizeMesh: index codec round trip failed; keeping the "
+                          "optimizer's triangle rotation, so a cached load may address corners differently");
         }
 
         // 4. Generate shadow index buffer (merges position-equivalent vertices)
         GenerateShadowIndices(meshSource);
-        auto& shadowIndices = meshSource.GetShadowIndices();
-        if (!shadowIndices.IsEmpty() && (shadowIndices.Num() % 3) == 0)
+        if (!CanonicalizeIndexRotation(meshSource.GetShadowIndices(), vertexCount))
         {
-            const auto shadowCount = static_cast<sizet>(shadowIndices.Num());
-            const EncodedMeshBuffer encoded = EncodeIndexBuffer(shadowIndices.GetData(), shadowCount, vertexCount);
-            TArray<u32> canonical(static_cast<i32>(shadowCount));
-            if (DecodeIndexBuffer(canonical.GetData(), shadowCount, encoded))
-            {
-                shadowIndices = MoveTemp(canonical);
-            }
-            else
-            {
-                OLO_CORE_WARN("MeshOptimization::OptimizeMesh: shadow index codec round trip failed");
-            }
+            OLO_CORE_WARN("MeshOptimization::OptimizeMesh: shadow index codec round trip failed");
         }
 
         OLO_CORE_TRACE("MeshOptimization::OptimizeMesh: Optimized {} vertices, {} indices", vertexCount, indexCount);
@@ -1420,5 +1399,25 @@ namespace OloEngine::MeshOptimization
             destination, indexCount, sizeof(u32),
             encoded.Data.GetData(), static_cast<sizet>(encoded.Data.Num()));
         return rc == 0;
+    }
+
+    bool CanonicalizeIndexRotation(TArray<u32>& indices, sizet vertexCount)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        const auto indexCount = static_cast<sizet>(indices.Num());
+        if (indexCount == 0 || (indexCount % 3u) != 0u)
+        {
+            return true;
+        }
+
+        const EncodedMeshBuffer encoded = EncodeIndexBuffer(indices.GetData(), indexCount, vertexCount);
+        TArray<u32> canonical(static_cast<i32>(indexCount));
+        if (!DecodeIndexBuffer(canonical.GetData(), indexCount, encoded))
+        {
+            return false;
+        }
+        indices = MoveTemp(canonical);
+        return true;
     }
 } // namespace OloEngine::MeshOptimization
