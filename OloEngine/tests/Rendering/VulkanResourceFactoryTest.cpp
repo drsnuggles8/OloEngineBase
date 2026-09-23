@@ -519,6 +519,102 @@ TEST_F(VulkanResourceFactory, GPUSceneRetainsOldVersionUntilDelayedComputeReadCo
     EXPECT_FLOAT_EQ(oldRecord.CurrentTransform.Row0.w, 0.25f);
 }
 
+TEST_F(VulkanResourceFactory, FrameArenaAdjacentSlotSurvivesDelayedReadAndFenceGatedWrap)
+{
+    if (!m_Device->HasAsyncComputeQueue())
+        GTEST_SKIP() << "A separate compute queue is needed to delay the first slot's read.";
+
+    ScopedVulkanApiSelection vulkanApi;
+    auto& arena = VulkanFrameArena::Get();
+    arena.BeginFrame(0);
+    const u32 firstValue = 41;
+    const auto first = arena.Push(&firstValue, sizeof(firstValue));
+    ASSERT_TRUE(first.IsValid());
+    auto readback = StorageBuffer::Create(sizeof(u32), 0, StorageBufferUsage::DynamicCopy);
+    ASSERT_TRUE(readback);
+
+    VkCommandPool pool = VK_NULL_HANDLE;
+    VkSemaphore gate = VK_NULL_HANDLE;
+    VkFence fence = VK_NULL_HANDLE;
+    struct Cleanup
+    {
+        VkDevice Device;
+        VkCommandPool& Pool;
+        VkSemaphore& Gate;
+        VkFence& Fence;
+        ~Cleanup()
+        {
+            if (Fence != VK_NULL_HANDLE)
+                vkDestroyFence(Device, Fence, nullptr);
+            if (Gate != VK_NULL_HANDLE)
+                vkDestroySemaphore(Device, Gate, nullptr);
+            if (Pool != VK_NULL_HANDLE)
+                vkDestroyCommandPool(Device, Pool, nullptr);
+        }
+    } cleanup{ m_Device->GetDevice(), pool, gate, fence };
+
+    VkCommandPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+    poolInfo.queueFamilyIndex = m_Device->GetAsyncComputeQueueFamily();
+    ASSERT_EQ(vkCreateCommandPool(m_Device->GetDevice(), &poolInfo, nullptr, &pool), VK_SUCCESS);
+    VkCommandBufferAllocateInfo alloc{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+    alloc.commandPool = pool;
+    alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    alloc.commandBufferCount = 1;
+    VkCommandBuffer cmd = VK_NULL_HANDLE;
+    ASSERT_EQ(vkAllocateCommandBuffers(m_Device->GetDevice(), &alloc, &cmd), VK_SUCCESS);
+    VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+    ASSERT_EQ(vkBeginCommandBuffer(cmd, &begin), VK_SUCCESS);
+    const VkBufferCopy copy{ first.Offset, 0, sizeof(firstValue) };
+    vkCmdCopyBuffer(cmd, arena.GetSlotBuffer(0), static_cast<VulkanStorageBuffer*>(readback.Raw())->GetVkBuffer(),
+                    1, &copy);
+    ASSERT_EQ(vkEndCommandBuffer(cmd), VK_SUCCESS);
+
+    VkSemaphoreTypeCreateInfo type{ VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO };
+    type.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+    VkSemaphoreCreateInfo semInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+    semInfo.pNext = &type;
+    ASSERT_EQ(vkCreateSemaphore(m_Device->GetDevice(), &semInfo, nullptr, &gate), VK_SUCCESS);
+    VkFenceCreateInfo fenceInfo{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+    ASSERT_EQ(vkCreateFence(m_Device->GetDevice(), &fenceInfo, nullptr, &fence), VK_SUCCESS);
+    const u64 waitValue = 1;
+    VkTimelineSemaphoreSubmitInfo timeline{ VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
+    timeline.waitSemaphoreValueCount = 1;
+    timeline.pWaitSemaphoreValues = &waitValue;
+    const VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    VkSubmitInfo submit{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+    submit.pNext = &timeline;
+    submit.waitSemaphoreCount = 1;
+    submit.pWaitSemaphores = &gate;
+    submit.pWaitDstStageMask = &waitStage;
+    submit.commandBufferCount = 1;
+    submit.pCommandBuffers = &cmd;
+    ASSERT_EQ(vkQueueSubmit(m_Device->GetAsyncComputeQueue(), 1, &submit, fence), VK_SUCCESS);
+
+    // Slot 0 is still in use. An adjacent frame can publish into slot 1
+    // without modifying the pending read from slot 0.
+    arena.BeginFrame(1);
+    const u32 secondValue = 73;
+    const auto second = arena.Push(&secondValue, sizeof(secondValue));
+    EXPECT_TRUE(second.IsValid());
+    EXPECT_NE(arena.GetSlotBuffer(0), arena.GetSlotBuffer(1));
+    VkSemaphoreSignalInfo signal{ VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO };
+    signal.semaphore = gate;
+    signal.value = waitValue;
+    ASSERT_EQ(vkSignalSemaphore(m_Device->GetDevice(), &signal), VK_SUCCESS);
+    ASSERT_EQ(vkWaitForFences(m_Device->GetDevice(), 1, &fence, VK_TRUE, UINT64_MAX), VK_SUCCESS);
+    u32 observed = 0;
+    readback->GetData(&observed, sizeof(observed));
+    EXPECT_EQ(observed, firstValue);
+
+    // The fence is the caller's permission to wrap the ring back to slot 0.
+    arena.BeginFrame(0);
+    const u32 wrappedValue = 99;
+    const auto wrapped = arena.Push(&wrappedValue, sizeof(wrappedValue));
+    ASSERT_TRUE(wrapped.IsValid());
+    EXPECT_EQ(wrapped.Offset, first.Offset);
+    EXPECT_EQ(*static_cast<const u32*>(wrapped.Cpu), wrappedValue);
+}
+
 TEST_F(VulkanResourceFactory, TextureUploadRoundTripsThroughGetData)
 {
     ScopedVulkanApiSelection vulkanApi;

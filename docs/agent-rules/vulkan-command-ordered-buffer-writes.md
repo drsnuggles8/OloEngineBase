@@ -213,11 +213,14 @@ The per-dispatch GPU-particle and per-batch GPU-fluid staging allocations fix
 their aliases, but still need L6 hot-path timing baselines before they are
 treated as performance-safe.
 
-The arena's frame slot is recycled only after its fence completes. The current
-device fixtures wait after each submit, so they do not yet prove adjacent
-frames with deliberately delayed completion or a frame-ring wrap. The same
-gap applies to table replacement during a delayed consumer. Test those
-sequences before claiming the entire in-flight lifetime contract verified.
+The arena's frame slot is recycled only after its fence completes.
+`FrameArenaAdjacentSlotSurvivesDelayedReadAndFenceGatedWrap` holds a slot-0
+transfer read behind an unsignaled compute-queue semaphore, publishes into
+slot 1, then checks the old bytes and wraps back to slot 0 after its fence.
+The production frame loop waits for the slot fence before `BeginFrame`; the
+fixture exercises the slots and delayed read directly, not that frame-loop
+wait. A delayed GPUScene table read is also covered. Delayed palette, BLAS,
+foliage, fluid and shadow consumers remain separate untested paths.
 
 ## And again in the GPU particle counters (#1171)
 
