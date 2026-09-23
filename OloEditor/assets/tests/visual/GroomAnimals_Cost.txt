@@ -1,0 +1,11 @@
+# GroomAnimalsAcceptanceEvidenceTest.CostScalesAcrossAHerd (#1223)
+# GPU: NVIDIA GeForce RTX 4090/PCIe/SSE2
+# Release test binary, 1280x720, Forward, TAA on. GroomPass GPU ms is the mean of VALID samples
+# (GPUPassTimerPool, #1337) over 20 frames. Cache MiB is the strand geometry the pass holds.
+herd  scheduler  groomsDrawn  strandsDrawn  guidesSimulated  cacheMiB  groomPassMs  validSamples  wallMsPerFrame
+   3        off            3        165367             2262     953.3      348.550            20           420.1
+   3         on            3         65060              996     682.0      166.490            20           200.6
+   7        off            7        269521             4290    1196.3      589.236            20           676.1
+   7         on            7         78864             1284    1119.9      247.667            20           328.9
+  12        off           12        236926             6825    1186.8      451.560            20           531.5
+  12         on           12         84735             1644     864.1      181.088            20           233.6
