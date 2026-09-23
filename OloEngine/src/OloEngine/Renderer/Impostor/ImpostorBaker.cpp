@@ -138,11 +138,60 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        ImpostorAtlas atlas;
-
-        if (!mesh || !mesh->GetVertexArray())
+        if (!mesh || !mesh->GetVertexArray() || !mesh->GetVertexArray()->GetIndexBuffer())
         {
             OLO_CORE_WARN("ImpostorBaker::Bake: null mesh / vertex array — skipping bake");
+            return {};
+        }
+
+        // The whole shared index buffer as one part, framed to the whole
+        // MeshSource, not just submesh 0: a multi-submesh model's other parts
+        // would otherwise be clipped. Measured from the source vertices when
+        // there are any: MeshSource::GetBoundingBox() is empty on a warm
+        // .omesh load, and a bake framed to it frames nothing.
+        BoundingBox bounds = mesh->GetBoundingBox();
+        if (const Ref<MeshSource>& source = mesh->GetMeshSource(); source && !source->GetVertices().IsEmpty())
+        {
+            bounds = BoundingBox{ glm::vec3(std::numeric_limits<f32>::max()),
+                                  glm::vec3(std::numeric_limits<f32>::lowest()) };
+            for (const Vertex& vertex : source->GetVertices())
+            {
+                bounds.Min = glm::min(bounds.Min, vertex.Position);
+                bounds.Max = glm::max(bounds.Max, vertex.Position);
+            }
+        }
+        const ImpostorBakePart whole{ 0, mesh->GetVertexArray()->GetIndexBuffer()->GetCount(), albedoTexture };
+        return Bake(mesh->GetVertexArray(), bounds, std::span<const ImpostorBakePart>(&whole, 1), tint,
+                    framesPerAxis, atlasResolution, hemi, alphaCutoff);
+    }
+
+    ImpostorAtlas ImpostorBaker::Bake(
+        const Ref<VertexArray>& vertexArray,
+        const BoundingBox& bounds,
+        std::span<const ImpostorBakePart> parts,
+        const glm::vec3& tint,
+        u32 framesPerAxis,
+        u32 atlasResolution,
+        bool hemi,
+        f32 alphaCutoff)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        ImpostorAtlas atlas;
+
+        if (!vertexArray || parts.empty())
+        {
+            OLO_CORE_WARN("ImpostorBaker::Bake: no vertex array or no parts — skipping bake");
+            return atlas;
+        }
+        // Inverted, non-finite, or a single point — the default box that
+        // MeshSource::GetBoundingBox() returns on a warm .omesh load. Any of
+        // them frames the bake around nothing, so refuse loudly instead.
+        const glm::vec3 extent = bounds.Max - bounds.Min;
+        if (!(extent.x >= 0.0f) || !(extent.y >= 0.0f) || !(extent.z >= 0.0f) ||
+            !(glm::length(extent) > 0.0f) || !std::isfinite(glm::length(extent)))
+        {
+            OLO_CORE_WARN("ImpostorBaker::Bake: empty bounds — skipping bake rather than framing nothing");
             return atlas;
         }
 
@@ -176,12 +225,8 @@ namespace OloEngine
         }
         atlas.BudgetNode = budgetNode;
 
-        // Frame the WHOLE MeshSource, not just submesh 0: DrawIndexed(vao) below
-        // renders the full shared index buffer (every submesh), so framing to the
-        // per-submesh bounds would clip a multi-submesh model's other parts.
-        const BoundingBox srcBox = mesh->GetMeshSource() ? mesh->GetMeshSource()->GetBoundingBox() : mesh->GetBoundingBox();
-        const glm::vec3 center = (srcBox.Min + srcBox.Max) * 0.5f;
-        const f32 radius = std::max(glm::length(srcBox.Max - center), 1e-3f);
+        const glm::vec3 center = (bounds.Min + bounds.Max) * 0.5f;
+        const f32 radius = std::max(glm::length(bounds.Max - center), 1e-3f);
 
         // Offscreen MRT: RT0 = albedo+coverage, RT1 = normal+depth, + depth buffer.
         FramebufferSpecification fbSpec;
@@ -195,8 +240,6 @@ namespace OloEngine
         auto framebuffer = Framebuffer::Create(fbSpec);
 
         auto bakeUBO = UniformBuffer::Create(sizeof(ImpostorBakeUBO), ShaderBindingLayout::UBO_IMPOSTOR_BAKE);
-
-        const Ref<Texture2D> albedo = albedoTexture ? albedoTexture : GetWhiteFallback();
 
         // Preserve stencil state (mirrors IBLPrecompute / SkyCubemapBake).
         const bool wasStencil = RenderCommand::IsStencilTestEnabled();
@@ -226,12 +269,7 @@ namespace OloEngine
         RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 0.0f });
         RenderCommand::ClearColorAndDepth();
 
-        // Through the seam: the bake shader is already bound above, so the fork
-        // on IsBoundProgramBindless is answerable (issue #691).
-        HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_DIFFUSE, albedo->GetRHIHandle(),
-                                         RHI::HeapSlotLifetime::Persistent);
-
-        auto vao = mesh->GetVertexArray();
+        const RHI::ResourceHandle vao = vertexArray->GetRHIHandle();
 
         for (u32 fy = 0; fy < N; ++fy)
         {
@@ -259,9 +297,19 @@ namespace OloEngine
 
                 RenderCommand::SetViewport(fx * tileRes, fy * tileRes, tileRes, tileRes);
 
-                vao->Bind();
-                HeapBinding::FlushOffsets();
-                RenderCommand::DrawIndexed(vao);
+                // Each part with its own albedo, through the seam: the bake
+                // shader is already bound above, so the fork on
+                // IsBoundProgramBindless is answerable (issue #691).
+                for (const ImpostorBakePart& part : parts)
+                {
+                    if (part.IndexCount == 0)
+                        continue;
+                    const Ref<Texture2D> albedo = part.Albedo ? part.Albedo : GetWhiteFallback();
+                    HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_DIFFUSE, albedo->GetRHIHandle(),
+                                                     RHI::HeapSlotLifetime::Persistent);
+                    HeapBinding::FlushOffsets();
+                    RenderCommand::DrawIndexedRaw(vao, part.IndexCount, part.BaseIndex);
+                }
             }
         }
 

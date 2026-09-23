@@ -2627,7 +2627,8 @@ namespace OloEngine
             instanceCount = maxInstances;
         }
 
-        auto& frameBuffer = FrameDataBufferManager::Get();
+        // Replay reads the frame's payloads; it never writes them (issue #1335).
+        const FrameDataBuffer& frameBuffer = FrameDataBufferManager::Get();
         const glm::mat4* transforms = frameBuffer.GetTransformPtr(cmd->transformBufferOffset);
         const glm::mat4* prevTransforms = nullptr;
         if (cmd->prevTransformBufferOffset != UINT32_MAX)

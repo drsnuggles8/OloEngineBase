@@ -81,9 +81,12 @@ namespace OloEngine
      * Usage:
      *   1. Call Reset() at the start of each frame (in BeginScene)
      *   2. AllocateBoneMatrices() / AllocateTransforms() return offsets
-     *   3. Write data to the buffer using GetBoneMatrixPtr() / GetTransformPtr()
+     *   3. Write data to the buffer using WriteBoneMatrices() / WriteTransforms()
      *   4. Commands reference data by offset+count
-     *   5. At dispatch time, retrieve data using GetBoneMatrixPtr() / GetTransformPtr()
+     *   5. The first replay publishes everything allocated so far (PublishForReplay);
+     *      from then on those ranges are read-only
+     *   6. At dispatch time, retrieve data using the const GetBoneMatrixRange() /
+     *      GetTransformPtr()
      */
     class FrameDataBuffer
     {
@@ -116,8 +119,31 @@ namespace OloEngine
          *
          * Doesn't free memory, just resets allocation offsets.
          * Call at the start of BeginScene().
+         *
+         * Also retires the previous frame's publication (see PublishForReplay).
          */
         void Reset();
+
+        /**
+         * @brief Publish every range allocated so far as read-only (issue #1335)
+         *
+         * Called by every command replay before it starts: the packets about
+         * to replay may reference any range allocated up to now, and parallel
+         * replay reads them from several workers without a lock. After this,
+         * a Write* into a published range is a CommandLifecycle violation and
+         * is refused. Allocating and writing NEW ranges stays legal, which is
+         * what lets a later pass batch into fresh transforms after an earlier
+         * pass has already replayed. The render-state and material tables need
+         * no watermark: an entry, once allocated, has no write path at all.
+         *
+         * There are deliberately no mutable pointer accessors: the only way
+         * to change a stream is a Write*, and every Write* is checked.
+         */
+        void PublishForReplay();
+
+        // Published element counts per stream, for tests and diagnostics.
+        [[nodiscard]] u32 GetPublishedTransformCount() const;
+        [[nodiscard]] u32 GetPublishedBoneMatrixCount() const;
 
         /**
          * @brief Allocate space for bone matrices
@@ -142,7 +168,6 @@ namespace OloEngine
          * @param offset Offset returned by AllocateBoneMatrices
          * @return Pointer to the first matrix at this offset
          */
-        glm::mat4* GetBoneMatrixPtr(u32 offset);
         const glm::mat4* GetBoneMatrixPtr(u32 offset) const;
 
         /**
@@ -165,7 +190,6 @@ namespace OloEngine
          * @param offset Offset returned by AllocateTransforms
          * @return Pointer to the first matrix at this offset
          */
-        glm::mat4* GetTransformPtr(u32 offset);
         const glm::mat4* GetTransformPtr(u32 offset) const;
 
         /**
@@ -199,7 +223,6 @@ namespace OloEngine
         /**
          * @brief Get pointer to entity IDs at offset
          */
-        i32* GetEntityIDPtr(u32 offset);
         const i32* GetEntityIDPtr(u32 offset) const;
 
         /**
@@ -233,16 +256,13 @@ namespace OloEngine
         static constexpr sizet DEFAULT_GPU_SCENE_REF_CAPACITY = 262144;
 
         u32 AllocateColors(u32 count);
-        glm::vec4* GetColorPtr(u32 offset);
         const glm::vec4* GetColorPtr(u32 offset) const;
         void WriteColors(u32 offset, const glm::vec4* data, u32 count);
 
         u32 AllocateCustoms(u32 count);
-        f32* GetCustomPtr(u32 offset);
         const f32* GetCustomPtr(u32 offset) const;
         void WriteCustoms(u32 offset, const f32* data, u32 count);
         u32 AllocateGPUSceneRefs(u32 count);
-        glm::uvec4* GetGPUSceneRefPtr(u32 offset);
         const glm::uvec4* GetGPUSceneRefPtr(u32 offset) const;
         void WriteGPUSceneRefs(u32 offset, const glm::uvec4* data, u32 count);
 
@@ -410,6 +430,20 @@ namespace OloEngine
         u32 m_ColorOffset = 0;      // Current allocation offset (vec4 stream)
         u32 m_CustomOffset = 0;     // Current allocation offset (f32 stream)
         u32 m_GPUSceneRefOffset = 0;
+
+        // Publication watermarks (issue #1335): [0, m_Published*) of each
+        // stream is read-only until the next Reset(). Each is read and written
+        // under its stream's mutex.
+        u32 m_PublishedBoneMatrices = 0;
+        u32 m_PublishedTransforms = 0;
+        u32 m_PublishedEntityIDs = 0;
+        u32 m_PublishedColors = 0;
+        u32 m_PublishedCustoms = 0;
+        u32 m_PublishedGPUSceneRefs = 0;
+
+        // True, after reporting, when [offset, ...) starts inside a published
+        // range. Caller holds the stream's mutex.
+        [[nodiscard]] static bool RefusePublishedWrite(u32 offset, u32 published, const char* where);
 
         mutable FMutex m_BoneMutex;
         mutable FMutex m_TransformMutex;

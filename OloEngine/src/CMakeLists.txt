@@ -1240,6 +1240,8 @@
 		"OloEngine/Renderer/Commands/CommandBucket.h"
 		"OloEngine/Renderer/Commands/CommandDispatch.cpp"
 		"OloEngine/Renderer/Commands/CommandDispatch.h"
+		"OloEngine/Renderer/Commands/CommandLifecycle.cpp"
+		"OloEngine/Renderer/Commands/CommandLifecycle.h"
 		"OloEngine/Renderer/Commands/CommandPacket.cpp"
 		"OloEngine/Renderer/Commands/CommandPacket.h"
 		"OloEngine/Renderer/Commands/DrawKey.h"
@@ -1420,6 +1422,8 @@
 		"OloEngine/Terrain/Foliage/FoliageInteraction.cpp"
 		"OloEngine/Terrain/Foliage/FoliageGPUCuller.h"
 		"OloEngine/Terrain/Foliage/FoliageGPUCuller.cpp"
+		"OloEngine/Terrain/Foliage/FoliageAlphaCoverage.h"
+		"OloEngine/Terrain/Foliage/FoliageAlphaCoverage.cpp"
 		"OloEngine/Terrain/Foliage/FoliageRenderer.h"
 		"OloEngine/Terrain/Foliage/FoliageRenderer.cpp"
 

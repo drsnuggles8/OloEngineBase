@@ -33,10 +33,28 @@ namespace OloEngine
             m_CommandBucket.SetAllocator(m_Allocator);
         }
 
+        // Retire this pass's bucket. The allocator is reset only when this pass
+        // OWNS it. Render-stream passes share FrameResourceManager's per-frame
+        // allocator (RenderPipeline sets it on every stream node), and that
+        // allocator is reset once per frame by its owner: a pass that reset it
+        // here would free every OTHER stream's packets that have not replayed
+        // yet, and the next allocation from it would build a new packet on top
+        // of one of them. Forward frames did exactly that to the decal bucket,
+        // which an earlier stream pass retired before DecalRenderPass replayed.
         void ResetCommandBucket()
         {
             OLO_CORE_ASSERT(m_Allocator, "CommandBufferRenderPass::ResetCommandBucket: No allocator available!");
-            m_CommandBucket.Reset(*m_Allocator);
+            if (m_Allocator == m_OwnedAllocator.get())
+            {
+                m_CommandBucket.Reset(*m_Allocator);
+            }
+            else
+            {
+                // Everything Reset does except the allocator: the bucket's
+                // statistics are per frame, and tests and the profiler read them.
+                m_CommandBucket.Clear();
+                m_CommandBucket.ResetStatistics();
+            }
         }
 
         void SetCommandAllocator(CommandAllocator* allocator)

@@ -36,6 +36,7 @@ The upstream licence text is kept verbatim in [`LICENSE.md`](LICENSE.md). Its ow
 | `Head.fbx` | the scanned mesh, head and shoulders |
 | `Textures/lambertian.jpg` | diffuse albedo, 8.6 MB |
 | `Textures/bump-lowRes.png` | a BUMP map, not a tangent-space normal map — do not bind it to `u_NormalMap` without converting it first |
+| `SandboxProject/Assets/Textures/InfiniteScanHead_Thickness.png` | a skin **thickness map** baked from this mesh (issue #1394) by [`tools/skin-thickness`](../../../../tools/skin-thickness/README.md). It lives in the project, not here, because scene texture paths resolve against the project asset root. Author it with `ThicknessFactor: 0.02` |
 
 ## Using it
 

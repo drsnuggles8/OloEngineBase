@@ -156,7 +156,12 @@ Entities:
   # -- The face. A slab behind the globes so the eyes are seen AGAINST SKIN
   #    rather than against the clear colour: without it the limbus would be a
   #    silhouette edge against background, and "the sclera is still a skin term"
-  #    would be a claim about nothing. Version 4, unchanged by this feature. --
+  #    would be a claim about nothing. It wears ReferenceHead.oloskin, which is
+  #    transport version 3 since #1394, so the slab's specular is #1243's
+  #    layered lobe AND its 6 mm is now read by #1242's transmission. The Rim
+  #    Light sits behind the slab, but at 6 mm the red transmittance is ~1.6%,
+  #    and under that light the material-transmission view is black over the
+  #    whole slab (measured live, #1394). Thin it and it will start to glow. --
   - Entity: 1244000002000010
     TagComponent:
       Tag: Face
