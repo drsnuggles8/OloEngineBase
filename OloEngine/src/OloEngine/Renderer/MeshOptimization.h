@@ -231,5 +231,15 @@ namespace OloEngine
         // Encodes index data into a compact binary form.
         EncodedMeshBuffer EncodeIndexBuffer(const u32* indices, sizet indexCount, sizet vertexCount);
         bool DecodeIndexBuffer(u32* destination, sizet indexCount, const EncodedMeshBuffer& encoded);
+
+        // Puts a triangle list through the index codec round trip, so its corners
+        // already have the rotation every .omesh or asset-pack load decodes. Keeps
+        // triangle order and winding, so submesh index ranges stay valid; safe on a
+        // multi-submesh buffer that must not be re-optimized. OptimizeMesh does this
+        // itself; an importer that marks unoptimized data pre-optimized must call it,
+        // or the asset pack refuses the mesh (#1223). Returns false, leaving the
+        // buffer untouched, when the round trip fails. Empty and non-triangle
+        // buffers are left as they are and count as canonical.
+        bool CanonicalizeIndexRotation(TArray<u32>& indices, sizet vertexCount);
     } // namespace MeshOptimization
 } // namespace OloEngine

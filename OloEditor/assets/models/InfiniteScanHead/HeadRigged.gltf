@@ -1,0 +1,460 @@
+{
+ "asset": {
+  "generator": "Khronos glTF Blender I/O v5.2.40",
+  "version": "2.0"
+ },
+ "scene": 0,
+ "scenes": [
+  {
+   "name": "Scene",
+   "nodes": [
+    4
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "name": "Head",
+   "rotation": [
+    0.03433070704340935,
+    0,
+    0,
+    0.9994105100631714
+   ],
+   "translation": [
+    0,
+    0.09469766914844513,
+    4.656612873077393e-10
+   ]
+  },
+  {
+   "children": [
+    0
+   ],
+   "name": "Neck",
+   "rotation": [
+    -0.022709686309099197,
+    0,
+    0,
+    0.9997420907020569
+   ],
+   "translation": [
+    0,
+    0.1289999932050705,
+    0
+   ]
+  },
+  {
+   "children": [
+    1
+   ],
+   "name": "Chest"
+  },
+  {
+   "mesh": 0,
+   "name": "head",
+   "skin": 0
+  },
+  {
+   "children": [
+    3,
+    2
+   ],
+   "name": "HeadRig"
+  }
+ ],
+ "animations": [
+  {
+   "channels": [
+    {
+     "sampler": 0,
+     "target": {
+      "node": 2,
+      "path": "translation"
+     }
+    },
+    {
+     "sampler": 1,
+     "target": {
+      "node": 2,
+      "path": "rotation"
+     }
+    },
+    {
+     "sampler": 2,
+     "target": {
+      "node": 2,
+      "path": "scale"
+     }
+    },
+    {
+     "sampler": 3,
+     "target": {
+      "node": 1,
+      "path": "translation"
+     }
+    },
+    {
+     "sampler": 4,
+     "target": {
+      "node": 1,
+      "path": "rotation"
+     }
+    },
+    {
+     "sampler": 5,
+     "target": {
+      "node": 1,
+      "path": "scale"
+     }
+    },
+    {
+     "sampler": 6,
+     "target": {
+      "node": 0,
+      "path": "translation"
+     }
+    },
+    {
+     "sampler": 7,
+     "target": {
+      "node": 0,
+      "path": "rotation"
+     }
+    },
+    {
+     "sampler": 8,
+     "target": {
+      "node": 0,
+      "path": "scale"
+     }
+    }
+   ],
+   "name": "LookAround",
+   "samplers": [
+    {
+     "input": 7,
+     "interpolation": "STEP",
+     "output": 8
+    },
+    {
+     "input": 7,
+     "interpolation": "STEP",
+     "output": 9
+    },
+    {
+     "input": 7,
+     "interpolation": "STEP",
+     "output": 10
+    },
+    {
+     "input": 7,
+     "interpolation": "STEP",
+     "output": 11
+    },
+    {
+     "input": 12,
+     "interpolation": "LINEAR",
+     "output": 13
+    },
+    {
+     "input": 7,
+     "interpolation": "STEP",
+     "output": 10
+    },
+    {
+     "input": 7,
+     "interpolation": "STEP",
+     "output": 14
+    },
+    {
+     "input": 12,
+     "interpolation": "LINEAR",
+     "output": 15
+    },
+    {
+     "input": 7,
+     "interpolation": "STEP",
+     "output": 10
+    }
+   ]
+  }
+ ],
+ "materials": [
+  {
+   "doubleSided": true,
+   "name": "HeadSkin",
+   "pbrMetallicRoughness": {
+    "baseColorFactor": [
+     0.800000011920929,
+     0.800000011920929,
+     0.800000011920929,
+     1
+    ],
+    "metallicFactor": 0,
+    "roughnessFactor": 0.5,
+    "baseColorTexture": {
+     "index": 0
+    }
+   }
+  }
+ ],
+ "meshes": [
+  {
+   "name": "head",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1,
+      "TEXCOORD_0": 2,
+      "JOINTS_0": 3,
+      "WEIGHTS_0": 4
+     },
+     "indices": 5,
+     "material": 0
+    }
+   ]
+  }
+ ],
+ "skins": [
+  {
+   "inverseBindMatrices": 6,
+   "joints": [
+    2,
+    1,
+    0
+   ],
+   "name": "HeadRig"
+  }
+ ],
+ "accessors": [
+  {
+   "bufferView": 0,
+   "componentType": 5126,
+   "count": 9580,
+   "max": [
+    0.2314409464597702,
+    0.4300000071525574,
+    0.1401948630809784
+   ],
+   "min": [
+    -0.2314409464597702,
+    0,
+    -0.1401948630809784
+   ],
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 1,
+   "componentType": 5126,
+   "count": 9580,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 2,
+   "componentType": 5126,
+   "count": 9580,
+   "type": "VEC2"
+  },
+  {
+   "bufferView": 3,
+   "componentType": 5121,
+   "count": 9580,
+   "type": "VEC4"
+  },
+  {
+   "bufferView": 4,
+   "componentType": 5126,
+   "count": 9580,
+   "type": "VEC4"
+  },
+  {
+   "bufferView": 5,
+   "componentType": 5123,
+   "count": 53052,
+   "type": "SCALAR"
+  },
+  {
+   "bufferView": 6,
+   "componentType": 5126,
+   "count": 3,
+   "type": "MAT4"
+  },
+  {
+   "bufferView": 7,
+   "componentType": 5126,
+   "count": 2,
+   "max": [
+    7.24
+   ],
+   "min": [
+    0.04
+   ],
+   "type": "SCALAR"
+  },
+  {
+   "bufferView": 8,
+   "componentType": 5126,
+   "count": 2,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 9,
+   "componentType": 5126,
+   "count": 2,
+   "type": "VEC4"
+  },
+  {
+   "bufferView": 10,
+   "componentType": 5126,
+   "count": 2,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 11,
+   "componentType": 5126,
+   "count": 2,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 12,
+   "componentType": 5126,
+   "count": 181,
+   "max": [
+    7.24
+   ],
+   "min": [
+    0.04
+   ],
+   "type": "SCALAR"
+  },
+  {
+   "bufferView": 13,
+   "componentType": 5126,
+   "count": 181,
+   "type": "VEC4"
+  },
+  {
+   "bufferView": 14,
+   "componentType": 5126,
+   "count": 2,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 15,
+   "componentType": 5126,
+   "count": 181,
+   "type": "VEC4"
+  }
+ ],
+ "bufferViews": [
+  {
+   "buffer": 0,
+   "byteLength": 114960,
+   "byteOffset": 0,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 114960,
+   "byteOffset": 114960,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 76640,
+   "byteOffset": 229920,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 38320,
+   "byteOffset": 306560,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 153280,
+   "byteOffset": 344880,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 106104,
+   "byteOffset": 498160,
+   "target": 34963
+  },
+  {
+   "buffer": 0,
+   "byteLength": 192,
+   "byteOffset": 604264
+  },
+  {
+   "buffer": 0,
+   "byteLength": 8,
+   "byteOffset": 604456
+  },
+  {
+   "buffer": 0,
+   "byteLength": 24,
+   "byteOffset": 604464
+  },
+  {
+   "buffer": 0,
+   "byteLength": 32,
+   "byteOffset": 604488
+  },
+  {
+   "buffer": 0,
+   "byteLength": 24,
+   "byteOffset": 604520
+  },
+  {
+   "buffer": 0,
+   "byteLength": 24,
+   "byteOffset": 604544
+  },
+  {
+   "buffer": 0,
+   "byteLength": 724,
+   "byteOffset": 604568
+  },
+  {
+   "buffer": 0,
+   "byteLength": 2896,
+   "byteOffset": 605292
+  },
+  {
+   "buffer": 0,
+   "byteLength": 24,
+   "byteOffset": 608188
+  },
+  {
+   "buffer": 0,
+   "byteLength": 2896,
+   "byteOffset": 608212
+  }
+ ],
+ "buffers": [
+  {
+   "byteLength": 611108,
+   "uri": "HeadRigged.bin"
+  }
+ ],
+ "images": [
+  {
+   "uri": "Textures/lambertian.jpg",
+   "mimeType": "image/jpeg"
+  }
+ ],
+ "samplers": [
+  {}
+ ],
+ "textures": [
+  {
+   "source": 0,
+   "sampler": 0
+  }
+ ]
+}

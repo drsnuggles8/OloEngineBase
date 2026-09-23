@@ -6,6 +6,7 @@
 
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Renderer/Material.h"
+#include "OloEngine/Renderer/MeshOptimization.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/Vertex.h"
 
@@ -431,6 +432,10 @@ namespace OloEngine
             meshSource->SetImportedMaterials(std::move(materials));
 
             // Fresh-vertex-per-corner combined buffer must not be re-optimized across submeshes.
+            // It still needs the corner rotation a pack or cache load decodes, or the asset pack
+            // refuses it (#1223); the codec round trip keeps triangle order, so ranges hold.
+            if (!MeshOptimization::CanonicalizeIndexRotation(meshSource->GetIndices(), meshSource->GetVertices().Num()))
+                OLO_CORE_WARN("UsdMeshImporter: index codec round trip failed for '{}'; the mesh cannot be packed.", path.string());
             meshSource->SetPreOptimized(true);
 
             OLO_CORE_TRACE("UsdMeshImporter: imported '{}' ({} mesh prims, {} verts, upAxis={}, mpu={}).", path.string(),

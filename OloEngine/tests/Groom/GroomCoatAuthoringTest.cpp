@@ -740,6 +740,32 @@ TEST(GroomCoatAuthoring, ANonFiniteRootUvCannotReachACast)
               GroomCoatClumpCell({ 0.1f, 0.1f }, GroomCoatLimits::MaxClumpCellSize));
 }
 
+TEST(GroomCoatAuthoring, AnRgbMapIsTheSameMapAsItsOpaqueRgba)
+{
+    // Every JPEG albedo reads back as RGB8. Refusing that made an animal's own
+    // albedo unusable as its coat's colour map (#1223), while the map only
+    // ever samples R, G and B.
+    const std::array<u8, 12> rgb{ 10, 20, 30, 40, 50, 60, 70, 80, 90, 200, 210, 220 };
+    const std::array<u8, 16> rgba{ 10, 20, 30, 255, 40, 50, 60, 255, 70, 80, 90, 255, 200, 210, 220, 255 };
+    Ref<GroomRegionMap> fromRgb = GroomRegionMap::FromRGB8(2, 2, std::span<const u8>(rgb.data(), rgb.size()));
+    Ref<GroomRegionMap> fromRgba = GroomRegionMap::FromRGBA8(2, 2, std::span<const u8>(rgba.data(), rgba.size()));
+    ASSERT_TRUE(fromRgb);
+    ASSERT_TRUE(fromRgba);
+    EXPECT_EQ(fromRgb->GetContentHash(), fromRgba->GetContentHash());
+    for (const glm::vec2 uv : { glm::vec2(0.1f, 0.1f), glm::vec2(0.9f, 0.1f), glm::vec2(0.5f, 0.5f), glm::vec2(0.9f, 0.9f) })
+    {
+        const glm::vec3 a = fromRgb->Sample(uv);
+        const glm::vec3 b = fromRgba->Sample(uv);
+        EXPECT_FLOAT_EQ(a.x, b.x);
+        EXPECT_FLOAT_EQ(a.y, b.y);
+        EXPECT_FLOAT_EQ(a.z, b.z);
+    }
+
+    // The same refusals as the RGBA builder: a wrong-sized span is not padded.
+    EXPECT_FALSE(GroomRegionMap::FromRGB8(2, 2, std::span<const u8>(rgba.data(), rgba.size())));
+    EXPECT_FALSE(GroomRegionMap::FromRGB8(0, 2, std::span<const u8>(rgb.data(), rgb.size())));
+}
+
 TEST(GroomCoatAuthoring, AMalformedRegionMapIsRefusedRatherThanPadded)
 {
     // A short buffer padded with zeroes is a map whose lower rows say "density

@@ -660,6 +660,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/SubmeshMaterialPathParityTest.cpp
 		Rendering/PropertyTests/ModelWarmCacheGeometryIdentityTest.cpp
 		Rendering/PropertyTests/MeshAssetBoneInfluenceImportTest.cpp
+		Rendering/PropertyTests/AnimatedModelCacheSurfaceTest.cpp
 		Rendering/PropertyTests/VirtualGeometryRasterParityTest.cpp
 		Rendering/PropertyTests/VirtualRasterSubSampleEvidenceTest.cpp
 		Rendering/PropertyTests/VirtualMeshAssetPackTest.cpp
@@ -688,6 +689,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/GroomCoatShadowVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomBindingVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomSimulationVisualEvidenceTest.cpp
+		Rendering/PropertyTests/GroomAnimalsAcceptanceEvidenceTest.cpp
 		# Criterion 4's pictures: both reference animals under front/side/backlight,
 		# on all three rendering paths, plus the silhouette-under-budget and
 		# layer-separability measurements a screenshot cannot make (#1251).
