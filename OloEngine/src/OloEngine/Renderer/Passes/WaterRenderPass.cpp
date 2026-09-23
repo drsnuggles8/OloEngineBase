@@ -29,7 +29,7 @@ namespace OloEngine
         m_SelectedSceneNormalsTexture = {};
         m_SelectedRefractionTexture = {};
 
-        if (m_CommandBucket.GetCommandCount() == 0)
+        if (!HasSubmittedCommands())
             return;
 
         if (board.Scene.SceneColor.IsValid())

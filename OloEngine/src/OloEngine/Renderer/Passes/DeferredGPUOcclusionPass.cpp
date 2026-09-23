@@ -20,6 +20,11 @@ namespace OloEngine
         OLO_CORE_INFO("Creating DeferredGPUOcclusionPass.");
     }
 
+    void DeferredGPUOcclusionPass::AppendDeclarationInputs(RGDeclarationKey& key) const
+    {
+        key.Add(static_cast<bool>(m_GBuffer));
+    }
+
     void DeferredGPUOcclusionPass::Setup(RGBuilder& builder, FrameBlackboard& board)
     {
         RenderGraphNode::Setup(builder, board);

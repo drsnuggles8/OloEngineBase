@@ -585,6 +585,21 @@ namespace OloEngine
                                     u32 colorAttachmentIndex = 0);
         u32 InvalidateTemporalHistories(TemporalHistoryInvalidationCause cause,
                                         std::optional<TemporalHistoryEffect> effect = std::nullopt);
+
+        // Bring every history sink's token to its history's CURRENT generation
+        // (issue #1333). A sink latches its token when PopulateBlackboard
+        // acquires the history, and PopulateBlackboard is skipped while the
+        // declaration key holds. The key tracks whether a history is VALID, not
+        // its generation, so an invalidation of an already-invalid history
+        // (continuous camera or object motion under the path tracer) leaves the
+        // key, and the latched token, unchanged; the token is then stale,
+        // MarkProduced rejects it on every frame, and the history never comes
+        // back. Call once per frame after the configuration is captured: an
+        // invalidation later in the frame still rejects this frame's output,
+        // which is what an invalidation is for. A sink whose texture is no
+        // longer the history's (a descriptor change recreated it) keeps its old
+        // token and is left for the next populate to re-register.
+        void RefreshHistorySinkTokens();
         [[nodiscard]] const TemporalHistoryRegistry& GetTemporalHistoryRegistry() const
         {
             return m_TemporalHistoryRegistry;
@@ -845,6 +860,51 @@ namespace OloEngine
         {
             m_HasValidBuildFrameGraphCache = false;
         }
+
+        // Whether BuildFrameGraph(key) would return from the cache. Used by the
+        // declaration-cache verifier (issue #1333) to know that a frame is
+        // about to be served from a cached build.
+        [[nodiscard]] bool HasValidBuildFrameGraphCache(const u64 key) const
+        {
+            return key != 0u && m_HasValidBuildFrameGraphCache && !m_DependencyGraphDirty &&
+                   key == m_LastBuildFrameGraphFingerprint;
+        }
+
+        // Counts of BuildFrameGraph calls that compiled (ran every Setup) and
+        // that were served from the cache, since construction.
+        struct BuildCacheCounters
+        {
+            u64 Compiles = 0;
+            u64 CacheHits = 0;
+        };
+
+        [[nodiscard]] const BuildCacheCounters& GetBuildCacheCounters() const
+        {
+            return m_BuildCacheCounters;
+        }
+
+        // One labelled component of the compiled-plan digest: a pass
+        // ("pass:<name>") or a resource ("resource:<name>").
+        struct PlanDigestEntry
+        {
+            std::string Label;
+            u64 Digest = 0;
+        };
+
+        // A digest of everything a build decides that a cached build would
+        // reuse (issue #1333): per pass, its declared accesses, feedbacks,
+        // dependencies, culled state and position; per resource, its transient
+        // or imported descriptor, the identity an import is bound to, and its
+        // history sink. Two builds from the same configuration must produce
+        // the same digest, so a cached build whose digest differs from a
+        // forced rebuild's is stale. It deliberately excludes handle slot
+        // indices and generations, which change on every rebuild without
+        // changing what is declared, and history token generations, which are
+        // execution data.
+        //
+        // `entries`, when given, receives one entry per pass and per resource,
+        // sorted by label, so two digests can be diffed by name.
+        [[nodiscard]] u64 ComputeCompiledPlanDigest(std::vector<PlanDigestEntry>* entries = nullptr) const;
 
         struct FrameBuildStats
         {
@@ -1425,6 +1485,7 @@ namespace OloEngine
         // skip the Setup loop and all downstream compilation on cache hits.
         u64 m_LastBuildFrameGraphFingerprint = 0u;
         bool m_HasValidBuildFrameGraphCache = false;
+        BuildCacheCounters m_BuildCacheCounters;
 
         // Dynamic Resolution Scaling state.
         // m_PhysicalWidth/Height reflect the last Resize() call (actual GPU allocation).
@@ -1694,7 +1755,12 @@ namespace OloEngine
         // this so a reconfigure that leaves every other hashed input identical
         // still forces a repopulate — see issue #530. Never reset; wraps
         // harmlessly at u64.
-        u64 m_TopologyGeneration = 0;
+        // Drawn from one process-wide counter (issue #1333), not counted per
+        // graph: a pipeline cache keyed on the generation must never see a new
+        // or recreated graph report the value an earlier graph already used,
+        // which a per-instance counter starting from 0 does by construction.
+        [[nodiscard]] static u64 NextTopologyGeneration();
+        u64 m_TopologyGeneration = NextTopologyGeneration();
         // -------------------------------------------------------------------
         // Transient resource pool
         // -------------------------------------------------------------------

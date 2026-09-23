@@ -189,6 +189,13 @@ namespace OloEngine
         m_RasterParamsUBO->Bind();
     }
 
+    void VirtualGeometryPass::AppendDeclarationInputs(RGDeclarationKey& key) const
+    {
+        const auto& registry = VirtualMeshRegistry::Get();
+        key.Add(registry.GetDebugMode());
+        key.Add(registry.GetDebugColorTexture());
+    }
+
     void VirtualGeometryPass::Setup(RGBuilder& builder, FrameBlackboard& board)
     {
         RenderGraphNode::Setup(builder, board);
@@ -204,7 +211,7 @@ namespace OloEngine
         m_SelectedSceneDepthMS = {};
 
         // Deferred-path only: the G-Buffer is the integration point.
-        if (Renderer3D::GetRendererSettings().Path != RenderingPath::Deferred)
+        if (board.Config.Path != RenderingPath::Deferred)
             return;
 
         // Declared UNCONDITIONALLY in Deferred (not gated on this frame's
@@ -244,8 +251,8 @@ namespace OloEngine
         //
         // The targets are CREATED here, not only in Execute (issue #607). Setup runs
         // on a graph rebuild, and the rebuild is what a debug-mode change triggers
-        // (Renderer3D::RenderPipeline::ComputeBlackboardFingerprint hashes the mode +
-        // the debug texture id — see the comment there). If the import waited for
+        // (AppendDeclarationInputs reports the mode and the debug texture's
+        // identity). If the import waited for
         // Execute to lazily create the texture, the FIRST rebuild would see id 0 and
         // import nothing, so the resource only appeared if some LATER, unrelated
         // change happened to rebuild the graph again. Over MCP that read as

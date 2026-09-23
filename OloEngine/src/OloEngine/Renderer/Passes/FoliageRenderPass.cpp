@@ -21,7 +21,7 @@ namespace OloEngine
         m_SelectedVelocityExport = {};
         m_SelectedSceneDepthExport = {};
 
-        if (m_CommandBucket.GetCommandCount() == 0)
+        if (!HasSubmittedCommands())
             return;
 
         if (board.Scene.SceneColor.IsValid())
@@ -53,7 +53,7 @@ namespace OloEngine
         // A deferred shader failure can route fallback overlays through this
         // pass. Its framebuffer does not contain the opaque G-Buffer velocity;
         // preserve those deferred exports rather than replacing the image.
-        if (Renderer3D::GetRendererSettings().Path != RenderingPath::Deferred)
+        if (board.Config.Path != RenderingPath::Deferred)
         {
             declareExport(board.GBuffer.Velocity, m_SelectedVelocityExport);
             declareExport(board.Scene.SceneDepth, m_SelectedSceneDepthExport);
@@ -63,7 +63,9 @@ namespace OloEngine
             {
                 builder.DependsOnPass("VirtualShadowMapMarkPass");
                 builder.DependsOnPass("SphereProxyAOPass");
-                switch (Renderer3D::GetPostProcessSettings().ActiveAOTechnique)
+                // The technique the graph was BUILT with (#771): the requested
+                // one names an AO pass that may not be registered yet.
+                switch (board.Config.GraphAOTechnique)
                 {
                     case AOTechnique::SSAO:
                         builder.DependsOnPass("SSAOPass");

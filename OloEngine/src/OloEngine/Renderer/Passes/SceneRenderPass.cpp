@@ -106,8 +106,7 @@ namespace OloEngine
             builder.Write(board.GBuffer.Velocity, RGWriteUsage::TransferDest);
         }
 
-        const auto& rendererSettings = Renderer3D::GetRendererSettings();
-        if (rendererSettings.Path != RenderingPath::Deferred)
+        if (board.Config.Path != RenderingPath::Deferred)
         {
             if (board.Scene.SceneNormals.IsValid())
             {

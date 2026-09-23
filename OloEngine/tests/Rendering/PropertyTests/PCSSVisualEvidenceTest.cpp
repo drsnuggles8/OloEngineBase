@@ -219,6 +219,18 @@ namespace OloEngine::Tests
             }
         } scopedMockTime(kCaptureTime);
 
+        // Capture() toggles PCSS on the process-wide shadow map and leaves it ON
+        // after the last pose; put back what this test found, so no later test
+        // inherits soft shadows (it softened every foliage golden after it).
+        struct ScopedShadowSettings
+        {
+            ShadowSettings Saved = Renderer3D::GetShadowMap().GetSettings();
+            ~ScopedShadowSettings()
+            {
+                Renderer3D::GetShadowMap().SetSettings(Saved);
+            }
+        } scopedShadowSettings;
+
         // Render one camera pose with hard PCF then PCSS and assert the
         // driver-independent soft-shadow contracts. Classifies ground luma over the
         // lower 55% of the frame (foreground ground + cast shadows): lit grey ground

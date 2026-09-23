@@ -179,11 +179,10 @@ namespace OloEngine
 
     namespace Tests
     {
-        // Test seam: grants RenderGraphFingerprintTest access to the private
-        // RenderPipeline / Renderer3DData so it can verify that every
-        // topology-affecting setting changes ComputeBlackboardFingerprint()
-        // (the invariant the SSR-enable bug violated). See
-        // RenderGraphFingerprintTest.cpp.
+        // Test seam: grants the declaration-key tests access to the private
+        // RenderPipeline / Renderer3DData so they can verify that every
+        // declaration input moves the key and no execution-only input does
+        // (issue #1333). See RenderGraphFingerprintTest.cpp.
         struct RenderPipelineFingerprintAccess;
     } // namespace Tests
 
@@ -1217,6 +1216,12 @@ namespace OloEngine
 
         // Window resize handling
         static void OnWindowResize(u32 width, u32 height);
+
+        // How the render-graph declaration cache has behaved since the last
+        // reset (issue #1333): compiles, cache hits, redundant compiles, and
+        // under OLO_RG_VERIFY_DECLARATION_CACHE the stale-cache detections.
+        [[nodiscard]] static FrameGraphDeclarationStats GetFrameGraphDeclarationStats();
+        static void ResetFrameGraphDeclarationStats();
 
         static Ref<Framebuffer> ResolveFrameGraphFramebuffer(std::string_view resourceName)
         {

@@ -47,6 +47,9 @@ namespace OloEngine
         ~DeferredGPUOcclusionPass() override = default;
 
         void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
+
+        // Setup() declares nothing without a G-Buffer (the forward paths).
+        void AppendDeclarationInputs(RGDeclarationKey& key) const override;
         void Execute(RGCommandContext& context) override;
         [[nodiscard]] Ref<Framebuffer> GetTarget() const override;
         void OnReset() override;

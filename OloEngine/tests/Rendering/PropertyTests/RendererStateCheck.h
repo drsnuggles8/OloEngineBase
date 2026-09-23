@@ -63,6 +63,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/RenderingPath.h"
+#include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Renderer/Water/WaterDisturbanceSystem.h"
 #include "OloEngine/Renderer/Water/WaterFoam.h"
 #include "OloEngine/Renderer/Water/WaterWakeSystem.h"
@@ -102,6 +103,15 @@ namespace OloEngine::Tests::RendererState
         // --- Scene-published render state ---
         CloudscapeRenderState Cloudscape{};
         UnderwaterFogState UnderwaterFog{};
+
+        // --- The shadow map's settings ---
+        // Not a by-reference accessor: a resolution change recreates the shadow
+        // textures, so it is restored through ShadowMap::SetSettings, and only
+        // when it actually moved. Missing from this snapshot is how
+        // PCSSVisualEvidenceTest's SoftShadows = true / Softness = 1.5 reached
+        // every later test in the process and failed the foliage goldens on
+        // shadow shape alone (SSIM 0.95 against 0.985).
+        ShadowSettings Shadow{};
 
         // --- Scalar toggles that live outside any settings struct ---
         // Deliberately ABSENT: `DepthPrepassEnabled`. It is not independent

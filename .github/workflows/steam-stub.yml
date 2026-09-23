@@ -59,6 +59,18 @@ name: Steam (stub SDK)
 # Steam path through the include graph, discovered on the next master/weekly run rather than in
 # review. Given the alternative cost, that is the better side of the trade. If Steam grows to
 # something the project actually ships on, revisit.
+#
+# NARROWED AGAIN (2026-09-23), because the filter was not filtering. Replayed over the last 80
+# merged PRs it matched 64 of them, almost entirely through three entries that change for reasons
+# unrelated to Steam: OloEngine/tests/CMakeLists.txt (57 PRs: every new test file),
+# OloEngine/src/CMakeLists.txt (35: every new source file) and SaveGame/** (20). The box's two
+# olo-ci slots serve every PR's sanitizer jobs, so those stub builds (~53 runner-hours over the 80
+# PRs) queued in front of work that could fail. Now the two shared CMake lists count only when a
+# changed LINE mentions Steam (the cmake-lines step), and SaveGame counts through the one file
+# that calls the seam. The same replay matches 10 of 80. None of the six PR failures this job has
+# ever reported would have been lost: two came from #738 (still matched, through CMakePresets.json
+# and Application.cpp), one from the #644 Steam work itself, and three were runner provisioning
+# failures (link errors seconds into configure), not Steam regressions.
 on:
   push:
     branches: [master]
@@ -92,7 +104,7 @@ jobs:
     name: Detect Steam-seam changes
     runs-on: ubuntu-latest
     outputs:
-      steam: ${{ steps.filter.outputs.steam }}
+      steam: ${{ steps.filter.outputs.steam == 'true' || steps.cmake-lines.outputs.steam == 'true' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -110,7 +122,8 @@ jobs:
               # definitions, the vendor/port block and the manifest.
               - 'CMakeLists.txt'
               - 'OloEngine/CMakeLists.txt'
-              - 'OloEngine/src/CMakeLists.txt'
+              # OloEngine/src/CMakeLists.txt and OloEngine/tests/CMakeLists.txt are
+              # NOT path entries: see the cmake-lines step below.
               - 'OloEditor/src/CMakeLists.txt'
               - 'OloRuntime/src/CMakeLists.txt'
               - 'OloServer/src/CMakeLists.txt'
@@ -122,15 +135,37 @@ jobs:
               # stub SDK, and the tests that drive the enabled path.
               - 'OloEngine/src/Platform/Steam/**'
               - 'OloEngine/tests/Platform/Steam/**'
-              - 'OloEngine/tests/CMakeLists.txt'
               # The seam's consumers outside Platform/Steam: the Lua bindings,
               # the cloud-save mirror, Steam Input routing and the application
               # bring-up all call into the backend and are exercised only by
-              # the enabled build. (`git grep -l SteamManager` is the check.)
+              # the enabled build. (`git grep -l SteamManager` is the check;
+              # in SaveGame that is SaveGameManager alone, not the directory.)
               - 'OloEngine/src/OloEngine/Scripting/Lua/LuaScriptGlue.cpp'
-              - 'OloEngine/src/OloEngine/SaveGame/**'
+              - 'OloEngine/src/OloEngine/SaveGame/SaveGameManager.*'
               - 'OloEngine/src/OloEngine/Core/InputActionManager.*'
               - 'OloEngine/src/OloEngine/Core/Application.cpp'
+
+      # The two engine-wide CMake lists change on almost every PR (a new source or
+      # test file is a new line in one of them), so a PATH match says nothing about
+      # Steam. What does is a changed line that NAMES it: the Platform/Steam sources,
+      # the stub SDK, the Steam tests and the OLO_WITH_STEAM plumbing all do.
+      # Base...head, the same comparison paths-filter makes.
+      - name: Detect Steam lines in the shared CMake lists
+        id: cmake-lines
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          changed=$(git diff --unified=0 "${BASE_SHA}...${HEAD_SHA}" -- \
+                      OloEngine/src/CMakeLists.txt OloEngine/tests/CMakeLists.txt \
+                    | grep -E '^[+-]' | grep -vE '^(\+\+\+|---) ' | grep -ci 'steam' || true)
+          echo "Changed lines naming Steam in the shared CMake lists: ${changed}"
+          if [ "${changed}" -gt 0 ]; then
+            echo "steam=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "steam=false" >> "$GITHUB_OUTPUT"
+          fi
 
   # Cheap, no-build guard on the invariant the whole design rests on: exactly ONE translation
   # unit may include a Valve header. If that spreads, the logic stops being fake-testable and the

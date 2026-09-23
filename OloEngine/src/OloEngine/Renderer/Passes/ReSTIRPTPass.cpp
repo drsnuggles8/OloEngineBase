@@ -252,8 +252,19 @@ namespace OloEngine
         m_Inputs = { board.Scene.SceneDepth, board.GBuffer.GBufferAlbedo, board.GBuffer.GBufferNormal,
                      board.GBuffer.GBufferEmissive, board.GBuffer.Velocity, board.IBL.PrefilterMap };
         m_Targets = { board.Scratch.ReSTIRPTInitial, board.Scratch.ReSTIRPTTemporal, board.Scratch.ReSTIRPTSpatial };
+        m_StoodDownInSetup = false;
         if (!m_Stats.Active || !board.Lighting.ReSTIRPTRadiance.IsValid())
             return;
+        // Every return below this point happens after the configuration saw the
+        // tier active; record whether this Setup() stood it down (issue #1333).
+        struct StandDownRecorder
+        {
+            ReSTIRPTPass& Pass;
+            ~StandDownRecorder()
+            {
+                Pass.m_StoodDownInSetup = !Pass.m_Stats.Active;
+            }
+        } standDownRecorder{ *this };
         // Resize can run between per-frame configuration and graph setup.
         // Never import a cleared pool based solely on the earlier verdict.
         if (!EnsureBuffers())
