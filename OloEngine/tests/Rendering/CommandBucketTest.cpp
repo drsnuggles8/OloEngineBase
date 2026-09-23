@@ -410,8 +410,11 @@ TEST_F(CommandBucketTest, ParallelSubmissionPastItsBoundIsRefusedNotRegrown)
 // emptied array; now the claim is refused and the bucket stays empty.
 TEST_F(CommandBucketTest, ParallelSubmissionAfterClearWithoutPrepareIsRefused)
 {
-#ifdef OLO_ENABLE_ASSERTS
-    GTEST_SKIP() << "The misuse asserts in a build with asserts; this pins what a Release build does instead.";
+    // Keyed on NDEBUG, not OLO_ENABLE_ASSERTS: the asserts that fire here are
+    // compiled into the ENGINE library, whose Debug configuration defines
+    // OLO_DEBUG; the test target does not, so its own view of that macro is off.
+#ifndef NDEBUG
+    GTEST_SKIP() << "The misuse asserts in a Debug engine; this pins what a Release build does instead.";
 #endif
     CommandBucket bucket;
     bucket.PrepareForParallelSubmission(5000);
