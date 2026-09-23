@@ -1110,8 +1110,9 @@ namespace OloEngine
         // keeps the completed struct in GPU command order; no GPU result is
         // read back and no CPU-built replacement is substituted for the
         // compute-written field.
-        AssembleRootData(layout, shader->GetName().c_str(), ctx.BoundVertexArray,
-                         /*commandOrderedBufferReads=*/true);
+        if (!AssembleRootData(layout, shader->GetName().c_str(), ctx.BoundVertexArray,
+                              /*commandOrderedBufferReads=*/true))
+            return false;
 
         const u32 gpuFieldEnd = gpuField->Offset + static_cast<u32>(sizeof(VkDeviceAddress));
         const VkBuffer native = rootBuffer->GetVkBuffer();
@@ -2594,10 +2595,11 @@ namespace OloEngine
         }
     } // namespace
 
-    void VulkanRendererAPI::AssembleRootData(const VulkanRootDataLayout& layout, const char* shaderName,
+    bool VulkanRendererAPI::AssembleRootData(const VulkanRootDataLayout& layout, const char* shaderName,
                                              const VulkanVertexArray* vao, const bool commandOrderedBufferReads)
     {
         auto& ctx = Ctx();
+        bool requiredPullFailed = false;
         // Root-struct assembly: one u64 device address per buffer block, one
         // u32 heap slot per image, from the process-global binding state
         // (ADR 0011 §4 — this is the writer half of the mapping contract;
@@ -2643,6 +2645,10 @@ namespace OloEngine
                     const auto* pullBuffer = vao != nullptr ? vao->GetPullVertexBuffer(pullStream) : nullptr;
                     occupantAbsent = vao != nullptr && pullBuffer == nullptr;
                     address = pullBuffer != nullptr ? pullBuffer->GetPullAddress() : 0;
+                    // A present stream returning zero refused its frame-arena
+                    // snapshot. The null block is too small for vertex indices;
+                    // do not issue a draw that could read beyond it.
+                    requiredPullFailed |= pullBuffer != nullptr && address == 0;
                 }
                 else if (auto* ubo = bindingState.GetUniformBuffer(binding.Binding);
                          ubo != nullptr && binding.BindingKind == VulkanShaderBinding::Kind::UniformBuffer)
@@ -2807,13 +2813,15 @@ namespace OloEngine
                 }
             }
         }
+        return !requiredPullFailed;
     }
 
     bool VulkanRendererAPI::AssembleAndPushRootData(const VulkanRootDataLayout& layout, const char* shaderName,
                                                     const VulkanVertexArray* vao, const bool commandOrderedBufferReads)
     {
         auto& ctx = Ctx();
-        AssembleRootData(layout, shaderName, vao, commandOrderedBufferReads);
+        if (!AssembleRootData(layout, shaderName, vao, commandOrderedBufferReads))
+            return false;
         // A shader that declares no root data at all assembles zero bytes, and
         // the arena refuses a zero-byte push — so the work drops. That is the
         // conservative answer (an EMPTY layout is far more often failed

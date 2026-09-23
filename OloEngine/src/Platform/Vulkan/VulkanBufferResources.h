@@ -18,10 +18,10 @@
 //    versioned per-frame arena push. SetData mid-frame allocates a NEW range,
 //    so draws recorded before the write keep the old contents — the GL
 //    ordering semantics, reproduced without any hazard tracking.
-//  - VulkanVertexBuffer / VulkanIndexBuffer: persistent VMA buffers (mesh
-//    data is upload-once); vertex data is PULLED via buffer device address
-//    (§5 — there is no vertex-input state), index data feeds
-//    vkCmdBindIndexBuffer3KHR.
+//  - VulkanVertexBuffer: persistent VMA storage for static mesh and BLAS
+//    inputs, plus frame-arena snapshots for mutable vertex-pull streams.
+//    VulkanIndexBuffer is constructor-uploaded persistent storage, consumed
+//    by vkCmdBindIndexBuffer3KHR.
 //  - VulkanVertexArray: a pure CPU aggregate (buffer refs + layout). Vulkan
 //    has no VAO object; the draw path resolves the aggregate through
 //    VulkanRootObjectRegistry from the packet's vertexArrayID handle.
@@ -348,27 +348,13 @@ namespace OloEngine
         // the persistent allocation, unchanged, so static geometry costs no
         // arena traffic and stays valid as a ray-tracing build input.
         //
-        // A stream rewritten SEVERAL TIMES INSIDE ONE FRAME is a different
-        // animal. The persistent buffer is one piece of memory that the GPU
-        // reads at EXECUTION time, so N rewrites in a frame leave all N draws
-        // reading the last one. Such a stream is snapshotted into the frame
-        // arena per rewrite, exactly as VulkanUniformBuffer does, giving each
-        // draw the bytes that were current when it was recorded (GL's
-        // command-ordered glNamedBufferSubData semantics). Issue #1171.
+        // Every write after construction makes the stream mutable. Its draws
+        // use frame-arena snapshots starting with the first rewrite, including
+        // a stream updated only once per frame. Static mesh uploads remain on
+        // the persistent allocation.
         //
-        // Two limits, stated rather than papered over:
-        //  - A stream written exactly ONCE per frame does not latch, because
-        //    one write per frame cannot alias between draws of that frame. It
-        //    can still race the previous frame's in-flight submission, which
-        //    this seam does not address and which needs a ring.
-        //  - The frame in which streaming is first detected still aliases:
-        //    draws recorded before the second write already resolved to the
-        //    persistent address. It is correct from the next frame on, since
-        //    the latch is sticky.
-        //
-        // Returns 0 only on arena overflow, which the arena counts and warns
-        // about; the caller substitutes the null block rather than reading a
-        // stale stream.
+        // Returns 0 on arena overflow, which the arena counts and warns
+        // about; root assembly then drops the draw.
         //
         // Safe to call from several RecordParallel items at once. Unlike
         // VulkanUniformBuffer, whose address the fork primes before the region,
@@ -392,13 +378,13 @@ namespace OloEngine
         VkDeviceAddress m_DeviceAddress = 0;
         RHI::ScopedResourceHandle m_RHIHandle;
 
-        // Streaming state. m_Shadow is only allocated once a SetData lands
-        // inside a recording frame — an upload-once stream never pays for it.
+        // Streaming state. Static constructor uploads never allocate a shadow.
         std::vector<u8> m_Shadow;
         u32 m_ShadowSize = 0;
         bool m_Streamed = false;
-        bool m_InitialUploadDone = false; ///< CreateBuffer's own upload; never counts toward stream detection.
-        u64 m_LastWriteGeneration = 0;
+        bool m_InitialUploadDone = false; ///< CreateBuffer's own upload is not a rewrite.
+        bool m_HadInitialData = false;
+        mutable std::atomic<u64> m_PersistentDrawGeneration{ 0 };
         ///< (region << 32 | item) of the region's first RecordParallel writer — a streamed
         ///< stream is a written object like any other, and rule 6 applies to it.
         std::atomic<u64> m_ParallelWriter{ 0 };

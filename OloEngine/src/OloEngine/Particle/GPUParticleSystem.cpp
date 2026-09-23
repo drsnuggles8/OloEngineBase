@@ -140,11 +140,6 @@ namespace OloEngine
             ShaderBindingLayout::SSBO_INDIRECT_DRAW,
             StorageBufferUsage::DynamicCopy);
 
-        m_EmitStagingSSBO = StorageBuffer::Create(
-            MAX_EMIT_BATCH * GPUParticle::GetSize(),
-            ShaderBindingLayout::SSBO_EMIT_STAGING,
-            StorageBufferUsage::DynamicDraw);
-
         // Previous-frame particle snapshot. Each slot carries:
         //   - prev position (vec4 xyz; w unused)
         //   - prev rotation + size (vec4 x = rot, y = size; zw unused)
@@ -290,7 +285,20 @@ namespace OloEngine
 
         u32 emitCount = static_cast<u32>(std::min(newParticles.size(), static_cast<sizet>(MAX_EMIT_BATCH)));
 
-        // Upload new particles to staging SSBO
+        // Compute reads the persistent SSBO address. Reusing one mapped
+        // staging buffer would make two recorded emits consume the final
+        // upload, and a next-frame upload could race the prior dispatch.
+        // Retire the previous allocation through the backend's deferred
+        // reclaim; every dispatch gets bytes that remain stable until it runs.
+        auto nextStaging = StorageBuffer::Create(emitCount * GPUParticle::GetSize(),
+                                                 ShaderBindingLayout::SSBO_EMIT_STAGING,
+                                                 StorageBufferUsage::DynamicDraw);
+        if (!nextStaging)
+        {
+            OLO_CORE_ERROR("GPUParticleSystem::EmitParticles: staging allocation failed — refusing emit");
+            return;
+        }
+        m_EmitStagingSSBO = std::move(nextStaging);
         m_EmitStagingSSBO->Bind();
         m_EmitStagingSSBO->SetData(newParticles.data(), emitCount * GPUParticle::GetSize());
 

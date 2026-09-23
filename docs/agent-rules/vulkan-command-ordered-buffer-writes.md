@@ -175,10 +175,43 @@ Two lessons worth more than the fix:
   the same facade, semantics and deferred execution. Ask which *other* types
   share the shape before closing such an issue.
 
-Not covered: a stream written exactly **once** per frame never trips the
-detector, because one write cannot alias between draws of that frame. It can
-still race the previous frame's submission, which needs a ring — the "own wave"
-the original comment promised and nothing has built.
+That detector left a once-per-frame in-flight race and lost the first draw of
+the frame that first had two writes. The current policy below replaces it.
+
+## Current buffer-family audit (#1351)
+
+The original second-write detector has been replaced: the first `SetData`
+after construction makes a vertex-pull stream mutable. Every subsequent pull
+draw uses an arena snapshot, including a stream written once per frame. The
+constructor's initial upload alone leaves a static mesh on its persistent
+address. A first rewrite after a persistent draw waits for earlier submissions;
+if that draw was recorded in the current frame, the rewrite is refused rather
+than silently changing its bytes. A partial first rewrite of a staged buffer
+with constructor data is also refused when its unwritten tail cannot be read.
+
+| Family and actual consumer | Producer and intended lifetime | Mechanism and remaining limit |
+|---|---|---|
+| UBO root addresses (`VulkanRendererAPI::AssembleAndPushRootData`) | CPU, per draw | `VulkanUniformBuffer` keeps a full CPU shadow and pushes a versioned, whole-buffer arena allocation. A refused snapshot returns zero; root assembly substitutes the null block and counts the unfed binding. |
+| Bound SSBO root addresses, including model instances | CPU, per draw | `VulkanStorageBuffer::PushSnapshot` preserves the whole buffer across partial writes; `DynamicDrawExactUpload` uses a draw-bounded prefix. Draw consumption prevents overwriting a published snapshot. A staged partial write with no readable prior bytes refuses the snapshot and still has last-write-wins ordering; this remains an explicit unsupported path. |
+| GPU Scene record tables read by compute | CPU dirty-range upload, persistent compute address | `GPUScene::Upload` issues partial `SetData` on long-lived `DynamicDraw` SSBOs; compute root assembly chooses the persistent address. The draw snapshot cannot protect an adjacent frame's in-flight compute read from the next CPU write. This still needs an explicit ring or copy-ordered publication test and fix. |
+| Vertex-pull binding 57/63 | CPU, per draw for mutable streams; persistent for constructor-uploaded meshes | `GetPullAddress` gives mutable draws a per-version frame-arena snapshot. Arena refusal returns zero; root assembly counts the unfed binding and drops that draw before it can index the small null block. Vertex data used by BLAS still uses the persistent allocation; a simultaneous BLAS read and rewrite needs separate coverage. |
+| Index buffer in `vkCmdBindIndexBuffer3KHR` | CPU at construction, persistent | `VulkanIndexBuffer` has no `SetData` API. Raw index arenas use `UploadBufferSubData`, a separate command-buffer copy path. |
+| `InstanceBuffer` at SSBO 15 | CPU per batch | `DynamicDrawExactUpload` snapshots its uploaded prefix; `UploadRange` with a nonzero offset takes the whole-buffer rule. Count-to-byte overflow and out-of-capacity writes are refused, clearing the live count. The interleaved instance-draw device test exercises the actual binding. |
+| GPU particles: counters, alive/free lists, indirect args | Compute output and command-ordered GPU reset, persistent | `DynamicCopy` refuses CPU snapshots; `GPUParticleSystem::Compact` uses `ClearData`, which records a fill in the command stream. Indirect and compute consumers use the persistent allocation. |
+| GPU particle emit staging at SSBO 5 | CPU per compute dispatch | Each `EmitParticles` call creates a staging SSBO sized to that batch. The previous allocation retires through deferred reclaim, so two dispatches and adjacent frames cannot read the final CPU upload from the same mapped range. |
+| GPU fluid emit staging and body proxies | CPU per solver step, compute reads | `GPUFluidSolver::Emit` writes ranges into one persistent staging SSBO and `Step` can reuse it while a prior frame's dispatch remains in flight. Body proxies have the same persistent mapped-write shape. These paths still need an ordered or versioned upload policy and a delayed-frame device test. |
+| Emissive triangle, material texture and shader-heap tables reached through device addresses | CPU on table change, persistent for an in-flight consumer | Each table allocates a fresh SSBO when its bytes change and publishes the new address. The old buffer enters `VulkanDeferredReclaim` and survives until completed frame generations drain. |
+| RT surface vertex addresses (deformed, vegetation, groom) | GPU deformation or CPU groom conversion; persistent BLAS input | GPU deformation writes the persistent output by command, with explicit ordering needed before AS build. `GroomSurfaceCache` refills the same persistent vertex buffer from the CPU when its shape is stable; an earlier frame may still read it through a BLAS build. This is a remaining in-flight hazard, owned by the in-progress groom epic; the vertex-pull snapshot does not protect a BLAS input address. |
+
+The per-dispatch GPU-particle staging allocation fixes the alias but still
+needs an L6 hot-path timing baseline before it is treated as performance-safe.
+It does not fix the similarly shaped GPU-fluid staging path.
+
+The arena's frame slot is recycled only after its fence completes. The current
+device fixtures wait after each submit, so they do not yet prove adjacent
+frames with deliberately delayed completion or a frame-ring wrap. The same
+gap applies to table replacement during a delayed consumer. Test those
+sequences before claiming the entire in-flight lifetime contract verified.
 
 ## And again in the GPU particle counters (#1171)
 
