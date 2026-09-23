@@ -52,6 +52,32 @@ namespace OloEngine
 {
     namespace
     {
+        // Whether the skin diffusion pass runs this frame. The ONE place the
+        // answer is decided, because three sites need the same one: the
+        // pass's own settings, the scratch target's declaration and the
+        // blackboard fingerprint — two of them disagreeing is a declared target
+        // with no writer, or a stale cached graph.
+        //
+        // OFF UNDER A MATERIAL DEBUG VIEW OTHER THAN DIFFUSE (issue #1394). The
+        // pass ADDS blur(aux) - aux into scene colour in place, and under a
+        // debug view scene colour is no longer the composite: the deferred
+        // lighting pass has returned the Specular, Transmission, profile-id or
+        // mask output instead. The high-pass of the DIFFUSE half then lands on
+        // top of it, and the Transmission view of a backlit head showed every
+        // silhouette and crease as an edge — at version 1, where the term it
+        // claims to show is identically zero. The Diffuse view keeps the pass:
+        // the diffused diffuse half is the thing that view is for.
+        [[nodiscard]] bool SkinDiffusionRunsThisFrame(const SkinDiffusionSettings& settings, RenderingPath path,
+                                                      MaterialDebugView materialDebug) noexcept
+        {
+            if (!settings.Enabled)
+                return false;
+            const bool isolatingAView = (path == RenderingPath::Deferred) &&
+                                        (materialDebug != MaterialDebugView::None) &&
+                                        (materialDebug != MaterialDebugView::Diffuse);
+            return !isolatingAView;
+        }
+
         constexpr ImageFormat kTemporalHistoryFormat = ImageFormat::RGBA16F;
         constexpr u32 kSSGIHistoryLayoutVersion = 1u;
 
@@ -1173,7 +1199,10 @@ namespace OloEngine
         }
         if (PostProcessPasses.SkinDiffusion)
         {
-            PostProcessPasses.SkinDiffusion->SetSettings(data.SkinDiffusion);
+            SkinDiffusionSettings effective = data.SkinDiffusion;
+            effective.Enabled =
+                SkinDiffusionRunsThisFrame(data.SkinDiffusion, data.Settings.Path, data.PostProcess.MaterialDebug);
+            PostProcessPasses.SkinDiffusion->SetSettings(effective);
             // P[1][1] and the clip planes, straight off the frame's projection.
             // Taken from the matrix rather than from a stored field of view so a
             // custom or orthographic projection reaches the pass as what it
@@ -3257,7 +3286,7 @@ namespace OloEngine
         // decides whether its scratch target is declared at all -- both are
         // topology, not just state.
         HashPassState(h, PostProcessPasses.SkinDiffusion);
-        HashBool(h, data.SkinDiffusion.Enabled);
+        HashBool(h, SkinDiffusionRunsThisFrame(data.SkinDiffusion, data.Settings.Path, data.PostProcess.MaterialDebug));
         HashU32(h, static_cast<u32>(std::to_underlying(data.SkinDiffusion.Quality)));
         HashPassState(h, PostProcessPasses.SSS);
         HashPassState(h, PostProcessPasses.AOApply);
@@ -4170,7 +4199,7 @@ namespace OloEngine
         // place rather than producing a new image, so the post-process chain is
         // not rewired and the result needs no handle of its own.
         if (pipeline.PostProcessPasses.SkinDiffusion &&
-            data.SkinDiffusion.Enabled &&
+            SkinDiffusionRunsThisFrame(data.SkinDiffusion, data.Settings.Path, data.PostProcess.MaterialDebug) &&
             board.Scene.SkinDiffuse.IsValid() &&
             pipeline.PostProcessPasses.SkinDiffusion->IsReadyForExecution())
         {

@@ -955,8 +955,25 @@ namespace OloEngine::Tests
                "ends up making the tissue under it glow. Renderer/SkinOralSurface.h states the coat is a "
                "PARTITION: it attenuates the diffuse and adds ONLY to the specular.";
 
-        // CLAIM 3. And the specular got BRIGHTER, by a lot — so claim 2 is not
-        // passing because the coat is inert.
+        // CLAIM 3. And the specular got BRIGHTER — so claim 2 is not passing
+        // because the coat is inert.
+        //
+        // THE BAR IS THE REPEAT FLOOR, NOT A MULTIPLE OF IT, and the history is
+        // the reason. This claim used to demand 4x the floor. When #1245 landed,
+        // the largest upward move here was 17 levels. b783876d6 (the coat's
+        // Fresnel takes dot(V, H), not dot(N, H)) correctly shrank the head-on
+        // highlight to 7. And 4 of those 7 were never the coat: until #1394 the
+        // skin diffusion pass added its high-pass of the DIFFUSE half on top of
+        // every material debug view, and the coat changes the diffuse half.
+        // With that leak fixed (RenderPipeline.cpp, SkinDiffusionRunsThisFrame)
+        // the coat's clean gain in this AOV is 3 levels, on 2-3 pixels, at this
+        // pose and at Side/ThreeQuarter alike.
+        //
+        // The floor on this fixture is 0 (two captures are byte-identical), so
+        // "above the floor" is still an exact statement that the coat reached
+        // the specular half. How LARGE the wet highlight should be is a
+        // separate question, tracked as #1421 (a follow-up to the closed
+        // #1245) rather than answered by a threshold chosen to make this pass.
         //
         // THE INSTRUMENT IS THE LARGEST UPWARD MOVE, NOT A PIXEL COUNT, and the
         // first version of this test got that wrong in a way worth recording.
@@ -966,18 +983,19 @@ namespace OloEngine::Tests
         // film is, so nearly every lit pixel moves by a level or two (47 235 of
         // them, by at most 21 levels down), while the specular it adds is
         // concentrated where the half-vector is (32 233 pixels, by up to 20
-        // levels UP). Counting pixels measures how WIDE each change is; the
+        // levels UP, when this was written — see the history above for what
+        // those figures are today). Counting pixels measures how WIDE each change is; the
         // claim is about how BIG it is, and the two answers point in opposite
         // directions.
         const Difference specularDiff = Diff(drySpecular, wetSpecular);
         const i32 specularUp = MaxBrightening(drySpecular, wetSpecular);
-        EXPECT_GT(static_cast<f32>(specularUp), 4.0f * std::max(floor, 1.0f))
+        EXPECT_GT(static_cast<f32>(specularUp), floor)
             << p << ": THE SPECULAR AOV GAINED ALMOST NOTHING (" << specularUp
             << " levels against a floor of " << floor
             << "). The coat is not reaching the frame at all, which makes every other claim in this file pass "
                "vacuously — claim 2 in particular, since a coat that does nothing brightens nothing. Check the "
                "lane packing at submission and the version gate in oloSkinOralLaneFor.";
-        EXPECT_GT(static_cast<f32>(specularDiff.MaxDelta), 4.0f * std::max(floor, 1.0f))
+        EXPECT_GT(static_cast<f32>(specularDiff.MaxDelta), floor)
             << p << ": the specular AOV barely moved in either direction";
     }
 

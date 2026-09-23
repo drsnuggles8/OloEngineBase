@@ -53,6 +53,14 @@ and asking for one on Forward or Forward+ silently gives you a composite.
 The headless fixture refuses that combination with a named failure rather than capturing a beauty
 frame and comparing it against an AOV, which is the shape of the bug it would otherwise hide.
 
+**The skin diffusion pass stands down under every view except `Diffuse`** (#1394,
+`SkinDiffusionRunsThisFrame` in `RenderPipeline.cpp`). It adds `blur(aux) - aux` into scene colour
+in place, and under a debug view scene colour is the AOV rather than the composite. Before the fix,
+the high-pass of the diffuse half landed on the `Transmission` view and outlined every crease of a
+backlit head, even at version 1, where the term is exactly zero. The `Diffuse` view keeps the
+pass, because the diffused diffuse half is what that view shows.
+
+
 **History is not one of these views.** Per #1256, history separability is delivered as the three
 separated reactive causes on `TemporalReactivity` (`SurfaceMotion` / `CoverageChange` /
 `MaterialChange`) in `Renderer/SurfaceHistory.h`, not as a `MaterialDebugView` AOV. Ask *which*

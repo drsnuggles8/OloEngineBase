@@ -1493,3 +1493,12 @@ and every later frame with Forward+ inactive logged five errors per shader.
 the live editor still logged the errors. `SceneRenderPass` and `DeferredLightingPass` both wrapped
 the call in `if (ShouldUseForwardPlus())`. When a fix lives in a callee, grep its call sites for a
 guard that skips it, and verify the fix on the real call path.
+
+## A post-process pass that writes INTO scene colour contaminates every material debug view
+
+`SkinDiffusionPass` adds `blur(aux) - aux` into scene colour in place. Under a material debug view
+scene colour holds the AOV, not the composite, so that high-pass landed on the Transmission,
+Specular, profile-id and mask views. The Transmission view of a version-1 head, where the term is
+exactly zero, showed every crease. `SkinDiffusionRunsThisFrame` (`RenderPipeline.cpp`) now turns
+the pass off under every view except Diffuse, and one helper feeds the pass settings, the scratch
+declaration and the graph fingerprint. Apply the same check to any other in-place pass.
