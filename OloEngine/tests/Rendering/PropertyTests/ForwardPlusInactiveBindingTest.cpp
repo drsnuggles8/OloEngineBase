@@ -14,7 +14,8 @@
 // Deferred -> Forward switch.
 //
 // The contract is backend-agnostic — "BindForShading publishes this pass's
-// buffers whether or not it is active" — so it is asserted here through the GL
+// buffers whether or not it is active, and an inactive frame's unbind leaves
+// them published" — so it is asserted here through the GL
 // binding points, which the Vulkan binding state mirrors (Bind() is
 // glBindBufferBase semantics on both, see VulkanStorageBuffer::Bind).
 //
@@ -25,8 +26,8 @@
 // call in `if (ShouldUseForwardPlus())`, so this test passed and the live
 // editor logged the same five errors. The call-site half is evidenced live
 // (the Vulkan path-switch sweep in #1394's PR: 5 errors per run before, 0
-// after, 2 runs each), because a frame unbinds the slots before any readback
-// could see them.
+// after, 2 runs each), because an active frame unbinds the slots before any
+// readback could see them.
 //
 // Classification: L4 (GPU binding state across passes). SKIPs cleanly with no
 // GL 4.6 context.
@@ -121,9 +122,15 @@ namespace OloEngine::Tests
         EXPECT_EQ(static_cast<u32>(BoundStorageBuffer(ShaderBindingLayout::SSBO_FPLUS_LIGHT_GRID)),
                   grid.GetLightGridSSBO()->GetRendererID());
 
-        // Symmetric: the matching unbind releases what it published.
+        // And an INACTIVE frame's unbind leaves them published, so passes that
+        // draw after ScenePass with a ForwardPlusCommon.glsl shader (decals,
+        // the forward overlay) still find an occupant. Unbinding here would
+        // also zero another tenant's binding on GL (GPUScene uses 9 and 10).
         forwardPlus.UnbindAfterShading();
-        EXPECT_EQ(BoundStorageBuffer(ShaderBindingLayout::SSBO_FPLUS_LIGHT_GRID), 0)
-            << "UnbindAfterShading left the grid bound after an inactive frame";
+        for (const u32 binding : kForwardPlusShadingBindings)
+        {
+            EXPECT_NE(BoundStorageBuffer(binding), 0)
+                << "binding " << binding << " was emptied by UnbindAfterShading on an INACTIVE frame";
+        }
     }
 } // namespace OloEngine::Tests

@@ -418,7 +418,8 @@ namespace OloEngine
                 }
             }
         }
-        // Unconditional, to pair with the unconditional BindForShading above.
+        // Unconditional: UnbindAfterShading releases the slots only after an
+        // active frame and leaves an inactive frame's buffers published.
         forwardPlus.UnbindAfterShading();
 
         ++m_FrameCounter;

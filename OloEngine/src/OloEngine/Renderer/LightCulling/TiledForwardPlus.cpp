@@ -207,8 +207,12 @@ namespace OloEngine
     TiledForwardPlus::ShadingSnapshot TiledForwardPlus::CaptureShadingBindings() const
     {
         ShadingSnapshot snapshot;
+        // Parameters say Enabled = 0 when inactive (GetShadingParameters
+        // returns {}); the BUFFERS are listed whenever initialised, for the
+        // reason BindForShading publishes them — the froxel fog compute
+        // includes ForwardPlusCommon.glsl and declares them too.
         snapshot.Parameters = GetShadingParameters();
-        if (ShouldUseForwardPlus())
+        if (m_Initialized)
             snapshot.Buffers = { m_LightBuffer.GetPointLightSSBO(), m_LightBuffer.GetSpotLightSSBO(),
                                  m_LightBuffer.GetSphereAreaLightSSBO(), m_LightGrid.GetLightIndexSSBO(),
                                  m_LightGrid.GetLightGridSSBO() };
@@ -219,10 +223,13 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // Mirrors BindForShading, which publishes whenever initialised. Unbind
-        // only clears a slot this pass still occupies, so it is safe on a frame
-        // where another tenant rebound one in between.
-        if (!m_Initialized)
+        // ONLY AFTER AN ACTIVE FRAME, as before #1394. On an inactive frame
+        // the buffers BindForShading published stay published, so passes that
+        // draw after ScenePass with a ForwardPlusCommon.glsl shader (decals,
+        // the forward overlay) find an occupant too. Unbinding there would
+        // also be unsafe on GL: OpenGLStorageBuffer::Unbind zeroes the binding
+        // point whoever holds it, and GPUScene is another tenant of 9 and 10.
+        if (!m_ActiveThisFrame)
         {
             return;
         }
