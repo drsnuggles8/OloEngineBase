@@ -168,8 +168,9 @@ this document is about, in the one buffer family the fix skipped.
 Two lessons worth more than the fix:
 
 - **A comment asserting "nothing does X" ages into a bug** the moment something
-  does, and nothing checks it. The seam now *detects* the shape (a second write
-  inside one frame generation) and warns, instead of assuming it cannot happen.
+  does, and nothing checks it. The original seam detected a second write
+  inside one frame generation and warned; the current seam versions the first
+  external write, before any draw can consume it.
 - **Fixing a failure class in one buffer type is not fixing the class.** When
   amendment (80) gave UBOs and SSBOs per-write versioning, vertex buffers had
   the same facade, semantics and deferred execution. Ask which *other* types
@@ -207,7 +208,7 @@ with constructor data is also refused when its unwritten tail cannot be read.
 | GPU fluid emit staging and body proxies | CPU per solver step, compute reads | Vulkan allocates one emit staging SSBO per pending batch and one body-proxy SSBO per nonempty step; earlier versions retire through deferred reclaim. The GL path retains its existing buffer. `EmitCount` comes from the Fluid UBO, so no CPU write to the GPU-produced counters is needed. Vulkan refuses `SeedParticles` after the first dispatch because a direct reset could race GPU output; recreate the solver. The Vulkan device test covers two emit/step pairs, reset refusal, and shader reload followed by another emit/step. A delayed-frame fluid device test remains unrun. |
 | Emissive triangle, material texture and shader-heap tables reached through device addresses | CPU on table change, persistent for an in-flight consumer | Each table allocates a fresh SSBO when its bytes change and publishes the new address. The old buffer enters `VulkanDeferredReclaim` and survives until completed frame generations drain. |
 | RT skeletal palette reached by device address | CPU once per populated deformation frame, compute reads | `DeformedSurfaceCache::EnsurePaletteBuffer` publishes a fresh Vulkan `DynamicCopy` allocation even at stable capacity; the old allocation retires through deferred reclaim. GL retains its capacity-reuse upload. A delayed-frame palette-consumer test remains unrun. |
-| RT surface vertex addresses (deformed, vegetation, groom) | GPU deformation or CPU groom conversion; persistent BLAS input | GPU deformation writes the persistent output by command, with explicit ordering needed before AS build. On Vulkan, `GroomSurfaceCache` now publishes a fresh vertex allocation for each changed groom proxy, including a same-shape refill. The old native buffer retires through deferred reclaim. GL continues to refill stable shapes in place. A delayed-frame BLAS-build test remains unrun. |
+| RT surface vertex addresses (deformed, vegetation, groom) | GPU deformation or CPU groom conversion; persistent BLAS input | GPU deformation writes the persistent output by command, with explicit ordering needed before AS build. On Vulkan, `GroomSurfaceCache` publishes a fresh vertex allocation for each changed proxy while preserving the coat's logical GPU Scene identity. A same-shape, deformed vertex version refits its BLAS; a new index version rebuilds it. The old native buffer retires through deferred reclaim. GL continues to refill stable shapes in place. A delayed-frame BLAS-build test remains unrun. |
 
 The per-dispatch GPU-particle and per-batch GPU-fluid staging allocations fix
 their aliases, but still need L6 hot-path timing baselines before they are

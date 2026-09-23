@@ -293,9 +293,18 @@ namespace OloEngine
         if (vulkan || !m_EmitStagingSSBO)
         {
             const u32 capacity = vulkan ? emitCount : MAX_EMIT_BATCH;
-            auto nextStaging = StorageBuffer::Create(capacity * GPUParticle::GetSize(),
-                                                     ShaderBindingLayout::SSBO_EMIT_STAGING,
-                                                     StorageBufferUsage::DynamicDraw);
+            Ref<StorageBuffer> nextStaging;
+            try
+            {
+                nextStaging = StorageBuffer::Create(capacity * GPUParticle::GetSize(),
+                                                    ShaderBindingLayout::SSBO_EMIT_STAGING,
+                                                    StorageBufferUsage::DynamicDraw);
+            }
+            catch (const std::exception& e)
+            {
+                OLO_CORE_ERROR("GPUParticleSystem::EmitParticles: staging allocation failed — refusing emit: {}", e.what());
+                return;
+            }
             if (!nextStaging)
             {
                 OLO_CORE_ERROR("GPUParticleSystem::EmitParticles: staging allocation failed — refusing emit");

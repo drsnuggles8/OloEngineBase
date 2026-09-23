@@ -475,7 +475,16 @@ namespace OloEngine::RayTracing
         // DynamicCopy avoids a draw-only snapshot that compute never reads.
         // Replacing the allocation also keeps the previous frame's persistent
         // address alive through deferred reclaim.
-        auto replacement = StorageBuffer::Create(static_cast<u32>(capacity), 0, StorageBufferUsage::DynamicCopy);
+        Ref<StorageBuffer> replacement;
+        try
+        {
+            replacement = StorageBuffer::Create(static_cast<u32>(capacity), 0, StorageBufferUsage::DynamicCopy);
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("DeformedSurfaceCache: palette allocation failed: {}", e.what());
+            return false;
+        }
         if (!replacement || replacement->GetDeviceAddress() == 0u)
             return false;
         m_PaletteBuffer = std::move(replacement);

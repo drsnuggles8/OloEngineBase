@@ -444,8 +444,21 @@ TEST_F(VulkanResourceFactory, GPUSceneRetainsOldVersionUntilDelayedComputeReadCo
         VkCommandPool& Pool;
         VkSemaphore& Gate;
         VkFence& Fence;
+        bool Submitted = false;
+        bool GateReleased = false;
         ~Cleanup()
         {
+            if (Submitted)
+            {
+                if (!GateReleased)
+                {
+                    VkSemaphoreSignalInfo signal{ VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO };
+                    signal.semaphore = Gate;
+                    signal.value = 1;
+                    vkSignalSemaphore(Device, &signal);
+                }
+                vkWaitForFences(Device, 1, &Fence, VK_TRUE, UINT64_MAX);
+            }
             if (Fence != VK_NULL_HANDLE)
                 vkDestroyFence(Device, Fence, nullptr);
             if (Gate != VK_NULL_HANDLE)
@@ -490,6 +503,7 @@ TEST_F(VulkanResourceFactory, GPUSceneRetainsOldVersionUntilDelayedComputeReadCo
     submit.commandBufferCount = 1;
     submit.pCommandBuffers = &cmd;
     ASSERT_EQ(vkQueueSubmit(m_Device->GetAsyncComputeQueue(), 1, &submit, fence), VK_SUCCESS);
+    cleanup.Submitted = true;
 
     // The compute copy is blocked on an unsignaled timeline value here.
     // Publish the next frame, dropping the scene's last owner of the old
@@ -513,7 +527,9 @@ TEST_F(VulkanResourceFactory, GPUSceneRetainsOldVersionUntilDelayedComputeReadCo
     signal.semaphore = gate;
     signal.value = waitValue;
     ASSERT_EQ(vkSignalSemaphore(m_Device->GetDevice(), &signal), VK_SUCCESS);
+    cleanup.GateReleased = true;
     ASSERT_EQ(vkWaitForFences(m_Device->GetDevice(), 1, &fence, VK_TRUE, UINT64_MAX), VK_SUCCESS);
+    cleanup.Submitted = false;
     GPUSceneInstance oldRecord{};
     readback->GetData(&oldRecord, sizeof(oldRecord));
     EXPECT_FLOAT_EQ(oldRecord.CurrentTransform.Row0.w, 0.25f);
@@ -542,8 +558,21 @@ TEST_F(VulkanResourceFactory, FrameArenaAdjacentSlotSurvivesDelayedReadAndFenceG
         VkCommandPool& Pool;
         VkSemaphore& Gate;
         VkFence& Fence;
+        bool Submitted = false;
+        bool GateReleased = false;
         ~Cleanup()
         {
+            if (Submitted)
+            {
+                if (!GateReleased)
+                {
+                    VkSemaphoreSignalInfo signal{ VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO };
+                    signal.semaphore = Gate;
+                    signal.value = 1;
+                    vkSignalSemaphore(Device, &signal);
+                }
+                vkWaitForFences(Device, 1, &Fence, VK_TRUE, UINT64_MAX);
+            }
             if (Fence != VK_NULL_HANDLE)
                 vkDestroyFence(Device, Fence, nullptr);
             if (Gate != VK_NULL_HANDLE)
@@ -589,6 +618,7 @@ TEST_F(VulkanResourceFactory, FrameArenaAdjacentSlotSurvivesDelayedReadAndFenceG
     submit.commandBufferCount = 1;
     submit.pCommandBuffers = &cmd;
     ASSERT_EQ(vkQueueSubmit(m_Device->GetAsyncComputeQueue(), 1, &submit, fence), VK_SUCCESS);
+    cleanup.Submitted = true;
 
     // Slot 0 is still in use. An adjacent frame can publish into slot 1
     // without modifying the pending read from slot 0.
@@ -601,7 +631,9 @@ TEST_F(VulkanResourceFactory, FrameArenaAdjacentSlotSurvivesDelayedReadAndFenceG
     signal.semaphore = gate;
     signal.value = waitValue;
     ASSERT_EQ(vkSignalSemaphore(m_Device->GetDevice(), &signal), VK_SUCCESS);
+    cleanup.GateReleased = true;
     ASSERT_EQ(vkWaitForFences(m_Device->GetDevice(), 1, &fence, VK_TRUE, UINT64_MAX), VK_SUCCESS);
+    cleanup.Submitted = false;
     u32 observed = 0;
     readback->GetData(&observed, sizeof(observed));
     EXPECT_EQ(observed, firstValue);

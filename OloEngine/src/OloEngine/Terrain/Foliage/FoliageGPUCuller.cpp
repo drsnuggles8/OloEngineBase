@@ -203,7 +203,16 @@ namespace OloEngine
         if (!out.LayerBuffer || out.LayerBuffer->GetSize() != sizeBytes ||
             RendererAPI::GetAPI() == RendererAPI::API::Vulkan)
         {
-            out.LayerBuffer = StorageBuffer::Create(sizeBytes, kLayerBinding, StorageBufferUsage::DynamicDraw);
+            try
+            {
+                auto replacement = StorageBuffer::Create(sizeBytes, kLayerBinding, StorageBufferUsage::DynamicDraw);
+                out.LayerBuffer = std::move(replacement);
+            }
+            catch (const std::exception& e)
+            {
+                OLO_CORE_ERROR("FoliageGPUCuller: layer {} allocation failed: {}", layerIndex, e.what());
+                return refuse();
+            }
         }
         if (!out.LayerBuffer)
         {

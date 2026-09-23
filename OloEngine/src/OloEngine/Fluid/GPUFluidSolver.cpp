@@ -377,9 +377,18 @@ namespace OloEngine
         // refill an allocation an earlier Step may still be reading.
         if (m_PendingEmitCount == 0 && RendererAPI::GetAPI() == RendererAPI::API::Vulkan)
         {
-            auto replacement = StorageBuffer::Create(kEmitStagingCapacity * GPUFluidEmitEntry::GetSize(),
-                                                     ShaderBindingLayout::SSBO_FLUID_EMIT_STAGING,
-                                                     StorageBufferUsage::DynamicDraw);
+            Ref<StorageBuffer> replacement;
+            try
+            {
+                replacement = StorageBuffer::Create(kEmitStagingCapacity * GPUFluidEmitEntry::GetSize(),
+                                                    ShaderBindingLayout::SSBO_FLUID_EMIT_STAGING,
+                                                    StorageBufferUsage::DynamicDraw);
+            }
+            catch (const std::exception& e)
+            {
+                OLO_CORE_ERROR("GPUFluidSolver::Emit: staging allocation failed — refusing batch: {}", e.what());
+                return;
+            }
             if (!replacement)
             {
                 OLO_CORE_ERROR("GPUFluidSolver::Emit: staging allocation failed — refusing batch");
@@ -462,9 +471,18 @@ namespace OloEngine
         {
             if (RendererAPI::GetAPI() == RendererAPI::API::Vulkan)
             {
-                auto replacement = StorageBuffer::Create(proxyCount * FluidBodyProxy::GetSize(),
-                                                         ShaderBindingLayout::SSBO_FLUID_BODY_PROXIES,
-                                                         StorageBufferUsage::DynamicDraw);
+                Ref<StorageBuffer> replacement;
+                try
+                {
+                    replacement = StorageBuffer::Create(proxyCount * FluidBodyProxy::GetSize(),
+                                                        ShaderBindingLayout::SSBO_FLUID_BODY_PROXIES,
+                                                        StorageBufferUsage::DynamicDraw);
+                }
+                catch (const std::exception& e)
+                {
+                    OLO_CORE_ERROR("GPUFluidSolver::Step: body-proxy allocation failed — refusing step: {}", e.what());
+                    return;
+                }
                 if (!replacement)
                 {
                     OLO_CORE_ERROR("GPUFluidSolver::Step: body-proxy allocation failed — refusing step");

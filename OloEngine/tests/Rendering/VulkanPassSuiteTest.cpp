@@ -12218,7 +12218,10 @@ TEST_F(VulkanPassSuite, FirstVertexStreamRewriteKeepsBothRecordedDraws)
     // a shader whose vertex index can run past its end.
     auto& arena = VulkanFrameArena::Get();
     arena.BeginFrame(0);
-    ASSERT_TRUE(arena.Allocate(arena.GetSlotCapacityBytes() - 16u).IsValid());
+    // Leave one 256-byte-aligned root-data slot for the UBO, but no second
+    // slot for the 48-byte vertex snapshot. Exhausting the UBO first would
+    // drop the draw without exercising vertex-pull refusal.
+    ASSERT_TRUE(arena.Allocate(arena.GetSlotCapacityBytes() - 320u).IsValid());
     SubmitFrame([&]()
                 {
                     framebuffer->Bind();
@@ -12230,6 +12233,8 @@ TEST_F(VulkanPassSuite, FirstVertexStreamRewriteKeepsBothRecordedDraws)
                     RenderCommand::DrawIndexed(vao, 3); });
     EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 0u);
     EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 1u);
+    EXPECT_GT(arena.GetConsumerBytesThisFrame(VulkanFrameArenaConsumer::UniformSnapshot), 0u);
+    EXPECT_EQ(arena.GetConsumerBytesThisFrame(VulkanFrameArenaConsumer::VertexSnapshot), 0u);
 }
 
 TEST_F(VulkanPassSuite, PartialUniformAndStorageRewritesPreserveBothDrawsAndTheUntouchedPrefix)
