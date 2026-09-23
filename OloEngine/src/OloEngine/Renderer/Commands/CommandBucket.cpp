@@ -13,6 +13,7 @@
 #include <array>
 #include <chrono>
 #include <unordered_set>
+#include <utility>
 
 namespace OloEngine
 {
@@ -575,7 +576,7 @@ namespace OloEngine
         if (!meshPacket || meshPacket->GetCommandType() != CommandType::DrawMesh)
             return nullptr;
 
-        auto const* meshCmd = meshPacket->GetCommandData<DrawMeshCommand>();
+        auto const* meshCmd = std::as_const(*meshPacket).GetCommandData<DrawMeshCommand>();
         if (!meshCmd)
             return nullptr;
 
@@ -661,7 +662,7 @@ namespace OloEngine
             m_Keys[targetIdx] = instancedPacket->GetMetadata().m_SortKey.GetKey();
 
             // Dynamic instance batching: merge transforms from source
-            auto const* sourceMeshCmd = source->GetCommandData<DrawMeshCommand>();
+            auto const* sourceMeshCmd = std::as_const(*source).GetCommandData<DrawMeshCommand>();
             if (!sourceMeshCmd)
                 return false;
 
@@ -705,7 +706,7 @@ namespace OloEngine
         else if (targetType == CommandType::DrawMeshInstanced && sourceType == CommandType::DrawMesh)
         {
             auto* instancedCmd = target->GetCommandData<DrawMeshInstancedCommand>();
-            auto const* sourceMeshCmd = source->GetCommandData<DrawMeshCommand>();
+            auto const* sourceMeshCmd = std::as_const(*source).GetCommandData<DrawMeshCommand>();
 
             if (!instancedCmd || !sourceMeshCmd)
                 return false;
@@ -798,7 +799,7 @@ namespace OloEngine
             if (protectedPredecessors.count(i))
                 continue;
 
-            auto const* cmd = m_Packets[i]->GetCommandData<DrawMeshCommand>();
+            auto const* cmd = std::as_const(*m_Packets[i]).GetCommandData<DrawMeshCommand>();
             // Conventional alpha draws carry their whole sort key into the
             // group key (issue #1327), so a batch can never merge two draws
             // the sort would have separated. Every other mode passes 0 and
@@ -948,7 +949,7 @@ namespace OloEngine
             constexpr glm::vec4 defaultLightmapRegion{ 0.0f };
             for (u32 t = 0; t < totalInstances; ++t)
             {
-                auto const* meshCmd = m_Packets[indices[t]]->GetCommandData<DrawMeshCommand>();
+                auto const* meshCmd = std::as_const(*m_Packets[indices[t]]).GetCommandData<DrawMeshCommand>();
                 // Bit-exact comparison to detect any per-entity override — instance defaults
                 // are bit-exactly 1.0f / 0.0f, so BitwiseEqual catches anything else (see cpp-coding-quality §2a).
                 if (!Math::BitwiseEqual(meshCmd->color, defaultColor))
@@ -1019,7 +1020,7 @@ namespace OloEngine
             // Write each source command's per-instance data contiguously.
             for (u32 t = 0; t < totalInstances; ++t)
             {
-                auto const* meshCmd = m_Packets[indices[t]]->GetCommandData<DrawMeshCommand>();
+                auto const* meshCmd = std::as_const(*m_Packets[indices[t]]).GetCommandData<DrawMeshCommand>();
                 frameBuffer.WriteTransforms(transformOffset + t, &meshCmd->transform, 1);
                 if (prevTransformOffset != UINT32_MAX)
                     frameBuffer.WriteTransforms(prevTransformOffset + t, &meshCmd->prevTransform, 1);
@@ -1051,7 +1052,7 @@ namespace OloEngine
 
             // Build the instanced command from the first DrawMeshCommand
             sizet firstIdx = indices[0];
-            auto const* firstCmd = m_Packets[firstIdx]->GetCommandData<DrawMeshCommand>();
+            auto const* firstCmd = std::as_const(*m_Packets[firstIdx]).GetCommandData<DrawMeshCommand>();
             PacketMetadata metadata = m_Packets[firstIdx]->GetMetadata();
 
             CommandPacket* instancedPacket = allocator.AllocatePacketWithCommand<DrawMeshInstancedCommand>(metadata);
@@ -1605,7 +1606,7 @@ namespace OloEngine
             pairs.Reserve(static_cast<sizet>(indices.Num()));
             for (sizet packetIndex : indices)
             {
-                auto const* cmd = m_Packets[packetIndex]->GetCommandData<DrawMeshCommand>();
+                auto const* cmd = std::as_const(*m_Packets[packetIndex]).GetCommandData<DrawMeshCommand>();
                 const glm::mat4* current = frameBuffer.GetBoneMatrixRange(cmd->boneBufferOffset, cmd->boneCount);
                 if (!current)
                     continue; // no palette to compare; the draw stays its own DrawMesh

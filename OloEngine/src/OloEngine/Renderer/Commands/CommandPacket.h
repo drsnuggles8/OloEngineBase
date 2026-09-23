@@ -5,6 +5,7 @@
 #include "CommandLifecycle.h"
 #include "OloEngine/Core/Base.h"
 #include <glm/glm.hpp>
+#include <atomic>
 
 /*
  * CommandPacket — a command plus its metadata, prepared and then frozen.
@@ -89,7 +90,7 @@ namespace OloEngine
 
         [[nodiscard]] bool IsFrozen() const
         {
-            return m_Lifecycle == Lifecycle::Frozen;
+            return m_Lifecycle.load(std::memory_order_acquire) != Lifecycle::Preparing;
         }
 
         // Freeze the packet for replay. Idempotent. Const because a replay
@@ -207,9 +208,15 @@ namespace OloEngine
         }
 
       private:
+        // Freezing is the transient state while the one thread that won the
+        // freeze records the digest. Two buckets can share a packet and be
+        // replayed from concurrent recording items, so the first freeze is a
+        // compare-exchange, not a store: exactly one thread writes the digest
+        // and every other thread reads it only after the release of Frozen.
         enum class Lifecycle : u8
         {
             Preparing,
+            Freezing,
             Frozen
         };
 
@@ -217,7 +224,7 @@ namespace OloEngine
         // is out of line so the accessors stay small enough to inline.
         void NotePreparationWrite(const char* where) const
         {
-            if (m_Lifecycle == Lifecycle::Frozen) [[unlikely]]
+            if (m_Lifecycle.load(std::memory_order_relaxed) != Lifecycle::Preparing) [[unlikely]]
                 CommandLifecycle::ReportViolation(CommandLifecycle::Violation::PacketMutatedAfterFreeze, where);
         }
 
@@ -237,7 +244,9 @@ namespace OloEngine
         CommandType m_CommandType = CommandType::Invalid;
         // Sits in the padding after the u8 CommandType, so it costs no size.
         // Mutable: see Freeze().
-        mutable Lifecycle m_Lifecycle = Lifecycle::Preparing;
+        mutable std::atomic<Lifecycle> m_Lifecycle{ Lifecycle::Preparing };
+        static_assert(sizeof(std::atomic<Lifecycle>) == 1 && std::atomic<Lifecycle>::is_always_lock_free,
+                      "the packet state must stay a lock-free byte in the header's padding");
         CommandDispatchFn m_DispatchFn = nullptr;
         PacketMetadata m_Metadata;
         // Recorded by Freeze() when validation is on; 0 otherwise. Also keeps

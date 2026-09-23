@@ -50,8 +50,10 @@ loop:
 ```cpp
 m_CommandBucket.Freeze();
 if (CommandBucket::BeginReplay(packets))   // publish, freeze, validate — on the forking thread
+{
     RenderCommand::RecordParallel(...);    // workers read only
-CommandBucket::EndReplay(packets);         // validation: report writes that raced the replay
+    CommandBucket::EndReplay(packets);     // validation: report writes that raced the replay
+}                                          // a refused replay ran nothing, so it has no end
 ```
 
 ## What it costs

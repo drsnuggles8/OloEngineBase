@@ -565,6 +565,50 @@ TEST_F(CommandLifecycleTest, ReplayingAFrozenBucketAgainIsLegal)
     EXPECT_EQ(RaisedTotal(), 0u);
 }
 
+// Two buckets that share packets, replayed at the same moment from two
+// threads (the shape of two RecordParallel items each executing its own
+// bucket). The first freeze of a shared packet is a compare-exchange: exactly
+// one thread records the digest, the other waits for it. Under the Sanitizers
+// workflow's TSan job this is the data-race check on that transition.
+TEST_F(CommandLifecycleTest, PacketsSharedByTwoBucketsFreezeOnceUnderConcurrentReplay)
+{
+    CommandBucket first;
+    CommandBucket second;
+    first.SetAllocator(&m_Allocator);
+    for (i32 i = 0; i < 256; ++i)
+        second.AddCommand(SubmitOne(first, i));
+
+    for (u32 round = 0; round < 8; ++round)
+    {
+        MockRendererAPI apiA;
+        MockRendererAPI apiB;
+        std::barrier start(2);
+        {
+            std::jthread a([&]
+                           {
+                start.arrive_and_wait();
+                first.Execute(apiA); });
+            std::jthread b([&]
+                           {
+                start.arrive_and_wait();
+                second.Execute(apiB); });
+        }
+        EXPECT_EQ(first.GetStatistics().DrawCalls, 256u);
+        EXPECT_EQ(second.GetStatistics().DrawCalls, 256u);
+        for (const CommandPacket* packet : first.GetPackets())
+        {
+            ASSERT_TRUE(packet->IsFrozen());
+            EXPECT_TRUE(packet->MatchesFrozenContent());
+        }
+        first.Clear();
+        second.Clear();
+        m_Allocator.Reset();
+        for (i32 i = 0; i < 256; ++i)
+            second.AddCommand(SubmitOne(first, i));
+    }
+    EXPECT_EQ(RaisedTotal(), 0u);
+}
+
 TEST_F(CommandLifecycleTest, ClearRetiresTheBucketForTheNextFrame)
 {
     CommandBucket bucket;
@@ -579,7 +623,7 @@ TEST_F(CommandLifecycleTest, ClearRetiresTheBucketForTheNextFrame)
     EXPECT_EQ(FrameDataBufferManager::Get().GetPublishedTransformCount(), 0u);
 
     CommandPacket* next = SubmitOne(bucket);
-    EXPECT_NE(next, nullptr) << "A retired bucket must accept the next frame's packets";
+    ASSERT_NE(next, nullptr) << "A retired bucket must accept the next frame's packets";
     EXPECT_FALSE(next->IsFrozen());
     EXPECT_EQ(bucket.GetCommandCount(), 1u);
     EXPECT_EQ(RaisedTotal(), 0u);

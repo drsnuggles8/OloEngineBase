@@ -3,6 +3,8 @@
 #include "CommandAllocator.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 
+#include <thread>
+
 namespace OloEngine
 {
     // Static dispatch resolver — set at engine startup by CommandDispatch::Initialize().
@@ -75,17 +77,25 @@ namespace OloEngine
 
     void CommandPacket::Freeze(bool recordDigest) const
     {
-        if (m_Lifecycle == Lifecycle::Frozen)
+        Lifecycle expected = Lifecycle::Preparing;
+        if (m_Lifecycle.compare_exchange_strong(expected, Lifecycle::Freezing, std::memory_order_acquire,
+                                                std::memory_order_acquire))
+        {
+            m_FrozenDigest = recordDigest ? ComputeContentDigest() : 0;
+            m_Lifecycle.store(Lifecycle::Frozen, std::memory_order_release);
             return;
-        m_FrozenDigest = recordDigest ? ComputeContentDigest() : 0;
-        m_Lifecycle = Lifecycle::Frozen;
+        }
+        // Another thread won the freeze. Its digest is published with the
+        // store of Frozen; wait for it rather than replay a half-frozen packet.
+        while (m_Lifecycle.load(std::memory_order_acquire) != Lifecycle::Frozen)
+            std::this_thread::yield();
     }
 
     bool CommandPacket::MatchesFrozenContent() const
     {
         // A zero digest means "not recorded". A real digest of zero is
         // possible and would merely go unchecked for that one packet.
-        if (m_Lifecycle != Lifecycle::Frozen || m_FrozenDigest == 0)
+        if (m_Lifecycle.load(std::memory_order_acquire) != Lifecycle::Frozen || m_FrozenDigest == 0)
             return true;
         return ComputeContentDigest() == m_FrozenDigest;
     }

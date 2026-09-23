@@ -355,7 +355,8 @@ TEST_F(CommandBucketTest, ParallelSubmissionBeyondInitialCapacityLosesNothing)
     // Commands are built HERE, not on the workers: a value-initialised
     // DrawMeshCommand default-constructs its AssetHandles, and UUID's default
     // constructor draws from one process-wide generator that is not
-    // thread-safe (TSan flags it). The race under test is the bucket's.
+    // thread-safe (TSan flags it; issue #1420). The race under test is the
+    // bucket's.
     std::vector<DrawMeshCommand> commands;
     commands.reserve(kThreads * kPerThread);
     for (u32 i = 0; i < kThreads * kPerThread; ++i)

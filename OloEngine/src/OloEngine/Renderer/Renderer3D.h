@@ -736,7 +736,7 @@ namespace OloEngine
          */
         // `expectedPackets`: an upper bound on the packets the workers will
         // submit, which sizes the geometry bucket's slot array for the region.
-        static void BeginParallelSubmission(u32 expectedPackets = 0);
+        static void BeginParallelSubmission(u32 expectedPackets);
 
         /**
          * @brief End parallel command submission mode
