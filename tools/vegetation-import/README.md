@@ -52,9 +52,11 @@ including the pines.
 
 ## Two traps that cost real time here
 
-**glTF UV origin is the TOP-LEFT, v increasing downward.** OBJ's is the bottom-left. Everything in
-this package works in glTF convention and flips exactly once, in
-[wavefront.py](olo_veg/wavefront.py). Getting it wrong is not a subtle shading difference:
+**glTF UV origin is the TOP-LEFT, v increasing downward.** OBJ's is the bottom-left — but
+OloEngine's `Model` flips the v of every OBJ it imports, so the OBJs this tool writes keep glTF's
+top-down v, and each says so in its second header line. The engine is the one place the flip
+happens ([wavefront.py](olo_veg/wavefront.py) explains). Writing standard OBJ UVs sampled every
+plant's atlas upside down until #1399 caught it. Getting it wrong is not a subtle shading difference:
 `pine_tree_01`'s twig atlas has needles in the lower half and pine cones in the upper, so a flipped
 v bakes brown cones onto every card and the result looks like a plausible dead tree.
 

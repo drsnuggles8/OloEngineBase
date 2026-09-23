@@ -205,6 +205,7 @@ add_executable(OloEngine-Tests
 		# Rendering subsystem tests (Tiers 1-5)
 		Rendering/DrawKeyTest.cpp
 		Rendering/TransparentDepthOrderingTest.cpp
+		Rendering/DeferredForwardOverlayRouteTest.cpp
 		Rendering/TextureCompressionTest.cpp
 		Rendering/BC6HBlockModeReader.h
 		Rendering/BC6HQualityTest.cpp
@@ -299,6 +300,7 @@ add_executable(OloEngine-Tests
 		Rendering/FoliageImpostorPlacementTest.cpp
 		Rendering/FoliageLodTransitionContractTest.cpp
 		Rendering/FoliageAuthoredMeshContractTest.cpp
+		Rendering/FoliageAlphaCoverageContractTest.cpp
 		Rendering/VegetationAssetContractTest.cpp
         Rendering/FoliageWindContractTest.cpp
 		Rendering/FoliageInteractionContractTest.cpp
@@ -402,6 +404,9 @@ add_executable(OloEngine-Tests
 		Rendering/CommandPacketTest.cpp
 		Rendering/CommandAllocatorTest.cpp
 		Rendering/CommandBucketTest.cpp
+		Rendering/CommandLifecycleCostTest.cpp
+		Rendering/CommandLifecycleTest.cpp
+		Rendering/CommandLifecycleCheck.cpp
 		Rendering/CommandDispatchRecordingTest.cpp
 		Rendering/RenderGraphParallelRecordingTest.cpp
 		Rendering/PODRenderStateChannelMaskTest.cpp
@@ -634,6 +639,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/SkinOcularSurfaceParityTest.cpp
 		Rendering/PropertyTests/SkinOcularSurfaceEvidenceTest.cpp
 		Rendering/PropertyTests/SkinDigitalHumanEvidenceTest.cpp
+		Rendering/PropertyTests/SkinReferenceHeadEvidenceTest.cpp
+		Rendering/PropertyTests/ForwardPlusInactiveBindingTest.cpp
 		Rendering/PropertyTests/ProceduralSkyBakeTest.cpp
 		Rendering/PropertyTests/ProceduralSkyVisualTest.cpp
 		Rendering/PropertyTests/StarNestSkyBakeTest.cpp
@@ -735,6 +742,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/TerrainGPUBrushVisualEvidenceTest.cpp
 		Rendering/PropertyTests/TerrainVirtualTextureVisualEvidenceTest.cpp
 		Rendering/PropertyTests/FoliageAuthoredMeshEvidenceTest.cpp
+		Rendering/PropertyTests/FoliageAlphaCoverageWarningTest.cpp
 		Rendering/PropertyTests/FoliageLodCoverageEvidenceTest.cpp
 		Rendering/PropertyTests/FloraTraversalEvidenceTest.cpp
         Rendering/PropertyTests/FoliageGPUCullEvidenceTest.cpp
@@ -833,6 +841,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/VideoOverlayVisualEvidenceTest.cpp
 		Rendering/PropertyTests/AutoExposureEvidenceTest.cpp
 		Rendering/PropertyTests/GLAttachmentBlendOpinionTest.cpp
+		Rendering/PropertyTests/DecalOITLifecycleEvidenceTest.cpp
 		Rendering/PropertyTests/GPUReadbackStatsEvidenceTest.cpp
 		Rendering/PropertyTests/TestFailureCapture.cpp
 		Rendering/PropertyTests/TestFailureCaptureTest.cpp

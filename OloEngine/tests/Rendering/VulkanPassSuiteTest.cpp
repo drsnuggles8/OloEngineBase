@@ -126,6 +126,7 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/Texture2DArray.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
+#include "Platform/Vulkan/VulkanBindingState.h"
 #include "Platform/Vulkan/VulkanCapabilities.h"
 #include "Platform/Vulkan/VulkanDescriptorHeapBackend.h"
 #include "Platform/Vulkan/VulkanOneShot.h"
@@ -135,6 +136,7 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "Platform/Vulkan/VulkanPipelineCache.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
 #include "Platform/Vulkan/VulkanResourceHeap.h"
+#include "Platform/Vulkan/VulkanShader.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
 #include <glm/ext/matrix_clip_space.hpp>
@@ -11181,6 +11183,175 @@ TEST_F(VulkanPassSuite, WaterTessellatedPipelineBuildsAndRasterizesAPatchDraw)
     EXPECT_LT(culledDepth[static_cast<sizet>(40) * kSize + 8], 0.999f)
         << "the ccw tessellated patch was BACK-CULLED — the pipeline's tessellation domain origin is not "
            "GL's LOWER_LEFT, so the tessellator mirrored the generated winding";
+}
+
+// =============================================================================
+// Terrain VT feedback absence (issue #1390).
+//
+// With the virtual texture off nothing publishes SSBO_TERRAIN_VT, so a terrain
+// draw substitutes the null block for TerrainVTFeedback. The shader writes it
+// only behind `vtParams.Enabled > 0.5`, so the absence is gated, and the
+// classifier must voice it as a trace rather than the #1052 device-loss error.
+// Every OTHER storage block the real shader reflects is fed here, which makes
+// the feedback block the only possible unfed binding. Three arms per shader:
+//   1. VT off: exactly one unfed binding, and it is not a required one;
+//   2. feedback buffer bound (VT on): nothing unfed — arm 1 was binding 79;
+//   3. negative control: drop the visible-node list as well, and the required
+//      counter moves — so arm 1's zero is not a counter that never counts.
+// Nothing here checks shading; the tessellation factors are all zero, and the
+// draw only has to reach the root-data writer.
+// =============================================================================
+TEST_F(VulkanPassSuite, TerrainDrawWithTheVirtualTextureOffLeavesNoRequiredStorageBindingUnfed)
+{
+    constexpr u32 kSize = 32;
+    VulkanFrameArena::Get().BeginFrame(0);
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+
+    struct TerrainArm
+    {
+        const char* Path;
+        FramebufferAttachmentSpecification Attachments;
+    };
+    const std::array<TerrainArm, 2> arms{
+        TerrainArm{ "assets/shaders/Terrain_PBR.glsl",
+                    { FramebufferTextureFormat::RGBA16F, FramebufferTextureFormat::RED_INTEGER,
+                      FramebufferTextureFormat::RG16F, FramebufferTextureFormat::RGBA16F,
+                      FramebufferTextureFormat::RGBA16F, FramebufferTextureFormat::Depth } },
+        TerrainArm{ "assets/shaders/Terrain_GBuffer.glsl",
+                    { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::RGBA16F,
+                      FramebufferTextureFormat::RGBA16F, FramebufferTextureFormat::RGBA16F,
+                      FramebufferTextureFormat::RED_INTEGER, FramebufferTextureFormat::RGBA16F,
+                      FramebufferTextureFormat::Depth } },
+    };
+
+    // TerrainVertex (32 B): Position, TexCoord, Normal — pulled from binding 57.
+    const std::array<f32, 24> patchVertices{
+        -0.9f,
+        -0.9f,
+        0.0f,
+        0.0f,
+        0.0f,
+        0.0f,
+        1.0f,
+        0.0f, //
+        0.9f,
+        -0.9f,
+        0.0f,
+        1.0f,
+        0.0f,
+        0.0f,
+        1.0f,
+        0.0f, //
+        -0.9f,
+        0.9f,
+        0.0f,
+        0.0f,
+        1.0f,
+        0.0f,
+        1.0f,
+        0.0f,
+    };
+    u32 patchIndices[] = { 0u, 1u, 2u };
+    auto patchVao = VertexArray::Create();
+    auto patchVb = VertexBuffer::Create(const_cast<f32*>(patchVertices.data()), static_cast<u32>(sizeof(patchVertices)));
+    patchVb->SetLayout({ { ShaderDataType::Float3, "a_Position" },
+                         { ShaderDataType::Float2, "a_TexCoord" },
+                         { ShaderDataType::Float3, "a_Normal" } });
+    patchVao->AddVertexBuffer(patchVb);
+    patchVao->SetIndexBuffer(IndexBuffer::Create(patchIndices, 3));
+
+    auto& bindingState = VulkanBindingState::Get();
+    for (const auto& arm : arms)
+    {
+        SCOPED_TRACE(arm.Path);
+        auto shader = Shader::Create(arm.Path);
+        ASSERT_TRUE(shader);
+        ASSERT_EQ(shader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+        // Feed every storage block the shader declares except the feedback
+        // buffer and the vertex pull (the VAO resolves that one).
+        std::vector<Ref<StorageBuffer>> fed;
+        bool declaresFeedback = false;
+        bool declaresVisibleNodes = false;
+        for (const auto& binding : static_cast<const VulkanShader&>(*shader).GetBindings())
+        {
+            if (binding.BindingKind != VulkanShaderBinding::Kind::StorageBuffer)
+                continue;
+            declaresVisibleNodes |= binding.Binding == ShaderBindingLayout::SSBO_TERRAIN_VISIBLE_NODES;
+            if (binding.Binding == ShaderBindingLayout::SSBO_TERRAIN_VT)
+            {
+                declaresFeedback = true;
+                continue;
+            }
+            if (binding.Binding == ShaderBindingLayout::SSBO_VERTEX_PULL)
+                continue;
+            const std::array<u32, 64> zeros{};
+            auto buffer = StorageBuffer::Create(static_cast<u32>(sizeof(zeros)), binding.Binding);
+            buffer->SetData(zeros.data(), static_cast<u32>(sizeof(zeros)));
+            buffer->Bind();
+            fed.push_back(buffer);
+        }
+        ASSERT_TRUE(declaresFeedback) << "the terrain shader no longer declares TerrainVTFeedback";
+        ASSERT_TRUE(declaresVisibleNodes) << "the negative control needs TerrainVisibleNodes";
+        ASSERT_EQ(bindingState.GetStorageBuffer(ShaderBindingLayout::SSBO_TERRAIN_VT), nullptr);
+        ASSERT_EQ(bindingState.GetStorageBufferAddress(ShaderBindingLayout::SSBO_TERRAIN_VT), 0u);
+
+        FramebufferSpecification spec;
+        spec.Width = kSize;
+        spec.Height = kSize;
+        spec.Attachments = arm.Attachments;
+        Ref<Framebuffer> framebuffer = Framebuffer::Create(spec);
+        ASSERT_TRUE(framebuffer);
+
+        const auto drawPatch = [&]()
+        {
+            framebuffer->Bind();
+            RenderCommand::SetViewport(0, 0, kSize, kSize);
+            RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+            RenderCommand::Clear();
+            RenderCommand::DisableCulling();
+            RenderCommand::SetDepthTest(true);
+            shader->Bind();
+            patchVao->Bind();
+            RenderCommand::DrawIndexedPatches(patchVao, 3u, 3u);
+            framebuffer->Unbind();
+        };
+        const auto submitAndCount = [&](u64& unfed, u64& required)
+        {
+            const u64 unfedBefore = api.GetUnfedStorageBindingCount();
+            const u64 requiredBefore = api.GetUnfedRequiredStorageBindingCount();
+            SubmitFrame(drawPatch);
+            EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 1u) << "the patch draw never reached the root writer";
+            unfed = api.GetUnfedStorageBindingCount() - unfedBefore;
+            required = api.GetUnfedRequiredStorageBindingCount() - requiredBefore;
+        };
+
+        u64 unfed = 0;
+        u64 required = 0;
+        submitAndCount(unfed, required);
+        EXPECT_EQ(unfed, 1u) << "VT off: the feedback block must be the one unfed storage binding";
+        EXPECT_EQ(required, 0u) << "the gated TerrainVTFeedback absence was voiced as an ERROR (issue #1390)";
+
+        auto feedback = StorageBuffer::Create(64u * sizeof(u32), ShaderBindingLayout::SSBO_TERRAIN_VT,
+                                              StorageBufferUsage::DynamicCopy);
+        feedback->Bind();
+        submitAndCount(unfed, required);
+        EXPECT_EQ(unfed, 0u) << "with the feedback buffer bound nothing may be unfed";
+        EXPECT_EQ(required, 0u);
+        feedback->Unbind();
+
+        for (const auto& buffer : fed)
+        {
+            if (buffer->GetBinding() == ShaderBindingLayout::SSBO_TERRAIN_VISIBLE_NODES)
+                buffer->Unbind();
+        }
+        submitAndCount(unfed, required);
+        EXPECT_EQ(unfed, 2u) << "negative control: feedback AND visible nodes unfed";
+        EXPECT_EQ(required, 1u) << "the unfed TerrainVisibleNodes must count as required";
+
+        for (const auto& buffer : fed)
+            buffer->Unbind();
+    }
 }
 
 // =============================================================================

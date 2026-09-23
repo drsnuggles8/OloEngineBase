@@ -264,6 +264,14 @@ namespace OloEngine
         {
             return m_UnfedStorageBindings.load(std::memory_order_relaxed);
         }
+        /// The subset of GetUnfedStorageBindingCount the classifier voiced as an
+        /// ERROR: every absence except a reviewed, shader-gated declaration
+        /// (ClassifyMissingVulkanBuffer). A tenant that leaves such a declaration
+        /// unfed on purpose asserts on this one instead.
+        [[nodiscard]] u64 GetUnfedRequiredStorageBindingCount() const
+        {
+            return m_UnfedRequiredStorageBindings.load(std::memory_order_relaxed);
+        }
 
         // Compute-dispatch census (#1171). "The dispatch is issued" was an
         // INFERENCE for a long time — nothing recorded which compute shaders
@@ -918,6 +926,7 @@ namespace OloEngine
         // (issue #1052). Atomic, not mutex-guarded like the stub tally: the
         // publication site runs per draw and may fork across recording workers.
         mutable std::atomic<u64> m_UnfedStorageBindings{ 0 };
+        mutable std::atomic<u64> m_UnfedRequiredStorageBindings{ 0 };
         mutable u64 m_UnimplementedStubHits = 0;
         mutable std::array<u64, static_cast<sizet>(StubKind::Count)> m_StubHitsByKind{};
         mutable std::unordered_set<std::string> m_WarnedStubs;

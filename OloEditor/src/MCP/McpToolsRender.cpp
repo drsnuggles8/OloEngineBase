@@ -5869,6 +5869,7 @@ namespace OloEngine::MCP
             j["pbr"] = data.enablePBR;
             j["alphaMode"] = AlphaModeToken(material.GetAlphaMode());
             j["alphaCutoff"] = data.alphaCutoff;
+            j["blend"] = material.GetFlag(MaterialFlag::Blend);
             j["twoSided"] = material.GetFlag(MaterialFlag::TwoSided);
             j["baseColorFactor"] = Json::array({ data.baseColorFactor.r, data.baseColorFactor.g,
                                                  data.baseColorFactor.b, data.baseColorFactor.a });
@@ -6002,6 +6003,123 @@ namespace OloEngine::MCP
                 j["hasMaterialComponentOverride"] = overrideMaterial != nullptr;
                 j["submeshes"] = std::move(submeshes);
                 return j; });
+
+            if (result.is_object() && result.contains("__error"))
+                return ToolResult::Error(result["__error"].get<std::string>());
+            return ToolResult::Structured(result);
+        }
+
+        // ---- olo_material_set (main-marshaled, consented write) ------------------
+        // The write half of olo_material_get, limited to the entity's
+        // MaterialComponent and to the fields no other route can author. Scene
+        // YAML stores AlbedoColor as a vec3 with a forced alpha of 1 and has no
+        // key for AlphaMode or MaterialFlag::Blend, and olo_entity_set_field's
+        // generated registry exposes neither, so without this a conventional
+        // alpha-blended material cannot be reached in a live editor at all
+        // (issue #1404 needed one on every backend and rendering path).
+        [[nodiscard]] bool ParseAlphaModeToken(std::string_view token, AlphaMode& out)
+        {
+            if (token == "Opaque")
+                out = AlphaMode::Opaque;
+            else if (token == "Mask")
+                out = AlphaMode::Mask;
+            else if (token == "Blend")
+                out = AlphaMode::Blend;
+            else
+                return false;
+            return true;
+        }
+
+        ToolResult Handle_MaterialSet(IAutomationHost& host, const Json& args)
+        {
+            if (!args.contains("entity"))
+                return ToolResult::Error("Missing required argument 'entity' (entity UUID).");
+            u64 id = 0;
+            if (!ParseUuid(args["entity"], id))
+                return ToolResult::Error("Invalid 'entity': expected a UUID as a string or number.");
+
+            const bool hasColor = args.contains("baseColorFactor");
+            const bool hasAlphaMode = args.contains("alphaMode");
+            const bool hasBlend = args.contains("blend");
+            const bool hasTwoSided = args.contains("twoSided");
+            if (!hasColor && !hasAlphaMode && !hasBlend && !hasTwoSided)
+                return ToolResult::Error("Nothing to set: give 'baseColorFactor', 'alphaMode', 'blend' and/or "
+                                         "'twoSided'. To READ the material use olo_material_get.");
+
+            glm::vec4 color(1.0f);
+            if (hasColor)
+            {
+                const Json& c = args["baseColorFactor"];
+                if (!c.is_array() || c.size() != 4)
+                    return ToolResult::Error("Invalid 'baseColorFactor': expected an array of 4 numbers [r, g, b, a].");
+                for (u32 i = 0; i < 4; ++i)
+                {
+                    if (!c[i].is_number())
+                        return ToolResult::Error("Invalid 'baseColorFactor': every component must be a number.");
+                    const f64 v = c[i].get<f64>();
+                    if (!std::isfinite(v) || v < 0.0 || v > 1.0)
+                        return ToolResult::Error("Invalid 'baseColorFactor': every component must be finite and in [0, 1].");
+                    color[static_cast<glm::length_t>(i)] = static_cast<f32>(v);
+                }
+            }
+
+            AlphaMode alphaMode = AlphaMode::Opaque;
+            if (hasAlphaMode)
+            {
+                if (!args["alphaMode"].is_string() || !ParseAlphaModeToken(args["alphaMode"].get<std::string>(), alphaMode))
+                    return ToolResult::Error("Invalid 'alphaMode': expected \"Opaque\", \"Mask\" or \"Blend\".");
+            }
+            if (hasBlend && !args["blend"].is_boolean())
+                return ToolResult::Error("Invalid 'blend': expected a boolean.");
+            if (hasTwoSided && !args["twoSided"].is_boolean())
+                return ToolResult::Error("Invalid 'twoSided': expected a boolean.");
+
+            // AlphaMode::Blend does nothing on its own: the render state and the
+            // sort key read MaterialFlag::Blend (Material.h). So an alphaMode
+            // implies the matching flag unless 'blend' is given explicitly, and
+            // the result reports which one was applied.
+            const bool blendImplied = hasAlphaMode && !hasBlend;
+            const bool blend = hasBlend ? args["blend"].get<bool>() : (alphaMode == AlphaMode::Blend);
+            const bool applyBlend = hasBlend || hasAlphaMode;
+            const bool twoSided = hasTwoSided && args["twoSided"].get<bool>();
+
+            const Json result = host.MarshalRead(
+                [&host, id, hasColor, color, hasAlphaMode, alphaMode, applyBlend, blend, blendImplied, hasTwoSided,
+                 twoSided]() -> Json
+                {
+                    const Ref<Scene> scene = host.Context().GetActiveScene ? host.Context().GetActiveScene() : nullptr;
+                    if (!scene)
+                        return Json{ { "__error", "No active scene." } };
+                    const auto entityOpt = scene->TryGetEntityWithUUID(UUID(id));
+                    if (!entityOpt.has_value())
+                        return Json{ { "__error", "No entity with UUID " + UuidToString(UUID(id)) + " in the active scene." } };
+                    Entity entity = *entityOpt;
+                    if (!entity.HasComponent<MaterialComponent>())
+                        return Json{ { "__error", "Entity " + UuidToString(UUID(id)) +
+                                                      " has no MaterialComponent. olo_material_set edits the override "
+                                                      "material only; add a MaterialComponent first (olo_entity_set_field "
+                                                      "cannot author these fields)." } };
+
+                    Material& material = entity.GetComponent<MaterialComponent>().m_Material;
+                    if (hasColor)
+                        material.SetBaseColorFactor(color);
+                    if (hasAlphaMode)
+                        material.SetAlphaMode(alphaMode);
+                    if (applyBlend)
+                        material.SetFlag(MaterialFlag::Blend, blend);
+                    if (hasTwoSided)
+                        material.SetFlag(MaterialFlag::TwoSided, twoSided);
+
+                    const glm::vec4 applied = material.GetBaseColorFactor();
+                    Json j;
+                    j["entity"] = UuidToString(UUID(id));
+                    j["baseColorFactor"] = Json::array({ applied.r, applied.g, applied.b, applied.a });
+                    j["alphaMode"] = AlphaModeToken(material.GetAlphaMode());
+                    j["blend"] = material.GetFlag(MaterialFlag::Blend);
+                    j["blendImpliedByAlphaMode"] = blendImplied;
+                    j["twoSided"] = material.GetFlag(MaterialFlag::TwoSided);
+                    return j;
+                });
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
@@ -9073,6 +9191,7 @@ namespace OloEngine::MCP
                                                                          .Prop("pbr", Schema::Bool())
                                                                          .Prop("alphaMode", Schema::String().Enum({ "Opaque", "Mask", "Blend" }))
                                                                          .Prop("alphaCutoff", Schema::Number())
+                                                                         .Prop("blend", Schema::Bool().Desc("MaterialFlag::Blend: whether the draw is actually alpha-blended. AlphaMode::Blend alone does not enable blending."))
                                                                          .Prop("twoSided", Schema::Bool())
                                                                          .Prop("baseColorFactor", Schema::Array(Schema::Number()).Desc("RGBA."))
                                                                          .Prop("metallicFactor", Schema::Number())
@@ -9088,6 +9207,50 @@ namespace OloEngine::MCP
                                     .Required({ "entity", "renderableKind", "submeshCount", "hasMaterialComponentOverride", "submeshes" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_MaterialGet;
+            registry.Register(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_material_set";
+            tool.Toolset = "render";
+            tool.Title = "Set blending fields on an entity's MaterialComponent";
+            // Edits the scene's MaterialComponent in memory, like
+            // olo_scene_set_time_of_day: a project write behind the session
+            // write consent. Same arguments -> same state (idempotent). Not an
+            // undo-stack entry.
+            tool.ProjectWrite = true;
+            tool.Annotations = MutatingAnnotations(/*idempotent*/ true);
+            tool.Description =
+                "Set the fields of an entity's MaterialComponent that no other route can author: "
+                "'baseColorFactor' as RGBA (scene YAML keeps only RGB and forces alpha to 1), 'alphaMode' "
+                "('Opaque' | 'Mask' | 'Blend'), 'blend' (MaterialFlag::Blend, which is what actually enables "
+                "SRC_ALPHA/ONE_MINUS_SRC_ALPHA blending and the back-to-front transparent sort) and 'twoSided'. "
+                "An 'alphaMode' implies the matching 'blend' flag unless 'blend' is given explicitly; the result "
+                "says whether it was implied. At least one field is required. Only the MaterialComponent "
+                "override is edited, so the entity must have one. The write edits the loaded scene IN MEMORY "
+                "and is not an undo-stack entry. A scene save keeps baseColorFactor RGB only: alpha reloads as 1.0, "
+                "and alphaMode, blend and twoSided are not serialized. Read "
+                "back with olo_material_get. This is a WRITE tool: refused unless agent writes are enabled in "
+                "the editor's MCP Server panel (off by default).";
+            tool.InputSchema = Schema::Object()
+                                   .Prop("entity", Schema::EntityId("Entity UUID (string; also accepts a number). Must have a MaterialComponent."))
+                                   .Prop("baseColorFactor", Schema::Array(Schema::Number().Min(0).Max(1)).Desc("RGBA in [0, 1]."))
+                                   .Prop("alphaMode", Schema::String().Enum({ "Opaque", "Mask", "Blend" }))
+                                   .Prop("blend", Schema::Bool().Desc("MaterialFlag::Blend. Defaults to alphaMode == 'Blend' when alphaMode is given and this is not."))
+                                   .Prop("twoSided", Schema::Bool())
+                                   .Required({ "entity" })
+                                   .NoAdditional();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("entity", Schema::String())
+                                    .Prop("baseColorFactor", Schema::Array(Schema::Number()).Desc("RGBA read back from the material."))
+                                    .Prop("alphaMode", Schema::String().Enum({ "Opaque", "Mask", "Blend" }))
+                                    .Prop("blend", Schema::Bool())
+                                    .Prop("blendImpliedByAlphaMode", Schema::Bool())
+                                    .Prop("twoSided", Schema::Bool())
+                                    .Required({ "entity", "baseColorFactor", "alphaMode", "blend", "blendImpliedByAlphaMode", "twoSided" });
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_MaterialSet;
             registry.Register(std::move(tool));
         }
 

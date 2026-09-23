@@ -52,6 +52,39 @@ namespace OloEngine
 {
     namespace
     {
+        // Whether the skin diffusion pass runs this frame. The ONE place the
+        // answer is decided, because three sites need the same one: the
+        // pass's own settings, the scratch target's declaration and the
+        // blackboard fingerprint — two of them disagreeing is a declared target
+        // with no writer, or a stale cached graph.
+        //
+        // OFF UNDER A MATERIAL DEBUG VIEW OTHER THAN DIFFUSE (issue #1394). The
+        // pass ADDS blur(aux) - aux into scene colour in place, and under a
+        // debug view scene colour is no longer the composite: the deferred
+        // lighting pass has returned the Specular, Transmission, profile-id or
+        // mask output instead. The high-pass of the DIFFUSE half then lands on
+        // top of it, and the Transmission view of a backlit head showed every
+        // silhouette and crease as an edge — at version 1, where the term it
+        // claims to show is identically zero. The Diffuse view keeps the pass:
+        // the diffused diffuse half is the thing that view is for. The deferred
+        // G-Buffer DEBUG CHANNEL views (albedo, normal, ...) are the same case
+        // and are covered too.
+        //
+        // Passes that MULTIPLY scene colour in place (AO apply) are not gated
+        // here: a multiply cannot put signal into a view that should be black,
+        // and an add can, which is how this one was found.
+        [[nodiscard]] bool SkinDiffusionRunsThisFrame(const SkinDiffusionSettings& settings, RenderingPath path,
+                                                      MaterialDebugView materialDebug, i32 deferredDebugChannel) noexcept
+        {
+            if (!settings.Enabled)
+                return false;
+            const bool deferred = path == RenderingPath::Deferred;
+            const bool isolatingAMaterialView = (materialDebug != MaterialDebugView::None) &&
+                                                (materialDebug != MaterialDebugView::Diffuse);
+            const bool isolatingAGBufferChannel = deferredDebugChannel != 0;
+            return !(deferred && (isolatingAMaterialView || isolatingAGBufferChannel));
+        }
+
         constexpr ImageFormat kTemporalHistoryFormat = ImageFormat::RGBA16F;
         constexpr u32 kSSGIHistoryLayoutVersion = 1u;
 
@@ -1184,7 +1217,11 @@ namespace OloEngine
         }
         if (PostProcessPasses.SkinDiffusion)
         {
-            PostProcessPasses.SkinDiffusion->SetSettings(data.SkinDiffusion);
+            SkinDiffusionSettings effective = data.SkinDiffusion;
+            effective.Enabled = SkinDiffusionRunsThisFrame(data.SkinDiffusion, data.Settings.Path,
+                                                           data.PostProcess.MaterialDebug,
+                                                           static_cast<i32>(data.Settings.Deferred.DebugChannel));
+            PostProcessPasses.SkinDiffusion->SetSettings(effective);
             // P[1][1] and the clip planes, straight off the frame's projection.
             // Taken from the matrix rather than from a stored field of view so a
             // custom or orthographic projection reaches the pass as what it
@@ -2813,7 +2850,8 @@ namespace OloEngine
         config.VignetteEnabled = post.VignetteEnabled;
         config.FXAAEnabled = post.FXAAEnabled;
         config.SnowSubsurfaceBlur = data.Snow.Enabled && data.Snow.SSSBlurEnabled;
-        config.SkinDiffusionEnabled = data.SkinDiffusion.Enabled;
+        config.SkinDiffusionEnabled = SkinDiffusionRunsThisFrame(data.SkinDiffusion, data.Settings.Path, post.MaterialDebug,
+                                                                 static_cast<i32>(data.Settings.Deferred.DebugChannel));
         config.SelectionOutlineActive = data.EnableSelectionOutline && !data.SelectionOutlineEntityIDs.IsEmpty();
         config.OverdrawDebugView = post.OverdrawDebugView;
         config.ColorBlind = Accessibility::Get().ColorBlind;

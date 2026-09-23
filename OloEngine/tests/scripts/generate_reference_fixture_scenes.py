@@ -622,8 +622,14 @@ HEAD_NOTE = [
     "    Measures the same rig's response to real PBR texture detail.",
     "",
     "Suzanne is declared MaterialKind::Skin and names ReferenceHead.oloskin",
-    "(issues #1231, #1241), which is authored at transport version 1 — so it is",
-    "diffused and the helmet beside it, under the identical rig, is not.",
+    "(issues #1231, #1241), which is authored at transport version 3 (#1394) —",
+    "so it is diffused and shaded with #1243's layered specular, and the helmet",
+    "beside it, under the identical rig, is neither.",
+    "",
+    "It authors NO THICKNESS, deliberately, so #1242's thin-region transmission",
+    "does not fire on it and the log reports that once as NoThickness. Suzanne",
+    "is ~8x human scale and a chimpanzee: there is no physical thickness to",
+    "author. The transmitting subject is the scanned head in DigitalHuman.olo.",
     "",
     "CURRENT LIMITATION THIS FIXTURE RECORDS: there is no eye shader and no",
     "groom in the engine today, and Suzanne has no skin albedo or normal map,",
@@ -681,8 +687,10 @@ def build_reference_head():
     #
     # SUBJECT A IS SKIN (issue #1241). Suzanne carries a MaterialComponent
     # declaring MaterialKind::Skin and naming ReferenceHead.oloskin, which is
-    # authored at transport version 1 — so the head is diffused and the helmet
-    # beside it, under the identical rig, is not. That side-by-side is the whole
+    # authored at transport version 3 since #1394 — so the head is diffused and
+    # layered-specular and the helmet beside it, under the identical rig, is
+    # neither. No thickness is authored (see HEAD_NOTE): Suzanne does not
+    # transmit, and says so once in the log. That side-by-side is the whole
     # value of this fixture for skin: the same key light, the same exposure, one
     # subject scattering and one not.
     #

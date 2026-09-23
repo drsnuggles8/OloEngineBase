@@ -1110,6 +1110,9 @@ TEST_F(VulkanParallelRecordingDevice, BucketsReplayWithItemOwnedMaterialAndInsta
     constexpr u32 itemCount = 4;
     const std::array<std::array<f32, 4>, itemCount> colors = { { { 1, 0, 0, 1 }, { 0, 1, 0, 1 }, { 0, 0, 1, 1 }, { 1, 1, 0, 1 } } };
     std::array<CommandBucket, itemCount> buckets;
+    // The packets Submit handed back, kept so the combined bucket below can
+    // take them: a bucket's GetPackets() is a read-only view (issue #1335).
+    std::array<CommandPacket*, itemCount> firstPackets{};
     CommandAllocator allocator;
     std::vector<TintedTarget> targets;
     std::vector<Ref<Framebuffer>> framebuffers;
@@ -1137,7 +1140,8 @@ TEST_F(VulkanParallelRecordingDevice, BucketsReplayWithItemOwnedMaterialAndInsta
         draw.prevTransform = draw.transform;
         draw.materialDataIndex = materialIndex;
         draw.renderStateIndex = stateIndex;
-        ASSERT_NE(buckets[item].Submit(draw, {}, &allocator), nullptr);
+        firstPackets[item] = buckets[item].Submit(draw, {}, &allocator);
+        ASSERT_NE(firstPackets[item], nullptr);
         ASSERT_NE(buckets[item].Submit(draw, {}, &allocator), nullptr);
     }
     auto& api = renderCommandSelection.Get();
@@ -1174,7 +1178,7 @@ TEST_F(VulkanParallelRecordingDevice, BucketsReplayWithItemOwnedMaterialAndInsta
     // target regardless of CPU completion order.
     CommandBucket combined;
     for (u32 draw = 0; draw < 128u; ++draw)
-        combined.AddCommand(buckets[draw % itemCount].GetPackets()[0]);
+        combined.AddCommand(firstPackets[draw % itemCount]);
     VulkanFrameArena::Get().BeginFrame(1);
     const std::array<Ref<Framebuffer>, 1> sharedTarget{ targets[0].Target };
     SubmitPassFrame(api, sharedTarget, [&]
