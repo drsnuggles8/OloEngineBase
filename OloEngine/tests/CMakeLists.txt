@@ -60,6 +60,8 @@ add_executable(OloEngine-Tests
 		Core/CVarTest.cpp
 		Core/DebugLeversTest.cpp
 		Core/FrameTimeTailTest.cpp
+		# Issue #1420: UUID() is called from several threads and must never repeat.
+		Core/UUIDTest.cpp
 		ContainerTest.cpp
 		SnowSettingsTest.cpp
 		WindSettingsTest.cpp
@@ -402,6 +404,7 @@ add_executable(OloEngine-Tests
 		Rendering/CommandPacketTest.cpp
 		Rendering/CommandAllocatorTest.cpp
 		Rendering/CommandBucketTest.cpp
+		Rendering/RenderCommandHandleInitTest.cpp
 		Rendering/CommandDispatchRecordingTest.cpp
 		Rendering/RenderGraphParallelRecordingTest.cpp
 		Rendering/PODRenderStateChannelMaskTest.cpp

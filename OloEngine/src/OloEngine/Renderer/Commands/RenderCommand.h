@@ -18,7 +18,11 @@
  * - Cache-friendly linear memory layout
  *
  * Design principles:
- * - Use AssetHandle (u64) instead of Ref<T> for asset references
+ * - Use AssetHandle (u64) instead of Ref<T> for asset references, and give every
+ *   AssetHandle member `= 0`. A bare `AssetHandle x;` default-constructs a UUID,
+ *   which draws a random ID; CommandAllocator value-initialises commands on the
+ *   parallel submission workers, so each draw would pay for IDs the submitter
+ *   overwrites (issue #1420). RenderCommandHandleInitTest pins this.
  * - Use RHI::ResourceHandle for GPU resource identities (VAO, textures, etc.)
  * - Use offset+count into FrameDataBuffer for variable-length data (bone matrices, transforms)
  * - Inline render state as POD flags instead of Ref<RenderState>
@@ -709,7 +713,7 @@ namespace OloEngine
         CommandHeader header;
 
         // Mesh data (POD identifiers)
-        AssetHandle meshHandle;              // Mesh asset handle for resolution
+        AssetHandle meshHandle = 0;          // Mesh asset handle for resolution
         RHI::ResourceHandle vertexArrayID{}; // VAO identity (invalid = no VAO)
         u32 indexCount;
         u32 baseIndex = 0; // Starting index offset in shared index buffer (for multi-submesh MeshSources)
@@ -724,7 +728,7 @@ namespace OloEngine
         i32 entityID = -1;
 
         // Shader handle (for asset tracking — shaderRendererID lives in PODMaterialData)
-        AssetHandle shaderHandle;
+        AssetHandle shaderHandle = 0;
 
         // Material data index (into FrameDataBuffer::MaterialDataTable)
         u16 materialDataIndex = INVALID_MATERIAL_DATA_INDEX;
@@ -784,7 +788,7 @@ namespace OloEngine
         CommandHeader header;
 
         // Mesh data (POD identifiers)
-        AssetHandle meshHandle;              // Mesh asset handle
+        AssetHandle meshHandle = 0;          // Mesh asset handle
         RHI::ResourceHandle vertexArrayID{}; // VAO identity (invalid = no VAO)
         u32 indexCount;
         u32 baseIndex = 0; // Starting index offset in shared index buffer (for multi-submesh MeshSources)
@@ -794,7 +798,7 @@ namespace OloEngine
         u32 transformCount = 0;                     // Number of instance transforms
 
         // Shader handle (for asset tracking — shaderRendererID lives in PODMaterialData)
-        AssetHandle shaderHandle;
+        AssetHandle shaderHandle = 0;
 
         // Material data index (into FrameDataBuffer::MaterialDataTable)
         u16 materialDataIndex = INVALID_MATERIAL_DATA_INDEX;
@@ -867,11 +871,11 @@ namespace OloEngine
     struct DrawSkyboxCommand
     {
         CommandHeader header;
-        AssetHandle meshHandle;              // Skybox mesh handle
+        AssetHandle meshHandle = 0;          // Skybox mesh handle
         RHI::ResourceHandle vertexArrayID{}; // VAO identity (invalid = no VAO)
         u32 indexCount;
         glm::mat4 transform;                               // Usually identity matrix
-        AssetHandle shaderHandle;                          // Skybox shader handle (for asset tracking)
+        AssetHandle shaderHandle = 0;                      // Skybox shader handle (for asset tracking)
         RHI::ResourceHandle shaderRendererID{};            // Shader program identity
         RHI::ResourceHandle skyboxTextureID{};             // Cubemap texture identity
         u16 renderStateIndex = INVALID_RENDER_STATE_INDEX; // Render state index
@@ -883,7 +887,7 @@ namespace OloEngine
     struct DrawInfiniteGridCommand
     {
         CommandHeader header;
-        AssetHandle shaderHandle;                          // Grid shader handle (for asset tracking)
+        AssetHandle shaderHandle = 0;                      // Grid shader handle (for asset tracking)
         RHI::ResourceHandle shaderRendererID{};            // Shader program identity
         RHI::ResourceHandle quadVAOID{};                   // Fullscreen quad VAO identity
         f32 gridScale;                                     // Grid spacing scale factor
@@ -898,7 +902,7 @@ namespace OloEngine
         CommandHeader header;
         glm::mat4 transform;
         RHI::ResourceHandle textureID{};                   // Texture identity
-        AssetHandle shaderHandle;                          // Shader asset handle (for asset tracking)
+        AssetHandle shaderHandle = 0;                      // Shader asset handle (for asset tracking)
         RHI::ResourceHandle shaderRendererID{};            // Shader program identity
         RHI::ResourceHandle quadVAID{};                    // Quad vertex array identity
         u16 renderStateIndex = INVALID_RENDER_STATE_INDEX; // Render state index
