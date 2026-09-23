@@ -637,6 +637,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/SkinOcularSurfaceParityTest.cpp
 		Rendering/PropertyTests/SkinOcularSurfaceEvidenceTest.cpp
 		Rendering/PropertyTests/SkinDigitalHumanEvidenceTest.cpp
+		Rendering/PropertyTests/SkinReferenceHeadEvidenceTest.cpp
+		Rendering/PropertyTests/ForwardPlusInactiveBindingTest.cpp
 		Rendering/PropertyTests/ProceduralSkyBakeTest.cpp
 		Rendering/PropertyTests/ProceduralSkyVisualTest.cpp
 		Rendering/PropertyTests/StarNestSkyBakeTest.cpp

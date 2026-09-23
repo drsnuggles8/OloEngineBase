@@ -144,13 +144,33 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!m_ActiveThisFrame)
+        if (!m_Initialized)
         {
             return;
         }
 
+        // PUBLISHED EVEN WHEN INACTIVE. Every shader that includes
+        // ForwardPlusCommon.glsl DECLARES bindings 9-12 and 18, and gates its
+        // reads on the UBO's Enabled flag rather than on the declaration. On
+        // Vulkan a declared storage binding with no published occupant is an
+        // error (issue #1052), and this pass's own UnbindAfterShading is what
+        // empties the slots: once a Deferred or Forward+ frame has bound and
+        // unbound them, the next frame with Forward+ inactive — a switch to
+        // Forward, or a light count under the threshold — drew PBR_MultiLight
+        // and DeferredLighting against empty slots and logged five errors per
+        // shader (issue #1394's live verification; reproduced on the skin-free
+        // MaterialLab.olo). Before that first unbind the slots only looked
+        // healthy because OTHER tenants of those binding numbers had left their
+        // buffers in them. Publishing our own buffers gives the declarations a
+        // defined occupant; the UBO still says Enabled = 0 when inactive
+        // (CommandDispatch::BindSceneResources), so nothing reads them.
         m_LightBuffer.Bind();
         m_LightGrid.Bind();
+
+        if (!m_ActiveThisFrame)
+        {
+            return;
+        }
 
         // Upload Forward+ clustered parameters UBO
         if (m_ForwardPlusUBO)
@@ -187,8 +207,12 @@ namespace OloEngine
     TiledForwardPlus::ShadingSnapshot TiledForwardPlus::CaptureShadingBindings() const
     {
         ShadingSnapshot snapshot;
+        // Parameters say Enabled = 0 when inactive (GetShadingParameters
+        // returns {}); the BUFFERS are listed whenever initialised, for the
+        // reason BindForShading publishes them — the froxel fog compute
+        // includes ForwardPlusCommon.glsl and declares them too.
         snapshot.Parameters = GetShadingParameters();
-        if (ShouldUseForwardPlus())
+        if (m_Initialized)
             snapshot.Buffers = { m_LightBuffer.GetPointLightSSBO(), m_LightBuffer.GetSpotLightSSBO(),
                                  m_LightBuffer.GetSphereAreaLightSSBO(), m_LightGrid.GetLightIndexSSBO(),
                                  m_LightGrid.GetLightGridSSBO() };
@@ -199,6 +223,12 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // ONLY AFTER AN ACTIVE FRAME, as before #1394. On an inactive frame
+        // the buffers BindForShading published stay published, so passes that
+        // draw after ScenePass with a ForwardPlusCommon.glsl shader (decals,
+        // the forward overlay) find an occupant too. Unbinding there would
+        // also be unsafe on GL: OpenGLStorageBuffer::Unbind zeroes the binding
+        // point whoever holds it, and GPUScene is another tenant of 9 and 10.
         if (!m_ActiveThisFrame)
         {
             return;
