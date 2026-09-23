@@ -116,9 +116,9 @@ namespace OloEngine::RayTracing
             /// budget spreads its staleness rather than starving the same
             /// animals every frame.
             u64 LastRefreshed = 0;
-            /// Everything that decides the emitted bytes. A change
-            /// REALLOCATES rather than refills, deliberately — see the
-            /// note beside its construction in Extract.
+            /// Everything that decides the emitted shape. A change replaces
+            /// both buffers; Vulkan also replaces vertices on a same-shape
+            /// refill so an in-flight BLAS build keeps its original bytes.
             u64 ShapeHash = 0;
             /// Bumped on every refill. Rides the instance record as
             /// m_DeformedContentRevision, which is what lets RayTracingScene
