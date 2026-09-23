@@ -23,6 +23,7 @@
 #include "OloEngine/Renderer/DeferredForwardOverlayRoute.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/LOD.h"
+#include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/MeshOptimization.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -450,7 +451,7 @@ namespace OloEngine::Tests::ImportedCorpus
             EXPECT_NE(depth, 0u);
             if (depth != 0u)
             {
-                std::vector<f32> values(static_cast<sizet>(width) * height);
+                std::vector<f32> values(static_cast<sizet>(width) * height, 1.0f);
                 glGetTextureImage(depth, 0, GL_DEPTH_COMPONENT, GL_FLOAT,
                                   static_cast<GLsizei>(values.size() * sizeof(f32)), values.data());
                 u32 leftCoverage = 0, rightCoverage = 0;
@@ -635,6 +636,20 @@ namespace OloEngine::Tests::ImportedCorpus
         EXPECT_GT(selectedHigh->GetIndices().Num(), selectedLow->GetIndices().Num());
         EXPECT_EQ(selectedHigh->GetImportedMaterialForSubmesh(0)->GetName(),
                   selectedLow->GetImportedMaterialForSubmesh(0)->GetName());
+
+        const auto autoGroup = MeshOptimization::GenerateAutoLODGroup(*imported.Source, highHandle);
+        ASSERT_GT(autoGroup.Levels.Num(), 1) << "the imported normal-map mesh produced no automatic LOD";
+        for (i32 level = 1; level < autoGroup.Levels.Num(); ++level)
+        {
+            const auto autoMesh = AssetManager::GetAsset<Mesh>(autoGroup.Levels[level].MeshHandle);
+            ASSERT_TRUE(autoMesh) << level;
+            const auto autoSource = autoMesh->GetMeshSource();
+            ASSERT_TRUE(autoSource) << level;
+            const auto autoMaterial = autoSource->GetImportedMaterialForSubmesh(0);
+            ASSERT_TRUE(autoMaterial) << "automatic LOD " << level << " dropped the imported material table";
+            EXPECT_EQ(autoMaterial->GetName(), originalMaterial->GetName()) << level;
+            EXPECT_TRUE(autoMaterial->GetNormalMap()) << level;
+        }
     }
 
     class ImportedCorpusVisualEvidenceTest : public RendererAttachedTest
@@ -716,7 +731,8 @@ namespace OloEngine::Tests::ImportedCorpus
                     if (width <= 0 || height <= 0)
                         return 0;
                     std::vector<f32> values(static_cast<sizet>(width) * static_cast<sizet>(height) *
-                                            static_cast<sizet>(std::max(layers, 1)));
+                                                static_cast<sizet>(std::max(layers, 1)),
+                                            1.0f);
                     glGetTextureImage(texture, 0, GL_DEPTH_COMPONENT, GL_FLOAT,
                                       static_cast<GLsizei>(values.size() * sizeof(f32)), values.data());
                     return static_cast<sizet>(std::count_if(values.begin(), values.end(),

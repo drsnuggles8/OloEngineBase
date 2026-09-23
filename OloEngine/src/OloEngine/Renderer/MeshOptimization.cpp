@@ -790,6 +790,10 @@ namespace OloEngine::MeshOptimization
             {
                 lodMesh->SetMaterial(index, handle);
             }
+            TArray<Ref<Material>> importedMaterials;
+            for (const auto& material : meshSource.GetImportedMaterials())
+                importedMaterials.Add(material);
+            lodMesh->SetImportedMaterials(MoveTemp(importedMaterials));
 
             Submesh submesh;
             if (const auto& srcSubmeshes = meshSource.GetSubmeshes(); srcSubmeshes.Num() == 1)

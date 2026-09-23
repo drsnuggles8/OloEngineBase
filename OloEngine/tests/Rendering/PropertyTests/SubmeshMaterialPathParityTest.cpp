@@ -967,24 +967,17 @@ namespace OloEngine::Tests
         }
     }
 
-    // -- C1, the half no importer can produce: TWO SUBMESHES SHARING ONE MATERIAL --
+    // -- C1: TWO SUBMESHES SHARING ONE MATERIAL --
     //
     // Submesh::m_MaterialIndex indexes the DEDUPLICATED imported-material array — one entry per
     // UNIQUE material, so two submeshes may legitimately point at the SAME entry. The bug wrote
     // the submesh's OWN index there instead ("one material slot per submesh"), which addresses a
-    // different array. The two conventions agree on every asset in this repo, because
-    // aiProcess_PreTransformVertices MERGES primitives that share a material, so Assimp always
-    // hands back exactly one mesh per unique material (measured: Sponza's 103 glTF primitives /
-    // 25 materials -> 25 meshes / 25 materials). The test below therefore could not tell the two
-    // conventions apart, and said so — which is another way of saying it was pinning its
-    // invariant by coincidence.
+    // different array. The static importer now preserves authored node mesh references, so a
+    // real asset can have more submeshes than materials; ImportedCorpus checks that path.
     //
-    // So construct the case by hand: three submeshes, TWO materials, submesh 2 sharing submesh
-    // 0's. The negative control at the end is the old convention, spelled out, so the positive
-    // assertion cannot be vacuous: under `m_MaterialIndex = submeshIndex` the third submesh
-    // indexes off the end of a two-entry array, GetImportedMaterialForSubmesh returns null, and
-    // the resolver falls through to flat engine-default grey. That is what "it goes live the
-    // moment a load yields two meshes sharing a material" means, in numbers.
+    // Construct this case by hand to isolate the resolver's addressing contract: three
+    // submeshes, TWO materials, submesh 2 sharing submesh 0's. The negative control uses the
+    // old convention, under which submesh 2 indexes off the end and resolves to engine grey.
     //
     // No GL needed: this is the resolver's addressing contract, not a picture.
     TEST(ModelCombinedMaterialIndex, SubmeshesSharingAMaterialResolveToTheSameImportedMaterial)
@@ -1048,13 +1041,11 @@ namespace OloEngine::Tests
         EXPECT_EQ(&m0, &m2) << "two submeshes sharing a material index must resolve to the SAME Material object";
         EXPECT_NE(m2.GetName(), engineDefault.GetName())
             << "submesh 2 fell through to the ENGINE DEFAULT — its material index does not address the array that "
-               "ships alongside it. This is exactly the C1 failure mode, and it is invisible to every asset in the "
-               "repo because PreTransformVertices merges primitives that share a material.";
+               "ships alongside it. ImportedCorpus covers the same shared-material case through a real asset.";
 
         // THE NEGATIVE CONTROL — the old convention, `m_MaterialIndex = submeshIndex`, against
         // the same deduplicated two-entry array. This is not a regression guard; it is the proof
-        // that the assertions above are not vacuous: they distinguish the two conventions, which
-        // is precisely what no fixture in this repo can do.
+        // that the assertions above are not vacuous: they distinguish the two conventions.
         Ref<MeshSource> oldConvention = makeMesh({ 0u, 1u, 2u });
         oldConvention->SetImportedMaterials({ red, green });
         EXPECT_FALSE(oldConvention->GetImportedMaterialForSubmesh(2))
