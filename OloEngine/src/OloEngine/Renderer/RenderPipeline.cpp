@@ -66,16 +66,23 @@ namespace OloEngine
         // top of it, and the Transmission view of a backlit head showed every
         // silhouette and crease as an edge — at version 1, where the term it
         // claims to show is identically zero. The Diffuse view keeps the pass:
-        // the diffused diffuse half is the thing that view is for.
+        // the diffused diffuse half is the thing that view is for. The deferred
+        // G-Buffer DEBUG CHANNEL views (albedo, normal, ...) are the same case
+        // and are covered too.
+        //
+        // Passes that MULTIPLY scene colour in place (AO apply) are not gated
+        // here: a multiply cannot put signal into a view that should be black,
+        // and an add can, which is how this one was found.
         [[nodiscard]] bool SkinDiffusionRunsThisFrame(const SkinDiffusionSettings& settings, RenderingPath path,
-                                                      MaterialDebugView materialDebug) noexcept
+                                                      MaterialDebugView materialDebug, i32 deferredDebugChannel) noexcept
         {
             if (!settings.Enabled)
                 return false;
-            const bool isolatingAView = (path == RenderingPath::Deferred) &&
-                                        (materialDebug != MaterialDebugView::None) &&
-                                        (materialDebug != MaterialDebugView::Diffuse);
-            return !isolatingAView;
+            const bool deferred = path == RenderingPath::Deferred;
+            const bool isolatingAMaterialView = (materialDebug != MaterialDebugView::None) &&
+                                                (materialDebug != MaterialDebugView::Diffuse);
+            const bool isolatingAGBufferChannel = deferredDebugChannel != 0;
+            return !(deferred && (isolatingAMaterialView || isolatingAGBufferChannel));
         }
 
         constexpr ImageFormat kTemporalHistoryFormat = ImageFormat::RGBA16F;
@@ -1200,8 +1207,9 @@ namespace OloEngine
         if (PostProcessPasses.SkinDiffusion)
         {
             SkinDiffusionSettings effective = data.SkinDiffusion;
-            effective.Enabled =
-                SkinDiffusionRunsThisFrame(data.SkinDiffusion, data.Settings.Path, data.PostProcess.MaterialDebug);
+            effective.Enabled = SkinDiffusionRunsThisFrame(data.SkinDiffusion, data.Settings.Path,
+                                                           data.PostProcess.MaterialDebug,
+                                                           static_cast<i32>(data.Settings.Deferred.DebugChannel));
             PostProcessPasses.SkinDiffusion->SetSettings(effective);
             // P[1][1] and the clip planes, straight off the frame's projection.
             // Taken from the matrix rather than from a stored field of view so a
@@ -3286,7 +3294,8 @@ namespace OloEngine
         // decides whether its scratch target is declared at all -- both are
         // topology, not just state.
         HashPassState(h, PostProcessPasses.SkinDiffusion);
-        HashBool(h, SkinDiffusionRunsThisFrame(data.SkinDiffusion, data.Settings.Path, data.PostProcess.MaterialDebug));
+        HashBool(h, SkinDiffusionRunsThisFrame(data.SkinDiffusion, data.Settings.Path, data.PostProcess.MaterialDebug,
+                                               static_cast<i32>(data.Settings.Deferred.DebugChannel)));
         HashU32(h, static_cast<u32>(std::to_underlying(data.SkinDiffusion.Quality)));
         HashPassState(h, PostProcessPasses.SSS);
         HashPassState(h, PostProcessPasses.AOApply);
@@ -4199,7 +4208,8 @@ namespace OloEngine
         // place rather than producing a new image, so the post-process chain is
         // not rewired and the result needs no handle of its own.
         if (pipeline.PostProcessPasses.SkinDiffusion &&
-            SkinDiffusionRunsThisFrame(data.SkinDiffusion, data.Settings.Path, data.PostProcess.MaterialDebug) &&
+            SkinDiffusionRunsThisFrame(data.SkinDiffusion, data.Settings.Path, data.PostProcess.MaterialDebug,
+                                       static_cast<i32>(data.Settings.Deferred.DebugChannel)) &&
             board.Scene.SkinDiffuse.IsValid() &&
             pipeline.PostProcessPasses.SkinDiffusion->IsReadyForExecution())
         {
