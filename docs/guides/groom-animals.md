@@ -90,7 +90,6 @@ All on GL, Release, 1280×720.
 Filed on #1223 as its blockers:
 - a moving coat has no self-shadowing;
 - the per-frame cost of a deformed coat;
-- the card tier over-covers at range;
-- coats misregister under editor upscale (with #1397).
+- the card tier over-covers at range.
 
 `GroomAnimals_Cost.txt` and the PR body hold the numbers.

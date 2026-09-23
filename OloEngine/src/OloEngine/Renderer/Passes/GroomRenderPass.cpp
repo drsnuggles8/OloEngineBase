@@ -809,8 +809,12 @@ namespace OloEngine
 
         m_SceneFramebuffer->Bind();
 
-        const auto& spec = m_SceneFramebuffer->GetSpecification();
-        context.SetViewport(0, 0, spec.Width, spec.Height);
+        // The ACTIVE viewport, not the spec: under a DRS render scale the scene
+        // target is bound at a sub-rectangle, and a coat drawn at the full spec
+        // lands at a different scale from the body it grows on (#1430).
+        const u32 viewportWidth = m_SceneFramebuffer->GetActiveViewportWidth();
+        const u32 viewportHeight = m_SceneFramebuffer->GetActiveViewportHeight();
+        context.SetViewport(0, 0, viewportWidth, viewportHeight);
         // Depth test AND depth write: this is what makes the coat compose
         // against the body and against ordinary opaque geometry through the
         // ordinary depth test, which is acceptance criterion 2. Blending is
@@ -1055,7 +1059,7 @@ namespace OloEngine
             params.PrevModel = MakeModelRelative(request.PreviousTransform, renderOrigin);
             params.Color = glm::vec4(request.Color, 1.0f);
             params.IDs = glm::ivec4(request.EntityID, 0, 0, 0);
-            params.Viewport = glm::vec4(static_cast<f32>(spec.Width), static_cast<f32>(spec.Height), 0.0f, 0.0f);
+            params.Viewport = glm::vec4(static_cast<f32>(viewportWidth), static_cast<f32>(viewportHeight), 0.0f, 0.0f);
             params.RampWidth =
                 glm::vec4(request.RampFloor, effectiveWidthScale, objectScale, request.AlphaCutoff);
             params.ModeFrame = glm::ivec4(static_cast<i32>(decision.Effective),

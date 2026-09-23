@@ -144,12 +144,8 @@ namespace OloEngine
         // override, not the framebuffer's physical size. Getting this wrong scales
         // line width by the DRS factor, which reads as "the lines get thinner when
         // the scene gets busy" and is easy to mistake for an LOD effect.
-        const u32 viewportWidth =
-            m_SceneFramebuffer->GetRenderViewportWidth() > 0 ? m_SceneFramebuffer->GetRenderViewportWidth()
-                                                             : sceneSpec.Width;
-        const u32 viewportHeight =
-            m_SceneFramebuffer->GetRenderViewportHeight() > 0 ? m_SceneFramebuffer->GetRenderViewportHeight()
-                                                              : sceneSpec.Height;
+        const u32 viewportWidth = m_SceneFramebuffer->GetActiveViewportWidth();
+        const u32 viewportHeight = m_SceneFramebuffer->GetActiveViewportHeight();
         const glm::vec2 viewportSize(static_cast<f32>(viewportWidth), static_cast<f32>(viewportHeight));
 
         constexpr auto primitives = std::array{
