@@ -31,7 +31,11 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         ModelImportResult result;
-        result.IsAnimated = (skeleton != nullptr) || !clips.empty();
+        // Morph targets make a source animated too (issue #1439): a blend-shape face
+        // with no bones and no clips is still deformed every frame, and the automatic
+        // LOD chain below would drop its morph deltas exactly as it drops bone weights.
+        const bool hasMorphTargets = meshSource && meshSource->HasMorphTargets();
+        result.IsAnimated = (skeleton != nullptr) || !clips.empty() || hasMorphTargets;
 
         // MeshComponent — the skinned (or static) geometry.
         if (meshSource)
@@ -56,8 +60,20 @@ namespace OloEngine
             entity.GetComponent<SkeletonComponent>().SetSkeleton(skeleton);
         }
 
-        // AnimationStateComponent — playback state + the available clip set.
-        if (!clips.empty())
+        // MorphTargetComponent — the weights that drive the mesh's morph targets
+        // (issue #1439). Added, never replaced: a scene reload re-wires the entity
+        // and then reads the saved weights into this same component.
+        if (hasMorphTargets && !entity.HasComponent<MorphTargetComponent>())
+        {
+            entity.AddComponent<MorphTargetComponent>();
+            result.AddedMorphTargetComponent = true;
+        }
+
+        // AnimationStateComponent — playback state + the available clip set. Also
+        // for a clip-less MORPH source (issue #1439), because this component is what
+        // records the source file: without it a saved scene has no path to re-import
+        // the mesh from, and a morph-only face would reload with no mesh at all.
+        if (!clips.empty() || hasMorphTargets)
         {
             if (!entity.HasComponent<AnimationStateComponent>())
             {
@@ -79,11 +95,13 @@ namespace OloEngine
 
             // Clamp the (possibly deserialized) current-clip index into range and
             // resolve the matching clip. Mirrors the deserializer's fallback to clip 0.
+            // No clips at all (a clip-less morph source) leaves no current clip, which
+            // the morph-only animation update already skips.
             if (anim.m_CurrentClipIndex < 0 || anim.m_CurrentClipIndex >= static_cast<int>(clips.size()))
             {
                 anim.m_CurrentClipIndex = 0;
             }
-            anim.m_CurrentClip = clips[static_cast<sizet>(anim.m_CurrentClipIndex)];
+            anim.m_CurrentClip = clips.empty() ? nullptr : clips[static_cast<sizet>(anim.m_CurrentClipIndex)];
 
             anim.m_SourceFilePath = sourcePath;
         }

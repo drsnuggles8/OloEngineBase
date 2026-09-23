@@ -2817,17 +2817,24 @@ namespace OloEngine
                     }
 
                     // Wire the entity inside the create callback so undo/redo recreate it cleanly.
-                    // Models carrying a skeleton and/or animation clips get the full animation
-                    // component set (mesh + skeleton + animation state + material); everything
-                    // else is imported as a single combined static mesh.
+                    // Models carrying a skeleton, animation clips and/or morph targets get the
+                    // full animation component set (mesh + skeleton + animation state + morph
+                    // weights + material); everything else is imported as a single combined
+                    // static mesh. Morph targets count (issue #1439) because the static route
+                    // drops them: a bone-less blend-shape face used to reach this branch only
+                    // through the one-bone skeleton the importer invented for it.
                     m_CommandHistory.Execute(std::make_unique<CreateEntityCommand>(
                         m_EditorScene, entityName,
                         [this, filepath](Entity created)
                         {
                             bool wired = false;
                             auto animatedModel = Ref<AnimatedModel>::Create(filepath);
+                            const bool hasMorphTargets =
+                                animatedModel &&
+                                std::ranges::any_of(animatedModel->GetMeshes(), [](const Ref<MeshSource>& mesh)
+                                                    { return mesh && mesh->HasMorphTargets(); });
                             if (animatedModel && !animatedModel->GetMeshes().empty() &&
-                                (animatedModel->HasSkeleton() || animatedModel->HasAnimations()))
+                                (animatedModel->HasSkeleton() || animatedModel->HasAnimations() || hasMorphTargets))
                             {
                                 ModelImporter::PopulateAnimatedEntity(created, animatedModel, filepath);
                                 wired = true;

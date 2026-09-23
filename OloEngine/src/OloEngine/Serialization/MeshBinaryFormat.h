@@ -97,7 +97,14 @@ namespace OloEngine
         // bone weights were rejected and static caches made before authored
         // node instances were kept distinct (#1350). Both branches introduced
         // a v9 writer independently, so another bump is required after merging.
-        constexpr u32 CurrentVersion = 10;
+        //
+        // v11 adds no section. It invalidates every v10 ANIMATED cache of a bone-less
+        // model (issue #1439): AnimatedModel used to invent a one-bone "Root" skeleton
+        // for a source with no bones, and the warm load hands back whatever skeleton
+        // the file holds, so a cached morph-only face would keep that skeleton -- and
+        // keep being drawn as a skinned entity -- after the importer stopped inventing
+        // it.
+        constexpr u32 CurrentVersion = 11;
 
         constexpr u32 MinSupportedVersion = 1;
         constexpr u32 FlagCompressed = 1;   // Payload is zlib-compressed

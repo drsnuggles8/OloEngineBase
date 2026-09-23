@@ -30,6 +30,8 @@
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
+#include "OloEngine/Scene/Scene.h"
+#include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Serialization/AssetPackFile.h"
 #include "OloEngine/Serialization/FileStream.h"
 #include "OloEngine/Utils/PlatformUtils.h"
@@ -307,8 +309,13 @@ namespace OloEngine::Tests::ImportedCorpus
         {
             SCOPED_TRACE(file);
             AnimatedModel model(ModelPath(file).string());
+            // No bones, no skeleton (issue #1439). The importer used to invent a
+            // one-bone skeleton here, which made every morph-only face a SKINNED
+            // entity and left no way to build a morph-only one.
+            EXPECT_FALSE(model.HasSkeleton());
             auto source = model.CreateCombinedMeshSource();
             ASSERT_TRUE(source);
+            EXPECT_FALSE(source->HasSkeleton());
             ASSERT_EQ(source->GetSubmeshes().Num(), primitiveCount);
             ASSERT_TRUE(source->HasMorphTargets());
             EXPECT_GT(source->GetMorphTargets()->GetTargetCount(), 0u);
@@ -560,6 +567,78 @@ namespace OloEngine::Tests::ImportedCorpus
         std::filesystem::path m_Directory;
         Ref<EditorAssetManager> m_Manager;
     };
+
+    // A morph-only face authored in a scene reloads as a morph-only ENTITY
+    // (issue #1439): mesh + morph weights + the animation state that names its
+    // source file, and no skeleton, so the rigid draw path owns it.
+    //
+    // The scene carries a SkeletonComponent key on purpose. Scenes saved while the
+    // importer still invented a one-bone skeleton for a bone-less model have one,
+    // and re-adding it EMPTY would hide the head from both draw loops. The rigged
+    // control beside it must keep its real skeleton, so the rule cannot pass by
+    // dropping every SkeletonComponent key.
+    TEST_F(ImportedCorpusPackTest, MorphOnlyFaceReloadsAsAMorphOnlyEntity)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        const std::string morphPath = ModelPath("MorphPrimitivesTest/MorphPrimitivesTest.gltf").generic_string();
+        const std::string riggedPath = ModelPath("RiggedSimple/RiggedSimple.gltf").generic_string();
+        // One entity per model; {MORPH} and {RIGGED} are replaced below.
+        std::string yaml = R"(Scene: MorphOnly1439
+Entities:
+  - Entity: 1439000000000001
+    TagComponent:
+      Tag: Face
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    AnimationStateComponent:
+      SourceFilePath: "{MORPH}"
+    SkeletonComponent:
+      Legacy: true
+    MorphTargetComponent:
+      Weights:
+        MorphTarget_0: 0.75
+  - Entity: 1439000000000002
+    TagComponent:
+      Tag: Rigged
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    AnimationStateComponent:
+      SourceFilePath: "{RIGGED}"
+    SkeletonComponent:
+      Legacy: true
+)";
+        yaml.replace(yaml.find("{MORPH}"), 7, morphPath);
+        yaml.replace(yaml.find("{RIGGED}"), 8, riggedPath);
+
+        auto scene = Ref<Scene>::Create();
+        SceneSerializer serializer(scene);
+        ASSERT_TRUE(serializer.DeserializeFromYAML(yaml));
+
+        Entity face = scene->FindEntityByName("Face");
+        ASSERT_TRUE(static_cast<bool>(face));
+        ASSERT_TRUE(face.HasComponent<MeshComponent>());
+        const auto& mesh = face.GetComponent<MeshComponent>().m_MeshSource;
+        ASSERT_TRUE(mesh) << "the morph-only source did not load, so nothing below is about a face";
+        EXPECT_TRUE(mesh->HasMorphTargets());
+        EXPECT_FALSE(face.HasComponent<SkeletonComponent>())
+            << "a bone-less model came back with a SkeletonComponent, so the rigid draw loop skips it";
+        ASSERT_TRUE(face.HasComponent<MorphTargetComponent>());
+        const auto& weights = face.GetComponent<MorphTargetComponent>().Weights;
+        ASSERT_TRUE(weights.contains("MorphTarget_0")) << "the saved weight did not reach the morph component";
+        EXPECT_FLOAT_EQ(weights.at("MorphTarget_0"), 0.75f);
+        ASSERT_TRUE(face.HasComponent<AnimationStateComponent>());
+        EXPECT_FALSE(face.GetComponent<AnimationStateComponent>().m_SourceFilePath.empty());
+
+        Entity rigged = scene->FindEntityByName("Rigged");
+        ASSERT_TRUE(static_cast<bool>(rigged));
+        ASSERT_TRUE(rigged.HasComponent<SkeletonComponent>()) << "the rigged control lost its skeleton";
+        EXPECT_TRUE(static_cast<bool>(rigged.GetComponent<SkeletonComponent>().m_Skeleton));
+    }
 
     TEST_F(ImportedCorpusPackTest, ImportedTransmissionSubmeshesAndMaterialsSurviveCookedPack)
     {

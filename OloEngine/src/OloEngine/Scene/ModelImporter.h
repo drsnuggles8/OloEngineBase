@@ -31,14 +31,15 @@ namespace OloEngine
         bool AddedSkeletonComponent = false;
         bool AddedAnimationStateComponent = false;
         bool AddedMaterialComponent = false;
-        bool AddedLODGroupComponent = false; ///< An automatic LOD chain was generated (issue #711).
-        bool IsAnimated = false;             ///< The source had a skeleton and/or animation clips.
+        bool AddedLODGroupComponent = false;    ///< An automatic LOD chain was generated (issue #711).
+        bool AddedMorphTargetComponent = false; ///< The mesh carries morph targets (issue #1439).
+        bool IsAnimated = false;                ///< The source had a skeleton, animation clips and/or morph targets.
 
         [[nodiscard]] bool AddedAnyComponent() const noexcept
         {
             return AddedMeshComponent || AddedSkeletonComponent ||
                    AddedAnimationStateComponent || AddedMaterialComponent ||
-                   AddedLODGroupComponent;
+                   AddedLODGroupComponent || AddedMorphTargetComponent;
         }
     };
 

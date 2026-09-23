@@ -2859,6 +2859,10 @@ namespace OloEngine
                             {
                                 compound->Add(std::make_unique<AddComponentCommand<AnimationStateComponent>>(cmdScene, entityUUID));
                             }
+                            if (importResult.AddedMorphTargetComponent)
+                            {
+                                compound->Add(std::make_unique<AddComponentCommand<MorphTargetComponent>>(cmdScene, entityUUID));
+                            }
                             if (!compound->IsEmpty())
                             {
                                 cmdHistory->PushAlreadyExecuted(std::move(compound));
