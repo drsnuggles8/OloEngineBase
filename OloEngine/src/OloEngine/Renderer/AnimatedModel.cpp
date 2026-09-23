@@ -190,6 +190,15 @@ namespace OloEngine
             // skips OptimizeMesh on reload (mirrors SplitCombinedMeshSource).
             // Only mark the bundle as pre-optimized when every non-null source mesh is.
             // Null entries are ignored rather than causing the flag to be false.
+            //
+            // A source that has been BUILT has been optimized too: Build() runs
+            // OptimizeMesh on the device path and only then latches m_Built.
+            // Counting only the explicit flag left every cold import's cache
+            // unflagged, so a warm load ran OptimizeMesh a SECOND time and came
+            // back with a different index and vertex order. Anything addressing
+            // the surface by index -- a groom binding refuses a body whose
+            // topology hash moved -- then broke depending on whether the cache
+            // was warm (#1223; AnimatedModelCacheSurfaceTest).
             if (auto anyNonNull = std::ranges::any_of(meshes,
                                                       [](const Ref<MeshSource>& s)
                                                       { return static_cast<bool>(s); });
@@ -197,7 +206,7 @@ namespace OloEngine
             {
                 if (auto allPreOpt = std::ranges::all_of(meshes,
                                                          [](const Ref<MeshSource>& src)
-                                                         { return !src || src->IsPreOptimized(); });
+                                                         { return !src || src->IsPreOptimized() || src->IsBuilt(); });
                     allPreOpt)
                 {
                     combined->SetPreOptimized(true);

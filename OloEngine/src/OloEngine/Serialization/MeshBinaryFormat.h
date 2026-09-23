@@ -9,7 +9,7 @@
 namespace OloEngine
 {
     // ============================================================================
-    // .omesh Binary Mesh Format — Version 8
+    // .omesh Binary Mesh Format — Version 9
     //
     // Layout:
     //   [FileHeader]
@@ -82,7 +82,18 @@ namespace OloEngine
         // imported down the static path would stay unskinned forever. ReadTimestamp gates
         // validity on Version == CurrentVersion (strict), so moving it forces one cold
         // re-import.
-        constexpr u32 CurrentVersion = 8; // v8: adds FlagSourceRigged, invalidates v7 (#1272)
+        //
+        // v9 appends no section. It exists to INVALIDATE every v8 cache (issue #1223):
+        // an animated model's cache was written WITHOUT FlagPreOptimized, so a warm load
+        // ran OptimizeMesh a second time, and the index codec had rotated every
+        // triangle's corners on the way through the file. A warm load therefore came back
+        // with a different vertex and index order than the cold import, and anything
+        // addressing the body by triangle corner -- a groom binding -- was refused
+        // depending on whether the cache was warm. Both writers are fixed
+        // (AnimatedModel counts a built source as optimized; OptimizeMesh canonicalises
+        // triangle rotation), but a v8 file on disk still reads back in the old order, so
+        // the version must move for it to be re-imported.
+        constexpr u32 CurrentVersion = 9; // v9: invalidates v8 animated caches (#1223)
 
         constexpr u32 MinSupportedVersion = 1;
         constexpr u32 FlagCompressed = 1;   // Payload is zlib-compressed

@@ -327,6 +327,34 @@ namespace OloEngine::MeshOptimization
             }
         }
 
+        // 3c. Canonical triangle rotation. The .omesh cache and the asset pack
+        // both store indices through meshopt's index codec, which keeps every
+        // triangle, its order and its winding, but is free to ROTATE a
+        // triangle's corners. So the surface a warm or packed load hands back
+        // was not the surface the cold import built: same triangles, different
+        // first corner. Anything that addresses a body by triangle corner -- a
+        // groom binding's barycentrics and its topology hash -- then broke
+        // depending on which path loaded the body (#1223,
+        // AnimatedModelCacheSurfaceTest). Putting the live buffer through the
+        // same round trip here makes the cold import already the form every
+        // later load decodes. Rasterisation is unaffected: the triangles and
+        // their winding are identical.
+        if (indexCount > 0 && (indexCount % 3u) == 0u)
+        {
+            const EncodedMeshBuffer encoded = EncodeIndexBuffer(indices.GetData(), indexCount, vertexCount);
+            TArray<u32> canonical;
+            canonical.SetNum(static_cast<i32>(indexCount));
+            if (DecodeIndexBuffer(canonical.GetData(), indexCount, encoded))
+            {
+                indices = std::move(canonical);
+            }
+            else
+            {
+                OLO_CORE_WARN("MeshOptimization::OptimizeMesh: index codec round trip failed; keeping the "
+                              "optimizer's triangle rotation, so a cached load may address corners differently");
+            }
+        }
+
         // 4. Generate shadow index buffer (merges position-equivalent vertices)
         GenerateShadowIndices(meshSource);
 

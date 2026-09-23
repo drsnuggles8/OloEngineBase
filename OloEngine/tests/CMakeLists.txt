@@ -651,6 +651,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/SubmeshMaterialPathParityTest.cpp
 		Rendering/PropertyTests/ModelWarmCacheGeometryIdentityTest.cpp
 		Rendering/PropertyTests/MeshAssetBoneInfluenceImportTest.cpp
+		Rendering/PropertyTests/AnimatedModelCacheSurfaceTest.cpp
 		Rendering/PropertyTests/VirtualGeometryRasterParityTest.cpp
 		Rendering/PropertyTests/VirtualRasterSubSampleEvidenceTest.cpp
 		Rendering/PropertyTests/VirtualMeshAssetPackTest.cpp
