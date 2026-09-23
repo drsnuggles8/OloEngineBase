@@ -13484,7 +13484,7 @@ namespace OloEngine
                 // engine default. Resolved per submesh below through the one shared helper the
                 // virtualized path uses (SubmeshMaterialResolve.h) — this loop used to stop at
                 // "MaterialComponent else default", which flattened a multi-material glTF
-                // (Sponza imports as 25 submeshes, one per material) onto a single flat
+                // (for example Sponza's many imported submeshes) onto a single flat
                 // engine-default material. Issue #629.
                 const Material* overrideMaterial = m_Registry.all_of<MaterialComponent>(entity)
                                                        ? &m_Registry.get<MaterialComponent>(entity).m_Material

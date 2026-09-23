@@ -9,7 +9,7 @@
 namespace OloEngine
 {
     // ============================================================================
-    // .omesh Binary Mesh Format — Version 9
+    // .omesh Binary Mesh Format — Version 10
     //
     // Layout:
     //   [FileHeader]
@@ -93,7 +93,11 @@ namespace OloEngine
         // (AnimatedModel counts a built source as optimized; OptimizeMesh canonicalises
         // triangle rotation), but a v8 file on disk still reads back in the old order, so
         // the version must move for it to be re-imported.
-        constexpr u32 CurrentVersion = 9; // v9: invalidates v8 animated caches (#1223)
+        // v10 adds no section. It invalidates v9 caches made before malformed
+        // bone weights were rejected and static caches made before authored
+        // node instances were kept distinct (#1350). Both branches introduced
+        // a v9 writer independently, so another bump is required after merging.
+        constexpr u32 CurrentVersion = 10;
 
         constexpr u32 MinSupportedVersion = 1;
         constexpr u32 FlagCompressed = 1;   // Payload is zlib-compressed

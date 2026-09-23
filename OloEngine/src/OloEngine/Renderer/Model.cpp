@@ -838,8 +838,9 @@ namespace OloEngine
 
                 // Load materials from the source file.
                 //
-                // Fresh load runs ProcessNode under aiProcess_PreTransformVertices,
-                // so m_Meshes ends up in the DFS order that ProcessNode visits.
+                // Fresh load runs ProcessNode under aiProcess_PreTransformVertices
+                // with the hierarchy preserved, so m_Meshes ends up in the DFS
+                // order that ProcessNode visits.
                 // CreateCombinedMeshSource writes submeshes in that same order and
                 // copies each one's DEDUPLICATED material index (ProcessMesh resolved
                 // it through m_MaterialIndexMap). To rebuild an array those indices
@@ -848,9 +849,8 @@ namespace OloEngine
                 // one entry per mesh instead (what this did before) produced an array
                 // the cached indices no longer address, so warm and cold loads resolved
                 // different materials. To do it we must:
-                //   (a) re-import with the same flags so the tree we walk matches
-                //       what fresh load saw (PreTransformVertices flattens the
-                //       hierarchy and can reorder/merge meshes), and
+                //   (a) re-import with the same flags and keep-hierarchy property
+                //       so the tree we walk matches the cold path, and
                 //   (b) walk that tree in DFS order — never use scene->mMeshes
                 //       flat order, which can differ from DFS visit order.
                 if (!materialsFromCache)
@@ -881,6 +881,7 @@ namespace OloEngine
                     // normals (the flag is a no-op when normals are present). Must mirror the
                     // fresh-import path below.
                     importer.SetPropertyFloat(AI_CONFIG_PP_GSN_MAX_SMOOTHING_ANGLE, 66.0f);
+                    importer.SetPropertyBool(AI_CONFIG_PP_PTV_KEEP_HIERARCHY, true);
                     const aiScene* scene = importer.ReadFile(path, kCacheLoadFlags);
                     if (scene && scene->mRootNode)
                     {
@@ -969,6 +970,10 @@ namespace OloEngine
         // already carries normals. Must mirror the cache-load flags above (see the "must mirror"
         // note there).
         importer.SetPropertyFloat(AI_CONFIG_PP_GSN_MAX_SMOOTHING_ANGLE, 66.0f);
+        // Keep each authored node mesh reference as a separate baked instance.
+        // The default PTV behaviour merges all meshes with the same material,
+        // losing submesh identity and the per-instance submission count.
+        importer.SetPropertyBool(AI_CONFIG_PP_PTV_KEEP_HIERARCHY, true);
 
         // And have it read the given file with some postprocessing.
         //
@@ -2278,16 +2283,10 @@ namespace OloEngine
             // m_Materials array (or is UINT32_MAX when the mesh had no material).
             //
             // This used to be `meshIdx` ("one material slot per submesh"), i.e. an index into a
-            // DIFFERENT array than the deduplicated m_Materials that ships alongside it. Today
-            // the two happen to coincide, because LoadModel imports with
-            // aiProcess_PreTransformVertices, which MERGES primitives sharing a material — every
-            // model comes out of Assimp with exactly one mesh per unique material (measured:
-            // Sponza's 103 glTF primitives / 25 materials import as 25 meshes / 25 materials).
-            // So `meshIdx` was coincidentally right, and the bug is LATENT: the first load path
-            // that yields two meshes sharing one material (importer flags change, PTV dropped
-            // for instancing, a merge refused) makes every submesh past the material count index
-            // off the end of m_Materials into engine-default grey. Take the submesh's own,
-            // already-deduplicated index instead and the coincidence stops mattering. Issue #629.
+            // DIFFERENT array than the deduplicated m_Materials that ships alongside it.
+            // The keep-hierarchy import now yields multiple node references sharing a
+            // material, so `meshIdx` would index off the end into engine-default grey.
+            // Take the submesh's already-deduplicated index instead. Issue #629.
             const auto srcSubmeshIndex = static_cast<i32>(mesh->GetSubmeshIndex());
             submesh.m_MaterialIndex = (srcSubmeshIndex >= 0 && srcSubmeshIndex < srcMeshSource->GetSubmeshes().Num())
                                           ? srcMeshSource->GetSubmeshes()[srcSubmeshIndex].m_MaterialIndex

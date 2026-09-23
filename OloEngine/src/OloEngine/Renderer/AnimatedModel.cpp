@@ -1101,6 +1101,15 @@ namespace OloEngine
                     continue;
                 }
 
+                // Malformed imported weights must never reach Normalize(): a NaN
+                // poisons the whole vertex, and a negative weight can cancel a
+                // valid influence before the palette is uploaded.
+                if (!std::isfinite(weight) || weight <= 0.0f)
+                {
+                    OLO_CORE_WARN("AnimatedModel::ProcessBones: Invalid weight for vertex {}", vertexId);
+                    continue;
+                }
+
                 // Find an empty slot in the bone influence data. Slots are
                 // value-initialized to bit-exact 0.0f; SetBoneData writes
                 // valid non-zero weights, so a bit-exact zero check is the
