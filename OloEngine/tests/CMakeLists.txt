@@ -205,6 +205,7 @@ add_executable(OloEngine-Tests
 		# Rendering subsystem tests (Tiers 1-5)
 		Rendering/DrawKeyTest.cpp
 		Rendering/TransparentDepthOrderingTest.cpp
+		Rendering/DeferredForwardOverlayRouteTest.cpp
 		Rendering/TextureCompressionTest.cpp
 		Rendering/BC6HBlockModeReader.h
 		Rendering/BC6HQualityTest.cpp

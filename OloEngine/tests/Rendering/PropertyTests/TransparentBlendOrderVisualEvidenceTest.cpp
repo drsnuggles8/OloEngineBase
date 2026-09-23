@@ -31,10 +31,14 @@
 // tie determinism — lives in Rendering/TransparentDepthOrderingTest.cpp. This
 // file only answers "and is the framebuffer right?".
 //
-// Forward and Forward+ carry the positive assertion. Deferred cannot yet: a
-// blended classic mesh shades to pure black there for a reason that has
-// nothing to do with ordering (issue #1404), so that cell is a tripwire on the
-// defect instead — see DeferredBlendedMeshesStillRenderBlack at the bottom.
+// All three rendering paths carry the same positive assertion. The Deferred
+// cell used to be a tripwire: a blended classic mesh was written into the
+// G-Buffer with its blend state applied to the G-Buffer channels and shaded to
+// pure black (issue #1404). It is now rerouted to ForwardOverlayPass, which
+// shades it forward over the lit deferred image and sorts it with the same
+// depth-major transparent key, so the ordering claim holds there too. The
+// Deferred cell is run with and without G-Buffer MSAA, since the overlay
+// composites into the scene framebuffer after the MSAA resolve.
 //
 // Classification: L8 / integration (full GL pipeline + RGBA8 readback + PNG).
 // =============================================================================
@@ -47,6 +51,8 @@
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Commands/CommandBucket.h"
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/Instancing/InstanceData.h"
+#include "OloEngine/Renderer/Instancing/InstancedMeshComponent.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
@@ -60,6 +66,7 @@
 #include "OloEngine/Scene/Entity.h"
 
 #include <glad/gl.h>
+#include <glm/gtc/matrix_transform.hpp>
 #include <gtest/gtest.h>
 #include <stb_image/stb_image_write.h>
 
@@ -144,6 +151,16 @@ namespace OloEngine::Tests
             Scene& scene = GetScene();
             EnableRendering(kWidth, kHeight);
 
+            // No editor helpers. A shipped game has none, and on the Deferred
+            // path the grid and gizmos are ForwardOverlayPass draws of their
+            // own: with them present, a blended mesh is never the first draw
+            // in that pass. With them absent it is, which is the case that
+            // crashed the editor during #1404's live check.
+            scene.SetGridVisible(false);
+            scene.SetWorldAxisHelperVisible(false);
+            scene.SetLightGizmosVisible(false);
+            scene.SetCameraFrustumsVisible(false);
+
             {
                 Entity light = scene.CreateEntity("Sun");
                 auto& tc = light.GetComponent<TransformComponent>();
@@ -157,9 +174,21 @@ namespace OloEngine::Tests
                 dl.m_Intensity = 3.0f;
             }
 
+            if (Ref<Mesh> mesh = MeshPrimitives::CreateCube())
+                m_SharedCube = mesh->GetMeshSource();
+
             // Opaque black backdrop. The worked example composites over black,
             // and without it the clear colour (and, on the deferred path, the
             // sky) would contribute to the centre pixels.
+            //
+            // It shares the slabs' MeshSource, and so their vertex array, on
+            // purpose. On the Deferred path the backdrop is the last G-Buffer
+            // draw and a slab is the first ForwardOverlayPass draw, with the
+            // fullscreen lighting passes, which unbind the VAO directly, in
+            // between. A dispatcher bind cache that survives that gap skips the
+            // slab's VAO bind and draws from VAO 0, which is a driver access
+            // violation. That is how every primitive cube in an editor scene is
+            // set up, and it is what crashed the editor during #1404's check.
             {
                 Entity backdrop = scene.CreateEntity("Backdrop");
                 auto& tc = backdrop.GetComponent<TransformComponent>();
@@ -167,8 +196,7 @@ namespace OloEngine::Tests
                 tc.Scale = { 40.0f, 30.0f, 0.2f };
                 auto& mc = backdrop.AddComponent<MeshComponent>();
                 mc.m_Primitive = MeshPrimitive::Cube;
-                if (Ref<Mesh> mesh = MeshPrimitives::CreateCube())
-                    mc.m_MeshSource = mesh->GetMeshSource();
+                mc.m_MeshSource = m_SharedCube;
                 auto& mat = backdrop.AddComponent<MaterialComponent>();
                 mat.m_Material.SetBaseColorFactor(glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
                 mat.m_Material.SetRoughnessFactor(1.0f);
@@ -208,11 +236,6 @@ namespace OloEngine::Tests
             tc.Scale = { 6.0f, 6.0f, 0.02f };
             auto& mc = e.AddComponent<MeshComponent>();
             mc.m_Primitive = MeshPrimitive::Cube;
-            if (!m_SharedCube)
-            {
-                if (Ref<Mesh> mesh = MeshPrimitives::CreateCube())
-                    m_SharedCube = mesh->GetMeshSource();
-            }
             mc.m_MeshSource = m_SharedCube;
 
             auto& mat = e.AddComponent<MaterialComponent>();
@@ -273,12 +296,54 @@ namespace OloEngine::Tests
             EXPECT_NE(wrote, 0) << "stbi_write_png failed to write '" << path << "'";
         }
 
+        // An instance's transform is world space, so an instanced slab carries
+        // its placement in its single InstanceData rather than in the entity's
+        // TransformComponent.
+        [[nodiscard]] static glm::mat4 SlabTransform(f32 z)
+        {
+            return glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, z)), glm::vec3(6.0f, 6.0f, 0.02f));
+        }
+
+        void SetSlabZ(Entity slab, f32 z)
+        {
+            slab.GetComponent<TransformComponent>().Translation.z = z;
+            if (slab.HasComponent<InstancedMeshComponent>())
+            {
+                auto& imc = slab.GetComponent<InstancedMeshComponent>();
+                imc.Instances[0].Transform = SlabTransform(z);
+                imc.Instances[0].PrevTransform = imc.Instances[0].Transform;
+                imc.InvalidateMergedCache();
+            }
+        }
+
+        // Re-submit the three blended slabs through Renderer3D::DrawMeshInstanced
+        // (an InstancedMeshComponent of one instance each) instead of DrawMesh,
+        // keeping their MaterialComponent, which the instanced path reads as its
+        // override. The backdrop stays a MeshComponent.
+        void ConvertSlabsToInstanced()
+        {
+            for (Entity slab : { m_Red, m_Blue, m_RedBack })
+            {
+                const f32 z = slab.GetComponent<TransformComponent>().Translation.z;
+                slab.RemoveComponent<MeshComponent>();
+                auto& tc = slab.GetComponent<TransformComponent>();
+                tc.Scale = glm::vec3(1.0f);
+                auto& imc = slab.AddComponent<InstancedMeshComponent>();
+                imc.MeshSource = m_SharedCube;
+                imc.CastShadows = false;
+                InstanceData instance;
+                instance.Transform = SlabTransform(z);
+                instance.PrevTransform = instance.Transform;
+                imc.Instances.Add(instance);
+            }
+        }
+
         // Place `nearEntity` in front and the other behind, render, and return
         // the mean centre colour.
         Rgb CaptureWithNear(const std::string& label, Entity nearEntity, Entity farEntity)
         {
-            nearEntity.GetComponent<TransformComponent>().Translation.z = kNearZ;
-            farEntity.GetComponent<TransformComponent>().Translation.z = kFarZ;
+            SetSlabZ(nearEntity, kNearZ);
+            SetSlabZ(farEntity, kFarZ);
             std::vector<u8> pixels;
             Capture(label, pixels);
             if (::testing::Test::HasFatalFailure())
@@ -287,10 +352,20 @@ namespace OloEngine::Tests
         }
 
         // The whole claim, on one rendering path.
-        void RunPath(const char* pathName, RenderingPath path)
+        void RunPath(const char* pathName, RenderingPath path, u32 deferredMsaaSamples = 1u)
         {
-            Renderer3D::GetRendererSettings().Path = path;
+            auto& settings = Renderer3D::GetRendererSettings();
+            const u32 savedSamples = settings.Deferred.MSAASampleCount;
+            settings.Path = path;
+            settings.Deferred.MSAASampleCount = deferredMsaaSamples;
             Renderer3D::ApplyRendererSettings();
+            RunPathWithCurrentSettings(pathName);
+            settings.Deferred.MSAASampleCount = savedSamples;
+            Renderer3D::ApplyRendererSettings();
+        }
+
+        void RunPathWithCurrentSettings(const char* pathName)
+        {
 
             // Precondition: the two materials must actually differ in the sort
             // key, or the defect this test exists for is unreachable and every
@@ -363,38 +438,40 @@ namespace OloEngine::Tests
         RunPath("ForwardPlus", RenderingPath::ForwardPlus);
     }
 
-    // The deferred cell of criterion 2 — as a TRIPWIRE, because the pixel
-    // assertion cannot be made there yet.
-    //
-    // An alpha-blended classic mesh renders pure black on RenderingPath::Deferred
-    // (issue #1404). `Renderer3D::DrawMesh` reroutes only TRANSMISSIVE PBR
-    // materials to ForwardOverlayPass; a merely blended one goes to
-    // `PBRGBufferShader`, so SRC_ALPHA/ONE_MINUS_SRC_ALPHA is applied to the
-    // G-Buffer's albedo, normal and packed-flags channels and the lighting pass
-    // reads the result. That is a SHADING defect, not an ordering one: it
-    // reproduces byte-identically on master @ 6d29f8269 without the #1327
-    // change, and the two slabs' material IDs differ from run to run while the
-    // output stays exactly zero.
-    //
-    // Asserting the defect rather than skipping the cell means this test fails
-    // the moment #1404 is fixed, which is when the real assertion below it
-    // should be switched on. A GTEST_SKIP would go on passing forever.
-    TEST_F(TransparentBlendOrderVisualEvidence, DeferredBlendedMeshesStillRenderBlack)
+    // Issue #1404: before the fix both Deferred captures read exactly
+    // (0, 0, 0) over the slabs, because the blended draws went into the
+    // G-Buffer. The "frame is black" precondition inside RunPath is what that
+    // defect trips; the dominance pair then proves the overlay route kept
+    // #1327's depth-major order.
+    TEST_F(TransparentBlendOrderVisualEvidence, DeferredBlendsTheNearerQuadLast)
     {
         OLO_ENSURE_GPU_OR_SKIP();
-        Renderer3D::GetRendererSettings().Path = RenderingPath::Deferred;
-        Renderer3D::ApplyRendererSettings();
+        RunPath("Deferred", RenderingPath::Deferred);
+    }
 
-        const Rgb nearRed = CaptureWithNear("Deferred_NearRed", m_Red, m_Blue);
-        if (::testing::Test::HasFatalFailure())
-            return;
+    TEST_F(TransparentBlendOrderVisualEvidence, DeferredMsaaBlendsTheNearerQuadLast)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        RunPath("DeferredMSAA4", RenderingPath::Deferred, 4u);
+    }
 
-        EXPECT_LT(nearRed.R + nearRed.G + nearRed.B, 1.0)
-            << "Blended meshes are no longer black on the deferred path — mean centre RGB = ("
-            << nearRed.R << ", " << nearRed.G << ", " << nearRed.B << ").\n"
-            << "Issue #1404 appears fixed. Delete this tripwire and replace it with:\n"
-            << "    RunPath(\"Deferred\", RenderingPath::Deferred);\n"
-            << "which is the assertion the other two paths already carry.";
+    // The same claim through the INSTANCED submission route
+    // (Renderer3D::DrawMeshInstanced -> SelectInstancedShaderRouting), which
+    // makes its own shader choice and its own overlay decision. Forward is the
+    // control: it shows the instanced fixture itself composites correctly, so a
+    // Deferred failure is the route and not the fixture.
+    TEST_F(TransparentBlendOrderVisualEvidence, ForwardInstancedBlendsTheNearerQuadLast)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        ConvertSlabsToInstanced();
+        RunPath("ForwardInstanced", RenderingPath::Forward);
+    }
+
+    TEST_F(TransparentBlendOrderVisualEvidence, DeferredInstancedBlendsTheNearerQuadLast)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        ConvertSlabsToInstanced();
+        RunPath("DeferredInstanced", RenderingPath::Deferred);
     }
 
     TEST_F(TransparentBlendOrderVisualEvidence, BatchingDisabledProducesTheSameImage)

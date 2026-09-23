@@ -683,6 +683,7 @@
 		"OloEngine/Renderer/Impostor/ImpostorBaker.h"
 		"OloEngine/Renderer/Material.cpp"
 		"OloEngine/Renderer/Material.h"
+		"OloEngine/Renderer/DeferredForwardOverlayRoute.h"
 		"OloEngine/Renderer/GltfPhysicalMaterial.cpp"
 		"OloEngine/Renderer/GltfPhysicalMaterial.h"
 		"OloEngine/Renderer/PBRModel.h"

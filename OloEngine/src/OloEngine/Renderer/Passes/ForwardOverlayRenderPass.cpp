@@ -129,6 +129,14 @@ namespace OloEngine
         context.SetDepthTest(true);
         context.ResetOpaqueForwardDrawState();
 
+        // The fullscreen passes before this one (DeferredLightingPass above
+        // all) bind and unbind GL state directly, so the dispatcher's
+        // redundant-bind caches no longer describe the context. Without this
+        // the first overlay draw of a mesh the G-Buffer pass drew last skips
+        // its VAO bind and draws from VAO 0 — an access violation in the
+        // NVIDIA driver, found when blended meshes started routing here (#1404).
+        CommandDispatch::InvalidateBindingCaches();
+
         // Rebind shared scene resources so overlay shaders see the same
         // view/projection/light data forward shaders expect.
         CommandDispatch::BindSceneResources();

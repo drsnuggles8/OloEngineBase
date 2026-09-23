@@ -1723,6 +1723,20 @@ namespace OloEngine
         Data().LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
     }
 
+    void CommandDispatch::InvalidateBindingCaches()
+    {
+        OLO_CORE_ASSERT(!s_RecordingData, "Binding caches are reset between passes, not during recording");
+        // The binding half of ResetState(): the counters, viewport and pass
+        // flags describe the frame so far and stay.
+        Data().CurrentBoundShader = {};
+        Data().CurrentBoundVAO = {};
+        Data().GPUSceneMaterialsBound = false;
+        Data().LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
+        Data().LastMaterialDataIndex = INVALID_MATERIAL_DATA_INDEX;
+        Data().BoundTextures.fill(RHI::NullResource);
+        Data().BoundUBOs.fill(RHI::NullResource);
+    }
+
     void CommandDispatch::SetDepthPrepassActive(bool active)
     {
         OLO_CORE_ASSERT(!s_RecordingData, "Frame state is frozen during recording");
