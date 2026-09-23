@@ -56,8 +56,25 @@ All of it is in `prepare_horse.py`, so it can be re-run and reviewed:
 
 ## Regenerating
 
+The source `riggedHorse.blend` is not committed: it is 20 MB and only this script reads it. Download
+it from https://opengameart.org/content/rigged-horse and check it against the SHA-256 recorded in
+[LICENSE.md](LICENSE.md):
+
 ```
-blender -b OloEditor/SandboxProject/Assets/Models/Horse/riggedHorse.blend --python OloEditor/SandboxProject/Assets/Models/Horse/prepare_horse.py -- OloEditor/SandboxProject/Assets/Models/Horse [<preview_dir>]
+sha256sum ~/Downloads/riggedHorse.blend
+# 9cca670b93a74d50e89263e50d55ab035a6c46aa7d2b21e354bdac6987037f4a
+```
+
+Then, from the repository root, write the glTF, textures and clips into this directory:
+
+```
+blender -b ~/Downloads/riggedHorse.blend --python OloEditor/SandboxProject/Assets/Models/Horse/prepare_horse.py -- OloEditor/SandboxProject/Assets/Models/Horse
+```
+
+To also render preview frames, pass a second directory:
+
+```
+blender -b ~/Downloads/riggedHorse.blend --python OloEditor/SandboxProject/Assets/Models/Horse/prepare_horse.py -- OloEditor/SandboxProject/Assets/Models/Horse build/horse-preview
 ```
 
 The preview directory receives four frames of each gait, rendered with Blender's Workbench engine.
