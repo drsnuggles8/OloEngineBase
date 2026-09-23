@@ -77,6 +77,14 @@ namespace OloEngine
             return m_Enabled;
         }
 
+        // Setup() declares its ordering and reads unconditionally, precisely so
+        // that this per-frame enable (it follows the dominant reflective
+        // surface) never has to rebuild the graph.
+        [[nodiscard]] bool IsEnableADeclarationInput() const noexcept override
+        {
+            return false;
+        }
+
         // Per-frame reflection state, pushed from Scene.cpp through Renderer3D.
         // `plane` is the world-space reflection plane vec4(n.xyz, d) with the
         // normal pointing toward the kept (above-water) half-space. `enabled`

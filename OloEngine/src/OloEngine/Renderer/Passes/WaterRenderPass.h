@@ -28,6 +28,13 @@ namespace OloEngine
         WaterRenderPass& operator=(WaterRenderPass&&) = delete;
 
         void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
+
+        // Setup() declares nothing without a submitted draw (#1315), so that is
+        // a declaration input.
+        void AppendDeclarationInputs(RGDeclarationKey& key) const override
+        {
+            key.Add(HasSubmittedCommands());
+        }
         void Execute(RGCommandContext& context) override;
         [[nodiscard]] Ref<Framebuffer> GetTarget() const override;
         void SetupFramebuffer(u32 width, u32 height) override;

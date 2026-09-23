@@ -406,6 +406,17 @@ namespace OloEngine
                 historyValid = false;
             }
         }
+
+        // Whether precipitation draws its screen-space effects this frame. One
+        // predicate for the pass enable and the PrecipitationColor declaration,
+        // which disagreed with the old fingerprint by omission (issue #1333).
+        // A template because Renderer3DData is private to Renderer3D.
+        template<typename TData>
+        [[nodiscard]] bool PrecipitationScreenEffectsEnabled(const TData& data)
+        {
+            return data.Precipitation.Enabled &&
+                   (data.Precipitation.ScreenStreaksEnabled || data.Precipitation.LensImpactsEnabled);
+        }
     } // namespace
 
     void Renderer3D::RenderPipeline::Setup(Renderer3DData& data,
@@ -1033,7 +1044,7 @@ namespace OloEngine
 
         if (RenderStreamPasses.FluidIntermediates)
         {
-            // Must happen before ComputeBlackboardFingerprint: the composite's
+            // Must happen before the declaration config is captured: the composite's
             // Setup and the FluidRefraction declaration both key off
             // HasPendingDraws() (issue #630).
             RenderStreamPasses.FluidIntermediates->SetFrameDraws(std::move(data.PendingFluidDraws));
@@ -1886,10 +1897,7 @@ namespace OloEngine
 
         if (PostProcessPasses.Precipitation)
         {
-            const bool precipEnabled = data.Precipitation.Enabled &&
-                                       (data.Precipitation.ScreenStreaksEnabled ||
-                                        data.Precipitation.LensImpactsEnabled);
-            PostProcessPasses.Precipitation->SetEnabled(precipEnabled);
+            PostProcessPasses.Precipitation->SetEnabled(PrecipitationScreenEffectsEnabled(data));
         }
 
         if (PostProcessPasses.VolumetricFog)
@@ -2143,7 +2151,7 @@ namespace OloEngine
             const bool oitEnabled = data.Settings.OITEnabled;
             const bool hasOITContributors =
                 (SceneCompositePasses.Particle && SceneCompositePasses.Particle->HasRenderCallback()) ||
-                (RenderStreamPasses.Decal && RenderStreamPasses.Decal->GetCommandBucket().GetCommandCount() > 0);
+                (RenderStreamPasses.Decal && RenderStreamPasses.Decal->HasSubmittedCommands());
             // Groom strands (#1246). Handed the frame's RESOLVED temporal
             // state rather than its requests: SelectGroomComposition refuses
             // the stochastic mode without a resolve to converge it, and
@@ -2759,624 +2767,407 @@ namespace OloEngine
         }
     }
 
-    namespace
+    // ------------------------------------------------------------------
+    // Declaration configuration (issue #1333)
+    // ------------------------------------------------------------------
+    // This replaces a fingerprint assembled by hand, input by input, where a
+    // declaration input had to be remembered once where it was read and again
+    // where it was hashed. It was forgotten often enough to be a bug class:
+    // SSR's enable, the IBL identities, the ray-traced shadow technique, the
+    // ReSTIR history planes, the four bucket-gated stream passes (#1315),
+    // precipitation, the GTAO denoise gate and the display size under FSR1 all
+    // shipped missing from it at one point. Now the pipeline-level inputs are
+    // the fields of FrameGraphDeclarationConfig, whose key is generated from
+    // the same list, and every pass contributes its own inputs through
+    // RenderGraphNode::AppendDeclarationInputs, walked over EVERY pass the
+    // pipeline owns rather than over a list of the ones someone thought of.
+    FrameGraphDeclarationConfig Renderer3D::RenderPipeline::CaptureDeclarationConfig(const Renderer3DData& data,
+                                                                                     TArray<u64>* passKeys) const
     {
-        constexpr u64 kFnv1aOffset = 0xcbf29ce484222325ull;
-        constexpr u64 kFnv1aPrime = 0x100000001b3ull;
+        OLO_PROFILE_FUNCTION();
 
-        inline void HashByte(u64& h, u8 v) noexcept
-        {
-            h = (h ^ v) * kFnv1aPrime;
-        }
-        inline void HashU32(u64& h, u32 v) noexcept
-        {
-            HashByte(h, static_cast<u8>(v & 0xffu));
-            HashByte(h, static_cast<u8>((v >> 8) & 0xffu));
-            HashByte(h, static_cast<u8>((v >> 16) & 0xffu));
-            HashByte(h, static_cast<u8>((v >> 24) & 0xffu));
-        }
-        inline void HashU64(u64& h, u64 v) noexcept
-        {
-            HashU32(h, static_cast<u32>(v & 0xffffffffu));
-            HashU32(h, static_cast<u32>((v >> 32) & 0xffffffffu));
-        }
-        inline void HashBool(u64& h, bool v) noexcept
-        {
-            HashByte(h, v ? 1u : 0u);
-        }
+        FrameGraphDeclarationConfig config;
 
-        template<typename PassPtr>
-        inline void HashPassState(u64& h, const PassPtr& pass) noexcept
+        if (data.RGraph)
         {
-            // Hash the underlying pointer so rebuilding a pass with the same
-            // readiness still invalidates the cache. Per-pass enabled state
-            // is captured separately via the data.PostProcess.* flags below.
-            const auto addr = reinterpret_cast<uintptr_t>(pass.Raw());
-            HashU32(h, static_cast<u32>(addr));
-            HashU32(h, static_cast<u32>(addr >> 32u));
-            if (!pass)
-                return;
-            // Not every pass type exposes IsReadyForExecution(); fold it in
-            // when available so passes whose Setup() branches on readiness
-            // (Bloom, DOF, AOApply, etc.) still invalidate the cache when the
-            // flip happens.
-            if constexpr (requires { pass->IsReadyForExecution(); })
-                HashBool(h, pass->IsReadyForExecution());
+            config.TopologyGeneration = data.RGraph->GetTopologyGeneration();
+            config.DisplayWidth = data.RGraph->GetPhysicalWidth();
+            config.DisplayHeight = data.RGraph->GetPhysicalHeight();
+            config.TemporalHistoryValidity = data.RGraph->GetTemporalHistoryRegistry().ComputeValidityKey();
         }
-    } // anonymous namespace
-
-    u64 Renderer3D::RenderPipeline::ComputeBlackboardFingerprint(const Renderer3DData& data) const
-    {
-        u64 h = kFnv1aOffset;
-
-        // Graph topology generation (#530). ResetTopology() / Reset() wipe the
-        // graph's blackboard + imported-resource maps on every path / AO-technique
-        // reconfigure but leave this fingerprint's other inputs identical when the
-        // same Deferred scene re-enters twice in one process. Without this the
-        // populate-cache short-circuit below sees a matching fingerprint, skips
-        // repopulating the just-wiped blackboard, and every pass's Setup() reads
-        // empty handles -> RGBuilder drops all declarations -> the whole graph is
-        // culled (reads=0/writes=0). Hashing the generation makes the cache
-        // self-invalidate on ANY reconfigure without enumerating call sites.
-        HashU64(h, data.RGraph ? data.RGraph->GetTopologyGeneration() : 0u);
-
-        // Scene framebuffer dimensions drive most transient resource sizes; a
-        // resize must trigger a full repopulate.
         if (FrameCorePasses.Scene)
         {
-            const auto& spec = FrameCorePasses.Scene->GetFramebufferSpecification();
-            HashU32(h, spec.Width);
-            HashU32(h, spec.Height);
-        }
-        else
-        {
-            HashU32(h, 0u);
-            HashU32(h, 0u);
+            const auto& sceneSpec = FrameCorePasses.Scene->GetFramebufferSpecification();
+            config.SceneBandWidth = sceneSpec.Width;
+            config.SceneBandHeight = sceneSpec.Height;
         }
 
-        // Rendering path / deferred sub-state
-        HashU32(h, static_cast<u32>(std::to_underlying(data.Settings.Path)));
-        HashU32(h, data.Settings.Deferred.MSAASampleCount);
-        HashBool(h, data.Settings.OITEnabled);
-        HashBool(h, data.Settings.Deferred.PerSampleLighting);
-
-        // Shadow renderer IDs change when shadow textures are (re)created; the
-        // blackboard imports them by raw GL ID so a change must invalidate.
-        HashU32(h, data.Shadow.GetResolution());
-        HashU32(h, data.Shadow.GetAtlasResolution());
-        // By IDENTITY, not driver name — the same defect the DDGI atlases had
-        // (issue #691). ShadowMap::SetSettings calls Shutdown BEFORE
-        // Init() on a resolution change, so the old textures are freed first
-        // and GL may reissue their names to the replacements; a raw-id hash
-        // then sees no change and the graph keeps an import describing the OLD
-        // resolution. A generation cannot be reissued.
-        HashU64(h, RHI::HashKey(data.Shadow.GetCSMHandle()));
-        HashU64(h, RHI::HashKey(data.Shadow.GetAtlasHandle()));
-        // The comparison-OFF raw-depth views (issue #607) are declared as graph
-        // resources only when their ids are non-zero — a declaration-PRESENCE
-        // gate, which by the #530 rule must be hashed or PopulateBlackboard
-        // never re-runs and the resource never appears.
-        HashU64(h, RHI::HashKey(data.Shadow.GetCSMRawHandle()));
-        HashU64(h, RHI::HashKey(data.Shadow.GetAtlasRawHandle()));
-
-        // IBL renderer IDs — same rule as the shadow IDs above, and for the same
-        // reason: PopulateBlackboard imports them by raw GL ID.
-        //
-        // These were missing, and it was a live bug: switching scenes destroys the old
-        // EnvironmentMap (deleting its irradiance/prefilter/BRDF GL textures) and builds
-        // new ones, but nothing else in the fingerprint changes — so PopulateBlackboard
-        // short-circuited, the graph kept the DELETED IDs, and DeferredLightingPass bound
-        // them every frame: "GL_INVALID_OPERATION ... <texture> is not a valid texture
-        // name", thousands of times. It masqueraded as intermittent because GL often
-        // recycles the freed texture names, in which case the stale ID happens to be
-        // valid again and nothing looks wrong.
-        HashU64(h, RHI::HashKey(data.GlobalIrradianceMapID));
-        HashU64(h, RHI::HashKey(data.GlobalPrefilterMapID));
-        HashU64(h, RHI::HashKey(data.GlobalBRDFLutMapID));
-        HashU64(h, RHI::HashKey(data.GlobalEnvironmentMapID));
-
-        // Post-process technique selection + per-effect toggles
-        HashU32(h, static_cast<u32>(std::to_underlying(data.PostProcess.ActiveAOTechnique)));
-        HashBool(h, data.PostProcess.SSAOEnabled);
-        HashBool(h, data.PostProcess.GTAOEnabled);
-        HashBool(h, data.PostProcess.SphereProxyAOEnabled);
-        HashBool(h, data.PostProcess.SSGIEnabled);
-        // ...AND the RESOLVED verdict, which is a different bit. PopulateBlackboard
-        // declares SSGIColor (plus the whole denoiser chain and its four
-        // histories) on `SSGI->IsEnabled()`, and ConfigurePassesForFrame folds
-        // three more things into that: the deferred path, readiness, and - since
-        // #1169 - whether ReSTIR GI took the indirect-diffuse term. So the raw
-        // setting above can hold still while the declaration flips. HashPassState
-        // does not close this: it hashes the pass pointer and readiness only, and
-        // says so. Without this line a GI fallback (TLAS gone, shaders not ready)
-        // hands SSGI back the term against a cached topology in which SSGIColor
-        // was never declared, and SSGI looks simply absent - the same shape as the
-        // shadow-technique and RT-reflection holes documented below.
-        if (PostProcessPasses.SSGI)
-            HashBool(h, PostProcessPasses.SSGI->IsEnabled());
-        // SSGI denoiser chain (issue #708). Half resolution sizes every graph
-        // resource in the chain AND its four temporal histories, so it must be
-        // hashed or flipping it reuses a cached build whose targets are the
-        // wrong size (#530 class). The two blur radii are NOT hashed: they are
-        // UBO values that change nothing about what is declared.
-        HashBool(h, data.PostProcess.SSGIHalfResolution);
-        // VRCS (issue #683). GTAORenderPass::Setup branches on both gates —
-        // with VRCS on it declares a Read edge on the TAA history for the
-        // classifier's luminance term, and with it off it does not. A Setup()
-        // that branches on runtime state the fingerprint does not hash is
-        // frozen at whatever the first cached frame decided
-        // (virtual-shadow-map-page-cache.md §5): the toggle would appear dead
-        // until something else happened to invalidate the graph.
-        HashBool(h, data.PostProcess.VRCSEnabled);
-        HashBool(h, data.PostProcess.VRCSGTAO);
-        HashBool(h, data.PostProcess.SSREnabled);
-        // The ray-query reflection tier (#1057). Same reason as the shadow
-        // technique below, and it cost the same bisect to rediscover: this
-        // flag gates whether PopulateBlackboard declares RTReflectionColor,
-        // which is a TOPOLOGY change rather than a uniform. Without it the
-        // checkbox arms the pass, the cached graph still holds the version
-        // where the node declared nothing, the node stays culled, and the
-        // tier looks simply absent until some unrelated resize happens to
-        // invalidate the graph.
-        HashBool(h, data.PostProcess.RayTracedReflection.Enabled);
-        // Not a topology change on its own, but the debug view is composited
-        // in SSR's draw from lanes this pass only writes when it is on, so a
-        // stale graph would show the previous frame's answer.
-        HashBool(h, data.PostProcess.RayTracedReflection.TierDebugView);
-        // The GPU path tracer (#1055): gates whether PopulateBlackboard declares
-        // PathTracerColor — a topology change, the same trap as the two above.
-        HashBool(h, data.PostProcess.GpuPathTracer.Enabled);
-        // ReSTIR DI (#1140) declares five targets and changes which branch the
-        // deferred lighting shader takes, so the toggle is a topology change —
-        // the same trap the tiers above record.
-        //
-        // ANDed with the pass's readiness rather than hashed raw, because that is
-        // the condition the declaration is actually gated on. On a device with no
-        // ray tracing the shaders were never created, so flipping the setting
-        // changes NO graph resource — and hashing it raw would rebuild the whole
-        // frame graph for a toggle that cannot alter a single pixel, on every
-        // machine that takes the fallback.
-        const bool restirDIArmed = data.PostProcess.ReSTIRDI.Enabled && SceneCompositePasses.ReSTIRDI &&
-                                   SceneCompositePasses.ReSTIRDI->IsReadyForExecution();
-        HashBool(h, restirDIArmed);
-        // AND THE TWO SETTINGS THAT PICK THE HISTORY EXTRACTION SOURCE. Setup()
-        // reads SpatialReuse and SpatialPasses to decide WHICH target the next
-        // frame's reservoir history is extracted from — the last spatial target
-        // when spatial reuse is on, the temporal one when it is off. That is an
-        // extraction CONTRACT, established in Setup and therefore frozen for as
-        // long as the cached topology survives.
-        //
-        // Without these two lines, turning Spatial Reuse off on a warm graph
-        // leaves the contract pointing at a spatial target that Execute no longer
-        // draws into, and next frame's temporal reuse merges whatever the
-        // transient pool happens to be holding there. Flipping SpatialPasses 1->2
-        // has the milder version of the same fault: the contract keeps extracting
-        // the pass-0 target, so the second spatial pass's work is thrown away
-        // once per frame. Neither logs anything and neither shows up in the
-        // stats, which report the settings that were REQUESTED.
-        //
-        // Gated behind restirDIArmed for the same reason the toggle above is: on
-        // a device that never created the shaders these settings cannot move a
-        // single resource, and rebuilding the frame graph for them there would
-        // cost every fallback machine a topology rebuild per settings change.
-        if (restirDIArmed)
+        config.Path = data.Settings.Path;
+        // The G-Buffer OBJECT, not the MSAA setting: PopulateBlackboard sizes
+        // and samples its declarations from what the G-Buffer is, and the two
+        // disagree for the frame between a settings change and EnsureGBuffer.
+        if (data.Settings.Path == RenderingPath::Deferred && FrameCorePasses.Scene)
         {
-            HashBool(h, data.PostProcess.ReSTIRDI.SpatialReuse);
-            HashU32(h, data.PostProcess.ReSTIRDI.SpatialPasses);
-        }
-        // ReSTIR GI (#1169), on exactly the terms the DI block above states: the
-        // ARMED condition rather than the raw setting, plus the two settings that
-        // pick the history EXTRACTION SOURCE, because Setup() freezes that
-        // contract for as long as the cached topology survives.
-        HashBool(h, data.PostProcess.ReSTIRPT.Enabled);
-        HashBool(h, data.PostProcess.ReSTIRPT.SpatialReuse);
-        HashBool(h, SceneCompositePasses.ReSTIRPT && SceneCompositePasses.ReSTIRPT->GetStats().Active);
-        const bool restirGIArmed = data.PostProcess.ReSTIRGI.Enabled && SceneCompositePasses.ReSTIRGI &&
-                                   SceneCompositePasses.ReSTIRGI->IsReadyForExecution();
-        HashBool(h, restirGIArmed);
-        if (restirGIArmed)
-        {
-            HashBool(h, data.PostProcess.ReSTIRGI.SpatialReuse);
-            HashU32(h, data.PostProcess.ReSTIRGI.SpatialPasses);
-        }
-        HashBool(h, data.PostProcess.ContactShadowEnabled);
-        // The shadow TECHNIQUE (issue #1056). It gates whether PopulateBlackboard
-        // declares RayTracedShadowMask and therefore whether RayTracedShadowPass
-        // declares anything at all — a topology change, not a uniform.
-        //
-        // HashPassState above deliberately does NOT cover it: it hashes the pass
-        // pointer and IsReadyForExecution(), and its own comment says per-pass
-        // ENABLED state is folded in here instead. Without this line the
-        // ShadowTechnique::RayTraced flips arm the pass, PopulateBlackboard
-        // declares the mask, and the cached topology still holds the version
-        // where the node declared nothing — so it stays culled, Execute never
-        // runs, every counter reads a truthful zero, and the feature looks
-        // simply absent. That is exactly what happened bringing this up on
-        // Courtyard; it cost a live-session bisect to find.
-        {
-            const auto& fingerprintShadowSettings = Renderer3D::GetShadowMap().GetSettings();
-            HashBool(h, fingerprintShadowSettings.Technique == ShadowTechnique::RayTraced);
-            // Enabled is the OTHER half of the same gate (ConfigurePassesForFrame
-            // requires both), so it has to be here too — otherwise flipping the
-            // master shadow switch while the technique is armed leaves exactly
-            // the stale topology this block exists to prevent.
-            HashBool(h, fingerprintShadowSettings.Enabled);
-        }
-        // Overdraw debug view (#519) declares/drops the OverdrawColor resource, so
-        // it MUST be hashed — otherwise toggling it would not rebuild the graph.
-        HashBool(h, data.PostProcess.OverdrawDebugView);
-        // The declare-gate below also requires the heatmap shader to be ready
-        // (see the readiness comment there), so that readiness bit must be
-        // hashed too — otherwise the cache would freeze the resource
-        // undeclared forever once a not-ready frame is cached, even after the
-        // (possibly async) shader compile finishes on a later frame.
-        HashBool(h, PostProcessPasses.Overdraw && PostProcessPasses.Overdraw->IsReadyForExecution());
-        HashBool(h, data.PostProcess.BloomEnabled);
-        HashBool(h, data.PostProcess.DOFEnabled);
-        HashBool(h, data.PostProcess.MotionBlurEnabled);
-        HashBool(h, data.PostProcess.TAAEnabled);
-        HashBool(h, data.PostProcess.ChromaticAberrationEnabled);
-        HashBool(h, data.PostProcess.ColorGradingEnabled);
-        HashBool(h, data.PostProcess.CASEnabled);
-        // FSR1 (#480): the upscale preset gates EASUColor declaration AND the
-        // reduced scene-band sizing, so it MUST be hashed — otherwise toggling
-        // upscale on/off leaves the blackboard cache stale (EASUColor never
-        // (re)declared, scene band never re-sized).
-        HashU32(h, static_cast<u32>(std::to_underlying(data.PostProcess.Upscale)));
-        // FSR2 (#684): same rule, one level down. The RESOLVED decision is what
-        // must be hashed, not the requested Technique — it is
-        // TemporalUpscaleActive that picks whether FSR2Color or EASUColor gets
-        // declared, and it can flip without the setting moving at all (the
-        // backend coming up, or MSAA being switched on). Hashing the setting
-        // instead would leave the graph holding whichever resource happened to be
-        // declared when the decision last changed, and the upscale would silently
-        // stop running.
-        HashBool(h, data.TemporalUpscaleActive);
-        HashBool(h, data.PostProcess.VignetteEnabled);
-        HashBool(h, data.PostProcess.FXAAEnabled);
-        // Colour-blind mode (issue #458) gates whether ColorBlindColor is
-        // declared at all, so a change must invalidate the cached blackboard —
-        // otherwise toggling a mode leaves the graph without the resource and
-        // the stage silently never runs. Severity/method do NOT change topology
-        // (they ride the UBO), so only the mode is hashed.
-        HashU32(h, static_cast<u32>(std::to_underlying(Accessibility::Get().ColorBlind)));
-
-        // Other systems that gate blackboard branches
-        HashBool(h, data.Fog.Enabled);
-        // VolumetricFogPass::Setup() declares nothing when the pass is
-        // disabled, and its enable is Fog.Enabled && Fog.EnableVolumetric —
-        // so the volumetric toggle changes graph declarations and MUST be
-        // hashed or flipping it reuses a stale cached build (#530 class).
-        HashBool(h, data.Fog.EnableVolumetric);
-        // Cloudscape (issue #633): the enable gates the CloudsColor +
-        // half-res scratch declarations in PopulateBlackboard, so it MUST be
-        // hashed or toggling it reuses a stale cached build (#530 class).
-        HashBool(h, data.Cloudscape.Enabled);
-        HashBool(h, data.Snow.Enabled);
-        HashBool(h, data.Snow.SSSBlurEnabled);
-
-        // Virtual-geometry debug capture (issue #629 / #607). VirtualGeometryPass::Setup
-        // ImportTexture()s the "VirtualGeometryDebug" target only while a debug mode is
-        // on, so the mode gates a graph DECLARATION and must invalidate this cache —
-        // exactly the #530 class of bug (docs/agent-rules/render-pipeline-caches.md).
-        // Without it, flipping the mode over MCP changed nothing in the graph, the target
-        // was never imported, and olo_render_capture_target answered "Unknown
-        // render-graph resource 'VirtualGeometryDebug'" forever.
-        //
-        // The identity is hashed for the same reason as the shadow/IBL ones above:
-        // the import is BY resource, so a viewport resize (which recreates the debug
-        // targets) must re-import rather than keep a dangling reference. Hashing the
-        // identity rather than the driver name is what makes a destroy-then-recreate
-        // that reuses the GL name visible here at all.
-        {
-            const auto& virtualRegistry = VirtualMeshRegistry::Get();
-            HashU32(h, static_cast<u32>(std::to_underlying(virtualRegistry.GetDebugMode())));
-            HashU64(h, RHI::HashKey(virtualRegistry.GetDebugColorTexture()));
-        }
-
-        // Selection outline gate inputs — PopulateBlackboard declares
-        // SelectionOutlineColor / JFAPing / JFAPong only when the editor
-        // has at least one selected entity AND the toggle is on. Both
-        // values must invalidate the cache or selecting an entity after
-        // a frame with no selection would silently skip declaration.
-        HashBool(h, data.EnableSelectionOutline);
-        HashBool(h, !data.SelectionOutlineEntityIDs.IsEmpty());
-
-        // Temporal-history gate inputs — `if (TAAHistoryValid && Texture)`
-        // decides whether the prior frame's history is imported into the
-        // blackboard for reprojection. The flag flips false→true after the
-        // FIRST successful frame produces history, so the cache MUST
-        // invalidate on that transition — otherwise PopulateBlackboard never
-        // re-runs, the import never happens, and TAA reprojection samples the
-        // current frame as history (TAA degenerates to a pass-through and the
-        // jitter shows through as a screen-space shake). The fog history moved
-        // into VolumetricFogPass's own 3D volume (issue #435) and no longer
-        // flows through the blackboard.
-        HashBool(h, TAAHistoryValid);
-        // Same first-frame false→true transition contract for the
-        // cloudscape's half-res resolve history (issue #633): the flag gates
-        // the CloudsHistory import below, so the flip MUST invalidate the
-        // cache or the resolve never sees its history.
-        HashBool(h, CloudsHistoryValid);
-        // ...and once more for SSGI's and SSR's own signal histories (issue
-        // #902), which gate the SSGIHistory / SSRHistory imports the same way.
-        if (data.RGraph)
-        {
-            const auto token = data.RGraph->GetTemporalHistoryRegistry().Find(kSSGIHistoryKey);
-            HashU32(h, token.Generation);
-            HashBool(h, data.RGraph->GetTemporalHistoryRegistry().IsValid(token));
-            const auto surfaceToken = data.RGraph->GetTemporalHistoryRegistry().Find(kSSGISurfaceHistoryKey);
-            HashU32(h, surfaceToken.Generation);
-            HashBool(h, data.RGraph->GetTemporalHistoryRegistry().IsValid(surfaceToken));
-            const auto firstMomentsToken = data.RGraph->GetTemporalHistoryRegistry().Find(kSSGIFirstMomentsHistoryKey);
-            const auto secondMomentsToken = data.RGraph->GetTemporalHistoryRegistry().Find(kSSGISecondMomentsHistoryKey);
-            HashU32(h, firstMomentsToken.Generation);
-            HashBool(h, data.RGraph->GetTemporalHistoryRegistry().IsValid(firstMomentsToken));
-            HashU32(h, secondMomentsToken.Generation);
-            HashBool(h, data.RGraph->GetTemporalHistoryRegistry().IsValid(secondMomentsToken));
-            // ...TAA's surface plane (#1256), which needs BOTH halves for a
-            // reason the validity bit alone does not cover. TAA additionally
-            // carries the legacy `TAAHistoryValid` bool, hashed elsewhere, and
-            // the two are independent: an InvalidateTemporalHistories on a
-            // projection change clears the registry token while that bool stays
-            // true. Hashing only IsValid would also miss a REGENERATION — an
-            // invalidate and re-acquire between two populates leaves validity
-            // reading true both times while the plane underneath is a different
-            // one, which is what Generation is for.
-            const auto taaSurfaceToken = data.RGraph->GetTemporalHistoryRegistry().Find(kTAASurfaceHistoryKey);
-            HashU32(h, taaSurfaceToken.Generation);
-            HashBool(h, data.RGraph->GetTemporalHistoryRegistry().IsValid(taaSurfaceToken));
-            // ...and the ray-traced shadow denoiser's three (issue #1056), for
-            // exactly the same reason: PopulateBlackboard imports them behind
-            // `Scratch.RayTracedShadowResolved.IsValid()`, and each binding's
-            // Previous only becomes valid after the first frame has written it.
-            // Without these tokens a scene that moves no other hashed input
-            // keeps the cached blackboard across that false->true flip, the
-            // import never lands, and the resolve runs history-less forever
-            // while looking like it is accumulating.
-            for (const auto& rtHistoryKey : { kRayTracedShadowHistoryKey, kRayTracedShadowSurfaceHistoryKey,
-                                              kRayTracedShadowMomentsHistoryKey })
+            if (const auto& gbuffer = FrameCorePasses.Scene->GetGBuffer())
             {
-                const auto rtToken = data.RGraph->GetTemporalHistoryRegistry().Find(rtHistoryKey);
-                HashU32(h, rtToken.Generation);
-                HashBool(h, data.RGraph->GetTemporalHistoryRegistry().IsValid(rtToken));
-            }
-            // ...and the path tracer's four (issue #1055). Load-bearing twice
-            // over here: the first frame's import lands only if the false->true
-            // flip re-runs PopulateBlackboard, AND every invalidation (a camera
-            // move, a scene mutation) bumps a generation, which is what makes
-            // the cached Setup drop the history handles it was bound to. Without
-            // this a restarted accumulation would keep adding to the sums it
-            // was told to forget.
-            for (const auto& ptHistoryKey : { kPathTracerHistoryKey, kPathTracerMomentsHistoryKey,
-                                              kPathTracerAlbedoHistoryKey, kPathTracerNormalHistoryKey })
-            {
-                const auto ptToken = data.RGraph->GetTemporalHistoryRegistry().Find(ptHistoryKey);
-                HashU32(h, ptToken.Generation);
-                HashBool(h, data.RGraph->GetTemporalHistoryRegistry().IsValid(ptToken));
+                config.GBufferWidth = gbuffer->GetWidth();
+                config.GBufferHeight = gbuffer->GetHeight();
+                config.GBufferSamples = gbuffer->GetSampleCount();
             }
         }
-        else
-        {
-            HashU32(h, 0u);
-            HashBool(h, false);
-        }
-        HashBool(h, SSRHistoryValid);
+        config.OITEnabled = data.Settings.OITEnabled;
+        // The technique the graph was BUILT for (#771), not the requested one:
+        // only the built one has a pass registered to write AOBuffer.
+        config.GraphAOTechnique = data.ActiveGraphAOTechnique;
 
-        // WHETHER THE RESERVOIR HISTORIES HOLD ANYTHING YET (#1169). Read from
-        // the REGISTRY, not from the blackboard, and that distinction is the
-        // whole point.
-        //
-        // BuildFrameGraph returns from its cache without re-running any pass's
-        // Setup(), and ReSTIRDIPass / ReSTIRGIPass LATCH their history handles
-        // there. Arming either tier moves the topology fingerprint, so Setup()
-        // runs on that frame - but that is precisely the frame the histories are
-        // being CREATED, so they hold no content, AcquireTemporalHistory returns
-        // no Previous handle, and the pass latches the absence. Nothing moves the
-        // fingerprint again, so the tier keeps sampling histories it was never
-        // handed for the rest of the session: ACTIVE, correct, and permanently
-        // noisier, with only historyPlanesAvailable showing 0 of 5.
-        //
-        // These two bits break that cycle because they change OUTSIDE a
-        // populate: the registry marks an entry valid once the frame's
-        // extraction has published into it, one frame after the tier first
-        // executes. Hashing the BLACKBOARD's own handle instead would deadlock -
-        // that value only changes when a populate runs, and a populate only runs
-        // when the fingerprint changes.
-        //
-        // Self-limiting by construction, which an out-of-band
-        // InvalidateBuildFrameGraphCache() is not: each bit flips false->true
-        // once per arming and then holds, so this costs exactly one extra
-        // repopulate. An earlier attempt that forced the invalidation directly
-        // from PopulateBlackboard re-entered every frame and drove the editor
-        // into AOApplyRenderPass's "enabled without resolved graph input/output"
-        // assertion - measured, and the reason this is a fingerprint input
-        // rather than a call.
-        if (data.RGraph)
-        {
-            const auto& historyRegistry = data.RGraph->GetTemporalHistoryRegistry();
-            HashBool(h, historyRegistry.IsValid(historyRegistry.Find(kReSTIRDIReservoirSampleHistoryKey)));
-            HashBool(h, historyRegistry.IsValid(historyRegistry.Find(kReSTIRGIReservoirSampleHistoryKey)));
-        }
-        // ...and the volumetric shadow volume (issue #723), for the third time
-        // in a row, because the trap does not care that the PRODUCER dodged it.
-        //
-        // VolumetricShadowMap runs pre-graph precisely to stay clear of the
-        // fingerprint cache (virtual-shadow-map-page-cache.md §5). But its
-        // DIAGNOSTIC import at the tail of PopulateBlackboard is still a
-        // declaration behind a runtime condition — the handle only becomes
-        // valid on the first successful Dispatch(). Without this hash, a scene
-        // that moves no other hashed input keeps the cached blackboard, the
-        // import never lands, and `VolumetricShadowVolume` never appears in
-        // RenderGraph::GetRegisteredResources() — silently costing exactly the
-        // capture target it exists to provide, while rendering stays correct
-        // because the volume is written and sampled outside the graph.
-        //
-        // Hashed by IDENTITY, like the shadow and IBL handles above: Shutdown()
-        // releases the volume, and a later frame can recreate it onto a
-        // recycled driver name.
-        HashU64(h, RHI::HashKey(VolumetricShadowMap::GetTextureHandle()));
+        config.ShadowResolution = data.Shadow.GetResolution();
+        config.ShadowAtlasResolution = data.Shadow.GetAtlasResolution();
+        config.ShadowCSM = data.Shadow.GetCSMHandle();
+        config.ShadowAtlas = data.Shadow.GetAtlasHandle();
+        config.ShadowCSMRaw = data.Shadow.GetCSMRawHandle();
+        config.ShadowAtlasRaw = data.Shadow.GetAtlasRawHandle();
 
-        // Pass-set readiness (covers branches like
-        //   `if (pipeline.PostProcessPasses.X && X->IsReadyForExecution())`)
-        // The same fingerprint is reused as the RenderGraph::BuildFrameGraph
-        // cache key, so it must cover every pass whose Setup() declarations
-        // may change between frames — not just the post-process chain.
-        HashPassState(h, FrameCorePasses.Shadow);
-        HashPassState(h, FrameCorePasses.Scene);
-        HashPassState(h, FrameCorePasses.DDGIProbeUpdate);
-        // DDGI atlas imports (issue #607): DDGIProbeUpdatePass::Setup imports
-        // the ping-pong atlases + probe-data texture, which are created lazily
-        // (first submitted volume) and recreated on a Resolution /
-        // HitCacheTexels edit — the resources change with NO pass-enable
-        // change. Hash them so the rebuild that (re)imports them actually
-        // happens — the exact VirtualGeometryDebug rule below.
-        //
-        // The four atlases hash by IDENTITY, not by driver name (issue #691
-        // step 3). EnsureResources calls DestroyResources BEFORE recreating, so
-        // the old attachment textures are gone by the time the new ones are
-        // made and GL may reissue the same names — under which a raw-id hash
-        // sees no change at all and the graph keeps an import still describing
-        // the OLD resolution. A generation cannot be reissued. m_ProbeDataTexture
-        // has no identity yet (it is a pass-owned native texture, deferred to a
-        // later slice) and keeps its raw id.
-        if (FrameCorePasses.DDGIProbeUpdate)
-        {
-            const auto& ddgiPass = *FrameCorePasses.DDGIProbeUpdate;
-            HashU64(h, RHI::HashKey(ddgiPass.GetIrradianceAtlasHandle(0u)));
-            HashU64(h, RHI::HashKey(ddgiPass.GetIrradianceAtlasHandle(1u)));
-            HashU64(h, RHI::HashKey(ddgiPass.GetVisibilityAtlasHandle(0u)));
-            HashU64(h, RHI::HashKey(ddgiPass.GetVisibilityAtlasHandle(1u)));
-            HashU64(h, RHI::HashKey(ddgiPass.GetProbeDataTextureID()));
-        }
-        HashPassState(h, SceneCompositePasses.DeferredLighting);
-        HashPassState(h, SceneCompositePasses.DeferredOpaqueDecal);
-        HashPassState(h, SceneCompositePasses.DeferredGPUOcclusion);
-        HashPassState(h, SceneCompositePasses.SSAO);
-        HashPassState(h, SceneCompositePasses.GTAO);
-        HashPassState(h, SceneCompositePasses.SphereProxyAO);
-        HashPassState(h, SceneCompositePasses.RayTracedShadow);
-        HashPassState(h, SceneCompositePasses.Particle);
-        HashPassState(h, SceneCompositePasses.OITPrepare);
-        HashPassState(h, SceneCompositePasses.OITResolve);
-        HashPassState(h, RenderStreamPasses.ForwardOverlay);
-        HashPassState(h, RenderStreamPasses.Foliage);
-        // #1246. GroomRenderPass declares its SceneColor RMW only when a
-        // groom was submitted, so whether it declares anything is TOPOLOGY —
-        // and topology is cached. Left out of the fingerprint, the first
-        // groom to appear in a scene that had none would find the cached
-        // graph in which the node declared nothing, stay culled, and report
-        // zeros from every counter meant to explain it.
-        HashPassState(h, RenderStreamPasses.Groom);
-        HashBool(h, Renderer3D::GetGroomStrandRequests().Num() != 0);
-        HashPassState(h, RenderStreamPasses.Water);
-        HashPassState(h, RenderStreamPasses.FluidIntermediates);
-        HashPassState(h, RenderStreamPasses.FluidComposite);
-        HashPassState(h, RenderStreamPasses.Decal);
-        // GPU-pushable shader debug draws (issue #725). The pass declares its
-        // SceneColor RMW only while enabled, so the enable gates a graph
-        // DECLARATION and MUST invalidate this cache — the #530 class of bug
-        // (docs/agent-rules/render-pipeline-caches.md). Without it, flipping the
-        // toggle changes nothing until some unrelated input happens to move,
-        // which is worse than never working: it works whenever you happen to
-        // also load a scene or switch path, so it looks intermittent.
-        //
-        // BOTH lines are needed. HashPassState covers the pointer and
-        // IsReadyForExecution() — the latter matters because the debug shader
-        // links asynchronously, so the first ready frame has to rebuild — but it
-        // does NOT read IsEnabled() (see its comment: per-pass enable is
-        // expected to be hashed separately, exactly as
-        // data.PostProcess.OverdrawDebugView is above).
-        HashBool(h, data.Settings.ShaderDebugDrawEnabled);
-        HashPassState(h, RenderStreamPasses.ShaderDebugDraw);
-        // The skin diffusion's enable and tier: the tier changes the tap COUNT,
-        // which changes the uploaded block and the pass's cost, and the enable
-        // decides whether its scratch target is declared at all -- both are
-        // topology, not just state.
-        HashPassState(h, PostProcessPasses.SkinDiffusion);
-        HashBool(h, SkinDiffusionRunsThisFrame(data.SkinDiffusion, data.Settings.Path, data.PostProcess.MaterialDebug,
-                                               static_cast<i32>(data.Settings.Deferred.DebugChannel)));
-        HashU32(h, static_cast<u32>(std::to_underlying(data.SkinDiffusion.Quality)));
-        HashPassState(h, PostProcessPasses.SSS);
-        HashPassState(h, PostProcessPasses.AOApply);
-        HashPassState(h, PostProcessPasses.SSGI);
-        HashPassState(h, PostProcessPasses.RayTracedReflection);
-        HashPassState(h, PostProcessPasses.SSR);
-        HashPassState(h, PostProcessPasses.ContactShadow);
-        HashPassState(h, PostProcessPasses.GpuPathTracer);
-        HashPassState(h, SceneCompositePasses.ReSTIRDI);
-        HashPassState(h, SceneCompositePasses.ReSTIRPT);
-        HashPassState(h, SceneCompositePasses.ReSTIRGI);
-        HashPassState(h, PostProcessPasses.FSR2);
-        HashPassState(h, PostProcessPasses.Bloom);
-        HashPassState(h, PostProcessPasses.DOF);
-        HashPassState(h, PostProcessPasses.MotionBlur);
-        HashPassState(h, PostProcessPasses.TAA);
-        HashPassState(h, PostProcessPasses.Cloudscape);
-        HashPassState(h, PostProcessPasses.Precipitation);
-        HashPassState(h, PostProcessPasses.VolumetricFog);
-        HashPassState(h, PostProcessPasses.Fog);
-        HashPassState(h, PostProcessPasses.ChromAberration);
-        HashPassState(h, PostProcessPasses.ColorGrading);
-        HashPassState(h, PostProcessPasses.ToneMap);
-        HashPassState(h, PostProcessPasses.Upscaler);
-        HashPassState(h, PostProcessPasses.Vignette);
-        HashPassState(h, PostProcessPasses.FXAA);
-        HashPassState(h, PostProcessPasses.SelectionOutline);
-        HashPassState(h, PostProcessPasses.Overdraw);
-        HashPassState(h, PostProcessPasses.UIComposite);
-        HashPassState(h, PostProcessPasses.ColorBlind);
-        HashPassState(h, PostProcessPasses.Final);
+        config.IrradianceMap = data.GlobalIrradianceMapID;
+        config.PrefilterMap = data.GlobalPrefilterMapID;
+        config.BRDFLut = data.GlobalBRDFLutMapID;
+        config.VolumetricShadowVolume = VolumetricShadowMap::GetTextureHandle();
 
-        // Water needs a refraction texture only when it has draws this frame.
-        HashBool(h, RenderStreamPasses.Water &&
-                        RenderStreamPasses.Water->GetCommandBucket().GetCommandCount() > 0u);
-        // Foliage, decals and the deferred forward-overlay stream have the same
-        // shape as water and must be hashed for the same reason (issue #1315,
-        // the #530 class). They are the three that were left: water was hashed
-        // above, groom was hashed by #1246, and each of those fixes saw only
-        // its own pass. Each of these passes returns from `Setup()` WITHOUT
-        // declaring a single graph access when its command bucket is empty, so
-        // a graph compiled during a frame that had none caches a node with no
-        // reads and no writes — which the reachability pass then culls. Nothing
-        // about a scene gaining its first plant, decal or overlay draw moves any
-        // other fingerprint input, so `BuildFrameGraph` keeps returning that
-        // cached build, `Setup()` never runs again, and the pass stays culled
-        // while its bucket fills every frame.
-        //
-        // That is not hypothetical: it is what #1315 was. A tessellated-terrain
-        // evidence test left the graph cached with an empty foliage bucket, and
-        // the next test in the process generated 1310 plant instances, culled
-        // them, submitted two draws per frame — and rendered none of them, for
-        // as long as it took some unrelated input (a rendering-path switch) to
-        // move the fingerprint. The subject was simply absent from the frame,
-        // which only failed a test at all because of #931's content-mask floor.
-        //
-        // A boolean, not the count: what the declaration branches on is
-        // emptiness, and hashing the count would rebuild the whole frame graph
-        // every time a plant came into view.
-        HashBool(h, RenderStreamPasses.Foliage &&
-                        RenderStreamPasses.Foliage->GetCommandBucket().GetCommandCount() > 0u);
-        HashBool(h, RenderStreamPasses.Decal &&
-                        RenderStreamPasses.Decal->GetCommandBucket().GetCommandCount() > 0u);
-        HashBool(h, RenderStreamPasses.ForwardOverlay &&
-                        RenderStreamPasses.ForwardOverlay->GetCommandBucket().GetCommandCount() > 0u);
-        // GroomRenderPass has the same shape — its `Setup()` gates on an empty
-        // REQUEST list rather than an empty bucket — and #1246 already hashed
-        // it beside its HashPassState above. Left there rather than moved here:
-        // one entry, next to the comment that explains it.
-        // Fluid draws gate both the composite's Setup declarations and the
-        // FluidRefraction scratch declaration below — hash it (#530 class).
-        HashBool(h, RenderStreamPasses.FluidIntermediates &&
-                        RenderStreamPasses.FluidIntermediates->HasPendingDraws());
+        const auto& post = data.PostProcess;
+        config.SSAOEnabled = post.SSAOEnabled;
+        config.GTAOEnabled = post.GTAOEnabled;
+        config.SSGIHalfResolution = post.SSGIHalfResolution;
+        config.Upscale = post.Upscale;
+        config.TemporalUpscaleActive = data.TemporalUpscaleActive;
+        config.DOFEnabled = post.DOFEnabled;
+        config.MotionBlurEnabled = post.MotionBlurEnabled;
+        config.EngineTAA = TemporalUpscalePolicy::ShouldRunEngineTAA(post.TAAEnabled, data.TemporalUpscaleActive);
+        config.CloudscapeEnabled = data.Cloudscape.Enabled;
+        config.PrecipitationScreenEffects = PrecipitationScreenEffectsEnabled(data);
+        config.FogEnabled = data.Fog.Enabled;
+        config.ChromaticAberrationEnabled = post.ChromaticAberrationEnabled;
+        config.ColorGradingEnabled = post.ColorGradingEnabled;
+        config.LateSharpen = TemporalUpscalePolicy::ShouldRunLateSharpen(post.CASEnabled, post.Upscale, data.TemporalUpscaleActive);
+        config.VignetteEnabled = post.VignetteEnabled;
+        config.FXAAEnabled = post.FXAAEnabled;
+        config.SnowSubsurfaceBlur = data.Snow.Enabled && data.Snow.SSSBlurEnabled;
+        config.SkinDiffusionEnabled = SkinDiffusionRunsThisFrame(data.SkinDiffusion, data.Settings.Path, post.MaterialDebug,
+                                                                 static_cast<i32>(data.Settings.Deferred.DebugChannel));
+        config.SelectionOutlineActive = data.EnableSelectionOutline && !data.SelectionOutlineEntityIDs.IsEmpty();
+        config.OverdrawDebugView = post.OverdrawDebugView;
+        config.ColorBlind = Accessibility::Get().ColorBlind;
 
-        // Non-zero sentinel so callers can use 0 to mean "no cache".
-        if (h == 0u)
-            h = 1u;
-        return h;
+        // Sampled here, AFTER PrepareDeclarationInputs has resized the history
+        // storage (which clears these flags), so a resize is seen on the frame
+        // it happens rather than being hidden until something else moves.
+        config.TAAHistoryValid = TAAHistoryValid;
+        config.CloudsHistoryValid = CloudsHistoryValid;
+        config.SSRHistoryValid = SSRHistoryValid;
+
+        RGDeclarationKey passStates;
+        if (passKeys)
+            passKeys->Reset();
+        ForEachPass([&passStates, passKeys](const auto& pass)
+                    {
+                        RGDeclarationKey passKey;
+                        passKey.Add(static_cast<bool>(pass));
+                        if (pass)
+                        {
+                            if (pass->IsEnableADeclarationInput())
+                                passKey.Add(pass->IsEnabled());
+                            passKey.Add(pass->IsReadyForExecution());
+                            pass->AppendDeclarationInputs(passKey);
+                        }
+                        if (passKeys)
+                            passKeys->Add(passKey.Get());
+                        passStates.Add(passKey.Get()); });
+        config.PassStates = passStates.Get();
+
+        return config;
     }
 
-    void Renderer3D::RenderPipeline::PopulateBlackboard(Renderer3DData& data)
+    // Everything that changes a declaration input as a SIDE EFFECT of
+    // preparing the frame, run before the configuration is captured so the
+    // capture sees the frame's final values. Both of these used to run inside
+    // PopulateBlackboard, where they moved an input after it had been hashed:
+    //
+    //  * the FSR1 scene-band resize ran after the build key had been computed
+    //    from the pre-resize size, so the two cache layers were keyed on
+    //    different values for the same frame;
+    //  * a history-storage resize clears the history's valid flag, but the flag
+    //    had already been hashed as true. FlushExtractions set it true again by
+    //    the end of the frame, the next frame reproduced the cached key, and
+    //    TAA ran without its history until something unrelated moved.
+    void Renderer3D::RenderPipeline::PrepareDeclarationInputs(Renderer3DData& data)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!data.RGraph)
+            return;
+
+        auto& graph = *data.RGraph;
+
+        // FSR1 render-scale (#480): size the scene band below display res.
+        // When an FSR1 upscale preset is active, resize the Scene pass (and its
+        // G-buffer, which SceneRenderPass::ResizeFramebuffer keeps in lockstep)
+        // plus every scene-band consumer to the reduced render resolution. This
+        // cascades to SceneColor / SceneDepth / SceneNormals / Velocity and the
+        // screen-space band (all derive from the Scene pass spec); EASU then
+        // upscales the result to full display res while the post chain stays
+        // full. Guarded on a real size change so steady-state frames never
+        // reallocate. The display size comes from the graph's physical size,
+        // which this reduced scene resize does not touch.
+        if (FrameCorePasses.Scene)
+        {
+            const u32 displayW = graph.GetPhysicalWidth();
+            const u32 displayH = graph.GetPhysicalHeight();
+            if (displayW > 0u && displayH > 0u)
+            {
+                const f32 renderScale = UpscaleModeToRenderScale(data.PostProcess.Upscale);
+                const u32 sceneW = std::max(1u, static_cast<u32>(glm::floor(static_cast<f32>(displayW) * renderScale)));
+                const u32 sceneH = std::max(1u, static_cast<u32>(glm::floor(static_cast<f32>(displayH) * renderScale)));
+                if (const auto& curSpec = FrameCorePasses.Scene->GetFramebufferSpecification();
+                    curSpec.Width != sceneW || curSpec.Height != sceneH)
+                {
+                    FrameCorePasses.Scene->ResizeFramebuffer(sceneW, sceneH);
+                    if (SceneCompositePasses.SSAO)
+                        SceneCompositePasses.SSAO->ResizeFramebuffer(sceneW, sceneH);
+                    if (SceneCompositePasses.GTAO)
+                        SceneCompositePasses.GTAO->ResizeFramebuffer(sceneW, sceneH);
+                    if (SceneCompositePasses.SphereProxyAO)
+                        SceneCompositePasses.SphereProxyAO->ResizeFramebuffer(sceneW, sceneH);
+                    if (SceneCompositePasses.RayTracedShadow)
+                        SceneCompositePasses.RayTracedShadow->ResizeFramebuffer(sceneW, sceneH);
+                    if (SceneCompositePasses.ReSTIRDI)
+                        SceneCompositePasses.ReSTIRDI->ResizeFramebuffer(sceneW, sceneH);
+                    if (SceneCompositePasses.ReSTIRPT)
+                        SceneCompositePasses.ReSTIRPT->ResizeFramebuffer(sceneW, sceneH);
+                    if (SceneCompositePasses.ReSTIRGI)
+                        SceneCompositePasses.ReSTIRGI->ResizeFramebuffer(sceneW, sceneH);
+                    if (RenderStreamPasses.FluidIntermediates)
+                        RenderStreamPasses.FluidIntermediates->ResizeFramebuffer(sceneW, sceneH);
+
+                    // The scene-band size just changed WITHOUT a window/viewport
+                    // resize (a runtime FSR1 Upscale-mode toggle), so the
+                    // transient pool now holds stale-size framebuffers/textures
+                    // that the alias-group resolver could hand to a downstream
+                    // pass for the first frames after the transition, rendering
+                    // black (issue #563). Route through the graph's node-resize
+                    // eviction chokepoint, as RenderGraph::Resize does.
+                    graph.NotifyNodeFramebufferResized();
+                }
+            }
+        }
+
+        // TAA and cloudscape history storage. Unconditional, as it was inside
+        // PopulateBlackboard: both follow their pass's display-sized spec. SSR's
+        // storage stays in PopulateBlackboard because it is gated on SSR's
+        // scratch being declared; its declared-but-not-imported case is handled
+        // there with an explicit invalidation.
+        if (PostProcessPasses.TAA)
+        {
+            const auto& taaSpec = PostProcessPasses.TAA->GetFramebufferSpecification();
+            EnsureHistoryStorage(TAAHistoryTexture, TAAHistoryValid, taaSpec.Width, taaSpec.Height);
+        }
+        if (PostProcessPasses.Cloudscape)
+        {
+            const auto& cloudsSpec = PostProcessPasses.Cloudscape->GetFramebufferSpecification();
+            EnsureHistoryStorage(CloudsHistoryTexture, CloudsHistoryValid, (cloudsSpec.Width + 1u) / 2u,
+                                 (cloudsSpec.Height + 1u) / 2u);
+        }
+    }
+
+    namespace
+    {
+        // Labels present in only one of two sorted digest lists, or present in
+        // both with different digests. Capped: this names a culprit, it is not
+        // a dump.
+        [[nodiscard]] std::string DescribePlanDifferences(const std::vector<RenderGraph::PlanDigestEntry>& before,
+                                                          const std::vector<RenderGraph::PlanDigestEntry>& after)
+        {
+            constexpr sizet kMaxNamed = 16u;
+            std::string out;
+            sizet named = 0u;
+            sizet total = 0u;
+            const auto note = [&out, &named, &total](std::string_view label)
+            {
+                ++total;
+                if (named >= kMaxNamed)
+                    return;
+                if (!out.empty())
+                    out += ',';
+                out += label;
+                ++named;
+            };
+
+            auto a = before.begin();
+            auto b = after.begin();
+            while (a != before.end() || b != after.end())
+            {
+                if (b == after.end() || (a != before.end() && a->Label < b->Label))
+                {
+                    note(a->Label);
+                    ++a;
+                }
+                else if (a == before.end() || b->Label < a->Label)
+                {
+                    note(b->Label);
+                    ++b;
+                }
+                else
+                {
+                    if (a->Digest != b->Digest)
+                        note(a->Label);
+                    ++a;
+                    ++b;
+                }
+            }
+            if (total > named)
+                out += fmt::format(",(+{} more)", total - named);
+            return out;
+        }
+    } // namespace
+
+    void Renderer3D::RenderPipeline::CompileFrameGraph(Renderer3DData& data)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!data.RGraph)
+            return;
+
+        auto& graph = *data.RGraph;
+
+        PrepareDeclarationInputs(data);
+
+        // THE configuration for this frame. Both cache layers are keyed on it,
+        // PopulateBlackboard reads its gates from it, and it is stored on the
+        // blackboard for Setup() to read, so no part of the compile can see a
+        // different configuration than the one the cache was keyed on.
+        TArray<u64> passKeys;
+        const FrameGraphDeclarationConfig config = CaptureDeclarationConfig(data, &passKeys);
+        const u64 key = config.ComputeKey();
+
+        // History validity is keyed, generations are not; bring the sinks up to
+        // the generations this configuration was captured against, so a cached
+        // frame can still hand its extraction to a history that was invalidated
+        // again while it was already invalid.
+        graph.RefreshHistorySinkTokens();
+
+        // A frame the cache would serve. Under verify mode it is rebuilt
+        // anyway, and the rebuilt plan must match the cached one.
+        const bool cacheWouldHit = m_HasValidBlackboardCache && key == m_BlackboardFingerprint &&
+                                   graph.HasValidBuildFrameGraphCache(key);
+        const bool verify = cacheWouldHit && Levers::VerifyDeclarationCache();
+        if (verify)
+        {
+            InvalidateBlackboardCache();
+            graph.InvalidateBuildFrameGraphCache();
+        }
+
+        const u64 compilesBefore = graph.GetBuildCacheCounters().Compiles;
+        const auto start = std::chrono::steady_clock::now();
+        {
+            OLO_PERF_SCOPE_AUTO("Renderer3D::PopulateBlackboard");
+            PopulateBlackboard(data, config);
+        }
+        {
+            OLO_PERF_SCOPE_AUTO("Renderer3D::UploadExecutionState");
+            UploadExecutionState(data);
+        }
+        graph.BuildFrameGraph(key);
+        const f64 micros = std::chrono::duration<f64, std::micro>(std::chrono::steady_clock::now() - start).count();
+        const bool compiled = graph.GetBuildCacheCounters().Compiles != compilesBefore;
+
+        auto& stats = m_DeclarationStats;
+        ++stats.Frames;
+        if (!compiled)
+        {
+            ++stats.CacheHits;
+            stats.LastCacheHitMicros = micros;
+            stats.CacheHitMicrosTotal += micros;
+            return;
+        }
+
+        std::vector<RenderGraph::PlanDigestEntry> entries;
+        const auto digestStart = std::chrono::steady_clock::now();
+        const u64 digest = graph.ComputeCompiledPlanDigest(&entries);
+        stats.DigestMicrosTotal +=
+            std::chrono::duration<f64, std::micro>(std::chrono::steady_clock::now() - digestStart).count();
+
+        if (verify)
+        {
+            ++stats.CacheHits;
+            ++stats.VerifiedHits;
+            if (m_HasCompiledConfig && digest != m_CompiledPlanDigest)
+            {
+                ++stats.StaleCacheDetections;
+                std::string detail = DescribePlanDifferences(m_CompiledPlanEntries, entries);
+                if (detail != stats.LastStaleCacheDetail)
+                {
+                    // No silent fallback: this frame is correct only because
+                    // verify mode rebuilt it. Without the lever it would have
+                    // run the cached plan.
+                    OLO_CORE_ERROR("RenderGraph declaration cache was STALE: the configuration key did not change, "
+                                   "but a forced rebuild compiled a different plan than the cached build. "
+                                   "Differing: {}. An input one of these passes' Setup() or PopulateBlackboard "
+                                   "reads is missing from FrameGraphDeclarationConfig / "
+                                   "RenderGraphNode::AppendDeclarationInputs (issue #1333).",
+                                   detail);
+                }
+                stats.LastStaleCacheDetail = std::move(detail);
+            }
+        }
+        else
+        {
+            ++stats.Compiles;
+            stats.LastCompileMicros = micros;
+            stats.CompileMicrosTotal += micros;
+
+            std::string cause;
+            if (m_HasCompiledConfig)
+            {
+                cause = config.DescribeDifferences(m_CompiledConfig);
+                // Name the passes behind a PassStates change: "PassStates" alone
+                // says a pass changed, not which.
+                if (config.PassStates != m_CompiledConfig.PassStates &&
+                    m_CompiledPassKeys.Num() == passKeys.Num())
+                {
+                    std::string passes;
+                    i32 index = 0;
+                    ForEachPass([this, &passes, &index, &passKeys](const auto& pass)
+                                {
+                                    if (m_CompiledPassKeys[index] != passKeys[index])
+                                    {
+                                        passes += passes.empty() ? "" : ",";
+                                        passes += pass ? std::string(pass->GetName()) : fmt::format("<pass {} removed>", index);
+                                    }
+                                    ++index; });
+                    cause += fmt::format("[{}]", passes);
+                }
+                if (cause.empty())
+                    cause = "cache invalidated out of band";
+                if (digest == m_CompiledPlanDigest)
+                    ++stats.RedundantCompiles;
+            }
+            else
+            {
+                cause = "first compile";
+            }
+            if (Levers::RenderGraphDiagnostics())
+            {
+                OLO_CORE_TRACE("RenderGraph declaration compile #{} ({:.1f} us): {}{}", stats.Compiles, micros, cause,
+                               m_HasCompiledConfig && digest == m_CompiledPlanDigest ? " -- REDUNDANT, the plan did not change" : "");
+            }
+            stats.LastCompileCause = std::move(cause);
+        }
+
+        m_CompiledConfig = config;
+        m_HasCompiledConfig = true;
+        m_CompiledPassKeys = std::move(passKeys);
+        m_CompiledPlanDigest = digest;
+        m_CompiledPlanEntries = std::move(entries);
+    }
+
+    void Renderer3D::RenderPipeline::PopulateBlackboard(Renderer3DData& data, const FrameGraphDeclarationConfig& config)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -3387,95 +3178,23 @@ namespace OloEngine
         auto& pipeline = *this;
 
         // ------------------------------------------------------------------
-        // FSR1 render-scale (#480): size the scene band below display res.
-        // ------------------------------------------------------------------
-        // When an FSR1 upscale preset is active, resize the Scene pass (and its
-        // G-buffer, which SceneRenderPass::ResizeFramebuffer keeps in lockstep)
-        // plus SSAO and GTAO to the reduced render resolution — both AO
-        // techniques read the scene-band depth/normals and must track its size
-        // (see the GTAO scratch-texture comment below for the #504 regression
-        // this omission caused). This cascades to SceneColor
-        // / SceneDepth / SceneNormals / Velocity and the screen-space band (all
-        // derive from the Scene pass spec); EASURenderPass then upscales the
-        // result to full display res while the post chain below stays full. Run
-        // BEFORE the fingerprint so the reduced sceneSpec is what gets hashed and
-        // declared; guarded on a real size change so steady-state frames never
-        // reallocate. The display size comes from the graph's physical size,
-        // which is unaffected by this reduced scene resize.
-        if (pipeline.FrameCorePasses.Scene)
-        {
-            const u32 displayW = graph.GetPhysicalWidth();
-            const u32 displayH = graph.GetPhysicalHeight();
-            if (displayW > 0u && displayH > 0u)
-            {
-                const f32 renderScale = UpscaleModeToRenderScale(data.PostProcess.Upscale);
-                const u32 sceneW = std::max(1u, static_cast<u32>(glm::floor(static_cast<f32>(displayW) * renderScale)));
-                const u32 sceneH = std::max(1u, static_cast<u32>(glm::floor(static_cast<f32>(displayH) * renderScale)));
-                if (const auto& curSpec = pipeline.FrameCorePasses.Scene->GetFramebufferSpecification();
-                    curSpec.Width != sceneW || curSpec.Height != sceneH)
-                {
-                    pipeline.FrameCorePasses.Scene->ResizeFramebuffer(sceneW, sceneH);
-                    if (pipeline.SceneCompositePasses.SSAO)
-                        pipeline.SceneCompositePasses.SSAO->ResizeFramebuffer(sceneW, sceneH);
-                    if (pipeline.SceneCompositePasses.GTAO)
-                        pipeline.SceneCompositePasses.GTAO->ResizeFramebuffer(sceneW, sceneH);
-                    if (pipeline.SceneCompositePasses.SphereProxyAO)
-                        pipeline.SceneCompositePasses.SphereProxyAO->ResizeFramebuffer(sceneW, sceneH);
-                    if (pipeline.SceneCompositePasses.RayTracedShadow)
-                        pipeline.SceneCompositePasses.RayTracedShadow->ResizeFramebuffer(sceneW, sceneH);
-                    if (pipeline.SceneCompositePasses.ReSTIRDI)
-                        pipeline.SceneCompositePasses.ReSTIRDI->ResizeFramebuffer(sceneW, sceneH);
-                    if (pipeline.SceneCompositePasses.ReSTIRPT)
-                        pipeline.SceneCompositePasses.ReSTIRPT->ResizeFramebuffer(sceneW, sceneH);
-                    if (pipeline.SceneCompositePasses.ReSTIRGI)
-                        pipeline.SceneCompositePasses.ReSTIRGI->ResizeFramebuffer(sceneW, sceneH);
-                    if (pipeline.RenderStreamPasses.FluidIntermediates)
-                        pipeline.RenderStreamPasses.FluidIntermediates->ResizeFramebuffer(sceneW, sceneH);
-
-                    // The scene-band size just changed WITHOUT a window/viewport
-                    // resize (a runtime FSR1 Upscale-mode toggle: e.g. Performance
-                    // -> Off restores the ScenePass / AO targets to full display
-                    // res). That changes the SceneColor / SceneDepth / SceneNormals
-                    // / Velocity transient descriptors, so the transient pool now
-                    // holds stale reduced-size (and paired stale full-size)
-                    // framebuffers/textures. Unlike a genuine viewport resize this
-                    // path never reaches RenderGraph::Resize, so route through the
-                    // graph's node-resize eviction chokepoint — otherwise the
-                    // alias-group resolver can hand a stale transient to a downstream
-                    // pass for the first ~2 frames after the transition, rendering a
-                    // black scene (issue #563; the render-graph half of #549). Safe
-                    // here: PopulateBlackboard runs before this frame's
-                    // MaterializeTransientResources acquires, and the previous
-                    // frame's ReleaseAll already returned everything.
-                    graph.NotifyNodeFramebufferResized();
-                }
-            }
-        }
-
-        // ------------------------------------------------------------------
         // Cache short-circuit
         // ------------------------------------------------------------------
         // PopulateBlackboard declares ~80 transient resources per frame, and
         // every declaration touches multiple unordered_map<std::string, X>
-        // entries (find/insert/erase). In MSVC Debug each map op is dominated
-        // by iterator-debug overhead, so the whole function runs ~65ms per
-        // frame on a stable scene. Hash the inputs the function branches on;
-        // if nothing has changed since last frame, the existing handles in
-        // FrameBlackboard + the imported-resource maps inside RenderGraph are
-        // still valid and we can skip the entire body.
+        // entries, so in MSVC Debug the whole function runs ~65ms per frame on
+        // a stable scene. While the configuration's key matches the one the
+        // blackboard was populated from, the handles in FrameBlackboard and the
+        // imported-resource maps are still valid and the body is skipped.
         //
-        // Stable handles (review item 5) keep this cache correct — the slot
-        // generations no longer churn across frames, so the handles held in
-        // FrameBlackboard remain valid. The cache is still load-bearing as a
-        // fast-path: skipping the ~80 declarations + 11 string-keyed map
-        // resets is the win, not handle stability per se. The deeper item-19
-        // fix (interned name → handle slot table) would speed up the work
-        // we *do* pay when the fingerprint actually changes.
+        // Read every gate below from `config`, not from `data` or the live
+        // settings: `config` is what the key was computed from, so a gate read
+        // from it cannot change without the key changing (issue #1333).
         {
-            const u64 currentFingerprint = ComputeBlackboardFingerprint(data);
-            if (m_HasValidBlackboardCache && currentFingerprint == m_BlackboardFingerprint)
+            const u64 key = config.ComputeKey();
+            if (m_HasValidBlackboardCache && key == m_BlackboardFingerprint)
                 return;
-            m_BlackboardFingerprint = currentFingerprint;
+            m_BlackboardFingerprint = key;
             m_HasValidBlackboardCache = true;
         }
 
@@ -3484,6 +3203,7 @@ namespace OloEngine
         graph.ClearImportedResources();
 
         auto& board = graph.GetBlackboard();
+        board.Config = config;
 
         // ------------------------------------------------------------------
         // Scene outputs
@@ -3524,7 +3244,7 @@ namespace OloEngine
             // normals. In Deferred mode these come from the prepared
             // G-Buffer resolved attachments (not from ScenePass target
             // attachments, which are cleared for overlay consumers).
-            const bool deferredActive = (data.Settings.Path == RenderingPath::Deferred);
+            const bool deferredActive = (config.Path == RenderingPath::Deferred);
             const auto gbuffer = deferredActive ? pipeline.FrameCorePasses.Scene->GetGBuffer() : Ref<GBuffer>{};
             OLO_CORE_ASSERT(!deferredActive || gbuffer,
                             "Renderer3D: Deferred path requires a prepared GBuffer before blackboard population");
@@ -3556,7 +3276,7 @@ namespace OloEngine
         // ------------------------------------------------------------------
         // G-Buffer (deferred path only)
         // ------------------------------------------------------------------
-        const bool deferredActive = (data.Settings.Path == RenderingPath::Deferred);
+        const bool deferredActive = (config.Path == RenderingPath::Deferred);
         if (deferredActive && pipeline.FrameCorePasses.Scene)
         {
             const auto& gbuffer = pipeline.FrameCorePasses.Scene->GetGBuffer();
@@ -3573,12 +3293,12 @@ namespace OloEngine
             //   RT2 Emissive — emissive HDR
             //   RT3 Velocity — screen-space motion vectors
             //   RT5 BakedGI  — baked lightmap irradiance + coverage (issue #865)
-            auto buildGBufferFramebufferDesc = [&gbuffer](const u32 sampleCount, std::string_view debugName) -> RGResourceDesc
+            auto buildGBufferFramebufferDesc = [&config](const u32 sampleCount, std::string_view debugName) -> RGResourceDesc
             {
                 RGResourceDesc desc;
                 desc.Kind = RGResourceHandle::Kind::Framebuffer;
-                desc.Width = gbuffer->GetWidth();
-                desc.Height = gbuffer->GetHeight();
+                desc.Width = config.GBufferWidth;
+                desc.Height = config.GBufferHeight;
                 desc.Samples = sampleCount;
                 // RT layout must match `GBuffer::AttachmentIndex` so the
                 // transient-pool aliasing key matches the physical G-Buffer.
@@ -3616,7 +3336,7 @@ namespace OloEngine
             // single-sample deferred exports. SceneDepthMS is also exposed here
             // (rather than alongside SceneDepth) because the multisample depth
             // lives on the G-Buffer, not on the lit scene framebuffer.
-            if (gbuffer->GetSampleCount() > 1u)
+            if (config.GBufferSamples > 1u)
             {
                 const auto buildResolvedBackingName = [](std::string_view resourceName)
                 {
@@ -3625,7 +3345,7 @@ namespace OloEngine
 
                 const auto multisampleGBuffer = graph.DeclareTransientFramebuffer(
                     ResourceNames::GBufferMS,
-                    buildGBufferFramebufferDesc(gbuffer->GetSampleCount(), ResourceNames::GBufferMS),
+                    buildGBufferFramebufferDesc(config.GBufferSamples, ResourceNames::GBufferMS),
                     gbuffer->GetFramebuffer());
 
                 board.GBuffer.GBufferAlbedoMS = graph.CreateFramebufferAttachmentView(ResourceNames::GBufferAlbedoMS, multisampleGBuffer, 0u);
@@ -3722,12 +3442,12 @@ namespace OloEngine
             // Declaring the buffer for a producer that is not in the graph is
             // what let AOApplyPass sample never-written storage.
             const bool ssaoReady = pipeline.SceneCompositePasses.SSAO &&
-                                   data.PostProcess.SSAOEnabled &&
-                                   data.ActiveGraphAOTechnique == AOTechnique::SSAO &&
+                                   config.SSAOEnabled &&
+                                   config.GraphAOTechnique == AOTechnique::SSAO &&
                                    pipeline.SceneCompositePasses.SSAO->IsReadyForExecution();
             const bool gtaoReady = pipeline.SceneCompositePasses.GTAO &&
-                                   data.PostProcess.GTAOEnabled &&
-                                   data.ActiveGraphAOTechnique == AOTechnique::GTAO &&
+                                   config.GTAOEnabled &&
+                                   config.GraphAOTechnique == AOTechnique::GTAO &&
                                    pipeline.SceneCompositePasses.GTAO->IsReadyForExecution();
 
             if (ssaoReady)
@@ -3784,13 +3504,13 @@ namespace OloEngine
             // pass exists to write AOBuffer; the requested one is logged beside
             // it because a disagreement between the two is exactly the state
             // issue #771 turned into a black frame.
-            const i32 activeTechnique = std::to_underlying(data.ActiveGraphAOTechnique);
+            const i32 activeTechnique = std::to_underlying(config.GraphAOTechnique);
             const i32 requestedTechnique = std::to_underlying(data.PostProcess.ActiveAOTechnique);
             const bool aoHandleValid = board.AO.AOBuffer.IsValid();
             if (activeTechnique != s_PrevAOTechnique ||
                 requestedTechnique != s_PrevRequestedTechnique ||
-                data.PostProcess.SSAOEnabled != s_PrevSSAOEnabled ||
-                data.PostProcess.GTAOEnabled != s_PrevGTAOEnabled ||
+                config.SSAOEnabled != s_PrevSSAOEnabled ||
+                config.GTAOEnabled != s_PrevGTAOEnabled ||
                 ssaoReady != s_PrevSSAOReady ||
                 gtaoReady != s_PrevGTAOReady ||
                 aoHandleValid != s_PrevAOHandleValid)
@@ -3800,16 +3520,16 @@ namespace OloEngine
                     OLO_CORE_TRACE("Renderer3D: AO output state: graphTechnique={}, requestedTechnique={}, ssaoEnabled={}, gtaoEnabled={}, ssaoReady={}, gtaoReady={}, aoHandleValid={}",
                                    activeTechnique,
                                    requestedTechnique,
-                                   data.PostProcess.SSAOEnabled,
-                                   data.PostProcess.GTAOEnabled,
+                                   config.SSAOEnabled,
+                                   config.GTAOEnabled,
                                    ssaoReady,
                                    gtaoReady,
                                    aoHandleValid);
                 }
                 s_PrevAOTechnique = activeTechnique;
                 s_PrevRequestedTechnique = requestedTechnique;
-                s_PrevSSAOEnabled = data.PostProcess.SSAOEnabled;
-                s_PrevGTAOEnabled = data.PostProcess.GTAOEnabled;
+                s_PrevSSAOEnabled = config.SSAOEnabled;
+                s_PrevGTAOEnabled = config.GTAOEnabled;
                 s_PrevSSAOReady = ssaoReady;
                 s_PrevGTAOReady = gtaoReady;
                 s_PrevAOHandleValid = aoHandleValid;
@@ -3820,13 +3540,13 @@ namespace OloEngine
         // Shadow maps
         // ------------------------------------------------------------------
         {
-            const auto shadowResolution = std::max(data.Shadow.GetResolution(), 1u);
+            const auto shadowResolution = std::max(config.ShadowResolution, 1u);
 
             // Comparison-OFF raw-depth views for the deferred PCSS blocker search.
             // These alias the CSM array / atlas storage declared below, so they
             // ride that storage's barriers and need no separate graph resource.
-            board.Shadows.ShadowMapCSMRawID = data.Shadow.GetCSMRawHandle();
-            board.Shadows.ShadowMapAtlasRawID = data.Shadow.GetAtlasRawHandle();
+            board.Shadows.ShadowMapCSMRawID = config.ShadowCSMRaw;
+            board.Shadows.ShadowMapAtlasRawID = config.ShadowAtlasRaw;
 
             const auto buildShadowTextureDesc = [shadowResolution](const RGResourceHandle::Kind kind,
                                                                    std::string_view debugName,
@@ -3840,13 +3560,15 @@ namespace OloEngine
                 return desc;
             };
 
+            // The native ids are the diagnostics currency and follow the
+            // identities above, which is what the configuration keys on.
             const u32 csmID = data.Shadow.GetCSMRendererID();
             const u32 atlasID = data.Shadow.GetAtlasRendererID();
             // Both currencies: the identity is what every consumer reads
             // through ResolveTextureHandle, the native id is what the
             // diagnostics and the capture endpoints read.
-            const RHI::ResourceHandle csmTexture = data.Shadow.GetCSMHandle();
-            const RHI::ResourceHandle atlasTexture = data.Shadow.GetAtlasHandle();
+            const RHI::ResourceHandle csmTexture = config.ShadowCSM;
+            const RHI::ResourceHandle atlasTexture = config.ShadowAtlas;
             // Gate on the IDENTITY, not the native GL name (#691): the
             // renderer id is the diagnostics currency and is 0 by contract on
             // the Vulkan backend, so an `id != 0` gate silently kept the CSM
@@ -3876,7 +3598,7 @@ namespace OloEngine
             // Identity gate, same rationale as the CSM above.
             if (atlasTexture.IsValid())
             {
-                const u32 atlasResolution = std::max(data.Shadow.GetAtlasResolution(), 1u);
+                const u32 atlasResolution = std::max(config.ShadowAtlasResolution, 1u);
                 auto atlasDesc = RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2DArray,
                                                                 ResourceNames::ShadowMapAtlas);
                 atlasDesc.Format = RGResourceFormat::Depth32Float;
@@ -3898,7 +3620,7 @@ namespace OloEngine
             //
             // Declaration-presence gate (#530 / docs/agent-rules/render-pipeline-caches.md):
             // whether these resources exist depends on the raw views existing,
-            // so ComputeBlackboardFingerprint hashes BOTH raw handles — not
+            // so the declaration config carries BOTH raw handles — not
             // just the CSM/atlas ones. They are created and destroyed with the
             // parent textures in ShadowMap::Init/Shutdown, so in practice they
             // move in lockstep, but hashing the actual gate condition is the
@@ -3915,8 +3637,8 @@ namespace OloEngine
             // `ShadowAtlasRaw` from the graph. The native id is still what the
             // declaration carries as its native currency; it is no longer what
             // decides whether the declaration happens.
-            const RHI::ResourceHandle csmRawTexture = data.Shadow.GetCSMRawHandle();
-            const RHI::ResourceHandle atlasRawTexture = data.Shadow.GetAtlasRawHandle();
+            const RHI::ResourceHandle csmRawTexture = config.ShadowCSMRaw;
+            const RHI::ResourceHandle atlasRawTexture = config.ShadowAtlasRaw;
             const u32 csmRawID = Debug::NativeTextureIdForDiagnostics(csmRawTexture);
             const u32 atlasRawID = Debug::NativeTextureIdForDiagnostics(atlasRawTexture);
             if (csmRawTexture.IsValid())
@@ -3932,7 +3654,7 @@ namespace OloEngine
             {
                 auto atlasRawDesc = buildShadowTextureDesc(RGResourceHandle::Kind::Texture2DArray,
                                                            ShadowMap::kAtlasRawTargetName, 1u);
-                atlasRawDesc.Width = std::max(data.Shadow.GetAtlasResolution(), 1u);
+                atlasRawDesc.Width = std::max(config.ShadowAtlasResolution, 1u);
                 atlasRawDesc.Height = atlasRawDesc.Width;
                 [[maybe_unused]] const RGTextureHandle atlasRaw = graph.DeclareTransientTexture(
                     ShadowMap::kAtlasRawTargetName, atlasRawDesc, atlasRawID, atlasRawTexture);
@@ -3960,14 +3682,11 @@ namespace OloEngine
         u32 sceneBandHeight = 1u;
         if (pipeline.FrameCorePasses.Scene)
         {
-            const auto& sceneSpec = pipeline.FrameCorePasses.Scene->GetFramebufferSpecification();
-            sceneBandWidth = sceneSpec.Width > 0 ? sceneSpec.Width : 1u;
-            sceneBandHeight = sceneSpec.Height > 0 ? sceneSpec.Height : 1u;
+            sceneBandWidth = config.SceneBandWidth > 0u ? config.SceneBandWidth : 1u;
+            sceneBandHeight = config.SceneBandHeight > 0u ? config.SceneBandHeight : 1u;
 
-            const u32 pw = graph.GetPhysicalWidth();
-            const u32 ph = graph.GetPhysicalHeight();
-            postProcessWidth = pw > 0u ? pw : sceneBandWidth;
-            postProcessHeight = ph > 0u ? ph : sceneBandHeight;
+            postProcessWidth = config.DisplayWidth > 0u ? config.DisplayWidth : sceneBandWidth;
+            postProcessHeight = config.DisplayHeight > 0u ? config.DisplayHeight : sceneBandHeight;
         }
 
         // The SSGI denoiser chain's own band (issue #708). Every stage from the
@@ -3982,7 +3701,7 @@ namespace OloEngine
         // hashed into the blackboard fingerprint (#530 class) AND why toggling
         // it invalidates those histories: a history texture allocated at one
         // size cannot be reprojected into a resolve running at another.
-        const bool ssgiHalfResolution = data.PostProcess.SSGIHalfResolution;
+        const bool ssgiHalfResolution = config.SSGIHalfResolution;
         const u32 ssgiTraceWidth = ssgiHalfResolution ? (sceneBandWidth + 1u) / 2u : sceneBandWidth;
         const u32 ssgiTraceHeight = ssgiHalfResolution ? (sceneBandHeight + 1u) / 2u : sceneBandHeight;
 
@@ -4055,8 +3774,8 @@ namespace OloEngine
         // Graph-owned scratch resources
         // ------------------------------------------------------------------
         if (pipeline.SceneCompositePasses.SSAO &&
-            data.ActiveGraphAOTechnique == AOTechnique::SSAO &&
-            data.PostProcess.SSAOEnabled &&
+            config.GraphAOTechnique == AOTechnique::SSAO &&
+            config.SSAOEnabled &&
             board.AO.AOBuffer.IsValid())
         {
             // SSAORaw / SSAOBlur must match the SSAO pass's half-res viewport.
@@ -4083,8 +3802,8 @@ namespace OloEngine
         }
 
         if (pipeline.SceneCompositePasses.GTAO &&
-            data.ActiveGraphAOTechnique == AOTechnique::GTAO &&
-            data.PostProcess.GTAOEnabled &&
+            config.GraphAOTechnique == AOTechnique::GTAO &&
+            config.GTAOEnabled &&
             board.AO.AOBuffer.IsValid() &&
             board.Scene.SceneDepth.IsValid() &&
             board.Scene.SceneNormals.IsValid())
@@ -4157,7 +3876,7 @@ namespace OloEngine
         }
 
         if (pipeline.RenderStreamPasses.Water &&
-            pipeline.RenderStreamPasses.Water->GetCommandBucket().GetCommandCount() > 0 &&
+            pipeline.RenderStreamPasses.Water->HasSubmittedCommands() &&
             board.Scene.SceneColor.IsValid())
         {
             RGResourceDesc refrDesc;
@@ -4185,8 +3904,7 @@ namespace OloEngine
         }
 
         if (pipeline.PostProcessPasses.SSS &&
-            data.Snow.Enabled &&
-            data.Snow.SSSBlurEnabled &&
+            config.SnowSubsurfaceBlur &&
             pipeline.PostProcessPasses.SSS->IsReadyForExecution())
         {
             const auto sssOutput = declareSceneBandOutput(
@@ -4208,8 +3926,7 @@ namespace OloEngine
         // place rather than producing a new image, so the post-process chain is
         // not rewired and the result needs no handle of its own.
         if (pipeline.PostProcessPasses.SkinDiffusion &&
-            SkinDiffusionRunsThisFrame(data.SkinDiffusion, data.Settings.Path, data.PostProcess.MaterialDebug,
-                                       static_cast<i32>(data.Settings.Deferred.DebugChannel)) &&
+            config.SkinDiffusionEnabled &&
             board.Scene.SkinDiffuse.IsValid() &&
             pipeline.PostProcessPasses.SkinDiffusion->IsReadyForExecution())
         {
@@ -4877,15 +4594,15 @@ namespace OloEngine
         // display-res post stage reads it instead of the reduced SceneColor chain.
         //
         // Which of the two names it goes under is the technique's choice (#684).
-        // EXACTLY ONE is ever declared in a frame — data.TemporalUpscaleActive is
+        // EXACTLY ONE is ever declared in a frame — config.TemporalUpscaleActive is
         // the same decision that disabled the losing pass above, so the two can
         // not disagree and the alias selection further down stays a simple
         // "whichever is valid".
-        const bool upscaleActive = data.PostProcess.Upscale != UpscaleMode::Off;
-        const bool declareTemporalUpscale = upscaleActive && data.TemporalUpscaleActive &&
+        const bool upscaleActive = config.Upscale != UpscaleMode::Off;
+        const bool declareTemporalUpscale = upscaleActive && config.TemporalUpscaleActive &&
                                             pipeline.PostProcessPasses.FSR2 &&
                                             pipeline.PostProcessPasses.FSR2->IsReadyForExecution();
-        const bool declareSpatialUpscale = upscaleActive && !data.TemporalUpscaleActive &&
+        const bool declareSpatialUpscale = upscaleActive && !config.TemporalUpscaleActive &&
                                            pipeline.PostProcessPasses.EASU &&
                                            pipeline.PostProcessPasses.EASU->IsReadyForExecution();
 
@@ -5100,7 +4817,7 @@ namespace OloEngine
         }
 
         // DOFColor is declared only when DOF is enabled.
-        if (pipeline.PostProcessPasses.DOF && data.PostProcess.DOFEnabled &&
+        if (pipeline.PostProcessPasses.DOF && config.DOFEnabled &&
             pipeline.PostProcessPasses.DOF->IsReadyForExecution())
         {
             const auto dofOutput = declareGraphOnlyPostProcessOutput(
@@ -5112,7 +4829,7 @@ namespace OloEngine
         }
 
         // MotionBlurColor is declared only when motion blur is enabled.
-        if (pipeline.PostProcessPasses.MotionBlur && data.PostProcess.MotionBlurEnabled &&
+        if (pipeline.PostProcessPasses.MotionBlur && config.MotionBlurEnabled &&
             pipeline.PostProcessPasses.MotionBlur->IsReadyForExecution())
         {
             const auto motionBlurOutput = declareGraphOnlyPostProcessOutput(
@@ -5128,8 +4845,7 @@ namespace OloEngine
         // pass is off leaves a resource with no producer, and a consumer that
         // selects it culls the entire chain behind it. Both gates read the same
         // predicate for exactly that reason.
-        if (pipeline.PostProcessPasses.TAA &&
-            TemporalUpscalePolicy::ShouldRunEngineTAA(data.PostProcess.TAAEnabled, data.TemporalUpscaleActive) &&
+        if (pipeline.PostProcessPasses.TAA && config.EngineTAA &&
             pipeline.PostProcessPasses.TAA->IsReadyForExecution())
         {
             const auto taaOutput = declareGraphOnlyPostProcessOutput(
@@ -5143,8 +4859,8 @@ namespace OloEngine
         // CloudsColor is declared only when the cloudscape is enabled (issue
         // #633); the two half-resolution scratch framebuffers (raymarch
         // output + temporal resolve) ride the same gate. Both gates are
-        // hashed into the fingerprint (Cloudscape.Enabled + HashPassState).
-        if (pipeline.PostProcessPasses.Cloudscape && data.Cloudscape.Enabled &&
+        // part of the declaration configuration.
+        if (pipeline.PostProcessPasses.Cloudscape && config.CloudscapeEnabled &&
             pipeline.PostProcessPasses.Cloudscape->IsReadyForExecution())
         {
             const auto cloudsOutput = declareGraphOnlyPostProcessOutput(
@@ -5171,10 +4887,7 @@ namespace OloEngine
         }
 
         // PrecipitationColor is declared only when screen FX are active.
-        const bool precipScreenEnabled = data.Precipitation.Enabled &&
-                                         (data.Precipitation.ScreenStreaksEnabled ||
-                                          data.Precipitation.LensImpactsEnabled);
-        if (pipeline.PostProcessPasses.Precipitation && precipScreenEnabled &&
+        if (pipeline.PostProcessPasses.Precipitation && config.PrecipitationScreenEffects &&
             pipeline.PostProcessPasses.Precipitation->IsReadyForExecution())
         {
             const auto precipitationOutput = declareGraphOnlyPostProcessOutput(
@@ -5186,7 +4899,7 @@ namespace OloEngine
         }
 
         // FogColor is declared only when fog is enabled.
-        if (pipeline.PostProcessPasses.Fog && data.Fog.Enabled &&
+        if (pipeline.PostProcessPasses.Fog && config.FogEnabled &&
             pipeline.PostProcessPasses.Fog->IsReadyForExecution())
         {
             const auto fogOutput = declareGraphOnlyPostProcessOutput(
@@ -5213,7 +4926,7 @@ namespace OloEngine
         // declared only when its effect is enabled so downstream consumers
         // can rely on IsValid() as the canonical "effect ran" signal.
         // ToneMap is declared unconditionally (no settings gate).
-        if (pipeline.PostProcessPasses.ChromAberration && data.PostProcess.ChromaticAberrationEnabled &&
+        if (pipeline.PostProcessPasses.ChromAberration && config.ChromaticAberrationEnabled &&
             pipeline.PostProcessPasses.ChromAberration->IsReadyForExecution())
         {
             const auto chromAbOutput = declareGraphOnlyPostProcessOutput(
@@ -5223,7 +4936,7 @@ namespace OloEngine
             board.Post.ChromAbColor = chromAbOutput.Framebuffer;
             board.Post.ChromAbColorTexture = chromAbOutput.Texture;
         }
-        if (pipeline.PostProcessPasses.ColorGrading && data.PostProcess.ColorGradingEnabled &&
+        if (pipeline.PostProcessPasses.ColorGrading && config.ColorGradingEnabled &&
             pipeline.PostProcessPasses.ColorGrading->IsReadyForExecution())
         {
             const auto colorGradingOutput = declareGraphOnlyPostProcessOutput(
@@ -5252,9 +4965,7 @@ namespace OloEngine
         // silently black frame (#684).
         // It runs post-tonemap on the LDR image; carries LDR values in an
         // RGBA16Float target to match the ToneMapColor it consumes.
-        if (pipeline.PostProcessPasses.Upscaler &&
-            TemporalUpscalePolicy::ShouldRunLateSharpen(data.PostProcess.CASEnabled, data.PostProcess.Upscale,
-                                                        data.TemporalUpscaleActive) &&
+        if (pipeline.PostProcessPasses.Upscaler && config.LateSharpen &&
             pipeline.PostProcessPasses.Upscaler->IsReadyForExecution())
         {
             const auto upscalerOutput = declareGraphOnlyPostProcessOutput(
@@ -5264,7 +4975,7 @@ namespace OloEngine
             board.Post.UpscalerColor = upscalerOutput.Framebuffer;
             board.Post.UpscalerColorTexture = upscalerOutput.Texture;
         }
-        if (pipeline.PostProcessPasses.Vignette && data.PostProcess.VignetteEnabled &&
+        if (pipeline.PostProcessPasses.Vignette && config.VignetteEnabled &&
             pipeline.PostProcessPasses.Vignette->IsReadyForExecution())
         {
             const auto vignetteOutput = declareGraphOnlyPostProcessOutput(
@@ -5278,7 +4989,7 @@ namespace OloEngine
         // Only declare FXAAColor when FXAA is active so
         // downstream consumers can rely on `board.Post.FXAAColor.IsValid()` as
         // the canonical "anti-aliased post-process available" signal.
-        if (pipeline.PostProcessPasses.FXAA && data.PostProcess.FXAAEnabled &&
+        if (pipeline.PostProcessPasses.FXAA && config.FXAAEnabled &&
             pipeline.PostProcessPasses.FXAA->IsReadyForExecution())
         {
             const auto fxaaOutput = declareGraphOnlyPostProcessOutput(
@@ -5289,14 +5000,10 @@ namespace OloEngine
             board.Post.FXAAColorTexture = fxaaOutput.Texture;
         }
 
-        // Gate on the data flags that drive UploadExecutionState's SetEnabled
-        // computation (which runs AFTER PopulateBlackboard, so checking the
-        // pass's m_Enabled here would always reflect the previous frame).
-        // The fingerprint cache (ComputeBlackboardFingerprint) hashes the
-        // same two values so a selection change forces a rebuild.
+        // Gated on the selection itself (the toggle AND a non-empty
+        // selection), which the configuration carries as one field.
         if (pipeline.PostProcessPasses.SelectionOutline &&
-            data.EnableSelectionOutline &&
-            !data.SelectionOutlineEntityIDs.IsEmpty() &&
+            config.SelectionOutlineActive &&
             pipeline.PostProcessPasses.SelectionOutline->IsReadyForExecution())
         {
             const auto selectionOutlineOutput = declareGraphOnlyPostProcessOutput(
@@ -5324,10 +5031,7 @@ namespace OloEngine
         }
 
         // Overdraw heatmap debug view (#519). Declared only when the debug flag is
-        // on (gated on the data flag, not the pass's m_Enabled, which SetEnabled
-        // updates only AFTER PopulateBlackboard — same rationale as SelectionOutline
-        // above; the flag is hashed into the fingerprint so toggling rebuilds the
-        // graph) AND the heatmap composite shader is ready (IsReadyForExecution).
+        // on AND the heatmap composite shader is ready (IsReadyForExecution).
         // Without the readiness gate, toggling the view on before the (possibly
         // async) shader finishes compiling would still declare OverdrawColor;
         // Execute() would then no-op on shaderReady==false and leave the
@@ -5337,7 +5041,7 @@ namespace OloEngine
         // not yet ready), the resource is absent and downstream aliases back to
         // the normal chain.
         if (pipeline.PostProcessPasses.Overdraw && pipeline.PostProcessPasses.Overdraw->IsReadyForExecution() &&
-            data.PostProcess.OverdrawDebugView)
+            config.OverdrawDebugView)
         {
             const auto overdrawOutput = declareGraphOnlyPostProcessOutput(
                 ResourceNames::OverdrawColor,
@@ -5366,7 +5070,7 @@ namespace OloEngine
         // Execute() no-ops, leaving FinalPass to present an uninitialised
         // target. Display-res LDR, matching the UIComposite RT0 it consumes.
         if (pipeline.PostProcessPasses.ColorBlind &&
-            Accessibility::Get().ColorBlind != ColorBlindMode::None &&
+            config.ColorBlind != ColorBlindMode::None &&
             pipeline.PostProcessPasses.ColorBlind->IsReadyForExecution())
         {
             const auto colorBlindOutput = declareGraphOnlyPostProcessOutput(
@@ -5395,7 +5099,7 @@ namespace OloEngine
         // (`if (board.OIT.OITAccum.IsValid())` is already guarded), so the
         // graph never sees write edges into a buffer that nothing reads.
         // OITPreparePass and OITResolvePass also self-skip via `m_Enabled`.
-        if (const bool oitActive = data.Settings.OITEnabled && pipeline.SceneCompositePasses.OITResolve; oitActive)
+        if (const bool oitActive = config.OITEnabled && pipeline.SceneCompositePasses.OITResolve; oitActive)
         {
             // Declare as a shared transient MRT framebuffer (RT0 = RGBA16F
             // accumulation, RT1 = RG16F revealage, depth = DEPTH24_STENCIL8).
@@ -5424,11 +5128,11 @@ namespace OloEngine
         // ------------------------------------------------------------------
         // TAAHistory persists in renderer-owned storage, is registered as a
         // graph-managed sink every frame, and is imported only when the
-        // previous frame produced a valid history.
+        // previous frame produced a valid history. Its storage is sized by
+        // PrepareDeclarationInputs, before the configuration captures the
+        // valid flag that decides the import.
         if (pipeline.PostProcessPasses.TAA)
         {
-            const auto& taaSpec = pipeline.PostProcessPasses.TAA->GetFramebufferSpecification();
-            EnsureHistoryStorage(pipeline.TAAHistoryTexture, pipeline.TAAHistoryValid, taaSpec.Width, taaSpec.Height);
             graph.RegisterHistoryTextureSink(
                 ResourceNames::TAAHistory,
                 pipeline.TAAHistoryTexture ? pipeline.TAAHistoryTexture->GetRHIHandle() : RHI::NullResource,
@@ -5436,7 +5140,7 @@ namespace OloEngine
                 pipeline.TAAHistoryTexture ? pipeline.TAAHistoryTexture->GetHeight() : 0u,
                 &pipeline.TAAHistoryValid);
         }
-        if (pipeline.TAAHistoryValid && pipeline.TAAHistoryTexture)
+        if (config.TAAHistoryValid && pipeline.TAAHistoryTexture)
         {
             board.Temporal.TAAHistory = graph.ImportHistoryHandle(
                 ResourceNames::TAAHistory, pipeline.TAAHistoryTexture->GetRHIHandle());
@@ -5470,10 +5174,6 @@ namespace OloEngine
         // extracts from.
         if (pipeline.PostProcessPasses.Cloudscape)
         {
-            const auto& cloudsSpec = pipeline.PostProcessPasses.Cloudscape->GetFramebufferSpecification();
-            const u32 cloudsHalfWidth = (cloudsSpec.Width + 1u) / 2u;
-            const u32 cloudsHalfHeight = (cloudsSpec.Height + 1u) / 2u;
-            EnsureHistoryStorage(pipeline.CloudsHistoryTexture, pipeline.CloudsHistoryValid, cloudsHalfWidth, cloudsHalfHeight);
             graph.RegisterHistoryTextureSink(
                 ResourceNames::CloudsHistory,
                 pipeline.CloudsHistoryTexture ? pipeline.CloudsHistoryTexture->GetRHIHandle() : RHI::NullResource,
@@ -5481,7 +5181,7 @@ namespace OloEngine
                 pipeline.CloudsHistoryTexture ? pipeline.CloudsHistoryTexture->GetHeight() : 0u,
                 &pipeline.CloudsHistoryValid);
         }
-        if (pipeline.CloudsHistoryValid && pipeline.CloudsHistoryTexture)
+        if (config.CloudsHistoryValid && pipeline.CloudsHistoryTexture)
         {
             board.Temporal.CloudsHistory = graph.ImportHistoryHandle(
                 ResourceNames::CloudsHistory, pipeline.CloudsHistoryTexture->GetRHIHandle());
@@ -5760,22 +5460,17 @@ namespace OloEngine
         // Force a re-populate next frame whenever a declared history did NOT
         // get imported this frame.
         //
-        // Hashing the valid flag is not enough on its own, and the hole is a
-        // viewport resize. The fingerprint is computed at the TOP of this
-        // function, so it sees the flag as it was BEFORE EnsureHistoryStorage
-        // ran; the resize then clears the flag (the texture was recreated) and
-        // the import is skipped, but FlushExtractions sets it back to true at
-        // the end of the same frame. Next frame's fingerprint therefore matches
-        // the one cached this frame, the whole function short-circuits, and the
-        // import never happens — the resolve degrades to a pass-through and
-        // stays there until some unrelated input moves. Invalidating here is
-        // one extra populate on exactly the frames where the history is not
-        // usable anyway.
-        //
-        // (TAAHistory and CloudsHistory have the same shape. CloudscapeRenderPass
-        // is immune because it also carries a non-graph SetHistory fallback;
-        // TAA is not, which is a pre-existing gap this change deliberately does
-        // not widen its scope to fix.)
+        // SSR is the one history whose import is read from the LIVE flag rather
+        // than from `config`, and this invalidation is why that is safe. Its
+        // storage is sized HERE, gated on SSRResolved having been declared a few
+        // lines up, so it cannot move to PrepareDeclarationInputs the way the
+        // TAA and cloud storage did (#1333). The configuration therefore saw the
+        // flag as it was BEFORE EnsureHistoryStorage; a resize clears it and the
+        // import is skipped, FlushExtractions sets it true again at the end of
+        // the frame, and next frame's key would match the one cached this frame.
+        // Invalidating here is one extra populate on exactly the frames where
+        // the history is not usable anyway. Do not remove it without moving the
+        // storage ahead of the capture.
         const bool ssrHistoryDeclaredButNotImported =
             board.Scratch.SSRResolved.IsValid() && !board.Temporal.SSRHistory.IsValid();
         if (ssrHistoryDeclaredButNotImported)
@@ -5803,22 +5498,22 @@ namespace OloEngine
         // carry a SECOND, native currency purely so these three lines could
         // import it — the last reason SetGlobalIBL took both. That parameter
         // triple is gone with it.
-        if (data.GlobalIrradianceMapID.IsValid())
+        if (config.IrradianceMap.IsValid())
         {
             board.IBL.IrradianceMap = graph.ImportTextureHandle(
-                ResourceNames::IrradianceMap, data.GlobalIrradianceMapID,
+                ResourceNames::IrradianceMap, config.IrradianceMap,
                 RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::TextureCube, ResourceNames::IrradianceMap));
         }
-        if (data.GlobalPrefilterMapID.IsValid())
+        if (config.PrefilterMap.IsValid())
         {
             board.IBL.PrefilterMap = graph.ImportTextureHandle(
-                ResourceNames::PrefilterMap, data.GlobalPrefilterMapID,
+                ResourceNames::PrefilterMap, config.PrefilterMap,
                 RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::TextureCube, ResourceNames::PrefilterMap));
         }
-        if (data.GlobalBRDFLutMapID.IsValid())
+        if (config.BRDFLut.IsValid())
         {
             board.IBL.BrdfLut = graph.ImportTextureHandle(
-                ResourceNames::BrdfLut, data.GlobalBRDFLutMapID,
+                ResourceNames::BrdfLut, config.BRDFLut,
                 RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, ResourceNames::BrdfLut));
         }
 
@@ -5842,7 +5537,7 @@ namespace OloEngine
         // Guarded on validity because the volume is created lazily on the first
         // frame a cascade is enabled, and this runs BEFORE that (the same
         // reason the IBL trio above is guarded): frame 1 imports nothing.
-        if (const RHI::ResourceHandle volumetricShadow = VolumetricShadowMap::GetTextureHandle();
+        if (const RHI::ResourceHandle volumetricShadow = config.VolumetricShadowVolume;
             volumetricShadow.IsValid())
         {
             static constexpr const char* kVolumetricShadowTargetName = "VolumetricShadowVolume";

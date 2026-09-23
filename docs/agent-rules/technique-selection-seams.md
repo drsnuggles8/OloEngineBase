@@ -89,28 +89,32 @@ Two smaller instances of the same idea, both worth copying:
   read. Bind something valid always, and let the *routing* — not the binding — decide whether it is
   sampled.
 
-## Hash the new gate into the graph fingerprint
+## Make the new gate a declaration input
 
 **If the technique decides whether a render-graph resource is DECLARED, it is topology,
-and topology is cached.** The render graph keeps a fingerprint of the state its node
-`Setup()`s depend on and skips rebuilding when it has not changed. A technique flip that
-is not in that fingerprint arms the pass, declares the mask, and still leaves the cached
+and topology is cached.** The render graph keys its cache on the declaration configuration
+(#1333) and skips rebuilding while that key holds. A technique flip that does not reach
+the key arms the pass, declares the mask, and still leaves the cached
 topology in which the node declared nothing — so the node stays **culled**, `Execute`
 never runs, and the counters that were supposed to explain all this report a truthful,
 useless zero. The feature does not fail; it is simply absent.
 
-This is not hypothetical, and the near-miss is instructive: `HashPassState` looks like it
-covers a pass, and it does hash the pass pointer *and* `IsReadyForExecution()` — enough
-to make the mistake invisible in review. Its own comment says per-pass **enabled** state
-is folded in separately, next to the other feature flags. A technique living on
+This is not hypothetical, and the near-miss is instructive: the old `HashPassState` looked
+like it covered a pass, and it did hash the pass pointer *and* `IsReadyForExecution()` —
+enough to make the mistake invisible in review — but not its **enabled** state. Since
+#1333 the pass's `IsEnabled()` is keyed for every pass whose `IsEnableADeclarationInput()` is true (the default; `PlanarReflectionRenderPass` opts out because it declares unconditionally); a gate that is anything else must
+be reported from `AppendDeclarationInputs`
+([render-graph-declaration-config.md](render-graph-declaration-config.md)). A technique living on
 `ShadowSettings` rather than on `PostProcessSettings` reaches none of that by default.
 
 Symptom to recognise: the lever reads back "on", the pass appears in the frame breakdown,
 `culled: true`, `declaresResources: false`, and every counter is zero. It cost a live
-editor bisect on #1056; no headless test can see it, because the fingerprint only matters
-once a graph has been built and cached.
+editor bisect on #1056; no headless test could see it then, because the key only matters
+once a graph has been built and cached. `OLO_RG_VERIFY_DECLARATION_CACHE` now reports it by
+pass name.
 
-**So: when the choice gates a resource declaration, add it to the fingerprint in the same
+**So: when the choice gates a resource declaration, make it a declaration input (a
+`FrameGraphDeclarationConfig` field or the pass's `AppendDeclarationInputs`) in the same
 commit that adds the gate.**
 
 ## Ratchet the untouched path with bytes, not eyes
@@ -131,7 +135,7 @@ Pair it with a contrast assertion on the same capture, or two identical black fr
       is a counter nobody can act on).
 - [ ] Counters separate "failed to deliver" from "never asked".
 - [ ] The enabling routing is written by the success path and defaults to off.
-- [ ] The choice is hashed into the render-graph fingerprint if it gates a resource declaration.
+- [ ] The choice is a render-graph declaration input if it gates a resource declaration.
 - [ ] A byte-identity ratchet covers the untouched path.
 - [ ] The log line fires on a **change of reason**, not per frame.
 

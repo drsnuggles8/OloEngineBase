@@ -400,6 +400,7 @@ add_executable(OloEngine-Tests
 		Rendering/DDGI/DDGIMathTest.cpp
 		Rendering/SSRHiZTraversalTest.cpp
 		Rendering/RenderGraphFingerprintTest.cpp
+		Rendering/RenderGraphDeclarationIdentityTest.cpp
 		Rendering/CommandPacketTest.cpp
 		Rendering/CommandAllocatorTest.cpp
 		Rendering/CommandBucketTest.cpp
@@ -576,6 +577,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/GPUOcclusionCullGPUTest.cpp
 		Rendering/PropertyTests/ShaderDebugDrawGpuPushTest.cpp
 		Rendering/PropertyTests/ShaderDebugDrawVisualTest.cpp
+		Rendering/PropertyTests/FrameGraphDeclarationCacheEvidenceTest.cpp
 		Rendering/PropertyTests/GPUFluidSolverParityTest.cpp
 		Rendering/PropertyTests/OcclusionCullVisualEvidenceTest.cpp
 		Rendering/PropertyTests/AutoMeshLODVisualEvidenceTest.cpp

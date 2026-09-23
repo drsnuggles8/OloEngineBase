@@ -303,28 +303,15 @@ namespace OloEngine
             pipeline.ConfigurePassesForFrame(s_Data);
         }
 
-        // Populate the graph blackboard AFTER per-frame pass configuration so
-        // AOBuffer / PostProcessColor imports resolve the current frame's
-        // active technique and enabled outputs rather than last frame's state.
-        // Single fingerprint of all per-frame inputs that drive both the
-        // blackboard population and the per-pass Setup() callbacks. Pass it to
-        // both layers so they cache consistently — if the fingerprint matches
-        // last frame's, both layers short-circuit and the cached handles +
-        // submission plan are reused as-is.
-        const u64 frameFingerprint = pipeline.ComputeBlackboardFingerprint(s_Data);
-
+        // Compile the frame graph AFTER per-frame pass configuration, so the
+        // declaration configuration sees this frame's enables and readiness.
+        // One immutable configuration keys both the blackboard populate and
+        // every pass's Setup() (issue #1333); while its key holds, both are
+        // served from the cache.
         {
-            OLO_PERF_SCOPE_AUTO("Renderer3D::PopulateBlackboard");
-            pipeline.PopulateBlackboard(s_Data);
+            OLO_PERF_SCOPE_AUTO("Renderer3D::CompileFrameGraph");
+            pipeline.CompileFrameGraph(s_Data);
         }
-
-        {
-            OLO_PERF_SCOPE_AUTO("Renderer3D::UploadExecutionState");
-            pipeline.UploadExecutionState(s_Data);
-        }
-
-        // Compile graph-native pass declarations before execution.
-        s_Data.RGraph->BuildFrameGraph(frameFingerprint);
 
         bool buildStatsChanged = false;
         {
@@ -440,5 +427,16 @@ namespace OloEngine
 
         // End frame for double-buffered resources (inserts GPU fence)
         FrameResourceManager::Get().EndFrame();
+    }
+
+    FrameGraphDeclarationStats Renderer3D::GetFrameGraphDeclarationStats()
+    {
+        return s_Data.Pipeline ? s_Data.Pipeline->GetDeclarationStats() : FrameGraphDeclarationStats{};
+    }
+
+    void Renderer3D::ResetFrameGraphDeclarationStats()
+    {
+        if (s_Data.Pipeline)
+            s_Data.Pipeline->ResetDeclarationStats();
     }
 } // namespace OloEngine

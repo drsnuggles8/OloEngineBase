@@ -424,8 +424,8 @@ namespace OloEngine::Tests
 
         EXPECT_GT(CountHue(pixels, kAABBColor), 50u)
             << "Turning the feature on after the graph cache was warm drew nothing. The enable gates a "
-               "graph declaration, so it MUST be hashed into ComputeBlackboardFingerprint -- HashPassState "
-               "covers only the pass pointer and IsReadyForExecution(), never IsEnabled().";
+               "graph declaration, so it MUST reach the declaration key -- through the pass's IsEnabled(), "
+               "which RenderPipeline::CaptureDeclarationConfig folds in for every pass.";
     }
 
     TEST_F(ShaderDebugDrawVisualTest, DisabledDrawsNothing)

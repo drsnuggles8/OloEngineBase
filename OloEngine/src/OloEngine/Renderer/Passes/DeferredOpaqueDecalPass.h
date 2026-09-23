@@ -40,6 +40,9 @@ namespace OloEngine
         ~DeferredOpaqueDecalPass() override = default;
 
         void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
+
+        // Setup() needs a G-Buffer and reads its decal pass's bucket.
+        void AppendDeclarationInputs(RGDeclarationKey& key) const override;
         void Execute(RGCommandContext& context) override;
         [[nodiscard]] Ref<Framebuffer> GetTarget() const override;
 

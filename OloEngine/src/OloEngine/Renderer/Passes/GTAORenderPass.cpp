@@ -89,7 +89,7 @@ namespace OloEngine
                 builder.Read(blackboard.Temporal.TAAHistory, RGReadUsage::ShaderSample);
         }
 
-        const bool willDispatchDenoise = m_Settings.GTAODenoiseEnabled && m_Settings.GTAODenoisePasses > 0;
+        const bool willDispatchDenoise = WillDispatchDenoise();
 
         if (blackboard.Scene.SceneDepth.IsValid())
         {
@@ -334,7 +334,7 @@ namespace OloEngine
         // classification produced, which is not known until after the HZB.
         // Keeping the resource decision on the settings means Setup's
         // declarations and Execute's resolves cannot disagree.
-        const bool willDispatchDenoise = m_Settings.GTAODenoiseEnabled && m_Settings.GTAODenoisePasses > 0;
+        const bool willDispatchDenoise = WillDispatchDenoise();
         if (willDispatchDenoise && m_SelectedDenoisePongTexture.IsValid())
             denoisePongTexID = context.ResolveTextureHandle(m_SelectedDenoisePongTexture);
 

@@ -114,6 +114,7 @@ namespace OloEngine::Tests
         // leaked GL binding.
         m_SavedRendererSettings = Renderer3D::GetRendererSettings();
         m_SavedPostProcessSettings = Renderer3D::GetPostProcessSettings();
+        m_SavedShadowSettings = Renderer3D::GetShadowMap().GetSettings();
         m_SettingsSnapshotted = true;
 
         m_Scene = Scene::Create();
@@ -146,6 +147,9 @@ namespace OloEngine::Tests
             // only a few scalar setters.
             Renderer3D::GetPostProcessSettings() = m_SavedPostProcessSettings;
             Renderer3D::GetRendererSettings() = m_SavedRendererSettings;
+            // Through SetSettings, which recreates the shadow textures on a
+            // resolution change; a plain PCSS toggle only rewrites the flags.
+            Renderer3D::GetShadowMap().SetSettings(m_SavedShadowSettings);
             Renderer3D::ApplyRendererSettings();
             m_SettingsSnapshotted = false;
         }

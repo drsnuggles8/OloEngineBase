@@ -209,6 +209,12 @@ namespace OloEngine
 
         void Init(const FramebufferSpecification& spec) override;
         void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
+
+        // Setup() declares nothing without a strand request (#1246).
+        void AppendDeclarationInputs(RGDeclarationKey& key) const override
+        {
+            key.Add(m_Requests.Num() != 0);
+        }
         void Execute(RGCommandContext& context) override;
 
         [[nodiscard]] Ref<Framebuffer> GetTarget() const override;

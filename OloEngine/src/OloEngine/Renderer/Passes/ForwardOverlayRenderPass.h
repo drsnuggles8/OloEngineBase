@@ -29,6 +29,14 @@ namespace OloEngine
         ~ForwardOverlayRenderPass() override = default;
 
         void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
+
+        // Setup() declares nothing without a submitted draw (#1315), so that is
+        // a declaration input.
+        // The path it also gates on is in FrameGraphDeclarationConfig.
+        void AppendDeclarationInputs(RGDeclarationKey& key) const override
+        {
+            key.Add(HasSubmittedCommands());
+        }
         void Execute(RGCommandContext& context) override;
         [[nodiscard]] Ref<Framebuffer> GetTarget() const override;
         void SetupFramebuffer(u32 width, u32 height) override;

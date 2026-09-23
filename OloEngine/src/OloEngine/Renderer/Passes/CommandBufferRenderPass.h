@@ -91,6 +91,16 @@ namespace OloEngine
             return m_CommandBucket;
         }
 
+        // Whether anything was submitted to this pass this frame. A pass whose
+        // Setup() declares nothing without work gates on THIS and reports the
+        // same call from AppendDeclarationInputs, so its gate and its key are
+        // one value (issues #1315, #1333). A boolean on purpose: the count would
+        // rebuild the graph every time one more draw arrived.
+        [[nodiscard]] bool HasSubmittedCommands() const
+        {
+            return m_CommandBucket.GetCommandCount() > 0u;
+        }
+
       protected:
         CommandBucket m_CommandBucket;
         Scope<CommandAllocator> m_OwnedAllocator;

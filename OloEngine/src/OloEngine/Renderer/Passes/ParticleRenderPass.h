@@ -30,6 +30,14 @@ namespace OloEngine
         ~ParticleRenderPass() override = default;
 
         void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
+
+        // Setup() declares nothing without a render callback, which only a Scene
+        // frame sets: a renderer-only frame would otherwise cache a culled node.
+        void AppendDeclarationInputs(RGDeclarationKey& key) const override
+        {
+            key.Add(HasRenderCallback());
+            key.Add(m_OITEnabled);
+        }
         void Init(const FramebufferSpecification& spec) override;
         void Execute(RGCommandContext& context) override;
         [[nodiscard]] Ref<Framebuffer> GetTarget() const override;

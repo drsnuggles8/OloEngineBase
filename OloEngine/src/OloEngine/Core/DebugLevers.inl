@@ -35,6 +35,11 @@ OLO_LEVER_TOGGLE(PoisonTransients, "OLO_RG_POISON_TRANSIENTS",
 OLO_LEVER_TOGGLE(DisableTransientAliasing, "OLO_RG_DISABLE_ALIASING",
                  "Give every transient its own physical backing. If an artifact disappears under this, the "
                  "transient planner's lifetime analysis let two live resources share one GPU object.")
+OLO_LEVER_TOGGLE(VerifyDeclarationCache, "OLO_RG_VERIFY_DECLARATION_CACHE",
+                 "On every frame whose declaration key matches the cached one, rebuild the blackboard and the "
+                 "frame graph anyway and compare the compiled plan with the cached plan (issue #1333). A "
+                 "difference is a declaration input missing from FrameGraphDeclarationConfig: it logs the passes "
+                 "that differ and counts a stale-cache detection. Costs a full rebuild per frame.")
 OLO_LEVER_TOGGLE(BlackSquareHunt, "OLO_RG_BLACKSQUARE_HUNT",
                  "Extra per-pass logging for the transient black-square artifact hunt.")
 OLO_LEVER_EXACT(RenderGraphSequential, "OLO_RENDERGRAPH_SEQUENTIAL",

@@ -72,6 +72,56 @@ namespace OloEngine::Tests
         }
     }
 
+    // The registry's contribution to the render-graph declaration key (issue
+    // #1333) is WHICH histories exist and which are valid, never the
+    // generation. Invalidate() advances the generation of every matching entry,
+    // already-invalid ones included, so a key that hashed it would rebuild the
+    // frame graph on every frame an object moved, once any scene-dependent
+    // history had ever been armed.
+    TEST(TemporalHistoryRegistry, ValidityKeyIgnoresGenerationsButSeesNewHistories)
+    {
+        TemporalHistoryRegistry registry;
+        const u64 empty = registry.ComputeValidityKey();
+
+        const auto acquired = registry.Acquire(MakeKey(), MakeDescriptor(), kAllViewDependencies, "SSGIHistory");
+        ASSERT_TRUE(acquired.Created);
+        const u64 one = registry.ComputeValidityKey();
+        EXPECT_NE(one, empty) << "A new history is a new import candidate: it must move the key.";
+
+        const u32 invalidated = registry.Invalidate(TemporalHistoryInvalidationCause::Manual);
+        ASSERT_GT(invalidated, 0u);
+        EXPECT_FALSE(registry.IsCurrent(acquired.Token)) << "The generation advanced; the old token is stale.";
+        EXPECT_EQ(registry.ComputeValidityKey(), one)
+            << "An invalid history invalidated again declares exactly what it did before.";
+
+        const auto second =
+            registry.Acquire(MakeKey(TemporalHistoryEffect::SSR), MakeDescriptor(), kAllViewDependencies, "SSRHistory");
+        ASSERT_TRUE(second.Created);
+        EXPECT_NE(registry.ComputeValidityKey(), one);
+    }
+
+    // A holder that latched a token when a history was acquired (the render
+    // graph's history sinks) follows later invalidations through Current(),
+    // because an invalidation bumps the generation without replacing anything.
+    TEST(TemporalHistoryRegistry, CurrentFollowsInvalidationsOfTheSameSlot)
+    {
+        TemporalHistoryRegistry registry;
+        const auto acquired = registry.Acquire(MakeKey(), MakeDescriptor(), kAllViewDependencies, "SSGIHistory");
+        ASSERT_TRUE(acquired.Created);
+        EXPECT_EQ(registry.Current(acquired.Token), acquired.Token);
+
+        (void)registry.Invalidate(TemporalHistoryInvalidationCause::Manual);
+        (void)registry.Invalidate(TemporalHistoryInvalidationCause::Manual);
+        const TemporalHistoryToken current = registry.Current(acquired.Token);
+        EXPECT_EQ(current.Index, acquired.Token.Index);
+        EXPECT_NE(current.Generation, acquired.Token.Generation);
+        EXPECT_TRUE(registry.IsCurrent(current));
+        EXPECT_FALSE(registry.IsCurrent(acquired.Token));
+
+        EXPECT_FALSE(registry.Current(TemporalHistoryToken{}).IsValid()) << "An invalid token has no current slot.";
+        EXPECT_FALSE(registry.Current(TemporalHistoryToken{ 999u, 1u }).IsValid()) << "Nor does one past the end.";
+    }
+
     TEST(TemporalHistoryRegistry, CompatibleAcquireKeepsTheSameGeneration)
     {
         TemporalHistoryRegistry registry;

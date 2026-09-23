@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OloEngine/Renderer/FrameGraphDeclarationConfig.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 
@@ -52,6 +53,16 @@ namespace OloEngine
         // particular slot.
         static constexpr u32 MaxHZBMipViews = 16u;
         static constexpr u32 MaxShadowMapCascades = 4u;
+
+        // The configuration this blackboard was populated from, and the only
+        // place a pass's Setup() should read a pipeline-level choice (the path,
+        // the AO technique the graph was built for) from (issue #1333). It is
+        // captured once per frame, it is part of the declaration key by
+        // construction, and it survives with the cached build it produced, so
+        // Setup() can never see a different configuration than the one the
+        // cache was keyed on. Reading the live setting instead is how a
+        // declaration goes stale.
+        FrameGraphDeclarationConfig Config;
 
         // -----------------------------------------------------------------------
         // Scene outputs (produced by SceneRenderPass / GBuffer fill)
