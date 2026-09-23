@@ -1,0 +1,5 @@
+[16:44:55] [error] OloEngine: [Vulkan]   fault address: 0x2007cfda0 (precision ±0x10) — instruction pointer (faulting)
+[16:44:55] [error] OloEngine: [Vulkan]   fault address: 0x10000000000 (precision ±0x1000) — READ of invalid address
+[16:44:55] [error] OloEngine: [Vulkan]   checkpoint (graphics): stage=0x1 pass='RayTracingScenePass'
+[16:44:55] [error] OloEngine: [Vulkan]   checkpoint (graphics): stage=0x2000 pass='RayTracingScenePass'
+[16:44:55] [critical] OloEngine: === CRASH: C++ Exception (caught) — Vulkan bring-up: vkQueueSubmit2 failed (VkResult -4) ===

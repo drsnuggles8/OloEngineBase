@@ -8,6 +8,7 @@
 #include "OloEngine/Renderer/GPUScene/GPUSceneTypes.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/RendererAPI.h"
+#include "OloEngine/Renderer/Support/RendererSupport.h"
 #include "OloEngine/Renderer/Vertex.h"
 
 #if OLO_WITH_VULKAN
@@ -213,8 +214,18 @@ namespace OloEngine::RayTracing
         // as a deforming one (animated-surface-records.md §3).
         if ((instance.Flags & GPUSceneInstanceFlagAnimated) != 0u)
         {
-            return (geometry->Flags & GPUSceneGeometryFlagDeformed) != 0u ? GeometryClass::Deformed
-                                                                          : GeometryClass::Unsupported;
+            RendererSupport::Request request;
+            request.Api = RendererSupport::Backend::Vulkan;
+            request.GeometryFamily = RendererSupport::Geometry::SkinnedMesh;
+            request.MotionKind = RendererSupport::Motion::Deformed;
+            request.LightingTechnique = RendererSupport::Technique::RayTracedShadow;
+            request.ShadowTechnique = RendererSupport::Shadow::RayTraced;
+            RendererSupport::Capabilities capabilities;
+            capabilities.RayQueries = true;
+            capabilities.DeformedRayStream = (geometry->Flags & GPUSceneGeometryFlagDeformed) != 0u;
+            return RendererSupport::Evaluate(request, capabilities).Status == RendererSupport::Outcome::Unsupported
+                       ? GeometryClass::Unsupported
+                       : GeometryClass::Deformed;
         }
 
         //

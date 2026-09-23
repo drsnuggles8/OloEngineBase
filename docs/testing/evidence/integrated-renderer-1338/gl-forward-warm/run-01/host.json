@@ -1,0 +1,28 @@
+{
+  "command": [
+    "C:\\repos\\OloEngine-renderer-support-matrix-benchmark-1334-1338\\build-cached\\OloEngine\\tests\\Debug\\OloEngine-Tests.exe",
+    "--olo-capture-manifest=C:\\repos\\OloEngine-renderer-support-matrix-benchmark-1334-1338\\OloEditor\\assets\\benchmark\\manifests\\integrated-forward.yaml",
+    "--olo-capture-out=C:\\repos\\OloEngine-renderer-support-matrix-benchmark-1334-1338\\OloEditor\\assets\\benchmark\\captures\\integrated-forward-gl-warm\\run-01"
+  ],
+  "captureProcessElapsedMs": 259346.78919997532,
+  "exitCode": 0,
+  "os": "Windows-11-10.0.22631-SP0",
+  "python": "3.13.7",
+  "machine": "AMD64",
+  "buildConfig": "Debug",
+  "compiler": "clang-cl",
+  "presentation": "offscreen",
+  "vsync": "not-applicable",
+  "cpu": "Intel(R) Core(TM) i7-14700KF",
+  "physicalMemoryBytes": "68498157568",
+  "gpuDriver": "616.64, NVIDIA GeForce RTX 4090, 24564 MiB",
+  "gpuTelemetryColumns": "clocks.gr MHz, utilization.gpu %, memory.used MiB, temperature.gpu C, power.draw W",
+  "gpuTelemetryBefore": "2565 MHz, 8 %, 4351 MiB, 45, 80.54 W",
+  "gpuTelemetryAfter": "2655 MHz, 6 %, 4127 MiB, 50, 74.87 W",
+  "concurrentBuildProcessesBefore": "0",
+  "concurrentBuildProcessesAfter": "0",
+  "shaderCacheMode": "warm",
+  "shaderCacheDir": "C:\\repos\\OloEngine-renderer-support-matrix-benchmark-1334-1338\\OloEditor\\assets\\benchmark\\captures\\integrated-deferred-gl-cold2\\run-01\\shader-cache",
+  "shaderCacheEntriesBefore": 641,
+  "shaderCacheEntriesAfter": 641
+}

@@ -4,6 +4,7 @@
 #include "OloEngine/Core/Interactivity.h"
 #include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/Renderer.h"
+#include "OloEngine/Renderer/Support/RendererSupport.h"
 #include "Rendering/PropertyTests/GLErrorStateCheck.h"
 #include "Rendering/PropertyTests/RendererStateCheck.h"
 #include "Rendering/CommandLifecycleCheck.h"
@@ -235,6 +236,42 @@ int main(int argc, char** argv)
         // would otherwise be told "Vulkan was not exercised" and never learn
         // that the run ALSO had failing tests.
         return result != 0 ? result : 3;
+    }
+
+    const auto& supportOptions = OloEngine::Tests::Options();
+    if (!supportOptions.RequiredRendererPreset.empty())
+    {
+        // The positive and negative controls use the same admission path.
+        // Requiring the selected suite to contain tests prevents a typo in the
+        // CI filter from producing a green support-matrix job.
+        if (::testing::UnitTest::GetInstance()->test_to_run_count() == 0)
+        {
+            std::fprintf(stderr, "OloEngine-Tests: required renderer preset selected zero tests.\n");
+            OloEngine::Tests::StopMemoryCeilingWatchdog();
+            OloEngine::Renderer::Shutdown();
+            return result != 0 ? result : 4;
+        }
+        for (const auto& definition : OloEngine::RendererSupport::Presets)
+        {
+            if (definition.Name != supportOptions.RequiredRendererPreset)
+                continue;
+            OloEngine::RendererSupport::Capabilities capabilities{
+                .RayQueries = !supportOptions.RendererNoRayQueries,
+                .TemporalUpscaler = true,
+                .MaxSamples = 4
+            };
+            const auto decision = OloEngine::RendererSupport::EvaluatePreset(definition.Id, capabilities);
+            if (decision.Status == OloEngine::RendererSupport::Outcome::Unsupported)
+            {
+                const std::string_view reason = OloEngine::RendererSupport::ToString(decision.Why);
+                std::fprintf(stderr, "OloEngine-Tests: required renderer preset '%s' unsupported: %.*s.\n",
+                             supportOptions.RequiredRendererPreset.c_str(),
+                             static_cast<int>(reason.size()), reason.data());
+                OloEngine::Tests::StopMemoryCeilingWatchdog();
+                OloEngine::Renderer::Shutdown();
+                return result != 0 ? result : 4;
+            }
+        }
     }
 
     // Tests lazily initialize the renderer (e.g. through Scene rendering) but

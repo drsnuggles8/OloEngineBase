@@ -30,6 +30,8 @@
 #include "OloEngine/Debug/DiagnosticsEventLog.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/RendererAPI.h"
+#include "OloEngine/Renderer/Support/RendererSupport.h"
 #include "OloEngine/Renderer/SkinLayeredSpecular.h"
 #include "OloEngine/Renderer/GPUScene/GPUSceneLightAdapter.h"
 #include "OloEngine/Renderer/Water/WaterDisturbanceSystem.h"
@@ -13546,7 +13548,16 @@ namespace OloEngine
         // nothing ever drew them, i.e. shadows cast by an invisible caster. Skipping
         // submission also avoids building the DAG for geometry that cannot render.
         const auto& rendererSettings = Renderer3D::GetRendererSettings();
-        if (rendererSettings.Path != RenderingPath::Deferred)
+        RendererSupport::Request virtualRequest;
+        virtualRequest.Api = RendererAPI::GetAPI() == RendererAPI::API::Vulkan
+                                 ? RendererSupport::Backend::Vulkan
+                                 : RendererSupport::Backend::OpenGL;
+        virtualRequest.Path = rendererSettings.Path;
+        virtualRequest.GeometryFamily = RendererSupport::Geometry::VirtualStatic;
+        virtualRequest.ShadowTechnique = RendererSupport::Shadow::None;
+        const RendererSupport::Capabilities virtualCapabilities{ .MaxSamples = 1 };
+        const auto virtualSupport = RendererSupport::Evaluate(virtualRequest, virtualCapabilities);
+        if (virtualSupport.Status == RendererSupport::Outcome::Unsupported)
         {
             u32 unsupportedVirtualMeshCount = 0;
             for (auto entity : m_Registry.view<TransformComponent, VirtualMeshComponent>())

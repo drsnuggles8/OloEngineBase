@@ -1,5 +1,7 @@
 #pragma once
 
+#include "OloEngine/Renderer/Support/RendererSupport.h"
+
 // =============================================================================
 // ShadowTechnique.h — which mechanism answers "is this point in shadow?", and
 // why it is not the one that was asked for. Issue #1056.
@@ -306,6 +308,9 @@ namespace OloEngine
         bool RayTracingAvailable = false; ///< RayTracingScene::IsAvailable().
         bool TlasReady = false;           ///< GetTlasDeviceAddress() != 0.
         bool MaskAvailable = false;       ///< The graph produced the mask target this frame.
+        // Explicit backend; production fills this from RendererAPI::GetAPI().
+        // Vulkan is the synthetic ray-capable default used by pure policy tests.
+        RendererSupport::Backend Api = RendererSupport::Backend::Vulkan;
     };
 
     struct ShadowTechniqueDecision
@@ -350,7 +355,13 @@ namespace OloEngine
 
         if (!inputs.DeferredPathActive)
             return fallback(ShadowTechniqueFallbackReason::RenderingPathUnsupported);
-        if (!inputs.RayTracingAvailable)
+        const auto support = RendererSupport::Evaluate(
+            { .Api = inputs.Api,
+              .Path = RenderingPath::Deferred,
+              .LightingTechnique = RendererSupport::Technique::RayTracedShadow,
+              .ShadowTechnique = RendererSupport::Shadow::RayTraced },
+            { .RayQueries = inputs.RayTracingAvailable, .MaxSamples = 1 });
+        if (support.Status == RendererSupport::Outcome::Unsupported)
             return fallback(ShadowTechniqueFallbackReason::RayTracingUnavailable);
         if (!inputs.TlasReady)
             return fallback(ShadowTechniqueFallbackReason::AccelerationStructureEmpty);

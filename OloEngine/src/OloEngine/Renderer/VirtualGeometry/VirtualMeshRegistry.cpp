@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/Support/RendererSupport.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshRegistry.h"
 
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
@@ -1529,18 +1530,31 @@ namespace OloEngine
                 // glDisable(GL_BLEND) for every instance, so a Blend part was written into the
                 // G-Buffer FULLY OPAQUE. Drawing it wrong is worse than not drawing it, so skip
                 // it and say so, once per mesh (this runs every frame).
-                if (partIndex < static_cast<sizet>(submission.MaterialDataIndices.Num()) &&
+                const bool partBlended =
+                    partIndex < static_cast<sizet>(submission.MaterialDataIndices.Num()) &&
                     FrameDataBufferManager::Get()
                             .GetMaterialData(static_cast<u16>(submission.MaterialDataIndices[partIndex]))
-                            .alphaMode == static_cast<i32>(AlphaMode::Blend))
+                            .alphaMode == static_cast<i32>(AlphaMode::Blend);
+                RendererSupport::Request supportRequest;
+                supportRequest.GeometryFamily = submission.IsSkinned()
+                                                    ? RendererSupport::Geometry::VirtualSkinned
+                                                    : RendererSupport::Geometry::VirtualStatic;
+                supportRequest.SurfaceClosure = partBlended ? RendererSupport::Closure::Blended
+                                                            : (partAlphaMasked ? RendererSupport::Closure::Masked
+                                                                               : RendererSupport::Closure::Opaque);
+                supportRequest.ShadowTechnique = submission.CastShadows
+                                                     ? RendererSupport::Shadow::Raster
+                                                     : RendererSupport::Shadow::None;
+                const auto support = RendererSupport::Evaluate(
+                    supportRequest, RendererSupport::Capabilities{ .MaxSamples = 1 });
+                if (support.Status == RendererSupport::Outcome::Unsupported)
                 {
                     if (m_BlendRejectionWarned.insert(static_cast<u64>(submission.Mesh)).second)
                     {
-                        OLO_CORE_WARN("VirtualMeshRegistry: mesh asset {} part {} uses AlphaMode::Blend, which the "
-                                      "virtualized-geometry (deferred G-Buffer) path cannot express — the part is "
-                                      "SKIPPED. Use AlphaMode::Mask, or draw it with a classic MeshComponent so it "
-                                      "goes through the forward/transparent pass.",
-                                      static_cast<u64>(submission.Mesh), partIndex);
+                        OLO_CORE_WARN("VirtualMeshRegistry: mesh asset {} part {} is unsupported in the "
+                                      "virtualized-geometry path ({}) — the part is SKIPPED. "
+                                      "Use a classic MeshComponent for unsupported material/geometry combinations.",
+                                      static_cast<u64>(submission.Mesh), partIndex, RendererSupport::ToString(support.Why));
                     }
                     continue;
                 }
@@ -1549,7 +1563,8 @@ namespace OloEngine
                 // (Scene.cpp's MeshComponent/ModelComponent loops): the shared shadow-depth
                 // shader never samples the albedo alpha, so a cutout leaf card would project
                 // as a SOLID quad silhouette instead of a leaf.
-                instance.CastShadows = submission.CastShadows && !partAlphaMasked;
+                instance.CastShadows = submission.CastShadows &&
+                                       support.Why != RendererSupport::Reason::VirtualMaskedShadowMissing;
                 instance.TwoSided = partIndex < static_cast<sizet>(submission.PartTwoSided.Num()) &&
                                     submission.PartTwoSided[partIndex] != 0u;
                 instance.MeshletCompatible = entry.MeshletCompatible;

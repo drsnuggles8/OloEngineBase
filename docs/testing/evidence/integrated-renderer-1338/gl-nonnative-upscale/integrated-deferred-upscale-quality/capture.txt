@@ -1,0 +1,26 @@
+[17:27:41] OloEngine: [Levers] active: OLO_RENDERGRAPH_DIAGNOSTICS=on (set at runtime)
+[17:27:41] OloEngine: Interactivity: non-interactive mode ON — blocking modals will take their safe default
+Note: Google Test filter = BenchmarkCapture.*
+[==========] Running 1 test from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 1 test from BenchmarkCapture
+[ RUN      ] BenchmarkCapture.RunWhenRequested
+C:\repos\OloEngine-renderer-support-matrix-benchmark-1334-1338\OloEngine\tests\Rendering\PropertyTests\BenchmarkCaptureTest.cpp(130): error: Value of: manifest.has_value()
+  Actual: false
+Expected: true
+C:\repos\OloEngine-renderer-support-matrix-benchmark-1334-1338\docs\testing\evidence\integrated-renderer-1338\gl-nonnative-upscale\integrated-deferred-upscale-quality\probe-manifest.yaml:
+Output.RenderScale must be a finite 1.0 in schema v1 (sub-scale capture is not supported)
+
+[  FAILED  ] BenchmarkCapture.RunWhenRequested (186 ms)
+[----------] 1 test from BenchmarkCapture (186 ms total)
+
+[----------] Global test environment tear-down
+[==========] 1 test from 1 test suite ran. (187 ms total)
+[  PASSED  ] 0 tests.
+[  FAILED  ] 1 test, listed below:
+[  FAILED  ] BenchmarkCapture.RunWhenRequested
+
+ 1 FAILED TEST
+[17:27:41] OloEngine: Renderer Memory Tracker shutdown
+[17:27:41] OloEngine: ShaderResourceRegistry: Registered shader registry for shader ID 4059103368
+[17:27:41] OloEngine: ShaderResourceRegistry: Unregistered shader registry for shader ID 4059103368

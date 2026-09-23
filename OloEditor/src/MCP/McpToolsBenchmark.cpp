@@ -24,6 +24,7 @@
 #include "OloEngine/Renderer/Benchmark/BenchmarkCapture.h"
 #include "OloEngine/Renderer/Benchmark/BenchmarkManifest.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Scene/Scene.h"
 
@@ -141,6 +142,7 @@ namespace OloEngine::MCP
                 std::optional<McpCameraPose> PriorPose;
                 RendererSettings PriorRendererSettings;
                 PostProcessSettings PriorPostProcessSettings;
+                ShadowSettings PriorShadowSettings;
                 f32 PriorRenderScale = 1.0f;
                 FString GpuVendor;
                 FString GpuRenderer;
@@ -184,6 +186,7 @@ namespace OloEngine::MCP
                             {
                                 Renderer3D::GetRendererSettings() = state->PriorRendererSettings;
                                 Renderer3D::GetPostProcessSettings() = state->PriorPostProcessSettings;
+                                Renderer3D::GetShadowMap().SetSettings(state->PriorShadowSettings);
                                 Renderer3D::ApplyRendererSettings();
                                 Renderer3D::SetRenderScale(state->PriorRenderScale);
                                 return Json{ { "ok", true } };
@@ -194,6 +197,14 @@ namespace OloEngine::MCP
                     }
                 }
             } restoreGuard{ &host, applied, /*Armed=*/false };
+            const Json presetAdmission = host.MarshalRead([manifestCopy, backend]() -> Json
+                                                          {
+                std::string error;
+                const bool admitted = Benchmark::ValidatePresetAdmission(*manifestCopy, backend, error);
+                return Json{ { "ok", admitted }, { "error", error } }; });
+            if (!presetAdmission.value("ok", false))
+                return ToolResult::Error(presetAdmission.value("error", std::string("preset admission failed")));
+
             host.MarshalRead(
                 [&host, applied, manifestCopy, isVulkan]() -> Json
                 {
@@ -201,6 +212,7 @@ namespace OloEngine::MCP
                     // the user's editor session back.
                     applied->PriorRendererSettings = Renderer3D::GetRendererSettings();
                     applied->PriorPostProcessSettings = Renderer3D::GetPostProcessSettings();
+                    applied->PriorShadowSettings = Renderer3D::GetShadowMap().GetSettings();
                     applied->PriorRenderScale = Renderer3D::GetRenderScale();
 
                     // The manifest's renderer-side state — ONE shared
@@ -278,8 +290,12 @@ namespace OloEngine::MCP
             // describes the pass list it ships with (#1337 criterion 4).
             auto timingValidity = std::make_shared<Benchmark::TimingValidity>();
             auto resolution = std::make_shared<Benchmark::ResolutionRecord>();
+            auto configuration = std::make_shared<Benchmark::AppliedConfiguration>();
+            auto measurement = std::make_shared<Benchmark::MeasurementRecord>();
+            measurement->DeadlineMs = manifest->MeasurementDeadlineMs;
             const FString backendCopy = backend;
             u32 totalWarmFrames = 0;
+            u32 trajectoryFrame = 0;
             bool warmupTimedOut = false;
 
             for (const auto& cameraSpec : manifest->Cameras)
@@ -302,7 +318,20 @@ namespace OloEngine::MCP
                         });
                 };
 
-                if (!cameraSpec.Motion)
+                const auto motionAt = [&host, manifestCopy](u32 frame) -> bool
+                {
+                    if (manifestCopy->EntityMotions.IsEmpty())
+                        return true;
+                    const Json result = host.MarshalRead([&host, manifestCopy, frame]() -> Json
+                                                         {
+                        std::string error;
+                        Ref<Scene> active = host.Context().GetActiveScene();
+                        const bool ok = active && Benchmark::ApplyEntityMotion(*active, *manifestCopy, frame, error);
+                        return Json{ { "ok", ok }, { "error", error } }; });
+                    return result.value("ok", false);
+                };
+
+                if (!cameraSpec.Motion && manifest->EntityMotions.IsEmpty())
                 {
                     // Still camera: pose once, then wait out the whole warm-up
                     // in one await — the issue-#974 path, unchanged.
@@ -311,6 +340,7 @@ namespace OloEngine::MCP
                     {
                         warmupTimedOut = true; // recorded, not fatal — capture what we have
                     }
+                    trajectoryFrame += warmFrames;
                 }
                 else
                 {
@@ -325,12 +355,37 @@ namespace OloEngine::MCP
                     for (u32 frame = 0; frame < warmFrames; ++frame)
                     {
                         poseAt(frame);
+                        if (!motionAt(trajectoryFrame++))
+                            return ToolResult::Error("EntityMotion target missing from the active scene");
                         if (!AwaitBenchmarkFrames(host, CurrentFrame(host), 1u))
                         {
                             warmupTimedOut = true;
                             break;
                         }
                     }
+                }
+
+                // Measure after warm-up and before attachment readback. Read
+                // each completed editor frame separately so the profiler's
+                // 300-frame ring cannot silently discard the tail of a run.
+                for (u32 frame = 0; frame < manifest->MeasurementFrames; ++frame)
+                {
+                    if (cameraSpec.Motion)
+                    {
+                        poseAt(warmFrames + frame);
+                    }
+                    if (!motionAt(trajectoryFrame++))
+                        return ToolResult::Error("EntityMotion target missing from the active scene");
+                    if (!AwaitBenchmarkFrames(host, CurrentFrame(host), 1u))
+                    {
+                        warmupTimedOut = true;
+                        break;
+                    }
+                    const FString measuredCamera = cameraSpec.Id;
+                    host.MarshalRead([measurement, measuredCamera, frame]() -> Json
+                                     {
+                        measurement->Frames.Add(Benchmark::SnapshotEditorMeasuredFrame(measuredCamera.ToView(), frame));
+                        return Json{ { "ok", true } }; });
                 }
 
                 const FString cameraId = cameraSpec.Id;
@@ -368,7 +423,7 @@ namespace OloEngine::MCP
 
             auto counters = std::make_shared<Benchmark::RendererCounters>();
             host.MarshalRead(
-                [&host, applied, passTimings, timingValidity, resolution, counters]() -> Json
+                [&host, applied, passTimings, timingValidity, resolution, counters, configuration]() -> Json
                 {
                     *passTimings = Benchmark::SnapshotPassTimings();
                     *timingValidity = Benchmark::SnapshotTimingValidity();
@@ -378,6 +433,7 @@ namespace OloEngine::MCP
                     // benchmark's.
                     *resolution = Benchmark::SnapshotResolution();
                     *counters = Benchmark::SnapshotRendererCounters();
+                    *configuration = Benchmark::SnapshotAppliedConfiguration();
                     // Put the user's editor session back: camera, renderer +
                     // post-process configuration, render scale, viewport
                     // override, and the viewport helpers (restored to their
@@ -388,6 +444,7 @@ namespace OloEngine::MCP
                         host.Context().RestoreCameraPose(*applied->PriorPose);
                     }
                     Renderer3D::GetPostProcessSettings() = applied->PriorPostProcessSettings;
+                    Renderer3D::GetShadowMap().SetSettings(applied->PriorShadowSettings);
                     Renderer3D::GetRendererSettings() = applied->PriorRendererSettings;
                     Renderer3D::ApplyRendererSettings();
                     Renderer3D::SetRenderScale(applied->PriorRenderScale);
@@ -434,6 +491,8 @@ namespace OloEngine::MCP
             runInfo.Timing = *timingValidity;
             runInfo.Resolution = *resolution;
             runInfo.Counters = *counters;
+            runInfo.Measurement = *measurement;
+            runInfo.Configuration = *configuration;
 
             // A distinct default from the test-binary front door, so the two
             // hosts' results never overwrite each other.

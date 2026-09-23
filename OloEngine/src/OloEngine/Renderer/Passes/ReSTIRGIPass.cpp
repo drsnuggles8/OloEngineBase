@@ -282,6 +282,9 @@ namespace OloEngine
             .GPUSceneAvailable = gpuSceneAvailable,
             .TargetsAvailable = graphResourcesResolved,
             .HistoryLayoutMatches = m_HistoryLayoutMatches,
+            .Api = RendererAPI::GetAPI() == RendererAPI::API::Vulkan
+                       ? RendererSupport::Backend::Vulkan
+                       : RendererSupport::Backend::OpenGL,
             .Engagement = m_Stats.Engagement,
         };
         const auto decision = SelectReSTIRGITechnique(inputs);

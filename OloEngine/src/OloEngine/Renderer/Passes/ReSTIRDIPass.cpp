@@ -278,6 +278,9 @@ namespace OloEngine
             // It is reported as its own reason rather than as "no history"
             // because the two need different fixes.
             .HistoryLayoutMatches = m_HistoryLayoutMatches,
+            .Api = RendererAPI::GetAPI() == RendererAPI::API::Vulkan
+                       ? RendererSupport::Backend::Vulkan
+                       : RendererSupport::Backend::OpenGL,
             .Engagement = m_Stats.Engagement,
             .EngagementMargin = m_Settings.EngagementMargin,
         };

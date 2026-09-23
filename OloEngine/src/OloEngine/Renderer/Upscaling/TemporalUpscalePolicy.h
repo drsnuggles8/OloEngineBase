@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
+#include "OloEngine/Renderer/Support/RendererSupport.h"
 
 #include <glm/glm.hpp>
 
@@ -33,6 +34,7 @@ namespace OloEngine::TemporalUpscalePolicy
         bool BackendAvailable = false;
         // Sample count of the scene band. > 1 means the frame is MSAA-resolved.
         u32 SceneSampleCount = 1u;
+        RendererSupport::Backend Api = RendererSupport::Backend::OpenGL;
     };
 
     // MSAA is not merely untested with FSR2 — it is incompatible. The upscaler
@@ -52,10 +54,18 @@ namespace OloEngine::TemporalUpscalePolicy
     // temporal path resumes by itself once the obstruction clears.
     [[nodiscard]] constexpr bool ShouldRunTemporalUpscale(const ActivationInputs& in) noexcept
     {
-        return in.Mode != UpscaleMode::Off &&
-               in.Technique == UpscalerTechnique::Temporal &&
-               in.BackendAvailable &&
-               !IsMSAAResolved(in.SceneSampleCount);
+        if (in.Mode == UpscaleMode::Off || in.Technique != UpscalerTechnique::Temporal)
+            return false;
+        RendererSupport::Request request;
+        request.Api = in.Api;
+        request.Samples = in.SceneSampleCount;
+        request.ShadowTechnique = RendererSupport::Shadow::None;
+        request.Upscale = RendererSupport::Reconstruction::Temporal;
+        const RendererSupport::Capabilities capabilities{
+            .TemporalUpscaler = in.BackendAvailable,
+            .MaxSamples = std::max(1u, in.SceneSampleCount)
+        };
+        return RendererSupport::Evaluate(request, capabilities).Status != RendererSupport::Outcome::Unsupported;
     }
 
     // True when the FSR1 spatial upscaler owns the frame instead. Exactly one of
