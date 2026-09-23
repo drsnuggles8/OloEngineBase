@@ -1264,7 +1264,8 @@ namespace OloEngine
                 requests[i].m_TileY = 0u;
             }
         }
-        m_BakeBuffer->SetData(m_UploadScratch.GetData(), static_cast<u32>(m_UploadScratch.Num()), 0);
+        RenderCommand::UploadBufferSubData(m_BakeBuffer->GetRHIHandle(), 0, m_UploadScratch.Num(),
+                                           m_UploadScratch.GetData());
 
         // BIND THE PROGRAM FIRST, then the resources.
         //
@@ -1456,9 +1457,9 @@ namespace OloEngine
         if (!m_IndirectionDelta.IsEmpty())
         {
             const auto& updates = m_IndirectionDelta.GetUpdates();
-            m_IndirectionUpdateBuffer->SetData(updates.GetData(),
-                                               static_cast<u32>(updates.Num() * sizeof(VTIndirectionUpdate)),
-                                               static_cast<u32>(sizeof(VTIndirectionHeader)));
+            RenderCommand::UploadBufferSubData(m_IndirectionUpdateBuffer->GetRHIHandle(),
+                                               sizeof(VTIndirectionHeader), updates.Num() * sizeof(VTIndirectionUpdate),
+                                               updates.GetData());
         }
         RenderCommand::BindStorageBuffer(SBL::SSBO_TERRAIN_VT, m_IndirectionUpdateBuffer->GetRHIHandle());
 
@@ -1494,16 +1495,12 @@ namespace OloEngine
             {
                 continue;
             }
-            // A 16-byte CPU write between two dispatches that read the same
-            // buffer. GL orders it correctly (the earlier dispatch still sees the
-            // old bytes) and the Vulkan backend gives the same guarantee through
-            // #691's write snapshots — see
-            // docs/agent-rules/vulkan-command-ordered-buffer-writes.md. The
-            // alternative, a bound RANGE per mip, needs a glBindBufferRange the
-            // RHI facade does not expose.
+            // Each dispatch reads the persistent compute address. Record this
+            // small update in the command stream so the previous mip's read
+            // completes before its parameters are replaced.
             const glm::uvec4 writeParams(m_IndirectionDelta.GetMipBase(mip), count, 0u, 0u);
-            m_IndirectionUpdateBuffer->SetData(&writeParams, static_cast<u32>(sizeof(writeParams)),
-                                               kWriteParamsOffset);
+            RenderCommand::UploadBufferSubData(m_IndirectionUpdateBuffer->GetRHIHandle(),
+                                               kWriteParamsOffset, sizeof(writeParams), &writeParams);
 
             HeapBinding::BindImageOrOffset(kImageUnitTarget, indirection, mip, /*layered*/ false, 0,
                                            RHI::Access::StorageWrite, RHI::Format::RGBA8UNorm, Persistent);
@@ -1532,8 +1529,8 @@ namespace OloEngine
                 continue;
             }
             const glm::uvec4 fillParams(rect.m_X, rect.m_Y, rect.m_Width, rect.m_Height);
-            m_IndirectionUpdateBuffer->SetData(&fillParams, static_cast<u32>(sizeof(fillParams)),
-                                               kFillParamsOffset);
+            RenderCommand::UploadBufferSubData(m_IndirectionUpdateBuffer->GetRHIHandle(),
+                                               kFillParamsOffset, sizeof(fillParams), &fillParams);
 
             HeapBinding::BindImageOrOffset(kImageUnitTarget, indirection, level, /*layered*/ false, 0,
                                            RHI::Access::StorageReadWrite, RHI::Format::RGBA8UNorm, Persistent);
