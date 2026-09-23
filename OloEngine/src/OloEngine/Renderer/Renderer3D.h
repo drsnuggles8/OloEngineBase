@@ -734,7 +734,9 @@ namespace OloEngine
          * Prepares internal state for parallel command generation.
          * Must be called after BeginScene() and before any parallel submission.
          */
-        static void BeginParallelSubmission();
+        // `expectedPackets`: an upper bound on the packets the workers will
+        // submit, which sizes the geometry bucket's slot array for the region.
+        static void BeginParallelSubmission(u32 expectedPackets);
 
         /**
          * @brief End parallel command submission mode

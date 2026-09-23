@@ -403,6 +403,9 @@ add_executable(OloEngine-Tests
 		Rendering/CommandPacketTest.cpp
 		Rendering/CommandAllocatorTest.cpp
 		Rendering/CommandBucketTest.cpp
+		Rendering/CommandLifecycleCostTest.cpp
+		Rendering/CommandLifecycleTest.cpp
+		Rendering/CommandLifecycleCheck.cpp
 		Rendering/CommandDispatchRecordingTest.cpp
 		Rendering/RenderGraphParallelRecordingTest.cpp
 		Rendering/PODRenderStateChannelMaskTest.cpp
@@ -834,6 +837,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/VideoOverlayVisualEvidenceTest.cpp
 		Rendering/PropertyTests/AutoExposureEvidenceTest.cpp
 		Rendering/PropertyTests/GLAttachmentBlendOpinionTest.cpp
+		Rendering/PropertyTests/DecalOITLifecycleEvidenceTest.cpp
 		Rendering/PropertyTests/GPUReadbackStatsEvidenceTest.cpp
 		Rendering/PropertyTests/TestFailureCapture.cpp
 		Rendering/PropertyTests/TestFailureCaptureTest.cpp
