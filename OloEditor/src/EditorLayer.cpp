@@ -2829,10 +2829,12 @@ namespace OloEngine
                         {
                             bool wired = false;
                             auto animatedModel = Ref<AnimatedModel>::Create(filepath);
-                            const bool hasMorphTargets =
-                                animatedModel &&
-                                std::ranges::any_of(animatedModel->GetMeshes(), [](const Ref<MeshSource>& mesh)
-                                                    { return mesh && mesh->HasMorphTargets(); });
+                            // The FIRST mesh, because that is the one PopulateAnimatedEntity
+                            // wires; asking about any mesh would take the animated route for a
+                            // model whose morph targets sit on a mesh the importer never uses.
+                            const bool hasMorphTargets = animatedModel && !animatedModel->GetMeshes().empty() &&
+                                                         animatedModel->GetMeshes().front() &&
+                                                         animatedModel->GetMeshes().front()->HasMorphTargets();
                             if (animatedModel && !animatedModel->GetMeshes().empty() &&
                                 (animatedModel->HasSkeleton() || animatedModel->HasAnimations() || hasMorphTargets))
                             {
