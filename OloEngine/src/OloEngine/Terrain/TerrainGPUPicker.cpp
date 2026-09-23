@@ -345,10 +345,13 @@ namespace OloEngine
         header.RayDirAndInflate = glm::vec4(ray.DirectionLocal, texelWorld * kBoundsInflateTexels);
         header.TerrainSizeAndScale = glm::vec4(terrain.WorldSizeX, terrain.WorldSizeZ, terrain.HeightScale, texelWorld);
         header.PickParams = glm::uvec4(tree.GetMaxDepth(), kMaxNodeListEntries, kMaxCandidates, terrain.HeightmapResolution);
-        m_StateBuffer->SetData(&header, static_cast<u32>(sizeof(header)), 0);
+        // The same state buffer is GPU-written later in this pick. Record the
+        // CPU seed in command order so an earlier pick or in-flight frame
+        // cannot observe the next query's header before its own dispatch.
+        RenderCommand::UploadBufferSubData(m_StateBuffer->GetRHIHandle(), 0, sizeof(header), &header);
 
         const u32 rootNode = TerrainGPUQuadtree::PackNode(0, 0, 0);
-        m_NodeListA->SetData(&rootNode, static_cast<u32>(sizeof(rootNode)), 0);
+        RenderCommand::UploadBufferSubData(m_NodeListA->GetRHIHandle(), 0, sizeof(rootNode), &rootNode);
 
         using SBL = ShaderBindingLayout;
         RenderCommand::BindStorageBuffer(SBL::SSBO_TERRAIN_CULL_STATE, m_StateBuffer->GetRHIHandle());
