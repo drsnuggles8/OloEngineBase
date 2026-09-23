@@ -3011,6 +3011,14 @@ TEST_F(VulkanPassSuite, FluidSolverConsumesTwoDistinctEmitBatches)
 
     solver.SeedParticles({}); // a post-dispatch Vulkan reset must fail closed
     EXPECT_EQ(solver.RefreshExactCount(), 2u);
+
+    solver.Reload();
+    const GPUFluidEmitEntry afterReload{ .Position = { 0.0f, 0.0f, 0.5f, 0.0f },
+                                         .Velocity = { 0.0f, 0.0f, 0.0f, 0.0f } };
+    solver.Emit(std::span(&afterReload, 1));
+    SubmitFrame([&]()
+                { solver.Step(params, 1.0f / 60.0f, {}, {}); });
+    EXPECT_EQ(solver.RefreshExactCount(), 3u);
 }
 
 TEST_F(VulkanPassSuite, FluidIntermediatesBuildsRawTargetsAndPinsTheNoDrawEarlyOutThroughTheGraph)
