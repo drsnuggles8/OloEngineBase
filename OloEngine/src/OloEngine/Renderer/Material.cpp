@@ -47,6 +47,11 @@ namespace OloEngine
           m_PBRModel(other.m_PBRModel),
           // Material kind + skin profile (issue #1231), in for the same reason.
           m_MaterialKind(other.m_MaterialKind), m_SkinProfileHandle(other.m_SkinProfileHandle),
+          // The expression stamp (issue #1243) was missing here, and every
+          // stamp IS a copy: StampSkinExpression hands its stamped material back
+          // in a std::optional, so the value was zeroed on the way to the draw
+          // and no face ever emoted (found by issue #1395).
+          m_SkinExpressionDetail(other.m_SkinExpressionDetail),
           // Physical transmission / IOR / volume (issue #970). Same trap as the
           // alpha pair above: forget one and a copied glass material comes back
           // solid, on the by-value paths only.
@@ -111,6 +116,7 @@ namespace OloEngine
             // Material kind + skin profile (issue #1231).
             m_MaterialKind = other.m_MaterialKind;
             m_SkinProfileHandle = other.m_SkinProfileHandle;
+            m_SkinExpressionDetail = other.m_SkinExpressionDetail;
             // Physical transmission / IOR / volume (issue #970).
             m_TransmissionFactor = other.m_TransmissionFactor;
             m_IOR = other.m_IOR;
