@@ -41,6 +41,19 @@ namespace OloEngine
         static void ResetState();
         static void InvalidateRenderStateCache();
 
+        // Forget every "this is already bound" cache (shader, vertex array,
+        // textures, UBOs, render state, material, GPU Scene table) without
+        // touching the frame's counters or pass flags, so the next dispatch
+        // re-binds everything it uses.
+        //
+        // For a command-bucket pass that runs after passes which bind GL state
+        // directly. DeferredLightingPass unbinds the vertex array behind the
+        // cache's back, so without this the first ForwardOverlayPass draw of a
+        // mesh the G-Buffer pass drew last skips its VAO bind and draws from
+        // VAO 0: GL_INVALID_OPERATION, or an access violation in the driver
+        // (found during issue #1404).
+        static void InvalidateBindingCaches();
+
         // Apply a command's PODRenderState (skipped when the index matches the
         // last one applied -- InvalidateRenderStateCache() is how a pass that
         // touched state behind the queue's back forces a re-apply).

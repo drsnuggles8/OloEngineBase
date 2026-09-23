@@ -437,4 +437,71 @@ namespace OloEngine::Tests
         EXPECT_NE(terrainData.find("spec.GenerateMips = true"), std::string::npos)
             << "the explicit terrain LOD is useless unless TerrainData uploads a height mip chain";
     }
+
+    // -------------------------------------------------------------------------------------
+    // (d) ONE decision for "the G-Buffer cannot hold this material". Every submission path
+    //     that picks the G-Buffer PBR shader asks ShouldRerouteToForwardOverlay first.
+    //
+    // A transmissive material (issue #970) or an alpha-blended one (issue #1404) written into
+    // the G-Buffer shades opaque or black. The rule is single-sourced, but each of the four
+    // submission functions (DrawMesh, SelectInstancedShaderRouting, DrawAnimatedMesh,
+    // DrawMeshParallel) makes its own shader choice, and #970's first cut guarded two of them
+    // and left skinned and parallel glass silently opaque. The pixel evidence covers DrawMesh
+    // and the instanced route only, so this pins the other two as well: every G-Buffer PBR
+    // selection must sit in the else-branch of a reroute check in the same function.
+    // -------------------------------------------------------------------------------------
+    TEST(RenderPathDrift, EveryGBufferPBRSelectionAsksTheForwardOverlayRerouteFirst)
+    {
+        const std::filesystem::path root = RepoRoot();
+        const std::filesystem::path file = root / "OloEngine/src/OloEngine/Renderer/Renderer3DMeshSubmission.cpp";
+        const std::string source = StripComments(ReadFile(file));
+        ASSERT_FALSE(source.empty()) << "could not read " << file.string();
+
+        // The G-Buffer PBR default shader, as each path spells it. On the parallel path
+        // ctx.SceneContext->PBRShader IS PBRGBufferShader when Deferred is active.
+        const std::regex selectionRe(
+            R"((shaderToUse|routing\.ShaderToUse)\s*=\s*(s_Data\.PBRGBufferShader|s_Data\.PBRGBufferSkinnedShader|ctx\.SceneContext->PBRShader)\s*;)");
+        const std::regex rerouteRe(R"(ShouldRerouteToForwardOverlay\s*\()");
+        // A member-function definition: a line at namespace-body indentation naming Renderer3D::.
+        const std::regex functionStartRe(R"(\n    [A-Za-z][^\n;]*Renderer3D::[A-Za-z]+\s*\()");
+
+        u32 selections = 0;
+        std::vector<std::string> unguarded;
+        for (auto it = std::sregex_iterator(source.begin(), source.end(), selectionRe); it != std::sregex_iterator(); ++it)
+        {
+            ++selections;
+            const sizet at = static_cast<sizet>(it->position());
+            const std::string before = source.substr(0, at);
+
+            // The nearest reroute call and the nearest function start before this selection.
+            sizet lastReroute = std::string::npos;
+            for (auto r = std::sregex_iterator(before.begin(), before.end(), rerouteRe); r != std::sregex_iterator(); ++r)
+                lastReroute = static_cast<sizet>(r->position());
+            sizet lastFunction = 0;
+            for (auto f = std::sregex_iterator(before.begin(), before.end(), functionStartRe); f != std::sregex_iterator(); ++f)
+                lastFunction = static_cast<sizet>(f->position());
+
+            if (lastReroute == std::string::npos || lastReroute < lastFunction)
+            {
+                const auto line = static_cast<sizet>(std::count(before.begin(), before.end(), '\n')) + 1;
+                unguarded.push_back("line " + std::to_string(line) + ": " + it->str());
+            }
+        }
+
+        // Four submission functions choose a PBR shader. Fewer matches means the regex has
+        // drifted from the code and the loop above checked nothing.
+        EXPECT_EQ(selections, 4u) << "expected one G-Buffer PBR selection in each of DrawMesh, "
+                                     "SelectInstancedShaderRouting, DrawAnimatedMesh and DrawMeshParallel";
+
+        std::string report;
+        for (const std::string& entry : unguarded)
+            report += "\n  * " + entry;
+        EXPECT_TRUE(unguarded.empty())
+            << "these G-Buffer PBR shader selections are not preceded by ShouldRerouteToForwardOverlay in the "
+               "same function:"
+            << report
+            << "\n\nA blended or transmissive material reaching them is written into the G-Buffer and shades black "
+               "or opaque on the Deferred path (issues #1404, #970). Ask the reroute first and use the forward "
+               "shader when it says so.";
+    }
 } // namespace OloEngine::Tests

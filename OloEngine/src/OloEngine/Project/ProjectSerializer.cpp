@@ -484,7 +484,7 @@ namespace OloEngine
                 }
                 else
                 {
-                    OLO_CORE_WARN("Path '{0}' for field '{1}' does not exist: {2}", key, output.string(), "Path not found");
+                    OLO_CORE_WARN("Path '{0}' for field '{1}' does not exist", output.string(), key);
                 }
             }
 
@@ -523,7 +523,7 @@ namespace OloEngine
                 }
                 else
                 {
-                    OLO_CORE_WARN("Path '{0}' for field '{1}' does not exist: {2}", key, output.string(), "Path not found");
+                    OLO_CORE_WARN("Path '{0}' for field '{1}' does not exist", output.string(), key);
                 }
             }
 

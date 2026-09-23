@@ -173,11 +173,25 @@ memory dir, so a worktree session reads and writes the one shared store and noth
 orphaned. Removing the project dir deletes the *junction*, never the target — both
 `Remove-Item -Recurse -Force` and `rm -rf` decline to follow it (verified).
 
-The slug is the worktree's absolute path with `:` → `-` and each `\`/`/` → `-`
-(e.g. `C:\repos\OloEngine-foo` → `c--repos-OloEngine-foo`). For each worktree you removed:
+The slug is the worktree's absolute path with `:` → `-`, each `\`/`/` → `-`, and the drive letter
+lowercased (e.g. `C:\repos\OloEngine-foo` → `c--repos-OloEngine-foo`). Use the same
+`Get-ProjSlug` as `/start-work` §4 — the two must agree, or this step probes a path that does not
+exist and the `LinkType` check below silently reads as "not a junction":
 
-    $slug = "<worktreePath>" -replace ':','-' -replace '[\\/]','-'
+    # Two traps. Do NOT chain as `$p -replace ':','-' -replace '[\\/]','-'`: PowerShell's
+    # comma-separated argument list absorbs the second operator, so it parses as
+    # `$p -replace ':', ('-' -replace '[\\/]','-')` and only the colon is replaced. And the
+    # drive letter must be lowercased — the project dir is `c--repos-...`, not `C--repos-...`.
+    function Get-ProjSlug([string]$p) {
+        $s = $p -replace ':', '-'
+        $s = $s -replace '[\\/]', '-'
+        return $s.Substring(0,1).ToLower() + $s.Substring(1)
+    }
+    $slug = Get-ProjSlug "<worktreePath>"
     $mem  = "$env:USERPROFILE\.claude\projects\$slug\memory"
+    if (-not (Test-Path "$env:USERPROFILE\.claude\projects\$slug")) {
+        throw "no project dir for slug '$slug' — check the slug before concluding there is nothing to salvage"
+    }
     (Get-Item $mem -ErrorAction SilentlyContinue).LinkType     # expect: Junction
 
 - **`Junction`** → nothing to salvage. Delete the project dir:

@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Animation/Skeleton.h"
+#include "OloEngine/Renderer/DeferredForwardOverlayRoute.h"
 #include "OloEngine/Renderer/GltfPhysicalMaterial.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Renderer3DInternal.h"
@@ -33,45 +34,59 @@
 
 namespace
 {
-    // THE ONE PLACE the "transmission has no G-Buffer representation" rule lives
-    // (issue #970).
+    // THE ONE PLACE the "this material has no G-Buffer representation" rule is
+    // applied to a draw: transmission (issue #970) and alpha blending (issue
+    // #1404). The decision itself is the pure SelectDeferredForwardOverlayRoute
+    // in DeferredForwardOverlayRoute.h, which says why each goes to
+    // ForwardOverlayPass; this wrapper feeds it a material and reports the case
+    // where there is nowhere correct to send the draw.
     //
-    // The G-Buffer carries albedo/metallic, normal/roughness/AO, emissive/flags,
-    // velocity, entity-ID and baked GI — and nothing that could hold a
-    // transmission factor, an IOR, a thickness or an extinction coefficient. A
-    // transmissive material written into it comes back out of
-    // DeferredLightingPass as an ordinary opaque surface.
-    //
-    // So it is rerouted exactly the way a forward-only shader override already
-    // is: ForwardOverlayPass binds the scene framebuffer and runs AFTER the
-    // deferred composite, so the forward PBR shader — which does have the
-    // closure — shades the surface over the finished deferred image, and
-    // Deferred and Forward show the same glass.
-    //
-    // WHY IT IS A FUNCTION RATHER THAN REPEATED AT EACH SITE. Five submission
+    // WHY IT IS A FUNCTION RATHER THAN REPEATED AT EACH SITE. Four submission
     // paths choose a shader — DrawMesh, SelectInstancedShaderRouting,
-    // DrawAnimatedMesh and DrawMeshParallel — and every
-    // one of them has to make the SAME decision, or a transmissive material
-    // renders opaque on whichever path a given scene happens to take. The first
-    // cut of this feature wrote the rule inline at two of the five and left the
-    // skinned and parallel paths silently opaque; that is the same class of
-    // divergence issue #515's routing bug came from.
+    // DrawAnimatedMesh and DrawMeshParallel — and every one of them has to make
+    // the SAME decision, or a transmissive or blended material renders wrong on
+    // whichever path a given scene happens to take. The first cut of #970 wrote
+    // the rule inline at two of them and left the skinned and parallel paths
+    // silently opaque; that is the same class of divergence issue #515's
+    // routing bug came from.
     //
     // Returns true when the caller must shade with `forwardShader` and reroute
     // the draw to ForwardOverlayPass. When there is nowhere correct to send it,
-    // the draw is COUNTED and warned once rather than quietly shaded opaque
-    // (CLAUDE.md, no silent fallbacks).
-    [[nodiscard]] bool ShouldRerouteTransmissiveToForwardOverlay(const OloEngine::Material& material, bool deferred,
-                                                                 bool hasForwardOverlayPass,
-                                                                 const OloEngine::Ref<OloEngine::Shader>& forwardShader)
+    // the draw is COUNTED (transmissive) and warned once rather than quietly
+    // written into the G-Buffer (CLAUDE.md, no silent fallbacks).
+    [[nodiscard]] bool ShouldRerouteToForwardOverlay(const OloEngine::Material& material, bool deferred,
+                                                     bool hasForwardOverlayPass,
+                                                     const OloEngine::Ref<OloEngine::Shader>& forwardShader)
     {
-        if (!deferred || !material.IsTransmissive())
-            return false;
-
-        if (hasForwardOverlayPass && forwardShader)
-            return true;
-
-        OloEngine::NoteTransmissiveDrawWithoutForwardOverlay();
+        const OloEngine::DeferredForwardOverlayInputs inputs{
+            .Deferred = deferred,
+            .Blended = material.GetFlag(OloEngine::MaterialFlag::Blend),
+            .Transmissive = material.IsTransmissive(),
+            .HasForwardOverlayPass = hasForwardOverlayPass,
+            .HasForwardShader = static_cast<bool>(forwardShader),
+        };
+        switch (OloEngine::SelectDeferredForwardOverlayRoute(inputs))
+        {
+            case OloEngine::DeferredForwardOverlayRoute::ForwardOverlay:
+                return true;
+            case OloEngine::DeferredForwardOverlayRoute::Unavailable:
+                if (inputs.Transmissive)
+                    OloEngine::NoteTransmissiveDrawWithoutForwardOverlay();
+                if (inputs.Blended)
+                {
+                    static std::atomic<bool> s_WarnedBlendedWithoutOverlay{ false };
+                    if (!s_WarnedBlendedWithoutOverlay.exchange(true, std::memory_order_relaxed))
+                    {
+                        OLO_CORE_WARN("Renderer3D: an alpha-blended PBR draw on the Deferred path has no "
+                                      "ForwardOverlayPass or forward PBR shader to reroute it to. It is written "
+                                      "into the G-Buffer with blending applied to the G-Buffer channels and "
+                                      "shades black (issue #1404). Warned once.");
+                    }
+                }
+                return false;
+            case OloEngine::DeferredForwardOverlayRoute::None:
+                return false;
+        }
         return false;
     }
 } // namespace
@@ -823,10 +838,11 @@ namespace OloEngine
         }
         else if (material.GetType() == MaterialType::PBR)
         {
-            // Transmission has no G-Buffer representation (issue #970) — see
-            // ShouldRerouteTransmissiveToForwardOverlay at the top of this file.
+            // Transmission (issue #970) and alpha blending (issue #1404) have no
+            // G-Buffer representation — see ShouldRerouteToForwardOverlay at the
+            // top of this file.
             const bool deferred = s_Data.Settings.Path == RenderingPath::Deferred;
-            if (ShouldRerouteTransmissiveToForwardOverlay(
+            if (ShouldRerouteToForwardOverlay(
                     material, deferred, s_Data.Pipeline->RenderStreamPasses.ForwardOverlay != nullptr, s_Data.PBRShader))
             {
                 shaderToUse = s_Data.PBRShader;
@@ -971,10 +987,11 @@ namespace OloEngine
         }
         else if (material.GetType() == MaterialType::PBR)
         {
-            // Transmission has no G-Buffer representation (issue #970) — see
-            // ShouldRerouteTransmissiveToForwardOverlay at the top of this file.
+            // Transmission (issue #970) and alpha blending (issue #1404) have no
+            // G-Buffer representation — see ShouldRerouteToForwardOverlay at the
+            // top of this file.
             const bool deferred = s_Data.Settings.Path == RenderingPath::Deferred;
-            if (ShouldRerouteTransmissiveToForwardOverlay(
+            if (ShouldRerouteToForwardOverlay(
                     material, deferred, s_Data.Pipeline->RenderStreamPasses.ForwardOverlay != nullptr, s_Data.PBRShader))
             {
                 routing.ShaderToUse = s_Data.PBRShader;
@@ -1663,14 +1680,15 @@ namespace OloEngine
         }
         else if (material.GetType() == MaterialType::PBR)
         {
-            // Transmission has no G-Buffer representation (issue #970). The
-            // SKINNED forward shader has the same closure as the static one, so
-            // a rigged glass mesh reroutes exactly like a static one — this path
-            // was missed on the first cut and rendered skinned glass opaque.
+            // Transmission (issue #970) and alpha blending (issue #1404) have no
+            // G-Buffer representation. The SKINNED forward shader has the same
+            // closure and blend handling as the static one, so a rigged glass or
+            // blended mesh reroutes exactly like a static one — this path was
+            // missed on the first cut of #970 and rendered skinned glass opaque.
             const bool deferred = s_Data.Settings.Path == RenderingPath::Deferred;
-            if (ShouldRerouteTransmissiveToForwardOverlay(material, deferred,
-                                                          s_Data.Pipeline->RenderStreamPasses.ForwardOverlay != nullptr,
-                                                          s_Data.PBRSkinnedShader))
+            if (ShouldRerouteToForwardOverlay(material, deferred,
+                                              s_Data.Pipeline->RenderStreamPasses.ForwardOverlay != nullptr,
+                                              s_Data.PBRSkinnedShader))
             {
                 shaderToUse = s_Data.PBRSkinnedShader;
                 overlayRoute = true;
@@ -2185,19 +2203,20 @@ namespace OloEngine
         }
         else if (material.GetType() == MaterialType::PBR)
         {
-            // Transmission has no G-Buffer representation (issue #970).
+            // Transmission (issue #970) and alpha blending (issue #1404) have no
+            // G-Buffer representation.
             //
             // ctx.SceneContext->PBRShader is ALREADY swapped to PBRGBufferShader
-            // on the Deferred path (RenderPipeline.cpp), so a transmissive
-            // material would look deferred-capable here and the overlayReroute
+            // on the Deferred path (RenderPipeline.cpp), so a transmissive or
+            // blended material would look deferred-capable here and the overlayReroute
             // gate below would stay false — the draw would land in the G-Buffer
             // and shade opaque. Selecting the genuine forward shader instead
             // makes that same gate route it to ForwardOverlayPass, with no
             // second copy of the rule.
             const bool deferred = s_Data.Settings.Path == RenderingPath::Deferred;
-            if (ShouldRerouteTransmissiveToForwardOverlay(material, deferred,
-                                                          s_Data.Pipeline->RenderStreamPasses.ForwardOverlay != nullptr,
-                                                          s_Data.PBRShader))
+            if (ShouldRerouteToForwardOverlay(material, deferred,
+                                              s_Data.Pipeline->RenderStreamPasses.ForwardOverlay != nullptr,
+                                              s_Data.PBRShader))
             {
                 shaderToUse = s_Data.PBRShader;
             }
