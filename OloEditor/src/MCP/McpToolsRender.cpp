@@ -9228,8 +9228,9 @@ namespace OloEngine::MCP
                 "SRC_ALPHA/ONE_MINUS_SRC_ALPHA blending and the back-to-front transparent sort) and 'twoSided'. "
                 "An 'alphaMode' implies the matching 'blend' flag unless 'blend' is given explicitly; the result "
                 "says whether it was implied. At least one field is required. Only the MaterialComponent "
-                "override is edited, so the entity must have one. The write edits the loaded scene IN MEMORY, "
-                "is not an undo-stack entry, and the blend flag and alpha do not survive a scene save. Read "
+                "override is edited, so the entity must have one. The write edits the loaded scene IN MEMORY "
+                "and is not an undo-stack entry. A scene save keeps baseColorFactor RGB only: alpha reloads as 1.0, "
+                "and alphaMode, blend and twoSided are not serialized. Read "
                 "back with olo_material_get. This is a WRITE tool: refused unless agent writes are enabled in "
                 "the editor's MCP Server panel (off by default).";
             tool.InputSchema = Schema::Object()
