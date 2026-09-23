@@ -214,6 +214,20 @@ namespace OloEngine
             return;
         }
 
+        // GPU-produced buffers have no draw snapshot. A CPU seed inside a
+        // recording must be a transfer in that command stream: an immediate
+        // one-shot upload would execute before earlier recorded dispatches and
+        // make both of them read the final seed. It also orders the seed after
+        // submitted work when a pooled buffer is reused across frames.
+        if (m_Usage == StorageBufferUsage::DynamicCopy)
+        {
+            if (auto* vk = VulkanUpload::TryGetRecordingVulkanAPI(); vk != nullptr)
+            {
+                vk->UploadBufferSubData(m_RHIHandle.Get(), offset, size, data);
+                return;
+            }
+        }
+
         // NOTE (in-flight caveat, same as VulkanVertexBuffer): a direct
         // mapped write races a PREVIOUS frame's submitted reads of the same
         // range. Current DynamicDraw call sites write at load/setup time or

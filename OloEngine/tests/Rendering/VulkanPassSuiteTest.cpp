@@ -38,6 +38,7 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #else
 
 #include "OloEngine/Particle/GPUParticleSystem.h"
+#include "OloEngine/Fluid/GPUFluidSolver.h"
 #include "OloEngine/Particle/ParticleBatchRenderer.h"
 #include "OloEngine/Precipitation/ScreenSpacePrecipitation.h"
 #include "OloEngine/Renderer/Camera/Camera.h"
@@ -2947,6 +2948,71 @@ TEST_F(VulkanPassSuite, GtaoIsOpenOnUniformDepthAndDarkensACrease)
 // compute ping-pong into the raw targets, driven by a scene-depth import) is
 // the remaining promotion for this tenant.
 // =============================================================================
+TEST_F(VulkanPassSuite, GpuProducedStorageSeedsStayOrderedAcrossTwoDispatches)
+{
+    auto shader = ComputeShader::Create("assets/shaders/compute/UploadOrderRead.comp");
+    ASSERT_TRUE(shader && shader->IsValid());
+    auto source = StorageBuffer::Create(sizeof(u32), 31, StorageBufferUsage::DynamicCopy);
+    auto firstOutput = StorageBuffer::Create(sizeof(u32), 32, StorageBufferUsage::DynamicCopy);
+    auto secondOutput = StorageBuffer::Create(sizeof(u32), 32, StorageBufferUsage::DynamicCopy);
+    ASSERT_TRUE(source && firstOutput && secondOutput);
+
+    SubmitFrame([&]()
+                {
+                    const u32 first = 17;
+                    source->SetData(&first, sizeof(first));
+                    source->Bind();
+                    firstOutput->Bind();
+                    shader->Bind();
+                    RenderCommand::DispatchCompute(1, 1, 1);
+
+                    const u32 second = 29;
+                    source->SetData(&second, sizeof(second));
+                    secondOutput->Bind();
+                    RenderCommand::DispatchCompute(1, 1, 1); });
+    u32 firstRead = 0;
+    u32 secondRead = 0;
+    firstOutput->GetData(&firstRead, sizeof(firstRead));
+    secondOutput->GetData(&secondRead, sizeof(secondRead));
+    EXPECT_EQ(firstRead, 17u);
+    EXPECT_EQ(secondRead, 29u);
+}
+
+TEST_F(VulkanPassSuite, FluidSolverConsumesTwoDistinctEmitBatches)
+{
+    GPUFluidSolver solver(16);
+    ASSERT_TRUE(solver.IsValid());
+
+    FluidSolverParams params;
+    params.BoundsMin = { -1.0f, -1.0f, -1.0f };
+    params.BoundsMax = { 1.0f, 1.0f, 1.0f };
+    params.SolverIterations = 1;
+
+    const GPUFluidEmitEntry first{ .Position = { -0.5f, 0.0f, 0.0f, 0.0f },
+                                   .Velocity = { 0.0f, 0.0f, 0.0f, 0.0f } };
+    const GPUFluidEmitEntry second{ .Position = { 0.5f, 0.0f, 0.0f, 0.0f },
+                                    .Velocity = { 0.0f, 0.0f, 0.0f, 0.0f } };
+    FluidBodyProxy proxy{};
+    proxy.Position = { 0.8f, 0.8f, 0.8f, static_cast<f32>(FluidBodyProxyShape::Sphere) };
+    proxy.Rotation = { 0.0f, 0.0f, 0.0f, 1.0f };
+    proxy.HalfExtents = { 0.1f, 0.0f, 0.0f, 0.0f };
+    SubmitFrame([&]()
+                {
+                    solver.Emit(std::span(&first, 1));
+                    solver.Step(params, 1.0f / 60.0f, std::span(&proxy, 1), {});
+                    proxy.Position.x = -0.8f;
+                    solver.Emit(std::span(&second, 1));
+                    solver.Step(params, 1.0f / 60.0f, std::span(&proxy, 1), {}); });
+    EXPECT_EQ(solver.RefreshExactCount(), 2u);
+    std::array<glm::vec4, 2> positions{};
+    solver.GetPositionsSSBO()->GetData(positions.data(), static_cast<u32>(sizeof(positions)));
+    EXPECT_LT(positions[0].x, -0.25f);
+    EXPECT_GT(positions[1].x, 0.25f);
+
+    solver.SeedParticles({}); // a post-dispatch Vulkan reset must fail closed
+    EXPECT_EQ(solver.RefreshExactCount(), 2u);
+}
+
 TEST_F(VulkanPassSuite, FluidIntermediatesBuildsRawTargetsAndPinsTheNoDrawEarlyOutThroughTheGraph)
 {
     constexpr u32 kSize = 128;

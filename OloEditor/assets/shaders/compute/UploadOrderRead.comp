@@ -1,0 +1,18 @@
+#version 450 core
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+layout(std430, binding = 31) readonly buffer UploadOrderSource
+{
+    uint value;
+} sourceData;
+
+layout(std430, binding = 32) writeonly buffer UploadOrderOutput
+{
+    uint value;
+} outputData;
+
+void main()
+{
+    outputData.value = sourceData.value;
+}
