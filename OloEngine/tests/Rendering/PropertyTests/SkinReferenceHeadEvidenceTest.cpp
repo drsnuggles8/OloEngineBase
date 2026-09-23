@@ -523,9 +523,14 @@ namespace OloEngine::Tests
                "transmission view goes black over it";
     }
 
-    // The baked map is a measurement; this checks it is the one the scene
-    // expects — linear, square, with a thin region and a thick one — rather than
-    // a placeholder or an sRGB-encoded copy.
+    // The baked map is a measurement; this is a SANITY check that the file is
+    // one — square, with a region thin enough to transmit and a thick one —
+    // rather than a flat placeholder. It deliberately claims no more than that:
+    // the atlas's uncovered texels are written thick too, so "mostly clamped"
+    // says little about the head on its own. Whether the THIN region is where
+    // it should be (the ears, not the skull or the eyelids) is the GPU
+    // fixture's forehead and eyelid controls below, which read the map through
+    // the real sampler.
     TEST(SkinReferenceHeadScene, TheBakedThicknessMapHasAThinRegionAndAThickOne)
     {
         const fs::path file = ProjectRoot() / kThicknessMapProjectPath;
@@ -555,7 +560,8 @@ namespace OloEngine::Tests
         EXPECT_LT(thinnest, 51) << "nothing on the head measures under 4 mm, so no region is thin enough to transmit";
         EXPECT_GT(static_cast<f64>(thin) / total, 0.002) << "the thin region is vanishingly small";
         EXPECT_GT(static_cast<f64>(clamped) / total, 0.5)
-            << "most of the head should clamp to 20 mm — a map that is mostly thin makes the skull glow";
+            << "most of the sheet should clamp to 20 mm (the skull and the uncovered atlas) — a map that is mostly "
+               "thin is not this bake";
     }
 
     // =========================================================================
@@ -961,6 +967,9 @@ namespace OloEngine::Tests
     // what a mere slot change does). A same-handle repeat floor is 0 and cannot
     // see that, so it would fail this claim for a reason that is not the claim.
     // The twin measures exactly the part of the difference that is the SLOT.
+    // That a slot index reaches the shading at all is a defect in its own
+    // right, tracked as #1422; when it is fixed, the twin floor falls to 0 and
+    // this claim becomes exact again with no edit here.
     TEST_F(SkinReferenceHeadBacklit, ANeutralVersionThreeRendersTheVersionOneFrame)
     {
         OLO_ENSURE_GPU_OR_SKIP();
