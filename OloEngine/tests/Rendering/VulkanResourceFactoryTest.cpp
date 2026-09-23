@@ -61,13 +61,16 @@ TEST(VulkanResourceFactory, SkipsWhenNotCompiledIn)
 #include "Platform/Vulkan/VulkanTexture2DArray.h"
 #include "Platform/Vulkan/VulkanTextureCubemap.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
+#include "OloEngine/Renderer/Instancing/InstanceBuffer.h"
 
 #include <glad/gl.h>
 #include <volk.h>
 #include <GLFW/glfw3.h>
 
 #include <algorithm>
+#include <array>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <vector>
 
@@ -304,6 +307,44 @@ TEST_F(VulkanResourceFactory, UniformBufferAddressFollowsWritesAndFrames)
     const VkDeviceAddress addr3 = vkUbo->GetRootDataAddress();
     ASSERT_NE(addr3, 0u);
     EXPECT_EQ(arena.GetAllocationCountThisFrame(), allocsBefore + 1);
+}
+
+TEST_F(VulkanResourceFactory, UniformBufferRejectsWrappedGrowthWithoutChangingItsShadow)
+{
+    ScopedVulkanApiSelection vulkanApi;
+    auto& arena = VulkanFrameArena::Get();
+    arena.BeginFrame(0);
+    auto ubo = UniformBuffer::Create(16, 3);
+    ASSERT_TRUE(ubo);
+    const std::array<u32, 4> original{ 1u, 2u, 3u, 4u };
+    ubo->SetData(original.data(), sizeof(original));
+    const auto before = ubo->GetCachedData();
+    ASSERT_EQ(before.size(), sizeof(original));
+    const std::vector<u8> saved(before.begin(), before.end());
+
+    // Both entry points used to wrap offset+size to a small allocation and
+    // then memcpy near UINT32_MAX, corrupting memory before arena publication.
+    const u32 value = 9u;
+    constexpr u32 kWrappedOffset = std::numeric_limits<u32>::max() - 1u;
+    ubo->SetData(&value, sizeof(value), kWrappedOffset);
+    ubo->SetData(UniformData{ .data = &value, .size = sizeof(value), .offset = kWrappedOffset });
+    EXPECT_EQ(ubo->GetSize(), sizeof(original));
+    const auto after = ubo->GetCachedData();
+    EXPECT_EQ(std::vector<u8>(after.begin(), after.end()), saved);
+}
+
+TEST_F(VulkanResourceFactory, InstanceBufferRefusesUnrepresentableGrowthAndRange)
+{
+    ScopedVulkanApiSelection vulkanApi;
+    auto buffer = Ref<InstanceBuffer>::Create(std::numeric_limits<u32>::max());
+    ASSERT_TRUE(buffer->GetStorage());
+    EXPECT_EQ(buffer->GetCapacity(), 1u);
+    buffer->EnsureCapacity(std::numeric_limits<u32>::max());
+    EXPECT_EQ(buffer->GetCapacity(), 1u);
+    const InstanceData one{};
+    buffer->UploadRange(std::numeric_limits<u32>::max(), std::span<const InstanceData>(&one, 1));
+    EXPECT_EQ(buffer->GetCapacity(), 1u);
+    EXPECT_EQ(buffer->GetCount(), 0u);
 }
 
 TEST_F(VulkanResourceFactory, TextureUploadRoundTripsThroughGetData)

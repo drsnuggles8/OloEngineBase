@@ -1,7 +1,9 @@
 #pragma once
 
 #include "OloEngine/Renderer/RHI/RHITypes.h"
+#include "OloEngine/Core/Log.h"
 #include <cstring>
+#include <limits>
 #include <span>
 #include <type_traits>
 #include <utility>
@@ -72,6 +74,15 @@ namespace OloEngine
         // New convenience method to set data directly
         virtual void SetData(const void* data, u32 size, u32 offset = 0)
         {
+            if ((data == nullptr && size != 0) || size > std::numeric_limits<u32>::max() - offset)
+            {
+                OLO_CORE_ERROR("UniformBuffer::SetData: invalid source or range {}+{} — dropping", offset, size);
+                return;
+            }
+            if (size == 0)
+            {
+                return;
+            }
             // Grow the CPU-side buffer if needed
             if (u32 requiredSize = offset + size; requiredSize > m_Size)
             {

@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -548,7 +549,14 @@ namespace OloEngine
         {
             return;
         }
-        if (data.data == nullptr || data.size == 0)
+        if ((data.data == nullptr && data.size != 0) ||
+            data.size > std::numeric_limits<u32>::max() - data.offset)
+        {
+            OLO_CORE_ERROR("VulkanUniformBuffer::SetData: invalid source or range {}+{} — dropping", data.offset,
+                           data.size);
+            return;
+        }
+        if (data.size == 0)
         {
             return;
         }
