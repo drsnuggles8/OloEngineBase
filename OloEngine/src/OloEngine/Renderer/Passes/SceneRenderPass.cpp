@@ -488,7 +488,7 @@ namespace OloEngine
         const bool aoNeedsResolvedNormals =
             (postProcessSettings.ActiveAOTechnique == AOTechnique::SSAO && postProcessSettings.SSAOEnabled) ||
             (postProcessSettings.ActiveAOTechnique == AOTechnique::GTAO && postProcessSettings.GTAOEnabled);
-        if (const bool postNeedsResolvedVelocity = postProcessSettings.MotionBlurEnabled || postProcessSettings.TAAEnabled || m_SelectedVelocityExport.IsValid(); perSampleLighting && (debugNeedsColour || aoNeedsResolvedNormals || postNeedsResolvedVelocity))
+        if (const bool postNeedsResolvedVelocity = postProcessSettings.MotionBlurEnabled || Renderer3D::IsEngineTAAWanted() || m_SelectedVelocityExport.IsValid(); perSampleLighting && (debugNeedsColour || aoNeedsResolvedNormals || postNeedsResolvedVelocity))
         {
             m_GBuffer->Resolve();
         }

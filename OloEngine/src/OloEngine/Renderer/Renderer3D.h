@@ -893,6 +893,46 @@ namespace OloEngine
         {
             return s_Data.GroomStrandRequests;
         }
+
+        // A scene's request for a temporal resolve (issue #1429). Scene calls it
+        // BEFORE BeginScene, every frame, with the number of grooms it holds on
+        // GroomCompositionMode::StochasticAlpha: that mode is refused without a
+        // resolve, and its fallback draws no sub-pixel hair, so without this the
+        // coat renders bald until someone ticks TAA by hand.
+        //
+        // Consumed by the next BeginScene, which is where the jitter for the
+        // frame is decided — so a frame that did not ask (a thumbnail, a capture
+        // with no Scene, a scene whose last stochastic groom was deleted) runs
+        // exactly the user's setting. Nothing is written to the scene file, so
+        // the request cannot go stale.
+        static void RequestSceneTemporalResolve(u32 stochasticGrooms) noexcept
+        {
+            s_Data.PendingSceneTemporalResolveGrooms = stochasticGrooms;
+        }
+        // What THIS frame's scene asked for, latched at BeginScene. Non-zero
+        // with the user's TAAEnabled off means TAA is running on the scene's
+        // behalf — the editor says so next to the TAA checkbox.
+        [[nodiscard]] static u32 GetSceneTemporalResolveGrooms() noexcept
+        {
+            return s_Data.SceneTemporalResolveGrooms;
+        }
+        // Whether engine TAA is wanted this frame: the user's setting OR an
+        // honoured scene request, latched at BeginScene. Every pipeline site that
+        // used to read PostProcess.TAAEnabled reads this, so the jitter, the
+        // resolved velocity, the TAA pass and the groom's composition decision
+        // cannot disagree about whether a resolve runs. FSR2 still subsumes it:
+        // gate a pass on TemporalUpscalePolicy::ShouldRunEngineTAA(this, ...).
+        [[nodiscard]] static bool IsEngineTAAWanted() noexcept
+        {
+            return s_Data.EngineTAAWanted;
+        }
+        // Whether FSR2 owns this frame (see TemporalUpscaleActive). Exposed so a
+        // caller explaining the resolve can tell "engine TAA runs" from "FSR2
+        // runs instead", which IsEngineTAAWanted alone cannot.
+        [[nodiscard]] static bool IsTemporalUpscaleActive() noexcept
+        {
+            return s_Data.TemporalUpscaleActive;
+        }
         // Cleared at BeginScene, so an empty list means "no light asked this
         // frame", never "the last frame's list is still here".
         [[nodiscard]] static std::span<const RayTracedShadowLightRequest> GetRayTracedShadowLightRequests()
@@ -2335,6 +2375,12 @@ namespace OloEngine
             TArray64<RayTracedShadowLightRequest> RayTracedShadowLightRequests;
             // See SetGroomStrandRequests (issue #1246).
             TArray64<GroomStrandRequest> GroomStrandRequests;
+            // See RequestSceneTemporalResolve (issue #1429). Pending is what the
+            // scene published for the NEXT BeginScene; the other two are this
+            // frame's latched answer.
+            u32 PendingSceneTemporalResolveGrooms = 0;
+            u32 SceneTemporalResolveGrooms = 0;
+            bool EngineTAAWanted = false;
             bool GPUSceneExtractionActive = false;
             // This frame's draw links (GPUScene/GPUSceneDrawLink.h). Cleared at
             // BeginGPUSceneExtraction, appended during submission, resolved
@@ -2683,7 +2729,7 @@ namespace OloEngine
             // TAA projection jitter state (Halton(2,3) sub-pixel sequence).
             // `RenderPipeline::PrepareFrame(...)` rotates CurrJitterUV ->
             // PrevJitterUV and then samples the next Halton pair when
-            // PostProcess.TAAEnabled; the
+            // EngineTAAWanted (the user OR a scene request, #1429); the
             // jitter offset is baked into `ProjectionMatrix` (and therefore
             // `ViewProjectionMatrix`) so all downstream passes observe the
             // jittered camera consistently. In Forward / Forward+ without

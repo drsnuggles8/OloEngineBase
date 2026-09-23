@@ -495,6 +495,7 @@ namespace OloEngine
             m_PreviousSSGIHalfResolution = true;
             m_HasJitterMode = false;
             m_PreviousJitterMode = 0u;
+            m_ReportedSceneTemporalResolve = false;
             m_ReportedRayTracedShadowGateVerdict = kNoRayTracedShadowVerdict;
             m_ReportedRayTracedShadowMaskVerdict = kNoRayTracedShadowVerdict;
             m_ReportedRayTracedReflectionVerdict = kNoRayTracedShadowVerdict;
@@ -564,6 +565,10 @@ namespace OloEngine
         bool m_PreviousSSGIHalfResolution = true;
         bool m_HasJitterMode = false;
         u8 m_PreviousJitterMode = 0u; // 0=none, 1=TAA, 2=temporal upscale
+        // Whether the "TAA runs on the scene's request" line has been logged for
+        // the current state (#1429). A member rather than a function static so a
+        // renderer re-init reports it again.
+        bool m_ReportedSceneTemporalResolve = false;
     };
 
     inline Renderer3D::Renderer3DData::Renderer3DData()

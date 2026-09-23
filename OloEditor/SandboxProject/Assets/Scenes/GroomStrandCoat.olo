@@ -37,9 +37,11 @@ Scene: GroomStrandCoat.olo
 #                COVERAGE from the CPU measurements, never from this entity.
 #
 # TAA IS ON. StochasticAlpha is refused without a temporal resolve
-# (GroomCompositionFallbackReason::TemporalResolveUnavailable), so with TAA off
-# this scene shows the fallback tier. The Groom inspector's "Active: <mode>"
-# line says which one is running at any moment.
+# (GroomCompositionFallbackReason::TemporalResolveUnavailable). Since #1429 the
+# scene requests that resolve itself, so unticking TAA no longer shows the
+# fallback tier; untick Renderer Settings > "Honour scene temporal resolve
+# requests" to see it. The Groom inspector's "Active: <mode>" line says which
+# tier is running at any moment.
 #
 # Hair SHADING is not in this scene and is not missing by accident: #1246 is
 # visibility, #1247 is fibre scattering. The coat is neutral-lit on purpose.

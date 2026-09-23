@@ -713,6 +713,15 @@ namespace OloEngine
             return m_PostProcessSettings;
         }
 
+        /// How many grooms in this scene need a temporal resolve to render at all
+        /// (issue #1429): strand rendering on, a groom assigned, and
+        /// GroomCompositionMode::StochasticAlpha requested. Published to
+        /// Renderer3D::RequestSceneTemporalResolve before every BeginScene, so a
+        /// scene that holds one gets TAA without anyone ticking it, in the editor
+        /// and in OloRuntime alike. A count rather than a bool so the editor can
+        /// say how many grooms the resolve is running for.
+        [[nodiscard]] u32 CountGroomsNeedingTemporalResolve() const;
+
         void SetLightmapSettings(const SceneLightmapSettings& settings)
         {
             m_LightmapSettings = settings;

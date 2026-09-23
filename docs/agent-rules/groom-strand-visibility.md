@@ -43,9 +43,13 @@ Read before touching `OloEngine/src/OloEngine/Groom/Groom{Visibility,Coverage,St
    alpha test's single frame is *worse* than a hard cutoff (0.119 vs 0.073 mean coverage error); it
    only wins once a temporal resolve averages it (0.055 over eight frames). `SelectGroomComposition`
    therefore reports `TemporalResolveUnavailable` and drops to the opaque tier rather than shipping
-   noise. Read `TemporalUpscalePolicy::ShouldRunEngineTAA(...) || data.TemporalUpscaleActive`, not
-   `PostProcessSettings::TAAEnabled` — FSR2 forces engine TAA off while it runs and is itself a
-   resolve, so the naive read reports "no resolve" on exactly the frames that have the best one.
+   noise. Read `TemporalUpscalePolicy::ShouldRunEngineTAA(data.EngineTAAWanted, ...) ||
+   data.TemporalUpscaleActive`, not `PostProcessSettings::TAAEnabled` — FSR2 forces engine TAA off
+   while it runs and is itself a resolve, so the naive read reports "no resolve" on exactly the
+   frames that have the best one.
+
+   Refusing is not enough: the refused coat is *bald*, not noisy, so a scene with a stochastic
+   groom requests its own resolve — see [groom-scene-temporal-resolve.md](groom-scene-temporal-resolve.md).
 
 7. **A budget over a cooked groom is a STRIDE, never a prefix.** The cook sorts curves so each group
    is contiguous, so "the first N strands" is one side of the animal. The visible result is a bald

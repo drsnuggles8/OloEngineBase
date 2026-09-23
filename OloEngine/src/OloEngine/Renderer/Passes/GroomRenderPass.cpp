@@ -1188,7 +1188,21 @@ namespace OloEngine
         if (dominant != m_LastReportedReason)
         {
             m_LastReportedReason = dominant;
-            if (dominant != GroomCompositionFallbackReason::None)
+            if (dominant == GroomCompositionFallbackReason::TemporalResolveUnavailable)
+            {
+                // A WARNING, not the info line below: this fallback is not a
+                // softer coat, it is NO coat. The opaque tier's hard cutoff draws
+                // no strand narrower than a pixel, which at any real framing is
+                // every strand (groom-strand-visibility.md rules 1 and 6), so the
+                // subject renders bald (#1429). A scene with a stochastic groom
+                // requests TAA itself, so reaching this means that request was
+                // turned off or the TAA pass could not run.
+                OLO_CORE_WARN("GroomRenderPass: {} of {} grooms render BALD — {}. Enable TAA or a temporal upscaler, "
+                              "or re-enable RendererSettings::HonourSceneTemporalResolveRequests",
+                              m_Stats.Composition.GroomsFellBack, m_Stats.Composition.GroomsConsidered,
+                              ToString(dominant));
+            }
+            else if (dominant != GroomCompositionFallbackReason::None)
             {
                 OLO_CORE_INFO("GroomRenderPass: {} of {} grooms are not on their requested composition mode — {}",
                               m_Stats.Composition.GroomsFellBack, m_Stats.Composition.GroomsConsidered,
