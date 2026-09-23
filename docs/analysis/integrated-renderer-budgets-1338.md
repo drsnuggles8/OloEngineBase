@@ -101,7 +101,10 @@ proving the responsible instruction. The probe's 100-frame p50/p95/p99 were
 for the full integrated workload. The source variants, manifests, probe result
 and fault excerpts are in `vk-deferred-isolation/`. The full Deferred and hybrid
 fault logs are retained beside it. Declared Vulkan Deferred/hybrid support is
-therefore **unvalidated on this workload** pending the device-fault fix.
+therefore **unvalidated on this workload** pending #1437. The same faulting
+address and pass reproduced after the branch was rebased onto `3dcc26ab0`
+and both the test executable and editor were rebuilt; that log is retained as
+`vk-deferred-rebased-fault-editor.txt.gz`.
 
 ## MSAA and upscale controls
 
@@ -132,6 +135,12 @@ grass, water, and sky. Matching per-camera `SceneColorHDR.hdr`, depth, and
 where the path supplies them, albedo, normals and velocity, are under
 `docs/testing/evidence/integrated-renderer-1338/`. The dolly and rapid-turn
 captures provide different camera poses, and their velocity AOVs show motion.
+For a fixed-camera visual motion check after rebasing, `gl-motion-pair/` holds
+stationary GL Deferred captures at frames 100 and 190, both 960 × 540 with the
+same seed and camera. Their Beauty images differ at 328,394/518,400 pixels
+(maximum channel difference 201/255); the fox and moving water visibly change
+position, and aligned Velocity AOVs are retained. This establishes visible
+scene motion, not isolated character-motion error or temporal stability.
 The water patch overlaps grass on its near edge, and the source grooms are
 unbound to fox bodies; these are visible quality limitations of this workload,
 not a claim of production groom or water/vegetation interaction quality.
@@ -152,7 +161,8 @@ CPU, fence-wait and present-wait distributions are retained in each summary.
   optimization claim. Feed this baseline to #1259.
 - The two completed Vulkan raster paths also miss 33.333 ms on every sampled
   frame. Deferred raster and hybrid remain blocked by the animated-animal
-  device fault; fix and remeasure them before using their declared presets.
+  device fault (#1437); fix and remeasure them before using their declared
+  presets.
 - Investigate the Vulkan resize image-lifetime VUID, the Forward+ storage
   binding errors, and the visible water difference before claiming backend
   parity.
