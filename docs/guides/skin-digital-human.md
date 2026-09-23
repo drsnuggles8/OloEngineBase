@@ -5,14 +5,24 @@ matters — they cover different things and it is easy to credit one with the ot
 
 | | subject | transport coverage | what it is for |
 |---|---|---|---|
-| [`Assets/Scenes/DigitalHuman.olo`](../../OloEditor/SandboxProject/Assets/Scenes/DigitalHuman.olo) | a **scanned human head** (`InfiniteScanHead`, CC BY 3.0) carrying `ReferenceHead.oloskin` | **transport version 1 only** — diffusion, and nothing above it | the **live** half — the editor, the Vulkan rows, the MCP debug views |
+| [`Assets/Scenes/DigitalHuman.olo`](../../OloEditor/SandboxProject/Assets/Scenes/DigitalHuman.olo) | a **scanned human head** (`InfiniteScanHead`, CC BY 3.0) carrying `ReferenceHead.oloskin` | **transport version 3** — diffusion, transmission through a thickness map baked from the scan, layered specular | the **live** half — the editor, the Vulkan rows, the MCP debug views |
 | [`SkinDigitalHumanEvidenceTest.cpp`](../../OloEngine/tests/Rendering/PropertyTests/SkinDigitalHumanEvidenceTest.cpp) | a **procedural multi-profile probe** (primitives), GL only | **version 5**, so the whole cumulative ladder | the **asserted** half — tones, expression, cross-talk, cost |
 
-**The cumulative version-5 coverage belongs to the procedural probe, not to the scanned head.**
-`ReferenceHead.oloskin` is authored at version 1, so #1242's thin-region transmission and #1243's
-layered specular are *not enabled* on the live scene's head. Its backlight rig is there as the
-place that gap is visible — the material-transmission view is black over the head — and not as
-evidence that transmission works. That is tracked as #1394.
+**The version-4 and version-5 coverage belongs to the procedural probe, not to the scanned head.**
+`ReferenceHead.oloskin` is authored at version 3 (#1394): diffusion, #1242's thin-region
+transmission and #1243's layered specular run on the live scene's head, and the oral coat and the
+eye do not — the scan has no separable mouth or eyes (#1402). The asserted evidence for the scanned
+head itself is
+[`SkinReferenceHeadEvidenceTest.cpp`](../../OloEngine/tests/Rendering/PropertyTests/SkinReferenceHeadEvidenceTest.cpp),
+which loads the real mesh, the real profile file and the real thickness map.
+
+**The scan's thickness is measured, not painted.** One mesh carries one `ThicknessFactor`, so no
+uniform value can make the ear the thin region. The cranium instead carries
+`Assets/Textures/InfiniteScanHead_Thickness.png`, baked from the mesh's own geometry by
+[`tools/skin-thickness/bake_thickness.py`](../../tools/skin-thickness/README.md): thin at the ear
+rims (~3 mm), clamped at 20 mm through the skull. The closed eyelids are thin **locally** as well,
+but only over an enclosed pocket, so the bake's far-side test reads them as thick. The renderer
+cannot tell them apart itself (see the tool's README).
 
 The split is not arbitrary. The tone ladder and the expression need several authored profiles and a
 morph target, and both are things a static scene can display but cannot *check*; the Vulkan rows
@@ -60,7 +70,6 @@ the high-pass of the diffuse half landed on the `Transmission` view and outlined
 backlit head, even at version 1, where the term is exactly zero. The `Diffuse` view keeps the
 pass, because the diffused diffuse half is what that view shows.
 
-
 **History is not one of these views.** Per #1256, history separability is delivered as the three
 separated reactive causes on `TemporalReactivity` (`SurfaceMotion` / `CoverageChange` /
 `MaterialChange`) in `Renderer/SurfaceHistory.h`, not as a `MaterialDebugView` AOV. Ask *which*
@@ -75,15 +84,17 @@ capture is comparable.
 
 | cell | Soft Key | Hard Side | Backlight |
 |---|---|---|---|
-| soft (authored default) | 6 | 0.6 | 0.8 |
-| hard side | 0.5 | 9 | 0.8 |
-| backlight | 0.3 | 0.3 | 11 |
+| soft (authored default) | 6 | 0.6 | 0.4 |
+| hard side | 0.5 | 9 | 0.4 |
+| backlight | 0.3 | 0.3 | 6 |
 
-The backlight cell is currently a **negative** result and worth reading as one: #1242's
-transmission is a thin-region term, and the scanned head's profile is at version 1, so the
-material-transmission view is black over it. That is the term being disabled, not broken — #1394.
-The transmission evidence that *is* positive comes from the headless probe, whose cranium carries
-a version-5 profile and a thickness map thin at the silhouette.
+The backlight is a **directional, unshadowed** light. It is directional because Forward+ evaluates
+skin transmission for the directional light only: its clustered punctual lights do not transmit, so
+a point backlight left that path's cell dark. It is unshadowed because, shadowed, the ~3 mm ear
+occludes itself at editor cascade resolution and the transmission view goes black over it (the
+first limit in [skin-transmission.md](skin-transmission.md)). The eyelids a shadow would have
+darkened are kept dark by the baked map instead. Under the backlight cell the material-transmission
+view is lit at the ear rim and dark over the face (#1394).
 
 ## What the headless fixture actually asserts
 

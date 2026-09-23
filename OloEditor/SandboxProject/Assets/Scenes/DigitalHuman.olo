@@ -59,9 +59,11 @@ Scene: DigitalHuman.olo
 # deleted. Switching rig is an INTENSITY edit on lights that are already
 # placed, which keeps geometry, exposure and shadow settings fixed.
 #
-# NOTE ON THE BACKLIGHT CELL: ReferenceHead.oloskin is still at transport
-# version 1 (diffusion only), so #1242's transmission is not enabled on this
-# head and the transmission debug view is black over it. Tracked as #1394.
+# THE BACKLIGHT CELL (#1394): ReferenceHead.oloskin is at transport version 3,
+# so #1242's transmission and #1243's layered specular run on this head, and
+# the cranium carries a thickness map baked from the scan itself — thin at the
+# ears, clamped thick through the skull. Under the backlight rig the material
+# transmission view is lit at the ears and dark over the face.
 # -----------------------------------------------------------------------------
 PostProcessSettings:
   TonemapOperator: 2
@@ -151,21 +153,34 @@ Entities:
       Intensity: 0.6
       Range: 3
       CastShadows: true
-  # -- BACKLIGHT (dimmed). Behind and slightly above, pointing back at the lens.
-  #    Raise to ~11 and drop the other two to ~0.3 for the backlight cell: this
-  #    is the only rig under which #1242's transmission through the ears is what
-  #    the picture is made of. --
+  # -- BACKLIGHT (dimmed). From behind the head toward the lens, slightly down
+  #    and from the ear's side, so it reaches the BACK of the pinna past the
+  #    skull. Raise to ~6 and drop the other two to ~0.3 for the backlight cell:
+  #    this is the only rig under which #1242's transmission through the ears
+  #    is what the picture is made of.
+  #
+  #    DIRECTIONAL, AND UNSHADOWED, and both are load-bearing (#1394):
+  #    * Forward+ evaluates skin transmission for the directional light only —
+  #      its clustered punctual lights do not transmit — so a point backlight
+  #      left that path's backlight cell showing nothing.
+  #    * Shadowed, the ear goes BLACK in the editor: at the editor camera's
+  #      cascade resolution a ~3 mm ear is thicker than the shadow normal
+  #      offset and occludes itself — the limit docs/guides/skin-transmission.md
+  #      states. What a shadow would otherwise have done here (keep skin the
+  #      light can only reach THROUGH the head dark, the closed eyelids first
+  #      among it) the baked map does instead: its far-side test reads any thin
+  #      region whose back opens into an enclosed pocket as thick. --
   - Entity: 1222000001000004
     TagComponent:
       Tag: Backlight
     TransformComponent:
-      Translation: [0.05, 0.16, -0.40]
+      Translation: [0, 0, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
-    PointLightComponent:
+    DirectionalLightComponent:
+      Direction: [-0.237, -0.19, 0.953]
       Color: [0.94, 0.95, 1]
-      Intensity: 0.8
-      Range: 3
+      Intensity: 0.4
       CastShadows: false
   # ---------------------------------------------------------------------------
   # THE CRANIUM — #1241 diffusion, #1242 transmission, #1243 layered specular,
@@ -190,10 +205,19 @@ Entities:
       Roughness: 0.42
       MaterialKind: 2
       SkinProfile: 15952688685437936278
-      # 6 mm: a cheek. Not the ears' thickness — a uniform head-wide value would
-      # make the ears stop being the thin region and the backlight cell stop
-      # showing anything the rest of the head does not.
-      ThicknessFactor: 0.006
+      # THE THICKNESS IS MEASURED, NOT PAINTED (issue #1394). The map is baked
+      # from this mesh's own geometry by tools/skin-thickness/bake_thickness.py:
+      # a cone of rays cast into the surface from every texel, the median hit
+      # distance kept. It encodes thickness / 20 mm, so the factor below is
+      # 20 mm in metres and factor * map is the measured thickness.
+      #
+      # A uniform factor cannot do this job on a single scanned mesh: at the
+      # 6 mm this scene used to carry, the ear and the cheek were the same
+      # thickness, so the ear could never be the thin region. Measured, the
+      # helix rim is ~3 mm (p10) and the ear ~6.5 mm at its median; the skull
+      # clamps to 20 mm, where the red transmittance is below 1e-5.
+      ThicknessFactor: 0.02
+      ThicknessMapPath: Assets/Textures/InfiniteScanHead_Thickness.png
   - Entity: 1222000001000040
     TagComponent:
       Tag: Backdrop

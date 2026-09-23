@@ -156,7 +156,10 @@ Entities:
   # -- The face. A slab behind the globes so the eyes are seen AGAINST SKIN
   #    rather than against the clear colour: without it the limbus would be a
   #    silhouette edge against background, and "the sclera is still a skin term"
-  #    would be a claim about nothing. Version 4, unchanged by this feature. --
+  #    would be a claim about nothing. It wears ReferenceHead.oloskin, which is
+  #    transport version 3 since #1394: the slab's specular is #1243's layered
+  #    lobe, and its uniform 6 mm and front-only rig mean it transmits
+  #    nothing visible. --
   - Entity: 1244000002000010
     TagComponent:
       Tag: Face

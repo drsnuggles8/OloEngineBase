@@ -1,27 +1,89 @@
 SkinProfile:
   Name: Reference Head
-  # The VERSION of the skin transport this profile was authored against — NOT
-  # the material's kind, and NOT its PBR closure version. The three are separate
-  # selectors on purpose; see docs/adr/0024-material-kind-is-not-the-closure-version.md.
-  # 0 = DiffuseSpecularSplit (what #1231 shipped), 1 = ScreenSpaceDiffusion
-  # (#1241): the diffuse half is diffused across the surface by the Burley
-  # kernel built from ScatterColor and ScatterRadiusMM below, and the specular
-  # half is recombined untouched. Moving a profile from 0 to 1 is an AUTHORING
-  # act, which is why it is a number in this file and not a renderer switch.
-  EvaluationModel: 1
+  # TRANSPORT VERSION 3 (issue #1394) — LayeredSpecular: #1241's diffusion,
+  # #1242's thin-region transmission and #1243's layered specular. The version
+  # is the AUTHORING switch, not the material's kind and not its PBR closure
+  # version; see docs/adr/0024-material-kind-is-not-the-closure-version.md.
+  #
+  # WHY 3 AND NOT HIGHER. 4 adds a wet oral coat and 5 a cornea — both neutral
+  # by default, and a cranium is neither a mouth nor an eye. 6 changes the SHAPE
+  # of the diffusion (the isotropic gather, #1368) and is deliberately NOT
+  # neutral on arrival; moving there is its own decision with its own rebake,
+  # not part of switching transmission and layered specular on.
+  #
+  # Every field below the diffusion block is AUTHORED ON. The neutral values —
+  # Transmission.Strength 0 and the four Specular fields at 0 — render the
+  # version-1 frame exactly (SkinReferenceHeadEvidenceTest's neutral arm), so a
+  # version bump with those would have moved the number and changed nothing.
+  EvaluationModel: 3
   Units: "colours: linear Rec.709 (unitless 0..1); lengths: millimetres"
   # Transport albedo: the fraction of light entering the surface that leaves it
   # again rather than being absorbed. Red survives, blue does not.
   ScatterColor: [0.85, 0.55, 0.45]
   # Per-channel mean free path in MILLIMETRES. A mid-tone dermis: red travels
   # roughly 1.5 mm, blue barely leaves the epidermis. Read by the diffusion
-  # (Renderer/SkinDiffusion.h): these become the Burley scaling `d` per channel,
-  # and the widest channel's 99.5% support is what becomes a screen-space radius.
+  # (Renderer/SkinDiffusion.h) AND by the transmission below — the same
+  # per-channel reach decides how far light spreads and how much crosses an ear,
+  # which is what makes a backlit ear red rather than white.
   ScatterRadiusMM: [1.55, 0.8, 0.55]
   # Takes the material's authored thickness (metres, per glTF KHR_materials_volume)
   # into the millimetre space of the radii above. 1000 is the identity.
   ThicknessScale: 1000
   # Multiplies the SURFACE specular term. Slightly warm and slightly below one:
-  # skin's oil layer is not a perfect white mirror. This is the knob that stays
-  # meaningful only because the diffuse and specular outputs are separate.
+  # skin's oil layer is not a perfect white mirror.
   SpecularTint: [0.97, 0.93, 0.9]
+  # ---------------------------------------------------------------------------
+  # THIN-REGION TRANSMISSION (issue #1242). How much light crossing a thin
+  # region of this head leaves toward the viewer. HOW MUCH crosses is not here:
+  # it is exp(-thickness / d) per channel, from the material's thickness and the
+  # radii above. These three shape the EXIT only.
+  # ---------------------------------------------------------------------------
+  Transmission:
+    # 1 — the physical answer. The term is bounded by the transmittance, which
+    # is bounded by ScatterColor (SkinTransmission.h, premise 3); anything
+    # below 1 would be a second, unphysical absorption on top of the one the
+    # radii already describe.
+    Strength: 1
+    # The exit lobe's forward bias. Dermal tissue scatters strongly forward per
+    # event (g ~ 0.8-0.9, Jacques 2013, "Optical properties of biological
+    # tissues: a review"), and a few millimetres of ear is only a handful of
+    # scattering lengths, so the light has not forgotten its direction:
+    # 0.7 is that single-event bias partly washed out by the multiple
+    # scattering, and it is the value docs/guides/skin-transmission.md gives
+    # for an ear.
+    Anisotropy: 0.7
+    # The forward part's sharpness. 4: a soft forward glow that is brightest
+    # looking into the light, not a specular spike (the ceiling, 64, is one).
+    # The same as the oral and ocular profiles, so the head and its parts exit
+    # alike.
+    Power: 4
+  # ---------------------------------------------------------------------------
+  # LAYERED SPECULAR (issue #1243). Values read off the in-repo measurement,
+  # experiments/skin-specular-reference/compare_lobes.py, at the footprint this
+  # head is seen at: DigitalHuman.olo frames it at ~0.30 mm per pixel (0.34 m
+  # away, 45 degree vertical field, 942 px tall), and a close-up that fills a
+  # 1080p frame is ~0.25 mm. That is the experiment's COARSE regime, 250-500 um,
+  # where a pixel straddles oily and dry skin and the second lobe earns its place.
+  # ---------------------------------------------------------------------------
+  Specular:
+    # w, the broad lobe's share. The fitted weight is 0.05-0.10 at fine
+    # footprints and 0.55-0.60 from 250 um up; this head is seen at ~300 um.
+    # (The same fit puts the NARROW lobe at ~0.3x the filtered alpha, i.e. it
+    # wants a smoother base roughness than a single lobe does. That is the
+    # MATERIAL's Roughness, not a profile field, and is left to the scenes.)
+    LobeMix: 0.55
+    # s, broad roughness / narrow roughness, on PERCEPTUAL roughness. The
+    # experiment fits a broad/narrow ALPHA ratio of 3.88 at 250 um and 5.42 at
+    # 500 um; this field is its square root, 1.97-2.33, so 2.
+    LobeRoughnessScale: 2
+    # sigma^2, the screen-space variance strength. Fitted 0.15 at 250 um and
+    # 0.75 at 500 um. The scene head is ~13% under adult scale, so 0.30 mm per
+    # pixel is ~0.34 mm of real skin; log-interpolated there, 0.3.
+    NormalVarianceStrength: 0.3
+    # 0 on both detail fields, and this is a measurement rather than a default:
+    # neither subject that wears this profile binds a normal map (the scan
+    # ships a BUMP map, not a normal map), so there is no pore band for a gain
+    # to act on, and the expression gain additionally never reaches a
+    # morph-only entity until #1395 lands.
+    DetailStrength: 0
+    ExpressionDetailGain: 0
