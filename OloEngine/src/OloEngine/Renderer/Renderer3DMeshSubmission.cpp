@@ -577,9 +577,10 @@ namespace OloEngine
                 {
                     data.skinSpecularLane = SkinSpecularLane(profile.Parameters);
                     // The expression half. `GetSkinExpressionDetail()` was set
-                    // by the animated-mesh submission from the entity's APPLIED
-                    // morph weights and is 0 for every static mesh and every
-                    // head at a neutral expression, so this reduces to the
+                    // by the scene's mesh submission (skinned and morph-only
+                    // alike) from the entity's APPLIED morph weights and is 0
+                    // for every mesh without morph targets and every head at a
+                    // neutral expression, so this reduces to the
                     // profile's base gain wherever no face is emoting.
                     data.skinDetailStrength =
                         SkinDetailStrength(profile.Parameters.Specular, material.GetSkinExpressionDetail());
