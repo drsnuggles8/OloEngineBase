@@ -341,13 +341,13 @@ namespace OloEngine
           m_Config(other.m_Config),
           m_IsSorted(other.m_IsSorted),
           m_IsBatched(other.m_IsBatched),
-          m_Lifecycle(other.m_Lifecycle),
+          m_Lifecycle(other.m_Lifecycle.load(std::memory_order_relaxed)),
           m_Stats(other.m_Stats)
     {
         other.m_CommandCount = 0;
         other.m_IsSorted = false;
         other.m_IsBatched = false;
-        other.m_Lifecycle = Lifecycle::Preparing;
+        other.m_Lifecycle.store(Lifecycle::Preparing, std::memory_order_relaxed);
         other.m_Stats = Statistics();
     }
 
@@ -361,13 +361,13 @@ namespace OloEngine
             m_Config = other.m_Config;
             m_IsSorted = other.m_IsSorted;
             m_IsBatched = other.m_IsBatched;
-            m_Lifecycle = other.m_Lifecycle;
+            m_Lifecycle.store(other.m_Lifecycle.load(std::memory_order_relaxed), std::memory_order_relaxed);
             m_Stats = other.m_Stats;
 
             other.m_CommandCount = 0;
             other.m_IsSorted = false;
             other.m_IsBatched = false;
-            other.m_Lifecycle = Lifecycle::Preparing;
+            other.m_Lifecycle.store(Lifecycle::Preparing, std::memory_order_relaxed);
             other.m_Stats = Statistics();
         }
         return *this;
@@ -400,7 +400,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         TUniqueLock<FMutex> lock(m_Mutex);
-        if (m_Lifecycle == Lifecycle::Frozen)
+        if (IsFrozen())
         {
             // Asking a frozen, already-ordered bucket to sort is how a pass
             // that replays a bucket more than once says "make sure it is
@@ -434,7 +434,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         TUniqueLock<FMutex> lock(m_Mutex);
-        if (m_Lifecycle == Lifecycle::Frozen)
+        if (IsFrozen())
             return;
 
         // Workers may still be writing packets into m_ParallelCommands, none
@@ -450,7 +450,7 @@ namespace OloEngine
                 packet->Freeze(recordDigests);
         }
         PublishFramePayloadsForReplay();
-        m_Lifecycle = Lifecycle::Frozen;
+        m_Lifecycle.store(Lifecycle::Frozen, std::memory_order_relaxed);
     }
 
     bool CommandBucket::BeginReplay(std::span<const CommandPacket* const> packets)
@@ -1143,7 +1143,7 @@ namespace OloEngine
     CommandBucket::Statistics CommandBucket::ReplayRange(RendererAPI& rendererAPI, sizet begin, sizet end) const
     {
         OLO_CORE_ASSERT(begin <= end && end <= static_cast<sizet>(m_Packets.Num()), "Invalid replay range");
-        if (m_Lifecycle != Lifecycle::Frozen)
+        if (!IsFrozen())
         {
             CommandLifecycle::ReportViolation(CommandLifecycle::Violation::ReplayOfUnfrozenBucket, "CommandBucket::ReplayRange");
             return {};
@@ -1397,8 +1397,12 @@ namespace OloEngine
         m_TransformBuffers.Empty();
         m_PacketToBufferIndex.clear();
 
-        // Reset parallel submission state
+        // Reset parallel submission state. The capacity goes with the array:
+        // a submission before the next PrepareForParallelSubmission is then
+        // refused by ClaimBatch instead of indexing an emptied array.
         m_ParallelCommands.Reset();
+        m_ParallelCapacity = 0;
+        m_ParallelOverflow.store(0, std::memory_order_relaxed);
         m_NextBatchStart.store(0, std::memory_order_relaxed);
         m_ParallelCommandCount.store(0, std::memory_order_relaxed);
         m_ParallelSubmissionActive = false;
@@ -1411,7 +1415,7 @@ namespace OloEngine
 
         // Retire: the packets are dropped and their memory goes back with the
         // allocator's next reset, so the bucket prepares a new frame.
-        m_Lifecycle = Lifecycle::Preparing;
+        m_Lifecycle.store(Lifecycle::Preparing, std::memory_order_relaxed);
     }
 
     // ========================================================================

@@ -234,7 +234,7 @@ namespace OloEngine
         void Freeze();
         [[nodiscard]] bool IsFrozen() const
         {
-            return m_Lifecycle == Lifecycle::Frozen;
+            return m_Lifecycle.load(std::memory_order_relaxed) == Lifecycle::Frozen;
         }
 
         // Sort commands for optimal rendering (minimizes state changes)
@@ -506,7 +506,7 @@ namespace OloEngine
         // submission path.
         [[nodiscard]] bool RefuseIfFrozen(const char* where) const
         {
-            if (m_Lifecycle != Lifecycle::Frozen) [[likely]]
+            if (m_Lifecycle.load(std::memory_order_relaxed) != Lifecycle::Frozen) [[likely]]
                 return false;
             ReportMutationAfterFreeze(where);
             return true;
@@ -623,7 +623,9 @@ namespace OloEngine
         // Flags for bucket state
         bool m_IsSorted = false;
         bool m_IsBatched = false;
-        Lifecycle m_Lifecycle = Lifecycle::Preparing;
+        // Atomic because SubmitPacketParallel reads it from worker threads
+        // without the mutex; every write is on the owning thread.
+        std::atomic<Lifecycle> m_Lifecycle{ Lifecycle::Preparing };
 
         // Statistics
         Statistics m_Stats;

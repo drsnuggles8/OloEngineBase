@@ -121,6 +121,18 @@ namespace OloEngine
         }
     }
 
+    u32 FrameDataBuffer::GetPublishedTransformCount() const
+    {
+        TUniqueLock<FMutex> lock(m_TransformMutex);
+        return m_PublishedTransforms;
+    }
+
+    u32 FrameDataBuffer::GetPublishedBoneMatrixCount() const
+    {
+        TUniqueLock<FMutex> lock(m_BoneMutex);
+        return m_PublishedBoneMatrices;
+    }
+
     bool FrameDataBuffer::RefusePublishedWrite(u32 offset, u32 published, const char* where)
     {
         // Allocations are bump-only, so everything below the watermark was

@@ -404,6 +404,26 @@ TEST_F(CommandBucketTest, ParallelSubmissionPastItsBoundIsRefusedNotRegrown)
     EXPECT_EQ(bucket.GetCommandCount(), static_cast<sizet>(MAX_RENDER_WORKERS) * TLS_BATCH_SIZE);
 }
 
+// Clear() retires the slot array's capacity with the array. Without that, a
+// worker submitting before the next PrepareForParallelSubmission passed the
+// capacity check against the previous frame's size and wrote index 0 of an
+// emptied array; now the claim is refused and the bucket stays empty.
+TEST_F(CommandBucketTest, ParallelSubmissionAfterClearWithoutPrepareIsRefused)
+{
+#ifdef OLO_ENABLE_ASSERTS
+    GTEST_SKIP() << "The misuse asserts in a build with asserts; this pins what a Release build does instead.";
+#endif
+    CommandBucket bucket;
+    bucket.PrepareForParallelSubmission(5000);
+    bucket.MergeThreadLocalCommands();
+    bucket.Clear();
+
+    auto cmd = MakeSyntheticDrawMeshCommand(1, 1, 0.5f, 1);
+    bucket.SubmitPacketParallel(m_Allocator->CreateCommandPacket(cmd, PacketMetadata{}), 0);
+
+    EXPECT_EQ(bucket.GetCommandCount(), 0u);
+}
+
 // =============================================================================
 // Batch Commands (DrawMesh -> DrawMeshInstanced)
 // =============================================================================

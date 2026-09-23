@@ -142,14 +142,8 @@ namespace OloEngine
         void PublishForReplay();
 
         // Published element counts per stream, for tests and diagnostics.
-        [[nodiscard]] u32 GetPublishedTransformCount() const
-        {
-            return m_PublishedTransforms;
-        }
-        [[nodiscard]] u32 GetPublishedBoneMatrixCount() const
-        {
-            return m_PublishedBoneMatrices;
-        }
+        [[nodiscard]] u32 GetPublishedTransformCount() const;
+        [[nodiscard]] u32 GetPublishedBoneMatrixCount() const;
 
         /**
          * @brief Allocate space for bone matrices

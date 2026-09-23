@@ -15,7 +15,7 @@ namespace OloEngine::CommandLifecycle
 
         std::array<std::atomic<u64>, kViolationKinds> s_Counts{};
         std::atomic<i32> s_ExpectedScopes{ 0 };
-        std::atomic<bool> s_ExpectedSeen{ false };
+        std::atomic<u64> s_UnexpectedCount{ 0 };
 
 #ifdef OLO_DEBUG
         constexpr bool kValidationByDefault = true;
@@ -93,6 +93,7 @@ namespace OloEngine::CommandLifecycle
 
         if (!expected)
         {
+            s_UnexpectedCount.fetch_add(1, std::memory_order_relaxed);
             OLO_CORE_ASSERT(false, "Command lifecycle violation: {} in {}", ToString(violation), where ? where : "<unknown>");
         }
     }
@@ -133,7 +134,6 @@ namespace OloEngine::CommandLifecycle
     ScopedExpectedViolations::ScopedExpectedViolations()
     {
         s_ExpectedScopes.fetch_add(1, std::memory_order_relaxed);
-        s_ExpectedSeen.store(true, std::memory_order_relaxed);
     }
 
     ScopedExpectedViolations::~ScopedExpectedViolations()
@@ -141,13 +141,8 @@ namespace OloEngine::CommandLifecycle
         s_ExpectedScopes.fetch_sub(1, std::memory_order_relaxed);
     }
 
-    bool ExpectedViolationsSeen()
+    u64 GetUnexpectedViolationCount()
     {
-        return s_ExpectedSeen.load(std::memory_order_relaxed);
-    }
-
-    void ResetExpectedViolationsSeen()
-    {
-        s_ExpectedSeen.store(s_ExpectedScopes.load(std::memory_order_relaxed) > 0, std::memory_order_relaxed);
+        return s_UnexpectedCount.load(std::memory_order_relaxed);
     }
 } // namespace OloEngine::CommandLifecycle

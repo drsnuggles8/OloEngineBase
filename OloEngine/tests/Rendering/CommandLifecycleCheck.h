@@ -7,9 +7,10 @@
 // every test — the synthetic buckets of the plumbing tests and the real frames
 // of every renderer and evidence test — freezes its packets, digests them, and
 // re-checks them before and after the replay. This listener fails any test
-// during which a lifecycle violation was raised, unless the test declared the
-// violation with CommandLifecycle::ScopedExpectedViolations (the negative
-// controls do).
+// during which a lifecycle violation was raised outside a
+// CommandLifecycle::ScopedExpectedViolations. A negative control scopes exactly
+// the operation it expects to be refused; anything else it triggers still
+// fails it.
 //
 // That turns the whole suite into the evidence that real scene submission,
 // bone-offset remapping, batching and capture prepare their packets BEFORE the

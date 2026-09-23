@@ -284,6 +284,9 @@ namespace OloEngine
             HeapBinding::FlushOffsets();
 
             m_CommandBucket.SortCommands();
+            // The capture records the bucket's prepared packets. The OIT
+            // program is a pass-level variant applied to copies at replay, so
+            // captured decals show no oitProgramOverride on this path.
             if (capturing)
                 captureManager.OnPostSort(m_CommandBucket);
             auto& rendererAPI = RenderCommand::GetRendererAPI();
@@ -531,7 +534,8 @@ namespace OloEngine
 
                                               packet->Execute(rendererAPI);
                                           } }, plan.InstanceCapacity);
-        CommandBucket::EndReplay(opaquePackets);
+        if (replayable)
+            CommandBucket::EndReplay(opaquePackets);
 
         RenderCommand::SetDepthMask(true);
         RenderCommand::SetBlendState(false);

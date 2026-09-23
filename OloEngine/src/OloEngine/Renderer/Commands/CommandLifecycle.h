@@ -84,9 +84,8 @@ namespace OloEngine::CommandLifecycle
         ScopedExpectedViolations& operator=(ScopedExpectedViolations&&) = delete;
     };
 
-    // True while any ScopedExpectedViolations is alive, or at any point since
-    // the last ResetExpectedViolationsSeen(). The suite listener uses it to
-    // tell a negative control from a regression.
-    [[nodiscard]] bool ExpectedViolationsSeen();
-    void ResetExpectedViolationsSeen();
+    // Violations raised while NO ScopedExpectedViolations was alive. The
+    // suite listener compares this, not the total, so a negative control
+    // declares exactly the violations it provokes and nothing else is waived.
+    [[nodiscard]] u64 GetUnexpectedViolationCount();
 } // namespace OloEngine::CommandLifecycle
