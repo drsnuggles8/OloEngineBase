@@ -93,7 +93,12 @@ namespace OloEngine
         // Optimizes triangle order for GPU post-transform vertex cache,
         // reduces overdraw, and reorders vertices for sequential access.
         // Also generates shadow index buffer for depth-only passes.
-        void OptimizeMesh(MeshSource& meshSource);
+        //
+        // Returns false, and leaves the mesh untouched, when the index stream is not a
+        // triangle list over the vertex array (including per submesh) — meshoptimizer
+        // would assert on it. A caller that records "optimized" (SetPreOptimized, a
+        // cache write) must not do so on false (issue #1440).
+        bool OptimizeMesh(MeshSource& meshSource);
 
         // ── LOD generation ──
 

@@ -292,13 +292,43 @@ TEST(MeshOptimization, OptimizeMeshLeavesAPartialTriangleStreamUntouched)
     mesh->GetIndices().Add(0); // six indices + one
     TArray<u32> const before = mesh->GetIndices();
 
-    MeshOptimization::OptimizeMesh(*mesh);
+    EXPECT_FALSE(MeshOptimization::OptimizeMesh(*mesh));
 
     ASSERT_EQ(mesh->GetIndices().Num(), before.Num());
     for (i32 i = 0; i < before.Num(); ++i)
     {
         EXPECT_EQ(mesh->GetIndices()[i], before[i]) << "index " << i << " was rewritten";
     }
+}
+
+// Each submesh range goes to meshoptimizer on its own, so a stream whose total is a
+// multiple of three can still split into ranges that are not (issue #1440 review).
+TEST(MeshOptimization, OptimizeMeshRefusesASubmeshThatIsNotWholeTriangles)
+{
+    auto mesh = MakeQuadMesh();
+    Submesh first;
+    first.m_BaseIndex = 0;
+    first.m_IndexCount = 4;
+    Submesh second;
+    second.m_BaseIndex = 4;
+    second.m_IndexCount = 2;
+    mesh->AddSubmesh(first);
+    mesh->AddSubmesh(second);
+    TArray<u32> const before = mesh->GetIndices();
+
+    EXPECT_FALSE(MeshOptimization::OptimizeMesh(*mesh));
+
+    ASSERT_EQ(mesh->GetIndices().Num(), before.Num());
+    for (i32 i = 0; i < before.Num(); ++i)
+    {
+        EXPECT_EQ(mesh->GetIndices()[i], before[i]) << "index " << i << " was rewritten";
+    }
+}
+
+TEST(MeshOptimization, OptimizeMeshReportsSuccessOnAWellFormedMesh)
+{
+    auto mesh = MakeGridMesh(4);
+    EXPECT_TRUE(MeshOptimization::OptimizeMesh(*mesh));
 }
 
 TEST(MeshOptimization, OptimizeMeshLeavesAnOutOfRangeIndexUntouched)
@@ -308,7 +338,7 @@ TEST(MeshOptimization, OptimizeMeshLeavesAnOutOfRangeIndexUntouched)
     mesh->GetIndices()[5] = vertexCount; // one past the end
     TArray<u32> const before = mesh->GetIndices();
 
-    MeshOptimization::OptimizeMesh(*mesh);
+    EXPECT_FALSE(MeshOptimization::OptimizeMesh(*mesh));
 
     ASSERT_EQ(mesh->GetIndices().Num(), before.Num());
     for (i32 i = 0; i < before.Num(); ++i)

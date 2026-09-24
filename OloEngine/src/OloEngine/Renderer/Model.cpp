@@ -1325,8 +1325,9 @@ namespace OloEngine
         // AnimatedModel::ProcessMesh does, so every path yields the same surface.
         if (!meshSource->IsBuilt() && !meshSource->IsPreOptimized())
         {
-            MeshOptimization::OptimizeMesh(*meshSource);
-            meshSource->SetPreOptimized(true);
+            // Only a stream OptimizeMesh accepted is optimized; recording a refused one as
+            // such would let every warm load skip the check (#1440).
+            meshSource->SetPreOptimized(MeshOptimization::OptimizeMesh(*meshSource));
         }
 
         // Create Mesh objects for all submeshes in the MeshSource

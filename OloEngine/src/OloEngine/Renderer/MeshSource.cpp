@@ -99,11 +99,28 @@ namespace OloEngine
             return;
         }
 
+        // Nothing below creates a vertex or index buffer for an empty array, and then binds
+        // it unconditionally: a mesh with no triangles (an importer that dropped every face,
+        // issue #1440) dereferenced a null IndexBuffer here. Refuse it, without latching
+        // m_Built, and name the mesh.
+        if (m_Vertices.IsEmpty() || m_Indices.IsEmpty())
+        {
+            OLO_CORE_ERROR("MeshSource::Build: '{}' has {} vertices and {} indices — nothing to upload, "
+                           "the mesh is left unbuilt",
+                           m_Submeshes.IsEmpty() ? "<unnamed>" : *m_Submeshes[0].m_NodeName, m_Vertices.Num(),
+                           m_Indices.Num());
+            return;
+        }
+
         // Optimize mesh data before GPU upload (vertex cache, overdraw, fetch)
         // Skip if data was already optimized (e.g., loaded from binary cache)
-        if (!m_PreOptimized)
+        // A stream OptimizeMesh refuses is not a triangle list over the vertex array;
+        // uploading it would draw garbage or read past the vertex buffer (#1440).
+        if (!m_PreOptimized && !MeshOptimization::OptimizeMesh(*this))
         {
-            MeshOptimization::OptimizeMesh(*this);
+            OLO_CORE_ERROR("MeshSource::Build: '{}' has a malformed index stream — the mesh is left unbuilt",
+                           m_Submeshes.IsEmpty() ? "<unnamed>" : *m_Submeshes[0].m_NodeName);
+            return;
         }
 
         // Ensure bounds are calculated before building GPU resources

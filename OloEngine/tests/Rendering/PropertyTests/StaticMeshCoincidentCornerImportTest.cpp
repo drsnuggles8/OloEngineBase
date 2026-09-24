@@ -644,4 +644,34 @@ namespace OloEngine::Tests
             EXPECT_LT(indices[i], static_cast<u32>(source->GetVertices().Num()));
         }
     }
+
+    // A file with nothing but lines has nothing a static mesh can draw. The import must
+    // fail and say so, not crash and not hand back an empty or line-shaped mesh.
+    TEST_F(StaticMeshLinePrimitiveImport, ALinesOnlyFileFailsToImportInsteadOfCrashing)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        const std::filesystem::path path = WriteTriangleWithLines(AssetsDir(), /*withTriangle=*/false);
+        MakeColdImport(path);
+
+        MeshImportResult const result = MeshImporterRegistry::Get().Import(path);
+        EXPECT_FALSE(result.Succeeded()) << "a lines-only file imported as a static mesh";
+        EXPECT_FALSE(result.Error.empty());
+    }
+
+    // Build used to bind the index buffer it never created for an empty index list: a mesh
+    // an importer had emptied crashed on upload instead of being refused.
+    TEST(StaticMeshBuildRefusal, BuildLeavesAMeshWithNoIndicesUnbuilt)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        auto mesh = Ref<MeshSource>::Create();
+        mesh->GetVertices().Add(Vertex{});
+        mesh->GetVertices().Add(Vertex{});
+        mesh->GetVertices().Add(Vertex{});
+
+        mesh->Build();
+
+        EXPECT_FALSE(mesh->IsBuilt());
+    }
 } // namespace OloEngine::Tests
