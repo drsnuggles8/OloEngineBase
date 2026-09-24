@@ -105,6 +105,7 @@ comment for why, and say so rather than leaving it as an omission.
 | Fingers poke through | `GroomColliderBuildStats::Truncated`: the cap dropped the smallest capsules |
 | Nothing moves at all, no errors | `GroomGuideInfluenceTable::GetUnguidedStrands()` — the groom was exported with no guide flags, or a group has none |
 | Two viewports disagree about where the fur is | Something stepped the solver per camera. It is stepped once per frame, in `DeformGroomAgainstSurface` |
+| Two "identical" test replays put strands in different places | A rewind leaves the skeleton without bone history for one or two frames (one if the clip was ticking before, two if not), and the solver reseeds on each. A replay helper must hold the reseed for two frames, as `GroomAnimalsAcceptanceEvidenceTest::PlayFromStart` does, or it integrates from a history-dependent frame |
 
 ## Where the numbers are
 
