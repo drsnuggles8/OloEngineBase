@@ -148,11 +148,12 @@ reference-path-tracer.md §2, now load-bearing in an asset pipeline.
   sky IBL — the exact leak class the bake exists to kill. The first draft had that bug; the vec4
   return with `.a` as the branch signal is the fix, and the `.rgb` is un-premultiplied by the
   sampled alpha so bilinear taps at chart edges don't darken.
-- **The ambient ladder has ONE definition** (`include/AmbientLadder.glsl`), shared by
-  `PBR_MultiLight` and `PBR_MultiLight_Skinned` — static receivers pass the lightmap sample,
-  skinned/dynamic shaders pass `vec4(0.0)` and enter at the probe rung. Structural parity is
-  exact; PHOTOMETRIC parity is not (the §3 SH radiance-vs-E divergence) — the include's units
-  caveat says so, and no comment may claim continuity until that ledger row is fixed.
+- **The ambient ladder has ONE definition** (`include/AmbientLadder.glsl`), shared by the
+  forward shaders, DeferredLighting, the terrain and foliage shaders and the SSGI trace — static
+  receivers pass the lightmap sample, skinned/dynamic shaders pass `vec4(0.0)` and enter at the
+  probe rung. The rungs are in the same units (#1336): the lightmap and probe rungs deliver
+  irradiance *E*, which `oloNormalizedIrradiance` converts to *E/π* once; the IBL irradiance cube
+  already stores *E/π*. See [lighting-signal-contract.md](lighting-signal-contract.md).
 - **The bake key hashes what the bake CONSUMES, not what looks equivalent.** Lights are hashed
   per type in `ReferenceSceneBuilder::AddScene`'s exact consumption terms: point/spot positions
   are the raw `TransformComponent::Translation` (the builder never composes the parent chain —
