@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/RenderGraphTransientPlanner.h"
 
+#include "OloEngine/Core/DebugLevers.h"
+
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Texture.h"
 
@@ -331,6 +333,21 @@ namespace OloEngine::RenderGraphTransientPlanner
                     continue;
                 lifetime.Last = lastIndex;
                 lifetime.LastPass = std::string(lastPass);
+            }
+        }
+
+        // 1c. A negative control for #1349, never a behaviour: end every
+        //     lifetime one pass early, so the slot assigner below can reuse a
+        //     backing while its last reader has still to run. The pass NAME is
+        //     left alone on purpose: diagnostics keep naming the real last
+        //     reader, which is what an independent lifetime model compares
+        //     against.
+        if (Levers::FaultShortenTransientLifetimes())
+        {
+            for (auto& [resourceName, lifetime] : lifetimes)
+            {
+                if (lifetime.Reachable && lifetime.Last > lifetime.First)
+                    --lifetime.Last;
             }
         }
 

@@ -4,6 +4,7 @@
 // no imported-material table left to consult — only a PODMaterialData slot to bind. See
 // RenderPathDrift.EveryMeshSubmissionPathUsesTheSharedMaterialResolver.
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Wind/WindSystem.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Commands/CommandDispatchRecordingState.h"
@@ -1697,15 +1698,25 @@ namespace OloEngine
         OLO_CORE_ASSERT(!s_RecordingData, "Frame state is frozen during recording");
         Data().CurrentBoundShader = {};
         Data().CurrentBoundVAO = {};
-        Data().GPUSceneMaterialsBound = false;
         Data().GPUSceneConsumedDraws = 0;
         Data().GPUSceneFallbackDraws = 0;
-        Data().LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
-        Data().LastMaterialDataIndex = INVALID_MATERIAL_DATA_INDEX;
-        Data().BoundTextures.fill(RHI::NullResource);
         Data().CurrentViewportWidth = 0;
         Data().CurrentViewportHeight = 0;
-        Data().BoundUBOs.fill(RHI::NullResource);
+        // A negative control for #1349, never a behaviour: with the fault on,
+        // the texture, UBO, material and render-state caches outlive the frame,
+        // so a binding something else changed since the last frame is skipped
+        // as already bound. The shader and vertex-array caches still reset: a
+        // stale VAO draws from VAO 0, which some drivers answer with an access
+        // violation rather than a wrong frame, and a control must fail a check,
+        // not take the process down.
+        if (!Levers::FaultSkipDispatchBindingReset())
+        {
+            Data().GPUSceneMaterialsBound = false;
+            Data().LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
+            Data().LastMaterialDataIndex = INVALID_MATERIAL_DATA_INDEX;
+            Data().BoundTextures.fill(RHI::NullResource);
+            Data().BoundUBOs.fill(RHI::NullResource);
+        }
         s_FrameData.CSMShadowTexture = {};
         s_FrameData.AtlasShadowTexture = {};
         s_FrameData.CSMRawShadowTexture = {};

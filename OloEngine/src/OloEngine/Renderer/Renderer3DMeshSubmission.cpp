@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Animation/Skeleton.h"
 #include "OloEngine/Renderer/DeferredForwardOverlayRoute.h"
 #include "OloEngine/Renderer/GltfPhysicalMaterial.h"
@@ -2589,8 +2590,11 @@ namespace OloEngine
 
         const i32 numMeshes = static_cast<i32>(meshes.size());
 
-        // For small batches, use single-threaded path.
-        if (numMeshes < minBatchSize * 2)
+        // For small batches, use single-threaded path. SerialMeshSubmission
+        // sends every batch this way: the two branches must produce the same
+        // packets, and the lever is how the renderer state-machine harness
+        // (#1349) compares them.
+        if (numMeshes < minBatchSize * 2 || Levers::SerialMeshSubmission())
         {
             u32 totalSubmitted = 0;
             for (const auto& desc : meshes)
@@ -2771,6 +2775,7 @@ namespace OloEngine
                 s_Data.Stats.ObjectsPerLODLevel[j] += workerStats[i].Context.ObjectsPerLODLevel[j];
             }
         }
+        s_Data.Stats.ParallelSubmittedMeshes += totalSubmitted;
 
         return totalSubmitted;
     }
