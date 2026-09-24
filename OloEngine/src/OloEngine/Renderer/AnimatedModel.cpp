@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Asset/MeshCache.h"
+#include "OloEngine/Renderer/AssimpTriangleIndices.h"
 #include "OloEngine/Renderer/GltfPhysicalMaterial.h"
 #include "OloEngine/Renderer/MeshOptimization.h"
 #include "OloEngine/Animation/MorphTargets/MorphTarget.h"
@@ -932,14 +933,14 @@ namespace OloEngine
             ProcessBones(mesh, boneInfluences);
         }
 
-        // Process indices
-        for (u32 i = 0; i < mesh->mNumFaces; ++i)
+        // Triangles only. aiProcess_Triangulate leaves authored line and point primitives
+        // alone, and appending their one or two indices would shift every triangle after
+        // them (issue #1440).
+        if (const u32 skippedFaces = AppendTriangleIndices(*mesh, indices); skippedFaces > 0)
         {
-            const aiFace& face = mesh->mFaces[i];
-            for (u32 j = 0; j < face.mNumIndices; ++j)
-            {
-                indices.Add(face.mIndices[j]);
-            }
+            OLO_CORE_WARN("AnimatedModel::ProcessMesh: mesh '{}' has {} line or point face(s) out of {} — "
+                          "skipped, only triangles are drawn",
+                          mesh->mName.C_Str(), skippedFaces, mesh->mNumFaces);
         }
 
         // Store sizes before moving data to avoid use-after-move issues

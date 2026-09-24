@@ -605,4 +605,26 @@ namespace OloEngine::Tests
             EXPECT_LT(indices[i], static_cast<u32>(result.Source->GetVertices().Num()));
         }
     }
+
+    // The AnimatedModel route runs no SortByPType, so the LINES primitive reaches its
+    // ProcessMesh as two-index faces. It must skip them too, not append them.
+    TEST(StaticMeshLinePrimitiveImport, AnimatedRouteSkipsLineFacesToo)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        const std::filesystem::path dir = Tests::TempDir();
+        const std::filesystem::path path = WriteTriangleWithLines(dir);
+        MakeColdImport(path);
+
+        AnimatedModel animated(path.string());
+        Ref<MeshSource> const source = animated.CreateCombinedMeshSource();
+        ASSERT_TRUE(source);
+
+        const auto& indices = source->GetIndices();
+        EXPECT_EQ(indices.Num(), 3) << "expected the one triangle and nothing from the LINES primitive";
+        for (i32 i = 0; i < indices.Num(); ++i)
+        {
+            EXPECT_LT(indices[i], static_cast<u32>(source->GetVertices().Num()));
+        }
+    }
 } // namespace OloEngine::Tests
