@@ -9,6 +9,7 @@
 #include "OloEngine/Animation/MorphTargets/MorphTarget.h"
 #include "OloEngine/Animation/MorphTargets/MorphTargetSet.h"
 #include <assimp/GltfMaterial.h>
+#include <assimp/config.h>
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -24,6 +25,32 @@ namespace OloEngine
 {
     namespace
     {
+        // The ONE post-process step set for this importer. The cold import and the warm-cache
+        // material rebuild both use it: the rebuild walks the processed tree and relies on
+        // visiting the same meshes in the same order as the import that wrote the cache.
+        //
+        // NOTE: Do NOT add aiProcess_FlipUVs here. Assimp's glTF2 importer already flips V
+        // internally (glTF2Importer.cpp line ~648). Adding FlipUVs would double-flip,
+        // returning UVs to the original glTF convention and breaking texture mapping when
+        // stbi_set_flip_vertically_on_load is active.
+        constexpr u32 kAnimatedImportFlags =
+            aiProcess_Triangulate |           // Make sure we get triangles
+            aiProcess_GenNormals |            // Create normals if not present
+            aiProcess_CalcTangentSpace |      // Calculate tangents and bitangents
+            aiProcess_ValidateDataStructure | // Validate the imported data structure
+            aiProcess_LimitBoneWeights |      // Limit bone weights to 4 per vertex
+            aiProcess_SortByPType |           // Split by primitive type; drops lines/points (see below)
+            aiProcess_GlobalScale;            // Apply global scale
+
+        void ConfigureAnimatedImporter(Assimp::Importer& importer)
+        {
+            // Only triangles are drawn. SortByPType moves line and point primitives into
+            // meshes of their own and this removes those meshes. Skipping their faces one by
+            // one in ProcessMesh instead left a mesh with no indices at all, which
+            // MeshSource::Build cannot upload (issue #1440).
+            importer.SetPropertyInteger(AI_CONFIG_PP_SBP_REMOVE, aiPrimitiveType_POINT | aiPrimitiveType_LINE);
+        }
+
         // Combine multiple MeshSources into a single MeshSource for binary cache serialization.
         // Each original MeshSource becomes one submesh in the combined output.
         Ref<MeshSource> CombineMeshSourcesForCache(std::span<const Ref<MeshSource>> meshes, const Ref<Skeleton>& skeleton)
@@ -583,13 +610,8 @@ namespace OloEngine
                         // in a different order than what was cached.
                         {
                             Assimp::Importer matImporter;
-                            constexpr u32 kAnimCacheLoadFlags = aiProcess_Triangulate |
-                                                                aiProcess_GenNormals |
-                                                                aiProcess_CalcTangentSpace |
-                                                                aiProcess_ValidateDataStructure |
-                                                                aiProcess_LimitBoneWeights |
-                                                                aiProcess_GlobalScale;
-                            const aiScene* matScene = matImporter.ReadFile(path, kAnimCacheLoadFlags);
+                            ConfigureAnimatedImporter(matImporter);
+                            const aiScene* matScene = matImporter.ReadFile(path, kAnimatedImportFlags);
                             if (matScene && !(matScene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) && matScene->mRootNode)
                             {
                                 TArray<u32> materialIndices;
@@ -654,21 +676,10 @@ namespace OloEngine
         // Create an instance of the Importer class
         Assimp::Importer importer;
 
-        // Set import flags for skeletal animation
-        u32 importFlags =
-            aiProcess_Triangulate |           // Make sure we get triangles
-            aiProcess_GenNormals |            // Create normals if not present
-            aiProcess_CalcTangentSpace |      // Calculate tangents and bitangents
-            aiProcess_ValidateDataStructure | // Validate the imported data structure
-            aiProcess_LimitBoneWeights |      // Limit bone weights to 4 per vertex
-            aiProcess_GlobalScale;            // Apply global scale
-        // NOTE: Do NOT add aiProcess_FlipUVs here. Assimp's glTF2 importer already
-        // flips V internally (glTF2Importer.cpp line ~648). Adding FlipUVs would
-        // double-flip, returning UVs to the original glTF convention and breaking
-        // texture mapping when stbi_set_flip_vertically_on_load is active.
+        ConfigureAnimatedImporter(importer);
 
         // Read the file
-        const aiScene* scene = importer.ReadFile(path, importFlags);
+        const aiScene* scene = importer.ReadFile(path, kAnimatedImportFlags);
 
         // Check for errors
         if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
@@ -933,14 +944,14 @@ namespace OloEngine
             ProcessBones(mesh, boneInfluences);
         }
 
-        // Triangles only. aiProcess_Triangulate leaves authored line and point primitives
-        // alone, and appending their one or two indices would shift every triangle after
-        // them (issue #1440).
+        // Triangles only: appending a line or point face's one or two indices would shift
+        // every triangle after it (issue #1440). kAnimatedImportFlags removes line and point
+        // meshes, so a skipped face here means that guarantee broke.
         if (const u32 skippedFaces = AppendTriangleIndices(*mesh, indices); skippedFaces > 0)
         {
-            OLO_CORE_WARN("AnimatedModel::ProcessMesh: mesh '{}' has {} line or point face(s) out of {} — "
-                          "skipped, only triangles are drawn",
-                          mesh->mName.C_Str(), skippedFaces, mesh->mNumFaces);
+            OLO_CORE_ERROR("AnimatedModel::ProcessMesh: mesh '{}' has {} non-triangle face(s) out of {} — "
+                           "skipped; the import should have removed them",
+                           mesh->mName.C_Str(), skippedFaces, mesh->mNumFaces);
         }
 
         // Store sizes before moving data to avoid use-after-move issues

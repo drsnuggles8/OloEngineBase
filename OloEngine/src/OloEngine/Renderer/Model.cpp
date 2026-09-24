@@ -1018,6 +1018,7 @@ namespace OloEngine
         }
 
         u32 lineOrPointMeshes = 0;
+        u32 triangleMeshes = 0;
         for (u32 i = 0; i < scene->mNumMeshes; ++i)
         {
             const aiMesh* rawMesh = scene->mMeshes[i];
@@ -1026,6 +1027,19 @@ namespace OloEngine
             {
                 ++lineOrPointMeshes;
             }
+            if ((rawMesh->mPrimitiveTypes & (aiPrimitiveType_TRIANGLE | aiPrimitiveType_POLYGON)) != 0)
+            {
+                ++triangleMeshes;
+            }
+        }
+        if (scene->mNumMeshes > 0 && triangleMeshes == 0)
+        {
+            // SortByPType would remove every mesh and Assimp would fail with "No meshes
+            // remaining"; say what the file actually is instead.
+            OLO_CORE_ERROR("Model::LoadModel: '{}' has no triangle or polygon primitives ({} mesh(es), all lines or "
+                           "points) — there is nothing to import as a static mesh",
+                           path, scene->mNumMeshes);
+            return;
         }
         if (lineOrPointMeshes > 0)
         {

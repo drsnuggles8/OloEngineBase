@@ -294,8 +294,8 @@ namespace OloEngine::Tests
             return path;
         }
 
-        // One triangle primitive and one LINES primitive in the same glTF mesh.
-        std::filesystem::path WriteTriangleWithLines(const std::filesystem::path& dir)
+        // One LINES primitive, plus (withTriangle) one triangle primitive in the same glTF mesh.
+        std::filesystem::path WriteTriangleWithLines(const std::filesystem::path& dir, bool withTriangle)
         {
             const std::vector<f32> positions = { 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1 };
             const std::vector<u16> triangle = { 0, 1, 2 };
@@ -323,10 +323,11 @@ namespace OloEngine::Tests
                 R"("accessors":[{{"bufferView":0,"componentType":5126,"count":5,"type":"VEC3","min":[0,0,0],"max":[1,1,1]}},)"
                 R"({{"bufferView":1,"componentType":5123,"count":3,"type":"SCALAR"}},)"
                 R"({{"bufferView":2,"componentType":5123,"count":4,"type":"SCALAR"}}],)"
-                R"("meshes":[{{"primitives":[{{"attributes":{{"POSITION":0}},"indices":1}},)"
+                R"("meshes":[{{"primitives":[{})"
                 R"({{"attributes":{{"POSITION":0}},"indices":2,"mode":1}}]}}],)"
                 R"("nodes":[{{"mesh":0}}],"scenes":[{{"nodes":[0]}}],"scene":0}})",
-                buffer.size(), triangleOffset, linesOffset);
+                buffer.size(), triangleOffset, linesOffset,
+                withTriangle ? R"({"attributes":{"POSITION":0},"indices":1},)" : "");
 
             const std::filesystem::path path = dir / "TriangleWithLines.gltf";
             std::ofstream out(path);
@@ -384,13 +385,20 @@ namespace OloEngine::Tests
                 return ::testing::AssertionFailure() << actual.size() << " triangles imported; the source has "
                                                      << expected.size() << " (the #1440 misread gave 6122)";
             }
-            if (actual != expected)
+            // Positions pass through the import unchanged today, but compare with a tolerance
+            // so a ULP-level change in import math is not mistaken for a misread.
+            constexpr f32 kPositionTolerance = 1e-6f;
+            for (sizet t = 0; t < expected.size(); ++t)
             {
-                const auto mismatch = std::ranges::mismatch(actual, expected);
-                return ::testing::AssertionFailure()
-                       << "the imported triangles are not the source's: "
-                       << std::distance(actual.begin(), mismatch.in1) << " of " << expected.size()
-                       << " sorted triangles match before the first difference";
+                for (sizet k = 0; k < expected[t].size(); ++k)
+                {
+                    if (std::abs(actual[t][k] - expected[t][k]) > kPositionTolerance)
+                    {
+                        return ::testing::AssertionFailure()
+                               << "the imported triangles are not the source's: " << t << " of " << expected.size()
+                               << " sorted triangles match before the first difference";
+                    }
+                }
             }
 
             // The triangles whose corners coincide EXACTLY (the top pole) are zero-area
@@ -428,7 +436,9 @@ namespace OloEngine::Tests
             << "the fixture no longer has the pole triangles whose corners collapse";
     }
 
-    class StaticMeshCoincidentCornerImportTest : public ::testing::TestWithParam<SphereVariant>
+    // A temporary project, so MeshCache writes its .omesh files under the test's own temp
+    // directory rather than a path relative to the working directory.
+    class ImportProjectFixture : public ::testing::Test
     {
       protected:
         void SetUp() override
@@ -495,6 +505,10 @@ namespace OloEngine::Tests
 
         std::filesystem::path m_TempDir;
         Ref<EditorAssetManager> m_AssetManager;
+    };
+
+    class StaticMeshCoincidentCornerImportTest : public ImportProjectFixture, public ::testing::WithParamInterface<SphereVariant>
+    {
     };
 
     TEST_P(StaticMeshCoincidentCornerImportTest, ColdStaticImportKeepsEveryTriangle)
@@ -586,12 +600,15 @@ namespace OloEngine::Tests
     // A glTF LINES primitive reaches Assimp as a mesh of two-index faces, which
     // Triangulate leaves alone. The static import draws triangles only: it must drop the
     // lines, not append them to the index stream.
-    TEST(StaticMeshLinePrimitiveImport, LinesPrimitiveIsDroppedNotSplicedIntoTheTriangles)
+    class StaticMeshLinePrimitiveImport : public ImportProjectFixture
+    {
+    };
+
+    TEST_F(StaticMeshLinePrimitiveImport, LinesPrimitiveIsDroppedNotSplicedIntoTheTriangles)
     {
         OLO_ENSURE_GPU_OR_SKIP();
 
-        const std::filesystem::path dir = Tests::TempDir();
-        const std::filesystem::path path = WriteTriangleWithLines(dir);
+        const std::filesystem::path path = WriteTriangleWithLines(AssetsDir(), /*withTriangle=*/true);
         MakeColdImport(path);
 
         MeshImportResult const result = MeshImporterRegistry::Get().Import(path);
@@ -606,14 +623,14 @@ namespace OloEngine::Tests
         }
     }
 
-    // The AnimatedModel route runs no SortByPType, so the LINES primitive reaches its
-    // ProcessMesh as two-index faces. It must skip them too, not append them.
-    TEST(StaticMeshLinePrimitiveImport, AnimatedRouteSkipsLineFacesToo)
+    // The AnimatedModel route removes line and point meshes the same way. Skipping their
+    // faces one at a time instead left a mesh with no indices, which MeshSource::Build
+    // dereferenced a null index buffer for.
+    TEST_F(StaticMeshLinePrimitiveImport, AnimatedRouteDropsTheLinesPrimitiveToo)
     {
         OLO_ENSURE_GPU_OR_SKIP();
 
-        const std::filesystem::path dir = Tests::TempDir();
-        const std::filesystem::path path = WriteTriangleWithLines(dir);
+        const std::filesystem::path path = WriteTriangleWithLines(AssetsDir(), /*withTriangle=*/true);
         MakeColdImport(path);
 
         AnimatedModel animated(path.string());
