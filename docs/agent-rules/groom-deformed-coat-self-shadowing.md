@@ -9,8 +9,11 @@ RepresentationStale}`. The static coat's rules are in
 ## The rules
 
 1. **Bake a bound coat from the strands the pass DRAWS, in groom object space.**
-   `AcquireGeometry` hands the deformed vertex stream to `AcquireCoatVolume`, and the bake reads it
-   instead of the asset's rest curves. Those vertices are already in groom object space with the
+   `AcquireDrawnPose` hands the drawn centrelines to `AcquireCoatVolume`, and the bake reads them
+   instead of the asset's rest curves. Since #1427 a bound coat is deformed in the vertex shader, so
+   the pose is evaluated on the CPU from the same frame buffer the GPU reads
+   ([groom-gpu-strand-deformation.md](groom-gpu-strand-deformation.md) rule 8); on the CPU reference
+   path it is corners 0 and 2 of the rebuilt stream. Those vertices are already in groom object space with the
    pose applied, and they reach the screen through the same model matrix the march inverts. So the
    volume and the strands share one space, and the shader lookup (`u_GroomCoatWorldToObject`)
    needs no change at all.
@@ -142,9 +145,9 @@ coat re-dithering in both directions, so it undersells the term.
 - **A negative control displaced ALONG the light hides the error it controls for.** The probe
   slides along its own ray, and the bind-pose answer comes out nearly right by accident. Swing
   perpendicular to the light.
-- **`Execute` passes one reused vertex stream (`m_DeformedVertices`) to both acquire calls.**
-  `AcquireGeometry` clears it first, so an undeformed groom, or a deformed one that built nothing,
-  can never hand the bake the previous groom's pose.
+- **`AcquireDrawnPose` clears the pose first, and `AcquireGeometry` clears the CPU path's stream
+  first**, so an undeformed groom, or a deformed one that built nothing, can never hand the bake the
+  previous groom's pose.
 
 ## Where the evidence lives
 
