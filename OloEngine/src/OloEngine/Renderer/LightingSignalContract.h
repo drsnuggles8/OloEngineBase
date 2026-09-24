@@ -267,7 +267,7 @@ namespace OloEngine
             if (deferred && frame.SSRActive)
                 tiers = tiers | ScreenSpaceReflection;
             indirectSpecular = { tiers, CountEstimators(tiers) > 1u ? TermComposition::ConfidenceMixture
-                                                                     : TermComposition::Exclusive };
+                                                                    : TermComposition::Exclusive };
         }
         result.Terms[static_cast<sizet>(LightingTerm::IndirectSpecular)] = indirectSpecular;
 
