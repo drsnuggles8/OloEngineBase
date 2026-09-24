@@ -3448,10 +3448,12 @@ namespace OloEngine
             LogSubmissionPlanIfChanged();
         }
 
-        // A clear requested from outside the frame (RequestTransientPoolClear)
-        // happens here, before this frame acquires anything: every pooled
-        // object was last used by an EARLIER frame, which is what the Vulkan
-        // deferred reclaim's generation count assumes.
+        // A clear requested from outside Execute (RequestTransientPoolClear)
+        // happens here, before this frame acquires anything and after this
+        // frame's reclaim generation advanced -- the only point where the Vulkan
+        // deferred reclaim's two-generation wait covers every frame that can
+        // still name a pooled object, including this frame's UI sampling the
+        // previous frame's output (see RequestTransientPoolClear).
         if (m_TransientPoolClearRequested)
         {
             m_TransientPool.Clear();
