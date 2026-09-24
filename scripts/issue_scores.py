@@ -212,7 +212,9 @@ def _coerce(v):
     if v.startswith("["):
         # `[#1131]` is the natural way to write an issue list but is not JSON; one such block
         # used to raise JSONDecodeError and take `rank` and `lint` down for the whole backlog.
-        return json.loads(re.sub(r"#(\d+)", r"\1", v))
+        # Only bare tokens are rewritten; `#N` inside a JSON string (a blocked_by_external
+        # reason) is left as written.
+        return json.loads(re.sub(r'"(?:\\.|[^"\\])*"|#(\d+)', lambda m: m.group(1) or m.group(0), v))
     try:
         return int(v)
     except ValueError:

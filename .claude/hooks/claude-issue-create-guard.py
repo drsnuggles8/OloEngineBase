@@ -40,11 +40,15 @@ import sys
 OVERRIDE_MARKER = "OLO_ISSUE_NOT_A_FINDING"
 
 CREATE_RE = re.compile(r"(?:^|[;&|(]|\b(?:and|then)\b)\s*gh\b[^;&|]*\bissue\s+create\b", re.IGNORECASE)
+# `Not fixed in <#PR or branch> because: <reason> — <fact>`: the target, the reason and a
+# non-empty fact after a dash (em, en or hyphen) are all required.
 REASON_RE = re.compile(
-    r"Not fixed in\b[^\n]{0,120}?\bbecause:\s*(needs a decision|needs access|too big|owned elsewhere)\b",
+    r"Not fixed in\s+\S+\s+because:\s*(needs a decision|needs access|too big|owned elsewhere)"
+    r"\s*[—–-]+\s*\S",
     re.IGNORECASE,
 )
-SCORE_RE = re.compile(r"```olo-score\b")
+# Same complete-fence shape as FENCE_RE in scripts/issue_scores.py: an unclosed block does not parse.
+SCORE_RE = re.compile(r"```olo-score\s*\n.*?\n```", re.DOTALL)
 BODY_FILE_RE = re.compile(r"(?:--body-file|(?<![\w-])-F)(?:=|\s+)(\"[^\"]+\"|'[^']+'|\S+)")
 
 

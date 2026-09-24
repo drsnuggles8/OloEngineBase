@@ -80,11 +80,11 @@ verification" are not reasons. They describe the fix, not something that blocks 
 A filed issue carries, in its body:
 
 ```markdown
-Found while working on #<task issue>.
+Found while working on #<task issue> (or the task's source, for a non-issue task).
 Not fixed in #<PR> because: <needs a decision | needs access | too big | owned elsewhere> — <the fact>.
 ```
 
-plus an `olo-score` block ([issue-scoring.md §5](issue-scoring.md), scored against the §4
+Before the PR exists, write the branch name in place of `#<PR>`. Add an `olo-score` block ([issue-scoring.md §5](issue-scoring.md), scored against the §4
 anchors): `gh issue create --body` bypasses the issue templates, and an unscored issue is invisible
 to `/start-work`. For **owned elsewhere**, also message the owning session if it is live
 (`ListAgents`, then `SendMessage`) so the fix lands there instead of waiting in the backlog.
@@ -176,6 +176,11 @@ a silent drop. A real bug the review finds in code you did not write is a Phase 
 Re-run Phase 2 afterwards.
 
 ## Phase 4 — Commit, push, open the PR
+
+**Close the loop in the repo first**, so it ships in this push and passes the same review and gate:
+tick the `docs/` checkbox, delete the resolved `// TODO`, and write any engine lesson to
+`docs/agent-rules/` (Phase 7, item 2, says where). A repo edit you only think of after Phase 6
+goes back through commit, push and the exit gate.
 
 Pre-authorized on a `feature/*` branch in a task worktree (`CLAUDE.md` → *Committing and
 publishing*), and nowhere else.
@@ -331,6 +336,7 @@ Complete matrix — 6 cells from {GL, Vulkan} x {Forward, Forward+, Deferred}.
 | backend | path      | kind     | evidence                           | result             |
 |---------|-----------|----------|------------------------------------|--------------------|
 | GL      | Forward   | artefact | SkinDiffusion_GL_Forward.png       | 54 258 px, max 86  |
+| GL      | Forward+  | artefact | SkinDiffusion_GL_ForwardPlus.png   | test passes        |
 | GL      | Deferred  | artefact | SkinDiffusion_GL_Deferred.png      | 31 002 px, max 84  |
 | Vulkan  | Forward   | live     | A/B + log: 0 errors, 0 VUIDs       | 52 301 px, max 88  |
 | Vulkan  | Deferred  | live     | A/B + log: 10 VUIDs, pre-existing  | 29 856 px, max 41  |
@@ -353,9 +359,10 @@ Do **not** submit a formal approval (`gh pr review --approve`): it can satisfy b
 
 ## Phase 7 — Close the loop, then report and stop
 
-1. **Mark the source done.** Tick the `docs/` checkbox, delete the resolved `// TODO`. If the PR only
-   advanced an umbrella tracker, comment which item landed.
-2. **Capture any reusable lesson, repo first.** A non-obvious engine gotcha goes to
+1. **Confirm the source is marked done.** The checkbox and `// TODO` edits went in before Phase 4. If
+   the PR only advanced an umbrella tracker, comment which item landed (a comment, not a repo edit).
+2. **Capture any reusable lesson, repo first.** Repo lessons belong in the PR (Phase 4); if one
+   only surfaces now, it goes back through commit, push and the exit gate. A non-obvious engine gotcha goes to
    `docs/agent-rules/`: a failure story as its own postmortem file, an incremental fact appended to
    the relevant `notes-*.md`. Link a new file from both parts of
    [agent-rules/README.md](../agent-rules/README.md) (subsystem index and failure-mode table). Rule
