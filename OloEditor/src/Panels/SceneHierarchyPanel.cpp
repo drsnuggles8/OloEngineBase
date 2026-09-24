@@ -5999,13 +5999,15 @@ namespace OloEngine
             ImGui::ColorEdit4("Knob Color", glm::value_ptr(component.m_KnobColor));
             ImGui::Checkbox("Interactable", &component.m_Interactable); });
 
-        DrawComponent<ParticleSystemComponent>("Particle System", entity, [](auto& component)
+        DrawComponent<ParticleSystemComponent>("Particle System", entity, [entity](auto& component)
                                                {
             auto& sys = component.System;
             auto& emitter = sys.Emitter;
 
-            // Playback
-            ImGui::Checkbox("Playing", &sys.Playing);
+            // Playback. Playing is not part of the component's undo equality (the
+            // preview clears it by itself), so a click records its own entry.
+            if (const bool wasPlaying = sys.Playing; ImGui::Checkbox("Playing", &sys.Playing) && s_DrawComponentCmdHistory && s_DrawComponentScene)
+                s_DrawComponentCmdHistory->PushAlreadyExecuted(MakeParticlePlayingToggleCommand(s_DrawComponentScene, entity.GetUUID(), wasPlaying));
             ImGui::SameLine();
             if (ImGui::Button("Reset"))
                 sys.Reset();

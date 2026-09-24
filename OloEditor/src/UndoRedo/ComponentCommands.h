@@ -5,6 +5,7 @@
 #include "OloEngine/Scene/Scene.h"
 
 #include <functional>
+#include <memory>
 #include <utility>
 
 namespace OloEngine
@@ -221,6 +222,19 @@ namespace OloEngine
         F m_NewValue;
         std::string m_Description;
     };
+
+    // A click on the inspector's Particle System "Playing" checkbox. Playing is
+    // deliberately outside ParticleSystemComponent's operator== (the Edit-mode
+    // preview clears it when a non-looping system ends), so DrawComponent's
+    // tracker never records it. The panel pushes this instead, once per click,
+    // which touches Playing alone and so cannot revert a concurrent setting (#1412).
+    [[nodiscard]] inline std::unique_ptr<EditorCommand> MakeParticlePlayingToggleCommand(Ref<Scene> scene, UUID entityUUID, bool wasPlaying)
+    {
+        auto setPlaying = [](ParticleSystemComponent& component, bool playing)
+        { component.System.Playing = playing; };
+        return std::make_unique<PropertySetCommand<ParticleSystemComponent, bool, decltype(setPlaying)>>(
+            std::move(scene), entityUUID, setPlaying, wasPlaying, !wasPlaying, "Toggle Playing");
+    }
 
     // UUID-based undo/redo for a SINGLE MAP-KEY write applied through a setter
     // function DIRECTLY on the live component (issue #607's MorphTargetComponent::

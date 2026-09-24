@@ -38,6 +38,7 @@ namespace
     using OloEngine::ComponentEditTracker;
     using OloEngine::DiscoveredSetComponent;
     using OloEngine::Entity;
+    using OloEngine::MakeParticlePlayingToggleCommand;
     using OloEngine::ParticleSystemComponent;
     using OloEngine::Ref;
     using OloEngine::Scene;
@@ -63,6 +64,16 @@ namespace
         T& Component()
         {
             return m_Entity.GetComponent<T>();
+        }
+
+        [[nodiscard]] const Ref<Scene>& SceneRef() const
+        {
+            return m_Scene;
+        }
+
+        [[nodiscard]] UUID EntityUUID() const
+        {
+            return m_Entity.GetUUID();
         }
 
         // One inspector frame. `widgets` is what the ImGui widgets did to the
@@ -147,6 +158,50 @@ TEST(ComponentEditTracker, ParticleUndoIsNotRecordedAsANewEdit)
     f.IdleFrames(3);
     EXPECT_FALSE(f.History.CanUndo());
     EXPECT_TRUE(f.History.CanRedo());
+}
+
+// Playing is outside ParticleSystemComponent's operator==, so the tracker never
+// records it. The inspector's checkbox pushes MakeParticlePlayingToggleCommand
+// instead, exactly as SceneHierarchyPanel does; the preview clearing Playing on
+// its own must still record nothing.
+TEST(ComponentEditTracker, ParticlePlayingClickIsOneEntryAndPreviewStopsAreNone)
+{
+    ParticleEdits f;
+    ASSERT_TRUE(f.Component().System.Playing);
+    f.IdleFrames(2);
+
+    // The preview stops a non-looping system: not an edit.
+    f.Component().System.Playing = false;
+    f.IdleFrames(3);
+    EXPECT_FALSE(f.History.CanUndo()) << "a preview-driven Playing change was recorded";
+
+    // The user clicks the checkbox back on.
+    f.InspectorFrame([&f](ParticleSystemComponent& c)
+                     {
+        const bool wasPlaying = c.System.Playing;
+        c.System.Playing = !wasPlaying;
+        f.History.PushAlreadyExecuted(MakeParticlePlayingToggleCommand(f.SceneRef(), f.EntityUUID(), wasPlaying)); });
+    f.IdleFrames(3);
+    ASSERT_TRUE(f.History.CanUndo());
+
+    // Then edits a setting: its own entry, and undoing it leaves Playing alone.
+    f.InspectorFrame([](ParticleSystemComponent& c)
+                     { c.System.Duration = 9.0f; });
+    f.IdleFrames(3);
+    f.History.Undo();
+    f.IdleFrames(3);
+    EXPECT_TRUE(f.Component().System.Playing);
+    EXPECT_FLOAT_EQ(f.Component().System.Duration, 5.0f);
+
+    // Undoing the click restores Playing, once, with redo intact.
+    f.History.Undo();
+    f.IdleFrames(3);
+    EXPECT_FALSE(f.Component().System.Playing);
+    EXPECT_FALSE(f.History.CanUndo());
+    EXPECT_TRUE(f.History.CanRedo());
+    f.History.Redo();
+    f.IdleFrames(3);
+    EXPECT_TRUE(f.Component().System.Playing);
 }
 
 // DiscoveredSetComponent also joined the Value path in #1412. Its inspector is
