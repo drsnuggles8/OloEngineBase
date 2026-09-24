@@ -40,8 +40,8 @@ namespace OloEngine
     struct DegenerateTriangleStats
     {
         u32 TriangleCount = 0;     // Total triangles examined
-        u32 ZeroAreaCount = 0;     // Zero 3D area — genuinely dead geometry (Assimp's
-                                   // aiProcess_FindDegenerates normally removes these)
+        u32 ZeroAreaCount = 0;     // Zero 3D area — genuinely dead geometry, kept as authored
+                                   // (the static import no longer runs FindDegenerates, #1440)
         u32 ZeroUvAreaCount = 0;   // Zero UV area BUT non-zero 3D area — real, untextured geometry
         f64 ZeroUvArea3DSum = 0.0; // Total 3D area those UV-degenerate triangles cover
 

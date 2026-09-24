@@ -21,6 +21,7 @@
 #include <string_view>
 #include <vector>
 
+#include "OloEngine/Renderer/AssimpTriangleIndices.h"
 #include "OloEngine/Renderer/GltfPhysicalMaterial.h"
 #include "OloEngine/Renderer/Model.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -72,6 +73,61 @@ namespace OloEngine
             // variant separate from older/default caches so reload/reimport
             // cannot silently reuse geometry imported with different UVs.
             return effectiveFlipUV ? "static_uvflip_v1" : std::string{};
+        }
+
+        // The ONE post-process step set for the static route. The cold import and the
+        // warm-cache material rebuild both use it: the rebuild walks the processed tree in
+        // DFS order and relies on visiting the same meshes, in the same order, as the cold
+        // import that wrote the cache (#629). Two copies of this list drifted before.
+        //
+        // Deliberately omitted:
+        //   aiProcess_FindDegenerates — with its default configuration it does not remove a
+        //     triangle whose corners share a position; it turns it into a LINE or POINT
+        //     face inside the same triangle mesh. ProcessMesh read every face as three
+        //     indices, so one such face shifted the rest of the index stream and the mesh
+        //     came out as garbage (issue #1440: a UV sphere's pole triangles). Zero-area
+        //     triangles are harmless to draw, the AnimatedModel route has always kept them,
+        //     and MeshOptimization::OptimizeMesh reports them — so they are kept here too.
+        //   aiProcess_OptimizeMeshes — would merge meshes that share materials
+        //     across nodes. We run meshoptimizer ourselves (MeshOptimization::
+        //     OptimizeMesh in MeshSource::Build) on a per-Assimp-mesh basis,
+        //     and material slots stay aligned 1:1 with submeshes. Letting
+        //     Assimp pre-merge changes that mapping.
+        //   aiProcess_FlipWindingOrder — OpenGL front-face is CCW and our
+        //     incoming data is already CCW. Flipping here would invert
+        //     backface culling for every imported asset.
+        //   aiProcess_GlobalScale — requires AI_CONFIG_GLOBAL_SCALE_FACTOR_KEY
+        //     to be set; scenes carry their own scale via TransformComponent.
+        constexpr u32 kStaticImportFlags =
+            aiProcess_Triangulate |           // Make sure we get triangles
+            aiProcess_GenSmoothNormals |      // Shared smooth normals when missing (#653)
+            aiProcess_CalcTangentSpace |      // Calculate tangents and bitangents
+            aiProcess_JoinIdenticalVertices | // Deduplicate identical vertices for smaller buffers
+            aiProcess_ValidateDataStructure | // Validate the imported data structure
+            aiProcess_FindInvalidData |       // Drop NaN/Inf normals, duplicate UVs, etc.
+            aiProcess_SortByPType |           // Split by primitive type; drops lines/points (see below)
+            aiProcess_PreTransformVertices;   // Bake node transforms into vertices (safe for static meshes)
+
+        // The importer properties that go with kStaticImportFlags. Same reason for sharing.
+        void ConfigureStaticImporter(Assimp::Importer& importer)
+        {
+            // GenSmoothNormals, not GenNormals, for meshes that arrive WITHOUT normals: flat per-face
+            // normals split every shared vertex, so JoinIdenticalVertices cannot re-weld them and the
+            // mesh reaches meshoptimizer as a disconnected triangle soup — no usable LOD (classic OR
+            // virtual), faceted shading, and a bloated vertex buffer (issue #653). Smooth normals are
+            // shared, so the mesh welds. The smoothing angle keeps genuine hard creases (> ~66 deg)
+            // split, which is the correct result for hard-surface geometry. A no-op when the source
+            // already carries normals.
+            importer.SetPropertyFloat(AI_CONFIG_PP_GSN_MAX_SMOOTHING_ANGLE, 66.0f);
+            // Keep each authored node mesh reference as a separate baked instance.
+            // The default PTV behaviour merges all meshes with the same material,
+            // losing submesh identity and the per-instance submission count.
+            importer.SetPropertyBool(AI_CONFIG_PP_PTV_KEEP_HIERARCHY, true);
+            // A static mesh draws triangles only. SortByPType moves line and point
+            // primitives (a glTF LINES/POINTS primitive, an OBJ 'l' element) into meshes of
+            // their own and this removes those meshes, so no two-index face ever reaches
+            // ProcessMesh (issue #1440). LoadModel says so when the source had any.
+            importer.SetPropertyInteger(AI_CONFIG_PP_SBP_REMOVE, aiPrimitiveType_POINT | aiPrimitiveType_LINE);
         }
 
         // Scan directory for a file whose stem matches (case-insensitive) with any common image extension.
@@ -855,34 +911,14 @@ namespace OloEngine
                 //       flat order, which can differ from DFS visit order.
                 if (!materialsFromCache)
                 {
+                    // The same flags and properties as the fresh import below — otherwise the
+                    // tree we walk here visits a different number/order of submeshes than
+                    // CreateCombinedMeshSource saw on the cold path, and material indices
+                    // drift. FindInvalidData and SortByPType can prune meshes, so a mismatch
+                    // breaks the 1:1 m_Meshes[i] ↔ DFS-mesh[i] mapping the rebuild relies on.
                     Assimp::Importer importer;
-                    // Must mirror the fresh-import flags below — otherwise the
-                    // tree we walk here visits a different number/order of
-                    // submeshes than CreateCombinedMeshSource saw on the cold
-                    // path, and material indices drift. FindDegenerates +
-                    // FindInvalidData are the two that prune meshes (zero-area
-                    // tris, NaN normals, etc.), so leaving them off here breaks
-                    // the 1:1 m_Meshes[i] ↔ DFS-mesh[i] mapping that the
-                    // material-rebuild relies on.
-                    constexpr u32 kCacheLoadFlags = aiProcess_Triangulate |
-                                                    aiProcess_GenSmoothNormals |
-                                                    aiProcess_CalcTangentSpace |
-                                                    aiProcess_JoinIdenticalVertices |
-                                                    aiProcess_ValidateDataStructure |
-                                                    aiProcess_FindDegenerates |
-                                                    aiProcess_FindInvalidData |
-                                                    aiProcess_PreTransformVertices;
-                    // GenSmoothNormals, not GenNormals: flat per-face normals split every shared
-                    // vertex, so JoinIdenticalVertices can't re-weld them and the mesh reaches
-                    // meshopt as a disconnected triangle soup — no usable LOD, faceted shading,
-                    // bloated vertex buffers (issue #653). Smooth normals are shared, so the mesh
-                    // welds. The angle keeps genuine hard creases (> ~66 deg) split, which is
-                    // correct for hard-surface geometry. Only affects meshes imported WITHOUT
-                    // normals (the flag is a no-op when normals are present). Must mirror the
-                    // fresh-import path below.
-                    importer.SetPropertyFloat(AI_CONFIG_PP_GSN_MAX_SMOOTHING_ANGLE, 66.0f);
-                    importer.SetPropertyBool(AI_CONFIG_PP_PTV_KEEP_HIERARCHY, true);
-                    const aiScene* scene = importer.ReadFile(path, kCacheLoadFlags);
+                    ConfigureStaticImporter(importer);
+                    const aiScene* scene = importer.ReadFile(path, kStaticImportFlags);
                     if (scene && scene->mRootNode)
                     {
                         TArray<u32> sceneMeshIndices;
@@ -960,43 +996,7 @@ namespace OloEngine
 
         // Create an instance of the Importer class
         Assimp::Importer importer;
-
-        // GenSmoothNormals, not GenNormals, for meshes that arrive WITHOUT normals: flat per-face
-        // normals split every shared vertex, so JoinIdenticalVertices cannot re-weld them and the
-        // mesh reaches meshoptimizer as a disconnected triangle soup — no usable LOD (classic OR
-        // virtual), faceted shading, and a bloated vertex buffer (issue #653). Smooth normals are
-        // shared, so the mesh welds. The smoothing angle keeps genuine hard creases (> ~66 deg)
-        // split, which is the correct result for hard-surface geometry. A no-op when the source
-        // already carries normals. Must mirror the cache-load flags above (see the "must mirror"
-        // note there).
-        importer.SetPropertyFloat(AI_CONFIG_PP_GSN_MAX_SMOOTHING_ANGLE, 66.0f);
-        // Keep each authored node mesh reference as a separate baked instance.
-        // The default PTV behaviour merges all meshes with the same material,
-        // losing submesh identity and the per-instance submission count.
-        importer.SetPropertyBool(AI_CONFIG_PP_PTV_KEEP_HIERARCHY, true);
-
-        // And have it read the given file with some postprocessing.
-        //
-        // Deliberately omitted:
-        //   aiProcess_OptimizeMeshes — would merge meshes that share materials
-        //     across nodes. We run meshoptimizer ourselves (MeshOptimization::
-        //     OptimizeMesh in MeshSource::Build) on a per-Assimp-mesh basis,
-        //     and material slots stay aligned 1:1 with submeshes. Letting
-        //     Assimp pre-merge changes that mapping.
-        //   aiProcess_FlipWindingOrder — OpenGL front-face is CCW and our
-        //     incoming data is already CCW. Flipping here would invert
-        //     backface culling for every imported asset.
-        //   aiProcess_GlobalScale — requires AI_CONFIG_GLOBAL_SCALE_FACTOR_KEY
-        //     to be set; scenes carry their own scale via TransformComponent.
-        constexpr u32 kStaticImportFlags =
-            aiProcess_Triangulate |           // Make sure we get triangles
-            aiProcess_GenSmoothNormals |      // Shared smooth normals when missing (#653)
-            aiProcess_CalcTangentSpace |      // Calculate tangents and bitangents
-            aiProcess_JoinIdenticalVertices | // Deduplicate identical vertices for smaller buffers
-            aiProcess_ValidateDataStructure | // Validate the imported data structure
-            aiProcess_FindDegenerates |       // Remove zero-area / collinear triangles
-            aiProcess_FindInvalidData |       // Drop NaN/Inf normals, duplicate UVs, etc.
-            aiProcess_PreTransformVertices;   // Bake node transforms into vertices (safe for static meshes)
+        ConfigureStaticImporter(importer);
 
         // Parse first, post-process second — two calls where there used to be one ReadFile,
         // and NOT an extra parse: ApplyPostProcessing runs the steps on the scene ReadFile
@@ -1017,9 +1017,22 @@ namespace OloEngine
             return;
         }
 
-        for (u32 i = 0; i < scene->mNumMeshes && !m_SourceIsRigged; ++i)
+        u32 lineOrPointMeshes = 0;
+        for (u32 i = 0; i < scene->mNumMeshes; ++i)
         {
-            m_SourceIsRigged = scene->mMeshes[i]->mNumBones > 0;
+            const aiMesh* rawMesh = scene->mMeshes[i];
+            m_SourceIsRigged = m_SourceIsRigged || rawMesh->mNumBones > 0;
+            if ((rawMesh->mPrimitiveTypes & (aiPrimitiveType_LINE | aiPrimitiveType_POINT)) != 0)
+            {
+                ++lineOrPointMeshes;
+            }
+        }
+        if (lineOrPointMeshes > 0)
+        {
+            // SortByPType + AI_CONFIG_PP_SBP_REMOVE drops them below (ConfigureStaticImporter).
+            OLO_CORE_WARN("Model::LoadModel: '{}' has line or point primitives in {} of {} mesh(es). The static "
+                          "importer draws triangles only, so those primitives are dropped.",
+                          path, lineOrPointMeshes, scene->mNumMeshes);
         }
 
         scene = importer.ApplyPostProcessing(kStaticImportFlags);
@@ -1213,13 +1226,13 @@ namespace OloEngine
             }
         }
 
-        for (u32 i = 0; i < mesh->mNumFaces; ++i)
+        // kStaticImportFlags removes line and point meshes, so a skipped face here means that
+        // guarantee broke — worth an error, not a silent gap in the mesh.
+        if (const u32 skippedFaces = AppendTriangleIndices(*mesh, indices); skippedFaces > 0)
         {
-            const aiFace face = mesh->mFaces[i];
-            for (u32 j = 0; j < face.mNumIndices; ++j)
-            {
-                indices.Add(face.mIndices[j]);
-            }
+            OLO_CORE_ERROR("Model::ProcessMesh: mesh '{}' has {} non-triangle face(s) out of {} — skipped; "
+                           "the static import should have removed them",
+                           mesh->mName.C_Str(), skippedFaces, mesh->mNumFaces);
         }
 
         if (mesh->mMaterialIndex < scene->mNumMaterials)
