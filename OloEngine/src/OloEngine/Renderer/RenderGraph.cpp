@@ -3448,6 +3448,16 @@ namespace OloEngine
             LogSubmissionPlanIfChanged();
         }
 
+        // A clear requested from outside the frame (RequestTransientPoolClear)
+        // happens here, before this frame acquires anything: every pooled
+        // object was last used by an EARLIER frame, which is what the Vulkan
+        // deferred reclaim's generation count assumes.
+        if (m_TransientPoolClearRequested)
+        {
+            m_TransientPool.Clear();
+            m_TransientPoolClearRequested = false;
+        }
+
         MaterializeTransientResources();
 
         // Run the pre-built submission-plan IR through the extracted plan

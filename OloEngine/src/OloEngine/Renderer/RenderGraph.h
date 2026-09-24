@@ -705,6 +705,20 @@ namespace OloEngine
             m_TransientPool.Clear();
         }
 
+        // Evict the pool at the start of the next Execute() instead of now.
+        // For a caller that may run in the MIDDLE of a frame -- an MCP tool, the
+        // editor UI -- after this frame's passes already recorded commands
+        // against pooled objects. Clearing then hands those objects to the
+        // Vulkan deferred reclaim, whose two-generation wait covers the
+        // previous frame but not the one still recording, and the image is
+        // destroyed while its command buffer is in flight (VUID-vkDestroyImage-
+        // image-01000). Found by the renderer state-machine harness's live
+        // Vulkan replay (#1349).
+        void RequestTransientPoolClear()
+        {
+            m_TransientPoolClearRequested = true;
+        }
+
         // -------------------------------------------------------------------
         // Builder support for transient resource allocation
         // -------------------------------------------------------------------
@@ -1765,6 +1779,7 @@ namespace OloEngine
         // Transient resource pool
         // -------------------------------------------------------------------
         TransientPool m_TransientPool;
+        bool m_TransientPoolClearRequested = false;
 
         // -------------------------------------------------------------------
         // Graph-native execution metadata

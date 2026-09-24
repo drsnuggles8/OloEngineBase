@@ -3514,13 +3514,16 @@ namespace OloEngine::MCP
                     RenderGraph::SetTransientDebugFlags(wanted);
                     // Pooled objects acquired under the previous aliasing policy are
                     // still bucketed and would be handed straight back out under the
-                    // new one, so an A/B would compare a mixed state. Evict.
+                    // new one, so an A/B would compare a mixed state. Evict -- at the
+                    // start of the next frame, not here: this runs between the
+                    // passes and the submit, and on Vulkan an inline clear destroyed
+                    // images the frame still recording had used (#1349).
                     if (aliasingChanged)
                     {
                         // Own (non-const) Ref: Ref<T> propagates constness through
                         // operator->, and GetActiveGraph() returns a const Ref.
                         if (Ref<RenderGraph> graph = RenderGraphDebugRuntime::GetActiveGraph(); graph)
-                            graph->GetTransientPool().Clear();
+                            graph->RequestTransientPoolClear();
                     }
                 }
 
