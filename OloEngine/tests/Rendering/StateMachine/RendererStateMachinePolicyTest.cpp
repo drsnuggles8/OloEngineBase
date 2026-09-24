@@ -157,7 +157,8 @@ namespace OloEngine::Tests::StateMachine
             const std::string text = Serialize(trace);
             std::string error;
             const std::optional<Trace> parsed = ParseTrace(text, &error);
-            ASSERT_TRUE(parsed.has_value()) << error << "\n" << text;
+            ASSERT_TRUE(parsed.has_value()) << error << "\n"
+                                            << text;
             EXPECT_EQ(parsed->Seed, trace.Seed);
             EXPECT_EQ(parsed->Initial, trace.Initial) << text;
             EXPECT_EQ(parsed->Ops, trace.Ops) << text;
@@ -182,7 +183,8 @@ namespace OloEngine::Tests::StateMachine
         for (const auto& [text, where] : cases)
         {
             std::string error;
-            EXPECT_FALSE(ParseTrace(text, &error).has_value()) << "accepted:\n" << text;
+            EXPECT_FALSE(ParseTrace(text, &error).has_value()) << "accepted:\n"
+                                                               << text;
             EXPECT_NE(error.find(where), std::string::npos) << "error '" << error << "' should name " << where;
         }
     }
@@ -960,79 +962,79 @@ namespace OloEngine::Tests::StateMachine
 
     class RendererStateMachineDrawOrder : public ::testing::Test
     {
-          protected:
-            void SetUp() override
-            {
-                m_OwnsFrameData = !FrameDataBufferManager::IsInitialized();
-                if (m_OwnsFrameData)
-                    FrameDataBufferManager::Init();
-            }
-            void TearDown() override
-            {
-                if (m_OwnsFrameData)
-                    FrameDataBufferManager::Shutdown();
-            }
+      protected:
+        void SetUp() override
+        {
+            m_OwnsFrameData = !FrameDataBufferManager::IsInitialized();
+            if (m_OwnsFrameData)
+                FrameDataBufferManager::Init();
+        }
+        void TearDown() override
+        {
+            if (m_OwnsFrameData)
+                FrameDataBufferManager::Shutdown();
+        }
 
-            // Submit, sort and (optionally) batch the draws as the geometry
-            // stream does, from one thread or from `workers` real threads.
-            [[nodiscard]] std::vector<i32> Execute(const std::vector<Draw>& draws, bool batching, u32 workers, u64 seed)
-            {
-                FrameDataBufferManager::Get().Reset();
-                CommandBucketConfig config;
-                config.EnableSorting = true;
-                config.EnableBatching = batching;
-                config.InitialCapacity = 256;
-                CommandBucket bucket(config);
-                std::vector<std::unique_ptr<CommandAllocator>> allocators;
-                for (u32 w = 0; w < std::max(workers, 1u); ++w)
-                    allocators.push_back(std::make_unique<CommandAllocator>());
-                bucket.SetAllocator(allocators[0].get());
+        // Submit, sort and (optionally) batch the draws as the geometry
+        // stream does, from one thread or from `workers` real threads.
+        [[nodiscard]] std::vector<i32> Execute(const std::vector<Draw>& draws, bool batching, u32 workers, u64 seed)
+        {
+            FrameDataBufferManager::Get().Reset();
+            CommandBucketConfig config;
+            config.EnableSorting = true;
+            config.EnableBatching = batching;
+            config.InitialCapacity = 256;
+            CommandBucket bucket(config);
+            std::vector<std::unique_ptr<CommandAllocator>> allocators;
+            for (u32 w = 0; w < std::max(workers, 1u); ++w)
+                allocators.push_back(std::make_unique<CommandAllocator>());
+            bucket.SetAllocator(allocators[0].get());
 
-                if (workers <= 1u)
+            if (workers <= 1u)
+            {
+                for (const Draw& draw : draws)
+                    bucket.Submit(CommandFor(draw), MetadataFor(draw), allocators[0].get());
+            }
+            else
+            {
+                // A seeded, uneven partition: the merge must not depend on
+                // which worker a draw landed on.
+                SplitMix64 rng(seed);
+                std::vector<std::vector<const Draw*>> shares(workers);
+                for (const Draw& draw : draws)
+                    shares[rng.Below(workers)].push_back(&draw);
+                bucket.PrepareForParallelSubmission(static_cast<u32>(draws.size()));
+                std::vector<std::thread> threads;
+                for (u32 w = 0; w < workers; ++w)
                 {
-                    for (const Draw& draw : draws)
-                        bucket.Submit(CommandFor(draw), MetadataFor(draw), allocators[0].get());
-                }
-                else
-                {
-                    // A seeded, uneven partition: the merge must not depend on
-                    // which worker a draw landed on.
-                    SplitMix64 rng(seed);
-                    std::vector<std::vector<const Draw*>> shares(workers);
-                    for (const Draw& draw : draws)
-                        shares[rng.Below(workers)].push_back(&draw);
-                    bucket.PrepareForParallelSubmission(static_cast<u32>(draws.size()));
-                    std::vector<std::thread> threads;
-                    for (u32 w = 0; w < workers; ++w)
-                    {
-                        threads.emplace_back([&bucket, &allocators, &shares, w]
-                                             {
+                    threads.emplace_back([&bucket, &allocators, &shares, w]
+                                         {
                                                  for (const Draw* draw : shares[w])
                                                  {
                                                      auto* packet = allocators[w]->CreateCommandPacket(CommandFor(*draw), MetadataFor(*draw));
                                                      bucket.SubmitPacketParallel(packet, w);
                                                  } });
-                    }
-                    for (auto& thread : threads)
-                        thread.join();
-                    bucket.MergeThreadLocalCommands();
                 }
-
-                if (batching)
-                {
-                    bucket.BatchCommands(*allocators[0]);
-                    if (!bucket.IsSorted())
-                        bucket.SortCommands();
-                }
-                else
-                {
-                    bucket.SortCommands();
-                }
-                return ReplayOrder(bucket);
+                for (auto& thread : threads)
+                    thread.join();
+                bucket.MergeThreadLocalCommands();
             }
 
-          private:
-            bool m_OwnsFrameData = false;
+            if (batching)
+            {
+                bucket.BatchCommands(*allocators[0]);
+                if (!bucket.IsSorted())
+                    bucket.SortCommands();
+            }
+            else
+            {
+                bucket.SortCommands();
+            }
+            return ReplayOrder(bucket);
+        }
+
+      private:
+        bool m_OwnsFrameData = false;
     };
 
     TEST_F(RendererStateMachineDrawOrder, BatchingAndParallelSubmissionKeepBlendedDrawOrder)

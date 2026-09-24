@@ -95,11 +95,11 @@ namespace OloEngine::Tests::StateMachine
     // operation sets and the harness can set directly.
     struct ModelConfig
     {
-        u32 Path = 0;       // RenderingPath
-        u32 SizeIndex = 0;  // kSizes
-        u32 MsaaIndex = 0;  // kMsaaSamples
+        u32 Path = 0;         // RenderingPath
+        u32 SizeIndex = 0;    // kSizes
+        u32 MsaaIndex = 0;    // kMsaaSamples
         u32 UpscaleIndex = 0; // kUpscaleModes
-        u32 Features = 0;   // bit per FeatureId
+        u32 Features = 0;     // bit per FeatureId
         bool BlendedMesh = false;
         bool DoubleBuffering = true;
         u32 Pose = 0;

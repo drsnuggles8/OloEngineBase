@@ -49,7 +49,7 @@ namespace OloEngine::Tests::StateMachine::Coverage
         RowOutcome Outcome = RowOutcome::NotSelected;
         u32 Comparisons = 0;
         u32 DistributionFallbacks = 0;
-        u32 Vacuous = 0; // comparisons skipped because the lever had nothing to change in that state
+        u32 Vacuous = 0;    // comparisons skipped because the lever had nothing to change in that state
         std::string Reason; // skip reason, blocking issue, or live-only evidence
     };
 

@@ -55,13 +55,20 @@ namespace OloEngine::Tests::StateMachine
         // colour formats: an integer or depth target cannot be read back as
         // RGBA float without a GL error.
         constexpr std::array<std::string_view, 14> kTrackedTargets{
-            ResourceNames::SceneColorTexture,   ResourceNames::SceneViewNormals,
-            ResourceNames::GBufferAlbedo,       ResourceNames::GBufferNormal,
-            ResourceNames::GBufferEmissive,     ResourceNames::AOBuffer,
-            ResourceNames::AOApplyColorTexture, ResourceNames::SSRColorTexture,
-            ResourceNames::EASUColorTexture,    ResourceNames::BloomColorTexture,
-            ResourceNames::ToneMapColorTexture, ResourceNames::ColorGradingColorTexture,
-            ResourceNames::VignetteColorTexture, ResourceNames::FXAAColorTexture,
+            ResourceNames::SceneColorTexture,
+            ResourceNames::SceneViewNormals,
+            ResourceNames::GBufferAlbedo,
+            ResourceNames::GBufferNormal,
+            ResourceNames::GBufferEmissive,
+            ResourceNames::AOBuffer,
+            ResourceNames::AOApplyColorTexture,
+            ResourceNames::SSRColorTexture,
+            ResourceNames::EASUColorTexture,
+            ResourceNames::BloomColorTexture,
+            ResourceNames::ToneMapColorTexture,
+            ResourceNames::ColorGradingColorTexture,
+            ResourceNames::VignetteColorTexture,
+            ResourceNames::FXAAColorTexture,
         };
 
         [[nodiscard]] bool IsReadableColorFormat(GLint internalFormat)
@@ -1239,7 +1246,8 @@ namespace OloEngine::Tests::StateMachine
         const fs::path originalPath = TempFile(label + ".trace");
         {
             std::ofstream out(originalPath, std::ios::binary);
-            out << "# " << label << ": pair " << first.PairId << " failed " << first.Where << "\n" << original;
+            out << "# " << label << ": pair " << first.PairId << " failed " << first.Where << "\n"
+                << original;
         }
 
         std::string minimisedReport = "  (minimisation off: --olo-state-machine-minimize-budget=0)\n";
@@ -1257,7 +1265,8 @@ namespace OloEngine::Tests::StateMachine
             const fs::path reducedPath = TempFile(label + ".min.trace");
             {
                 std::ofstream out(reducedPath, std::ios::binary);
-                out << "# minimised from " << label << " against pair " << first.PairId << "\n" << Serialize(reduced);
+                out << "# minimised from " << label << " against pair " << first.PairId << "\n"
+                    << Serialize(reduced);
             }
             minimisedReport = "Minimised to " + std::to_string(reduced.Ops.size()) + " op(s) in " +
                               std::to_string(minimised.Evaluations) + " replay(s)" +

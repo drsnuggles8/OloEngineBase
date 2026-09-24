@@ -100,8 +100,8 @@ namespace OloEngine::Tests::StateMachine
     {
         std::string Name;
         bool Exact = true;
-        f64 MeanShift = 0.0;     // largest per-channel mean difference
-        f64 HistogramL1 = 0.0;   // luminance histogram L1 distance, as a fraction of texels
+        f64 MeanShift = 0.0;   // largest per-channel mean difference
+        f64 HistogramL1 = 0.0; // luminance histogram L1 distance, as a fraction of texels
     };
 
     // Compare `a` with `b`, holding each target exact when `controls` say it is

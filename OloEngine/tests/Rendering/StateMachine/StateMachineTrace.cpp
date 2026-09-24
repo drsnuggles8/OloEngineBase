@@ -9,7 +9,7 @@ namespace OloEngine::Tests::StateMachine
     namespace
     {
         constexpr std::array<std::string_view, static_cast<sizet>(OpKind::Count)> kOpNames{
-            "resize", "path",      "feature",          "msaa",      "upscale",         "shader-reload", "scene-reload",
+            "resize", "path", "feature", "msaa", "upscale", "shader-reload", "scene-reload",
             "entity-churn", "fence-drain", "frames-in-flight", "scene-swap", "history-advance", "camera-move", "pool-trim"
         };
         constexpr std::array<std::string_view, kPathCount> kPathNames{ "forward", "forward-plus", "deferred" };

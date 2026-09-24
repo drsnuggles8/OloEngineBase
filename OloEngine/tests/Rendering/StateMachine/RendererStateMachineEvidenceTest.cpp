@@ -251,7 +251,8 @@ namespace OloEngine::Tests::StateMachine
                 const FrameCapture after = CaptureFrame();
                 const Comparison comparison = CompareCaptures(before, after, controls);
                 Coverage::RecordComparison("fresh-vs-reloaded.gl", comparison.AnyDistributionFallback);
-                EXPECT_TRUE(comparison.Held) << ToString(op) << " changed the frame:\n" << comparison.Describe();
+                EXPECT_TRUE(comparison.Held) << ToString(op) << " changed the frame:\n"
+                                             << comparison.Describe();
             }
         }
         ExpectOwnedRowsExercised("RendererStateMachineEvidence.ReloadsAreIdentityOperations");
@@ -327,7 +328,8 @@ namespace OloEngine::Tests::StateMachine
         std::string error;
         const std::optional<Trace> trace = LoadTraceFile(path, &error);
         ASSERT_TRUE(trace.has_value()) << error;
-        std::cout << "[StateMachine] replaying " << path << ":\n" << Serialize(*trace);
+        std::cout << "[StateMachine] replaying " << path << ":\n"
+                  << Serialize(*trace);
         EXPECT_TRUE(RunTraceAndReport(*trace, fs::path(path).stem().string()));
     }
 } // namespace OloEngine::Tests::StateMachine
