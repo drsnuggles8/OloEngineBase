@@ -6247,7 +6247,11 @@ namespace OloEngine::MCP
                     if (hasColor)
                         material.SetBaseColorFactor(color);
                     if (hasAlphaMode)
+                    {
                         material.SetAlphaMode(alphaMode);
+                        // The albedo's mip chain depends on the mode (issue #1441).
+                        material.PrepareAlphaTestMips();
+                    }
                     if (applyBlend)
                         material.SetFlag(MaterialFlag::Blend, blend);
                     if (hasTwoSided)

@@ -154,6 +154,15 @@ namespace OloEngine::AlphaCoverageMips
         return kept;
     }
 
+    bool HasPartialCoverage(std::span<const u8> rgba, f32 cutoff) noexcept
+    {
+        const f32 active = SanitizeCutoff(cutoff);
+        if (!(active > 0.0f))
+            return false;
+        const f32 coverage = Coverage(rgba, active);
+        return coverage > 0.0f && coverage < 1.0f;
+    }
+
     f32 Coverage(std::span<const u8> rgba, f32 cutoff) noexcept
     {
         const u64 total = rgba.size() / 4u;
@@ -206,10 +215,10 @@ namespace OloEngine::AlphaCoverageMips
             return chain;
 
         const f32 activeCutoff = SanitizeCutoff(cutoff);
-        const f32 baseCoverage = activeCutoff > 0.0f ? Coverage(level0, activeCutoff) : 0.0f;
         // A level 0 that passes everywhere or nowhere keeps that property under
         // any box filter, so there is nothing for the rescale to preserve.
-        const bool preserve = activeCutoff > 0.0f && baseCoverage > 0.0f && baseCoverage < 1.0f;
+        const bool preserve = HasPartialCoverage(level0, activeCutoff);
+        const f32 baseCoverage = preserve ? Coverage(level0, activeCutoff) : 0.0f;
 
         u64 totalBytes = 0;
         {

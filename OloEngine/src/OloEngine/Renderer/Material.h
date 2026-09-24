@@ -443,12 +443,15 @@ namespace OloEngine
         // the coverage-preserving mip chain its alpha test needs, at this
         // material's cutoff (issue #1441; Texture2D::SetAlphaCoverageCutoff).
         // Without it a cutout thins with distance on every backend that samples
-        // a real mip chain. Any other mode leaves the texture alone.
+        // a real mip chain. A Blend material needs its albedo's alpha AVERAGED,
+        // so it restores the plain chain; Opaque ignores alpha and leaves the
+        // texture alone.
         //
-        // Called ONCE by each importer, after the material is complete — not
-        // from SetAlphaCutoff, which scripts may animate per frame (a dissolve),
-        // and this re-uploads the chain. The albedo may be shared with another
-        // material: the last cutoff applied wins.
+        // Called by each importer once the material is complete, and by editor
+        // tools that change the alpha mode — not from SetAlphaCutoff, which
+        // scripts may animate per frame (a dissolve), and this re-uploads the
+        // chain. The albedo may be shared with another material; when the two
+        // disagree the last one applied wins, and that is logged.
         void PrepareAlphaTestMips() const;
 
         // =====================================================================

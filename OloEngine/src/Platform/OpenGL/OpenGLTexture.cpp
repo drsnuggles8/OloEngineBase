@@ -1256,12 +1256,18 @@ namespace OloEngine
         // two mips up -- read the base level back and did nothing. The Vulkan
         // backend always built the chain, so the two backends disagreed about
         // every file texture in every scene.
+        // m_Specification.MipLevels stays as the caller set it (0 = auto): an
+        // explicit count there is honoured unclamped by Resize().
         m_MipLevels = m_Specification.GenerateMips ? CalculateFullMipCount(m_Width, m_Height) : 1u;
         // An alpha-tested texture stops before its levels get too small to
-        // hold its coverage (AlphaCoverageMips::kMinCoarsestExtent).
-        if (m_AlphaCoverageCutoff > 0.0f && channels == 4u)
+        // hold its coverage (AlphaCoverageMips::kMinCoarsestExtent) — when it
+        // has coverage to lose at all.
+        if (m_AlphaCoverageCutoff > 0.0f && channels == 4u &&
+            AlphaCoverageMips::HasPartialCoverage(
+                { static_cast<const u8*>(data), static_cast<sizet>(m_Width) * m_Height * 4u }, m_AlphaCoverageCutoff))
+        {
             m_MipLevels = AlphaCoverageMips::CappedLevelCount(m_Width, m_Height, m_MipLevels);
-        m_Specification.MipLevels = m_MipLevels;
+        }
         m_MipsPopulated = false;
 
         glCreateTextures(GL_TEXTURE_2D, 1, &m_RendererID);
@@ -1269,8 +1275,14 @@ namespace OloEngine
         glTextureStorage2D(m_RendererID, static_cast<GLsizei>(m_MipLevels), internalFormat, static_cast<int>(m_Width),
                            static_cast<int>(m_Height));
 
-        // Calculate memory usage based on channels and dimensions
-        sizet textureMemory = static_cast<sizet>(m_Width) * m_Height * channels;
+        // Every allocated level, not just the base: the chain is a third more.
+        sizet textureMemory = 0;
+        for (u32 level = 0, w = m_Width, h = m_Height; level < m_MipLevels; ++level)
+        {
+            textureMemory += static_cast<sizet>(w) * h * channels;
+            w = AlphaCoverageMips::NextLevelSize(w);
+            h = AlphaCoverageMips::NextLevelSize(h);
+        }
         // Track GPU memory allocation
         std::string textureName = "OpenGL Texture2D: " + std::string(path);
         OLO_TRACK_GPU_ALLOC(this,

@@ -85,6 +85,13 @@ namespace OloEngine::AlphaCoverageMips
     // level whose shorter side is >= kMinCoarsestExtent, and at least 1.
     [[nodiscard("Store this!")]] u32 CappedLevelCount(u32 width, u32 height, u32 levels) noexcept;
 
+    // Whether `rgba` has coverage for a chain to preserve at `cutoff`: some
+    // texels pass and some do not. A texture that passes everywhere (opaque
+    // bark on a cutout material) or nowhere keeps that under any box filter,
+    // so it gets neither the rescale nor the level cap: its full chain costs
+    // nothing in coverage and it would only alias without it.
+    [[nodiscard("Store this!")]] bool HasPartialCoverage(std::span<const u8> rgba, f32 cutoff) noexcept;
+
     // The extent of the level below a `size` texel axis, as GL and Vulkan both
     // define it: max(1, size / 2).
     [[nodiscard("Store this!")]] constexpr u32 NextLevelSize(u32 size) noexcept

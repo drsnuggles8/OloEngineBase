@@ -349,7 +349,9 @@ namespace OloEngine::Tests
         GLint levels = 0;
         glGetTextureParameteriv(id, GL_TEXTURE_IMMUTABLE_LEVELS, &levels);
         EXPECT_EQ(levels, 7) << "a 64x16 file texture should have log2(64)+1 = 7 levels";
-        EXPECT_EQ(texture->GetSpecification().MipLevels, 7u);
+        EXPECT_EQ(texture->GetMipLevelCount(), 7u);
+        EXPECT_EQ(texture->GetSpecification().MipLevels, 0u)
+            << "the spec keeps 'auto': an explicit count there would be honoured unclamped by Resize()";
 
         GLint minFilter = 0;
         glGetTextureParameteriv(id, GL_TEXTURE_MIN_FILTER, &minFilter);
@@ -472,6 +474,28 @@ namespace OloEngine::Tests
         texture->SetAlphaCoverageCutoff(0.0f);
         EXPECT_EQ(texture->GetMipLevelCount(), 10u);
         EXPECT_LT(coverageAt(3), 0.5f * base) << "clearing the cutoff left rescaled alpha in the chain";
+
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+    }
+
+    // An OPAQUE RGBA texture on a cutout material keeps its full chain: it has
+    // no coverage for the level cap to protect, and without the coarse levels
+    // it would only alias (bark on a foliage mesh, an opaque atlas on a glTF
+    // MASK material).
+    TEST(TextureInPlaceReload, AnOpaqueTextureOnACutoutKeepsItsFullChain)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        const std::filesystem::path path = OloEngine::Tests::TempFile("olo_texture_opaque_cutout_1441.png");
+        ASSERT_TRUE(WriteSolidPng(path, 256, 256, 90, 70, 40, 255));
+        Ref<Texture2D> texture = Texture2D::Create(path.string(), /*srgb=*/true);
+        ASSERT_TRUE(texture->IsLoaded());
+        ASSERT_EQ(texture->GetMipLevelCount(), 9u);
+
+        texture->SetAlphaCoverageCutoff(0.5f);
+        EXPECT_FLOAT_EQ(texture->GetAlphaCoverageCutoff(), 0.5f) << "remembered for a later reload all the same";
+        EXPECT_EQ(texture->GetMipLevelCount(), 9u) << "an opaque texture lost its coarse levels to the coverage cap";
 
         std::error_code ec;
         std::filesystem::remove(path, ec);

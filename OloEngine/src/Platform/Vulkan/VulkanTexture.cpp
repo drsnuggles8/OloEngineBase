@@ -1259,8 +1259,12 @@ namespace OloEngine
         // An alpha-tested texture stops before its levels get too small to
         // hold its coverage (AlphaCoverageMips::kMinCoarsestExtent). Same rule
         // as the GL twin, so both backends sample the same chain.
-        if (m_AlphaCoverageCutoff > 0.0f && format == ImageFormat::RGBA8)
+        if (m_AlphaCoverageCutoff > 0.0f && format == ImageFormat::RGBA8 &&
+            AlphaCoverageMips::HasPartialCoverage(
+                { static_cast<const u8*>(data), static_cast<sizet>(width) * height * 4u }, m_AlphaCoverageCutoff))
+        {
             m_MipLevels = AlphaCoverageMips::CappedLevelCount(m_Width, m_Height, m_MipLevels);
+        }
 
         // Sync inside CreateImage PRESERVES identity — in-place reload, the
         // amendment (12) contract.
