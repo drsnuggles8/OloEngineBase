@@ -2342,11 +2342,25 @@ namespace OloEngine
         // not rendering. Build() would re-run OptimizeMesh on already-optimized data, corrupting
         // submesh base vertex/index offsets.
         //
-        // Each per-mesh source has already had OptimizeMesh applied in ProcessMesh::Build, so the
+        // Each per-mesh source normally had OptimizeMesh applied in ProcessMesh::Build, so the
         // concatenated data is effectively pre-optimized. Mark it so on cache reload Build() skips
         // OptimizeMesh — running it on multi-submesh combined data has been observed to scramble
         // UVs/indices across submeshes (AnimatedModel does the same thing for the same reason).
-        combinedMeshSource->SetPreOptimized(true);
+        //
+        // But only when EVERY source really was: one whose stream OptimizeMesh refused is
+        // neither built nor pre-optimized, and marking the concatenation optimized would let
+        // the warm load upload it unchecked (#1440). Same rule as AnimatedModel's
+        // CombineMeshSourcesForCache.
+        bool everySourceOptimized = true;
+        for (const auto& mesh : m_Meshes)
+        {
+            if (mesh && mesh->GetMeshSource() && !mesh->GetMeshSource()->IsPreOptimized() && !mesh->GetMeshSource()->IsBuilt())
+            {
+                everySourceOptimized = false;
+                break;
+            }
+        }
+        combinedMeshSource->SetPreOptimized(everySourceOptimized);
 
         // Carry the "source file had bones" observation onto the result so it reaches both
         // the .omesh writer (FlagSourceRigged) and AssimpMeshImporter's routing check.
