@@ -47,6 +47,11 @@ namespace OloEngine
         void SetData(void* data, u32 size) override;
         void SubImage(u32 x, u32 y, u32 width, u32 height, const void* data, u32 dataSize) override;
         void RegenerateMips() override;
+        void SetAlphaCoverageCutoff(f32 cutoff) override;
+        [[nodiscard("Store this!")]] f32 GetAlphaCoverageCutoff() const override
+        {
+            return m_AlphaCoverageCutoff;
+        }
         void Invalidate(std::string_view path, u32 width, u32 height, const void* data, u32 channels) override;
 
         void Bind(u32 slot) const override;
@@ -83,6 +88,12 @@ namespace OloEngine
         // RGBA8 texture (used when the driver lacks BPTC/RGTC support).
         void UploadDecompressedFallback(const CompressedTextureImage& image);
         void CreateStorage();
+        // Fill levels 1..N from `level0` (tightly packed, RGBA8 when the cutoff is
+        // active) and switch the min filter to the chain. With no alpha-coverage
+        // cutoff this is glGenerateTextureMipmap; with one it is the CPU chain of
+        // AlphaCoverageMips. `level0` may be null only for the GPU generator.
+        void PopulateMipChain(const void* level0);
+        [[nodiscard]] bool UsesAlphaCoverageChain() const;
         [[nodiscard]] static u32 CalculateFullMipCount(u32 width, u32 height);
 
       private:
@@ -111,6 +122,8 @@ namespace OloEngine
         // For block-compressed textures only: whether the source carried a meaningful
         // alpha channel (see HasAlphaChannel()). Ignored for uncompressed formats.
         bool m_CompressedHasAlpha = false;
+        // Texture2D::SetAlphaCoverageCutoff; 0 = plain box chain. Survives Reload().
+        f32 m_AlphaCoverageCutoff = 0.0f;
 
         // Double-buffered Pixel Buffer Objects for streaming uploads (see
         // TextureSpecification::Streaming). Created lazily on the first SetData and

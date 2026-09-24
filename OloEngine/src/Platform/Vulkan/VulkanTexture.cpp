@@ -5,6 +5,8 @@
 #include "Platform/Vulkan/VulkanAddressCommands.h"
 #include "Platform/Vulkan/VulkanTexture.h"
 
+#include "OloEngine/Math/Math.h"
+#include "OloEngine/Renderer/AlphaCoverageMips.h"
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "Platform/Vulkan/VulkanDeferredReclaim.h"
@@ -723,6 +725,21 @@ namespace OloEngine
         const bool generateMips = m_MipLevels > 1u;
         const VkFilter blitFilter = IsIntegerFormat(m_Specification.Format) ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
 
+        // An alpha-tested texture's chain is built on the CPU (issue #1441) and
+        // copied level by level instead of blitted: a blit box-filters alpha,
+        // which is exactly what thins a cutout with distance. The same builder
+        // feeds the GL backend, so both backends upload identical levels.
+        AlphaCoverageMips::Chain coverageChain;
+        const bool coverageChainActive =
+            UsesAlphaCoverageChain() && uploadSize >= static_cast<u64>(m_Width) * m_Height * 4u;
+        if (coverageChainActive)
+        {
+            coverageChain = AlphaCoverageMips::Build({ static_cast<const u8*>(uploadData), static_cast<sizet>(uploadSize) },
+                                                     m_Width, m_Height, m_MipLevels, m_Specification.SRGB,
+                                                     m_AlphaCoverageCutoff);
+        }
+        const u64 chainBytes = static_cast<u64>(coverageChain.Bytes.Num());
+
         // #809: the host-image-copy route first. It writes mip 0 with no
         // staging buffer at all, and for a texture with no mip chain it
         // finishes the upload without ever touching the command stream —
@@ -756,7 +773,9 @@ namespace OloEngine
         const auto* priorInfo = VulkanImageInfoRegistry::Get().Lookup(m_Image);
         const bool firstUpload = priorInfo == nullptr || priorInfo->InitialLayout == VK_IMAGE_LAYOUT_UNDEFINED;
         const bool frameRecording = VulkanUpload::TryGetRecordingVulkanAPI() != nullptr;
-        if (m_HostTransferUsage && firstUpload && !frameRecording &&
+        // The host route writes mip 0 only and blits the rest, so a CPU-built
+        // chain takes the staging path below.
+        if (m_HostTransferUsage && firstUpload && !frameRecording && !coverageChainActive &&
             UploadPixelsFromHost(uploadData, uploadSize, blitFilter))
         {
             return true;
@@ -765,7 +784,9 @@ namespace OloEngine
         // Host staging buffer — destroyed right after the blocking one-shot.
         VkBufferCreateInfo stagingInfo{};
         stagingInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        stagingInfo.size = uploadSize;
+        // Level 0 first, then the CPU-built levels (if any) back to back. Every
+        // offset is a multiple of 4, the RGBA8 texel size a copy offset needs.
+        stagingInfo.size = uploadSize + chainBytes;
         stagingInfo.usage = VulkanAddressCommands::kStagingSrcUsage;
         stagingInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
@@ -780,11 +801,15 @@ namespace OloEngine
         if (vmaCreateBuffer(device->GetAllocator(), &stagingInfo, &stagingAlloc, &staging, &stagingAllocation,
                             &stagingOut) != VK_SUCCESS)
         {
-            OLO_CORE_ERROR("VulkanTexture2D::UploadPixels: staging allocation failed ({} bytes)", uploadSize);
+            OLO_CORE_ERROR("VulkanTexture2D::UploadPixels: staging allocation failed ({} bytes)", uploadSize + chainBytes);
             return false;
         }
         std::memcpy(stagingOut.pMappedData, uploadData, uploadSize);
-        vmaFlushAllocation(device->GetAllocator(), stagingAllocation, 0, uploadSize);
+        if (chainBytes > 0u)
+        {
+            std::memcpy(static_cast<u8*>(stagingOut.pMappedData) + uploadSize, coverageChain.Bytes.GetData(), chainBytes);
+        }
+        vmaFlushAllocation(device->GetAllocator(), stagingAllocation, 0, uploadSize + chainBytes);
         // #1179: the copy takes a range, not this handle. Queried once here
         // rather than inside the record lambda — the address is fixed for the
         // buffer's lifetime, and the lambda runs on the one-shot command buffer.
@@ -816,7 +841,26 @@ namespace OloEngine
                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u }, { 0, 0, 0 },
                     { m_Width, m_Height, 1u });
 
-                if (generateMips)
+                if (coverageChainActive)
+                {
+                    // Every level is a plain copy; all of them sit in
+                    // TRANSFER_DST from the whole-image transition above.
+                    for (i32 i = 0; i < coverageChain.Levels.Num(); ++i)
+                    {
+                        const AlphaCoverageMips::Level& level = coverageChain.Levels[i];
+                        VulkanAddressCommands::CmdCopyRangeToImage(
+                            cmd, stagingAddress + uploadSize + level.Offset, VulkanAddressCommands::StorageUsage::Absent,
+                            static_cast<u64>(level.Width) * level.Height * 4u, m_Image,
+                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                            { VK_IMAGE_ASPECT_COLOR_BIT, static_cast<u32>(i) + 1u, 0u, 1u }, { 0, 0, 0 },
+                            { level.Width, level.Height, 1u });
+                    }
+                    VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                                     VulkanDevice::Get()->GetSampledImageLayout(), VK_PIPELINE_STAGE_2_COPY_BIT,
+                                                     VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                                     VK_ACCESS_2_MEMORY_READ_BIT, 0u, m_MipLevels);
+                }
+                else if (generateMips)
                 {
                     // RecordMipChain's precondition: mip 0 in TRANSFER_SRC
                     // holding the base image, every other mip in TRANSFER_DST.
@@ -893,6 +937,20 @@ namespace OloEngine
             return;
         }
 
+        // The alpha-tested chain is derived from level 0 on the CPU (issue
+        // #1441), so read level 0 back and re-upload through the path a load
+        // takes. Mirrors the GL twin.
+        if (UsesAlphaCoverageChain())
+        {
+            if (TArray64<u8> level0; GetData(level0, 0) && UploadPixels(level0.GetData(), static_cast<u64>(level0.Num())))
+            {
+                return;
+            }
+            OLO_CORE_ERROR("VulkanTexture2D::RegenerateMips: could not rebuild the alpha-coverage chain of '{}' from "
+                           "level 0; falling back to a plain blit chain, which thins under its alpha test",
+                           m_Path.ToView());
+        }
+
         const VkFilter blitFilter = IsIntegerFormat(m_Specification.Format) ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
 
         const bool ok = VulkanOneShot::Submit(
@@ -930,6 +988,46 @@ namespace OloEngine
         {
             OLO_CORE_ERROR("VulkanTexture2D::RegenerateMips: mip chain submit failed");
         }
+    }
+
+    bool VulkanTexture2D::UsesAlphaCoverageChain() const
+    {
+        return m_AlphaCoverageCutoff > 0.0f && m_MipLevels > 1u && m_Specification.Samples <= 1u &&
+               m_Specification.Format == ImageFormat::RGBA8;
+    }
+
+    void VulkanTexture2D::SetAlphaCoverageCutoff(f32 cutoff)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        const f32 sanitized = AlphaCoverageMips::SanitizeCutoff(cutoff);
+        if (Math::BitwiseEqual(sanitized, m_AlphaCoverageCutoff))
+        {
+            return;
+        }
+        m_AlphaCoverageCutoff = sanitized;
+
+        // Block-compressed uploads do not exist on this backend yet (#691), so
+        // there is no cooked chain to warn about here, unlike the GL twin.
+        if (!m_IsLoaded || m_Image == VK_NULL_HANDLE || !m_Specification.GenerateMips || m_Specification.Samples > 1u ||
+            m_Specification.Format != ImageFormat::RGBA8)
+        {
+            return;
+        }
+
+        // The cutoff changes how MANY levels the image has, not only what they
+        // hold, so the image is rebuilt from level 0 through the path a load
+        // takes. Invalidate preserves identity, as Reload() does.
+        TArray64<u8> level0;
+        if (!GetData(level0, 0))
+        {
+            OLO_CORE_ERROR("VulkanTexture2D::SetAlphaCoverageCutoff: could not read back level 0 of '{}'; its mip "
+                           "chain is unchanged and thins under its alpha test",
+                           m_Path.ToView());
+            return;
+        }
+        const FString path = m_Path;
+        Invalidate(path.ToView(), m_Width, m_Height, level0.GetData(), 4u);
     }
 
     void VulkanTexture2D::SubImage(u32 x, u32 y, u32 width, u32 height, const void* data, u32 dataSize)
@@ -1158,6 +1256,11 @@ namespace OloEngine
         m_Specification.Height = height;
         m_Specification.Format = format;
         m_MipLevels = DeriveMipLevels(m_Specification, m_Width, m_Height);
+        // An alpha-tested texture stops before its levels get too small to
+        // hold its coverage (AlphaCoverageMips::kMinCoarsestExtent). Same rule
+        // as the GL twin, so both backends sample the same chain.
+        if (m_AlphaCoverageCutoff > 0.0f && format == ImageFormat::RGBA8)
+            m_MipLevels = AlphaCoverageMips::CappedLevelCount(m_Width, m_Height, m_MipLevels);
 
         // Sync inside CreateImage PRESERVES identity — in-place reload, the
         // amendment (12) contract.

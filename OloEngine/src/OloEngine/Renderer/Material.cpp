@@ -127,6 +127,17 @@ namespace OloEngine
         return *this;
     }
 
+    void Material::PrepareAlphaTestMips() const
+    {
+        if (m_AlphaMode != AlphaMode::Mask)
+            return;
+        Ref<Texture2D> albedo = GetAlbedoMap();
+        if (!albedo)
+            albedo = GetDiffuseMap();
+        if (albedo)
+            albedo->SetAlphaCoverageCutoff(m_AlphaCutoff);
+    }
+
     Ref<Material> Material::Create(const Ref<OloEngine::Shader>& shader, const FString& name)
     {
         return Ref<Material>(new Material(shader, name));

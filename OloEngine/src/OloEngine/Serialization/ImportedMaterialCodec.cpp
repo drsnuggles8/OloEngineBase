@@ -402,6 +402,8 @@ namespace OloEngine::ImportedMaterialCodec
             {
                 material->SetEmissiveMap(emissive);
             }
+            // The cache path must hand out the same chain the import did (issue #1441).
+            material->PrepareAlphaTestMips();
 
             materials.push_back(material);
         }

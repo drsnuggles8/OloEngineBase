@@ -91,6 +91,11 @@ namespace OloEngine
         void SetData(void* data, u32 size) override;
         void SubImage(u32 x, u32 y, u32 width, u32 height, const void* data, u32 dataSize) override;
         void RegenerateMips() override;
+        void SetAlphaCoverageCutoff(f32 cutoff) override;
+        [[nodiscard("Store this!")]] f32 GetAlphaCoverageCutoff() const override
+        {
+            return m_AlphaCoverageCutoff;
+        }
         void Invalidate(std::string_view path, u32 width, u32 height, const void* data, u32 channels) override;
         // Forwards to the facade's BindTexture, so ShaderResourceRegistry-
         // routed binds resolve on this backend too (they were silently dropped
@@ -176,6 +181,10 @@ namespace OloEngine
         // the staging and host paths so the two cannot drift in their barrier
         // scopes — the half of the upload the host route still needs a queue for.
         void RecordMipChain(VkCommandBuffer cmd, VkFilter blitFilter) const;
+        // Whether uploads build the alpha-tested chain on the CPU (issue #1441)
+        // instead of blitting it: a cutoff is set and the image is RGBA8 with a
+        // chain to fill.
+        [[nodiscard]] bool UsesAlphaCoverageChain() const;
 
         TextureSpecification m_Specification;
         FString m_Path; // set by the file ctor; empty for transient/spec textures
@@ -193,6 +202,8 @@ namespace OloEngine
         // See the constructor: true for framebuffer attachments, which never
         // take a client-data upload and so must not carry the usage bit.
         bool m_RenderTargetOnly = false;
+        // Texture2D::SetAlphaCoverageCutoff; 0 = plain blit chain. Survives Reload().
+        f32 m_AlphaCoverageCutoff = 0.0f;
 
         VkImage m_Image = VK_NULL_HANDLE;
         VmaAllocation m_Allocation = VK_NULL_HANDLE;

@@ -4,6 +4,8 @@
 #include "Platform/OpenGL/OpenGLPixelStoreGuard.h"
 #include "Platform/OpenGL/OpenGLUtilities.h"
 #include "OloEngine/Renderer/TextureCompression.h"
+#include "OloEngine/Renderer/AlphaCoverageMips.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
@@ -969,13 +971,49 @@ namespace OloEngine
             glTextureSubImage2D(m_RendererID, 0, 0, 0, static_cast<int>(m_Width), static_cast<int>(m_Height), m_DataFormat, dataType, data);
         }
 
-        if (m_MipLevels > 1u)
+        PopulateMipChain(data);
+    }
+
+    bool OpenGLTexture2D::UsesAlphaCoverageChain() const
+    {
+        return m_AlphaCoverageCutoff > 0.0f && m_MipLevels > 1u && m_Specification.Samples <= 1u &&
+               m_Specification.Format == ImageFormat::RGBA8;
+    }
+
+    void OpenGLTexture2D::PopulateMipChain(const void* level0)
+    {
+        if (m_MipLevels <= 1u || m_RendererID == 0u)
+        {
+            return;
+        }
+
+        if (UsesAlphaCoverageChain() && level0 != nullptr)
+        {
+            // The alpha-tested chain is built on the CPU, because the rescale
+            // needs each level's alpha histogram (AlphaCoverageMips.h).
+            const sizet level0Bytes = static_cast<sizet>(m_Width) * m_Height * 4u;
+            const AlphaCoverageMips::Chain chain =
+                AlphaCoverageMips::Build({ static_cast<const u8*>(level0), level0Bytes }, m_Width, m_Height, m_MipLevels,
+                                         m_Specification.SRGB, m_AlphaCoverageCutoff);
+            const Utils::GLUnpackAlignmentScope unpackAlignment;
+            for (i32 i = 0; i < chain.Levels.Num(); ++i)
+            {
+                const AlphaCoverageMips::Level& level = chain.Levels[i];
+                glTextureSubImage2D(m_RendererID, i + 1, 0, 0, static_cast<GLsizei>(level.Width),
+                                    static_cast<GLsizei>(level.Height), GL_RGBA, GL_UNSIGNED_BYTE,
+                                    chain.Bytes.GetData() + level.Offset);
+            }
+        }
+        else
         {
             glGenerateTextureMipmap(m_RendererID);
-            m_MipsPopulated = true;
-            glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER,
-                                SelectMinFilter(IsIntegerFormat(m_Specification.Format), true));
         }
+        m_MipsPopulated = true;
+        // Until a chain exists the sampler is left on a non-mipped min filter, and
+        // leaving it there would sample level 0 for every footprint — the chain
+        // would be correct and unused.
+        glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER,
+                            SelectMinFilter(IsIntegerFormat(m_Specification.Format), true));
     }
 
     void OpenGLTexture2D::RegenerateMips()
@@ -987,13 +1025,66 @@ namespace OloEngine
             return;
         }
 
-        glGenerateTextureMipmap(m_RendererID);
-        m_MipsPopulated = true;
-        // Same follow-up SetData does: until a chain exists the sampler is left on
-        // a non-mipped min filter, and leaving it there would sample level 0 for
-        // every footprint — the chain would be correct and unused.
-        glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER,
-                            SelectMinFilter(IsIntegerFormat(m_Specification.Format), true));
+        // The alpha-tested chain is derived from level 0 on the CPU, so a writer
+        // of level 0 on the GPU (the #716 case) costs a readback here.
+        if (UsesAlphaCoverageChain())
+        {
+            if (TArray64<u8> level0; GetData(level0, 0))
+            {
+                PopulateMipChain(level0.GetData());
+                return;
+            }
+            OLO_CORE_ERROR("OpenGLTexture2D::RegenerateMips: could not read back level 0 of '{}'; the chain falls "
+                           "back to a plain box filter and will thin under its alpha test",
+                           m_Path.ToView());
+        }
+        PopulateMipChain(nullptr);
+    }
+
+    void OpenGLTexture2D::SetAlphaCoverageCutoff(f32 cutoff)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        const f32 sanitized = AlphaCoverageMips::SanitizeCutoff(cutoff);
+        if (Math::BitwiseEqual(sanitized, m_AlphaCoverageCutoff))
+        {
+            return;
+        }
+        m_AlphaCoverageCutoff = sanitized;
+
+        if (IsCompressedFormat(m_Specification.Format))
+        {
+            // The chain was cooked offline (#440) and there is no level 0 to
+            // rebuild it from here. Say so: this texture WILL thin with distance.
+            if (sanitized > 0.0f)
+            {
+                OLO_CORE_WARN("OpenGLTexture2D::SetAlphaCoverageCutoff: '{}' is block-compressed; its cooked mip "
+                              "chain cannot be rebuilt to preserve alpha coverage, so it thins with distance under "
+                              "its alpha test (cutoff {})",
+                              m_Path.ToView(), sanitized);
+            }
+            return;
+        }
+        if (!m_IsLoaded || m_RendererID == 0u || !m_Specification.GenerateMips || m_Specification.Samples > 1u ||
+            m_Specification.Format != ImageFormat::RGBA8)
+        {
+            // No chain, or no alpha to preserve. Remembered for a later upload.
+            return;
+        }
+
+        // The cutoff changes how MANY levels the texture has, not only what
+        // they hold, so the storage is rebuilt from level 0 through the same
+        // path a load takes. Identity survives, as it does across Reload().
+        TArray64<u8> level0;
+        if (!GetData(level0, 0))
+        {
+            OLO_CORE_ERROR("OpenGLTexture2D::SetAlphaCoverageCutoff: could not read back level 0 of '{}'; its mip "
+                           "chain is unchanged and thins under its alpha test",
+                           m_Path.ToView());
+            return;
+        }
+        const FString path = m_Path;
+        InvalidateImpl(path.ToView(), m_Width, m_Height, level0.GetData(), 4u);
     }
 
     void OpenGLTexture2D::SubImage(u32 x, u32 y, u32 width, u32 height, const void* data, [[maybe_unused]] u32 dataSize)
@@ -1151,9 +1242,26 @@ namespace OloEngine
             m_RHIHandle.Sync(RHI::ResourceKind::Texture, m_RendererID, RHI::Backend::OpenGL);
         }
 
+        // The FULL mip chain, unless the spec opts out (issue #1441). This used to
+        // allocate ONE level and then ask for GL_LINEAR_MIPMAP_LINEAR and
+        // glGenerateTextureMipmap, which had nothing to fill: every file-loaded
+        // texture on OpenGL minified with no mips at all, and anything that samples
+        // a coarser level on purpose -- #1243's skin pore band takes a second tap
+        // two mips up -- read the base level back and did nothing. The Vulkan
+        // backend always built the chain, so the two backends disagreed about
+        // every file texture in every scene.
+        m_MipLevels = m_Specification.GenerateMips ? CalculateFullMipCount(m_Width, m_Height) : 1u;
+        // An alpha-tested texture stops before its levels get too small to
+        // hold its coverage (AlphaCoverageMips::kMinCoarsestExtent).
+        if (m_AlphaCoverageCutoff > 0.0f && channels == 4u)
+            m_MipLevels = AlphaCoverageMips::CappedLevelCount(m_Width, m_Height, m_MipLevels);
+        m_Specification.MipLevels = m_MipLevels;
+        m_MipsPopulated = false;
+
         glCreateTextures(GL_TEXTURE_2D, 1, &m_RendererID);
         m_RHIHandle.Sync(RHI::ResourceKind::Texture, m_RendererID, RHI::Backend::OpenGL);
-        glTextureStorage2D(m_RendererID, 1, internalFormat, static_cast<int>(m_Width), static_cast<int>(m_Height));
+        glTextureStorage2D(m_RendererID, static_cast<GLsizei>(m_MipLevels), internalFormat, static_cast<int>(m_Width),
+                           static_cast<int>(m_Height));
 
         // Calculate memory usage based on channels and dimensions
         sizet textureMemory = static_cast<sizet>(m_Width) * m_Height * channels;
@@ -1168,7 +1276,6 @@ namespace OloEngine
         GPUResourceInspector::GetInstance().RegisterTexture(m_RendererID, std::string(path), textureName);
 
         // NOTE: Texture Wrapping
-        glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
         glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
         // NOTE: Texture Filtering
@@ -1176,8 +1283,12 @@ namespace OloEngine
         glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_T, GL_REPEAT);
 
         glTextureSubImage2D(m_RendererID, 0, 0, 0, static_cast<int>(m_Width), static_cast<int>(m_Height), dataFormat, GL_UNSIGNED_BYTE, data);
-        glGenerateTextureMipmap(m_RendererID);
-        m_MipsPopulated = true;
+        // The min filter follows the chain, as it does on every other upload
+        // path here: mipmapped only once the levels hold data. An alpha-tested
+        // texture (SetAlphaCoverageCutoff, kept across Reload) gets its
+        // coverage-preserving chain straight from the decoded pixels.
+        glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, SelectMinFilter(false, false));
+        PopulateMipChain(data);
     }
     void OpenGLTexture2D::Bind(const u32 slot) const
     {

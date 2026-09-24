@@ -439,6 +439,18 @@ namespace OloEngine
             m_AlphaCutoff = std::clamp(cutoff, 0.0f, 1.0f);
         }
 
+        // Give a Mask material's albedo (the diffuse map for a legacy material)
+        // the coverage-preserving mip chain its alpha test needs, at this
+        // material's cutoff (issue #1441; Texture2D::SetAlphaCoverageCutoff).
+        // Without it a cutout thins with distance on every backend that samples
+        // a real mip chain. Any other mode leaves the texture alone.
+        //
+        // Called ONCE by each importer, after the material is complete — not
+        // from SetAlphaCutoff, which scripts may animate per frame (a dissolve),
+        // and this re-uploads the chain. The albedo may be shared with another
+        // material: the last cutoff applied wins.
+        void PrepareAlphaTestMips() const;
+
         // =====================================================================
         // PHYSICAL TRANSMISSION / IOR / VOLUME (issue #970)
         //

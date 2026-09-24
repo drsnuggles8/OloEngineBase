@@ -44,6 +44,7 @@
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Task/NamedThreads.h"
+#include "OloEngine/Renderer/AlphaCoverageMips.h"
 #include "OloEngine/Renderer/Texture.h"
 
 #define GLFW_INCLUDE_NONE
@@ -304,5 +305,197 @@ namespace OloEngine::Tests
             Tasks::FNamedThreadManager::Get().GetQueue(Tasks::ENamedThread::GameThread).ProcessAll(true))
             << "a queued AssetReloadedEvent must be safe to drain in a host with no Application";
         Tasks::FNamedThreadManager::Get().DetachFromThread(Tasks::ENamedThread::GameThread);
+    }
+
+    // A texture loaded from a FILE gets its full mip chain on OpenGL (issue #1441).
+    //
+    // It used to allocate ONE level and then request GL_LINEAR_MIPMAP_LINEAR and
+    // glGenerateTextureMipmap, which had nothing to fill. Every file texture minified
+    // with no mips, and #1243's skin pore band -- a second tap two mips up -- read
+    // the base level back and did nothing. Checked through GL itself, not through the
+    // wrapper's own bookkeeping, and the top level's CONTENT is checked too: a chain
+    // that is allocated but never generated would pass a level count.
+    TEST(TextureInPlaceReload, AFileTextureGetsItsFullMipChain)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        const std::filesystem::path path = OloEngine::Tests::TempFile("olo_texture_mip_chain_1441.png");
+
+        // Vertical stripes, alternating black and white per column: every mip above
+        // the base averages them, so the 1x1 top level must be mid-grey.
+        constexpr int kWidth = 64;
+        constexpr int kHeight = 16;
+        std::vector<u8> pixels(static_cast<sizet>(kWidth) * kHeight * 4u);
+        for (int y = 0; y < kHeight; ++y)
+        {
+            for (int x = 0; x < kWidth; ++x)
+            {
+                const u8 v = (x % 2 == 0) ? 255u : 0u;
+                u8* texel = &pixels[(static_cast<sizet>(y) * kWidth + x) * 4u];
+                texel[0] = v;
+                texel[1] = v;
+                texel[2] = v;
+                texel[3] = 255u;
+            }
+        }
+        ASSERT_NE(::stbi_write_png(path.string().c_str(), kWidth, kHeight, 4, pixels.data(), kWidth * 4), 0);
+
+        Ref<Texture2D> texture = Texture2D::Create(path.string(), /*srgb=*/false);
+        ASSERT_TRUE(texture);
+        ASSERT_TRUE(texture->IsLoaded());
+        const GLuint id = texture->GetRendererID();
+
+        GLint levels = 0;
+        glGetTextureParameteriv(id, GL_TEXTURE_IMMUTABLE_LEVELS, &levels);
+        EXPECT_EQ(levels, 7) << "a 64x16 file texture should have log2(64)+1 = 7 levels";
+        EXPECT_EQ(texture->GetSpecification().MipLevels, 7u);
+
+        GLint minFilter = 0;
+        glGetTextureParameteriv(id, GL_TEXTURE_MIN_FILTER, &minFilter);
+        EXPECT_EQ(minFilter, GL_LINEAR_MIPMAP_LINEAR);
+
+        // The top level exists AND holds the average -- the chain was generated.
+        std::vector<u8> top(4u, 0u);
+        glGetTextureImage(id, 6, GL_RGBA, GL_UNSIGNED_BYTE, static_cast<GLsizei>(top.size()), top.data());
+        EXPECT_NEAR(static_cast<int>(top[0]), 128, 2) << "the 1x1 level is not the stripes' average";
+
+        // An in-place reload at a different size re-derives the chain.
+        std::vector<u8> reloadPixels(8u * 8u * 4u, 200u);
+        ASSERT_NE(::stbi_write_png(path.string().c_str(), 8, 8, 4, reloadPixels.data(), 8 * 4), 0);
+        ASSERT_TRUE(texture->Reload());
+        glGetTextureParameteriv(texture->GetRendererID(), GL_TEXTURE_IMMUTABLE_LEVELS, &levels);
+        EXPECT_EQ(levels, 4) << "an 8x8 reload should have 4 levels";
+
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+    }
+
+    // An ALPHA-TESTED file texture keeps its passing fraction down the chain once
+    // the consumer names its cutoff (issue #1441). The plain chain is checked
+    // first as the control: a sparse cutout loses most of its coverage by level 3,
+    // which is the foliage thinning #1441's first attempt ran into. Then the
+    // preserved chain is read back through GL and compared byte for byte with
+    // the CPU builder, a reload must keep it, and clearing the cutoff must give
+    // the plain chain back.
+    TEST(TextureInPlaceReload, AnAlphaTestedFileTextureKeepsItsCoverageDownTheChain)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        const std::filesystem::path path = OloEngine::Tests::TempFile("olo_texture_alpha_coverage_1441.png");
+
+        constexpr u32 kSize = 512;
+        constexpr f32 kCutoff = 0.5f;
+        std::vector<u8> pixels(static_cast<sizet>(kSize) * kSize * 4u);
+        for (u32 y = 0; y < kSize; ++y)
+        {
+            for (u32 x = 0; x < kSize; ++x)
+            {
+                u32 h = x * 73856093u ^ y * 19349663u;
+                h ^= h >> 13;
+                h *= 0x5bd1e995u;
+                h ^= h >> 15;
+                u8* texel = &pixels[(static_cast<sizet>(y) * kSize + x) * 4u];
+                texel[0] = 60u;
+                texel[1] = 140u;
+                texel[2] = 30u;
+                texel[3] = (h % 100u) < 30u ? 255u : 0u;
+            }
+        }
+        ASSERT_NE(::stbi_write_png(path.string().c_str(), kSize, kSize, 4, pixels.data(), kSize * 4), 0);
+
+        Ref<Texture2D> texture = Texture2D::Create(path.string(), /*srgb=*/true);
+        ASSERT_TRUE(texture);
+        ASSERT_TRUE(texture->IsLoaded());
+        ASSERT_EQ(texture->GetMipLevelCount(), 10u);
+        EXPECT_FLOAT_EQ(texture->GetAlphaCoverageCutoff(), 0.0f) << "no texture is alpha-tested until a consumer says so";
+
+        const auto coverageAt = [&](u32 level)
+        {
+            TArray64<u8> bytes;
+            EXPECT_TRUE(texture->GetData(bytes, level));
+            return AlphaCoverageMips::Coverage({ bytes.GetData(), static_cast<sizet>(bytes.Num()) }, kCutoff);
+        };
+        const f32 base = coverageAt(0);
+        ASSERT_GT(base, 0.25f);
+        ASSERT_LT(base, 0.35f);
+
+        EXPECT_LT(coverageAt(3), 0.5f * base) << "the plain chain no longer thins this cutout; the control is void";
+
+        const RHI::ResourceHandle identity = texture->GetRHIHandle();
+        texture->SetAlphaCoverageCutoff(kCutoff);
+        EXPECT_FLOAT_EQ(texture->GetAlphaCoverageCutoff(), kCutoff);
+        EXPECT_EQ(texture->GetRHIHandle(), identity) << "rebuilding the chain must keep the texture's identity";
+        // The chain now stops at 64x64 (AlphaCoverageMips::kMinCoarsestExtent),
+        // and GL itself agrees.
+        ASSERT_EQ(texture->GetMipLevelCount(), 4u);
+        GLint levels = 0;
+        glGetTextureParameteriv(texture->GetRendererID(), GL_TEXTURE_IMMUTABLE_LEVELS, &levels);
+        EXPECT_EQ(levels, 4);
+        EXPECT_NEAR(coverageAt(0), base, 1e-6f) << "rebuilding the chain changed level 0";
+        // Within the reachable granularity of a binary cutout (see
+        // AlphaCoverageMipsContractTest); the plain chain was off by 20+ points.
+        for (u32 level = 1; level <= 3; ++level) // 256x256 .. 64x64
+            EXPECT_NEAR(coverageAt(level), base, 0.05f) << "level " << level;
+
+        // What GL holds is exactly what the CPU builder produced, so the Vulkan
+        // backend, which uploads the same builder's bytes, samples the same levels.
+        {
+            TArray64<u8> level0;
+            ASSERT_TRUE(texture->GetData(level0, 0));
+            const AlphaCoverageMips::Chain expected = AlphaCoverageMips::Build(
+                { level0.GetData(), static_cast<sizet>(level0.Num()) }, kSize, kSize, 4u, /*srgb=*/true, kCutoff);
+            for (i32 i = 0; i < expected.Levels.Num(); ++i)
+            {
+                TArray64<u8> actual;
+                ASSERT_TRUE(texture->GetData(actual, static_cast<u32>(i) + 1u));
+                const AlphaCoverageMips::Level& level = expected.Levels[i];
+                ASSERT_EQ(static_cast<u64>(actual.Num()), static_cast<u64>(level.Width) * level.Height * 4u);
+                i64 mismatches = 0;
+                for (i64 b = 0; b < actual.Num(); ++b)
+                    mismatches += actual[b] != expected.Bytes[static_cast<i64>(level.Offset) + b] ? 1 : 0;
+                EXPECT_EQ(mismatches, 0) << "level " << (i + 1) << " differs from the CPU builder";
+            }
+        }
+
+        GLint minFilter = 0;
+        glGetTextureParameteriv(texture->GetRendererID(), GL_TEXTURE_MIN_FILTER, &minFilter);
+        EXPECT_EQ(minFilter, GL_LINEAR_MIPMAP_LINEAR);
+
+        // An in-place reload re-derives the chain from the file and keeps the cutoff.
+        ASSERT_TRUE(texture->Reload());
+        EXPECT_FLOAT_EQ(texture->GetAlphaCoverageCutoff(), kCutoff);
+        EXPECT_EQ(texture->GetMipLevelCount(), 4u) << "a reload dropped the capped chain";
+        EXPECT_NEAR(coverageAt(3), base, 0.05f) << "a reload dropped the coverage-preserving chain";
+
+        // Clearing the cutoff restores the full plain box chain.
+        texture->SetAlphaCoverageCutoff(0.0f);
+        EXPECT_EQ(texture->GetMipLevelCount(), 10u);
+        EXPECT_LT(coverageAt(3), 0.5f * base) << "clearing the cutoff left rescaled alpha in the chain";
+
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+    }
+
+    // `GenerateMips = false` still means ONE level on the file-upload path: the
+    // full chain #1441 allocates is the default, not a rule.
+    TEST(TextureInPlaceReload, AnUploadWithGenerateMipsOffStaysOneLevel)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        TextureSpecification spec;
+        spec.GenerateMips = false;
+        Ref<Texture2D> texture = Texture2D::Create(spec);
+        ASSERT_TRUE(texture);
+
+        const std::vector<u8> pixels(64u * 16u * 4u, 180u);
+        texture->Invalidate("olo_generate_mips_off_1441", 64, 16, pixels.data(), 4);
+
+        GLint levels = 0;
+        glGetTextureParameteriv(texture->GetRendererID(), GL_TEXTURE_IMMUTABLE_LEVELS, &levels);
+        EXPECT_EQ(levels, 1);
+        EXPECT_EQ(texture->GetMipLevelCount(), 1u);
+        GLint minFilter = 0;
+        glGetTextureParameteriv(texture->GetRendererID(), GL_TEXTURE_MIN_FILTER, &minFilter);
+        EXPECT_EQ(minFilter, GL_LINEAR) << "a single-level texture must not ask for a mipmapped filter";
     }
 } // namespace OloEngine::Tests
