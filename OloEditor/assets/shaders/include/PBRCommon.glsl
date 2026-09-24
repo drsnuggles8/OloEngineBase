@@ -565,6 +565,43 @@ vec3 oloSurfaceLightingSum(OloSurfaceLighting lighting)
     return lighting.Diffuse + lighting.Specular;
 }
 
+// -----------------------------------------------------------------------------
+// THE SURFACE COMPOSITION (issue #1336) — the two functions every raster path
+// (PBR_MultiLight{,_Skinned}, DeferredLightingShared) composes a lit surface
+// with, so what multiplies what is written down once.
+// docs/agent-rules/lighting-signal-contract.md has the table this implements.
+//
+// oloComposeReflectedLighting: the reflected transport, still split.
+//   `direct`   — f * L * cos * visibility for every light the raster loop owns.
+//                Its shadow is already in it; nothing below touches it.
+//   `ambient`  — the ladder rung's indirect diffuse + indirect specular
+//                (BRDF-weighted, with iblIntensity), which ASSUMED an
+//                unoccluded hemisphere.
+//   `ambientVisibility` — material AO times, on the deferred path, the
+//                screen-space AO. The ONLY term it multiplies is `ambient`:
+//                visibility belongs to the estimate that assumed none.
+//   `tracedIndirectDiffuse` — a traced tier's indirect estimate (ReSTIR GI /
+//                PT). It traced its own occlusion, so no AO touches it; it
+//                joins the diffuse half.
+//
+// oloComposeSurfaceRadiance: the finished outgoing radiance.
+//   `unsplitDirect` — direct light a tier delivered pre-combined (ReSTIR DI).
+//   `transmitted`   — the third transport (leaf / skin), shadowed per light.
+//   `emissive`      — self-emission. Added exactly once, occluded by nothing.
+OloSurfaceLighting oloComposeReflectedLighting(OloSurfaceLighting direct, OloSurfaceLighting ambient,
+                                               float ambientVisibility, vec3 tracedIndirectDiffuse)
+{
+    OloSurfaceLighting lighting = oloSurfaceLightingAdd(oloSurfaceLightingScale(ambient, vec3(ambientVisibility)),
+                                                        direct);
+    lighting.Diffuse += tracedIndirectDiffuse;
+    return lighting;
+}
+
+vec3 oloComposeSurfaceRadiance(OloSurfaceLighting lighting, vec3 unsplitDirect, vec3 transmitted, vec3 emissive)
+{
+    return oloSurfaceLightingSum(lighting) + unsplitDirect + transmitted + emissive;
+}
+
 // The scattering mask: how much of THIS pixel scatters below the surface.
 // Unitless, [0,1], and identical on the forward, forward+ and deferred paths
 // because all three derive it from the same two numbers.
@@ -2281,7 +2318,24 @@ vec3 calculateIBLImportanceSampled(vec3 N, vec3 V, vec3 albedo, float metallic, 
 // LIGHT PROBE AMBIENT FUNCTIONS
 // =============================================================================
 
-// Calculate ambient lighting from light probe irradiance
+// THE ONE IRRADIANCE CONVERSION OF THE AMBIENT LADDER (issue #1336).
+//
+// Every ambient helper here computes `kD * X * albedo` with no 1/pi, so X is
+// NORMALIZED irradiance E/pi -- the quantity the IBL irradiance cube stores
+// (IrradianceConvolution.glsl, IBLPrecompute's SH path) and the radiance of the
+// uniform sky that would produce E. The lightmap, the DDGI atlas and the
+// probe-volume sampler all return full irradiance E instead, so each of them
+// enters the ladder through this function and nowhere else. Feeding one in raw
+// shades the pixel pi times brighter than the reference path tracer's
+// `albedo / pi * E`, which is what the lightmap and DDGI rungs did before.
+// See docs/agent-rules/lighting-signal-contract.md.
+vec3 oloNormalizedIrradiance(vec3 irradianceE)
+{
+    return irradianceE * INV_PI;
+}
+
+// Calculate ambient lighting from light probe irradiance.
+// `probeIrradiance` is NORMALIZED irradiance E/pi -- see oloNormalizedIrradiance.
 // Mirrors calculateIBL energy conservation: kD *= (1.0 - metallic)
 vec3 calculateLightProbeAmbient(vec3 probeIrradiance, vec3 albedo, float metallic, float roughness,
                                 vec3 N, vec3 V)
@@ -2308,7 +2362,8 @@ OloSurfaceLighting calculateLightProbeAmbientSplit(vec3 probeIrradiance, vec3 al
 }
 
 // Combine light probe diffuse with IBL specular
-// Probes provide diffuse irradiance; IBL prefilter map provides specular reflections
+// Probes provide diffuse irradiance -- NORMALIZED, E/pi, see
+// oloNormalizedIrradiance; IBL prefilter map provides specular reflections
 vec3 calculateCombinedAmbient(vec3 probeIrradiance, vec3 N, vec3 V, vec3 albedo,
                               float metallic, float roughness,
                               samplerCube prefilterMap, sampler2D brdfLUT)

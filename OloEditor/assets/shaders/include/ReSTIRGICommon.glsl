@@ -78,17 +78,25 @@ vec3 OloGIBounceContribution(OloGBufferSurface surface, OloGISample giSample, ve
     if (!(nDotL > 0.0))
         return vec3(0.0);
 
-    // evaluatePBRClosure is the #975 versioned dispatch — the SAME function the
-    // deferred lighting pass, the ReSTIR DI tier and the path tracer's
+    // evaluatePBRClosureSplit is the #975 versioned dispatch — the SAME function
+    // the deferred lighting pass, the ReSTIR DI tier and the path tracer's
     // PtEvaluateBRDF route through, so the oracle and the tier being validated
     // against it shade a surface with one BRDF rather than with two plausible
-    // ones. The FULL closure at x0, not the diffuse lobe: the diffuse
-    // restriction is a statement about the BOUNCE VERTEX, not about the pixel
-    // being shaded, and applying it here would drop indirect light from every
-    // glossy surface in the frame.
-    vec3 f = evaluatePBRClosure(surface.PbrModel, surface.ShadingNormal, viewDirection, l, surface.Albedo,
-                                surface.Metallic, surface.Roughness);
-    return f * giSample.Radiance * nDotL;
+    // ones.
+    //
+    // THE DIFFUSE HALF ONLY (issue #1336). This tier owns INDIRECT DIFFUSE: the
+    // deferred pass keeps the prefiltered IBL / reflection-probe specular — and
+    // SSR and the ray-traced reflection tier over it — as the owners of
+    // indirect specular (docs/agent-rules/lighting-signal-contract.md). The
+    // specular lobe at x0 used to be evaluated here as well and then filed into
+    // the diffuse half, so a glossy surface received its reflection of the
+    // bounce light twice: once from this estimate, once from the reflection
+    // tiers that already answer for that lobe. The Fresnel split is kept — the
+    // diffuse half carries its (1 - F)(1 - metallic) weight — so a metal gets
+    // no indirect diffuse, exactly as the ambient ladder this tier replaces.
+    OloSurfaceLighting f = evaluatePBRClosureSplit(surface.PbrModel, surface.ShadingNormal, viewDirection, l,
+                                                   surface.Albedo, surface.Metallic, surface.Roughness);
+    return f.Diffuse * giSample.Radiance * nDotL;
 }
 
 // The scalar the resampling actually compares. A luminance-weighted norm rather

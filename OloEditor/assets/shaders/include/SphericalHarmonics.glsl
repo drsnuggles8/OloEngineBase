@@ -48,4 +48,31 @@ vec3 evaluateSH(vec3 coefficients[SH_COEFFICIENT_COUNT], vec3 normal)
     return max(result, vec3(0.0));
 }
 
+// IRRADIANCE E from RADIANCE-projection coefficients (issue #1336).
+//
+// The probe bakes store c_i = integral of L * Y_i (no cosine lobe), so
+// evaluateSH above reconstructs band-limited RADIANCE. The irradiance a surface
+// with normal n receives is the same expansion with each band convolved by the
+// clamped cosine (Ramamoorthi & Hanrahan 2001): A0 = pi, A1 = 2pi/3, A2 = pi/4.
+// A uniform field L therefore returns pi * L, the full E every other irradiance
+// source in the ladder returns — which is what lets the probe volume blend
+// baked SH and DDGI (full E) like with like. Mirrored on the CPU by
+// SHBasis::EvaluateCosineConvolvedIrradiance.
+vec3 evaluateSHCosineIrradiance(vec3 coefficients[SH_COEFFICIENT_COUNT], vec3 normal)
+{
+    const float A0 = 3.14159265359;
+    const float A1 = 2.09439510239; // 2 pi / 3
+    const float A2 = 0.78539816340; // pi / 4
+
+    float basis[SH_COEFFICIENT_COUNT];
+    evaluateSHBasis(normal, basis);
+
+    vec3 result = coefficients[0] * (A0 * basis[0]);
+    for (int i = 1; i < 4; ++i)
+        result += coefficients[i] * (A1 * basis[i]);
+    for (int i = 4; i < SH_COEFFICIENT_COUNT; ++i)
+        result += coefficients[i] * (A2 * basis[i]);
+    return max(result, vec3(0.0));
+}
+
 #endif // SPHERICAL_HARMONICS_GLSL

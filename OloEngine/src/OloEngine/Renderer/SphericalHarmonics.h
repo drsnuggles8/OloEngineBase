@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include <glm/glm.hpp>
+#include <glm/gtc/constants.hpp>
 
 #include <array>
 #include <cstring>
@@ -112,6 +113,29 @@ namespace OloEngine
             for (u32 i = 0; i < SH_COEFFICIENT_COUNT; ++i)
             {
                 result += sh.Coefficients[i] * basis[i];
+            }
+            return glm::max(result, glm::vec3(0.0f));
+        }
+
+        // Irradiance E from RADIANCE-projection coefficients (issue #1336): each
+        // band convolved by the clamped cosine, A0 = pi, A1 = 2pi/3, A2 = pi/4
+        // (Ramamoorthi & Hanrahan 2001). A uniform field L returns pi * L. The
+        // GLSL twin is evaluateSHCosineIrradiance in include/SphericalHarmonics.glsl;
+        // the probe volume evaluates baked probes through it.
+        inline glm::vec3 EvaluateCosineConvolvedIrradiance(const SHCoefficients& sh, const glm::vec3& normal)
+        {
+            constexpr f32 kA0 = glm::pi<f32>();
+            constexpr f32 kA1 = 2.0f * glm::pi<f32>() / 3.0f;
+            constexpr f32 kA2 = glm::pi<f32>() / 4.0f;
+            const auto basis = Evaluate(normal);
+            glm::vec3 result = sh.Coefficients[0] * (kA0 * basis[0]);
+            for (u32 i = 1; i < 4; ++i)
+            {
+                result += sh.Coefficients[i] * (kA1 * basis[i]);
+            }
+            for (u32 i = 4; i < SH_COEFFICIENT_COUNT; ++i)
+            {
+                result += sh.Coefficients[i] * (kA2 * basis[i]);
             }
             return glm::max(result, glm::vec3(0.0f));
         }

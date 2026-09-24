@@ -96,14 +96,17 @@ Two things about that table:
   (crisp shadows, dynamic lights keep working). Emissive surfaces and sky DO enter the bake — the
   ambient ladder must therefore *replace* the probe/IBL diffuse for lightmapped pixels, never add
   to it.
-- The SH row is a **pre-existing π-scale divergence** discovered (not introduced) by #439:
-  `ProjectToSH` stores raw radiance projections with no cosine convolution and `evaluateSH`
-  applies none either, so a uniform field of radiance L evaluates to L where irradiance would be
-  πL. The path-traced probe bake deliberately **matches the shipped convention** — the two bake
-  buttons must agree photometrically, and rescaling the whole baked-SH path is a coordinated
-  change of both bake routes plus the shader, not a drive-by. Until then, Hybrid mode's
-  `mix(baked, ddgi, …)` and the lightmapped-static / probe-lit-dynamic seam carry that divergence.
-  The tests pin it numerically so it cannot silently morph into a second bug.
+- The SH row STORES raw radiance projections (`ProjectToSH`: no cosine convolution), and both
+  bake routes keep that storage convention. What changed in #1336 is the READ: the probe sampler
+  evaluates `evaluateSHCosineIrradiance` (band factors π, 2π/3, π/4), so a uniform field L comes
+  back as the full irradiance πL — the unit the lightmap and the DDGI atlas also return. The
+  ambient ladder then converts every E source to E/π once (`oloNormalizedIrradiance`), because its
+  helpers compute `kD·X·albedo` and are Lambertian only for X = E/π. The old statement here — "SH
+  is π too dark" — had the direction backwards: SH evaluated as radiance happened to equal the
+  ladder's E/π for a uniform field, while the lightmap and DDGI rungs fed full E in raw and lit
+  their pixels π times too bright. See [lighting-signal-contract.md](lighting-signal-contract.md).
+  `LightProbePathTracedBakeTest` pins both the storage (evaluateSH returns L) and the read (the
+  production evaluator returns the oracle's πL).
 
 ## 4. Determinism is what makes the bake testable — and it is a property of the SEEDS, not the scheduler
 

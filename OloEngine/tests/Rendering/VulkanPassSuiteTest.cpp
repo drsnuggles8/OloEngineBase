@@ -1782,7 +1782,13 @@ TEST_F(VulkanPassSuite, ContactShadowDarkensTheContactRegionOnlyWithIntensity)
             graph.ImportTextureHandle(ResourceNames::GBufferNormal, normalTexture->GetRHIHandle(), auxDesc);
     };
 
-    const auto runChain = [&](f32 intensity) -> TArray64<u8>
+    // Since issue #1336 the post pass no longer darkens the frame: the contact
+    // shadow is visibility for the SUN, applied inside DeferredLighting's loop,
+    // and this pass draws only ContactShadowDebugView — the visibility factor as
+    // greyscale, from the SAME march (include/ContactShadowCommon.glsl) the
+    // lighting pass evaluates. So the march is checked through the debug view,
+    // and the production arm (debug off) must pass the colour through untouched.
+    const auto runChain = [&](f32 intensity, bool debugView) -> TArray64<u8>
     {
         ContactShadowUBOData csData{};
         csData.Projection = glm::perspectiveRH_NO(glm::radians(90.0f), 1.0f, 0.1f, 100.0f);
@@ -1795,7 +1801,7 @@ TEST_F(VulkanPassSuite, ContactShadowDarkensTheContactRegionOnlyWithIntensity)
         csData.ShadeParams = glm::vec4(intensity, 0.0f, 0.0f, 0.0f); // no edge fade, no bias
         csData.ScreenParams = glm::vec4(static_cast<f32>(kSize), static_cast<f32>(kSize),
                                         1.0f / static_cast<f32>(kSize), 1.0f / static_cast<f32>(kSize));
-        csData.Flags = glm::vec4(0.0f);
+        csData.Flags = glm::vec4(debugView ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f);
         csUbo->SetData(&csData, sizeof(csData));
 
         auto contactShadow = Ref<ContactShadowRenderPass>::Create();
@@ -1821,22 +1827,27 @@ TEST_F(VulkanPassSuite, ContactShadowDarkensTheContactRegionOnlyWithIntensity)
     const auto redAt = [kSize](const TArray64<u8>& img, u32 x, u32 y)
     { return static_cast<int>(img[(static_cast<sizet>(y) * kSize + x) * 4]); };
 
-    // Intensity 0: the march still finds the occluder, but the shadow factor
-    // is 1 everywhere — full passthrough.
-    const auto zeroIntensity = runChain(0.0f);
+    // Debug view, intensity 0: the march still finds the occluder, but the
+    // visibility is 1 everywhere — white.
+    const auto zeroIntensity = runChain(0.0f, true);
     ASSERT_EQ(zeroIntensity.Num(), static_cast<sizet>(kSize) * kSize * 4);
-    EXPECT_GE(redAt(zeroIntensity, 64, 58), 120) << "intensity 0 must pass the contact pixel through";
-    EXPECT_LE(redAt(zeroIntensity, 64, 58), 136);
-    EXPECT_GE(redAt(zeroIntensity, 64, 8), 120) << "intensity 0 must pass the far receiver through";
-    EXPECT_LE(redAt(zeroIntensity, 64, 8), 136);
+    EXPECT_GE(redAt(zeroIntensity, 64, 58), 245) << "intensity 0 must leave the contact pixel fully visible";
+    EXPECT_GE(redAt(zeroIntensity, 64, 8), 245) << "intensity 0 must leave the far receiver fully visible";
 
-    // Intensity 1: occlusion ~0.90 -> factor ~0.10 -> the contact pixel
-    // drops to ~13, while the far receiver keeps its full lighting.
-    const auto fullIntensity = runChain(1.0f);
+    // Debug view, intensity 1: occlusion ~0.90 -> visibility ~0.10 -> the
+    // contact pixel reads ~26, while the far receiver stays fully visible.
+    const auto fullIntensity = runChain(1.0f, true);
     ASSERT_EQ(fullIntensity.Num(), static_cast<sizet>(kSize) * kSize * 4);
-    EXPECT_LE(redAt(fullIntensity, 64, 58), 70) << "the contact pixel must darken under the near wall";
-    EXPECT_GE(redAt(fullIntensity, 64, 8), 120) << "the far receiver must stay lit (no occluder crossing)";
-    EXPECT_LE(redAt(fullIntensity, 64, 8), 136);
+    EXPECT_LE(redAt(fullIntensity, 64, 58), 70) << "the contact pixel must be occluded under the near wall";
+    EXPECT_GE(redAt(fullIntensity, 64, 8), 245) << "the far receiver must stay visible (no occluder crossing)";
+
+    // Production arm: the pass must NOT darken the composed colour any more —
+    // not even at full intensity on the contact pixel (issue #1336).
+    const auto production = runChain(1.0f, false);
+    ASSERT_EQ(production.Num(), static_cast<sizet>(kSize) * kSize * 4);
+    EXPECT_GE(redAt(production, 64, 58), 120) << "the post pass darkened the frame; the sun's contact shadow "
+                                                 "belongs inside DeferredLighting, not on the composed colour";
+    EXPECT_LE(redAt(production, 64, 58), 136);
 
     m_ExtraSetup = nullptr;
 }

@@ -9,6 +9,7 @@
 #include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
 #include "OloEngine/Renderer/BlueNoiseTexture.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 
 #include <algorithm>
 #include <array>
@@ -40,6 +41,10 @@ namespace OloEngine
         m_SelectedSurfaceHistoryTexture = {};
         m_SelectedFirstMomentsHistoryTexture = {};
         m_SelectedSecondMomentsHistoryTexture = {};
+        m_SelectedBakedGITexture = {};
+        m_SelectedGBufferEmissiveTexture = {};
+        m_SelectedIrradianceMap = {};
+        m_SelectedScreenSpaceAOTexture = {};
         m_SelectedSignalFramebuffer = {};
         m_SelectedPreBlurredFramebuffer = {};
         m_SelectedResolvedFramebuffer = {};
@@ -72,6 +77,31 @@ namespace OloEngine
         m_SelectedSceneDepthTexture = blackboard.Scene.SceneDepth;
         m_SelectedGBufferNormalTexture = blackboard.GBuffer.GBufferNormal;
         m_SelectedGBufferAlbedoTexture = blackboard.GBuffer.GBufferAlbedo;
+
+        // The ladder the trace replaces (issue #1336). Read edges, so the graph
+        // orders the AO producer before this pass and keeps RT5 alive for it.
+        if (blackboard.GBuffer.GBufferBakedGI.IsValid())
+        {
+            m_SelectedBakedGITexture = blackboard.GBuffer.GBufferBakedGI;
+            [[maybe_unused]] const auto bakedGIRead = builder.Read(m_SelectedBakedGITexture, RGReadUsage::ShaderSample);
+        }
+        // RT2's flag lane: an UNLIT pixel got no ladder from the lighting pass,
+        // so the trace must not subtract one from it.
+        if (blackboard.GBuffer.GBufferEmissive.IsValid())
+        {
+            m_SelectedGBufferEmissiveTexture = blackboard.GBuffer.GBufferEmissive;
+            [[maybe_unused]] const auto emissiveRead = builder.Read(m_SelectedGBufferEmissiveTexture, RGReadUsage::ShaderSample);
+        }
+        if (blackboard.IBL.IrradianceMap.IsValid())
+        {
+            m_SelectedIrradianceMap = blackboard.IBL.IrradianceMap;
+            [[maybe_unused]] const auto irradianceRead = builder.Read(m_SelectedIrradianceMap, RGReadUsage::ShaderSample);
+        }
+        if (blackboard.AO.AOBuffer.IsValid())
+        {
+            m_SelectedScreenSpaceAOTexture = blackboard.AO.AOBuffer;
+            [[maybe_unused]] const auto aoRead = builder.Read(m_SelectedScreenSpaceAOTexture, RGReadUsage::ShaderSample);
+        }
 
         // G-Buffer velocity (RT3) drives the resolve's reprojection. SSGI runs
         // before the upscale band, so this is the scene-band velocity — which is
@@ -412,6 +442,67 @@ namespace OloEngine
                                         RHI::HeapSlotLifetime::FrameTransient);
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_ALBEDO, gbufferAlbedoID,
                                         RHI::HeapSlotLifetime::FrameTransient);
+        // The ladder the trace replaces (issue #1336). A source the graph did not
+        // produce binds the white placeholder so no declared sampler dangles;
+        // what keeps a placeholder from being READ as data is the UBO lanes the
+        // pipeline filled (LadderParams / ScreenAOParams), patched just below
+        // from what actually resolved here.
+        const RHI::ResourceHandle whiteID =
+            Renderer3D::GetWhiteTexture() ? Renderer3D::GetWhiteTexture()->GetRHIHandle() : RHI::ResourceHandle{};
+        const RHI::ResourceHandle bakedGIID =
+            m_SelectedBakedGITexture.IsValid() ? context.ResolveTextureHandle(m_SelectedBakedGITexture) : RHI::ResourceHandle{};
+        const RHI::ResourceHandle irradianceID =
+            m_SelectedIrradianceMap.IsValid() ? context.ResolveTextureHandle(m_SelectedIrradianceMap) : RHI::ResourceHandle{};
+        const RHI::ResourceHandle screenAOID = m_SelectedScreenSpaceAOTexture.IsValid()
+                                                   ? context.ResolveTextureHandle(m_SelectedScreenSpaceAOTexture)
+                                                   : RHI::ResourceHandle{};
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_BAKEDGI,
+                                        bakedGIID.IsValid() ? bakedGIID : whiteID, RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SSAO, screenAOID.IsValid() ? screenAOID : whiteID,
+                                        RHI::HeapSlotLifetime::FrameTransient);
+        // A missing RT2 binds white, whose flag lane reads as UNLIT: the trace
+        // then emits no delta anywhere, which is SSGI doing nothing rather than
+        // subtracting a ladder it cannot confirm was applied.
+        const RHI::ResourceHandle emissiveID = m_SelectedGBufferEmissiveTexture.IsValid()
+                                                   ? context.ResolveTextureHandle(m_SelectedGBufferEmissiveTexture)
+                                                   : RHI::ResourceHandle{};
+        if (!emissiveID.IsValid())
+        {
+            static bool s_WarnedMissingEmissive = false;
+            if (!s_WarnedMissingEmissive)
+            {
+                s_WarnedMissingEmissive = true;
+                OLO_CORE_WARN("SSGIRenderPass: G-Buffer RT2 did not resolve; SSGI contributes nothing while it is missing");
+            }
+        }
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_EMISSIVE, emissiveID.IsValid() ? emissiveID : whiteID,
+                                        RHI::HeapSlotLifetime::FrameTransient);
+        // Bound only when present, as DeferredLightingPass does: with no cube the
+        // EnableIBL lane below is forced to 0 and the trace never samples it.
+        if (irradianceID.IsValid())
+        {
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_USER_0, irradianceID,
+                                            RHI::HeapSlotLifetime::FrameTransient);
+        }
+        if (m_SSGIUBO)
+        {
+            // Lanes only this Execute can know: whether RT5, the irradiance cube
+            // and the AO buffer really resolved. A white RT5 would read as
+            // "lightmapped, E = 1", so the trace is told to use no lightmap
+            // sample instead; a missing AO buffer reads as fully open, matching
+            // the lighting pass, which falls back to 1.0 on the same condition.
+            glm::vec4 ladder = m_LadderParams;
+            ladder.w = bakedGIID.IsValid() ? 1.0f : 0.0f;
+            if (!irradianceID.IsValid())
+                ladder.x = 0.0f;
+            glm::vec4 screenAO = m_ScreenAOParams;
+            if (!screenAOID.IsValid())
+                screenAO.x = 0.0f;
+            m_SSGIUBO->SetData(&ladder, static_cast<u32>(sizeof(glm::vec4)),
+                               static_cast<u32>(offsetof(SSGIUBOData, LadderParams)));
+            m_SSGIUBO->SetData(&screenAO, static_cast<u32>(sizeof(glm::vec4)),
+                               static_cast<u32>(offsetof(SSGIUBOData, ScreenAOParams)));
+        }
         // Pass-owned and immutable, so Persistent rather than FrameTransient
         // (issue #706). Nearest+Repeat sampler state rides in the descriptor.
         BindBlueNoiseTexture(context, m_BlueNoiseTexture);
@@ -552,6 +643,10 @@ namespace OloEngine
         m_SelectedSurfaceHistoryTexture = {};
         m_SelectedFirstMomentsHistoryTexture = {};
         m_SelectedSecondMomentsHistoryTexture = {};
+        m_SelectedBakedGITexture = {};
+        m_SelectedGBufferEmissiveTexture = {};
+        m_SelectedIrradianceMap = {};
+        m_SelectedScreenSpaceAOTexture = {};
         m_SelectedSignalFramebuffer = {};
         m_SelectedPreBlurredFramebuffer = {};
         m_SelectedResolvedFramebuffer = {};

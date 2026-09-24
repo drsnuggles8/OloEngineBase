@@ -147,6 +147,18 @@ namespace OloEngine
             m_PostBlurEnabled = postBlurEnabled;
         }
 
+        // The ambient ladder the trace replaces over its resolved directions
+        // (issue #1336), in the SAME lanes the deferred lighting pass shaded it
+        // with: `ladder` = DeferredLightingPass::AmbientLadderControls(),
+        // `screenAO` = DeferredLightingPass::ScreenSpaceAOParams(). Execute
+        // patches the lanes it alone can answer (did RT5 / the cube / the AO
+        // buffer resolve) before uploading them.
+        void SetAmbientLadder(const glm::vec4& ladder, const glm::vec4& screenAO) noexcept
+        {
+            m_LadderParams = ladder;
+            m_ScreenAOParams = screenAO;
+        }
+
       private:
         bool m_Enabled = false;
 
@@ -172,6 +184,17 @@ namespace OloEngine
         RGTextureHandle m_SelectedSurfaceHistoryTexture{};
         RGTextureHandle m_SelectedFirstMomentsHistoryTexture{};
         RGTextureHandle m_SelectedSecondMomentsHistoryTexture{};
+        // The ambient ladder the trace replaces over its resolved directions
+        // (issue #1336): the lightmap sample the lighting pass read (G-Buffer
+        // RT5), the IBL irradiance cube, and the screen-space AO the lighting
+        // pass multiplied the ambient by. Each optional; the UBO lanes and the
+        // placeholders make an absent one read as "that rung is not there".
+        RGTextureHandle m_SelectedBakedGITexture{};
+        RGTextureHandle m_SelectedGBufferEmissiveTexture{}; // RT2: the unlit flag
+        RGTextureHandle m_SelectedIrradianceMap{};
+        RGTextureHandle m_SelectedScreenSpaceAOTexture{};
+        glm::vec4 m_LadderParams{ 0.0f, 0.0f, 1.0f, 0.0f };
+        glm::vec4 m_ScreenAOParams{ 0.0f };
         RGFramebufferHandle m_SelectedSignalFramebuffer{};
         RGFramebufferHandle m_SelectedPreBlurredFramebuffer{};
         RGFramebufferHandle m_SelectedResolvedFramebuffer{};

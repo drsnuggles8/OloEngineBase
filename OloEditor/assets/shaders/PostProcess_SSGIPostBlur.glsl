@@ -97,6 +97,9 @@ layout(std140, binding = 40) uniform SSGIParams
     vec4 u_TraceParams;    // x = trace width, y = trace height, z = 1/width, w = 1/height
     vec4 u_DenoiseParams;  // x = PreBlurRadius (px), y = PostBlurMinRadius, z = PostBlurMaxRadius, w = VarianceKnee
     vec4 u_DenoiseGuide;   // x = PlaneTolerance, y = NormalPower, z = TargetHistoryLength, w = RayDistribution
+    vec4 u_LadderParams;   // #1336, read by the trace only
+    vec4 u_ScreenAOParams; // #1336, read by the trace only
+    mat4 u_InverseRelativeView; // #1336, read by the trace only
 };
 
 const vec3 LUMINANCE_WEIGHTS = vec3(0.2126, 0.7152, 0.0722);
@@ -139,7 +142,9 @@ void main()
         }
     }
     variance *= 1.0 / 9.0;
-    float mean = dot(max(resolvedCenter.rgb, vec3(0.0)), LUMINANCE_WEIGHTS);
+    // The MAGNITUDE of the signal: it is a signed delta since #1336, and the
+    // radius is driven by noise RELATIVE to how much light is being moved.
+    float mean = abs(dot(resolvedCenter.rgb, LUMINANCE_WEIGHTS));
     float radius = OloDenoisePostBlurRadius(variance, mean, historyLength,
                                             u_DenoiseParams.y, maxRadius,
                                             u_DenoiseParams.w, u_DenoiseGuide.z);
@@ -191,8 +196,9 @@ void main()
         weightSum += weight;
     }
 
-    // Indirect diffuse is a non-negative radiance; alpha carries this pixel's
-    // own view depth on to the guided upscale, which needs it to reject
-    // half-resolution taps that belong to a different surface.
-    o_Color = vec4(max(accumulated / weightSum, vec3(0.0)), centerDepth);
+    // Signed since #1336 (a delta against the ambient ladder), so not clamped;
+    // alpha carries this pixel's own view depth on to the guided upscale,
+    // which needs it to reject half-resolution taps that belong to a
+    // different surface.
+    o_Color = vec4(accumulated / weightSum, centerDepth);
 }

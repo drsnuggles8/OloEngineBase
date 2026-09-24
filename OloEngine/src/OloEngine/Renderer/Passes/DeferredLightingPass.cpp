@@ -45,6 +45,11 @@ namespace OloEngine
         {
             glm::vec4 Controls;   // x=EnableIBL, y=EnableProbes, z=IBLIntensity, w=CascadeDebug
             glm::vec4 MSAAParams; // x=SampleCount (float), y=ReSTIR DI, z=ReSTIR GI, w=MaterialDebugView
+            // Screen-space AO for the AMBIENT term (issue #1336): x = live, y =
+            // strength, z/w = the reconstruction projection's (2,2) / (3,2).
+            glm::vec4 ScreenAOParams;
+            // x = contact shadows multiply Lights[0]'s visibility here (#1336).
+            glm::vec4 LightingFlags;
 
             // THE SKIN PROFILE TABLE (issue #1231), indexed by the three-bit
             // slot the G-Buffer flags lane carries.
@@ -147,7 +152,7 @@ namespace OloEngine
                       "G-Buffer field; if their slot counts ever differ, the field can no longer name both.");
         static_assert(sizeof(DeferredControlsData) % 16 == 0,
                       "DeferredControlsData must be 16-byte aligned for std140");
-        static_assert(sizeof(DeferredControlsData) == 32 + kMaxSkinProfileSlots * 16 +
+        static_assert(sizeof(DeferredControlsData) == 64 + kMaxSkinProfileSlots * 16 +
                                                           kMaxFoliageLeafSlots * 32 +
                                                           kMaxSkinProfileSlots * 32 +
                                                           kMaxSkinProfileSlots * 16 +
@@ -155,6 +160,20 @@ namespace OloEngine
                       "DeferredControlsData no longer matches the DeferredLightingControls block in "
                       "DeferredLighting.glsl / DeferredLighting_MSAA.glsl");
     } // namespace
+
+    glm::vec4 DeferredLightingPass::AmbientLadderControls()
+    {
+        const bool iblAvailable = Renderer3D::GetGlobalIrradianceMapHandle().IsValid() &&
+                                  Renderer3D::GetGlobalPrefilterMapHandle().IsValid() &&
+                                  Renderer3D::GetGlobalBRDFLutMapHandle().IsValid();
+        // Light-probe toggle mirrors RendererSettings::Deferred.EnableLightProbes.
+        // Runtime IBL strength multiplier: the global scalar set via
+        // Renderer3D::SetGlobalIBL(), so the ImGui slider reaches the deferred
+        // path (before, it was pinned at 1.0 and only forward draws honoured it).
+        return { iblAvailable ? 1.0f : 0.0f,
+                 Renderer3D::GetRendererSettings().Deferred.EnableLightProbes ? 1.0f : 0.0f,
+                 Renderer3D::GetGlobalIBLIntensity(), 0.0f };
+    }
 
     DeferredLightingPass::DeferredLightingPass()
     {
@@ -424,16 +443,11 @@ namespace OloEngine
         // sample whenever this flag is on. When off, the shader falls back
         // to the global IBL cubemap.
         DeferredControlsData controls{};
-        const bool iblAvailable = Renderer3D::GetGlobalIrradianceMapHandle().IsValid() &&
-                                  Renderer3D::GetGlobalPrefilterMapHandle().IsValid() &&
-                                  Renderer3D::GetGlobalBRDFLutMapHandle().IsValid();
-        controls.Controls.x = iblAvailable ? 1.0f : 0.0f;
-        controls.Controls.y = Renderer3D::GetRendererSettings().Deferred.EnableLightProbes ? 1.0f : 0.0f;
-        // Runtime IBL strength multiplier: plumb the global scalar set via
-        // Renderer3D::SetGlobalIBL() so the ImGui slider actually reaches
-        // DeferredLighting.glsl. Before, this was pinned at 1.0 and IBL
-        // intensity tweaks only applied to forward PBR draws.
-        controls.Controls.z = Renderer3D::GetGlobalIBLIntensity();
+        const glm::vec4 ladderControls = AmbientLadderControls();
+        const bool iblAvailable = ladderControls.x > 0.5f;
+        controls.Controls.x = ladderControls.x;
+        controls.Controls.y = ladderControls.y;
+        controls.Controls.z = ladderControls.z;
         // Cascade-debug visualization flag mirrors ShadowMap::SetCascadeDebugEnabled,
         // which is the single source of truth across forward and deferred paths.
         controls.Controls.w = Renderer3D::GetShadowMap().IsCascadeDebugEnabled() ? 1.0f : 0.0f;
@@ -457,6 +471,20 @@ namespace OloEngine
         // Material debug view (issue #1231) — which of the four separated
         // outputs replaces the composite. 0 (None) is the normal frame.
         controls.MSAAParams.w = static_cast<f32>(std::to_underlying(m_MaterialDebugView));
+        // Screen-space AO for the ambient term (issue #1336). Raised only when
+        // RenderPipeline handed the AO buffer to this pass AND the graph
+        // actually produced one, so a technique that did not run leaves the
+        // ambient unoccluded by construction — never multiplied by a stale or
+        // zeroed transient.
+        const bool screenAOLive = m_ScreenAOToAmbient && m_SelectedInputs.AOBuffer.IsValid();
+        controls.ScreenAOParams = glm::vec4(screenAOLive ? 1.0f : 0.0f, m_ScreenAOIntensity, m_ScreenAOProjA,
+                                            m_ScreenAOProjB);
+        // Contact shadows for the primary directional light (issue #1336) —
+        // raised only with the UBO the march reads actually in hand.
+        const bool contactShadowLive = m_ContactShadowInLighting && m_ContactShadowUBO;
+        controls.LightingFlags = glm::vec4(contactShadowLive ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f);
+        if (contactShadowLive)
+            m_ContactShadowUBO->Bind();
 
         // The skin profile table. Filled from the SAME SkinProfileTable that
         // assigned the slots the G-Buffer wrote, so the two cannot disagree
@@ -677,6 +705,16 @@ namespace OloEngine
                                                  : RHI::ResourceHandle{});
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_RESTIR_DI_RADIANCE, restirRadianceID,
                                         RHI::HeapSlotLifetime::FrameTransient);
+
+        // Screen-space AO (issue #1336), for the ambient term. White when not
+        // live — ScreenAOParams.x is what gates the read, so the placeholder is
+        // never multiplied in; it exists so the declared sampler cannot dangle.
+        const RHI::ResourceHandle screenAOID =
+            (screenAOLive)
+                ? context.ResolveTextureHandle(m_SelectedInputs.AOBuffer)
+                : (Renderer3D::GetWhiteTexture() ? Renderer3D::GetWhiteTexture()->GetRHIHandle()
+                                                 : RHI::ResourceHandle{});
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SSAO, screenAOID, RHI::HeapSlotLifetime::FrameTransient);
 
         // ReSTIR GI's resolved indirect diffuse (issue #1169), on the same terms
         // and with the same caveat: the white placeholder's alpha is 1, so if it

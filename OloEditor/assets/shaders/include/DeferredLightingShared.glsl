@@ -58,6 +58,12 @@
 // and its output already reached us through the G-Buffer.
 #include "FoliageSurface.glsl"
 
+// The ambient source ladder (issue #1336) — the one the forward paths use,
+// called with this pass's DeferredLightingControls lanes rather than a material
+// UBO. The includer has already pulled in PBRCommon and LightProbeSampling.
+#define OLO_AMBIENT_LADDER_EXPLICIT_CONTROLS
+#include "AmbientLadder.glsl"
+
 vec3 OctDecodeGB(vec2 e)
 {
     vec3 n = vec3(e, 1.0 - abs(e.x) - abs(e.y));
@@ -268,9 +274,16 @@ vec3 ApplyCascadeDebug(vec3 color, vec3 worldPos)
 // intended answer in each case: an unlit pixel has no skin transport, and the
 // debug views show what the CLOSURE produced, which is the thing being
 // inspected. A blurred debug view would be a different question.
+//
+// `screenAO` (issue #1336) is the screen-space AO visibility for this pixel, 1.0
+// when no AO technique ran. It multiplies the AMBIENT split only, beside the
+// material `ao` — see oloComposeReflectedLighting.
+// `sunContactVisibility` (issue #1336) is the screen-space contact shadow of
+// the PRIMARY directional light (Lights[0]), 1.0 when contact shadows are off.
+// It multiplies that one light's visibility and nothing else.
 vec3 ComputeDeferredLitSplit(
     vec3 albedo, float metallic,
-    vec3 N, float roughness, float ao,
+    vec3 N, float roughness, float ao, float screenAO, float sunContactVisibility,
     vec4 emissiveFlags, vec3 worldPos, vec4 bakedGI,
     out vec4 skinDiffuse)
 {
@@ -463,6 +476,18 @@ vec3 ComputeDeferredLitSplit(
     // way, because those are different terms.
     vec3 restirDirect;
     bool restirActive = oloReSTIRDIDirectLighting(restirDirect);
+    // A SKIN PIXEL IS NOT THIS TIER'S (issue #1336). The resampled estimate is
+    // one combined radiance evaluated with the base closure: it has no profile
+    // specular tint, no layered lobe, no oral coat, and — arriving outside the
+    // diffuse/specular split — it never reaches the diffusion hand-off. A skin
+    // pixel lit by it would lose all four for every punctual light, silently.
+    // So the partition is by light AND by pixel: on a pixel that names a skin
+    // profile, the clustered tiles / the loop below own every light, exactly
+    // as they do with the tier off, and the tier's radiance here is discarded.
+    // What that pixel gives up is light FROM emissive geometry, which only this
+    // tier evaluates — the one residual, stated in lighting-signal-contract.md.
+    if (restirActive && skinProfileSlot < OLO_SKIN_PROFILE_SLOT_NONE)
+        restirActive = false;
     if (restirActive)
     {
         unsplitDirect += restirDirect;
@@ -547,6 +572,11 @@ vec3 ComputeDeferredLitSplit(
         if (lightType == DIRECTIONAL_LIGHT)
         {
             lightVisibility *= cloudShadow;
+            // The contact shadow belongs to Lights[0] — the primary directional
+            // light its march was aimed at (Scene packs directional lights first,
+            // and the direction RenderPipeline uploads is that slot's).
+            if (i == 0)
+                lightVisibility *= sunContactVisibility;
         }
         // The ray-traced branch is tested BEFORE u_DirectionalShadowEnabled,
         // not inside it. That flag belongs to the CSM: only the FIRST
@@ -739,100 +769,54 @@ vec3 ComputeDeferredLitSplit(
     OloSurfaceLighting ambient = oloSurfaceLightingZero();
     if (restirGIActive)
     {
-        // The SPECULAR half only, and only when IBL is on at all.
-        // calculateCombinedAmbientPrefiltered's DIFFUSE half is what ReSTIR GI
-        // replaced, so passing it a zero irradiance keeps the specular IBL /
-        // probe term while dropping the diffuse one — rather than skipping the
-        // call, which would drop both.
-        //
-        // With IBL off there is no specular ambient to keep, so the whole term
-        // is zero: calculateSimpleAmbient would have put a flat DIFFUSE fill
-        // back, which is the one thing this tier has just replaced.
+        // The SPECULAR half only, and only when IBL is on at all: the ladder's
+        // DIFFUSE half is what ReSTIR GI replaced. With IBL off there is no
+        // specular ambient to keep, so the whole term is zero — the flat fill
+        // is a DIFFUSE fill, which is the one thing this tier has just replaced.
+        // ReSTIR PT answers for the specular lobe as well, so it drops both.
         if (enableIBL && !restirPTActive)
-        {
-            ambient = calculateCombinedAmbientPrefilteredSplit(vec3(0.0), N, V, albedo, metallic, roughness,
-                                                               u_BRDFLutMap, prefilteredColor);
-            ambient = oloSurfaceLightingScale(ambient, vec3(iblIntensity));
-        }
-    }
-    else if (bakedGI.a > 0.5)
-    {
-        // Rung 1 — baked lightmap, mirroring include/AmbientLadder.glsl's first
-        // branch (the forward path's definition of this rung).
-        //
-        // NO FOLIAGE GATE HERE, AND THAT IS THE POINT OF PUTTING THE THICKNESS
-        // IN RT5 (issue #1234). Every foliage G-Buffer writer writes coverage
-        // 0, and this rung is gated on coverage — so a foliage pixel never
-        // reached it before #1234 and still does not, with no new test. The one
-        // RESOLVED MSAA leaks BOTH WAYS across a foliage/lightmapped
-        // silhouette, and both are bounded. Into this rung: a mixed pixel
-        // averages in `thickness / sampleCount` on red where it used to average
-        // in 0. Out of it: the thickness read above can pick up averaged
-        // irradiance, which is why that read carries its own coverage test.
-        // Silhouette pixels only, in resolved-MSAA mode only.
-        //
-        // The gate is COVERAGE, never the colour: a validly baked pure-black texel is an
-        // enclosed surface no indirect light reaches and must keep its darkness
-        // instead of falling through and glowing with sky IBL — the exact leak
-        // the bake exists to kill. Deliberately not gated on enableProbes: baked
-        // GI is its own source, and its scene kill switch is u_LightmapEnabled,
-        // which the G-Buffer pass already applied before writing RT5.
-        if (enableIBL)
-        {
-            ambient = calculateCombinedAmbientPrefilteredSplit(bakedGI.rgb, N, V, albedo, metallic, roughness,
-                                                               u_BRDFLutMap, prefilteredColor);
-            ambient = oloSurfaceLightingScale(ambient, vec3(iblIntensity));
-        }
-        else
-        {
-            ambient = calculateLightProbeAmbientSplit(bakedGI.rgb, albedo, metallic, roughness, N, V);
-        }
-    }
-    else if (enableProbes && enableIBL)
-    {
-        // Issue #632: unified probe sampling — realtime DDGI atlases when a
-        // Realtime/Hybrid volume is bound, baked SH otherwise.
-        vec3 probeIrradiance = sampleProbeVolumeIrradiance(worldPos, N, V);
-        if (dot(probeIrradiance, probeIrradiance) > 0.0)
-        {
-            ambient = calculateCombinedAmbientPrefilteredSplit(probeIrradiance, N, V, albedo, metallic, roughness,
-                                                               u_BRDFLutMap, prefilteredColor);
-            ambient = oloSurfaceLightingScale(ambient, vec3(iblIntensity));
-        }
-        else
-        {
-            ambient = calculateIBLPrefilteredSplit(N, V, albedo, metallic, roughness,
-                                                   u_IrradianceMap, u_BRDFLutMap, prefilteredColor);
-            ambient = oloSurfaceLightingScale(ambient, vec3(iblIntensity));
-        }
-    }
-    else if (enableProbes)
-    {
-        vec3 probeIrradiance = sampleProbeVolumeIrradiance(worldPos, N, V);
-        if (dot(probeIrradiance, probeIrradiance) > 0.0)
-            ambient = calculateLightProbeAmbientSplit(probeIrradiance, albedo, metallic, roughness, N, V);
-        else
-            ambient = calculateSimpleAmbientSplit(albedo, metallic, ao);
-    }
-    else if (enableIBL)
-    {
-        ambient = calculateIBLPrefilteredSplit(N, V, albedo, metallic, roughness,
-                                               u_IrradianceMap, u_BRDFLutMap, prefilteredColor);
-        ambient = oloSurfaceLightingScale(ambient, vec3(iblIntensity));
+            ambient.Specular = oloAmbientSpecular(N, V, albedo, metallic, roughness, u_BRDFLutMap, prefilteredColor) *
+                               iblIntensity;
     }
     else
     {
-        ambient = calculateSimpleAmbientSplit(albedo, metallic, ao);
+        // THE LADDER — the SAME function the forward paths call (issue #1336),
+        // with the rung controls from DeferredLightingControls. This pass used
+        // to carry a hand-kept copy of every rung; one definition is what makes
+        // "the two paths pick the same ambient source for the same pixel" a fact
+        // about the build. RT5 (`bakedGI`) is the forward path's lightmap
+        // sample: irradiance E + coverage, gated on COVERAGE inside the ladder.
+        //
+        // NO FOLIAGE GATE, AND THAT IS THE POINT OF PUTTING THE THICKNESS IN RT5
+        // (issue #1234). Every foliage G-Buffer writer writes coverage 0, so a
+        // foliage pixel never reaches the lightmap rung. RESOLVED MSAA leaks
+        // both ways across a foliage/lightmapped silhouette, and both are
+        // bounded: into the rung a mixed pixel averages in `thickness /
+        // sampleCount` on red; out of it the thickness read above can pick up
+        // averaged irradiance, which is why that read carries its own coverage
+        // test. Silhouette pixels only, in resolved-MSAA mode only.
+        ambient = evaluateAmbientLadderSplitEx(bakedGI, worldPos, N, V, albedo, metallic, roughness,
+                                               u_IrradianceMap, u_BRDFLutMap, prefilteredColor, enableIBL,
+                                               enableProbes, iblIntensity);
     }
 
-    // ambient * ao, then the resampled indirect diffuse UNMULTIPLIED — see
-    // oloReSTIRGIIndirectDiffuse for why the AO term must not touch it. It joins
-    // the DIFFUSE half because that is exactly what that tier estimates; its own
-    // comment above says so, and putting it anywhere else would make the diffuse
-    // debug view disagree with the tier's documented contract.
-    OloSurfaceLighting lighting = oloSurfaceLightingAdd(oloSurfaceLightingScale(ambient, vec3(ao)), Lo);
-    if (restirGIActive)
-        lighting.Diffuse += restirIndirect;
+    // ambient * (material AO * screen-space AO), then the resampled indirect
+    // diffuse UNMULTIPLIED — see oloReSTIRGIIndirectDiffuse for why no AO term
+    // may touch it. It joins the DIFFUSE half because that is exactly what that
+    // tier estimates. The screen-space AO used to be applied to the composed
+    // frame by PostProcess_SSAOApply, which darkened direct light, emission,
+    // transmission and this traced term too (issue #1336).
+    //
+    // ReSTIR PT's value is NOT a diffuse term: it is the whole path-traced
+    // indirect, both lobes, delivered combined — so, like ReSTIR DI's direct
+    // term, it joins OUTSIDE the split (unsplit, excluded from the diffuse /
+    // specular debug views and from the skin diffusion hand-off) rather than
+    // being filed as diffuse, where the diffusion pass would have blurred its
+    // specular half (issue #1336).
+    bool restirGIDiffuseOnly = restirGIActive && !restirPTActive;
+    OloSurfaceLighting lighting = oloComposeReflectedLighting(Lo, ambient, ao * screenAO,
+                                                              restirGIDiffuseOnly ? restirIndirect : vec3(0.0));
+    vec3 unsplitIndirect = restirPTActive ? restirIndirect : vec3(0.0);
 
     // The INDIRECT half of the leaf transmission (issue #1234) — the
     // environment arriving on the FAR face, added ONCE rather than per light.
@@ -914,7 +898,7 @@ vec3 ComputeDeferredLitSplit(
     // `materialdiffuse` show something that is not the diffuse lobe and left
     // #1234's fourth criterion — inspect transmission separately — with nowhere
     // to look.
-    vec3 color = oloSurfaceLightingSum(lighting) + unsplitDirect + transmitted + emissive;
+    vec3 color = oloComposeSurfaceRadiance(lighting, unsplitDirect + unsplitIndirect, transmitted, emissive);
 
     if (cascadeDebug && u_DirectionalShadowEnabled != 0)
         color = ApplyCascadeDebug(color, worldPos);
@@ -939,12 +923,12 @@ vec3 ComputeDeferredLitSplit(
 // never disagree.
 vec3 ComputeDeferredLit(
     vec3 albedo, float metallic,
-    vec3 N, float roughness, float ao,
+    vec3 N, float roughness, float ao, float screenAO, float sunContactVisibility,
     vec4 emissiveFlags, vec3 worldPos, vec4 bakedGI)
 {
     vec4 ignoredSkinDiffuse;
-    return ComputeDeferredLitSplit(albedo, metallic, N, roughness, ao, emissiveFlags,
-                                   worldPos, bakedGI, ignoredSkinDiffuse);
+    return ComputeDeferredLitSplit(albedo, metallic, N, roughness, ao, screenAO, sunContactVisibility,
+                                   emissiveFlags, worldPos, bakedGI, ignoredSkinDiffuse);
 }
 
 #endif // DEFERRED_LIGHTING_SHARED_GLSL

@@ -15,6 +15,15 @@
 #ifndef OLO_GBUFFER_RAY_SURFACE_GLSL
 #define OLO_GBUFFER_RAY_SURFACE_GLSL
 
+// The weather wetness DeferredLighting applies at lighting time (issue #1336) —
+// self-contained (UBO 54 + the always-bound cloud-shadow slot 62).
+#include "AtmosphereShading.glsl"
+
+// PBRCommon.glsl's MIN_ROUGHNESS, the floor DeferredLighting.glsl applies when
+// it reads the G-Buffer roughness. Spelled here because this file does not
+// require PBRCommon to be included first.
+const float OLO_GBUFFER_RAY_SURFACE_MIN_ROUGHNESS = 0.04;
+
 // What a pixel's G-Buffer says, in the render-relative frame the TLAS is built
 // in (issue #429). Reading absolute world positions here would displace every
 // ray by exactly the render origin — zero near the world origin, which is where
@@ -64,8 +73,15 @@ OloGBufferSurface OloLoadGBufferSurface(vec2 uv, float depth, vec4 packedNormal,
     s.ViewDepth = -viewPos.z;
     s.ShadingNormal = OloGBufferOctDecode(packedNormal.xy);
     s.GeometricNormal = s.ShadingNormal;
-    s.Roughness = packedNormal.z;
+    // THE SAME SURFACE THE DEFERRED PASS SHADES (issue #1336). DeferredLighting
+    // floors the G-Buffer roughness at MIN_ROUGHNESS when it reads it and then
+    // applies the weather wetness to albedo and roughness; a tier that owns this
+    // pixel's light (ReSTIR DI / GI / PT) must evaluate the closure on that
+    // surface, not on the raw G-Buffer bytes, or a wet street and a near-mirror
+    // Legacy floor shade differently the moment the tier engages.
+    s.Roughness = max(packedNormal.z, OLO_GBUFFER_RAY_SURFACE_MIN_ROUGHNESS);
     s.Albedo = packedAlbedo.rgb;
+    atmosphereApplyWetness(s.Albedo, s.Roughness, s.ShadingNormal);
     s.Metallic = packedAlbedo.a;
     s.PbrModel = pbrModel;
     return s;

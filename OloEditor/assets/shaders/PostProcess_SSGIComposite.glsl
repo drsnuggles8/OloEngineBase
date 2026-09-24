@@ -56,8 +56,11 @@ void main()
 //      other three get weight 0, so there is no separate code path to keep
 //      correct.
 //
-//   2. COMPOSITE (issue #902). Adds the resolved indirect diffuse to the
-//      upstream lit colour. This runs AFTER the resolve on purpose:
+//   2. COMPOSITE (issue #902). Adds the resolved indirect-diffuse DELTA to the
+//      upstream lit colour. Since #1336 that delta is signed: the trace hands
+//      back what SSGI's resolved directions change about the ambient ladder
+//      the lighting pass already applied (PostProcess_SSGI.glsl), so the sum
+//      below replaces the ladder over those directions instead of adding to it. This runs AFTER the resolve on purpose:
 //      compositing first and resolving the composite is the failure #902 exists
 //      to avoid, because it would accumulate the base colour along with the
 //      stochastic term.
@@ -79,7 +82,7 @@ layout(location = 0) in vec2 v_TexCoord;
 #define u_GBufferNormal OLO_HEAP_TEX_2D(44) // TEX_GBUFFER_NORMAL
 #else
 layout(binding = 0) uniform sampler2D u_SceneColor;     // upstream lit HDR colour (full res)
-layout(binding = 1) uniform sampler2D u_DenoisedSignal; // trace band: rgb = indirect diffuse, a = view depth
+layout(binding = 1) uniform sampler2D u_DenoisedSignal; // trace band: rgb = signed indirect-diffuse delta, a = view depth
 layout(binding = 2) uniform sampler2D u_Guide;          // trace band: rg = oct world normal, b = roughness, a = AO
 layout(binding = 19) uniform sampler2D u_DepthTexture;  // full-res scene depth (nonlinear, [0,1])
 layout(binding = 44) uniform sampler2D u_GBufferNormal; // full-res RT1: rg = oct world normal, z = roughness, w = ao
@@ -101,6 +104,9 @@ layout(std140, binding = 40) uniform SSGIParams
     vec4 u_TraceParams;  // x = trace width, y = trace height, z = 1/width, w = 1/height
     vec4 u_DenoiseParams;
     vec4 u_DenoiseGuide; // x = PlaneTolerance, y = NormalPower, z = TargetHistoryLength, w = RayDistribution
+    vec4 u_LadderParams;   // #1336, read by the trace only
+    vec4 u_ScreenAOParams; // #1336, read by the trace only
+    mat4 u_InverseRelativeView; // #1336, read by the trace only
 };
 
 const float SKY_DEPTH = 0.999999;
@@ -199,13 +205,17 @@ void main()
         indirectDiffuse = weightSum > 0.0 ? accumulated / weightSum : fallbackColor;
     }
 
-    indirectDiffuse = max(indirectDiffuse, vec3(0.0)) * u_ShadeParams.x;
+    indirectDiffuse *= u_ShadeParams.x;
 
-    if (u_Flags.x > 0.5) // debug: the resolved indirect-diffuse contribution in isolation
+    if (u_Flags.x > 0.5) // debug: the resolved indirect-diffuse delta in isolation (negative reads black)
     {
-        o_Color = vec4(indirectDiffuse, 1.0);
+        o_Color = vec4(max(indirectDiffuse, vec3(0.0)), 1.0);
         return;
     }
 
-    o_Color = vec4(baseColor + indirectDiffuse, 1.0);
+    // The clamp is on the FINISHED colour, not on the delta: a negative delta
+    // is the ladder's sky being taken back where geometry blocks it, and
+    // clamping the delta would leave that sky double-counted. The finished
+    // colour can only dip below zero through denoiser overshoot.
+    o_Color = vec4(max(baseColor + indirectDiffuse, vec3(0.0)), 1.0);
 }

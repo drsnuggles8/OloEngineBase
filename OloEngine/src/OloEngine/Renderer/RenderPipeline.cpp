@@ -31,6 +31,7 @@
 #include "OloEngine/Renderer/VolumetricShadowMap.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RenderPipelineBuilder.h"
+#include "OloEngine/Renderer/LightingSignalContract.h"
 #include "OloEngine/Renderer/ShaderLibrary.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/ShaderResourceRegistry.h"
@@ -1304,8 +1305,35 @@ namespace OloEngine
             // makes an unapplied technique change degrade to "no AO" instead.
             const bool ssaoEnabled = data.ActiveGraphAOTechnique == AOTechnique::SSAO && data.PostProcess.SSAOEnabled;
             const bool gtaoEnabled = data.ActiveGraphAOTechnique == AOTechnique::GTAO && data.PostProcess.GTAOEnabled;
-            const bool aoApplyEnabled = (ssaoEnabled || gtaoEnabled) && PostProcessPasses.AOApply->IsReadyForExecution();
+            // WHO MULTIPLIES THE AO IN (issue #1336). The AO buffer is visibility
+            // for the AMBIENT term. On the deferred path DeferredLighting applies
+            // it to the ambient split, so this pass stands down and no longer
+            // darkens direct light, emission, transmission and the traced
+            // indirect tiers with it. The forward paths build the buffer from the
+            // forward pass's own normals, AFTER the lighting that would need it,
+            // so the composed-colour multiply stays there as a declared
+            // approximation (docs/agent-rules/lighting-signal-contract.md).
+            const ScreenSpaceAOApplication aoApplication =
+                SelectScreenSpaceAOApplication(ssaoEnabled || gtaoEnabled, data.Settings.Path);
+            // The AO debug view replaces the frame with the AO term itself, so it
+            // keeps this pass on whichever path applies the AO.
+            const bool aoDebugView = gtaoEnabled ? data.PostProcess.GTAODebugView : data.PostProcess.SSAODebugView;
+            const bool aoApplyEnabled = (aoApplication == ScreenSpaceAOApplication::ComposedColorApproximation ||
+                                         (aoApplication == ScreenSpaceAOApplication::AmbientTermInLighting && aoDebugView)) &&
+                                        PostProcessPasses.AOApply->IsReadyForExecution();
             PostProcessPasses.AOApply->SetEnabled(aoApplyEnabled);
+            if (SceneCompositePasses.DeferredLighting)
+            {
+                // The SAME strength and depth linearisation the AOApply pass
+                // would have used: SSAO's slider, or 1 for GTAO (its power is
+                // baked in the compute pass), and the reconstruction projection
+                // SSAORenderPass uploads, so the two consumers multiply by the
+                // same number.
+                const glm::mat4 aoProjection = RHI::AdjustProjectionForShaderReconstruction(data.ProjectionMatrix);
+                SceneCompositePasses.DeferredLighting->SetScreenSpaceAO(
+                    aoApplication == ScreenSpaceAOApplication::AmbientTermInLighting && !aoDebugView,
+                    gtaoEnabled ? 1.0f : data.PostProcess.SSAOIntensity, aoProjection[2][2], aoProjection[3][2]);
+            }
             // AO texture selection is setup-owned too; the per-frame hook only
             // updates the enable state and bound UBOs.
             PostProcessPasses.AOApply->SetPostProcessUBO(data.PostProcessGPU.PostProcess);
@@ -1451,8 +1479,17 @@ namespace OloEngine
                 SceneCompositePasses.ReSTIRGI &&
                 !SceneCompositePasses.ReSTIRGI->GetIndirectDiffuseSources().SSGIComposite &&
                 data.PostProcess.SSGIEnabled;
-            const bool ssgiEnabled = ptOwnership.DiffuseFallbacks.SSGIComposite && !ssgiOwnedElsewhere && deferredPath &&
-                                     PostProcessPasses.SSGI->IsReadyForExecution();
+            // SSGI runs when the lighting-signal contract (issue #1336) gives it
+            // the indirect-diffuse term, from the tier decisions just made: PT
+            // owning the term, or ReSTIR GI owning it, stands SSGI down.
+            LightingFrameConfiguration lightingFrame;
+            lightingFrame.Path = data.Settings.Path;
+            lightingFrame.ReSTIRPTActive = ptOwnership.PTIndirectDiffuse;
+            lightingFrame.ReSTIRGIActive = ssgiOwnedElsewhere;
+            lightingFrame.SSGIRequested = ptOwnership.DiffuseFallbacks.SSGIComposite;
+            const bool ssgiOwnsIndirectDiffuse = ResolveLightingSignalOwnership(lightingFrame).SSGI ==
+                                                 SSGIComposition::ReplacesLadderDiffuseOverResolvedDirections;
+            const bool ssgiEnabled = ssgiOwnsIndirectDiffuse && deferredPath && PostProcessPasses.SSGI->IsReadyForExecution();
             // Half resolution changes the SIZE of all four SSGI histories, so
             // flipping it has to drop them exactly as toggling the feature does
             // — a history texture reprojected into a resolve running at another
@@ -1471,6 +1508,13 @@ namespace OloEngine
             m_PreviousSSGIEnabled = ssgiEnabled;
             m_PreviousSSGIHalfResolution = ssgiHalfRes;
             PostProcessPasses.SSGI->SetEnabled(ssgiEnabled);
+            // The ladder SSGI replaces (issue #1336): the SAME rung controls and
+            // screen-space AO the deferred lighting pass shades this frame with,
+            // so the fraction the trace takes back is the fraction that is there.
+            PostProcessPasses.SSGI->SetAmbientLadder(
+                DeferredLightingPass::AmbientLadderControls(),
+                SceneCompositePasses.DeferredLighting ? SceneCompositePasses.DeferredLighting->ScreenSpaceAOParams()
+                                                      : glm::vec4(0.0f));
 
             if (ssgiEnabled)
             {
@@ -1479,6 +1523,11 @@ namespace OloEngine
                 ssgi.Projection = RHI::AdjustProjectionForShaderReconstruction(data.ProjectionMatrix);
                 ssgi.InverseProjection = RHI::AdjustedInverseForShaderReconstruction(data.ProjectionMatrix);
                 ssgi.View = data.ViewMatrix;
+                {
+                    glm::mat4 inverseRelativeView = glm::inverse(data.ViewMatrix);
+                    inverseRelativeView[3] -= glm::vec4(Renderer3D::GetRenderOrigin(), 0.0f);
+                    ssgi.InverseRelativeView = inverseRelativeView;
+                }
                 ssgi.RayParams = glm::vec4(static_cast<f32>(std::clamp(data.PostProcess.SSGIMaxSteps, 1, kSSGIMaxSteps)),
                                            std::max(0.1f, data.PostProcess.SSGIMaxDistance),
                                            std::max(0.001f, data.PostProcess.SSGIThickness),
@@ -1799,16 +1848,28 @@ namespace OloEngine
         // to the upstream colour.
         if (PostProcessPasses.ContactShadow)
         {
-            const bool deferredPath = data.Settings.Path == RenderingPath::Deferred;
             // Bind the UBO before the readiness check: IsReadyForExecution() also
             // validates the UBO, so setting it first avoids dropping the first
             // frame contact shadows are enabled.
             PostProcessPasses.ContactShadow->SetContactShadowUBO(data.PostProcessGPU.ContactShadow);
-            const bool contactShadowEnabled = data.PostProcess.ContactShadowEnabled && deferredPath &&
-                                              PostProcessPasses.ContactShadow->IsReadyForExecution();
-            PostProcessPasses.ContactShadow->SetEnabled(contactShadowEnabled);
+            // WHO APPLIES IT (issue #1336). A contact shadow is visibility for
+            // the primary directional light, so DeferredLighting multiplies it
+            // into THAT light's term. The post pass used to multiply the whole
+            // frame — ambient, emission, reflections, every other light — and
+            // now runs only for the debug view, which shows the same factor.
+            const bool contactShadowRequested =
+                SelectContactShadowApplication(data.PostProcess.ContactShadowEnabled, data.Settings.Path) ==
+                ContactShadowApplication::PrimaryDirectionalLightInLighting;
+            const bool contactShadowDebug = contactShadowRequested && data.PostProcess.ContactShadowDebugView;
+            PostProcessPasses.ContactShadow->SetEnabled(contactShadowDebug &&
+                                                        PostProcessPasses.ContactShadow->IsReadyForExecution());
+            if (SceneCompositePasses.DeferredLighting)
+            {
+                SceneCompositePasses.DeferredLighting->SetContactShadow(contactShadowRequested && !contactShadowDebug,
+                                                                        data.PostProcessGPU.ContactShadow);
+            }
 
-            if (contactShadowEnabled)
+            if (contactShadowRequested)
             {
                 auto& cs = data.PostProcessGPU.ContactShadowData;
                 // A8 seam, shader-reconstruction flavour (uv/depth marcher).
