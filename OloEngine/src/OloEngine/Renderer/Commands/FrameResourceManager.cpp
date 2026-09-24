@@ -139,10 +139,17 @@ namespace OloEngine
         u32 currentIndex = m_CurrentFrameIndex.load(std::memory_order_relaxed);
         auto& frame = m_FrameResources[currentIndex];
 
-        // Delete the old fence if it exists
+        // Delete the old fence if it exists, and forget it. With double
+        // buffering off no new fence replaces the id below, and a stale id
+        // is deleted AGAIN at this slot's next EndFrame -- by then the
+        // backend may have reissued it to another owner (GPUReadbackStats'
+        // readback fences), whose live sync object that second delete
+        // destroys: GL_INVALID_VALUE on every later poll of it. Found by the
+        // renderer state-machine harness's frames-in-flight operation (#1349).
         if (frame.FenceId != 0)
         {
             DeleteFence(frame.FenceId);
+            frame.FenceId = 0;
         }
 
         // Create a new fence for this frame's GPU work
