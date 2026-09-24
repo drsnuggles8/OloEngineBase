@@ -278,6 +278,7 @@ namespace OloEngine
             // It is reported as its own reason rather than as "no history"
             // because the two need different fixes.
             .HistoryLayoutMatches = m_HistoryLayoutMatches,
+            .LightsBeyondShaderBound = m_Stats.LightsBeyondShaderBound,
             .Api = RendererAPI::GetAPI() == RendererAPI::API::Vulkan
                        ? RendererSupport::Backend::Vulkan
                        : RendererSupport::Backend::OpenGL,
@@ -451,17 +452,20 @@ namespace OloEngine
         // reservoir comes back naming a different triangle, with a plausible
         // radiance and no error anywhere. Publishing the full count and letting
         // the shader sample into the unaddressable tail is the silent version;
-        // this is the countable one. The excess emitters still light the
-        // clustered frame and the path tracer, exactly like the ones past the
-        // shader's slot bound.
+        // this is the countable one. The excess emitters light NOTHING on this
+        // frame's direct term: while this tier is live it is the only raster
+        // estimator of emissive-geometry lighting (the clustered loop never
+        // evaluates emissive triangles) — so they are a counted dropped term,
+        // not a hand-off (issue #1336, lighting-signal-contract.md). The path
+        // tracer still sees them.
         const u32 emissiveCount = std::min(rawEmissiveCount, ReSTIR::kMaxEncodableLightIndex + 1u);
         m_Stats.EmittersBeyondEncodableIndex = rawEmissiveCount - emissiveCount;
         if (m_Stats.EmittersBeyondEncodableIndex != 0u && !m_ReportedEncodableIndexOverflow)
         {
             m_ReportedEncodableIndexOverflow = true;
             OLO_CORE_WARN("ReSTIRDIPass: emissive table has {} triangles but the reservoir identity lane "
-                          "can name only {}; {} emitters are excluded from resampling and remain on the "
-                          "clustered path",
+                          "can name only {}; {} emitters are excluded from resampling and light nothing on "
+                          "the raster frame (no other raster estimator lights from emissive geometry)",
                           rawEmissiveCount, emissiveCount, m_Stats.EmittersBeyondEncodableIndex);
         }
 
