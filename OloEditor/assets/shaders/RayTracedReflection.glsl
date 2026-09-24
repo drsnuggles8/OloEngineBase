@@ -372,6 +372,11 @@ void main()
     // Untextured, per #805: these are the material's FACTORS. See the header.
     const vec3 hitAlbedo = material.BaseColorFactor.rgb;
     const vec3 hitEmissive = material.EmissiveFactor.rgb;
+    // The body lobe's reflectance (issue #1336): albedo * (1 - metallic), the
+    // diffuse weight the raster ladder and the ReSTIR GI bounce vertex use, so
+    // a metal hit reflects no diffuse light — and the Lambert 1/pi below, so a
+    // reflected surface is exactly as bright as the same surface seen directly.
+    const vec3 hitDiffuseReflectance = hitAlbedo * (1.0 - clamp(material.MetallicFactor, 0.0, 1.0));
 
     vec3 hitRadiance = hitEmissive;
 
@@ -383,7 +388,11 @@ void main()
         {
             // Lambertian only. A specular lobe at the hit would need the view
             // vector of a secondary bounce, which this slice does not trace.
-            hitRadiance += hitAlbedo * u_SunColor.rgb * NdotL;
+            // u_SunColor is the directional light's colour * intensity — the
+            // number the raster loop multiplies by albedo / pi — so the 1/pi is
+            // not optional: without it a sunlit reflection read pi times
+            // brighter than the surface it reflects (issue #1336).
+            hitRadiance += hitDiffuseReflectance * (1.0 / 3.14159265359) * u_SunColor.rgb * NdotL;
         }
     }
 
@@ -398,7 +407,7 @@ void main()
     // environment a hit is lit by the sun alone — darker than it should be, but
     // a defined value rather than whatever the unit last held.
     if (u_RoughnessGate.w > 0.5)
-        hitRadiance += hitAlbedo * textureLod(u_PrefilterMap, hitNormal, u_RoughnessGate.z).rgb;
+        hitRadiance += hitDiffuseReflectance * textureLod(u_PrefilterMap, hitNormal, u_RoughnessGate.z).rgb;
 
     // Metals tint their reflection by albedo; dielectrics reflect untinted —
     // the same construction PostProcess_SSR.glsl uses, kept identical so the
