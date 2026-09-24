@@ -1182,16 +1182,62 @@ namespace OloEngine::Tests
         // Every subject back to the same point of its clip, every solver
         // re-seeded, then `frames` runtime frames at 60 Hz. Two arms of an A/B
         // that both start here see the identical pose sequence.
+        // A REPLAY MUST BE A FUNCTION OF THE CLIP START ALONE, and rewinding the
+        // clip is not enough to make it one. After a rewind the skeleton has no
+        // bone history until its animation has ticked twice, and the binding
+        // withholds history until then, so the guide solver RESEEDS on every
+        // history-less frame. How many there are depends on what ran BEFORE the
+        // rewind: one when the clip was already ticking (a capture's settle
+        // frames), two when it was not (a fresh fixture, or whatever the
+        // previous test left). A replay that reseeded once integrated one step
+        // more than one that reseeded twice, and the coat diverged from there.
+        //
+        // Measured with a per-frame solver trace: replay A reseeded on frames 0
+        // and 1, replay B on frame 0 alone, with identical palettes, surfaces
+        // and root transforms. That one step was the whole "repeat floor"
+        // residue TheMovingCoatIsSelfShadowedThroughTheWalk failed on: its luma
+        // drift grew from 6.5k alone to 26k after the rest of the suite.
+        //
+        // So every replay holds the solver in reseed for the first TWO frames,
+        // the longest a rewind can withhold history, and integrates from the
+        // same frame whatever came before.
         MotionResult PlayFromStart(u32 frames)
         {
+            const auto reseedAll = [this]()
+            {
+                for (SubjectRig* s : Subjects())
+                {
+                    ++s->Coat.GetComponent<GroomSimulationComponent>().m_ResetKey;
+                }
+            };
             for (SubjectRig* s : Subjects())
             {
                 auto& anim = s->Body.GetComponent<AnimationStateComponent>();
                 anim.m_CurrentTime = s->ClipStart;
                 anim.m_IsPlaying = true;
-                ++s->Coat.GetComponent<GroomSimulationComponent>().m_ResetKey;
             }
-            return Play(frames);
+            reseedAll();
+            if (frames == 0u)
+            {
+                return Play(0u);
+            }
+            MotionResult first = Play(1u);
+            reseedAll();
+            MotionResult rest = Play(frames - 1u);
+            // The per-frame maxima and minima fold across the split, so the
+            // result means what it meant when this was one Play(frames).
+            rest.ContactsEver += first.ContactsEver;
+            rest.MaxHeldAtRest = std::max(rest.MaxHeldAtRest, first.MaxHeldAtRest);
+            rest.MinGroomsDeformed = std::min(rest.MinGroomsDeformed, first.MinGroomsDeformed);
+            rest.MaxBindingRefused = std::max(rest.MaxBindingRefused, first.MaxBindingRefused);
+            rest.RepresentationChanges += first.RepresentationChanges;
+            if (std::abs(first.WorstStretch - 1.0f) > std::abs(rest.WorstStretch - 1.0f))
+            {
+                rest.WorstStretch = first.WorstStretch;
+            }
+            // MaxHistoryRejectedAfterFirst needs no fold: Play excludes the
+            // first frames of a run, and `first` is one frame long.
+            return rest;
         }
 
         MotionResult Play(u32 frames)
