@@ -2698,6 +2698,18 @@ namespace OloEngine
                         inst.GPUSceneRef.w = GPUSceneDrawRefUnlinked;
                     }
                 }
+                else
+                {
+                    // `scratch` outlives this draw, so an unlinked batch must
+                    // say so: otherwise every instance keeps the canonical
+                    // reference the previous linked batch left in its slot and
+                    // the G-Buffer shader shades it with that entity's
+                    // material. A batched Model (no draw links) came out in the
+                    // grey of the static cubes batched before it, on Deferred
+                    // only -- found by the renderer state-machine harness's
+                    // batch-vs-nobatch pair (#1349).
+                    inst.GPUSceneRef = glm::uvec4(GPUSceneDrawRefUnlinked);
+                }
             }
             const std::span<const InstanceData> instances(scratch.data(), instanceCount);
             Data().ModelInstanceBuffer->Upload(instances);
