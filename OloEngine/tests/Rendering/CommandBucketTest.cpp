@@ -336,6 +336,53 @@ TEST_F(CommandBucketTest, ParallelSubmissionMerge)
     EXPECT_EQ(bucket.GetSortedCommands().size(), numWorkers * commandsPerWorker);
 }
 
+// A frame submits serially (every static MeshComponent) and then in one or more
+// parallel regions (each Model or animated batch above SubmitMeshesParallel's
+// threshold), all into the one geometry bucket. The merge used to REPLACE the
+// bucket's contents, so a scene with a 40-mesh model drew that model and
+// nothing else: no ground, no other meshes, no earlier model. Found by the
+// renderer state-machine harness (#1349), whose premise check counted 92
+// submitted packets and 40 replayed.
+TEST_F(CommandBucketTest, ParallelSubmissionMergeAppendsToWhatTheBucketAlreadyHolds)
+{
+    CommandBucketConfig config;
+    config.EnableBatching = false;
+    CommandBucket bucket(config);
+    bucket.SetAllocator(m_Allocator.get());
+
+    // Serial submissions first, as Scene submits its static meshes.
+    SubmitNDrawMeshCommands(bucket, 3);
+    ASSERT_EQ(bucket.GetCommandCount(), 3u);
+
+    // Two parallel regions, as two models would each open one.
+    i32 nextEntity = 100;
+    for (const u32 regionSize : { 4u, 5u })
+    {
+        bucket.PrepareForParallelSubmission(regionSize);
+        for (u32 i = 0; i < regionSize; ++i)
+        {
+            const i32 entity = nextEntity++;
+            auto cmd = MakeSyntheticDrawMeshCommand(7u, 7u, 0.5f, entity);
+            PacketMetadata meta;
+            meta.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, 7u, 7u, static_cast<u32>(entity));
+            bucket.SubmitPacketParallel(m_Allocator->CreateCommandPacket(cmd, meta), i % 2u);
+        }
+        bucket.MergeThreadLocalCommands();
+    }
+
+    EXPECT_EQ(bucket.GetCommandCount(), 12u) << "a merge must append to the serial packets and to earlier regions";
+    bucket.SortCommands();
+    std::vector<i32> entities;
+    for (const CommandPacket* packet : bucket.GetSortedCommands())
+    {
+        if (packet != nullptr)
+            entities.push_back(packet->GetCommandData<DrawMeshCommand>()->entityID);
+    }
+    std::ranges::sort(entities);
+    const std::vector<i32> expected{ 1, 2, 3, 100, 101, 102, 103, 104, 105, 106, 107, 108 };
+    EXPECT_EQ(entities, expected);
+}
+
 // Parallel submission sizes its slot array once, before any worker runs, and
 // never resizes it while they write. It used to grow inside ClaimBatch — under
 // the bucket lock, but the workers' own slot writes take no lock, so the array
