@@ -895,24 +895,16 @@ namespace OloEngine::Tests
         // near-texel-rate pore lattice over a low-frequency furrow band, so the
         // pores are what the mip chain throws away and the detail gain has a
         // real high-frequency band to restore.
+        //
+        // Loaded from a FILE, the way every authored normal map arrives, and not
+        // built from a TextureSpecification. A spec texture always had its mip
+        // chain on GL; a file texture got ONE level until #1441, which clamps the
+        // pore band's second tap two mips up to the base level and makes the
+        // detail term exactly zero. This fixture used a spec texture and so
+        // passed straight through that defect.
         [[nodiscard]] Ref<Texture2D> MakePoreNormalMap()
         {
             constexpr u32 kDim = 256;
-            TextureSpecification spec{};
-            spec.Width = kDim;
-            spec.Height = kDim;
-            spec.Format = ImageFormat::RGBA8;
-            spec.GenerateMips = true;
-            // NOT sRGB: a normal map is a direction, not a colour.
-            spec.SRGB = false;
-
-            Ref<Texture2D> texture = Texture2D::Create(spec);
-            // Texture2D::Create NEVER returns null, so the Ref proves nothing —
-            // the RHI handle is the only thing that says a GL texture exists.
-            EXPECT_TRUE(static_cast<bool>(texture)) << "the pore normal map texture was not created";
-            EXPECT_TRUE(texture->GetRHIHandle().IsValid())
-                << "the pore normal map has no RHI handle, so u_UseNormalMap will be 0 and this fixture's "
-                   "expression-detail arms would both shade a smooth head.";
 
             std::vector<u8> pixels(static_cast<std::size_t>(kDim) * kDim * 4u, 0u);
             for (u32 y = 0; y < kDim; ++y)
@@ -939,7 +931,33 @@ namespace OloEngine::Tests
                     pixels[base + 3u] = 255u;
                 }
             }
-            texture->SetData(pixels.data(), static_cast<u32>(pixels.size()));
+            // Row 0 above is the texture's BOTTOM row (the SetData order), and
+            // Texture2D flips an image file on load, so the file is written
+            // top-down to put the same texels at the same UVs.
+            const std::size_t rowBytes = static_cast<std::size_t>(kDim) * 4u;
+            std::vector<u8> fileRows(pixels.size());
+            for (u32 y = 0; y < kDim; ++y)
+                std::copy_n(&pixels[static_cast<std::size_t>(kDim - 1u - y) * rowBytes], rowBytes, &fileRows[y * rowBytes]);
+            const fs::path file = m_ProjectDir / "Assets" / "PoreNormal.png";
+            EXPECT_NE(::stbi_write_png(file.string().c_str(), static_cast<int>(kDim), static_cast<int>(kDim), 4,
+                                       fileRows.data(), static_cast<int>(rowBytes)),
+                      0)
+                << "could not write the pore normal map to " << file.string();
+
+            // NOT sRGB: a normal map is a direction, not a colour.
+            Ref<Texture2D> texture = Texture2D::Create(file.string(), /*srgb=*/false);
+            // Texture2D::Create NEVER returns null, so the Ref proves nothing —
+            // the RHI handle is the only thing that says a GL texture exists.
+            EXPECT_TRUE(static_cast<bool>(texture)) << "the pore normal map texture was not created";
+            EXPECT_TRUE(texture->IsLoaded()) << "the pore normal map did not load from " << file.string();
+            EXPECT_TRUE(texture->GetRHIHandle().IsValid())
+                << "the pore normal map has no RHI handle, so u_UseNormalMap will be 0 and this fixture's "
+                   "expression-detail arms would both shade a smooth head.";
+            // The precondition the pore band needs: a real chain to take its
+            // coarse tap from (issue #1441).
+            EXPECT_EQ(texture->GetMipLevelCount(), 9u)
+                << "a file-loaded 256x256 normal map should have 9 levels; with fewer, the pore band's coarse tap "
+                   "clamps to the base level and the expression-detail gain has nothing to act on";
             return texture;
         }
 
