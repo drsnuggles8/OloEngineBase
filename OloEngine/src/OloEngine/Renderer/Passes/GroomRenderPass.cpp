@@ -294,6 +294,33 @@ namespace OloEngine
             return nullptr;
         }
 
+        // A REST STREAM WITHOUT ITS FRAME BUFFER IS NOT DRAWABLE. Its points
+        // are bind-local, so drawing it at mode 0 ("the stream is final") would
+        // put a garbled coat on screen with nothing said. When the buffer could
+        // not be created the entry is dropped, the refusal is said once, and the
+        // caller takes the CPU path, which draws the same coat the slow way.
+        const auto uploadOrRefuse = [&](std::unordered_map<u64, CacheEntry>::iterator it) -> CacheEntry*
+        {
+            UploadDeformation(request, it->second);
+            if (it->second.DeformGpu)
+            {
+                return &it->second;
+            }
+            if (!m_ReportedDeformBufferFailure)
+            {
+                m_ReportedDeformBufferFailure = true;
+                OLO_CORE_ERROR_TAG("Groom",
+                                   "GroomRenderPass: could not create the deformation buffer for bound groom {}; it "
+                                   "is drawn through the CPU-deformed path instead (further refusals not logged)",
+                                   static_cast<u64>(request.Handle));
+            }
+            ++m_Stats.GpuDeformationRefused;
+            ReleaseCoatVolume(it->second, m_CacheBytes);
+            m_CacheBytes -= std::min(m_CacheBytes, it->second.Bytes);
+            m_Cache.erase(it);
+            return nullptr;
+        };
+
         if (const auto existing = m_Cache.find(key); existing != m_Cache.end())
         {
             CacheEntry& entry = existing->second;
@@ -304,8 +331,7 @@ namespace OloEngine
                 entry.RestBinding == request.Binding)
             {
                 entry.LastUsedFrame = m_CacheTick;
-                UploadDeformation(request, entry);
-                return &entry;
+                return uploadOrRefuse(existing);
             }
             ReleaseCoatVolume(entry, m_CacheBytes);
             m_CacheBytes -= std::min(m_CacheBytes, entry.Bytes);
@@ -367,8 +393,7 @@ namespace OloEngine
         {
             return nullptr;
         }
-        UploadDeformation(request, it->second);
-        return &it->second;
+        return uploadOrRefuse(it);
     }
 
     void GroomRenderPass::UploadDeformation(const GroomStrandRequest& request, CacheEntry& entry)

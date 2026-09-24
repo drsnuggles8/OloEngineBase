@@ -122,6 +122,10 @@ namespace OloEngine
         /// RendererSettings::GroomGpuDeformation lever, or a binding the rest
         /// stream could not be built against.
         u32 GroomsGpuDeformed = 0;
+        /// Bound grooms the GPU path REFUSED this frame because their
+        /// deformation buffer could not be created; they were drawn through the
+        /// CPU path. Non-zero is a device problem, and a count so it is visible.
+        u32 GpuDeformationRefused = 0;
         /// Bytes the deformed grooms sent to the GPU this frame, and the CPU
         /// time spent producing them (#1427). The cost of a bound coat as two
         /// numbers, so "where does the frame go" is answerable from the panel
@@ -531,6 +535,8 @@ namespace OloEngine
         /// whatever the last user bound — and on Vulkan a declared block with no
         /// occupant is a logged error, not a zero read.
         Ref<StorageBuffer> m_DeformPlaceholder;
+        /// Latched so a device that cannot create deformation buffers logs once.
+        bool m_ReportedDeformBufferFailure = false;
 
         /// Coat volumes currently held across the WHOLE cache, not just the
         /// ones drawn this frame. Counting live draws instead let the resident
