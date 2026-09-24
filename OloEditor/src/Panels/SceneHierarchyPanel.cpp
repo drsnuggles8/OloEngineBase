@@ -9622,6 +9622,13 @@ namespace OloEngine
                 // thrashing, which is the flicker criterion's failure mode
                 // showing up as a number before it shows up as a picture.
                 ImGui::Text("Rebuilds this frame: %u   oldest bake: %u frames", stats.Rebuilds, stats.MaxAgeFrames);
+                // A BOUND coat (#1426) rebakes from its drawn pose when it
+                // drifts past the policy's bound, so on a moving body the
+                // rebuild count follows the motion and the drift is the
+                // shadow's lag, in voxels.
+                ImGui::Text("Bound coats: %u rebakes, %.2f voxels of drift in use, %.2f ms baking",
+                            stats.DeformedRebakes, static_cast<double>(stats.MaxDriftVoxels),
+                            static_cast<double>(stats.BakeMicroseconds) / 1000.0);
 
                 const GroomCoatShadowFallbackReason reason = stats.DominantFallbackReason();
                 if (reason != GroomCoatShadowFallbackReason::None)

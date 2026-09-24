@@ -2220,6 +2220,7 @@ namespace OloEngine
                      PostProcessPasses.TAA && PostProcessPasses.TAA->IsReadyForExecution());
                 groomFrame.OITTargetsAvailable = oitEnabled;
                 RenderStreamPasses.Groom->SetFrameState(groomFrame);
+                RenderStreamPasses.Groom->SetCoatRebakePolicy(Renderer3D::GetGroomCoatRebakePolicy());
                 RenderStreamPasses.Groom->SetRequests(Renderer3D::GetGroomStrandRequests());
             }
             if (SceneCompositePasses.Particle)

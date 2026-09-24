@@ -55,7 +55,7 @@ coat half of `GroomStrand.glsl`, or `GroomCoatShadowComponent`.
    screen and leaves the shadow describing the coat's previous thickness. The consequence is that `u_GroomCoatWorldToObject` must
    be **rigid**: the march compares angles in that space against each voxel's mean fibre direction,
    and a scale in the rotation tilts every fibre by an amount that depends on which way the ray
-   points.
+   points. **A bound coat uses the same space** (rule 13): only the source of the bake changes.
 
 8. **`CoatWorldToObject` is built from the RENDER-RELATIVE model matrix**, not the absolute one.
    `v_WorldPos` is render-relative (#429), so inverting the absolute transform marches from a point
@@ -94,6 +94,14 @@ coat half of `GroomStrand.glsl`, or `GroomCoatShadowComponent`.
     is, 6.0 buys 99.3%, and 16.0 adds 0.7% more. **A scene authored before #1360 keeps its own
     value and renders brighter** — that is the correction landing, not a regression, but re-judge a
     dense coat authored at 1.0.
+
+13. **A bound coat is baked from its DRAWN strands, in groom object space.** Never from the rest
+    curves (a bind-pose shadow carried round a moving body). Details and the rejected spaces:
+    [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shadowing.md).
+
+14. **A bound coat is rebaked on DRIFT, not on a frame count, and a volume past the stale bound is
+    not sampled.** `CoatRebakePolicy`: rebake past 0.5 voxels, refuse (`RepresentationStale`,
+    fully lit) past 2. Measured in the same file.
 
 ## The reference's own trap: the footprint
 
@@ -150,12 +158,10 @@ than a tolerance.
 
 ## What this slice does NOT do
 
-**A bound, deforming groom is REFUSED, not approximated.** The bake reads the `GroomAsset`'s
-rest-pose curves, so on a character whose body animates the drawn strands move and the volume does
-not — the coat would carry its bind-pose shadow around, which reads as a shading bug rather than as
-the missing feature it is. `GroomRenderPass::AcquireCoatVolume` therefore reports
-`GroomIsDeformed` and renders the coat unshadowed. Following a deformation means baking from the
-deformed strand positions the pass already builds, which is the natural next slice.
+**A bound, deforming groom is no longer refused (#1426).** It is baked from the strands the pass
+draws and rebaked when they drift past a bound: rules 13–14 above, and the space decision, the
+cadence measurements and the traps in
+[groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shadowing.md).
 
 
 **Neither direction of coat-to-scene shadow integration.** The volume contains the groom's own

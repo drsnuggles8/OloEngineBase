@@ -66,6 +66,18 @@ namespace OloEngine::MCP::GroomBudgetStats
         std::string DominantFallbackReason = "None";
         std::vector<RepresentationRow> Representations;
 
+        // ── Coat self-shadowing (#1248, #1426) ───────────────────────
+        u32 CoatShadowed = 0;
+        u32 CoatFallback = 0;
+        u32 CoatUnshadowedByChoice = 0;
+        std::string CoatDominantFallbackReason = "None";
+        u32 CoatRebuilds = 0;
+        u32 CoatDeformedRebakes = 0;
+        f32 CoatMaxDriftVoxels = 0.0f;
+        u64 CoatBakeMicroseconds = 0;
+        u32 CoatResolutionInForce = 0;
+        u64 CoatResidentBytes = 0;
+
         // ── What the scheduler decided ────────────────────────────────
         bool BudgetEnabled = false;
         u32 AnimalsConsidered = 0;
@@ -128,6 +140,24 @@ namespace OloEngine::MCP::GroomBudgetStats
             { "maxWidthCompensation", snapshot.MaxWidthCompensation },
             { "dominantFallbackReason", snapshot.DominantFallbackReason },
             { "byRepresentation", representations },
+        };
+
+        // Whether a coat asked for self-shadowing got it, and -- for a coat
+        // bound to a moving body (#1426) -- what following the pose cost this
+        // frame. `shadowed` is the live half of a Vulkan cell's evidence: the
+        // headless suite cannot run on Vulkan, so this is the only place the
+        // decision can be read there.
+        out["coatShadow"] = Json{
+            { "shadowed", snapshot.CoatShadowed },
+            { "fallback", snapshot.CoatFallback },
+            { "unshadowedByChoice", snapshot.CoatUnshadowedByChoice },
+            { "dominantFallbackReason", snapshot.CoatDominantFallbackReason },
+            { "rebuilds", snapshot.CoatRebuilds },
+            { "deformedRebakes", snapshot.CoatDeformedRebakes },
+            { "maxDriftVoxels", snapshot.CoatMaxDriftVoxels },
+            { "bakeMicroseconds", snapshot.CoatBakeMicroseconds },
+            { "resolutionInForce", snapshot.CoatResolutionInForce },
+            { "residentBytes", snapshot.CoatResidentBytes },
         };
 
         Json axes = Json::array();

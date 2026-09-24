@@ -893,6 +893,18 @@ namespace OloEngine
         {
             return s_Data.GroomStrandRequests;
         }
+        // When a bound coat's self-shadow volume is rebaked from its drawn pose
+        // (issue #1426). Held here and handed to GroomRenderPass every frame
+        // with its frame state, so it survives a pipeline rebuild. A budget, not
+        // an authored look -- which is why it is not a component field.
+        static void SetGroomCoatRebakePolicy(const GroomCoatShadow::CoatRebakePolicy& policy) noexcept
+        {
+            s_Data.GroomCoatRebakePolicy = GroomCoatShadow::SanitizeCoatRebakePolicy(policy);
+        }
+        [[nodiscard]] static const GroomCoatShadow::CoatRebakePolicy& GetGroomCoatRebakePolicy() noexcept
+        {
+            return s_Data.GroomCoatRebakePolicy;
+        }
 
         // A scene's request for a temporal resolve (issue #1429). Scene calls it
         // BEFORE BeginScene, every frame, with the number of grooms it holds on
@@ -2375,6 +2387,8 @@ namespace OloEngine
             TArray64<RayTracedShadowLightRequest> RayTracedShadowLightRequests;
             // See SetGroomStrandRequests (issue #1246).
             TArray64<GroomStrandRequest> GroomStrandRequests;
+            // See SetGroomCoatRebakePolicy (issue #1426).
+            GroomCoatShadow::CoatRebakePolicy GroomCoatRebakePolicy;
             // See RequestSceneTemporalResolve (issue #1429). Pending is what the
             // scene published for the NEXT BeginScene; the other two are this
             // frame's latched answer.
