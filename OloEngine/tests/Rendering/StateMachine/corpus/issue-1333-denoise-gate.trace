@@ -1,0 +1,13 @@
+# Issue #1333, U3: GTAORenderPass::Setup() declares the denoise pong only
+# when denoising is on, and that gate was not in the declaration key, so
+# turning denoise on reused a graph with no pong and published "no
+# occlusion" every frame.
+olo-state-machine-trace 1
+seed 0
+initial path=forward size=320x180 msaa=1 upscale=off features= blended=0 buffering=2 pose=0
+op feature gtao on
+op feature gtao-denoise on
+op feature gtao-denoise off
+op path deferred
+op feature gtao-denoise on
+op resize 384x216

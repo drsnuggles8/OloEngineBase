@@ -1,0 +1,14 @@
+# Found verifying #1397: in Deferred with SSR on, an upscale toggle resized
+# the SSR history inside PopulateBlackboard, which re-populated the
+# blackboard under a cached graph; GTAO and AOApply then resolved stale
+# handles.
+olo-state-machine-trace 1
+seed 0
+initial path=forward size=320x180 msaa=1 upscale=off features= blended=0 buffering=2 pose=0
+op path deferred
+op feature ssr on
+op feature gtao on
+op upscale performance
+op upscale off
+op upscale quality
+op upscale off

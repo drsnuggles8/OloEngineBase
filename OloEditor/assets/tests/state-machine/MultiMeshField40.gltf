@@ -1,0 +1,1208 @@
+{
+ "asset": {
+  "version": "2.0",
+  "generator": "OloEngine #1349 state-machine harness: 40 one-cube meshes, so a ModelComponent crosses SubmitMeshesParallel's 32-mesh parallel threshold"
+ },
+ "scene": 0,
+ "scenes": [
+  {
+   "nodes": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39
+   ]
+  }
+ ],
+ "buffers": [
+  {
+   "byteLength": 648,
+   "uri": "data:application/octet-stream;base64,AAAAPwAAAL8AAAC/AAAAPwAAAD8AAAC/AAAAPwAAAD8AAAA/AAAAPwAAAL8AAAA/AAAAvwAAAL8AAAA/AAAAvwAAAD8AAAA/AAAAvwAAAD8AAAC/AAAAvwAAAL8AAAC/AAAAvwAAAD8AAAC/AAAAvwAAAD8AAAA/AAAAPwAAAD8AAAA/AAAAPwAAAD8AAAC/AAAAvwAAAL8AAAA/AAAAvwAAAL8AAAC/AAAAPwAAAL8AAAC/AAAAPwAAAL8AAAA/AAAAvwAAAL8AAAA/AAAAPwAAAL8AAAA/AAAAPwAAAD8AAAA/AAAAvwAAAD8AAAA/AAAAPwAAAL8AAAC/AAAAvwAAAL8AAAC/AAAAvwAAAD8AAAC/AAAAPwAAAD8AAAC/AACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAABAAIAAAACAAMABAAFAAYABAAGAAcACAAJAAoACAAKAAsADAANAA4ADAAOAA8AEAARABIAEAASABMAFAAVABYAFAAWABcA"
+  }
+ ],
+ "bufferViews": [
+  {
+   "buffer": 0,
+   "byteOffset": 0,
+   "byteLength": 288,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 288,
+   "byteLength": 288,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 576,
+   "byteLength": 72,
+   "target": 34963
+  }
+ ],
+ "accessors": [
+  {
+   "bufferView": 0,
+   "componentType": 5126,
+   "count": 24,
+   "type": "VEC3",
+   "min": [
+    -0.5,
+    -0.5,
+    -0.5
+   ],
+   "max": [
+    0.5,
+    0.5,
+    0.5
+   ]
+  },
+  {
+   "bufferView": 1,
+   "componentType": 5126,
+   "count": 24,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 2,
+   "componentType": 5123,
+   "count": 36,
+   "type": "SCALAR"
+  }
+ ],
+ "materials": [
+  {
+   "name": "FieldGold",
+   "pbrMetallicRoughness": {
+    "baseColorFactor": [
+     0.85,
+     0.72,
+     0.3,
+     1.0
+    ],
+    "metallicFactor": 0.0,
+    "roughnessFactor": 0.6
+   }
+  }
+ ],
+ "meshes": [
+  {
+   "name": "FieldCube00",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube01",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube02",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube03",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube04",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube05",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube06",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube07",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube08",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube09",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube10",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube11",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube12",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube13",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube14",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube15",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube16",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube17",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube18",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube19",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube20",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube21",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube22",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube23",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube24",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube25",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube26",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube27",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube28",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube29",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube30",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube31",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube32",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube33",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube34",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube35",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube36",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube37",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube38",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "FieldCube39",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    }
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "name": "FieldCube00",
+   "mesh": 0,
+   "translation": [
+    -2.4499999999999997,
+    0.0,
+    -1.4
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube01",
+   "mesh": 1,
+   "translation": [
+    -1.75,
+    0.0,
+    -1.4
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube02",
+   "mesh": 2,
+   "translation": [
+    -1.0499999999999998,
+    0.0,
+    -1.4
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube03",
+   "mesh": 3,
+   "translation": [
+    -0.35,
+    0.0,
+    -1.4
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube04",
+   "mesh": 4,
+   "translation": [
+    0.35,
+    0.0,
+    -1.4
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube05",
+   "mesh": 5,
+   "translation": [
+    1.0499999999999998,
+    0.0,
+    -1.4
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube06",
+   "mesh": 6,
+   "translation": [
+    1.75,
+    0.0,
+    -1.4
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube07",
+   "mesh": 7,
+   "translation": [
+    2.4499999999999997,
+    0.0,
+    -1.4
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube08",
+   "mesh": 8,
+   "translation": [
+    -2.4499999999999997,
+    0.0,
+    -0.7
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube09",
+   "mesh": 9,
+   "translation": [
+    -1.75,
+    0.0,
+    -0.7
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube10",
+   "mesh": 10,
+   "translation": [
+    -1.0499999999999998,
+    0.0,
+    -0.7
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube11",
+   "mesh": 11,
+   "translation": [
+    -0.35,
+    0.0,
+    -0.7
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube12",
+   "mesh": 12,
+   "translation": [
+    0.35,
+    0.0,
+    -0.7
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube13",
+   "mesh": 13,
+   "translation": [
+    1.0499999999999998,
+    0.0,
+    -0.7
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube14",
+   "mesh": 14,
+   "translation": [
+    1.75,
+    0.0,
+    -0.7
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube15",
+   "mesh": 15,
+   "translation": [
+    2.4499999999999997,
+    0.0,
+    -0.7
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube16",
+   "mesh": 16,
+   "translation": [
+    -2.4499999999999997,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube17",
+   "mesh": 17,
+   "translation": [
+    -1.75,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube18",
+   "mesh": 18,
+   "translation": [
+    -1.0499999999999998,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube19",
+   "mesh": 19,
+   "translation": [
+    -0.35,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube20",
+   "mesh": 20,
+   "translation": [
+    0.35,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube21",
+   "mesh": 21,
+   "translation": [
+    1.0499999999999998,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube22",
+   "mesh": 22,
+   "translation": [
+    1.75,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube23",
+   "mesh": 23,
+   "translation": [
+    2.4499999999999997,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube24",
+   "mesh": 24,
+   "translation": [
+    -2.4499999999999997,
+    0.0,
+    0.7
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube25",
+   "mesh": 25,
+   "translation": [
+    -1.75,
+    0.0,
+    0.7
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube26",
+   "mesh": 26,
+   "translation": [
+    -1.0499999999999998,
+    0.0,
+    0.7
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube27",
+   "mesh": 27,
+   "translation": [
+    -0.35,
+    0.0,
+    0.7
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube28",
+   "mesh": 28,
+   "translation": [
+    0.35,
+    0.0,
+    0.7
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube29",
+   "mesh": 29,
+   "translation": [
+    1.0499999999999998,
+    0.0,
+    0.7
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube30",
+   "mesh": 30,
+   "translation": [
+    1.75,
+    0.0,
+    0.7
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube31",
+   "mesh": 31,
+   "translation": [
+    2.4499999999999997,
+    0.0,
+    0.7
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube32",
+   "mesh": 32,
+   "translation": [
+    -2.4499999999999997,
+    0.0,
+    1.4
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube33",
+   "mesh": 33,
+   "translation": [
+    -1.75,
+    0.0,
+    1.4
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube34",
+   "mesh": 34,
+   "translation": [
+    -1.0499999999999998,
+    0.0,
+    1.4
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube35",
+   "mesh": 35,
+   "translation": [
+    -0.35,
+    0.0,
+    1.4
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube36",
+   "mesh": 36,
+   "translation": [
+    0.35,
+    0.0,
+    1.4
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube37",
+   "mesh": 37,
+   "translation": [
+    1.0499999999999998,
+    0.0,
+    1.4
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube38",
+   "mesh": 38,
+   "translation": [
+    1.75,
+    0.0,
+    1.4
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "name": "FieldCube39",
+   "mesh": 39,
+   "translation": [
+    2.4499999999999997,
+    0.0,
+    1.4
+   ],
+   "scale": [
+    0.45,
+    0.45,
+    0.45
+   ]
+  }
+ ]
+}

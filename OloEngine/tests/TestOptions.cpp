@@ -56,7 +56,12 @@ namespace OloEngine::Tests
                 "  --olo-bake-shader-pack=<path>  bake a ShaderPack.osp to this path (headless)\n"
                 "  --olo-capture-manifest=<path>  run the benchmark capture this manifest describes\n"
                 "  --olo-capture-out=<dir>        override the capture's result directory (a relative\n"
-                "                                 dir resolves against OloEditor/, the capture cwd)\n");
+                "                                 dir resolves against OloEditor/, the capture cwd)\n"
+                "  --olo-state-machine-replay=<path> replay one renderer state-machine trace (#1349)\n"
+                "  --olo-state-machine-seeds=<n,n,...> run these generator seeds instead of the smoke seeds\n"
+                "  --olo-state-machine-length=<n> operations per generated trace (default 12)\n"
+                "  --olo-state-machine-minimize-budget=<n> replays a failure's minimisation may spend\n"
+                "                                 (default 24; 0 disables minimisation)\n");
         }
 
         // Returns the value of `--name=value`, or nullopt when `arg` is not that flag.
@@ -248,6 +253,50 @@ namespace OloEngine::Tests
                 }
                 s_Options.RssCeilingMb = parsed;
             }
+            else if (const auto v = ValueOf(arg, "--olo-state-machine-replay"))
+            {
+                s_Options.StateMachineReplay = *v;
+            }
+            else if (const auto v = ValueOf(arg, "--olo-state-machine-seeds"))
+            {
+                s_Options.StateMachineSeeds.clear();
+                std::string_view rest = *v;
+                while (!rest.empty())
+                {
+                    const sizet comma = rest.find(',');
+                    const std::string_view item = rest.substr(0, comma);
+                    u64 seed = 0;
+                    if (const auto [ptr, ec] = std::from_chars(item.data(), item.data() + item.size(), seed);
+                        item.empty() || ec != std::errc{} || ptr != item.data() + item.size())
+                    {
+                        Fail("--olo-state-machine-seeds needs a comma-separated list of non-negative integers", arg);
+                    }
+                    s_Options.StateMachineSeeds.push_back(seed);
+                    rest = comma == std::string_view::npos ? std::string_view{} : rest.substr(comma + 1);
+                }
+                if (s_Options.StateMachineSeeds.empty())
+                    Fail("--olo-state-machine-seeds needs at least one seed", arg);
+            }
+            else if (const auto v = ValueOf(arg, "--olo-state-machine-length"))
+            {
+                u32 parsed = 0;
+                if (const auto [ptr, ec] = std::from_chars(v->data(), v->data() + v->size(), parsed);
+                    ec != std::errc{} || ptr != v->data() + v->size() || parsed == 0u)
+                {
+                    Fail("--olo-state-machine-length needs a positive integer", arg);
+                }
+                s_Options.StateMachineLength = parsed;
+            }
+            else if (const auto v = ValueOf(arg, "--olo-state-machine-minimize-budget"))
+            {
+                u32 parsed = 0;
+                if (const auto [ptr, ec] = std::from_chars(v->data(), v->data() + v->size(), parsed);
+                    ec != std::errc{} || ptr != v->data() + v->size())
+                {
+                    Fail("--olo-state-machine-minimize-budget needs a non-negative integer", arg);
+                }
+                s_Options.StateMachineMinimizeBudget = parsed;
+            }
             else if (const auto v = ValueOf(arg, "--olo-mcp-attach-seconds"))
             {
                 i32 parsed = 0;
@@ -265,7 +314,9 @@ namespace OloEngine::Tests
                      arg == "--olo-mcp-attach-seconds" || arg == "--olo-bake-shader-pack" ||
                      arg == "--olo-rss-ceiling-mb" ||
                      arg == "--olo-capture-manifest" || arg == "--olo-capture-out" ||
-                     arg == "--olo-require-renderer-preset")
+                     arg == "--olo-require-renderer-preset" || arg == "--olo-state-machine-replay" ||
+                     arg == "--olo-state-machine-seeds" || arg == "--olo-state-machine-length" ||
+                     arg == "--olo-state-machine-minimize-budget")
             {
                 // The name is right but the `=value` is missing — say that,
                 // rather than sending someone hunting for a typo.

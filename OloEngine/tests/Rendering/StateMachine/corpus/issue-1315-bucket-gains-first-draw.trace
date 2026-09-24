@@ -1,0 +1,13 @@
+# Issue #1315: a pass whose Setup() declares nothing while its command bucket
+# is empty was cached empty, and gaining its first draw did not move the
+# declaration key, so it stayed culled. Here the bucket-gated pass is the
+# deferred forward overlay, which gains its first blended draw.
+olo-state-machine-trace 1
+seed 0
+initial path=forward size=320x180 msaa=1 upscale=off features= blended=0 buffering=2 pose=0
+op path deferred
+op entity-churn add
+op entity-churn remove
+op entity-churn add
+op path forward
+op entity-churn remove

@@ -190,12 +190,12 @@ namespace OloEngine::Tests::StateMachine
                  RowStatus::Required, "RendererStateMachineEvidence.GeneratedSequencesHoldEveryPair", "" },
         PairRow{ "batch-order.cpu", "sorted + batched replay order", "sorted, unbatched replay order",
                  "CommandBucketConfig::EnableBatching", Criterion::Invariant, Placement::CpuEverywhere,
-                 RowStatus::Required, "RendererStateMachinePolicy.BatchingAndParallelSubmissionKeepBlendedDrawOrder",
+                 RowStatus::Required, "RendererStateMachineDrawOrder.BatchingAndParallelSubmissionKeepBlendedDrawOrder",
                  "Every blended draw back to front, with batching and with parallel submission." },
         PairRow{ "serial-vs-parallel.cpu-submit", "packets submitted from one thread",
                  "packets submitted from worker threads and merged", "CommandBucket::SubmitPacketParallel",
                  Criterion::Invariant, Placement::CpuEverywhere, RowStatus::Required,
-                 "RendererStateMachinePolicy.BatchingAndParallelSubmissionKeepBlendedDrawOrder", "" },
+                 "RendererStateMachineDrawOrder.BatchingAndParallelSubmissionKeepBlendedDrawOrder", "" },
         PairRow{ "serial-vs-parallel.gl", "SubmitMeshesParallel on the worker pool (DrawMeshParallel)",
                  "the same batch on the calling thread (DrawMesh)", "Levers::SerialMeshSubmission",
                  Criterion::ExactTexels, Placement::DeviceGL, RowStatus::Required,
@@ -208,6 +208,13 @@ namespace OloEngine::Tests::StateMachine
                  "PR body: live editor A/B",
                  "Scene-level Vulkan is unreachable in-process (testing-architecture.md s9). The pass-level half is "
                  "VulkanParallelRecordingDevice.* (#806); the scene-level half is a live capture." },
+        PairRow{ "binding-cache-cold.gl", "dispatcher binding caches warm across passes and frames",
+                 "every binding cache forgotten before the frame and after every pass",
+                 "CommandDispatch::InvalidateBindingCaches in a post-pass hook", Criterion::ExactTexels,
+                 Placement::DeviceGL, RowStatus::Required, "RendererStateMachineEvidence.GeneratedSequencesHoldEveryPair",
+                 "The redundant-bind cache is an optimisation: a frame that relies on a binding nobody reset (a "
+                 "missing frame-start reset, or #1404's missing per-pass one) renders differently cold. A skipped "
+                 "reset breaks every frame alike, so fresh-vs-sequence cannot see it; this pair can." },
         PairRow{ "fresh-vs-sequence.gl", "state reached by a generated sequence",
                  "the same configuration reached from the canonical reset", "Harness Reset + direct configure",
                  Criterion::ExactTexels, Placement::DeviceGL, RowStatus::Required,
@@ -255,7 +262,7 @@ namespace OloEngine::Tests::StateMachine
                             "test-local pass", "cached-vs-rebuild.cpu", Placement::CpuEverywhere,
                             "RendererStateMachinePolicy.UnreportedSetupGateIsCaught" },
         NegativeControlRow{ "missing-binding-reset", "the dispatcher's bound-state cache survives into the next frame",
-                            "Levers::FaultSkipDispatchBindingReset", "fresh-vs-sequence.gl", Placement::DeviceGL,
+                            "Levers::FaultSkipDispatchBindingReset", "binding-cache-cold.gl", Placement::DeviceGL,
                             "RendererStateMachineNegativeControl.MissingBindingResetIsCaught" },
         NegativeControlRow{ "alias-lifetime", "the transient planner ends every lifetime one pass early",
                             "Levers::FaultShortenTransientLifetimes", "alias-plan.cpu and alias-vs-noalias.gl",
@@ -265,7 +272,7 @@ namespace OloEngine::Tests::StateMachine
                             "RendererStateMachinePolicy.ShortenedLifetimesAreCaughtByTheIndependentModel" },
         NegativeControlRow{ "draw-order.cpu", "a batcher that groups blended draws on a partial key",
                             "test-local key", "batch-order.cpu", Placement::CpuEverywhere,
-                            "RendererStateMachinePolicy.PartialKeyBatchingIsCaught" },
+                            "RendererStateMachineDrawOrder.PartialKeyBatchingIsCaught" },
     };
 
     // -------------------------------------------------------------------------
@@ -292,6 +299,10 @@ namespace OloEngine::Tests::StateMachine
                        "SSR history resize re-populated the blackboard under a cached graph." },
         RegressionRow{ "issue-1333-denoise-gate.trace", "#1333 (U3)",
                        "Turning GTAO denoise on did not move the key; Execute found no pong." },
+        RegressionRow{ "frames-in-flight-off-double-deletes-fence.trace", "#1349 (found here)",
+                       "Double buffering off deleted a frame fence twice, destroying another owner's reissued fence." },
+        RegressionRow{ "batched-model-inherits-stale-gpuscene-ref.trace", "#1349 (found here)",
+                       "An auto-batched Model kept the previous batch's GPU-scene references and took its material." },
     };
 
     // Generator seeds replayed in the ordinary suite. Fixed so a red run names

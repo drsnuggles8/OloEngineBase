@@ -1,0 +1,11 @@
+# Found by this harness (#1349), minimised from seed 1349 to this one
+# operation: CommandDispatch::DrawMeshInstanced packs instances into a
+# thread_local scratch it reuses across draws, and wrote each instance's
+# GPU-scene reference only when the batch HAD references. An auto-batched
+# Model (its draws carry no GPU-scene link) kept the references the previous
+# linked batch left in those slots, and the G-Buffer shader shaded the whole
+# model with another entity's material. batch-vs-nobatch.gl on Deferred.
+olo-state-machine-trace 1
+seed 0
+initial path=forward size=320x180 msaa=1 upscale=off features= blended=0 buffering=2 pose=0
+op path deferred

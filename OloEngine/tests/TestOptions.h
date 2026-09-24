@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 
 #include <string>
+#include <vector>
 
 namespace OloEngine::Tests
 {
@@ -148,6 +149,23 @@ namespace OloEngine::Tests
         // --olo-capture-out=<dir> : override the manifest capture's result
         // directory (default: assets/benchmark/captures/<manifest Id>/).
         std::string CaptureOutDir;
+        // The renderer state-machine harness (issue #1349,
+        // Rendering/StateMachine/). All four are for running it OUTSIDE the
+        // ordinary suite; with none of them the suite runs its fixed smoke
+        // seeds and regression corpus.
+        //   --olo-state-machine-replay=<path> : replay one trace file (a
+        //       failure's persisted trace, or a hand-written one) against every
+        //       pair, and minimise it if it fails.
+        //   --olo-state-machine-seeds=<n,n,...> : generate and run these seeds
+        //       instead of the fixed smoke seeds -- the unattended long run.
+        //   --olo-state-machine-length=<n> : operations per generated trace
+        //       (default 12).
+        //   --olo-state-machine-minimize-budget=<n> : trace replays a failure's
+        //       minimisation may spend (default 24; 0 turns minimisation off).
+        std::string StateMachineReplay;
+        std::vector<u64> StateMachineSeeds;
+        u32 StateMachineLength = 12;
+        u32 StateMachineMinimizeBudget = 24;
     };
 
     // Parse and consume the `--olo-*` flags. Call before InitGoogleTest so the

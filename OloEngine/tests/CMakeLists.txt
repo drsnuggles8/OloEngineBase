@@ -585,6 +585,14 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/ShaderDebugDrawGpuPushTest.cpp
 		Rendering/PropertyTests/ShaderDebugDrawVisualTest.cpp
 		Rendering/PropertyTests/FrameGraphDeclarationCacheEvidenceTest.cpp
+		# Renderer state-machine harness (#1349): the trace language, the manifest,
+		# the CPU policy tests, and the GL device pairs and negative controls.
+		Rendering/StateMachine/StateMachineTrace.cpp
+		Rendering/StateMachine/StateMachineCoverage.cpp
+		Rendering/StateMachine/RendererStateMachineHarness.cpp
+		Rendering/StateMachine/RendererStateMachinePolicyTest.cpp
+		Rendering/StateMachine/RendererStateMachineEvidenceTest.cpp
+		Rendering/StateMachine/RendererStateMachineNegativeControlTest.cpp
 		Rendering/PropertyTests/GPUFluidSolverParityTest.cpp
 		Rendering/PropertyTests/OcclusionCullVisualEvidenceTest.cpp
 		Rendering/PropertyTests/AutoMeshLODVisualEvidenceTest.cpp
@@ -1794,8 +1802,14 @@ include(GoogleTest)
 # files, so under --parallel the two cases race over one cache entry — the
 # round-trip's invalidate can land between the other case's write and read. Both
 # cases are matched with one wildcard.
+#
+# The renderer state-machine device suites (#1349) invalidate nothing, but every
+# case cold-loads the same generated 40-mesh model and so writes the same .omesh
+# entry on its first run; serialising them keeps two first runs from writing it
+# at once. They are GPU-bound and long, so running them one at a time costs
+# nothing a GPU box would not already pay.
 set(OLO_MESH_CACHE_TESTS
-	"ModelLoadDeterminism.Backpack_FreshVsCache:DataRoundTripTest.BackpackLegacyObjImportsPbrCompanionMaps:DataRoundTripTest.BackpackLegacyObjFlipsUvsToMatchTextureUploads:AllVariants/DeccerCubesLoaderFixture.*")
+	"RendererStateMachineEvidence.*:RendererStateMachineNegativeControl.*:ModelLoadDeterminism.Backpack_FreshVsCache:DataRoundTripTest.BackpackLegacyObjImportsPbrCompanionMaps:DataRoundTripTest.BackpackLegacyObjFlipsUvsToMatchTextureUploads:AllVariants/DeccerCubesLoaderFixture.*")
 
 # THE HEAVY SET: cases that are either memory-heavy or long, weighted so ctest can
 # run the other ~7,800 cases four-wide without four heavy ones ever landing at once.
