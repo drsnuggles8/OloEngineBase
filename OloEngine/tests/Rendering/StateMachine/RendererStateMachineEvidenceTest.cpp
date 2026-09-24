@@ -37,6 +37,7 @@
 #include "TestOptions.h"
 
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/Commands/CommandBucket.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
 #include "OloEngine/Renderer/Passes/CommandBufferRenderPass.h"
@@ -321,6 +322,79 @@ namespace OloEngine::Tests::StateMachine
                                      << DescribeConfig(reached) << "):\n"
                                      << comparison.Describe();
         ExpectOwnedRowsExercised("RendererStateMachineEvidence.TemporalBeautyMatchesInDistribution");
+    }
+
+    // serial-vs-parallel.gl compares images, and none of the tracked targets
+    // holds velocity, so a branch that dropped a moving model's motion history
+    // held there. Model::DrawParallel supplies no history: DrawMesh (the serial
+    // branch) looked it up, the parallel workers aliased prev = current, and a
+    // moving model had velocity below the 32-mesh threshold and none above it.
+    // This pins the packets themselves, on both branches.
+    TEST_F(RendererStateMachineEvidence, MovingModelKeepsItsMotionHistoryOnBothSubmissionBranches)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        ConfigureDirectly(ModelConfig{});
+
+        Entity field;
+        for (const auto entity : GetScene().GetAllEntitiesWith<ModelComponent>())
+        {
+            if (Entity candidate(entity, &GetScene()); candidate.GetComponent<TagComponent>().Tag == "MeshField")
+                field = candidate;
+        }
+        ASSERT_TRUE(field) << "the canonical scene has no MeshField model";
+        const i32 fieldId = static_cast<i32>(std::to_underlying(static_cast<entt::entity>(field)));
+        auto& translation = field.GetComponent<TransformComponent>().Translation;
+        const glm::vec3 home = translation;
+        constexpr f32 kStep = 0.25f;
+
+        // The bucket's own batching would fold these DrawMesh packets into
+        // instanced draws with the twin model; the history lives on DrawMesh.
+        CommandBucket* bucket = nullptr;
+        if (auto* geometry = Renderer3D::GetRenderStreamNode(Renderer3D::RenderStreamType::Geometry))
+            bucket = &geometry->GetCommandBucket();
+        ASSERT_NE(bucket, nullptr);
+        auto config = bucket->GetConfig();
+        config.EnableBatching = false;
+        bucket->SetConfig(config);
+
+        const bool savedSerial = Levers::SerialMeshSubmission();
+        for (const bool serial : { false, true })
+        {
+            SCOPED_TRACE(serial ? "serial branch" : "parallel branch");
+            Levers::SetSerialMeshSubmission(serial);
+            translation = home;
+            RenderFrames(2);
+            translation = home + glm::vec3(kStep, 0.0f, 0.0f);
+            RenderFrames(1);
+            if (serial)
+                EXPECT_EQ(Renderer3D::GetStats().ParallelSubmittedMeshes, 0u) << "the lever did not force the serial branch";
+            else
+                EXPECT_GE(Renderer3D::GetStats().ParallelSubmittedMeshes, 32u) << "the model did not reach the worker branch";
+
+            u32 packets = 0;
+            u32 moving = 0;
+            for (const CommandPacket* packet : bucket->GetSortedCommands())
+            {
+                if (packet == nullptr || packet->GetCommandType() != CommandType::DrawMesh)
+                    continue;
+                const auto* cmd = packet->GetCommandData<DrawMeshCommand>();
+                if (cmd->entityID != fieldId)
+                    continue;
+                ++packets;
+                // Scale 1.2 does not touch the translation column, so the
+                // frame-to-frame step shows up there unscaled.
+                const f32 step = cmd->transform[3].x - cmd->prevTransform[3].x;
+                if (std::abs(step - kStep) < 1e-4f)
+                    ++moving;
+            }
+            EXPECT_GE(packets, 32u) << "fewer MeshField packets than the parallel threshold";
+            EXPECT_EQ(moving, packets) << moving << " of " << packets
+                                       << " MeshField packets carry the model's step in their previous transform";
+        }
+        Levers::SetSerialMeshSubmission(savedSerial);
+        translation = home;
+        config.EnableBatching = true;
+        bucket->SetConfig(config);
     }
 
     TEST_F(RendererStateMachineEvidence, ReplayTraceFromCommandLine)
