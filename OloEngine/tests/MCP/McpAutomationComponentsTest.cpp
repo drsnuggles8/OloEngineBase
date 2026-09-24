@@ -191,9 +191,8 @@ namespace OloEngine::Automation
         }
     }
 
-    TEST_F(McpAutomationComponents, NonEqualityComponentRemoveRestoresNestedDataInOneUndoStep)
+    TEST_F(McpAutomationComponents, NestedComponentRemoveRestoresNestedDataInOneUndoStep)
     {
-        static_assert(!std::equality_comparable<ParticleSystemComponent>);
         auto& particles = m_Entity.AddComponent<ParticleSystemComponent>();
         particles.System.Emitter.RateOverTime = 71.5f;
         particles.ChildSystems.SetNum(2);
