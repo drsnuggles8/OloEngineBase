@@ -103,6 +103,24 @@ namespace OloEngine::TemporalUpscalePolicy
         return taaEnabled && !temporalUpscaleActive;
     }
 
+    // Whether engine TAA is WANTED this frame, before FSR2 gets its say through
+    // ShouldRunEngineTAA above (#1429). Either the user ticked it, or the scene
+    // holds content that cannot render without a temporal resolve and asked for
+    // one — today a groom on GroomCompositionMode::StochasticAlpha, whose no-
+    // resolve fallback is a hard cutoff that draws no sub-pixel hair at all.
+    //
+    // The request is re-published by the scene every frame rather than stored in
+    // the scene file, so it cannot go stale: delete the last stochastic groom and
+    // the next frame no longer asks. `honourSceneRequests` is the diagnostic
+    // switch (RendererSettings::HonourSceneTemporalResolveRequests) that exists
+    // so the refused tier stays reachable for a comparison; the user's own
+    // setting is never mutated.
+    [[nodiscard]] constexpr bool WantsEngineTAA(bool taaEnabled, bool sceneRequestsResolve,
+                                                bool honourSceneRequests) noexcept
+    {
+        return taaEnabled || (sceneRequestsResolve && honourSceneRequests);
+    }
+
     // The late post-tonemap sharpen pass (UpscalerRenderPass), which serves CAS
     // on the native path and RCAS on the FSR1 path. FSR2 runs its own RCAS on HDR
     // before tone mapping, so sharpening again here is a second pass over the

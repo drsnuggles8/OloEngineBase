@@ -8832,6 +8832,49 @@ namespace OloEngine
         return entry.m_Table;
     }
 
+    namespace
+    {
+        // The two halves of "which grooms does this frame publish, asking for
+        // what" (#1429). CountGroomsNeedingTemporalResolve runs before BeginScene
+        // and PublishGroomStrandRequests during the frame; both go through these,
+        // so a new skip condition or mode cannot reach one and not the other —
+        // which would either ask for TAA nothing draws with, or leave a coat bald.
+        [[nodiscard]] bool IsGroomPublishable(const GroomComponent& groom) noexcept
+        {
+            return groom.m_RenderStrands && groom.m_Groom != 0;
+        }
+
+        [[nodiscard]] GroomCompositionMode RequestedGroomMode(const GroomComponent& groom) noexcept
+        {
+            return IsValidGroomCompositionMode(static_cast<i32>(groom.m_CompositionMode))
+                       ? static_cast<GroomCompositionMode>(groom.m_CompositionMode)
+                       : GroomCompositionMode::OpaqueRibbon;
+        }
+    } // namespace
+
+    u32 Scene::CountGroomsNeedingTemporalResolve() const
+    {
+        // PublishGroomStrandRequests' filter minus the asset lookup: this runs
+        // before BeginScene, every frame, and must stay a component scan. A groom
+        // whose asset fails to load still asks — TAA for a coat that never draws
+        // costs far less than a bald one for a coat that does.
+        //
+        // SCENE-wide, not per-view: frustum or LOD culling would switch TAA on
+        // and off as the camera turns, and every switch resets the jitter
+        // sequence and the temporal histories. A coat off screen keeps the
+        // resolve running; that is the price of a stable one.
+        u32 count = 0;
+        for (const auto groomView = m_Registry.view<TransformComponent, GroomComponent>(); const auto entity : groomView)
+        {
+            const auto& groom = groomView.get<GroomComponent>(entity);
+            if (IsGroomPublishable(groom) && RequestedGroomMode(groom) == GroomCompositionMode::StochasticAlpha)
+            {
+                ++count;
+            }
+        }
+        return count;
+    }
+
     void Scene::PublishGroomStrandRequests()
     {
         OLO_PROFILE_FUNCTION();
@@ -8857,7 +8900,7 @@ namespace OloEngine
         for (const auto entity : groomView)
         {
             const auto& groomComponent = groomView.get<GroomComponent>(entity);
-            if (!groomComponent.m_RenderStrands || groomComponent.m_Groom == 0)
+            if (!IsGroomPublishable(groomComponent))
             {
                 continue;
             }
@@ -8884,9 +8927,7 @@ namespace OloEngine
             request.Color = groomComponent.m_StrandColor;
             request.WidthScale = groomComponent.m_WidthScale;
             request.EntityID = entityID;
-            request.RequestedMode = IsValidGroomCompositionMode(static_cast<i32>(groomComponent.m_CompositionMode))
-                                        ? static_cast<GroomCompositionMode>(groomComponent.m_CompositionMode)
-                                        : GroomCompositionMode::OpaqueRibbon;
+            request.RequestedMode = RequestedGroomMode(groomComponent);
             request.Build.MaxStrands = groomComponent.m_MaxRenderStrands;
             request.Build.GuidesOnly = groomComponent.m_GuidesOnly;
 
@@ -14650,6 +14691,8 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         Renderer3D::SetWindPaused(m_IsPaused);
+        // Before BeginScene: that is where the frame's jitter is decided (#1429).
+        Renderer3D::RequestSceneTemporalResolve(CountGroomsNeedingTemporalResolve());
         Renderer3D::BeginScene(camera);
         Renderer3D::BeginGPUSceneExtraction(static_cast<u64>(m_GPUSceneOwnerToken));
 
@@ -15213,6 +15256,8 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         Renderer3D::SetWindPaused(m_IsPaused);
+        // Before BeginScene: that is where the frame's jitter is decided (#1429).
+        Renderer3D::RequestSceneTemporalResolve(CountGroomsNeedingTemporalResolve());
         Renderer3D::BeginScene(camera, cameraTransform);
         Renderer3D::BeginGPUSceneExtraction(static_cast<u64>(m_GPUSceneOwnerToken));
 

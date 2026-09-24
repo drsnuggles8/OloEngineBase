@@ -297,8 +297,12 @@ namespace OloEngine::Tests
               { d.PostProcess.DOFEnabled = !d.PostProcess.DOFEnabled; } },
             { "MotionBlurEnabled", [](Access::Data& d)
               { d.PostProcess.MotionBlurEnabled = !d.PostProcess.MotionBlurEnabled; } },
-            { "TAAEnabled", [](Access::Data& d)
-              { d.PostProcess.TAAEnabled = !d.PostProcess.TAAEnabled; } },
+            // #1429: the gate is the frame's LATCHED answer, the user's
+            // TAAEnabled OR a scene's temporal-resolve request, derived once in
+            // PrepareFrame before the key is captured. Toggling the setting
+            // alone here would test a field PopulateBlackboard no longer reads.
+            { "EngineTAAWanted", [](Access::Data& d)
+              { d.EngineTAAWanted = !d.EngineTAAWanted; } },
             { "CASEnabled", [](Access::Data& d)
               { d.PostProcess.CASEnabled = !d.PostProcess.CASEnabled; } },
             { "ChromaticAberrationEnabled", [](Access::Data& d)

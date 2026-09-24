@@ -411,5 +411,8 @@ namespace OloEngine
         // Last reported dominant fallback, so the log line fires on a CHANGE
         // of reason rather than once per frame.
         GroomCompositionFallbackReason m_LastReportedReason = GroomCompositionFallbackReason::None;
+        /// Bald grooms (TemporalResolveUnavailable) last reported, latched on
+        /// their own so the warning fires whatever reason dominates (#1429).
+        u32 m_LastReportedBaldGrooms = 0;
     };
 } // namespace OloEngine

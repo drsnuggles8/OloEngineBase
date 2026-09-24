@@ -129,6 +129,7 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/Texture2DArray.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "Platform/Vulkan/VulkanBindingState.h"
+#include "Platform/Vulkan/VulkanBufferResources.h"
 #include "Platform/Vulkan/VulkanCapabilities.h"
 #include "Platform/Vulkan/VulkanDescriptorHeapBackend.h"
 #include "Platform/Vulkan/VulkanOneShot.h"
@@ -12243,6 +12244,117 @@ TEST_F(VulkanPassSuite, FirstVertexStreamRewriteKeepsBothRecordedDraws)
     EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 1u);
     EXPECT_GT(arena.GetConsumerBytesThisFrame(VulkanFrameArenaConsumer::UniformSnapshot), 0u);
     EXPECT_EQ(arena.GetConsumerBytesThisFrame(VulkanFrameArenaConsumer::VertexSnapshot), 0u);
+}
+
+// #1446. A bound groom rewrites a 125-219 MB vertex stream every frame. Since
+// #1433 every rewrite became a whole-range arena snapshot, and a 16 MiB slot can
+// never hold one, so each of the coat's draws was dropped and every animated
+// animal rendered bald on Vulkan. A stream whose writes outgrow half a slot is
+// now written by copies recorded in command order instead. The contract is
+// unchanged and asserted the same way as the test above: two writes, a draw
+// after each, BOTH draws land with their own bytes, nothing is dropped.
+TEST_F(VulkanPassSuite, VertexStreamLargerThanTheArenaKeepsCommandOrderWithoutDroppingDraws)
+{
+    constexpr u32 kSize = 128;
+    auto& arena = VulkanFrameArena::Get();
+    arena.BeginFrame(0);
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    auto shader = Shader::Create("assets/shaders/tests/UploadOrderingProbe.glsl");
+    ASSERT_TRUE(shader);
+    ASSERT_EQ(shader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    struct Vertex
+    {
+        f32 X, Y, R, G;
+    };
+    const Vertex left[] = { { -0.9f, -0.8f, 0.6f, 0.0f },
+                            { -0.1f, -0.8f, 0.6f, 0.0f },
+                            { -0.5f, 0.8f, 0.6f, 0.0f } };
+    const Vertex right[] = { { 0.1f, -0.8f, 0.0f, 0.7f },
+                             { 0.9f, -0.8f, 0.0f, 0.7f },
+                             { 0.5f, 0.8f, 0.0f, 0.7f } };
+
+    // A whole slot plus a page: one snapshot of this could never fit, which is
+    // the groom's case exactly (it writes the whole buffer every frame).
+    const u32 streamBytes = static_cast<u32>(arena.GetSlotCapacityBytes() + 4096u);
+    ASSERT_GT(streamBytes, VulkanVertexBuffer::CommandOrderedThresholdBytes());
+    std::vector<u8> leftPayload(streamBytes, 0u);
+    std::vector<u8> rightPayload(streamBytes, 0u);
+    std::memcpy(leftPayload.data(), left, sizeof(left));
+    std::memcpy(rightPayload.data(), right, sizeof(right));
+
+    auto vao = VertexArray::Create();
+    auto vb = VertexBuffer::Create(streamBytes);
+    vb->SetLayout({ { ShaderDataType::Float2, "a_Position" }, { ShaderDataType::Float2, "a_Colour" } });
+    vao->AddVertexBuffer(vb);
+    std::array<u32, 3> indices{ 0, 1, 2 };
+    vao->SetIndexBuffer(IndexBuffer::Create(indices.data(), 3));
+
+    const std::array<glm::vec4, 2> zeros{};
+    auto ubo = UniformBuffer::Create(sizeof(zeros), 18);
+    ubo->SetData(zeros.data(), sizeof(zeros));
+    auto ssbo = StorageBuffer::Create(sizeof(zeros), 15);
+    ssbo->SetData(zeros.data(), sizeof(zeros));
+    FramebufferSpecification spec;
+    spec.Width = kSize;
+    spec.Height = kSize;
+    spec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::Depth };
+    auto framebuffer = Framebuffer::Create(spec);
+    ASSERT_TRUE(framebuffer);
+
+    const u64 overflowsBefore = arena.GetOverflowCount();
+    u64 vertexSnapshotBytes = 0;
+    SubmitFrame([&]()
+                {
+                    framebuffer->Bind();
+                    RenderCommand::SetViewport(0, 0, kSize, kSize);
+                    RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+                    RenderCommand::Clear();
+                    RenderCommand::SetDepthTest(false);
+                    RenderCommand::SetBlendState(false);
+                    RenderCommand::DisableCulling();
+                    shader->Bind();
+                    vao->Bind();
+                    ubo->Bind();
+                    ssbo->Bind();
+                    vb->SetData({ leftPayload.data(), streamBytes });
+                    RenderCommand::DrawIndexed(vao, 3);
+                    vb->SetData({ rightPayload.data(), streamBytes });
+                    RenderCommand::DrawIndexed(vao, 3);
+                    vertexSnapshotBytes = arena.GetConsumerBytesThisFrame(VulkanFrameArenaConsumer::VertexSnapshot);
+
+                    RHI::Barrier toSampled{};
+                    toSampled.Resource = framebuffer->GetColorAttachmentHandle(0);
+                    toSampled.Before = RHI::Access::ColorAttachmentWrite;
+                    toSampled.After = RHI::Access::ShaderSampleRead;
+                    api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 }); });
+
+    EXPECT_TRUE(static_cast<VulkanVertexBuffer*>(vb.Raw())->IsCommandOrdered());
+    EXPECT_EQ(vertexSnapshotBytes, 0u) << "a stream this large must not touch the frame arena at all";
+    EXPECT_EQ(arena.GetOverflowCount(), overflowsBefore);
+    EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 2u);
+    EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u) << "the #1446 symptom: the coat's draw was dropped";
+    TArray64<u8> pixels;
+    auto* vkFramebuffer = static_cast<VulkanFramebuffer*>(framebuffer.Raw());
+    ASSERT_TRUE(vkFramebuffer->GetColorAttachmentImage(0)->GetData(pixels, 0));
+    ASSERT_EQ(pixels.Num(), static_cast<sizet>(kSize) * kSize * 4);
+    const auto redAt = [&](u32 x)
+    { return pixels[(64u * kSize + x) * 4u]; };
+    const auto greenAt = [&](u32 x)
+    { return pixels[(64u * kSize + x) * 4u + 1u]; };
+    // Command order: the first draw read the FIRST write, though the second
+    // write reached the same persistent allocation before the frame submitted.
+    EXPECT_NEAR(redAt(32), 153, 3) << "the first draw must see the first write";
+    EXPECT_NEAR(greenAt(96), 179, 3) << "the second draw must see the second write";
+    EXPECT_EQ(redAt(96), 0);
+    EXPECT_EQ(greenAt(32), 0);
+
+    // The small side of the threshold is untouched: a stream written in small
+    // pieces keeps its arena snapshot (particles, precipitation).
+    auto small = VertexBuffer::Create(sizeof(left));
+    small->SetData({ left, sizeof(left) });
+    small->SetData({ right, sizeof(right) });
+    EXPECT_FALSE(static_cast<VulkanVertexBuffer*>(small.Raw())->IsCommandOrdered());
 }
 
 TEST_F(VulkanPassSuite, PartialUniformAndStorageRewritesPreserveBothDrawsAndTheUntouchedPrefix)

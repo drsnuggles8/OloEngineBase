@@ -13,6 +13,8 @@
 #include "Platform/Vulkan/VulkanShader.h"
 #include "Platform/Vulkan/VulkanComputeShader.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
+#include "Platform/Vulkan/VulkanTransientUpload.h"
+#include "Platform/Vulkan/VulkanRendererAPI.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -734,6 +736,31 @@ namespace OloEngine
             return;
         }
 
+        // #1446: a rewrite too large for the frame arena becomes a transfer
+        // recorded in command order, never a snapshot (see IsCommandOrdered).
+        // Decided on the WRITTEN range, not the capacity: a particle buffer
+        // with a large capacity and small per-batch writes stays on the arena.
+        // Checked before the first-rewrite block below because none of its
+        // refusals apply: an ordered copy lands after an earlier draw of this
+        // frame, and after the previous frame's reads, by construction.
+        if (m_InitialUploadDone && !m_CommandOrdered &&
+            std::max<u64>(m_ShadowSize, data.size) > CommandOrderedThresholdBytes())
+        {
+            m_CommandOrdered = true;
+            // A stream that was snapshotting until now reads the persistent
+            // allocation from here on; its shadow is dead weight (it would be a
+            // second copy of up to hundreds of MB).
+            m_Streamed = false;
+            m_Shadow.clear();
+            m_Shadow.shrink_to_fit();
+            m_ShadowSize = 0;
+        }
+        if (m_CommandOrdered)
+        {
+            WriteCommandOrdered(data);
+            return;
+        }
+
         // A mutable pull stream needs a snapshot on its FIRST external write.
         // Waiting for a second write loses the first draw in that very frame;
         // waiting for a second frame also races an unfinished prior submission.
@@ -803,6 +830,39 @@ namespace OloEngine
         }
 
         VulkanOneShot::UploadToBuffer(m_Buffer, 0, data.data, data.size, "VulkanVertexBuffer::SetData");
+    }
+
+    u64 VulkanVertexBuffer::CommandOrderedThresholdBytes()
+    {
+        return VulkanFrameArena::Get().GetSlotCapacityBytes() / 2u;
+    }
+
+    void VulkanVertexBuffer::WriteCommandOrdered(const VertexData& data)
+    {
+        // Inside a recording: a staged copy in the frame command buffer, the
+        // GL-ordered write UploadBufferSubData exists for. Never the mapped
+        // memcpy the upload-once path uses — that lands immediately, under a
+        // previous frame's in-flight reads and before this frame's earlier
+        // draws have executed.
+        if (auto* vk = VulkanUpload::TryGetRecordingVulkanAPI(); vk != nullptr)
+        {
+            if (CurrentVulkanWorkerContext() != nullptr)
+            {
+                // UploadBufferSubData refuses on a worker too; say which
+                // resource lost its write rather than leaving a generic line.
+                OLO_CORE_ERROR("[RHI/Vulkan] vertex stream {:#x} ({} bytes) is too large for the frame arena and "
+                               "was written from a parallel-recording worker, which cannot record its ordered "
+                               "copy — the write is dropped (#1446)",
+                               m_DeviceAddress, data.size);
+                return;
+            }
+            vk->UploadBufferSubData(m_RHIHandle.Get(), 0u, data.size, data.data);
+            return;
+        }
+        // No recording bracket: the blocking one-shot, ordered after every
+        // earlier submission on its queue — the same fallback
+        // UploadBufferSubData takes.
+        VulkanOneShot::UploadToBuffer(m_Buffer, 0, data.data, data.size, "VulkanVertexBuffer::SetData (ordered)");
     }
 
     VkDeviceAddress VulkanVertexBuffer::GetPullAddress() const

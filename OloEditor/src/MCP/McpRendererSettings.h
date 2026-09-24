@@ -84,6 +84,7 @@ namespace OloEngine::MCP::RendererSettings
         RayTracedShadows,        // LeverState::RayTracedShadows (ShadowSettings::Technique, issue #1056)
         RayTracedShadowSoftness, // LeverState::RayTracedShadowSoftness (RayTracedShadowSettings::LightAngularRadiusDegrees)
         DDGICascades,            // RendererSettings::DDGICascadesEnabled (issue #707)
+        SceneTemporalResolve,    // RendererSettings::HonourSceneTemporalResolveRequests (issue #1429)
     };
 
     // Live renderer state the perf-lever settings (#316) read/write. These are NOT
@@ -188,6 +189,9 @@ namespace OloEngine::MCP::RendererSettings
 
     inline constexpr i32 kDDGICascadesOff = 0;
     inline constexpr i32 kDDGICascadesOn = 1;
+
+    inline constexpr i32 kSceneTemporalResolveIgnore = 0;
+    inline constexpr i32 kSceneTemporalResolveHonour = 1;
 
     inline constexpr i32 kPerSampleLightingOff = 0;
     inline constexpr i32 kPerSampleLightingOn = 1;
@@ -298,6 +302,15 @@ namespace OloEngine::MCP::RendererSettings
           "check for a LightProbeVolumeComponent before concluding the lever did not work" },
     } };
 
+    inline constexpr std::array<EnumValue, 2> kSceneTemporalResolveValues = { {
+        { "ignore", kSceneTemporalResolveIgnore,
+          "Engine TAA runs only when PostProcess.TAAEnabled is ticked; a stochastic groom without it falls back to "
+          "the opaque tier and renders BALD (the #1429 failure, reproduced on purpose)" },
+        { "honour", kSceneTemporalResolveHonour,
+          "Default: a scene holding a groom on StochasticAlpha requests a temporal resolve and engine TAA runs for "
+          "it even with TAAEnabled unticked" },
+    } };
+
     inline constexpr std::array<EnumValue, 2> kSoftShadowValues = { {
         { "pcf", kSoftShadowsPcf, "Fixed 3x3 hardware PCF (cheap, hard-edged shadows)" },
         { "pcss", kSoftShadowsPcss, "Percentage-Closer Soft Shadows (contact-hardening variable penumbra; expensive blocker search)" },
@@ -316,7 +329,7 @@ namespace OloEngine::MCP::RendererSettings
         std::string_view Description;
     };
 
-    inline constexpr std::array<SettingInfo, 14> kSettings = { {
+    inline constexpr std::array<SettingInfo, 15> kSettings = { {
         { "upscale", Setting::Upscale,
           "FSR1 spatial-upscale quality preset (PostProcess.Upscale). Off is native resolution; the other presets render "
           "below display resolution and EASU-upscale the HDR scene colour back to display res (#480)." },
@@ -374,6 +387,11 @@ namespace OloEngine::MCP::RendererSettings
           "invalidates the retained pyramid, so the first frame after re-enabling is frustum-only. This is the "
           "A/B lever for occlusion work — pair it with olo_virtual_geometry_stats / the RendererProfiler to see "
           "the drawn-cluster and instance counts move." },
+        { "scenetemporalresolve", Setting::SceneTemporalResolve,
+          "Whether a scene's request for a temporal resolve is honoured (RendererSettings::"
+          "HonourSceneTemporalResolveRequests, issue #1429). A scene holding a groom on StochasticAlpha asks for one "
+          "every frame, because that mode's no-resolve fallback draws no sub-pixel hair. 'ignore' is the A/B lever: "
+          "the coats go bald and the viewport shows the red BALD banner. Diagnostic only; not persisted." },
     } };
 
     // Lowercase + drop every non-alphanumeric character so "Ultra Performance",
@@ -425,6 +443,8 @@ namespace OloEngine::MCP::RendererSettings
                 return kVSMDebugValues;
             case Setting::DDGICascades:
                 return kDDGICascadeValues;
+            case Setting::SceneTemporalResolve:
+                return kSceneTemporalResolveValues;
         }
         return {};
     }
@@ -645,6 +665,8 @@ namespace OloEngine::MCP::RendererSettings
                 return lever.VSMDebugMode;
             case Setting::DDGICascades:
                 return rs.DDGICascadesEnabled ? kDDGICascadesOn : kDDGICascadesOff;
+            case Setting::SceneTemporalResolve:
+                return rs.HonourSceneTemporalResolveRequests ? kSceneTemporalResolveHonour : kSceneTemporalResolveIgnore;
         }
         return 0;
     }
@@ -714,6 +736,10 @@ namespace OloEngine::MCP::RendererSettings
                 break;
             case Setting::DDGICascades:
                 rs.DDGICascadesEnabled = value == kDDGICascadesOn;
+                break;
+            case Setting::SceneTemporalResolve:
+                // Read at the next BeginScene; nothing to apply or rebuild.
+                rs.HonourSceneTemporalResolveRequests = value == kSceneTemporalResolveHonour;
                 break;
             case Setting::VirtualShadowMaps:
                 lever.VirtualShadowMaps = value == kVirtualShadowMapsOn;

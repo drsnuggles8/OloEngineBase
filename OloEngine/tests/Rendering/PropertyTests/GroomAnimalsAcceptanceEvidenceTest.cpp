@@ -1464,6 +1464,144 @@ namespace OloEngine::Tests
     }
 
     // =========================================================================
+    // #1429: a freshly opened groom scene is not bald. GroomAnimals.olo does not
+    // carry TAA (nothing in a scene file does), every coat in it asks for
+    // StochasticAlpha, and that mode's no-resolve fallback draws no sub-pixel
+    // hair -- so before the fix the editor opened on bald horses and a hairless
+    // human until someone ticked TAA. The scene now REQUESTS the resolve.
+    //
+    // Two arms per subject, TAA unticked in both:
+    //   SceneResolve     the request honoured (the default): the coat is there
+    //   SceneResolveOff  the request refused by the diagnostic switch: the
+    //                    issue's own frame, reproduced -- the instrument check
+    //                    that the first arm's coverage is the request's doing
+    // =========================================================================
+    TEST_F(GroomAnimalsAcceptanceEvidenceTest, AFreshSceneWithTAAOffStillCoatsItsSubjects)
+    {
+        auto& post = Renderer3D::GetPostProcessSettings();
+        auto& rs = Renderer3D::GetRendererSettings();
+        post.TAAEnabled = false; // what a scene loaded from disk gets
+        (void)PlayFromStart(30);
+        // FREEZE the clips. The edit-mode preview advances any clip that is
+        // playing, so without this every 24-frame capture lands on a different
+        // stride, and the coat-on minus coat-off difference counts the legs
+        // moving as coat: the first run of this case measured the refused arm
+        // at 85-125% of the honoured one while its PNG showed a bald horse.
+        for (SubjectRig* subject : Subjects())
+        {
+            subject->Body.GetComponent<AnimationStateComponent>().m_IsPlaying = false;
+        }
+
+        struct PathCase
+        {
+            const char* Name;
+            RenderingPath Path;
+        };
+        const PathCase paths[] = { { "Forward", RenderingPath::Forward },
+                                   { "ForwardPlus", RenderingPath::ForwardPlus },
+                                   { "Deferred", RenderingPath::Deferred } };
+        constexpr auto kNoResolve = static_cast<sizet>(GroomCompositionFallbackReason::TemporalResolveUnavailable);
+
+        for (const PathCase& path : paths)
+        {
+            SCOPED_TRACE(path.Name);
+            SetPath(path.Path);
+            for (SubjectRig* subject : Subjects())
+            {
+                SCOPED_TRACE(subject->Tag);
+                const std::string suffix = "_GL_" + std::string(path.Name) + "_" + subject->Tag;
+
+                rs.HonourSceneTemporalResolveRequests = true;
+                const u32 coated = CoatPixels(*subject, ViewOf(*subject), "GroomAnimalsSceneResolve" + suffix, "");
+                ASSERT_FALSE(HasFatalFailure());
+                const GroomCompositionStats honoured = PassStats().Composition;
+                const u32 askedHonoured = Renderer3D::GetSceneTemporalResolveGrooms();
+                const bool taaWanted = Renderer3D::IsEngineTAAWanted();
+
+                rs.HonourSceneTemporalResolveRequests = false;
+                const u32 bald = CoatPixels(*subject, ViewOf(*subject), "GroomAnimalsSceneResolveOff" + suffix, "");
+                ASSERT_FALSE(HasFatalFailure());
+                const GroomCompositionStats refused = PassStats().Composition;
+                rs.HonourSceneTemporalResolveRequests = true;
+
+                std::printf("[groom-animals] #1429 %s %s: TAA unticked, request honoured -> coat %u px (%.2f%%), "
+                            "refused -> %u px (%.2f%%); fell back %u -> %u\n",
+                            path.Name,
+                            subject->Tag.c_str(), coated, 100.0 * Fraction(coated), bald,
+                            100.0 * Fraction(bald), honoured.GroomsFellBack, refused.GroomsFellBack);
+                std::fflush(stdout);
+
+                // The chain, link by link, so a failure names the broken one.
+                EXPECT_EQ(askedHonoured, 3u) << "every stochastic coat in the scene asks for the resolve";
+                EXPECT_TRUE(taaWanted) << "an honoured request runs TAA with TAAEnabled off";
+                EXPECT_EQ(honoured.GroomsFellBack, 0u) << "with the request honoured no coat is refused its mode";
+                EXPECT_EQ(refused.ByReason[kNoResolve], 3u)
+                    << "the control: refuse the request and every coat falls back for want of a resolve";
+
+                // The pixels: the coverage floor the integration test above
+                // holds with TAA ticked, now with it unticked...
+                EXPECT_GT(Fraction(coated), 0.01) << "a freshly opened scene must show the coat";
+                // ...and the control is the issue's bald frame, which is what
+                // makes the floor above the request's doing and not the
+                // fixture's.
+                EXPECT_LT(bald * 5u, coated) << "the refused arm must reproduce the bald coat the issue reports";
+            }
+        }
+
+        // MSAA 4 (deferred) and upscaling: the request must still produce a
+        // resolve the groom accepts. FSR2 subsumes engine TAA and is a resolve
+        // itself; FSR1 is not, so engine TAA runs under it. Framing under an
+        // upscale is #1397's, so these cells assert the DECISION, not coverage.
+        struct ResolveCase
+        {
+            const char* Name;
+            RenderingPath Path;
+            u32 Samples;
+            UpscaleMode Upscale;
+            UpscalerTechnique Technique;
+        };
+        const ResolveCase cells[] = {
+            { "DeferredMSAA4", RenderingPath::Deferred, 4u, UpscaleMode::Off, UpscalerTechnique::Spatial },
+            { "ForwardFSR1", RenderingPath::Forward, 1u, UpscaleMode::Quality, UpscalerTechnique::Spatial },
+            { "ForwardFSR2", RenderingPath::Forward, 1u, UpscaleMode::Quality, UpscalerTechnique::Temporal },
+        };
+        for (const ResolveCase& cell : cells)
+        {
+            SCOPED_TRACE(cell.Name);
+            rs.Deferred.MSAASampleCount = cell.Samples;
+            post.Upscale = cell.Upscale;
+            post.Technique = cell.Technique;
+            SetPath(cell.Path);
+            std::vector<u8> px;
+            ColdHistory();
+            Capture("", ViewOf(m_LongCoat), px);
+            ASSERT_FALSE(HasFatalFailure());
+            const GroomCompositionStats& stats = PassStats().Composition;
+            std::printf("[groom-animals] #1429 %s: considered=%u fellBack=%u taaWanted=%d\n", cell.Name,
+                        stats.GroomsConsidered,
+                        stats.GroomsFellBack, Renderer3D::IsEngineTAAWanted() ? 1 : 0);
+            std::fflush(stdout);
+            EXPECT_GT(stats.GroomsConsidered, 0u);
+            EXPECT_EQ(stats.GroomsFellBack, 0u) << "the requested resolve must survive " << cell.Name;
+            // WHICH resolve, or the FSR2 cell could quietly be an FSR1 cell with
+            // engine TAA (an unavailable FSR2 falls back to FSR1) and the "FSR2
+            // subsumes the request" path would never run.
+            if (cell.Technique == UpscalerTechnique::Temporal)
+            {
+                EXPECT_TRUE(Renderer3D::IsTemporalUpscaleActive()) << "FSR2 must own this frame";
+            }
+            else
+            {
+                EXPECT_FALSE(Renderer3D::IsTemporalUpscaleActive());
+                EXPECT_TRUE(Renderer3D::IsEngineTAAWanted()) << "engine TAA runs on the scene's request";
+            }
+        }
+        rs.Deferred.MSAASampleCount = 1u;
+        post.Upscale = UpscaleMode::Off;
+        post.Technique = UpscalerTechnique::Spatial;
+    }
+
+    // =========================================================================
     // Criterion 1, the negative controls: each active visual lever, switched
     // off on the moving long-coated animal, changes the frame. Coat shadow is
     // refused here and LOD is checked by the near-to-far case instead.
