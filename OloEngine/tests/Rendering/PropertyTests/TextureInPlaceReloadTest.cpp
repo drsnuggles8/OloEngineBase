@@ -46,6 +46,7 @@
 #include "OloEngine/Task/NamedThreads.h"
 #include "OloEngine/Renderer/AlphaCoverageMips.h"
 #include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
 
 #define GLFW_INCLUDE_NONE
 #include <glad/gl.h>
@@ -531,6 +532,52 @@ namespace OloEngine::Tests
                 EXPECT_EQ(readback[static_cast<i64>(y) * kWidth * 3 + x], expected) << "row " << y << " byte " << x;
             }
         }
+
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+    }
+
+    // A reload keeps the texture's name in the GPU resource inspector. Reload()
+    // hands InvalidateImpl a view of the texture's own path, and the name used
+    // to be registered from that view AFTER the path had been reassigned — the
+    // freed buffer, so the inspector held 0xDD bytes and olo_gpu_resources
+    // could not serialise any listing that included the texture.
+    TEST(TextureInPlaceReload, AReloadKeepsTheTexturesInspectorName)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        // Only the editor initialises the inspector; this test does it for itself
+        // and puts the process back the way it found it.
+        auto& inspector = GPUResourceInspector::GetInstance();
+        inspector.Initialize();
+        struct ShutdownOnExit
+        {
+            GPUResourceInspector& Inspector;
+            ~ShutdownOnExit()
+            {
+                Inspector.Shutdown();
+            }
+        } shutdownOnExit{ inspector };
+
+        const std::filesystem::path path = OloEngine::Tests::TempFile("olo_texture_inspector_name.png");
+        ASSERT_TRUE(WriteSolidPng(path, 8, 8, 10, 20, 30, 255));
+        Ref<Texture2D> texture = Texture2D::Create(path.string(), /*srgb=*/false);
+        ASSERT_TRUE(texture->IsLoaded());
+
+        const auto nameOf = [&]() -> std::string
+        {
+            for (const auto& row : inspector.SnapshotResources())
+            {
+                if (row.Type == GPUResourceInspector::ResourceType::Texture2D &&
+                    row.NativeHandle == texture->GetRendererID())
+                    return row.Name.ToStdString();
+            }
+            return "<not registered>";
+        };
+        EXPECT_EQ(nameOf(), path.string());
+
+        ASSERT_TRUE(texture->Reload());
+        EXPECT_EQ(nameOf(), path.string()) << "the reload registered the texture under a name read from freed memory";
 
         std::error_code ec;
         std::filesystem::remove(path, ec);

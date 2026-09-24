@@ -1166,10 +1166,16 @@ namespace OloEngine
         InvalidateImpl(path, width, height, data, channels);
     }
 
-    void OpenGLTexture2D::InvalidateImpl(std::string_view path, u32 width, u32 height, const void* data, u32 channels)
+    void OpenGLTexture2D::InvalidateImpl(std::string_view pathView, u32 width, u32 height, const void* data, u32 channels)
     {
         OLO_PROFILE_FUNCTION();
 
+        // Owned BEFORE m_Path is assigned: Reload() passes m_Path.ToView(), and
+        // the assignment frees the buffer that view points into. Everything
+        // below that read `path` then read freed memory — the inspector
+        // registration stored a name of 0xDD bytes, and olo_gpu_resources
+        // failed to serialise for the whole editor session.
+        const std::string path(pathView);
         m_Path = path;
         OLO_CORE_TRACE("Loading texture from path: {}", m_Path.ToView());
         m_IsLoaded = true;
