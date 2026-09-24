@@ -283,6 +283,41 @@ TEST(MeshOptimization, OptimizeMeshHandlesEmptyMesh)
     EXPECT_TRUE(mesh->GetIndices().IsEmpty());
 }
 
+// A stream that is not a whole number of triangles, or that addresses past the vertex
+// array, used to reach meshopt_* and trip its assert (issue #1440: a line face from the
+// importer shifted the index stream). OptimizeMesh refuses it and leaves it untouched.
+TEST(MeshOptimization, OptimizeMeshLeavesAPartialTriangleStreamUntouched)
+{
+    auto mesh = MakeQuadMesh();
+    mesh->GetIndices().Add(0); // six indices + one
+    TArray<u32> const before = mesh->GetIndices();
+
+    MeshOptimization::OptimizeMesh(*mesh);
+
+    ASSERT_EQ(mesh->GetIndices().Num(), before.Num());
+    for (i32 i = 0; i < before.Num(); ++i)
+    {
+        EXPECT_EQ(mesh->GetIndices()[i], before[i]) << "index " << i << " was rewritten";
+    }
+}
+
+TEST(MeshOptimization, OptimizeMeshLeavesAnOutOfRangeIndexUntouched)
+{
+    auto mesh = MakeQuadMesh();
+    const auto vertexCount = static_cast<u32>(mesh->GetVertices().Num());
+    mesh->GetIndices()[5] = vertexCount; // one past the end
+    TArray<u32> const before = mesh->GetIndices();
+
+    MeshOptimization::OptimizeMesh(*mesh);
+
+    ASSERT_EQ(mesh->GetIndices().Num(), before.Num());
+    for (i32 i = 0; i < before.Num(); ++i)
+    {
+        EXPECT_EQ(mesh->GetIndices()[i], before[i]) << "index " << i << " was rewritten";
+    }
+    EXPECT_EQ(mesh->GetVertices().Num(), static_cast<i32>(vertexCount));
+}
+
 TEST(MeshOptimization, OptimizeMeshRemapsBoneInfluences)
 {
     auto mesh = MakeQuadMesh();

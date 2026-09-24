@@ -188,6 +188,25 @@ namespace OloEngine::MeshOptimization
         auto vertexCount = static_cast<sizet>(vertices.Num());
         auto indexCount = static_cast<sizet>(indices.Num());
 
+        // Every meshopt_* call below takes a triangle list over [0, vertexCount) and ASSERTS
+        // on anything else, which takes the process down (issue #1440: an importer let a
+        // line face into the stream). Refuse such a stream loudly and leave it untouched,
+        // so the importer that produced it is the thing that gets named.
+        if (indexCount % 3 != 0)
+        {
+            OLO_CORE_ERROR("MeshOptimization::OptimizeMesh: {} indices is not a whole number of triangles — "
+                           "the index stream is malformed, so the mesh is left unoptimized",
+                           indexCount);
+            return;
+        }
+        if (const u32 maxIndex = *std::max_element(indices.GetData(), indices.GetData() + indexCount); maxIndex >= vertexCount)
+        {
+            OLO_CORE_ERROR("MeshOptimization::OptimizeMesh: index {} addresses past the {} vertices — the index "
+                           "stream is malformed, so the mesh is left unoptimized",
+                           maxIndex, vertexCount);
+            return;
+        }
+
         // Census the mesh's degenerate triangles at import so a bad asset is VISIBLE
         // (issue #629). Nothing is removed: a UV-degenerate triangle has real 3D area —
         // in Sponza, 314 of them, two submeshes entirely — so dropping it would punch a
