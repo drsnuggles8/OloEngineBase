@@ -283,6 +283,71 @@ TEST(MeshOptimization, OptimizeMeshHandlesEmptyMesh)
     EXPECT_TRUE(mesh->GetIndices().IsEmpty());
 }
 
+// A stream that is not a whole number of triangles, or that addresses past the vertex
+// array, used to reach meshopt_* and trip its assert (issue #1440: a line face from the
+// importer shifted the index stream). OptimizeMesh refuses it and leaves it untouched.
+TEST(MeshOptimization, OptimizeMeshLeavesAPartialTriangleStreamUntouched)
+{
+    auto mesh = MakeQuadMesh();
+    mesh->GetIndices().Add(0); // six indices + one
+    TArray<u32> const before = mesh->GetIndices();
+
+    EXPECT_FALSE(MeshOptimization::OptimizeMesh(*mesh));
+
+    ASSERT_EQ(mesh->GetIndices().Num(), before.Num());
+    for (i32 i = 0; i < before.Num(); ++i)
+    {
+        EXPECT_EQ(mesh->GetIndices()[i], before[i]) << "index " << i << " was rewritten";
+    }
+}
+
+// Each submesh range goes to meshoptimizer on its own, so a stream whose total is a
+// multiple of three can still split into ranges that are not (issue #1440 review).
+TEST(MeshOptimization, OptimizeMeshRefusesASubmeshThatIsNotWholeTriangles)
+{
+    auto mesh = MakeQuadMesh();
+    Submesh first;
+    first.m_BaseIndex = 0;
+    first.m_IndexCount = 4;
+    Submesh second;
+    second.m_BaseIndex = 4;
+    second.m_IndexCount = 2;
+    mesh->AddSubmesh(first);
+    mesh->AddSubmesh(second);
+    TArray<u32> const before = mesh->GetIndices();
+
+    EXPECT_FALSE(MeshOptimization::OptimizeMesh(*mesh));
+
+    ASSERT_EQ(mesh->GetIndices().Num(), before.Num());
+    for (i32 i = 0; i < before.Num(); ++i)
+    {
+        EXPECT_EQ(mesh->GetIndices()[i], before[i]) << "index " << i << " was rewritten";
+    }
+}
+
+TEST(MeshOptimization, OptimizeMeshReportsSuccessOnAWellFormedMesh)
+{
+    auto mesh = MakeGridMesh(4);
+    EXPECT_TRUE(MeshOptimization::OptimizeMesh(*mesh));
+}
+
+TEST(MeshOptimization, OptimizeMeshLeavesAnOutOfRangeIndexUntouched)
+{
+    auto mesh = MakeQuadMesh();
+    const auto vertexCount = static_cast<u32>(mesh->GetVertices().Num());
+    mesh->GetIndices()[5] = vertexCount; // one past the end
+    TArray<u32> const before = mesh->GetIndices();
+
+    EXPECT_FALSE(MeshOptimization::OptimizeMesh(*mesh));
+
+    ASSERT_EQ(mesh->GetIndices().Num(), before.Num());
+    for (i32 i = 0; i < before.Num(); ++i)
+    {
+        EXPECT_EQ(mesh->GetIndices()[i], before[i]) << "index " << i << " was rewritten";
+    }
+    EXPECT_EQ(mesh->GetVertices().Num(), static_cast<i32>(vertexCount));
+}
+
 TEST(MeshOptimization, OptimizeMeshRemapsBoneInfluences)
 {
     auto mesh = MakeQuadMesh();

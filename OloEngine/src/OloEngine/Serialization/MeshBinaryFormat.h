@@ -104,7 +104,14 @@ namespace OloEngine
         // the file holds, so a cached morph-only face would keep that skeleton -- and
         // keep being drawn as a skinned entity -- after the importer stopped inventing
         // it.
-        constexpr u32 CurrentVersion = 11;
+        //
+        // v12 adds no section. It invalidates every v11 STATIC cache of a mesh with a
+        // triangle whose corners share a position (issue #1440): the static import ran
+        // aiProcess_FindDegenerates, which turned such a triangle into a line or point
+        // face, and the index stream then shifted by one or two indices at each of them.
+        // The cache stored that shifted stream, so it would keep serving a garbage mesh
+        // (and a count meshoptimizer asserts on) after the importer was fixed.
+        constexpr u32 CurrentVersion = 12;
 
         constexpr u32 MinSupportedVersion = 1;
         constexpr u32 FlagCompressed = 1;   // Payload is zlib-compressed

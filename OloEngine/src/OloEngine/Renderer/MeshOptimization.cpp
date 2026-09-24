@@ -173,7 +173,7 @@ namespace OloEngine::MeshOptimization
 
     // ── Core optimization ──────────────────────────────────────────
 
-    void OptimizeMesh(MeshSource& meshSource)
+    bool OptimizeMesh(MeshSource& meshSource)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -182,11 +182,43 @@ namespace OloEngine::MeshOptimization
 
         if (vertices.IsEmpty() || indices.IsEmpty())
         {
-            return;
+            return true;
         }
 
         auto vertexCount = static_cast<sizet>(vertices.Num());
         auto indexCount = static_cast<sizet>(indices.Num());
+
+        // Every meshopt_* call below takes a triangle list over [0, vertexCount) and ASSERTS
+        // on anything else, which takes the process down (issue #1440: an importer let a
+        // line face into the stream). Refuse such a stream loudly and leave it untouched,
+        // so the importer that produced it is the thing that gets named. The per-submesh
+        // ranges are checked too: each is handed to meshoptimizer on its own, so a whole
+        // stream that is a multiple of three can still split into ranges that are not.
+        if (indexCount % 3 != 0)
+        {
+            OLO_CORE_ERROR("MeshOptimization::OptimizeMesh: {} indices is not a whole number of triangles — "
+                           "the index stream is malformed, so the mesh is left unoptimized",
+                           indexCount);
+            return false;
+        }
+        if (const u32 maxIndex = *std::max_element(indices.GetData(), indices.GetData() + indexCount); maxIndex >= vertexCount)
+        {
+            OLO_CORE_ERROR("MeshOptimization::OptimizeMesh: index {} addresses past the {} vertices — the index "
+                           "stream is malformed, so the mesh is left unoptimized",
+                           maxIndex, vertexCount);
+            return false;
+        }
+        const auto& submeshList = meshSource.GetSubmeshes();
+        for (i32 s = 0; s < submeshList.Num(); ++s)
+        {
+            if (const auto& sub = submeshList[s]; sub.m_BaseIndex % 3 != 0 || sub.m_IndexCount % 3 != 0)
+            {
+                OLO_CORE_ERROR("MeshOptimization::OptimizeMesh: submesh {} spans indices [{}, +{}), which is not a "
+                               "whole number of triangles — the mesh is left unoptimized",
+                               s, sub.m_BaseIndex, sub.m_IndexCount);
+                return false;
+            }
+        }
 
         // Census the mesh's degenerate triangles at import so a bad asset is VISIBLE
         // (issue #629). Nothing is removed: a UV-degenerate triangle has real 3D area —
@@ -353,6 +385,7 @@ namespace OloEngine::MeshOptimization
         }
 
         OLO_CORE_TRACE("MeshOptimization::OptimizeMesh: Optimized {} vertices, {} indices", vertexCount, indexCount);
+        return true;
     }
 
     // ── LOD generation ─────────────────────────────────────────────

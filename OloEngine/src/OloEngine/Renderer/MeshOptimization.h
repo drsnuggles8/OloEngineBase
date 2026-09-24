@@ -40,8 +40,8 @@ namespace OloEngine
     struct DegenerateTriangleStats
     {
         u32 TriangleCount = 0;     // Total triangles examined
-        u32 ZeroAreaCount = 0;     // Zero 3D area — genuinely dead geometry (Assimp's
-                                   // aiProcess_FindDegenerates normally removes these)
+        u32 ZeroAreaCount = 0;     // Zero 3D area — genuinely dead geometry, kept as authored
+                                   // (the static import no longer runs FindDegenerates, #1440)
         u32 ZeroUvAreaCount = 0;   // Zero UV area BUT non-zero 3D area — real, untextured geometry
         f64 ZeroUvArea3DSum = 0.0; // Total 3D area those UV-degenerate triangles cover
 
@@ -93,7 +93,12 @@ namespace OloEngine
         // Optimizes triangle order for GPU post-transform vertex cache,
         // reduces overdraw, and reorders vertices for sequential access.
         // Also generates shadow index buffer for depth-only passes.
-        void OptimizeMesh(MeshSource& meshSource);
+        //
+        // Returns false, and leaves the mesh untouched, when the index stream is not a
+        // triangle list over the vertex array (including per submesh) — meshoptimizer
+        // would assert on it. A caller that records "optimized" (SetPreOptimized, a
+        // cache write) must not do so on false (issue #1440).
+        bool OptimizeMesh(MeshSource& meshSource);
 
         // ── LOD generation ──
 
