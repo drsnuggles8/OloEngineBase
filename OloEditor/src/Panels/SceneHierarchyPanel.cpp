@@ -28,6 +28,7 @@
 #include "OloEngine/Groom/GroomBinding.h"
 #include "OloEngine/Groom/GroomBindingBuilder.h"
 #include "Groom/GroomBindingAuthoring.h"
+#include "UndoRedo/ComponentEditTracker.h"
 #include "OloEngine/Groom/GroomBindingCooker.h"
 #include "OloEngine/Groom/GroomPreview.h"
 #include "OloEngine/Groom/GroomStrandMesh.h"
@@ -1635,44 +1636,35 @@ namespace OloEngine
                 // ── Component-level undo tracking ──
                 if (s_DrawComponentCmdHistory && s_DrawComponentScene)
                 {
-                    struct EditState
+                    constexpr bool kByteDetection = std::is_trivially_copyable_v<T> && !PreferValueComparison<T>::value;
+                    if constexpr (!kByteDetection && !std::equality_comparable<T>)
                     {
-                        bool isEditing = false;
-                        bool snapshotValid = false;
-                        T snapshot{};
-                        // Byte-level copy of the snapshot, populated via memcpy so that
-                        // padding bytes match those of the live component.  Avoids false
-                        // positives when comparing snapshot vs current via memcmp.
-                        alignas(alignof(T)) unsigned char snapshotBytes[sizeof(T)]{};
-                    };
-                    static std::unordered_map<u64, EditState> s_EditStates;
-                    // Register this instantiation's map for bulk clearing exactly once. A
-                    // capture-less lambda can name an enclosing function's static directly
-                    // (statics are not captured), so it converts to the plain function
-                    // pointer the registry holds. See DrawComponentSnapshotClearers (#839).
-                    [[maybe_unused]] static const bool s_ClearerRegistered = []
-                    {
-                        DrawComponentSnapshotClearers().push_back([]
-                                                                  { s_EditStates.clear(); });
-                        return true;
-                    }();
-                    auto& editState = s_EditStates[static_cast<u64>(entity.GetUUID()) ^ typeid(T).hash_code()];
-
-                    // Take a snapshot once per idle→edit cycle (not every frame)
-                    if (!editState.isEditing && !editState.snapshotValid)
-                    {
-                        editState.snapshot = component;
-                        if constexpr (std::is_trivially_copyable_v<T>)
-                        {
-                            std::memcpy(editState.snapshotBytes, &component, sizeof(T));
-                        }
-                        editState.snapshotValid = true;
+                        // Types without comparison support: no undo tracking
+                        uiFunction(component);
                     }
-
-                    // Prefab-aware undo push — shared by both tracking strategies
-                    auto pushUndoCommand = [&entity, &componentKey, &editState, &component]()
+                    else
                     {
-                        if (entity.HasComponent<PrefabComponent>())
+                        using Tracker = ComponentEditTracker<T, kByteDetection ? ComponentEditDetection::Bytes : ComponentEditDetection::Value>;
+                        static std::unordered_map<u64, Tracker> s_EditStates;
+                        // Register this instantiation's map for bulk clearing exactly once. A
+                        // capture-less lambda can name an enclosing function's static directly
+                        // (statics are not captured), so it converts to the plain function
+                        // pointer the registry holds. See DrawComponentSnapshotClearers (#839).
+                        [[maybe_unused]] static const bool s_ClearerRegistered = []
+                        {
+                            DrawComponentSnapshotClearers().push_back([]
+                                                                      { s_EditStates.clear(); });
+                            return true;
+                        }();
+                        auto& tracker = s_EditStates[static_cast<u64>(entity.GetUUID()) ^ typeid(T).hash_code()];
+
+                        tracker.BeginFrame(component);
+                        uiFunction(component);
+                        const bool editFinished = tracker.EndFrame(component, ::GImGui->ActiveId != 0);
+
+                        // Prefab-aware undo push
+                        bool pushedAsOverride = false;
+                        if (editFinished && entity.HasComponent<PrefabComponent>())
                         {
                             auto& pc = entity.GetComponent<PrefabComponent>();
                             if (pc.IsValid() && !pc.IsComponentOverridden(componentKey))
@@ -1683,83 +1675,21 @@ namespace OloEngine
                                 auto compound = std::make_unique<CompoundCommand>("Property Change");
                                 compound->Add(std::make_unique<ComponentChangeCommand<T>>(
                                     s_DrawComponentScene, entity.GetUUID(),
-                                    editState.snapshot, component, "Property Change"));
+                                    tracker.Snapshot(), component, "Property Change"));
                                 compound->Add(std::make_unique<ComponentChangeCommand<PrefabComponent>>(
                                     s_DrawComponentScene, entity.GetUUID(),
                                     pcBefore, pc, "Mark Override"));
                                 s_DrawComponentCmdHistory->PushAlreadyExecuted(std::move(compound));
-                            }
-                            else
-                            {
-                                s_DrawComponentCmdHistory->PushAlreadyExecuted(
-                                    std::make_unique<ComponentChangeCommand<T>>(
-                                        s_DrawComponentScene, entity.GetUUID(),
-                                        editState.snapshot, component, "Property Change"));
+                                pushedAsOverride = true;
                             }
                         }
-                        else
+                        if (editFinished && !pushedAsOverride)
                         {
                             s_DrawComponentCmdHistory->PushAlreadyExecuted(
                                 std::make_unique<ComponentChangeCommand<T>>(
                                     s_DrawComponentScene, entity.GetUUID(),
-                                    editState.snapshot, component, "Property Change"));
+                                    tracker.Snapshot(), component, "Property Change"));
                         }
-                    };
-
-                    if constexpr (std::is_trivially_copyable_v<T> && !PreferValueComparison<T>::value)
-                    {
-                        // Byte-level change detection: compare component bytes before and after uiFunction
-                        alignas(alignof(T)) unsigned char bytesBefore[sizeof(T)];
-                        std::memcpy(bytesBefore, &component, sizeof(T));
-
-                        uiFunction(component);
-
-                        const bool componentChanged = (std::memcmp(bytesBefore, &component, sizeof(T)) != 0);
-
-                        if (componentChanged && !editState.isEditing)
-                        {
-                            editState.isEditing = true;
-                        }
-
-                        // When no change this frame and no active ImGui widget → editing has ended
-                        if (editState.isEditing && !componentChanged && ::GImGui->ActiveId == 0)
-                        {
-                            // Only push if the component actually differs from the original snapshot
-                            if (std::memcmp(editState.snapshotBytes, &component, sizeof(T)) != 0)
-                            {
-                                pushUndoCommand();
-                            }
-                            editState.isEditing = false;
-                            editState.snapshotValid = false;
-                        }
-                    }
-                    else if constexpr (std::equality_comparable<T>)
-                    {
-                        // Value-level change detection for non-trivially-copyable types with operator==
-                        // Compare against snapshot instead of per-frame copy to avoid expensive copies each frame
-                        uiFunction(component);
-
-                        const bool diffFromSnapshot = !(editState.snapshot == component);
-
-                        if (diffFromSnapshot && !editState.isEditing)
-                        {
-                            editState.isEditing = true;
-                        }
-
-                        if (editState.isEditing && ::GImGui->ActiveId == 0)
-                        {
-                            if (diffFromSnapshot)
-                            {
-                                pushUndoCommand();
-                            }
-                            editState.isEditing = false;
-                            editState.snapshotValid = false;
-                        }
-                    }
-                    else
-                    {
-                        // Types without comparison support: no undo tracking
-                        uiFunction(component);
                     }
                 }
                 else

@@ -1038,6 +1038,8 @@ add_executable(OloEngine-Tests
 		Scene/SceneTransitionTest.cpp
 		# ParticleSystemComponent undo equality: authored settings only (issue #1412)
 		Scene/ParticleSystemComponentUndoEqualityTest.cpp
+		# Inspector undo state machine: undo/redo and outside writes are not edits
+		Scene/ComponentEditTrackerTest.cpp
 		# Shipped-game project mount + asset-relative script path contract (issue #642)
 		RuntimeProjectMountTest.cpp
 		# Build target platform contract: naming, host-only support, fail-loud gate (issue #891)
