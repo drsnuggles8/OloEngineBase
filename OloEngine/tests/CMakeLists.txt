@@ -139,6 +139,7 @@ add_executable(OloEngine-Tests
 		Groom/GroomBindingBuilderTest.cpp
 		Groom/GroomBindingRoundTripTest.cpp
 		Groom/GroomDeformationTest.cpp
+		Groom/GroomGpuDeformationTest.cpp
 		# Guide simulation and body collision (#1250). The length/rest-shape
 		# contract across frame rate, pause/resume and teleport; the fitted body
 		# proxy; and the guide-to-strand interpolation that turns a few hundred

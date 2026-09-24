@@ -460,6 +460,249 @@ namespace OloEngine
         return stats;
     }
 
+    namespace
+    {
+        // What one emitted segment is made of BEFORE anything moves it: the two
+        // centreline points through the coat's shape, their parameters along the
+        // strand, their radii and the segment's identity. Both builds below start
+        // from exactly this, which is what makes the GPU-deformed stream (#1427)
+        // and the CPU-deformed one describe the same strands.
+        struct RestSegment
+        {
+            u32 Curve = 0;
+            u32 SourceCurve = 0;
+            u32 Segment = 0;
+            glm::vec3 Rest0{ 0.0f };
+            glm::vec3 Rest1{ 0.0f };
+            f32 T0 = 0.0f;
+            f32 T1 = 0.0f;
+            f32 Radius0 = 0.0f;
+            f32 Radius1 = 0.0f;
+            f32 SegmentId = 0.0f;
+            f32 Tint = 0.0f;
+        };
+
+        // The strand walk BuildGroomStrandMesh has always done — selection, the
+        // coat's shape, the per-role strides and the exact segment budget — with
+        // what happens to each segment handed to the caller.
+        //
+        // ONE WALK FOR BOTH BUILDS, never two copies of it. The rest stream and
+        // the CPU-deformed stream must name the same strands in the same order
+        // with the same segment budget, or the GPU path draws a coat the CPU
+        // reference (and every test that compares against it) never built.
+        //
+        // `onCurve(curve, sourceCurve)` runs once per curve that will emit, before
+        // its first segment; `onSegment(const RestSegment&)` runs per segment.
+        template<typename OnCurve, typename OnSegment>
+        void WalkStrandSegments(const GroomBuildSource& source, const GroomStrandBuildSettings& settings,
+                                const GroomCoatContext* coat, GroomStrandMeshStats& stats, OnCurve&& onCurve,
+                                OnSegment&& onSegment)
+        {
+            const GroomCurveView& groom = source.Curves;
+
+            const Selection selection = SelectCurves(groom, settings, coat);
+            stats.StrandsAvailable = selection.AvailableTotal;
+            stats.StrandsSelected = selection.Selected;
+            stats.StrandsDroppedByCoat = selection.DroppedByCoat;
+            stats.SegmentBudgetLimited = selection.SegmentBudgetLimited;
+            FillRoleStats(stats, selection);
+            stats.Stride = *std::max_element(selection.Stride.begin(), selection.Stride.end());
+
+            // Only when something actually asks to clump: the prepass is a whole
+            // extra walk over the groom plus a hash-map insert per strand, and a
+            // coat with no clumping is the common case.
+            const ClumpTable clumps = selection.WantsClumping ? BuildClumpTable(groom, settings, coat) : ClumpTable{};
+            const f32 clumpCellSize = (coat != nullptr && coat->IsActive()) ? coat->Settings->ClumpCellSize : 0.0f;
+
+            const auto& points = groom.GetPoints();
+            const auto& widths = groom.GetPointWidths();
+
+            RoleWalk walk;
+            u32 emittedSegments = 0;
+            const u32 curveCount = groom.GetCurveCount();
+            for (u32 curve = 0; curve < curveCount; ++curve)
+            {
+                if (groom.GetCurvePointCount(curve) < 2u)
+                {
+                    ++stats.CurvesSkippedTooShort;
+                    continue;
+                }
+                if (settings.GuidesOnly && !groom.IsGuide(curve))
+                {
+                    continue;
+                }
+
+                const CurveCoat curveCoat = CoatOfCurve(groom, curve, coat);
+                if (!curveCoat.Params.Keep)
+                {
+                    continue;
+                }
+                if (!walk.Take(curveCoat.Role, selection))
+                {
+                    continue;
+                }
+                ++stats.SelectedByRole[static_cast<sizet>(curveCoat.Role)];
+
+                // The budget is spent: every remaining curve would enter the segment
+                // loop below and leave it on the first iteration having emitted
+                // nothing. Leaving now is not only cheaper -- it stops
+                // StrandsHeldAtRest counting strands that were never going to be
+                // drawn, and it makes this loop stop on exactly the curve
+                // SelectGroomStrandCurves stops on, which is the property the
+                // deformer depends on.
+                if (emittedSegments >= settings.MaxSegments)
+                {
+                    stats.SegmentBudgetLimited = true;
+                    break;
+                }
+
+                const u32 first = groom.GetCurveFirstPoint(curve);
+                const u32 count = groom.GetCurvePointCount(curve);
+                const f32 invSpan = 1.0f / static_cast<f32>(count - 1u);
+
+                // The BASE curve this one stands in for. Identity for the base
+                // groom; for a cooked card it is the member strand whose rest frame
+                // and guides the card borrows (issue #1252). Everything indexed by
+                // the BINDING or by the guide influence table goes through it, and
+                // everything indexed by this curve set's own geometry does not.
+                const u32 sourceCurve = source.SourceCurve(curve);
+                onCurve(curve, sourceCurve);
+
+                // ── The coat's shape, in REST space, BEFORE the deformation ──
+                //
+                // That order is the whole of criterion 2. Length, clump and width
+                // are functions of the root UV and the curve index, applied to the
+                // asset's own points; the binding's root transform is applied to the
+                // result. So a coat authored on a bind-pose pelt arrives on a
+                // running animal transformed by the body and by nothing else — the
+                // regional map cannot slide, because it was never consulted in a
+                // space the body moves.
+                const glm::vec3& curveRoot = points[first];
+                const glm::vec3 clumpGrowth = curveCoat.Params.Clump > 0.0f
+                                                  ? ClumpGrowthFor(clumps, groom, curve, clumpCellSize)
+                                                  : glm::vec3(0.0f);
+                const f32 packedTint = PackGroomCoatTint(curveCoat.Params.Tint);
+
+                const auto shape = [&](u32 pointIndex)
+                {
+                    const f32 t = static_cast<f32>(pointIndex) * invSpan;
+                    return ApplyGroomCoatShape(curveRoot, points[first + pointIndex], t, curveCoat.Params.Length,
+                                               curveCoat.Params.Clump, clumpGrowth);
+                };
+
+                for (u32 i = 0; i + 1u < count; ++i)
+                {
+                    if (emittedSegments >= settings.MaxSegments)
+                    {
+                        // Enforced exactly here rather than trusted from the
+                        // stride: the stride is derived from an AVERAGE strand
+                        // length, and a groom whose long strands happen to land on
+                        // stride-aligned indices overshoots it. Stopping mid-groom
+                        // is reported, never silent.
+                        stats.SegmentBudgetLimited = true;
+                        break;
+                    }
+
+                    RestSegment segment;
+                    segment.Curve = curve;
+                    segment.SourceCurve = sourceCurve;
+                    segment.Segment = i;
+                    segment.Rest0 = shape(i);
+                    segment.Rest1 = shape(i + 1u);
+                    // The SAME parameter the coat's shape term uses, so the guide
+                    // sample and the length multiplier agree about where this point
+                    // sits along the strand. It is also the root-to-tip ramp
+                    // coordinate the ribbon carries.
+                    segment.T0 = static_cast<f32>(i) * invSpan;
+                    segment.T1 = static_cast<f32>(i + 1u) * invSpan;
+                    // The cooked widths are DIAMETERS (the Alembic/USD
+                    // convention); the halving happens exactly once, here. The
+                    // coat's width multiplier rides along with it rather than being
+                    // folded into the request's WidthScale, because that one is a
+                    // per-GROOM unit-scale lever and this one is per strand.
+                    segment.Radius0 = widths[first + i] * 0.5f * curveCoat.Params.Width;
+                    segment.Radius1 = widths[first + i + 1u] * 0.5f * curveCoat.Params.Width;
+                    segment.SegmentId = std::bit_cast<f32>(GroomSegmentIdentity(curve, i));
+                    segment.Tint = packedTint;
+                    onSegment(segment);
+
+                    ++emittedSegments;
+                }
+
+                if (emittedSegments >= settings.MaxSegments)
+                {
+                    break;
+                }
+            }
+
+            stats.SegmentCount = emittedSegments;
+        }
+
+        // Four corners and six indices for one segment, in the order every
+        // consumer of the stream depends on: (-side at P0), (+side at P0),
+        // (+side at P1), (-side at P1) — a quad, not a bowtie, because `Other`
+        // gives all four the same tangent. GroomCoatShadow and the ray-tracing
+        // proxy read the P0 and P1 corners back by these positions.
+        //
+        // `vertex` arrives with the lanes that do not vary per corner already
+        // set; `atP1` fills the three that do.
+        template<typename AtP0, typename AtP1>
+        void EmitSegmentQuad(std::vector<GroomStrandVertex>& outVertices, std::vector<u32>& outIndices,
+                             GroomStrandVertex vertex, const RestSegment& segment, AtP0&& atP0, AtP1&& atP1)
+        {
+            const u32 base = static_cast<u32>(outVertices.size());
+
+            atP0(vertex);
+            vertex.Radius = segment.Radius0;
+            vertex.Side = -1.0f;
+            vertex.Coords = { segment.T0, -1.0f };
+            outVertices.push_back(vertex);
+
+            vertex.Side = 1.0f;
+            vertex.Coords = { segment.T0, 1.0f };
+            outVertices.push_back(vertex);
+
+            atP1(vertex);
+            vertex.Radius = segment.Radius1;
+            vertex.Side = 1.0f;
+            vertex.Coords = { segment.T1, 1.0f };
+            outVertices.push_back(vertex);
+
+            vertex.Side = -1.0f;
+            vertex.Coords = { segment.T1, -1.0f };
+            outVertices.push_back(vertex);
+
+            outIndices.push_back(base + 0u);
+            outIndices.push_back(base + 1u);
+            outIndices.push_back(base + 2u);
+            outIndices.push_back(base + 0u);
+            outIndices.push_back(base + 2u);
+            outIndices.push_back(base + 3u);
+        }
+
+        void FinishStreamStats(GroomStrandMeshStats& stats, const std::vector<GroomStrandVertex>& vertices,
+                               const std::vector<u32>& indices, const glm::vec3& boundsMin,
+                               const glm::vec3& boundsMax) noexcept
+        {
+            stats.VertexCount = static_cast<u32>(vertices.size());
+            stats.IndexCount = static_cast<u32>(indices.size());
+            stats.VertexBytes = static_cast<u64>(stats.VertexCount) * sizeof(GroomStrandVertex);
+            stats.IndexBytes = static_cast<u64>(stats.IndexCount) * sizeof(u32);
+
+            // The box is published only if something was emitted. The sentinel
+            // (max, lowest) is a perfectly valid-looking box that contains
+            // everything, and handing it to a culler as though it were a
+            // measurement is how an empty groom becomes a groom that is never
+            // culled.
+            stats.BoundsValid = stats.SegmentCount != 0u;
+            if (stats.BoundsValid)
+            {
+                stats.BoundsMin = boundsMin;
+                stats.BoundsMax = boundsMax;
+            }
+        }
+    } // namespace
+
     GroomStrandMeshStats BuildGroomStrandMesh(const GroomBuildSource& source,
                                               const GroomStrandBuildSettings& settings,
                                               std::vector<GroomStrandVertex>& outVertices, std::vector<u32>& outIndices,
@@ -468,7 +711,6 @@ namespace OloEngine
     {
         outVertices.clear();
         outIndices.clear();
-        const GroomCurveView& groom = source.Curves;
 
         // A deformation that does not span this groom is treated as ABSENT
         // rather than partially applied. Half a deformed coat is the plausible
@@ -489,86 +731,26 @@ namespace OloEngine
         // rest shape, and the stats below say how many strands that is.
         const bool simulated = simulation != nullptr && simulation->IsUsable(source.BaseCurveCount);
 
-        GroomStrandMeshStats stats;
-        const Selection selection = SelectCurves(groom, settings, coat);
-        stats.StrandsAvailable = selection.AvailableTotal;
-        stats.StrandsSelected = selection.Selected;
-        stats.StrandsDroppedByCoat = selection.DroppedByCoat;
-        stats.SegmentBudgetLimited = selection.SegmentBudgetLimited;
-        FillRoleStats(stats, selection);
-        stats.Stride = *std::max_element(selection.Stride.begin(), selection.Stride.end());
-
         const GroomStrandMeshStats plan = PlanGroomStrandMesh(source, settings, coat);
         outVertices.reserve(plan.VertexCount);
         outIndices.reserve(plan.IndexCount);
 
-        // Only when something actually asks to clump: the prepass is a whole
-        // extra walk over the groom plus a hash-map insert per strand, and a
-        // coat with no clumping is the common case.
-        const ClumpTable clumps = selection.WantsClumping ? BuildClumpTable(groom, settings, coat) : ClumpTable{};
-        const f32 clumpCellSize = (coat != nullptr && coat->IsActive()) ? coat->Settings->ClumpCellSize : 0.0f;
-
-        const auto& points = groom.GetPoints();
-        const auto& widths = groom.GetPointWidths();
-
         glm::vec3 boundsMin{ std::numeric_limits<f32>::max() };
         glm::vec3 boundsMax{ std::numeric_limits<f32>::lowest() };
 
-        RoleWalk walk;
-        u32 emittedSegments = 0;
-        const u32 curveCount = groom.GetCurveCount();
-        for (u32 curve = 0; curve < curveCount; ++curve)
+        // Per-curve state the segment callback reads. One lookup per CURVE, not
+        // per point: the root transform is a property of the strand, and
+        // re-reading it per segment would be the dominant cost of a long coat
+        // for no change in the result.
+        const GroomRootBinding* record = nullptr;
+        const GroomRootTransform* transform = nullptr;
+        bool curveSimulated = false;
+
+        GroomStrandMeshStats stats;
+        const auto onCurve = [&](u32 /*curve*/, u32 sourceCurve)
         {
-            if (groom.GetCurvePointCount(curve) < 2u)
-            {
-                ++stats.CurvesSkippedTooShort;
-                continue;
-            }
-            if (settings.GuidesOnly && !groom.IsGuide(curve))
-            {
-                continue;
-            }
-
-            const CurveCoat curveCoat = CoatOfCurve(groom, curve, coat);
-            if (!curveCoat.Params.Keep)
-            {
-                continue;
-            }
-            if (!walk.Take(curveCoat.Role, selection))
-            {
-                continue;
-            }
-            ++stats.SelectedByRole[static_cast<sizet>(curveCoat.Role)];
-
-            // The budget is spent: every remaining curve would enter the segment
-            // loop below and leave it on the first iteration having emitted
-            // nothing. Leaving now is not only cheaper -- it stops
-            // StrandsHeldAtRest counting strands that were never going to be
-            // drawn, and it makes this loop stop on exactly the curve
-            // SelectGroomStrandCurves stops on, which is the property the
-            // deformer depends on.
-            if (emittedSegments >= settings.MaxSegments)
-            {
-                stats.SegmentBudgetLimited = true;
-                break;
-            }
-
-            const u32 first = groom.GetCurveFirstPoint(curve);
-            const u32 count = groom.GetCurvePointCount(curve);
-            const f32 invSpan = 1.0f / static_cast<f32>(count - 1u);
-
-            // The BASE curve this one stands in for. Identity for the base
-            // groom; for a cooked card it is the member strand whose rest frame
-            // and guides the card borrows (issue #1252). Everything indexed by
-            // the BINDING or by the guide influence table goes through it, and
-            // everything indexed by this curve set's own geometry does not.
-            const u32 sourceCurve = source.SourceCurve(curve);
-
-            // One lookup per CURVE, not per point: the root transform is a
-            // property of the strand, and re-reading it per segment would be the
-            // dominant cost of a long coat for no change in the result.
-            const GroomRootBinding* record = nullptr;
-            const GroomRootTransform* transform = nullptr;
+            record = nullptr;
+            transform = nullptr;
             if (deformed)
             {
                 record = &deformation->Binding->GetRoot(sourceCurve);
@@ -583,31 +765,10 @@ namespace OloEngine
                 }
             }
 
-            // ── The coat's shape, in REST space, BEFORE the deformation ──
-            //
-            // That order is the whole of criterion 2. Length, clump and width
-            // are functions of the root UV and the curve index, applied to the
-            // asset's own points; the binding's root transform is applied to the
-            // result. So a coat authored on a bind-pose pelt arrives on a
-            // running animal transformed by the body and by nothing else — the
-            // regional map cannot slide, because it was never consulted in a
-            // space the body moves.
-            const glm::vec3& curveRoot = points[first];
-            const glm::vec3 clumpGrowth =
-                curveCoat.Params.Clump > 0.0f ? ClumpGrowthFor(clumps, groom, curve, clumpCellSize) : glm::vec3(0.0f);
-            const f32 packedTint = PackGroomCoatTint(curveCoat.Params.Tint);
-
-            const auto shape = [&](u32 pointIndex)
-            {
-                const f32 t = static_cast<f32>(pointIndex) * invSpan;
-                return ApplyGroomCoatShape(curveRoot, points[first + pointIndex], t, curveCoat.Params.Length,
-                                           curveCoat.Params.Clump, clumpGrowth);
-            };
-
             // The guide simulation's displacement, if this strand has one. Read
             // ONCE per curve rather than per point: the weights are a property of
             // the strand, and the per-point part is the parameter `t` below.
-            bool curveSimulated = false;
+            curveSimulated = false;
             if (simulated)
             {
                 // A strand counts as simulated when it names at least one guide
@@ -623,7 +784,10 @@ namespace OloEngine
                     ++stats.StrandsUnguided;
                 }
             }
+        };
 
+        const auto onSegment = [&](const RestSegment& segment)
+        {
             const auto place = [&](const glm::vec3& restPoint, f32 t, bool previous)
             {
                 glm::vec3 placed = transform != nullptr
@@ -635,151 +799,189 @@ namespace OloEngine
                 // #1251 built.
                 if (curveSimulated)
                 {
-                    placed += SampleGroomGuideDisplacement(*simulation, sourceCurve, t, previous);
+                    placed += SampleGroomGuideDisplacement(*simulation, segment.SourceCurve, t, previous);
                 }
                 return placed;
             };
 
-            for (u32 i = 0; i + 1u < count; ++i)
-            {
-                if (emittedSegments >= settings.MaxSegments)
+            // The REST points from the asset THROUGH THE COAT, then the
+            // deformed pair this frame and the deformed pair last frame. An
+            // undeformed groom takes the identity path through `place`, and a
+            // groom with no coat takes the identity path through `shape`, so
+            // `p0 == rest0` and `prev0 == p0` and the emitted bytes are what
+            // they were before #1249 and #1251.
+            const glm::vec3 p0 = place(segment.Rest0, segment.T0, false);
+            const glm::vec3 p1 = place(segment.Rest1, segment.T1, false);
+            const glm::vec3 prev0 = place(segment.Rest0, segment.T0, true);
+            const glm::vec3 prev1 = place(segment.Rest1, segment.T1, true);
+            // Stored the same way for every corner of the quad so the
+            // vertex shader derives ONE screen-space tangent per segment.
+            // See GroomStrandVertex::Other for what goes wrong otherwise.
+            const glm::vec3 delta = p1 - p0;
+
+            // The box covers the RIBBON, not the centreline it is built
+            // around. GroomStrand.glsl expands each segment sideways by
+            // Radius, so a centreline-only box is smaller than the thing
+            // drawn from it -- and a culler handed it removes strands that
+            // are visibly on screen, at exactly the grazing angles where the
+            // expansion is largest and a coat losing its silhouette is most
+            // obvious.
+            //
+            // The expansion is isotropic because the sideways direction is
+            // chosen per view: it is perpendicular to the segment and to the
+            // eye vector, so no axis-aligned bound can be tighter than the
+            // sphere swept along the centreline without knowing the camera.
+            // A hair radius is a fraction of a millimetre against a body, so
+            // this costs the culler nothing measurable.
+            const f32 radius = std::max(segment.Radius0, segment.Radius1);
+            const glm::vec3 expand{ radius };
+            boundsMin = glm::min(boundsMin, glm::min(p0, p1) - expand);
+            boundsMax = glm::max(boundsMax, glm::max(p0, p1) + expand);
+
+            // Previous positions widen the box as well: the motion-vector
+            // pass reads them through the same geometry, so a box that
+            // holds only this frame's ribbon can cull a strand whose
+            // previous position is still on screen.
+            boundsMin = glm::min(boundsMin, glm::min(prev0, prev1) - expand);
+            boundsMax = glm::max(boundsMax, glm::max(prev0, prev1) + expand);
+
+            GroomStrandVertex vertex;
+            vertex.SegmentId = segment.SegmentId;
+            vertex.Tint = segment.Tint;
+            EmitSegmentQuad(
+                outVertices, outIndices, vertex, segment,
+                [&](GroomStrandVertex& v)
                 {
-                    // Enforced exactly here rather than trusted from the
-                    // stride: the stride is derived from an AVERAGE strand
-                    // length, and a groom whose long strands happen to land on
-                    // stride-aligned indices overshoots it. Stopping mid-groom
-                    // is reported, never silent.
-                    stats.SegmentBudgetLimited = true;
-                    break;
-                }
+                    v.Position = p0;
+                    v.PrevPosition = prev0;
+                    v.Other = p0 + delta;
+                },
+                [&](GroomStrandVertex& v)
+                {
+                    v.Position = p1;
+                    v.PrevPosition = prev1;
+                    v.Other = p1 + delta;
+                });
+        };
 
-                // The REST points from the asset THROUGH THE COAT, then the
-                // deformed pair this frame and the deformed pair last frame. An
-                // undeformed groom takes the identity path through `place`, and a
-                // groom with no coat takes the identity path through `shape`, so
-                // `p0 == rest0` and `prev0 == p0` and the emitted bytes are what
-                // they were before #1249 and #1251.
-                const glm::vec3 rest0 = shape(i);
-                const glm::vec3 rest1 = shape(i + 1u);
-                // The SAME parameter the coat's shape term uses, so the guide
-                // sample and the length multiplier agree about where this point
-                // sits along the strand.
-                const f32 t0 = static_cast<f32>(i) * invSpan;
-                const f32 t1 = static_cast<f32>(i + 1u) * invSpan;
-                const glm::vec3 p0 = place(rest0, t0, false);
-                const glm::vec3 p1 = place(rest1, t1, false);
-                const glm::vec3 prev0 = place(rest0, t0, true);
-                const glm::vec3 prev1 = place(rest1, t1, true);
-                // Stored the same way for every corner of the quad so the
-                // vertex shader derives ONE screen-space tangent per segment.
-                // See GroomStrandVertex::Other for what goes wrong otherwise.
-                const glm::vec3 delta = p1 - p0;
+        WalkStrandSegments(source, settings, coat, stats, onCurve, onSegment);
+        FinishStreamStats(stats, outVertices, outIndices, boundsMin, boundsMax);
+        return stats;
+    }
 
-                // The cooked widths are DIAMETERS (the Alembic/USD
-                // convention); the halving happens exactly once, here. The
-                // coat's width multiplier rides along with it rather than being
-                // folded into the request's WidthScale, because that one is a
-                // per-GROOM unit-scale lever and this one is per strand.
-                const f32 r0 = widths[first + i] * 0.5f * curveCoat.Params.Width;
-                const f32 r1 = widths[first + i + 1u] * 0.5f * curveCoat.Params.Width;
-
-                // The box covers the RIBBON, not the centreline it is built
-                // around. GroomStrand.glsl expands each segment sideways by
-                // Radius, so a centreline-only box is smaller than the thing
-                // drawn from it -- and a culler handed it removes strands that
-                // are visibly on screen, at exactly the grazing angles where the
-                // expansion is largest and a coat losing its silhouette is most
-                // obvious.
-                //
-                // The expansion is isotropic because the sideways direction is
-                // chosen per view: it is perpendicular to the segment and to the
-                // eye vector, so no axis-aligned bound can be tighter than the
-                // sphere swept along the centreline without knowing the camera.
-                // A hair radius is a fraction of a millimetre against a body, so
-                // this costs the culler nothing measurable.
-                const f32 radius = std::max(r0, r1);
-                const glm::vec3 expand{ radius };
-                boundsMin = glm::min(boundsMin, glm::min(p0, p1) - expand);
-                boundsMax = glm::max(boundsMax, glm::max(p0, p1) + expand);
-
-                // Previous positions widen the box as well: the motion-vector
-                // pass reads them through the same geometry, so a box that
-                // holds only this frame's ribbon can cull a strand whose
-                // previous position is still on screen.
-                boundsMin = glm::min(boundsMin, glm::min(prev0, prev1) - expand);
-                boundsMax = glm::max(boundsMax, glm::max(prev0, prev1) + expand);
-
-                const f32 u0 = static_cast<f32>(i) * invSpan;
-                const f32 u1 = static_cast<f32>(i + 1u) * invSpan;
-
-                const f32 segmentId =
-                    std::bit_cast<f32>(GroomSegmentIdentity(curve, i));
-
-                const u32 base = static_cast<u32>(outVertices.size());
-
-                GroomStrandVertex vertex;
-                vertex.SegmentId = segmentId;
-                vertex.Tint = packedTint;
-
-                // Corner order: (-side at P0), (+side at P0), (+side at P1),
-                // (-side at P1) — a quad, not a bowtie, because `Other` gives
-                // all four the same tangent.
-                vertex.Position = p0;
-                vertex.PrevPosition = prev0;
-                vertex.Other = p0 + delta;
-                vertex.Radius = r0;
-                vertex.Side = -1.0f;
-                vertex.Coords = { u0, -1.0f };
-                outVertices.push_back(vertex);
-
-                vertex.Side = 1.0f;
-                vertex.Coords = { u0, 1.0f };
-                outVertices.push_back(vertex);
-
-                vertex.Position = p1;
-                vertex.PrevPosition = prev1;
-                vertex.Other = p1 + delta;
-                vertex.Radius = r1;
-                vertex.Side = 1.0f;
-                vertex.Coords = { u1, 1.0f };
-                outVertices.push_back(vertex);
-
-                vertex.Side = -1.0f;
-                vertex.Coords = { u1, -1.0f };
-                outVertices.push_back(vertex);
-
-                outIndices.push_back(base + 0u);
-                outIndices.push_back(base + 1u);
-                outIndices.push_back(base + 2u);
-                outIndices.push_back(base + 0u);
-                outIndices.push_back(base + 2u);
-                outIndices.push_back(base + 3u);
-
-                ++emittedSegments;
-            }
-
-            if (emittedSegments >= settings.MaxSegments)
-            {
-                break;
-            }
-        }
-
-        stats.SegmentCount = emittedSegments;
-        stats.VertexCount = static_cast<u32>(outVertices.size());
-        stats.IndexCount = static_cast<u32>(outIndices.size());
-        stats.VertexBytes = static_cast<u64>(stats.VertexCount) * sizeof(GroomStrandVertex);
-        stats.IndexBytes = static_cast<u64>(stats.IndexCount) * sizeof(u32);
-
-        // The box is published only if something was emitted. The sentinel
-        // (max, lowest) is a perfectly valid-looking box that contains
-        // everything, and handing it to a culler as though it were a measurement
-        // is how an empty groom becomes a groom that is never culled.
-        stats.BoundsValid = emittedSegments != 0u;
-        if (stats.BoundsValid)
+    GroomStrandMeshStats BuildGroomStrandRestMesh(const GroomBuildSource& source,
+                                                  const GroomStrandBuildSettings& settings,
+                                                  const GroomBindingAsset& binding,
+                                                  std::vector<GroomStrandVertex>& outVertices,
+                                                  std::vector<u32>& outIndices, std::vector<u32>& outRootCurves,
+                                                  const GroomCoatContext* coat,
+                                                  std::vector<GroomRestPoseSegment>* outPoseSegments)
+    {
+        outVertices.clear();
+        outIndices.clear();
+        outRootCurves.clear();
+        if (outPoseSegments != nullptr)
         {
-            stats.BoundsMin = boundsMin;
-            stats.BoundsMax = boundsMax;
+            outPoseSegments->clear();
         }
+
+        // The binding must span the BASE groom, for the reason
+        // BuildGroomStrandMesh refuses a short deformation: a record read past
+        // the end is not a coat at rest, it is a coat built from someone else's
+        // triangle. The caller falls back to the CPU-deformed path, which then
+        // refuses in turn and draws the coat at its bind pose — the diagnosable
+        // answer, counted where the binding was attached.
+        if (binding.GetRootCount() != source.BaseCurveCount)
+        {
+            return GroomStrandMeshStats{};
+        }
+
+        const GroomStrandMeshStats plan = PlanGroomStrandMesh(source, settings, coat);
+        outVertices.reserve(plan.VertexCount);
+        outIndices.reserve(plan.IndexCount);
+        outRootCurves.reserve(plan.StrandsSelected);
+        if (outPoseSegments != nullptr)
+        {
+            outPoseSegments->reserve(plan.SegmentCount);
+        }
+
+        glm::vec3 boundsMin{ std::numeric_limits<f32>::max() };
+        glm::vec3 boundsMax{ std::numeric_limits<f32>::lowest() };
+
+        const GroomRootBinding* record = nullptr;
+        f32 rootSlot = 0.0f;
+
+        GroomStrandMeshStats stats;
+        const auto onCurve = [&](u32 /*curve*/, u32 sourceCurve)
+        {
+            record = &binding.GetRoot(sourceCurve);
+            // The slot is the index of this strand's per-frame record in the
+            // deformation buffer. A FLOAT holding an integer rather than a
+            // bit-cast u32: a small integer's bit pattern is a denormal, and a
+            // vertex fetch is entitled to flush one to zero. Exact to 2^24
+            // strands, which is past GroomLimits by two orders of magnitude.
+            rootSlot = static_cast<f32>(outRootCurves.size());
+            outRootCurves.push_back(sourceCurve);
+        };
+
+        const auto onSegment = [&](const RestSegment& segment)
+        {
+            // The rest points IN THE ROOT'S BIND FRAME — the half of
+            // ApplyGroomRootTransform that does not change from frame to frame,
+            // taken once here with the same arithmetic that function uses, so
+            // the per-frame half on the GPU is `Origin + Rotation * local` and
+            // nothing else.
+            const glm::quat inverseRest = glm::conjugate(record->RestRotation);
+            const glm::vec3 local0 = inverseRest * (segment.Rest0 - record->RestOrigin);
+            const glm::vec3 local1 = inverseRest * (segment.Rest1 - record->RestOrigin);
+
+            // Bounds of the REST coat. A deformed coat's drawn box moves every
+            // frame and nothing on this path measures it; the stats say what the
+            // stream holds, which is the rest shape.
+            const f32 radius = std::max(segment.Radius0, segment.Radius1);
+            const glm::vec3 expand{ radius };
+            boundsMin = glm::min(boundsMin, glm::min(segment.Rest0, segment.Rest1) - expand);
+            boundsMax = glm::max(boundsMax, glm::max(segment.Rest0, segment.Rest1) + expand);
+
+            // The GPU-deformed encoding of the SAME sixteen floats — see
+            // GroomStrandVertex. Position is this corner's endpoint, Other is the
+            // segment's OTHER endpoint, both bind-local; the three lanes that
+            // hold last frame's centreline on the CPU path hold the root slot,
+            // the other endpoint's parameter and which end this corner is.
+            GroomStrandVertex vertex;
+            vertex.SegmentId = segment.SegmentId;
+            vertex.Tint = segment.Tint;
+            EmitSegmentQuad(
+                outVertices, outIndices, vertex, segment,
+                [&](GroomStrandVertex& v)
+                {
+                    v.Position = local0;
+                    v.Other = local1;
+                    v.PrevPosition = glm::vec3(rootSlot, segment.T1, 0.0f);
+                },
+                [&](GroomStrandVertex& v)
+                {
+                    v.Position = local1;
+                    v.Other = local0;
+                    v.PrevPosition = glm::vec3(rootSlot, segment.T0, 1.0f);
+                });
+
+            if (outPoseSegments != nullptr)
+            {
+                GroomRestPoseSegment pose;
+                pose.RootSlot = static_cast<u32>(rootSlot);
+                pose.Local0 = local0;
+                pose.Local1 = local1;
+                pose.T0 = segment.T0;
+                pose.T1 = segment.T1;
+                pose.Radius0 = segment.Radius0;
+                pose.Radius1 = segment.Radius1;
+                outPoseSegments->push_back(pose);
+            }
+        };
+
+        WalkStrandSegments(source, settings, coat, stats, onCurve, onSegment);
+        FinishStreamStats(stats, outVertices, outIndices, boundsMin, boundsMax);
         return stats;
     }
 

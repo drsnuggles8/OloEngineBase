@@ -186,6 +186,26 @@ namespace OloEngine
         [[nodiscard]] f32 MaxCoatPoseDrift(std::span<const glm::vec3> bakedMidpoints,
                                            std::span<const GroomStrandVertex> vertices) noexcept;
 
+        // ── The same three, over a pose given as centrelines (#1427) ─────
+        //
+        // A GPU-deformed coat has no CPU vertex stream: its drawn pose is
+        // evaluated on the CPU as one CoatSegment per drawn segment
+        // (EvaluateGroomDeformedPose), with the radii the stream holds and no
+        // width scale. These overloads read that, and the stream overloads above
+        // read corners 0 and 2 of a GroomStrandMesh stream; both are the same
+        // templates underneath, so the two paths cannot disagree about what a
+        // pose, a midpoint or a drift is.
+        [[nodiscard]] u32 BuildCoatSegmentsFromPose(std::span<const CoatSegment> pose, f32 widthScale,
+                                                    std::vector<CoatSegment>& outSegments);
+        void CaptureCoatPose(std::span<const CoatSegment> pose, std::vector<glm::vec3>& outMidpoints);
+        [[nodiscard]] f32 MaxCoatPoseDrift(std::span<const glm::vec3> bakedMidpoints,
+                                           std::span<const CoatSegment> pose) noexcept;
+
+        // A GroomStrandMesh stream's drawn pose as centrelines — corners 0 and 2
+        // of each segment. `outPose` is cleared first; a stream whose length is
+        // not a multiple of four yields nothing.
+        void CoatPoseFromStrandVertices(std::span<const GroomStrandVertex> vertices, std::vector<CoatSegment>& outPose);
+
         // When a deformed coat's volume is rebuilt.
         //
         // A DRIFT BOUND, not a frame count. A cadence of "every N frames" bounds

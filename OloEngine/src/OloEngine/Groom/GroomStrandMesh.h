@@ -130,6 +130,44 @@ namespace OloEngine
         f32 Pad1 = 0.0f;
     };
 
+    // ── The GPU-deformed encoding of the same sixteen floats (#1427) ──────────
+    //
+    // A bound coat's stream is no longer rebuilt per frame. BuildGroomStrandRestMesh
+    // writes it ONCE, in each root's bind frame, and the vertex shader moves it
+    // with a small per-frame buffer (Groom/GroomGpuDeformation.h). The layout is
+    // the same struct so the GL attribute block, the Vulkan pull stride and every
+    // byte-size contract stay exactly as they are; four lanes change meaning, and
+    // GroomStrandParams' deformation mode says which meaning is in force:
+    //
+    //   Position      this corner's endpoint, BIND-LOCAL:
+    //                 conjugate(RestRotation) * (rest - RestOrigin)
+    //   Other         the segment's OTHER endpoint, bind-local — not "this point
+    //                 plus the delta", which the shader re-derives once both
+    //                 ends are deformed
+    //   PrevPosition  x = root slot (an integer held as a float), y = the other
+    //                 endpoint's parameter along the strand, z = 1 at P1, 0 at P0
+    //
+    // Side, Radius, Coords, SegmentId and Tint mean what they always meant.
+    // An UNBOUND groom never uses this encoding: its stream is the one
+    // BuildGroomStrandMesh has always produced, so a static coat is unchanged by
+    // construction rather than by measurement.
+
+    /// One segment of a GPU-deformed stream, kept on the CPU so the coat
+    /// self-shadow bake (#1426) can evaluate the drawn pose without the stream
+    /// having to come back from the GPU. The two endpoints only — the pose the
+    /// bake reads is a centreline, and the four ribbon corners would be four
+    /// times the memory for three copies of the same two points.
+    struct GroomRestPoseSegment
+    {
+        u32 RootSlot = 0;
+        glm::vec3 Local0{ 0.0f };
+        glm::vec3 Local1{ 0.0f };
+        f32 T0 = 0.0f;
+        f32 T1 = 0.0f;
+        f32 Radius0 = 0.0f;
+        f32 Radius1 = 0.0f;
+    };
+
     static_assert(sizeof(GroomStrandVertex) == 64,
                   "GroomStrandVertex must be exactly sixteen floats: GroomStrand.glsl's Vulkan vertex pull "
                   "indexes it as a flat float array with a stride of 16");
@@ -327,6 +365,33 @@ namespace OloEngine
                                               const GroomStrandDeformation* deformation = nullptr,
                                               const GroomCoatContext* coat = nullptr,
                                               const GroomStrandSimulation* simulation = nullptr);
+
+    /**
+     * @brief The same strands as BuildGroomStrandMesh, in the GPU-deformed
+     *        encoding (#1427).
+     *
+     * Walks the groom exactly as BuildGroomStrandMesh does — the same selection,
+     * the same coat shape, the same segment budget, one shared walk rather than
+     * a copy of it — and writes each point in its root's BIND frame instead of
+     * deforming it. The result depends on the asset, the settings, the coat and
+     * the binding, and on nothing that moves, so it is built once and cached.
+     *
+     * `outRootCurves[slot]` is the BASE curve of the strand whose vertices carry
+     * root slot `slot`; the per-frame buffer is laid out in that order.
+     * `outPoseSegments`, when not null, receives the stream's centrelines for
+     * the coat bake.
+     *
+     * Returns empty stats and no geometry when `binding` does not span the base
+     * groom — the caller then keeps the CPU-deformed path, which refuses the
+     * same binding and draws the coat at rest.
+     */
+    GroomStrandMeshStats BuildGroomStrandRestMesh(const GroomBuildSource& source,
+                                                  const GroomStrandBuildSettings& settings,
+                                                  const GroomBindingAsset& binding,
+                                                  std::vector<GroomStrandVertex>& outVertices,
+                                                  std::vector<u32>& outIndices, std::vector<u32>& outRootCurves,
+                                                  const GroomCoatContext* coat = nullptr,
+                                                  std::vector<GroomRestPoseSegment>* outPoseSegments = nullptr);
 
     /// The BASE groom. Every call site that predates #1252 takes this overload
     /// and gets the identity source map, so the LOD change is invisible to the

@@ -224,6 +224,8 @@
 		"OloEngine/Groom/GroomCoverage.cpp"
 		"OloEngine/Groom/GroomStrandMesh.h"
 		"OloEngine/Groom/GroomStrandMesh.cpp"
+		"OloEngine/Groom/GroomGpuDeformation.h"
+		"OloEngine/Groom/GroomGpuDeformation.cpp"
 		"OloEngine/Groom/GroomStrandRequest.h"
 		"OloEngine/Asset/Serializers/GroomSerializer.cpp"
 		"OloEngine/Serialization/GroomBinaryFormat.h"
