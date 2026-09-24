@@ -860,7 +860,9 @@ namespace OloEngine::Tests
         cs->SetInt("u_ThetaSteps", kTheta);
         cs->SetInt("u_PhiSteps", kPhi);
 
-        for (f32 roughness : { 0.25f, 0.5f, 0.75f, 1.0f })
+        // 0.3, not 0.25: below ~0.27 the shipped EPSILON clamp caps the peak and
+        // the integral is legitimately short of 1 (ReferenceBRDFTest pins that).
+        for (f32 roughness : { 0.3f, 0.5f, 0.75f, 1.0f })
         {
             std::vector<f32> inputs = { roughness };
             const std::size_t cellCount = static_cast<std::size_t>(kTheta) * kPhi;
