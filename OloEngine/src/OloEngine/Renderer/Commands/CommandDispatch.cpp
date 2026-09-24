@@ -2681,7 +2681,15 @@ namespace OloEngine
             const glm::vec3 origin = Data().RenderOrigin;
             for (sizet i = 0; i < instanceCount; ++i)
             {
+                // Start every instance from the defaults. `scratch` outlives this
+                // draw, so a field written only under a condition would otherwise
+                // keep the previous batch's value: an unlinked batch (a batched
+                // Model) kept the previous linked batch's GPU-scene references and
+                // the G-Buffer shader shaded it with that entity's material, on
+                // Deferred only -- found by the renderer state-machine harness's
+                // batch-vs-nobatch pair (#1349).
                 InstanceData& inst = scratch[i];
+                inst = InstanceData{};
                 // CommandBucket replaces a resolved link's transform entries
                 // with its GPU Scene record values. Those values are already
                 // render-origin-relative, unlike the legacy command values.
@@ -2708,18 +2716,6 @@ namespace OloEngine
                         inst.GPUSceneRef.z = 0u;
                         inst.GPUSceneRef.w = GPUSceneDrawRefUnlinked;
                     }
-                }
-                else
-                {
-                    // `scratch` outlives this draw, so an unlinked batch must
-                    // say so: otherwise every instance keeps the canonical
-                    // reference the previous linked batch left in its slot and
-                    // the G-Buffer shader shades it with that entity's
-                    // material. A batched Model (no draw links) came out in the
-                    // grey of the static cubes batched before it, on Deferred
-                    // only -- found by the renderer state-machine harness's
-                    // batch-vs-nobatch pair (#1349).
-                    inst.GPUSceneRef = glm::uvec4(GPUSceneDrawRefUnlinked);
                 }
             }
             const std::span<const InstanceData> instances(scratch.data(), instanceCount);
