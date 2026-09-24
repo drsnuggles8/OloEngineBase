@@ -1700,6 +1700,13 @@ namespace OloEngine::Tests
         // fully lit -- rather than keep shadowing it by where it was.
         GroomCoatShadow::CoatRebakePolicy frozen;
         frozen.RebakeOnDrift = false;
+        // SEEDED at the walk's first pose, under the shipped policy, before the
+        // freeze. Otherwise the resident volume is the previous sweep's END
+        // pose, the reset to the clip start makes it stale on frame one, and
+        // this case would pass on the jump without ever testing drift that
+        // accumulates while the coat walks.
+        Renderer3D::SetGroomCoatRebakePolicy(shipped);
+        (void)walk(1);
         Renderer3D::SetGroomCoatRebakePolicy(frozen);
         const WalkCost frozenCost = walk(kWalk);
         report("frozen", frozenCost);
