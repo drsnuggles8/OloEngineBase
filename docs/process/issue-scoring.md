@@ -127,7 +127,8 @@ Two things that a number can't express but the picker needs:
   starve the unsexy-but-required baseline ("every engine needs working X") in
   favor of delighters. **Rule: the top of the ranked list must always carry
   table-stakes coverage** — completeness is a conscious budget, not an accident.
-- **Tech-tree edges** — `blocked_by: [#N, …]` / `blocks: [#N, …]`. The
+- **Tech-tree edges** — `blocked_by: [N, …]` / `blocks: [N, …]` (bare issue numbers;
+  `#N` is also accepted). The
   dependency graph WSJF cannot model. **A `blocked_by` naming an issue that is
   still open excludes the issue from the picker entirely, regardless of score**
   — you can't pick what you can't start. **A closed blocker does not block**:
