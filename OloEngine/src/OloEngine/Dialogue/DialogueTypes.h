@@ -34,6 +34,15 @@ namespace OloEngine
         FString Text;
         UUID TargetNodeID = 0;
         FString Condition; // optional condition name (empty = always available)
+
+        // Manual operator== — UUID's implicit u64 conversion makes a defaulted
+        // one ambiguous (C2666). Needed so DialogueStateComponent, which holds a
+        // TArray of these, has an editor undo tier (#1412).
+        auto operator==(const DialogueChoice& other) const -> bool
+        {
+            return Text == other.Text && static_cast<u64>(TargetNodeID) == static_cast<u64>(other.TargetNodeID) &&
+                   Condition == other.Condition;
+        }
     };
 
     // Both strings own separate heap buffers; the remaining UUID is a scalar.

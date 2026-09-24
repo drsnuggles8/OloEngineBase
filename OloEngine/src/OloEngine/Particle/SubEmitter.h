@@ -24,12 +24,16 @@ namespace OloEngine
         // Index into ParticleSystemComponent::ChildSystems for the child particle system.
         // -1 means no child system assigned (falls back to parent pool behavior).
         i32 ChildSystemIndex = -1;
+
+        auto operator==(const SubEmitterEntry&) const -> bool = default;
     };
 
     struct ModuleSubEmitter
     {
         bool Enabled = false;
         TArray<SubEmitterEntry> Entries;
+
+        auto operator==(const ModuleSubEmitter&) const -> bool = default;
     };
 
     template<>

@@ -1970,19 +1970,27 @@ namespace OloEngine
         auto operator==(const DiscoverableComponent&) const -> bool = default;
     };
 
-    // Deliberately NO operator== — every field is runtime-populated by
-    // DiscoverySystem (never hand-authored), so there is no "authored state"
-    // for the editor's undo system to protect. Per SceneHierarchyPanel's
-    // three-tier DrawComponent scheme, a non-trivially-copyable component
-    // with no operator== falls to the "no undo tracking" tier, which is
-    // exactly right here: without it, a landing during Play would silently
-    // push a phantom "Property Change" undo entry.
+    // Every field is runtime-populated by DiscoverySystem (never hand-authored)
+    // and the inspector shows it read-only. It still carries an operator== so
+    // DrawComponent gives it an undo tier (#1412): a landing during Play cannot
+    // push a phantom undo entry, because the editor binds no command history
+    // while playing or simulating, and nothing writes the set in Edit mode.
     struct DiscoveredSetComponent
     {
         TArray<UUID> m_Discovered;
 
         DiscoveredSetComponent() = default;
         DiscoveredSetComponent(const DiscoveredSetComponent&) = default;
+
+        // Manual operator== — UUID's implicit u64 conversion makes a defaulted
+        // one ambiguous (C2666). Compare via u64 explicitly.
+        auto operator==(const DiscoveredSetComponent& other) const -> bool
+        {
+            return m_Discovered.Num() == other.m_Discovered.Num() &&
+                   std::equal(m_Discovered.begin(), m_Discovered.end(), other.m_Discovered.begin(),
+                              [](const UUID& a, const UUID& b)
+                              { return static_cast<u64>(a) == static_cast<u64>(b); });
+        }
     };
 
     struct DiscoveryObjectiveMarkerComponent
@@ -4461,10 +4469,28 @@ namespace OloEngine
         ParticleSystemComponent() = default;
         ParticleSystemComponent(const ParticleSystemComponent&) = default;
 
-        // Undo coverage: ParticleSystem itself does not implement operator==
-        // because its emitter / curve state is too large to bit-compare
-        // reliably. The editor falls through to the "no undo" tier per
-        // SceneHierarchyPanel::DrawComponent<T>; tracked as a follow-up.
+        // Hand-written, and deliberately NOT value equality of everything the
+        // component holds (#1412). This is what DrawComponent's undo tier
+        // compares against its snapshot every frame the inspector is open, and
+        // the Edit-mode preview simulates these systems every frame, so:
+        //   - Systems compare by ParticleSystem::HasSameSettings: authored
+        //     settings only, never pool contents, time, RNG or `Playing`.
+        //     Comparing simulation state would push a phantom "Property Change"
+        //     on every preview frame.
+        //   - Texture, ParticleMesh and ChildTextures compare by handle
+        //     identity. The component references those assets, it does not own
+        //     their contents: reseating a slot is an edit, and undo restores the
+        //     previous handle; a change inside the texture is not this
+        //     component's to record.
+        auto operator==(const ParticleSystemComponent& other) const -> bool
+        {
+            return System.HasSameSettings(other.System) && Texture == other.Texture &&
+                   ParticleMesh == other.ParticleMesh && ChildTextures == other.ChildTextures &&
+                   ChildSystems.Num() == other.ChildSystems.Num() &&
+                   std::equal(ChildSystems.begin(), ChildSystems.end(), other.ChildSystems.begin(),
+                              [](const ParticleSystem& a, const ParticleSystem& b)
+                              { return a.HasSameSettings(b); });
+        }
     };
 
     // ── Terrain ──────────────────────────────────────────────────────────
@@ -7704,6 +7730,19 @@ namespace OloEngine
         f32 m_TextRevealSpeed = 30.0f;   // characters per second
 
         DialogueStateComponent() = default;
+
+        // Manual operator== — UUID's implicit u64 conversion makes a defaulted
+        // one ambiguous (C2666). Gives the component an editor undo tier (#1412).
+        auto operator==(const DialogueStateComponent& other) const -> bool
+        {
+            return static_cast<u64>(m_CurrentNodeID) == static_cast<u64>(other.m_CurrentNodeID) &&
+                   m_State == other.m_State && m_CurrentText == other.m_CurrentText &&
+                   m_CurrentSpeaker == other.m_CurrentSpeaker && m_AvailableChoices == other.m_AvailableChoices &&
+                   m_SelectedChoiceIndex == other.m_SelectedChoiceIndex &&
+                   m_HoveredChoiceIndex == other.m_HoveredChoiceIndex &&
+                   Math::BitwiseEqual(m_TextRevealProgress, other.m_TextRevealProgress) &&
+                   Math::BitwiseEqual(m_TextRevealSpeed, other.m_TextRevealSpeed);
+        }
     };
 
     // ----- Navigation -----

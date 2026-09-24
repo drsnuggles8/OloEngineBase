@@ -143,5 +143,7 @@ namespace OloEngine
         f32 WidthEnd = 0.0f;
         glm::vec4 ColorStart{ 1.0f, 1.0f, 1.0f, 1.0f };
         glm::vec4 ColorEnd{ 1.0f, 1.0f, 1.0f, 0.0f };
+
+        auto operator==(const ModuleTrail&) const -> bool = default;
     };
 } // namespace OloEngine

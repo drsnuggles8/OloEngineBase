@@ -268,11 +268,12 @@ when an entity had been selected in the inspector.
 The owner is an **eighth** member, and it is species (b) wearing a disguise:
 
 ```cpp
-struct EditState { bool isEditing; bool snapshotValid; T snapshot{}; ... };
-static std::unordered_map<u64, EditState> s_EditStates;   // inside DrawComponent<T>
+// UndoRedo/ComponentEditTracker.h (was an inline `struct EditState` at the time)
+class ComponentEditTracker { ... T m_Snapshot{}; ... };
+static std::unordered_map<u64, Tracker> s_EditStates;   // inside DrawComponent<T>
 ```
 
-`snapshot` is a **copy of the component**, so the `ModelComponent` instantiation of that
+The snapshot is a **copy of the component**, so the `ModelComponent` instantiation of that
 template owns a `Ref<Model>` and the texture-bearing ones own `Ref<Texture2D>`. Nothing
 ever cleared the maps, so drawing an entity in the inspector once pinned its GPU
 resources for the life of the process.

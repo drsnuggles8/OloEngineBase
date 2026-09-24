@@ -14,6 +14,8 @@ namespace OloEngine
         {
             f32 Time = 0.0f; // Normalized 0..1
             f32 Value = 0.0f;
+
+            auto operator==(const Key&) const -> bool = default;
         };
 
         std::array<Key, 8> Keys{};
@@ -85,6 +87,8 @@ namespace OloEngine
             f32 alpha = (t - Keys[i].Time) / segLen;
             return Keys[i].Value + alpha * (Keys[i + 1].Value - Keys[i].Value);
         }
+
+        auto operator==(const ParticleCurve&) const -> bool = default;
     };
 
     // Curve for vec4 (e.g., color over lifetime)
@@ -111,5 +115,7 @@ namespace OloEngine
         {
             return { R.Evaluate(t), G.Evaluate(t), B.Evaluate(t), A.Evaluate(t) };
         }
+
+        auto operator==(const ParticleCurve4&) const -> bool = default;
     };
 } // namespace OloEngine

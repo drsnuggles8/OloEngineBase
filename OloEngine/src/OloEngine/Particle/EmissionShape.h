@@ -29,33 +29,44 @@ namespace OloEngine
     // NOTE: Emit* structs use PascalCase fields intentionally — they are simple PODs mirroring shader/config data.
     struct EmitPoint
     {
+        auto operator==(const EmitPoint&) const -> bool = default;
     };
 
     struct EmitSphere
     {
         f32 Radius = 1.0f;
+
+        auto operator==(const EmitSphere&) const -> bool = default;
     };
 
     struct EmitBox
     {
         glm::vec3 HalfExtents{ 0.5f, 0.5f, 0.5f };
+
+        auto operator==(const EmitBox&) const -> bool = default;
     };
 
     struct EmitCone
     {
         f32 Angle = 25.0f; // degrees
         f32 Radius = 0.5f;
+
+        auto operator==(const EmitCone&) const -> bool = default;
     };
 
     struct EmitRing
     {
         f32 InnerRadius = 0.3f;
         f32 OuterRadius = 1.0f;
+
+        auto operator==(const EmitRing&) const -> bool = default;
     };
 
     struct EmitEdge
     {
         f32 Length = 1.0f;
+
+        auto operator==(const EmitEdge&) const -> bool = default;
     };
 
     struct EmitMesh
@@ -64,6 +75,8 @@ namespace OloEngine
         {
             glm::vec3 V0, V1, V2;
             glm::vec3 Normal;
+
+            auto operator==(const Triangle&) const -> bool = default;
         };
 
         TArray<Triangle> Triangles;
@@ -121,6 +134,8 @@ namespace OloEngine
                 CumulativeAreas.Add(TotalArea);
             }
         }
+
+        auto operator==(const EmitMesh&) const -> bool = default;
     };
 
     // Mesh geometry lives in independent heap allocations; the two scalars have

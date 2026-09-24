@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "ParticleSystem.h"
 #include "OloEngine/Particle/GPUParticleData.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Task/Task.h"
 
@@ -93,6 +94,36 @@ namespace OloEngine
         m_GPUSystem.Reset();
 
         return *this;
+    }
+
+    bool ParticleSystem::HasSameSettings(const ParticleSystem& other) const
+    {
+        // Mirrors the "public settings" block of the copy assignment above,
+        // minus `Playing` (see the declaration). Keep the two in step: a setting
+        // missing here is one the editor cannot undo.
+        return Looping == other.Looping && Math::BitwiseEqual(Duration, other.Duration) &&
+               Math::BitwiseEqual(PlaybackSpeed, other.PlaybackSpeed) &&
+               Math::BitwiseEqual(WarmUpTime, other.WarmUpTime) && SimulationSpace == other.SimulationSpace &&
+               BlendMode == other.BlendMode && RenderMode == other.RenderMode &&
+               DepthSortEnabled == other.DepthSortEnabled && UseGPU == other.UseGPU &&
+               Math::BitwiseEqual(WindInfluence, other.WindInfluence) &&
+               Math::BitwiseEqual(GPUNoiseStrength, other.GPUNoiseStrength) &&
+               Math::BitwiseEqual(GPUNoiseFrequency, other.GPUNoiseFrequency) &&
+               GPUGroundCollision == other.GPUGroundCollision && Math::BitwiseEqual(GPUGroundY, other.GPUGroundY) &&
+               Math::BitwiseEqual(GPUCollisionBounce, other.GPUCollisionBounce) &&
+               Math::BitwiseEqual(GPUCollisionFriction, other.GPUCollisionFriction) &&
+               SoftParticlesEnabled == other.SoftParticlesEnabled &&
+               Math::BitwiseEqual(SoftParticleDistance, other.SoftParticleDistance) &&
+               Math::BitwiseEqual(VelocityInheritance, other.VelocityInheritance) &&
+               Math::BitwiseEqual(LODDistance1, other.LODDistance1) &&
+               Math::BitwiseEqual(LODMaxDistance, other.LODMaxDistance) && Emitter.HasSameSettings(other.Emitter) &&
+               ColorModule == other.ColorModule && SizeModule == other.SizeModule &&
+               VelocityModule == other.VelocityModule && RotationModule == other.RotationModule &&
+               GravityModule == other.GravityModule && DragModule == other.DragModule &&
+               NoiseModule == other.NoiseModule && CollisionModule == other.CollisionModule &&
+               ForceFields == other.ForceFields && TrailModule == other.TrailModule &&
+               SubEmitterModule == other.SubEmitterModule && TextureSheetModule == other.TextureSheetModule &&
+               GetMaxParticles() == other.GetMaxParticles();
     }
 
     ParticleSystem::ParticleSystem(ParticleSystem&& other) noexcept

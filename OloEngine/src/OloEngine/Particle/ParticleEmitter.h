@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/FastRandom.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Particle/EmissionShape.h"
 #include "OloEngine/Particle/ParticlePool.h"
 
@@ -15,6 +16,8 @@ namespace OloEngine
         f32 Time = 0.0f; // Time offset within loop
         u32 Count = 10;
         f32 Probability = 1.0f; // 0..1
+
+        auto operator==(const BurstEntry&) const -> bool = default;
     };
 
     class ParticleEmitter
@@ -44,6 +47,25 @@ namespace OloEngine
         u32 Update(f32 dt, ParticlePool& pool, const glm::vec3& emitterPosition, f32 rateMultiplier, const glm::quat& emitterRotation, FastRandomPCG& rng);
 
         void Reset();
+
+        // Compares the authored settings above and nothing else. The private
+        // emission cursor (accumulator, loop time, next burst) advances every
+        // tick, including the editor's Edit-mode preview, so it is deliberately
+        // not part of "the same emitter" (#1412).
+        [[nodiscard]] bool HasSameSettings(const ParticleEmitter& other) const
+        {
+            return Math::BitwiseEqual(RateOverTime, other.RateOverTime) &&
+                   Math::BitwiseEqual(InitialSpeed, other.InitialSpeed) &&
+                   Math::BitwiseEqual(SpeedVariance, other.SpeedVariance) &&
+                   Math::BitwiseEqual(LifetimeMin, other.LifetimeMin) &&
+                   Math::BitwiseEqual(LifetimeMax, other.LifetimeMax) &&
+                   Math::BitwiseEqual(InitialSize, other.InitialSize) &&
+                   Math::BitwiseEqual(SizeVariance, other.SizeVariance) &&
+                   Math::BitwiseEqual(InitialRotation, other.InitialRotation) &&
+                   Math::BitwiseEqual(RotationVariance, other.RotationVariance) &&
+                   Math::BitwiseEqual(InitialColor, other.InitialColor) && Shape == other.Shape &&
+                   Bursts == other.Bursts;
+        }
 
       private:
         friend struct TIsTriviallyRelocatable<ParticleEmitter>;
