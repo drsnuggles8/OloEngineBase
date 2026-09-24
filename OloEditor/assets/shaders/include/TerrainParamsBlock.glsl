@@ -51,6 +51,10 @@ layout(std140, binding = 10) uniform TerrainParams {
     //   [2i]     = (uvPosX, uvPosY, uvSize, derivativeScale)
     //   [2i + 1] = (maxMip, ready, reserved, reserved)
     vec4 u_TerrainVTSectors[128]; // 2 * kTerrainVTMaxSectors
+    // The ambient ladder's rung controls (issue #1336) — the same lanes the
+    // deferred pass shades terrain with: x = EnableIBL, y = EnableLightProbes,
+    // z = IBLIntensity, w = unused. Read by the forward terrain shaders.
+    vec4 u_TerrainAmbientLadder;
 };
 
 #endif // TERRAIN_PARAMS_BLOCK_GLSL

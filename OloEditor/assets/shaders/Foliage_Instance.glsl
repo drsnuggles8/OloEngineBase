@@ -81,6 +81,15 @@ layout(std140, binding = 0) uniform CameraMatrices
 // G-Buffer flag constants all come from it, and the light UBO below is declared
 // in terms of its LightData struct.
 #include "include/PBRCommon.glsl"
+// The ambient ladder (issue #1336) — the SAME function the mesh shaders and the
+// deferred pass shade with. Forward foliage used to take the irradiance cube or
+// the flat fill only, with no probe volume and no reflection probes, while the
+// deferred pass lit the same leaves through the whole ladder.
+#define OLO_REFLECTION_PROBE_SAMPLERS
+#include "include/ReflectionProbes.glsl"
+#include "include/LightProbeSampling.glsl"
+#define OLO_AMBIENT_LADDER_EXPLICIT_CONTROLS
+#include "include/AmbientLadder.glsl"
 // Virtual Shadow Maps (issue #702) — self-contained (UBO 79/80, page-table SSBO
 // 54, sampler 65), and CommandDispatch::BindShadowTextures publishes a DISABLED
 // globals block when VSM is off, so this costs one runtime branch and needs no
@@ -318,20 +327,24 @@ void main()
     // black, and replacing the old flat ambient with that would have turned
     // every such canopy's unlit side black. u_LeafIds.y is what tells the two
     // cases apart, because a bound-and-black cubemap is a legitimate frame.
-    vec3 ambient;
-    if (u_LeafIds.y > 0.5)
+    // THE LADDER (issue #1336): u_LeafIds.y says whether the global IBL trio is
+    // bound, .z is its intensity and .w is the probe switch — the same three
+    // controls DeferredLightingPass shades foliage with. Unbound IBL falls
+    // through to the flat fill inside the ladder, as it always did here.
+    bool foliageEnableIBL = u_LeafIds.y > 0.5;
+    vec3 foliageR = reflect(-V, leaf.Normal);
+    vec3 prefilteredColor = vec3(0.0);
+    if (foliageEnableIBL)
     {
-        vec3 prefilteredColor = textureLod(u_PrefilterMap, reflect(-V, leaf.Normal),
-                                           leaf.Roughness * MAX_REFLECTION_LOD).rgb;
-        ambient = calculateCombinedAmbientPrefiltered(
-                      texture(u_IrradianceMap, leaf.Normal).rgb, leaf.Normal, V, leaf.Albedo,
-                      metallic, leaf.Roughness, u_BRDFLutMap, prefilteredColor) *
-                  u_LeafIds.z;
+        prefilteredColor = textureLod(u_PrefilterMap, foliageR, leaf.Roughness * MAX_REFLECTION_LOD).rgb;
+        float probeViewDepth = -(u_View * vec4(v_WorldPos, 1.0)).z;
+        vec4 probeSpecular =
+            oloSampleReflectionProbes(v_WorldPos, leaf.Normal, foliageR, leaf.Roughness * MAX_REFLECTION_LOD, probeViewDepth);
+        prefilteredColor = mix(prefilteredColor, probeSpecular.rgb, probeSpecular.a);
     }
-    else
-    {
-        ambient = calculateSimpleAmbient(leaf.Albedo, metallic, ao);
-    }
+    vec3 ambient = oloSurfaceLightingSum(evaluateAmbientLadderSplitEx(
+        vec4(0.0), v_WorldPos, leaf.Normal, V, leaf.Albedo, metallic, leaf.Roughness, u_IrradianceMap, u_BRDFLutMap, prefilteredColor,
+        foliageEnableIBL, u_LeafIds.w > 0.5, u_LeafIds.z));
 
     // The environment half of the transmission, added ONCE rather than per
     // light — see oloFoliageTransmissionAmbient.

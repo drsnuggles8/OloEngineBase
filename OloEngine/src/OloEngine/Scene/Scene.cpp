@@ -12097,6 +12097,23 @@ namespace OloEngine
                         }
                     } // if (terrainShader)
 
+                    // The terrain-UBO values the voxel shaders read (issue #1336),
+                    // from the terrain's own material — the same derivation the
+                    // heightmap chunks above use for u_TerrainParams.w and
+                    // u_LayerTilingScales0/1. The voxel draw uploads them itself
+                    // rather than inheriting whatever the last chunk left behind.
+                    VoxelTerrainSurface voxelSurface;
+                    voxelSurface.TriplanarSharpness = kTerrainTriplanarSharpness;
+                    if (terrain.m_Material)
+                    {
+                        const u32 voxelLayerCount = std::min(terrain.m_Material->GetLayerCount(), 8u);
+                        for (u32 i = 0; i < voxelLayerCount; ++i)
+                        {
+                            glm::vec4& lane = i < 4 ? voxelSurface.LayerTilingScales0 : voxelSurface.LayerTilingScales1;
+                            lane[static_cast<glm::length_t>(i % 4)] = terrain.m_Material->GetLayer(i).TilingScale;
+                        }
+                    }
+
                     // Submit voxel mesh command packets
                     if (terrain.m_VoxelEnabled && !terrain.m_VoxelMeshes.empty() && voxelShader)
                     {
@@ -12108,7 +12125,7 @@ namespace OloEngine
                                     mesh.VAO->GetRHIHandle(), mesh.IndexCount,
                                     voxelShader,
                                     albedoArrayID, normalArrayID, armArrayID,
-                                    transform.GetTransform(), entityID);
+                                    transform.GetTransform(), entityID, 0u, voxelSurface);
                                 if (packet)
                                     Renderer3D::SubmitPacket(packet);
 
@@ -12140,7 +12157,7 @@ namespace OloEngine
                                 mesh.VAO->GetRHIHandle(), VoxelQuadMesh::kIndexCount,
                                 voxelQuadShader,
                                 albedoArrayID, normalArrayID, armArrayID,
-                                chunkTransform, entityID, mesh.QuadCount);
+                                chunkTransform, entityID, mesh.QuadCount, voxelSurface);
                             if (packet)
                                 Renderer3D::SubmitPacket(packet);
 

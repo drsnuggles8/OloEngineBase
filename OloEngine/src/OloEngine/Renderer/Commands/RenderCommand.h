@@ -962,6 +962,18 @@ namespace OloEngine
     static_assert(std::is_trivially_copyable_v<DrawTerrainPatchCommand>, "DrawTerrainPatchCommand must be trivially copyable for radix sort");
 
     // Voxel mesh command — standard GL_TRIANGLES
+
+    // The terrain-UBO values the voxel terrain shaders read (issue #1336): the
+    // triplanar sharpness (u_TerrainParams.w) and every layer's tiling
+    // (u_LayerTilingScales0/1), from the terrain's material — the same values
+    // the heightmap chunks upload.
+    struct VoxelTerrainSurface
+    {
+        f32 TriplanarSharpness = 4.0f;
+        glm::vec4 LayerTilingScales0{ 0.0f };
+        glm::vec4 LayerTilingScales1{ 0.0f };
+    };
+
     struct DrawVoxelMeshCommand
     {
         CommandHeader header;
@@ -986,6 +998,12 @@ namespace OloEngine
         RHI::ResourceHandle albedoArrayTextureID{};
         RHI::ResourceHandle normalArrayTextureID{};
         RHI::ResourceHandle armArrayTextureID{};
+
+        // The terrain-UBO values the voxel shaders read (issue #1336). The
+        // dispatch used to upload NO terrain UBO for a voxel draw, so the
+        // shaders read whatever the last heightmap chunk left there — zeros on
+        // a voxel-only terrain.
+        VoxelTerrainSurface surface{};
 
         // Transform
         glm::mat4 transform = glm::mat4(1.0f);

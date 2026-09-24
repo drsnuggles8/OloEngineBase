@@ -588,6 +588,12 @@ namespace OloEngine
             static constexpr u32 kTerrainVTMaxSectors = 64;
             glm::vec4 VTSectors[2 * kTerrainVTMaxSectors]{};
 
+            // The ambient ladder's rung controls (issue #1336), filled at
+            // dispatch from DeferredLightingPass::AmbientLadderControls() so the
+            // forward terrain shaders take the SAME rung the deferred pass does:
+            // x = EnableIBL, y = EnableLightProbes, z = IBLIntensity, w = unused.
+            glm::vec4 AmbientLadder{ 0.0f, 0.0f, 1.0f, 0.0f };
+
             static constexpr u32 GetSize()
             {
                 return sizeof(TerrainUBO);
@@ -2755,7 +2761,7 @@ namespace OloEngine
     // (-> 2256). Bumping this is only half the edit: the GLSL block lives in
     // include/TerrainParamsBlock.glsl and is declared ONCE for all eight
     // terrain shaders (see that file for why).
-    static_assert(sizeof(UBOStructures::TerrainUBO) == 2256, "TerrainUBO unexpected size — update include/TerrainParamsBlock.glsl");
+    static_assert(sizeof(UBOStructures::TerrainUBO) == 2272, "TerrainUBO unexpected size — update include/TerrainParamsBlock.glsl");
     static_assert(sizeof(UBOStructures::BrushPreviewUBO) == 32, "BrushPreviewUBO unexpected size — update GLSL layout");
     // 48 before issue #433 appended the two impostor vec4s (-> 80); #1233
     // appended MeshParams and MeshViewPos (-> 112); #1234 appended the four

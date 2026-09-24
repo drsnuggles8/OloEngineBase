@@ -92,11 +92,12 @@ TEST(ShaderBindingLayout, TerrainUBOSizeStable)
 {
     // 144 before issue #715 appended the three virtual-texture vec4s (-> 192);
     // slice 3 appended VTParams3 plus the 64-sector x 2-vec4 adaptive table
-    // (-> 2256). The GLSL side is include/TerrainParamsBlock.glsl — ONE
+    // (-> 2256); issue #1336 appended the ambient-ladder controls vec4
+    // (-> 2272). The GLSL side is include/TerrainParamsBlock.glsl — ONE
     // declaration shared by all eight terrain shaders, so bumping this number
     // and forgetting the shader is a single-file fix rather than the
     // thirteen-copy hunt it used to be.
-    EXPECT_EQ(sizeof(UBOStructures::TerrainUBO), 2256u);
+    EXPECT_EQ(sizeof(UBOStructures::TerrainUBO), 2272u);
 }
 
 TEST(ShaderBindingLayout, BrushPreviewUBOSizeStable)
