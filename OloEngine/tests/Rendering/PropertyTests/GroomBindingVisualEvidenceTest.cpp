@@ -930,6 +930,51 @@ namespace OloEngine::Tests
         }
     }
 
+    // #1427: a herd sharing one cooked coat holds ONE rest stream. Nothing in
+    // the stream depends on which entity wears it — only the per-frame buffer
+    // does — so a second entity with the same groom, budget, coat and binding
+    // must add a frame buffer's bytes and not another copy of the stream.
+    TEST_F(GroomBindingVisualEvidenceTest, EntitiesWearingOneCoatShareOneRestStream)
+    {
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+        SetBodyPose(55.0f);
+        SetBindingEnabled(true);
+        const glm::vec3 eye{ 0.0f, 0.9f, 4.6f };
+
+        std::vector<u8> one;
+        Capture("", eye, 0.0f, 0.10f, one);
+        ASSERT_FALSE(::testing::Test::HasFatalFailure());
+        const GroomRenderStats single = PassStats();
+        const u64 singleBytes =
+            single.Lod.BytesByRepresentation[static_cast<sizet>(GroomRepresentation::Strand)];
+        ASSERT_EQ(single.GroomsGpuDeformed, 1u);
+        ASSERT_GT(singleBytes, 0u);
+
+        // The same coat on the same body, as a second entity.
+        Entity twin = GetScene().CreateEntity("GroomTwin");
+        twin.AddComponent<GroomComponent>(m_GroomEntity.GetComponent<GroomComponent>());
+        twin.AddComponent<GroomBindingComponent>(m_GroomEntity.GetComponent<GroomBindingComponent>());
+
+        std::vector<u8> two;
+        Capture("", eye, 0.0f, 0.10f, two);
+        ASSERT_FALSE(::testing::Test::HasFatalFailure());
+        const GroomRenderStats pair = PassStats();
+        const u64 pairBytes = pair.Lod.BytesByRepresentation[static_cast<sizet>(GroomRepresentation::Strand)];
+        std::printf("[groom-gpu-deformation] one coat %.2f MiB resident, two entities wearing it %.2f MiB\n",
+                    static_cast<f64>(singleBytes) / (1024.0 * 1024.0), static_cast<f64>(pairBytes) / (1024.0 * 1024.0));
+
+        EXPECT_EQ(pair.GroomsGpuDeformed, 2u) << "both entities must be drawn on the GPU path";
+        EXPECT_EQ(pair.StrandsDrawn, single.StrandsDrawn * 2u) << "both entities draw the whole coat";
+        EXPECT_GT(pairBytes, singleBytes) << "the second entity's own frame buffer is resident too";
+        // Unshared, the second entity would add a whole second stream and the
+        // total would double; shared, it adds one frame buffer — a few percent.
+        EXPECT_LT(pairBytes * 4u, singleBytes * 5u)
+            << "the second entity rebuilt its own rest stream instead of sharing the first";
+
+        GetScene().DestroyEntity(twin);
+    }
+
     // ── Criterion 2: a facial morph, with the skeleton standing still ──────
 
     TEST_F(GroomBindingVisualEvidenceTest, AMorphedSurfaceCarriesTheCoatWithTheSkeletonStill)

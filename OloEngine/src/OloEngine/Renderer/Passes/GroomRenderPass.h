@@ -342,6 +342,40 @@ namespace OloEngine
         [[nodiscard]] static bool IsDeformed(const GroomStrandRequest& request) noexcept;
 
       private:
+        /// A bound coat's REST stream (#1427), shared by every entity that wears
+        /// the same groom at the same budget, coat and binding. Unlike the frame
+        /// buffer, nothing in it depends on the entity's pose, so a herd of
+        /// animals sharing one cooked coat holds one copy instead of one each.
+        /// Held by Ref from the per-entity entries and by the pass's map, and
+        /// dropped once only the map holds it.
+        struct GroomRestStream : public RefCounted
+        {
+            Ref<VertexArray> Array;
+            Ref<VertexBuffer> Vertices;
+            Ref<IndexBuffer> Indices;
+            GroomStrandBuildSettings Settings;
+            GroomStrandMeshStats Stats;
+            /// GPU bytes of the two buffers, counted once against the cache.
+            u64 Bytes = 0;
+            /// The binding the bind frames came from, held so a binding RELOADED
+            /// under the same handle (a re-bind writes the same file) is a
+            /// different object and rebuilds the stream. The key has the handle;
+            /// this has the identity. The CPU path never needed either, because
+            /// it read the live binding every frame.
+            Ref<GroomBindingAsset> Binding;
+            /// Root slot -> base curve, the order every frame buffer over this
+            /// stream is packed in.
+            std::vector<u32> RootCurves;
+            /// The centrelines, for the coat bake. Built on first use rather
+            /// than with the stream: a coat that never asks for a self-shadow
+            /// never pays for them.
+            std::vector<GroomRestPoseSegment> PoseSegments;
+            bool PoseSegmentsBuilt = false;
+            /// The cache tick these bytes were last reported at (#1252), so a
+            /// shared stream counts once per frame however many draw it.
+            u64 BytesCountedTick = 0;
+        };
+
         // One groom's GPU geometry, keyed by asset handle.
         struct CacheEntry
         {
@@ -434,19 +468,14 @@ namespace OloEngine
 
             // ── GPU deformation (#1427) ─────────────────────────────
 
-            /// `Vertices` holds a REST stream (BuildGroomStrandRestMesh) that
-            /// the vertex shader deforms from `Deform`, rather than a final one.
-            /// Set only by the GPU path; the buffers are then immutable, like an
-            /// unbound groom's, and only the frame buffer is refilled.
+            /// `Array` is the SHARED rest stream's (BuildGroomStrandRestMesh),
+            /// which the vertex shader deforms from `DeformGpu` — not a final
+            /// stream. Set only by the GPU path; the stream is immutable and
+            /// shared, and only this entity's frame buffer is refilled. `Bytes`
+            /// then counts the frame buffer alone; the stream's bytes are the
+            /// shared stream's, counted once.
             bool GpuDeformed = false;
-            /// The binding the rest stream's bind frames came from, held so a
-            /// binding RELOADED under the same handle (a re-bind writes the same
-            /// file) is a different object and rebuilds the stream. The key has
-            /// the handle; this has the identity, and the CPU path never needed
-            /// either because it read the live binding every frame.
-            Ref<GroomBindingAsset> RestBinding;
-            /// Root slot -> base curve, the order the frame buffer is packed in.
-            std::vector<u32> RootCurves;
+            Ref<GroomRestStream> Rest;
             /// The frame buffer, CPU side: the bytes the GPU reads, which the
             /// coat bake evaluates the drawn pose from.
             GroomDeformBuffer DeformCpu;
@@ -457,11 +486,6 @@ namespace OloEngine
             /// asset re-derives its table, rewrites them rather than reading a
             /// freed table's weights.
             Ref<GroomGuideInfluenceTable> DeformWeightsFrom;
-            /// The rest stream's centrelines, for the coat bake. Built on first
-            /// use rather than with the stream: a coat that never asks for a
-            /// self-shadow never pays for them.
-            std::vector<GroomRestPoseSegment> PoseSegments;
-            bool PoseSegmentsBuilt = false;
         };
 
         /// The groom's geometry for this frame: cached, refilled or built. For a
@@ -473,6 +497,15 @@ namespace OloEngine
         /// stream cannot be built for this request, so the caller can take the
         /// CPU path instead.
         [[nodiscard]] CacheEntry* AcquireGpuDeformedGeometry(const GroomStrandRequest& request, u64 key);
+        /// The shared rest stream this request draws, found or built. Null when
+        /// it cannot be built (a binding that does not span the base groom, or
+        /// a selection that emits nothing).
+        [[nodiscard]] Ref<GroomRestStream> AcquireRestStream(const GroomStrandRequest& request);
+        /// The rest stream's key: CacheKey without the ENTITY, because nothing
+        /// in the stream depends on it, plus the binding handle.
+        [[nodiscard]] static u64 RestStreamKey(const GroomStrandRequest& request) noexcept;
+        /// Drops every rest stream no entity entry still holds.
+        void PruneRestStreams();
         /// Packs and uploads this frame's deformation into `entry`'s buffer,
         /// (re)creating the buffer when the request outgrew it.
         void UploadDeformation(const GroomStrandRequest& request, CacheEntry& entry);
@@ -490,6 +523,8 @@ namespace OloEngine
         GroomRenderStats m_Stats;
 
         std::unordered_map<u64, CacheEntry> m_Cache;
+        /// Shared rest streams (#1427), keyed by RestStreamKey.
+        std::unordered_map<u64, Ref<GroomRestStream>> m_RestStreams;
         u64 m_CacheBudgetBytes = 256ull * 1024ull * 1024ull;
         u64 m_CacheBytes = 0;
 

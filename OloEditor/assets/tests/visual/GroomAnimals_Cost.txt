@@ -4,9 +4,9 @@
 # (GPUPassTimerPool, #1337) over 20 frames. Cache MiB is the strand geometry the pass holds.
 # The 1200-unit budget also constrains three animals when scheduling is on; off is full density.
 herd  scheduler  groomsDrawn  strandsDrawn  guidesSimulated  cacheMiB  groomPassMs  validSamples  wallMsPerFrame  cpuBuildMs  uploadMiB
-   3        off            3        165367             2262     594.1       94.465            20           151.3        3.87       11.0
-   3         on            3         65060              996     733.9        5.513            20            69.8        1.62        4.5
-   7        off            7        269521             4290    1268.3      134.137            20           218.2        6.52       18.3
-   7         on            7         78864             1284    1204.6       30.707            20            91.4        2.30        5.7
-  12        off           12        236926             6825    1273.4       41.537            20           129.7        7.20       17.4
-  12         on           12         84735             1644     960.9       11.656            20            70.0        2.88        6.6
+   3        off            3        165367             2262     594.1       92.392            20           148.3        3.69       11.0
+   3         on            3         65060              996     732.9        3.149            20            66.5        1.59        4.5
+   7        off            7        269521             4290     550.2      127.655            20           206.0        6.30       18.3
+   7         on            7         78864             1284     837.8       30.467            20            86.5        2.25        5.7
+  12        off           12        236926             6825     566.7       37.753            20           125.3        6.53       17.4
+  12         on           12         84735             1644     863.7        9.929            20            66.2        2.61        6.6
