@@ -1188,11 +1188,35 @@ namespace OloEngine
         if (dominant != m_LastReportedReason)
         {
             m_LastReportedReason = dominant;
-            if (dominant != GroomCompositionFallbackReason::None)
+            if (dominant != GroomCompositionFallbackReason::None &&
+                dominant != GroomCompositionFallbackReason::TemporalResolveUnavailable)
             {
                 OLO_CORE_INFO("GroomRenderPass: {} of {} grooms are not on their requested composition mode — {}",
                               m_Stats.Composition.GroomsFellBack, m_Stats.Composition.GroomsConsidered,
                               ToString(dominant));
+            }
+        }
+
+        // The bald case has its own latch and its own count (#1429), not the
+        // dominant reason's: a groom that lost its resolve must be reported
+        // even while another reason dominates, and the count must be the bald
+        // grooms, not every fallback. A WARNING, because this fallback is not a
+        // softer coat, it is NO coat: the opaque tier's hard cutoff draws no
+        // strand narrower than a pixel, which at any real framing is every
+        // strand (groom-strand-visibility.md rules 1 and 6). A scene with a
+        // stochastic groom requests TAA itself, so reaching this means that
+        // request was turned off or the TAA pass could not run.
+        const u32 bald = m_Stats.Composition.ByReason[static_cast<sizet>(
+            GroomCompositionFallbackReason::TemporalResolveUnavailable)];
+        if (bald != m_LastReportedBaldGrooms)
+        {
+            m_LastReportedBaldGrooms = bald;
+            if (bald > 0u)
+            {
+                OLO_CORE_WARN("GroomRenderPass: {} of {} grooms render BALD — {}. Enable TAA or a temporal upscaler, "
+                              "or re-enable RendererSettings::HonourSceneTemporalResolveRequests",
+                              bald, m_Stats.Composition.GroomsConsidered,
+                              ToString(GroomCompositionFallbackReason::TemporalResolveUnavailable));
             }
         }
 

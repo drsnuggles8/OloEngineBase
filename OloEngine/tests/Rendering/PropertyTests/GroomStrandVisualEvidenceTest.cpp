@@ -531,6 +531,13 @@ namespace OloEngine::Tests
         // SelectGroomComposition must refuse StochasticAlpha — and the pixels
         // must then be byte-identical to a groom that asked for OpaqueRibbon,
         // because they are the same code path.
+        //
+        // Since #1429 a scene holding a stochastic groom REQUESTS a temporal
+        // resolve and gets TAA without anyone ticking it, so the refused tier is
+        // no longer what a fresh scene renders. It is still the tier a frame
+        // without a resolve falls to, and the diagnostic switch is how it stays
+        // reachable; the fixture restores the renderer settings afterwards.
+        Renderer3D::GetRendererSettings().HonourSceneTemporalResolveRequests = false;
         Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
         Renderer3D::ApplyRendererSettings();
         SetRenderStrands(true);

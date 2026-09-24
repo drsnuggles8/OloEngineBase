@@ -25,10 +25,10 @@ Scene: GroomStrandCoat.olo
 #                would use it is far thinner than a pixel (0.003-0.03 px of
 #                half width; see docs/analysis/groom-strand-visibility-1246.md).
 #                It renders as a coherent grey mass, not as visible individual
-#                strands, and that is correct. With TAA off it renders as the
-#                OpaqueRibbon fallback and most of the coat DISAPPEARS — which
-#                is the measured failure the stochastic mode exists to fix, and
-#                is worth toggling once to see.
+#                strands, and that is correct. With no temporal resolve it
+#                renders as the OpaqueRibbon fallback and most of the coat
+#                DISAPPEARS — which is the measured failure the stochastic mode
+#                exists to fix, and is worth toggling once to see (below).
 #
 #     BristleCoat WidthScale 25 — the same asset at a thickness a screenshot can
 #                resolve. NOT a quality setting and not what hair looks like: it
@@ -36,10 +36,14 @@ Scene: GroomStrandCoat.olo
 #                depth-correct overlap are legible by eye in a capture. Judge
 #                COVERAGE from the CPU measurements, never from this entity.
 #
-# TAA IS ON. StochasticAlpha is refused without a temporal resolve
-# (GroomCompositionFallbackReason::TemporalResolveUnavailable), so with TAA off
-# this scene shows the fallback tier. The Groom inspector's "Active: <mode>"
-# line says which one is running at any moment.
+# THE RESOLVE IS REQUESTED, NOT STORED. StochasticAlpha is refused without a
+# temporal resolve (GroomCompositionFallbackReason::TemporalResolveUnavailable).
+# The TAAEnabled key under PostProcessSettings below is NOT read by the scene
+# loader — TAA is a renderer setting, not a scene one. Since #1429 the scene
+# requests the resolve itself, so the coats resolve with the TAA box unticked.
+# To see the fallback tier, untick BOTH Post Processing > TAA and Renderer
+# Settings > "Honour scene temporal resolve requests". The Groom inspector's
+# "Active: <mode>" line says which tier is running at any moment.
 #
 # Hair SHADING is not in this scene and is not missing by accident: #1246 is
 # visibility, #1247 is fibre scattering. The coat is neutral-lit on purpose.
