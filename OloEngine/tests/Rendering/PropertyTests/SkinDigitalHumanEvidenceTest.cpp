@@ -89,6 +89,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace OloEngine::Tests
@@ -1229,111 +1230,38 @@ namespace OloEngine::Tests
     // deformed correctly while the detail term stayed at its neutral value would
     // render a perfectly good expression and silently drop a third of #1243.
     //
-    // So the test is A/B on the GAIN, with the morph moving identically in both
-    // arms: same weights, same deformation, same silhouette, and the only
-    // difference is whether the expression is allowed to reach the specular.
+    // THE CRANIUM IS MORPH-ONLY — a blend-shape face with no skeleton — so it is
+    // drawn by the RIGID submission path. Until issue #1395 only the skinned
+    // paths stamped the expression, and this test worked around that by
+    // stamping the material by hand. It now drives the engine path and nothing
+    // else: no SetSkinExpressionDetail call appears below.
+    //
+    // So the test is A/B on the profile's GAIN, with the morph held identically
+    // in both arms: same weights, same deformation, same silhouette, and the only
+    // difference is whether the profile lets the expression reach the specular.
+    // Before #1395 the two arms moved the frame by the same 1.95/255 mean, to
+    // three decimals: the expression reached the geometry and not the shading.
+    //
+    // The NEUTRAL arm is the other half of the prediction: at a neutral face the
+    // expression weight is zero, so the gain has nothing to scale and the two
+    // profiles must render alike. Without it, a gain that moved the frame for
+    // some reason other than the expression would pass the full-expression arm.
     TEST_F(SkinDigitalHumanScene, TheExpressionReachesTheShadingAndNotOnlyTheGeometry)
     {
         OLO_ENSURE_GPU_OR_SKIP();
 
         SetRig(kRigs[1]); // hard side light — where a pore band is visible at all
-        SetAngle(kAngles[1]);
         // The band the expression gain acts on. Only this test attaches it.
         AttachPoreNormalMap();
 
-        Difference floor{};
-        ASSERT_NO_FATAL_FAILURE(MeasureRepeatFloor(RenderingPath::Deferred, /*frames=*/4, floor));
-
-        // Four frames, not two: the morph pass writes AppliedWeights at the
-        // frame boundary, so a weight set from outside needs one tick to reach
-        // the deformed surface and another to reach the shading that reads it.
-        constexpr u32 kMorphSettleFrames = 4;
-
-        SetExpression(0.0f);
-        Capture neutral;
-        ASSERT_TRUE(CaptureFrame(RenderingPath::Deferred, "DigitalHuman_GL_Deferred_ExpressionNeutral", neutral,
-                                 MaterialDebugView::None, kMorphSettleFrames));
-
-        SetExpression(1.0f);
-        Capture expressed;
-        ASSERT_TRUE(CaptureFrame(RenderingPath::Deferred, "DigitalHuman_GL_Deferred_ExpressionFull", expressed,
-                                 MaterialDebugView::None, kMorphSettleFrames));
-
-        // First: the expression reached the ENGINE at all. Read from
-        // AppliedWeights rather than from Weights, which is the same distinction
-        // the renderer makes — Weights is what the next morph pass will use, and
-        // asserting on it would pass on a morph pass that never ran.
-        const MorphTargetComponent& morph = m_Cranium.GetComponent<MorphTargetComponent>();
-        ASSERT_TRUE(morph.HasAppliedSurface)
-            << "the morph pass never decided a surface for the cranium, so nothing below is measuring an expression";
-        const f32 appliedWeight = SkinExpressionDetailWeight(morph.AppliedWeights);
-        EXPECT_GT(appliedWeight, 0.0f)
-            << "the applied morph weights produce an expression detail weight of zero, so #1243's "
-               "expression-driven detail is inert on this subject no matter what the frame looks like";
-
-        const Difference geometryMoved = Diff(neutral, expressed);
-        EXPECT_GT(geometryMoved.MaxDelta, floor.MaxDelta * 3u)
-            << "the expression changed the frame by no more than the repeat floor (" << floor.MaxDelta
-            << "/255), so the morph is not reaching the render at all";
-
-        // ------------------------------------------------------------------
-        // THE SHADING HALF, and why the expression weight is set BY HAND here.
-        //
-        // A GAP FOUND BY THIS TEST, recorded where it will be read. The engine
-        // applies #1243's expression stamp in exactly two places
-        // (Scene.cpp::StampSkinExpression), and BOTH sit inside submission
-        // loops keyed on `view<TransformComponent, MeshComponent,
-        // SkeletonComponent>` — the skinned paths. A MORPH-ONLY entity, which
-        // this cranium is and which is a perfectly ordinary blend-shape face
-        // rig, is deformed by MorphDeformationSystem (the captures above prove
-        // it: the frame moves) and then submitted through the RIGID path, where
-        // nothing ever calls SetSkinExpressionDetail. So on a morph-only
-        // subject the gain is inert no matter what the profile authors.
-        //
-        // That is reported on #1222 rather than worked around silently. What
-        // this test does is stamp the material the way the skinned path would,
-        // so the half that IS this epic's business — does the expression reach
-        // the SHADING, on the deferred path, through the whole frame graph —
-        // is still measured rather than skipped. Reading the weight out of
-        // AppliedWeights (asserted above) is what keeps the hand-stamp honest:
-        // it is the same number the engine would have used.
-        // ------------------------------------------------------------------
-        auto& craniumMaterial = m_Cranium.GetComponent<MaterialComponent>().m_Material;
-
-        craniumMaterial.SetSkinExpressionDetail(appliedWeight);
-        Capture expressedStamped;
-        ASSERT_TRUE(CaptureFrame(RenderingPath::Deferred, "DigitalHuman_GL_Deferred_ExpressionFullStamped",
-                                 expressedStamped, MaterialDebugView::None, kMorphSettleFrames));
-
-        craniumMaterial.SetSkinExpressionDetail(0.0f);
-        Capture expressedUnstamped;
-        ASSERT_TRUE(CaptureFrame(RenderingPath::Deferred, std::string(), expressedUnstamped,
-                                 MaterialDebugView::None, kMorphSettleFrames));
-
-        // SAME geometry, same pose, same light, same profile — the ONLY
-        // difference is whether the expression is allowed to reach the pore
-        // band. Anything above the floor is the detail term doing its job.
-        const Difference shadingMoved = Diff(expressedStamped, expressedUnstamped);
-        EXPECT_GT(shadingMoved.MaxDelta, std::max(floor.MaxDelta * 3u, 2u))
-            << "stamping the expression detail weight (" << appliedWeight
-            << ") onto the material changed the frame by at most " << shadingMoved.MaxDelta
-            << "/255 against a repeat floor of " << floor.MaxDelta
-            << "/255. The pose and the geometry are identical between these two captures, so this is the "
-               "expression-driven pore band of #1243 and nothing else — a zero here means it is not reaching "
-               "the deferred G-Buffer's normal at all.";
-
-        // THE PROFILE-SIDE CONTROL. The stamp above can only do anything if the
-        // PROFILE authors a gain for it to scale; this arm proves the frame
-        // moved because of ExpressionDetailGain and not because
-        // SetSkinExpressionDetail happens to perturb something else. Same
-        // stamp, same pose, a profile whose gain is zero.
-        //
-        // ONE control profile and not three, deliberately: a slot is spent per
-        // profile RESOLVED, and the budget is seven (kMaxSkinProfileSlots —
-        // three bits with the all-ones pattern reserved). This subject already
-        // spends four, so three control profiles would sit exactly on the
-        // ceiling and any later edit would push the fixture over it, where the
-        // symptom is a silent fallback to not-skin rather than a failure.
+        // THE PROFILE-SIDE CONTROL: identical to the Fair tone except that its
+        // ExpressionDetailGain is zero. ONE control profile and not three,
+        // deliberately: a slot is spent per profile RESOLVED, and the budget is
+        // seven (kMaxSkinProfileSlots — three bits with the all-ones pattern
+        // reserved). This subject already spends four, so three control profiles
+        // would sit exactly on the ceiling and any later edit would push the
+        // fixture over it, where the symptom is a silent fallback to not-skin
+        // rather than a failure.
         SkinProfileParameters control = SkinProfile::DefaultParameters();
         control.EvaluationModel = SkinEvaluationModel::OcularSurface;
         control.ScatterColor = kTones[0].ScatterColor;
@@ -1342,29 +1270,215 @@ namespace OloEngine::Tests
         control.Specular.LobeMix = kLobeMix;
         control.Specular.ExpressionDetailGain = 0.0f; // the one field under test
         const AssetHandle gainless = RegisterProfile("GainlessControl", control);
-        craniumMaterial.SetSkinProfileHandle(gainless);
+        auto& craniumMaterial = m_Cranium.GetComponent<MaterialComponent>().m_Material;
 
-        craniumMaterial.SetSkinExpressionDetail(appliedWeight);
-        Capture gainlessStamped;
-        ASSERT_TRUE(CaptureFrame(RenderingPath::Deferred, "DigitalHumanExpressionGainOff_GL_Deferred_ExpressionFull",
-                                 gainlessStamped, MaterialDebugView::None, kMorphSettleFrames));
-        craniumMaterial.SetSkinExpressionDetail(0.0f);
-        Capture gainlessUnstamped;
-        ASSERT_TRUE(CaptureFrame(RenderingPath::Deferred, std::string(), gainlessUnstamped, MaterialDebugView::None,
-                                 kMorphSettleFrames));
+        // Four frames, not two: the morph pass writes AppliedWeights at the
+        // frame boundary, so a weight set from outside needs one tick to reach
+        // the deformed surface and another to reach the shading that reads it.
+        constexpr u32 kMorphSettleFrames = 4;
 
-        const Difference gainlessMoved = Diff(gainlessStamped, gainlessUnstamped);
-        EXPECT_GT(shadingMoved.MeanAbsDelta, gainlessMoved.MeanAbsDelta)
-            << "stamping the same expression weight moved the frame by " << shadingMoved.MeanAbsDelta
-            << "/255 mean with the profile's ExpressionDetailGain at " << kExpressionDetailGain << " and by "
-            << gainlessMoved.MeanAbsDelta
-            << "/255 with it at zero. The gain is the field that is supposed to make the difference, so the "
-               "first number must be the larger one.";
+        // One capture per profile, gain first, with the expression and
+        // everything else held.
+        auto captureGainPair = [&](RenderingPath path, const std::string& gainName, const std::string& gainOffName,
+                                   Capture& withGain, Capture& withoutGain)
+        {
+            craniumMaterial.SetSkinProfileHandle(m_ToneProfiles[0]);
+            ASSERT_TRUE(CaptureFrame(path, gainName, withGain, MaterialDebugView::None, kMorphSettleFrames));
+            craniumMaterial.SetSkinProfileHandle(gainless);
+            ASSERT_TRUE(CaptureFrame(path, gainOffName, withoutGain, MaterialDebugView::None, kMorphSettleFrames));
+            craniumMaterial.SetSkinProfileHandle(m_ToneProfiles[0]);
+        };
+
+        for (const RenderingPath path : kPaths)
+        {
+            SCOPED_TRACE(PathName(path));
+            const std::string pathName = PathName(path);
+            SetAngle(kAngles[1]);
+
+            Difference floor{};
+            ASSERT_NO_FATAL_FAILURE(MeasureRepeatFloor(path, /*frames=*/kMorphSettleFrames, floor));
+            const u32 threshold = std::max(floor.MaxDelta * 3u, 2u);
+
+            // The ThreeQuarter neutral frame, kept for the geometry check below.
+            Capture neutral;
+
+            for (const AngleSetup& angle : kAngles)
+            {
+                SCOPED_TRACE(angle.Name);
+                SetAngle(angle);
+                const std::string cell = std::string("_GL_") + pathName + "_" + angle.Name;
+                const bool isThreeQuarter = std::string_view(angle.Name) == kAngles[1].Name;
+
+                // NEUTRAL, from THIS angle: the gain has no expression to scale.
+                // Per angle and not once per path, because the rims it controls
+                // for (below) are a different set of pixels from each camera.
+                SetExpression(0.0f);
+                Capture neutralHere;
+                Capture neutralGainless;
+                ASSERT_NO_FATAL_FAILURE(captureGainPair(
+                    path, isThreeQuarter ? "DigitalHuman_GL_" + pathName + "_ExpressionNeutral" : std::string(),
+                    std::string(), neutralHere, neutralGainless));
+                // NOT zero, and the reason is measured rather than assumed:
+                // swapping the cranium onto another profile also moves the thin
+                // rims where the eyes and the lips meet it — about 1 700 px, up
+                // to 24/255, a mean of 0.015/255 over the frame, identical at
+                // neutral and at a full expression. The gain cannot reach those
+                // pixels, so the claim below is on the MEAN, which is where the
+                // pore band shows.
+                const Difference neutralGainMoved = Diff(neutralHere, neutralGainless);
+                if (isThreeQuarter)
+                    neutral = neutralHere;
+
+                // FULL EXPRESSION, the claim itself.
+                SetExpression(1.0f);
+                Capture expressed;
+                Capture expressedGainless;
+                ASSERT_NO_FATAL_FAILURE(captureGainPair(path, "DigitalHumanExpression" + cell,
+                                                        "DigitalHumanExpressionGainOff" + cell, expressed,
+                                                        expressedGainless));
+
+                // The expression reached the ENGINE at all. Read from
+                // AppliedWeights rather than from Weights, which is the same
+                // distinction the renderer makes — Weights is what the next
+                // morph pass will use, and asserting on it would pass on a morph
+                // pass that never ran.
+                const MorphTargetComponent& morph = m_Cranium.GetComponent<MorphTargetComponent>();
+                ASSERT_TRUE(morph.HasAppliedSurface)
+                    << "the morph pass never decided a surface for the cranium, so nothing below is measuring an "
+                       "expression";
+                EXPECT_GT(SkinExpressionDetailWeight(morph.AppliedWeights), 0.0f)
+                    << "the applied morph weights produce an expression detail weight of zero, so #1243's "
+                       "expression-driven detail is inert on this subject no matter what the frame looks like";
+
+                // SAME geometry, same pose, same light — the ONLY difference is
+                // whether the profile lets the expression reach the pore band.
+                const Difference shadingMoved = Diff(expressed, expressedGainless);
+                // Beyond the NEUTRAL arm's peak, not merely beyond the floor: the
+                // profile-swap rims above reach 24/255 on their own, so a bare
+                // floor test would pass with the expression never reaching the
+                // shading at all.
+                EXPECT_GT(shadingMoved.MaxDelta, neutralGainMoved.MaxDelta + threshold)
+                    << pathName << "/" << angle.Name << ": at a full expression, the profile's ExpressionDetailGain ("
+                    << kExpressionDetailGain << " against 0) changed the frame by at most " << shadingMoved.MaxDelta
+                    << "/255 against " << neutralGainMoved.MaxDelta << "/255 at a neutral face and a repeat floor of "
+                    << floor.MaxDelta << "/255. The pose and the geometry are identical between these two captures, so the "
+                                         "expression is not reaching the SHADING of a morph-only entity — the gap issue #1395 "
+                                         "closed, reopened.";
+                // 20x, where 330x is measured: at a neutral face the gain has no
+                // expression weight to scale, so almost all of its effect must
+                // appear only once the face moves.
+                EXPECT_GT(shadingMoved.MeanAbsDelta, 20.0 * neutralGainMoved.MeanAbsDelta)
+                    << pathName << "/" << angle.Name << ": the gain moved the frame by " << shadingMoved.MeanAbsDelta
+                    << "/255 mean at a full expression and by " << neutralGainMoved.MeanAbsDelta
+                    << "/255 at a neutral one. The expression is what the gain scales, so the first must dwarf the "
+                       "second — if it does not, the gain is reaching the shading by some route other than the "
+                       "expression.";
+                std::printf("[SkinDigitalHuman] %s/%s: gain %.1f vs 0 at full expression: %llu px differ, max "
+                            "%u/255, mean %.3f/255 (neutral: max %u/255, mean %.3f/255; floor max %u/255)\n",
+                            pathName.c_str(), angle.Name, static_cast<double>(kExpressionDetailGain),
+                            static_cast<unsigned long long>(shadingMoved.ChangedPixels), shadingMoved.MaxDelta,
+                            shadingMoved.MeanAbsDelta, neutralGainMoved.MaxDelta, neutralGainMoved.MeanAbsDelta,
+                            floor.MaxDelta);
+            }
+
+            // The morph moved the geometry too — the half nobody doubted, kept
+            // so the file still says the subject is animated on every path.
+            SetAngle(kAngles[1]);
+            Capture expressedAgain;
+            ASSERT_TRUE(CaptureFrame(path, std::string(), expressedAgain, MaterialDebugView::None,
+                                     kMorphSettleFrames));
+            const Difference geometryMoved = Diff(neutral, expressedAgain);
+            EXPECT_GT(geometryMoved.MaxDelta, floor.MaxDelta * 3u)
+                << pathName << ": the expression changed the frame by no more than the repeat floor ("
+                << floor.MaxDelta << "/255), so the morph is not reaching the render at all";
+        }
 
         // Put the subject back, so a later test in this fixture does not
-        // inherit the control's profile or a latched expression weight.
+        // inherit the control's profile or a held expression.
         craniumMaterial.SetSkinProfileHandle(m_ToneProfiles[0]);
-        craniumMaterial.SetSkinExpressionDetail(0.0f);
+        SetExpression(0.0f);
+    }
+
+    // The expression is stamped on the DRAW's material, never on the GPU Scene
+    // record (issue #1395, and the rule #1243 set for the skinned paths). The
+    // record is keyed per material, not per face: a record that carried the
+    // expression would be re-uploaded — or, on an incompatible edit, have its
+    // generation advanced and every instance naming it staled — on every frame
+    // a face is animating.
+    //
+    // WHAT THIS CAN AND CANNOT CATCH, stated plainly. Today GPUSceneMaterial has
+    // no lane for the expression weight at all, so stamping the staged material
+    // would not change a byte of the record. What this pins is the observable
+    // contract — handle, generation, bytes and dirty ranges all hold still while
+    // the face moves — so that a record lane added later, fed from the stamped
+    // material, fails here rather than as a per-frame upload nobody measures.
+    TEST_F(SkinDigitalHumanScene, TheExpressionDoesNotMoveTheGpuSceneMaterialRecord)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        AttachPoreNormalMap();
+        const auto& craniumMaterial = m_Cranium.GetComponent<MaterialComponent>().m_Material;
+        const GPUSceneMaterialKey key = Renderer3D::ResolveGPUSceneMaterialKey(
+            &craniumMaterial, static_cast<u64>(m_Cranium.GetComponent<IDComponent>().ID),
+            m_Cranium.GetComponent<MeshComponent>().m_MeshSource, 0u);
+
+        auto slotIsDirty = [](const GPUSceneFrameUpdate& update, u32 slot)
+        {
+            return std::ranges::any_of(update.m_MaterialDirtyRanges, [slot](const GPUSceneDirtyRange& range)
+                                       { return slot >= range.m_FirstIndex && slot - range.m_FirstIndex < range.m_Count; });
+        };
+
+        for (const RenderingPath path : kPaths)
+        {
+            SCOPED_TRACE(PathName(path));
+
+            // Settle at neutral: a path switch rebuilds the graph and may
+            // re-upload everything, which is not what is under test.
+            SetExpression(0.0f);
+            Capture settle;
+            ASSERT_TRUE(CaptureFrame(path, std::string(), settle, MaterialDebugView::None, 4));
+
+            const GPUScene& gpuScene = Renderer3D::GetGPUScene();
+            const GPUSceneHandle handle = gpuScene.FindMaterial(key);
+            ASSERT_TRUE(handle.IsValid()) << "the cranium's material was never staged into GPU Scene, so this "
+                                             "test would pass without looking at a record";
+            const GPUSceneMaterial* settled = gpuScene.GetMaterialRecord(handle);
+            ASSERT_NE(settled, nullptr);
+            const GPUSceneMaterial baseline = *settled;
+
+            // A held neutral face (the control: the record is quiet when nothing
+            // changes), then the expression coming on, moving and being held.
+            constexpr std::array<f32, 8> kWeights = { 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 0.5f, 1.0f, 1.0f };
+            for (sizet frame = 0; frame < kWeights.size(); ++frame)
+            {
+                SetExpression(kWeights[frame]);
+                RunFrames(1);
+
+                const GPUSceneHandle now = gpuScene.FindMaterial(key);
+                EXPECT_EQ(now, handle) << "frame " << frame << " (weight " << kWeights[frame]
+                                       << "): the cranium's material record moved slot or generation";
+                EXPECT_FALSE(slotIsDirty(gpuScene.GetLastFrameUpdate(), handle.m_Index))
+                    << "frame " << frame << " (weight " << kWeights[frame]
+                    << "): the cranium's material record was re-uploaded while only the expression changed";
+                if (const GPUSceneMaterial* record = gpuScene.GetMaterialRecord(now); record != nullptr)
+                {
+                    EXPECT_EQ(std::memcmp(record, &baseline, sizeof(GPUSceneMaterial)), 0)
+                        << "frame " << frame << " (weight " << kWeights[frame]
+                        << "): the cranium's material record changed while only the expression did";
+                }
+                else
+                {
+                    ADD_FAILURE() << "frame " << frame << ": the cranium's material record vanished";
+                }
+            }
+
+            // The frames above WERE expressive — otherwise the record held still
+            // because nothing was ever stamped.
+            EXPECT_GT(SkinExpressionDetailWeight(m_Cranium.GetComponent<MorphTargetComponent>().AppliedWeights), 0.0f)
+                << "the expression never reached AppliedWeights, so the stamp was never live in these frames";
+        }
+
+        SetExpression(0.0f);
     }
 
     // =========================================================================

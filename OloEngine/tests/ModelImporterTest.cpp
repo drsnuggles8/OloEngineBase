@@ -23,6 +23,7 @@
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Animation/AnimationClip.h"
 #include "OloEngine/Animation/Skeleton.h"
+#include "OloEngine/Animation/MorphTargets/MorphTargetSet.h"
 #include "OloEngine/Renderer/AnimatedModel.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/MeshSource.h"
@@ -328,4 +329,60 @@ TEST(ModelImporterTest, DeserializeLeavesTheGeneratedLODGroupAlone)
 
     ASSERT_TRUE(entity.HasComponent<LODGroupComponent>());
     EXPECT_EQ(entity.GetComponent<LODGroupComponent>().m_LODGroup.Levels.Num(), 1u);
+}
+
+// A MORPH-ONLY source -- morph targets, no bones, no clips -- is an animated
+// model (issue #1439). It gets the morph weights, and the animation state that
+// records its source file so a saved scene can re-import it, and NO skeleton,
+// so the rigid draw path owns it.
+TEST(ModelImporterTest, MorphOnlySourceGetsMorphWeightsAndNoSkeleton)
+{
+    auto scene = Ref<Scene>::Create();
+    Entity entity = scene->CreateEntity("Face");
+
+    auto mesh = Ref<MeshSource>::Create();
+    auto targets = Ref<MorphTargetSet>::Create();
+    ASSERT_TRUE(targets->AddTarget(MorphTarget("Smile", 3)));
+    mesh->SetMorphTargets(targets);
+    ASSERT_TRUE(mesh->HasMorphTargets());
+
+    ModelImportResult result = ModelImporter::PopulateAnimatedEntityFromParts(
+        entity, mesh, /*skeleton=*/nullptr, /*clips=*/{}, /*material=*/nullptr, "models/Face.gltf");
+
+    EXPECT_TRUE(result.IsAnimated) << "a morph source is deformed every frame; the auto LOD chain would drop it";
+    EXPECT_TRUE(result.AddedMorphTargetComponent);
+    EXPECT_TRUE(result.AddedAnimationStateComponent);
+    EXPECT_FALSE(result.AddedSkeletonComponent);
+    EXPECT_TRUE(result.AddedAnyComponent());
+
+    EXPECT_TRUE(entity.HasComponent<MorphTargetComponent>());
+    EXPECT_FALSE(entity.HasComponent<SkeletonComponent>());
+    ASSERT_TRUE(entity.HasComponent<AnimationStateComponent>());
+    const auto& anim = entity.GetComponent<AnimationStateComponent>();
+    EXPECT_EQ(anim.m_SourceFilePath, std::string("models/Face.gltf"));
+    EXPECT_TRUE(anim.m_AvailableClips.empty());
+    EXPECT_EQ(anim.m_CurrentClip, nullptr);
+}
+
+// The deserialize re-wire keeps the MorphTargetComponent that is already there
+// -- the scene reader fills the saved weights into it next -- rather than
+// adding a second one or resetting it.
+TEST(ModelImporterTest, MorphOnlyReimportKeepsTheExistingMorphWeights)
+{
+    auto scene = Ref<Scene>::Create();
+    Entity entity = scene->CreateEntity("Face");
+    entity.AddComponent<MorphTargetComponent>().SetWeight("Smile", 0.5f);
+
+    auto mesh = Ref<MeshSource>::Create();
+    auto targets = Ref<MorphTargetSet>::Create();
+    ASSERT_TRUE(targets->AddTarget(MorphTarget("Smile", 3)));
+    mesh->SetMorphTargets(targets);
+
+    ModelImportResult result = ModelImporter::PopulateAnimatedEntityFromParts(
+        entity, mesh, nullptr, {}, nullptr, "models/Face.gltf", /*resetPlaybackState=*/false);
+
+    EXPECT_FALSE(result.AddedMorphTargetComponent);
+    const auto& weights = entity.GetComponent<MorphTargetComponent>().Weights;
+    ASSERT_TRUE(weights.contains("Smile"));
+    EXPECT_FLOAT_EQ(weights.at("Smile"), 0.5f);
 }

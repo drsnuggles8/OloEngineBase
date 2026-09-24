@@ -3688,8 +3688,19 @@ namespace OloEngine
 
         if (auto skelComponent = entity["SkeletonComponent"]; skelComponent)
         {
-            // Only add if not already added by AnimationStateComponent deserialization
-            if (!deserializedEntity.HasComponent<SkeletonComponent>())
+            // Only add if not already added by AnimationStateComponent deserialization.
+            //
+            // And never when that component names a source file (issue #1439): the
+            // model is then the authority on whether a skeleton exists, and a
+            // bone-less model has none. Scenes saved while the importer still invented
+            // a one-bone skeleton carry this key for a morph-only face; re-adding an
+            // EMPTY SkeletonComponent here would hide the entity from the rigid draw
+            // loop (which skips anything with a skeleton) while the skinned loop has
+            // no palette to draw it with -- so it would vanish on load.
+            const bool modelDecidesSkeleton =
+                deserializedEntity.HasComponent<AnimationStateComponent>() &&
+                !deserializedEntity.GetComponent<AnimationStateComponent>().m_SourceFilePath.empty();
+            if (!deserializedEntity.HasComponent<SkeletonComponent>() && !modelDecidesSkeleton)
             {
                 deserializedEntity.AddComponent<SkeletonComponent>();
             }
@@ -3718,7 +3729,12 @@ namespace OloEngine
 
         if (auto morphComponent = entity["MorphTargetComponent"]; morphComponent)
         {
-            auto& morphComp = deserializedEntity.AddComponent<MorphTargetComponent>();
+            // Get-or-add: an AnimationStateComponent above may already have re-wired
+            // this entity from a morph-bearing source, which adds the component
+            // (issue #1439). The saved weights belong in that same component.
+            auto& morphComp = deserializedEntity.HasComponent<MorphTargetComponent>()
+                                  ? deserializedEntity.GetComponent<MorphTargetComponent>()
+                                  : deserializedEntity.AddComponent<MorphTargetComponent>();
             if (auto weightsNode = morphComponent["Weights"]; weightsNode && weightsNode.IsMap())
             {
                 for (auto it = weightsNode.begin(); it != weightsNode.end(); ++it)

@@ -8430,7 +8430,9 @@ namespace OloEngine
                                         // this surface's vertices, because EvaluateMorphTargets
                                         // writes them straight into the rest buffer. Null is
                                         // "no morph targets", which hashes to 0 and therefore never
-                                        // reports a change on its own.
+                                        // reports a change on its own. Also the source of the
+                                        // expression stamp on BOTH arms (issues #1243, #1395), so a
+                                        // rigid caller passes it too.
                                         const MorphTargetComponent* morph = nullptr)
     {
         if (!meshSource || meshSource->GetSubmeshes().IsEmpty())
@@ -8550,8 +8552,15 @@ namespace OloEngine
                 stableEntityId, meshSource, static_cast<u32>(i), worldTransform, overrideMaterial, importedMaterial,
                 meshSource->GetSubmeshes()[i].m_MaterialIndex, material, GPUSceneDrawLinkRequest::Link);
 
-            if (auto* packet = Renderer3D::DrawMesh(submesh, worldTransform, material, true, entityID, lodGroup,
-                                                    gpuSceneDrawLink);
+            // The expression stamp on the RIGID arm (issue #1395). A morph-only
+            // entity -- a blend-shape face with no skeleton -- is deformed by the
+            // morph pass and then drawn HERE, so stamping only the skinned arm
+            // left its expression reaching the geometry and never the shading.
+            // Same rule as the skinned arm: the draw's material only, never the
+            // record staged above.
+            const auto expressive = StampSkinExpression(material, morph);
+            if (auto* packet = Renderer3D::DrawMesh(submesh, worldTransform, expressive ? *expressive : material,
+                                                    true, entityID, lodGroup, gpuSceneDrawLink);
                 packet)
             {
                 // Baked lightmap region (issue #439): patch the draw's atlas
@@ -13574,8 +13583,12 @@ namespace OloEngine
 
                 // Draw each submesh with entity ID. Shared with the VirtualMeshComponent
                 // fallback path — see SubmitMeshSourceClassic.
+                // The morph component rides along for the expression stamp only
+                // (issue #1395): no palette, so this stays the rigid arm.
                 SubmitMeshSourceClassic(drawSource, worldTransform, overrideMaterial, entityID, stableEntityId, lodGroup,
-                                        meshHasActiveShadows, lightmapScaleOffset);
+                                        meshHasActiveShadows, lightmapScaleOffset, /*boneMatrices*/ {},
+                                        /*prevBoneMatrices*/ {}, /*skeleton*/ nullptr, /*animatedCensus*/ nullptr,
+                                        m_Registry.try_get<MorphTargetComponent>(entity));
             }
         }
 

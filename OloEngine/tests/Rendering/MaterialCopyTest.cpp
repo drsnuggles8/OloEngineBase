@@ -80,6 +80,10 @@ namespace
         // lost its kind would shade as a generic dielectric on one path only.
         m->SetMaterialKind(MaterialKind::Skin);
         m->SetSkinProfileHandle(0x1231'0000'0000'0007ull);
+        // The expression stamp (issues #1243, #1395). Every submission path
+        // stamps a COPY — StampSkinExpression returns one in a std::optional —
+        // so a copy that dropped it drew every face at a neutral expression.
+        m->SetSkinExpressionDetail(0.625f);
 
         // A representative uniform of each scalar kind, to guard the uniform maps.
         m->Set("u_TestFloat", 12.5f);
@@ -131,6 +135,7 @@ namespace
         // Issue #1231's material kind + skin profile.
         EXPECT_EQ(m.GetMaterialKind(), MaterialKind::Skin);
         EXPECT_EQ(static_cast<u64>(m.GetSkinProfileHandle()), 0x1231'0000'0000'0007ull);
+        EXPECT_FLOAT_EQ(m.GetSkinExpressionDetail(), 0.625f);
 
         EXPECT_FLOAT_EQ(m.GetFloat("u_TestFloat"), 12.5f);
         EXPECT_EQ(m.GetInt("u_TestInt"), 7);

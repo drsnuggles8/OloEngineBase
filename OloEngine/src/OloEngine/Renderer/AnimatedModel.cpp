@@ -719,12 +719,12 @@ namespace OloEngine
             {
                 MeshCache::SaveMeshToCache(sourcePath, *combined, kAnimCachePrefix);
             }
-            // Always write .oanim when skeleton exists (even if empty) so that
-            // IsAnimationCacheValid succeeds on re-load.
-            if (m_Skeleton || !m_Animations.IsEmpty())
-            {
-                MeshCache::SaveAnimationsToCache(sourcePath, GetAnimations());
-            }
+            // Always write the .oanim, even an empty one, so IsAnimationCacheValid
+            // succeeds on re-load. It used to be written only with a skeleton or
+            // clips; a bone-less model always had the invented skeleton then, and
+            // without it (issue #1439) a clip-less morph model would miss its
+            // animation cache and fully re-import on every warm load.
+            MeshCache::SaveAnimationsToCache(sourcePath, GetAnimations());
         }
 
         OLO_CORE_INFO("AnimatedModel::LoadModel: Successfully loaded animated model with {} meshes, {} animations",
@@ -1167,17 +1167,18 @@ namespace OloEngine
             }
         }
 
+        // No bones, no skeleton (issue #1439). This used to invent a one-bone
+        // "Root" skeleton, which every consumer then took at its word:
+        // PopulateAnimatedEntity added a SkeletonComponent, the entity was drawn by
+        // the SKINNED path, and a morph-only face -- a blend-shape rig with no bones
+        // -- could not be built in the editor at all. The invented skeleton also had
+        // no bind-pose locals, so writing it to the .omesh logged an error on every
+        // import. A null skeleton is the honest answer, and every reader of
+        // m_Skeleton in this file already guards for it.
         if (uniqueBoneNames.empty())
         {
-            OLO_CORE_INFO("AnimatedModel::ProcessSkeleton: No bones found, creating default skeleton");
-            m_Skeleton = Ref<Skeleton>::Create(1);
-            m_Skeleton->m_BoneNames = { "Root" };
-            m_Skeleton->m_ParentIndices = { -1 };
-            m_Skeleton->m_LocalTransforms = { glm::mat4(1.0f) };
-            m_Skeleton->m_GlobalTransforms = { glm::mat4(1.0f) };
-            m_Skeleton->m_FinalBoneMatrices = { glm::mat4(1.0f) };
-            m_Skeleton->m_BindPoseMatrices = { glm::mat4(1.0f) };
-            m_Skeleton->m_InverseBindPoses = { glm::mat4(1.0f) };
+            OLO_CORE_INFO("AnimatedModel::ProcessSkeleton: No bones found, so no skeleton");
+            m_Skeleton = nullptr;
             return;
         }
 
