@@ -8180,9 +8180,11 @@ TEST_F(VulkanPassSuite, GroomStrandCoatCoversPixelsUnderTheVulkanClipConvention)
 //   * the rest stream's repurposed lanes (root slot, other parameter, end) are
 //     PULLED at the same 16-float stride, so a stride or offset slip draws a
 //     coat that is nothing like the CPU one;
-//   * the SECOND frame refills the buffer in place, with the previous frame's
-//     draw possibly still in flight — the case a command-ordered write exists
-//     for. The first frame of a pass is a build, not a refill.
+//   * the SECOND frame refills the cached buffer in place — a refill, not a
+//     build. SubmitFrame waits on the frame's fence before it returns, so the
+//     first frame's draw has COMPLETED by then: this does not cover a refill
+//     while a previous draw is still in flight. The first frame of a pass is
+//     a build, not a refill.
 //
 // THE CONTRACT: the GPU frame and the CPU frame of the same bent pose are the
 // same picture, and both differ from the unbound coat by far more than they

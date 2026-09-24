@@ -891,11 +891,23 @@ namespace OloEngine::Tests
                 return;
             }
             SetBodyPose(55.0f);
+
+            // The negative control, as in the per-path case: the unbound coat
+            // on the same bent body. Two arms that both drew the bind pose
+            // would otherwise "match".
+            SetBindingEnabled(false);
+            std::vector<u8> unbound;
+            Capture("", eye, 0.0f, 0.10f, unbound);
             SetBindingEnabled(true);
 
             settings.GroomGpuDeformation = false;
             std::vector<u8> cpu;
             Capture(std::string("GroomGpuDeformationOff_GL_Forward_") + kind.Name, eye, 0.0f, 0.10f, cpu);
+            if (::testing::Test::HasFatalFailure())
+            {
+                return;
+            }
+            const GroomRenderStats cpuStats = PassStats();
             settings.GroomGpuDeformation = true;
             std::vector<u8> gpu;
             Capture(std::string("GroomGpuDeformation_GL_Forward_") + kind.Name, eye, 0.0f, 0.10f, gpu);
@@ -905,9 +917,15 @@ namespace OloEngine::Tests
             }
             const GroomRenderStats stats = PassStats();
             const u32 differing = CountDifferingPixels(gpu, cpu);
-            std::printf("[groom-gpu-deformation] coat %-10s gpu-vs-cpu %u px\n", kind.Name, differing);
+            const u32 moved = CountDifferingPixels(gpu, unbound);
+            std::printf("[groom-gpu-deformation] coat %-10s gpu-vs-cpu %u px, gpu-vs-unbound %u px\n", kind.Name,
+                        differing, moved);
+            // Each arm took the path it was asked for.
+            EXPECT_EQ(cpuStats.GroomsDeformed, 1u) << kind.Name;
+            EXPECT_EQ(cpuStats.GroomsGpuDeformed, 0u) << kind.Name << ": the reference frame was GPU-deformed";
             EXPECT_EQ(stats.GroomsGpuDeformed, 1u) << kind.Name;
             EXPECT_GT(MeanLuminance(gpu), 0.02) << kind.Name;
+            EXPECT_GT(moved, 1000u) << kind.Name << ": the bent body did not move the GPU-deformed coat";
             EXPECT_LT(differing, 64u) << kind.Name << ": the GPU-deformed coat is not the CPU-deformed coat";
         }
     }

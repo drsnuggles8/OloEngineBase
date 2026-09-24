@@ -487,8 +487,12 @@ TEST(GroomGpuDeformation, AnUnusableSimulationLeavesTheCoatOnItsBoundRestShape)
     EXPECT_FALSE(frame.Simulated);
     EXPECT_EQ(frame.StrandsSimulated, 0u);
 
+    // THROUGH BOTH PATHS WITH THE UNUSABLE VIEW, not with no simulation: the
+    // CPU build must refuse it and the pack must refuse it, and then every
+    // corner must still agree bit for bit — which it can only do if neither
+    // path applied any of it.
     EXPECT_GT(ExpectPathsAgree(GroomBuildSource::FromAsset(*scene.Groom), GroomStrandBuildSettings{}, *scene.Binding,
-                               transforms, nullptr),
+                               transforms, &view),
               0u);
 }
 
