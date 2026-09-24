@@ -395,7 +395,7 @@ namespace OloEngine
       private:
         void CreateBuffer(const void* initialData);
         void ReleaseBuffer();
-        void WriteCommandOrdered(const VertexData& data);
+        [[nodiscard]] bool WriteCommandOrdered(const VertexData& data);
 
         BufferLayout m_Layout;
         u32 m_Size = 0;
@@ -414,6 +414,11 @@ namespace OloEngine
         bool m_InitialUploadDone = false; ///< CreateBuffer's own upload is not a rewrite.
         bool m_HadInitialData = false;
         bool m_CommandOrdered = false; ///< See IsCommandOrdered (#1446).
+        ///< The last command-ordered write was refused (staging, worker, submit).
+        ///< The persistent bytes are then stale at a VALID address, which no
+        ///< draw-time check can see, so GetPullAddress returns 0 and root assembly
+        ///< drops the draw until a write lands. Atomic: read by recording workers.
+        std::atomic<bool> m_OrderedWriteFailed{ false };
         mutable std::atomic<u64> m_PersistentDrawGeneration{ 0 };
         ///< (region << 32 | item) of the region's first RecordParallel writer — a streamed
         ///< stream is a written object like any other, and rule 6 applies to it.

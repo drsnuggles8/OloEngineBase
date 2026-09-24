@@ -520,6 +520,12 @@ namespace OloEngine
         void* AllocatePersistentUploadStorage(RHI::ResourceHandle buffer, u64 sizeBytes) override;
         void UnmapBuffer(RHI::ResourceHandle buffer) override;
         void UploadBufferSubData(RHI::ResourceHandle buffer, u64 offsetBytes, u64 sizeBytes, const void* data) override;
+        // UploadBufferSubData, reporting whether the write was recorded (or,
+        // outside a recording, submitted). A caller that DRAWS from the
+        // destination needs the answer: a refused write leaves stale bytes at a
+        // valid address, which no draw-time guard can tell apart (#1446).
+        [[nodiscard]] bool TryUploadBufferSubData(RHI::ResourceHandle buffer, u64 offsetBytes, u64 sizeBytes,
+                                                  const void* data);
         void ReadBufferSubData(RHI::ResourceHandle buffer, u64 offsetBytes, u64 sizeBytes, void* dest) override;
         void CopyBufferSubData(RHI::ResourceHandle srcBuffer, RHI::ResourceHandle dstBuffer, u64 srcOffsetBytes, u64 dstOffsetBytes, u64 sizeBytes) override;
         void ClearBufferUInt(RHI::ResourceHandle buffer, u32 value, u64 offset = 0, u64 size = ~0ull) override;

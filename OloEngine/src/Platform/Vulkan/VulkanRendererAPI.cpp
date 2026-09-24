@@ -5368,13 +5368,18 @@ namespace OloEngine
 
     void VulkanRendererAPI::UploadBufferSubData(RHI::ResourceHandle buffer, u64 offsetBytes, u64 sizeBytes, const void* data)
     {
+        (void)TryUploadBufferSubData(buffer, offsetBytes, sizeBytes, data);
+    }
+
+    bool VulkanRendererAPI::TryUploadBufferSubData(RHI::ResourceHandle buffer, u64 offsetBytes, u64 sizeBytes, const void* data)
+    {
         if (RefuseOnWorker("UploadBufferSubData"))
         {
-            return;
+            return false;
         }
         if (sizeBytes == 0u || data == nullptr)
         {
-            return; // glNamedBufferSubData's degenerate call, which GL ignores
+            return true; // glNamedBufferSubData's degenerate call, which GL ignores: nothing to write
         }
         // #1052. GL's glNamedBufferSubData is ordered against everything the
         // frame already issued, so this stages into a transfer-source buffer
@@ -5391,7 +5396,7 @@ namespace OloEngine
         if (native == 0u)
         {
             UnimplementedStub("UploadBufferSubData(unresolvable buffer)", StubKind::PreconditionFailure);
-            return;
+            return false;
         }
         const auto dst = reinterpret_cast<VkBuffer>(native);
 
@@ -5407,7 +5412,7 @@ namespace OloEngine
             OLO_CORE_WARN("[RHI/Vulkan] UploadBufferSubData: out-of-range write ({}+{} of {}) — dropped", offsetBytes,
                           sizeBytes, rawDst->Size);
             UnimplementedStub("UploadBufferSubData(out-of-range)", StubKind::PreconditionFailure);
-            return;
+            return false;
         }
 
         // A VulkanStorageBuffer serves DRAWS from a frame-arena SNAPSHOT when a
@@ -5425,7 +5430,7 @@ namespace OloEngine
         if (device == nullptr)
         {
             OLO_CORE_ERROR("[RHI/Vulkan] UploadBufferSubData with no live VulkanDevice — ignored");
-            return;
+            return false;
         }
 
         if (ctx.Cmd == VK_NULL_HANDLE)
@@ -5433,8 +5438,7 @@ namespace OloEngine
             // No recording bracket (load-time seeding, headless fixtures): the
             // blocking one-shot, which owns its own staging and the
             // availability barrier every later submission needs.
-            VulkanOneShot::UploadToBuffer(dst, offsetBytes, data, sizeBytes, "VulkanRendererAPI::UploadBufferSubData");
-            return;
+            return VulkanOneShot::UploadToBuffer(dst, offsetBytes, data, sizeBytes, "VulkanRendererAPI::UploadBufferSubData");
         }
 
         VkBufferCreateInfo stagingInfo{};
@@ -5452,7 +5456,7 @@ namespace OloEngine
                             &stagingOut) != VK_SUCCESS)
         {
             OLO_CORE_ERROR("[RHI/Vulkan] UploadBufferSubData: staging allocation failed ({} bytes)", sizeBytes);
-            return;
+            return false;
         }
         std::memcpy(stagingOut.pMappedData, data, sizeBytes);
         vmaFlushAllocation(device->GetAllocator(), stagingAllocation, 0, sizeBytes);
@@ -5497,7 +5501,7 @@ namespace OloEngine
             UnimplementedStub("UploadBufferSubData(destination has no device address)",
                               StubKind::PreconditionFailure);
             VulkanDeferredReclaim::Get().Enqueue(staging, stagingAllocation);
-            return;
+            return false;
         }
         VulkanAddressCommands::CmdCopyRange(ctx.Cmd, stagingAddress,
                                             VulkanAddressCommands::StorageUsage::Absent, dstAddress + offsetBytes,
@@ -5510,6 +5514,7 @@ namespace OloEngine
         // The copy is consumed when the FRAME submits, so the staging buffer
         // must outlive this call (the UploadTextureSubImage2D discipline).
         VulkanDeferredReclaim::Get().Enqueue(staging, stagingAllocation);
+        return true;
     }
 
     void VulkanRendererAPI::ReadBufferSubData(RHI::ResourceHandle buffer, u64 offsetBytes, u64 sizeBytes, void* dest)

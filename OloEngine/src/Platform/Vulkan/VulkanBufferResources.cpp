@@ -757,7 +757,14 @@ namespace OloEngine
         }
         if (m_CommandOrdered)
         {
-            WriteCommandOrdered(data);
+            const bool written = WriteCommandOrdered(data);
+            if (!written && !m_OrderedWriteFailed.load(std::memory_order_relaxed))
+            {
+                OLO_CORE_ERROR("[RHI/Vulkan] vertex stream {:#x}: an ordered {}-byte write was refused — its draws "
+                               "are dropped until a write lands, rather than drawn from stale bytes (#1446)",
+                               m_DeviceAddress, data.size);
+            }
+            m_OrderedWriteFailed.store(!written, std::memory_order_relaxed);
             return;
         }
 
@@ -837,7 +844,7 @@ namespace OloEngine
         return VulkanFrameArena::Get().GetSlotCapacityBytes() / 2u;
     }
 
-    void VulkanVertexBuffer::WriteCommandOrdered(const VertexData& data)
+    bool VulkanVertexBuffer::WriteCommandOrdered(const VertexData& data)
     {
         // Inside a recording: a staged copy in the frame command buffer, the
         // GL-ordered write UploadBufferSubData exists for. Never the mapped
@@ -854,19 +861,24 @@ namespace OloEngine
                                "was written from a parallel-recording worker, which cannot record its ordered "
                                "copy — the write is dropped (#1446)",
                                m_DeviceAddress, data.size);
-                return;
+                return false;
             }
-            vk->UploadBufferSubData(m_RHIHandle.Get(), 0u, data.size, data.data);
-            return;
+            return vk->TryUploadBufferSubData(m_RHIHandle.Get(), 0u, data.size, data.data);
         }
         // No recording bracket: the blocking one-shot, ordered after every
         // earlier submission on its queue — the same fallback
         // UploadBufferSubData takes.
-        VulkanOneShot::UploadToBuffer(m_Buffer, 0, data.data, data.size, "VulkanVertexBuffer::SetData (ordered)");
+        return VulkanOneShot::UploadToBuffer(m_Buffer, 0, data.data, data.size, "VulkanVertexBuffer::SetData (ordered)");
     }
 
     VkDeviceAddress VulkanVertexBuffer::GetPullAddress() const
     {
+        // A refused ordered write leaves stale bytes at a valid address; 0 makes
+        // root assembly drop and count the draw, as it does for an arena refusal.
+        if (m_CommandOrdered && m_OrderedWriteFailed.load(std::memory_order_relaxed))
+        {
+            return 0;
+        }
         if (!m_Streamed)
         {
             m_PersistentDrawGeneration.store(VulkanFrameArena::Get().GetFrameGeneration(), std::memory_order_relaxed);
