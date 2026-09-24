@@ -173,12 +173,24 @@ namespace OloEngine::Tests::StateMachine
             }
         }
 
+        // A read that fails drops what an EARLIER pass's read left for this
+        // target: "the last read wins", and a stale earlier read standing in for
+        // it would compare different passes' content between two executions, or
+        // miss a difference both of them made after it. Dropped, the target is
+        // reported as captured in one execution only, or skipped in both.
+        void DropTarget(CaptureSession& session, const std::string& name, std::string why)
+        {
+            std::erase_if(session.Targets, [&name](const TargetCapture& target)
+                          { return target.Name == name; });
+            session.WhyNot[name] = std::move(why);
+        }
+
         void ReadTarget(CaptureSession& session, RenderGraph& graph, const std::string& name, std::string_view pass)
         {
             const u32 texture = graph.ResolveTexture(graph.GetTextureHandle(name));
             if (texture == 0u)
             {
-                session.WhyNot[name] = "resolves to no texture after " + std::string(pass);
+                DropTarget(session, name, "resolves to no texture after " + std::string(pass));
                 return;
             }
             GLint width = 0;
@@ -191,8 +203,9 @@ namespace OloEngine::Tests::StateMachine
             ::glGetTextureLevelParameteriv(texture, 0, GL_TEXTURE_INTERNAL_FORMAT, &internalFormat);
             if (width <= 0 || height <= 0 || samples > 0 || !IsReadableColorFormat(internalFormat))
             {
-                session.WhyNot[name] = std::to_string(width) + "x" + std::to_string(height) + ", " +
-                                       std::to_string(samples) + " samples, format " + std::to_string(internalFormat);
+                DropTarget(session, name,
+                           std::to_string(width) + "x" + std::to_string(height) + ", " + std::to_string(samples) +
+                               " samples, format " + std::to_string(internalFormat) + " after " + std::string(pass));
                 return;
             }
             auto it = std::ranges::find(session.Targets, name, &TargetCapture::Name);

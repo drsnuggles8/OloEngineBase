@@ -15,8 +15,10 @@ renders the same state through each pair that has an MCP lever:
 
 and at the end compares the sequence-reached frame with the same configuration
 reached directly from a freshly reopened scene. Each comparison is held against
-a same-state control pair (two consecutive frames), so a live frame's own noise
-is measured, not assumed: a difference counts only above twice the control.
+a same-state control measured around that comparison (two consecutive frames,
+and the frames before and after the lever flip), so a live frame's own noise is
+measured, not assumed: a difference counts only above twice the control. Each
+flip restores the value it replaced, even when a capture fails.
 
 Operations with no MCP lever (entity-churn, fence-drain, frames-in-flight,
 scene-swap, pool-trim) are reported as NOT APPLIED rather than skipped quietly.
@@ -113,6 +115,16 @@ def parse_trace(path):
     return initial, ops
 
 
+def payload(result):
+    """A tool call's JSON reply: structuredContent, or the first text block."""
+    if isinstance(result.get("structuredContent"), dict):
+        return result["structuredContent"]
+    for block in result.get("content", []):
+        if block.get("type") == "text":
+            return json.loads(block["text"])
+    raise RuntimeError("tool reply carries no JSON payload")
+
+
 def differing(a, b):
     if a.shape != b.shape:
         return a.shape[0] * a.shape[1], 255
@@ -181,38 +193,64 @@ class Session:
         elif kind == "camera-move":
             cfg["pose"] = args[0]
             self.pose(int(args[0]))
+        else:
+            # A new op kind in the generator must be taught to this script; applying
+            # nothing and reporting it applied would compare the wrong sequence.
+            raise ValueError("%s: unknown operation %r" % (self.scene, " ".join(op)))
         return True
 
-    def pair(self, name, where, control, flip, unflip):
-        flip()
-        self.mcp.settle(2)
-        b = self.mcp.frame()
-        unflip()
-        self.mcp.settle(2)
-        ctrl_px, _ = differing(control[0], control[1])
-        px, mx = differing(control[1], b)
+    def pair(self, name, where, flip):
+        """Render `a`, flip the lever, render `b`, restore it, render `c`.
+
+        The control is measured around THIS pair, not once per checkpoint: two
+        adjacent frames, and `a` against `c`, which spans exactly the frames the
+        comparison spans. A target still converging from an earlier pair's frames
+        then counts against the control, not against the lever.
+        """
+        m = self.mcp
+        a0 = m.frame()
+        a = m.frame()
+        restore = flip()
+        try:
+            m.settle(2)
+            b = m.frame()
+        finally:
+            restore()
+        m.settle(2)
+        c = m.frame()
+        ctrl_px = max(differing(a0, a)[0], differing(a, c)[0])
+        px, mx = differing(a, b)
         held = px <= 2 * ctrl_px
         self.results.append((name, where, held, px, mx, ctrl_px))
         print("  %-18s %s  %6d px differ (max %3d), control %d" % (name, "held  " if held else "FAILED", px, mx, ctrl_px))
 
+    def flip_cvar(self, name, value):
+        """A flip that sets cvar `name` and returns how to put back what it replaced."""
+        def flip():
+            reply = payload(self.mcp.call("olo_cvar_set", {"name": name, "value": value}))
+            if not reply.get("changed", True):
+                raise RuntimeError("%s was already %s: the pair would compare a state with itself" % (name, value))
+            previous = reply["restoreWith"]
+            return lambda: self.mcp.call("olo_cvar_set", {"name": name, "value": previous})
+        return flip
+
+    def flip_aliasing(self):
+        def flip():
+            reply = payload(self.mcp.call("olo_render_debug_set", {"disableAliasing": True}))
+            if not reply.get("changed", True):
+                raise RuntimeError("transient aliasing was already disabled: the pair would compare a state with itself")
+            previous = reply["restoreWith"]
+            return lambda: self.mcp.call("olo_render_debug_set", previous)
+        return flip
+
     def checkpoint(self, where):
-        m = self.mcp
-        m.settle(3)
-        control = (m.frame(), m.frame())
+        self.mcp.settle(3)
         print(" %s" % where)
         if self.backend == "vulkan":
-            self.pair("parallel-recording", where, control,
-                      lambda: m.call("olo_cvar_set", {"name": "OLO_VK_PARALLEL_RECORDING", "value": "off"}),
-                      lambda: m.call("olo_cvar_set", {"name": "OLO_VK_PARALLEL_RECORDING", "value": "unset"}))
-        self.pair("alias", where, control,
-                  lambda: m.call("olo_render_debug_set", {"disableAliasing": True}),
-                  lambda: m.call("olo_render_debug_set", {"disableAliasing": False}))
-        self.pair("serial-submission", where, control,
-                  lambda: m.call("olo_cvar_set", {"name": "OLO_RENDERER_SERIAL_MESH_SUBMISSION", "value": "on"}),
-                  lambda: m.call("olo_cvar_set", {"name": "OLO_RENDERER_SERIAL_MESH_SUBMISSION", "value": "off"}))
-        self.pair("cached-vs-rebuild", where, control,
-                  lambda: m.call("olo_cvar_set", {"name": "OLO_RG_VERIFY_DECLARATION_CACHE", "value": "on"}),
-                  lambda: m.call("olo_cvar_set", {"name": "OLO_RG_VERIFY_DECLARATION_CACHE", "value": "off"}))
+            self.pair("parallel-recording", where, self.flip_cvar("OLO_VK_PARALLEL_RECORDING", "off"))
+        self.pair("alias", where, self.flip_aliasing())
+        self.pair("serial-submission", where, self.flip_cvar("OLO_RENDERER_SERIAL_MESH_SUBMISSION", "on"))
+        self.pair("cached-vs-rebuild", where, self.flip_cvar("OLO_RG_VERIFY_DECLARATION_CACHE", "on"))
 
     def run(self, path):
         initial, ops = parse_trace(path)

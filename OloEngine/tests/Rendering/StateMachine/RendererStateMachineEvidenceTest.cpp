@@ -247,6 +247,9 @@ namespace OloEngine::Tests::StateMachine
             const FrameCapture first = CaptureFrame();
             const FrameCapture before = CaptureFrame();
             const std::vector<ControlFloor> controls = MeasureControls(first, before);
+            // Without the final image a comparison holds on whatever
+            // intermediates were read, and the row would count as executed.
+            ASSERT_FALSE(before.Composite.empty()) << "the pre-reload capture has no composite";
 
             for (const OpKind reload : { OpKind::ShaderReload, OpKind::SceneReload })
             {
@@ -254,6 +257,7 @@ namespace OloEngine::Tests::StateMachine
                 ApplyOp(op);
                 RenderFrames(3);
                 const FrameCapture after = CaptureFrame();
+                ASSERT_FALSE(after.Composite.empty()) << ToString(op) << ": the post-reload capture has no composite";
                 const Comparison comparison = CompareCaptures(before, after, controls);
                 Coverage::RecordComparison("fresh-vs-reloaded.gl", comparison.AnyDistributionFallback);
                 EXPECT_TRUE(comparison.Held) << ToString(op) << " changed the frame:\n"
@@ -315,6 +319,8 @@ namespace OloEngine::Tests::StateMachine
                 control.HistogramL1 = std::max(control.HistogramL1, it->HistogramL1);
             }
         }
+        ASSERT_FALSE(sequence.Composite.empty()) << "the sequence-reached capture has no composite";
+        ASSERT_FALSE(fresh.Composite.empty()) << "the directly configured capture has no composite";
         const Comparison comparison = CompareCaptures(sequence, fresh, controls);
         Coverage::RecordComparison("temporal-fresh-vs-sequence.gl", true);
         EXPECT_TRUE(comparison.Held) << "TAA beauty after the sequence and after a direct configure differ in "
