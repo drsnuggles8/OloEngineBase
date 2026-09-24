@@ -18,6 +18,12 @@ namespace OloEngine
         // instead of the backing capacity (InstanceBuffer).
         DynamicDrawExactUpload,
         DynamicCopy, // GPU writes, GPU reads (compute output)
+        // CPU rewrites megabytes every frame and draws read it in command
+        // order (a bound coat's deformation, #1427). Vulkan records each write
+        // as a staged transfer into the persistent buffer instead of taking a
+        // whole-buffer frame-arena snapshot, which a payload this size would
+        // overflow; GL streams it.
+        StreamCommandOrdered,
     };
 
     // @brief Shader Storage Buffer Object (SSBO) abstraction.
