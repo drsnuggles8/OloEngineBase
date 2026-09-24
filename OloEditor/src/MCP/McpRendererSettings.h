@@ -85,6 +85,7 @@ namespace OloEngine::MCP::RendererSettings
         RayTracedShadowSoftness, // LeverState::RayTracedShadowSoftness (RayTracedShadowSettings::LightAngularRadiusDegrees)
         DDGICascades,            // RendererSettings::DDGICascadesEnabled (issue #707)
         SceneTemporalResolve,    // RendererSettings::HonourSceneTemporalResolveRequests (issue #1429)
+        GroomDeformation,        // RendererSettings::GroomGpuDeformation (issue #1427)
     };
 
     // Live renderer state the perf-lever settings (#316) read/write. These are NOT
@@ -192,6 +193,9 @@ namespace OloEngine::MCP::RendererSettings
 
     inline constexpr i32 kSceneTemporalResolveIgnore = 0;
     inline constexpr i32 kSceneTemporalResolveHonour = 1;
+
+    inline constexpr i32 kGroomDeformationCpu = 0;
+    inline constexpr i32 kGroomDeformationGpu = 1;
 
     inline constexpr i32 kPerSampleLightingOff = 0;
     inline constexpr i32 kPerSampleLightingOn = 1;
@@ -311,6 +315,15 @@ namespace OloEngine::MCP::RendererSettings
           "it even with TAAEnabled unticked" },
     } };
 
+    inline constexpr std::array<EnumValue, 2> kGroomDeformationValues = { {
+        { "cpu", kGroomDeformationCpu,
+          "Every bound coat is rebuilt and re-uploaded on the CPU each frame — the pre-#1427 path, kept as the "
+          "reference. Hundreds of MB per coat per frame: expect the frame time to collapse on a herd" },
+        { "gpu", kGroomDeformationGpu,
+          "Default: a bound coat is deformed in the strand vertex shader from a stream built once and a small "
+          "per-frame buffer of root transforms and guide displacements" },
+    } };
+
     inline constexpr std::array<EnumValue, 2> kSoftShadowValues = { {
         { "pcf", kSoftShadowsPcf, "Fixed 3x3 hardware PCF (cheap, hard-edged shadows)" },
         { "pcss", kSoftShadowsPcss, "Percentage-Closer Soft Shadows (contact-hardening variable penumbra; expensive blocker search)" },
@@ -329,7 +342,7 @@ namespace OloEngine::MCP::RendererSettings
         std::string_view Description;
     };
 
-    inline constexpr std::array<SettingInfo, 15> kSettings = { {
+    inline constexpr std::array<SettingInfo, 16> kSettings = { {
         { "upscale", Setting::Upscale,
           "FSR1 spatial-upscale quality preset (PostProcess.Upscale). Off is native resolution; the other presets render "
           "below display resolution and EASU-upscale the HDR scene colour back to display res (#480)." },
@@ -392,6 +405,11 @@ namespace OloEngine::MCP::RendererSettings
           "HonourSceneTemporalResolveRequests, issue #1429). A scene holding a groom on StochasticAlpha asks for one "
           "every frame, because that mode's no-resolve fallback draws no sub-pixel hair. 'ignore' is the A/B lever: "
           "the coats go bald and the viewport shows the red BALD banner. Diagnostic only; not persisted." },
+        { "groomdeformation", Setting::GroomDeformation,
+          "Where a groom bound to an animating body is deformed (RendererSettings::GroomGpuDeformation, issue "
+          "#1427). 'gpu' is the shipped path; 'cpu' is the reference it replaced. The two must draw the same coat, "
+          "so an A/B screenshot pair from one pose is the check, and olo_groom_budget_stats shows the frame-time "
+          "difference. Diagnostic only; not persisted." },
     } };
 
     // Lowercase + drop every non-alphanumeric character so "Ultra Performance",
@@ -445,6 +463,8 @@ namespace OloEngine::MCP::RendererSettings
                 return kDDGICascadeValues;
             case Setting::SceneTemporalResolve:
                 return kSceneTemporalResolveValues;
+            case Setting::GroomDeformation:
+                return kGroomDeformationValues;
         }
         return {};
     }
@@ -667,6 +687,8 @@ namespace OloEngine::MCP::RendererSettings
                 return rs.DDGICascadesEnabled ? kDDGICascadesOn : kDDGICascadesOff;
             case Setting::SceneTemporalResolve:
                 return rs.HonourSceneTemporalResolveRequests ? kSceneTemporalResolveHonour : kSceneTemporalResolveIgnore;
+            case Setting::GroomDeformation:
+                return rs.GroomGpuDeformation ? kGroomDeformationGpu : kGroomDeformationCpu;
         }
         return 0;
     }
@@ -740,6 +762,12 @@ namespace OloEngine::MCP::RendererSettings
             case Setting::SceneTemporalResolve:
                 // Read at the next BeginScene; nothing to apply or rebuild.
                 rs.HonourSceneTemporalResolveRequests = value == kSceneTemporalResolveHonour;
+                break;
+            case Setting::GroomDeformation:
+                // Handed to GroomRenderPass every frame; the pass keys its cache
+                // on the path, so the flip rebuilds the coats rather than serving
+                // one path the other's stream.
+                rs.GroomGpuDeformation = value == kGroomDeformationGpu;
                 break;
             case Setting::VirtualShadowMaps:
                 lever.VirtualShadowMaps = value == kVirtualShadowMapsOn;

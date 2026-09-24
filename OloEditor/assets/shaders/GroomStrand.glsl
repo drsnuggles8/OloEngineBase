@@ -28,6 +28,7 @@
 #version 450 core
 
 #include "include/GroomStrandCommon.glsl"
+#include "include/GroomStrandDeform.glsl"
 
 #ifdef OLO_VULKAN
 // ADR 0011 §5: the Vulkan backend declares no vertex input state at all, so
@@ -105,6 +106,12 @@ layout(std140, binding = 7) uniform GroomStrandParams {
 	vec4 u_GroomCoatBoundsMin;     // xyz = volume min (object space), w = kappa
 	vec4 u_GroomCoatInvExtent;     // xyz = 1/(max-min), w = march step in world metres
 	ivec4 u_GroomCoatModes;        // x = effective CoatShadowMode, yzw unused
+	// GPU strand deformation (#1427). Mirrored lane for lane from
+	// UBOStructures::GroomStrandParamsUBO; include/GroomStrandDeform.glsl reads
+	// them. Mode 0 (the default every unbound groom draws with) means the
+	// stream is final and neither lane is read.
+	ivec4 u_GroomDeformModes;      // x = mode, y = simulated, z = roots, w = guide slots
+	ivec4 u_GroomDeformBases;      // x = root base, y = slot base, z = displacement base, w = displacements
 };
 
 layout(location = 0) out vec2 v_Coords;
@@ -139,8 +146,41 @@ void main()
 	vec3 a_PrevPosition = vec3(b_Vertices.v[base + 12], b_Vertices.v[base + 13], b_Vertices.v[base + 14]);
 #endif
 
-	vec4 worldCurr = u_GroomModel * vec4(a_Position, 1.0);
-	vec4 worldOther = u_GroomModel * vec4(a_Other, 1.0);
+	// The three object-space points everything below is built from. On a
+	// final stream (mode 0: every unbound groom, and the CPU-deformed
+	// reference path) they are the attributes, unchanged.
+	vec3 position = a_Position;
+	vec3 other = a_Other;
+	vec3 prevPosition = a_PrevPosition;
+	if (u_GroomDeformModes.x == 1)
+	{
+		// A BOUND coat, deformed here (#1427). The stream holds this corner's
+		// endpoint and the segment's other endpoint in the root's bind frame,
+		// and the lanes that are last frame's centreline on a final stream
+		// hold x = root slot, y = the other endpoint's parameter, z = 1 at P1.
+		// See GroomStrandVertex in GroomStrandMesh.h.
+		//
+		// Both endpoints are deformed, so `other` is re-derived exactly the
+		// way BuildGroomStrandMesh writes it: this point plus the segment's
+		// P1 - P0, the same for all four corners, so the quad is not a bowtie.
+		OloGroomDeformLayout deform = oloGroomDeformLayout(u_GroomDeformModes, u_GroomDeformBases);
+		uint root = uint(a_PrevPosition.x + 0.5);
+		float tSelf = a_Coords.x;
+		float tOther = a_PrevPosition.y;
+		bool atP1 = a_PrevPosition.z > 0.5;
+		vec3 self = oloGroomDeformPoint(deform, root, a_Position, tSelf, false);
+		vec3 otherEnd = oloGroomDeformPoint(deform, root, a_Other, tOther, false);
+		vec3 segmentDelta = atP1 ? (self - otherEnd) : (otherEnd - self);
+		position = self;
+		other = self + segmentDelta;
+		// Last frame's centreline point comes from last frame's root transform
+		// and last frame's guide displacements — never from this frame's
+		// position — so the velocity is the strand's own motion.
+		prevPosition = oloGroomDeformPoint(deform, root, a_Position, tSelf, true);
+	}
+
+	vec4 worldCurr = u_GroomModel * vec4(position, 1.0);
+	vec4 worldOther = u_GroomModel * vec4(other, 1.0);
 	vec4 clipCurr = u_ViewProjection * worldCurr;
 	vec4 clipOther = u_ViewProjection * worldOther;
 
@@ -205,13 +245,13 @@ void main()
 	// a_PrevPosition == a_Position, so this line reduces exactly to what it was
 	// before the binding existed.
 	v_ClipCurr = clipCurr;
-	v_ClipPrev = u_PrevViewProjection * (u_GroomPrevModel * vec4(a_PrevPosition, 1.0));
+	v_ClipPrev = u_PrevViewProjection * (u_GroomPrevModel * vec4(prevPosition, 1.0));
 
 	// A curve has no surface normal. The ribbon's is the best available
 	// answer for an SSAO consumer: perpendicular to the strand and facing the
 	// eye. Written rather than left undefined, because attachment 2 is SSAO's
 	// input and an unwritten MRT output is garbage, not zero.
-	vec3 segmentView = mat3(u_View) * (mat3(u_GroomModel) * (a_Other - a_Position));
+	vec3 segmentView = mat3(u_View) * (mat3(u_GroomModel) * (other - position));
 	// A zero-length segment (two coincident control points) is legal in a
 	// cooked groom, so the degenerate case picks an axis instead of
 	// normalising a zero vector into NaNs that would poison SSAO.
@@ -225,7 +265,7 @@ void main()
 	// fabrication (a curve has no normal). Same degenerate guard: two
 	// coincident control points are legal in a cooked groom, and normalising a
 	// zero vector would put a NaN into every lobe.
-	vec3 segmentWorld = mat3(u_GroomModel) * (a_Other - a_Position);
+	vec3 segmentWorld = mat3(u_GroomModel) * (other - position);
 	v_WorldTangent = length(segmentWorld) > 1e-8 ? normalize(segmentWorld) : vec3(1.0, 0.0, 0.0);
 
 	v_WorldPos = worldCurr.xyz;
@@ -355,6 +395,12 @@ layout(std140, binding = 7) uniform GroomStrandParams {
 	vec4 u_GroomCoatBoundsMin;     // xyz = volume min (object space), w = kappa
 	vec4 u_GroomCoatInvExtent;     // xyz = 1/(max-min), w = march step in world metres
 	ivec4 u_GroomCoatModes;        // x = effective CoatShadowMode, yzw unused
+	// GPU strand deformation (#1427). Mirrored lane for lane from
+	// UBOStructures::GroomStrandParamsUBO; include/GroomStrandDeform.glsl reads
+	// them. Mode 0 (the default every unbound groom draws with) means the
+	// stream is final and neither lane is read.
+	ivec4 u_GroomDeformModes;      // x = mode, y = simulated, z = roots, w = guide slots
+	ivec4 u_GroomDeformBases;      // x = root base, y = slot base, z = displacement base, w = displacements
 };
 
 vec2 octEncode(vec3 n)

@@ -2248,7 +2248,7 @@ namespace OloEngine::Tests
         report += "# Release test binary, 1280x720, Forward, TAA on. GroomPass GPU ms is the mean of VALID samples\n";
         report += "# (GPUPassTimerPool, #1337) over 20 frames. Cache MiB is the strand geometry the pass holds.\n";
         report += "# The 1200-unit budget also constrains three animals when scheduling is on; off is full density.\n";
-        report += "herd  scheduler  groomsDrawn  strandsDrawn  guidesSimulated  cacheMiB  groomPassMs  validSamples  wallMsPerFrame\n";
+        report += "herd  scheduler  groomsDrawn  strandsDrawn  guidesSimulated  cacheMiB  groomPassMs  validSamples  wallMsPerFrame  cpuBuildMs  uploadMiB\n";
 
         std::vector<Entity> herd;
         u32 strandsOffAt9 = 0;
@@ -2289,10 +2289,17 @@ namespace OloEngine::Tests
 
                 f64 gpuSum = 0.0;
                 u32 gpuValid = 0;
+                // #1427: where a bound coat's frame goes, split into the CPU
+                // work that prepares its geometry and the bytes that work
+                // sends to the GPU. Summed per frame, reported as a mean.
+                f64 buildMsSum = 0.0;
+                f64 uploadMiBSum = 0.0;
                 const auto t0 = std::chrono::steady_clock::now();
                 for (u32 f = 0; f < 20; ++f)
                 {
                     RunFrames(1, 1.0f / 60.0f); // runtime: the herd moves and is simulated
+                    buildMsSum += static_cast<f64>(PassStats().DeformedBuildMicroseconds) / 1000.0;
+                    uploadMiBSum += static_cast<f64>(PassStats().DeformedUploadBytes) / (1024.0 * 1024.0);
                     for (const auto& timing : GPUPassTimerPool::GetInstance().GetLastFrameTimings().Passes)
                     {
                         if (timing.Name == "GroomPass" && timing.IsValid())
@@ -2318,10 +2325,11 @@ namespace OloEngine::Tests
                     (scheduler ? heroOn : heroOff) = hero->Build;
                 }
                 char row[256];
-                std::snprintf(row, sizeof(row), "%4u  %9s  %11u  %12u  %15u  %8.1f  %11.3f  %12u  %14.1f\n", extra + 3u,
-                              scheduler ? "on" : "off", st.GroomsDrawn, st.StrandsDrawn, st.GuidesSimulated,
-                              static_cast<f64>(st.CachedBytes) / (1024.0 * 1024.0),
-                              gpuValid > 0 ? gpuSum / static_cast<f64>(gpuValid) : -1.0, gpuValid, wallMs);
+                std::snprintf(row, sizeof(row), "%4u  %9s  %11u  %12u  %15u  %8.1f  %11.3f  %12u  %14.1f  %10.2f  %9.1f\n",
+                              extra + 3u, scheduler ? "on" : "off", st.GroomsDrawn, st.StrandsDrawn,
+                              st.GuidesSimulated, static_cast<f64>(st.CachedBytes) / (1024.0 * 1024.0),
+                              gpuValid > 0 ? gpuSum / static_cast<f64>(gpuValid) : -1.0, gpuValid, wallMs,
+                              buildMsSum / 20.0, uploadMiBSum / 20.0);
                 report += row;
                 std::printf("[groom-animals] cost %s", row);
                 std::fflush(stdout);

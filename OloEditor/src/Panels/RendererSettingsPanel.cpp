@@ -131,6 +131,7 @@ namespace OloEngine
             AppendChange(changes, "OITEnabled", before.OITEnabled, after.OITEnabled);
             AppendChange(changes, "HonourSceneTemporalResolveRequests", before.HonourSceneTemporalResolveRequests,
                          after.HonourSceneTemporalResolveRequests);
+            AppendChange(changes, "GroomGpuDeformation", before.GroomGpuDeformation, after.GroomGpuDeformation);
             AppendChange(changes, "Deferred.GBufferDecalsEnabled", before.Deferred.GBufferDecalsEnabled, after.Deferred.GBufferDecalsEnabled);
             AppendChange(changes, "Deferred.EnableLightProbes", before.Deferred.EnableLightProbes, after.Deferred.EnableLightProbes);
 
@@ -1239,6 +1240,15 @@ namespace OloEngine
                 ImGui::SetTooltip("A scene holding a groom on stochastic composition runs TAA for it, even with\n"
                                   "TAA unticked: without a resolve that groom falls back to a hard cutoff that\n"
                                   "draws no sub-pixel hair, and renders bald. Untick only to see that fallback.");
+            }
+
+            // Handed to GroomRenderPass per frame; nothing to apply (#1427).
+            ImGui::Checkbox("Deform bound grooms on the GPU", &settings.GroomGpuDeformation);
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("A coat bound to an animating body is deformed in the strand vertex shader.\n"
+                                  "Untick to rebuild and re-upload every deformed strand on the CPU each frame:\n"
+                                  "the reference path, for an A/B. Same coat, a fraction of the frame rate.");
             }
 
             ImGui::Unindent();

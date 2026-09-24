@@ -47,6 +47,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Groom/GroomCoatShadowTechnique.h"
+#include "OloEngine/Groom/GroomGpuDeformation.h"
 #include "OloEngine/Groom/GroomStrandMesh.h"
 #include "OloEngine/Groom/GroomStrandRequest.h"
 #include "OloEngine/Groom/GroomVisibility.h"
@@ -62,6 +63,7 @@ namespace OloEngine
     class Framebuffer;
     class IndexBuffer;
     class Shader;
+    class StorageBuffer;
     class Texture3D;
     class UniformBuffer;
     class VertexArray;
@@ -110,10 +112,30 @@ namespace OloEngine
         u32 RootsDeformed = 0;
         /// Strand roots held at rest because their deformed triangle collapsed.
         u32 RootsHeldAtRest = 0;
-        /// Dynamic vertex-buffer refills a deformed groom cost this frame. One
+        /// Per-frame refills a deformed groom cost this frame: its frame buffer
+        /// on the GPU path (#1427), its whole vertex stream on the CPU path. One
         /// per deformed groom is healthy; more means the geometry is being
         /// reallocated, not refilled.
         u32 DeformedRebuilds = 0;
+        /// Deformed grooms the VERTEX SHADER moved this frame (#1427). The rest
+        /// of GroomsDeformed took the CPU-deformed reference path — the
+        /// RendererSettings::GroomGpuDeformation lever, or a binding the rest
+        /// stream could not be built against.
+        u32 GroomsGpuDeformed = 0;
+        /// Bytes the deformed grooms sent to the GPU this frame, and the CPU
+        /// time spent producing them (#1427). The cost of a bound coat as two
+        /// numbers, so "where does the frame go" is answerable from the panel
+        /// rather than from a profiler capture. Build time covers packing the
+        /// frame buffer on the GPU path and rebuilding the stream on the CPU
+        /// path; the drawn-pose evaluation the coat bake needs is counted
+        /// separately, in DeformedPoseMicroseconds.
+        u64 DeformedUploadBytes = 0;
+        u64 DeformedBuildMicroseconds = 0;
+        u64 DeformedUploadMicroseconds = 0;
+        /// CPU time spent producing the drawn pose the coat self-shadow bake
+        /// reads (#1426). On the GPU path it is an evaluation of every drawn
+        /// segment, paid only by a coat that asked for a self-shadow.
+        u64 DeformedPoseMicroseconds = 0;
         /// Grooms whose previous-frame strand positions were NOT usable, so the
         /// frame emitted zero motion for them rather than a velocity across a
         /// discontinuity.
@@ -265,6 +287,20 @@ namespace OloEngine
             return m_CoatRebakePolicy;
         }
 
+        /// Whether a bound coat is deformed by the vertex shader (true, #1427)
+        /// or rebuilt and re-uploaded on the CPU every frame (false — the path
+        /// that existed before, kept as the reference the GPU path is compared
+        /// against). RendererSettings::GroomGpuDeformation, handed over per
+        /// frame like the rebake policy.
+        void SetGpuDeformationEnabled(bool enabled) noexcept
+        {
+            m_GpuDeformation = enabled;
+        }
+        [[nodiscard]] bool IsGpuDeformationEnabled() const noexcept
+        {
+            return m_GpuDeformation;
+        }
+
         /// The decision this pass WOULD make for `requested`, given the frame
         /// state it currently holds. Exposed so the editor's inspector and a
         /// test can ask without rendering — the reason a groom is not getting
@@ -282,6 +318,14 @@ namespace OloEngine
         /// uninitialised padding, and that distinction is only defensible if
         /// something tests it.
         [[nodiscard]] static u64 CacheKey(const GroomStrandRequest& request) noexcept;
+
+        /// The cache key a request gets on the path `gpuDeformation` selects.
+        /// A deformed groom's key also carries its BINDING and the path: the
+        /// GPU path's rest stream is written in the binding's bind frames, so a
+        /// swapped binding is different geometry, and the two paths encode the
+        /// same sixteen floats differently, so flipping the lever must never
+        /// serve one path the other's stream.
+        [[nodiscard]] static u64 CacheKey(const GroomStrandRequest& request, bool gpuDeformation) noexcept;
 
         /// Whether this request's geometry is per-ENTITY rather than per-asset.
         ///
@@ -383,16 +427,57 @@ namespace OloEngine
             /// How far the drawn coat is from CoatBakedPose THIS frame, in
             /// voxels, after any rebake. Zero for an undeformed coat.
             f32 CoatDriftVoxels = 0.0f;
+
+            // ── GPU deformation (#1427) ─────────────────────────────
+
+            /// `Vertices` holds a REST stream (BuildGroomStrandRestMesh) that
+            /// the vertex shader deforms from `Deform`, rather than a final one.
+            /// Set only by the GPU path; the buffers are then immutable, like an
+            /// unbound groom's, and only the frame buffer is refilled.
+            bool GpuDeformed = false;
+            /// The binding the rest stream's bind frames came from, held so a
+            /// binding RELOADED under the same handle (a re-bind writes the same
+            /// file) is a different object and rebuilds the stream. The key has
+            /// the handle; this has the identity, and the CPU path never needed
+            /// either because it read the live binding every frame.
+            Ref<GroomBindingAsset> RestBinding;
+            /// Root slot -> base curve, the order the frame buffer is packed in.
+            std::vector<u32> RootCurves;
+            /// The frame buffer, CPU side: the bytes the GPU reads, which the
+            /// coat bake evaluates the drawn pose from.
+            GroomDeformBuffer DeformCpu;
+            /// The same bytes on the GPU, at SSBO_GROOM_DEFORMATION.
+            Ref<StorageBuffer> DeformGpu;
+            /// The influence table the static guide weights were written from.
+            /// Held so a coat that starts or stops being simulated, or whose
+            /// asset re-derives its table, rewrites them rather than reading a
+            /// freed table's weights.
+            Ref<GroomGuideInfluenceTable> DeformWeightsFrom;
+            /// The rest stream's centrelines, for the coat bake. Built on first
+            /// use rather than with the stream: a coat that never asks for a
+            /// self-shadow never pays for them.
+            std::vector<GroomRestPoseSegment> PoseSegments;
+            bool PoseSegmentsBuilt = false;
         };
 
-        /// `outDeformedVertices` is cleared, then receives the vertex stream a
-        /// DEFORMED groom was built with this frame — the pose the coat volume
-        /// is baked from (#1426). It stays empty for an undeformed groom, whose
-        /// bake reads the asset instead. An out-parameter rather than a copy on
-        /// the entry, because the stream is 256 bytes a segment and is only
-        /// needed until the coat decision is made.
-        [[nodiscard]] CacheEntry* AcquireGeometry(const GroomStrandRequest& request,
-                                                  std::vector<GroomStrandVertex>& outDeformedVertices);
+        /// The groom's geometry for this frame: cached, refilled or built. For a
+        /// deformed groom this is also where its per-frame deformation is
+        /// produced — the frame buffer on the GPU path, the whole stream on the
+        /// CPU path (left in m_DeformedVertices for the coat bake).
+        [[nodiscard]] CacheEntry* AcquireGeometry(const GroomStrandRequest& request);
+        /// The GPU path's half of AcquireGeometry: returns null when the rest
+        /// stream cannot be built for this request, so the caller can take the
+        /// CPU path instead.
+        [[nodiscard]] CacheEntry* AcquireGpuDeformedGeometry(const GroomStrandRequest& request, u64 key);
+        /// Packs and uploads this frame's deformation into `entry`'s buffer,
+        /// (re)creating the buffer when the request outgrew it.
+        void UploadDeformation(const GroomStrandRequest& request, CacheEntry& entry);
+        /// The drawn pose of a DEFORMED groom, as centrelines, for the coat bake
+        /// (#1426). Evaluated from the frame buffer on the GPU path and read
+        /// from the rebuilt stream on the CPU path. Empty for an undeformed
+        /// groom, and for a deformed one whose pose could not be produced.
+        [[nodiscard]] std::span<const GroomCoatShadow::CoatSegment> AcquireDrawnPose(const GroomStrandRequest& request,
+                                                                                     CacheEntry& entry);
         void EvictToBudget();
 
         // Root-transform ownership is not bitwise relocatable; stable nodes preserve it.
@@ -416,11 +501,11 @@ namespace OloEngine
         /// resident bake is not already right. Returns the decision, so the
         /// caller records the reason rather than re-deriving it.
         ///
-        /// `deformedVertices` is this frame's drawn pose for a bound groom
-        /// (empty otherwise); see AcquireGeometry.
+        /// `drawnPose` is this frame's drawn pose for a bound groom (empty
+        /// otherwise); see AcquireDrawnPose.
         [[nodiscard]] GroomCoatShadowDecision AcquireCoatVolume(const GroomStrandRequest& request, CacheEntry& entry,
                                                                 u32& residentVolumes,
-                                                                std::span<const GroomStrandVertex> deformedVertices);
+                                                                std::span<const GroomCoatShadow::CoatSegment> drawnPose);
 
         /// Bakes `segments` into `entry`'s coat volume. The one place a volume
         /// is created, for the rest-curve bake and the drawn-pose bake alike, so
@@ -430,11 +515,22 @@ namespace OloEngine
         bool BakeCoatVolume(CacheEntry& entry, std::span<const GroomCoatShadow::CoatSegment> segments,
                             u32 resolution);
 
-        /// This frame's drawn pose for the groom being processed, reused across
-        /// draws so a bound coat does not allocate its vertex stream twice.
+        /// The CPU path's rebuilt stream for the groom being processed, reused
+        /// across draws so a bound coat does not allocate it twice. Empty on the
+        /// GPU path, which never builds one.
         std::vector<GroomStrandVertex> m_DeformedVertices;
+        /// The drawn pose handed to the coat bake, reused across draws.
+        std::vector<GroomCoatShadow::CoatSegment> m_DrawnPose;
 
         GroomCoatShadow::CoatRebakePolicy m_CoatRebakePolicy;
+        bool m_GpuDeformation = true;
+
+        /// Bound at SSBO_GROOM_DEFORMATION for every draw that reads no frame
+        /// buffer. The binding is shared with the terrain VT under a
+        /// rebound-per-use rule, so a draw that left it alone would inherit
+        /// whatever the last user bound — and on Vulkan a declared block with no
+        /// occupant is a logged error, not a zero read.
+        Ref<StorageBuffer> m_DeformPlaceholder;
 
         /// Coat volumes currently held across the WHOLE cache, not just the
         /// ones drawn this frame. Counting live draws instead let the resident

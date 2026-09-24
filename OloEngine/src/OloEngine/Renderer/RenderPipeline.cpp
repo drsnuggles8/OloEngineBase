@@ -2221,6 +2221,7 @@ namespace OloEngine
                 groomFrame.OITTargetsAvailable = oitEnabled;
                 RenderStreamPasses.Groom->SetFrameState(groomFrame);
                 RenderStreamPasses.Groom->SetCoatRebakePolicy(Renderer3D::GetGroomCoatRebakePolicy());
+                RenderStreamPasses.Groom->SetGpuDeformationEnabled(data.Settings.GroomGpuDeformation);
                 RenderStreamPasses.Groom->SetRequests(Renderer3D::GetGroomStrandRequests());
             }
             if (SceneCompositePasses.Particle)
