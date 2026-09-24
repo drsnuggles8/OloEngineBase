@@ -719,6 +719,9 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/CASVisualEvidenceTest.cpp
 		Rendering/PropertyTests/EASUVisualEvidenceTest.cpp
 		Rendering/PropertyTests/FSR2VisualEvidenceTest.cpp
+		# Upscale keeps the native framing, and a groom coat stays on its body
+		# under it (#1397, #1430).
+		Rendering/PropertyTests/UpscaleFramingEvidenceTest.cpp
 		Rendering/PropertyTests/SSAOVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GTAOVisualEvidenceTest.cpp
 		Rendering/PropertyTests/SphereProxyAOVisualEvidenceTest.cpp

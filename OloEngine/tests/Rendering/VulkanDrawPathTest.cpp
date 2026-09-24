@@ -373,6 +373,146 @@ TEST_F(VulkanDrawPath, FacadeDrawRendersTintedTextureThroughRootData)
 }
 
 // =============================================================================
+// Framebuffer::Bind() sets the viewport to its target on Vulkan, as glViewport
+// does in the GL twin (#1397, #1430).
+//
+// The shape of the editor bug: the post chain runs at DISPLAY size, then the
+// next frame's scene pass binds the smaller FSR1 scene band and draws without
+// setting a viewport of its own. On Vulkan it inherited the display-sized one,
+// so NDC [-1, 0] covered the WHOLE band instead of its left half -- the scene
+// was drawn magnified by 1/renderScale and the upscaler presented its corner.
+//
+// A left-half quad makes that measurable: with the target's own viewport it
+// covers exactly half the columns; with the stale one it covers all of them.
+// The DRS arm pins the other half of the contract, the render-viewport
+// override a render scale installs on the same framebuffer.
+// =============================================================================
+TEST_F(VulkanDrawPath, FramebufferBindResetsTheViewportToItsTarget)
+{
+    // Through the process facade: Bind() reaches the recording context via
+    // RenderCommand, exactly as a pass body does in the editor.
+    ScopedVulkanRenderCommandSelection renderCommandSelection;
+    VulkanRendererAPI& api = renderCommandSelection.Get();
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    constexpr u32 kBand = 32u;    // the reduced scene band
+    constexpr u32 kDisplay = 64u; // the display-sized post chain before it
+
+    FramebufferSpecification fbSpec;
+    fbSpec.Width = kBand;
+    fbSpec.Height = kBand;
+    fbSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+    auto framebuffer = Framebuffer::Create(fbSpec);
+    ASSERT_NE(framebuffer, nullptr);
+
+    // The recorded state first, no draw needed: a stale viewport is replaced.
+    api.SetViewport(0, 0, kDisplay, kDisplay);
+    framebuffer->Bind();
+    Viewport bound = api.GetViewport();
+    EXPECT_EQ(bound.width, kBand) << "Bind() kept the previous pass's viewport width";
+    EXPECT_EQ(bound.height, kBand) << "Bind() kept the previous pass's viewport height";
+
+    // A DRS render viewport on the target is what Bind() applies instead.
+    framebuffer->SetRenderViewportSize(kBand / 2u, kBand / 4u);
+    api.SetViewport(0, 0, kDisplay, kDisplay);
+    framebuffer->Bind();
+    bound = api.GetViewport();
+    EXPECT_EQ(bound.width, kBand / 2u) << "Bind() ignored the render-viewport override";
+    EXPECT_EQ(bound.height, kBand / 4u) << "Bind() ignored the render-viewport override";
+    EXPECT_EQ(framebuffer->GetActiveViewportWidth(), kBand / 2u);
+    EXPECT_EQ(framebuffer->GetActiveViewportHeight(), kBand / 4u);
+    framebuffer->SetRenderViewportSize(0u, 0u);
+    framebuffer->Unbind();
+
+    // And the pixels: a quad over NDC x in [-1, 0].
+    const f32 vertices[] = { -1.0f, -1.0f, 0.0f, -1.0f, 0.0f, 1.0f, -1.0f, 1.0f };
+    auto vertexBuffer = VertexBuffer::Create(vertices, sizeof(vertices));
+    u32 indices[] = { 0, 1, 2, 0, 2, 3 };
+    auto indexBuffer = IndexBuffer::Create(indices, 6);
+    auto vertexArray = VertexArray::Create();
+    vertexArray->AddVertexBuffer(vertexBuffer);
+    vertexArray->SetIndexBuffer(indexBuffer);
+
+    TextureSpecification texSpec;
+    texSpec.Width = 4;
+    texSpec.Height = 4;
+    texSpec.Format = ImageFormat::RGBA8;
+    texSpec.GenerateMips = false;
+    auto texture = Texture2D::Create(texSpec);
+    ASSERT_NE(texture, nullptr);
+    TArray64<u8> white(4 * 4 * 4, 0xFF);
+    texture->SetData(white.GetData(), static_cast<u32>(white.Num()));
+
+    auto tintUbo = UniformBuffer::Create(16, 3);
+    const f32 green[4] = { 0.0f, 1.0f, 0.0f, 1.0f };
+    tintUbo->SetData(green, sizeof(green));
+
+    auto shader = Ref<VulkanShader>::Create("BindViewportQuad", kVertexSrc, kFragmentSrc);
+    ASSERT_EQ(shader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    const auto colorHandle = framebuffer->GetColorAttachmentHandle(0);
+    ASSERT_TRUE(colorHandle.IsValid());
+
+    SubmitFrame(api,
+                [&]()
+                {
+                    RHI::Barrier toColor{};
+                    toColor.Resource = colorHandle;
+                    toColor.Before = RHI::Access::Undefined;
+                    toColor.After = RHI::Access::ColorAttachmentWrite;
+                    api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toColor, 1 });
+
+                    // The previous pass: display-sized.
+                    api.SetViewport(0, 0, kDisplay, kDisplay);
+
+                    // The scene pass: bind, clear, draw -- no SetViewport.
+                    framebuffer->Bind();
+                    api.SetClearColor({ 1.0f, 0.0f, 0.0f, 1.0f });
+                    api.Clear();
+                    shader->Bind();
+                    tintUbo->Bind();
+                    api.BindTexture(0, texture->GetRHIHandle());
+                    api.DrawIndexed(vertexArray, 6);
+                    framebuffer->Unbind();
+
+                    RHI::Barrier toSampled{};
+                    toSampled.Resource = colorHandle;
+                    toSampled.Before = RHI::Access::ColorAttachmentWrite;
+                    toSampled.After = RHI::Access::ShaderSampleRead;
+                    api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+                });
+
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u);
+
+    auto* vkFramebuffer = static_cast<VulkanFramebuffer*>(framebuffer.Raw());
+    const auto attachment = vkFramebuffer->GetColorAttachmentImage(0);
+    ASSERT_NE(attachment, nullptr);
+    TArray64<u8> pixels;
+    ASSERT_TRUE(attachment->GetData(pixels, 0));
+    ASSERT_EQ(pixels.Num(), sizet{ kBand * kBand * 4 });
+
+    // Left half green, right half the red clear. Counted per half, so a frame
+    // with nothing drawn fails as surely as a magnified one.
+    u32 leftGreen = 0;
+    u32 rightGreen = 0;
+    for (u32 y = 0; y < kBand; ++y)
+    {
+        for (u32 x = 0; x < kBand; ++x)
+        {
+            const sizet i = (static_cast<sizet>(y) * kBand + x) * 4u;
+            const bool isGreen = pixels[i + 0] == 0x00 && pixels[i + 1] == 0xFF && pixels[i + 2] == 0x00;
+            if (isGreen && x < kBand / 2u)
+                ++leftGreen;
+            else if (isGreen)
+                ++rightGreen;
+        }
+    }
+    EXPECT_EQ(leftGreen, (kBand / 2u) * kBand) << "the quad must cover the left half of the target";
+    EXPECT_EQ(rightGreen, 0u) << "the quad reached the right half: the draw used the previous pass's "
+                                 "display-sized viewport, magnifying the scene band";
+}
+
+// =============================================================================
 // The ENGINE heap (RHI::DescriptorHeap) running on Vulkan — the amendment
 // (56) deferral, proven end-to-end: engine-managed slots are shader-reachable
 // through the same heap buffer the draw path binds, memoisation and stale

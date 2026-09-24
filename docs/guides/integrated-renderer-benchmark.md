@@ -115,7 +115,7 @@ memory and pooled/history/AS retention remain **unknown**; the retention
 breakdown in #1338 is not yet met. Likewise, the capture records requested and
 selected settings but does not prove technique production or consumption;
 inspect pass counters, GPU Scene and RT fallback telemetry with the live
-capture. The non-native upscale mode remains affected by viewport crop issue
-#1397, so compare actual render/display dimensions and framing before using
-those measurements for a quality budget. AOV coverage and moving-light pixels
+capture. The live-editor crop under a non-native upscale mode (#1397) is fixed, so an
+upscale A/B now keeps the native framing; the capture itself still refuses a
+sub-scale `RenderScale`. AOV coverage and moving-light pixels
 must be inspected in live captures before calling a scenario representative.

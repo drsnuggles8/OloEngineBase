@@ -278,6 +278,25 @@ namespace OloEngine
         // nothing is recorded here, matching how GL passes freely interleave
         // binds with state calls.
         VulkanBindingState::Get().SetCurrentFramebuffer(this);
+
+        // ...and set the viewport to the target, as the GL twin's Bind() does
+        // with glViewport. Recording-only (VulkanRendererAPI::SetViewport emits
+        // nothing until the next draw), so it is as lazy as the bind above.
+        //
+        // Without it a pass that relies on Bind() for its viewport inherits the
+        // LAST one recorded, which is the display-sized post chain's. Under an
+        // FSR1/FSR2 upscale the scene band is smaller than that, so the scene
+        // drew at display size into a reduced target and the upscaler presented
+        // its top-left corner, magnified by 1/renderScale -- while the groom
+        // pass, which sets its viewport explicitly, drew its coats at the true
+        // band size, off their bodies (#1397, #1430).
+        //
+        // Only through a Vulkan facade: a device test that drives a local
+        // VulkanRendererAPI leaves the process facade on OpenGL (sometimes with
+        // the API selector already flipped to Vulkan), and a Vulkan target's
+        // viewport routed into glViewport would be wrong either way.
+        if (VulkanRendererAPI* api = VulkanUpload::TryGetVulkanAPI())
+            api->SetViewport(0u, 0u, GetActiveViewportWidth(), GetActiveViewportHeight());
     }
 
     void VulkanFramebuffer::Unbind()

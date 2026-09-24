@@ -280,9 +280,7 @@ namespace OloEngine
         }
 
         // Use the DRS render viewport override when set; fall back to physical size.
-        const auto vpW = (m_RenderViewportWidth > 0) ? m_RenderViewportWidth : m_Specification.Width;
-        const auto vpH = (m_RenderViewportHeight > 0) ? m_RenderViewportHeight : m_Specification.Height;
-        glViewport(0, 0, static_cast<GLsizei>(vpW), static_cast<GLsizei>(vpH));
+        glViewport(0, 0, static_cast<GLsizei>(GetActiveViewportWidth()), static_cast<GLsizei>(GetActiveViewportHeight()));
     }
 
     void OpenGLFramebuffer::Unbind()

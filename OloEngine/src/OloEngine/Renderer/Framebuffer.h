@@ -85,6 +85,23 @@ namespace OloEngine
         [[nodiscard]] virtual u32 GetRenderViewportWidth() const = 0;
         [[nodiscard]] virtual u32 GetRenderViewportHeight() const = 0;
 
+        // The viewport a draw into this framebuffer covers: the DRS render
+        // viewport when one is set, the full specification otherwise. Bind()
+        // applies exactly this on every backend, so a pass that sets its own
+        // viewport after binding uses these, never the raw spec -- a pass that
+        // used the spec drew at a different scale from the passes that relied
+        // on Bind() (#1430).
+        [[nodiscard]] u32 GetActiveViewportWidth() const
+        {
+            const u32 renderWidth = GetRenderViewportWidth();
+            return renderWidth > 0u ? renderWidth : GetSpecification().Width;
+        }
+        [[nodiscard]] u32 GetActiveViewportHeight() const
+        {
+            const u32 renderHeight = GetRenderViewportHeight();
+            return renderHeight > 0u ? renderHeight : GetSpecification().Height;
+        }
+
         virtual int ReadPixel(u32 attachmentIndex, int x, int y) = 0;
 
         // Clear integer attachment (e.g., entity ID)
