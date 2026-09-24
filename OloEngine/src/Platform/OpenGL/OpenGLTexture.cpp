@@ -1282,7 +1282,15 @@ namespace OloEngine
         glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_S, GL_REPEAT);
         glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_T, GL_REPEAT);
 
-        glTextureSubImage2D(m_RendererID, 0, 0, 0, static_cast<int>(m_Width), static_cast<int>(m_Height), dataFormat, GL_UNSIGNED_BYTE, data);
+        {
+            // stb hands back tightly packed rows, and GL's default unpack
+            // alignment is 4: an RGB8 file whose width * 3 is not a multiple of
+            // 4 was read with a padded stride and came out sheared, with no GL
+            // error. SetData has always scoped this; the file path did not.
+            const Utils::GLUnpackAlignmentScope unpackAlignment;
+            glTextureSubImage2D(m_RendererID, 0, 0, 0, static_cast<int>(m_Width), static_cast<int>(m_Height), dataFormat,
+                                GL_UNSIGNED_BYTE, data);
+        }
         // The min filter follows the chain, as it does on every other upload
         // path here: mipmapped only once the levels hold data. An alpha-tested
         // texture (SetAlphaCoverageCutoff, kept across Reload) gets its

@@ -498,4 +498,41 @@ namespace OloEngine::Tests
         glGetTextureParameteriv(texture->GetRendererID(), GL_TEXTURE_MIN_FILTER, &minFilter);
         EXPECT_EQ(minFilter, GL_LINEAR) << "a single-level texture must not ask for a mipmapped filter";
     }
+
+    // An RGB8 file whose row is not a multiple of 4 bytes uploads unsheared.
+    // A 3-wide RGB row is 9 bytes; GL's default unpack alignment of 4 read it
+    // with a 12-byte stride, so every row after the first came up shifted.
+    TEST(TextureInPlaceReload, AnOddWidthRgbFileUploadsWithoutShearing)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        const std::filesystem::path path = OloEngine::Tests::TempFile("olo_texture_rgb_odd_width.png");
+        constexpr int kWidth = 3;
+        constexpr int kHeight = 3;
+        std::vector<u8> pixels(static_cast<sizet>(kWidth) * kHeight * 3u);
+        for (sizet i = 0; i < pixels.size(); ++i)
+            pixels[i] = static_cast<u8>(10u + i * 9u);
+        ASSERT_NE(::stbi_write_png(path.string().c_str(), kWidth, kHeight, 3, pixels.data(), kWidth * 3), 0);
+
+        Ref<Texture2D> texture = Texture2D::Create(path.string(), /*srgb=*/false);
+        ASSERT_TRUE(texture);
+        ASSERT_TRUE(texture->IsLoaded());
+        ASSERT_EQ(texture->GetSpecification().Format, ImageFormat::RGB8);
+
+        TArray64<u8> readback;
+        ASSERT_TRUE(texture->GetData(readback, 0));
+        ASSERT_EQ(static_cast<sizet>(readback.Num()), pixels.size());
+        // Texture2D flips on load: GL row y is file row (kHeight - 1 - y).
+        for (int y = 0; y < kHeight; ++y)
+        {
+            for (int x = 0; x < kWidth * 3; ++x)
+            {
+                const u8 expected = pixels[static_cast<sizet>(kHeight - 1 - y) * kWidth * 3 + static_cast<sizet>(x)];
+                EXPECT_EQ(readback[static_cast<i64>(y) * kWidth * 3 + x], expected) << "row " << y << " byte " << x;
+            }
+        }
+
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+    }
 } // namespace OloEngine::Tests
