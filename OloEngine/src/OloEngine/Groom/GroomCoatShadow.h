@@ -61,6 +61,7 @@
 // =============================================================================
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Math/Math.h"
 
 #include <glm/glm.hpp>
 
@@ -73,6 +74,7 @@ namespace OloEngine
     class GroomAsset;
     struct GroomRootTransform;
     class GroomBindingAsset;
+    struct GroomStrandVertex;
 
     namespace GroomCoatShadow
     {
@@ -140,6 +142,107 @@ namespace OloEngine
         // means "nothing usable here at all".
         [[nodiscard]] bool CoatSegmentBounds(std::span<const CoatSegment> segments, glm::vec3& outMin,
                                              glm::vec3& outMax);
+
+        // ── A deformed coat (#1426) ─────────────────────────────────────────
+        //
+        // A BOUND groom is baked from the strands the pass DRAWS, not from the
+        // asset's rest curves. Those vertices are already in groom object space
+        // with the body's pose applied, and they reach the screen through the
+        // same model matrix the march inverts — so a volume baked from them sits
+        // in the space the shader already looks it up in, and nothing on the
+        // GPU side changes. Baking the rest curves instead is what #1248 refused
+        // to do: the coat would carry its bind-pose shadow around.
+
+        // Fills `outSegments` (cleared first) from a GroomStrandMesh vertex
+        // stream: FOUR corners per segment, corner 0 at P0 and corner 2 at P1
+        // (see BuildGroomStrandMesh's corner order). Returns the number emitted.
+        //
+        // `widthScale` multiplies the stored RADII. The mesh has already halved
+        // the cooked diameters and applied the coat's per-strand width, so the
+        // one lever still outstanding is the per-groom WidthScale the shader
+        // applies — the same one BuildCoatSegments takes. A stream whose length
+        // is not a multiple of four is not a strand mesh and yields nothing.
+        [[nodiscard]] u32 BuildCoatSegmentsFromStrandVertices(std::span<const GroomStrandVertex> vertices,
+                                                              f32 widthScale, std::vector<CoatSegment>& outSegments);
+
+        // The pose a volume was baked at: each drawn segment's centreline
+        // midpoint, in segment order. A SNAPSHOT of the geometry, not of the
+        // skeleton — two poses that put every strand in the same place are the
+        // same coat as far as the shadow is concerned, whatever the bones did.
+        void CaptureCoatPose(std::span<const GroomStrandVertex> vertices, std::vector<glm::vec3>& outMidpoints);
+
+        // How far the drawn coat has moved since `bakedMidpoints` was captured:
+        // the LARGEST midpoint displacement, in object units.
+        //
+        // The maximum, not the mean. A walk moves the legs' fur a hand's width
+        // while the back barely shifts, and a mean over the whole coat would
+        // average the one region that is visibly wrong into the ninety percent
+        // that is not.
+        //
+        // +INFINITY when the two cannot be compared — a different segment count
+        // (a LOD hand-over rebuilt the curve set) or a non-finite point. An
+        // incomparable pose must read as "moved infinitely far", never as "did
+        // not move", or a bake of a different curve set would be kept forever.
+        [[nodiscard]] f32 MaxCoatPoseDrift(std::span<const glm::vec3> bakedMidpoints,
+                                           std::span<const GroomStrandVertex> vertices) noexcept;
+
+        // When a deformed coat's volume is rebuilt.
+        //
+        // A DRIFT BOUND, not a frame count. A cadence of "every N frames" bounds
+        // the cost and leaves the error to whatever the animation does in N
+        // frames — a trot and an idle breath get the same budget. A bound on how
+        // far the strands have moved since the bake bounds the ERROR, and the
+        // cost then follows the motion: an idle coat costs nothing, a galloping
+        // one pays per frame. The numbers behind the default are in
+        // docs/agent-rules/groom-deformed-coat-self-shadowing.md.
+        struct CoatRebakePolicy
+        {
+            /// Rebuild once the drawn strands have moved further than this since
+            /// the bake, in voxels of the volume in force.
+            f32 MaxDriftVoxels = 0.5f;
+
+            /// Beyond this many voxels a volume the pass could not rebuild is
+            /// STALE and is not sampled: the coat reads fully lit (rule 10)
+            /// rather than shadowed by where its strands used to be. Only
+            /// reachable when a rebake failed or `RebakeOnDrift` is off; it is
+            /// the detector the negative control switches the rebake off to
+            /// exercise.
+            f32 StaleDriftVoxels = 2.0f;
+
+            /// Rebuild when the drift bound is crossed. OFF freezes only the
+            /// DRIFT-triggered rebake, for a diagnostic or a negative control:
+            /// a shadow-LOD, resolution or WidthScale change still rebuilds,
+            /// because those make the resident bake a different coat.
+            bool RebakeOnDrift = true;
+
+            /// Bit-exact per float, per cpp-coding-quality §2a: a defaulted
+            /// operator== here would be a float `==`. Field by field rather
+            /// than a whole-object memcmp, because the trailing bool leaves
+            /// padding.
+            [[nodiscard]] auto operator==(const CoatRebakePolicy& other) const -> bool
+            {
+                return Math::BitwiseEqual(MaxDriftVoxels, other.MaxDriftVoxels) &&
+                       Math::BitwiseEqual(StaleDriftVoxels, other.StaleDriftVoxels) &&
+                       RebakeOnDrift == other.RebakeOnDrift;
+            }
+        };
+
+        // A policy with a non-finite or non-positive bound is replaced by the
+        // default rather than obeyed: a NaN bound compares false against every
+        // drift and would freeze the bake forever, and a zero one would rebuild
+        // every frame whether or not anything moved.
+        [[nodiscard]] CoatRebakePolicy SanitizeCoatRebakePolicy(const CoatRebakePolicy& policy) noexcept;
+
+        // Drift expressed in voxels of a volume whose SMALLEST voxel edge is
+        // `voxelSize`. +infinity for a non-finite drift or a degenerate voxel,
+        // for the reason MaxCoatPoseDrift gives.
+        [[nodiscard]] f32 CoatDriftInVoxels(f32 drift, f32 voxelSize) noexcept;
+
+        // Should the volume be rebuilt this frame?
+        [[nodiscard]] bool CoatRebakeIsDue(f32 driftVoxels, const CoatRebakePolicy& policy) noexcept;
+
+        // Is the volume too far from the drawn coat to be sampled at all?
+        [[nodiscard]] bool CoatBakeIsStale(f32 driftVoxels, const CoatRebakePolicy& policy) noexcept;
 
         // ── The ground truth ────────────────────────────────────────────────
 

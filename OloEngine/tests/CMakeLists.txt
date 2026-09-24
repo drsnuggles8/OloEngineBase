@@ -808,6 +808,11 @@ add_executable(OloEngine-Tests
 		# so the argument behind the selected representation fails loudly rather
 		# than ageing quietly. CPU-only and deterministic: it runs in CI.
 		Rendering/PropertyTests/GroomCoatShadowPropertyTests.cpp
+		# #1426: a bound coat baked from its drawn pose. The space (a carried
+		# strand keeps its neighbours, a bind-pose volume does not), the drift
+		# bound and its stale detector, and the cadence sweep whose numbers the
+		# rule doc quotes. CPU-only and deterministic: it runs in CI.
+		Rendering/PropertyTests/GroomCoatShadowDeformedPropertyTests.cpp
 		Rendering/PropertyTests/ShaderCompilationTest.cpp
 		# Issue #691 Phase 3. BindlessShaderPipelineTest pins the toolchain
 		# constraint (bindless GLSL cannot enter the Vulkan-SPIR-V pipeline);

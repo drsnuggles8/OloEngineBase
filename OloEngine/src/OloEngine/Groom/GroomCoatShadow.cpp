@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Groom/GroomAsset.h"
+#include "OloEngine/Groom/GroomStrandMesh.h"
 
 #include <algorithm>
 #include <cmath>
@@ -351,6 +352,158 @@ namespace OloEngine::GroomCoatShadow
         outMin = lo;
         outMax = hi;
         return true;
+    }
+
+    // =========================================================================
+    // A deformed coat (#1426)
+    // =========================================================================
+
+    namespace
+    {
+        // BuildGroomStrandMesh's corner order: (-side at P0), (+side at P0),
+        // (+side at P1), (-side at P1). Corners 0 and 2 therefore carry the two
+        // centreline points and the two radii; 1 and 3 repeat them.
+        constexpr sizet kCornersPerSegment = 4;
+        constexpr sizet kCornerAtP0 = 0;
+        constexpr sizet kCornerAtP1 = 2;
+    } // namespace
+
+    u32 BuildCoatSegmentsFromStrandVertices(std::span<const GroomStrandVertex> vertices, f32 widthScale,
+                                            std::vector<CoatSegment>& outSegments)
+    {
+        outSegments.clear();
+        if (vertices.empty() || (vertices.size() % kCornersPerSegment) != 0)
+        {
+            return 0;
+        }
+        if (!std::isfinite(widthScale) || widthScale <= 0.0f)
+        {
+            return 0;
+        }
+
+        const sizet segmentCount = vertices.size() / kCornersPerSegment;
+        outSegments.reserve(segmentCount);
+        for (sizet s = 0; s < segmentCount; ++s)
+        {
+            const GroomStrandVertex& p0 = vertices[s * kCornersPerSegment + kCornerAtP0];
+            const GroomStrandVertex& p1 = vertices[s * kCornersPerSegment + kCornerAtP1];
+
+            CoatSegment segment;
+            segment.A = p0.Position;
+            segment.B = p1.Position;
+            // The mesh's Radius is ALREADY a radius (halved once, in the build)
+            // and already carries the coat's per-strand width. Halving again
+            // here is the thinner-coat error BuildCoatSegments warns about.
+            segment.RadiusA = p0.Radius * widthScale;
+            segment.RadiusB = p1.Radius * widthScale;
+
+            // Dropped, not clamped — BuildCoatSegments' rule, for its reason.
+            if (!IsFiniteVec(segment.A) || !IsFiniteVec(segment.B) || !std::isfinite(segment.RadiusA) ||
+                !std::isfinite(segment.RadiusB) || segment.RadiusA < 0.0f || segment.RadiusB < 0.0f)
+            {
+                continue;
+            }
+            outSegments.push_back(segment);
+        }
+        return static_cast<u32>(outSegments.size());
+    }
+
+    void CaptureCoatPose(std::span<const GroomStrandVertex> vertices, std::vector<glm::vec3>& outMidpoints)
+    {
+        outMidpoints.clear();
+        if ((vertices.size() % kCornersPerSegment) != 0)
+        {
+            return;
+        }
+        const sizet segmentCount = vertices.size() / kCornersPerSegment;
+        outMidpoints.reserve(segmentCount);
+        for (sizet s = 0; s < segmentCount; ++s)
+        {
+            const glm::vec3& a = vertices[s * kCornersPerSegment + kCornerAtP0].Position;
+            const glm::vec3& b = vertices[s * kCornersPerSegment + kCornerAtP1].Position;
+            outMidpoints.push_back((a + b) * 0.5f);
+        }
+    }
+
+    f32 MaxCoatPoseDrift(std::span<const glm::vec3> bakedMidpoints, std::span<const GroomStrandVertex> vertices) noexcept
+    {
+        constexpr f32 kIncomparable = std::numeric_limits<f32>::infinity();
+        if ((vertices.size() % kCornersPerSegment) != 0 ||
+            vertices.size() / kCornersPerSegment != bakedMidpoints.size() || bakedMidpoints.empty())
+        {
+            return kIncomparable;
+        }
+
+        // Squared distances throughout; one sqrt at the end.
+        f32 worstSq = 0.0f;
+        for (sizet s = 0; s < bakedMidpoints.size(); ++s)
+        {
+            const glm::vec3& a = vertices[s * kCornersPerSegment + kCornerAtP0].Position;
+            const glm::vec3& b = vertices[s * kCornersPerSegment + kCornerAtP1].Position;
+            const glm::vec3 now = (a + b) * 0.5f;
+            // A segment that was non-finite at the bake and still is: the bake
+            // DROPPED it (BuildCoatSegmentsFromStrandVertices), so it is not in
+            // the volume and cannot have moved away from it. Reading it as
+            // infinite drift would rebake a coat with one corrupt strand EVERY
+            // frame, reported as ordinary motion. One that has changed
+            // finiteness either way is a real change and falls through to the
+            // incomparable arm below.
+            if (!IsFiniteVec(bakedMidpoints[s]) && !IsFiniteVec(now))
+            {
+                continue;
+            }
+            const glm::vec3 delta = now - bakedMidpoints[s];
+            const f32 distSq = glm::dot(delta, delta);
+            // Checked explicitly: std::max drops a NaN when it is the second
+            // argument, so a corrupt point would otherwise read as "did not
+            // move" and keep a bake of a pose nobody can describe.
+            if (!std::isfinite(distSq))
+            {
+                return kIncomparable;
+            }
+            worstSq = std::max(worstSq, distSq);
+        }
+        return std::sqrt(worstSq);
+    }
+
+    CoatRebakePolicy SanitizeCoatRebakePolicy(const CoatRebakePolicy& policy) noexcept
+    {
+        const CoatRebakePolicy defaults{};
+        CoatRebakePolicy out = policy;
+        if (!std::isfinite(out.MaxDriftVoxels) || out.MaxDriftVoxels <= 0.0f)
+        {
+            out.MaxDriftVoxels = defaults.MaxDriftVoxels;
+        }
+        // The stale bound must sit AT OR ABOVE the rebake bound. Below it, a
+        // coat that moved just past the stale bound but not yet the rebake one
+        // would be refused a volume the policy was about to keep — the coat
+        // would blink unshadowed on exactly the frames it is moving.
+        if (!std::isfinite(out.StaleDriftVoxels) || out.StaleDriftVoxels <= 0.0f)
+        {
+            out.StaleDriftVoxels = defaults.StaleDriftVoxels;
+        }
+        out.StaleDriftVoxels = std::max(out.StaleDriftVoxels, out.MaxDriftVoxels);
+        return out;
+    }
+
+    f32 CoatDriftInVoxels(f32 drift, f32 voxelSize) noexcept
+    {
+        if (!std::isfinite(drift) || !std::isfinite(voxelSize) || voxelSize <= 0.0f || drift < 0.0f)
+        {
+            return std::numeric_limits<f32>::infinity();
+        }
+        return drift / voxelSize;
+    }
+
+    bool CoatRebakeIsDue(f32 driftVoxels, const CoatRebakePolicy& policy) noexcept
+    {
+        // `!(<=)` so a NaN drift is due, never "within bounds".
+        return policy.RebakeOnDrift && !(driftVoxels <= policy.MaxDriftVoxels);
+    }
+
+    bool CoatBakeIsStale(f32 driftVoxels, const CoatRebakePolicy& policy) noexcept
+    {
+        return !(driftVoxels <= policy.StaleDriftVoxels);
     }
 
     // =========================================================================

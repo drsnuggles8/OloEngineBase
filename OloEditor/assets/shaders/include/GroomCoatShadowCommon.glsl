@@ -38,6 +38,10 @@
 // MOVES reuses its bake instead of rebuilding it. That is the whole of the
 // update policy for a rigid groom, and it is why the march transforms the ray
 // into object space rather than baking the model matrix into the volume.
+// A coat BOUND to an animating body (#1426) uses the same space and the same
+// lookup: its volume is baked from the strands the pass draws, which are
+// already in object space with the pose applied, and rebaked on the CPU when
+// they drift past a bound. Nothing in this file distinguishes the two.
 // u_GroomCoatWorldToObject must therefore be RIGID (rotation + translation
 // only): the march takes angles in that space, and a scale in it would tilt
 // every fibre direction by an amount that depends on which way the ray points.

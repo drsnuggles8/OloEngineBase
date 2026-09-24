@@ -6934,6 +6934,18 @@ namespace OloEngine::MCP
                 snapshot.Representations.push_back(std::move(row));
             }
 
+            const GroomCoatShadowStats& coat = groom.CoatShadow;
+            snapshot.CoatShadowed = coat.ShadowedGrooms;
+            snapshot.CoatFallback = coat.FallbackGrooms;
+            snapshot.CoatUnshadowedByChoice = coat.UnshadowedByChoice;
+            snapshot.CoatDominantFallbackReason = std::string(ToString(coat.DominantFallbackReason()));
+            snapshot.CoatRebuilds = coat.Rebuilds;
+            snapshot.CoatDeformedRebakes = coat.DeformedRebakes;
+            snapshot.CoatMaxDriftVoxels = coat.MaxDriftVoxels;
+            snapshot.CoatBakeMicroseconds = coat.BakeMicroseconds;
+            snapshot.CoatResolutionInForce = coat.ResolutionInForce;
+            snapshot.CoatResidentBytes = coat.ResidentBytes;
+
             if (scene)
             {
                 const AnimalSchedulerStats& budget = scene->GetAnimalSchedulerStats();
@@ -9606,7 +9618,10 @@ namespace OloEngine::MCP
                 "CACHE MISS, so a steady-state frame logs nothing and the numbers you get depend on how long the "
                 "session has run. `groom` is the frame's strand/segment counts plus the #1252 representation split "
                 "(grooms, strands and GPU bytes per tier, the fallback reason, and representationChanges -- a counter "
-                "that stays near groomsSubmitted IS thrashing). `animalBudget` is the scheduler's own answer, and "
+                "that stays near groomsSubmitted IS thrashing). `coatShadow` is the #1248 coat self-shadow decision "
+                "(shadowed / fallback / by choice, and the dominant reason) plus, for coats bound to a moving body "
+                "(#1426), deformedRebakes, the drift in voxels the sampled volumes lag the pose by, and the CPU bake "
+                "time. `animalBudget` is the scheduler's own answer, and "
                 "`enabled` is the first field to read: false means nothing below was decided by the population budget "
                 "at all and a thinned coat is its own distance ladder's doing, which has a completely different fix. "
                 "heroesCoarsened must be 0 while AnimalProtectHero is set -- that is the hero contract as a number "
@@ -9650,6 +9665,17 @@ namespace OloEngine::MCP
                                                                                    .Prop("grooms", Schema::Int().Min(0))
                                                                                    .Prop("strands", Schema::Int().Min(0))
                                                                                    .Prop("bytes", Schema::Int().Min(0)))))
+                    .Prop("coatShadow", Schema::Object()
+                                            .Prop("shadowed", Schema::Int().Min(0))
+                                            .Prop("fallback", Schema::Int().Min(0))
+                                            .Prop("unshadowedByChoice", Schema::Int().Min(0))
+                                            .Prop("dominantFallbackReason", Schema::String())
+                                            .Prop("rebuilds", Schema::Int().Min(0))
+                                            .Prop("deformedRebakes", Schema::Int().Min(0))
+                                            .Prop("maxDriftVoxels", Schema::Number())
+                                            .Prop("bakeMicroseconds", Schema::Int().Min(0))
+                                            .Prop("resolutionInForce", Schema::Int().Min(0))
+                                            .Prop("residentBytes", Schema::Int().Min(0)))
                     .Prop("animalBudget", Schema::Object()
                                               .Prop("enabled", Schema::Bool())
                                               .Prop("animalsConsidered", Schema::Int().Min(0))

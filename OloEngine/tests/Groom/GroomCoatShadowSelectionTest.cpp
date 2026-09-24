@@ -97,27 +97,99 @@ TEST(GroomCoatShadowSelection, AnEmptyGroomReportsItsOwnGeometryRatherThanTheCac
     EXPECT_EQ(decision.Effective, GroomCoatShadowTechnique::None);
 }
 
-TEST(GroomCoatShadowSelection, ADeformingGroomIsRefusedRatherThanShadowedAtItsBindPose)
+TEST(GroomCoatShadowSelection, ADeformingGroomBakedFromItsDrawnPoseIsDelivered)
+{
+    // #1426. Until then EVERY bound groom was refused here, which covered every
+    // animal and every character. A deformed coat is now baked from the pose it
+    // is drawn at, so a deformed groom with that pose in hand is simply a coat
+    // that gets what it asked for.
+    GroomCoatShadowInputs inputs = FullyCapable();
+    inputs.GroomIsDeformed = true;
+    inputs.DeformedPoseAvailable = true;
+
+    const GroomCoatShadowDecision decision = SelectGroomCoatShadow(inputs);
+    EXPECT_EQ(decision.Reason, GroomCoatShadowFallbackReason::None);
+    EXPECT_FALSE(decision.IsFallback());
+    EXPECT_EQ(decision.Effective, GroomCoatShadowTechnique::AnisotropicDensityVolume);
+    EXPECT_EQ(decision.Slot, 0u);
+}
+
+TEST(GroomCoatShadowSelection, ADeformingGroomWithNoDrawnPoseIsRefusedRatherThanShadowedAtItsBindPose)
 {
     GroomCoatShadowInputs inputs = FullyCapable();
     inputs.GroomIsDeformed = true;
+    inputs.DeformedPoseAvailable = false;
 
     const GroomCoatShadowDecision decision = SelectGroomCoatShadow(inputs);
-    // The bake reads the asset's REST-POSE curves, so on an animating body the
-    // drawn strands move and the volume does not. A coat carrying its bind-pose
-    // shadow around reads as a shading bug rather than as the missing feature
-    // it is, so it is refused and COUNTED.
-    EXPECT_EQ(decision.Reason, GroomCoatShadowFallbackReason::GroomIsDeformed);
+    // With no drawn pose the only thing left to bake is the asset's REST
+    // curves, and a coat carrying its bind-pose shadow around an animating body
+    // reads as a shading bug. So it is refused, and COUNTED under its own name.
+    EXPECT_EQ(decision.Reason, GroomCoatShadowFallbackReason::DeformedPoseUnavailable);
     EXPECT_TRUE(decision.IsFallback());
     EXPECT_EQ(decision.Effective, GroomCoatShadowTechnique::None);
     EXPECT_EQ(decision.Slot, kNoGroomCoatShadowSlot);
 }
 
+TEST(GroomCoatShadowSelection, TheDrawnPoseIsNeverAssumed)
+{
+    // Fail-closed default: a deformed groom must SUPPLY its pose. A default of
+    // "available" would let a future producer that forgot to set the lane bake
+    // whatever it had lying around -- the rest curves -- and report success.
+    constexpr GroomCoatShadowInputs defaults{};
+    static_assert(!defaults.DeformedPoseAvailable);
+
+    GroomCoatShadowInputs inputs = FullyCapable();
+    inputs.GroomIsDeformed = true;
+    EXPECT_EQ(SelectGroomCoatShadow(inputs).Reason, GroomCoatShadowFallbackReason::DeformedPoseUnavailable);
+}
+
+TEST(GroomCoatShadowSelection, TheDrawnPoseLaneIsIgnoredForAnUndeformedGroom)
+{
+    // An unbound groom's bake reads the asset, so whether a drawn pose exists
+    // is not its question. Refusing it here would take coat shadowing away
+    // from every static groom that ever shipped.
+    GroomCoatShadowInputs inputs = FullyCapable();
+    inputs.GroomIsDeformed = false;
+    inputs.DeformedPoseAvailable = false;
+    EXPECT_EQ(SelectGroomCoatShadow(inputs).Reason, GroomCoatShadowFallbackReason::None);
+}
+
+TEST(GroomCoatShadowSelection, AStaleVolumeIsRefusedAndReadsUnshadowed)
+{
+    // A resident volume the coat has moved too far from. Sampling it would
+    // shadow each strand by where its neighbours USED to be -- a shadow sliding
+    // over a walking animal -- so it is refused and the coat reads fully lit
+    // (rule 10) with a reason that says so.
+    GroomCoatShadowInputs inputs = FullyCapable();
+    inputs.GroomIsDeformed = true;
+    inputs.DeformedPoseAvailable = true;
+    inputs.RepresentationStale = true;
+
+    const GroomCoatShadowDecision decision = SelectGroomCoatShadow(inputs);
+    EXPECT_EQ(decision.Reason, GroomCoatShadowFallbackReason::RepresentationStale);
+    EXPECT_TRUE(decision.IsFallback());
+    EXPECT_EQ(decision.Effective, GroomCoatShadowTechnique::None);
+    EXPECT_EQ(decision.Slot, kNoGroomCoatShadowSlot);
+}
+
+TEST(GroomCoatShadowSelection, AnUnbuiltVolumeIsReportedAheadOfAStaleOne)
+{
+    // Ordering: "nothing is resident" is the more fundamental statement. A
+    // stale flag on an entry with no volume describes a representation that
+    // does not exist.
+    GroomCoatShadowInputs inputs = FullyCapable();
+    inputs.GroomIsDeformed = true;
+    inputs.DeformedPoseAvailable = true;
+    inputs.RepresentationReady = false;
+    inputs.RepresentationStale = true;
+    EXPECT_EQ(SelectGroomCoatShadow(inputs).Reason, GroomCoatShadowFallbackReason::RepresentationNotBuilt);
+}
+
 TEST(GroomCoatShadowSelection, ADeformingGroomThatNeverAskedIsStillNotAFallback)
 {
-    // Ordering: NotRequested is more fundamental than GroomIsDeformed, because
-    // a coat that never asked cannot have failed at anything. Most bound
-    // grooms in a scene are in exactly this state, and counting them as
+    // Ordering: NotRequested is more fundamental than DeformedPoseUnavailable,
+    // because a coat that never asked cannot have failed at anything. Most
+    // bound grooms in a scene are in exactly this state, and counting them as
     // failures would bury the ones that really did ask.
     GroomCoatShadowInputs inputs = FullyCapable();
     inputs.Requested = GroomCoatShadowTechnique::None;

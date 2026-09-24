@@ -106,12 +106,18 @@ namespace OloEngine
         /// import being empty rather than anything about shadowing.
         GroomHasNoGeometry,
 
-        /// The groom is bound to a deforming surface. The bake reads the
-        /// asset's REST-POSE curves, so on an animating body the drawn strands
-        /// move and the volume does not — the coat would carry its bind-pose
-        /// shadow around, which reads as a shading bug rather than as the
-        /// missing feature it is. Refused and counted instead of approximated.
-        GroomIsDeformed,
+        /// The groom is bound to a deforming surface and the pose it is DRAWN
+        /// at was not available to bake from this frame. A deformed coat is
+        /// baked from the strands the pass draws (#1426), never from the
+        /// asset's rest curves — a volume of the rest pose would carry the
+        /// bind-pose shadow around on a moving body, which reads as a shading
+        /// bug rather than as a missing feature. So with no drawn pose in hand
+        /// there is nothing honest to bake, and the coat reads unshadowed.
+        ///
+        /// Unreachable while the strand build runs on the CPU, which always
+        /// hands the pose over. It is the arm a GPU-side deformation (#1427)
+        /// lands on until it learns to bake from its own output.
+        DeformedPoseUnavailable,
 
         /// This device cannot sample a 3D texture, so neither volume mode can
         /// run. Distinct from RepresentationNotBuilt on purpose: one is a
@@ -138,8 +144,17 @@ namespace OloEngine
 
         /// Nothing has been built yet. NORMAL on the first frame a coat is
         /// visible, and on the frame after its geometry changed — which is why
-        /// it is last and why it must not be confused with the ones above.
+        /// it must not be confused with the ones above.
         RepresentationNotBuilt,
+
+        /// A volume is resident but the coat has moved too far from the pose
+        /// it was baked at (CoatRebakePolicy::StaleDriftVoxels) and it was not
+        /// rebuilt. Sampling it would shadow each strand by where its
+        /// neighbours USED to be, which on a walking animal is a shadow that
+        /// slides over the coat — so the coat reads fully lit instead (rule
+        /// 10). Last, because it is a statement about a representation that
+        /// otherwise passed every check above.
+        RepresentationStale,
 
         Count
     };
@@ -160,9 +175,9 @@ namespace OloEngine
                        "coat is unshadowed.";
             case GroomCoatShadowFallbackReason::GroomHasNoGeometry:
                 return "The groom has no curves to build a shadow representation from.";
-            case GroomCoatShadowFallbackReason::GroomIsDeformed:
-                return "This groom is bound to a deforming surface, and the coat volume does not follow a "
-                       "deformation yet.";
+            case GroomCoatShadowFallbackReason::DeformedPoseUnavailable:
+                return "This groom is bound to a deforming surface and its drawn pose was not available to bake "
+                       "the coat volume from.";
             case GroomCoatShadowFallbackReason::VolumeTexturesUnavailable:
                 return "This device cannot sample a 3D texture, so no density volume can be built.";
             case GroomCoatShadowFallbackReason::NoDirectionalLight:
@@ -173,6 +188,9 @@ namespace OloEngine
                 return "Every resident coat-shadow slot is already held by another groom this frame.";
             case GroomCoatShadowFallbackReason::RepresentationNotBuilt:
                 return "The representation has not been built yet; this is normal on a coat's first visible frame.";
+            case GroomCoatShadowFallbackReason::RepresentationStale:
+                return "The coat has moved too far from the pose its volume was baked at and the volume was not "
+                       "rebuilt, so it is not sampled.";
             case GroomCoatShadowFallbackReason::Count:
                 break;
         }
@@ -191,8 +209,8 @@ namespace OloEngine
                 return "ModeNotImplemented";
             case GroomCoatShadowFallbackReason::GroomHasNoGeometry:
                 return "GroomHasNoGeometry";
-            case GroomCoatShadowFallbackReason::GroomIsDeformed:
-                return "GroomIsDeformed";
+            case GroomCoatShadowFallbackReason::DeformedPoseUnavailable:
+                return "DeformedPoseUnavailable";
             case GroomCoatShadowFallbackReason::VolumeTexturesUnavailable:
                 return "VolumeTexturesUnavailable";
             case GroomCoatShadowFallbackReason::NoDirectionalLight:
@@ -203,6 +221,8 @@ namespace OloEngine
                 return "BudgetExhausted";
             case GroomCoatShadowFallbackReason::RepresentationNotBuilt:
                 return "RepresentationNotBuilt";
+            case GroomCoatShadowFallbackReason::RepresentationStale:
+                return "RepresentationStale";
             case GroomCoatShadowFallbackReason::Count:
                 break;
         }
@@ -244,6 +264,12 @@ namespace OloEngine
         /// not what the component asked for.
         bool GroomIsDeformed = false;
 
+        /// The DRAWN pose of a deformed groom was in hand to bake from this
+        /// frame. Meaningless for an undeformed groom, whose bake reads the
+        /// asset. False by default, so a deformed groom has to supply its pose
+        /// positively rather than be assumed to have one.
+        bool DeformedPoseAvailable = false;
+
         /// The device can create and sample a 3D texture.
         bool VolumeTexturesSupported = true;
 
@@ -262,6 +288,11 @@ namespace OloEngine
         /// A built, uploaded representation is available for this coat THIS
         /// frame. Not "a build was requested" — the frame's own answer.
         bool RepresentationReady = false;
+
+        /// The resident representation describes a pose too far from the one
+        /// drawn (CoatBakeIsStale). Always false for an undeformed groom: its
+        /// bake is in object space and a rigid move cannot stale it.
+        bool RepresentationStale = false;
 
         /// The resident slot this coat holds, or kNoGroomCoatShadowSlot.
         u32 GrantedSlot = kNoGroomCoatShadowSlot;
@@ -315,9 +346,9 @@ namespace OloEngine
             return decision;
         }
 
-        if (inputs.GroomIsDeformed)
+        if (inputs.GroomIsDeformed && !inputs.DeformedPoseAvailable)
         {
-            decision.Reason = GroomCoatShadowFallbackReason::GroomIsDeformed;
+            decision.Reason = GroomCoatShadowFallbackReason::DeformedPoseUnavailable;
             return decision;
         }
 
@@ -350,6 +381,12 @@ namespace OloEngine
         if (!inputs.RepresentationReady)
         {
             decision.Reason = GroomCoatShadowFallbackReason::RepresentationNotBuilt;
+            return decision;
+        }
+
+        if (inputs.RepresentationStale)
+        {
+            decision.Reason = GroomCoatShadowFallbackReason::RepresentationStale;
             return decision;
         }
 
@@ -395,6 +432,23 @@ namespace OloEngine
         /// GPU bytes resident across every coat representation.
         u64 ResidentBytes = 0;
 
+        // ── A deformed coat (#1426) ─────────────────────────────────────
+
+        /// Rebuilds of a BOUND coat's volume this frame, from its drawn pose.
+        /// A subset of Rebuilds. It follows the motion rather than the frame
+        /// count: zero while the body is still, up to one per bound coat per
+        /// frame while it moves faster than the drift bound allows.
+        u32 DeformedRebakes = 0;
+        /// The largest distance, in voxels, between a bound coat that WAS
+        /// shadowed this frame and the pose its volume was baked at. This is
+        /// the shadow's lag made into a number; it stays at or under
+        /// CoatRebakePolicy::MaxDriftVoxels while the policy keeps up.
+        f32 MaxDriftVoxels = 0.0f;
+        /// CPU time spent baking coat volumes this frame, in microseconds:
+        /// segments, binning, packing and the upload call. The cost #1427 is
+        /// accounting for, measured where it is spent.
+        u64 BakeMicroseconds = 0;
+
         void Record(const GroomCoatShadowDecision& decision) noexcept
         {
             ByReason[static_cast<sizet>(decision.Reason)] += 1u;
@@ -438,6 +492,18 @@ namespace OloEngine
             *this = GroomCoatShadowStats{};
         }
 
-        [[nodiscard]] auto operator==(const GroomCoatShadowStats&) const -> bool = default;
+        /// Field by field, with the one float bit-exact (cpp-coding-quality
+        /// §2a): a defaulted operator== became a float `==` the moment
+        /// MaxDriftVoxels (#1426) joined the struct.
+        [[nodiscard]] auto operator==(const GroomCoatShadowStats& other) const -> bool
+        {
+            return ShadowedGrooms == other.ShadowedGrooms && FallbackGrooms == other.FallbackGrooms &&
+                   UnshadowedByChoice == other.UnshadowedByChoice && ByReason == other.ByReason &&
+                   ResolutionInForce == other.ResolutionInForce && LodStepInForce == other.LodStepInForce &&
+                   Rebuilds == other.Rebuilds && MaxAgeFrames == other.MaxAgeFrames &&
+                   ResidentBytes == other.ResidentBytes && DeformedRebakes == other.DeformedRebakes &&
+                   Math::BitwiseEqual(MaxDriftVoxels, other.MaxDriftVoxels) &&
+                   BakeMicroseconds == other.BakeMicroseconds;
+        }
     };
 } // namespace OloEngine

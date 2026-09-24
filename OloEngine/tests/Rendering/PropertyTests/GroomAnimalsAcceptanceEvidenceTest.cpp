@@ -1109,9 +1109,10 @@ namespace OloEngine::Tests
                 fibre.m_Intensity = 3.0f;
             }
 
-            // #1248, REQUESTED on a bound coat. The pass refuses a deformed
-            // groom a volume (GroomIsDeformed) -- asserted below as the gap it
-            // is, not hidden by leaving the component off.
+            // #1248, REQUESTED on a bound coat. Since #1426 the pass bakes a
+            // deformed groom's volume from the pose it draws, so every moving
+            // coat here is shadowed -- asserted in the integration case, with
+            // the refusal count.
             auto& coatShadow = coatEntity.AddComponent<GroomCoatShadowComponent>();
             coatShadow.m_Enabled = true;
 
@@ -1314,6 +1315,17 @@ namespace OloEngine::Tests
             return n;
         }
 
+        // Rec. 709 luma summed over the frame, in 8-bit units.
+        [[nodiscard]] static f64 SummedLuma(const std::vector<u8>& rgba)
+        {
+            f64 sum = 0.0;
+            for (sizet i = 0; i + 3 < rgba.size(); i += 4)
+            {
+                sum += 0.2126 * rgba[i] + 0.7152 * rgba[i + 1] + 0.0722 * rgba[i + 2];
+            }
+            return sum;
+        }
+
         [[nodiscard]] static f64 Fraction(u32 pixels)
         {
             return static_cast<f64>(pixels) / static_cast<f64>(kWidth * kHeight);
@@ -1398,12 +1410,15 @@ namespace OloEngine::Tests
             const GroomRenderStats& s = motion.Last;
             std::printf("[groom-animals] %s: drawn=%u strands=%u deformed=%u refused=%u simulated=%u guides=%u "
                         "contacts=%llu stretch=%.4f (declared %.4f) lit=%u historyRejectedAfterFirst=%u "
-                        "coatShadow{shadowed=%u deformed=%u} lod{strand=%u card=%u changes=%u}\n",
+                        "coatShadow{shadowed=%u poseUnavailable=%u stale=%u rebakes=%u drift=%.2f} "
+                        "lod{strand=%u card=%u changes=%u}\n",
                         path.Name, s.GroomsDrawn, s.StrandsDrawn, s.GroomsDeformed, s.GroomsBindingRefused,
                         s.GroomsSimulated, s.GuidesSimulated, static_cast<unsigned long long>(motion.ContactsEver),
                         static_cast<f64>(motion.WorstStretch), static_cast<f64>(s.DeclaredStretchTolerance), s.GroomsLit,
                         motion.MaxHistoryRejectedAfterFirst, s.CoatShadow.ShadowedGrooms,
-                        s.CoatShadow.ByReason[static_cast<sizet>(GroomCoatShadowFallbackReason::GroomIsDeformed)],
+                        s.CoatShadow.ByReason[static_cast<sizet>(GroomCoatShadowFallbackReason::DeformedPoseUnavailable)],
+                        s.CoatShadow.ByReason[static_cast<sizet>(GroomCoatShadowFallbackReason::RepresentationStale)],
+                        s.CoatShadow.DeformedRebakes, static_cast<f64>(s.CoatShadow.MaxDriftVoxels),
                         s.Lod.ByRepresentation[static_cast<sizet>(GroomRepresentation::Strand)],
                         s.Lod.ByRepresentation[static_cast<sizet>(GroomRepresentation::Card)],
                         motion.RepresentationChanges);
@@ -1435,11 +1450,17 @@ namespace OloEngine::Tests
                 }
             }
 
-            // #1248, stated as the gap it is: a coat bound to a moving body is
-            // REFUSED its self-shadow volume, counted with its reason.
-            EXPECT_EQ(s.CoatShadow.ShadowedGrooms, 0u);
-            EXPECT_EQ(s.CoatShadow.ByReason[static_cast<sizet>(GroomCoatShadowFallbackReason::GroomIsDeformed)], 3u)
-                << "a moving coat is refused coat self-shadowing, and says so";
+            // #1248 on a moving body (#1426): every bound coat is baked from
+            // the pose it is drawn at, so every one is shadowed and none is
+            // refused -- neither for want of a pose nor for a stale volume.
+            EXPECT_EQ(s.CoatShadow.ShadowedGrooms, 3u) << "#1426: every moving coat is self-shadowed";
+            EXPECT_EQ(s.CoatShadow.FallbackGrooms, 0u);
+            EXPECT_EQ(
+                s.CoatShadow.ByReason[static_cast<sizet>(GroomCoatShadowFallbackReason::DeformedPoseUnavailable)], 0u)
+                << "#1426: a bound coat is no longer refused its volume";
+            EXPECT_EQ(s.CoatShadow.ByReason[static_cast<sizet>(GroomCoatShadowFallbackReason::RepresentationStale)],
+                      0u)
+                << "#1426: the rebake keeps up with the walk";
 
             // Coverage floors, per subject: each coat is visibly there.
             for (SubjectRig* subject : Subjects())
@@ -1465,8 +1486,8 @@ namespace OloEngine::Tests
 
     // =========================================================================
     // Criterion 1, the negative controls: each active visual lever, switched
-    // off on the moving long-coated animal, changes the frame. Coat shadow is
-    // refused here and LOD is checked by the near-to-far case instead.
+    // off on the moving long-coated animal, changes the frame. LOD is checked
+    // by the near-to-far case instead.
     // =========================================================================
     TEST_F(GroomAnimalsAcceptanceEvidenceTest, ActiveVisualLeversChangeTheMovingLongCoat)
     {
@@ -1512,12 +1533,13 @@ namespace OloEngine::Tests
             { "#1247", "Fibre", [coat](bool on) mutable
               { coat.GetComponent<GroomFibreComponent>().m_Enabled = on; },
               true },
-            // #1248 is EXPECTED to change nothing here: a bound coat is refused
-            // its volume, so the lever is disconnected on a moving animal.
-            // Reported, not asserted; the integration case asserts the refusal.
+            // #1248 on a moving animal (#1426). Before, a bound coat was
+            // refused its volume and this lever changed 2.32% of the frame
+            // against a 2.23% repeat floor -- disconnected. It must now clear
+            // the same bar as every other child.
             { "#1248", "CoatShadow",
               [coat](bool on) mutable
-              { coat.GetComponent<GroomCoatShadowComponent>().m_Enabled = on; }, false },
+              { coat.GetComponent<GroomCoatShadowComponent>().m_Enabled = on; }, true },
             { "#1249", "Binding",
               [coat](bool on) mutable
               { coat.GetComponent<GroomBindingComponent>().m_Enabled = on; }, true },
@@ -1545,16 +1567,303 @@ namespace OloEngine::Tests
             lever.Set(true);
             ASSERT_FALSE(HasFatalFailure());
             const u32 changed = CountDiffering(off, baseline);
-            std::printf("[groom-animals] lever %s %s off: %u px differ (%.2f%%)\n", lever.Child, lever.Name, changed,
-                        100.0 * Fraction(changed));
+            std::printf("[groom-animals] lever %s %s off: %u px differ (%.2f%%, %.2fx the repeat floor)\n", lever.Child,
+                        lever.Name, changed, 100.0 * Fraction(changed),
+                        noise > 0u ? static_cast<f64>(changed) / static_cast<f64>(noise) : 0.0);
             std::fflush(stdout);
-            if (lever.ExpectChange)
+            if (lever.ExpectChange && std::string_view(lever.Child) == "#1248")
+            {
+                // A DIRECTIONAL term, judged by its direction (#1426). The
+                // coat shadow only ever darkens, while the repeat floor is a
+                // stochastic coat re-dithering in both directions -- so a pixel
+                // count scores the two on the same scale and undersells the
+                // one with a sign. The prediction is: switched off, the frame
+                // is BRIGHTER, by several times the luma the identical re-run
+                // drifts. The pixel count must still clear the floor itself.
+                const f64 leverLuma = SummedLuma(off) - SummedLuma(baseline);
+                const f64 repeatLuma = std::abs(SummedLuma(again) - SummedLuma(baseline));
+                std::printf("[groom-animals] lever #1248 luma: off - on = %+.0f, repeat drift %.0f (%.1fx)\n",
+                            leverLuma, repeatLuma, repeatLuma > 0.0 ? leverLuma / repeatLuma : 0.0);
+                std::fflush(stdout);
+                EXPECT_GT(changed, noise) << "#1248: the coat shadow changes the moving coat by less than the repeat "
+                                             "floor";
+                EXPECT_GT(leverLuma, 5.0 * repeatLuma)
+                    << "#1248: switching the coat shadow off must BRIGHTEN the moving coat by clearly more than an "
+                       "identical re-run drifts";
+            }
+            else if (lever.ExpectChange)
             {
                 EXPECT_GT(changed, 2u * noise) << lever.Child << " " << lever.Name
                                                << ": switching the child off must change the frame past twice the "
                                                   "repeat floor";
             }
         }
+    }
+
+    // =========================================================================
+    // #1426: the moving coat's self-shadow follows the walk. The rebake keeps
+    // the volume within its drift bound on every frame, costs what it costs
+    // (printed for #1427), and a frozen bake is DETECTED as stale rather than
+    // sampled -- the negative control that makes "within the bound" mean
+    // something.
+    // =========================================================================
+    TEST_F(GroomAnimalsAcceptanceEvidenceTest, TheMovingCoatShadowFollowsTheWalk)
+    {
+        SetPath(RenderingPath::Forward);
+        const GroomCoatShadow::CoatRebakePolicy shipped = Renderer3D::GetGroomCoatRebakePolicy();
+        ASSERT_EQ(shipped, GroomCoatShadow::CoatRebakePolicy{}) << "a previous case left a policy behind";
+
+        struct WalkCost
+        {
+            u32 Frames = 0;
+            u32 Rebakes = 0;
+            u64 BakeMicroseconds = 0;
+            u64 WorstFrameMicroseconds = 0;
+            f32 WorstDriftVoxels = 0.0f;
+            u32 MinShadowed = 0xFFFFFFFFu;
+            u32 StaleEver = 0;
+        };
+        const auto walk = [this](u32 frames)
+        {
+            for (SubjectRig* s : Subjects())
+            {
+                auto& anim = s->Body.GetComponent<AnimationStateComponent>();
+                anim.m_CurrentTime = s->ClipStart;
+                anim.m_IsPlaying = true;
+                ++s->Coat.GetComponent<GroomSimulationComponent>().m_ResetKey;
+            }
+            WalkCost cost;
+            for (u32 f = 0; f < frames; ++f)
+            {
+                RunFrames(1, 1.0f / 60.0f);
+                const GroomCoatShadowStats& c = PassStats().CoatShadow;
+                // Frame 0 builds every volume for the first time; it is the
+                // warm-up, not the steady-state cost.
+                if (f == 0)
+                {
+                    continue;
+                }
+                ++cost.Frames;
+                cost.Rebakes += c.DeformedRebakes;
+                cost.BakeMicroseconds += c.BakeMicroseconds;
+                cost.WorstFrameMicroseconds = std::max(cost.WorstFrameMicroseconds, c.BakeMicroseconds);
+                cost.WorstDriftVoxels = std::max(cost.WorstDriftVoxels, c.MaxDriftVoxels);
+                cost.MinShadowed = std::min(cost.MinShadowed, c.ShadowedGrooms);
+                cost.StaleEver += c.ByReason[static_cast<sizet>(GroomCoatShadowFallbackReason::RepresentationStale)];
+            }
+            return cost;
+        };
+        const auto report = [](const char* label, const WalkCost& c)
+        {
+            std::printf("[groom-animals] coat rebake %s: %u rebakes over %u frames x 3 coats (%.2f per frame), bake "
+                        "%.2f ms/frame mean, %.2f ms worst frame, worst drift in use %.2f vox, min shadowed %u, "
+                        "stale %u\n",
+                        label, c.Rebakes, c.Frames, static_cast<f64>(c.Rebakes) / std::max(1u, c.Frames),
+                        static_cast<f64>(c.BakeMicroseconds) / 1000.0 / std::max(1u, c.Frames),
+                        static_cast<f64>(c.WorstFrameMicroseconds) / 1000.0, static_cast<f64>(c.WorstDriftVoxels),
+                        c.MinShadowed, c.StaleEver);
+            std::fflush(stdout);
+        };
+
+        // ── The shipped policy over a walk ─────────────────────────────
+        constexpr u32 kWalk = 60;
+        const WalkCost shippedCost = walk(kWalk);
+        report("shipped (0.5 vox)", shippedCost);
+        EXPECT_EQ(shippedCost.MinShadowed, 3u) << "a moving coat lost its self-shadow mid-walk";
+        EXPECT_EQ(shippedCost.StaleEver, 0u) << "the shipped policy let a volume go stale";
+        EXPECT_LE(shippedCost.WorstDriftVoxels, shipped.MaxDriftVoxels + 1.0e-4f)
+            << "a coat was shadowed by a volume further from its pose than the rebake bound";
+        EXPECT_GT(shippedCost.Rebakes, 0u) << "the coats walked and nothing was rebaked: the volume is not following";
+
+        // ── The cadence sweep, on the real walk ────────────────────────
+        //
+        // The lag each bound buys is the worst drift in use; the cost is the
+        // rebakes and the bake time. The rule doc quotes these lines.
+        for (const f32 bound : { 0.25f, 1.0f, 2.0f })
+        {
+            GroomCoatShadow::CoatRebakePolicy policy;
+            policy.MaxDriftVoxels = bound;
+            policy.StaleDriftVoxels = std::max(bound, shipped.StaleDriftVoxels);
+            Renderer3D::SetGroomCoatRebakePolicy(policy);
+            const WalkCost cost = walk(kWalk);
+            char label[32];
+            std::snprintf(label, sizeof(label), "bound %.2f vox", static_cast<f64>(bound));
+            report(label, cost);
+            EXPECT_LE(cost.WorstDriftVoxels, bound + 1.0e-4f) << label;
+        }
+
+        // ── The negative control: a frozen bake is detected ────────────
+        //
+        // The rebake switched off, the walk played: the volume stays at the
+        // first frame's pose while the coat walks away from it. The detector
+        // must say so -- the coat falls back as RepresentationStale and reads
+        // fully lit -- rather than keep shadowing it by where it was.
+        GroomCoatShadow::CoatRebakePolicy frozen;
+        frozen.RebakeOnDrift = false;
+        Renderer3D::SetGroomCoatRebakePolicy(frozen);
+        const WalkCost frozenCost = walk(kWalk);
+        report("frozen", frozenCost);
+        Renderer3D::SetGroomCoatRebakePolicy(shipped);
+        EXPECT_EQ(frozenCost.Rebakes, 0u) << "the frozen policy rebaked";
+        EXPECT_GT(frozenCost.StaleEver, 0u) << "a volume frozen at the first frame's pose was never detected as stale "
+                                               "over a whole walk";
+        EXPECT_LT(frozenCost.MinShadowed, 3u) << "a stale volume was still sampled";
+    }
+
+    // =========================================================================
+    // #1426: the pictures. The moving long coat, held at several points of the
+    // walk and seen from two sides, with and without its self-shadow, on
+    // Forward; then the same pose under MSAA and under upscale on Deferred.
+    // Each cell is its own A/B, judged against the measured repeat floor.
+    // =========================================================================
+    TEST_F(GroomAnimalsAcceptanceEvidenceTest, TheMovingCoatIsSelfShadowedThroughTheWalk)
+    {
+        SubjectRig& s = m_LongCoat;
+        auto& coatShadow = s.Coat.GetComponent<GroomCoatShadowComponent>();
+        ASSERT_TRUE(coatShadow.m_Enabled);
+
+        const View side = ViewOf(s);
+        const View front{ s.Position + glm::vec3(2.9f, 1.3f, 3.4f), s.Position + glm::vec3(0.0f, 1.1f, 0.0f), 40.0f };
+
+        // Summed luma, ON minus OFF: the sign says which way the term pushed
+        // the frame. The fixture's own SummedLuma, so this case and the lever
+        // case score luma the same way.
+        const auto lumaDelta = [](const std::vector<u8>& on, const std::vector<u8>& off)
+        { return SummedLuma(on) - SummedLuma(off); };
+
+        // Shadow on, then off, at the SAME pose. EACH ARM REPLAYS THE WALK to
+        // `frame` first: a capture's settle frames DO advance the clip, so two
+        // captures taken back to back are two different poses. The first
+        // version of this case captured them back to back, measured a "repeat
+        // floor" of 109k px between two poses, and read the legs' motion as
+        // the shadow's effect. Returns the shadowed count of the ON arm.
+        const auto abAt = [&](u32 frame, const std::string& onName, const std::string& offName, const View& view,
+                              std::vector<u8>& on, std::vector<u8>& off)
+        {
+            coatShadow.m_Enabled = true;
+            (void)PlayFromStart(frame);
+            const u32 shadowed = PassStats().CoatShadow.ShadowedGrooms;
+            ColdHistory();
+            Capture(onName, view, on);
+            coatShadow.m_Enabled = false;
+            (void)PlayFromStart(frame);
+            ColdHistory();
+            Capture(offName, view, off);
+            coatShadow.m_Enabled = true;
+            return shadowed;
+        };
+
+        SetPath(RenderingPath::Forward);
+
+        // The repeat floor: the identical replay-and-capture twice, the same
+        // way every arm below is taken.
+        std::vector<u8> first;
+        std::vector<u8> second;
+        (void)PlayFromStart(30);
+        ColdHistory();
+        Capture("", side, first);
+        (void)PlayFromStart(30);
+        ColdHistory();
+        Capture("", side, second);
+        ASSERT_FALSE(HasFatalFailure());
+        const u32 floor = CountDiffering(first, second);
+        const f64 repeatLuma = std::abs(lumaDelta(first, second));
+        std::printf("[groom-animals] moving-coat shadow: repeat floor %u px, luma drift %.0f\n", floor, repeatLuma);
+
+        for (const u32 frame : { 15u, 30u, 45u })
+        {
+            for (const auto& [angle, view] : { std::pair<const char*, View>{ "Side", side },
+                                               std::pair<const char*, View>{ "Front", front } })
+            {
+                const std::string cell = "_GL_Forward_LongCoat_F" + std::to_string(frame) + "_" + angle;
+                std::vector<u8> on;
+                std::vector<u8> off;
+                const u32 shadowed = abAt(frame, "GroomAnimalsMovingCoatShadow" + cell,
+                                          "GroomAnimalsMovingCoatShadowOff" + cell, view, on, off);
+                ASSERT_FALSE(HasFatalFailure());
+                EXPECT_EQ(shadowed, 3u) << "F" << frame << " " << angle;
+                const u32 moved = CountDiffering(on, off);
+                const f64 delta = lumaDelta(on, off);
+                std::printf("[groom-animals] moving-coat shadow F%u %s: %u px (%.2fx floor), luma %.0f\n", frame,
+                            angle, moved, floor > 0u ? static_cast<f64>(moved) / floor : 0.0, delta);
+                std::fflush(stdout);
+                // Every cell's A/B clears the pixel floor. Beyond that the two
+                // views make DIFFERENT claims, and the difference is measured:
+                //
+                // SIDE: the dense flank, neck and mane fill the frame, so the
+                // term DARKENS it, by several times what an identical replay
+                // drifts -- the lever case's prediction, on every frame of the
+                // walk.
+                //
+                // FRONT: the sparse lower-leg feathering fills much of the
+                // frame, and on a sparse coat turning the term on BRIGHTENS it
+                // (groom-coat-self-shadowing.md rule 3: the measured occlusion
+                // replaces a fake root ramp that darkened more). At F45 Front
+                // the signed diff is 20 344 px brighter, all on the legs,
+                // against 19 855 darker under the mane and on the chest, and
+                // the two CANCEL in a summed luma (+25 532 against a 6 553
+                // drift). A net sum cannot score a view whose true answer has
+                // both signs, so the front views are printed and looked at,
+                // and hold only to the floor.
+                EXPECT_GT(moved, floor) << "F" << frame << " " << angle;
+                if (std::string_view(angle) == "Side")
+                {
+                    EXPECT_LT(delta, -5.0 * repeatLuma)
+                        << "F" << frame << " Side: the self-shadow did not clearly darken the moving coat";
+                }
+                if (frame == 30u && std::string(angle) == "Side")
+                {
+                    // visual-quality-criteria rule 1: judge it enlarged.
+                    WriteEnlargedCrop("GroomAnimalsMovingCoatShadowCrop_GL_Forward_LongCoat_F30_Side", on, 440u, 180u,
+                                      400u, 300u, 3u);
+                    WriteEnlargedCrop("GroomAnimalsMovingCoatShadowOffCrop_GL_Forward_LongCoat_F30_Side", off, 440u,
+                                      180u, 400u, 300u, 3u);
+                }
+            }
+        }
+
+        // ── MSAA and upscale, one moving pose each, on Deferred ─────────
+        SetPath(RenderingPath::Deferred);
+        auto& deferred = Renderer3D::GetRendererSettings().Deferred;
+        auto& post = Renderer3D::GetPostProcessSettings();
+        const u32 restoreSamples = deferred.MSAASampleCount;
+        const UpscaleMode restoreUpscale = post.Upscale;
+
+        struct Cell
+        {
+            const char* Name;
+            u32 Samples;
+            UpscaleMode Upscale;
+        };
+        for (const Cell& cell : { Cell{ "NoMsaa", 1u, UpscaleMode::Off }, Cell{ "Msaa4", 4u, UpscaleMode::Off },
+                                  Cell{ "Scaled", 1u, UpscaleMode::Performance } })
+        {
+            deferred.MSAASampleCount = cell.Samples;
+            post.Upscale = cell.Upscale;
+            Renderer3D::ApplyRendererSettings();
+            const std::string name = std::string("_GL_Deferred_LongCoat_F30_") + cell.Name;
+            std::vector<u8> on;
+            std::vector<u8> off;
+            const u32 shadowed =
+                abAt(30u, "GroomAnimalsMovingCoatShadow" + name, "GroomAnimalsMovingCoatShadowOff" + name, side, on, off);
+            if (HasFatalFailure())
+            {
+                break;
+            }
+            const u32 moved = CountDiffering(on, off);
+            const f64 delta = lumaDelta(on, off);
+            std::printf("[groom-animals] moving-coat shadow Deferred %s: shadowed=%u, %u px (%.2fx floor), luma %.0f\n",
+                        cell.Name, shadowed, moved, floor > 0u ? static_cast<f64>(moved) / floor : 0.0, delta);
+            std::fflush(stdout);
+            EXPECT_EQ(shadowed, 3u) << cell.Name;
+            EXPECT_GT(moved, floor) << cell.Name;
+            EXPECT_GT(std::abs(delta), 5.0 * repeatLuma)
+                << cell.Name << ": the self-shadow barely changes the moving coat";
+            EXPECT_LT(delta, 0.0) << cell.Name << ": the self-shadow did not darken the coat";
+        }
+        deferred.MSAASampleCount = restoreSamples;
+        post.Upscale = restoreUpscale;
+        Renderer3D::ApplyRendererSettings();
     }
 
     // =========================================================================

@@ -893,6 +893,18 @@ namespace OloEngine
         {
             return s_Data.GroomStrandRequests;
         }
+        // When a bound coat's self-shadow volume is rebaked from its drawn pose
+        // (issue #1426). Held here and handed to GroomRenderPass every frame
+        // with its frame state, so it survives a pipeline rebuild. A budget, not
+        // an authored look -- which is why it is not a component field.
+        static void SetGroomCoatRebakePolicy(const GroomCoatShadow::CoatRebakePolicy& policy) noexcept
+        {
+            s_Data.GroomCoatRebakePolicy = GroomCoatShadow::SanitizeCoatRebakePolicy(policy);
+        }
+        [[nodiscard]] static const GroomCoatShadow::CoatRebakePolicy& GetGroomCoatRebakePolicy() noexcept
+        {
+            return s_Data.GroomCoatRebakePolicy;
+        }
         // Cleared at BeginScene, so an empty list means "no light asked this
         // frame", never "the last frame's list is still here".
         [[nodiscard]] static std::span<const RayTracedShadowLightRequest> GetRayTracedShadowLightRequests()
@@ -2335,6 +2347,8 @@ namespace OloEngine
             TArray64<RayTracedShadowLightRequest> RayTracedShadowLightRequests;
             // See SetGroomStrandRequests (issue #1246).
             TArray64<GroomStrandRequest> GroomStrandRequests;
+            // See SetGroomCoatRebakePolicy (issue #1426).
+            GroomCoatShadow::CoatRebakePolicy GroomCoatRebakePolicy;
             bool GPUSceneExtractionActive = false;
             // This frame's draw links (GPUScene/GPUSceneDrawLink.h). Cleared at
             // BeginGPUSceneExtraction, appended during submission, resolved

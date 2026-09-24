@@ -252,6 +252,19 @@ namespace OloEngine
             m_CacheBudgetBytes = bytes;
         }
 
+        /// When a DEFORMED coat's volume is rebuilt (#1426). Engine-wide rather
+        /// than per groom: it trades CPU time against shadow lag, which is a
+        /// budget decision like the cache's, not an authored look. Sanitised on
+        /// the way in — see GroomCoatShadow::SanitizeCoatRebakePolicy.
+        void SetCoatRebakePolicy(const GroomCoatShadow::CoatRebakePolicy& policy) noexcept
+        {
+            m_CoatRebakePolicy = GroomCoatShadow::SanitizeCoatRebakePolicy(policy);
+        }
+        [[nodiscard]] const GroomCoatShadow::CoatRebakePolicy& GetCoatRebakePolicy() const noexcept
+        {
+            return m_CoatRebakePolicy;
+        }
+
         /// The decision this pass WOULD make for `requested`, given the frame
         /// state it currently holds. Exposed so the editor's inspector and a
         /// test can ask without rendering — the reason a groom is not getting
@@ -355,9 +368,31 @@ namespace OloEngine
             /// TO or FROM a per-light representation, not between the two
             /// volume modes.
             GroomCoatShadowTechnique CoatMode = GroomCoatShadowTechnique::None;
+
+            // ── A deformed coat (#1426) ─────────────────────────────
+
+            /// The drawn pose the resident volume was baked from: one centreline
+            /// midpoint per segment (GroomCoatShadow::CaptureCoatPose). Empty
+            /// for a bake of the asset's rest curves; WHICH kind of bake is
+            /// resident is CoatBakedFromPose's job, not this vector's emptiness.
+            std::vector<glm::vec3> CoatBakedPose;
+            /// The resident volume was baked from a DRAWN pose (true) or from
+            /// the asset's rest curves (false). Stated, not inferred from
+            /// CoatBakedPose being empty; cleared with the volume.
+            bool CoatBakedFromPose = false;
+            /// How far the drawn coat is from CoatBakedPose THIS frame, in
+            /// voxels, after any rebake. Zero for an undeformed coat.
+            f32 CoatDriftVoxels = 0.0f;
         };
 
-        [[nodiscard]] CacheEntry* AcquireGeometry(const GroomStrandRequest& request);
+        /// `outDeformedVertices` is cleared, then receives the vertex stream a
+        /// DEFORMED groom was built with this frame — the pose the coat volume
+        /// is baked from (#1426). It stays empty for an undeformed groom, whose
+        /// bake reads the asset instead. An out-parameter rather than a copy on
+        /// the entry, because the stream is 256 bytes a segment and is only
+        /// needed until the coat decision is made.
+        [[nodiscard]] CacheEntry* AcquireGeometry(const GroomStrandRequest& request,
+                                                  std::vector<GroomStrandVertex>& outDeformedVertices);
         void EvictToBudget();
 
         // Root-transform ownership is not bitwise relocatable; stable nodes preserve it.
@@ -380,8 +415,26 @@ namespace OloEngine
         /// Rebuilds `entry`'s coat volume if the request needs one and the
         /// resident bake is not already right. Returns the decision, so the
         /// caller records the reason rather than re-deriving it.
+        ///
+        /// `deformedVertices` is this frame's drawn pose for a bound groom
+        /// (empty otherwise); see AcquireGeometry.
         [[nodiscard]] GroomCoatShadowDecision AcquireCoatVolume(const GroomStrandRequest& request, CacheEntry& entry,
-                                                                u32& residentVolumes);
+                                                                u32& residentVolumes,
+                                                                std::span<const GroomStrandVertex> deformedVertices);
+
+        /// Bakes `segments` into `entry`'s coat volume. The one place a volume
+        /// is created, for the rest-curve bake and the drawn-pose bake alike, so
+        /// the two cannot disagree about packing, format or byte accounting.
+        /// Returns false, leaving the resident volume untouched, when the bake
+        /// produced nothing.
+        bool BakeCoatVolume(CacheEntry& entry, std::span<const GroomCoatShadow::CoatSegment> segments,
+                            u32 resolution);
+
+        /// This frame's drawn pose for the groom being processed, reused across
+        /// draws so a bound coat does not allocate its vertex stream twice.
+        std::vector<GroomStrandVertex> m_DeformedVertices;
+
+        GroomCoatShadow::CoatRebakePolicy m_CoatRebakePolicy;
 
         /// Coat volumes currently held across the WHOLE cache, not just the
         /// ones drawn this frame. Counting live draws instead let the resident
