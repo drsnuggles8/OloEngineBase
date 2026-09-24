@@ -58,18 +58,16 @@ separate hand-maintained list; if it isn't in the registry, treat it as fair gam
 **`lint` is not optional, and it is not the same information as `rank`.** `rank` lists only
 issues that carry an `olo-score` block, so an unscored issue is not ranked *low* — it is
 absent, and this command cannot see it at all. New issues are supposed to be born scored
-from the issue templates (both carry a block), but a session filing a follow-up with
-`gh issue create --body ...` **bypasses the template entirely**, and that is the normal way
-worker sessions file findings. So the blind spot lands precisely on the freshest, most
-concrete issues — the ones written by an agent that had just finished proving the problem.
+from the issue templates (both carry a block), but `gh issue create --body ...` **bypasses the
+template entirely**. Worker sessions now fix what they find (task-loop Phase 1a) and a hook makes
+the issues they still file carry a score block, but issues filed by hand or from the base repo
+still arrive unscored.
 
 Score whatever `lint` returns **before** picking in step 3, against the anchors in
 [docs/process/issue-scoring.md](../../docs/process/issue-scoring.md) §4, and then treat the
 re-run `rank` as canonical. Write the block into the issue body (that is the single source of
-truth — there is no scores file). Do not skip this on the grounds that the unscored issues
-look minor: measured on 2026-08-20, three issues were unscored and one of them (#847, a test
-that structurally could not fail) scored **6.0 — rank #2**, above everything the sweep had
-surfaced on its own.
+truth — there is no scores file). Do not skip this because the unscored issues look minor: #847,
+unscored, scored rank #2 once it was scored.
 
 > **Windows trap when writing the block:** read the existing body with an explicit
 > `encoding="utf-8"`, never bare `text=True` — `subprocess` decodes gh's output with the
@@ -206,17 +204,12 @@ on a single trivial fix. For Tier 2 signal-hygiene especially (warnings, smells)
 BATCHED task that clears a whole class at once — "fix every `-Wfoo` in `<module>`" or
 "resolve all SonarQube dead-code hits in `<subsystem>`" — over one warning per loop.
 
-**For a genuinely large Tier 1/4 epic, default to keeping it whole, not slicing it.** The old
-default here was "scope it to the first shippable slice and leave the rest as a follow-up
-issue" — don't do that automatically anymore. Instead recommend a **long-running Fable 5.1
-session that fans sub-pieces out to subagents** (via the Agent tool) to absorb the epic's
-size and parallelism, landing the *entire* issue as one branch/PR that closes it outright.
-This worked well in practice (2026-07-16 RPG-progression / atmosphere-sky rework, after an
-initial first-slice-plus-follow-up split was explicitly rejected in favor of this) and avoids
-the churn a slice-and-defer approach creates: follow-up-issue bookkeeping, partial-closure
-tracking on the parent issue, and re-onboarding a future `/start-work` batch to the same
-subsystem context from scratch. See the Fable 5.1 rubric entry below for how to structure the
-subagent fan-out in the handover.
+**For a genuinely large Tier 1/4 epic, default to keeping it whole, not slicing it.** Recommend a
+**long-running Fable 5.1 session that fans sub-pieces out to subagents** (via the Agent tool),
+landing the *entire* issue as one branch/PR that closes it outright. Slicing creates follow-up
+bookkeeping, partial-closure tracking and a cold re-onboarding for whoever picks up the rest; the
+same reasoning is why worker sessions fix the bugs they find (task-loop Phase 1a). See the
+Fable 5.1 rubric entry below for how to structure the fan-out in the handover.
 
 Only fall back to a first-slice-plus-follow-up split when:
 
@@ -246,33 +239,11 @@ Drive policy (the one genuine local rule): **every worktree goes under `C:\repos
 There is no two-worktree cap any more and no fallback drive. Both of those existed to
 ration the 50 GB E: partition, and rationing turned out to cost far more than it saved.
 
-**Why this specific path, and why it is not a preference.** The compiler cache only shares
-between worktrees whose absolute paths sit under ccache's `base_dir`, because
-`CompilerCache.cmake` compiles with `/Z7` (embedded debug info), which bakes the source
-path into every object — so the path is part of the hash. ccache accepts exactly ONE
-`base_dir`, and it is set to `C:\repos`. A worktree created anywhere else is an **island**:
-it caches its own rebuilds and shares with nobody.
-
-That was not theoretical. Measured 2026-08-20 with `base_dir = D:\repos` while
-`/start-work` was placing worktrees on E:, using the real flags:
-
-| compile | result |
-|---|---|
-| `D:\repos\treeA` → `D:\repos\treeB` | HIT |
-| `D:\repos` → `E:\repos\treeC` | **MISS** |
-| `E:\repos\treeE1` → `E:\repos\treeE2` (siblings) | **MISS** |
-
-Two pieces of our own tooling disagreed about where worktrees live, so cross-worktree
-caching — the entire point of the `dev-cached` preset — was silently off for every
-worktree this command created. The 12m04s → 3m23s measurement that justified the cache was
-taken between two D: directories and never exercised E:.
-
-**Do not "fix" this by moving worktrees to D:.** D: is a mechanical HDD
-(ST2000DM006); C: and E: are partitions of the same NVMe SSD. C: is therefore exactly as
-fast as E: was, with ~750 GB free against E:'s 50 — which is also why the cap is gone.
-
-If you ever change where worktrees live, change `base_dir` in `ccache.conf` in the same
-move, or you silently reintroduce the island problem.
+**Why this path.** ccache shares only between worktrees under its single `base_dir`, which is
+`C:\repos` (`/Z7` bakes the source path into every object). A worktree anywhere else caches for
+itself alone and looks healthy. D: is an HDD. If you ever move worktrees, change `base_dir` in
+`ccache.conf` in the same move. Measurements:
+[build-trees-and-windows-asan.md §5–§7](../../docs/agent-rules/build-trees-and-windows-asan.md).
 
 **Build the worktree path as an ABSOLUTE path and VALIDATE it before creating anything.**
 This is the step that has gone wrong before: a relative / mis-joined path got resolved
@@ -398,8 +369,10 @@ about this conversation:
     effort before starting. State one line of *why* (what about the task drives the choice).
 - **Registry snapshot** — the off-limits list from step 2 (so the next session won't
     re-derive or collide). **When N > 1, also list the OTHER tasks/branches launched in
-    this same batch** as off-limits — they were just created and run in parallel, so each
-    sibling session must know not to touch the others' subsystems/files.
+    this same batch**, each with its worktree path and the directories/files it is expected to
+    change. This list is what a worker checks when it finds a bug outside its task: a bug in a
+    sibling's files is the one kind it files and reports to that sibling instead of fixing
+    (task-loop Phase 1a, *owned elsewhere*). Everything else it fixes.
 - **Plan** — the intended approach / steps, covering the FULL scope of the task (every
     acceptance criterion on the issue, if it's issue-sourced) unless you deliberately sliced
     per "Right-size the unit of work" above — in which case say so explicitly and name what's
@@ -439,7 +412,7 @@ about this conversation:
 - **Next steps** — the concrete first actions to take.
 - **The loop** — one line: "Follow `docs/process/task-loop.md`, Phase 0 through Phase 7." That
     document owns implement → verify → self-review → commit → push → PR → CI/CodeRabbit → report,
-    including the closing-the-loop steps (tick the source, capture the lesson in
+    including fixing the bugs found on the way (Phase 1a) and the closing-the-loop steps (tick the source, capture the lesson in
     `docs/agent-rules/` and link it from both indexes). Don't restate it here. DO note anything
     task-specific that overrides or extends it — "this one needs visual evidence from four
     angles", or "the acceptance criteria are the issue's checkboxes; tick each with evidence and
@@ -489,13 +462,14 @@ correctness-critical. Pick a model:
     before trusting its summary. Any mandatory verification loop (visual, runtime) from the
     Opus 5.5 guidance above still applies regardless of the driving model — a Fable-orchestrated
     session doesn't get to skip screenshot evidence on a rendering change.
-Then pick an effort level: **high / xhigh** for tricky correctness, subtle bugs, a heavy
-verify loop, or a whole-epic Fable session per (b) above (the orchestration/integration
-decisions are hard even when individual delegated pieces are mechanical); **medium** for
-standard feature work with tests; **low** for mechanical edits per Fable (a). When unsure,
-round *up* one level for correctness-critical or hard-to-verify work. (These map to the same
-three names the user selects in Claude Code — Opus 5.5 / Sonnet 5 / Fable 5.1 — plus the effort
-control.)
+Then pick an effort level. Effort names do not mean the same amount of thinking across models:
+Opus 5.5 at **medium** matches or beats Opus 5 at high on agentic coding, in fewer steps (Anthropic,
+*Prompting Claude Opus 5.5*), and it thinks more per turn than Opus 5 at the same level. So:
+**medium** is the default for Opus 5.5, including standard feature work and most renderer work;
+**high** for tricky correctness, subtle bugs, cross-subsystem invariants or a whole-epic Fable
+session per (b) above; **low** for mechanical edits per Fable (a). Reserve **xhigh / max** for a
+task where a higher level has already been seen to help (e.g. a previous attempt at medium or high
+went wrong on reasoning, not on missing information), and say so in the why-line.
 
 **5b. Open the worktree in a NEW window.** The user runs VS Code Insiders — open one
 window per chosen task, each on that task's own worktree path:
@@ -510,7 +484,13 @@ switch to the new window, run `/model <opus|sonnet|fable>` and set the effort le
 one you recommended for this task, then start the session with:
     Read ./HANDOVER.md and continue the task it describes.
 That one line is the whole kickoff — `HANDOVER.md` points at `docs/process/task-loop.md`, and the
-session then runs to a green, self-reviewed PR on its own. It's interactive, so the user watches
+session then runs to a green, self-reviewed PR on its own.
+
+For a session the user will not be watching, offer the `/goal` form of the kickoff instead. A
+separate evaluator then checks the exit gate after every turn, so a turn that ends early starts
+another one, and a running CI poll defers the check rather than failing it:
+
+    /goal Read ./HANDOVER.md and do the task it describes, following docs/process/task-loop.md. Done when the Phase 6 exit gate is shown met in this conversation: the PR is MERGEABLE, every check is SUCCESS, the unresolved review-thread count printed by the Phase 6 query is 0, and the PR body has a complete verification matrix plus the Found and fixed / Filed, not fixed sections. Also done if the session states a blocker that only the user can clear. It's interactive, so the user watches
 and can interrupt or redirect at any point; and it can be long — CI's SonarCloud and sanitizer
 jobs take ~1.5–2 hours, so the session may still be legitimately working long after the code is
 written.

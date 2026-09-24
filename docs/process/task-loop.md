@@ -3,25 +3,38 @@
 The contract for a **worker session**: a Claude session running in a task worktree, started by
 `/start-work`, kicked off with *"Read ./HANDOVER.md and continue the task it describes."*
 
-`/start-work` picks the work and scaffolds the worktree. **This document owns everything after
-that**, and the session is expected to run the whole way to a green, self-reviewed, review-clean
-PR without being re-prompted at each step.
+`/start-work` picks the work and scaffolds the worktree. This document owns everything after that.
+The session runs the whole way to a green, self-reviewed, review-clean PR without being re-prompted
+at each step, and it **fixes the bugs it finds on the way** instead of filing them (Phase 1a).
 
 **Where it stops: merging.** The loop ends at "PR is green, reviewed, all threads resolved."
 Merging the PR and closing the issue stay explicit user opt-ins. `/cleanup-worktree` reclaims the
 worktree afterwards.
 
-Absorbed the former `/finish-pr` and `/pr-status` commands — they were a separate manual stage for
-work this loop now does inline.
+The stories behind the rules are in the [appendix](#appendix--why-these-rules-exist).
 
 ---
 
+## How turns end
+
+This session runs unattended, so a message with no tool call ends the work until someone notices.
+Do not end a turn in any of these four ways while work the task owes is still open:
+
+1. a summary of what was done that closes by announcing the next step, with no tool call;
+2. an offer to carry on "unless you'd prefer otherwise";
+3. a list of decisions for the user when, by your own account, none of them blocks the rest;
+4. stopping to report because the turn has been long or a milestone is done.
+
+Status notes and recommendations are welcome: put them in the same message as your next tool call
+and carry on with whatever does not depend on an answer. The stops that are wanted: nothing can move
+without the user; the next step is a gated action (see `CLAUDE.md` → *Committing and publishing*);
+or the Phase 6 exit gate has passed.
+
 ## Phase 0 — Orient
 
-Read `HANDOVER.md`, then `CLAUDE.md` (especially *Definition of done*) and any
-`docs/agent-rules/` file the task touches — use
-[agent-rules/README.md](../agent-rules/README.md) to find them by failure mode when the subsystem
-isn't obvious. Set the model + effort `HANDOVER.md` recommends.
+Read `HANDOVER.md`, then `CLAUDE.md` (especially *Definition of done*) and any `docs/agent-rules/`
+file the task touches; [agent-rules/README.md](../agent-rules/README.md) finds them by failure mode.
+Set the model and effort `HANDOVER.md` recommends.
 
 Confirm you are in the worktree, not the base repo:
 
@@ -29,27 +42,64 @@ Confirm you are in the worktree, not the base repo:
 git rev-parse --path-format=absolute --git-common-dir --show-toplevel
 ```
 
-If `--show-toplevel` equals the base repo, **stop** — you would put branch work on `master`.
+If `--show-toplevel` equals the base repo, **stop**: you would put branch work on `master`.
 
 ## Phase 1 — Implement
 
-Work the plan in `HANDOVER.md`, covering its **full** scope. If you discover the plan is wrong,
-say so and adapt — the handover is a brief, not a spec. If you discover the task is already done,
-stop and report that instead of manufacturing work.
+Work the plan in `HANDOVER.md`, covering its **full** scope. If the plan is wrong, say so and adapt;
+the handover is a brief, not a spec. If the task is already done, stop and report that instead of
+manufacturing work.
 
-Honor the *Definition of done* cross-binding checks as you go: an ECS component change has
+Honour the *Definition of done* cross-binding checks as you go: an ECS component change has
 touch-points the pre-commit hook cannot catch.
+
+### 1a. Bugs you find on the way — fix them here
+
+**A bug you find while working is fixed in this worktree, on this branch.** You have just proven it,
+you have the context loaded, and you have a build and a verification setup running. Filing it
+instead costs a future session all of that from cold. The measured pattern before this rule was
+several issues a day, each opening with "Found while verifying #N", many of them a one-line fix.
+
+The fix goes in **its own commit** (`fix(<scope>): …`, not folded into the task's commits) with
+its own test or evidence, sized like the neighbouring tests, and it is listed in the PR body under
+*Found and fixed* (Phase 4). It goes through the same verification matrix as the task where it
+reaches a rendering path.
+
+**File an issue instead only when one of these is true**, and name which:
+
+| reason | what it means |
+|---|---|
+| **needs a decision** | the fix needs a design, scope or trade-off call from the user |
+| **needs access** | hardware, an asset, a licensed SDK or a credential this session does not have |
+| **too big** | the fix is larger than the task itself, or is a redesign of another subsystem |
+| **owned elsewhere** | a sibling worktree (`HANDOVER.md` registry snapshot, `git worktree list`) is changing those files |
+
+"It widens the diff", "it is out of scope", "it is a different subsystem" and "it needs its own
+verification" are not reasons. They describe the fix, not something that blocks it.
+
+A filed issue carries, in its body:
+
+```markdown
+Found while working on #<task issue>.
+Not fixed in #<PR> because: <needs a decision | needs access | too big | owned elsewhere> — <the fact>.
+```
+
+plus an `olo-score` block ([issue-scoring.md §5](issue-scoring.md), scored against the §4
+anchors): `gh issue create --body` bypasses the issue templates, and an unscored issue is invisible
+to `/start-work`. For **owned elsewhere**, also message the owning session if it is live
+(`ListAgents`, then `SendMessage`) so the fix lands there instead of waiting in the backlog.
+
+A partial fix is still a fix: make the part you can, commit it, and file only the remainder with the
+reason the remainder is blocked.
 
 ## Phase 2 — Verify locally, before anyone else sees it
 
 Build and run the suite via the `run-oloengine` skill.
 
-**Trust the build tool's own exit code, nothing else.** Three separate mechanisms here report a
-*failed* build as success: a trailing pipe returns the pipe's status, not the compiler's; a
-PowerShell truncating filter (`Select-Object -First N`, `Select-String … -First N`) both masks the
-code *and* tears the build down early once N lines have streamed; and the background-task harness
-summarises whatever the shell handed it. Capture the code alone, before anything can mask it, then
-grep the log:
+**Trust the build tool's own exit code, nothing else.** A trailing pipe returns the pipe's status; a
+PowerShell truncating filter (`Select-Object -First N`) masks the code *and* stops the build early;
+a trailing `echo` becomes the block's status. Test the build's status directly, with nothing after
+it, then confirm the artifact exists:
 
 ```bash
 if ! cmake --build build --target OloEngine-Tests --config Debug --parallel 6 > /tmp/b.log 2>&1; then
@@ -58,21 +108,13 @@ fi
 test -f build/OloEngine/tests/Debug/OloEngine-Tests.exe || { echo "no artifact despite exit 0"; exit 1; }
 ```
 
-Note the shape: the build's own status is tested **directly**, and nothing runs after it that could
-become the block's status. Writing `cmake --build …` then `echo "EXIT=$?"` on the next line makes
-the *echo* the last command, so the block succeeds even when the build didn't — the same class of
-bug this section is about.
+A new or renamed test `.cpp` needs its `// OLO_TEST_LAYER:` classification, or pre-commit blocks
+the commit.
 
-Confirm success by the target artifact existing, **and** by a zero exit — neither alone. Never
-attach a truncating filter to a command whose side effects matter.
+### 2a. The verification matrix — run every cell, or give a fact for the one you didn't
 
-### 2a. The verification matrix — run every cell, or name the one you didn't
-
-**A change with more than one execution path is verified on every one of them.** Not the one the
-feature is implemented for; every path a user can reach it through. The HANDOVER names the axes for
-your task (see `/start-work` step 5a); if it does not, derive them and say so.
-
-The axes, by subsystem — these are the common ones, not a closed list:
+**A change with more than one execution path is verified on every path a user can reach it
+through.** `HANDOVER.md` names the axes (`/start-work` §5a); if it does not, derive them and say so.
 
 | subsystem | always a cell | additionally, when the change reaches it |
 |---|---|---|
@@ -82,321 +124,181 @@ The axes, by subsystem — these are the common ones, not a closed list:
 | physics | `{Box2D 2D, Jolt 3D}` | — |
 | assets | `{loose, cooked}` | — |
 
-The second column is the part that rots. An axis in it is a cell **only if the change can reach
-it**, and that judgement is made once, in the HANDOVER, with the reason written down — not
-re-litigated while writing the PR, where the incentive runs one way. "MSAA: not a cell, this pass
-runs after the resolve" is a decision; leaving MSAA unmentioned is not.
+A second-column axis is a cell only if the change can reach it, and that is decided once, in the
+HANDOVER, with the reason written down: "MSAA: not a cell, this pass runs after the resolve" is a
+decision; leaving MSAA unmentioned is not.
 
-**Why this exists, stated as the failure it prevents.** #1241 shipped its first PR with OpenGL
-verified and Vulkan not run. The rule was already written in `CLAUDE.md`, in the agent's memory,
-*and* in that task's own HANDOVER — three places — and the cell was still skipped, then disclosed in
-the PR body as "not yet verified". Writing the gap down is not the same as closing it, and a
-disclosure at reporting time is too late to be a decision. The same correction had been made once
-before, on #708. So the rule is not repeated here as prose: it is attached to two artefacts that
-make an unrun cell **visible**, below.
+A cell is evidenced in one of two ways, fixed by the cell:
 
-**A cell is evidenced in one of exactly two ways, and which one is a property of the cell**, not a
-choice:
+- **Artefact-backed**: a headless evidence test captured it, so the proof is a committed file named
+  after the cell: `<Feature>_<Backend>_<Path>[_<Angle>].png`, with `<Feature>Off_…` as the A/B
+  control. An unrun cell is then a file missing from the diff.
+- **Live-only**: no test can produce it, so the proof is a measurement plus a log check from a real
+  editor session. **Every Vulkan cell is live-only**: the headless fixtures need a GL 4.6 context.
 
-- **Artefact-backed** — a headless evidence test captured it, so the proof is a committed file.
-- **Live-only** — no test can produce it, so the proof is a measurement plus a log check from a
-  real editor session. Every **Vulkan** cell is live-only: the headless fixtures need a real GL 4.6
-  context and skip without one, so the suite *cannot* cover Vulkan, ever.
+The PR body carries the matrix, one row per cell, both kinds (Phase 6, item 5). An abbreviated
+table says so above itself.
 
-**Forcing function 1 — an artefact-backed cell's filename IS the cell.**
+### 2b. Live-editor verification
 
-```
-<Feature>_<Backend>_<Path>[_<Angle>].png        e.g. SkinDiffusion_GL_Deferred_Oblique.png
-<Feature>Off_<Backend>_<Path>[_<Angle>].png     the A/B control
-```
+CPU or contract tests are not sufficient for a visual change. Capture from several angles and **look
+at the images**: an assertion that passes on an empty frame is the normal failure here.
 
-An artefact-backed cell you did not run is a **file that is not in the diff** — visible in
-`git status`, visible to the reviewer, needing no tooling to notice. Naming the backend even though
-it is always `GL` today is the load-bearing part: it says out loud that the Vulkan cells are not
-covered here, so a reader counting files cannot mistake a full set of GL captures for a full matrix.
-
-**This test does not apply to a live-only cell**, and pretending it does is how a Vulkan row gets
-quietly dropped: there is no file to be missing. Forcing function 2 is what covers those.
-
-**Forcing function 2 — the PR body carries the matrix, every cell, both kinds.** One row per cell.
-An artefact-backed row cites its filename; a live-only row cites what was measured and what the log
-said (`0 errors`, `0 VUIDs`, or the pre-existing ones named). The Phase 6 exit gate refuses to pass
-on a blank row. See 2b.
-
-If the table in the PR is an abbreviation of a larger grid — say the change has an MSAA axis and
-you are listing only the cells that differ — **say so above the table**. An abbreviated table that
-does not announce itself is indistinguishable from a complete one that is missing rows.
-
-### 2b. Live-editor verification, per cell
-
-CPU or contract tests are *not* sufficient for a visual change. Capture from multiple angles and
-**look at the images** — an assertion that passes on a frame with nothing in it is the normal
-failure here, not an exotic one.
-
-The `run-oloengine` skill's `attach` action starts the editor with the MCP diagnostics server;
-`olo_screenshot`, `olo_camera_*`, `olo_render_capture_target` and `olo_shader_errors` inspect the
-real frame and intermediate buffers. Write access needs **both** `OLO_MCP_AUTOSTART=1` and
-`OLO_MCP_ALLOW_WRITES=1` set *before* launch — the second is read inside the autostart block, so
-exporting it against a running editor does nothing.
-
-Per-backend mechanics worth knowing before you conclude anything:
+The `run-oloengine` skill's `attach` action starts the editor with the MCP server; `olo_screenshot`,
+`olo_camera_*`, `olo_render_capture_target` and `olo_shader_errors` inspect the real frame. Write
+access needs both `OLO_MCP_AUTOSTART=1` and `OLO_MCP_ALLOW_WRITES=1` set *before* launch.
 
 - **Vulkan needs `-Rhi vulkan`**, and `[RHI] Backend: Vulkan (source: --rhi flag)` in
-  `OloEditor/OloEngine.log` is the only proof it took. A Vulkan **pass-suite test** passing is not
-  this: the suite drives one pass through a synthetic graph, the editor exercises the real frame
-  graph, resource pooling and backend state transitions.
-- **`attach -Rhi vulkan` can time out and still succeed.** The driver waits 120 s for the MCP
-  discovery file; a cold Vulkan shader cache takes longer. The throw is the *driver* giving up, not
-  the editor — check for a live `OloEditor` process and poll
-  `%TEMP%\oloengine-mcp-<port>.json` before relaunching.
-- **`olo_shader_errors` cannot answer on Vulkan.** `ShaderDebugger::Initialize()` does not run
-  there, and the tool says so (`status: notInitialized`) rather than returning a zero that would be
-  a guess. Grep the log for `[error]` and `VUID` instead.
+  `OloEditor/OloEngine.log` is the only proof it took. A Vulkan pass-suite test passing is not this.
+- **`attach -Rhi vulkan` can time out and still succeed** on a cold shader cache: check for a live
+  `OloEditor` process and poll `%TEMP%\oloengine-mcp-<port>.json` before relaunching.
+- **`olo_shader_errors` answers `notInitialized` on Vulkan.** Grep the log for `[error]` and `VUID`.
 - **Prefer a measured A/B to an eyeball.** `olo_render_toggle_pass` flips a feature in place;
-  capture both frames and diff them. "61 000 pixels differ, max delta 89/255" is a result; "it
-  looks about the same" is not, and a few-pixel-wide effect looks about the same either way.
-
-**A failure that names a pass you touched is attributed, not assumed.** Shaders are runtime assets,
-so restoring the base commit's copy of a shared include and re-running costs no rebuild; for C++,
-build a probe with the one suspect line reverted. Byte-identical failure values across that A/B
-exonerate your change in minutes and are worth far more than an argument.
-- **New or renamed test `.cpp`** — classify it (`// OLO_TEST_LAYER:` comment preferred) or
-  pre-commit blocks the commit.
-- Before concluding "it drew nothing" or "the change had no effect", check
-  [live-verification-noise-floor.md](../agent-rules/live-verification-noise-floor.md) — an
-  iconified editor answers every read tool with a stale frame.
+  diff the two frames. "61 000 pixels differ, max delta 89/255" is a result; "looks the same" is not.
+- **Attribute a failure in a pass you touched.** Shaders are runtime assets: restore the base
+  commit's copy and re-run, no rebuild. For C++, build a probe with the suspect line reverted.
+- Before concluding "it drew nothing", read
+  [live-verification-noise-floor.md](../agent-rules/live-verification-noise-floor.md): an iconified
+  editor answers every read tool with a stale frame.
 
 ## Phase 3 — Self-review your own diff
 
-**Required, before the PR exists.** CodeRabbit catches a narrower class of issue than a real
-review, and reviewing first means less churn afterwards.
+Required before the PR exists.
 
 ```bash
 git fetch origin && git diff origin/master...HEAD --stat
 ```
 
-Run `/code-review` at an effort that fits the diff — `medium` for a small focused change, `high`
-for a substantive or multi-file one. (`ultra` is user-triggered and billed; recommend it in your
-report if the diff warrants it, don't launch it.)
-
-Fold every real finding into a fix. A finding you judge wrong or out of scope gets an explicit
-one-line dismissal — **never a silent drop**. Re-run Phase 2 afterwards: review fixes are code
-changes and can break the build.
+Run `/code-review` at `medium` for a small focused change, `high` for a substantive or multi-file
+one. (`ultra` is user-triggered and billed: recommend it in your report if warranted, don't launch
+it.) Fold every real finding into a fix. A finding you judge wrong gets a one-line dismissal, never
+a silent drop. A real bug the review finds in code you did not write is a Phase 1a bug: fix it here.
+Re-run Phase 2 afterwards.
 
 ## Phase 4 — Commit, push, open the PR
 
-This is pre-authorized on a `feature/*` branch in a task worktree — see `CLAUDE.md` → *Committing
-and publishing*. It is **not** pre-authorized anywhere else.
+Pre-authorized on a `feature/*` branch in a task worktree (`CLAUDE.md` → *Committing and
+publishing*), and nowhere else.
 
-**Never `git add -A` after a test run.** A full `OloEngine-Tests` run regenerates tracked PNGs
-under `OloEditor/assets/tests/visual/` and leaves ~10 of them modified even when nothing changed —
-two runs of the *identical* binary moved `VirtualGeometry_Debug_ClusterId` by 158/255 and
-`Fluid_Waterline` by 80/255. Committing that noise puts a meaningless binary diff in the PR and
-implies a visual change that did not happen, which is actively misleading in a renderer PR (it
-happened on #732 and needed a revert commit). Stage deliberately:
+**Never `git add -A` after a test run.** A full `OloEngine-Tests` run rewrites ~10 tracked PNGs under
+`OloEditor/assets/tests/visual/` even when nothing changed. Stage deliberately:
 
 ```bash
-git status --short          # look at it
+git status --short
 git add <the files you actually changed>
 git checkout -- OloEditor/assets/tests/visual/   # unless a golden legitimately moved
 git commit -F - <<'MSG'
 <type>(<scope>): <summary>
 
-<why, not what — the diff says what>
+<why, not what>
 MSG
 ```
 
-**Always pass `-m` or `-F`.** A bare `git commit` opens `$EDITOR`, which in an unattended session
-hangs forever with no output.
-
-A golden that legitimately moved is a deliberate, explained part of the diff — see
+**Always pass `-m` or `-F`**: a bare `git commit` opens `$EDITOR` and hangs. A golden that
+legitimately moved is explained in the diff; see
 [procedural-generator-golden-coupling.md](../agent-rules/procedural-generator-golden-coupling.md).
+If the `Stop` hook reformats anything, re-stage and commit again.
 
-The `Stop` hook runs `pre-commit run --all-files`; if it reformats anything, re-stage and commit
-again. That abort-and-re-add cycle is expected, not a failure.
-
-**Never a bare `git push`** — under `push.default` it can fire straight at `master`, which has
-actually happened on a real branch here:
+**Never a bare `git push`:**
 
 ```bash
 git push -u origin feature/<slug>
+gh pr create --title "<type>(<scope>): <summary>" --body-file <file>
 ```
 
-Open the PR with a body that states what changed and why, the verification you did (name the
-evidence — test names, screenshot paths), and a closing keyword for the issue it finishes:
+The body states what changed and why, the verification (named evidence: test names, screenshot
+paths), and `Closes #N` only when the PR completes the issue. For one item of an umbrella tracker,
+reference it as a bare `#N`.
 
-```bash
-gh pr create --title "<type>(<scope>): <summary>" --body "...
-
-Closes #<N>"
-```
-
-Use `Closes #N` only when the PR genuinely completes the issue. For one item of an umbrella
-tracker, reference it as a bare `#N` and say which item landed — GitHub must not auto-close it.
-
-### The review guide — end the PR body with it
-
-The median PR here is ~2,600 lines across ~30 files. CodeRabbit will review the *diff*; what it
-structurally cannot supply is **the author's own uncertainty**, and you have just self-reviewed
-this change (Phase 3) so you know it. Do not throw that away. Close the body with:
+End the body with these sections:
 
 ```markdown
+## Found and fixed
+- <commit sha> fix(<scope>): <bug> — <how it was found, the test or evidence that pins it>
+  (or "None.")
+
+## Filed, not fixed
+- #<N> <title> — <reason from Phase 1a> (or "None.")
+
 ## Review guide
 
 **Where I'd look hardest**
 1. `<file:line>` — <why this is the riskiest part>
 2. …  (2–3 entries, ranked; not a file list)
 
-**What I verified, and how** — <named evidence: test names, screenshot paths, the check that would
-have failed if this were wrong>
+**What I verified, and how** — <named evidence; the check that would have failed if this were wrong>
 
-**Least confident about** — <the thing you'd want a second opinion on, or "nothing" and why>
-
-**Deliberately not tested** — <what you skipped and the reason>
+**Least confident about** — <what you'd want a second opinion on, or "nothing" and why>
 ```
 
-Be honest in "least confident" — an empty section because you didn't want to look uncertain wastes
-the whole point. If a section genuinely has nothing, say so in a few words rather than deleting it.
+"Least confident" is for uncertainty about work that is done. Unrun work belongs in the matrix with
+a factual reason, or it gets run.
 
 ## Phase 5 — Drive the PR to green
 
-CI and CodeRabbit run in parallel. Work both until the exit gate in Phase 6 passes.
+A round costs 2–3 hours: Actions runs ~137–201 min and CodeRabbit reviews about once an hour. Each
+push burns a CodeRabbit slot **and** cancels the in-flight CI run. So: **gather everything, decide
+once, push once.**
 
-> ### The governing rule: one decision, one push, per round
->
-> A round costs 2–3 hours of wall clock and you do not control its length — Actions runs
-> ~137–201 min and CodeRabbit reviews at roughly **one per hour**. So the only thing you control is
-> **how many rounds the PR takes**, and the measured median is 3 commits per merged PR. Every
-> avoidable push is another 2–3 hours.
->
-> Each push costs you **twice**: it burns a CodeRabbit review slot, *and* it supersedes the
-> in-flight CI run. That is not theoretical — PR #785's checks show `CANCELLED` at 37–38 minutes
-> into a 137-minute build, thrown away by a push.
->
-> Therefore: **gather everything, decide once, push once.** The sub-steps below are ordered.
+### 5a. Wait for a complete picture
 
-### 5a. Wait for a complete picture — do not act on the first red
-
-**A single failed check does not mean the run is over.** TSan failing tells you nothing about
-whether ASan and UBSan will; they may still be running. If you fix TSan and push immediately you
-cancel the siblings, learn nothing from them, and discover the next failure in the *following*
-round — having also spent a CodeRabbit hour.
-
-So poll until every check that can reveal a code problem has reached a terminal state
-(`SUCCESS`/`FAILURE`/`CANCELLED`/`TIMED_OUT`), and only then decide.
+One failed check does not end the run. Poll until every check that can reveal a code problem is
+terminal (`SUCCESS`/`FAILURE`/`CANCELLED`/`TIMED_OUT`), then decide. Never push into a healthy
+in-flight run; a CodeRabbit nit at 30 minutes waits for the rest. Poll with background execution
+at a cadence matched to what is left.
 
 ```bash
-gh pr checks <#> --repo <owner/repo>
 gh pr view <#> --repo <owner/repo> --json mergeable,statusCheckRollup
 ```
 
-**Never push into a healthy in-flight run.** If CodeRabbit returns a nit at 30 minutes while
-Windows still has 100 to go, the nit waits. The one exception is a run already known to be
-worthless — every remaining job has failed, or the change you must make invalidates it anyway.
-
-Poll with background execution, not a foreground sleep, at a cadence matched to what is left:
-minutes while the build is live, much longer once only the long poles remain.
-
 ### 5b. Classify every failure before you touch code
 
-Three buckets, and only one of them is yours to fix:
+Get the log first; `gh run view --log` is empty in this repo, so use
+`gh api repos/<owner>/<repo>/actions/jobs/<job-id>/logs`.
 
-- **Infrastructure** — a dependency/vcpkg setup disconnect, the `packages.microsoft.com` apt 403,
-  a runner drop, SonarCloud hitting the 6 h cap. **Response: `gh run rerun --failed`. No code
-  change, no push.** "Fixing" an infra flake in code spends a whole round on nothing.
-- **Known flake** — cross-check the failing test against the flake memories before assuming it is
-  yours: shared-temp-dir races cover `FrameExportTest`, the FloatValidation fixtures and friends;
-  a separate set covers the machine-local GL/perf failures. Response: re-run, and say so in the
-  report **with evidence**, never silently.
-- **Real** — a compile error, a genuine test failure, a sanitizer report. This is the only bucket
-  that earns a code change.
+- **Infrastructure** (vcpkg setup disconnect, `packages.microsoft.com` apt 403, runner drop,
+  SonarCloud 6 h cap): `gh run rerun --failed`. No code change, no push.
+- **Known flake**: check the flake memories first. Re-run, and say so with evidence.
+- **Real** (compile error, genuine test failure, sanitizer report): the only bucket that earns code.
 
-Get the actual log before classifying — don't guess from the job name. **`gh run view --log`
-returns empty in this repo**; use the API:
-
-```bash
-gh api repos/<owner>/<repo>/actions/jobs/<job-id>/logs
-```
-
-**Fix properly, never paper over.** A retry, a loosened assertion, a disabled test or a widened
-tolerance is acceptable *only* for a confirmed infra/known-flake failure, stated explicitly with
-evidence. "It passed on re-run" is not a diagnosis.
+A retry, a loosened assertion, a disabled test or a widened tolerance is acceptable only for a
+confirmed infra or known-flake failure, stated with evidence. "It passed on re-run" is not a
+diagnosis.
 
 ### 5c. Batch, then push once
 
-Collect **all** real failures across **all** jobs, plus **all** CodeRabbit findings from 5d, fix
-the lot, and push a single time. Three separate fix commits is three CodeRabbit hours and three CI
-restarts for work that could have been one round.
+All real failures across all jobs plus all review findings, fixed together, pushed once.
 
 ### 5d. CI mechanics
 
-- **`mergeable == CONFLICTING`** — fix first; conflicts often stop CI from running at all.
-  Resolve by **merging master in**, never rebase, never force-push:
-
-  ```bash
-  git fetch origin && git merge origin/master
-  ```
-
-  Understand both sides of each conflict; don't blindly take one. If either side touched an ECS
-  component, re-check the cross-binding touch-points — a clean textual merge can silently drop
-  one. Rebuild after resolving.
-
-  **Resolve conflicts within the turn you created them.** The `Stop` hook clang-formats the whole
-  repo regardless of merge state, so a C/C++ file left mid-conflict across a turn boundary comes
-  back mangled: `=======` becomes `== == == =` and `>>>>>>> origin/master` becomes
-  `>>>>>>> origin / master` (clang-format reads `=` and `/` as operators). Git still tracks it as
-  unmerged, but the markers are no longer textually intact and an `Edit` match on them will fail.
-
-- **Be patient with the long pole.** SonarCloud (~201 min median) and the Linux sanitizer jobs
-  (~170 min median, and one observed at 499) are usually the last `IN_PROGRESS` checks. That is
-  normal, not a hang — do not re-dispatch or cancel them.
+- **`mergeable == CONFLICTING`**: merge master in (`git fetch origin && git merge origin/master`),
+  never rebase or force-push. If either side touched an ECS component, re-check the cross-binding
+  touch-points. Rebuild after. **Resolve within the same turn**: the `Stop` hook clang-formats a
+  file left mid-conflict and mangles the markers (`== == == =`).
+- SonarCloud (~201 min) and the Linux sanitizer jobs (~170 min, once 499) are usually last. That is
+  normal; don't cancel or re-dispatch them.
 
 ### 5e. Review threads
 
-**Use unresolved review threads as the signal — never the comment count.** CodeRabbit posts an
-auto-summary and SonarCloud posts a Quality Gate comment on *every* PR; counting comments flags
-every PR as needing work.
+Use **unresolved review threads** as the signal, never the comment count:
 
 ```bash
 gh api graphql --paginate   -f query='query($o:String!,$r:String!,$n:Int!,$endCursor:String){repository(owner:$o,name:$r){pullRequest(number:$n){reviewThreads(first:100,after:$endCursor){pageInfo{hasNextPage endCursor} nodes{id isResolved path line comments(first:1){nodes{author{login} body}}}}}}}'   -F o=<owner> -F r=<repo> -F n=<#>   --jq '.data.repository.pullRequest.reviewThreads.nodes[]|select(.isResolved==false)|"\(.id)  \(.path):\(.line)  [\(.comments.nodes[0].author.login)]"'
 ```
 
-Every thread must reach one of two end states — never leave one untouched:
-
-- **Fix** — the comment is right. Make the change; it ships with the next push.
-- **Rebut** — wrong, a false positive, or out of scope. Reply on the thread with the reasoning.
-
-Then resolve every thread you handled, both fixed and rebutted:
+Every thread ends as **Fix** (it is right; the change ships with the next push) or **Rebut** (reply
+with the reasoning). A real bug a reviewer points at outside your diff is a Phase 1a bug.
 
 ```bash
-# reply
 gh api graphql -f query='mutation($t:ID!,$b:String!){addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$t,body:$b}){comment{id}}}' -F t=<threadId> -F b="False positive: <one-line reason>."
-# resolve
 gh api graphql -f query='mutation($t:ID!){resolveReviewThread(input:{threadId:$t}){thread{isResolved}}}' -F t=<threadId>
 ```
 
-**Verify each finding against the actual code before acting on it — a severity label is not
-evidence, and the *premise* is what must be checked.** Two worked examples from this repo:
-
-- PR #373's `operator==`/`blkEq` "🔴 Critical" was a false positive; the helper takes two `this`
-  members only to delimit a byte range and memcmps against `o` at the same offset.
-- PR #400's "🔴 Critical — add a protocol-version guard, `Scale` was recently added to the
-  transform wire" was built on a **hallucinated premise**: the diff only *moved* an existing
-  `ar << Scale.x/y/z` above the `if (ar.IsLoading())` block so the loaded value could be
-  finiteness-sanitized. The wire bytes were unchanged. The tell is in CodeRabbit's own
-  "🧩 Analysis chain" block — when it reports a tiny output length (e.g. `Length of output: 163`),
-  its git-history commands returned nothing, because its sandbox often has no usable history. It
-  then infers history that isn't there.
-
-**CodeRabbit usually resolves its own threads.** On this repo it flips `isResolved=true` itself
-within a minute or two of a substantive reply — for rebuttals (follow-up ends
-`<!-- <review_comment_withdrawn> -->`) and fix-acks (`<!-- <review_comment_addressed> -->`) alike.
-So reply, wait, then re-query rather than always calling `resolveReviewThread` yourself.
-
-**The corollary is a trap for the Phase 6 gate:** because a reply alone can resolve a thread, a
-fix that is only committed locally can leave the count at 0 while the remote PR still lacks it.
-A zero unresolved count never substitutes for *pushed*. Confirm the fix is on the remote before
-treating the gate as passed.
+**Check the premise of each finding against the code; a severity label is not evidence.**
+CodeRabbit's sandbox often has no git history, and a tiny `Length of output:` in its analysis chain
+means it inferred history that isn't there. CodeRabbit usually resolves its own thread within a
+minute or two of a substantive reply, so reply, wait, re-query. Because a reply alone can resolve a
+thread, a zero count never substitutes for the fix being **pushed**.
 
 ## Phase 6 — Exit gate
 
@@ -410,24 +312,16 @@ You may **not** report the task done while any of these is false:
    gh api graphql --paginate      -f query='query($o:String!,$r:String!,$n:Int!,$endCursor:String){repository(owner:$o,name:$r){pullRequest(number:$n){reviewThreads(first:100,after:$endCursor){pageInfo{hasNextPage endCursor} nodes{isResolved}}}}}'      -F o=<owner> -F r=<repo> -F n=<#>      --jq '[.data.repository.pullRequest.reviewThreads.nodes[]|select(.isResolved==false)]|length' | paste -sd+ | bc
    ```
 
-4. The self-review (Phase 3) covers the **current** head — if you pushed fixes after it, re-review
-   the new commits and post an updated summary.
-5. **The verification matrix in the PR body has no blank rows.** Every cell the task's axes
-   (Phase 2a) produce is either
+4. The self-review covers the **current** head; if you pushed after it, re-review the new commits.
+5. **The verification matrix in the PR body has no blank rows.** Each cell is run, citing an
+   artefact filename or a measurement, or explicitly not run with a reason that is a fact about the
+   world (no hardware, unreachable on that path, backend does not implement it). "Ran out of time",
+   "assumed equivalent" and "the other path covers it" are not reasons.
+6. **Every bug you found is accounted for.** Each is either a commit listed under *Found and fixed*,
+   or an issue listed under *Filed, not fixed* whose body carries the `Not fixed in #<PR> because:`
+   line with one of the four Phase 1a reasons. A bug mentioned only in prose fails this.
 
-   - **run**, citing the evidence that proves it — an artefact filename for a captured cell, a
-     measurement for a live one; or
-   - **explicitly not run, with a reason that is a fact about the world**: no hardware, the
-     feature is unreachable on that path, the backend does not implement it. "Ran out of time",
-     "assumed equivalent" and "the other path covers it" are not reasons — the first two are the
-     omission restated and the third is a claim about behaviour, which is what the cell was going
-     to test.
-
-   Disclosing an unrun cell in prose does **not** satisfy this. The gap has to be in the table,
-   where it is counted.
-
-A matrix row looks like this — the Vulkan/Deferred row is the one that matters, because it is the
-cell nobody would have noticed was missing:
+A matrix looks like this; the last row is the one the gate exists for:
 
 ```
 Complete matrix — 6 cells from {GL, Vulkan} x {Forward, Forward+, Deferred}.
@@ -435,22 +329,16 @@ Complete matrix — 6 cells from {GL, Vulkan} x {Forward, Forward+, Deferred}.
 | backend | path      | kind     | evidence                           | result             |
 |---------|-----------|----------|------------------------------------|--------------------|
 | GL      | Forward   | artefact | SkinDiffusion_GL_Forward.png       | 54 258 px, max 86  |
-| GL      | Forward+  | artefact | SkinDiffusion_GL_ForwardPlus.png   | test passes        |
 | GL      | Deferred  | artefact | SkinDiffusion_GL_Deferred.png      | 31 002 px, max 84  |
 | Vulkan  | Forward   | live     | A/B + log: 0 errors, 0 VUIDs       | 52 301 px, max 88  |
 | Vulkan  | Deferred  | live     | A/B + log: 10 VUIDs, pre-existing  | 29 856 px, max 41  |
 | Vulkan  | Forward+  | live     | NOT RUN — no reason                | <- gate fails here |
 ```
 
-Every declared cell has a row. The `kind` column is not decoration: it is what tells a reviewer
-whether to look for a file or for a number, and it makes a live-only row with no measurement as
-obviously empty as a missing file would be.
+The one legitimate open thread is one CodeRabbit posted against your final push that hasn't landed
+yet: name it as outstanding.
 
-"CI green and mergeable" never means done while a thread is open. The one legitimate exception is
-a thread CodeRabbit posted against your final push that hasn't landed yet: name it explicitly and
-say it is outstanding — do not claim all threads are resolved.
-
-Post one self-review summary comment so the review leaves a visible trace (additive, no ask):
+Post one self-review summary comment (additive, no ask):
 
 ```bash
 gh pr comment <#> --repo <owner/repo> --body "## 🤖 Self-review @ \`$(git rev-parse HEAD)\`
@@ -459,54 +347,61 @@ Reviewed the PR diff at <effort> effort.
 - **Dismissed:** <finding> — <reason>"
 ```
 
-Do **not** submit a formal GitHub approval (`gh pr review --approve`) — an approval can satisfy
-branch protection, so it stays a gated opt-in like merging.
+Do **not** submit a formal approval (`gh pr review --approve`): it can satisfy branch protection.
 
 ## Phase 7 — Close the loop, then report and stop
 
-Before reporting — these are the steps that get forgotten, which is why docs go stale:
+1. **Mark the source done.** Tick the `docs/` checkbox, delete the resolved `// TODO`. If the PR only
+   advanced an umbrella tracker, comment which item landed.
+2. **Capture any reusable lesson, repo first.** A non-obvious engine gotcha goes to
+   `docs/agent-rules/`: a failure story as its own postmortem file, an incremental fact appended to
+   the relevant `notes-*.md`. Link a new file from both parts of
+   [agent-rules/README.md](../agent-rules/README.md) (subsystem index and failure-mode table). Rule
+   first, story second, under about 10 KB. `CLAUDE.md` gets nothing.
 
-1. **Mark the source done.** Tick the `docs/` checkbox, delete the resolved `// TODO`. The issue
-   itself closes via the PR's closing keyword on merge; if the PR only advanced an umbrella
-   tracker, comment which item landed and leave it open.
-2. **Capture any reusable lesson — repo first, memory second.**
+   A machine, tool or CI fact goes to persistent memory with one line in `MEMORY.md`. Your memory
+   dir is a junction to the base repo's shared store (`/start-work` §4): you start with every
+   durable fact the project has, and `MEMORY.md` is shared, so **append** your line rather than
+   rewriting the file. If `~/.claude/projects/<this-slug>/memory` is a real directory rather than a
+   junction, say so in your report so `/cleanup-worktree` salvages it.
 
-   A non-obvious **engine** gotcha — an MSVC quirk, a missed touch-point, a wrong assumption the
-   docs led you to → **`docs/agent-rules/`**. A real failure story gets its own postmortem file;
-   an incremental "this will bite you" fact gets appended to the relevant
-   [`notes-*.md`](../agent-rules/README.md) subsystem doc. Link a new file from **both** parts of
-   [agent-rules/README.md](../agent-rules/README.md): one sentence in the subsystem index and one
-   row in the failure-mode tables. Follow its *Adding a doc here* rules: rule first, story second,
-   no metaphor, under about 10 KB. It ships with the PR, so it survives and it is reviewable.
-
-   `CLAUDE.md` gets **nothing**. It loads into every session and has been cut back from bloat
-   twice already.
-
-   A **machine / tool / CI** fact — a flaky job, a `gh` quirk, something about this box — goes to
-   persistent memory, with a one-line entry in `MEMORY.md`.
-
-   > **Your memory dir is a junction to the base repo's shared store** (`/start-work` §4 creates
-   > it), so anything you write is immediately visible to the base repo and every other worktree,
-   > and nothing is lost when this worktree is removed. Two consequences: **you already start with
-   > every durable fact the project knows** — check before re-deriving; and **`MEMORY.md` is
-   > shared**, so if several worktrees are running, append your line rather than rewriting the
-   > file, and don't be surprised by entries you didn't add.
-   >
-   > If `~/.claude/projects/<this-slug>/memory` is a *real directory* rather than a junction, this
-   > worktree predates the change — say so in your report so `/cleanup-worktree` salvages it.
-
-Then **report and stop**. State: the PR number and link, what you changed, how you verified it
-(naming the evidence), what CI and review needed, and anything left for the user — which is
-normally just *merge it*. Do not merge, and do not close the issue.
+Then **report and stop**: the PR number and link, what changed, how it was verified (named
+evidence), the bugs found and fixed, any issues filed and why, what CI and review needed, and what
+is left for the user, which is normally just *merge it*. Do not merge, and do not close the issue.
 
 ---
 
 ## Notes on the tooling here
 
-- `gh issue view <N>` errors on this repo (Projects classic); use `gh issue view <N> --json <fields>`.
-- `gh pr edit --add-label` returns 0 but silently applies nothing; use
+- `gh issue view <N>` errors on this repo (Projects classic); use `--json <fields>`.
+- `gh pr edit --add-label` returns 0 and applies nothing; use
   `gh api repos/<owner>/<repo>/issues/<N>/labels -f labels[]=<label>`.
-- Merges use a merge commit, not squash — house style is `Merge pull request #NNN …`. (Relevant
-  only when the user merges; noted so a squash isn't suggested.)
-- Never build the `build/` (msvc) and `build-clang/` trees concurrently, and always cap build
-  parallelism — see `CLAUDE.md` → *Build & run*.
+- Merges use a merge commit, not squash.
+- Never build `build/` and `build-clang/` concurrently; always cap parallelism (`CLAUDE.md` →
+  *Build & run*).
+
+## Appendix — why these rules exist
+
+- **Fix found bugs here (1a).** In the two days before this rule, worker sessions filed #1421,
+  #1422, #1431, #1439, #1440 and #1441 as side findings. #1431 was a per-frame log line needing a
+  rate limit; #1441 was one wrong argument (`glTextureStorage2D(…, 1, …)`) that the issue itself
+  pinpointed. Each then needed its own `/start-work` slot, worktree and cold re-onboarding. The old
+  rule allowed "report it as a follow-up if it would widen the diff a lot", and a filed issue reads
+  as rigour, so filing always won.
+- **Every matrix cell (2a).** #1241 shipped its first PR with OpenGL verified and Vulkan not run,
+  although the rule was written in `CLAUDE.md`, in memory and in that task's HANDOVER. The gap was
+  disclosed in prose as "not yet verified". The same correction had been made on #708. Hence the
+  two forcing functions: a missing file and a blank table row.
+- **One push per round (5).** PR #785's checks show `CANCELLED` 37–38 minutes into a 137-minute
+  build, thrown away by a push. The measured median is 3 commits per merged PR.
+- **No `git add -A` after a test run (4).** Two runs of the identical binary moved
+  `VirtualGeometry_Debug_ClusterId` by 158/255 and `Fluid_Waterline` by 80/255. Committing that
+  noise on #732 implied a visual change that did not happen and needed a revert commit.
+- **Bare `git push` (4).** Under `push.default` it has pushed a real branch straight to `master`.
+- **Check the premise (5e).** PR #373's "🔴 Critical" `operator==` finding was a false positive (the
+  helper memcmps a byte range against `o` at the same offset). PR #400's "add a protocol-version
+  guard" assumed `Scale` had been added to the wire; the diff only moved an existing
+  `ar << Scale.x/y/z` above the load branch. CodeRabbit's history commands had returned nothing.
+- **How turns end.** Adapted from Anthropic's *Prompting Claude Opus 5.5* guide, section
+  *Unattended agentic runs*, which names these four early stops as the ones that halt an unattended
+  run while work is owed.
