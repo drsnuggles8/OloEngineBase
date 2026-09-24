@@ -56,6 +56,10 @@ namespace OloEngine::Tests::StateMachine
     {
         std::string Name;
         std::string PinnedPass;
+        // Where in the frame the (last) read happened, counting reads: a
+        // target with a larger value was read later in the frame. The end-of-
+        // frame composite is UINT32_MAX.
+        u32 ReadOrder = 0;
         u32 Width = 0;
         u32 Height = 0;
         std::vector<f32> Texels; // RGBA float, bottom-up

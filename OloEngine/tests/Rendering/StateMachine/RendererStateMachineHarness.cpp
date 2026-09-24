@@ -54,7 +54,7 @@ namespace OloEngine::Tests::StateMachine
         // The stage outputs a capture reads, each at its own pinned pass. Only
         // colour formats: an integer or depth target cannot be read back as
         // RGBA float without a GL error.
-        constexpr std::array<std::string_view, 14> kTrackedTargets{
+        constexpr std::array<std::string_view, 18> kTrackedTargets{
             ResourceNames::SceneColorTexture,
             ResourceNames::SceneViewNormals,
             ResourceNames::GBufferAlbedo,
@@ -69,6 +69,10 @@ namespace OloEngine::Tests::StateMachine
             ResourceNames::ColorGradingColorTexture,
             ResourceNames::VignetteColorTexture,
             ResourceNames::FXAAColorTexture,
+            ResourceNames::UpscalerColorTexture,
+            ResourceNames::SelectionOutlineColorTexture,
+            ResourceNames::UICompositeTexture,
+            ResourceNames::ColorBlindColorTexture,
         };
 
         [[nodiscard]] bool IsReadableColorFormat(GLint internalFormat)
@@ -117,6 +121,7 @@ namespace OloEngine::Tests::StateMachine
         struct CaptureSession
         {
             bool Pinned = false;
+            u32 Reads = 0;
             std::unordered_map<std::string, std::vector<std::string>> TargetsByPass;
             std::vector<TargetCapture> Targets;
             std::map<std::string, std::string> WhyNot; // tracked name -> last reason it was not read
@@ -198,6 +203,7 @@ namespace OloEngine::Tests::StateMachine
             }
             it->Name = name;
             it->PinnedPass = std::string(pass);
+            it->ReadOrder = ++session.Reads;
             it->Width = static_cast<u32>(width);
             it->Height = static_cast<u32>(height);
             ReadbackRgbaFloat(texture, it->Width, it->Height, it->Texels);
@@ -396,6 +402,21 @@ namespace OloEngine::Tests::StateMachine
         constexpr f64 kMeanFloorRelative = 1.0e-3;
         constexpr f64 kHistogramFloor = 0.02;
 
+        // Everything read after the first noisy target in the frame is held at
+        // distribution level too, whatever its own control says. Its input
+        // moves, so a bit-stable control is a coincidence of quantisation: an
+        // 8-bit composite rounded a sub-LSB wobble in its float input the same
+        // way on both control frames and the other way on a third, and failed an
+        // exact comparison for no reason of its own (found by this harness,
+        // #1349, as a 5-texel difference that only appeared after two unrelated
+        // tests had run first).
+        u32 firstNoisy = std::numeric_limits<u32>::max();
+        for (const TargetCapture& target : a.Targets)
+        {
+            if (const ControlFloor* control = FindControl(controls, target.Name); control != nullptr && !control->Exact)
+                firstNoisy = std::min(firstNoisy, target.ReadOrder);
+        }
+
         Comparison out;
         for (const TargetCapture& target : a.Targets)
         {
@@ -423,7 +444,7 @@ namespace OloEngine::Tests::StateMachine
                 verdict.Detail = "pinned after " + target.PinnedPass + " vs " + other->PinnedPass + "; ";
 
             const ControlFloor* control = FindControl(controls, target.Name);
-            verdict.Exact = control == nullptr || control->Exact;
+            verdict.Exact = (control == nullptr || control->Exact) && target.ReadOrder <= firstNoisy;
             const sizet texels = target.Texels.size() / 4u;
             for (sizet i = 0; i < texels; ++i)
             {
@@ -461,8 +482,10 @@ namespace OloEngine::Tests::StateMachine
                 const f64 histogram = HistogramDistance(target, *other);
                 const auto means = ChannelMeans(target);
                 const f64 magnitude = std::max({ 1.0, std::abs(means[0]), std::abs(means[1]), std::abs(means[2]) });
-                const f64 allowedShift = std::max(2.0 * control->MeanShift, kMeanFloorRelative * magnitude);
-                const f64 allowedHistogram = std::max(2.0 * control->HistogramL1, kHistogramFloor);
+                const f64 controlShift = control != nullptr ? control->MeanShift : 0.0;
+                const f64 controlHistogram = control != nullptr ? control->HistogramL1 : 0.0;
+                const f64 allowedShift = std::max(2.0 * controlShift, kMeanFloorRelative * magnitude);
+                const f64 allowedHistogram = std::max(2.0 * controlHistogram, kHistogramFloor);
                 verdict.Held = shift <= allowedShift && histogram <= allowedHistogram;
                 if (!verdict.Held)
                     verdict.Detail += "distribution differs: mean shift " + std::to_string(shift) + " (allowed " +
@@ -980,6 +1003,7 @@ namespace OloEngine::Tests::StateMachine
             TargetCapture composite;
             composite.Name = std::string(kCompositeName);
             composite.PinnedPass = "end of frame";
+            composite.ReadOrder = std::numeric_limits<u32>::max();
             composite.Width = width;
             composite.Height = height;
             composite.Texels.resize(capture.Composite.size());
@@ -1014,7 +1038,13 @@ namespace OloEngine::Tests::StateMachine
             const std::string stem = std::string(id) + "-" + std::to_string(result.Failures.size());
             const std::string first = WriteCompositePng(TempFile(stem + "-a.png"), a);
             const std::string second = WriteCompositePng(TempFile(stem + "-b.png"), b);
-            fail(id, comparison.Describe() + "  composites: " + first + " vs " + second + "\n");
+            // Which stages were compared, and where each was read: the first
+            // one in frame order that differs is where to look.
+            std::string captured;
+            for (const TargetCapture& target : a.Targets)
+                captured += target.Name + "@" + target.PinnedPass + " ";
+            fail(id, comparison.Describe() + "  composites: " + first + " vs " + second + "\n  captured: " + captured +
+                         "\n");
         };
 
         ++result.Checkpoints;

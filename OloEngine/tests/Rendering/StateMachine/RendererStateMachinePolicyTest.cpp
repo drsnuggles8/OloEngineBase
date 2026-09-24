@@ -445,6 +445,44 @@ namespace OloEngine::Tests::StateMachine
         EXPECT_NE(comparison.Describe().find("SSRColorTexture"), std::string::npos);
     }
 
+    // A target read after a noisy one cannot be held bit-exact on the strength
+    // of its own control: its input moves, and a quantised output that rounded
+    // the same way on two control frames can round the other way on a third.
+    // Upstream of the noise, exactness still holds.
+    TEST(RendererStateMachineComparison, TargetsDownstreamOfANoisyTargetFallBackToDistribution)
+    {
+        const auto frame = [](f32 early, f32 noisy, f32 late)
+        {
+            FrameCapture capture;
+            capture.Targets.push_back(MakeTarget("Early", 8u, 8u, early));
+            capture.Targets.back().ReadOrder = 1u;
+            capture.Targets.push_back(MakeTarget("Noisy", 8u, 8u, noisy));
+            capture.Targets.back().ReadOrder = 2u;
+            capture.Targets.push_back(MakeTarget("Late", 8u, 8u, late));
+            capture.Targets.back().ReadOrder = 3u;
+            return capture;
+        };
+        const FrameCapture first = frame(0.25f, 0.5f, 0.75f);
+        FrameCapture second = frame(0.25f, 0.5f, 0.75f);
+        second.Targets[1].Texels[5] = 0.51f; // the noisy target's own frame-to-frame wobble
+        const std::vector<ControlFloor> controls = MeasureControls(first, second);
+        ASSERT_TRUE(controls[0].Exact);
+        ASSERT_FALSE(controls[1].Exact);
+        ASSERT_TRUE(controls[2].Exact) << "the premise: Late's own control happened to be stable";
+
+        // Late moved by one quantisation step at one texel: noise, not a fault.
+        FrameCapture candidate = second;
+        candidate.Targets[2].Texels[9] = 0.75f + (1.0f / 255.0f);
+        const Comparison comparison = CompareCaptures(second, candidate, controls);
+        EXPECT_TRUE(comparison.Held) << comparison.Describe();
+        EXPECT_TRUE(comparison.AnyDistributionFallback);
+
+        // The same one-texel move BEFORE the noise is still an exact failure.
+        FrameCapture early = second;
+        early.Targets[0].Texels[9] = 0.25f + (1.0f / 255.0f);
+        EXPECT_FALSE(CompareCaptures(second, early, controls).Held) << "a target upstream of the noise stays exact";
+    }
+
     // =========================================================================
     // The run-end coverage banner
     // =========================================================================

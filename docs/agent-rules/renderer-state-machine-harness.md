@@ -69,6 +69,14 @@ frames, and a lever-free round trip "failed" alongside the pair. The tell is exa
 round trip changes no lever, so if it fails, the frame was drifting. The control now spans ten
 frames.
 
+**Nothing downstream of a noisy target is exact.** An 8-bit composite whose float input wobbled by
+a tenth of a step rounded the same way on both control frames and the other way on a third: five
+texels, one step, and only after two unrelated tests had run first (they changed how noisy the
+input was). The input was correctly compared at distribution level; the composite was held exact
+on a control that was stable by coincidence. Every target read later in the frame than the first
+noisy one is now compared at distribution level too. Before blaming the engine for a one-step
+difference in a quantised target, look at what fed it.
+
 ## Negative controls
 
 Three fault levers re-create known defect classes (`DebugLevers.inl`, *Fault injection*):
