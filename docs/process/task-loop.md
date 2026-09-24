@@ -236,9 +236,11 @@ a factual reason, or it gets run.
 
 ## Phase 5 — Drive the PR to green
 
-A round costs 2–3 hours: Actions runs ~137–201 min and CodeRabbit reviews about once an hour. Each
-push burns a CodeRabbit slot **and** cancels the in-flight CI run. So: **gather everything, decide
-once, push once.**
+A round costs 2–3 hours: Actions runs ~137–201 min and CodeRabbit reviews about once an hour. A push
+into a running CI run cancels it and throws that time away. So while CI is running: **gather
+everything, decide once, push once.** A push does **not** use up a CodeRabbit review: if its window
+is closed, it posts when the next one is available. Once every check is terminal, push finished work
+without waiting for CodeRabbit.
 
 ### 5a. Wait for a complete picture
 

@@ -182,8 +182,9 @@ Two follow-on rules:
   compile failure as "no subgroup support on this driver, skip that half" and says so.
 - **Verify shader edits with `glslc` before spending a build.** A full Debug build here is 30+
   minutes behind a cross-worktree mutex; this bug was found in seconds with
-  `glslc -fshader-stage=compute --target-env=opengl4.5 -I. <file> -o /dev/null`, run against both
-  target envs. Do that for any change to a `.comp` or a shader `include/`.
+  `glslc -fshader-stage=compute --target-env=opengl4.5 <file> -o /dev/null`, run against both
+  target envs. Pass **no** `-I`: the engine resolves includes relative to the including file only,
+  and an `-I` lets a wrong include path pass glslc and then fail in the engine (#978). Do that for any change to a `.comp` or a shader `include/`.
 - **…but glslc is not the last word — two failures below reproduce only on the real driver.**
 
 ## 5. `layout(local_size_*) in;` must precede the `#include`
