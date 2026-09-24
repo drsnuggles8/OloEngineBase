@@ -1036,6 +1036,8 @@ add_executable(OloEngine-Tests
 		Scene/WorldOriginRebaseTest.cpp
 		# Runtime scene load/switch resolution + loading (issue #642)
 		Scene/SceneTransitionTest.cpp
+		# ParticleSystemComponent undo equality: authored settings only (issue #1412)
+		Scene/ParticleSystemComponentUndoEqualityTest.cpp
 		# Shipped-game project mount + asset-relative script path contract (issue #642)
 		RuntimeProjectMountTest.cpp
 		# Build target platform contract: naming, host-only support, fail-loud gate (issue #891)

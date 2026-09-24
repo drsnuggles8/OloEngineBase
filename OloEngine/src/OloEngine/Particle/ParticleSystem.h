@@ -48,6 +48,17 @@ namespace OloEngine
         ParticleSystem(ParticleSystem&&) noexcept;
         ParticleSystem& operator=(ParticleSystem&&) noexcept;
 
+        // True when both systems hold the same AUTHORED settings: every public
+        // field below except `Playing`, the emitter's settings and the pool's
+        // capacity. Simulation state (pool contents, time, RNG, GPU system,
+        // sort buffers, pending triggers) is ignored, and so is `Playing`,
+        // because the editor's Edit-mode preview advances all of it every frame
+        // and a non-looping system clears `Playing` itself when its duration
+        // ends. This is what the editor's undo tier compares (#1412); a
+        // comparison that saw simulation state would record a phantom
+        // "Property Change" on every preview frame.
+        [[nodiscard]] bool HasSameSettings(const ParticleSystem& other) const;
+
         void Update(f32 dt, const glm::vec3& emitterPosition, const glm::vec3& parentVelocity = glm::vec3(0.0f), const glm::quat& emitterRotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
         void Reset();
 

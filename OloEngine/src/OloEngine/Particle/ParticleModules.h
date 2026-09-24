@@ -16,6 +16,8 @@ namespace OloEngine
         ParticleCurve4 ColorCurve{ glm::vec4(1.0f), glm::vec4(1.0f, 1.0f, 1.0f, 0.0f) };
 
         void Apply(ParticlePool& pool) const;
+
+        auto operator==(const ModuleColorOverLifetime&) const -> bool = default;
     };
 
     struct ModuleSizeOverLifetime
@@ -24,6 +26,8 @@ namespace OloEngine
         ParticleCurve SizeCurve{ 1.0f, 0.0f };
 
         void Apply(ParticlePool& pool) const;
+
+        auto operator==(const ModuleSizeOverLifetime&) const -> bool = default;
     };
 
     struct ModuleVelocityOverLifetime
@@ -34,6 +38,8 @@ namespace OloEngine
         ParticleCurve SpeedCurve{ 1.0f };
 
         void Apply(f32 dt, ParticlePool& pool) const;
+
+        auto operator==(const ModuleVelocityOverLifetime&) const -> bool = default;
     };
 
     struct ModuleRotationOverLifetime
@@ -42,6 +48,8 @@ namespace OloEngine
         f32 AngularVelocity = 0.0f; // degrees per second
 
         void Apply(f32 dt, ParticlePool& pool) const;
+
+        auto operator==(const ModuleRotationOverLifetime&) const -> bool = default;
     };
 
     struct ModuleGravity
@@ -50,6 +58,8 @@ namespace OloEngine
         glm::vec3 Gravity{ 0.0f, -9.81f, 0.0f };
 
         void Apply(f32 dt, ParticlePool& pool) const;
+
+        auto operator==(const ModuleGravity&) const -> bool = default;
     };
 
     struct ModuleDrag
@@ -58,6 +68,8 @@ namespace OloEngine
         f32 DragCoefficient = 0.1f;
 
         void Apply(f32 dt, ParticlePool& pool) const;
+
+        auto operator==(const ModuleDrag&) const -> bool = default;
     };
 
     struct ModuleNoise
@@ -67,6 +79,8 @@ namespace OloEngine
         f32 Frequency = 1.0f;
 
         void Apply(f32 dt, f32 time, ParticlePool& pool) const;
+
+        auto operator==(const ModuleNoise&) const -> bool = default;
     };
 
     enum class TextureSheetAnimMode : u8
@@ -86,5 +100,7 @@ namespace OloEngine
 
         // Compute the UV min/max for a given frame index
         void GetFrameUV(u32 frame, glm::vec2& uvMin, glm::vec2& uvMax) const;
+
+        auto operator==(const ModuleTextureSheetAnimation&) const -> bool = default;
     };
 } // namespace OloEngine

@@ -42,6 +42,8 @@ namespace OloEngine
 
         // Apply with Jolt scene raycasts (more expensive)
         void ApplyWithRaycasts(f32 dt, ParticlePool& pool, JoltScene* joltScene, TArray<CollisionEvent>* outEvents = nullptr, ParticleSwapObserver observer = {}) const;
+
+        auto operator==(const ModuleCollision&) const -> bool = default;
     };
 
     enum class ForceFieldType : u8
@@ -61,5 +63,7 @@ namespace OloEngine
         glm::vec3 Axis{ 0.0f, 1.0f, 0.0f }; // For vortex: spin axis
 
         void Apply(f32 dt, ParticlePool& pool) const;
+
+        auto operator==(const ModuleForceField&) const -> bool = default;
     };
 } // namespace OloEngine

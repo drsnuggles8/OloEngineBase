@@ -327,29 +327,6 @@ namespace OloEngine::Tests
                 << "form, per cpp-coding-quality.md section 7 — otherwise the editor silently "
                 << "stops recording edits to this component and undo misses them.";
         }
-
-        // The two components that have NO undo, measured on origin/master
-        // (6d29f8269) as well as here, so neither is this migration's doing:
-        //
-        //   DiscoveredSetComponent   — no operator== on the component itself.
-        //   ParticleSystemComponent  — holds TArray<Ref<Texture2D>>; a defaulted
-        //                              operator== is the wrong fix for a component
-        //                              carrying Ref<T> runtime state (CLAUDE.md,
-        //                              cross-binding table).
-        //   DialogueStateComponent   — DialogueChoice has no operator==; this one
-        //                              is a one-liner, but it is not this PR's bug.
-        //
-        // Tracked in #1412. THIS LIST MAY ONLY SHRINK: a fourth entry means the
-        // migration silently cost a component its undo, which is the Axis C
-        // regression no other test here can see.
-        template<typename T>
-        void ExpectComponentHasNoUndoYet(const char* name)
-        {
-            EXPECT_EQ(static_cast<int>(UndoTierOf<T>()), static_cast<int>(EUndoTier::None))
-                << name << " now HAS an editor undo tier. That is good news: delete it from the "
-                << "known-exception list, move it to ExpectComponentKeepsUndo above, and note it "
-                << "on #1412. The list is a ratchet and only holds if it follows the progress down.";
-        }
     } // namespace
 
     TEST(OwnedContainerInvariants, EveryConvertedComponentKeepsAnEditorUndoTier)
@@ -365,10 +342,13 @@ namespace OloEngine::Tests
         ExpectComponentKeepsUndo<NavMeshBoundsComponent>("NavMeshBoundsComponent");
         ExpectComponentKeepsUndo<NavAgentComponent>("NavAgentComponent");
 
-        // Known exceptions, pre-existing on master. See the note above.
-        ExpectComponentHasNoUndoYet<DiscoveredSetComponent>("DiscoveredSetComponent");
-        ExpectComponentHasNoUndoYet<ParticleSystemComponent>("ParticleSystemComponent");
-        ExpectComponentHasNoUndoYet<DialogueStateComponent>("DialogueStateComponent");
+        // These three had no undo tier on master until #1412 gave each an
+        // operator== (ParticleSystemComponent's compares authored settings only;
+        // see ParticleSystemComponentUndoEqualityTest). There is no known
+        // exception left: every converted component must keep a tier.
+        ExpectComponentKeepsUndo<DiscoveredSetComponent>("DiscoveredSetComponent");
+        ExpectComponentKeepsUndo<ParticleSystemComponent>("ParticleSystemComponent");
+        ExpectComponentKeepsUndo<DialogueStateComponent>("DialogueStateComponent");
 
         // The container itself is the load-bearing part: TArray's operator== is
         // constrained on the element's, so this is what carries all twelve.
