@@ -409,6 +409,11 @@ namespace OloEngine::Benchmark
         if (wanted.TAAEnabled)
         {
             postProcess.TAAEnabled = *wanted.TAAEnabled;
+            // A pinned TAA axis must mean what it says (#1429): a scene holding a
+            // stochastic groom requests engine TAA on its own, so a "TAA off" arm
+            // would otherwise measure TAA anyway. Pinned off, it measures the
+            // no-resolve frame (bald coats included); pinned on, nothing changes.
+            rendererSettings.HonourSceneTemporalResolveRequests = *wanted.TAAEnabled;
         }
         if (wanted.RayTracedShadowsEnabled)
         {

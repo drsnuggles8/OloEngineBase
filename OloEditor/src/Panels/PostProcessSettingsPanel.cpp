@@ -5,10 +5,12 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Passes/RayTracedReflectionPass.h"
 #include "OloEngine/Renderer/Passes/GpuPathTracerPass.h"
+#include "OloEngine/Renderer/Passes/GroomRenderPass.h"
 #include "OloEngine/Renderer/Passes/ReSTIRDIPass.h"
 #include "OloEngine/Renderer/Passes/ReSTIRGIPass.h"
 #include "OloEngine/Renderer/Passes/ReSTIRPTPass.h"
 #include "OloEngine/Renderer/SphereProxyAO.h"
+#include "OloEngine/Renderer/Upscaling/TemporalUpscalePolicy.h"
 #include "OloEngine/Precipitation/PrecipitationSystem.h"
 #include "OloEngine/Precipitation/ScreenSpacePrecipitation.h"
 #include "../UndoRedo/SpecializedCommands.h"
@@ -1381,7 +1383,45 @@ namespace OloEngine
 
             ImGui::Checkbox("Enable##TAA", &settings.TAAEnabled);
 
-            if (settings.TAAEnabled)
+            // The scene can run TAA for itself (#1429): a groom on stochastic
+            // composition renders bald without a resolve. Say so under the
+            // checkbox, or it reads "off" over a frame that is plainly resolved.
+            // Each line states what the FRAME did, read from the groom pass and
+            // the upscaler, not what the request asked for: FSR2 can own the
+            // resolve instead, and a TAA pass that is not ready grants nothing.
+            const bool engineTaaRuns = TemporalUpscalePolicy::ShouldRunEngineTAA(
+                Renderer3D::IsEngineTAAWanted(), Renderer3D::IsTemporalUpscaleActive());
+            if (const u32 requesting = Renderer3D::GetSceneTemporalResolveGrooms();
+                requesting > 0u && !settings.TAAEnabled)
+            {
+                const GroomRenderPass* groomPass = Renderer3D::GetGroomRenderPass();
+                const u32 bald = groomPass != nullptr && !Renderer3D::GetGroomStrandRequests().IsEmpty()
+                                     ? groomPass->GetStats().Composition.ByReason[static_cast<sizet>(
+                                           GroomCompositionFallbackReason::TemporalResolveUnavailable)]
+                                     : 0u;
+                if (bald > 0u)
+                {
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.45f, 0.3f, 1.0f));
+                    ImGui::TextWrapped("%u stochastic groom(s) have no temporal resolve and render bald. Tick TAA, "
+                                       "or re-enable 'Honour scene temporal resolve requests' in Renderer Settings.",
+                                       bald);
+                    ImGui::PopStyleColor();
+                }
+                else if (Renderer3D::IsTemporalUpscaleActive())
+                {
+                    ImGui::TextWrapped("The scene's %u stochastic groom(s) are resolved by the temporal upscaler.",
+                                       requesting);
+                }
+                else if (engineTaaRuns)
+                {
+                    ImGui::TextWrapped("Running anyway: the scene requests a temporal resolve for %u stochastic "
+                                       "groom(s). Untick 'Honour scene temporal resolve requests' in Renderer "
+                                       "Settings to see them without it (they render bald).",
+                                       requesting);
+                }
+            }
+
+            if (settings.TAAEnabled || engineTaaRuns)
             {
                 ImGui::DragFloat("History Feedback", &settings.TAAFeedback, 0.01f, 0.0f, 0.98f, "%.2f");
                 ImGui::DragFloat("Sharpness", &settings.TAASharpness, 0.01f, 0.0f, 1.0f, "%.2f");

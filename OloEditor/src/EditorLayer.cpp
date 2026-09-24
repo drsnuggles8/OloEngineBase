@@ -28,6 +28,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <exception>
+#include <format>
 #include <string_view>
 #include <system_error>
 #include <vector>
@@ -42,6 +43,7 @@
 #include "OloEngine/Renderer/QualityTiering.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Passes/GroomRenderPass.h"
 #include "OloEngine/Renderer/ShaderPack.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
@@ -2729,6 +2731,38 @@ namespace OloEngine
             ImVec2 const textPos = { vpMin.x + 6.0f, vpMin.y + 4.0f };
             dl->AddRectFilled({ textPos.x - 2.0f, textPos.y - 1.0f }, { textPos.x + 86.0f, textPos.y + 15.0f }, IM_COL32(30, 30, 30, 180), 3.0f);
             dl->AddText(textPos, IM_COL32(255, 200, 60, 220), "Throttled");
+        }
+
+        // Bald-groom banner (issue #1429). A stochastic groom with no temporal
+        // resolve falls back to a hard cutoff that draws no sub-pixel hair, so
+        // the frame shows the subject WITHOUT its coat and nothing about the
+        // picture says why. A scene with such a groom requests TAA itself, so
+        // this only fires when that request is switched off or TAA cannot run —
+        // and then it must be impossible to miss, not a line in an inspector
+        // section nobody has open.
+        //
+        // Gated on THIS frame's requests: with none, the graph culls the groom
+        // pass, its stats are never reset, and the last bald count would stay
+        // on screen over a scene with no hair in it.
+        if (const GroomRenderPass* groomPass = Renderer3D::GetGroomRenderPass();
+            groomPass != nullptr && !Renderer3D::GetGroomStrandRequests().IsEmpty())
+        {
+            const u32 bald = groomPass->GetStats().Composition.ByReason[static_cast<sizet>(
+                GroomCompositionFallbackReason::TemporalResolveUnavailable)];
+            if (bald > 0u)
+            {
+                const std::string banner =
+                    std::format("{} groom(s) render BALD: stochastic hair needs TAA or a temporal upscaler", bald);
+                ImVec2 const vpMin = ImGui::GetItemRectMin();
+                ImVec2 const vpMax = ImGui::GetItemRectMax();
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                ImVec2 const textSize = ImGui::CalcTextSize(banner.c_str());
+                ImVec2 const textPos = { vpMin.x + 6.0f, vpMax.y - textSize.y - 6.0f };
+                dl->AddRectFilled({ textPos.x - 3.0f, textPos.y - 2.0f },
+                                  { textPos.x + textSize.x + 3.0f, textPos.y + textSize.y + 2.0f },
+                                  IM_COL32(40, 10, 10, 200), 3.0f);
+                dl->AddText(textPos, IM_COL32(255, 110, 80, 255), banner.c_str());
+            }
         }
 
         if (ImGui::BeginDragDropTarget())

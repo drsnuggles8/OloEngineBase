@@ -672,6 +672,46 @@ namespace OloEngine
             }
         }
 
+        // Engine TAA, wanted by the user OR by the scene (#1429). Latched ONCE,
+        // here, before the jitter below reads it, for the TemporalUpscaleActive
+        // reason: every later site reads data.EngineTAAWanted, so the jitter, the
+        // resolved velocity, the TAA pass and the groom's composition decision
+        // cannot disagree about whether a resolve runs. The scene's request is
+        // consumed, so a frame whose scene did not re-publish it gets exactly the
+        // user's setting.
+        //
+        // A request is only granted when the TAA pass can RUN. Granting one to a
+        // pass whose shader is still compiling (or failed to) would jitter the
+        // whole frame with nothing to average it, while the groom — which checks
+        // the same readiness — falls back anyway. The user's own tick is left
+        // exactly as it always behaved.
+        data.SceneTemporalResolveGrooms = data.PendingSceneTemporalResolveGrooms;
+        data.PendingSceneTemporalResolveGrooms = 0;
+        const bool taaPassReady = PostProcessPasses.TAA && PostProcessPasses.TAA->IsReadyForExecution();
+        data.EngineTAAWanted = TemporalUpscalePolicy::WantsEngineTAA(
+            data.PostProcess.TAAEnabled, data.SceneTemporalResolveGrooms > 0u && taaPassReady,
+            data.Settings.HonourSceneTemporalResolveRequests);
+        {
+            // Say so when TAA runs that the user did not tick: it changes the
+            // whole image (jitter, history), and a checkbox reading "off" over a
+            // frame that is plainly being resolved is its own silent surprise.
+            // Latched on the answer, not logged per frame. Keyed on the pass
+            // actually RUNNING: while FSR2 owns the frame it is the resolve and
+            // engine TAA is off, so "TAA is running" would be false — and the
+            // latch then reports again when FSR2 stops and engine TAA takes over.
+            const bool onSceneBehalf =
+                TemporalUpscalePolicy::ShouldRunEngineTAA(data.EngineTAAWanted, data.TemporalUpscaleActive) &&
+                !data.PostProcess.TAAEnabled;
+            if (onSceneBehalf != m_ReportedSceneTemporalResolve)
+            {
+                m_ReportedSceneTemporalResolve = onSceneBehalf;
+                if (onSceneBehalf)
+                    OLO_CORE_INFO("TAA is running on the scene's request: {} groom(s) use stochastic composition, "
+                                  "which needs a temporal resolve to draw sub-pixel hair (TAAEnabled itself is off)",
+                                  data.SceneTemporalResolveGrooms);
+            }
+        }
+
         // TAA projection jitter. We bake a sub-pixel Halton offset into the
         // projection matrix so the same pixel samples a slightly different
         // geometric position each frame; the TAA accumulator then averages
@@ -682,7 +722,7 @@ namespace OloEngine
         // the current and previous ViewProjection carry their respective
         // jitters so depth-based reprojection in TAA remains self-consistent
         // without requiring an explicit unjitter uniform.
-        const u8 jitterMode = data.TemporalUpscaleActive ? 2u : (data.PostProcess.TAAEnabled ? 1u : 0u);
+        const u8 jitterMode = data.TemporalUpscaleActive ? 2u : (data.EngineTAAWanted ? 1u : 0u);
         if (m_HasJitterMode && jitterMode != m_PreviousJitterMode && data.RGraph)
             data.RGraph->InvalidateTemporalHistories(TemporalHistoryInvalidationCause::JitterReset);
         m_HasJitterMode = true;
@@ -746,7 +786,7 @@ namespace OloEngine
             // than from wherever it happened to stop.
             data.TAAJitterFrameIndex = 0;
         }
-        else if (data.PostProcess.TAAEnabled && FrameCorePasses.Scene)
+        else if (data.EngineTAAWanted && FrameCorePasses.Scene)
         {
             data.TemporalUpscalePhaseIndex = 0;
             const auto& spec = FrameCorePasses.Scene->GetFramebufferSpecification();
@@ -1064,6 +1104,9 @@ namespace OloEngine
         // registered GTAOPass declining to run. One source of truth for both ends.
         PostProcessSettings aoProducerSettings = data.PostProcess;
         aoProducerSettings.ActiveAOTechnique = data.ActiveGraphAOTechnique;
+        // GTAO animates its noise only when a TAA resolve will average it, so it
+        // must see the resolve a scene requested too (#1429), not just the box.
+        aoProducerSettings.TAAEnabled = data.EngineTAAWanted;
 
         if (SceneCompositePasses.SSAO)
         {
@@ -1849,7 +1892,7 @@ namespace OloEngine
             // describes the pre-upscale frame. The user's TAAEnabled setting is
             // left untouched so it comes back when the technique changes.
             PostProcessPasses.TAA->SetEnabled(
-                TemporalUpscalePolicy::ShouldRunEngineTAA(data.PostProcess.TAAEnabled, data.TemporalUpscaleActive));
+                TemporalUpscalePolicy::ShouldRunEngineTAA(data.EngineTAAWanted, data.TemporalUpscaleActive));
             PostProcessPasses.TAA->SetSettings(data.PostProcess);
         }
 
@@ -2165,10 +2208,16 @@ namespace OloEngine
             {
                 GroomFrameState groomFrame;
                 groomFrame.FrameIndex = data.StochasticFrameIndex;
+                //
+                // EngineTAAWanted, not TAAEnabled: a scene holding a stochastic
+                // groom asks for the resolve itself (#1429). And the TAA pass
+                // must be able to RUN — its graph output is declared only when it
+                // is ready, so a TAA shader that failed to compile is no resolve
+                // at all, and claiming one would ship the noise rule 6 refuses.
                 groomFrame.TemporalResolveActive =
                     data.TemporalUpscaleActive ||
-                    TemporalUpscalePolicy::ShouldRunEngineTAA(data.PostProcess.TAAEnabled,
-                                                              data.TemporalUpscaleActive);
+                    (TemporalUpscalePolicy::ShouldRunEngineTAA(data.EngineTAAWanted, data.TemporalUpscaleActive) &&
+                     PostProcessPasses.TAA && PostProcessPasses.TAA->IsReadyForExecution());
                 groomFrame.OITTargetsAvailable = oitEnabled;
                 RenderStreamPasses.Groom->SetFrameState(groomFrame);
                 RenderStreamPasses.Groom->SetCoatRebakePolicy(Renderer3D::GetGroomCoatRebakePolicy());
@@ -2746,7 +2795,7 @@ namespace OloEngine
         // AND the deferred lighting pass, which reconstructs world-space position from G-Buffer depth
         // AND TAA for camera-only velocity reprojection in Forward / Forward+
         // AND the cloudscape raymarch/resolve ray reconstruction).
-        if (data.PostProcess.MotionBlurEnabled || data.PostProcess.TAAEnabled || data.Fog.Enabled ||
+        if (data.PostProcess.MotionBlurEnabled || data.EngineTAAWanted || data.Fog.Enabled ||
             data.Cloudscape.Enabled || data.Settings.Path == RenderingPath::Deferred)
         {
             auto& mb = data.PostProcessGPU.MotionBlurData;
@@ -2844,7 +2893,7 @@ namespace OloEngine
         config.TemporalUpscaleActive = data.TemporalUpscaleActive;
         config.DOFEnabled = post.DOFEnabled;
         config.MotionBlurEnabled = post.MotionBlurEnabled;
-        config.EngineTAA = TemporalUpscalePolicy::ShouldRunEngineTAA(post.TAAEnabled, data.TemporalUpscaleActive);
+        config.EngineTAA = TemporalUpscalePolicy::ShouldRunEngineTAA(data.EngineTAAWanted, data.TemporalUpscaleActive);
         config.CloudscapeEnabled = data.Cloudscape.Enabled;
         config.PrecipitationScreenEffects = PrecipitationScreenEffectsEnabled(data);
         config.FogEnabled = data.Fog.Enabled;

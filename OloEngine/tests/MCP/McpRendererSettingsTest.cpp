@@ -519,6 +519,48 @@ TEST(McpRendererSettingsApply, DDGICascadesTogglesTheRendererSettingAndReportsPr
     EXPECT_TRUE(rs.EnableDDGI) << "the cascade lever must not disturb the DDGI master switch that gates it";
 }
 
+// Issue #1429. Another RendererSettings FIELD, and one whose DEFAULT is the
+// feature (honour), so the lever's job is to reach the refused, bald tier on
+// purpose and come back. Asserted through Describe as well as Apply, for the
+// cascade test's reason.
+TEST(McpRendererSettingsApply, SceneTemporalResolveReachesTheRefusedTierAndBack)
+{
+    PostProcessSettings pp;
+    RendererSettings rs;
+    RS::LeverState lever;
+    ASSERT_TRUE(rs.HonourSceneTemporalResolveRequests) << "a scene's request is honoured by default";
+
+    const auto currentValue = [](const PostProcessSettings& p, const RendererSettings& r,
+                                 const RS::LeverState& l) -> std::string
+    {
+        const Json described = RS::Describe(p, r, l);
+        for (const auto& entry : described.at("settings"))
+        {
+            if (entry.at("setting") == "scenetemporalresolve")
+            {
+                return entry.at("currentValue").get<std::string>();
+            }
+        }
+        return "<missing>";
+    };
+    EXPECT_EQ(currentValue(pp, rs, lever), "honour");
+
+    const auto ignored =
+        RS::Apply(RS::Setting::SceneTemporalResolve, RS::kSceneTemporalResolveIgnore, pp, rs, lever);
+    ASSERT_TRUE(ignored.Ok);
+    EXPECT_FALSE(rs.HonourSceneTemporalResolveRequests);
+    EXPECT_EQ(ignored.Data["previousValue"], "honour");
+    EXPECT_EQ(ignored.Data["restoreWith"], "honour");
+    EXPECT_FALSE(ignored.RequiresRenderGraphRebuild) << "read at BeginScene; nothing to rebuild";
+    EXPECT_EQ(currentValue(pp, rs, lever), "ignore");
+    EXPECT_FALSE(pp.TAAEnabled) << "the lever must never tick the user's own TAA box";
+
+    const auto restored =
+        RS::Apply(RS::Setting::SceneTemporalResolve, RS::kSceneTemporalResolveHonour, pp, rs, lever);
+    ASSERT_TRUE(restored.Ok);
+    EXPECT_TRUE(rs.HonourSceneTemporalResolveRequests);
+}
+
 // Describe reads the lever state for the two new settings — 'auto' is
 // write-only, so the current value is always off/on.
 TEST(McpRendererSettingsApply, DescribeReportsLeverCurrentValues)

@@ -115,6 +115,9 @@ add_executable(OloEngine-Tests
 		# machine that takes every capability fallback is also the machine that
 		# tests it.
 		Groom/GroomCompositionSelectionTest.cpp
+		# A scene holding a stochastic groom requests its own temporal resolve
+		# (#1429): the policy, the producer and the shipped scene it was filed against.
+		Groom/GroomSceneTemporalResolveTest.cpp
 		# Dense-coat self-shadowing (#1248). The pure selection seam: which
 		# representation a coat gets and why it is not what was asked for.
 		Groom/GroomCoatShadowSelectionTest.cpp

@@ -284,6 +284,15 @@ namespace OloEngine
         // be toggled in Forward, Forward+, and Deferred paths.
         bool OITEnabled = false;
 
+        // --- Temporal resolve requests (issue #1429) ---
+        // A scene holding a groom on stochastic composition asks for a temporal
+        // resolve every frame, and engine TAA runs for it even with the user's
+        // TAAEnabled off — otherwise the groom falls back to a hard cutoff that
+        // draws no sub-pixel hair and the coat renders bald. Turn this off only
+        // to SEE that fallback (a comparison, a capture); it is a diagnostic,
+        // not a quality knob, and it is deliberately not persisted.
+        bool HonourSceneTemporalResolveRequests = true;
+
         // --- Debug overlays ---
         // Editor-only master switch. Kept process-global with the other renderer
         // debug settings so it survives Edit/Play/Simulate scene copies. Disabling

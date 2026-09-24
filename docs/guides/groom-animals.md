@@ -25,10 +25,11 @@ takes part whenever Vulkan RT shadows are armed and a light opts in.
 
 ## Opening it
 
-**Turn TAA on.** `StochasticAlpha` needs a temporal resolve, and without one #1246 falls back to its
-opaque tier, which cannot draw sub-pixel hair. The scene opens looking bald. TAA is not a per-scene
-setting, so the scene cannot ask for it (a follow-up is filed on #1223). In the editor:
-Post-processing → TAA, or `olo_postprocess_settings_set {"field":"TAAEnabled","value":true}`.
+**TAA runs by itself.** `StochasticAlpha` needs a temporal resolve, and without one #1246 falls back
+to its opaque tier, which cannot draw sub-pixel hair. Since #1429 a scene holding a stochastic groom
+requests the resolve every frame, so the coats are there on open with the TAA box unticked; the TAA
+section of Post-processing says the scene is running it. If a groom still falls back, the viewport
+shows a red "render BALD" banner and the log says why.
 
 Press **Play**. The clips and the guide simulation only advance in runtime frames. In edit mode the
 coats hold their bind pose, and that is correct.
@@ -90,7 +91,6 @@ Filed on #1223 as its blockers:
 - a moving coat has no self-shadowing;
 - the per-frame cost of a deformed coat;
 - the card tier over-covers at range;
-- the scene is bald without TAA, which it cannot request;
 - coats misregister under editor upscale (with #1397).
 
 `GroomAnimals_Cost.txt` and the PR body hold the numbers.

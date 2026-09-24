@@ -8717,7 +8717,7 @@ namespace OloEngine::MCP
                 "derive it on for tile culling) and 'softshadows' (pcf|pcss — PCSS is the dominant ScenePass cost in "
                 "shadowed scenes; A/B it in one call instead of editing shader source). Also exposes 'msaa' (1|2|4|8), "
                 "'persamplelighting', 'depthawareculling', 'virtualshadowmaps', 'vsmdebug' (off plus six diagnostic views), "
-                "'ddgicascades', and 'hzbocclusion'. Two more drive the hybrid ray-traced shadow tier (#1056): "
+                "'ddgicascades', 'hzbocclusion', and 'scenetemporalresolve' (honour|ignore, #1429: 'ignore' refuses a scene's TAA request so a stochastic groom goes bald). Two more drive the hybrid ray-traced shadow tier (#1056): "
                 "'raytracedshadows' (off|on — routes opted-in lights through ray-query visibility instead of the shadow "
                 "map; Vulkan + Deferred only, and it reports 'rayTracedLights'/'fallbackLights'/'fallbackReason' rather "
                 "than an effective bool, because the technique is decided PER LIGHT inside the frame) and "
