@@ -1048,6 +1048,23 @@ namespace OloEngine::Tests::StateMachine
         };
 
         ++result.Checkpoints;
+        // A replay narrowed to a pair this function does not own (the end-of-
+        // trace fresh-vs-sequence, the minimiser's commonest predicate) skips
+        // the control captures entirely: twelve rendered frames and every
+        // target read back twice, for nothing.
+        static constexpr std::array<std::string_view, 9> kOwnedPairs{
+            "cached-vs-rebuild.gl",
+            "cached-vs-rebuild.plan",
+            "alias-vs-noalias.gl",
+            "batch-vs-nobatch.gl",
+            "serial-vs-parallel.gl",
+            "binding-cache-cold.gl",
+            "harness.round-trip",
+            "harness.capture",
+            "resolve-failures",
+        };
+        if (!options.OnlyPair.empty() && std::ranges::find(kOwnedPairs, options.OnlyPair) == kOwnedPairs.end())
+            return;
         // The control must span as many frames as the comparisons below do,
         // or a target that is still converging (a temporally resolved SSR
         // after its history was reset) reads as bit-stable over two frames and
@@ -1259,7 +1276,11 @@ namespace OloEngine::Tests::StateMachine
     bool RendererStateMachineFixture::TraceStillFails(const Trace& trace, const std::string& pairId)
     {
         RunOptions options;
-        options.OnlyPair = pairId;
+        // The harness's own checks (the lever round trip, resolve failures,
+        // capture) only fail when the pairs around them flip levers, so a
+        // failure of one of them is replayed with every pair on.
+        const bool harnessCheck = pairId.starts_with("harness.") || pairId == "resolve-failures";
+        options.OnlyPair = harnessCheck ? std::string{} : pairId;
         const TraceResult result = RunTrace(trace, options);
         return std::ranges::any_of(result.Failures, [&pairId](const PairFailure& failure)
                                    { return failure.PairId == pairId; });

@@ -27,7 +27,8 @@
 //                   editor measurement recorded in the PR. The row says why.
 //
 // Adding a case: add a row here, then the test that executes it, naming the
-// row's Id in `StateMachineCoverage::RecordExecuted`. Removing a Required row
+// row's Id in `Coverage::RecordComparison` (or `Coverage::RecordVacuous` when
+// the premise is absent). Removing a Required row
 // is a scope change and belongs in the PR description, not in a quiet edit.
 // =============================================================================
 

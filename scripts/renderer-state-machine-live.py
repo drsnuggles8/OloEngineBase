@@ -22,7 +22,7 @@ Operations with no MCP lever (entity-churn, fence-drain, frames-in-flight,
 scene-swap, pool-trim) are reported as NOT APPLIED rather than skipped quietly.
 
 Usage (editor launched with OLO_MCP_AUTOSTART=1 and OLO_MCP_ALLOW_WRITES=1):
-  python scripts/renderer-state-machine-live.py --port 7361 --scene Scenes/MaterialLab.olo \
+  python scripts/renderer-state-machine-live.py --port 7361 --backend vulkan --scene Scenes/MaterialLab.olo \
       OloEngine/tests/Rendering/StateMachine/corpus/*.trace
 Exit code 0 when every applied comparison held, 1 otherwise.
 """
@@ -171,8 +171,7 @@ class Session:
         elif kind == "shader-reload":
             m.call("olo_shader_reload", {})
         elif kind == "scene-reload":
-            m.call("olo_scene_open", {"path": self.scene})
-            self.configure(cfg)  # a reopen restores the scene's own settings; put the trace's back
+            self.configure(cfg)  # reopens the scene, then puts the trace's settings back over the scene's own
         elif kind == "history-advance":
             here = int(cfg.get("pose", "0"))
             for step in (1, 2):
@@ -247,8 +246,16 @@ def main():
     ap.add_argument("traces", nargs="+")
     args = ap.parse_args()
     session = Session(Mcp(args.port), args.scene, args.backend)
-    for path in args.traces:
-        session.run(path)
+    try:
+        for path in args.traces:
+            session.run(path)
+    finally:
+        # Hand the editor back as found: the trace sizes are an MCP viewport
+        # OVERRIDE, which otherwise keeps the viewport drawing a 320x180 image
+        # in the corner of the panel, and a reopen restores the scene's own
+        # render path and post-process settings.
+        session.mcp.call("olo_viewport_set_size", {"reset": True})
+        session.mcp.call("olo_scene_open", {"path": args.scene})
     failed = [r for r in session.results if not r[2]]
     print("\n%d comparisons, %d held, %d failed" % (len(session.results), len(session.results) - len(failed), len(failed)))
     for name, where, _, px, mx, ctrl in failed:

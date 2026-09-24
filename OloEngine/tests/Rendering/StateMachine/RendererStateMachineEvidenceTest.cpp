@@ -167,7 +167,7 @@ namespace OloEngine::Tests::StateMachine
                 std::cout << "[StateMachine] geometry bucket replays " << meshPackets << " DrawMesh, " << instancedPackets
                           << " DrawMeshInstanced, " << otherPackets << " other\n";
             }
-            EXPECT_GT(batched, 0u) << "the eight identical cubes were not auto-batched: batch-vs-nobatch would be vacuous";
+            EXPECT_GT(batched, 0u) << "no DrawMesh packets were auto-batched (the twin MeshField model supplies them): batch-vs-nobatch would be vacuous";
 
             // The model's own contribution: hide it, re-render, count pixels.
             for (const auto entity : GetScene().GetAllEntitiesWith<ModelComponent>())
@@ -176,6 +176,10 @@ namespace OloEngine::Tests::StateMachine
             const FrameCapture withoutField = CaptureFrame();
             for (const auto entity : GetScene().GetAllEntitiesWith<ModelComponent>())
                 Entity(entity, &GetScene()).GetComponent<ModelComponent>().m_Visible = true;
+            // DifferingPixels reads a size mismatch as "everything differs", so
+            // a failed second capture must not pass as a visible model.
+            ASSERT_EQ(withoutField.Composite.size(), withField.Composite.size())
+                << "the model-hidden capture failed, so the model's contribution cannot be measured";
             const u32 fieldPixels = DifferingPixels(withField.Composite, withoutField.Composite);
             const u32 frame = withField.Width * withField.Height;
             EXPECT_GT(fieldPixels, frame / 100u) << "the model covers " << fieldPixels << " of " << frame
