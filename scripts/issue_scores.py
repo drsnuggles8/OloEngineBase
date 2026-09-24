@@ -210,7 +210,9 @@ def split_blockers(d, states):
 def _coerce(v):
     v = v.strip()
     if v.startswith("["):
-        return json.loads(v)
+        # `[#1131]` is the natural way to write an issue list but is not JSON; one such block
+        # used to raise JSONDecodeError and take `rank` and `lint` down for the whole backlog.
+        return json.loads(re.sub(r"#(\d+)", r"\1", v))
     try:
         return int(v)
     except ValueError:
