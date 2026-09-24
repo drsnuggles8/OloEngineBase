@@ -114,9 +114,12 @@ layout(location = 0) in vec2 v_TexCoord;
 #ifdef OLO_BINDLESS
 #define u_DepthTexture OLO_HEAP_TEX_2D(19)  // TEX_POSTPROCESS_DEPTH
 #define u_GBufferNormal OLO_HEAP_TEX_2D(44) // TEX_GBUFFER_NORMAL
+#define u_GBufferEmissive OLO_HEAP_TEX_2D(45) // TEX_GBUFFER_EMISSIVE (#1336)
 #else
 layout(binding = 19) uniform sampler2D u_DepthTexture;  // scene depth (nonlinear, [0,1])
 layout(binding = 44) uniform sampler2D u_GBufferNormal; // RT1: rg = oct world normal, z = roughness, w = ao
+// RT2's flag lane (issue #1336): which pixels have a TRANSMITTED lobe.
+layout(binding = 45) uniform sampler2D u_GBufferEmissive;
 #endif
 
 #include "include/SkyDepth.glsl"
@@ -242,6 +245,20 @@ void main()
     vec4 packedNormal = texture(u_GBufferNormal, v_TexCoord);
     vec3 N = OctDecode(packedNormal.xy);
 
+    // Does this pixel have a TRANSMITTED lobe (issue #1336)? Skin and foliage
+    // do; nothing else reads a back-facing channel. The flag layout is
+    // PBRCommon.glsl's oloDecodeGBufferFlags / oloGBufferFlagsMaterialKind
+    // (bit 0 unlit, bits 1-2 kind: 2 = OLO_MATERIAL_KIND_SKIN,
+    // 3 = OLO_MATERIAL_KIND_FOLIAGE), spelled out because this shader does not
+    // include PBRCommon.
+    // texelFetch at the G-Buffer's own resolution: the trace may run at a
+    // different one, and a filtered read would blend two pixels' flags.
+    ivec2 flagsSize = textureSize(u_GBufferEmissive, 0);
+    ivec2 flagsTexel = clamp(ivec2(v_TexCoord * vec2(flagsSize)), ivec2(0), flagsSize - ivec2(1));
+    int gbFlags = int(round(texelFetch(u_GBufferEmissive, flagsTexel, 0).a));
+    int materialKind = (gbFlags >> 1) & 3;
+    bool hasTransmittedLobe = (gbFlags & 1) == 0 && (materialKind == 2 || materialKind == 3);
+
     int rayCount = clamp(int(u_RayParams.x + 0.5), 1, RT_SHADOW_MAX_RAYS);
     float maxDistance = u_RayParams.y > 0.0 ? u_RayParams.y : 1.0e30;
     vec3 origin = worldPos + N * u_RayParams.z;
@@ -296,14 +313,30 @@ void main()
             shapeTan = distance > 1.0e-4 ? u_LightShapes[channel].x / distance : 0.0;
         }
 
-        // A surface facing away from the light is in FORM shadow, which the
-        // lighting pass's own N.L already handles. Tracing it would spend a ray
-        // to rediscover that, and would start the ray inside the surface.
+        // A surface facing away from the light is in FORM shadow for its
+        // REFLECTED lobe, whose N.L is zero there anyway. But the lighting pass
+        // gates a TRANSMITTED lobe — a backlit leaf, the thin skin of an ear —
+        // by this same channel, and that lobe exists only on this side of the
+        // surface. Writing 0 here, as this pass used to, erased the
+        // transmission of every backlit leaf and ear under ray-traced shadows
+        // while the shadow-map path lit them (issue #1336). So the ray starts
+        // on the LIT side instead — the same lit-side offset the shadow-map
+        // path's oloFoliageShadowNormal / oloSkinShadowNormal apply — and asks
+        // the question the transmitted lobe needs answered.
+        //
+        // Only such a pixel pays for that ray. Every other back-facing pixel
+        // keeps the old answer, 0 without a trace: its reflected lobe is zero
+        // there, and nothing else reads the channel.
+        vec3 channelOrigin = origin;
         if (dot(N, toLight) <= 0.0)
         {
-            visibility[channel] = 0.0;
-            hitDistance[channel] = 0.0;
-            continue;
+            if (!hasTransmittedLobe)
+            {
+                visibility[channel] = 0.0;
+                hitDistance[channel] = 0.0;
+                continue;
+            }
+            channelOrigin = worldPos - N * u_RayParams.z;
         }
 
         float occluded = 0.0;
@@ -324,7 +357,7 @@ void main()
             // Stop only on candidates whose leaf alpha confirms a hit.
             rayQueryInitializeEXT(rayQuery, accelerationStructureEXT(u_TlasAddressAndCounts.xy),
                                   gl_RayFlagsTerminateOnFirstHitEXT,
-                                  RT_SHADOW_INSTANCE_MASK, origin, RT_SHADOW_RAY_TMIN, direction, tMax);
+                                  RT_SHADOW_INSTANCE_MASK, channelOrigin, RT_SHADOW_RAY_TMIN, direction, tMax);
             oloHybridRayTracingProceed(rayQuery);
             if (rayQueryGetIntersectionTypeEXT(rayQuery, true) != gl_RayQueryCommittedIntersectionNoneEXT)
             {
