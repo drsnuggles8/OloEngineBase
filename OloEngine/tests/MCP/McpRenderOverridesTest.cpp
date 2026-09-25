@@ -71,6 +71,13 @@ TEST(McpRenderOverrides, ParsePassResolvesAliases)
     EXPECT_EQ(RO::Pass::FogVolumetric, pass);
     EXPECT_TRUE(RO::ParsePass("lightshafts", pass));
     EXPECT_EQ(RO::Pass::GodRays, pass);
+    // "sss" stays skin's; the snow blur has its own names (issue #1451).
+    EXPECT_TRUE(RO::ParsePass("sss", pass));
+    EXPECT_EQ(RO::Pass::SkinDiffusion, pass);
+    EXPECT_TRUE(RO::ParsePass("snow_blur", pass));
+    EXPECT_EQ(RO::Pass::SnowBlur, pass);
+    EXPECT_TRUE(RO::ParsePass("snowsss", pass));
+    EXPECT_EQ(RO::Pass::SnowBlur, pass);
 }
 
 TEST(McpRenderOverrides, ParsePassRejectsUnknownAndEmpty)

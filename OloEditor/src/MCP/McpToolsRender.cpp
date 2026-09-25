@@ -1749,6 +1749,10 @@ namespace OloEngine::MCP
                     // of the snow settings rather than a post-process stage (see
                     // Renderer3D::GetSkinDiffusionSettings).
                     return &Renderer3D::GetSkinDiffusionSettings().Enabled;
+                case Pass::SnowBlur:
+                    // On the snow settings, beside the snow layer it blurs
+                    // (issue #1451) — like skin diffusion, not a post stage.
+                    return &Renderer3D::GetSnowSettings().SSSBlurEnabled;
             }
             return nullptr;
         }
@@ -1902,6 +1906,11 @@ namespace OloEngine::MCP
                                              "and no renderer switch overrides it (ADR 0024).";
                                 }
                             }
+                            break;
+                        case Pass::SnowBlur:
+                            if (!Renderer3D::GetSnowSettings().Enabled)
+                                r.Note = "Snow is disabled, so there is no snow for the blur to diffuse and this "
+                                         "toggle changes nothing.";
                             break;
                         default:
                             break;
@@ -8141,7 +8150,7 @@ namespace OloEngine::MCP
                 "Flip a post-process / fog feature on or off — the rendering A/B loop: toggle off, "
                 "olo_screenshot, toggle on, olo_screenshot, compare. 'name' is one of bloom, ssao, gtao, "
                 "ssr, ssgi, fxaa, taa, vignette, chromaticaberration (ca), depthoffield (dof), motionblur, "
-                "colorgrading, autoexposure, fog, fogscattering, fogvolumetric, godrays, skindiffusion. "
+                "colorgrading, autoexposure, fog, fogscattering, fogvolumetric, godrays, skindiffusion, snowblur. "
                 "'enabled' sets the "
                 "state explicitly; omit it to flip the current value. Returns the affected pass and its "
                 "new/previous state. Enabling ssao/gtao also selects that AO technique (they share one "

@@ -85,6 +85,7 @@ namespace OloEngine::MCP::RenderOverrides
         FogVolumetric,
         GodRays,
         SkinDiffusion,
+        SnowBlur,
     };
 
     // Canonical token + human description for each toggleable pass. The token is
@@ -98,7 +99,7 @@ namespace OloEngine::MCP::RenderOverrides
         std::string_view Description;
     };
 
-    inline constexpr std::array<PassInfo, 18> kPasses = { {
+    inline constexpr std::array<PassInfo, 19> kPasses = { {
         { "bloom", Pass::Bloom, "Bloom (HDR bright-pass glow)" },
         { "ssao", Pass::SSAO, "Screen-space ambient occlusion (also selects the SSAO AO technique)" },
         { "gtao", Pass::GTAO, "Ground-truth ambient occlusion (also selects the GTAO AO technique)" },
@@ -119,6 +120,9 @@ namespace OloEngine::MCP::RenderOverrides
         { "skindiffusion", Pass::SkinDiffusion,
           "Screen-space skin scattering (issue #1241, alias: sss); only diffuses materials whose "
           ".oloskin profile is authored at transport version 1" },
+        { "snowblur", Pass::SnowBlur,
+          "Snow subsurface blur (issue #1451, alias: snowsss); diffuses the diffuse half of snow pixels "
+          "only, so it needs snow enabled and snow in view" },
     } };
 
     // Short aliases that resolve to a canonical pass. Separators (space / underscore
@@ -130,7 +134,7 @@ namespace OloEngine::MCP::RenderOverrides
         Pass Id;
     };
 
-    inline constexpr std::array<PassAlias, 10> kPassAliases = { {
+    inline constexpr std::array<PassAlias, 11> kPassAliases = { {
         { "ca", Pass::ChromaticAberration },
         { "dof", Pass::DepthOfField },
         { "colourgrading", Pass::ColorGrading },
@@ -141,6 +145,7 @@ namespace OloEngine::MCP::RenderOverrides
         { "godray", Pass::GodRays },
         { "sss", Pass::SkinDiffusion },
         { "skin", Pass::SkinDiffusion },
+        { "snowsss", Pass::SnowBlur },
     } };
 
     // Lowercase a string and drop every non-alphanumeric character so
