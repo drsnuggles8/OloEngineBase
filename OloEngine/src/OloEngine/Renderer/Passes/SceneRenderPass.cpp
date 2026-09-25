@@ -395,6 +395,11 @@ namespace OloEngine
         // dropped DeferredLightingPass's skin-diffusion hand-off, OITPreparePass's
         // revealage clear and every OIT draw's revealage write (#1417, #1422).
         rendererAPI.SetColorMask(true, true, true, true);
+        // The widening happened behind the dispatcher: without this its
+        // LastRenderStateIndex still names the narrowing packet's state, and the
+        // next packet sharing that (frame-deduplicated) index would skip
+        // re-applying its narrowing.
+        CommandDispatch::InvalidateRenderStateCache();
 
         // Restore depth state after prepass
         if (depthPrepass)
