@@ -562,89 +562,72 @@ namespace OloEngine
 
     void OpenGLTexture2D::UploadDecompressedFallback(const CompressedTextureImage& image)
     {
-        // BC6H is HDR: decode base mip to RGBA float and upload as RGBA16F so the fallback
-        // preserves the high dynamic range (an 8-bit fallback would clip/banding the HDR).
-        if (IsBC6H(image.Format))
-        {
-            TArray64<f32> rgbaF;
-            u32 fw = 0;
-            u32 fh = 0;
-            if (!TextureCompression::DecodeToRGBAFloat(image, 0, rgbaF, fw, fh) || rgbaF.IsEmpty())
-            {
-                OLO_CORE_ERROR("OpenGLTexture2D: BC6H fallback decode failed");
-                return;
-            }
-
-            const bool wantMipsHdr = image.MipLevels() > 1u;
-            m_MipLevels = wantMipsHdr ? CalculateFullMipCount(fw, fh) : 1u;
-            m_Specification.MipLevels = m_MipLevels;
-            m_Specification.GenerateMips = wantMipsHdr;
-            // Keep m_Specification.Format as BC6H (the compressed identity) — the physical
-            // GL upload format lives in m_InternalFormat/m_DataFormat, same rationale as the
-            // BC7/BC5 fallback below.
-            m_InternalFormat = GL_RGBA16F;
-            m_DataFormat = GL_RGBA;
-
-            glCreateTextures(GL_TEXTURE_2D, 1, &m_RendererID);
-            m_RHIHandle.Sync(RHI::ResourceKind::Texture, m_RendererID, RHI::Backend::OpenGL);
-            glTextureStorage2D(m_RendererID, static_cast<GLsizei>(m_MipLevels), m_InternalFormat,
-                               static_cast<GLsizei>(fw), static_cast<GLsizei>(fh));
-            glTextureSubImage2D(m_RendererID, 0, 0, 0, static_cast<GLsizei>(fw), static_cast<GLsizei>(fh),
-                                GL_RGBA, GL_FLOAT, rgbaF.GetData());
-            if (m_MipLevels > 1u)
-            {
-                glGenerateTextureMipmap(m_RendererID);
-                m_MipsPopulated = true;
-            }
-
-            OLO_TRACK_GPU_ALLOC(this, rgbaF.Num() * sizeof(f32), RendererMemoryTracker::ResourceType::Texture2D, "OpenGL Texture2D (BC6H-fallback)");
-            GPUResourceInspector::GetInstance().RegisterTexture(m_RendererID, "Texture2D (BC6H-fallback)", "Texture2D");
-
-            glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, m_MipLevels > 1u ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR);
-            glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_S, GL_REPEAT);
-            glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_T, GL_REPEAT);
-
-            m_IsLoaded = true;
-            return;
-        }
-
-        // Decode base mip to RGBA8 and upload as a normal texture; regenerate mips on GPU.
-        TArray64<u8> rgba;
-        u32 w = 0;
-        u32 h = 0;
-        if (!TextureCompression::DecodeToRGBA8(image, 0, rgba, w, h) || rgba.IsEmpty())
-        {
-            OLO_CORE_ERROR("OpenGLTexture2D: fallback decode failed");
-            return;
-        }
-
-        const bool wantMips = image.MipLevels() > 1u;
-        m_MipLevels = wantMips ? CalculateFullMipCount(w, h) : 1u;
-        // Keep m_Specification.Format as the compressed (BC7/BC5) identity — the physical
-        // GL upload format lives in m_InternalFormat/m_DataFormat below. Overwriting it
-        // with RGBA8 would defeat HasAlphaChannel() (an opaque BC7 / BC5 normal would then
+        // Every cooked level is decoded and uploaded as it was cooked, NOT
+        // regenerated from level 0: a cooked alpha cutout's chain is
+        // coverage-preserving and shorter than a full one (#1453), and
+        // glGenerateTextureMipmap would replace it with the box chain that thins.
+        //
+        // BC6H is HDR: decode to RGBA float and upload as RGBA16F so the fallback
+        // keeps the high dynamic range (an 8-bit fallback would clip/band it).
+        const bool hdr = IsBC6H(image.Format);
+        m_MipLevels = image.MipLevels();
+        // Keep m_Specification.Format as the compressed identity (BC7/BC5/BC4/BC6H) —
+        // the physical GL upload format lives in m_InternalFormat/m_DataFormat. Overwriting
+        // it with RGBA8 would defeat HasAlphaChannel() (an opaque BC7 / BC5 normal would then
         // report alpha and mis-sort into the transparent pass), unguard Resize/SetData/
         // SubImage, and make the asset-pack serializer treat the texture as uncompressed.
         m_Specification.MipLevels = m_MipLevels;
-        m_Specification.GenerateMips = wantMips;
-        m_InternalFormat = image.SRGB ? GL_SRGB8_ALPHA8 : GL_RGBA8;
+        m_Specification.GenerateMips = m_MipLevels > 1u;
+        m_InternalFormat = hdr ? GL_RGBA16F : (image.SRGB ? GL_SRGB8_ALPHA8 : GL_RGBA8);
         m_DataFormat = GL_RGBA;
 
         glCreateTextures(GL_TEXTURE_2D, 1, &m_RendererID);
         m_RHIHandle.Sync(RHI::ResourceKind::Texture, m_RendererID, RHI::Backend::OpenGL);
         glTextureStorage2D(m_RendererID, static_cast<GLsizei>(m_MipLevels), m_InternalFormat,
-                           static_cast<GLsizei>(w), static_cast<GLsizei>(h));
-        glTextureSubImage2D(m_RendererID, 0, 0, 0, static_cast<GLsizei>(w), static_cast<GLsizei>(h),
-                            GL_RGBA, GL_UNSIGNED_BYTE, rgba.GetData());
-        if (m_MipLevels > 1u)
-        {
-            glGenerateTextureMipmap(m_RendererID);
-            m_MipsPopulated = true;
-        }
+                           static_cast<GLsizei>(m_Width), static_cast<GLsizei>(m_Height));
 
-        OLO_TRACK_GPU_ALLOC(this, rgba.Num(), RendererMemoryTracker::ResourceType::Texture2D, "OpenGL Texture2D (compressed-fallback)");
-        GPUResourceInspector::GetInstance().RegisterTexture(m_RendererID, "Texture2D (compressed-fallback)", "Texture2D");
+        sizet totalBytes = 0;
+        for (u32 level = 0; level < m_MipLevels; ++level)
+        {
+            u32 w = 0;
+            u32 h = 0;
+            bool decoded = false;
+            if (hdr)
+            {
+                TArray64<f32> rgbaF;
+                decoded = TextureCompression::DecodeToRGBAFloat(image, level, rgbaF, w, h) && !rgbaF.IsEmpty();
+                if (decoded)
+                {
+                    glTextureSubImage2D(m_RendererID, static_cast<GLint>(level), 0, 0, static_cast<GLsizei>(w),
+                                        static_cast<GLsizei>(h), GL_RGBA, GL_FLOAT, rgbaF.GetData());
+                    totalBytes += static_cast<sizet>(rgbaF.Num()) * sizeof(u16); // stored as half floats
+                }
+            }
+            else
+            {
+                TArray64<u8> rgba;
+                decoded = TextureCompression::DecodeToRGBA8(image, level, rgba, w, h) && !rgba.IsEmpty();
+                if (decoded)
+                {
+                    const Utils::GLUnpackAlignmentScope unpackAlignment;
+                    glTextureSubImage2D(m_RendererID, static_cast<GLint>(level), 0, 0, static_cast<GLsizei>(w),
+                                        static_cast<GLsizei>(h), GL_RGBA, GL_UNSIGNED_BYTE, rgba.GetData());
+                    totalBytes += static_cast<sizet>(rgba.Num());
+                }
+            }
+            if (!decoded)
+            {
+                OLO_CORE_ERROR("OpenGLTexture2D: fallback decode of mip {} failed", level);
+                if (level == 0u)
+                    return;
+            }
+        }
+        m_MipsPopulated = m_MipLevels > 1u;
+
+        OLO_TRACK_GPU_ALLOC(this, totalBytes, RendererMemoryTracker::ResourceType::Texture2D,
+                            hdr ? "OpenGL Texture2D (BC6H-fallback)" : "OpenGL Texture2D (compressed-fallback)");
+        GPUResourceInspector::GetInstance().RegisterTexture(
+            m_RendererID, hdr ? "Texture2D (BC6H-fallback)" : "Texture2D (compressed-fallback)", "Texture2D");
 
         glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, m_MipLevels > 1u ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR);
         glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
