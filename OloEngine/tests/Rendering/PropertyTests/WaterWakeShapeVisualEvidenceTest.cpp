@@ -841,7 +841,21 @@ namespace OloEngine::Tests
         ASSERT_GT(insideOff, 0.5)
             << "the sea has no structure inside the footprint — this test cannot detect flattening";
 
-        EXPECT_LT(insideOn, insideOff * 0.85)
+        // RE-MEASURED for issue #1470, which is why the bar is 0.93 and not 0.85.
+        // Every figure above was taken while a tessellation-off water surface
+        // (this fixture) was displaced TWICE — the vertex stage and then the
+        // tess-eval stage — so the sea being flattened was roughly twice the
+        // authored 0.55 m, and removing it took 22% of the variance. Displaced
+        // once, the same wake takes 13-14%: inside 0.792 / 0.918 run alone and
+        // 0.800 / 0.925 after this file's other test and after the whole
+        // WaterFoamSprayRain suite (RTX 4090, 2026-09-26) — a 0.3% spread
+        // across orderings, with the control box bit-identical in all three.
+        // The bar keeps the same ~7% headroom the 0.85 bar had over its own
+        // measurement (0.866 x 1.07). A broken flattening reads exactly 1.0.
+        // Raising the amplitude to buy the old margin back was tried and is
+        // wrong: at 1.1 m the crests cross the foam threshold and the box
+        // measures foam (stddev 4.4 in suite order), not flattening.
+        EXPECT_LT(insideOn, insideOff * 0.93)
             << "the sea inside the hull footprint is as textured with the wake on as without it";
         EXPECT_NEAR(outsideOn, outsideOff, std::max(1.0, outsideOff * 0.20))
             << "the sea OUTSIDE the hull footprint also changed — the suppression is not confined to "

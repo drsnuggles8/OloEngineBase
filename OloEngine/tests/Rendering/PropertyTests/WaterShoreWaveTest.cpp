@@ -678,13 +678,16 @@ TEST(WaterShoreWave, TheShaderCarriesTheSameConstantsAsTheHeader)
         << " dispersion iterations";
 }
 
-// The shore transform is applied in the vertex stage AND the tess-eval stage,
-// which is what makes the colour pass and the surface-depth capture agree — they
-// replay one shared chain. A stage that quietly kept the deep-water entry point
-// would show as depth artefacts at the waterline rather than as wrong waves.
-TEST(WaterShoreWave, BothDisplacingStagesUseTheShoreAwareSum)
+// The shore transform is applied in the tess-eval stage — the ONE displacing
+// stage since issue #1470 (the vertex stage places the resting surface and never
+// displaces; WaterRendering's VertexStageNeverDisplaces pins that). Water.glsl
+// and Water_Depth.glsl both include it, which is what makes the colour pass and
+// the surface-depth capture agree. A stage that quietly kept the deep-water
+// entry point would show as depth artefacts at the waterline rather than as
+// wrong waves.
+TEST(WaterShoreWave, TheDisplacingStageUsesTheShoreAwareSum)
 {
-    for (const char* stage : { "include/WaterVertexStage.glsl", "include/WaterTessEvalStage.glsl" })
+    for (const char* stage : { "include/WaterTessEvalStage.glsl" })
     {
         const std::string source = ReadShaderSource(stage);
         ASSERT_FALSE(source.empty()) << stage;

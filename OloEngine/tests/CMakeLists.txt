@@ -683,6 +683,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/TransparentBlendOrderVisualEvidenceTest.cpp
 		Rendering/PropertyTests/MorphDeformationVisualEvidenceTest.cpp
 		Rendering/PropertyTests/WaterVisualEvidenceTest.cpp
+		Rendering/PropertyTests/WaterSingleDisplacementEvidenceTest.cpp
 		Rendering/PropertyTests/TilemapVisualEvidenceTest.cpp
 		Rendering/PropertyTests/BenchmarkCaptureTest.cpp
 		Rendering/PropertyTests/ReferenceFixtureManifestTest.cpp
