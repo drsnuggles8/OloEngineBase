@@ -105,6 +105,7 @@
 #include "OloEngine/Particle/TrailRenderer.h"
 #include "OloEngine/Video/VideoSystem.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/OITBlendState.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/Commands/CommandPacket.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
@@ -2219,6 +2220,16 @@ namespace OloEngine
         // otherwise queued quads may render with the wrong blend mode (§1.5)
         Renderer2D::Flush();
 
+        // Inside ParticleRenderPass's weighted-blended OIT path the blend is the
+        // pass's per-attachment accumulate / multiply pair, whatever the
+        // system's mode. A global blend function here overwrote it on both OIT
+        // targets and every particle vanished from the composite (#1417).
+        if (ParticleBatchRenderer::IsOITMode())
+        {
+            ApplyWeightedBlendedOITBlend(RenderCommand::GetRendererAPI());
+            return;
+        }
+
         switch (mode)
         {
             case ParticleBlendMode::Alpha:
@@ -2236,6 +2247,12 @@ namespace OloEngine
     // Helper to restore default blend mode after particle rendering
     static void RestoreDefaultBlendMode()
     {
+        // The OIT pass restores its own state when it ends; see above.
+        if (ParticleBatchRenderer::IsOITMode())
+        {
+            ApplyWeightedBlendedOITBlend(RenderCommand::GetRendererAPI());
+            return;
+        }
         RenderCommand::SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
     }
 

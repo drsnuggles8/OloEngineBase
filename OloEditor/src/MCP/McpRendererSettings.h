@@ -86,6 +86,7 @@ namespace OloEngine::MCP::RendererSettings
         DDGICascades,            // RendererSettings::DDGICascadesEnabled (issue #707)
         SceneTemporalResolve,    // RendererSettings::HonourSceneTemporalResolveRequests (issue #1429)
         GroomDeformation,        // RendererSettings::GroomGpuDeformation (issue #1427)
+        OIT,                     // RendererSettings::OITEnabled (issue #1417)
     };
 
     // Live renderer state the perf-lever settings (#316) read/write. These are NOT
@@ -196,6 +197,9 @@ namespace OloEngine::MCP::RendererSettings
 
     inline constexpr i32 kGroomDeformationCpu = 0;
     inline constexpr i32 kGroomDeformationGpu = 1;
+
+    inline constexpr i32 kOITOff = 0;
+    inline constexpr i32 kOITOn = 1;
 
     inline constexpr i32 kPerSampleLightingOff = 0;
     inline constexpr i32 kPerSampleLightingOn = 1;
@@ -324,6 +328,13 @@ namespace OloEngine::MCP::RendererSettings
           "per-frame buffer of root transforms and guide displacements" },
     } };
 
+    inline constexpr std::array<EnumValue, 2> kOITValues = { {
+        { "off", kOITOff, "Transparent decals and particles blend straight into scene colour, in submission order" },
+        { "on", kOITOn,
+          "Transparent decals and particles accumulate into the weighted-blended OIT targets and OITResolve composites "
+          "them" },
+    } };
+
     inline constexpr std::array<EnumValue, 2> kSoftShadowValues = { {
         { "pcf", kSoftShadowsPcf, "Fixed 3x3 hardware PCF (cheap, hard-edged shadows)" },
         { "pcss", kSoftShadowsPcss, "Percentage-Closer Soft Shadows (contact-hardening variable penumbra; expensive blocker search)" },
@@ -342,7 +353,7 @@ namespace OloEngine::MCP::RendererSettings
         std::string_view Description;
     };
 
-    inline constexpr std::array<SettingInfo, 16> kSettings = { {
+    inline constexpr std::array<SettingInfo, 17> kSettings = { {
         { "upscale", Setting::Upscale,
           "FSR1 spatial-upscale quality preset (PostProcess.Upscale). Off is native resolution; the other presets render "
           "below display resolution and EASU-upscale the HDR scene colour back to display res (#480)." },
@@ -410,6 +421,11 @@ namespace OloEngine::MCP::RendererSettings
           "#1427). 'gpu' is the shipped path; 'cpu' is the reference it replaced. The two must draw the same coat, "
           "so an A/B screenshot pair from one pose is the check, and olo_groom_budget_stats shows the frame-time "
           "difference. Diagnostic only; not persisted." },
+        { "oit", Setting::OIT,
+          "Weighted-blended order-independent transparency for decals and particles (RendererSettings::OITEnabled, "
+          "the Renderer Settings panel's checkbox). The graph fingerprint carries it, so a flip rebuilds the frame "
+          "graph on the next frame. An A/B screenshot pair from one pose shows a transparent decal or particle "
+          "composited both ways (#1417). Not persisted." },
     } };
 
     // Lowercase + drop every non-alphanumeric character so "Ultra Performance",
@@ -465,6 +481,8 @@ namespace OloEngine::MCP::RendererSettings
                 return kSceneTemporalResolveValues;
             case Setting::GroomDeformation:
                 return kGroomDeformationValues;
+            case Setting::OIT:
+                return kOITValues;
         }
         return {};
     }
@@ -689,6 +707,8 @@ namespace OloEngine::MCP::RendererSettings
                 return rs.HonourSceneTemporalResolveRequests ? kSceneTemporalResolveHonour : kSceneTemporalResolveIgnore;
             case Setting::GroomDeformation:
                 return rs.GroomGpuDeformation ? kGroomDeformationGpu : kGroomDeformationCpu;
+            case Setting::OIT:
+                return rs.OITEnabled ? kOITOn : kOITOff;
         }
         return 0;
     }
@@ -768,6 +788,11 @@ namespace OloEngine::MCP::RendererSettings
                 // on the path, so the flip rebuilds the coats rather than serving
                 // one path the other's stream.
                 rs.GroomGpuDeformation = value == kGroomDeformationGpu;
+                break;
+            case Setting::OIT:
+                // Propagated to the OIT passes every frame and hashed into the
+                // graph fingerprint, so nothing is applied here.
+                rs.OITEnabled = value == kOITOn;
                 break;
             case Setting::VirtualShadowMaps:
                 lever.VirtualShadowMaps = value == kVirtualShadowMapsOn;

@@ -36,6 +36,7 @@
 
 #include "RendererAttachedTest.h"
 #include "RenderPropertyTest.h"
+#include "ScopedWarningCapture.h"
 
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
@@ -48,7 +49,6 @@
 #include "OloEngine/Terrain/TerrainMaterial.h"
 
 #include <gtest/gtest.h>
-#include <spdlog/sinks/ringbuffer_sink.h>
 
 #include <algorithm>
 #include <memory>
@@ -79,43 +79,6 @@ namespace OloEngine::Tests
             kGrassMeshSlot,
             kImpostorOnlySlot,
             kSlotCount
-        };
-
-        // Every warning line the core logger emits while it is alive. A
-        // private sink rather than Log's shared 200-entry ring: a frame of the
-        // full renderer can push the line out of that one before it is read.
-        class ScopedWarningCapture
-        {
-          public:
-            ScopedWarningCapture()
-            {
-                m_Sink->set_level(spdlog::level::warn);
-                m_Sink->set_pattern("%v");
-                Log::Get().GetCoreLogger()->sinks().push_back(m_Sink);
-            }
-            ~ScopedWarningCapture()
-            {
-                auto& sinks = Log::Get().GetCoreLogger()->sinks();
-                std::erase_if(sinks, [this](const spdlog::sink_ptr& sink)
-                              { return sink == m_Sink; });
-            }
-            ScopedWarningCapture(const ScopedWarningCapture&) = delete;
-            auto operator=(const ScopedWarningCapture&) -> ScopedWarningCapture& = delete;
-
-            [[nodiscard]] u32 Count(std::string_view marker) const
-            {
-                u32 count = 0;
-                for (const auto& line : m_Sink->last_formatted())
-                {
-                    if (line.find(marker) != std::string::npos)
-                        ++count;
-                }
-                return count;
-            }
-
-          private:
-            std::shared_ptr<spdlog::sinks::ringbuffer_sink_mt> m_Sink =
-                std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(4096);
         };
 
         // Share of the Woodland pine's impostor atlas its baked silhouettes

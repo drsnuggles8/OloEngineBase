@@ -37,6 +37,7 @@
 #include "../../TestOptions.h"
 
 #include "RendererAttachedTest.h"
+#include "ScopedWarningCapture.h"
 #include "TestTempDir.h"
 
 #include "../../Groom/GroomStrandFixture.h"
@@ -589,6 +590,90 @@ namespace OloEngine::Tests
         const GroomRenderStats& stats = groomPass->GetStats();
         EXPECT_EQ(stats.Composition.DominantFallbackReason(),
                   GroomCompositionFallbackReason::TemporalResolveUnavailable);
+    }
+
+    // ── #1431: over budget is said on change, not every frame ───────────────
+
+    TEST_F(GroomStrandVisualEvidenceTest, AStrandCacheOverBudgetIsLoggedOnChangeNotEveryFrame)
+    {
+        // The real pass, not the gate on its own: a budget far below what one
+        // coat needs keeps the cache over budget with every entry in use, which
+        // is the steady state the issue measured at five lines a second.
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+        SetRenderStrands(true);
+
+        const auto* groomPass = Renderer3D::GetGroomRenderPass();
+        ASSERT_NE(groomPass, nullptr);
+
+        EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 1000.0f);
+        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        camera.SetPose({ 0.0f, 0.9f, 4.6f }, 0.0f, 0.10f);
+
+        struct BudgetRestore
+        {
+            u64 Previous;
+            ~BudgetRestore()
+            {
+                (void)Renderer3D::SetGroomCacheBudgetBytes(Previous);
+            }
+        };
+
+        // The cache is process-wide, so it can still hold coats an EARLIER test
+        // drew. A one-byte budget held past the retention window evicts every
+        // entry this scene is not using, and leaves exactly this coat resident;
+        // otherwise the budgets below would evict those instead of staying over.
+        const BudgetRestore restore{ Renderer3D::SetGroomCacheBudgetBytes(1) };
+        RunEditorFrames(camera, 64);
+        (void)Renderer3D::SetGroomCacheBudgetBytes(restore.Previous);
+        RunEditorFrames(camera, 2);
+        const u64 cached = groomPass->GetStats().CachedBytes;
+        ASSERT_GT(cached, 0u) << "the coat is not resident, so no budget can be exceeded";
+        ASSERT_GT(restore.Previous, cached) << "the default budget should hold the evidence coat";
+        EXPECT_EQ(groomPass->GetStats().CacheOverBudgetBytes, 0u);
+        (void)Renderer3D::SetGroomCacheBudgetBytes(cached / 2);
+
+        constexpr std::string_view kMarker = "GroomRenderPass: strand cache is";
+        const ScopedWarningCapture warnings;
+        constexpr u32 kFrames = 30;
+        for (u32 frame = 0; frame < kFrames; ++frame)
+        {
+            RunEditorFrames(camera, 1);
+            // The counter is the continuous half: every frame, not only the
+            // one that logged.
+            ASSERT_EQ(groomPass->GetStats().CacheOverBudgetBytes, cached - (cached / 2)) << "frame " << frame;
+            ASSERT_EQ(groomPass->GetStats().GroomsDrawn, 1u) << "over budget must never drop a draw";
+        }
+        EXPECT_EQ(warnings.Count(kMarker), 1u) << kFrames << " frames over budget, one line";
+
+        // Material growth: the same coat against a budget a quarter the size
+        // is a larger overage (3/4 of the coat against 1/2), and is news.
+        (void)Renderer3D::SetGroomCacheBudgetBytes(cached / 4);
+        RunEditorFrames(camera, kFrames);
+        const u64 grownOver = cached - (cached / 4);
+        if (grownOver >= (cached - (cached / 2)) + GroomCacheBudgetWarningGate::kMinGrowthBytes)
+        {
+            EXPECT_EQ(warnings.Count(kMarker), 2u) << "a materially larger overage logs once more";
+        }
+        else
+        {
+            // The coat is smaller than the gate's absolute floor can see grow;
+            // the unit test pins that arm.
+            EXPECT_EQ(warnings.Count(kMarker), 1u) << "growth under the floor must stay quiet";
+        }
+        const u32 afterGrowth = warnings.Count(kMarker);
+
+        // Back within budget re-arms it; the next entry logs once again.
+        (void)Renderer3D::SetGroomCacheBudgetBytes(restore.Previous);
+        RunEditorFrames(camera, 5);
+        EXPECT_EQ(groomPass->GetStats().CacheOverBudgetBytes, 0u);
+        EXPECT_EQ(warnings.Count(kMarker), afterGrowth);
+        (void)Renderer3D::SetGroomCacheBudgetBytes(cached / 2);
+        RunEditorFrames(camera, kFrames);
+        EXPECT_EQ(warnings.Count(kMarker), afterGrowth + 1u) << "leaving the state re-arms the warning";
+
+        std::printf("[groom-cache] %.2f MiB cached; %u over-budget lines over %u frames\n",
+                    static_cast<f64>(cached) / (1024.0 * 1024.0), warnings.Count(kMarker), 3u * kFrames + 5u);
     }
 
     // ── Criterion 2/3: several angles, for a human to look at ───────────────

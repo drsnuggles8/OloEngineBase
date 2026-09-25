@@ -86,6 +86,54 @@ namespace OloEngine
         bool OITTargetsAvailable = false;
     };
 
+    // When the "strand cache over budget" warning is worth a log line (#1431).
+    //
+    // Over budget with every entry in use is a STEADY STATE, not an event: a
+    // scene whose coats outgrow the budget stays there every frame, and a line
+    // per frame buried every other warning in the log. So the line is said on
+    // the transition into the state, and again only when the overage has grown
+    // materially since it was last said; dropping back under the budget re-arms
+    // it. The per-frame number lives in GroomRenderStats::CacheOverBudgetBytes,
+    // which is where a reader who wants it continuously looks.
+    class GroomCacheBudgetWarningGate
+    {
+      public:
+        /// "Materially": at least a quarter more than the overage last logged,
+        /// and at least a MiB more, so a small overage creeping up a few
+        /// kilobytes at a time does not re-log at every step.
+        static constexpr u64 kGrowthNumerator = 5;
+        static constexpr u64 kGrowthDenominator = 4;
+        static constexpr u64 kMinGrowthBytes = 1024ull * 1024ull;
+
+        /// Feeds one frame's overage (0 when within budget). True when this
+        /// frame should log it.
+        [[nodiscard]] bool Observe(u64 overBytes) noexcept
+        {
+            if (overBytes == 0)
+            {
+                m_LoggedOverBytes = 0;
+                return false;
+            }
+            const bool entered = m_LoggedOverBytes == 0;
+            const bool grew = overBytes >= m_LoggedOverBytes + kMinGrowthBytes &&
+                              overBytes * kGrowthDenominator >= m_LoggedOverBytes * kGrowthNumerator;
+            if (!entered && !grew)
+            {
+                return false;
+            }
+            m_LoggedOverBytes = overBytes;
+            return true;
+        }
+
+        [[nodiscard]] u64 LoggedOverBytes() const noexcept
+        {
+            return m_LoggedOverBytes;
+        }
+
+      private:
+        u64 m_LoggedOverBytes = 0;
+    };
+
     // What the pass did, for the editor's panel and the PR's evidence.
     struct GroomRenderStats
     {
@@ -96,6 +144,12 @@ namespace OloEngine
         u32 TrianglesDrawn = 0;
         /// GPU bytes resident in the strand-buffer cache.
         u64 CachedBytes = 0;
+        /// The strand-cache budget in force, and how far over it the cache
+        /// stayed after this frame's eviction: non-zero means every resident
+        /// entry was in use, nothing could be freed and every groom was still
+        /// drawn. Reported every frame; the log line says it only on change.
+        u64 CacheBudgetBytes = 0;
+        u64 CacheOverBudgetBytes = 0;
         u32 CachedGrooms = 0;
         u32 CacheBuilds = 0;
         u32 CacheEvictions = 0;
@@ -276,6 +330,10 @@ namespace OloEngine
         void SetCacheBudgetBytes(u64 bytes) noexcept
         {
             m_CacheBudgetBytes = bytes;
+        }
+        [[nodiscard]] u64 GetCacheBudgetBytes() const noexcept
+        {
+            return m_CacheBudgetBytes;
         }
 
         /// When a DEFORMED coat's volume is rebuilt (#1426). Engine-wide rather
@@ -527,6 +585,7 @@ namespace OloEngine
         std::unordered_map<u64, Ref<GroomRestStream>> m_RestStreams;
         u64 m_CacheBudgetBytes = 256ull * 1024ull * 1024ull;
         u64 m_CacheBytes = 0;
+        GroomCacheBudgetWarningGate m_CacheBudgetWarning;
 
         /// The cache's OWN monotonic tick, not GroomFrameState::FrameIndex.
         /// That one is the stochastic sample index and is deliberately wrapped

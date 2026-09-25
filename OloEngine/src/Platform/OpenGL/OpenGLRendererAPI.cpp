@@ -1808,9 +1808,21 @@ namespace OloEngine
         // transitively. Same placement as ClearDepthOnly()'s existing guard.
         Utils::GLClearProgramGuard programGuard;
 
+        // A clear honours the draw buffer's write mask, like glClear above, so
+        // lift it the same way. Without this a mask an earlier draw narrowed
+        // dropped the clear: OITPreparePass's revealage clear to 1 never landed,
+        // the target kept its creation value of 0, and OITResolve multiplied the
+        // whole scene by it — a black Forward frame in the editor (#1417).
+        const bool restoreColorMasks = LiftAttachmentColorMasksForClear();
+
         // The third parameter of glClearNamedFramebufferfv with GL_COLOR is a
         // DRAW BUFFER INDEX, not an attachment enum — hence no ToGLColorAttachment.
         glClearNamedFramebufferfv(framebufferID, GL_COLOR, static_cast<GLint>(attachmentIndex), &color.x);
+
+        if (restoreColorMasks)
+        {
+            RestoreAttachmentColorMasks();
+        }
     }
 
     void OpenGLRendererAPI::ClearFramebufferDepth(RHI::ResourceHandle framebuffer, f32 depth)

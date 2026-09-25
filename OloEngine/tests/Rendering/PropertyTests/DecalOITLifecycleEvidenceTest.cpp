@@ -12,13 +12,13 @@
 // override on clones.
 //
 // Real Scene pipeline, one transparent albedo decal over a grey floor, in
-// Deferred (where the bucket is frozen before the OIT replay) and in Forward
-// (where the OIT replay is the first). Per path there are two arms. OIT ON is the path #1335 changed: no
+// Deferred (where the bucket is frozen before the OIT replay), Forward (where
+// the OIT replay is the first) and Forward+. Per path there are two arms. OIT ON is the path #1335 changed: no
 // lifecycle violation, and the decal-visibility diagnostic must report the
 // OIT variant's draw issued and its fragments written. OIT OFF is the
 // control: the same decal is visible in the composite, so the scene and the
-// measurement work. The OIT composite itself is NOT asserted — it is empty
-// before and after #1335, issue #1417.
+// measurement work. Since #1417 the OIT arm's composite is asserted too: the
+// decal is visible over the floor against the decal-removed control.
 //
 // The Forward arm also pins a second fix: render-stream passes used to reset
 // the shared frame allocator, freeing the decal packet before it replayed, and
@@ -33,24 +33,32 @@
 
 #include "RendererAttachedTest.h"
 
+#include "OloEngine/Particle/ParticleSystem.h"
 #include "OloEngine/Renderer/Commands/CommandLifecycle.h"
+#include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
+#include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/RenderingPath.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 
+#include <glad/gl.h>
 #include <gtest/gtest.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <stb_image/stb_image_write.h>
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <iostream>
 #include <cstddef>
 #include <filesystem>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace OloEngine::Tests
@@ -124,6 +132,7 @@ namespace OloEngine::Tests
             dl.m_CastShadows = false;
 
             Entity floor = scene.CreateEntity("Floor");
+            m_Floor = floor;
             floor.GetComponent<TransformComponent>().Scale = { 30.0f, 1.0f, 30.0f };
             auto& mc = floor.AddComponent<MeshComponent>();
             mc.m_Primitive = MeshPrimitive::Plane;
@@ -155,6 +164,8 @@ namespace OloEngine::Tests
         {
             Renderer3D::DecalVisibilityObservation Observation;
             f32 RedExcess = 0.0f;
+            // The same, measured while the visibility diagnostic is armed.
+            f32 ArmedRedExcess = 0.0f;
             f32 ControlLuminance = 0.0f;
         };
 
@@ -174,10 +185,22 @@ namespace OloEngine::Tests
             (void)Renderer3D::ObserveDecalVisibility(entityID);
             RunFrames(4);
             result.Observation = Renderer3D::ObserveDecalVisibility(entityID);
+            if (oit)
+                ExpectOITWriterOrder(tag);
 
-            std::vector<u8> on;
             u32 w = 0;
             u32 h = 0;
+            std::vector<u8> armed;
+            EXPECT_TRUE(ReadbackComposite(armed, w, h)) << tag;
+
+            // The frame a USER sees has no diagnostic armed. The diagnostic
+            // re-applies the packet's render state after its own draw, which is
+            // a second place the OIT blend was lost (#1417), so both frames are
+            // measured. Re-targeting it at an entity with no decal disarms it
+            // for this decal.
+            (void)Renderer3D::ObserveDecalVisibility(static_cast<i32>(static_cast<entt::entity>(m_Floor)));
+            RunFrames(4);
+            std::vector<u8> on;
             EXPECT_TRUE(ReadbackComposite(on, w, h)) << tag;
             WritePng("DecalOIT" + std::string(oit ? "" : "Off") + "_GL_" + tag + ".png", on, w, h);
 
@@ -186,12 +209,14 @@ namespace OloEngine::Tests
             std::vector<u8> off;
             EXPECT_TRUE(ReadbackComposite(off, w, h)) << tag;
             WritePng("DecalOIT" + std::string(oit ? "" : "Off") + "Control_GL_" + tag + ".png", off, w, h);
-            if (on.size() != static_cast<sizet>(kSize) * kSize * 4 || off.size() != on.size())
+            if (on.size() != static_cast<sizet>(kSize) * kSize * 4 || off.size() != on.size() ||
+                armed.size() != on.size())
                 return result;
 
             const RegionStats floorOnly = Measure(off, w, w / 2, h / 2, 16);
             const RegionStats withDecal = Measure(on, w, w / 2, h / 2, 16);
             result.RedExcess = withDecal.MeanRedMinusGreen - floorOnly.MeanRedMinusGreen;
+            result.ArmedRedExcess = Measure(armed, w, w / 2, h / 2, 16).MeanRedMinusGreen - floorOnly.MeanRedMinusGreen;
             result.ControlLuminance = floorOnly.MeanLuminance;
             return result;
         }
@@ -211,11 +236,17 @@ namespace OloEngine::Tests
                 << pathName << ": the decal's OIT variant was never replayed (a skipped or refused replay)";
             EXPECT_TRUE(oit.Observation.FragmentResultKnown && oit.Observation.FragmentsSurvived)
                 << pathName << ": the OIT decal draw wrote no fragments";
-            // Not asserted: the OIT decal does not reach the COMPOSITE on this
-            // path, before this change and after it — a pre-existing defect,
-            // issue #1417, which owns this assertion. Printed so the number
-            // travels with the log.
+            // #1417: the OIT decal reaches the COMPOSITE. It used to be drawn,
+            // its fragments surviving, and still leave the frame byte-identical
+            // to the decal-removed control (red excess 0.000): the packet's own
+            // render state set one global blend function over both OIT targets,
+            // so the accumulation overflowed and the revealage stayed at 1.
             std::cout << "[DecalOIT] " << pathName << " OIT composite red excess " << oit.RedExcess << '\n';
+            EXPECT_GT(oit.RedExcess, 0.15f)
+                << pathName << ": the transparent red decal drawn through OIT is not visible in the composite";
+            // Arming the diagnostic must not change what is drawn.
+            EXPECT_NEAR(oit.ArmedRedExcess, oit.RedExcess, 0.01f)
+                << pathName << ": the OIT decal composites differently while the visibility diagnostic is armed";
 
             // OIT OFF — the control arm: the same transparent decal through the
             // forward overlay is visible, so the scene and the measurement work.
@@ -226,7 +257,34 @@ namespace OloEngine::Tests
                 << pathName << ": the transparent red decal is not visible over the floor without OIT";
         }
 
+        // The order the WB-OIT chain needs: the targets are cleared, the decal
+        // accumulates into them, and only then are they resolved. Measured while
+        // diagnosing #1417 -- the order was right and the loss was the blend --
+        // and pinned so a registration change cannot move the decal outside it.
+        static void ExpectOITWriterOrder(const std::string& tag)
+        {
+            const auto& graph = RenderGraphDebugRuntime::GetActiveGraph();
+            ASSERT_TRUE(graph) << tag << ": no active render graph";
+            const auto order = graph->GetExecutionOrder();
+            const auto indexOf = [&order](std::string_view name) -> std::ptrdiff_t
+            {
+                const auto it = std::ranges::find_if(order, [name](const FString& entry)
+                                                     { return entry.ToView() == name; });
+                return it == order.end() ? -1 : it - order.begin();
+            };
+            const std::ptrdiff_t prepare = indexOf("OITPreparePass");
+            const std::ptrdiff_t decal = indexOf("DecalPass");
+            const std::ptrdiff_t resolve = indexOf("OITResolvePass");
+            ASSERT_GE(prepare, 0) << tag;
+            ASSERT_GE(decal, 0) << tag;
+            ASSERT_GE(resolve, 0) << tag;
+            EXPECT_LT(prepare, decal) << tag << ": the decal accumulates before the OIT targets are cleared";
+            EXPECT_LT(decal, resolve) << tag << ": the OIT targets are resolved before the decal accumulates";
+        }
+
         Entity m_Decal;
+        Entity m_Floor;
+        Entity m_Particles;
     };
 
     TEST_F(DecalOITScene, TransparentDecalDrawsThroughOITWithoutWritingFrozenPackets)
@@ -248,5 +306,184 @@ namespace OloEngine::Tests
         // OIT replay, which is the case the lifecycle change is about.
         RenderAndCheck(RenderingPath::Deferred, "Deferred");
         RenderAndCheck(RenderingPath::Forward, "Forward");
+        RenderAndCheck(RenderingPath::ForwardPlus, "ForwardPlus");
+    }
+
+    // #1417's third question: do PARTICLES through OIT reach the composite? They
+    // share the OIT targets and the resolve with the decal, and no kind did:
+    // - CPU billboards lost the per-attachment blend to the per-emitter
+    //   blend-mode helper (the same global SetBlendFunc as the decal packets);
+    // - GPU billboards, mesh particles and trails had no OIT shader at all, so
+    //   they wrote the scene-colour outputs into the OIT targets and nothing
+    //   reached the revealage target.
+    // Measured on every kind: red particles over the floor, against the same
+    // frame with them removed, with OIT on and off.
+    TEST_F(DecalOITScene, TransparentParticlesThroughOITReachTheComposite)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        struct RestoreSettings
+        {
+            RendererSettings Saved = Renderer3D::GetRendererSettings();
+            ~RestoreSettings()
+            {
+                Renderer3D::GetRendererSettings() = Saved;
+                Renderer3D::ApplyRendererSettings();
+            }
+        } restoreSettings;
+
+        m_Decal.RemoveComponent<DecalComponent>();
+
+        enum class Kind
+        {
+            CpuBillboard,
+            GpuBillboard,
+            Mesh,
+            Trail
+        };
+        const Ref<Mesh> cube = MeshPrimitives::CreateCube();
+        ASSERT_TRUE(cube);
+
+        const auto addParticles = [this, &cube](Kind kind)
+        {
+            m_Particles = GetScene().CreateEntity("TransparentParticles");
+            auto& component = m_Particles.AddComponent<ParticleSystemComponent>();
+            auto& system = component.System;
+            system.RenderMode = kind == Kind::Mesh ? ParticleRenderMode::Mesh : ParticleRenderMode::Billboard;
+            if (kind == Kind::Mesh)
+                component.ParticleMesh = cube;
+            system.GravityModule.Enabled = false;
+            system.DragModule.Enabled = false;
+            if (kind == Kind::GpuBillboard)
+            {
+                // GPU particles are emitted by the emitter and simulated on the
+                // device, so the sheet is a still stack at the emitter. About a
+                // dozen layers: WB-OIT's weight clamp lets roughly two dozen
+                // same-pixel layers overflow the RGBA16F accumulator (#1468),
+                // and that is not what this measures.
+                m_Particles.GetComponent<TransformComponent>().Translation = { 0.0f, 0.3f, 0.0f };
+                system.UseGPU = true;
+                system.Emitter.RateOverTime = 60.0f;
+                system.Emitter.InitialSpeed = 0.0f;
+                system.Emitter.LifetimeMin = system.Emitter.LifetimeMax = 1000.0f;
+                system.Emitter.InitialSize = 1.6f;
+                system.Emitter.InitialColor = { 1.0f, 0.05f, 0.05f, 0.9f };
+                return;
+            }
+            system.Emitter.RateOverTime = 0;
+            if (kind == Kind::Trail)
+            {
+                // Particles sweeping through the centre fast enough to be well
+                // past it when the frame is read, so in the measured box the
+                // trail is the only thing drawn. A ribbon's width is the trail's
+                // width times the particle's size.
+                system.TrailModule.Enabled = true;
+                system.TrailModule.TrailLifetime = 10.0f;
+                system.TrailModule.MinVertexDistance = 0.02f;
+                system.TrailModule.WidthStart = system.TrailModule.WidthEnd = 1.0f;
+                system.TrailModule.ColorStart = system.TrailModule.ColorEnd = { 1.0f, 1.0f, 1.0f, 1.0f };
+            }
+            auto& pool = system.GetPool();
+            constexpr u32 kCount = 25;
+            ASSERT_EQ(pool.Emit(kCount), kCount);
+            for (u32 i = 0; i < kCount; ++i)
+            {
+                // A 5x5 sheet just above the floor centre, so the measured box is
+                // covered by several layers. Trails start left of the box and
+                // sweep through it.
+                const glm::vec3 at{ -0.6f + 0.3f * static_cast<f32>(i % 5), 0.3f,
+                                    -0.6f + 0.3f * static_cast<f32>(i / 5) };
+                pool.m_Positions[i] = kind == Kind::Trail ? glm::vec3(-2.5f, at.y, at.z) : at;
+                pool.m_PrevPositions[i] = pool.m_Positions[i];
+                pool.m_Velocities[i] = kind == Kind::Trail ? glm::vec3(30.0f, 0.0f, 0.0f) : glm::vec3(0.0f);
+                pool.m_Colors[i] = pool.m_InitialColors[i] = { 1.0f, 0.05f, 0.05f, 0.9f };
+                const f32 size = kind == Kind::Mesh ? 0.3f : (kind == Kind::Trail ? 0.5f : 0.8f);
+                pool.m_Sizes[i] = pool.m_PrevSizes[i] = pool.m_InitialSizes[i] = size;
+                pool.m_Lifetimes[i] = pool.m_MaxLifetimes[i] = 1000.0f;
+            }
+            system.Update(0.001f, glm::vec3(0.0f));
+        };
+
+        const auto measure = [this, &addParticles](RenderingPath path, bool oit, Kind kind, const char* kindName,
+                                                   const std::string& tag) -> f32
+        {
+            auto& settings = Renderer3D::GetRendererSettings();
+            settings.Path = path;
+            settings.OITEnabled = oit;
+            Renderer3D::ApplyRendererSettings();
+
+            addParticles(kind);
+            RunFrames(kind == Kind::CpuBillboard || kind == Kind::Mesh ? 4 : 12);
+            std::vector<u8> on;
+            u32 w = 0;
+            u32 h = 0;
+            EXPECT_TRUE(ReadbackComposite(on, w, h)) << tag;
+            WritePng("Particle" + std::string(kindName) + "OIT" + std::string(oit ? "" : "Off") + "_GL_" + tag + ".png",
+                     on, w, h);
+
+            GetScene().DestroyEntity(m_Particles);
+            RunFrames(4);
+            std::vector<u8> off;
+            EXPECT_TRUE(ReadbackComposite(off, w, h)) << tag;
+            if (on.size() != static_cast<sizet>(kSize) * kSize * 4 || off.size() != on.size())
+                return 0.0f;
+            return Measure(on, w, w / 2, h / 2, 16).MeanRedMinusGreen -
+                   Measure(off, w, w / 2, h / 2, 16).MeanRedMinusGreen;
+        };
+
+        struct KindCase
+        {
+            Kind Value;
+            const char* Name;
+        };
+        for (const auto& [path, name] : { std::pair{ RenderingPath::Deferred, "Deferred" },
+                                          std::pair{ RenderingPath::Forward, "Forward" },
+                                          std::pair{ RenderingPath::ForwardPlus, "ForwardPlus" } })
+        {
+            for (const KindCase kind : { KindCase{ Kind::CpuBillboard, "" }, KindCase{ Kind::GpuBillboard, "Gpu" },
+                                         KindCase{ Kind::Mesh, "Mesh" }, KindCase{ Kind::Trail, "Trail" } })
+            {
+                const f32 oitExcess = measure(path, true, kind.Value, kind.Name, name);
+                const f32 plainExcess = measure(path, false, kind.Value, kind.Name, name);
+                const char* label = kind.Name[0] != '\0' ? kind.Name : "Cpu";
+                std::cout << "[ParticleOIT] " << name << ' ' << label << " red excess: OIT " << oitExcess << ", OIT off "
+                          << plainExcess << '\n';
+                EXPECT_GT(plainExcess, 0.15f) << name << ' ' << label
+                                              << ": the red particles are not visible without OIT either, so the scene "
+                                                 "does not measure anything";
+                EXPECT_GT(oitExcess, 0.15f) << name << ' ' << label
+                                            << ": the red particles drawn through OIT are not visible in the composite";
+            }
+        }
+    }
+
+    // #1417, live only until this: in the editor's decal scene every Forward
+    // frame with OIT on went BLACK. A draw earlier in the frame had left draw
+    // buffer 1's write mask off, and a colour clear honours the mask -- so
+    // OITPreparePass's clear of the revealage target to 1 never landed, the
+    // target kept its creation value of 0, and OITResolve multiplied the scene
+    // by it. The GL backend lifted masks around glClear but not around the
+    // per-attachment clear. Pinned here on the OIT framebuffer's own formats.
+    TEST_F(DecalOITScene, AColourClearIgnoresAWriteMaskAnEarlierDrawLeftBehind)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        FramebufferSpecification spec;
+        spec.Width = 4;
+        spec.Height = 4;
+        spec.Attachments = { FramebufferTextureFormat::RGBA16F, FramebufferTextureFormat::RG16F };
+        Ref<Framebuffer> fb = Framebuffer::Create(spec);
+        ASSERT_TRUE(fb);
+
+        RenderCommand::SetColorMaskForAttachment(1, false, false, false, false);
+        RenderCommand::ClearFramebufferColorAttachment(fb->GetRHIHandle(), 1, glm::vec4(1.0f, 0.5f, 0.0f, 0.0f));
+        // Put the ambient mask back for every later test in the process.
+        RenderCommand::SetColorMask(true, true, true, true);
+
+        std::array<f32, 2> texel{ -1.0f, -1.0f };
+        glGetTextureSubImage(fb->GetColorAttachmentRendererID(1), 0, 1, 1, 0, 1, 1, 1, GL_RG, GL_FLOAT,
+                             static_cast<GLsizei>(sizeof(texel)), texel.data());
+        EXPECT_FLOAT_EQ(texel[0], 1.0f) << "the clear of a masked draw buffer was dropped";
+        EXPECT_FLOAT_EQ(texel[1], 0.5f);
     }
 } // namespace OloEngine::Tests

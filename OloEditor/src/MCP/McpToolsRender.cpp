@@ -6923,6 +6923,11 @@ namespace OloEngine::MCP
             snapshot.GroomsAtCompensationCap = groom.Lod.GroomsAtCompensationCap;
             snapshot.MaxWidthCompensation = groom.Lod.MaxWidthCompensation;
             snapshot.DominantFallbackReason = std::string(ToString(groom.Lod.DominantFallbackReason()));
+            snapshot.CachedBytes = groom.CachedBytes;
+            snapshot.CachedGrooms = groom.CachedGrooms;
+            snapshot.CacheBudgetBytes = groom.CacheBudgetBytes;
+            snapshot.CacheOverBudgetBytes = groom.CacheOverBudgetBytes;
+            snapshot.CacheEvictions = groom.CacheEvictions;
 
             for (sizet r = 0; r < GroomRepresentationCount; ++r)
             {

@@ -401,6 +401,20 @@ namespace OloEngine
             m_CommandBucket.ExecuteParallel(rendererAPI);
         gpuSubTimers.EndSubPass();
 
+        // Withdraw per-attachment write-mask narrowing. A packet narrows its
+        // draw buffers through its own render state (the editor's skeleton and
+        // joint draws keep to RT0) and the NEXT packet's global mask widens them
+        // again -- so the last packet's narrowing outlived this pass. Draw
+        // buffer 1 stayed masked until AOApplyPass in the editor, which silently
+        // dropped DeferredLightingPass's skin-diffusion hand-off, OITPreparePass's
+        // revealage clear and every OIT draw's revealage write (#1417, #1422).
+        rendererAPI.SetColorMask(true, true, true, true);
+        // The widening happened behind the dispatcher: without this its
+        // LastRenderStateIndex still names the narrowing packet's state, and the
+        // next packet sharing that (frame-deduplicated) index would skip
+        // re-applying its narrowing.
+        CommandDispatch::InvalidateRenderStateCache();
+
         // Restore depth state after prepass
         if (depthPrepass)
         {

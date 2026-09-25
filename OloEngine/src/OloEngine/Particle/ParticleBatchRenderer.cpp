@@ -12,6 +12,8 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <memory>
+#include <string>
+#include <unordered_set>
 
 namespace OloEngine
 {
@@ -90,6 +92,13 @@ namespace OloEngine
         // GPU billboard resources
         Ref<VertexArray> GPUVAO;
         Ref<Shader> GPUBillboardShader;
+        // The WB-OIT variants of the GPU billboard, trail and mesh shaders
+        // (#1417), used while the particle pass is in OIT mode. Without them
+        // those particles wrote the scene-colour outputs into the OIT targets
+        // and OITResolve discarded every one of their pixels.
+        Ref<Shader> GPUBillboardShaderOIT;
+        Ref<Shader> TrailShaderOIT;
+        Ref<Shader> MeshParticleShaderOIT;
 
         ParticleBatchRenderer::Statistics Stats;
     };
@@ -152,6 +161,7 @@ namespace OloEngine
 
         // Mesh particle resources
         s_Data.MeshParticleShader = Shader::Create("assets/shaders/Particle_Mesh.glsl");
+        s_Data.MeshParticleShaderOIT = Shader::Create("assets/shaders/Particle_Mesh_OIT.glsl");
 
         // UBO for single mesh particle instance data (binding 3)
         s_Data.MeshInstanceUBO = UniformBuffer::Create(sizeof(MeshParticleInstance), 3);
@@ -185,6 +195,7 @@ namespace OloEngine
         s_Data.TrailVertexBase = std::make_unique<TrailVertex[]>(ParticleBatchData::MaxTrailVertices);
 
         s_Data.TrailShader = Shader::Create("assets/shaders/Particle_Trail.glsl");
+        s_Data.TrailShaderOIT = Shader::Create("assets/shaders/Particle_Trail_OIT.glsl");
 
         // GPU billboard VAO — only quad VBO, no instance buffer (particle data comes from SSBO)
         s_Data.GPUVAO = VertexArray::Create();
@@ -197,6 +208,7 @@ namespace OloEngine
 
         // GPU billboard shader (reads particle data from SSBO)
         s_Data.GPUBillboardShader = Shader::Create("assets/shaders/Particle_Billboard_GPU.glsl");
+        s_Data.GPUBillboardShaderOIT = Shader::Create("assets/shaders/Particle_Billboard_GPU_OIT.glsl");
     }
 
     void ParticleBatchRenderer::Shutdown()
@@ -234,6 +246,9 @@ namespace OloEngine
         s_Data.CurrentTrailTexture.Reset();
         s_Data.GPUVAO.Reset();
         s_Data.GPUBillboardShader.Reset();
+        s_Data.GPUBillboardShaderOIT.Reset();
+        s_Data.TrailShaderOIT.Reset();
+        s_Data.MeshParticleShaderOIT.Reset();
     }
 
     void ParticleBatchRenderer::BeginBatch(const EditorCamera& camera)
@@ -406,9 +421,40 @@ namespace OloEngine
         s_Data.SoftParams = {};
     }
 
+    namespace
+    {
+        // The shader a particle draw binds: its weighted-blended OIT variant
+        // while the particle pass is in OIT mode, the scene-colour shader
+        // otherwise. A MISSING OIT variant refuses the draw and says so once per
+        // kind, rather than drawing the scene-colour outputs into the OIT
+        // targets -- which OITResolve then discards, so the particles would
+        // vanish with nothing in the log (#1417).
+        [[nodiscard]] const Ref<Shader>* SelectParticleShader(bool oitMode, const Ref<Shader>& sceneColour,
+                                                              const Ref<Shader>& oit, const char* kind)
+        {
+            if (!oitMode)
+                return &sceneColour;
+            if (oit)
+                return &oit;
+            static std::unordered_set<std::string> s_Reported;
+            if (s_Reported.insert(kind).second)
+            {
+                OLO_CORE_ERROR("ParticleBatchRenderer: the weighted-blended OIT variant of the {} shader is not "
+                               "loaded, so {} are not drawn while OIT is enabled",
+                               kind, kind);
+            }
+            return nullptr;
+        }
+    } // namespace
+
     void ParticleBatchRenderer::SetOITMode(bool enabled)
     {
         s_Data.UseOITShader = enabled;
+    }
+
+    bool ParticleBatchRenderer::IsOITMode()
+    {
+        return s_Data.UseOITShader;
     }
 
     void ParticleBatchRenderer::Flush()
@@ -429,17 +475,20 @@ namespace OloEngine
         UploadParticleParams(hasTexture);
 
         // Bind shader (classic or OIT variant depending on active mode)
-        Ref<Shader> activeShader = (s_Data.UseOITShader && s_Data.ParticleShaderOIT) ? s_Data.ParticleShaderOIT : s_Data.ParticleShader;
-        activeShader->Bind();
+        if (const Ref<Shader>* activeShader =
+                SelectParticleShader(s_Data.UseOITShader, s_Data.ParticleShader, s_Data.ParticleShaderOIT, "billboard particle"))
+        {
+            (*activeShader)->Bind();
 
-        // Bind textures
-        BindParticleTextures(hasTexture, hasTexture ? s_Data.CurrentTexture->GetRHIHandle() : RHI::NullResource);
+            // Bind textures
+            BindParticleTextures(hasTexture, hasTexture ? s_Data.CurrentTexture->GetRHIHandle() : RHI::NullResource);
 
-        // Instanced draw call
-        RenderCommand::DrawIndexedInstanced(s_Data.VAO, 6, s_Data.InstanceCount);
+            // Instanced draw call
+            RenderCommand::DrawIndexedInstanced(s_Data.VAO, 6, s_Data.InstanceCount);
 
-        ++s_Data.Stats.DrawCalls;
-        s_Data.Stats.InstanceCount += s_Data.InstanceCount;
+            ++s_Data.Stats.DrawCalls;
+            s_Data.Stats.InstanceCount += s_Data.InstanceCount;
+        }
 
         // Reset write cursor so Flush is self-contained even in code paths that
         // don't immediately call StartNewBatch (e.g. EndBatch).
@@ -469,7 +518,11 @@ namespace OloEngine
         s_Data.MeshInstanceUBO->Bind();
 
         // Bind mesh shader
-        s_Data.MeshParticleShader->Bind();
+        const Ref<Shader>* meshShader = SelectParticleShader(s_Data.UseOITShader, s_Data.MeshParticleShader,
+                                                             s_Data.MeshParticleShaderOIT, "mesh particle");
+        if (!meshShader)
+            return;
+        (*meshShader)->Bind();
 
         // Bind textures
         BindParticleTextures(hasTexture, hasTexture ? texture->GetRHIHandle() : RHI::NullResource);
@@ -554,17 +607,21 @@ namespace OloEngine
         UploadParticleParams(hasTexture);
 
         // Bind trail shader
-        s_Data.TrailShader->Bind();
+        if (const Ref<Shader>* trailShader =
+                SelectParticleShader(s_Data.UseOITShader, s_Data.TrailShader, s_Data.TrailShaderOIT, "particle trail"))
+        {
+            (*trailShader)->Bind();
 
-        // Bind textures
-        BindParticleTextures(hasTexture, hasTexture ? s_Data.CurrentTrailTexture->GetRHIHandle() : RHI::NullResource);
+            // Bind textures
+            BindParticleTextures(hasTexture, hasTexture ? s_Data.CurrentTrailTexture->GetRHIHandle() : RHI::NullResource);
 
-        // Draw trail quads
-        u32 indexCount = s_Data.TrailQuadCount * 6;
-        RenderCommand::DrawIndexed(s_Data.TrailVAO, indexCount);
+            // Draw trail quads
+            u32 indexCount = s_Data.TrailQuadCount * 6;
+            RenderCommand::DrawIndexed(s_Data.TrailVAO, indexCount);
 
-        ++s_Data.Stats.DrawCalls;
-        s_Data.Stats.InstanceCount += s_Data.TrailQuadCount;
+            ++s_Data.Stats.DrawCalls;
+            s_Data.Stats.InstanceCount += s_Data.TrailQuadCount;
+        }
     }
 
     void ParticleBatchRenderer::RenderGPUBillboards(GPUParticleSystem& gpuSystem,
@@ -581,8 +638,13 @@ namespace OloEngine
         bool hasTexture = (texture != nullptr);
         UploadParticleParams(hasTexture);
 
-        // Bind GPU billboard shader
-        s_Data.GPUBillboardShader->Bind();
+        // Bind GPU billboard shader -- the OIT variant inside the OIT pass, the
+        // same choice every particle draw makes.
+        const Ref<Shader>* shader = SelectParticleShader(s_Data.UseOITShader, s_Data.GPUBillboardShader,
+                                                         s_Data.GPUBillboardShaderOIT, "GPU billboard particle");
+        if (!shader)
+            return;
+        (*shader)->Bind();
 
         // Bind particle and alive-index SSBOs so the vertex shader can read them
         gpuSystem.GetParticleSSBO()->Bind();

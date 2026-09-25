@@ -165,6 +165,13 @@ namespace OloEngine
         // the bucket may flip these and would otherwise leak into the next pass.
         context.ResetOpaqueForwardDrawState();
 
+        // The same mask withdrawal as ScenePass: on the Deferred path this
+        // bucket carries the editor's grid, skeleton and joint draws, which
+        // narrow draw buffers through their render state, and the last one's
+        // narrowing would outlive the pass (#1417, #1422).
+        RenderCommand::SetColorMask(true, true, true, true);
+        CommandDispatch::InvalidateRenderStateCache();
+
         // Reset blend func to the default (GL_ONE, GL_ZERO). Bucket commands
         // (skybox / debug / grid) call glBlendFunc(SRC_ALPHA, ONE_MINUS_SRC_ALPHA)
         // for alpha-blended draws and don't restore it; SetBlendState(false)
