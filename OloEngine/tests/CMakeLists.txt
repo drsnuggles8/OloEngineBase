@@ -630,6 +630,9 @@ add_executable(OloEngine-Tests
 		# #869: the readback edge of the richer bake world — the only part of it
 		# that needs a device, and the one a headless run cannot cover.
 		Rendering/PathTracing/ReferenceTextureCaptureGpuTest.cpp
+		# #1445: a volume's client upload lands as the texels it describes --
+		# RGBA16F's GL client type used to disagree with its own size check.
+		Rendering/Texture3DUploadGpuTest.cpp
 		Rendering/PathTracing/ClosureV2GpuParityTest.cpp
 		# #1055: the two device-pinned twins the GPU path tracer draws through —
 		# the v2 closure's SAMPLE and the Sobol'-Owen sampler.
