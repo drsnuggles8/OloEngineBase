@@ -365,6 +365,12 @@ namespace OloEngine::ResourceNames
     inline constexpr std::string_view SceneDepthAttachment = "SceneDepthAttachment"; // Live SceneColor depth attachment view
     inline constexpr std::string_view SceneDepth = "SceneDepth";                     // Semantic scene depth (forward snapshot or deferred G-Buffer depth)
     inline constexpr std::string_view SceneNormals = "SceneNormals";                 // Semantic AO/deferred normals input
+    // Forward paths with screen-space AO (issue #1452): the depth the forward
+    // prepass wrote, copied ONCE. The bilateral upsample in
+    // include/ForwardScreenSpaceAO.glsl reads it beside the AO buffer; nothing
+    // writes it after the prepass, so every forward shader upsamples against
+    // the depth the AO buffer was built from.
+    inline constexpr std::string_view ForwardAODepth = "ForwardAODepth";
 
     // Planar reflection — the opaque scene re-rendered from a mirrored, oblique-
     // clipped camera into a transient color target, sampled projectively by the
@@ -406,8 +412,6 @@ namespace OloEngine::ResourceNames
     inline constexpr std::string_view BrdfLut = "BrdfLut";
 
     // Post-process chain.
-    inline constexpr std::string_view SSSColor = "SSSColor";                       // Full-resolution SSS output when the blur stage is enabled and ready
-    inline constexpr std::string_view SSSColorTexture = "SSSColorTexture";         // Color attachment view of SSSColor
     inline constexpr std::string_view AOApplyColor = "AOApplyColor";               // After AO apply (only valid when SSAO or GTAO is enabled)
     inline constexpr std::string_view AOApplyColorTexture = "AOApplyColorTexture"; // Color attachment view of AOApplyColor
     inline constexpr std::string_view SSGIColor = "SSGIColor";                     // After screen-space GI composite (only valid when SSGI is enabled, deferred path)

@@ -24,25 +24,11 @@ layout(location = 2) in vec2 a_TexCoord;
 #endif
 
 // Camera UBO (binding 0)
-layout(std140, binding = 0) uniform CameraMatrices
-{
-    mat4 u_ViewProjection;
-    mat4 u_View;
-    mat4 u_Projection;
-    vec3 u_CameraPosition;
-    float _padding0;
-    // Previous-frame VP for scene FB RT3 velocity. Wave displacement itself is
-    // reprojected by re-evaluating sumGerstnerWaves() at `u_NormalMapSpeed.z`
-    // (= prev animation time) in VS/TES so the motion vector captures on-
-    // surface wave motion, not just camera and rigid motion.
-    mat4 u_PrevViewProjection;
-    vec3 u_RenderOrigin; // camera-relative render origin (issue #429)
-    float _padding1;
-    // Reconstruction flavour of u_Projection (#691) — every stage's
-    // declaration must match or glLinkProgram rejects the program; only the
-    // fragment stage reads it. Identical to u_Projection on GL.
-    mat4 u_ProjectionForReconstruction;
-};
+// The shared camera block (include/CameraCommon.glsl), identical in every
+// stage of every program that includes this — GL links a program only if
+// its stages agree on the block — and carrying the forward screen-space AO
+// lane (issue #1452).
+#include "CameraCommon.glsl"
 
 // Model UBO (binding 3) — the Single variant, like this shader's TES/FS:
 // water is single-instance by design, and the varying-producing include

@@ -77,6 +77,9 @@ namespace OloEngine::Tests
         constexpr std::array kSkinnedConsumers = {
             std::string_view{ "DepthPrepass_Skinned.glsl" },
             std::string_view{ "DepthPrepass_MaskSkinned.glsl" },
+            // The forward prepass's view-normal variants (issue #1452).
+            std::string_view{ "DepthNormalPrepass_Skinned.glsl" },
+            std::string_view{ "DepthNormalPrepass_MaskSkinned.glsl" },
             std::string_view{ "PBR_GBuffer_Skinned.glsl" },
             std::string_view{ "PBR_MultiLight_Skinned.glsl" },
             std::string_view{ "ShadowDepthSkinned.glsl" },
@@ -122,7 +125,11 @@ namespace OloEngine::Tests
         // VirtualSkinnedVertexFetch -> the producer), so a fixed one-hop list
         // would have had to grow with every intermediate. Following the chain
         // asks the question the contract actually means.
-        void CollectIncludes(const fs::path& path, std::set<fs::path>& visited, std::string& combined)
+        // `excluded`, when set, is visited but contributes no text (nor its own
+        // includes): the entry-point test searches a consumer's chain WITHOUT
+        // the producer, whose own definitions would otherwise satisfy it.
+        void CollectIncludes(const fs::path& path, std::set<fs::path>& visited, std::string& combined,
+                             const fs::path* excluded = nullptr)
         {
             const fs::path canonical = fs::weakly_canonical(path);
             if (visited.contains(canonical))
@@ -130,6 +137,10 @@ namespace OloEngine::Tests
                 return;
             }
             visited.insert(canonical);
+            if (excluded != nullptr && canonical == *excluded)
+            {
+                return;
+            }
 
             const std::string source = ReadFile(path);
             if (source.empty())
@@ -151,7 +162,7 @@ namespace OloEngine::Tests
                 }
                 if (fs::exists(resolved))
                 {
-                    CollectIncludes(resolved, visited, combined);
+                    CollectIncludes(resolved, visited, combined, excluded);
                 }
             }
         }
@@ -167,6 +178,15 @@ namespace OloEngine::Tests
         {
             ExpandedShader expanded;
             CollectIncludes(path, expanded.Files, expanded.Source);
+            return expanded;
+        }
+
+        // The consumer's chain with the producer's own text left out.
+        ExpandedShader ExpandWithoutProducer(const fs::path& path)
+        {
+            const fs::path producer = fs::weakly_canonical(ShaderRoot() / "include" / "SkeletalDeformation.glsl");
+            ExpandedShader expanded;
+            CollectIncludes(path, expanded.Files, expanded.Source, &producer);
             return expanded;
         }
 
@@ -295,14 +315,19 @@ namespace OloEngine::Tests
         {
             // The whole chain: a consumer that reaches the producer through a
             // header calls the entry point THERE, so searching the consumer
-            // alone would fail every indirect one.
-            const std::string source = Expand(ShaderRoot() / consumer).Source;
+            // alone would fail every indirect one. The producer itself is left
+            // out — its own definitions contain the entry-point names, which
+            // made this test pass for any shader that merely included it.
+            const std::string source = ExpandWithoutProducer(ShaderRoot() / consumer).Source;
             ASSERT_FALSE(source.empty()) << consumer;
 
             const bool callsProducer = std::ranges::any_of(
                 kProducerEntryPoints,
                 [&source](std::string_view entry)
-                { return source.find(entry) != std::string::npos; });
+                {
+                    const std::regex call(std::string(entry) + R"(\s*\()");
+                    return std::regex_search(source, call);
+                });
 
             EXPECT_TRUE(callsProducer)
                 << consumer << " includes the producer but never calls it — including the header "

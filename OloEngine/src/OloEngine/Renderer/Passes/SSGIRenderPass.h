@@ -13,7 +13,7 @@ namespace OloEngine
     //
     // Deferred-only stage inserted into the dynamic chain between AO apply and
     // SSR:
-    //   AOApplyColor/SSSColor/SceneColor → SSGI → SSGIColor → SSR → Bloom → ...
+    //   AOApplyColor/SceneColor → SSGI → SSGIColor → SSR → Bloom → ...
     //
     // FIVE DRAWS IN ONE NODE (issues #902, #708), the CloudscapeRenderPass shape.
     // Draws A-D run at the TRACE band — half the scene band when
@@ -68,7 +68,7 @@ namespace OloEngine
     // SSGIColor target (so the read/write of scene colour never aliases).
     //
     // Inputs:
-    //   * Input framebuffer handle (AOApplyColor / SSSColor / SceneColor),
+    //   * Input framebuffer handle (AOApplyColor / SceneColor),
     //     selected during `Setup()` via the versioned name fallback.
     //   * Scene depth texture (for view-space position reconstruction + marching)
     //   * G-Buffer RT1 normal+roughness and RT0 albedo+metallic textures

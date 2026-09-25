@@ -1542,27 +1542,50 @@ TEST_F(VulkanPassSuite, DofFocusGatesTheBlurThroughAnImportedDepth)
     m_ExtraSetup = nullptr;
 }
 
-TEST_F(VulkanPassSuite, SssBlurSoftensTheEdgeOnlyWhenTheUboFlagEnablesIt)
+TEST_F(VulkanPassSuite, SnowBlurAddsTheDiffusedSnowHalfIntoSceneColorInPlace)
 {
     constexpr u32 kSize = 128;
     VulkanFrameArena::Get().BeginFrame(0);
 
-    // SSS reads the DIRECT blackboard pair (Scene.SceneColor + the canonical
-    // Scene.SceneColorTexture attachment view), not the versioned-name
-    // ladder — so besides redirecting the producer to the SceneColor family
-    // (the EASU shape), m_ExtraSetup declares the canonical view production
-    // creates in RenderPipeline. Depth (bilateral weight) comes from
-    // Scene.SceneDepthAttachment; a uniform stand-in + BlurFalloff 0 makes
-    // every depth weight exactly 1, leaving a pure normalized Gaussian.
+    // Issue #1451: the snow blur reads the diffusion hand-off lane (scene
+    // attachment 4: diffuse half in .rgb, -snowWeight in .a) and ADDS
+    // `strength * (blur(diffuse) - diffuse)` into scene colour in place — the
+    // SkinDiffusionPass shape, with no output of its own. So the chain here is
+    // producer -> SceneColor (a backed framebuffer the test reads back) and the
+    // pass blending into that same framebuffer, with the hand-off and a
+    // uniform depth stand-in imported under the blackboard names Setup reads.
     //
-    // Two-sided lever: SSSParams.Flags.x. 0 => the shader's passthrough
-    // branch (edge intact, alpha forced 1); 1 with an 8-texel radius => the
-    // +x kernel taps (x+8..x+32) cross the edge at x=96 from pixel 94, so
-    // sum(gauss[1..4]) / totalWeight = 0.218 of white leaks in (~56/255).
+    // The hand-off is a vertical edge at x=96 at full snow weight (a = -1).
+    // Depth is uniform and BlurFalloff is 0, so every depth weight is exactly
+    // 1 and the blur is the plain normalized cross: from x=94 with an 8-texel
+    // radius the four +x taps (x+8..x+32) land on white, so
+    // sum(gauss[1..4]) / totalWeight = 0.218 of white is added (~56/255).
+    // The lever is SSSIntensity: 0 adds exactly nothing.
     auto edgeInput = MakeVerticalEdgeTexture(kSize, 96);
     ASSERT_NE(edgeInput, nullptr);
     auto depthTexture = MakeSolidTexture(kSize, 0, 0, 0, 255);
     ASSERT_NE(depthTexture, nullptr);
+    TArray64<f32> handoffPixels(static_cast<sizet>(kSize) * kSize * 4);
+    for (u32 y = 0; y < kSize; ++y)
+    {
+        for (u32 x = 0; x < kSize; ++x)
+        {
+            const f32 v = x >= 96u ? 1.0f : 0.0f;
+            const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
+            handoffPixels[i + 0] = v;
+            handoffPixels[i + 1] = v;
+            handoffPixels[i + 2] = v;
+            handoffPixels[i + 3] = -1.0f; // snow, weight 1
+        }
+    }
+    TextureSpecification handoffSpec;
+    handoffSpec.Width = kSize;
+    handoffSpec.Height = kSize;
+    handoffSpec.Format = ImageFormat::RGBA32F;
+    handoffSpec.GenerateMips = false;
+    auto handoffTexture = Texture2D::Create(handoffSpec);
+    ASSERT_NE(handoffTexture, nullptr);
+    handoffTexture->SetData(handoffPixels.GetData(), static_cast<u32>(handoffPixels.Num() * sizeof(f32)));
     auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
     ASSERT_TRUE(blitShader);
     ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
@@ -1572,25 +1595,51 @@ TEST_F(VulkanPassSuite, SssBlurSoftensTheEdgeOnlyWhenTheUboFlagEnablesIt)
     drsUbo->SetData(&drsData, sizeof(drsData));
     auto sssUbo = UniformBuffer::Create(sizeof(SSSUBOData), 14);
 
-    m_ExtraSetup = [&](RenderGraph& graph, FrameBlackboard& blackboard)
+    const auto runChain = [&](f32 intensity) -> TArray64<u8>
     {
-        blackboard.Scene.SceneColorTexture = graph.CreateFramebufferAttachmentView(
-            ResourceNames::SceneColorTexture, blackboard.Scene.SceneColor, 0u);
+        TArray64<u8> rendered;
+        RenderGraph graph;
+        graph.SetTransientMaterializationEnabled(true);
+
+        RGResourceDesc fbDesc;
+        fbDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+        fbDesc.Format = RGResourceFormat::RGBA8UNorm;
+        fbDesc.Width = kSize;
+        fbDesc.Height = kSize;
+        FramebufferSpecification sceneSpec;
+        sceneSpec.Width = kSize;
+        sceneSpec.Height = kSize;
+        sceneSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+        Ref<Framebuffer> sceneFramebuffer = Framebuffer::Create(sceneSpec);
+        if (!sceneFramebuffer)
+        {
+            ADD_FAILURE() << "backed scene framebuffer creation failed";
+            return rendered;
+        }
+
+        auto& blackboard = graph.GetBlackboard();
+        blackboard.Scene.SceneColor =
+            graph.DeclareTransientFramebuffer(ResourceNames::SceneColor, fbDesc, sceneFramebuffer);
+        RGResourceDesc handoffDesc;
+        handoffDesc.Kind = RGResourceHandle::Kind::Texture2D;
+        handoffDesc.Format = RGResourceFormat::RGBA32Float;
+        handoffDesc.Width = kSize;
+        handoffDesc.Height = kSize;
+        blackboard.Scene.SkinDiffuse =
+            graph.ImportTextureHandle(ResourceNames::SceneSkinDiffuse, handoffTexture->GetRHIHandle(), handoffDesc);
         RGResourceDesc depthDesc;
         depthDesc.Kind = RGResourceHandle::Kind::Texture2D;
         depthDesc.Format = RGResourceFormat::RGBA8UNorm;
         depthDesc.Width = kSize;
         depthDesc.Height = kSize;
-        blackboard.Scene.SceneDepthAttachment = graph.ImportTextureHandle(
-            ResourceNames::SceneDepthAttachment, depthTexture->GetRHIHandle(), depthDesc);
-    };
+        blackboard.Scene.SceneDepthAttachment =
+            graph.ImportTextureHandle(ResourceNames::SceneDepthAttachment, depthTexture->GetRHIHandle(), depthDesc);
 
-    const auto runChain = [&](f32 enabledFlag) -> TArray64<u8>
-    {
-        SSSUBOData sssData{};
-        sssData.BlurParams = glm::vec4(8.0f, 0.0f, static_cast<f32>(kSize), static_cast<f32>(kSize));
-        sssData.Flags = glm::vec4(enabledFlag, 0.0f, 0.0f, 0.0f);
-        sssUbo->SetData(&sssData, sizeof(sssData));
+        auto producer = Ref<PatternProducerPass>::Create(
+            edgeInput, blitShader, std::string(ResourceNames::SceneColor),
+            std::string(ResourceNames::SceneColorTexture),
+            [](FrameBlackboard& board) -> RGFramebufferHandle&
+            { return board.Scene.SceneColor; });
 
         auto sss = Ref<SSSRenderPass>::Create();
         FramebufferSpecification initSpec;
@@ -1598,44 +1647,63 @@ TEST_F(VulkanPassSuite, SssBlurSoftensTheEdgeOnlyWhenTheUboFlagEnablesIt)
         initSpec.Height = kSize;
         initSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
         sss->Init(initSpec);
-        // Pass-level gates (Setup declares + GetTarget non-null) stay ON in
-        // both chains — the contract's on/off lever is the UBO flag alone.
         SnowSettings snow;
         snow.Enabled = true;
         snow.SSSBlurEnabled = true;
+        snow.SSSBlurRadius = 8.0f;
+        snow.SSSBlurFalloff = 0.0f;
+        snow.SSSIntensity = intensity;
         sss->SetSettings(snow);
-        sss->SetSSSUBO(sssUbo, nullptr); // exercises the pass's own rebind path
+        sss->SetSSSUBO(sssUbo, nullptr);
 
-        auto producer = Ref<PatternProducerPass>::Create(
-            edgeInput, blitShader, std::string(ResourceNames::SceneColor),
-            std::string(ResourceNames::SceneColorTexture),
-            [](FrameBlackboard& blackboard) -> RGFramebufferHandle&
-            { return blackboard.Scene.SceneColor; });
-        return RunSinglePassChain(kSize, producer, sss, "SSSPass", ResourceNames::SSSColor,
-                                  [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
-                                  { blackboard.Post.SSSColor = handle; });
+        graph.AddNode(producer);
+        graph.AddNode(sss);
+        graph.SetFinalPass("SSSPass");
+        graph.BuildFrameGraph();
+
+        SubmitFrame(
+            [&]()
+            {
+                graph.Execute();
+                auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+                RHI::Barrier toSampled{};
+                toSampled.Resource = sceneFramebuffer->GetColorAttachmentHandle(0);
+                toSampled.Before = RHI::Access::ColorAttachmentWrite;
+                toSampled.After = RHI::Access::ShaderSampleRead;
+                api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+            });
+
+        EXPECT_TRUE(producer->DidDraw) << "the producer pass early-returned";
+        EXPECT_TRUE(sss->GetTarget()) << "the blur early-returned (input/shader guard)";
+        for (const auto& failure : graph.GetResolveFailures())
+        {
+            ADD_FAILURE() << "resolve failure pass='" << failure.PassName.ToView() << "' reason='"
+                          << failure.Reason.ToView() << "' x" << failure.Count;
+        }
+        auto& vkApi = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+        EXPECT_EQ(vkApi.GetPreparedDrawsThisRecording(), 2u) << "expected the producer's draw and the blur's";
+        EXPECT_EQ(vkApi.GetDroppedDrawsThisRecording(), 0u) << "a draw dropped silently";
+
+        auto* vkScene = static_cast<VulkanFramebuffer*>(sceneFramebuffer.Raw());
+        if (vkScene->GetColorAttachmentImage(0) == nullptr || !vkScene->GetColorAttachmentImage(0)->GetData(rendered, 0))
+            ADD_FAILURE() << "scene colour readback failed";
+        return rendered;
     };
 
     const auto redAt = [kSize](const TArray64<u8>& img, u32 x, u32 y)
     { return static_cast<int>(img[(static_cast<sizet>(y) * kSize + x) * 4]); };
 
-    const auto disabled = runChain(0.0f);
-    ASSERT_EQ(disabled.Num(), static_cast<sizet>(kSize) * kSize * 4);
-    EXPECT_LE(redAt(disabled, 94, 64), 5) << "Flags.x=0: passthrough must keep the black side";
-    EXPECT_GE(redAt(disabled, 98, 64), 250) << "Flags.x=0: passthrough must keep the white side";
-    EXPECT_EQ(static_cast<int>(disabled[((static_cast<sizet>(64) * kSize + 94) * 4) + 3]), 255)
-        << "SSS must reset alpha to 1 (the produce-consume-reset contract)";
+    const auto none = runChain(0.0f);
+    ASSERT_EQ(none.Num(), static_cast<sizet>(kSize) * kSize * 4);
+    EXPECT_LE(redAt(none, 94, 64), 5) << "strength 0: the blur must add nothing to the black side";
+    EXPECT_GE(redAt(none, 98, 64), 250) << "strength 0: the blur must take nothing from the white side";
 
-    const auto enabled = runChain(1.0f);
-    ASSERT_EQ(enabled.Num(), static_cast<sizet>(kSize) * kSize * 4);
-    const int softened = redAt(enabled, 94, 64);
-    EXPECT_GT(softened, 25) << "enabled SSS blur must leak white across the edge (~56 expected)";
+    const auto full = runChain(1.0f);
+    ASSERT_EQ(full.Num(), static_cast<sizet>(kSize) * kSize * 4);
+    const int softened = redAt(full, 94, 64);
+    EXPECT_GT(softened, 25) << "the blurred diffuse half must leak white across the edge (~56 expected)";
     EXPECT_LT(softened, 120) << "the leak must stay a partial mix, not full white";
-    // All of (34,64)'s taps stay left of the edge and interior — deep field
-    // must remain black, proving the blur is a local kernel, not a wash.
-    EXPECT_LE(redAt(enabled, 34, 64), 5) << "far field must stay black under the enabled blur";
-
-    m_ExtraSetup = nullptr;
+    EXPECT_LE(redAt(full, 34, 64), 5) << "far field must stay black: the blur is a local kernel, not a wash";
 }
 
 TEST_F(VulkanPassSuite, AoApplyModulatesSceneColorByTheAoBuffer)
@@ -1701,8 +1769,7 @@ TEST_F(VulkanPassSuite, AoApplyModulatesSceneColorByTheAoBuffer)
         aoApply->SetEnabled(true);
         aoApply->SetSSAOUBO(ssaoUbo); // exercises the pass's own rebind path
 
-        // AOApply's candidate ladder is SSSColor -> SceneColor; only the
-        // SceneColor family exists here, so redirect the producer there.
+        // AOApply reads the SceneColor family, so redirect the producer there.
         auto producer = Ref<PatternProducerPass>::Create(
             grayInput, blitShader, std::string(ResourceNames::SceneColor),
             std::string(ResourceNames::SceneColorTexture),

@@ -48,17 +48,11 @@ layout(location = 7) in float v_Radius;
 layout(location = 2) in float v_MeshCoverage;
 layout(location = 3) in vec2 v_LodSeedFade; // (instance draw, thinning fade) — issue #1237 // WORLD-space card radius
 
-layout(std140, binding = 0) uniform CameraMatrices
-{
-    mat4 u_ViewProjection;
-    mat4 u_View;
-    mat4 u_Projection;
-    vec3 u_CameraPosition;
-    float _padding0;
-    mat4 u_PrevViewProjection;
-    vec3 u_RenderOrigin;
-    float _padding1;
-};
+// The shared camera block (include/CameraCommon.glsl), identical in every
+// stage of every program that includes this — GL links a program only if
+// its stages agree on the block — and carrying the forward screen-space AO
+// lane (issue #1452).
+#include "include/CameraCommon.glsl"
 
 // PBRCommon first — LightData, MAX_LIGHTS and the BRDF come from it, and the
 // light block below is declared in terms of its LightData struct.
@@ -268,6 +262,9 @@ void main()
             leafThickness, leafTint, texture(u_IrradianceMap, -N).rgb * u_LeafIds.z, u_LeafLobe);
     }
 
+    // No screen-space AO (issue #1452): foliage is not in the forward
+    // depth-normal prepass, so the AO buffer holds the occlusion of the ground
+    // or wall BEHIND each leaf. The G-Buffer twin gets its own AO on Deferred.
     vec3 litColor = ambient * ao + oloSurfaceLightingSum(Lo) + transmitted;
 
     // Foliage blends are OFF (opaque alpha-tested), so this alpha is never

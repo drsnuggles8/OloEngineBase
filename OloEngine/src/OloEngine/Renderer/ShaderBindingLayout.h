@@ -74,6 +74,14 @@ namespace OloEngine
             // face bakes: z remap WITHOUT y flip) fill this with the RAW
             // matrix — their math sibling has neither flip nor remap.
             glm::mat4 ProjectionForReconstruction = glm::mat4(1.0f);
+            // Screen-space AO for the FORWARD shaders' ambient term (issue
+            // #1452): x = live (the AO buffer is bound at TEX_SSAO and means
+            // something), y = strength, zw reserved. A PER-VIEW value, which is
+            // why it rides the camera block: the main view's forward colour
+            // passes set it, and every other view — a mirrored replay, a probe
+            // or IBL capture, a shadow view — leaves it at the zero default.
+            // Read through include/ForwardScreenSpaceAO.glsl.
+            glm::vec4 ScreenSpaceAOParams = glm::vec4(0.0f);
 
             static constexpr u32 GetSize()
             {
@@ -88,10 +96,11 @@ namespace OloEngine
         // mat4(64) + vec3+pad(16) = 288 B (the trailing vec3 is the
         // camera-relative render origin, issue #429; the trailing mat4 is the
         // reconstruction-flavour projection, issue #691 — 288 + 64 =
-        // 352). Alignment is not asserted: GLM mat4 is not 16-byte-aligned by
-        // default, but the C++-side SetData() call uploads the raw byte
-        // buffer so only total size matters.
-        static_assert(sizeof(CameraUBO) == 352, "CameraUBO std140 size drifted from GLSL expectation (352 B)");
+        // 352; the trailing vec4 is the forward screen-space AO lane, issue
+        // #1452 — 368). Alignment is not asserted: GLM mat4 is not
+        // 16-byte-aligned by default, but the C++-side SetData() call uploads
+        // the raw byte buffer so only total size matters.
+        static_assert(sizeof(CameraUBO) == 368, "CameraUBO std140 size drifted from GLSL expectation (368 B)");
 
         // @brief Per-light record in the multi-light UBO (binding 5). Packed
         // by Scene::ProcessScene3DSharedLogic; decoded in PBRCommon.glsl /

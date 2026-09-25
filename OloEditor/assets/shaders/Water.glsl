@@ -81,21 +81,11 @@ vec2 octEncode(vec3 n)
 }
 
 // Camera UBO (binding 0)
-layout(std140, binding = 0) uniform CameraMatrices
-{
-    mat4 u_ViewProjection;
-    mat4 u_View;
-    mat4 u_Projection;
-    vec3 u_CameraPosition;
-    float _padding0;
-    mat4 u_PrevViewProjection;
-    vec3 u_RenderOrigin; // camera-relative render origin (issue #429)
-    float _padding1;
-    // Reconstruction flavour of u_Projection (#691) — for the SSR
-    // marcher's unproject and the near/far row extraction below, which apply
-    // GL-convention depth math themselves. Identical to u_Projection on GL.
-    mat4 u_ProjectionForReconstruction;
-};
+// The shared camera block (include/CameraCommon.glsl), identical in every
+// stage of every program that includes this — GL links a program only if
+// its stages agree on the block — and carrying the forward screen-space AO
+// lane (issue #1452).
+#include "include/CameraCommon.glsl"
 
 // Instance SSBO (binding 15). Water is single-instance — the tess_eval
 // stage uses InstanceBlock_Single (no v_InstanceIndex output), so the
@@ -820,6 +810,8 @@ void main()
     // Provides a minimum brightness so the water is never pitch black,
     // even without strong reflections or cubemap.  Simulates sky light
     // scattering through the upper water column.
+    // No screen-space AO (issue #1452): the water surface is not in the forward
+    // depth-normal prepass, so the AO buffer holds the bed's occlusion here.
     vec3 ambientOcean = shallowColor * 0.15;
     finalColor += ambientOcean;
 

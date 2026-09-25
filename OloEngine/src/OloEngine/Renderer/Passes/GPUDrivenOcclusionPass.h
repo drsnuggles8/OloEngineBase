@@ -60,7 +60,26 @@ namespace OloEngine
         // submission path (Renderer3D::SubmitGPUCulledInstanced) once per batch.
         void SubmitPhase2(CommandPacket* packet, const GPUFrustumCuller::TwoPhaseCullResult& cull);
 
+        // THE FORWARD PREPASS SHARE (issue #1452), run by
+        // GPUDrivenOcclusionPrepassPass ahead of the screen-space AO passes when
+        // a forward AO buffer is produced: both phases depth + view-normal
+        // only, then Execute() replays the same draws in colour.
+        void SetupForwardPrepass(RGBuilder& builder, FrameBlackboard& board);
+        void ExecuteForwardPrepass(RGCommandContext& context, const Ref<Framebuffer>& sceneTarget);
+
       private:
+        // Binds the scene target with every colour attachment, the opaque
+        // depth state and the shared scene resources.
+        void BindSceneForDraw(RGCommandContext& context);
+        // Phase 1, then — when `cullPhase2` — the mid-frame Hi-Z and the
+        // phase-2 culls, then the phase-2 packets. Returns whether the phase-2
+        // packets were drawn: they are only when the mid-frame Hi-Z was usable,
+        // because the culls that fill their indirect buffers only run then.
+        [[nodiscard]] bool DrawPhases(RGCommandContext& context, bool cullPhase2);
+        // Copies the scene target's depth / view normals over the exports.
+        void ExportDepthAndNormals(RGCommandContext& context, RGTextureHandle depthExport,
+                                   RGTextureHandle normalsExport);
+
         Ref<Framebuffer> m_SceneFramebuffer;
         // Phase-2 work registered this frame (parallel arrays: packet[i] draws
         // cull[i].Phase2Output after DispatchPhase2 fills it). Cleared each Execute.
@@ -73,5 +92,16 @@ namespace OloEngine
         // them before this pass drew.
         RGTextureHandle m_SelectedSceneDepth{};
         RGTextureHandle m_SelectedSceneNormals{};
+        RGTextureHandle m_PrepassSceneDepth{};
+        RGTextureHandle m_PrepassSceneNormals{};
+        RGTextureHandle m_PrepassForwardAODepth{};
+        // Set by ExecuteForwardPrepass: both phases are in depth, the phase-2
+        // culls have run, and Execute() only replays the draws in colour.
+        bool m_ForwardPrepassDrew = false;
+        // Whether that prepass drew phase 2. The colour replay draws the
+        // phase-2 packets only then: otherwise their indirect buffers were not
+        // filled this frame and would replay stale or zero instances.
+        bool m_ForwardPrepassDrewPhase2 = false;
+        u32 m_SceneColorAttachmentCount = 0;
     };
 } // namespace OloEngine

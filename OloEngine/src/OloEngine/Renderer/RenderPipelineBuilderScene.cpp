@@ -5,6 +5,38 @@
 
 namespace OloEngine::RenderPipelineBuilderInternal
 {
+    namespace
+    {
+        // The AO writer and the sphere proxies, in that order: the proxies read
+        // AOBuffer and write it back in place, so they follow its producer.
+        void RegisterScreenSpaceAONodes(RenderGraph& graph, const SceneLightingStageInputs& inputs)
+        {
+            switch (inputs.ActiveAOTechnique)
+            {
+                case AOTechnique::SSAO:
+                    graph.AddNode(PrepareGraphNode("SSAOPass", inputs.Passes->SSAO));
+                    break;
+                case AOTechnique::GTAO:
+                    graph.AddNode(PrepareGraphNode("GTAOPass", inputs.Passes->GTAO));
+                    break;
+                case AOTechnique::None:
+                    break;
+            }
+
+            // Analytic sphere-proxy AO (#710) reads AOBuffer and writes it back
+            // in place, so it must be registered AFTER the producer above and
+            // BEFORE the first reader (DeferredLightingPass, or on the forward
+            // paths ScenePass's colour sub-pass). Registered unconditionally;
+            // the node's own enable gate (set in ConfigurePassesForFrame, which
+            // requires the GRAPH's technique to be GTAO) decides whether it does
+            // anything, and the pass-state hash makes a flip rebuild the graph.
+            if (inputs.Passes->SphereProxyAO)
+            {
+                graph.AddNode(PrepareGraphNode("SphereProxyAOPass", inputs.Passes->SphereProxyAO));
+            }
+        }
+    } // namespace
+
     void RegisterRenderStreamNodes(RenderGraph& graph,
                                    const RenderStreamStageInputs& inputs)
     {
@@ -91,6 +123,24 @@ namespace OloEngine::RenderPipelineBuilderInternal
             graph.AddNode(PrepareGraphNode("DDGIProbeUpdatePass", inputs.Passes->DDGIProbeUpdate));
         }
 
+        // THE FORWARD AO ORDER (issue #1452). Screen-space AO is visibility for
+        // the ambient term, so a forward shader can only apply it there if the
+        // AO buffer exists before forward colour runs. On Forward and Forward+
+        // the prepass is therefore its own node, and the AO writer and the
+        // sphere proxies are registered between it and ScenePass: they read the
+        // depth and view normals the prepass exported, and ScenePass's colour
+        // sub-pass reads the AO buffer. Deferred keeps the order below, because
+        // its AO reads the finished G-Buffer.
+        if (!inputs.Deferred && inputs.Passes->ScenePrepass)
+        {
+            graph.AddNode(PrepareGraphNode("ScenePrepassPass", inputs.Passes->ScenePrepass));
+            if (inputs.Passes->GPUOcclusionPrepass)
+            {
+                graph.AddNode(PrepareGraphNode("GPUDrivenOcclusionPrepassPass", inputs.Passes->GPUOcclusionPrepass));
+            }
+            RegisterScreenSpaceAONodes(graph, inputs);
+        }
+
         AddExistingNode(graph, inputs.Passes->Scene);
 
         // Virtualized geometry (#629): DAG-cut cull compute + hardware MDI
@@ -142,36 +192,14 @@ namespace OloEngine::RenderPipelineBuilderInternal
             graph.AddNode(PrepareGraphNode("DeferredOpaqueDecalPass", inputs.Passes->DeferredOpaqueDecal));
         }
 
-        // AO writer is registered between the last G-Buffer producer (Scene +
-        // DeferredOpaqueDecalPass when deferred) and DeferredLightingPass so the
-        // builder's read-from-AOBuffer edge derivation discovers the producer in
-        // registration order. DLP's `builder.Read(AOBuffer)` then auto-derives the
-        // chain without per-pass DependsOnPass pinning. AOApply is registered
-        // later (in RegisterTransparencyAndAONodes) and consumes the same
-        // AOBuffer; its name-based predecessor lookup picks up the AO pass naturally.
-        switch (inputs.ActiveAOTechnique)
-        {
-            case AOTechnique::SSAO:
-                graph.AddNode(PrepareGraphNode("SSAOPass", inputs.Passes->SSAO));
-                break;
-            case AOTechnique::GTAO:
-                graph.AddNode(PrepareGraphNode("GTAOPass", inputs.Passes->GTAO));
-                break;
-            case AOTechnique::None:
-                break;
-        }
-
-        // Analytic sphere-proxy AO (#710) reads AOBuffer and writes it back in
-        // place, so it must be registered AFTER the producer above and BEFORE
-        // DeferredLightingPass — the same reasoning that puts the producer where
-        // it is. Registered unconditionally; the node's own enable gate (set in
-        // ConfigurePassesForFrame, which requires the GRAPH's technique to be
-        // GTAO) decides whether it does anything, and the pass-state hash makes
-        // a flip rebuild the graph.
-        if (inputs.Passes->SphereProxyAO)
-        {
-            graph.AddNode(PrepareGraphNode("SphereProxyAOPass", inputs.Passes->SphereProxyAO));
-        }
+        // Deferred: the AO writer is registered between the last G-Buffer
+        // producer (Scene + DeferredOpaqueDecalPass) and DeferredLightingPass so
+        // the builder's read-from-AOBuffer edge derivation discovers the
+        // producer in registration order. DLP's `builder.Read(AOBuffer)` then
+        // auto-derives the chain without per-pass DependsOnPass pinning. The
+        // forward paths registered it above, ahead of ScenePass.
+        if (inputs.Deferred || !inputs.Passes->ScenePrepass)
+            RegisterScreenSpaceAONodes(graph, inputs);
 
         // Virtual Shadow Map page marking (#702). Registered here, after the last
         // depth writer, because it projects the FINISHED scene depth into the clip

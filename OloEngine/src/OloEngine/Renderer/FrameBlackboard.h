@@ -89,6 +89,10 @@ namespace OloEngine
             // what made GTAO shade every surface fully occluded in forward, with
             // the artefact swimming as the camera turned (issue #438 follow-up).
             bool SceneNormalsAreViewSpace = false;
+            // Forward paths with screen-space AO only (issue #1452): the
+            // prepass depth, copied once, read by every forward shader's
+            // ambient AO upsample. See ResourceNames::ForwardAODepth.
+            RGTextureHandle ForwardAODepth;
         };
 
         // -----------------------------------------------------------------------
@@ -358,8 +362,6 @@ namespace OloEngine
 
         struct PostProcessSlot
         {
-            RGFramebufferHandle SSSColor;    // Full-resolution SSS output when the blur stage is enabled and ready
-            RGTextureHandle SSSColorTexture; // Color attachment view of SSSColor
             // Scratch target for the HORIZONTAL half of the separable skin
             // diffusion (issue #1241). Declared only when the pass can
             // actually run, so a scene with no skin pays no full-resolution

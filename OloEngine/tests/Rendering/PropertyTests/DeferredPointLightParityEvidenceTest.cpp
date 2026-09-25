@@ -467,13 +467,13 @@ namespace OloEngine::Tests
         ExpectPathsAgree("DeferredMSAA4_Front", frames, /*interiorOnly=*/true);
     }
 
-    // THE ATTRIBUTION of what #1457 measured live. The editor runs GTAO; Forward
-    // multiplies the COMPOSED colour by it (PostProcess_SSAOApply), Deferred
-    // multiplies the ambient term alone (lighting-signal-contract.md, #1452).
-    // So with the point light off the two agree, and with it on Forward is
-    // darker wherever AO < 1 — never brighter. When #1452 lands, the second
-    // half of this test must flip to "agree" and this comment goes.
-    TEST_F(DeferredPointLightParityTest, ScreenSpaceAOIsTheWholeRemainingGap)
+    // THE ATTRIBUTION of what #1457 measured live, now closed. The editor runs
+    // GTAO; Forward used to multiply the COMPOSED colour by it
+    // (PostProcess_SSAOApply) while Deferred multiplied the ambient term alone,
+    // so with the point light on Forward was darker wherever AO < 1. Since
+    // #1452 every path applies it to the ambient term (lighting-signal-contract.md),
+    // so the paths must agree with the light off AND on.
+    TEST_F(DeferredPointLightParityTest, ScreenSpaceAOLeavesTheDirectLightAlikeOnEveryPath)
     {
         OLO_ENSURE_GPU_OR_SKIP();
         ScopedMockTime mockTime(kCaptureTime);
@@ -495,19 +495,21 @@ namespace OloEngine::Tests
 
         const FrameDiff darkDiff = Diff(dark.Forward, dark.Deferred);
         const FrameDiff litDiff = Diff(lit.Forward, lit.Deferred);
-        const FrameDiff aoRan = Diff(dark.Forward, lit.Forward);
+        const FrameDiff lightRan = Diff(dark.Forward, lit.Forward);
         Report("GTAO, light off: Forward vs Deferred", darkDiff);
         Report("GTAO, light on:  Forward vs Deferred", litDiff);
 
-        EXPECT_GT(aoRan.OverTolerance, 10000u) << "the point light does not reach the frame";
-        EXPECT_EQ(darkDiff.OverTolerance, 0u)
-            << "with no direct light the two paths differ — the gap is not only the AO applied to direct light";
-        EXPECT_GT(litDiff.OverTolerance, 1000u)
-            << "Forward no longer darkens the point light by the AO. If #1452 has landed, this is the fix: make this "
-               "case assert agreement.";
-        EXPECT_EQ(litDiff.OverTolerance, litDiff.BBrighter)
-            << "Deferred is DARKER than Forward on " << (litDiff.OverTolerance - litDiff.BBrighter)
-            << " pixels; AO applied to the whole colour on Forward can only make Forward the darker one";
+        // Positive control: the light reaches the frame, so agreement below is
+        // agreement about lit pixels.
+        EXPECT_GT(lightRan.OverTolerance, 10000u) << "the point light does not reach the frame";
+        EXPECT_EQ(darkDiff.OverTolerance, 0u) << "with no direct light the two paths' AO already differs";
+        // The suite's Deferred budget (ExpectPathsAgree): position reconstruction
+        // leaves a handful of pixels one or two levels over tolerance. AO on the
+        // direct light moved over 1000 before #1452.
+        EXPECT_LE(litDiff.OverTolerance, litDiff.Compared / 5000u)
+            << "with the point light on, Forward and Deferred differ on " << litDiff.OverTolerance
+            << " pixels (" << litDiff.BBrighter << " brighter on Deferred): screen-space AO is reaching the direct "
+            << "light on one path again (#1452).";
     }
 
     // The issue's own scene: DDGITest.olo, red point light only, unshadowed,

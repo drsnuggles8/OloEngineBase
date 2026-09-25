@@ -37,113 +37,101 @@ void main()
 #type fragment
 #version 460 core
 
-// SSS Blur Pass — screen-space Gaussian blur masked by alpha (SSS weight)
-// Reads the scene color attachment (RGBA16F), blurs only pixels with alpha > 0
-// and blends the result back using the alpha mask.
+// =============================================================================
+// The snow subsurface blur (issue #1451) — SSSRenderPass.
 //
-// This is the CONSUMER of the alpha-channel SSS mask produced by PBR shaders.
-// It ALWAYS resets alpha to 1.0 on output, completing the produce-consume-reset
-// lifecycle (see SnowCommon.glsl for the full contract).
+// Snow scatters light below its surface, so the DIFFUSE half of a snow pixel's
+// lighting is spread over its snow neighbours. The half arrives in the
+// diffusion hand-off lane (scene attachment 4): .rgb the diffuse radiance, .a
+// the snow weight in the lane's negative range (include/SnowDiffusionCommon.glsl
+// — skin slots are positive and read here as "not snow").
+//
+// The pass draws into scene colour with an ADDITIVE blend and emits
+//
+//     strength * (blur(diffuse) - diffuse),  strength = weight * SSSIntensity
+//
+// so the blurred fraction of the diffuse half replaces its sharp self and every
+// other term — specular, sparkle, emission, anything that is not snow — is left
+// exactly as the lit pass wrote it. A pixel that hands over no snow emits zero,
+// which is why the blur can no longer touch a surface without snow (it used to
+// read its mask from scene alpha, which every non-snow writer set to 1).
+//
+// Taps are fetched by TEXEL (the offsets are whole texels), so the weight lane
+// is never interpolated between a snow texel and a skin or empty one.
+// =============================================================================
 
 layout(location = 0) in vec2 v_TexCoord;
 layout(location = 0) out vec4 o_Color;
 
 #include "include/BindlessHeap.glsl"
+#include "include/SnowDiffusionCommon.glsl"
 
-// Heap-bindless conversion (issue #691, bucket 1). The BODY below is
-// byte-identical between the two variants — only these declarations move, and
-// each names the same TEX_* constant SSSRenderPass binds with.
+// Heap-bindless conversion (issue #691): the body is identical between the two
+// variants, and each name is the slot SSSRenderPass binds.
 #ifdef OLO_BINDLESS
-#define u_SceneColor OLO_HEAP_TEX_2D(0)
+#define u_SnowDiffuse OLO_HEAP_TEX_2D(0) // TEX_DIFFUSE: scene attachment 4
 #define u_SceneDepth OLO_HEAP_TEX_2D(19) // TEX_POSTPROCESS_DEPTH
 #else
-// Scene color (RGBA16F, attachment 0)
-layout(binding = 0) uniform sampler2D u_SceneColor;
-// Scene depth for bilateral edge-aware filtering
-layout(binding = 19) uniform sampler2D u_SceneDepth;
+layout(binding = 0) uniform sampler2D u_SnowDiffuse; // scene attachment 4, the hand-off lane
+layout(binding = 19) uniform sampler2D u_SceneDepth;  // scene depth, for the bilateral weight
 #endif
 
-// SSS UBO (binding 14)
+// SSS UBO (binding 14) — SSSUBOData.
 layout(std140, binding = 14) uniform SSSParams {
-    vec4 u_SSSBlurParams;   // (blurRadius, blurFalloff, screenWidth, screenHeight)
-    vec4 u_SSSFlags;        // (enabled, pad, pad, pad)
+    vec4 u_SSSBlurParams; // (blurRadius texels, depthFalloff, width, height)
+    vec4 u_SSSFlags;      // (enabled, strength = SSSIntensity, pad, pad)
 };
 
-// Bilateral Gaussian weights for a 9-tap kernel
+// Gaussian weights for the 9-tap arms of the cross (centre + 4 each way).
 const float gaussWeights[5] = float[](0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216);
 
-float linearizeDepth(float d, float near, float far)
+// One neighbour's contribution: its diffuse half, weighted by the Gaussian, by
+// depth similarity (don't blur across a silhouette) and by ITS OWN snow weight
+// (only snow scatters into snow).
+void oloSnowBlurTap(ivec2 texel, ivec2 size, float centreDepth, float falloff, float gauss, inout vec3 sum,
+                    inout float total)
 {
-    return near * far / (far - d * (far - near));
+    texel = clamp(texel, ivec2(0), size - ivec2(1));
+    vec4 tap = texelFetch(u_SnowDiffuse, texel, 0);
+    float depth = texelFetch(u_SceneDepth, texel, 0).r;
+    float weight = exp(-abs(depth - centreDepth) * falloff) * gauss * oloSnowDiffusionWeight(tap.a);
+    sum += tap.rgb * weight;
+    total += weight;
 }
 
 void main()
 {
-    // Early out if SSS blur is disabled — still reset alpha to 1.0
-    // so the SSS mask doesn't leak into downstream passes
-    if (u_SSSFlags.x < 0.5)
+    ivec2 size = textureSize(u_SnowDiffuse, 0);
+    ivec2 pixel = clamp(ivec2(gl_FragCoord.xy), ivec2(0), size - ivec2(1));
+    vec4 centre = texelFetch(u_SnowDiffuse, pixel, 0);
+    float snowWeight = oloSnowDiffusionWeight(centre.a);
+    float strength = snowWeight * clamp(u_SSSFlags.y, 0.0, 1.0);
+
+    // Not snow, blur off, or nothing to scatter: add exactly nothing.
+    if (u_SSSFlags.x < 0.5 || !(snowWeight > OLO_SNOW_MIN_WEIGHT) || !(strength > 0.0))
     {
-        vec4 c = texture(u_SceneColor, v_TexCoord);
-        o_Color = vec4(c.rgb, 1.0);
+        o_Color = vec4(0.0);
         return;
     }
 
-    vec4 centerSample = texture(u_SceneColor, v_TexCoord);
-    float sssMask = centerSample.a;
+    float blurRadius = max(u_SSSBlurParams.x, 0.0);
+    float falloff = max(u_SSSBlurParams.y, 0.0);
+    float centreDepth = texelFetch(u_SceneDepth, pixel, 0).r;
 
-    // No SSS on this pixel — pass through with alpha reset to 1.0
-    if (sssMask < 0.001)
-    {
-        o_Color = vec4(centerSample.rgb, 1.0);
-        return;
-    }
-
-    float blurRadius = u_SSSBlurParams.x;
-    float blurFalloff = u_SSSBlurParams.y;
-    vec2 texelSize = vec2(1.0 / u_SSSBlurParams.z, 1.0 / u_SSSBlurParams.w);
-
-    float centerDepth = texture(u_SceneDepth, v_TexCoord).r;
-
-    vec3 result = centerSample.rgb * gaussWeights[0];
-    float totalWeight = gaussWeights[0];
-
-    // Two-pass separable blur (combined into single pass with diagonal sampling for simplicity)
-    // Horizontal + vertical averaged
+    // The centre tap carries its own snow weight like every other, so a
+    // lightly-covered pixel's diffuse half weighs in proportion to its cover.
+    vec3 sum = centre.rgb * (gaussWeights[0] * snowWeight);
+    float total = gaussWeights[0] * snowWeight;
     for (int i = 1; i < 5; ++i)
     {
-        float offset = float(i) * blurRadius;
-
-        // Horizontal samples
-        vec2 offsetH = vec2(texelSize.x * offset, 0.0);
-        vec4 sampleH1 = texture(u_SceneColor, v_TexCoord + offsetH);
-        vec4 sampleH2 = texture(u_SceneColor, v_TexCoord - offsetH);
-
-        // Vertical samples
-        vec2 offsetV = vec2(0.0, texelSize.y * offset);
-        vec4 sampleV1 = texture(u_SceneColor, v_TexCoord + offsetV);
-        vec4 sampleV2 = texture(u_SceneColor, v_TexCoord - offsetV);
-
-        // Bilateral depth weights (edge-aware: don't blur across depth discontinuities)
-        float depthH1 = texture(u_SceneDepth, v_TexCoord + offsetH).r;
-        float depthH2 = texture(u_SceneDepth, v_TexCoord - offsetH).r;
-        float depthV1 = texture(u_SceneDepth, v_TexCoord + offsetV).r;
-        float depthV2 = texture(u_SceneDepth, v_TexCoord - offsetV).r;
-
-        float wH1 = exp(-abs(depthH1 - centerDepth) * blurFalloff) * gaussWeights[i] * sampleH1.a;
-        float wH2 = exp(-abs(depthH2 - centerDepth) * blurFalloff) * gaussWeights[i] * sampleH2.a;
-        float wV1 = exp(-abs(depthV1 - centerDepth) * blurFalloff) * gaussWeights[i] * sampleV1.a;
-        float wV2 = exp(-abs(depthV2 - centerDepth) * blurFalloff) * gaussWeights[i] * sampleV2.a;
-
-        result += sampleH1.rgb * wH1 + sampleH2.rgb * wH2;
-        result += sampleV1.rgb * wV1 + sampleV2.rgb * wV2;
-        totalWeight += wH1 + wH2 + wV1 + wV2;
+        int offset = int(round(float(i) * blurRadius));
+        oloSnowBlurTap(pixel + ivec2(offset, 0), size, centreDepth, falloff, gaussWeights[i], sum, total);
+        oloSnowBlurTap(pixel - ivec2(offset, 0), size, centreDepth, falloff, gaussWeights[i], sum, total);
+        oloSnowBlurTap(pixel + ivec2(0, offset), size, centreDepth, falloff, gaussWeights[i], sum, total);
+        oloSnowBlurTap(pixel - ivec2(0, offset), size, centreDepth, falloff, gaussWeights[i], sum, total);
     }
 
-    result /= totalWeight;
-
-    // Blend blurred result with original based on SSS mask intensity
-    vec3 finalColor = mix(centerSample.rgb, result, sssMask);
-
-    // Reset alpha to 1.0 — the SSS mask has been consumed by this pass
-    o_Color = vec4(finalColor, 1.0);
+    vec3 blurred = (total > 0.0) ? sum / total : centre.rgb;
+    // Alpha 0: the blend leaves scene alpha alone (ZERO/ONE).
+    o_Color = vec4(strength * (blurred - centre.rgb), 0.0);
 }

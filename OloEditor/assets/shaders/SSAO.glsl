@@ -73,7 +73,9 @@ layout(location = 0) in vec2 v_TexCoord;
 // Scene depth (from ScenePass)
 layout(binding = 19) uniform sampler2D u_DepthTexture;
 
-// View-space normals (from ScenePass G-buffer, octahedral encoded in RG16F, attachment 2)
+// Octahedral-encoded normals: view-space from the forward scene target
+// (attachment 2), WORLD-space from the deferred G-Buffer (RT1). u_ViewMatrix
+// below brings either into view space.
 layout(binding = 22) uniform sampler2D u_NormalsTexture;
 
 // 4x4 random rotation noise texture (unit vectors)
@@ -95,6 +97,10 @@ layout(std140, binding = 9) uniform SSAOUBO
 
     mat4  u_Projection;
     mat4  u_InverseProjection;
+    // World-to-view rotation for the normal input: the camera view on the
+    // deferred path (G-Buffer RT1 is world-space), identity on the forward
+    // paths (scene attachment 2 is already view-space). SSAOUBOData::View.
+    mat4  u_ViewMatrix;
 };
 
 const float PI = 3.14159265359;
@@ -155,7 +161,7 @@ void main()
     }
 
     vec3 viewPos = reconstructViewPos(v_TexCoord, depth);
-    vec3 viewNormal = octDecode(encodedNormal);
+    vec3 viewNormal = normalize(mat3(u_ViewMatrix) * octDecode(encodedNormal));
 
     // Projected radius in pixels — clamp to avoid oversampling. Below 1px the
     // world radius is sub-texel (distant surface) so AO contributes nothing.

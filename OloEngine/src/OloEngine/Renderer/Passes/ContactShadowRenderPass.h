@@ -11,7 +11,7 @@ namespace OloEngine
     // @brief Screen-Space Contact Shadows (SSCS) post-process pass.
     //
     // Deferred-only stage inserted into the dynamic chain between SSR and Bloom:
-    //   SSRColor/SSGIColor/AOApplyColor/SSSColor/SceneColor → ContactShadow →
+    //   SSRColor/SSGIColor/AOApplyColor/SceneColor → ContactShadow →
     //   ContactShadowColor → Bloom → ...
     //
     // The pass reads the lit scene colour plus the deferred G-Buffer (world

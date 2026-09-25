@@ -11,10 +11,10 @@ namespace OloEngine
     // @brief Standalone AO Apply post-process pass.
     //
     // Standalone AO stage inserted into the dynamic chain:
-    //   SSSColor/SceneColor → AOApply → AOApplyColor → Bloom → ...
+    //   SceneColor → AOApply → AOApplyColor → Bloom → ...
     //
     // Inputs:
-    //   * Input framebuffer handle (SSSColor or SceneColor), selected during `Setup()`
+    //   * Input framebuffer handle (SceneColor), selected during `Setup()`
     //   * AO texture handle (from SSAORenderPass or GTAORenderPass), selected during `Setup()`
     //   * Scene depth texture handle (for bilateral AO upsampling), selected during `Setup()`
     //   * PostProcessUBO (binding 7), uploaded by Renderer3D

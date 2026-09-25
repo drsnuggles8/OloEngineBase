@@ -14,7 +14,7 @@ namespace OloEngine
     //
     // Deferred-only stage inserted into the dynamic chain between AO apply and
     // bloom:
-    //   AOApplyColor/SSSColor/SceneColor → SSR → SSRColor → Bloom → ...
+    //   AOApplyColor/SceneColor → SSR → SSRColor → Bloom → ...
     //
     // FIVE DRAWS IN ONE NODE (issues #902, #708), the CloudscapeRenderPass shape:
     //   A. PostProcess_SSR.glsl          → SSRSignal   (the stochastic term
@@ -79,7 +79,7 @@ namespace OloEngine
     // fresh SSRColor target (so the read/write of scene color never aliases).
     //
     // Inputs:
-    //   * Input framebuffer handle (AOApplyColor / SSSColor / SceneColor),
+    //   * Input framebuffer handle (AOApplyColor / SceneColor),
     //     selected during `Setup()` via the versioned name fallback.
     //   * Scene depth texture (for view-space position reconstruction + marching)
     //   * G-Buffer RT1 normal+roughness and RT0 albedo+metallic textures

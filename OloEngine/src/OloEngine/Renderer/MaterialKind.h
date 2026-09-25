@@ -23,14 +23,14 @@ namespace OloEngine
         // The default. Every material that predates #1231 deserializes to this
         // and shades exactly as it did.
         Generic = 0,
-        // Snow's stylized BRDF + sparkle overlay.
+        // Snow.
         //
         // SETTING THIS DOES NOT TURN A MATERIAL INTO SNOW, and it is not meant
         // to. Snow coverage is a WORLD-SPACE effect selected by the scene's snow
-        // parameters (u_SnowFlags / include/SnowCommon.glsl), applied on top of
-        // whatever a surface already shades as, and it writes its own SSS mask
-        // into scene-colour alpha for SSSRenderPass. That contract is untouched
-        // by #1231 and stays where it is.
+        // parameters (u_SnowFlags / include/SnowLayer.glsl): a material layer
+        // blended over whatever a surface already shades as, whose blur mask
+        // rides the diffusion hand-off lane in a range disjoint from skin's
+        // (issue #1451). That contract is independent of this field.
         //
         // The enumerator exists because snow IS the engine's second surface
         // kind, and leaving it out would have made this enum "generic and skin"

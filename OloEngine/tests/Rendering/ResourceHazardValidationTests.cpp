@@ -1305,17 +1305,21 @@ namespace
             f.OITResolve->TestDeclareWrite(std::string(ResourceNames::SceneColor));
         }
 
+        // The snow blur (issue #1451) adds into SceneColor in place from the
+        // diffusion hand-off lane: a SceneColor read-modify-write with no
+        // output of its own.
         f.SSS = AddDeclStub(f.Graph, "SSSPass");
         if (!deferred)
+        {
+            f.SSS->TestDeclareRead(std::string(ResourceNames::SceneSkinDiffuse));
             f.SSS->TestDeclareRead(std::string(ResourceNames::SceneColor));
-        if (!deferred)
-            f.SSS->TestDeclareWrite(std::string(ResourceNames::SSSColor));
+            f.SSS->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+        }
 
         f.AOApply = AddDeclStub(f.Graph, "AOApplyPass");
         if (!deferred)
         {
             f.AOApply->TestDeclareRead(std::string(ResourceNames::SceneColor));
-            f.AOApply->TestDeclareRead(std::string(ResourceNames::SSSColor));
             f.AOApply->TestDeclareRead(std::string(ResourceNames::AOBuffer));
             f.AOApply->TestDeclareRead(std::string(ResourceNames::SceneDepth));
             f.AOApply->TestDeclareWrite(std::string(ResourceNames::AOApplyColor));
@@ -1483,9 +1487,9 @@ TEST(RenderGraphConfigureTopology, StartupBaselineEdges_DerivedEdgesMakeGraphHaz
     scene->TestDeclareWrite(std::string(ResourceNames::SceneColor));
     scene->TestDeclareWrite(std::string(ResourceNames::SceneDepth));
 
+    AddDeclStub(graph, "SSSPass");
     AddDeclStub(graph, "ParticlePass");
     AddDeclStub(graph, "OITResolvePass");
-    AddDeclStub(graph, "SSSPass");
 
     // Simplified topology: AOApplyPass reads SceneColor, PostProcessPass reads AOApplyColor.
     auto aoApply = AddDeclStub(graph, "AOApplyPass");
@@ -1512,9 +1516,9 @@ TEST(RenderGraphConfigureTopology, StartupBaselineEdges_DerivedEdgesMakeGraphHaz
     // Only geometry-chain edges wired — NO Shadow→Scene baseline, NO AOApply→Post,
     // NO Vignette→UIComposite, NO UIComposite→Final.
     // All RAW edges are derived from declarations.
+    graph.AddExecutionDependency("SSSPass", "ParticlePass");
     graph.AddExecutionDependency("ParticlePass", "OITResolvePass");
-    graph.AddExecutionDependency("OITResolvePass", "SSSPass");
-    graph.AddExecutionDependency("SSSPass", "AOApplyPass");
+    graph.AddExecutionDependency("OITResolvePass", "AOApplyPass");
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
@@ -1701,14 +1705,15 @@ TEST(RenderGraphConfigureTopology, Slice28_SelectionOutlineOnlyVariantIsHazardFr
 }
 
 // =============================================================================
-// Particle → OITResolve → SSS → AOApply derived edges.
+// SSS → Particle → OITResolve → AOApply.
+// The snow blur (issue #1451) reads the diffusion hand-off lane and adds into
+// SceneColor in place, BEFORE the transparent band, so it is a SceneColor
+// read-modify-write ordered ahead of the particles like any other in-place
+// writer.
 // ParticlePass DeclareWrite(OITAccum, OITRevealage) + OITResolvePass
 // DeclareRead(OITAccum, OITRevealage) derives Particle→OITResolve.
-// OITResolvePass DeclareWrite(SceneColor) + SSSPass DeclareRead(SceneColor)
-// derives OITResolve→SSS.
-// SSSPass DeclareWrite(SSSColor) + AOApplyPass DeclareRead(SSSColor)
-// derives SSS→AOApply.
-// No explicit AddExecutionDependency calls needed for these three edges.
+// OITResolvePass DeclareWrite(SceneColor) + AOApplyPass DeclareRead(SceneColor)
+// derives OITResolve→AOApply.
 // =============================================================================
 
 TEST(RenderGraphConfigureTopology, Slice29_ParticleToOITResolveDerivedEdge)
@@ -1740,32 +1745,38 @@ TEST(RenderGraphConfigureTopology, Slice29_ParticleToOITResolveDerivedEdge)
         << HazardsToString(hazards);
 }
 
-TEST(RenderGraphConfigureTopology, Slice29_OITResolveToSSSPassDerivedEdge)
+TEST(RenderGraphConfigureTopology, Slice29_SSSPassBlursSceneColorInPlaceAheadOfTheTransparentBand)
 {
-    // OITResolvePass writes SceneColor; SSSRenderPass reads SceneColor.
-    // The RAW pair must derive OITResolve → SSSPass without an explicit edge.
+    // SSSRenderPass declares Read(SceneSkinDiffuse), Read/Write(SceneColor):
+    // an in-place blur with no output of its own (issue #1451). The WAW with
+    // the particle band is ordered explicitly, as for every in-place writer.
     RenderGraph graph;
 
+    auto sss = AddDeclStub(graph, "SSSPass");
+    sss->TestDeclareRead(std::string(ResourceNames::SceneSkinDiffuse));
+    sss->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    sss->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto particle = AddDeclStub(graph, "ParticlePass");
+    particle->TestDeclareWrite(std::string(ResourceNames::OITAccum));
+    particle->TestDeclareWrite(std::string(ResourceNames::OITRevealage));
+    particle->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
     auto oit = AddDeclStub(graph, "OITResolvePass");
+    oit->TestDeclareRead(std::string(ResourceNames::OITAccum));
+    oit->TestDeclareRead(std::string(ResourceNames::OITRevealage));
+    oit->TestDeclareRead(std::string(ResourceNames::SceneColor));
     oit->TestDeclareWrite(std::string(ResourceNames::SceneColor));
 
-    auto sss = AddDeclStub(graph, "SSSPass");
-    sss->TestDeclareRead(std::string(ResourceNames::SceneColor));
-    sss->TestDeclareWrite(std::string(ResourceNames::SSSColor));
-
-    auto aoApply = AddDeclStub(graph, "AOApplyPass");
-    aoApply->TestDeclareRead(std::string(ResourceNames::SSSColor));
-    aoApply->TestDeclareWrite(std::string(ResourceNames::AOApplyColor));
-
     auto final = AddDeclStub(graph, "FinalPass");
-    final->TestDeclareRead(std::string(ResourceNames::AOApplyColor));
+    final->TestDeclareRead(std::string(ResourceNames::SceneColor));
 
+    graph.AddExecutionDependency("SSSPass", "ParticlePass");
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
     EXPECT_TRUE(hazards.IsEmpty())
-        << "SceneColor DeclareWrite/DeclareRead must derive "
-           "OITResolvePass → SSSPass; SSSColor pair must derive SSS → AOApply."
+        << "The in-place snow blur ahead of the transparent band must be hazard-free."
         << HazardsToString(hazards);
 }
 
@@ -1784,6 +1795,11 @@ TEST(RenderGraphConfigureTopology, Slice29_FullGeometryTailNoExplicitEdgesIsHaza
     auto water = AddDeclStub(graph, "WaterPass");
     water->TestDeclareWrite(std::string(ResourceNames::SceneColor));
 
+    auto sss = AddDeclStub(graph, "SSSPass");
+    sss->TestDeclareRead(std::string(ResourceNames::SceneSkinDiffuse));
+    sss->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    sss->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
     auto particle = AddDeclStub(graph, "ParticlePass");
     particle->TestDeclareWrite(std::string(ResourceNames::OITAccum));
     particle->TestDeclareWrite(std::string(ResourceNames::OITRevealage));
@@ -1795,13 +1811,8 @@ TEST(RenderGraphConfigureTopology, Slice29_FullGeometryTailNoExplicitEdgesIsHaza
     oit->TestDeclareRead(std::string(ResourceNames::SceneColor));
     oit->TestDeclareWrite(std::string(ResourceNames::SceneColor));
 
-    auto sss = AddDeclStub(graph, "SSSPass");
-    sss->TestDeclareRead(std::string(ResourceNames::SceneColor));
-    sss->TestDeclareWrite(std::string(ResourceNames::SSSColor));
-
     auto aoApply = AddDeclStub(graph, "AOApplyPass");
     aoApply->TestDeclareRead(std::string(ResourceNames::SceneColor));
-    aoApply->TestDeclareRead(std::string(ResourceNames::SSSColor));
     aoApply->TestDeclareWrite(std::string(ResourceNames::AOApplyColor));
 
     auto final = AddDeclStub(graph, "FinalPass");
@@ -1809,12 +1820,13 @@ TEST(RenderGraphConfigureTopology, Slice29_FullGeometryTailNoExplicitEdgesIsHaza
 
     // Only WAW-ordering edges remain explicit; all RAW hops are derived.
     graph.AddExecutionDependency("ScenePass", "WaterPass");
-    graph.AddExecutionDependency("WaterPass", "ParticlePass");
+    graph.AddExecutionDependency("WaterPass", "SSSPass");
+    graph.AddExecutionDependency("SSSPass", "ParticlePass");
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
     EXPECT_TRUE(hazards.IsEmpty())
-        << "Particle→OITResolve→SSS→AOApply must all be hazard-free "
+        << "SSS→Particle→OITResolve→AOApply must all be hazard-free "
            "with only declaration-derived RAW edges."
         << HazardsToString(hazards);
 }
@@ -2681,21 +2693,25 @@ TEST(RGCommandContextBlackboard, Slice35_GetBlackboardReturnsGraphBlackboardWhen
         << "Freshly-constructed blackboard should have no populated handles.";
 }
 
-TEST(RenderGraphConfigureTopology, Slice35_OITResolveAndSSSOrderingDerivesFromDeclarations)
+TEST(RenderGraphConfigureTopology, Slice35_SSSInPlaceBlurAndOITResolveOrderingDerivesFromDeclarations)
 {
+    // SSSRenderPass  declares: Read(SceneSkinDiffuse), Read(SceneColor),
+    //                          Write(SceneColor)                     [in place]
     // OITResolvePass declares: Read(OITAccum), Read(OITRevealage),
-    //                          Read(SceneColor), Write(SceneColor)  [RMW]
-    // SSSRenderPass  declares: Read(SceneColor), Write(SSSColor)
+    //                          Read(SceneColor), Write(SceneColor)   [RMW]
     //
-    // The SceneColor RMW on OITResolve creates a RAW edge to SSSPass
-    // (because SSS reads SceneColor that OITResolve wrote).  The blackboard
-    // removes the per-frame SetInputFramebufferHandle side-channel; this
-    // test confirms the static declarations alone keep the topology
-    // hazard-free.
+    // Issue #1451 moved the snow blur AHEAD of the transparent band and made
+    // it write SceneColor in place, so OITResolve reads the blurred scene.
     RenderGraph graph;
 
     auto scene = AddDeclStub(graph, "ScenePass");
     scene->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneSkinDiffuse));
+
+    auto sss = AddDeclStub(graph, "SSSPass");
+    sss->TestDeclareRead(std::string(ResourceNames::SceneSkinDiffuse));
+    sss->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    sss->TestDeclareWrite(std::string(ResourceNames::SceneColor));
 
     auto particle = AddDeclStub(graph, "ParticlePass");
     particle->TestDeclareWrite(std::string(ResourceNames::OITAccum));
@@ -2707,50 +2723,13 @@ TEST(RenderGraphConfigureTopology, Slice35_OITResolveAndSSSOrderingDerivesFromDe
     oitResolve->TestDeclareRead(std::string(ResourceNames::SceneColor));
     oitResolve->TestDeclareWrite(std::string(ResourceNames::SceneColor));
 
-    auto sss = AddDeclStub(graph, "SSSPass");
-    sss->TestDeclareRead(std::string(ResourceNames::SceneColor));
-    sss->TestDeclareWrite(std::string(ResourceNames::SSSColor));
-
     auto final = AddDeclStub(graph, "FinalPass");
-    final->TestDeclareRead(std::string(ResourceNames::SSSColor));
+    final->TestDeclareRead(std::string(ResourceNames::SceneColor));
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
     EXPECT_TRUE(hazards.IsEmpty())
-        << "OITResolve → SSS ordering derives from SceneColor RAW "
-           "declaration — no explicit edge or per-frame side-channel needed."
-        << HazardsToString(hazards);
-}
-
-TEST(RenderGraphConfigureTopology, Slice35_SSSColorRAWEdgeToAOApplyDerivesFromDeclarations)
-{
-    // SSSRenderPass  declares: Read(SceneColor), Write(SSSColor)
-    // AOApplyRenderPass declares: Read(SSSColor), Write(AOApplyColor)
-    //
-    // The SSSColor RAW edge derives the SSS → AOApplyPass ordering without
-    // any explicit side-channel, validating the slice 35 contracts.
-    RenderGraph graph;
-
-    auto oitResolve = AddDeclStub(graph, "OITResolvePass");
-    oitResolve->TestDeclareRead(std::string(ResourceNames::SceneColor));
-    oitResolve->TestDeclareWrite(std::string(ResourceNames::SceneColor));
-
-    auto sss = AddDeclStub(graph, "SSSPass");
-    sss->TestDeclareRead(std::string(ResourceNames::SceneColor));
-    sss->TestDeclareWrite(std::string(ResourceNames::SSSColor));
-
-    auto aoApply = AddDeclStub(graph, "AOApplyPass");
-    aoApply->TestDeclareRead(std::string(ResourceNames::SSSColor));
-    aoApply->TestDeclareWrite(std::string(ResourceNames::AOApplyColor));
-
-    auto final = AddDeclStub(graph, "FinalPass");
-    final->TestDeclareRead(std::string(ResourceNames::AOApplyColor));
-    graph.SetFinalPass("FinalPass");
-
-    const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.IsEmpty())
-        << "SSS → AOApplyPass ordering derives from SSSColor RAW "
-           "declaration — no side-channel needed."
+        << "SSS → OITResolve ordering derives from the SceneColor declarations."
         << HazardsToString(hazards);
 }
 
@@ -3057,29 +3036,6 @@ TEST(RenderGraphConfigureTopology, Slice38_AOApplyPassSelfResolvesAOBufferAndSce
         << HazardsToString(hazards);
 }
 
-TEST(RenderGraphConfigureTopology, Slice38_AOApplyPassPrefersSSSColorOverSceneColor)
-{
-    // When SSSColor is produced upstream, AOApplyPass should pick it up as its
-    // input and the dependency chain SSS->AOApply must be hazard-free.
-    RenderGraph graph;
-
-    auto sss = AddDeclStub(graph, "SSSPass");
-    sss->TestDeclareWrite(std::string(ResourceNames::SSSColor));
-
-    auto aoApply = AddDeclStub(graph, "AOApplyPass");
-    aoApply->TestDeclareRead(std::string(ResourceNames::SSSColor));
-    aoApply->TestDeclareWrite(std::string(ResourceNames::AOApplyColor));
-
-    auto final = AddDeclStub(graph, "FinalPass");
-    final->TestDeclareRead(std::string(ResourceNames::AOApplyColor));
-    graph.SetFinalPass("FinalPass");
-
-    const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.IsEmpty())
-        << "AOApplyPass reading SSSColor — no hazard."
-        << HazardsToString(hazards);
-}
-
 // ---------------------------------------------------------------------------
 // PostProcessRenderPass self-resolves its five blackboard inputs.
 // ---------------------------------------------------------------------------
@@ -3087,7 +3043,7 @@ TEST(RenderGraphConfigureTopology, Slice38_AOApplyPassPrefersSSSColorOverSceneCo
 TEST(RenderGraphConfigureTopology, Slice39_PostProcessPassSelfResolvesInputChain)
 {
     // PostProcessPass reads the most downstream color source: AOApplyColor
-    // (when written) else SSSColor else SceneColor.  When AOApplyColor is
+    // (when written) else SceneColor.  When AOApplyColor is
     // present the dependency must be hazard-free.
     RenderGraph graph;
 

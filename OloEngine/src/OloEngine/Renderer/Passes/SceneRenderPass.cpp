@@ -95,6 +95,20 @@ namespace OloEngine
             [[maybe_unused]] const auto brdfRead = builder.Read(board.IBL.BrdfLut, RGReadUsage::ShaderSample);
         }
 
+        // THE FORWARD AO INPUTS (issue #1452). With a forward AO buffer
+        // produced, the colour pass's shaders read it for their ambient term,
+        // together with ForwardAODepth — the prepass depth, copied once — for
+        // the bilateral upsample.
+        m_ForwardAOBuffer = {};
+        m_ForwardAODepth = {};
+        if (board.Config.Path != RenderingPath::Deferred && m_ForwardScreenSpaceAOProduced &&
+            board.AO.AOBuffer.IsValid() && board.Scene.ForwardAODepth.IsValid())
+        {
+            m_ForwardAOBuffer = board.AO.AOBuffer;
+            m_ForwardAODepth = board.Scene.ForwardAODepth;
+            [[maybe_unused]] const auto aoRead = builder.Read(board.AO.AOBuffer, RGReadUsage::ShaderSample);
+            [[maybe_unused]] const auto depthRead = builder.Read(board.Scene.ForwardAODepth, RGReadUsage::ShaderSample);
+        }
         if (board.Scene.SceneDepth.IsValid())
         {
             m_SelectedSceneDepthExport = board.Scene.SceneDepth;
@@ -144,27 +158,111 @@ namespace OloEngine
                       m_FramebufferSpec.Width, m_FramebufferSpec.Height);
     }
 
-    void SceneRenderPass::Execute(RGCommandContext& context)
+    void SceneRenderPass::SetupForwardPrepass(RGBuilder& builder, FrameBlackboard& board)
+    {
+        m_PrepassSceneDepthExport = {};
+        m_PrepassSceneNormalsExport = {};
+        m_PrepassForwardAODepthExport = {};
+
+        // The same scene inputs Setup() declares: the prepass replays the same
+        // bucket, and terrain / voxel draws keep their own full program in it
+        // (colour masked), which samples the shadow maps and the IBL set.
+        builder.DependsOnPass("ShadowPass");
+        if (board.Shadows.ShadowMapCSM.IsValid())
+        {
+            [[maybe_unused]] const auto shadowCSMRead = builder.Read(board.Shadows.ShadowMapCSM, RGReadUsage::ShaderSample);
+        }
+        if (board.Shadows.ShadowMapAtlas.IsValid())
+        {
+            [[maybe_unused]] const auto shadowAtlasRead = builder.Read(board.Shadows.ShadowMapAtlas, RGReadUsage::ShaderSample);
+        }
+        if (board.IBL.IrradianceMap.IsValid())
+        {
+            [[maybe_unused]] const auto irradianceRead = builder.Read(board.IBL.IrradianceMap, RGReadUsage::ShaderSample);
+        }
+        if (board.IBL.PrefilterMap.IsValid())
+        {
+            [[maybe_unused]] const auto prefilterRead = builder.Read(board.IBL.PrefilterMap, RGReadUsage::ShaderSample);
+        }
+        if (board.IBL.BrdfLut.IsValid())
+        {
+            [[maybe_unused]] const auto brdfRead = builder.Read(board.IBL.BrdfLut, RGReadUsage::ShaderSample);
+        }
+
+        // The prepass writes depth and view normals, and exports both: these
+        // are the versions the AO nodes registered after it read.
+        if (board.Scene.SceneDepth.IsValid())
+        {
+            m_PrepassSceneDepthExport = board.Scene.SceneDepth;
+            builder.Write(board.Scene.SceneDepth, RGWriteUsage::TransferDest);
+        }
+        if (board.Scene.SceneNormals.IsValid())
+        {
+            m_PrepassSceneNormalsExport = board.Scene.SceneNormals;
+            builder.Write(board.Scene.SceneNormals, RGWriteUsage::TransferDest);
+        }
+        if (board.Scene.ForwardAODepth.IsValid())
+        {
+            m_PrepassForwardAODepthExport = board.Scene.ForwardAODepth;
+            builder.Write(board.Scene.ForwardAODepth, RGWriteUsage::TransferDest);
+        }
+        if (board.Scene.SceneColor.IsValid())
+            builder.Write(board.Scene.SceneColor, RGWriteUsage::RenderTarget);
+    }
+
+    void SceneRenderPass::ExecuteForwardPrepass(RGCommandContext& context, const Ref<Framebuffer>& sceneTarget)
     {
         OLO_PROFILE_FUNCTION();
 
-        if (const auto sceneHandle = GetPrimaryInputFramebufferHandle(); sceneHandle.IsValid())
-        {
-            if (auto resolvedSceneFB = context.ResolveFramebuffer(sceneHandle))
-                m_Target = resolvedSceneFB;
-        }
-
+        m_ForwardPrepassRan = false;
+        m_ForwardPrepassDrew = false;
+        if (sceneTarget)
+            m_Target = sceneTarget;
         if (!m_Target)
         {
-            OLO_CORE_ERROR("SceneRenderPass::Execute: No target framebuffer!");
+            OLO_CORE_ERROR("SceneRenderPass::ExecuteForwardPrepass: No target framebuffer!");
             return;
         }
 
-        // Deferred path: bind the G-Buffer instead of the forward scene FB.
-        // The G-Buffer is lazily created here so Forward / Forward+ paths pay
-        // zero memory cost if Deferred is never enabled.
+        Ref<Framebuffer> renderFB = BeginSceneFrame(false);
+        if (!renderFB)
+            return;
+
+        // FORCED ON WITH AO, and writing normals only then. The AO passes read
+        // the prepass's depth and view normals, so a frame with screen-space AO
+        // live runs the prepass even where the settings leave it off (Forward
+        // with ForwardPlusAutoSwitch disabled). A frame without it keeps the
+        // depth-only prepass it always had — byte-identical, and no dearer.
+        const bool writeViewNormals = m_ForwardScreenSpaceAOProduced;
+        const bool depthPrepass = Renderer3D::IsDepthPrepassEnabled() || writeViewNormals;
+        if (depthPrepass)
+        {
+            if (writeViewNormals)
+            {
+                // Attachment 2 starts at the "no normal here" sentinel the AO
+                // passes skip, so a pixel only a colour-masked custom program
+                // covered reads as unoccluded rather than as whatever normal
+                // the clear colour decodes to.
+                renderFB->ClearAttachment(2, glm::vec4(-2.0f, -2.0f, 0.0f, 0.0f));
+            }
+            RunDepthPrepass(writeViewNormals);
+        }
+
+        renderFB->Unbind();
+        ExportSceneDepthAndNormals(context, m_PrepassSceneDepthExport,
+                                   writeViewNormals ? m_PrepassSceneNormalsExport : RGTextureHandle{}, false,
+                                   /*exportVelocity*/ false);
+        if (writeViewNormals)
+            ExportSceneDepthAndNormals(context, m_PrepassForwardAODepthExport, RGTextureHandle{}, false,
+                                       /*exportVelocity*/ false);
+
+        m_ForwardPrepassRan = true;
+        m_ForwardPrepassDrew = depthPrepass;
+    }
+
+    Ref<Framebuffer> SceneRenderPass::BeginSceneFrame(bool deferredActive)
+    {
         auto const& rendererSettings = Renderer3D::GetRendererSettings();
-        const bool deferredActive = (rendererSettings.Path == RenderingPath::Deferred);
         if (deferredActive)
         {
             PrepareDeferredResources(rendererSettings.Deferred.MSAASampleCount);
@@ -272,28 +370,159 @@ namespace OloEngine
         // Re-bind shared scene resources that earlier passes (e.g. ShadowPass)
         // may have overwritten at the same binding points.
         CommandDispatch::BindSceneResources();
+        return renderFB;
+    }
 
+    void SceneRenderPass::RunDepthPrepass(bool writeViewNormals)
+    {
         // Depth prepass: render all geometry depth-only first, then re-execute
         // with GL_EQUAL and no depth writes for the color pass. This eliminates
         // overdraw from fragment shading of occluded pixels.
-        const bool depthPrepass = Renderer3D::IsDepthPrepassEnabled();
-        // Sub-pass GPU timestamp brackets (#316): split this pass's GPU time
-        // into DepthPrepass vs Color inside the render-graph executor's pass
-        // bracket. The pool prefixes the open pass's registered node name
-        // (RenderPipeline names this node "ScenePass"), so these publish as
-        // "ScenePass/DepthPrepass" and "ScenePass/Color"; surfaced as
-        // subPasses in olo_perf_pass_timings. Strictly additive around the
-        // existing Execute calls.
+        //
+        // Sub-pass GPU timestamp brackets (#316): the pool prefixes the open
+        // pass's registered node name, so this publishes as
+        // "ScenePass/DepthPrepass" on the deferred path and as
+        // "ScenePrepassPass/DepthPrepass" on the forward paths, where the
+        // prepass is its own node (issue #1452); surfaced as subPasses in
+        // olo_perf_pass_timings.
+        auto& rendererAPI = RenderCommand::GetRendererAPI();
         auto& gpuSubTimers = GPUPassTimerPool::GetInstance();
-        if (depthPrepass)
+        gpuSubTimers.BeginSubPass("DepthPrepass");
+        // Pass 1: depth only — CommandDispatch overrides per-command state
+        CommandDispatch::SetDepthPrepassActive(true, writeViewNormals);
+        m_CommandBucket.ExecuteParallel(rendererAPI);
+        CommandDispatch::SetDepthPrepassActive(false);
+        // The prepass masks every colour write, and nothing after it may inherit
+        // that: on the forward paths the next pass is no longer this pass's own
+        // colour sub-pass, which re-applies state per draw, but the AO passes —
+        // and a fullscreen raster pass drawing through an all-false mask leaves
+        // its target at the clear value (SSAO read as "no occlusion anywhere"
+        // until this was restored, #1452).
+        rendererAPI.SetColorMask(true, true, true, true);
+        CommandDispatch::InvalidateRenderStateCache();
+        gpuSubTimers.EndSubPass();
+    }
+
+    void SceneRenderPass::ExportSceneDepthAndNormals(RGCommandContext& context, const RGTextureHandle depthExport,
+                                                     const RGTextureHandle normalsExport, const bool deferredActive, const bool exportVelocity)
+    {
+        // Publish scene-derived textures through graph-owned handles. The
+        // scene pass still renders into the legacy scene/G-Buffer
+        // attachments, but downstream consumers now sample the exported graph
+        // textures instead of importing those attachments directly.
+        // Identities throughout (issue #691): the export target
+        // is a graph TRANSIENT, which only began answering ResolveTextureHandle
+        // once the planner recorded a handle for pooled textures. The self-copy
+        // guard now compares OBJECTS -- under driver names a recycled name could
+        // make source and export look identical and skip a copy the frame needed.
+        const auto copySceneExport = [this, &context](const RGTextureHandle handle,
+                                                      const RHI::ResourceHandle sourceTexture)
         {
-            // Pass 1: depth only — CommandDispatch overrides per-command state
-            gpuSubTimers.BeginSubPass("DepthPrepass");
-            CommandDispatch::SetDepthPrepassActive(true);
-            m_CommandBucket.ExecuteParallel(rendererAPI);
-            CommandDispatch::SetDepthPrepassActive(false);
-            gpuSubTimers.EndSubPass();
+            if (!handle.IsValid() || !sourceTexture.IsValid() ||
+                m_FramebufferSpec.Width == 0u || m_FramebufferSpec.Height == 0u)
+            {
+                return;
+            }
+
+            const RHI::ResourceHandle exportedTexture = context.ResolveTextureHandle(handle);
+            if (!exportedTexture.IsValid() || exportedTexture == sourceTexture)
+                return;
+
+            RenderCommand::CopyImageSubData(sourceTexture, RendererAPI::TextureTargetType::Texture2D,
+                                            exportedTexture, RendererAPI::TextureTargetType::Texture2D,
+                                            m_FramebufferSpec.Width, m_FramebufferSpec.Height);
+        };
+
+        const RHI::ResourceHandle sourceDepth = deferredActive && m_GBuffer
+                                                    ? m_GBuffer->GetDepthAttachmentHandle()
+                                                    : m_Target->GetDepthAttachmentHandle();
+        copySceneExport(depthExport, sourceDepth);
+
+        if (!deferredActive)
+            copySceneExport(normalsExport, m_Target->GetColorAttachmentHandle(2));
+
+        if (exportVelocity && m_SelectedVelocityExport.IsValid())
+        {
+            // Velocity is written by the colour pass alone, so it is exported
+            // with the colour half's depth/normal export and never by the
+            // forward prepass node.
+            const RHI::ResourceHandle sourceVelocity = deferredActive && m_GBuffer
+                                                           ? m_GBuffer->GetColorAttachmentHandle(GBuffer::Velocity)
+                                                           : m_Target->GetColorAttachmentHandle(3);
+            copySceneExport(m_SelectedVelocityExport, sourceVelocity);
         }
+    }
+
+    void SceneRenderPass::Execute(RGCommandContext& context)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (const auto sceneHandle = GetPrimaryInputFramebufferHandle(); sceneHandle.IsValid())
+        {
+            if (auto resolvedSceneFB = context.ResolveFramebuffer(sceneHandle))
+                m_Target = resolvedSceneFB;
+        }
+
+        if (!m_Target)
+        {
+            OLO_CORE_ERROR("SceneRenderPass::Execute: No target framebuffer!");
+            return;
+        }
+
+        // Deferred path: bind the G-Buffer instead of the forward scene FB.
+        // The G-Buffer is lazily created here so Forward / Forward+ paths pay
+        // zero memory cost if Deferred is never enabled.
+        auto const& rendererSettings = Renderer3D::GetRendererSettings();
+        const bool deferredActive = (rendererSettings.Path == RenderingPath::Deferred);
+        auto& rendererAPI = RenderCommand::GetRendererAPI();
+
+        Ref<Framebuffer> renderFB;
+        bool depthPrepass = false;
+        if (!deferredActive && m_ForwardPrepassRan)
+        {
+            // THE COLOUR HALF OF A SPLIT FRAME (issue #1452). The prepass node
+            // already cleared, batched and ran the prepass, and the AO passes
+            // have run since — so the bindings those passes left behind are
+            // re-established here rather than inherited.
+            m_ForwardPrepassRan = false;
+            depthPrepass = m_ForwardPrepassDrew;
+            renderFB = m_Target;
+            renderFB->Bind();
+            rendererAPI.SetDepthTest(true);
+            rendererAPI.SetDepthFunc(RHI::CompareOp::Less);
+            rendererAPI.SetDepthMask(true);
+            rendererAPI.SetBlendState(false);
+            rendererAPI.SetCullFace(RHI::CullMode::Back);
+            rendererAPI.SetPolygonMode(RHI::PolygonMode::Fill);
+            CommandDispatch::InvalidateBindingCaches();
+
+            // Publish this frame's AO buffer to every forward shader from here
+            // on — this pass's colour draws and the forward geometry passes
+            // after it (foliage, groom, water, decals) — and re-upload the
+            // camera block, whose ScreenSpaceAOParams lane says it is live.
+            const RHI::ResourceHandle aoTexture =
+                m_ForwardAOBuffer.IsValid() ? context.ResolveTextureHandle(m_ForwardAOBuffer) : RHI::ResourceHandle{};
+            const RHI::ResourceHandle aoDepth =
+                m_ForwardAODepth.IsValid() ? context.ResolveTextureHandle(m_ForwardAODepth) : RHI::ResourceHandle{};
+            CommandDispatch::SetForwardScreenSpaceAO(
+                glm::vec4(m_ForwardScreenSpaceAOApplied ? 1.0f : 0.0f, m_ForwardScreenSpaceAOStrength, 0.0f, 0.0f),
+                aoTexture, aoDepth);
+            CommandDispatch::UploadCameraUBO();
+            CommandDispatch::BindSceneResources();
+        }
+        else
+        {
+            renderFB = BeginSceneFrame(deferredActive);
+            if (!renderFB)
+                return;
+            depthPrepass = Renderer3D::IsDepthPrepassEnabled();
+            if (depthPrepass)
+                RunDepthPrepass(false);
+        }
+
+        auto& captureManager = FrameCaptureManager::GetInstance();
+        const bool capturing = captureManager.IsCapturing();
+        auto& gpuSubTimers = GPUPassTimerPool::GetInstance();
 
         // Flush deferred occlusion query proxy draws. When a depth prepass ran,
         // the depth buffer is fully populated; otherwise the first Execute below
@@ -374,6 +603,14 @@ namespace OloEngine
                                           vpWidth, vpHeight);
             reflectionProbes.BindForShading();
         }
+
+        // Republish the forward screen-space AO inputs LAST, right before the
+        // colour draws (issue #1452). Forward+ light culling rebinds
+        // TEX_POSTPROCESS_DEPTH to the live depth attachment for its tile
+        // reduction, after BindSceneResources published the AO depth COPY
+        // there; left alone, every colour draw's AO upsample would sample the
+        // attachment it is depth-testing against.
+        CommandDispatch::BindForwardScreenSpaceAO();
 
         // Set up color pass state AFTER occlusion flush (which mutates GL state)
         if (depthPrepass)
@@ -521,48 +758,8 @@ namespace OloEngine
             m_GBuffer->Resolve();
         }
 
-        // Publish scene-derived textures through graph-owned handles. The
-        // scene pass still renders into the legacy scene/G-Buffer
-        // attachments, but downstream consumers now sample the exported graph
-        // textures instead of importing those attachments directly.
-        // Identities throughout (issue #691): the export target
-        // is a graph TRANSIENT, which only began answering ResolveTextureHandle
-        // once the planner recorded a handle for pooled textures. The self-copy
-        // guard now compares OBJECTS -- under driver names a recycled name could
-        // make source and export look identical and skip a copy the frame needed.
-        const auto copySceneExport = [this, &context](const RGTextureHandle handle,
-                                                      const RHI::ResourceHandle sourceTexture)
-        {
-            if (!handle.IsValid() || !sourceTexture.IsValid() ||
-                m_FramebufferSpec.Width == 0u || m_FramebufferSpec.Height == 0u)
-            {
-                return;
-            }
-
-            const RHI::ResourceHandle exportedTexture = context.ResolveTextureHandle(handle);
-            if (!exportedTexture.IsValid() || exportedTexture == sourceTexture)
-                return;
-
-            RenderCommand::CopyImageSubData(sourceTexture, RendererAPI::TextureTargetType::Texture2D,
-                                            exportedTexture, RendererAPI::TextureTargetType::Texture2D,
-                                            m_FramebufferSpec.Width, m_FramebufferSpec.Height);
-        };
-
-        const RHI::ResourceHandle sourceDepth = deferredActive && m_GBuffer
-                                                    ? m_GBuffer->GetDepthAttachmentHandle()
-                                                    : m_Target->GetDepthAttachmentHandle();
-        copySceneExport(m_SelectedSceneDepthExport, sourceDepth);
-
-        if (!deferredActive)
-        {
-            const RHI::ResourceHandle sourceNormals = m_Target->GetColorAttachmentHandle(2);
-            copySceneExport(m_SelectedSceneNormalsExport, sourceNormals);
-        }
-
-        const RHI::ResourceHandle sourceVelocity = deferredActive && m_GBuffer
-                                                       ? m_GBuffer->GetColorAttachmentHandle(GBuffer::Velocity)
-                                                       : m_Target->GetColorAttachmentHandle(3);
-        copySceneExport(m_SelectedVelocityExport, sourceVelocity);
+        ExportSceneDepthAndNormals(context, m_SelectedSceneDepthExport, m_SelectedSceneNormalsExport, deferredActive,
+                                   /*exportVelocity*/ true);
 
         // Deferred debug visualisation: until DeferredLightingPass lands in
         // Copy the selected G-Buffer channel into the forward scene
@@ -887,6 +1084,10 @@ namespace OloEngine
         m_SelectedSceneDepthExport = {};
         m_SelectedSceneNormalsExport = {};
         m_SelectedVelocityExport = {};
+        m_PrepassSceneDepthExport = {};
+        m_PrepassSceneNormalsExport = {};
+        m_ForwardPrepassRan = false;
+        m_ForwardPrepassDrew = false;
 
         // Recreate the framebuffer with current specs
         if (m_FramebufferSpec.Width > 0 && m_FramebufferSpec.Height > 0)

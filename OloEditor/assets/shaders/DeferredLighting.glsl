@@ -286,6 +286,10 @@ layout(location = 0) out vec4 o_Color;
 // in order, spell the same target as location 4.
 layout(location = 1) out vec4 o_SkinDiffuse;
 
+// The snow layer (issue #1451), BEFORE the shared lighting body so its snow
+// terms compile in. This pass only reads a weight, so no coverage and no wind.
+#define OLO_SNOW_LAYER_NO_COVERAGE 1
+#include "include/SnowLayer.glsl"
 #include "include/DeferredLightingShared.glsl"
 
 #define OLO_SSAO_TAP_DEPTH(uv) texture(u_GBufferDepth, (uv)).r
@@ -345,6 +349,13 @@ void main()
     // which the ladder reads as "no baked GI" and falls through to probes/IBL.
     vec4 bakedGI = texture(u_GBufferBakedGI, v_TexCoord);
 
+    // THE SNOW LAYER (issue #1451). RT3.a — the material profile — carries the
+    // snow weight the G-Buffer writer blended the material by, and RT1 the
+    // snow-FILLED normal. The shading normal is rebuilt from that normal with
+    // the same function the forward shaders call, at the ABSOLUTE position.
+    float snowWeight = clamp(texture(u_GBufferVelocity, v_TexCoord).a, 0.0, 1.0);
+    N = oloSnowLayerShadingNormal(N, worldPos + u_RenderOrigin, snowWeight);
+
     // Screen-space AO for the ambient term (issue #1336) — the same upsample
     // PostProcess_SSAOApply runs on the forward paths, handed to the ambient
     // split alone. 1.0 when no AO technique ran.
@@ -361,7 +372,7 @@ void main()
         sunContactVisibility = oloContactShadowVisibility(v_TexCoord, depth, N, gl_FragCoord.xy);
 
     vec3 color = ComputeDeferredLitSplit(albedo, metallic, N, roughness, ao, screenAO, sunContactVisibility,
-                                         emissive, worldPos, bakedGI, o_SkinDiffuse);
+                                         emissive, worldPos, bakedGI, snowWeight, o_SkinDiffuse);
 
     o_Color = vec4(color, 1.0);
 }

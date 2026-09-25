@@ -87,8 +87,18 @@ namespace OloEngine
         // Cloud shadow transmittance map (set per-frame, issue #633)
         RHI::ResourceHandle CloudShadowTexture{};
 
+        // Screen-space AO for the forward ambient term (issue #1452): the
+        // camera-UBO lane and the two textures BindSceneResources publishes.
+        glm::vec4 ForwardScreenSpaceAOParams{ 0.0f };
+        RHI::ResourceHandle ForwardScreenSpaceAOTexture{};
+        RHI::ResourceHandle ForwardScreenSpaceAODepth{};
+        bool ForwardScreenSpaceAOSuspended = false;
+
         // Depth prepass override: when true, ApplyPODRenderState forces depth-only state
         bool DepthPrepassActive = false;
+        // ...and the forward prepass also writes scene attachment 2's view
+        // normal (issue #1452) — see SetDepthPrepassActive.
+        bool DepthPrepassWritesNormals = false;
         // Renderer-ID snapshot for the prepass depth-only shader swap, refreshed
         // in SetDepthPrepassActive(true) so shader hot-reloads are picked up.
         Renderer3D::DepthPrepassShaderIDs DepthPrepassShaders;
@@ -161,6 +171,10 @@ namespace OloEngine
         u32 GPUSceneConsumedDraws = 0;
         u32 GPUSceneFallbackDraws = 0;
         u16 LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
+        // Whether the depth-normal prepass left scene attachment 2 writable
+        // (ApplyPrepassViewNormalWrite). A cache hit in ApplyPODRenderState
+        // closes it, so a draw that does not write the normal never inherits it.
+        bool PrepassNormalWriteOpen = false;
         u16 LastMaterialDataIndex = INVALID_MATERIAL_DATA_INDEX;
         // Heap re-initialisation epoch the cached material UBO was built under.
         // Its per-material heap offsets index THAT heap, so the cache must be
@@ -447,6 +461,7 @@ namespace OloEngine
         {
             // Apply safe defaults so no stale GL state persists
             Data().LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
+            Data().PrepassNormalWriteOpen = false; // the global mask call below resets every attachment
             static const PODRenderState s_Default{};
             api.SetBlendState(s_Default.blendEnabled);
             api.SetDepthTest(s_Default.depthTestEnabled);
@@ -502,8 +517,22 @@ namespace OloEngine
         }
 
         if (renderStateIndex == Data().LastRenderStateIndex)
+        {
+            // The cached state is still in force, except the view-normal write
+            // a previous depth-normal prepass draw opened on top of it.
+            // Outside the prepass the flag is merely stale (RunDepthPrepass
+            // reopened every attachment when it ended) and is dropped silently.
+            if (Data().PrepassNormalWriteOpen)
+            {
+                if (s_FrameData.DepthPrepassActive)
+                    api.SetColorMaskForAttachment(2, false, false, false, false);
+                Data().PrepassNormalWriteOpen = false;
+            }
             return;
+        }
         Data().LastRenderStateIndex = renderStateIndex;
+        // The global colour-mask call below resets every attachment's mask.
+        Data().PrepassNormalWriteOpen = false;
 
         const auto& state = FrameDataBufferManager::Get().GetRenderState(renderStateIndex);
         api.SetBlendState(state.blendEnabled);
@@ -1332,19 +1361,63 @@ namespace OloEngine
     static RHI::ResourceHandle ResolveDepthPrepassShader(const PODMaterialData& mat)
     {
         const auto& ids = s_FrameData.DepthPrepassShaders;
-        const bool isStatic = (mat.shaderRendererID == ids.PBRStatic ||
-                               mat.shaderRendererID == ids.GBufferStatic);
-        const bool isSkinned = !isStatic &&
-                               (mat.shaderRendererID == ids.PBRSkinned ||
-                                mat.shaderRendererID == ids.GBufferSkinned);
+        const RHI::ResourceHandle program = mat.shaderRendererID;
+        const bool isStatic = (program == ids.PBRStatic || program == ids.GBufferStatic);
+        const bool isSkinned = !isStatic && (program == ids.PBRSkinned || program == ids.GBufferSkinned);
         if (!isStatic && !isSkinned)
-            return mat.shaderRendererID;
+            return program;
 
         const bool isMask = (mat.alphaMode == 1);
+        // The forward prepass with screen-space AO live writes the view normal
+        // too (issue #1452). Only the FORWARD programs swap to the normal
+        // variants: a G-Buffer program's attachment 2 is not a view normal.
+        const bool forwardProgram = (program == ids.PBRStatic || program == ids.PBRSkinned);
+        if (s_FrameData.DepthPrepassActive && s_FrameData.DepthPrepassWritesNormals && forwardProgram)
+        {
+            const RHI::ResourceHandle normalShader =
+                isStatic ? (isMask ? ids.DepthNormalMaskStatic : ids.DepthNormalStatic)
+                         : (isMask ? ids.DepthNormalMaskSkinned : ids.DepthNormalSkinned);
+            if (normalShader.IsValid())
+                return normalShader;
+        }
         const RHI::ResourceHandle depthShader = isStatic
                                                     ? (isMask ? ids.DepthMaskStatic : ids.DepthStatic)
                                                     : (isMask ? ids.DepthMaskSkinned : ids.DepthSkinned);
-        return depthShader.IsValid() ? depthShader : mat.shaderRendererID;
+        return depthShader.IsValid() ? depthShader : program;
+    }
+
+    // THE FORWARD PREPASS'S ONE COLOUR WRITE (issue #1452): scene attachment
+    // 2's view normal, for a draw whose program writes it — the
+    // DepthNormalPrepass* swaps and the terrain / voxel programs, which run
+    // whole in the prepass. Every other program stays fully masked (a
+    // colour-masked custom program declares no normal the AO passes could
+    // trust), and so does every blended draw.
+    //
+    // Set on every prepass draw that calls this. A draw that does not (the
+    // skybox, a quad, a custom program) goes through ApplyPODRenderState alone:
+    // its full apply resets every attachment, and its cache hit closes
+    // attachment 2 when an earlier draw left it open (PrepassNormalWriteOpen),
+    // so the render-state cache stays valid for the whole prepass.
+    static void ApplyPrepassViewNormalWrite(RendererAPI& api, u16 renderStateIndex, bool programWritesViewNormal)
+    {
+        if (!s_FrameData.DepthPrepassActive || !s_FrameData.DepthPrepassWritesNormals)
+            return;
+        const bool blended = renderStateIndex != INVALID_RENDER_STATE_INDEX &&
+                             FrameDataBufferManager::Get().GetRenderState(renderStateIndex).blendEnabled;
+        const bool enable = programWritesViewNormal && !blended;
+        if (enable != Data().PrepassNormalWriteOpen)
+        {
+            api.SetColorMaskForAttachment(2, enable, enable, false, false);
+            Data().PrepassNormalWriteOpen = enable;
+        }
+    }
+
+    [[nodiscard]] static bool IsDepthNormalPrepassProgram(RHI::ResourceHandle program)
+    {
+        const auto& ids = s_FrameData.DepthPrepassShaders;
+        return program.IsValid() &&
+               (program == ids.DepthNormalStatic || program == ids.DepthNormalSkinned ||
+                program == ids.DepthNormalMaskStatic || program == ids.DepthNormalMaskSkinned);
     }
 
     // Helper: Upload bone matrices from FrameDataBuffer.
@@ -1672,6 +1745,53 @@ namespace OloEngine
         // freshly compute-written cloud shadows and the VSM physical pool.
         // Their first sampled transitions must belong to the caller.
         BindShadowTextures(api);
+
+        BindForwardScreenSpaceAO();
+    }
+
+    void CommandDispatch::BindForwardScreenSpaceAO()
+    {
+        // The forward shaders' screen-space AO inputs (issue #1452) — see
+        // include/ForwardScreenSpaceAO.glsl. White when AO is not live for
+        // this pass, so the declared samplers never dangle; the camera UBO's
+        // ScreenSpaceAOParams.x is what says whether the value is meaningful.
+        const Ref<Texture2D>& white = Renderer3D::GetWhiteTexture();
+        const RHI::ResourceHandle whiteHandle = white ? white->GetRHIHandle() : RHI::ResourceHandle{};
+        const bool aoSuspended = s_FrameData.ForwardScreenSpaceAOSuspended;
+        const RHI::ResourceHandle aoTexture = !aoSuspended && s_FrameData.ForwardScreenSpaceAOTexture.IsValid()
+                                                  ? s_FrameData.ForwardScreenSpaceAOTexture
+                                                  : whiteHandle;
+        const RHI::ResourceHandle aoDepth = !aoSuspended && s_FrameData.ForwardScreenSpaceAODepth.IsValid()
+                                                ? s_FrameData.ForwardScreenSpaceAODepth
+                                                : whiteHandle;
+        if (aoTexture.IsValid())
+        {
+            HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_SSAO, aoTexture,
+                                                     RHI::HeapSlotLifetime::FrameTransient);
+            InvalidateTextureSlot(ShaderBindingLayout::TEX_SSAO);
+        }
+        if (aoDepth.IsValid())
+        {
+            HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, aoDepth,
+                                                     RHI::HeapSlotLifetime::FrameTransient);
+            InvalidateTextureSlot(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH);
+        }
+    }
+
+    void CommandDispatch::SetForwardScreenSpaceAO(const glm::vec4& params, RHI::ResourceHandle aoTexture,
+                                                  RHI::ResourceHandle depthTexture)
+    {
+        OLO_CORE_ASSERT(!s_RecordingData, "Frame state is frozen during recording");
+        const bool live = params.x > 0.5f && aoTexture.IsValid() && depthTexture.IsValid();
+        s_FrameData.ForwardScreenSpaceAOParams = live ? params : glm::vec4(0.0f);
+        s_FrameData.ForwardScreenSpaceAOTexture = live ? aoTexture : RHI::ResourceHandle{};
+        s_FrameData.ForwardScreenSpaceAODepth = live ? depthTexture : RHI::ResourceHandle{};
+    }
+
+    void CommandDispatch::SuspendForwardScreenSpaceAO(bool suspend)
+    {
+        OLO_CORE_ASSERT(!s_RecordingData, "Frame state is frozen during recording");
+        s_FrameData.ForwardScreenSpaceAOSuspended = suspend;
     }
 
     void CommandDispatch::UploadMaterialForDirectDraw(const PODMaterialData& mat, u16 materialDataIndex)
@@ -1725,7 +1845,12 @@ namespace OloEngine
         s_FrameData.AtlasRawShadowTexture = {};
         s_FrameData.SnowDepthTexture = {};
         s_FrameData.CloudShadowTexture = {};
+        s_FrameData.ForwardScreenSpaceAOParams = glm::vec4(0.0f);
+        s_FrameData.ForwardScreenSpaceAOTexture = {};
+        s_FrameData.ForwardScreenSpaceAODepth = {};
+        s_FrameData.ForwardScreenSpaceAOSuspended = false;
         s_FrameData.DepthPrepassActive = false;
+        s_FrameData.DepthPrepassWritesNormals = false;
         s_FrameData.DepthPrepassColorPassActive = false;
         s_FrameData.OverdrawActive = false;
         Data().Stats.Reset();
@@ -1750,10 +1875,11 @@ namespace OloEngine
         Data().BoundUBOs.fill(RHI::NullResource);
     }
 
-    void CommandDispatch::SetDepthPrepassActive(bool active)
+    void CommandDispatch::SetDepthPrepassActive(bool active, bool writeViewNormals)
     {
         OLO_CORE_ASSERT(!s_RecordingData, "Frame state is frozen during recording");
         s_FrameData.DepthPrepassActive = active;
+        s_FrameData.DepthPrepassWritesNormals = active && writeViewNormals;
         if (active)
         {
             s_FrameData.DepthPrepassColorPassActive = false;
@@ -1764,6 +1890,16 @@ namespace OloEngine
         }
         // Invalidate cache so the next command re-applies state
         InvalidateRenderStateCache();
+    }
+
+    bool CommandDispatch::IsDepthPrepassActive()
+    {
+        return s_FrameData.DepthPrepassActive;
+    }
+
+    bool CommandDispatch::DoesDepthPrepassWriteNormals()
+    {
+        return s_FrameData.DepthPrepassActive && s_FrameData.DepthPrepassWritesNormals;
     }
 
     void CommandDispatch::SetDepthPrepassColorPassActive(bool active)
@@ -1910,6 +2046,11 @@ namespace OloEngine
         // Reconstruction flavour (#691): terrain tessellation scale,
         // water depth math and the culling compute read this member.
         cameraData.ProjectionForReconstruction = RHI::AdjustProjectionForShaderReconstruction(projection);
+        // The forward shaders' screen-space AO lane (issue #1452). A mirrored
+        // replay clears it first (PlanarReflectionRenderPass): the AO buffer
+        // belongs to the main view.
+        cameraData.ScreenSpaceAOParams =
+            s_FrameData.ForwardScreenSpaceAOSuspended ? glm::vec4(0.0f) : s_FrameData.ForwardScreenSpaceAOParams;
         Data().CameraUBO->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
         BindUBOIfNeeded(api, ShaderBindingLayout::UBO_CAMERA, Data().CameraUBO->GetRHIHandle());
     }
@@ -2271,6 +2412,7 @@ namespace OloEngine
         {
             shaderToBind = ResolveDepthPrepassShader(mat);
             prepassDepthOnly = (shaderToBind != mat.shaderRendererID);
+            ApplyPrepassViewNormalWrite(api, cmd->renderStateIndex, IsDepthNormalPrepassProgram(shaderToBind));
         }
         else if (s_FrameData.OverdrawActive)
         {
@@ -2315,7 +2457,9 @@ namespace OloEngine
             {
                 ShaderBindingLayout::ModelUBO modelData;
                 modelData.Model = cmd->transform;
-                modelData.Normal = glm::mat4(1.0f); // Not used in depth-only pass
+                // Read only by a prepass that writes view normals (#1452).
+                modelData.Normal = s_FrameData.DepthPrepassWritesNormals ? glm::transpose(glm::inverse(cmd->transform))
+                                                                         : glm::mat4(1.0f);
                 modelData.EntityID = cmd->entityID;
                 modelData.PadEntity[0] = 0;
                 modelData.PadEntity[1] = 0;
@@ -2338,7 +2482,11 @@ namespace OloEngine
             // coverage as the color pass. (Also fixes the pre-swap behavior,
             // where the prepass ran the full shader against whatever material
             // state the previous draw left bound.)
-            if (prepassDepthOnly && mat.alphaMode == 1)
+            //
+            // A prepass that writes view normals (issue #1452) reads the whole
+            // material: the normal map, its scale, the skin detail band and the
+            // ocular lanes all shape the normal it writes.
+            if (prepassDepthOnly && (mat.alphaMode == 1 || s_FrameData.DepthPrepassWritesNormals))
             {
                 UploadMaterialState(api, mat, cmd->materialDataIndex);
             }
@@ -2494,6 +2642,7 @@ namespace OloEngine
         {
             shaderToBind = ResolveDepthPrepassShader(mat);
             prepassDepthOnly = (shaderToBind != mat.shaderRendererID);
+            ApplyPrepassViewNormalWrite(api, cmd->renderStateIndex, IsDepthNormalPrepassProgram(shaderToBind));
         }
         else if (s_FrameData.OverdrawActive)
         {
@@ -2532,7 +2681,7 @@ namespace OloEngine
         // Material UBO + texture bindings (skipped when material unchanged).
         // A depth-only prepass draw needs material state only for the MASK
         // alpha test (cutoff + albedo); opaque depth-only draws skip it.
-        if (!prepassDepthOnly || mat.alphaMode == 1)
+        if (!prepassDepthOnly || mat.alphaMode == 1 || s_FrameData.DepthPrepassWritesNormals)
         {
             UploadMaterialState(api, mat, cmd->materialDataIndex);
         }
@@ -2998,6 +3147,9 @@ namespace OloEngine
 
         // Resolve and apply render state from table
         ApplyPODRenderState(cmd->renderStateIndex, api);
+        // Terrain runs its whole program in the prepass, which writes the
+        // snow-filled view normal of attachment 2 (issue #1452).
+        ApplyPrepassViewNormalWrite(api, cmd->renderStateIndex, true);
 
         // Bind shader
         if (Data().CurrentBoundShader != cmd->shaderRendererID)
@@ -3126,6 +3278,9 @@ namespace OloEngine
 
         // Resolve and apply render state from table
         ApplyPODRenderState(cmd->renderStateIndex, api);
+        // Voxel terrain runs its whole program in the prepass, which writes the
+        // view normal of attachment 2 (issue #1452).
+        ApplyPrepassViewNormalWrite(api, cmd->renderStateIndex, true);
 
         // Bind shader
         if (Data().CurrentBoundShader != cmd->shaderRendererID)

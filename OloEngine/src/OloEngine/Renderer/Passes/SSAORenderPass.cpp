@@ -24,6 +24,7 @@ namespace OloEngine
         RenderGraphNode::Setup(builder, blackboard);
         m_SelectedSceneDepthTexture = {};
         m_SelectedSceneNormalsTexture = {};
+        m_SceneNormalsAreViewSpace = false;
         m_SelectedAOOutputTexture = {};
         m_SelectedBlurFramebuffer = {};
 
@@ -38,6 +39,12 @@ namespace OloEngine
         if (blackboard.Scene.SceneNormals.IsValid())
         {
             m_SelectedSceneNormalsTexture = blackboard.Scene.SceneNormals;
+            // SSAO.glsl rotates its normal input by u_ViewMatrix. The deferred
+            // G-Buffer's normals are WORLD-space; decoding them as view-space
+            // tilted every hemisphere by the camera's rotation, so deferred
+            // SSAO found occlusion the forward path (view-space normals) did
+            // not, on identical geometry.
+            m_SceneNormalsAreViewSpace = blackboard.Scene.SceneNormalsAreViewSpace;
             [[maybe_unused]] const auto sceneNormalsRead = builder.Read(blackboard.Scene.SceneNormals, RGReadUsage::ShaderSample);
         }
         if (blackboard.AO.AOBuffer.IsValid())
@@ -231,6 +238,7 @@ namespace OloEngine
         parameters.Samples = m_Settings.SSAOSamples;
         parameters.ScreenWidth = static_cast<i32>(m_HalfWidth);
         parameters.ScreenHeight = static_cast<i32>(m_HalfHeight);
+        parameters.View = m_SceneNormalsAreViewSpace ? glm::mat4(1.0f) : m_ViewMatrix;
         m_RecordingSSAOUBO->SetData(&parameters, SSAOUBOData::GetSize());
         m_RecordingSSAOUBO->PrepareForParallelRead();
         auto triangle = MeshPrimitives::GetFullscreenTriangle();

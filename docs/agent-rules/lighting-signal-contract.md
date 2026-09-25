@@ -50,7 +50,7 @@ composition and ladder against physics-derived answers), `LightingSignalComposit
 | ReSTIR GI radiance | contribution, **diffuse lobe only** | deferred diffuse half, no AO |
 | ReSTIR PT radiance | contribution, both lobes | deferred, outside the split |
 | SSGI signal | **signed** contribution delta against the ladder | SSGI composite (`base + delta`) |
-| AO buffer | visibility (ambient) | DeferredLighting; forward: AOApply |
+| AO buffer | visibility (ambient) | DeferredLighting; forward: every lit forward shader, through `include/ForwardScreenSpaceAO.glsl` (#1452) |
 | Contact shadow | visibility (Lights[0]) | DeferredLighting's loop |
 | Reflection probe sample | radiance + confidence | mixed over the prefilter, before the DFG weight |
 
@@ -95,12 +95,13 @@ Each of these was a local choice that looked right.
 - **#1450: the groom's environment term** divided the (already *E/π*) irradiance cube by π again,
   so every coat read π too dark beside a Lambertian surface under the same sky. It also ignored the
   sky's IBL intensity. `GroomEnvironmentFurnaceTest` pins both against all three cube producers.
+- **#1457: Deferred shaded a point light differently from Forward.** The evaluators always agreed
+  (`PointLightEvaluatorParityGpuTest`); the gap was Forward's screen-space AO, applied to the
+  composed colour and so darkening direct light too. #1452 applies it to the ambient term on every
+  path. See [forward-deferred-parity-measurement.md](forward-deferred-parity-measurement.md).
 
 ## Declared approximations (kept on purpose)
 
-- **Forward screen-space AO multiplies the composed colour.** The forward AO buffer is built from the
-  forward pass's own normals, after the lighting that would need it. Removing this needs the forward
-  pass to export its ambient term, a new attachment that all ~45 forward writers must write (#1452).
 - **Legacy split-sum specular uses `F_roughness·A + B`.** Changing it moves every Legacy pixel;
   ClosureV2 is the corrected closure (ADR 0016).
 - **SSGI takes the ladder's radiance as uniform over directions** (the rung's *E/π*). It is exact for
@@ -119,12 +120,58 @@ Each of these was a local choice that looked right.
   - emissive triangles past the encodable index, counted in `EmittersBeyondEncodableIndex`. The
     raster paths never light from emissive geometry at all, so this is no worse than DI off.
   - emissive-geometry light on skin pixels, now that skin declines the tier.
-- **The snow SSS blur** masks by scene-colour alpha, which every non-snow writer sets to 1 (#1451).
-- **#1457 measured Deferred shading a point light differently from Forward.** The evaluators agree
-  (`PointLightEvaluatorParityGpuTest`); the gap was the Forward AO approximation above, which
-  darkens direct light. See [forward-deferred-parity-measurement.md](forward-deferred-parity-measurement.md).
 - **Media** (fog, volumetrics) is applied after surface composition, to reflections included, and
   the reference tracer has none.
+
+## Forward screen-space AO (#1452)
+
+Forward and Forward+ apply screen-space AO the way Deferred does: to the ambient term, inside the
+shader that composes it. `SelectScreenSpaceAOApplication` answers `AmbientTermInLighting` on every
+path, and `PostProcess_SSAOApply` runs only for the AO debug view.
+
+- **The prepass is its own node.** `ScenePrepassPass` clears, batches and runs ScenePass's bucket
+  depth-only. With a forward AO buffer produced, it also writes the view normal of scene attachment 2
+  through `DepthNormalPrepass*.glsl`, which call the colour pass's own normal function
+  (`include/ForwardShadingNormal.glsl`). With AO live the prepass is forced on even where the
+  settings leave it off.
+- **The order is prepass, AO, colour.** The graph runs `ScenePrepassPass`, then
+  `GPUDrivenOcclusionPrepassPass` (the HZB-culled instances' share), then SSAO or GTAO and the
+  sphere proxies, then ScenePass's colour half.
+- **A surface reads it only if the prepass drew it.** That is PBR (static and skinned) and terrain
+  and voxel terrain. `CommandDispatch` publishes the AO buffer and `ForwardAODepth` (the prepass
+  depth, copied once) at `TEX_SSAO` / `TEX_POSTPROCESS_DEPTH`, and ScenePass republishes them last,
+  right before its colour draws (Forward+ light culling rebinds slot 19 in between). The camera
+  block's `ScreenSpaceAOParams` says whether they are live; it starts every frame not live. A
+  mirrored replay (planar reflection) suspends them.
+- **Anything not in the prepass takes none,** because at its pixels the AO buffer holds the occlusion
+  of the surface behind it: blended PBR (`u_AlphaMode == 2`), water, groom strands and foliage. On
+  Deferred, water, groom and transparents take none either. Foliage is the one gap: it writes the
+  G-Buffer on Deferred and gets its own AO there, but it is not in the forward prepass, so forward
+  foliage has no screen-space AO until it is (#1474).
+- **Unlit writers have no ambient term, so they apply nothing.** These are skybox, light cubes, grid,
+  particles, decals and fluid. There are 18 scene-framebuffer writers, not ~45.
+
+## Snow is a material layer (#1451)
+
+Snow adds no second estimate of any term. `include/SnowLayer.glsl` is the one definition, and every
+path uses it:
+
+- **The covered fraction blends the material** (albedo, roughness, metallic, AO, emission) before
+  lighting. The ordinary closure then lights snow with shadows, every light, the ambient ladder and
+  screen-space AO. The old overlay mixed in a second snow BRDF that ignored shadows and used a flat
+  0.15 x albedo ambient.
+- **Sparkle is a specular lobe of the directional lights**, gated by each light's own visibility.
+  Directional lights are used because every path evaluates them in its loop.
+- **Subsurface is the blur of the diffuse half.** Snow pixels hand `(diffuse, -weight)` to scene
+  attachment 4. `SSSPass` adds `strength * (blur - diffuse)` into scene colour before the
+  transparents. Scene alpha is not a snow channel.
+- **Deferred carries the weight in G-Buffer RT3.a** and the snow-filled normal in RT1.
+  `DeferredLighting` rebuilds the shading normal and adds the sparkle with the same functions.
+
+| Signal | Stores | Consumed by |
+|---|---|---|
+| Hand-off `.a < 0` (scene attachment 4) | snow weight, negated | `SSS_Blur.glsl`; read as "no profile" by skin diffusion |
+| G-Buffer RT3.a / scene attachment 3 `.a` | snow weight (the material profile) | DeferredLighting; TAA reactivity |
 
 ## How to add a technique
 

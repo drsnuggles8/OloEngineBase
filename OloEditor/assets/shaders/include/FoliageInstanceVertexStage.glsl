@@ -66,19 +66,11 @@ layout(location = 5) in vec4 a_ColorAlpha;     // rgb = tint, a = alpha cutoff
 #endif
 
 // Camera UBO (binding 0)
-layout(std140, binding = 0) uniform CameraMatrices
-{
-    mat4 u_ViewProjection;
-    mat4 u_View;
-    mat4 u_Projection;
-    vec3 u_CameraPosition;
-    float _padding0;
-    // Previous-frame VP for scene FB RT3 velocity. Wind displacement is
-    // reprojected through the shared current/previous deformation producer.
-    mat4 u_PrevViewProjection;
-    vec3 u_RenderOrigin; // camera-relative render origin (issue #429)
-    float _padding1;
-};
+// The shared camera block (include/CameraCommon.glsl), identical in every
+// stage of every program that includes this — GL links a program only if
+// its stages agree on the block — and carrying the forward screen-space AO
+// lane (issue #1452).
+#include "CameraCommon.glsl"
 
 // Model UBO (binding 3)
 // Foliage uploads ONE shared InstanceData entry for all N pulled instances

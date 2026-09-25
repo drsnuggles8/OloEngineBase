@@ -37,16 +37,10 @@ layout(location = 4) in vec4 a_BoneWeights;
 #endif
 
 // Camera UBO (binding 0)
-layout(std140, binding = 0) uniform CameraMatrices {
-    mat4 u_ViewProjection;
-    mat4 u_View;
-    mat4 u_Projection;
-    vec3 u_CameraPosition;
-    float _padding0;
-    // Previous-frame view-projection for forward-path TAA velocity
-    // emission. See PBR_MultiLight.glsl for the full design note.
-    mat4 u_PrevViewProjection;
-};
+// The shared camera block (include/CameraCommon.glsl) in EVERY stage: GL
+// links a program only if each stage declares the block identically, and
+// the fragment stage needs its screen-space AO lane (issue #1452).
+#include "include/CameraCommon.glsl"
 
 // Model UBO (binding 3)
 #include "include/InstanceBlock_Vertex.glsl"
@@ -139,7 +133,6 @@ void main()
 // SSBO 54, sampler 65). BindForSampling publishes a DISABLED globals block
 // when VSM is off, so the runtime branch below costs nothing then.
 #include "include/VirtualShadowSampling.glsl"
-#include "include/SnowCommon.glsl"
 #include "include/AtmosphereShading.glsl"
 
 // Camera UBO (binding 0) - for view position
@@ -147,14 +140,10 @@ void main()
 // vertex stage — glLinkProgram() rejects per-program UBO blocks whose
 // members disagree between stages. The trailing u_PrevViewProjection is
 // unused in fragment but its declaration keeps the block types identical.
-layout(std140, binding = 0) uniform CameraMatrices {
-    mat4 u_ViewProjection;
-    mat4 u_View;
-    mat4 u_Projection;
-    vec3 u_CameraPosition;
-    float _padding0;
-    mat4 u_PrevViewProjection;
-};
+// The shared camera block (include/CameraCommon.glsl) in EVERY stage: GL
+// links a program only if each stage declares the block identically, and
+// the fragment stage needs its screen-space AO lane (issue #1452).
+#include "include/CameraCommon.glsl"
 
 // Multi-Light UBO (binding 5)
 layout(std140, binding = 5) uniform MultiLightBuffer {
@@ -288,14 +277,6 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     uvec4 u_MaterialHeapOffsets[3];
 };
 
-// Snow UBO (binding 13)
-layout(std140, binding = 13) uniform SnowParams {
-    vec4 u_SnowCoverageParams;
-    vec4 u_SnowAlbedoAndRoughness;
-    vec4 u_SnowSSSColorAndIntensity;
-    vec4 u_SnowSparkleParams;
-    vec4 u_SnowFlags;
-};
 
 // Texture bindings following ShaderBindingLayout.
 //
@@ -445,14 +426,6 @@ layout(location = 3) out vec4 o_Velocity;
 layout(location = 4) out vec4 o_SkinDiffuse;
 
 
-// Octahedral encode: unit normal → RG16F [-1,1]²
-vec2 octEncode(vec3 n)
-{
-    n /= (abs(n.x) + abs(n.y) + abs(n.z));
-    if (n.z < 0.0)
-        n.xy = (1.0 - abs(n.yx)) * vec2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0);
-    return n.xy;
-}
 
 // Model UBO (binding 3) for entity ID access
 // Fragment-side ModelMatrices must match the vertex stage's layout
@@ -467,6 +440,15 @@ vec2 octEncode(vec3 n)
 // branch at all, so characters ignored baked lighting entirely).
 #include "include/LightProbeSampling.glsl"
 #include "include/AmbientLadder.glsl"
+// The normal-mapped shading normal and the view-normal encode, shared with
+// the depth-normal prepass so scene attachment 2 is the same value from
+// both (issue #1452).
+#include "include/ForwardShadingNormal.glsl"
+// Snow as a material layer, and its hand-off encoding (issue #1451). Brings
+// the Snow UBO (binding 13) with it.
+#include "include/SnowLayer.glsl"
+// Screen-space AO for the ambient term (issue #1452).
+#include "include/ForwardScreenSpaceAO.glsl"
 
 // =============================================================================
 // MAIN FRAGMENT SHADER
@@ -494,25 +476,20 @@ void main()
     float ao = OLO_MAT_AO(u_AOMap, v_TexCoord, u_OcclusionStrength, bool(u_UseAOMap));
     vec3 emissive = OLO_MAT_EMISSIVE(u_EmissiveMap, v_TexCoord, u_EmissiveFactor.rgb, bool(u_UseEmissiveMap));
 
-    // Calculate normal
-    vec3 N = normalize(v_Normal);
-    if (u_UseNormalMap == 1)
-    {
-        // THE EXPRESSION-DRIVEN PORE BAND (issue #1243). The skin spelling
-        // takes a second, coarser tap of the SAME normal map and scales the
-        // difference — see oloSkinDetailTangentNormal in
-        // include/SkinLayeredSpecular.glsl for why the band comes out of the
-        // map that is already there rather than out of a second one.
-        //
-        // Branched on the strength, not merely on the kind: the second tap is a
-        // real texture fetch, and a skin material whose author left the detail
-        // fields at their neutral default must cost what it cost before.
-        if (u_MaterialKind == OLO_MATERIAL_KIND_SKIN && u_SkinDetailStrength != 0.0)
-            N = OLO_SKIN_MAT_NORMAL(u_NormalMap, v_TexCoord, v_WorldPos, v_Normal, u_NormalScale,
-                                    u_SkinDetailStrength);
-        else
-            N = OLO_MAT_NORMAL(u_NormalMap, v_TexCoord, v_WorldPos, v_Normal, u_NormalScale);
-    }
+    // THE SNOW LAYER (issue #1451) — include/SnowLayer.glsl. The covered
+    // fraction blends the MATERIAL toward snow before any light is evaluated,
+    // exactly as the G-Buffer writers do, so the closure below lights snow
+    // with shadows, every light and the ambient ladder, and a deferred pixel
+    // of the same surface is the same colour. Absolute world position: the
+    // snow line is an altitude and the sparkle a world-anchored pattern.
+    vec3 snowWorldPos = v_WorldPos + u_RenderOrigin;
+    float snowWeight = oloSnowLayerCoverage(snowWorldPos, v_Normal);
+    oloSnowLayerBlendMaterial(snowWeight, albedo, metallic, roughness, ao, emissive);
+
+    // Calculate normal — the shared function the depth-normal prepass calls
+    // too (include/ForwardShadingNormal.glsl), so the view normal the AO
+    // passes read is the one this pass lights with.
+    vec3 N = oloForwardMappedNormal(v_Normal, v_TexCoord, v_WorldPos);
     vec3 V = normalize(u_CameraPosition - v_WorldPos);
 
     // THE ROUGHNESS FLOOR THE DEFERRED PATH APPLIES (issue #1336), and in its
@@ -580,6 +557,12 @@ void main()
         albedo = oloOcular.Albedo;
         N = oloOcular.Normal;
     }
+
+    // The snow-FILLED normal is what attachment 2 stores (the prepass writes
+    // the same one); the snow SHADING normal, derived from it alone, is what
+    // lights the surface — the pair DeferredLighting rebuilds from RT1.
+    vec3 snowFilledN = oloSnowLayerFilledNormal(N, snowWeight);
+    N = oloSnowLayerShadingNormal(snowFilledN, snowWorldPos, snowWeight);
 
     // ---- THE ORAL SURFACE LANE (issue #1245) -----------------------------
     //
@@ -833,6 +816,12 @@ void main()
             lightContrib = oloSkinOralApplyCoat(lightContrib, N, V, lightL, coatRadiance, skinOralLane);
         }
 
+        // Snow sparkle (issue #1451): a glint lobe for DIRECTIONAL lights, the
+        // light set every path evaluates in its loop, gated by the same
+        // visibility as the rest of this light's contribution.
+        if (lightType == DIRECTIONAL_LIGHT && lightHasDirection)
+            lightContrib.Specular += oloSnowLayerSparkle(N, V, lightL, lightRadiance, snowWorldPos, snowWeight);
+
         Lo = oloSurfaceLightingAdd(Lo, oloSurfaceLightingScale(lightContrib, vec3(lightVisibility)));
 
         // THE TRANSMITTED LOBE, gated by the SAME visibility the reflected lobe
@@ -896,7 +885,17 @@ void main()
     // the last moment at which the halves are still separable, and it is where
     // #1241's diffusion of the DIFFUSE half will go. A non-skin material
     // uploads a neutral tint, so this is a multiply by one.
-    OloSurfaceLighting lighting = oloComposeReflectedLighting(Lo, ambient, ao, vec3(0.0));
+    //
+    // `ao` is the material's occlusion times the SCREEN-SPACE AO (issue #1452):
+    // the buffer the AO passes built from the depth prepass before this pass
+    // ran, upsampled the way DeferredLighting upsamples it. It multiplies the
+    // ambient split alone — direct light, transmission and emission are not
+    // occluded by it, exactly as on the deferred path.
+    // A BLENDED surface is not in the forward depth-normal prepass, so the AO
+    // buffer holds the occlusion of what is behind it: it takes none (#1452).
+    float screenAO = (u_AlphaMode == 2) ? 1.0 : oloForwardScreenSpaceAO(gl_FragCoord.xy);
+    OloSurfaceLighting lighting = oloComposeReflectedLighting(Lo, ambient, ao * screenAO,
+                                                              vec3(0.0));
     lighting = oloApplySkinProfile(lighting, u_MaterialKind, u_SkinEvaluationModel,
                                    vec3(u_SkinSpecularTintR, u_SkinSpecularTintG, u_SkinSpecularTintB));
     // `transmitted` joins OUTSIDE the diffuse/specular split (issue #1242),
@@ -982,70 +981,9 @@ void main()
         color = mix(color, cascadeColors[cascadeIdx], 0.3);
     }
 
-    // Snow overlay
-    float snowWeight = 0.0;
-    if (u_SnowFlags.x > 0.5)
-    {
-        vec3 worldNormal = normalize(v_Normal);
-        snowWeight = computeSnowWeight(v_WorldPos.y, worldNormal,
-                                       u_SnowCoverageParams.x, u_SnowCoverageParams.y,
-                                       u_SnowCoverageParams.z, u_SnowCoverageParams.w,
-                                       u_SnowFlags.y);
-
-        if (snowWeight > 0.001)
-        {
-            vec3 snowAlbedo = u_SnowAlbedoAndRoughness.rgb;
-            float snowRoughness = u_SnowAlbedoAndRoughness.w;
-            vec3 sssColor = u_SnowSSSColorAndIntensity.rgb;
-            float sssIntensity = u_SnowSSSColorAndIntensity.w;
-            float sparkleIntensity = u_SnowSparkleParams.x;
-            float sparkleDensity = u_SnowSparkleParams.y;
-            float sparkleScale = u_SnowSparkleParams.z;
-            float normalPerturbStr = u_SnowSparkleParams.w;
-
-            vec3 snowN = perturbSnowNormal(N, v_WorldPos, normalPerturbStr);
-
-            vec3 snowLo = vec3(0.0);
-            for (int i = 0; i < min(u_LightCount, MAX_LIGHTS); ++i)
-            {
-                vec3 L = vec3(0.0);
-                vec3 lightColor = u_Lights[i].color.rgb * u_Lights[i].color.w;
-                float attenuation = 1.0;
-                int lightType = int(u_Lights[i].position.w);
-
-                if (lightType == DIRECTIONAL_LIGHT)
-                {
-                    L = normalize(-u_Lights[i].direction.xyz);
-                }
-                else
-                {
-                    vec3 toLight = u_Lights[i].position.xyz - v_WorldPos;
-                    float dist = length(toLight);
-                    L = toLight / dist;
-                    float constant = u_Lights[i].attenuationParams.x;
-                    float linear = u_Lights[i].attenuationParams.y;
-                    float quadratic = u_Lights[i].attenuationParams.z;
-                    attenuation = 1.0 / (constant + linear * dist + quadratic * dist * dist);
-                }
-
-                vec3 contrib = snowBRDF(snowN, V, L, snowAlbedo, snowRoughness,
-                                        sssColor, sssIntensity, sparkleIntensity,
-                                        sparkleDensity, sparkleScale, v_WorldPos);
-                snowLo += contrib * lightColor * attenuation;
-            }
-
-            vec3 snowAmbient = 0.15 * snowAlbedo;
-            vec3 snowColor = snowAmbient + snowLo;
-
-            color = mix(color, snowColor, snowWeight);
-        }
-    }
-
+    // Alpha is the material's own: the snow mask no longer rides scene
+    // alpha (issue #1451), it rides the hand-off below.
     o_Color = vec4(color, u_BaseColorFactor.a);
-    // SSS mask: write snow weight to alpha for SSSRenderPass bilateral blur.
-    // Alpha is reset to 1.0 by SSS_Blur before PostProcess (see SnowCommon.glsl contract).
-    if (snowWeight > 0.001)
-        o_Color.a = snowWeight;
     o_EntityID = u_EntityID;
 
     // The diffusion hand-off (issue #1241). `lighting` is the split from #1231
@@ -1055,18 +993,15 @@ void main()
     o_SkinDiffuse = oloSkinDiffusionOutput(lighting, u_MaterialKind, u_SkinEvaluationModel,
                                            u_SkinProfileSlot,
                                            oloSkinScatteringMask(u_MaterialKind, metallic));
-    // Snow REPLACES the shaded colour rather than adding to it (the mix above),
-    // so a snow-covered skin pixel's diffuse half is no longer in scene colour
-    // and subtracting it would darken the snow. Hand over nothing there.
-    if (snowWeight > 0.001)
-        o_SkinDiffuse = vec4(0.0);
+    // A SNOW pixel hands over its diffuse half with the snow weight in the
+    // disjoint negative range (issue #1451, include/SnowDiffusionCommon.glsl):
+    // the snow blur diffuses it, and skin diffusion reads it as "no profile".
+    // A snow-covered skin pixel hands over snow — the layer replaced the
+    // skin's diffuse.
+    if (oloSnowLayerActive(snowWeight))
+        o_SkinDiffuse = vec4(lighting.Diffuse, oloSnowDiffusionEncodeWeight(snowWeight));
 
-    vec3 outputN = N;
-    if (snowWeight > 0.001)
-    {
-        outputN = normalize(mix(N, vec3(0.0, 1.0, 0.0), snowWeight * 0.6));
-    }
-    o_ViewNormal = octEncode(normalize(mat3(u_View) * outputN));
+    o_ViewNormal = oloForwardViewNormalOutput(u_View, snowFilledN);
 
     // Screen-space velocity - see PBR_MultiLight.glsl for the derivation.
     // Skinned meshes combine per-bone pose delta (PrevBoneMatrices, binding 31)
@@ -1074,5 +1009,8 @@ void main()
     // contribute to the motion vector.
     vec2 ndcCurr = v_ClipPosCurr.xy / v_ClipPosCurr.w;
     vec2 ndcPrev = v_ClipPosPrev.xy / v_ClipPosPrev.w;
-    o_Velocity = vec4((ndcCurr - ndcPrev) * 0.5, 1.0, 0.0);
+    // .a is the MATERIAL PROFILE (#1256): the snow weight, the same number
+    // G-Buffer RT3.a carries, so TAA reacts to a changing snow cover alike
+    // on every path (issue #1451).
+    o_Velocity = vec4((ndcCurr - ndcPrev) * 0.5, 1.0, snowWeight);
 }

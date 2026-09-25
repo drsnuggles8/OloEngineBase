@@ -125,6 +125,15 @@ namespace OloEngine
         void ClearStorageBufferAddress(u64 address);
         // Called from destructors: drop every entry pointing at `buffer`.
         void ClearBuffer(const void* buffer);
+        // Called when an image is released (VulkanDeferredReclaim::Enqueue):
+        // drop every texture and image unit whose heap slot names `image`, the
+        // texture twin of ClearBuffer. Without it a unit kept naming a released
+        // image until its heap slot was retired generations later, and the
+        // next fork's seeded-image transition (TransitionSeededSampledImagesForFork)
+        // recorded a barrier on an image already queued for destruction.
+        // `image` is a VkImage, typed void* like ClearBuffer's so this header
+        // stays free of Vulkan types.
+        void ClearImage(const void* image);
 
         // --- texture slots (heap slot indices staged by BindTexture) ---------
         void SetTextureHeapSlot(u32 slot, u32 heapSlot);

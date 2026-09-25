@@ -609,8 +609,6 @@ namespace OloEngine
             captureGraphTexture(Source::Velocity, ResourceNames::Velocity);
         }
 
-        if (passName == "SSSPass")
-            captureFB(Source::SSSColor, ResourceNames::SSSColor, Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SSSColor));
         if (passName == "AOApplyPass")
             captureFB(Source::AOApplyColor, ResourceNames::AOApplyColor, Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::AOApplyColor));
         if (passName == "BloomPass")

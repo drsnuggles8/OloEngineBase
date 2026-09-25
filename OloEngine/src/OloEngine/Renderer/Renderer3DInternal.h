@@ -30,6 +30,8 @@
 #include "OloEngine/Renderer/Passes/PlanarReflectionRenderPass.h"
 #include "OloEngine/Renderer/Passes/PrecipitationRenderPass.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
+#include "OloEngine/Renderer/Passes/ScenePrepassRenderPass.h"
+#include "OloEngine/Renderer/Passes/GPUDrivenOcclusionPrepassPass.h"
 #include "OloEngine/Renderer/Passes/ShaderDebugDrawPass.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualGeometryPass.h"
 #include "OloEngine/Renderer/Passes/SelectionOutlineRenderPass.h"
@@ -251,6 +253,12 @@ namespace OloEngine
     {
         Ref<ShadowRenderPass> Shadow;
         Ref<SceneRenderPass> Scene;
+        // The forward paths' depth(-normal) prepass as its own node, ahead of
+        // the screen-space AO passes (issue #1452). Renders Scene's bucket.
+        Ref<ScenePrepassRenderPass> ScenePrepass;
+        // ...and the GPU-driven instanced batches' share of it (issue #1452),
+        // rendered from GPUOcclusion's bucket ahead of the AO passes.
+        Ref<GPUDrivenOcclusionPrepassPass> GPUOcclusionPrepass;
         // Realtime DDGI probe capture/relight/blend (#632). Path-agnostic:
         // registered between ShadowPass (its relight samples the CSM/atlas)
         // and ScenePass (the forward lit shaders sample the atlases it
@@ -275,6 +283,8 @@ namespace OloEngine
             return std::tuple{
                 &FrameCorePassSet::Shadow,
                 &FrameCorePassSet::Scene,
+                &FrameCorePassSet::ScenePrepass,
+                &FrameCorePassSet::GPUOcclusionPrepass,
                 &FrameCorePassSet::DDGIProbeUpdate,
                 &FrameCorePassSet::VirtualShadowMapMark,
                 &FrameCorePassSet::SkeletalDeform,
@@ -570,6 +580,55 @@ namespace OloEngine
         // renderer re-init reports it again.
         bool m_ReportedSceneTemporalResolve = false;
     };
+
+    namespace Renderer3DDetail
+    {
+        // A see-through debug mesh (Renderer3D::DrawLine / DrawSphere): what
+        // DrawMesh must do differently while one is being submitted.
+        //
+        //  * On the Deferred path it goes to ForwardOverlayPass with the forward
+        //    PBR shader, not into the G-Buffer: with depth test off it writes no
+        //    depth, so over the sky DeferredLighting shaded it as background,
+        //    and its attachment-0-only mask (written for the scene framebuffer's
+        //    layout, where 1 is entity ID and 2 the view normal) kept it out of
+        //    the G-Buffer's emissive lane everywhere else.
+        //  * On EVERY path its render state is patched INSIDE DrawMesh, before
+        //    the packet can be submitted: depth test off, colour attachment 0
+        //    only, UI view layer, and two-sided when asked. The helpers used to
+        //    patch the returned packet, but the overlay route submits the packet
+        //    itself and returns nullptr, so on Deferred the patch never landed
+        //    and the lines were drawn depth-tested and back-face culled — one
+        //    face of each cross on OpenGL and none on Vulkan (issue #1472).
+        //
+        // Thread-local: the scope brackets one DrawMesh call on one thread.
+        struct DebugDrawRequest
+        {
+            bool Active = false;
+            bool TwoSided = false;
+        };
+        inline thread_local DebugDrawRequest t_DebugDraw{};
+
+        class DebugDrawScope
+        {
+          public:
+            explicit DebugDrawScope(bool twoSided)
+                : m_Previous(t_DebugDraw)
+            {
+                t_DebugDraw = DebugDrawRequest{ .Active = true, .TwoSided = twoSided };
+            }
+            ~DebugDrawScope()
+            {
+                t_DebugDraw = m_Previous;
+            }
+            DebugDrawScope(const DebugDrawScope&) = delete;
+            DebugDrawScope& operator=(const DebugDrawScope&) = delete;
+            DebugDrawScope(DebugDrawScope&&) = delete;
+            DebugDrawScope& operator=(DebugDrawScope&&) = delete;
+
+          private:
+            DebugDrawRequest m_Previous;
+        };
+    } // namespace Renderer3DDetail
 
     inline Renderer3D::Renderer3DData::Renderer3DData()
         : Pipeline(std::make_unique<RenderPipeline>())

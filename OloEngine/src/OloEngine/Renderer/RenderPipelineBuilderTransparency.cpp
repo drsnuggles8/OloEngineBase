@@ -30,6 +30,15 @@ namespace OloEngine::RenderPipelineBuilderInternal
         // draws when no authored profile in the frame asks to be diffused.
         graph.AddNode(PrepareGraphNode("SkinDiffusionPass", inputs.Passes->SkinDiffusion));
 
+        // The snow subsurface blur (issue #1451), right after skin diffusion
+        // and for the same two reasons: it diffuses the lit diffuse half, which
+        // exists only once every opaque writer has run, and it must precede
+        // the transparents, so glass or a particle in front of snow composites
+        // over the blurred snow instead of being smeared into it. Like skin
+        // diffusion it adds into scene colour in place, reading the hand-off
+        // lane of scene attachment 4 (snow's disjoint range, -weight).
+        graph.AddNode(PrepareGraphNode("SSSPass", inputs.Passes->SSS));
+
         // OIT pass ordering:
         //   OITPreparePass must run BEFORE any OIT contributor (Particle,
         //   Decal) so the accum/revealage attachments are cleared and the
@@ -47,7 +56,7 @@ namespace OloEngine::RenderPipelineBuilderInternal
         graph.AddNode(PrepareGraphNode("OITResolvePass", inputs.Passes->OITResolve));
 
         // GPU-pushable shader debug draws (issue #725). Registered HERE, right
-        // after OITResolve — the last SceneColor writer — and BEFORE SSS/AOApply,
+        // after OITResolve — the last SceneColor writer — and BEFORE AOApply,
         // and the position is load bearing in both directions:
         //
         //   * later than this and it would not work at all. A reader resolves
@@ -70,8 +79,6 @@ namespace OloEngine::RenderPipelineBuilderInternal
         {
             AddExistingNode(graph, inputs.Passes->ShaderDebugDraw);
         }
-
-        graph.AddNode(PrepareGraphNode("SSSPass", inputs.Passes->SSS));
 
         // AO writer (SSAOPass / GTAOPass) is registered earlier in RegisterSceneAndLightingNodes
         // so its AOBuffer write is visible to DeferredLightingPass's read in registration order.

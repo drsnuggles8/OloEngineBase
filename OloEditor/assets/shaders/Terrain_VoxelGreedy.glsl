@@ -41,16 +41,11 @@ layout(location = 2) in int  a_QuadMaterial; // packed material word
 #endif
 
 // Camera UBO (binding 0)
-layout(std140, binding = 0) uniform CameraMatrices {
-    mat4 u_ViewProjection;
-    mat4 u_View;
-    mat4 u_Projection;
-    vec3 u_CameraPosition;
-    float _padding0;
-    mat4 u_PrevViewProjection;
-    vec3 u_RenderOrigin; // camera-relative render origin (issue #429)
-    float _padding1;
-};
+// The shared camera block (include/CameraCommon.glsl), identical in every
+// stage of every program that includes this — GL links a program only if
+// its stages agree on the block — and carrying the forward screen-space AO
+// lane (issue #1452).
+#include "include/CameraCommon.glsl"
 
 // Model UBO (binding 3 → InstanceBuffer SSBO). gl_InstanceIndex here is the
 // QUAD index, not an InstanceData index — the chunk uploads exactly one
@@ -98,16 +93,11 @@ void main()
 #include "include/VoxelQuadUnpack.glsl"
 
 // Camera UBO (binding 0)
-layout(std140, binding = 0) uniform CameraMatrices {
-    mat4 u_ViewProjection;
-    mat4 u_View;
-    mat4 u_Projection;
-    vec3 u_CameraPosition;
-    float _padding0;
-    mat4 u_PrevViewProjection;
-    vec3 u_RenderOrigin; // camera-relative render origin (issue #429)
-    float _padding1;
-};
+// The shared camera block (include/CameraCommon.glsl), identical in every
+// stage of every program that includes this — GL links a program only if
+// its stages agree on the block — and carrying the forward screen-space AO
+// lane (issue #1452).
+#include "include/CameraCommon.glsl"
 
 // Multi-Light UBO (binding 5)
 layout(std140, binding = 5) uniform MultiLightBuffer {
@@ -184,6 +174,8 @@ layout(binding = 27) uniform sampler2DArray u_TerrainARMArray;
 #include "include/LightProbeSampling.glsl"
 #define OLO_AMBIENT_LADDER_EXPLICIT_CONTROLS
 #include "include/AmbientLadder.glsl"
+// Screen-space AO for the ambient term (issue #1452).
+#include "include/ForwardScreenSpaceAO.glsl"
 
 layout(location = 0) in vec3 v_WorldPos;
 layout(location = 1) in vec3 v_Normal;
@@ -394,7 +386,10 @@ void main()
         terrainPrefiltered, terrainEnableIBL, u_TerrainAmbientLadder.y > 0.5, u_TerrainAmbientLadder.z));
     // AO is visibility for the AMBIENT term only (issue #1336) — the old
     // `mix(color, color * ao, 0.5)` also darkened every light's direct term.
-    vec3 color = ambient * ao + Lo;
+    // The material AO times the SCREEN-SPACE AO (issue #1452), on the ambient
+    // term alone — the same product DeferredLighting multiplies its ambient
+    // split by.
+    vec3 color = ambient * (ao * oloForwardScreenSpaceAO(gl_FragCoord.xy)) + Lo;
 
     o_Color = vec4(color, 1.0);
     o_EntityID = u_EntityID;

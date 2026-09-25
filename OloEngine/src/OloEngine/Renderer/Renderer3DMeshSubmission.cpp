@@ -844,8 +844,12 @@ namespace OloEngine
             // G-Buffer representation — see ShouldRerouteToForwardOverlay at the
             // top of this file.
             const bool deferred = s_Data.Settings.Path == RenderingPath::Deferred;
-            if (ShouldRerouteToForwardOverlay(
-                    material, deferred, s_Data.Pipeline->RenderStreamPasses.ForwardOverlay != nullptr, s_Data.PBRShader))
+            const bool hasForwardOverlay = s_Data.Pipeline->RenderStreamPasses.ForwardOverlay != nullptr;
+            // A see-through debug draw (DrawLine / DrawSphere) — see
+            // Renderer3DDetail::DebugDrawRequest.
+            const bool debugOverlay = deferred && Renderer3DDetail::t_DebugDraw.Active && hasForwardOverlay &&
+                                      s_Data.PBRShader;
+            if (debugOverlay || ShouldRerouteToForwardOverlay(material, deferred, hasForwardOverlay, s_Data.PBRShader))
             {
                 shaderToUse = s_Data.PBRShader;
                 overlayRoute = true;
@@ -948,6 +952,34 @@ namespace OloEngine
             metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, materialID, depth);
         metadata.m_IsStatic = isStatic;
         metadata.m_DebugName = GetMeshDebugName(meshToUse);
+
+        // A see-through debug draw is patched HERE, before any route can submit
+        // it (Renderer3DDetail::DebugDrawRequest): always visible through
+        // geometry, colour attachment 0 only (no entity ID, no view normal),
+        // after all 3D geometry, and two-sided when the mesh needs it.
+        if (const auto& debugDraw = Renderer3DDetail::t_DebugDraw; debugDraw.Active)
+        {
+            PODRenderState debugState = FrameDataBufferManager::Get().GetRenderState(cmd->renderStateIndex);
+            debugState.depthTestEnabled = false;
+            // The attachments it may write depend on the target it LANDS in.
+            // The scene framebuffer (Forward, or Deferred through the overlay
+            // route above) is colour (0), entity ID (1), view normals (2): write
+            // colour, leave picking and AO alone. The G-Buffer — only reached on
+            // Deferred when no ForwardOverlayPass exists — is albedo (0), normal
+            // (1), emissive + material flags (2), velocity (3), entity ID (4),
+            // baked GI (5); there 0x01 wrote the albedo alone and the pixel kept
+            // the emissive and flags of whatever was behind it (#1457), so it
+            // writes the lanes the draw is SHADED from and still skips velocity
+            // and entity ID.
+            constexpr u8 kSceneColourOnly = 0x01;
+            constexpr u8 kGBufferSurfaceLanes = (1u << 0) | (1u << 1) | (1u << 2) | (1u << 5);
+            const bool intoGBuffer = s_Data.Settings.Path == RenderingPath::Deferred && !overlayRoute;
+            debugState.colorAttachmentWriteMask = intoGBuffer ? kGBufferSurfaceLanes : kSceneColourOnly;
+            if (debugDraw.TwoSided)
+                debugState.cullingEnabled = false;
+            cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(debugState);
+            metadata.m_SortKey.SetViewLayer(ViewLayerType::UI);
+        }
         packet->SetMetadata(metadata);
 
         if (overlayRoute)

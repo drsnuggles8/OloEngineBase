@@ -29,7 +29,9 @@ namespace OloEngine
         Velocity,              // Motion-vector buffer
         SceneNormals,          // Scene FB color attachment 2 (view-space normals, RG16F octahedral)
         HZBDepth,              // GTAO HZB texture (mip 0)
-        SSSColor,              // SSS pass output (subsurface scattering blur), if active
+        SSSColor,              // RETIRED (#1451): the snow blur now adds into SceneColor in
+                               // place and has no output of its own; never captured. Kept so
+                               // the numbering of every later source is unchanged.
         OITResolveColor,       // OIT resolve pass output, if active
         AOTexture,             // GTAO/SSAO output (R8 single channel, captured to RGBA8)
         AOApplyColor,          // AO-composited scene color

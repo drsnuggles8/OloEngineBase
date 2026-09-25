@@ -25,30 +25,6 @@
 
 namespace OloEngine
 {
-    namespace
-    {
-        // The attachments a depth-off debug overlay (DrawLine / DrawSphere) may
-        // write, which depends on WHICH target the scene pass is filling.
-        //
-        // Forward's target is colour (0), entity ID (1), view normals (2): the
-        // overlay writes colour and leaves picking and AO alone. Deferred's is
-        // the G-Buffer — albedo (0), normal (1), emissive + material flags (2),
-        // velocity (3), entity ID (4), baked GI (5) — and 0x01 there wrote the
-        // ALBEDO alone. The pixel kept the emissive and flags of whatever was
-        // behind it (the sky's unlit pass-through, usually), so the lighting
-        // pass drew the background and every skeleton bone, joint and camera
-        // gizmo line came out grey on Deferred while Forward drew it in its
-        // emissive colour (found while verifying #1457). Deferred now writes
-        // the lanes the overlay is SHADED from and still skips velocity and
-        // entity ID, as the Forward mask does.
-        [[nodiscard]] u8 DebugOverlayColorWriteMask(RenderingPath path)
-        {
-            constexpr u8 kForwardColourOnly = 0x01;
-            constexpr u8 kGBufferSurfaceLanes = (1u << 0) | (1u << 1) | (1u << 2) | (1u << 5);
-            return path == RenderingPath::Deferred ? kGBufferSurfaceLanes : kForwardColourOnly;
-        }
-    } // namespace
-
     CommandPacket* Renderer3D::DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture)
     {
         OLO_PROFILE_FUNCTION();
@@ -319,26 +295,12 @@ namespace OloEngine
         glm::mat4 scale = glm::scale(glm::mat4(1.0f), glm::vec3(length, worldThickness, worldThickness));
         glm::mat4 transform = glm::translate(glm::mat4(1.0f), start) * rot * scale;
 
-        auto* packet = DrawMesh(s_Data.LineQuadMesh, transform, material);
-
-        // Modify render state and sort key to ensure skeleton visibility through geometry
-        if (packet)
-        {
-            if (auto* drawCmd = packet->GetCommandData<DrawMeshCommand>())
-            {
-                // Depth off so lines always pass depth test
-                PODRenderState skelState = FrameDataBufferManager::Get().GetRenderState(drawCmd->renderStateIndex);
-                skelState.depthTestEnabled = false;
-                skelState.colorAttachmentWriteMask = DebugOverlayColorWriteMask(s_Data.Settings.Path);
-                drawCmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(skelState);
-            }
-
-            // Move to UI layer so these draw AFTER all 3D geometry
-            PacketMetadata meta = packet->GetMetadata();
-            meta.m_SortKey.SetViewLayer(ViewLayerType::UI);
-            packet->SetMetadata(meta);
-        }
-
+        // Two-sided: LineQuadMesh is a cross of two single-sided quads, so
+        // back-face culling keeps only the faces whose winding points at the
+        // camera — and Vulkan's flipped projection reverses that winding. The
+        // patch itself is applied inside DrawMesh (Renderer3DDetail::DebugDrawRequest).
+        const Renderer3DDetail::DebugDrawScope debugDraw(/*twoSided*/ true);
+        CommandPacket* packet = DrawMesh(s_Data.LineQuadMesh, transform, material);
         return packet;
     }
 
@@ -365,30 +327,16 @@ namespace OloEngine
 
         if (s_Data.SphereMesh)
         {
+            // The see-through patch is applied inside DrawMesh
+            // (Renderer3DDetail::DebugDrawRequest). A sphere is closed, so it
+            // keeps its back-face culling.
+            const Renderer3DDetail::DebugDrawScope debugDraw(/*twoSided*/ false);
             packet = DrawMesh(s_Data.SphereMesh, transform, material);
         }
         else
         {
             OLO_CORE_WARN("Renderer3D::DrawSphere: No sphere mesh available; returning nullptr");
             return nullptr;
-        }
-
-        // Modify render state and sort key to ensure joint visibility through geometry
-        if (packet)
-        {
-            if (auto* drawCmd = packet->GetCommandData<DrawMeshCommand>())
-            {
-                // Depth off so joints always pass depth test
-                PODRenderState jointState = FrameDataBufferManager::Get().GetRenderState(drawCmd->renderStateIndex);
-                jointState.depthTestEnabled = false;
-                jointState.colorAttachmentWriteMask = DebugOverlayColorWriteMask(s_Data.Settings.Path);
-                drawCmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(jointState);
-            }
-
-            // Move to UI layer so these draw AFTER all 3D geometry
-            PacketMetadata meta = packet->GetMetadata();
-            meta.m_SortKey.SetViewLayer(ViewLayerType::UI);
-            packet->SetMetadata(meta);
         }
 
         return packet;

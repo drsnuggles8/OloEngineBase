@@ -37,18 +37,11 @@ layout(location = 0) in vec3 v_WorldPos;
 
 // Camera UBO (binding 0) — must match the shared stages' declaration exactly
 // (GL links all stages into one program and rejects mismatched blocks).
-layout(std140, binding = 0) uniform CameraMatrices
-{
-    mat4 u_ViewProjection;
-    mat4 u_View;
-    mat4 u_Projection;
-    vec3 u_CameraPosition;
-    float _padding0;
-    mat4 u_PrevViewProjection;
-    vec3 u_RenderOrigin;
-    float _padding1;
-    mat4 u_ProjectionForReconstruction;
-};
+// The shared camera block (include/CameraCommon.glsl), identical in every
+// stage of every program that includes this — GL links a program only if
+// its stages agree on the block — and carrying the forward screen-space AO
+// lane (issue #1452).
+#include "include/CameraCommon.glsl"
 
 // Water UBO (binding 23) — same exact-match rule as CameraMatrices.
 layout(std140, binding = 23) uniform WaterParams

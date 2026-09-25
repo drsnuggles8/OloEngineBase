@@ -2112,46 +2112,47 @@ TEST(RenderGraph, TAAPublishesVersionedOutputAndDownstreamPassesPreferProducerOw
         << "Exact versioned TAAColor lookup should remain valid";
 }
 
-TEST(RenderGraph, SSSPublishesVersionedOutputAndAOApplyAndBloomPreferProducerOwnedVersion)
+// Issue #1451: the snow subsurface blur adds into SceneColor IN PLACE (the
+// SkinDiffusionPass shape) instead of publishing an SSSColor output, so the
+// post chain reads SceneColor straight through and there is no SSSColor
+// resource at all. It reads the diffusion hand-off lane (attachment 4) and the
+// scene depth attachment.
+TEST(RenderGraph, SSSBlursSceneColorInPlaceAndPublishesNoOutputOfItsOwn)
 {
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    auto makeFramebufferDesc = [](std::string_view debugName, const RGResourceFormat colorFormat)
-    {
-        RGResourceDesc desc;
-        desc.Kind = RGResourceHandle::Kind::Framebuffer;
-        desc.Width = 640u;
-        desc.Height = 360u;
-        desc.Attachments = { colorFormat, RGResourceFormat::R32Int, RGResourceFormat::RG16Float };
-        desc.DebugName = std::string(debugName);
-        return desc;
-    };
+    RGResourceDesc sceneDesc;
+    sceneDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+    sceneDesc.Width = 640u;
+    sceneDesc.Height = 360u;
+    sceneDesc.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::R32Int, RGResourceFormat::RG16Float,
+                              RGResourceFormat::RGBA16Float, RGResourceFormat::RGBA16Float,
+                              RGResourceFormat::Depth24Stencil8 };
+    sceneDesc.DebugName = std::string(ResourceNames::SceneColor);
+
+    RGResourceDesc bloomDesc;
+    bloomDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+    bloomDesc.Width = 640u;
+    bloomDesc.Height = 360u;
+    bloomDesc.Attachments = { RGResourceFormat::RGBA16Float };
+    bloomDesc.DebugName = std::string(ResourceNames::BloomColor);
 
     auto sceneFramebuffer = Ref<AttachmentStubFramebuffer>::Create(388u, 488u);
-    auto sssFramebuffer = Ref<AttachmentStubFramebuffer>::Create(387u, 487u);
     auto bloomFramebuffer = Ref<AttachmentStubFramebuffer>::Create(390u, 490u);
 
-    const auto sceneHandle = graph.ImportFramebuffer(ResourceNames::SceneColor,
-                                                     sceneFramebuffer,
-                                                     makeFramebufferDesc(ResourceNames::SceneColor, RGResourceFormat::RGBA16Float));
+    const auto sceneHandle = graph.ImportFramebuffer(ResourceNames::SceneColor, sceneFramebuffer, sceneDesc);
     const auto sceneTexture = graph.CreateFramebufferAttachmentView(ResourceNames::SceneColorTexture, sceneHandle, 0u);
-
-    const auto sssHandle = graph.ImportFramebuffer(ResourceNames::SSSColor,
-                                                   sssFramebuffer,
-                                                   makeFramebufferDesc(ResourceNames::SSSColor, RGResourceFormat::RGBA16Float));
-    const auto sssTexture = graph.CreateFramebufferAttachmentView(ResourceNames::SSSColorTexture, sssHandle, 0u);
-
-    const auto bloomHandle = graph.ImportFramebuffer(ResourceNames::BloomColor,
-                                                     bloomFramebuffer,
-                                                     makeFramebufferDesc(ResourceNames::BloomColor, RGResourceFormat::RGBA16Float));
+    const auto handoff = graph.CreateFramebufferAttachmentView(ResourceNames::SceneSkinDiffuse, sceneHandle, 4u);
+    const auto depth = graph.CreateFramebufferDepthAttachmentView(ResourceNames::SceneDepthAttachment, sceneHandle);
+    const auto bloomHandle = graph.ImportFramebuffer(ResourceNames::BloomColor, bloomFramebuffer, bloomDesc);
     const auto bloomTexture = graph.CreateFramebufferAttachmentView(ResourceNames::BloomColorTexture, bloomHandle, 0u);
 
     auto& blackboard = graph.GetBlackboard();
     blackboard.Scene.SceneColor = sceneHandle;
     blackboard.Scene.SceneColorTexture = sceneTexture;
-    blackboard.Post.SSSColor = sssHandle;
-    blackboard.Post.SSSColorTexture = sssTexture;
+    blackboard.Scene.SkinDiffuse = handoff;
+    blackboard.Scene.SceneDepthAttachment = depth;
     blackboard.Post.BloomColor = bloomHandle;
     blackboard.Post.BloomColorTexture = bloomTexture;
 
@@ -2163,34 +2164,23 @@ TEST(RenderGraph, SSSPublishesVersionedOutputAndAOApplyAndBloomPreferProducerOwn
     sssPass->SetName("SSSPass");
     sssPass->SetSettings(snowSettings);
 
-    auto aoApplyPass = Ref<AOApplyRenderPass>::Create();
-    aoApplyPass->SetName("AOApplyPass");
-    aoApplyPass->SetEnabled(false);
-
     auto bloomPass = Ref<BloomRenderPass>::Create();
     bloomPass->SetName("BloomPass");
     bloomPass->SetEnabled(false);
 
     AddPassNode(graph, sssPass);
-    AddPassNode(graph, aoApplyPass);
     AddPassNode(graph, bloomPass);
     graph.SetFinalPass("BloomPass");
 
     graph.BuildFrameGraph();
 
-    const auto versionedOutput = sssPass->GetPrimaryOutputFramebufferHandle();
-    const auto versionedOutputTexture = sssPass->GetPrimaryOutputTextureHandle();
-    ASSERT_TRUE(versionedOutput.IsValid());
-    ASSERT_TRUE(versionedOutputTexture.IsValid());
-    EXPECT_EQ(graph.GetResourceName(versionedOutput), "SSSColor@SSSPass");
-    EXPECT_EQ(aoApplyPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
-    EXPECT_EQ(aoApplyPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
-    EXPECT_EQ(bloomPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
-    EXPECT_EQ(bloomPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
-    EXPECT_EQ(graph.GetFramebufferHandle(ResourceNames::SSSColor), versionedOutput)
-        << "Canonical SSSColor lookup should follow the latest explicit version";
-    EXPECT_EQ(graph.GetFramebufferHandle("SSSColor@SSSPass"), versionedOutput)
-        << "Exact versioned SSSColor lookup should remain valid";
+    EXPECT_EQ(sssPass->GetPrimaryInputFramebufferHandle(), sceneHandle)
+        << "the blur adds into the scene framebuffer it reads its inputs from";
+    EXPECT_FALSE(sssPass->GetPrimaryOutputFramebufferHandle().IsValid())
+        << "the blur writes SceneColor in place; it has no output of its own";
+    EXPECT_FALSE(graph.GetFramebufferHandle("SSSColor").IsValid()) << "SSSColor was retired by #1451";
+    EXPECT_EQ(bloomPass->GetPrimaryInputFramebufferHandle(), sceneHandle)
+        << "the post chain reads SceneColor straight through the blur";
 }
 
 TEST(RenderGraph, AOApplyPublishesVersionedOutputAndBloomPrefersProducerOwnedVersion)
@@ -8258,7 +8248,7 @@ TEST(RenderGraphTransientPool, PhaseD_PostProcessChainRGBA16FOutputsDeclaredAsTr
     constexpr u32 vh = 720;
 
     const std::vector<std::string> hdOutputs = {
-        "SSSColor", "AOApplyColor", "BloomColor", "DOFColor",
+        "AOApplyColor", "BloomColor", "DOFColor",
         "MotionBlurColor", "TAAColor", "PrecipitationColor", "FogColor",
         "ChromAbColor", "ColorGradingColor", "ToneMapColor"
     };
@@ -8358,7 +8348,6 @@ TEST(RenderGraphTransientPool, PhaseD_PostProcessTransientNotInImportedResources
         RGResourceFormat Format;
     };
     const std::vector<PassSpec> specs = {
-        { "SSSColor", RGResourceFormat::RGBA16Float },
         { "AOApplyColor", RGResourceFormat::RGBA16Float },
         { "BloomColor", RGResourceFormat::RGBA16Float },
         { "DOFColor", RGResourceFormat::RGBA16Float },

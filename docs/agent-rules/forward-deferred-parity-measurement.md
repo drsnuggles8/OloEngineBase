@@ -7,8 +7,8 @@ surface), `DeferredPointLightParityEvidenceTest` (the real pipeline on all three
 
 1. **Before blaming a shading function for a path difference, turn off everything the paths apply
    differently, then A/B one thing at a time.** In the live editor that means:
-   - **screen-space AO**: Forward multiplies the composed colour, Deferred the ambient term only
-     (#1452);
+   - **screen-space AO**: every path applies it to the ambient term since #1452, but Forward and
+     Forward+ give foliage none until it joins the forward prepass (#1474);
    - **bloom**;
    - **editor overlays**: the grid, gizmos, probe-volume lines.
 
@@ -40,6 +40,9 @@ surface), `DeferredPointLightParityEvidenceTest` (the real pipeline on all three
 - **Debug lines and joints wrote only G-Buffer albedo on Deferred** (`colorAttachmentWriteMask =
   0x01`). The pixel kept the sky's emissive and unlit flag, so every skeleton, joint and camera
   gizmo line drew as the background. Live Forward-vs-Deferred went from 28.7k differing pixels to 35.
+  Since #1472 such draws go to `ForwardOverlayPass` on Deferred instead (over sky a depth-off line
+  writes no depth, so the G-Buffer route still lost it); the G-Buffer surface-lane mask remains for
+  the no-overlay fallback, chosen inside `DrawMesh` by where the draw lands.
 - **GTAO darkens an unoccluded flat plane by view angle**: 1.0 from above, 0.71 at 45 degrees, 0.34
   grazing, on both paths. It is filed as #1463; it is why AO read about 0.5 on DDGITest's open
   floor.

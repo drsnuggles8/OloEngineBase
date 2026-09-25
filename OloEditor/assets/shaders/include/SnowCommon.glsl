@@ -1,22 +1,36 @@
 // =============================================================================
-// SnowCommon.glsl - Snow BRDF, SSS, sparkle, and procedural coverage
+// SnowCommon.glsl - snow's procedural helpers: the crystal hash / noise, the
+// sparkle glint, the crystalline normal perturbation and the coverage weight.
 // =============================================================================
-// Include after PBRCommon.glsl (uses distributionGGX, geometrySmith, fresnelSchlick)
+// Self-contained: no PBR helpers, no UBOs. How a surface USES these — snow as a
+// material layer, one definition for every path — is include/SnowLayer.glsl.
 //
-// --- ALPHA CHANNEL CONTRACT (SSS Mask) ---
-// Scene FB color attachment 0 (RGBA16F) alpha is used as a transient SSS mask:
-//   1. PRODUCED: PBR/Terrain fragment shaders write snowWeight to o_Color.a
-//   2. CONSUMED: SSSRenderPass (SSS_Blur.glsl) reads alpha as a bilateral blur mask
-//   3. RESET:    SSS_Blur always outputs alpha = 1.0, preventing downstream leaks
-//   4. SAFE:     All PostProcess shaders ignore input alpha and output alpha = 1.0
-// The alpha channel is NOT used for material transparency (engine is opaque-only).
-// If a forward transparency pass is added, it must use a separate framebuffer.
+// --- THE SNOW CONTRACT (issue #1451) -----------------------------------------
+// Scene-colour alpha is NOT a snow channel. It used to carry the subsurface
+// blur's mask, which every non-snow writer set to 1 (opaque PBR, the deferred
+// lighting pass) or to its own blend alpha (foliage, glass, particles), so the
+// blur covered the whole frame. The mask now travels in the diffusion hand-off
+// lane, scene attachment 4, in a range disjoint from skin's:
+//   1. PRODUCED: every lit pass that shades snow writes (diffuse half, -weight)
+//      there — PBR_MultiLight(_Skinned), Terrain_PBR and DeferredLighting(_MSAA)
+//      — and every other writer writes what it always did (0, or a skin slot).
+//   2. CONSUMED: SSS_Blur.glsl adds strength * (blur(diffuse) - diffuse) into
+//      scene colour for snow pixels only; SkinDiffusion.glsl reads the same
+//      value as "names no profile".
+//   3. DEFERRED: G-Buffer RT3.a (the material profile) carries the weight from
+//      the G-Buffer writers to the lighting pass.
+// See include/SnowDiffusionCommon.glsl for the encoding.
 // =============================================================================
 
 #ifndef SNOW_COMMON_GLSL
 #define SNOW_COMMON_GLSL
 
+// The wind block is needed only by the drift-aware coverage overload below. A
+// shader that only READS a snow weight (the deferred lighting pass) defines
+// OLO_SNOW_COMMON_NO_WIND and pays for neither.
+#ifndef OLO_SNOW_COMMON_NO_WIND
 #include "WindSampling.glsl"
+#endif
 
 // =============================================================================
 // HASH NOISE UTILITIES
@@ -63,38 +77,6 @@ vec3 smoothNoise3(vec3 p)
     vec3 nxy1 = mix(nx01, nx11, f.y);
 
     return mix(nxy0, nxy1, f.z);
-}
-
-// =============================================================================
-// SUBSURFACE SCATTERING APPROXIMATION
-// =============================================================================
-
-// Christensen-Burley wrap-lighting SSS approximation
-// Wraps NdotL to allow light to bleed into shadow side, tinted by sssColor
-vec3 subsurfaceDiffuse(vec3 N, vec3 L, vec3 V, vec3 sssColor, float sssIntensity)
-{
-    // Wrap factor: how far light wraps around the surface (0 = Lambert, 1 = full wrap)
-    float wrapFactor = 0.5 * sssIntensity;
-
-    float NdotL = dot(N, L);
-    // Wrapped diffuse: remap [-1,1] to [0,1] with wrap
-    float wrappedDiffuse = max(0.0, (NdotL + wrapFactor) / ((1.0 + wrapFactor) * (1.0 + wrapFactor)));
-
-    // Back-scattered light (transmitted through thin features)
-    float NdotV = max(dot(N, V), 0.0);
-    vec3 H = normalize(L + V);
-    float VdotH = max(dot(V, H), 0.001);
-
-    // Forrest/Burley scattering profile approximation
-    float scatter = smoothstep(0.0, 1.0, wrappedDiffuse);
-
-    // Transmitted light: strongest on shadow side, tinted by sssColor
-    float transmission = max(0.0, -NdotL) * sssIntensity * 0.3;
-
-    // Combine: standard wrapped diffuse + colored transmission
-    vec3 diffuse = vec3(wrappedDiffuse) + sssColor * transmission;
-
-    return diffuse * INV_PI;
 }
 
 // =============================================================================
@@ -195,6 +177,7 @@ float computeSnowWeight(float worldPosY, float normalY, float heightStart,
     return heightWeight * slopeWeight;
 }
 
+#ifndef OLO_SNOW_COMMON_NO_WIND
 // Wind-drift-aware overload: windward surfaces accumulate more snow,
 // leeward surfaces accumulate less.  Requires WindSampling.glsl.
 float computeSnowWeight(float worldPosY, vec3 worldNormal, float heightStart,
@@ -217,43 +200,6 @@ float computeSnowWeight(float worldPosY, vec3 worldNormal, float heightStart,
 
     return clamp(baseWeight, 0.0, 1.0);
 }
-
-// =============================================================================
-// COMBINED SNOW BRDF
-// =============================================================================
-
-// Full snow shading: SSS diffuse + Cook-Torrance GGX specular + sparkle
-vec3 snowBRDF(vec3 N, vec3 V, vec3 L, vec3 albedo, float roughness,
-              vec3 sssColor, float sssIntensity, float sparkleIntensity,
-              float sparkleDensity, float sparkleScale, vec3 worldPos)
-{
-    vec3 H = normalize(V + L);
-    float NdotL = max(dot(N, L), 0.0);
-    float NdotV = max(dot(N, V), 0.0);
-    float NdotH = max(dot(N, H), 0.0);
-    float HdotV = max(dot(H, V), 0.0);
-
-    // Snow is dielectric: F0 = 0.04 (ice/snow typical)
-    vec3 F0 = vec3(DEFAULT_DIELECTRIC_F0);
-
-    // Specular: standard Cook-Torrance
-    float D = distributionGGX(N, H, roughness);
-    float G = geometrySmith(N, V, L, roughness);
-    vec3 F = fresnelSchlick(HdotV, F0);
-
-    vec3 numerator = D * G * F;
-    float denominator = 4.0 * NdotV * NdotL + 0.0001;
-    vec3 specular = numerator / denominator;
-
-    // Diffuse: SSS wrap lighting instead of Lambert
-    vec3 kD = (vec3(1.0) - F);
-    vec3 diffuse = kD * albedo * subsurfaceDiffuse(N, L, V, sssColor, sssIntensity);
-
-    // Sparkle: additive specular glint (light-dependent via L)
-    float sparkle = snowSparkle(V, N, L, worldPos, sparkleIntensity, sparkleDensity, sparkleScale);
-    vec3 sparkleContrib = vec3(sparkle) * F;
-
-    return (diffuse + specular + sparkleContrib) * NdotL;
-}
+#endif
 
 #endif // SNOW_COMMON_GLSL

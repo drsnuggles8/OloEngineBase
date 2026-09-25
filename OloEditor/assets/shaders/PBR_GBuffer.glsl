@@ -60,12 +60,20 @@ layout(location = 3) in vec2 a_TexCoord2;
 #endif
 
 // Camera UBO (binding 0)
+// The camera block, identical in both stages (GL links a program only if its
+// stages declare it the same), extended through u_RenderOrigin: the snow layer
+// is anchored in ABSOLUTE world space (issue #1451). The previous-frame VP slot
+// is spelled `_cameraPrevViewProjection` because this program takes
+// u_PrevViewProjection from the MotionBlurMatrices block instead.
 layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_ViewProjection;
     mat4 u_View;
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
+    mat4 _cameraPrevViewProjection;
+    vec3 u_RenderOrigin;
+    float _padding1;
 };
 
 // Model UBO (binding 3)
@@ -283,6 +291,9 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
 // u_PrevModel goes unused by the fragment stage but must be present to keep
 // block signatures matched across stages.
 #include "include/InstanceBlock.glsl"
+// Snow as a material layer (issue #1451) — the forward shaders' functions,
+// so a deferred pixel carries the same snow. Brings the Snow UBO (13).
+#include "include/SnowLayer.glsl"
 
 // Camera UBO (binding 0), FRAGMENT SIDE (issue #1244).
 //
@@ -297,12 +308,20 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
 // block whose members disagree between stages, and the failure is a link error
 // with no line number. PBR_MultiLight.glsl carries the same note for the same
 // reason; this block is a copy of the vertex declaration above and must stay one.
+// The camera block, identical in both stages (GL links a program only if its
+// stages declare it the same), extended through u_RenderOrigin: the snow layer
+// is anchored in ABSOLUTE world space (issue #1451). The previous-frame VP slot
+// is spelled `_cameraPrevViewProjection` because this program takes
+// u_PrevViewProjection from the MotionBlurMatrices block instead.
 layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_ViewProjection;
     mat4 u_View;
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
+    mat4 _cameraPrevViewProjection;
+    vec3 u_RenderOrigin;
+    float _padding1;
 };
 
 
@@ -477,6 +496,16 @@ void main()
     float ao = OLO_MAT_AO(u_AOMap, v_TexCoord, matOcclusionStrength, matUseAOMap);
     vec3 emissive = OLO_MAT_EMISSIVE(u_EmissiveMap, v_TexCoord, matEmissiveFactor.rgb, matUseEmissiveMap);
 
+    // THE SNOW LAYER (issue #1451) — include/SnowLayer.glsl, the same calls
+    // PBR_MultiLight makes. This shader had no snow at all, so Deferred meshes
+    // rendered bare under a snowfall the Forward path showed. The blended
+    // material and the snow-FILLED normal go into the G-Buffer and the
+    // weight into RT3.a; the lighting pass rebuilds the shading normal and
+    // adds the sparkle from those.
+    vec3 snowWorldPos = v_WorldPos + u_RenderOrigin;
+    float snowWeight = oloSnowLayerCoverage(snowWorldPos, v_Normal);
+    oloSnowLayerBlendMaterial(snowWeight, albedo, metallic, roughness, ao, emissive);
+
     // sanitizeSurfaceNormal, not normalize: a zero-length or NaN interpolated normal
     // (zero-area triangle, cancelling smooth normals, bad import) would otherwise write a
     // NaN octahedral normal into the G-Buffer and light up as a white pixel.
@@ -550,6 +579,9 @@ void main()
         N = oloOcular.Normal;
     }
 
+    // The snow-FILLED normal, the one the forward paths store too.
+    N = oloSnowLayerFilledNormal(N, snowWeight);
+
     // Screen-space velocity in [-1,1] NDC units.
     vec2 ndcCurr = v_ClipPosCurr.xy / max(v_ClipPosCurr.w, 1e-6);
     vec2 ndcPrev = v_ClipPosPrev.xy / max(v_ClipPosPrev.w, 1e-6);
@@ -561,7 +593,8 @@ void main()
     // 1=ClosureV2. RGBA16F represents small integers exactly, and the
     // deferred lighting pass reads it back with a round().
     o_GBufferEmissive = vec4(emissive, oloEncodeGBufferPbrFlagsEx(matPBRModel, matMaterialKind, matSkinProfileSlot)); // flag-lane layout: see oloEncodeGBufferPbrFlagsEx (#975, #1231)
-    o_GBufferVelocity = vec4(velocity, 1.0, 0.0);
+    // .a: the material profile (#1256) is the snow weight (issue #1451).
+    o_GBufferVelocity = vec4(velocity, 1.0, snowWeight);
     o_GBufferEntityID = u_EntityID;
     // vec4(0) whenever the scene kill switch is off, this draw has no atlas
     // region, or the texel was never baked — the deferred ambient ladder then

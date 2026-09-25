@@ -63,17 +63,11 @@ layout(location = 7) in float v_MeshCoverage;
 layout(location = 8) in float v_InstanceSeed; // this plant's own draw (issue #1237)
 
 // Camera UBO (binding 0)
-layout(std140, binding = 0) uniform CameraMatrices
-{
-    mat4 u_ViewProjection;
-    mat4 u_View;
-    mat4 u_Projection;
-    vec3 u_CameraPosition;
-    float _padding0;
-    mat4 u_PrevViewProjection;
-    vec3 u_RenderOrigin; // camera-relative render origin (issue #429)
-    float _padding1;
-};
+// The shared camera block (include/CameraCommon.glsl), identical in every
+// stage of every program that includes this — GL links a program only if
+// its stages agree on the block — and carrying the forward screen-space AO
+// lane (issue #1452).
+#include "include/CameraCommon.glsl"
 
 #include "include/BindlessHeap.glsl"
 
@@ -354,6 +348,9 @@ void main()
                                                      u_LeafLobe);
     }
 
+    // No screen-space AO (issue #1452): foliage is not in the forward
+    // depth-normal prepass, so the AO buffer holds the occlusion of the ground
+    // or wall BEHIND each leaf. The G-Buffer twin gets its own AO on Deferred.
     vec3 litColor = ambient * ao + oloSurfaceLightingSum(Lo) + transmitted;
 
     FragColor = vec4(u_WindWeights.w > 0.5 ? v_Color : litColor, color.a);

@@ -76,8 +76,16 @@ namespace OloEngine
         // Tell the redundant-bind cache that `slot` was clobbered by a raw glBindTextureUnit
         // outside this dispatcher, so the next tracked bind for that slot actually happens.
         static void InvalidateTextureSlot(u32 slot);
-        static void SetDepthPrepassActive(bool active);
+        // `writeViewNormals` (issue #1452): the FORWARD prepass also writes the
+        // view normal of scene attachment 2, so the screen-space AO passes can
+        // run between it and forward colour. The forward PBR programs swap to
+        // DepthNormalPrepass*.glsl, terrain and voxel keep their own program,
+        // and every other attachment stays masked. Deferred never sets it: its
+        // attachment 2 is the G-Buffer's emissive/flags RT.
+        static void SetDepthPrepassActive(bool active, bool writeViewNormals = false);
         static void SetDepthPrepassColorPassActive(bool active);
+        [[nodiscard]] static bool IsDepthPrepassActive();
+        [[nodiscard]] static bool DoesDepthPrepassWriteNormals();
         // Overdraw debug view (#519): when active, ApplyPODRenderState forces
         // additive (GL_ONE, GL_ONE) blending with depth testing off and the
         // colour mask on, and batchable opaque draws are swapped for the
@@ -147,6 +155,25 @@ namespace OloEngine
         // only when non-zero, gated shader-side by the AtmosphereShadingUBO
         // enabled flag).
         static void SetCloudShadowTexture(RHI::ResourceHandle texture);
+
+        // Screen-space AO for the FORWARD shaders' ambient term (issue #1452).
+        // `params` is the CameraUBO::ScreenSpaceAOParams lane (x = live,
+        // y = strength); `aoTexture` the AO buffer and `depthTexture` the
+        // full-resolution scene depth COPY the prepass exported, published at
+        // TEX_SSAO / TEX_POSTPROCESS_DEPTH by BindSceneResources for every
+        // forward geometry pass. Set by ScenePass's colour half once the AO
+        // passes have run; cleared by ResetState, so a pass that runs before
+        // it (the prepass) reads the white placeholder with x = 0.
+        static void SetForwardScreenSpaceAO(const glm::vec4& params, RHI::ResourceHandle aoTexture,
+                                            RHI::ResourceHandle depthTexture);
+        // A replay from another camera (the planar mirror) must not read the
+        // main view's AO buffer: while suspended the camera lane uploads as
+        // "not live" and the samplers get the white placeholder.
+        static void SuspendForwardScreenSpaceAO(bool suspend);
+        // Publish just the two AO samplers (TEX_SSAO, TEX_POSTPROCESS_DEPTH).
+        // BindSceneResources does this too; a forward geometry pass that does
+        // not call that (foliage, groom, water) calls this before its draws.
+        static void BindForwardScreenSpaceAO();
 
         // Getters for current frame state (used for sort key generation and per-bucket view state)
         static const glm::mat4& GetViewMatrix();

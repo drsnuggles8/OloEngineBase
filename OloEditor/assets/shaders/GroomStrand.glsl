@@ -54,14 +54,11 @@ layout(location = 7) in vec3 a_PrevPosition; // this centreline point as it was 
 layout(location = 8) in float a_Pad1;
 #endif
 
-layout(std140, binding = 0) uniform CameraMatrices {
-	mat4 u_ViewProjection;
-	mat4 u_View;
-	mat4 u_Projection;
-	vec3 _groomCameraPadPosition;
-	float _groomCameraPad0;
-	mat4 u_PrevViewProjection;
-};
+// The shared camera block (include/CameraCommon.glsl), identical in every
+// stage of every program that includes this — GL links a program only if
+// its stages agree on the block — and carrying the forward screen-space AO
+// lane (issue #1452).
+#include "include/CameraCommon.glsl"
 
 // ONE block, on the shared PASS-LOCAL slot, declared IDENTICALLY in both
 // stages.
@@ -320,6 +317,15 @@ layout(std140, binding = 5) uniform MultiLightBuffer {
 #else
 layout(binding = 10) uniform samplerCube u_IrradianceMap; // TEX_USER_0
 #endif
+
+// The camera block the vertex stage declares; GL links a program only if its
+// stages agree on the block.
+//
+// No screen-space AO here (issue #1452): a strand is not in the forward
+// depth-normal prepass, so the AO buffer holds the occlusion of the surface
+// BEHIND it at every one of its pixels. The Deferred path's forward-lit groom
+// takes none either.
+#include "include/CameraCommon.glsl"
 
 // The coat-shadow volume (#1248), TEX_GROOM_COAT_VOLUME. xyz = the voxel's mean
 // fibre direction times its coherence, w = fibre areal density in 1/metre.
@@ -582,7 +588,6 @@ vec3 oloGroomShadeFibre()
 		                                        u_GroomCoatBoundsMin.xyz, u_GroomCoatInvExtent.xyz,
 		                                        v_WorldPos, envDir, u_GroomCoatInvExtent.w, u_GroomCoatModes.x);
 		averageRadiance *= oloGroomCoatTransmittance(envTau, u_GroomCoatBoundsMin.w);
-
 		oloGroomAccumulate(total, oloGroomFibreAmbientResponse(fibre, sinThetaO), averageRadiance);
 	}
 

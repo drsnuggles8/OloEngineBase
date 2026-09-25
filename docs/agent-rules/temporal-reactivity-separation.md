@@ -164,7 +164,9 @@ The three subjects fill `.b` with their own quantity:
 | Foliage, near | cutout alpha x LOD fade | a density LOD step moves it while instance, primitive, material and depth all hold still |
 | Foliage, impostor | `card.Coverage * card.DistFade` | so coverage does not jump across the impostor hand-over |
 
-Everything else writes the opaque default `vec4(velocity, 1.0, 0.0)`.
+Everything else writes the opaque default `vec4(velocity, 1.0, 0.0)`. The snow-capable writers
+(the PBR and terrain shaders, forward and G-Buffer) put the snow weight in `.a`, because a snow
+blend is a position along the material's profile axis (#1451).
 
 **`GBufferCoverageChannelContractTest` is the forcing function.** It scans every shader for a
 velocity write that does not cover four channels, because that mistake compiles cleanly, does not
