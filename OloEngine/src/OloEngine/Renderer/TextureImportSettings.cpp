@@ -36,6 +36,12 @@ namespace OloEngine
             { "sRGB", TextureImportSettings::ColorSpaceChoice::SRGB },
         } };
 
+        constexpr std::array<std::pair<std::string_view, TextureImportSettings::AlphaMipChainChoice>, 3> kAlphaMipChainNames = { {
+            { "Auto", TextureImportSettings::AlphaMipChainChoice::Auto },
+            { "Coverage", TextureImportSettings::AlphaMipChainChoice::Coverage },
+            { "Box", TextureImportSettings::AlphaMipChainChoice::Box },
+        } };
+
         template<typename Table, typename Value>
         bool LookupName(const Table& table, std::string_view name, Value& out)
         {
@@ -51,7 +57,7 @@ namespace OloEngine
         }
 
         template<typename Table, typename Value>
-        std::string_view NameOf(const Table& table, Value value)
+        std::string_view NameIn(const Table& table, Value value)
         {
             for (const auto& [text, candidate] : table)
             {
@@ -110,6 +116,15 @@ namespace OloEngine
                         return false;
                     }
                 }
+                if (const YAML::Node alphaMipChain = node["AlphaMipChain"]; alphaMipChain)
+                {
+                    if (!LookupName(kAlphaMipChainNames, alphaMipChain.as<std::string>(std::string{}), out.AlphaMipChain))
+                    {
+                        OLO_CORE_ERROR("TextureImport::Parse - unknown AlphaMipChain '{}'",
+                                       alphaMipChain.as<std::string>(std::string{}));
+                        return false;
+                    }
+                }
                 if (const YAML::Node generateMips = node["GenerateMips"]; generateMips)
                 {
                     // as<bool>(fallback) SWALLOWS a bad value and hands back the
@@ -135,10 +150,11 @@ namespace OloEngine
             std::ostringstream stream;
             stream << "TextureImportSettings:\n";
             stream << "  Version: " << kSidecarVersion << "\n";
-            stream << "  Format: " << NameOf(kFormatNames, settings.Format) << "\n";
-            stream << "  ColorSpace: " << NameOf(kColorSpaceNames, settings.ColorSpace) << "\n";
+            stream << "  Format: " << NameIn(kFormatNames, settings.Format) << "\n";
+            stream << "  ColorSpace: " << NameIn(kColorSpaceNames, settings.ColorSpace) << "\n";
             if (settings.GenerateMips.has_value())
                 stream << "  GenerateMips: " << (*settings.GenerateMips ? "true" : "false") << "\n";
+            stream << "  AlphaMipChain: " << NameIn(kAlphaMipChainNames, settings.AlphaMipChain) << "\n";
             return stream.str();
         }
 

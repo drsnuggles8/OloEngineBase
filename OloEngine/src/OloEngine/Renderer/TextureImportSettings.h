@@ -23,10 +23,22 @@
 //       Format: BC5          # Auto | BC7 | BC5 | BC4 | BC6H | BC6HSigned
 //       ColorSpace: Linear   # Auto | Linear | sRGB
 //       GenerateMips: true   # omit for Auto
+//       AlphaMipChain: Auto  # Auto | Coverage | Box
 //
 // Every field is optional and every omitted field means "Auto", i.e. exactly the
 // behaviour the cook had before this file existed. A project with no sidecars cooks
 // bit-identically to #440's pipeline.
+//
+// Where an alpha-tested texture's cutoff comes from (#1453): NOWHERE, because the cook
+// does not need one. A cutout's mip chain is histogram-matched to level 0
+// (AlphaCoverageMips.h), which keeps the alpha-test coverage of every level equal to
+// level 0's at every cutoff at once, so the Mask material at 0.25 and the foliage
+// layer at 0.5 that share one texture both get a correct chain and the author has
+// nothing to keep in step. What the cook does need is to know the texture IS a
+// cutout, and it measures that from the pixels (AlphaCoverageMips::IsCutoutAlpha:
+// mostly transparent-or-opaque alpha). `AlphaMipChain` overrides the measurement for
+// a texture it gets wrong: Coverage forces the cutout chain, Box forces the plain
+// averaged chain an alpha-BLENDED texture wants.
 //
 // Sidecars are chosen over registry metadata deliberately: the cook runs from a *path*
 // and must work with no project loaded (offline cooks and the unit tests both do), the
@@ -58,15 +70,26 @@ namespace OloEngine
             SRGB,
         };
 
+        // How the cook builds a BC7 texture's alpha mips. Auto measures the alpha
+        // (AlphaCoverageMips::IsCutoutAlpha); see the top of this file.
+        enum class AlphaMipChainChoice : u8
+        {
+            Auto = 0,
+            Coverage, // alpha cutout: coverage kept at every cutoff, chain stops at 64 texels
+            Box,      // alpha averaged, full chain: blended or data alpha
+        };
+
         FormatChoice Format = FormatChoice::Auto;
         ColorSpaceChoice ColorSpace = ColorSpaceChoice::Auto;
         // Unset means "keep the caller's choice"; set overrides it.
         std::optional<bool> GenerateMips;
+        AlphaMipChainChoice AlphaMipChain = AlphaMipChainChoice::Auto;
 
         // True when nothing is overridden, i.e. loading this file changed nothing.
         [[nodiscard]] bool IsAllAuto() const
         {
-            return Format == FormatChoice::Auto && ColorSpace == ColorSpaceChoice::Auto && !GenerateMips.has_value();
+            return Format == FormatChoice::Auto && ColorSpace == ColorSpaceChoice::Auto && !GenerateMips.has_value() &&
+                   AlphaMipChain == AlphaMipChainChoice::Auto;
         }
     };
 

@@ -105,7 +105,14 @@ namespace OloEngine
         // EncodeBC7 expands the source to RGBA (missing channels: G/B copy R for 1-ch,
         // A defaults to 255) before encoding all four channels.
         // EncodeBC5 encodes source channels 0 and 1 (R,G) — intended for normal xy.
-        [[nodiscard]] CompressedTextureImage EncodeBC7(const u8* pixels, u32 width, u32 height, u32 channels, bool srgb, bool generateMips);
+        //
+        // `preserveAlphaCoverage` marks the source as an alpha CUTOUT (#1453): with
+        // `generateMips` and a 4-channel source, the chain is AlphaCoverageMips'
+        // histogram-matched one, which keeps level 0's alpha-test coverage at every
+        // cutoff, and it stops at AlphaCoverageMips::CappedLevelCount levels. The
+        // caller decides; CompressImageFile measures it (AlphaCoverageMips::IsCutoutAlpha).
+        [[nodiscard]] CompressedTextureImage EncodeBC7(const u8* pixels, u32 width, u32 height, u32 channels, bool srgb, bool generateMips,
+                                                       bool preserveAlphaCoverage = false);
         [[nodiscard]] CompressedTextureImage EncodeBC5(const u8* pixels, u32 width, u32 height, u32 channels, bool generateMips);
 
         // Encode channel 0 (R) of the source to BC4 — 8 bytes per block, half of BC7.

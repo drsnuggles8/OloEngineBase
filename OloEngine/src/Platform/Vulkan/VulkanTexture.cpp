@@ -734,9 +734,9 @@ namespace OloEngine
             UsesAlphaCoverageChain() && uploadSize >= static_cast<u64>(m_Width) * m_Height * 4u;
         if (coverageChainActive)
         {
-            coverageChain = AlphaCoverageMips::Build({ static_cast<const u8*>(uploadData), static_cast<sizet>(uploadSize) },
-                                                     m_Width, m_Height, m_MipLevels, m_Specification.SRGB,
-                                                     m_AlphaCoverageCutoff);
+            const std::span<const u8> base{ static_cast<const u8*>(uploadData), static_cast<sizet>(m_Width) * m_Height * 4u };
+            coverageChain = AlphaCoverageMips::Build(base, m_Width, m_Height, m_MipLevels, m_Specification.SRGB,
+                                                     AlphaCoverageMips::HasPartialCoverage(base, m_AlphaCoverageCutoff));
         }
         const u64 chainBytes = static_cast<u64>(coverageChain.Bytes.Num());
 

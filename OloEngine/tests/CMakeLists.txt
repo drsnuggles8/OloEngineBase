@@ -308,6 +308,7 @@ add_executable(OloEngine-Tests
 		Rendering/FoliageAuthoredMeshContractTest.cpp
 		Rendering/FoliageAlphaCoverageContractTest.cpp
 		Rendering/AlphaCoverageMipsContractTest.cpp
+		Rendering/CookedCutoutCoverageTest.cpp
 		Rendering/VegetationAssetContractTest.cpp
         Rendering/FoliageWindContractTest.cpp
 		Rendering/FoliageInteractionContractTest.cpp
@@ -772,6 +773,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/FoliageAuthoredMeshEvidenceTest.cpp
 		Rendering/PropertyTests/FoliageAlphaCoverageWarningTest.cpp
 		Rendering/PropertyTests/FoliageLodCoverageEvidenceTest.cpp
+		Rendering/PropertyTests/CookedCutoutCoverageEvidenceTest.cpp
 		Rendering/PropertyTests/FloraTraversalEvidenceTest.cpp
         Rendering/PropertyTests/FoliageGPUCullEvidenceTest.cpp
         Rendering/PropertyTests/FoliageWindEvidenceTest.cpp

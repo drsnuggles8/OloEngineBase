@@ -435,10 +435,11 @@ namespace OloEngine::Tests
         glGetTextureParameteriv(texture->GetRendererID(), GL_TEXTURE_IMMUTABLE_LEVELS, &levels);
         EXPECT_EQ(levels, 4);
         EXPECT_NEAR(coverageAt(0), base, 1e-6f) << "rebuilding the chain changed level 0";
-        // Within the reachable granularity of a binary cutout (see
-        // AlphaCoverageMipsContractTest); the plain chain was off by 20+ points.
+        // To one texel of the coarsest kept level: the chain is histogram-matched
+        // to level 0 (see AlphaCoverageMipsContractTest); the plain chain was
+        // off by 20+ points.
         for (u32 level = 1; level <= 3; ++level) // 256x256 .. 64x64
-            EXPECT_NEAR(coverageAt(level), base, 0.05f) << "level " << level;
+            EXPECT_NEAR(coverageAt(level), base, 1.0f / (64.0f * 64.0f)) << "level " << level;
 
         // What GL holds is exactly what the CPU builder produced, so the Vulkan
         // backend, which uploads the same builder's bytes, samples the same levels.
@@ -446,7 +447,7 @@ namespace OloEngine::Tests
             TArray64<u8> level0;
             ASSERT_TRUE(texture->GetData(level0, 0));
             const AlphaCoverageMips::Chain expected = AlphaCoverageMips::Build(
-                { level0.GetData(), static_cast<sizet>(level0.Num()) }, kSize, kSize, 4u, /*srgb=*/true, kCutoff);
+                { level0.GetData(), static_cast<sizet>(level0.Num()) }, kSize, kSize, 4u, /*srgb=*/true, /*preserveCoverage=*/true);
             for (i32 i = 0; i < expected.Levels.Num(); ++i)
             {
                 TArray64<u8> actual;

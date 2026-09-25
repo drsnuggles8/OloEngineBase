@@ -989,12 +989,14 @@ namespace OloEngine
 
         if (UsesAlphaCoverageChain() && level0 != nullptr)
         {
-            // The alpha-tested chain is built on the CPU, because the rescale
-            // needs each level's alpha histogram (AlphaCoverageMips.h).
-            const sizet level0Bytes = static_cast<sizet>(m_Width) * m_Height * 4u;
+            // The alpha-tested chain is built on the CPU, because matching each
+            // level to level 0 needs every level's alpha ranked (AlphaCoverageMips.h).
+            // The chain is the same for every cutoff; the cutoff only says
+            // whether this texture has coverage to keep.
+            const std::span<const u8> base{ static_cast<const u8*>(level0), static_cast<sizet>(m_Width) * m_Height * 4u };
             const AlphaCoverageMips::Chain chain =
-                AlphaCoverageMips::Build({ static_cast<const u8*>(level0), level0Bytes }, m_Width, m_Height, m_MipLevels,
-                                         m_Specification.SRGB, m_AlphaCoverageCutoff);
+                AlphaCoverageMips::Build(base, m_Width, m_Height, m_MipLevels, m_Specification.SRGB,
+                                         AlphaCoverageMips::HasPartialCoverage(base, m_AlphaCoverageCutoff));
             const Utils::GLUnpackAlignmentScope unpackAlignment;
             for (i32 i = 0; i < chain.Levels.Num(); ++i)
             {
@@ -1054,14 +1056,19 @@ namespace OloEngine
 
         if (IsCompressedFormat(m_Specification.Format))
         {
-            // The chain was cooked offline (#440) and there is no level 0 to
-            // rebuild it from here. Say so: this texture WILL thin with distance.
-            if (sanitized > 0.0f)
+            // The chain was cooked offline and there is no level 0 to rebuild it
+            // from here — nor any need to: the cook gives an alpha cutout the
+            // chain that holds its coverage at every cutoff (#1453), which stops
+            // at CappedLevelCount levels. A LONGER chain on a texture with alpha
+            // was cooked as a plain box chain (by an older cook, or because the
+            // cook judged the alpha not a cutout's), and that one thins.
+            if (sanitized > 0.0f && m_CompressedHasAlpha &&
+                m_MipLevels > AlphaCoverageMips::CappedLevelCount(m_Width, m_Height, m_MipLevels))
             {
-                OLO_CORE_WARN("OpenGLTexture2D::SetAlphaCoverageCutoff: '{}' is block-compressed; its cooked mip "
-                              "chain cannot be rebuilt to preserve alpha coverage, so it thins with distance under "
-                              "its alpha test (cutoff {})",
-                              m_Path.ToView(), sanitized);
+                OLO_CORE_WARN("OpenGLTexture2D::SetAlphaCoverageCutoff: '{}' is block-compressed with a plain {}-level "
+                              "mip chain, so it thins with distance under its alpha test (cutoff {}). Re-cook it; if the "
+                              "cook still does not treat it as a cutout, set 'AlphaMipChain: Coverage' in its .oloimport",
+                              m_Path.ToView(), m_MipLevels, sanitized);
             }
             return;
         }

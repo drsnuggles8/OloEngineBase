@@ -84,6 +84,7 @@ TEST(TextureImportSettings, EmitParseRoundTrip)
     original.Format = TextureImportSettings::FormatChoice::BC5;
     original.ColorSpace = TextureImportSettings::ColorSpaceChoice::Linear;
     original.GenerateMips = false;
+    original.AlphaMipChain = TextureImportSettings::AlphaMipChainChoice::Box;
 
     TextureImportSettings restored;
     ASSERT_TRUE(TextureImport::Parse(TextureImport::Emit(original), restored));
@@ -91,6 +92,11 @@ TEST(TextureImportSettings, EmitParseRoundTrip)
     EXPECT_EQ(restored.ColorSpace, TextureImportSettings::ColorSpaceChoice::Linear);
     ASSERT_TRUE(restored.GenerateMips.has_value());
     EXPECT_FALSE(*restored.GenerateMips);
+    EXPECT_EQ(restored.AlphaMipChain, TextureImportSettings::AlphaMipChainChoice::Box);
+
+    original.AlphaMipChain = TextureImportSettings::AlphaMipChainChoice::Coverage;
+    ASSERT_TRUE(TextureImport::Parse(TextureImport::Emit(original), restored));
+    EXPECT_EQ(restored.AlphaMipChain, TextureImportSettings::AlphaMipChainChoice::Coverage);
 }
 
 TEST(TextureImportSettings, OmittedFieldsMeanAuto)
@@ -107,6 +113,7 @@ TEST(TextureImportSettings, RejectsUnknownSpellingsAndVersions)
     TextureImportSettings settings;
     EXPECT_FALSE(TextureImport::Parse("TextureImportSettings:\n  Format: BC9\n", settings));
     EXPECT_FALSE(TextureImport::Parse("TextureImportSettings:\n  ColorSpace: Rec709\n", settings));
+    EXPECT_FALSE(TextureImport::Parse("TextureImportSettings:\n  AlphaMipChain: Castano\n", settings));
     EXPECT_FALSE(TextureImport::Parse("TextureImportSettings:\n  Version: 99\n  Format: BC5\n", settings));
     EXPECT_FALSE(TextureImport::Parse("NotOurRoot:\n  Format: BC5\n", settings));
     EXPECT_FALSE(TextureImport::Parse("this: [is: not: yaml", settings));
@@ -237,4 +244,61 @@ TEST(TextureImportSettings, MalformedSidecarFallsBackToAutoAndDoesNotCookTheWron
     EXPECT_EQ(image.Format, TextureCompressionFormat::BC7);
 
     RemoveBoth(png);
+}
+
+namespace
+{
+    // A 256x256 RGBA source whose alpha is either a binary cutout (every 5th
+    // texel opaque) or a height ramp that also touches 0 and 255, so it HAS
+    // alpha in both cases and only its distribution differs.
+    std::filesystem::path WriteAlphaPng(const char* suffix, bool cutout)
+    {
+        constexpr u32 kSize = 256;
+        std::vector<u8> pixels(static_cast<sizet>(kSize) * kSize * 4);
+        for (u32 i = 0; i < kSize * kSize; ++i)
+        {
+            pixels[i * 4 + 0] = 90;
+            pixels[i * 4 + 1] = 140;
+            pixels[i * 4 + 2] = 60;
+            pixels[i * 4 + 3] = cutout ? ((i * 7u) % 5u == 0u ? 255 : 0) : static_cast<u8>(i % 256u);
+        }
+        const std::filesystem::path path = OloEngine::Tests::TempFile(std::string("import_alpha") + suffix + ".png");
+        EXPECT_NE(::stbi_write_png(path.string().c_str(), static_cast<int>(kSize), static_cast<int>(kSize), 4,
+                                   pixels.data(), static_cast<int>(kSize) * 4),
+                  0);
+        return path;
+    }
+} // namespace
+
+TEST(TextureImportSettings, AlphaMipChainOverridesTheMeasuredCutoutGate)
+{
+    // #1453: the cook measures whether a texture's alpha is a cutout's and, if
+    // so, cooks the coverage-preserving chain that stops at 64 texels (3 levels
+    // for 256). The sidecar is the override for a texture it measures wrong.
+    constexpr u32 kFullChain = 9;     // 256 -> 1
+    constexpr u32 kCoverageChain = 3; // 256 -> 128 -> 64
+    TextureCompression::CompressOptions options;
+
+    const std::filesystem::path cutout = WriteAlphaPng("_cutout", /*cutout=*/true);
+    CompressedTextureImage measured;
+    ASSERT_TRUE(TextureCompression::CompressImageFile(cutout.string(), options, measured));
+    EXPECT_EQ(measured.MipLevels(), kCoverageChain) << "a binary cutout is measured as one";
+
+    WriteSidecar(cutout, "TextureImportSettings:\n  Version: 1\n  AlphaMipChain: Box\n");
+    CompressedTextureImage forcedBox;
+    ASSERT_TRUE(TextureCompression::CompressImageFile(cutout.string(), options, forcedBox));
+    EXPECT_EQ(forcedBox.MipLevels(), kFullChain) << "Box keeps the averaged full chain";
+    RemoveBoth(cutout);
+
+    const std::filesystem::path ramp = WriteAlphaPng("_ramp", /*cutout=*/false);
+    CompressedTextureImage notACutout;
+    ASSERT_TRUE(TextureCompression::CompressImageFile(ramp.string(), options, notACutout));
+    ASSERT_TRUE(notACutout.HasAlpha);
+    EXPECT_EQ(notACutout.MipLevels(), kFullChain) << "a ramp is data, not a cutout";
+
+    WriteSidecar(ramp, "TextureImportSettings:\n  Version: 1\n  AlphaMipChain: Coverage\n");
+    CompressedTextureImage forcedCoverage;
+    ASSERT_TRUE(TextureCompression::CompressImageFile(ramp.string(), options, forcedCoverage));
+    EXPECT_EQ(forcedCoverage.MipLevels(), kCoverageChain) << "Coverage forces the cutout chain";
+    RemoveBoth(ramp);
 }
