@@ -240,6 +240,9 @@ namespace OloEngine
         TerrainPickState TerrainRaycastGPU(const glm::vec2& mousePos, const glm::vec2& viewportSize,
                                            glm::vec3& outHitPos, bool& outHit) const;
         MCP::TerrainPick::Snapshot TerrainPickFromMcp(const MCP::TerrainPick::Request& request, bool submit) const;
+        // The camera that drew the viewport, as a world ray (#607). Refuses in
+        // Play, where that camera is not m_EditorCamera.
+        MCP::ViewportRay::CameraRayResolution ResolveViewportRayFromMcp(const glm::vec2& normalizedTopLeft) const;
 
         // The pre-#717 path: march the CPU-side heightmap mirror in 1-unit
         // steps and bisect. Still the fallback, and still the reference the GPU

@@ -7290,11 +7290,40 @@ namespace OloEngine::MCP
             // probe so an unusable device answers in ONE round trip instead of
             // queueing a batch and settling frames to learn the same thing.
             const Json submitted = host.MarshalRead(
-                [&request, batchId]() -> Json
+                [&request, batchId, &host]() -> Json
                 {
                     RayTraceRay::Snapshot snapshot;
-                    snapshot.Input = request;
                     snapshot.BatchId = batchId;
+
+                    // A camera source becomes ONE world ray here, on the main
+                    // thread, in the same call that submits it — so the pose that
+                    // resolved the ray is the pose it was traced under, and the
+                    // reply's `replay` is exactly what ran. Resolved before the
+                    // device checks so even an 'unavailable' reply names the ray.
+                    if (request.Source != ViewportRay::RaySource::WorldRay)
+                    {
+                        if (!host.Context().ResolveViewportRay)
+                        {
+                            snapshot.Input = request;
+                            snapshot.UnavailableReason = "This host has no editor camera to resolve a viewport ray "
+                                                         "through; pass world-space 'rays'.";
+                            return RayTraceRay::BuildResult(snapshot);
+                        }
+                        const auto resolved =
+                            host.Context().ResolveViewportRay(ViewportRay::Normalized(request.Viewport));
+                        if (!resolved.Ray)
+                        {
+                            snapshot.Input = request;
+                            snapshot.UnavailableReason = resolved.Error;
+                            return RayTraceRay::BuildResult(snapshot);
+                        }
+                        // tMax = the near-to-far span along this ray: exactly what
+                        // the camera can see through that pixel, and no further.
+                        request.Rays = { RayTraceRay::Ray{ resolved.Ray->Origin, resolved.Ray->Direction, 0.0f,
+                                                           resolved.Ray->Length } };
+                    }
+                    snapshot.Input = request;
+
                     if (!Renderer3D::HasInitialized())
                     {
                         snapshot.UnavailableReason =
@@ -9878,7 +9907,13 @@ namespace OloEngine::MCP
                 "answer you already know is the only question that tells them apart. A MISS is a first-class "
                 "answer with its ray echoed beside it, never an absent entry. 'terminateOnFirstHit' makes a "
                 "VISIBILITY ray (any hit, not the nearest); 'instanceMask' is ANDed with each instance's own "
-                "mask. VULKAN ONLY — GL_EXT_ray_query has no OpenGL representation, and on OpenGL this returns "
+                "mask. RAY SOURCES — exactly one per call: 'rays' (a deterministic world-space batch), or "
+                "'viewportPixel' {coordinate,width,height} / 'viewportNormalized' [x,y] (ONE ray through the editor "
+                "camera, top-left origin, the same shapes olo_terrain_pick takes). A camera ray moves with the camera "
+                "pose, so never compare two camera traces and blame the renderer: every reply names its 'raySource', "
+                "and a camera reply carries 'replay' — the resolved world ray as ready-to-send arguments. Re-trace "
+                "that for a deterministic A/B. Viewport rays are refused in Play mode (the viewport then shows the "
+                "runtime camera). VULKAN ONLY — GL_EXT_ray_query has no OpenGL representation, and on OpenGL this returns "
                 "status 'unavailable' with the reason rather than zeros. The trace is dispatched inside a frame "
                 "and read back through a fence, so the call settles a few frames before answering; a 'pending' "
                 "reply means the editor did not render in that window.";

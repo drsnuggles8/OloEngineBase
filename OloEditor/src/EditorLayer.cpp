@@ -911,6 +911,8 @@ namespace OloEngine
             { return SetMcpEditorDebugDraw(category, enabled); };
             mcpContext.TerrainPick = [this](const MCP::TerrainPick::Request& request, bool submit) -> MCP::TerrainPick::Snapshot
             { return TerrainPickFromMcp(request, submit); };
+            mcpContext.ResolveViewportRay = [this](const glm::vec2& normalizedTopLeft) -> MCP::ViewportRay::CameraRayResolution
+            { return ResolveViewportRayFromMcp(normalizedTopLeft); };
             mcpContext.LightmapBake = [this](const MCP::LightmapBake::Request& request, bool start) -> MCP::LightmapBake::Snapshot
             { return LightmapBakeFromMcp(request, start); };
 
@@ -5256,27 +5258,40 @@ namespace OloEngine
             return false;
         }
 
-        // mousePos is TOP-LEFT origin, +Y down, on every backend. The editor
-        // camera's view-projection is GL-shaped on every backend too
-        // (RHIProjectionSeam flips only the UPLOADED matrices), so the top row
-        // is NDC +1 unconditionally — no RenderTargetRowsAreBottomUp here.
-        f32 ndcX = (mousePos.x / viewportSize.x) * 2.0f - 1.0f;
-        f32 ndcY = 1.0f - (mousePos.y / viewportSize.y) * 2.0f;
+        // mousePos is TOP-LEFT origin, +Y down, on every backend; the shared
+        // unprojection owns the y flip (see McpViewportRay.h for why it has no
+        // backend branch). One arithmetic for the brush and the MCP ray tools.
+        const auto ray = MCP::ViewportRay::UnprojectNormalized(mousePos / viewportSize, m_EditorCamera.GetViewProjection());
+        if (!ray)
+        {
+            return false;
+        }
+        outRay = Ray(ray->Origin, ray->Direction);
+        return true;
+    }
 
-        // Unproject near and far points
-        glm::mat4 invVP = glm::inverse(m_EditorCamera.GetViewProjection());
-        glm::vec4 nearNDC(ndcX, ndcY, -1.0f, 1.0f);
-        glm::vec4 farNDC(ndcX, ndcY, 1.0f, 1.0f);
-
-        glm::vec4 nearWorld = invVP * nearNDC;
-        glm::vec4 farWorld = invVP * farNDC;
-        nearWorld /= nearWorld.w;
-        farWorld /= farWorld.w;
-
-        outRay = Ray(glm::vec3(nearWorld), glm::normalize(glm::vec3(farWorld) - glm::vec3(nearWorld)));
-        // A degenerate view-projection (uninitialized camera, zero-size
-        // viewport mid-resize) yields NaNs through the inverse/normalize.
-        return Math::IsFinite(outRay.Origin) && Math::IsFinite(outRay.Direction);
+    MCP::ViewportRay::CameraRayResolution EditorLayer::ResolveViewportRayFromMcp(const glm::vec2& normalizedTopLeft) const
+    {
+        MCP::ViewportRay::CameraRayResolution resolution;
+        // Play renders the scene's runtime camera, not m_EditorCamera. A ray
+        // through the editor camera would then name a pixel the caller never
+        // saw — refused, not approximated.
+        if (m_SceneState == SceneState::Play)
+        {
+            resolution.Error = "The viewport shows the runtime camera in Play mode, and viewport rays are resolved "
+                               "through the editor camera. Stop playing (or Simulate), or pass a world-space ray.";
+            return resolution;
+        }
+        if (m_ViewportSize.x <= 0.0f || m_ViewportSize.y <= 0.0f)
+        {
+            resolution.Error = "The viewport has no size (minimized or not laid out yet), so there is no camera "
+                               "projection to cast through.";
+            return resolution;
+        }
+        resolution.Ray = MCP::ViewportRay::UnprojectNormalized(normalizedTopLeft, m_EditorCamera.GetViewProjection());
+        if (!resolution.Ray)
+            resolution.Error = "The editor camera's view-projection could not produce a finite ray.";
+        return resolution;
     }
 
     bool EditorLayer::IsGpuTerrainPickingEnabled()
@@ -5436,17 +5451,15 @@ namespace OloEngine
             }
             else
             {
-                glm::vec2 viewportSize = request.Source == MCP::TerrainPick::RaySource::ViewportPixel
-                                             ? glm::vec2(request.ViewportDimensions)
-                                             : m_ViewportSize;
-                glm::vec2 coordinate = request.Source == MCP::TerrainPick::RaySource::ViewportPixel
-                                           ? request.Coordinate
-                                           : request.Coordinate * viewportSize;
-                if (!BuildMouseRay(coordinate, viewportSize, worldRay))
+                const MCP::ViewportRay::ViewportInput viewport{ request.Source, request.Coordinate,
+                                                                request.ViewportDimensions };
+                const auto resolved = ResolveViewportRayFromMcp(MCP::ViewportRay::Normalized(viewport));
+                if (!resolved.Ray)
                 {
-                    snapshot.UnavailableReason = "The editor camera or viewport could not produce a finite ray.";
+                    snapshot.UnavailableReason = resolved.Error;
                     return snapshot;
                 }
+                worldRay = Ray(resolved.Ray->Origin, resolved.Ray->Direction);
                 maxDistance = 2000.0f;
             }
 

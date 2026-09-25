@@ -5,8 +5,13 @@
 // the resulting world ray into terrain-local space, and submits it to
 // TerrainGPUPicker. This header deliberately knows neither EditorLayer nor the GPU
 // picker, so every externally visible state can be pinned in headless unit tests.
+//
+// The viewport ray sources, their exactly-one rule and the top-left pixel
+// convention are shared with olo_rt_trace_ray (McpViewportRay.h), so the two
+// tools cannot drift apart on what a viewport coordinate means.
 
 #include "MCP/McpSchemaBuilder.h"
+#include "MCP/McpViewportRay.h"
 
 #include "OloEngine/Core/Base.h"
 
@@ -23,12 +28,7 @@ namespace OloEngine::MCP::TerrainPick
 {
     using Json = nlohmann::json;
 
-    enum class RaySource : u8
-    {
-        ViewportPixel,
-        ViewportNormalized,
-        WorldRay,
-    };
+    using RaySource = ViewportRay::RaySource;
 
     struct WorldRay
     {
@@ -45,129 +45,24 @@ namespace OloEngine::MCP::TerrainPick
         WorldRay Ray;
     };
 
-    [[nodiscard]] inline const char* SourceToken(RaySource source)
-    {
-        switch (source)
-        {
-            case RaySource::ViewportPixel:
-                return "viewportPixel";
-            case RaySource::ViewportNormalized:
-                return "viewportNormalized";
-            case RaySource::WorldRay:
-                return "worldRay";
-        }
-        return "unknown";
-    }
-
-    [[nodiscard]] inline bool IsFinite(const glm::vec2& value)
-    {
-        return std::isfinite(value.x) && std::isfinite(value.y);
-    }
-
-    [[nodiscard]] inline bool IsFinite(const glm::vec3& value)
-    {
-        return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
-    }
-
-    [[nodiscard]] inline std::optional<std::string> ParseVec2(const Json& value, std::string_view name, glm::vec2& out)
-    {
-        if (!value.is_array() || value.size() != 2u)
-            return "Invalid '" + std::string(name) + "': expected exactly two finite numbers.";
-        for (const Json& component : value)
-        {
-            if (!(component.is_number_float() || component.is_number_integer() || component.is_number_unsigned()))
-                return "Invalid '" + std::string(name) + "': expected exactly two finite numbers.";
-        }
-        const f64 x = value[0].get<f64>();
-        const f64 y = value[1].get<f64>();
-        if (!std::isfinite(x) || !std::isfinite(y))
-            return "Invalid '" + std::string(name) + "': expected exactly two finite numbers.";
-        out = { static_cast<f32>(x), static_cast<f32>(y) };
-        if (!IsFinite(out))
-            return "Invalid '" + std::string(name) + "': values exceed the supported float range.";
-        return std::nullopt;
-    }
-
-    [[nodiscard]] inline std::optional<std::string> ParseVec3(const Json& value, std::string_view name, glm::vec3& out)
-    {
-        if (!value.is_array() || value.size() != 3u)
-            return "Invalid '" + std::string(name) + "': expected exactly three finite numbers.";
-        for (const Json& component : value)
-        {
-            if (!(component.is_number_float() || component.is_number_integer() || component.is_number_unsigned()))
-                return "Invalid '" + std::string(name) + "': expected exactly three finite numbers.";
-        }
-        const f64 x = value[0].get<f64>();
-        const f64 y = value[1].get<f64>();
-        const f64 z = value[2].get<f64>();
-        if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z))
-            return "Invalid '" + std::string(name) + "': expected exactly three finite numbers.";
-        out = { static_cast<f32>(x), static_cast<f32>(y), static_cast<f32>(z) };
-        if (!IsFinite(out))
-            return "Invalid '" + std::string(name) + "': values exceed the supported float range.";
-        return std::nullopt;
-    }
-
-    [[nodiscard]] inline std::optional<std::string> ParsePositiveU32(const Json& value, std::string_view name, u32& out)
-    {
-        if (!(value.is_number_integer() || value.is_number_unsigned()))
-            return "Invalid '" + std::string(name) + "': expected a positive integer.";
-        u64 parsed = 0u;
-        if (value.is_number_unsigned())
-        {
-            parsed = value.get<u64>();
-        }
-        else
-        {
-            const i64 signedValue = value.get<i64>();
-            if (signedValue <= 0)
-                return "Invalid '" + std::string(name) + "': expected a positive 32-bit integer.";
-            parsed = static_cast<u64>(signedValue);
-        }
-        if (parsed > static_cast<u64>(std::numeric_limits<u32>::max()))
-            return "Invalid '" + std::string(name) + "': expected a positive 32-bit integer.";
-        out = static_cast<u32>(parsed);
-        return std::nullopt;
-    }
+    using ViewportRay::IsFinite;
+    using ViewportRay::ParseVec3;
+    using ViewportRay::SourceToken;
 
     [[nodiscard]] inline std::optional<std::string> ParseRequest(const Json& args, Request& out)
     {
-        const bool hasPixel = args.contains("viewportPixel") && !args["viewportPixel"].is_null();
-        const bool hasNormalized = args.contains("viewportNormalized") && !args["viewportNormalized"].is_null();
-        const bool hasWorldRay = args.contains("worldRay") && !args["worldRay"].is_null();
-        if (static_cast<u32>(hasPixel) + static_cast<u32>(hasNormalized) + static_cast<u32>(hasWorldRay) != 1u)
-            return "Provide exactly one ray source: 'viewportPixel', 'viewportNormalized', or 'worldRay'.";
+        if (const auto error = ViewportRay::CheckExactlyOneSource(args, "worldRay"))
+            return error;
 
         Request parsed;
-        if (hasPixel)
+        if (!ViewportRay::Present(args, "worldRay"))
         {
-            const Json& pixel = args["viewportPixel"];
-            if (!pixel.is_object() || !pixel.contains("coordinate") || !pixel.contains("width") || !pixel.contains("height"))
-                return "Invalid 'viewportPixel': expected coordinate, width, and height.";
-            if (const auto error = ParseVec2(pixel["coordinate"], "viewportPixel.coordinate", parsed.Coordinate))
+            ViewportRay::ViewportInput viewport;
+            if (const auto error = ViewportRay::ParseViewportInput(args, viewport))
                 return error;
-            if (const auto error = ParsePositiveU32(pixel["width"], "viewportPixel.width", parsed.ViewportDimensions.x))
-                return error;
-            if (const auto error = ParsePositiveU32(pixel["height"], "viewportPixel.height", parsed.ViewportDimensions.y))
-                return error;
-            if (parsed.Coordinate.x < 0.0f || parsed.Coordinate.y < 0.0f ||
-                parsed.Coordinate.x >= static_cast<f32>(parsed.ViewportDimensions.x) ||
-                parsed.Coordinate.y >= static_cast<f32>(parsed.ViewportDimensions.y))
-            {
-                return "Invalid 'viewportPixel.coordinate': coordinate lies outside the supplied viewport dimensions.";
-            }
-            parsed.Source = RaySource::ViewportPixel;
-        }
-        else if (hasNormalized)
-        {
-            if (const auto error = ParseVec2(args["viewportNormalized"], "viewportNormalized", parsed.Coordinate))
-                return error;
-            if (parsed.Coordinate.x < 0.0f || parsed.Coordinate.x > 1.0f ||
-                parsed.Coordinate.y < 0.0f || parsed.Coordinate.y > 1.0f)
-            {
-                return "Invalid 'viewportNormalized': both coordinates must be in [0, 1].";
-            }
-            parsed.Source = RaySource::ViewportNormalized;
+            parsed.Source = viewport.Source;
+            parsed.Coordinate = viewport.Coordinate;
+            parsed.ViewportDimensions = viewport.ViewportDimensions;
         }
         else
         {
@@ -202,15 +97,8 @@ namespace OloEngine::MCP::TerrainPick
         return std::nullopt;
     }
 
-    [[nodiscard]] inline Json Vec2Json(const glm::vec2& value)
-    {
-        return Json::array({ value.x, value.y });
-    }
-
-    [[nodiscard]] inline Json Vec3Json(const glm::vec3& value)
-    {
-        return Json::array({ value.x, value.y, value.z });
-    }
+    using ViewportRay::Vec2Json;
+    using ViewportRay::Vec3Json;
 
     [[nodiscard]] inline Json RayJson(const WorldRay& ray)
     {
@@ -310,19 +198,12 @@ namespace OloEngine::MCP::TerrainPick
 
     [[nodiscard]] inline Json InputSchema()
     {
-        const auto coordinate = [](std::string_view description)
-        { return Schema::Array(Schema::Number()).MinItems(2).MaxItems(2).Desc(description); };
         const auto vec3 = [](std::string_view description)
         { return Schema::Array(Schema::Number()).MinItems(3).MaxItems(3).Desc(description); };
 
         return Schema::Object()
-            .Prop("viewportPixel", Schema::Object()
-                                       .Prop("coordinate", coordinate("Viewport-relative pixel [x,y]."))
-                                       .Prop("width", Schema::Int().Min(1))
-                                       .Prop("height", Schema::Int().Min(1))
-                                       .Required({ "coordinate", "width", "height" })
-                                       .NoAdditional())
-            .Prop("viewportNormalized", coordinate("Normalized viewport coordinate [x,y], each in [0,1]."))
+            .Prop("viewportPixel", ViewportRay::ViewportPixelSchema())
+            .Prop("viewportNormalized", ViewportRay::ViewportNormalizedSchema())
             .Prop("worldRay", Schema::Object()
                                   .Prop("origin", vec3("World-space ray origin."))
                                   .Prop("direction", vec3("Finite non-zero world-space direction; normalized by the tool."))

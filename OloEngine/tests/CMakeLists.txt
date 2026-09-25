@@ -1334,6 +1334,11 @@ add_executable(OloEngine-Tests
 		# Pure request validation and pending/hit/miss/overflow result shaping
 		# behind olo_terrain_pick (#607); editor camera and GPU dispatch stay out.
 		MCP/McpTerrainPickTest.cpp
+		# The viewport ray source shared by olo_terrain_pick and olo_rt_trace_ray
+		# (#607): top-left pixel convention, pixel-through-caller-size, and the
+		# unprojection EditorLayer::BuildMouseRay delegates to. Header-only
+		# (MCP/McpViewportRay.h).
+		MCP/McpViewportRayTest.cpp
 		# Unified diagnostics event ring buffer behind olo_events_tail (#306 item B).
 		# Header-only engine facility (Debug/DiagnosticsEventLog.h, compiled into
 		# OloEngine), so no extra editor TU is pulled in.
