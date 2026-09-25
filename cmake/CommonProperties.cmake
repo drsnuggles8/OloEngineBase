@@ -401,8 +401,9 @@ function(olo_set_common_include_directories target_name)
 endfunction()
 
 # Bind FILES to a JOB_POOL_COMPILE-bound SOURCES file set on target_name (CMake 4.4+, Ninja
-# only — issue #822). No-op unless OLO_HEAVY_COMPILE_POOL_AVAILABLE (set once in the root
-# CMakeLists.txt, alongside the olo_heavy pool itself and its OLO_HEAVY_COMPILE_JOBS validation).
+# only — issue #822). The binding happens only under OLO_HEAVY_COMPILE_POOL_AVAILABLE (set once
+# in the root CMakeLists.txt, alongside the olo_heavy pool itself and its OLO_HEAVY_COMPILE_JOBS
+# validation); the recording described below happens on every tree.
 #
 # Each FILE must already be REMOVED from target_name's plain source list by the caller — a file
 # added via a FILE_SET SOURCES set is a distinct code path from the ordinary SOURCES target

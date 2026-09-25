@@ -15,6 +15,10 @@
 # OLO_COMPILE_RSS_LOG it also records each compile's peak RSS, the GCC counterpart of
 # OLO_PROC_STAT_REPORT (clang only).
 #
+# ONE COST THE POOL DOES NOT HAVE: a heavy compile waiting for a permit still holds its
+# Ninja/Make job slot, so while the heavy TUs queue, fewer than -j lanes do work. The pool
+# would hand those lanes to light TUs instead. That costs wall time, not memory.
+#
 # OFF BY DEFAULT: it costs a Python start per compile, and where the pool exists (every
 # Windows dev tree, CMake 4.4 + Ninja) the pool already does this. Where both are available
 # the pool wins and this says so, rather than stacking two throttles.

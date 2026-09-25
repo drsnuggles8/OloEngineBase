@@ -54,7 +54,11 @@ except ImportError:  # pragma: no cover - exercised on Windows
     resource = None
 
 TAG = "[heavy-compile]"
-DEFAULT_TIMEOUT = 3600.0
+# Longer than a cold heavy queue can last in one build (17 TUs, two at a time, a few
+# minutes each), so the fail-open release never fires mid-build: releasing every queued
+# heavy compile at once is the OOM this exists to prevent. It is a backstop for a
+# permit leaked by something outside this script, not a scheduling knob.
+DEFAULT_TIMEOUT = 7200.0
 GIB = 1024.0 * 1024.0  # ru_maxrss and the log are in KiB.
 
 
@@ -85,16 +89,22 @@ def parse_options(argv: list[str]) -> tuple[dict[str, str], list[str]]:
     return options, []
 
 
+def canonical(path: str) -> str:
+    """Absolute against the build tool's cwd, symlinks resolved: CMake's spelling and the
+    compile line's must meet, or the TU goes unthrottled and the report says so."""
+    return os.path.realpath(os.path.abspath(path))
+
+
 def compiled_source(command: list[str]) -> str | None:
     for index, arg in enumerate(command[:-1]):
         if arg == "-c":
-            return os.path.normpath(command[index + 1])
+            return canonical(command[index + 1])
     return None
 
 
 def read_manifest(path: str) -> set[str]:
     with open(path, encoding="utf-8") as manifest:
-        return {os.path.normpath(line.strip()) for line in manifest if line.strip()}
+        return {canonical(line.strip()) for line in manifest if line.strip()}
 
 
 def append_record(path: str, fields: list[object]) -> None:
@@ -194,6 +204,11 @@ def report(path: str, top: int, cap_gib: float) -> int:
 
     heavy = [r for r in records if r[4]]
     print(f"{len(records)} compiles recorded, {len(heavy)} of them in the heavy set")
+    if not heavy:
+        # Either the build stopped before reaching them, or the manifest's paths and the
+        # compile lines' never matched and the semaphore bounded nothing. Say it loudly.
+        print("::warning::no recorded compile matched the heavy-TU manifest: either the build "
+              "stopped before the heavy TUs, or the semaphore bounded nothing")
     print(f"most heavy compiles running at once: {worst_heavy}")
     print(
         f"largest sum of peak RSS among overlapping compiles: {worst_sum / GIB:.2f} GiB "
@@ -212,10 +227,16 @@ def main(argv: list[str]) -> int:
     try:
         options, command = parse_options(argv[1:])
     except ValueError as exc:
-        # Fail open: without a `--` there is no telling where the command starts, so run
-        # everything after the script as the command rather than drop the compile.
+        # Fail open: run the compile unthrottled rather than drop it. It starts after the
+        # `--` if there is one, else after the leading run of this script's own options.
         note(f"{exc} — compiling unthrottled")
-        return load_link_semaphore().run(argv[1:])
+        rest = argv[1:]
+        if "--" in rest:
+            rest = rest[rest.index("--") + 1 :]
+        else:
+            while rest and rest[0].startswith("--"):
+                rest = rest[1:]
+        return load_link_semaphore().run(rest)
 
     if "report" in options:
         return report(options["report"], int(options.get("top", "20")), float(options.get("cap-gib", "14")))
