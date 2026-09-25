@@ -2,6 +2,7 @@
 #include "OloEngine/Groom/GroomStrandMesh.h"
 
 #include "OloEngine/Groom/GroomAsset.h"
+#include "OloEngine/Groom/GroomLod.h"
 
 #include <algorithm>
 #include <array>
@@ -517,6 +518,16 @@ namespace OloEngine
             const auto& points = groom.GetPoints();
             const auto& widths = groom.GetPointWidths();
 
+            // Each role widened by the inverse of what its own stride kept
+            // (#1428), so the coverage each role carries survives the step and
+            // a role the budget did not thin is not widened at all.
+            std::array<f32, GroomCoatRoleCount> roleCompensation{};
+            for (sizet role = 0; role < GroomCoatRoleCount; ++role)
+            {
+                roleCompensation[role] = GroomRoleWidthCompensation(selection.Available[role], selection.Stride[role],
+                                                                    settings.MaxWidthCompensation);
+            }
+
             RoleWalk walk;
             u32 emittedSegments = 0;
             const u32 curveCount = groom.GetCurveCount();
@@ -620,8 +631,9 @@ namespace OloEngine
                     // coat's width multiplier rides along with it rather than being
                     // folded into the request's WidthScale, because that one is a
                     // per-GROOM unit-scale lever and this one is per strand.
-                    segment.Radius0 = widths[first + i] * 0.5f * curveCoat.Params.Width;
-                    segment.Radius1 = widths[first + i + 1u] * 0.5f * curveCoat.Params.Width;
+                    const f32 widthScale = curveCoat.Params.Width * roleCompensation[static_cast<sizet>(curveCoat.Role)];
+                    segment.Radius0 = widths[first + i] * 0.5f * widthScale;
+                    segment.Radius1 = widths[first + i + 1u] * 0.5f * widthScale;
                     segment.SegmentId = std::bit_cast<f32>(GroomSegmentIdentity(curve, i));
                     segment.Tint = packedTint;
                     onSegment(segment);
@@ -1011,5 +1023,47 @@ namespace OloEngine
     {
         return BuildGroomStrandMesh(GroomBuildSource::FromAsset(groom), settings, outVertices, outIndices, deformation,
                                     coat, simulation);
+    }
+
+    f32 GroomRoleWidthCompensation(u32 available, u32 stride, f32 maxCompensation, bool* outCapped) noexcept
+    {
+        if (outCapped != nullptr)
+        {
+            *outCapped = false;
+        }
+        if (available == 0u || stride <= 1u)
+        {
+            return 1.0f;
+        }
+        // The count the stride keeps, exactly as SelectCurves counts it.
+        const u32 kept = (available + stride - 1u) / stride;
+        const f32 achieved = static_cast<f32>(kept) / static_cast<f32>(available);
+        const f32 compensation = GroomLodWidthCompensation(achieved, maxCompensation);
+        if (outCapped != nullptr)
+        {
+            // Relative, so the f32 division cannot report a role sitting
+            // exactly at its need as one short of it.
+            *outCapped = static_cast<f32>(available) / static_cast<f32>(kept) > compensation * (1.0f + 1.0e-6f);
+        }
+        return compensation;
+    }
+
+    f32 GroomMaxRoleWidthCompensation(const GroomStrandMeshStats& stats, f32 maxCompensation,
+                                      bool* outAnyCapped) noexcept
+    {
+        f32 largest = 1.0f;
+        bool anyCapped = false;
+        for (sizet role = 0; role < GroomCoatRoleCount; ++role)
+        {
+            bool capped = false;
+            largest = std::max(largest, GroomRoleWidthCompensation(stats.AvailableByRole[role],
+                                                                   stats.StrideByRole[role], maxCompensation, &capped));
+            anyCapped = anyCapped || capped;
+        }
+        if (outAnyCapped != nullptr)
+        {
+            *outAnyCapped = anyCapped;
+        }
+        return largest;
     }
 } // namespace OloEngine

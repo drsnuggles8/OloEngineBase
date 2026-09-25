@@ -44,6 +44,7 @@
 #include "OloEngine/Groom/GroomDeformation.h"
 #include "OloEngine/Groom/GroomGuideInfluence.h"
 #include "OloEngine/Groom/GroomVisibility.h"
+#include "OloEngine/Math/Math.h"
 
 #include <glm/glm.hpp>
 
@@ -197,7 +198,27 @@ namespace OloEngine
         /// Draw only the guide curves. The authoring view, not a quality tier.
         bool GuidesOnly = false;
 
-        [[nodiscard]] bool operator==(const GroomStrandBuildSettings&) const = default;
+        /// The LOD's width-compensation cap (#1252), or 1 for none -- the
+        /// value every build outside the representation LOD leaves it at.
+        ///
+        /// PER ROLE, AND THEREFORE IN THE BUILD (#1428). The budget thins each
+        /// role at its own stride, so each role's strands are widened by the
+        /// inverse of the fraction of THAT role the stride kept
+        /// (GroomRoleWidthCompensation). One number for the whole groom, which
+        /// is what the pass applied before, widened a role the budget had not
+        /// thinned at all -- guard hair at stride 1 came out 2.2x thick beside
+        /// an undercoat at stride 7 -- and drew the long coat 1.12x its share
+        /// of the animal at the step. A per-strand width lives in the vertex
+        /// stream, so the compensation does too, and the cache key carries it.
+        f32 MaxWidthCompensation = 1.0f;
+
+        /// Field by field, the float bit-exact (cpp-coding-quality §2a).
+        [[nodiscard]] auto operator==(const GroomStrandBuildSettings& other) const -> bool
+        {
+            return CoatDigest == other.CoatDigest && MaxStrands == other.MaxStrands &&
+                   MaxSegments == other.MaxSegments && GuidesOnly == other.GuidesOnly &&
+                   Math::BitwiseEqual(MaxWidthCompensation, other.MaxWidthCompensation);
+        }
     };
 
     // What the build actually produced. Returned rather than logged so the
@@ -426,4 +447,21 @@ namespace OloEngine
     [[nodiscard]] GroomStrandMeshStats PlanGroomStrandMesh(const GroomAsset& groom,
                                                            const GroomStrandBuildSettings& settings,
                                                            const GroomCoatContext* coat = nullptr);
+
+    // The width a role's strands are built with, as a multiple of their own
+    // (#1252, per role since #1428): the inverse of the fraction of the role
+    // its stride kept, ceil(available / stride) of available, capped at
+    // `maxCompensation` (GroomLodWidthCompensation's cap and sanitising). 1 for
+    // a role that was not thinned or has no strands.
+    //
+    // From the stride's ACHIEVED fraction, never the budget's requested one,
+    // for rule 2's reason: the stride is an integer. `outCapped` says the role
+    // needed more than the cap allowed, so it is drawn thinner than authored.
+    [[nodiscard]] f32 GroomRoleWidthCompensation(u32 available, u32 stride, f32 maxCompensation,
+                                                 bool* outCapped = nullptr) noexcept;
+
+    // The largest per-role compensation `stats` was built with, and whether any
+    // role hit the cap: the two LOD counters (GroomLodStats) for one groom.
+    [[nodiscard]] f32 GroomMaxRoleWidthCompensation(const GroomStrandMeshStats& stats, f32 maxCompensation,
+                                                    bool* outAnyCapped = nullptr) noexcept;
 } // namespace OloEngine

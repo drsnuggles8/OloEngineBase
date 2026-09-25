@@ -13,8 +13,9 @@
 //     so one flickering axis cannot pin another (criterion 3);
 //   * the two anti-thrash mechanisms deliver the two bounds GroomLod.h claims,
 //     stated as the failure each prevents rather than as "no flicker";
-//   * the cook is deterministic and conserves the coat's total width, and it
-//     refuses rather than truncates.
+//   * the cook is deterministic and conserves the width the coat COVERS --
+//     not the width it would cover if no strand overlapped another (#1428) --
+//     and it refuses rather than truncates.
 //
 // WHY THE HYSTERESIS CASES DRIVE A CAMERA. A hysteresis asserted at one point
 // is not asserted at all: every implementation passes "at 300 px it is on
@@ -29,6 +30,7 @@
 #include "GroomStrandFixture.h"
 
 #include "OloEngine/Groom/GroomAsset.h"
+#include "OloEngine/Groom/GroomBuilder.h"
 #include "OloEngine/Groom/GroomCooker.h"
 #include "OloEngine/Groom/GroomLod.h"
 #include "OloEngine/Groom/GroomLodBuilder.h"
@@ -116,6 +118,68 @@ namespace
         Ref<GroomAsset> wrapped = Tests::GroomLodFixture::RebuildWithWrappedRootUVs(*coat.Groom, reason);
         EXPECT_TRUE(wrapped) << reason;
         return wrapped;
+    }
+
+    // Two clusters, one card each, in two groups sharing one root UV:
+    //
+    //   * a LOCK: `members` identical straight strands on one root. From every
+    //     side they cover exactly one strand's width, however many there are.
+    //   * a FAN: `members` straight strands in a row along x, `spacing` apart.
+    //     Seen from almost every side no two of them overlap; seen end-on down
+    //     the row they all do.
+    //
+    // The two ends of the overlap range, which is what #1428's long coat sits
+    // between: its long-hair locks cover 0.40 of their summed width.
+    [[nodiscard]] Ref<GroomAsset> MakeLockAndFan(u32 members, f32 width, f32 spacing)
+    {
+        GroomBuilder builder;
+        std::string reason;
+        u16 lock = 0;
+        u16 fan = 0;
+        EXPECT_TRUE(builder.AddGroup("lock", lock, reason)) << reason;
+        EXPECT_TRUE(builder.AddGroup("fan", fan, reason)) << reason;
+        const std::vector<f32> widths(3u, width);
+        for (u32 m = 0; m < members; ++m)
+        {
+            GroomCurveInput strand;
+            strand.Widths = widths;
+            strand.RootUV = glm::vec2(0.5f);
+
+            const std::vector<glm::vec3> lockPoints{ { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.05f, 0.0f }, { 0.0f, 0.1f, 0.0f } };
+            strand.Points = lockPoints;
+            strand.GroupId = lock;
+            EXPECT_TRUE(builder.AddCurve(strand, reason)) << reason;
+
+            const f32 x = static_cast<f32>(m) * spacing;
+            const std::vector<glm::vec3> fanPoints{ { x, 0.0f, 1.0f }, { x, 0.05f, 1.0f }, { x, 0.1f, 1.0f } };
+            strand.Points = fanPoints;
+            strand.GroupId = fan;
+            EXPECT_TRUE(builder.AddCurve(strand, reason)) << reason;
+        }
+        Ref<GroomAsset> groom = builder.Build(reason);
+        EXPECT_TRUE(groom) << reason;
+        if (groom)
+        {
+            EXPECT_TRUE(GroomCooker::Canonicalize(*groom, reason)) << reason;
+        }
+        return groom;
+    }
+
+    // The widths the card of `group` carries, root to tip.
+    [[nodiscard]] std::vector<f32> CardWidths(const GroomAsset& base, const GroomLodLevel& level, u16 group)
+    {
+        const GroomCurveView view = level.GetCurveView();
+        for (u32 card = 0; card < view.GetCurveCount(); ++card)
+        {
+            if (view.CurveGroupIds[card] == group)
+            {
+                const u32 first = view.GetCurveFirstPoint(card);
+                const u32 count = view.GetCurvePointCount(card);
+                return { level.PointWidths.begin() + first, level.PointWidths.begin() + first + count };
+            }
+        }
+        ADD_FAILURE() << "no card for group " << group << " of " << base.GetGroupCount();
+        return {};
     }
 } // namespace
 
@@ -514,7 +578,7 @@ TEST(GroomLodCook, CookingTheSameGroomTwiceProducesTheSameCards)
     EXPECT_TRUE(first == second) << "two cooks of one groom produced different cards";
 }
 
-TEST(GroomLodCook, ACardCarriesItsClustersTotalWidthAndNeverCrossesAGroup)
+TEST(GroomLodCook, ACardCarriesItsClustersCoveredWidthAndNeverCrossesAGroup)
 {
     const Ref<GroomAsset> pelt = MakeTestPelt();
     ASSERT_TRUE(pelt);
@@ -526,9 +590,12 @@ TEST(GroomLodCook, ACardCarriesItsClustersTotalWidthAndNeverCrossesAGroup)
     std::string reason;
     ASSERT_TRUE(GroomLodBuilder::BuildCardLevel(*pelt, settings, level, reason, &stats)) << reason;
 
-    // The density claim, at the cook: no member's width was dropped.
+    // The density claim, at the cook: every card carries what its members
+    // cover, and that is never more than their summed width.
     ASSERT_GT(stats.MemberWidthSum, 0.0);
-    EXPECT_NEAR(stats.CardWidthSum / stats.MemberWidthSum, 1.0, 1.0e-3);
+    ASSERT_GT(stats.MemberCoveredWidthSum, 0.0);
+    EXPECT_NEAR(stats.CardWidthSum / stats.MemberCoveredWidthSum, 1.0, 1.0e-3);
+    EXPECT_LE(stats.MemberCoveredWidthSum, stats.MemberWidthSum * (1.0 + 1.0e-6));
     EXPECT_LT(stats.CardsBuilt, stats.CurvesConsidered);
 
     // The group claim: every card's members share its group, so a card keeps
@@ -549,6 +616,95 @@ TEST(GroomLodCook, ACardCarriesItsClustersTotalWidthAndNeverCrossesAGroup)
     // out of bounds.
     std::string levelReason;
     EXPECT_TRUE(level.Validate(pelt->GetCurveCount(), pelt->GetGroupCount(), levelReason)) << levelReason;
+}
+
+TEST(GroomLodCook, ACardIsAsWideAsWhatItsMembersCoverAndNoWider)
+{
+    // #1428. A card that SUMS its members' widths is exact only while no member
+    // hides behind another. Strands sharing a clump cell grow from roots a few
+    // millimetres apart and are combed the same way, so on a dense coat they
+    // overlap, and a summed card covers more than the strands it replaced: the
+    // long-coated horse's card tier drew 1.35x the coat's share of the animal.
+    constexpr u32 kMembers = 16u;
+    constexpr f32 kWidth = 0.001f;
+    const Ref<GroomAsset> groom = MakeLockAndFan(kMembers, kWidth, 20.0f * kWidth);
+    ASSERT_TRUE(groom);
+    ASSERT_EQ(groom->GetGroupCount(), 2u);
+
+    GroomCardSettings settings;
+    ASSERT_EQ(settings.Width, GroomCardWidth::Covered) << "the covered width is the shipped default";
+    // The GEOMETRY first: a zero source size measures the exact union of the
+    // bands, with no pixel in it. The pixel's part is the last block below.
+    settings.SourcePixelSize = 0.0f;
+    GroomLodLevel level;
+    GroomCardBuildStats stats;
+    std::string reason;
+    ASSERT_TRUE(GroomLodBuilder::BuildCardLevel(*groom, settings, level, reason, &stats)) << reason;
+    ASSERT_EQ(stats.CardsBuilt, 2u) << "one card per group: the lock and the fan";
+
+    // The lock: sixteen strands in one place cover ONE strand's width.
+    for (const f32 w : CardWidths(*groom, level, 0u))
+    {
+        EXPECT_NEAR(w, kWidth, kWidth * 1.0e-4) << "a card of coincident strands is one strand wide, not sixteen";
+    }
+    // The fan: spread twenty widths apart, they overlap only when seen end-on
+    // down the row, which is one of the eight directions averaged. So the card
+    // is (7 x 16 + 1) / 8 strand widths: nearly the sum, and not the sum.
+    constexpr f32 kFanCovered = (7.0f * kMembers + 1.0f) / 8.0f * kWidth;
+    for (const f32 w : CardWidths(*groom, level, 1u))
+    {
+        EXPECT_NEAR(w, kFanCovered, kWidth * 1.0e-3) << "a fan's card carries what the fan covers";
+    }
+    EXPECT_NEAR(stats.CardWidthSum / stats.MemberCoveredWidthSum, 1.0, 1.0e-6);
+    EXPECT_LT(stats.MemberCoveredWidthSum, stats.MemberWidthSum);
+
+    // The measured-and-rejected alternative still does what it says: the SUM,
+    // sixteen widths for both clusters. That is the card #1428 measured.
+    settings.Width = GroomCardWidth::Summed;
+    ASSERT_TRUE(GroomLodBuilder::BuildCardLevel(*groom, settings, level, reason, &stats)) << reason;
+    for (const u16 group : { u16{ 0 }, u16{ 1 } })
+    {
+        for (const f32 w : CardWidths(*groom, level, group))
+        {
+            EXPECT_NEAR(w, kMembers * kWidth, kWidth * 1.0e-4) << "group " << group;
+        }
+    }
+    EXPECT_NEAR(stats.CardWidthSum / stats.MemberWidthSum, 1.0, 1.0e-6);
+
+    // And the averaged aggregation takes the same width rule: its mean
+    // centreline through the lock is the lock itself.
+    settings.Width = GroomCardWidth::Covered;
+    settings.Aggregation = GroomCardAggregation::MeanCentreline;
+    ASSERT_TRUE(GroomLodBuilder::BuildCardLevel(*groom, settings, level, reason, &stats)) << reason;
+    for (const f32 w : CardWidths(*groom, level, 0u))
+    {
+        EXPECT_NEAR(w, kWidth, kWidth * 1.0e-4) << "MeanCentreline: the lock's card";
+    }
+
+    // THE PIXEL. Past the hand-over a strand is thinner than a pixel, and the
+    // shader draws it one pixel wide at an alpha of its true width, the
+    // overlapping ones composited as independent layers. Sixteen coincident
+    // strands are then DRAWN as 1 - (1 - w/P)^16 of a pixel, not as one
+    // strand's width, and a card cooked to the bare union draws the coat thin
+    // at range: on the long-coated horse it kept 0.65 of the coat's share. So
+    // the shipped cook measures at the pixel the hand-over happens at.
+    settings.Aggregation = GroomCardAggregation::RepresentativeStrand;
+    settings.SourcePixelSize = 256.0f;
+    ASSERT_TRUE(GroomLodBuilder::BuildCardLevel(*groom, settings, level, reason, &stats)) << reason;
+    const f32 pixel = stats.PixelFootprint;
+    ASSERT_GT(pixel, kWidth) << "the fixture must be sub-pixel at its hand-over for this to test the pixel";
+    const f32 drawnLock = pixel * (1.0f - std::pow(1.0f - kWidth / pixel, static_cast<f32>(kMembers)));
+    for (const f32 w : CardWidths(*groom, level, 0u))
+    {
+        EXPECT_NEAR(w, drawnLock, drawnLock * 1.0e-4) << "the lock's card is as wide as the lock is DRAWN";
+    }
+    EXPECT_GT(drawnLock, kWidth) << "and that is wider than its bare geometric union";
+    EXPECT_LT(drawnLock, kMembers * kWidth) << "and narrower than its sum";
+
+    // An unknown width model is refused by name, like every other setting.
+    settings.Width = GroomCardWidth::Count;
+    EXPECT_FALSE(GroomLodBuilder::BuildCardLevel(*groom, settings, level, reason, nullptr));
+    EXPECT_NE(reason.find("width model"), std::string::npos) << reason;
 }
 
 TEST(GroomLodCook, ARawFixtureIsRefusedBecauseItsRootUVsAreUnaddressable)

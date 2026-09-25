@@ -55,6 +55,7 @@
 #include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 
+#include <array>
 #include <unordered_map>
 #include <vector>
 
@@ -435,6 +436,10 @@ namespace OloEngine
         };
 
         // One groom's GPU geometry, keyed by asset handle.
+        /// Coat volumes kept per coat (#1445): enough that a coat rebaking every
+        /// frame always finds a slot no recording still to be submitted reads.
+        static constexpr u32 kCoatVolumeRing = 3;
+
         struct CacheEntry
         {
             Ref<VertexArray> Array;
@@ -523,6 +528,57 @@ namespace OloEngine
             /// How far the drawn coat is from CoatBakedPose THIS frame, in
             /// voxels, after any rebake. Zero for an undeformed coat.
             f32 CoatDriftVoxels = 0.0f;
+
+            /// A CARD-tier entry's fibre-area scale (#1428): the base groom's
+            /// fibre area (sum of segment length x diameter) over the card
+            /// level's. A card carries the width its members COVER on screen,
+            /// which on a dense coat is well under the fibre they are made of,
+            /// and the self-shadow volume stores fibre, not coverage. Measured
+            /// once, on the first bake; 0 until then, 1 on the strand tier.
+            f32 CoatFibreAreaScale = 0.0f;
+
+            // ── The bake subset (#1445) ─────────────────────────────
+
+            /// Segments in the FULL drawn pose, the voxels the last FULL bake
+            /// occupied, and the resolution it ran at: what
+            /// GroomCoatShadow::CoatBakeSubsetStride turns into CoatBakeStride,
+            /// the stride the NEXT pose is taken at. A resolution change
+            /// re-measures the occupancy with one full bake, so a coat first
+            /// baked coarse at range is not held at a coarse bake's stride up
+            /// close.
+            u64 CoatFullPoseSegments = 0;
+            u32 CoatFullOccupiedVoxels = 0;
+            u32 CoatOccupancyResolution = 0;
+            u32 CoatBakeStride = 1;
+            /// The stride THIS frame's pose was taken at. 1 means the bake that
+            /// follows is a full one, and it is the one that measures.
+            u32 CoatPoseStride = 1;
+            /// The GPU path's subset of the rest stream's pose segments at
+            /// CoatPoseSubsetStride, radii already scaled. Rebuilt when the
+            /// stride or the stream changes; empty at a stride of 1.
+            std::vector<GroomRestPoseSegment> CoatPoseSubset;
+            u32 CoatPoseSubsetStride = 0;
+            const GroomRestStream* CoatPoseSubsetSource = nullptr;
+
+            // ── The volume ring (#1445) ─────────────────────────────
+            //
+            // A walking coat rebakes every frame. It used to create a new
+            // texture each time and drop the old one into the deferred-deletion
+            // queue, which on eight coats was 32 MB of new textures a frame plus
+            // every in-flight frame's worth waiting to be freed, none of it in
+            // m_CacheBytes. Now it rewrites a ring slot in place -- one that no
+            // recording still to be submitted can read (see BakeCoatVolume) --
+            // and every slot is counted in CoatBytes.
+            struct CoatVolumeSlot
+            {
+                Ref<Texture3D> Texture;
+                /// The cache tick a draw last bound it at; meaningless until
+                /// Bound.
+                u64 LastBoundTick = 0;
+                bool Bound = false;
+            };
+            std::array<CoatVolumeSlot, kCoatVolumeRing> CoatRing;
+            u32 CoatSlot = 0;
 
             // ── GPU deformation (#1427) ─────────────────────────────
 

@@ -18,9 +18,13 @@
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
 
+#include <glm/gtc/packing.hpp>
+
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <chrono>
+#include <limits>
 #include <vector>
 
 namespace OloEngine
@@ -31,6 +35,35 @@ namespace OloEngine
         // same frame must produce the same picture, or every pixel A/B in the
         // verification matrix becomes a comparison of two noise fields.
         constexpr u32 kStochasticSeed = 1246;
+
+        // The fibre area of a curve set: the sum over its segments of length
+        // times mean DIAMETER, which is what a density volume bins (#1248). Of
+        // the cooked geometry, before any coat authoring, so a card level and
+        // the groom it was cooked from are compared like for like.
+        [[nodiscard]] f64 FibreArea(const GroomCurveView& curves) noexcept
+        {
+            f64 area = 0.0;
+            const auto& points = curves.GetPoints();
+            const auto& widths = curves.GetPointWidths();
+            for (u32 curve = 0; curve < curves.GetCurveCount(); ++curve)
+            {
+                const u32 first = curves.GetCurveFirstPoint(curve);
+                const u32 count = curves.GetCurvePointCount(curve);
+                for (u32 i = 0; i + 1u < count; ++i)
+                {
+                    const f64 length = static_cast<f64>(glm::length(points[first + i + 1u] - points[first + i]));
+                    area += length * 0.5 * (static_cast<f64>(widths[first + i]) + static_cast<f64>(widths[first + i + 1u]));
+                }
+            }
+            return area;
+        }
+
+        // Microseconds since `start`, for the per-stage counters.
+        [[nodiscard]] u64 MicrosecondsSince(std::chrono::steady_clock::time_point start) noexcept
+        {
+            return static_cast<u64>(
+                std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count());
+        }
 
         // How many coat volumes may be resident at once. A budget rather than
         // "as many as ask", because the representation is a 3D texture whose size
@@ -234,6 +267,9 @@ namespace OloEngine
         key = mix(key, static_cast<u64>(request.Build.MaxStrands));
         key = mix(key, static_cast<u64>(request.Build.MaxSegments));
         key = mix(key, request.Build.GuidesOnly ? 1ull : 0ull);
+        // The per-role width compensation is BUILT INTO the stream (#1428), so
+        // a different cap is different geometry.
+        key = mix(key, static_cast<u64>(std::bit_cast<u32>(request.Build.MaxWidthCompensation)));
         // The coat authoring (#1251), as one digest. It is a FIELD of the build
         // settings for exactly this reason: the geometry a coat produces depends
         // on every slider on GroomCoatComponent and on the CONTENT of both root-UV
@@ -298,6 +334,7 @@ namespace OloEngine
         key = mix(key, static_cast<u64>(request.Build.MaxStrands));
         key = mix(key, static_cast<u64>(request.Build.MaxSegments));
         key = mix(key, request.Build.GuidesOnly ? 1ull : 0ull);
+        key = mix(key, static_cast<u64>(std::bit_cast<u32>(request.Build.MaxWidthCompensation)));
         key = mix(key, request.Build.CoatDigest);
         key = mix(key, static_cast<u64>(std::to_underlying(request.Lod.Representation)));
         key = mix(key, request.Binding ? static_cast<u64>(request.Binding->GetHandle()) : 0ull);
@@ -1520,31 +1557,21 @@ namespace OloEngine
 
             // ── The coverage compensation (#1252) ───────────────────
             //
-            // FROM THE ACHIEVED FRACTION, never the requested one, and this is
-            // the only place the achieved fraction exists: the strand budget is
-            // spent as an integer STRIDE PER ROLE, so a budget asked for 0.4 of
-            // a role retains a third of it. Compensating by the policy's 1/0.4
-            // would leave the coat a sixth thinner than it started, and the
-            // error compounds at every step down the ladder.
+            // IN THE STREAM, PER ROLE, since #1428: the budget thins each role
+            // at its own stride, so the build widens each role's strands by the
+            // inverse of what that role's stride kept
+            // (GroomRoleWidthCompensation). What used to be applied here -- one
+            // number for the whole groom -- widened guard hair the budget had
+            // not thinned. What is left here is the counters; they come out of
+            // the cache entry's own build stats, from the ACHIEVED fraction per
+            // role (rule 2).
             //
-            // The numbers come out of the cache entry's own build stats, which
-            // cost nothing to read — they were computed when the geometry was
-            // built and are what the inspector already shows.
-            //
-            // It multiplies the AUTHORING width scale rather than replacing it:
-            // m_WidthScale is a unit-scale lever for a groom exported at a
-            // different scale, and this is a density correction. Folding them
-            // into one number would make turning the LOD off change a coat that
-            // was authored at 0.5.
-            const f32 achievedFraction =
-                entry->Stats.StrandsAvailable > 0u
-                    ? static_cast<f32>(entry->Stats.StrandsSelected) / static_cast<f32>(entry->Stats.StrandsAvailable)
-                    : 1.0f;
-            const f32 widthCompensation =
-                request.LodPolicy.Enabled
-                    ? GroomLodWidthCompensation(achievedFraction, request.LodPolicy.MaxWidthCompensation)
-                    : 1.0f;
-            const f32 effectiveWidthScale = request.WidthScale * widthCompensation;
+            // m_WidthScale stays the authoring lever it always was: a unit-scale
+            // correction, never folded together with a density correction.
+            bool compensationCapped = false;
+            const f32 widthCompensation = GroomMaxRoleWidthCompensation(
+                entry->Stats, request.Build.MaxWidthCompensation, &compensationCapped);
+            const f32 effectiveWidthScale = request.WidthScale;
 
             // ── The LOD counters (#1252) ────────────────────────────
             //
@@ -1575,11 +1602,11 @@ namespace OloEngine
             }
             m_Stats.Lod.MaxWidthCompensation =
                 std::max(m_Stats.Lod.MaxWidthCompensation, widthCompensation);
-            // A coat AT the cap is genuinely thinner than it was authored, and
-            // criterion 1 is a claim about exactly that. The comparison is
-            // against the sanitised policy's cap, so it cannot be true because
-            // an author typed a NaN.
-            if (widthCompensation >= request.LodPolicy.MaxWidthCompensation && widthCompensation > 1.0f)
+            // A coat with a role AT the cap is genuinely thinner than it was
+            // authored, and criterion 1 is a claim about exactly that. The cap
+            // went through GroomLodWidthCompensation's sanitising, so this
+            // cannot be true because an author typed a NaN.
+            if (compensationCapped)
             {
                 ++m_Stats.Lod.GroomsAtCompensationCap;
             }

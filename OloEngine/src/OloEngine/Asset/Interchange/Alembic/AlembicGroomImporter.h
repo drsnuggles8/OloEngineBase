@@ -127,7 +127,10 @@ namespace OloEngine
         // 2: issue #1251 added `groom_role` and the name-inferred coat role, so
         // this importer's output for an UNCHANGED input now carries a coat table
         // it did not before — which is exactly what this number is for.
-        static constexpr u32 kImporterVersion = 2;
+        // 3: issue #1428 cooks the card level's widths as what the members
+        // cover when drawn at the hand-over, not as their sum, so every card
+        // level this importer writes for an unchanged input is narrower.
+        static constexpr u32 kImporterVersion = 3;
 
         // The width substituted when a prim carries no `widths` param, in
         // source units. 0.1 mm — a human hair is 0.06-0.1 mm, so this is a

@@ -9139,6 +9139,10 @@ namespace OloEngine
                 request.Build.MaxStrands =
                     std::max(1u, static_cast<u32>(static_cast<f32>(groomComponent.m_MaxRenderStrands) *
                                                   request.Lod.VisibilityFraction));
+                // The halvings' coverage, restored PER ROLE in the build
+                // (#1428). A disabled ladder thins nothing and widens nothing.
+                request.Build.MaxWidthCompensation =
+                    request.LodPolicy.Enabled ? request.LodPolicy.MaxWidthCompensation : 1.0f;
             }
 
             request.Build.CoatDigest = GroomCoatDigest(request.Coat);

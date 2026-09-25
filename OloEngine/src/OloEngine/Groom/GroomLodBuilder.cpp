@@ -3,10 +3,14 @@
 
 #include "OloEngine/Groom/GroomCoat.h"
 
+#include <glm/gtc/constants.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <format>
 #include <limits>
+#include <span>
+#include <utility>
 
 namespace OloEngine
 {
@@ -86,6 +90,166 @@ namespace OloEngine
             out.Width = glm::mix(widths[first + lower], widths[first + upper], fraction);
             return out;
         }
+
+        // ── The covered width (#1428) ───────────────────────────────────
+        //
+        // A card is seen from every side, and the members it replaces cover a
+        // different width from each: a flat fan of strands is wide face-on and
+        // one strand wide edge-on. The card gets the AVERAGE over directions
+        // around it -- eight across a half turn, because a band seen from the
+        // opposite side covers the same interval. A ribbon faces the camera,
+        // so a member's band is its own width whichever way it is seen; only
+        // where its centre lands across the card changes.
+        constexpr u32 kCoveredWidthDirections = 8;
+
+        struct CoveredWidthScratch
+        {
+            struct Edge
+            {
+                f32 At = 0.0f;
+                // +1 opens a band, -1 closes it.
+                i32 Sign = 0;
+                // log(1 - alpha) of a see-through band; 0 for an opaque one,
+                // which Opaque counts instead (the log would be -infinity).
+                f64 LogClear = 0.0;
+                bool Opaque = false;
+
+                [[nodiscard]] bool operator<(const Edge& other) const noexcept
+                {
+                    return At < other.At;
+                }
+            };
+
+            std::vector<glm::vec3> Positions;
+            std::vector<f32> Widths;
+            std::vector<glm::vec2> Offsets;
+            std::vector<Edge> Edges;
+
+            void Clear() noexcept
+            {
+                Positions.clear();
+                Widths.clear();
+            }
+        };
+
+        [[nodiscard]] f64 SummedWidth(const CoveredWidthScratch& scratch) noexcept
+        {
+            f64 summed = 0.0;
+            for (const f32 width : scratch.Widths)
+            {
+                summed += static_cast<f64>(width);
+            }
+            return summed;
+        }
+
+        // The width the members in `scratch` cover across a card through
+        // `centre` running along `tangent`, AS THE STRAND SHADER DRAWS THEM
+        // when one pixel spans `footprint` of groom space, averaged over
+        // kCoveredWidthDirections.
+        //
+        // The shader widens a strand thinner than a pixel to one pixel and
+        // scales its alpha by how much it widened it, and the stochastic mode
+        // drops each strand's fragments independently, so where bands overlap
+        // they cover 1 - prod(1 - alpha). That is the covered width here: the
+        // integral of that coverage across the card. At a zero footprint it is
+        // the exact union of the bands; as the footprint grows past the whole
+        // cluster it tends to their sum. A card is one band, so the width it
+        // needs is exactly this number, at any footprint.
+        //
+        // Returns the SUM when the card has no direction (a zero-length
+        // tangent), which is the old answer rather than a guess at a new one.
+        [[nodiscard]] f64 CoveredWidth(CoveredWidthScratch& scratch, const glm::vec3& centre, const glm::vec3& tangent,
+                                       f32 footprint)
+        {
+            const f64 summed = SummedWidth(scratch);
+            const f32 tangentLength = glm::length(tangent);
+            if (scratch.Positions.size() < 2u || !std::isfinite(tangentLength) || !(tangentLength > 1.0e-12f))
+            {
+                return summed;
+            }
+            const glm::vec3 along = tangent / tangentLength;
+            // Any two axes perpendicular to the card. The choice only rotates
+            // which direction is sampled first, and the eight are evenly spread.
+            const glm::vec3 helper =
+                std::abs(along.x) < 0.9f ? glm::vec3(1.0f, 0.0f, 0.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
+            const glm::vec3 u = glm::normalize(glm::cross(along, helper));
+            const glm::vec3 v = glm::cross(along, u);
+
+            scratch.Offsets.clear();
+            for (const glm::vec3& position : scratch.Positions)
+            {
+                const glm::vec3 offset = position - centre;
+                scratch.Offsets.emplace_back(glm::dot(offset, u), glm::dot(offset, v));
+            }
+
+            f64 covered = 0.0;
+            for (u32 d = 0; d < kCoveredWidthDirections; ++d)
+            {
+                const f32 angle = glm::pi<f32>() * static_cast<f32>(d) / static_cast<f32>(kCoveredWidthDirections);
+                const glm::vec2 across{ std::cos(angle), std::sin(angle) };
+                scratch.Edges.clear();
+                for (sizet m = 0; m < scratch.Offsets.size(); ++m)
+                {
+                    const f32 width = scratch.Widths[m];
+                    if (!(width > 0.0f))
+                    {
+                        continue;
+                    }
+                    const f32 x = glm::dot(scratch.Offsets[m], across);
+                    const bool opaque = !(width < footprint);
+                    const f32 half = (opaque ? width : footprint) * 0.5f;
+                    const f64 logClear = opaque ? 0.0 : std::log1p(-static_cast<f64>(width) / footprint);
+                    scratch.Edges.push_back({ x - half, +1, logClear, opaque });
+                    scratch.Edges.push_back({ x + half, -1, logClear, opaque });
+                }
+                if (scratch.Edges.empty())
+                {
+                    continue;
+                }
+                // Stable, so two edges at one position keep the order they
+                // were pushed in and the sum below is a function of the groom.
+                // The width between them is zero either way.
+                std::stable_sort(scratch.Edges.begin(), scratch.Edges.end());
+
+                f64 length = 0.0;
+                i32 opaqueOpen = 0;
+                f64 logClear = 0.0;
+                f32 previous = scratch.Edges.front().At;
+                for (const CoveredWidthScratch::Edge& edge : scratch.Edges)
+                {
+                    const f64 span = static_cast<f64>(edge.At - previous);
+                    if (span > 0.0)
+                    {
+                        const f64 coverage = opaqueOpen > 0 ? 1.0 : -std::expm1(logClear);
+                        length += span * coverage;
+                    }
+                    previous = edge.At;
+                    if (edge.Opaque)
+                    {
+                        opaqueOpen += edge.Sign;
+                    }
+                    else
+                    {
+                        logClear += static_cast<f64>(edge.Sign) * edge.LogClear;
+                    }
+                }
+                covered += length;
+            }
+            covered /= static_cast<f64>(kCoveredWidthDirections);
+            // Never more than the sum: a card wider than its members is the
+            // exact defect this exists to remove, and f32 offsets can put the
+            // integral a rounding error over.
+            return std::min(covered, summed);
+        }
+
+        // Central difference along a polyline's points, one-sided at the ends.
+        [[nodiscard]] glm::vec3 PolylineTangent(std::span<const glm::vec3> points, u32 p) noexcept
+        {
+            const auto last = static_cast<u32>(points.size() - 1u);
+            const u32 before = p > 0u ? p - 1u : 0u;
+            const u32 after = p < last ? p + 1u : last;
+            return points[after] - points[before];
+        }
     } // namespace
 
     bool GroomLodBuilder::BuildCardLevel(const GroomAsset& base, const GroomCardSettings& settings, GroomLodLevel& out,
@@ -105,6 +269,12 @@ namespace OloEngine
         {
             outReason = std::format("card cell size {} is outside [{}, {}]", settings.CellSize,
                                     GroomCoatLimits::MinClumpCellSize, GroomCoatLimits::MaxClumpCellSize);
+            return false;
+        }
+        if (settings.Width >= GroomCardWidth::Count)
+        {
+            outReason = std::format("card width model {} is not one of the {} known", static_cast<u32>(settings.Width),
+                                    static_cast<u32>(GroomCardWidth::Count));
             return false;
         }
         if (settings.PointsPerCard < kMinPointsPerCard || settings.PointsPerCard > kMaxPointsPerCard)
@@ -238,6 +408,18 @@ namespace OloEngine
 
         // ── Build ───────────────────────────────────────────────────────
         const u32 pointsPerCard = settings.PointsPerCard;
+
+        // One pixel at the hand-over, in groom space. The LOD's apparent size is
+        // the groom's largest bounding extent in pixels (EstimateProjectedPixelSize),
+        // so when the coat is SourcePixelSize pixels across a pixel spans this
+        // much of it. Zero when the cook was told no size, and then the covered
+        // width is the exact union of the members' bands.
+        const glm::vec3 extent = base.GetBoundsMax() - base.GetBoundsMin();
+        const f32 largestExtent = std::max({ extent.x, extent.y, extent.z });
+        const f32 footprint = settings.SourcePixelSize > 0.0f && std::isfinite(largestExtent) && largestExtent > 0.0f
+                                  ? largestExtent / settings.SourcePixelSize
+                                  : 0.0f;
+        stats.PixelFootprint = footprint;
         out.Representation = GroomRepresentation::Card;
         out.SourcePixelSize = settings.SourcePixelSize;
         out.CurveOffsets.reserve(static_cast<sizet>(cardCount) + 1u);
@@ -251,6 +433,9 @@ namespace OloEngine
 
         std::vector<glm::dvec3> positionSum(pointsPerCard);
         std::vector<f64> widthSum(pointsPerCard);
+        std::vector<glm::vec3> meanPoints(pointsPerCard);
+        CoveredWidthScratch covered;
+        const bool coveredWidth = settings.Width == GroomCardWidth::Covered;
 
         stats.SmallestCluster = std::numeric_limits<u32>::max();
 
@@ -336,20 +521,28 @@ namespace OloEngine
                 const u32 first = base.GetCurveFirstPoint(representative);
                 const u32 count = base.GetCurvePointCount(representative);
                 const f32 span = static_cast<f32>(count - 1u);
+                const std::span<const glm::vec3> ownPoints{ base.GetPoints().data() + first, count };
                 for (u32 p = 0; p < count; ++p)
                 {
                     const f32 t = span > 0.0f ? static_cast<f32>(p) / span : 0.0f;
-                    // The cluster's total width at this parameter, summed in the
-                    // same fixed order as everything else here.
-                    f64 clusterWidth = 0.0;
+                    // Every member at this parameter, in the same fixed order
+                    // as everything else here.
+                    covered.Clear();
                     for (sizet m = runStart; m < runEnd; ++m)
                     {
-                        clusterWidth += static_cast<f64>(SampleCurve(base, members[m].Curve, t).Width);
+                        const Sampled sample = SampleCurve(base, members[m].Curve, t);
+                        covered.Positions.push_back(sample.Position);
+                        covered.Widths.push_back(sample.Width);
                     }
-                    out.Points.push_back(base.GetPoints()[first + p]);
+                    const f64 summedWidth = SummedWidth(covered);
+                    const f64 coveredClusterWidth =
+                        CoveredWidth(covered, ownPoints[p], PolylineTangent(ownPoints, p), footprint);
+                    const f64 clusterWidth = coveredWidth ? coveredClusterWidth : summedWidth;
+                    out.Points.push_back(ownPoints[p]);
                     out.PointWidths.push_back(
                         static_cast<f32>(std::min(clusterWidth, static_cast<f64>(GroomLimits::MaxWidth))));
-                    stats.MemberWidthSum += clusterWidth;
+                    stats.MemberWidthSum += summedWidth;
+                    stats.MemberCoveredWidthSum += coveredClusterWidth;
                     stats.CardWidthSum += static_cast<f64>(out.PointWidths.back());
                 }
             }
@@ -358,16 +551,33 @@ namespace OloEngine
                 for (u32 j = 0; j < pointsPerCard; ++j)
                 {
                     const glm::dvec3 mean = positionSum[j] * inverseCount;
-                    out.Points.emplace_back(static_cast<f32>(mean.x), static_cast<f32>(mean.y),
-                                            static_cast<f32>(mean.z));
-                    // SUMMED, not averaged. That is the apparent-density
-                    // contract: one band of the cluster's total width covers the
-                    // area its members covered. Clamped to the format bound so a
+                    meanPoints[j] =
+                        glm::vec3(static_cast<f32>(mean.x), static_cast<f32>(mean.y), static_cast<f32>(mean.z));
+                }
+                for (u32 j = 0; j < pointsPerCard; ++j)
+                {
+                    const f32 t =
+                        pointsPerCard > 1u ? static_cast<f32>(j) / static_cast<f32>(pointsPerCard - 1u) : 0.0f;
+                    covered.Clear();
+                    for (sizet m = runStart; m < runEnd; ++m)
+                    {
+                        const Sampled sample = SampleCurve(base, members[m].Curve, t);
+                        covered.Positions.push_back(sample.Position);
+                        covered.Widths.push_back(sample.Width);
+                    }
+                    const f64 coveredClusterWidth =
+                        CoveredWidth(covered, meanPoints[j], PolylineTangent(meanPoints, j), footprint);
+                    // SUMMED or COVERED, never averaged: that is the
+                    // apparent-density contract, one band carrying the width
+                    // its members carried. Clamped to the format bound so a
                     // pathological cell cannot cook a width the reader would
                     // reject.
+                    const f64 clusterWidth = coveredWidth ? coveredClusterWidth : widthSum[j];
+                    out.Points.push_back(meanPoints[j]);
                     out.PointWidths.push_back(
-                        static_cast<f32>(std::min(widthSum[j], static_cast<f64>(GroomLimits::MaxWidth))));
+                        static_cast<f32>(std::min(clusterWidth, static_cast<f64>(GroomLimits::MaxWidth))));
                     stats.MemberWidthSum += widthSum[j];
+                    stats.MemberCoveredWidthSum += coveredClusterWidth;
                     stats.CardWidthSum += static_cast<f64>(out.PointWidths.back());
                 }
             }
