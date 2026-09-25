@@ -379,7 +379,8 @@ namespace OloEngine::Tests
             const auto order = graph->GetExecutionOrder();
             const auto indexOf = [&order](std::string_view name) -> std::ptrdiff_t
             {
-                const auto it = std::ranges::find_if(order, [name](const FString& n) { return n.ToView() == name; });
+                const auto it = std::ranges::find_if(order, [name](const FString& n)
+                                                     { return n.ToView() == name; });
                 return it == order.end() ? -1 : (it - order.begin());
             };
             const std::ptrdiff_t prepass = indexOf("ScenePrepassPass");

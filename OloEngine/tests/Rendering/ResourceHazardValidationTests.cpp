@@ -2733,7 +2733,6 @@ TEST(RenderGraphConfigureTopology, Slice35_SSSInPlaceBlurAndOITResolveOrderingDe
         << HazardsToString(hazards);
 }
 
-
 // ---------------------------------------------------------------------------
 // Self-resolving SceneColor/SceneDepth for 5 forward geometry passes
 //
@@ -3036,7 +3035,6 @@ TEST(RenderGraphConfigureTopology, Slice38_AOApplyPassSelfResolvesAOBufferAndSce
         << "AOApplyPass reading AOBuffer+SceneDepth — no hazard."
         << HazardsToString(hazards);
 }
-
 
 // ---------------------------------------------------------------------------
 // PostProcessRenderPass self-resolves its five blackboard inputs.

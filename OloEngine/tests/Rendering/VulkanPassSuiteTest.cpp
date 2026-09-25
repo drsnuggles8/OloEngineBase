@@ -1638,7 +1638,8 @@ TEST_F(VulkanPassSuite, SnowBlurAddsTheDiffusedSnowHalfIntoSceneColorInPlace)
         auto producer = Ref<PatternProducerPass>::Create(
             edgeInput, blitShader, std::string(ResourceNames::SceneColor),
             std::string(ResourceNames::SceneColorTexture),
-            [](FrameBlackboard& board) -> RGFramebufferHandle& { return board.Scene.SceneColor; });
+            [](FrameBlackboard& board) -> RGFramebufferHandle&
+            { return board.Scene.SceneColor; });
 
         auto sss = Ref<SSSRenderPass>::Create();
         FramebufferSpecification initSpec;
