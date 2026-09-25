@@ -1287,6 +1287,8 @@ namespace OloEngine
             m_Requests.Empty();
             m_Stats.CachedBytes = m_CacheBytes;
             m_Stats.CacheBudgetBytes = m_CacheBudgetBytes;
+            // The cache can still be over budget on a frame that draws nothing.
+            m_Stats.CacheOverBudgetBytes = m_CacheBytes > m_CacheBudgetBytes ? m_CacheBytes - m_CacheBudgetBytes : 0;
             m_Stats.CachedGrooms = static_cast<u32>(m_Cache.size());
             return;
         }
@@ -1309,6 +1311,8 @@ namespace OloEngine
             m_Requests.Empty();
             m_Stats.CachedBytes = m_CacheBytes;
             m_Stats.CacheBudgetBytes = m_CacheBudgetBytes;
+            // The cache can still be over budget on a frame that draws nothing.
+            m_Stats.CacheOverBudgetBytes = m_CacheBytes > m_CacheBudgetBytes ? m_CacheBytes - m_CacheBudgetBytes : 0;
             m_Stats.CachedGrooms = static_cast<u32>(m_Cache.size());
             return;
         }
