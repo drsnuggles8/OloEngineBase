@@ -91,7 +91,12 @@ run_arm() {
     # Which slot's paths the .pch in step 3 carries (clang writes them verbatim).
     local pch
     pch=$(find "$arm/actions-runner-ci-1/_work/Olo/build" -name 'cmake_pch.hxx.pch' | head -1)
-    [ -n "$pch" ] && step3_pch_other=$(grep -a -c 'actions-runner-ci-2' "$pch")
+    if [ -z "$pch" ]; then
+        # A renamed PCH file must not turn the check below into a silent pass.
+        echo "::error::[$name] no cmake_pch.hxx.pch in slot 1's tree -- cannot tell which slot's PCH it used"
+        exit 1
+    fi
+    step3_pch_other=$(grep -a -c 'actions-runner-ci-2' "$pch")
     # The non-PCH object in step 2 (slot 2's first build) must be a hit on slot 1's entry.
     # One "Object file:" line and one final outcome line per invocation, in order.
     grep -E 'Object file: |Result: (direct_cache_hit|preprocessed_cache_hit|cache_miss)$' "$arm/ccache2.log" \
