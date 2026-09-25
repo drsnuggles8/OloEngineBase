@@ -640,7 +640,9 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/RendererValidateTest.cpp
 		Rendering/PropertyTests/ShaderUnitTests.cpp
 		Rendering/PropertyTests/LightingSignalContractGpuTest.cpp
+		Rendering/PropertyTests/PointLightEvaluatorParityGpuTest.cpp
 		Rendering/PropertyTests/LightingSignalCompositionEvidenceTest.cpp
+		Rendering/PropertyTests/DeferredPointLightParityEvidenceTest.cpp
 		Rendering/PropertyTests/PerfRegressionTests.cpp
 		Rendering/PropertyTests/DataRoundTripTests.cpp
 		Rendering/PropertyTests/GoldenImageTests.cpp
