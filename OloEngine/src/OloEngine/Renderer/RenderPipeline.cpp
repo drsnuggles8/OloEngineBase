@@ -1112,6 +1112,7 @@ namespace OloEngine
         if (SceneCompositePasses.SSAO)
         {
             SceneCompositePasses.SSAO->SetSettings(aoProducerSettings);
+            SceneCompositePasses.SSAO->SetViewMatrix(data.ViewMatrix);
             // SSAOPass resolves its setup-selected depth/normal handles at
             // execution time; only technique settings and UBO contents vary here.
 

@@ -983,6 +983,14 @@ namespace OloEngine
 
         glm::mat4 Projection = glm::mat4(1.0f);
         glm::mat4 InverseProjection = glm::mat4(1.0f);
+        // World-to-view rotation for the NORMAL input. The deferred G-Buffer
+        // stores world-space normals and the forward scene target stores
+        // view-space ones, so SSAORenderPass uploads the camera view there and
+        // identity here -- the same split GTAORenderPass and
+        // SphereProxyAORenderPass make with FrameBlackboard's
+        // SceneNormalsAreViewSpace. Appended, so a reader declaring a prefix of
+        // the block (PostProcess_SSAOApply.glsl) is unaffected.
+        glm::mat4 View = glm::mat4(1.0f);
 
         static constexpr u32 GetSize()
         {

@@ -50,6 +50,13 @@ namespace OloEngine
             m_SSAOUBO = ubo;
             m_GPUData = gpuData;
         }
+        // The camera view, used to bring WORLD-space G-Buffer normals into
+        // view space on the deferred path. Ignored when the blackboard says the
+        // scene normals already are view-space (the forward paths).
+        void SetViewMatrix(const glm::mat4& view)
+        {
+            m_ViewMatrix = view;
+        }
 
         [[nodiscard]] bool IsReadyForExecution() const noexcept override
         {
@@ -85,6 +92,8 @@ namespace OloEngine
         PostProcessSettings m_Settings;
         RGTextureHandle m_SelectedSceneDepthTexture{};
         RGTextureHandle m_SelectedSceneNormalsTexture{};
+        bool m_SceneNormalsAreViewSpace = false;
+        glm::mat4 m_ViewMatrix{ 1.0f };
         RGTextureHandle m_SelectedAOOutputTexture{};
         RGFramebufferHandle m_SelectedBlurFramebuffer{};
 
