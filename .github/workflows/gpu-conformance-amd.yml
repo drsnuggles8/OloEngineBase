@@ -698,3 +698,47 @@ jobs:
       - name: Report disk usage
         if: always()
         run: df -h "${{ github.workspace }}" && du -sh build 2>/dev/null || true
+
+  # -------------------------------------------------------------------------
+  # Make a red streak visible without anyone opening the Actions tab (#1473).
+  # This nightly was red for 20 nights before anyone noticed: a failed
+  # scheduled run notifies nobody who is not already looking. After two red
+  # scheduled nights in a row this opens ONE issue (label ci-nightly-red, with
+  # an olo-score block so /start-work ranks it), retitles and comments on it
+  # each further red night, and the first green scheduled run closes it.
+  #
+  # A SEPARATE, HOSTED job, so the self-hosted job above keeps its read-only
+  # token: `issues: write` never reaches the runner on the box. The script
+  # makes API calls only; it runs no code from the build.
+  #
+  # A workflow_dispatch runs it with --dry-run: it prints what it would do and
+  # writes nothing, so the mechanism can be exercised from a branch.
+  # -------------------------------------------------------------------------
+  red-streak:
+    name: Red-streak alert
+    needs: amd-hardware
+    if: always() && github.repository == 'drsnuggles8/OloEngineBase'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/nightly_red_streak.py
+          sparse-checkout-cone-mode: false
+
+      - name: Open, update or close the red-streak issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULT: ${{ needs.amd-hardware.result }}
+          DRY_RUN: ${{ github.event_name != 'schedule' && '--dry-run' || '' }}
+        run: |
+          python3 scripts/nightly_red_streak.py \
+            --workflow gpu-conformance-amd.yml \
+            --result "$RESULT" \
+            --run-id "$GITHUB_RUN_ID" \
+            $DRY_RUN | tee -a "$GITHUB_STEP_SUMMARY"
