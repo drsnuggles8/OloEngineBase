@@ -1,11 +1,12 @@
-# OIT and colour-mask ambient state
+# OIT blend state and identity lanes
 
-Rule: a pass that draws into the weighted-blended OIT targets must state its whole target state
-(write masks and per-attachment blend) after anything that can change it. A pass that replays
-command packets must widen the colour write mask when it finishes. A per-pixel identity stored in
-a render target is decoded from the texel, never from a filtered fetch.
+Rule: a pass that draws into the weighted-blended OIT targets must re-state its per-attachment blend
+after anything that can change it. A per-pixel identity stored in a render target is decoded from
+the texel, never from a filtered fetch.
 
 Each of these produced a frame that looked plausible and passed every headless test: #1417, #1422.
+The colour write mask, which the same PRs found leaking into the OIT targets, has its own guide:
+[a-pass-opens-its-own-colour-mask.md](a-pass-opens-its-own-colour-mask.md).
 
 ## A global `SetBlendFunc` inside an OIT pass erases both OIT attachments' blend
 
@@ -23,22 +24,6 @@ RGBA16F to `inf` and the revealage stayed at its clear value of 1. `OITResolve` 
 whose revealage is 1, so the composite was byte-identical to a frame without the draw. Reading the
 two OIT targets back right after the draw found the fault; the render graph's pass order was
 correct.
-
-## A pass that replays packets must widen the colour write mask when it finishes
-
-A packet narrows per-draw-buffer write masks through its render state (`colorAttachmentWriteMask`,
-`colorAttachmentChannelMask`), and only the next packet's global `SetColorMask` widens them again.
-So the last packet's narrowing outlives the pass unless the pass ends with
-`SetColorMask(true, true, true, true)` and `CommandDispatch::InvalidateRenderStateCache()` (the
-widening happened behind the dispatcher's state cache). `ScenePass`, `ForwardOverlayRenderPass`
-and both `DecalRenderPass` replays now do. In the editor, `ScenePass` ended on a skeleton/joint draw
-that keeps to RT0, and draw buffer 1 stayed masked until `AOApplyPass`. That silently dropped three
-things: `DeferredLightingPass`'s skin-diffusion hand-off (so Deferred diffusion did nothing live),
-`OITPreparePass`'s revealage clear (so OIT turned every Forward frame black) and every OIT draw's
-revealage write (#1417, #1422). Headless fixtures draw no editor gizmos, so no test saw it. A GL
-colour clear also honours the mask; the backend lifts masks around both `glClear` and
-`ClearFramebufferColorAttachment`. To find a leak like this, log `glGetBooleani_v(GL_COLOR_WRITEMASK, i)`
-before and after each pass in `RenderGraphPlanExecutor`.
 
 ## Decode a per-pixel identity lane from the texel, never from a filtered fetch
 
