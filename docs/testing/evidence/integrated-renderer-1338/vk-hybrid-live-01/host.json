@@ -1,9 +1,12 @@
 {
   "backend": "vulkan",
+  "rhiFromLog": "Vulkan (source: --rhi flag)",
   "host": "editor-mcp",
   "buildConfig": "Debug",
   "compiler": "clang-cl",
   "os": "Windows 11 10.0.22631",
+  "cpu": "Intel Core i7-14700KF",
+  "physicalMemoryBytes": 68498157568,
   "gpuProbeBefore": "NVIDIA GeForce RTX 4090, 617.14, 720 MHz, 18 %, 6011 MiB, 39, 27.15 W",
   "gpuProbeAfter": "NVIDIA GeForce RTX 4090, 617.14, 975 MHz, 1 %, 8581 MiB, 40, 24.97 W",
   "presentation": "editor swapchain",
@@ -14,8 +17,25 @@
   "validationVuidCount": 0,
   "validationVuids": [],
   "deviceFault": false,
-  "env": [],
+  "envOverrides": [],
   "preDeferred": false,
   "sourceState": "fix commit c93bab8b8 on 9e66ba71c",
-  "recordedAfter": "2026-09-25T10:53:13.401491+00:00"
+  "recordedAfter": "2026-09-25T10:53:13.401491+00:00",
+  "launchFlags": "--rhi=vulkan (cwd OloEditor/; OLO_MCP_AUTOSTART=1, OLO_MCP_ALLOW_WRITES=1, OLO_MCP_PORT=7437)",
+  "gpuDeviceFromLog": "NVIDIA GeForce RTX 4090 (driver 105.56.0, API 1.4.351)",
+  "rayTracingCapabilityFromLog": "ray query enabled + ray-tracing pipeline (scratch align 128 B, max instances 16777215, max primitives 536870911)",
+  "requestedResolution": {
+    "height": 1080,
+    "renderScale": 1.0,
+    "width": 1920
+  },
+  "actualResolution": {
+    "displayHeight": 1080,
+    "displayWidth": 1920,
+    "renderHeight": 1080,
+    "renderScale": 1.0,
+    "renderWidth": 1920
+  },
+  "vsync": "unknown",
+  "vsyncNote": "the editor does not log its swapchain present mode; recorded as unknown per docs/guides/integrated-renderer-benchmark.md"
 }
