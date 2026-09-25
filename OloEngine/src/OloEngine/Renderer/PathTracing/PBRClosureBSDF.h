@@ -123,20 +123,17 @@ namespace OloEngine::PathTracing::BSDF
             return pdfDiffuse;
 
         const glm::vec3 h = glm::normalize(v + l);
-        const f32 nDotH = glm::dot(n, h);
 
         f32 pdfSpecular = 0.0f;
         if (material.Model == PBRModel::ClosureV2)
         {
             // GLSL twin: closureV2Pdf's specular term. Same clamped roughness
             // as the v2 sampler AND the v2 evaluation — one D for all three.
-            pdfSpecular = PdfGGXVNDF(glm::dot(n, v), std::max(nDotH, 0.0f),
-                                     ClosureV2Roughness(material.Roughness));
+            pdfSpecular = PdfGGXVNDF(n, v, h, ClosureV2Roughness(material.Roughness));
         }
         else
         {
-            const f32 vDotH = glm::dot(v, h);
-            pdfSpecular = PdfGGX(nDotH, vDotH, SamplingRoughness(material.Roughness));
+            pdfSpecular = PdfGGX(n, v, h, SamplingRoughness(material.Roughness));
         }
 
         return pSpecular * pdfSpecular + (1.0f - pSpecular) * pdfDiffuse;

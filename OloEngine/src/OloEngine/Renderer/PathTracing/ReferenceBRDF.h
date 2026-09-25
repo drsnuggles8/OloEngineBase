@@ -153,6 +153,30 @@ namespace OloEngine::PathTracing
         return a2 / std::max(denom, std::numeric_limits<f32>::min());
     }
 
+    // The same density from the VECTORS, which is what every caller that has
+    // them should use (issue #1347). The scalar form's denominator
+    // c^2 (a^2 - 1) + 1 is 1 - c^2 + a^2 c^2: near the lobe peak it subtracts
+    // two numbers within ~a^2 of each other, and c = dot(n, h) has already lost
+    // the half-vector's small tangential components to f32 rounding of h.z.
+    // Measured against the f64 oracle, D averaged over the lobe read +3.5 % at
+    // roughness 0.04 and +1.3 % at 0.05 (single points up to +17 %), so the v2
+    // white furnace and both specular pdfs integrated above 1. sin^2 taken as
+    // |n x h|^2 keeps those components at full relative precision:
+    // BsdfIdentityOracleTest measures 1.0000 after. For unit n and h the two
+    // forms are the same function.
+    [[nodiscard]] inline f32 DistributionGGXSamplingDensity(const glm::vec3& n, const glm::vec3& h, f32 roughness) noexcept
+    {
+        const f32 a = roughness * roughness;
+        const f32 a2 = a * a;
+        const f32 c = glm::dot(n, h);
+        if (c <= 0.0f)
+            return a2 * kInvPi; // the scalar form's value at max(nDotH, 0) = 0
+        const glm::vec3 t = glm::cross(n, h);
+        f32 denom = glm::dot(t, t) + a2 * c * c;
+        denom = kPi * denom * denom;
+        return a2 / std::max(denom, std::numeric_limits<f32>::min());
+    }
+
     // -------------------------------------------------------------------------
     // Geometry / masking-shadowing (GLSL: geometrySchlickGGX, geometrySmith)
     // -------------------------------------------------------------------------
@@ -320,6 +344,16 @@ namespace OloEngine::PathTracing
         return DistributionGGXSamplingDensity(nDotH, roughness) * std::max(nDotH, 0.0f) / (4.0f * vDotH);
     }
 
+    // PdfGGX from the vectors, with the cancellation-free D (see the vector
+    // DistributionGGXSamplingDensity). BSDF::Pdf uses this one.
+    [[nodiscard]] inline f32 PdfGGX(const glm::vec3& n, const glm::vec3& v, const glm::vec3& h, f32 roughness) noexcept
+    {
+        const f32 vDotH = glm::dot(v, h);
+        if (vDotH <= 0.0f)
+            return 0.0f;
+        return DistributionGGXSamplingDensity(n, h, roughness) * std::max(glm::dot(n, h), 0.0f) / (4.0f * vDotH);
+    }
+
     // Cosine-weighted hemisphere sample about `n` (Malley's method).
     [[nodiscard]] inline glm::vec3 CosineSampleHemisphere(const glm::vec2& xi, const glm::vec3& n) noexcept
     {
@@ -476,10 +510,9 @@ namespace OloEngine::PathTracing
         const glm::vec3 h = glm::normalize(v + l);
         const f32 nDotV = std::max(glm::dot(n, v), 0.0f);
         const f32 nDotL = std::max(glm::dot(n, l), 0.0f);
-        const f32 nDotH = std::max(glm::dot(n, h), 0.0f);
 
         const glm::vec3 f0 = glm::mix(glm::vec3(kDefaultDielectricF0), albedo, metallic);
-        const f32 d = DistributionGGXSamplingDensity(nDotH, r);
+        const f32 d = DistributionGGXSamplingDensity(n, h, r);
         const f32 vis = VisibilitySmithGGXCorrelated(nDotV, nDotL, r);
         const glm::vec3 f = FresnelSchlick(std::max(glm::dot(h, v), 0.0f), f0);
 
@@ -555,6 +588,18 @@ namespace OloEngine::PathTracing
         const f32 alpha = roughness * roughness;
         const f32 g1V = 1.0f / (1.0f + GgxSmithLambda(nDotV, alpha));
         return g1V * DistributionGGXSamplingDensity(nDotH, roughness) / (4.0f * nDotV);
+    }
+
+    // PdfGGXVNDF from the vectors, with the cancellation-free D. BSDF::Pdf and
+    // the GLSL closureV2Pdf use this form.
+    [[nodiscard]] inline f32 PdfGGXVNDF(const glm::vec3& n, const glm::vec3& v, const glm::vec3& h, f32 roughness) noexcept
+    {
+        const f32 nDotV = glm::dot(n, v);
+        if (nDotV <= 0.0f)
+            return 0.0f;
+        const f32 alpha = roughness * roughness;
+        const f32 g1V = 1.0f / (1.0f + GgxSmithLambda(nDotV, alpha));
+        return g1V * DistributionGGXSamplingDensity(n, h, roughness) / (4.0f * nDotV);
     }
 
     // -------------------------------------------------------------------------

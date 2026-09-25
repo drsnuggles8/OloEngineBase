@@ -21,11 +21,14 @@ float PtLegacyGGXSamplingDensity(float nDotH, float roughness)
     return a2 / max(denom, 1.17549435e-38);
 }
 
-float PtLegacyPdfGGX(float nDotH, float vDotH, float roughness)
+// From the vectors, with PBRCommon's cancellation-free distributionGGXUnclampedNH
+// (issue #1347). Twin: ReferenceBRDF.h's vector PdfGGX.
+float PtLegacyPdfGGX(vec3 n, vec3 v, vec3 h, float roughness)
 {
+    const float vDotH = dot(v, h);
     if (vDotH <= 0.0)
         return 0.0;
-    return PtLegacyGGXSamplingDensity(nDotH, roughness) * max(nDotH, 0.0) / (4.0 * vDotH);
+    return distributionGGXUnclampedNH(n, h, roughness) * max(dot(n, h), 0.0) / (4.0 * vDotH);
 }
 
 vec3 PtLegacyImportanceSampleGGX(vec2 xi, vec3 n, float roughness)
@@ -52,9 +55,7 @@ float PtLegacyPdf(vec3 n, vec3 v, vec3 l, vec3 albedo, float metallic, float rou
     if (!(pSpecular > 0.0))
         return pdfDiffuse;
     const vec3 h = normalize(v + l);
-    const float nDotH = dot(n, h);
-    const float vDotH = dot(v, h);
-    const float pdfSpecular = PtLegacyPdfGGX(nDotH, vDotH, PtLegacySamplingRoughness(roughness));
+    const float pdfSpecular = PtLegacyPdfGGX(n, v, h, PtLegacySamplingRoughness(roughness));
     return pSpecular * pdfSpecular + (1.0 - pSpecular) * pdfDiffuse;
 }
 
