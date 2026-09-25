@@ -57,6 +57,31 @@ OLO_LEVER_TRISTATE(CommandLifecycleValidation, "OLO_COMMAND_LIFECYCLE_VALIDATION
                    "after every replay (#1335). Catches a write into a frozen packet through a pointer taken during "
                    "preparation, which no accessor check can see. \"1\" on, \"0\" off; unset keeps the build "
                    "default (on in Debug, off in Release).")
+OLO_LEVER_EXACT(SerialMeshSubmission, "OLO_RENDERER_SERIAL_MESH_SUBMISSION",
+                "Submit every Renderer3D::SubmitMeshesParallel batch on the calling thread through DrawMesh, the branch "
+                "a batch under the parallel threshold already takes, instead of DrawMeshParallel on the worker pool "
+                "(#1349). The two branches must produce the same packets; this is the A/B that says whether they "
+                "do. Read per call, so it applies to the next submitted batch.")
+
+// --- Fault injection ----------------------------------------------------------
+// Deliberately WRONG behaviour, for the negative controls of the renderer
+// state-machine harness (#1349): each one re-creates a known class of renderer
+// defect so a test can prove the check meant to catch that class does catch it.
+// A check that stays green with its fault on is not a check. Exact "1" only, and
+// never set these outside a test: every one of them breaks rendering on purpose.
+OLO_LEVER_EXACT(FaultStaleDeclarationKey, "OLO_FAULT_STALE_DECLARATION_KEY",
+                "FAULT (#1349 negative control): leave every pass's own declaration inputs (PassStates: enables, "
+                "readiness, bucket gates) out of the render-graph declaration key, so a pass that starts or stops "
+                "declaring work keeps the cached graph. Re-creates the #1315 class of bad cache invalidation.")
+OLO_LEVER_EXACT(FaultSkipDispatchBindingReset, "OLO_FAULT_SKIP_DISPATCH_BINDING_RESET",
+                "FAULT (#1349 negative control): keep CommandDispatch's bound-texture, bound-UBO, material and "
+                "render-state caches across the frame-start ResetState(), so a binding changed behind the "
+                "dispatcher's back since the last frame is skipped as already bound. Re-creates a missing binding "
+                "reset.")
+OLO_LEVER_EXACT(FaultShortenTransientLifetimes, "OLO_FAULT_SHORTEN_TRANSIENT_LIFETIMES",
+                "FAULT (#1349 negative control): end every transient's planned lifetime one pass before its last "
+                "access, so the alias-slot assigner can hand its backing to another transient while it is still "
+                "read. Re-creates an alias-lifetime error in the transient planner.")
 
 // --- RHI --------------------------------------------------------------------
 OLO_LEVER_TOGGLE(BindlessDescriptorHeap, "OLO_RHI_BINDLESS",

@@ -1,0 +1,14 @@
+# Found by this harness (#1349): with double buffering off,
+# FrameResourceManager::EndFrame deleted a frame's old fence without forgetting
+# the id, and deleted it AGAIN at that slot's next EndFrame. By then the
+# backend had reissued the handle to GPUReadbackStats, whose live readback
+# fence the second delete destroyed: GL_INVALID_VALUE ("<sync> is not the name
+# of a sync object") on every later frame. The fixture fails any render tick
+# that leaves a GL error, so replaying this is the regression check.
+olo-state-machine-trace 1
+seed 0
+initial path=forward size=320x180 msaa=1 upscale=off features= blended=0 buffering=2 pose=0
+op frames-in-flight 1
+op path deferred
+op frames-in-flight 2
+op frames-in-flight 1

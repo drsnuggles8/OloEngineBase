@@ -4,6 +4,7 @@
 // no imported-material table left to consult — only a PODMaterialData slot to bind. See
 // RenderPathDrift.EveryMeshSubmissionPathUsesTheSharedMaterialResolver.
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Wind/WindSystem.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Commands/CommandDispatchRecordingState.h"
@@ -1697,15 +1698,25 @@ namespace OloEngine
         OLO_CORE_ASSERT(!s_RecordingData, "Frame state is frozen during recording");
         Data().CurrentBoundShader = {};
         Data().CurrentBoundVAO = {};
-        Data().GPUSceneMaterialsBound = false;
         Data().GPUSceneConsumedDraws = 0;
         Data().GPUSceneFallbackDraws = 0;
-        Data().LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
-        Data().LastMaterialDataIndex = INVALID_MATERIAL_DATA_INDEX;
-        Data().BoundTextures.fill(RHI::NullResource);
         Data().CurrentViewportWidth = 0;
         Data().CurrentViewportHeight = 0;
-        Data().BoundUBOs.fill(RHI::NullResource);
+        // A negative control for #1349, never a behaviour: with the fault on,
+        // the texture, UBO, material and render-state caches outlive the frame,
+        // so a binding something else changed since the last frame is skipped
+        // as already bound. The shader and vertex-array caches still reset: a
+        // stale VAO draws from VAO 0, which some drivers answer with an access
+        // violation rather than a wrong frame, and a control must fail a check,
+        // not take the process down.
+        if (!Levers::FaultSkipDispatchBindingReset())
+        {
+            Data().GPUSceneMaterialsBound = false;
+            Data().LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
+            Data().LastMaterialDataIndex = INVALID_MATERIAL_DATA_INDEX;
+            Data().BoundTextures.fill(RHI::NullResource);
+            Data().BoundUBOs.fill(RHI::NullResource);
+        }
         s_FrameData.CSMShadowTexture = {};
         s_FrameData.AtlasShadowTexture = {};
         s_FrameData.CSMRawShadowTexture = {};
@@ -2670,7 +2681,15 @@ namespace OloEngine
             const glm::vec3 origin = Data().RenderOrigin;
             for (sizet i = 0; i < instanceCount; ++i)
             {
+                // Start every instance from the defaults. `scratch` outlives this
+                // draw, so a field written only under a condition would otherwise
+                // keep the previous batch's value: an unlinked batch (a batched
+                // Model) kept the previous linked batch's GPU-scene references and
+                // the G-Buffer shader shaded it with that entity's material, on
+                // Deferred only -- found by the renderer state-machine harness's
+                // batch-vs-nobatch pair (#1349).
                 InstanceData& inst = scratch[i];
+                inst = InstanceData{};
                 // CommandBucket replaces a resolved link's transform entries
                 // with its GPU Scene record values. Those values are already
                 // render-origin-relative, unlike the legacy command values.

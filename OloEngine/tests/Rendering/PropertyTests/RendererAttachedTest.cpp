@@ -195,6 +195,15 @@ namespace OloEngine::Tests
         }
     }
 
+    void RendererAttachedTest::RunEditorFramesOn(Scene& scene, const EditorCamera& camera, u32 count, f32 dtSeconds)
+    {
+        const Timestep ts{ dtSeconds };
+        for (u32 i = 0; i < count; ++i)
+            RunGuardedRenderTick("RendererAttachedTest::RunEditorFramesOn",
+                                 [&scene, ts, &camera]()
+                                 { scene.OnUpdateEditor(ts, camera); });
+    }
+
     void RendererAttachedTest::SetViewport(u32 width, u32 height)
     {
         m_Scene->OnViewportResize(width, height);

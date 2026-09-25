@@ -82,6 +82,7 @@ namespace OloEngine
 
         ctx.CommandsSubmitted = 0;
         ctx.MeshesCulled = 0;
+        ctx.ForwardOverlaySubmitted = 0;
 
         return ctx;
     }

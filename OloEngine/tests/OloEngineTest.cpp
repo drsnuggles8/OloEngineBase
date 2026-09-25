@@ -10,6 +10,7 @@
 #include "Rendering/CommandLifecycleCheck.h"
 #include "Rendering/PropertyTests/TestFailureCapture.h"
 #include "Rendering/VulkanCoverageReport.h"
+#include "Rendering/StateMachine/StateMachineCoverage.h"
 #include "MemoryCeiling.h"
 #include "TestOptions.h"
 #include "TestTempDir.h"
@@ -202,6 +203,10 @@ int main(int argc, char** argv)
     // OnTestProgramEnd — a skip reported three hundred lines above a
     // `[  PASSED  ]` is a skip nobody reads.
     OloEngine::Tests::VulkanCoverage::RegisterListener();
+    // The same, for the renderer state-machine harness's manifest (issue
+    // #1349): every Required row printed as executed, skipped (and why) or
+    // not exercised, so a required case cannot vanish into a GPU skip.
+    OloEngine::Tests::StateMachine::Coverage::RegisterListener();
     const int result = ::RUN_ALL_TESTS();
 
     // The capture-mode filter above names a test suite by string; a suite

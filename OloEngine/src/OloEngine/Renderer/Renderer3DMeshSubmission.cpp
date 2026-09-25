@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Animation/Skeleton.h"
 #include "OloEngine/Renderer/DeferredForwardOverlayRoute.h"
 #include "OloEngine/Renderer/GltfPhysicalMaterial.h"
@@ -2333,6 +2334,7 @@ namespace OloEngine
             // volume of forward-only draws on Deferred is expected to be
             // small enough that this doesn't become a contention point.
             SubmitRenderStreamPacket(RenderStreamType::ForwardOverlay, packet);
+            ++ctx.ForwardOverlaySubmitted;
             return nullptr;
         }
 
@@ -2589,8 +2591,11 @@ namespace OloEngine
 
         const i32 numMeshes = static_cast<i32>(meshes.size());
 
-        // For small batches, use single-threaded path.
-        if (numMeshes < minBatchSize * 2)
+        // For small batches, use single-threaded path. SerialMeshSubmission
+        // sends every batch this way: the two branches must produce the same
+        // packets, and the lever is how the renderer state-machine harness
+        // (#1349) compares them.
+        if (numMeshes < minBatchSize * 2 || Levers::SerialMeshSubmission())
         {
             u32 totalSubmitted = 0;
             for (const auto& desc : meshes)
@@ -2673,6 +2678,23 @@ namespace OloEngine
         // slots the bucket must reserve before any worker starts.
         BeginParallelSubmission(static_cast<u32>(numMeshes));
 
+        // Motion history for descriptors whose caller supplied none
+        // (Model::DrawParallel). The serial branch's DrawMesh reads and records
+        // it through GetAndRecordPrevTransform; workers cannot touch that map,
+        // so it is resolved here, on the calling thread, before they start.
+        // Without this a moving model had velocity below the 32-mesh threshold
+        // and none above it (#1349). One difference remains: a mesh the worker
+        // then culls has still recorded its transform, where DrawMesh records
+        // only drawn meshes -- which only changes whether a model that was
+        // fully culled last frame has history this frame.
+        TArray<glm::mat4> prevTransforms;
+        prevTransforms.Reserve(numMeshes);
+        for (const MeshSubmitDesc& desc : meshes)
+        {
+            prevTransforms.Add(desc.HasPrevTransform ? desc.PrevTransform
+                                                     : GetAndRecordPrevTransform(desc.EntityID, desc.Transform));
+        }
+
         // Per-worker accumulator to track statistics.
         struct WorkerStats
         {
@@ -2693,11 +2715,11 @@ namespace OloEngine
             numMeshes,
             minBatchSize,
             // Body - process one mesh descriptor.
-            [&meshes](WorkerStats& stats, i32 index)
+            [&meshes, &prevTransforms](WorkerStats& stats, i32 index)
             {
                 const MeshSubmitDesc& desc = meshes[index];
 
-                const glm::mat4* prevXform = desc.HasPrevTransform ? &desc.PrevTransform : nullptr;
+                const glm::mat4* prevXform = &prevTransforms[index];
                 CommandPacket* packet = Renderer3D::DrawMeshParallel(
                     stats.Context, desc.Mesh, desc.Transform, desc.MaterialData, desc.IsStatic,
                     desc.EntityID, desc.LODGroupPtr, prevXform);
@@ -2760,7 +2782,9 @@ namespace OloEngine
         u32 totalSubmitted = 0;
         for (i32 i = 0; i < MAX_RENDER_WORKERS; ++i)
         {
-            totalSubmitted += workerStats[i].Submitted;
+            // Overlay reroutes are submitted draws: the serial branch counts
+            // them, because DrawMesh returns the overlay packet.
+            totalSubmitted += workerStats[i].Submitted + workerStats[i].Context.ForwardOverlaySubmitted;
             s_Data.Stats.LODSwitches += workerStats[i].Context.LODSwitches;
             for (sizet j = 0; j < static_cast<sizet>(workerStats[i].Context.ObjectsPerLODLevel.Num()); ++j)
             {
@@ -2771,6 +2795,7 @@ namespace OloEngine
                 s_Data.Stats.ObjectsPerLODLevel[j] += workerStats[i].Context.ObjectsPerLODLevel[j];
             }
         }
+        s_Data.Stats.ParallelSubmittedMeshes += totalSubmitted;
 
         return totalSubmitted;
     }

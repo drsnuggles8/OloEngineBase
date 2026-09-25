@@ -3511,17 +3511,13 @@ namespace OloEngine::MCP
                                                  {
                 if (anyRequested)
                 {
+                    // An aliasing change also needs the pool evicted, and the setter
+                    // arranges it: the OLO_RG_DISABLE_ALIASING change callback requests
+                    // an eviction that the graph performs inside its next Execute. This
+                    // tool used to clear the pool here as well, between the passes and
+                    // the submit, which on Vulkan destroyed images the still-recording
+                    // frame had used (#1349).
                     RenderGraph::SetTransientDebugFlags(wanted);
-                    // Pooled objects acquired under the previous aliasing policy are
-                    // still bucketed and would be handed straight back out under the
-                    // new one, so an A/B would compare a mixed state. Evict.
-                    if (aliasingChanged)
-                    {
-                        // Own (non-const) Ref: Ref<T> propagates constness through
-                        // operator->, and GetActiveGraph() returns a const Ref.
-                        if (Ref<RenderGraph> graph = RenderGraphDebugRuntime::GetActiveGraph(); graph)
-                            graph->GetTransientPool().Clear();
-                    }
                 }
 
                 Json out{

@@ -1,0 +1,15 @@
+# Issue #530: the second consecutive entry into Deferred recomputed the same
+# blackboard-populate fingerprint over a freshly wiped blackboard, so every
+# pass's Setup() read empty handles and the whole graph culled (a blank frame,
+# no GL error). The original switched paths with no frame in between; the
+# harness renders settle frames after each operation, so this is the
+# rendered-between variant. The no-frame variant stays pinned by
+# DeferredOccludedInstanceFieldScene.ReenteringDeferredPathDoesNotCullEntireGraph_Issue530.
+olo-state-machine-trace 1
+seed 0
+initial path=forward size=320x180 msaa=1 upscale=off features= blended=0 buffering=2 pose=0
+op path deferred
+op path forward
+op path deferred
+op path forward-plus
+op path deferred

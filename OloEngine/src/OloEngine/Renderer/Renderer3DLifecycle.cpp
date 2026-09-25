@@ -513,14 +513,15 @@ namespace OloEngine
         // Flipping the aliasing lever has to evict the transient pool, or the
         // A/B compares a mixed state: objects acquired under the previous policy
         // are still bucketed and get handed straight back out under the new one.
-        // `olo_render_debug_set` has always done this inline, which is why only
-        // THAT path was correct — a console line, `--set` or any other write
-        // left the stale buckets in place.
         //
-        // A change callback fixes it for every path at once, and this is the
-        // shape those callbacks are meant to have: it reads the CURRENT value
-        // rather than a delta, and it runs on the game thread at the top of a
-        // frame, which is the only place evicting GPU objects is safe.
+        // A change callback does it for every write path at once (a console
+        // line, `--set`, an MCP call), and this is the shape those callbacks are
+        // meant to have: it reads the CURRENT value rather than a delta. It runs
+        // on the game thread at the top of a frame, but it still only REQUESTS
+        // the eviction, which the graph performs inside its next Execute: a
+        // clear at the top of a frame destroyed, on Vulkan, the previous frame's
+        // UIComposite while this frame's editor viewport still sampled it
+        // (#1349, see RenderGraph::RequestTransientPoolClear).
         //
         // Function-local static: registered once for the process, not once per
         // Renderer3D::Init, and it looks the active graph up each time so it
@@ -534,7 +535,10 @@ namespace OloEngine
                 // operator->, and GetActiveGraph() returns a const Ref.
                 if (Ref<RenderGraph> graph = RenderGraphDebugRuntime::GetActiveGraph(); graph)
                 {
-                    graph->GetTransientPool().Clear();
+                    // Requested, not cleared here: the top of a frame is NOT
+                    // safe on Vulkan, because this frame's editor UI samples the
+                    // previous frame's pooled output (RequestTransientPoolClear).
+                    graph->RequestTransientPoolClear();
                 }
             },
             /*invokeNow*/ false);

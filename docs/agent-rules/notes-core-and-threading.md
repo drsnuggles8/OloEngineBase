@@ -390,7 +390,13 @@ The registry is the slow, name-based side on purpose.
    `RenderGraph::SetTransientDebugFlags` — and any other typed caller —
    participates. That is what let the transient-pool eviction move out of
    `olo_render_debug_set` (where only *that* one path was correct) and into a
-   callback in `Renderer3D::Init`, which every route now gets.
+   callback in `Renderer3D::Init`, which every route now gets. The top of a
+   frame is safe for *creating* GPU objects, not for *destroying* pooled ones on
+   Vulkan: the editor viewport samples the previous frame's pooled
+   `UIComposite` in the frame about to be recorded, so the callback only calls
+   `RenderGraph::RequestTransientPoolClear()` and the graph evicts inside its
+   next `Execute` (#1349; a top-of-frame clear gave 5–6
+   `VUID-vkDestroyImage-image-01000` per 82 toggles, the deferred one 0).
 
 **The trap in that design: the rendering IS the equality operator.** "Did this
 change?" is decided by comparing each cvar's *rendered* value against the last

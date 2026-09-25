@@ -705,6 +705,27 @@ namespace OloEngine
             m_TransientPool.Clear();
         }
 
+        // Evict the pool at the start of the next Execute() instead of now.
+        // Any clear OUTSIDE Execute hands pooled objects to the Vulkan deferred
+        // reclaim one generation too early, because a pooled object is used by
+        // one frame more than the pool knows:
+        //   * mid-frame (an MCP tool, the editor UI): this frame's passes have
+        //     already recorded commands against the objects;
+        //   * at the top of a frame (a cvar change callback): the editor
+        //     viewport's ImGui::Image is built BEFORE the frame's graph runs, so
+        //     it samples the previous frame's UIComposite -- a pooled image --
+        //     by raw texture id, and that frame is recorded after the clear.
+        // Either way the reclaim's two-generation wait expires while a command
+        // buffer that uses the image is in flight (VUID-vkDestroyImage-image-
+        // 01000). Inside Execute the enqueue lands after this frame's fence
+        // advance, and two generations later every frame that could name the
+        // object has completed. Found by the renderer state-machine harness's
+        // live Vulkan replay (#1349).
+        void RequestTransientPoolClear()
+        {
+            m_TransientPoolClearRequested = true;
+        }
+
         // -------------------------------------------------------------------
         // Builder support for transient resource allocation
         // -------------------------------------------------------------------
@@ -820,10 +841,12 @@ namespace OloEngine
         //     analysis let two live resources share one GPU object.
         //
         // Both are read fresh at each MaterializeTransientResources, so a change
-        // takes effect on the next rendered frame. Flipping DisableAliasing should
-        // be paired with GetTransientPool().Clear() by the caller: pooled objects
-        // acquired under the previous policy are still bucketed and would be handed
-        // back out under the new one.
+        // takes effect on the next rendered frame. Flipping DisableAliasing needs
+        // the pool evicted -- pooled objects acquired under the previous policy are
+        // still bucketed and would be handed back out under the new one -- and the
+        // setter arranges it: the OLO_RG_DISABLE_ALIASING change callback
+        // (Renderer3DLifecycle.cpp) calls RequestTransientPoolClear(). A caller
+        // must not clear the pool itself; see RequestTransientPoolClear for why.
         struct TransientDebugFlags
         {
             bool PoisonTransients = false;
@@ -1765,6 +1788,7 @@ namespace OloEngine
         // Transient resource pool
         // -------------------------------------------------------------------
         TransientPool m_TransientPool;
+        bool m_TransientPoolClearRequested = false;
 
         // -------------------------------------------------------------------
         // Graph-native execution metadata

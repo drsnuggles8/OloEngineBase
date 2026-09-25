@@ -1,0 +1,12 @@
+# Issue #563: restoring native resolution after an FSR1 upscale changes the
+# scene band while the display size does not, and the transient pool was only
+# evicted on a display resize; stale reduced-band transients rendered the
+# scene black for about two frames. Both forward and deferred.
+olo-state-machine-trace 1
+seed 0
+initial path=forward size=320x180 msaa=1 upscale=off features= blended=0 buffering=2 pose=0
+op upscale performance
+op upscale off
+op path deferred
+op upscale quality
+op upscale off

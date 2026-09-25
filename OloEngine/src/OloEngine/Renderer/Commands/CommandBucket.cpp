@@ -1552,11 +1552,12 @@ namespace OloEngine
             return;
         }
 
-        // Compact the parallel commands array into the flat arrays
-        m_Keys.Reset();
-        m_Packets.Reset();
-        m_CommandCount = 0;
-
+        // Append the parallel commands to the flat arrays. APPEND, not replace:
+        // the bucket already holds whatever was submitted serially before this
+        // region, and every earlier region's merge. Resetting here dropped all
+        // of it, so a scene whose model crossed SubmitMeshesParallel's
+        // threshold drew that model and nothing else (found by the renderer
+        // state-machine harness, #1349).
         sizet maxIndex = m_NextBatchStart.load(std::memory_order_relaxed);
         for (sizet i = 0; i < maxIndex && i < static_cast<sizet>(m_ParallelCommands.Num()); ++i)
         {

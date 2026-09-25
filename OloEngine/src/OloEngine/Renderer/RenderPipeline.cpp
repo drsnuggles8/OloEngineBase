@@ -2934,7 +2934,10 @@ namespace OloEngine
                         if (passKeys)
                             passKeys->Add(passKey.Get());
                         passStates.Add(passKey.Get()); });
-        config.PassStates = passStates.Get();
+        // A negative control for #1349, never a behaviour: with the fault on,
+        // no pass-level declaration input reaches the key, which is the #1315
+        // class of bad cache invalidation re-created on purpose.
+        config.PassStates = Levers::FaultStaleDeclarationKey() ? 0u : passStates.Get();
 
         return config;
     }

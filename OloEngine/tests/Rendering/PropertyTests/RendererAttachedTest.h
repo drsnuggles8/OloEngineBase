@@ -120,6 +120,12 @@ namespace OloEngine::Tests
         /// `CameraComponent` path cannot express.
         void RunEditorFrames(const EditorCamera& camera, u32 count, f32 dtSeconds = 1.0f / 60.0f);
 
+        /// `RunEditorFrames` for a scene other than the fixture's own, through
+        /// the same guarded tick. The caller owns `scene` and has put it into
+        /// 3D rendering mode. For a test that changes which scene the renderer
+        /// draws between frames (scene ownership, issue #1349).
+        void RunEditorFramesOn(Scene& scene, const EditorCamera& camera, u32 count, f32 dtSeconds = 1.0f / 60.0f);
+
         /// Opt the Scene into the full 3D draw path. Call from `BuildScene()`.
         /// Enables 3D mode, sizes the camera + the Renderer3D render-graph
         /// targets to `width`x`height`, and flips `SetRenderingEnabled(true)`.
