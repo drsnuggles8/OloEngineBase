@@ -729,3 +729,150 @@ TEST(McpRendererSettingsSchema, DeclaresSettingEnumAndIsClosed)
         EXPECT_NE(std::find(settingEnum.begin(), settingEnum.end(), std::string(info.Token)), settingEnum.end())
             << "setting token: " << info.Token;
 }
+
+// ---- 'technique' and the upscaler resolution readback (#607) ----------------
+//
+// FSR2 falls back to FSR1 off OpenGL and under MSAA, at the SAME render scale,
+// so the frame looks plausible either way. 'value' is therefore only the
+// request; these pin that the reply carries the pipeline's result beside it and
+// never presents a stale latch as the answer to a new request.
+
+namespace
+{
+    namespace Policy = OloEngine::TemporalUpscalePolicy;
+    using OloEngine::UpscalerTechnique;
+
+    RS::UpscaleReadback LatchedFor(const PostProcessSettings& pp, Policy::ResolvedUpscaler resolved,
+                                   Policy::TemporalFallback fallback = Policy::TemporalFallback::None)
+    {
+        RS::UpscaleReadback readback;
+        readback.Latched = true;
+        readback.Mode = pp.Upscale;
+        readback.Technique = pp.Technique;
+        readback.Result = { resolved, fallback };
+        readback.SceneSampleCount = fallback == Policy::TemporalFallback::MSAAResolved ? 4u : 1u;
+        readback.UpscalerStatus = "unsupported on the active RHI backend";
+        return readback;
+    }
+} // namespace
+
+TEST(McpRendererSettingsApply, TechniqueReachesThePostProcessFieldAndBack)
+{
+    PostProcessSettings pp;
+    RendererSettings rs;
+    RS::LeverState lever;
+    ASSERT_EQ(pp.Technique, UpscalerTechnique::Spatial);
+
+    const auto temporal = RS::Apply(RS::Setting::UpscaleTechnique, static_cast<i32>(UpscalerTechnique::Temporal), pp, rs, lever);
+    ASSERT_TRUE(temporal.Ok) << temporal.Error;
+    EXPECT_EQ(pp.Technique, UpscalerTechnique::Temporal);
+    EXPECT_EQ(temporal.Data["setting"], "technique");
+    EXPECT_EQ(temporal.Data["previousValue"], "spatial");
+    EXPECT_EQ(temporal.Data["value"], "temporal");
+    EXPECT_TRUE(temporal.Data["changed"].get<bool>());
+    // The pipeline re-decides every frame and the graph fingerprint carries the
+    // decision, so a technique flip must not force a topology rebuild.
+    EXPECT_FALSE(temporal.RequiresRenderGraphRebuild);
+    EXPECT_FALSE(temporal.RequiresRendererApply);
+
+    const auto restored = RS::Apply(RS::Setting::UpscaleTechnique, static_cast<i32>(UpscalerTechnique::Spatial), pp, rs, lever);
+    ASSERT_TRUE(restored.Ok);
+    EXPECT_EQ(pp.Technique, UpscalerTechnique::Spatial);
+    EXPECT_EQ(restored.Data["restoreWith"], "temporal");
+
+    i32 value = -1;
+    EXPECT_TRUE(RS::ParseValue(RS::Setting::UpscaleTechnique, "Temporal", value));
+    EXPECT_EQ(value, static_cast<i32>(UpscalerTechnique::Temporal));
+    EXPECT_FALSE(RS::ParseValue(RS::Setting::UpscaleTechnique, "fsr2", value));
+    EXPECT_TRUE(RS::Apply(RS::Setting::UpscaleTechnique, 7, pp, rs, lever).Error.size() > 0);
+    EXPECT_EQ(pp.Technique, UpscalerTechnique::Spatial) << "a refused value must not mutate the field";
+}
+
+TEST(McpRendererSettingsUpscaler, ReportsTheResolvedTechniqueBesideTheRequest)
+{
+    PostProcessSettings pp;
+    pp.Upscale = UpscaleMode::Quality;
+    pp.Technique = UpscalerTechnique::Temporal;
+
+    const Json ran = RS::UpscalerJson(pp, LatchedFor(pp, Policy::ResolvedUpscaler::Temporal));
+    EXPECT_EQ(ran["requested"]["upscale"], "quality");
+    EXPECT_EQ(ran["requested"]["technique"], "temporal");
+    EXPECT_EQ(ran["resolved"], "temporal");
+    EXPECT_EQ(ran["pending"], false);
+    EXPECT_FALSE(ran.contains("fallback"));
+    EXPECT_FALSE(ran.contains("reason"));
+}
+
+TEST(McpRendererSettingsUpscaler, EveryFallbackCarriesItsCodeAndASentence)
+{
+    PostProcessSettings pp;
+    pp.Upscale = UpscaleMode::Performance;
+    pp.Technique = UpscalerTechnique::Temporal;
+
+    struct Case
+    {
+        Policy::TemporalFallback Fallback;
+        const char* Token;
+        const char* MustMention;
+    };
+    for (const Case& c : { Case{ Policy::TemporalFallback::MSAAResolved, "msaaResolved", "4 samples" },
+                           Case{ Policy::TemporalFallback::BackendNotOpenGL, "backendNotOpenGL", "OpenGL" },
+                           Case{ Policy::TemporalFallback::UpscalerUnavailable, "upscalerUnavailable",
+                                 "unsupported on the active RHI backend" },
+                           Case{ Policy::TemporalFallback::SceneNotSized, "sceneNotSized", "sample count 0" } })
+    {
+        const Json block = RS::UpscalerJson(pp, LatchedFor(pp, Policy::ResolvedUpscaler::Spatial, c.Fallback));
+        EXPECT_EQ(block["requested"]["technique"], "temporal");
+        EXPECT_EQ(block["resolved"], "spatial") << c.Token;
+        EXPECT_EQ(block["fallback"], c.Token);
+        ASSERT_TRUE(block.contains("reason")) << c.Token;
+        EXPECT_NE(block["reason"].get<std::string>().find(c.MustMention), std::string::npos)
+            << c.Token << ": " << block["reason"].get<std::string>();
+    }
+}
+
+TEST(McpRendererSettingsUpscaler, AStaleLatchIsPendingNotAnAnswer)
+{
+    PostProcessSettings pp;
+    pp.Upscale = UpscaleMode::Quality;
+    pp.Technique = UpscalerTechnique::Spatial;
+    // The last prepared frame resolved the OLD request (spatial)...
+    const RS::UpscaleReadback latched = LatchedFor(pp, Policy::ResolvedUpscaler::Spatial);
+    // ...and the write has just asked for temporal.
+    pp.Technique = UpscalerTechnique::Temporal;
+
+    const Json block = RS::UpscalerJson(pp, latched);
+    EXPECT_TRUE(block["resolved"].is_null());
+    EXPECT_EQ(block["pending"], true);
+    EXPECT_TRUE(block.contains("note"));
+
+    RS::UpscaleReadback never;
+    const Json first = RS::UpscalerJson(pp, never);
+    EXPECT_TRUE(first["resolved"].is_null());
+    EXPECT_EQ(first["pending"], true);
+}
+
+TEST(McpRendererSettingsUpscaler, IntrospectionCarriesTheBlockOnlyWhenGiven)
+{
+    PostProcessSettings pp;
+    RendererSettings rs;
+    RS::LeverState lever;
+    EXPECT_FALSE(RS::Describe(pp, rs, lever).contains("upscaler"));
+
+    const RS::UpscaleReadback readback = LatchedFor(pp, Policy::ResolvedUpscaler::Native);
+    const Json described = RS::Describe(pp, rs, lever, &readback);
+    ASSERT_TRUE(described.contains("upscaler"));
+    EXPECT_EQ(described["upscaler"]["resolved"], "native");
+
+    bool sawTechnique = false;
+    for (const auto& entry : described["settings"])
+    {
+        if (entry["setting"] == "technique")
+        {
+            sawTechnique = true;
+            EXPECT_EQ(entry["currentValue"], "spatial");
+            EXPECT_EQ(entry["values"].size(), 2u);
+        }
+    }
+    EXPECT_TRUE(sawTechnique);
+}

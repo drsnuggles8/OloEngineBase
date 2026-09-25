@@ -57,6 +57,8 @@
 #include "OloEngine/Renderer/TerrainVTBindings.h"
 #include "OloEngine/Renderer/Texture2DArray.h"
 #include "OloEngine/Renderer/Texture3D.h"
+#include "OloEngine/Renderer/Upscaling/TemporalUpscalePolicy.h"
+#include "OloEngine/Renderer/Upscaling/TemporalUpscaler.h"
 
 #include <algorithm>
 #include <array>
@@ -956,6 +958,27 @@ namespace OloEngine
         [[nodiscard]] static bool IsTemporalUpscaleActive() noexcept
         {
             return s_Data.TemporalUpscaleActive;
+        }
+        // What reconstructed the LAST PREPARED frame and, when a temporal request
+        // fell back, why. Latched beside TemporalUpscaleActive from the same
+        // inputs, so a caller reporting "resolved" reads the pipeline's answer
+        // rather than re-deriving it. Stale until a frame has been prepared
+        // since the setting changed.
+        struct UpscaleResolutionState
+        {
+            TemporalUpscalePolicy::Resolution Result;
+            TemporalUpscalerStatus UpscalerStatus = TemporalUpscalerStatus::NotConfigured;
+            u32 SceneSampleCount = 1u;
+            // The request this was resolved FROM. A reader compares these with
+            // the live settings: a mismatch means no frame has been prepared
+            // since the change, so Result answers an older question.
+            UpscaleMode Mode = UpscaleMode::Off;
+            UpscalerTechnique Technique = UpscalerTechnique::Spatial;
+            bool Latched = false; // false until the first PrepareFrame
+        };
+        [[nodiscard]] static const UpscaleResolutionState& GetUpscaleResolution() noexcept
+        {
+            return s_Data.UpscaleResolution;
         }
         // Cleared at BeginScene, so an empty list means "no light asked this
         // frame", never "the last frame's list is still here".
@@ -2805,6 +2828,7 @@ namespace OloEngine
             // pixels. FSR2 subtracts exactly this value, so it is passed to the
             // pass rather than recomputed there.
             bool TemporalUpscaleActive = false;
+            UpscaleResolutionState UpscaleResolution;
             u32 TemporalUpscalePhaseIndex = 0;
             glm::vec2 TemporalUpscaleJitterPixels = glm::vec2(0.0f);
 

@@ -77,6 +77,54 @@ namespace OloEngine::TemporalUpscalePolicy
         return in.Mode != UpscaleMode::Off && !ShouldRunTemporalUpscale(in);
     }
 
+    // Which algorithm actually reconstructs display resolution this frame.
+    enum class ResolvedUpscaler : u8
+    {
+        Native,
+        Spatial,
+        Temporal
+    };
+
+    // Why a Temporal REQUEST resolved to Spatial. None whenever Temporal was not
+    // requested or did run. Ordered like RendererSupport::Evaluate's checks, so
+    // the reason reported is the one that actually decided.
+    enum class TemporalFallback : u8
+    {
+        None,
+        MSAAResolved,        // the scene band has > 1 sample
+        BackendNotOpenGL,    // FSR2 has a GL backend only
+        UpscalerUnavailable, // GL, but the build/device cannot run it (see TemporalUpscalerStatus)
+        SceneNotSized,       // sample count 0: the scene pass has no framebuffer spec yet
+    };
+
+    struct Resolution
+    {
+        ResolvedUpscaler Resolved = ResolvedUpscaler::Native;
+        TemporalFallback Fallback = TemporalFallback::None;
+    };
+
+    // The REQUEST and the RESULT are different facts, and a caller told only the
+    // request verifies frames the other algorithm drew (the fallback keeps the
+    // render scale, so nothing on screen says it happened). This classifies the
+    // result from the same inputs ShouldRunTemporalUpscale reads, and delegates the
+    // decision to it, so the two cannot disagree.
+    [[nodiscard]] constexpr Resolution Resolve(const ActivationInputs& in) noexcept
+    {
+        if (in.Mode == UpscaleMode::Off)
+            return { ResolvedUpscaler::Native, TemporalFallback::None };
+        if (ShouldRunTemporalUpscale(in))
+            return { ResolvedUpscaler::Temporal, TemporalFallback::None };
+        if (in.Technique != UpscalerTechnique::Temporal)
+            return { ResolvedUpscaler::Spatial, TemporalFallback::None };
+        if (IsMSAAResolved(in.SceneSampleCount))
+            return { ResolvedUpscaler::Spatial, TemporalFallback::MSAAResolved };
+        if (in.Api != RendererSupport::Backend::OpenGL)
+            return { ResolvedUpscaler::Spatial, TemporalFallback::BackendNotOpenGL };
+        if (!in.BackendAvailable)
+            return { ResolvedUpscaler::Spatial, TemporalFallback::UpscalerUnavailable };
+        return { ResolvedUpscaler::Spatial, TemporalFallback::SceneNotSized };
+    }
+
     // ---- What FSR2 SUPPRESSES, and why these are functions rather than two
     // ---- expressions written twice.
     //

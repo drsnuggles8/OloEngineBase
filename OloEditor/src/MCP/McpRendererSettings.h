@@ -48,6 +48,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/RenderingPath.h"
+#include "OloEngine/Renderer/Upscaling/TemporalUpscalePolicy.h"
 
 #include <nlohmann/json.hpp>
 
@@ -71,6 +72,7 @@ namespace OloEngine::MCP::RendererSettings
     enum class Setting
     {
         Upscale,                 // PostProcessSettings::Upscale  (FSR1 spatial-upscale quality preset)
+        UpscaleTechnique,        // PostProcessSettings::Technique (FSR1 spatial vs FSR2 temporal, #684)
         Tonemap,                 // PostProcessSettings::Tonemap  (tone-map operator)
         RenderPath,              // RendererSettings::Path        (forward / forward+ / deferred)
         MSAA,                    // RendererSettings::Deferred.MSAASampleCount
@@ -224,6 +226,13 @@ namespace OloEngine::MCP::RendererSettings
         { "ultraperformance", static_cast<i32>(UpscaleMode::UltraPerformance), "FSR1 Ultra Performance (0.333x linear render scale)" },
     } };
 
+    inline constexpr std::array<EnumValue, 2> kUpscaleTechniqueValues = { {
+        { "spatial", static_cast<i32>(UpscalerTechnique::Spatial), "FSR1 EASU + RCAS: single-frame spatial upscale (every backend)" },
+        { "temporal", static_cast<i32>(UpscalerTechnique::Temporal),
+          "FSR2 temporal upscale: reconstructs from jittered history. OpenGL only and single-sample only; anywhere "
+          "else the frame falls back to spatial at the same render scale, and the reply's upscaler block says so" },
+    } };
+
     inline constexpr std::array<EnumValue, 4> kTonemapValues = { {
         { "none", static_cast<i32>(TonemapOperator::None), "No tone mapping (raw HDR clamp)" },
         { "reinhard", static_cast<i32>(TonemapOperator::Reinhard), "Reinhard" },
@@ -353,10 +362,16 @@ namespace OloEngine::MCP::RendererSettings
         std::string_view Description;
     };
 
-    inline constexpr std::array<SettingInfo, 17> kSettings = { {
+    inline constexpr std::array<SettingInfo, 18> kSettings = { {
         { "upscale", Setting::Upscale,
           "FSR1 spatial-upscale quality preset (PostProcess.Upscale). Off is native resolution; the other presets render "
           "below display resolution and EASU-upscale the HDR scene colour back to display res (#480)." },
+        { "technique", Setting::UpscaleTechnique,
+          "Which algorithm reconstructs display resolution from the 'upscale' render scale (PostProcess.Technique, "
+          "#684): 'spatial' = FSR1, 'temporal' = FSR2. Ignored while upscale is off. FSR2 runs on OpenGL with a "
+          "single-sample scene band only; elsewhere the frame falls back to FSR1 at the same render scale, which "
+          "nothing on screen announces. So 'value' is the REQUEST and the reply's 'upscaler' block is the RESULT: "
+          "read upscaler.resolved, and upscaler.reason when it differs." },
         { "tonemap", Setting::Tonemap, "Tone-mapping operator applied to the HDR scene colour (PostProcess.Tonemap)." },
         { "renderpath", Setting::RenderPath,
           "High-level rendering path (RendererSettings.Path). Switching rebuilds the render-graph topology; Deferred is "
@@ -451,6 +466,8 @@ namespace OloEngine::MCP::RendererSettings
         {
             case Setting::Upscale:
                 return kUpscaleValues;
+            case Setting::UpscaleTechnique:
+                return kUpscaleTechniqueValues;
             case Setting::Tonemap:
                 return kTonemapValues;
             case Setting::RenderPath:
@@ -676,6 +693,8 @@ namespace OloEngine::MCP::RendererSettings
         {
             case Setting::Upscale:
                 return static_cast<i32>(pp.Upscale);
+            case Setting::UpscaleTechnique:
+                return static_cast<i32>(pp.Technique);
             case Setting::Tonemap:
                 return static_cast<i32>(pp.Tonemap);
             case Setting::RenderPath:
@@ -751,6 +770,11 @@ namespace OloEngine::MCP::RendererSettings
         {
             case Setting::Upscale:
                 pp.Upscale = static_cast<UpscaleMode>(value);
+                break;
+            case Setting::UpscaleTechnique:
+                // No graph rebuild: the pipeline re-decides TemporalUpscaleActive
+                // every frame and the graph fingerprint carries it.
+                pp.Technique = static_cast<UpscalerTechnique>(value);
                 break;
             case Setting::Tonemap:
                 pp.Tonemap = static_cast<TonemapOperator>(value);
@@ -832,10 +856,118 @@ namespace OloEngine::MCP::RendererSettings
         return result;
     }
 
+    // ---- upscaler resolution readback --------------------------------------
+    //
+    // The pipeline's answer to "what reconstructed the frame", as the handler
+    // copies it out of Renderer3D::GetUpscaleResolution(). A POD mirror so this
+    // header stays renderer-free; the handler fills it on the main thread.
+    struct UpscaleReadback
+    {
+        bool Latched = false; // a frame has been prepared at all
+        TemporalUpscalePolicy::Resolution Result;
+        UpscaleMode Mode = UpscaleMode::Off;                      // the request Result answers
+        UpscalerTechnique Technique = UpscalerTechnique::Spatial; // the request Result answers
+        u32 SceneSampleCount = 1u;
+        std::string UpscalerStatus; // ToString(TemporalUpscalerStatus)
+    };
+
+    [[nodiscard]] inline std::string_view ResolvedToken(TemporalUpscalePolicy::ResolvedUpscaler resolved)
+    {
+        switch (resolved)
+        {
+            case TemporalUpscalePolicy::ResolvedUpscaler::Native:
+                return "native";
+            case TemporalUpscalePolicy::ResolvedUpscaler::Spatial:
+                return "spatial";
+            case TemporalUpscalePolicy::ResolvedUpscaler::Temporal:
+                return "temporal";
+        }
+        return "unknown";
+    }
+
+    [[nodiscard]] inline std::string_view FallbackToken(TemporalUpscalePolicy::TemporalFallback fallback)
+    {
+        switch (fallback)
+        {
+            case TemporalUpscalePolicy::TemporalFallback::None:
+                return "none";
+            case TemporalUpscalePolicy::TemporalFallback::MSAAResolved:
+                return "msaaResolved";
+            case TemporalUpscalePolicy::TemporalFallback::BackendNotOpenGL:
+                return "backendNotOpenGL";
+            case TemporalUpscalePolicy::TemporalFallback::UpscalerUnavailable:
+                return "upscalerUnavailable";
+            case TemporalUpscalePolicy::TemporalFallback::SceneNotSized:
+                return "sceneNotSized";
+        }
+        return "unknown";
+    }
+
+    // The 'upscaler' block. `requested` is the live setting pair; `resolved` is
+    // what the last prepared frame ran. When the latch answers an OLDER request
+    // (no frame has been prepared since the write), `resolved` is null and
+    // `pending` is true: reporting the old answer as the new one is exactly the
+    // "changed but not applied" lie this block exists to prevent.
+    [[nodiscard]] inline Json UpscalerJson(const PostProcessSettings& pp, const UpscaleReadback& readback)
+    {
+        Json block{
+            { "requested", Json{ { "upscale", ValueToken(Setting::Upscale, static_cast<i32>(pp.Upscale)) },
+                                 { "technique", ValueToken(Setting::UpscaleTechnique, static_cast<i32>(pp.Technique)) } } },
+        };
+        if (const bool current = readback.Latched && readback.Mode == pp.Upscale && readback.Technique == pp.Technique;
+            !current)
+        {
+            block["resolved"] = nullptr;
+            block["pending"] = true;
+            block["note"] = readback.Latched
+                                ? "No frame has been prepared since this request, so there is no result for it yet. "
+                                  "Re-read once the editor has rendered (olo_perf_snapshot's liveness block says "
+                                  "whether it is)."
+                                : "No frame has been prepared yet this session.";
+            return block;
+        }
+
+        block["resolved"] = std::string(ResolvedToken(readback.Result.Resolved));
+        block["pending"] = false;
+        block["sceneSampleCount"] = readback.SceneSampleCount;
+        block["temporalUpscalerStatus"] = readback.UpscalerStatus;
+        if (readback.Result.Fallback == TemporalUpscalePolicy::TemporalFallback::None)
+            return block;
+
+        block["fallback"] = std::string(FallbackToken(readback.Result.Fallback));
+        switch (readback.Result.Fallback)
+        {
+            case TemporalUpscalePolicy::TemporalFallback::MSAAResolved:
+                block["reason"] = "The scene band is MSAA-resolved (" + std::to_string(readback.SceneSampleCount) +
+                                  " samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has "
+                                  "already averaged, so it is refused under MSAA; set msaa to 1 to run it.";
+                break;
+            case TemporalUpscalePolicy::TemporalFallback::BackendNotOpenGL:
+                block["reason"] = "FSR2 has an OpenGL backend only and this editor runs another RHI backend, so the "
+                                  "frame is FSR1 spatial at the same render scale.";
+                break;
+            case TemporalUpscalePolicy::TemporalFallback::UpscalerUnavailable:
+                block["reason"] = "The temporal upscaler is " + readback.UpscalerStatus +
+                                  ", so the frame is FSR1 spatial at the same render scale.";
+                break;
+            case TemporalUpscalePolicy::TemporalFallback::SceneNotSized:
+                block["reason"] = "The scene pass has no framebuffer yet (sample count 0), so FSR2 could not be "
+                                  "configured this frame.";
+                break;
+            case TemporalUpscalePolicy::TemporalFallback::None:
+                break;
+        }
+        return block;
+    }
+
     // Introspection payload: every setting with its live current value and the full
     // allowed-value catalogue. The handler reads the live Renderer3D settings and
     // hands them here.
-    [[nodiscard]] inline Json Describe(const PostProcessSettings& pp, const ::OloEngine::RendererSettings& rs, const LeverState& lever)
+    // `upscaler`, when given, adds the resolved-technique block (UpscalerJson):
+    // the setting list says what was REQUESTED, and only the pipeline's latch
+    // says what ran.
+    [[nodiscard]] inline Json Describe(const PostProcessSettings& pp, const ::OloEngine::RendererSettings& rs, const LeverState& lever,
+                                       const UpscaleReadback* upscaler = nullptr)
     {
         Json arr = Json::array();
         for (const auto& info : kSettings)
@@ -853,6 +985,9 @@ namespace OloEngine::MCP::RendererSettings
                 { "values", std::move(values) },
             });
         }
-        return Json{ { "settings", std::move(arr) } };
+        Json result{ { "settings", std::move(arr) } };
+        if (upscaler != nullptr)
+            result["upscaler"] = UpscalerJson(pp, *upscaler);
+        return result;
     }
 } // namespace OloEngine::MCP::RendererSettings

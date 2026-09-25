@@ -639,6 +639,16 @@ namespace OloEngine
                              ? RendererSupport::Backend::Vulkan
                              : RendererSupport::Backend::OpenGL;
         data.TemporalUpscaleActive = TemporalUpscalePolicy::ShouldRunTemporalUpscale(activation);
+        // The same decision, classified for whoever has to REPORT it (the MCP
+        // renderer-settings readback): requested and resolved are different
+        // facts, and the reason is latched here rather than re-derived there.
+        data.UpscaleResolution.Result = TemporalUpscalePolicy::Resolve(activation);
+        data.UpscaleResolution.UpscalerStatus = PostProcessPasses.FSR2 ? PostProcessPasses.FSR2->GetUpscalerStatus()
+                                                                       : TemporalUpscalerStatus::NotConfigured;
+        data.UpscaleResolution.SceneSampleCount = activation.SceneSampleCount;
+        data.UpscaleResolution.Mode = activation.Mode;
+        data.UpscaleResolution.Technique = activation.Technique;
+        data.UpscaleResolution.Latched = true;
 
         // Say WHY when the user asked for FSR2 and did not get it. Silence here is
         // the worst outcome: the frame still renders, at the render scale they
@@ -651,9 +661,7 @@ namespace OloEngine
             temporalRequested && !data.TemporalUpscaleActive)
         {
             const bool msaaSceneBand = TemporalUpscalePolicy::IsMSAAResolved(activation.SceneSampleCount);
-            const TemporalUpscalerStatus status =
-                PostProcessPasses.FSR2 ? PostProcessPasses.FSR2->GetUpscalerStatus()
-                                       : TemporalUpscalerStatus::NotConfigured;
+            const TemporalUpscalerStatus status = data.UpscaleResolution.UpscalerStatus;
 
             // -1 == "nothing reported yet"; the MSAA case is folded in as a
             // distinct code because it is not a backend status at all.

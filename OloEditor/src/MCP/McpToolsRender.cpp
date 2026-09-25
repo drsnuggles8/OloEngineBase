@@ -3004,12 +3004,29 @@ namespace OloEngine::MCP
                 return lever;
             };
 
+            // The pipeline's latched answer to "what reconstructed the frame" (#607).
+            // Main-thread only, like snapshotLever.
+            const auto snapshotUpscaler = []() -> UpscaleReadback
+            {
+                const auto& latched = Renderer3D::GetUpscaleResolution();
+                UpscaleReadback readback;
+                readback.Latched = latched.Latched;
+                readback.Result = latched.Result;
+                readback.Mode = latched.Mode;
+                readback.Technique = latched.Technique;
+                readback.SceneSampleCount = latched.SceneSampleCount;
+                readback.UpscalerStatus = std::string(ToString(latched.UpscalerStatus));
+                return readback;
+            };
+
             // Introspection: no `setting` -> list every setting with its live current
             // value and the allowed-value catalogue.
             if (introspect)
             {
-                const Json result = host.MarshalRead([&snapshotLever]() -> Json
-                                                     { return Describe(Renderer3D::GetPostProcessSettings(), Renderer3D::GetRendererSettings(), snapshotLever()); });
+                const Json result = host.MarshalRead([&snapshotLever, &snapshotUpscaler]() -> Json
+                                                     {
+                    const UpscaleReadback upscaler = snapshotUpscaler();
+                    return Describe(Renderer3D::GetPostProcessSettings(), Renderer3D::GetRendererSettings(), snapshotLever(), &upscaler); });
                 return ToolResult::Structured(result);
             }
 
@@ -3171,6 +3188,18 @@ namespace OloEngine::MCP
                                                        { return Json{ { "frame", host.Context().GetFrameIndex() } }; })
                                           .value("frame", static_cast<u64>(0));
                 AwaitRenderedFrames(host, baseFrame, kSettingsSettleFrames);
+            }
+
+            // The upscaler's RESULT, read after the settle so it answers this
+            // write rather than the frame before it. Attached to every setting
+            // that feeds the FSR2 decision: the technique itself, the render
+            // scale, and MSAA (which refuses FSR2 without touching the technique).
+            if (setting == Setting::UpscaleTechnique || setting == Setting::Upscale || setting == Setting::MSAA)
+            {
+                Json withUpscaler = result;
+                withUpscaler["upscaler"] = host.MarshalRead([&snapshotUpscaler]() -> Json
+                                                            { return UpscalerJson(Renderer3D::GetPostProcessSettings(), snapshotUpscaler()); });
+                return ToolResult::Structured(withUpscaler);
             }
 
             return ToolResult::Structured(result);
@@ -8724,7 +8753,10 @@ namespace OloEngine::MCP
             tool.Description =
                 "Set a multi-valued renderer / post-process setting to verify a rendering feature LIVE at each value — "
                 "the enum-valued sibling of the on/off olo_render_toggle_pass. Settings: 'upscale' (FSR1 spatial-upscale "
-                "mode: off|quality|balanced|performance|ultraperformance — the #480 case), 'tonemap' (none|reinhard|aces|"
+                "mode: off|quality|balanced|performance|ultraperformance — the #480 case), 'technique' (spatial|temporal "
+                "— FSR1 vs FSR2 at that render scale; FSR2 runs on OpenGL with MSAA off only, and anywhere else falls "
+                "back to FSR1, so the reply's 'upscaler' block reports the RESOLVED technique and the fallback reason "
+                "beside the request — trust upscaler.resolved, not 'value'), 'tonemap' (none|reinhard|aces|"
                 "uncharted2), 'renderpath' (forward|forwardplus|deferred; switching rebuilds the render graph, and "
                 "Deferred is required for SSR/SSGI), plus the two big perf levers (#316): 'depthprepass' (off|on|auto — "
                 "forces the live depth-prepass state; 'auto' restores the settings-derived value; Forward+/Deferred "
@@ -8771,7 +8803,17 @@ namespace OloEngine::MCP
                                     .Prop("rayTracedLights", Schema::Int().Desc("Apply shape, 'raytracedshadows' on: lights routed to ray-traced visibility. From the PREVIOUS frame — see 'note'."))
                                     .Prop("fallbackLights", Schema::Int().Desc("Apply shape, 'raytracedshadows' on: lights that asked for it and kept their shadow map. From the PREVIOUS frame."))
                                     .Prop("fallbackReason", Schema::String().Desc("Apply shape, 'raytracedshadows' on and fallbackLights > 0: the dominant reason, as a sentence."))
-                                    .Prop("note", Schema::String().Desc("Apply shape: a caveat about the values just reported — that the ray-traced counters are one frame stale, or that virtual shadow maps refused to initialise and the effective state is being reported."));
+                                    .Prop("note", Schema::String().Desc("Apply shape: a caveat about the values just reported — that the ray-traced counters are one frame stale, or that virtual shadow maps refused to initialise and the effective state is being reported."))
+                                    .Prop("upscaler", Schema::Object()
+                                                          .Prop("requested", Schema::Object().Desc("The live request: { upscale, technique } tokens."))
+                                                          .Prop("resolved", Schema::String().Desc("What the last prepared frame RAN: 'native' | 'spatial' | 'temporal'. null while pending."))
+                                                          .Prop("pending", Schema::Bool().Desc("True when no frame has been prepared since the request, so there is no result for it yet."))
+                                                          .Prop("fallback", Schema::String().Desc("Present when technique 'temporal' resolved to 'spatial': msaaResolved | backendNotOpenGL | upscalerUnavailable | sceneNotSized."))
+                                                          .Prop("reason", Schema::String().Desc("The fallback as a sentence."))
+                                                          .Prop("sceneSampleCount", Schema::Int().Min(0))
+                                                          .Prop("temporalUpscalerStatus", Schema::String().Desc("The FSR2 backend's own status."))
+                                                          .Prop("note", Schema::String())
+                                                          .Desc("Introspection, and the apply shape of 'upscale' / 'technique' / 'msaa': the REQUESTED upscaler versus the one the pipeline RESOLVED. FSR2 falls back to FSR1 off OpenGL and under MSAA at the same render scale, which nothing on screen shows — so read 'resolved', not 'value'."));
             tool.MainMarshaled = true;
             tool.Handler = Handle_RendererSettingsSet;
             registry.Register(std::move(tool));

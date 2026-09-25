@@ -155,6 +155,85 @@ TEST(FSR2PolicyTest, ExactlyOneUpscalerOwnsAnyGivenFrame)
 }
 
 // -----------------------------------------------------------------------------
+// Resolve. What the MCP renderer-settings readback reports as the RESULT of a
+// technique request (#607). It must never disagree with the decision the
+// pipeline acts on, and when a temporal request falls back it must name the
+// check that actually refused it, in RendererSupport::Evaluate's order.
+// -----------------------------------------------------------------------------
+
+TEST(FSR2PolicyTest, ResolveAgreesWithTheActivationDecisionEverywhere)
+{
+    for (const auto mode : { UpscaleMode::Off, UpscaleMode::Quality, UpscaleMode::UltraPerformance })
+    {
+        for (const auto technique : { UpscalerTechnique::Spatial, UpscalerTechnique::Temporal })
+        {
+            for (const bool available : { false, true })
+            {
+                for (const u32 samples : { 0u, 1u, 4u })
+                {
+                    for (const auto api : { RendererSupport::Backend::OpenGL, RendererSupport::Backend::Vulkan })
+                    {
+                        ActivationInputs in;
+                        in.Mode = mode;
+                        in.Technique = technique;
+                        in.BackendAvailable = available;
+                        in.SceneSampleCount = samples;
+                        in.Api = api;
+
+                        const Resolution resolved = Resolve(in);
+                        EXPECT_EQ(resolved.Resolved == ResolvedUpscaler::Temporal, ShouldRunTemporalUpscale(in));
+                        EXPECT_EQ(resolved.Resolved == ResolvedUpscaler::Spatial, ShouldRunSpatialUpscale(in));
+                        // A reason exists exactly when temporal was asked for and did not run.
+                        const bool fellBack = mode != UpscaleMode::Off && technique == UpscalerTechnique::Temporal &&
+                                              !ShouldRunTemporalUpscale(in);
+                        EXPECT_EQ(resolved.Fallback != TemporalFallback::None, fellBack)
+                            << "mode " << static_cast<i32>(mode) << " available " << available << " samples "
+                            << samples << " api " << static_cast<i32>(api);
+                    }
+                }
+            }
+        }
+    }
+}
+
+TEST(FSR2PolicyTest, ResolveNamesTheCheckThatRefusedTemporal)
+{
+    EXPECT_EQ(Resolve(MakeActive()).Resolved, ResolvedUpscaler::Temporal);
+
+    // MSAA outranks the backend: Evaluate checks the sample count first, so a
+    // Vulkan editor with MSAA on is refused for MSAA.
+    {
+        auto in = MakeActive();
+        in.SceneSampleCount = 4u;
+        in.Api = RendererSupport::Backend::Vulkan;
+        EXPECT_EQ(Resolve(in).Fallback, TemporalFallback::MSAAResolved);
+    }
+    {
+        auto in = MakeActive();
+        in.Api = RendererSupport::Backend::Vulkan;
+        EXPECT_EQ(Resolve(in).Fallback, TemporalFallback::BackendNotOpenGL);
+    }
+    {
+        auto in = MakeActive();
+        in.BackendAvailable = false;
+        EXPECT_EQ(Resolve(in).Fallback, TemporalFallback::UpscalerUnavailable);
+    }
+    {
+        auto in = MakeActive();
+        in.SceneSampleCount = 0u;
+        EXPECT_EQ(Resolve(in).Fallback, TemporalFallback::SceneNotSized);
+    }
+    // Upscale off is native with no reason, even with temporal requested.
+    {
+        auto in = MakeActive();
+        in.Mode = UpscaleMode::Off;
+        const Resolution resolved = Resolve(in);
+        EXPECT_EQ(resolved.Resolved, ResolvedUpscaler::Native);
+        EXPECT_EQ(resolved.Fallback, TemporalFallback::None);
+    }
+}
+
+// -----------------------------------------------------------------------------
 // Suppression. These two predicates exist because a pass's ENABLE gate and its
 // output resource's DECLARATION gate live in different functions and must agree.
 // When they disagreed — the late sharpen pass disabled while UpscalerColor stayed
