@@ -558,9 +558,9 @@ vec3 oloGroomShadeFibre()
 
 	// THE ENVIRONMENT, through the SAME material parameters and the same
 	// attenuations the loop above used — criterion 4's consistency as an
-	// identity rather than a promise. The irradiance map is a cosine-lobe blur
-	// of the environment, so dividing by pi recovers an average radiance, which
-	// is what the uniform-environment approximation wants.
+	// identity rather than a promise. The irradiance cube stores E/pi, which is
+	// already the average radiance the uniform-environment approximation wants;
+	// see oloGroomFibreEnvironmentRadiance for why there is no 1/pi (#1450).
 	//
 	// Sampled along the fibre's EYE-FACING NORMAL, the direction in the plane
 	// perpendicular to the strand that points at the viewer. With no
@@ -571,7 +571,7 @@ vec3 oloGroomShadeFibre()
 	if (length(perpV) > 1e-6)
 	{
 		vec3 envDir = normalize(perpV);
-		vec3 averageRadiance = texture(u_IrradianceMap, envDir).rgb * (1.0 / OLO_GROOM_FIBRE_PI);
+		vec3 averageRadiance = oloGroomFibreEnvironmentRadiance(u_IrradianceMap, envDir);
 
 		// The environment is occluded by the coat too, and along the SAME
 		// direction it is sampled from — so this is the one extra march that is

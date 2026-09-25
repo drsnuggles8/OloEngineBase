@@ -615,6 +615,10 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/GroomStrandGpuParityTest.cpp
 		Rendering/PropertyTests/GroomCoatTransmittanceParityTest.cpp
 		Rendering/PropertyTests/GroomFibreGpuParityTest.cpp
+		# #1450: the coat's environment term against a Lambertian surface under a
+		# uniform sky, through every production irradiance-cube producer.
+		Rendering/PropertyTests/GroomEnvironmentFurnaceTest.cpp
+		Rendering/PropertyTests/GroomEnvironmentFurnaceEvidenceTest.cpp
 		# #1255: the shipped shaders' linear AOVs against the independent
 		# material references, and the keeper for the leaf lobe's C++
 		# transcription.

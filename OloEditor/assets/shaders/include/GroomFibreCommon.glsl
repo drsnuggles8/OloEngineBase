@@ -405,8 +405,8 @@ OloGroomFibreLobes oloGroomFibreEvaluateDirections(OloGroomFibre fibre, vec3 tan
 }
 
 // THE ENVIRONMENT TERM, per lobe: the fibre's response to a unit uniform
-// environment. The caller multiplies by the environment's average radiance
-// (an irradiance sample over pi).
+// environment. The caller multiplies by the environment's average radiance,
+// which oloGroomFibreEnvironmentRadiance below reads off the irradiance cube.
 //
 // It is each path's mean attenuation over the fibre's width — that path's
 // albedo — times cos(theta_o), and it costs only the attenuations, which the
@@ -463,6 +463,23 @@ OloGroomFibreLobes oloGroomFibreAmbientResponse(OloGroomFibre fibre, float sinTh
 	lobes.TRT = totalTRT * weight;
 	lobes.Residual = totalResidual * weight;
 	return lobes;
+}
+
+// THE AVERAGE RADIANCE oloGroomFibreAmbientResponse is multiplied by, read off
+// the scene's IBL irradiance cube along `direction`. Issue #1450.
+//
+// THE SAMPLE IS THE ANSWER, WITH NO 1/PI. The cube stores NORMALIZED irradiance
+// E/pi, whichever producer baked it (IrradianceConvolution.glsl's
+// pi * mean(L cos sin), or IrradianceFromSH.glsl's A0 = 1), so a uniform sky of
+// radiance L reads back as exactly L. That is the quantity the ambient response
+// wants. Dividing by pi here made every coat pi times too dark against a
+// Lambertian surface lit by the same cube, because the old comment took the
+// cube for full irradiance E. docs/agent-rules/lighting-signal-contract.md
+// lists what each signal stores; GroomEnvironmentFurnaceTest pins this against
+// both producers.
+vec3 oloGroomFibreEnvironmentRadiance(samplerCube irradianceMap, vec3 direction)
+{
+	return texture(irradianceMap, direction).rgb;
 }
 
 // The fibre's projected width as seen from `wi`: a strand lit end-on
