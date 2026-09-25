@@ -1937,7 +1937,7 @@ the tool trustworthy at all. A missed entry carries **no** hit fields: a miss re
 | `answered` | the trace ran; `hitCount: 0` here means everything genuinely missed |
 
 **Vulkan only.** `GL_EXT_ray_query` has no OpenGL representation, so on a GL context this returns
-`unavailable` with that as the reason rather than a page of zeros. Relaunch the editor with `--rhi=vulkan` (note: `driver.ps1 -Action attach` has no passthrough for it, so an `attach` session is an OpenGL one).
+`unavailable` with that as the reason rather than a page of zeros. Relaunch the editor with `--rhi=vulkan` (`driver.ps1 -Action attach -Rhi vulkan`; confirm `[RHI] Backend: Vulkan (source: --rhi flag)` in `OloEngine.log`, because a plain `attach` session is an OpenGL one).
 
 **Why it settles a few frames.** The dispatch has to be recorded *inside* a frame, after
 `RayTracingScenePass` has built the structures and emitted its build→read barrier; an MCP handler
