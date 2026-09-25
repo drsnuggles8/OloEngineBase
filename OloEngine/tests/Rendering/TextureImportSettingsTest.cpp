@@ -119,6 +119,10 @@ TEST(TextureImportSettings, OnlyASidecarThatUsesAlphaMipChainIsVersionTwo)
     EXPECT_TRUE(TextureImport::Parse(v1, parsed));
     EXPECT_TRUE(TextureImport::Parse(v2, parsed));
     EXPECT_FALSE(TextureImport::Parse("TextureImportSettings:\n  Version: 3\n", parsed));
+    // The field in a file that does not say version 2 (or says nothing, which a
+    // version-1 cook reads as 1) is refused, not read.
+    EXPECT_FALSE(TextureImport::Parse("TextureImportSettings:\n  Version: 1\n  AlphaMipChain: Box\n", parsed));
+    EXPECT_FALSE(TextureImport::Parse("TextureImportSettings:\n  AlphaMipChain: Box\n", parsed));
 }
 
 TEST(TextureImportSettings, OmittedFieldsMeanAuto)
@@ -306,7 +310,7 @@ TEST(TextureImportSettings, AlphaMipChainOverridesTheMeasuredCutoutGate)
     ASSERT_TRUE(TextureCompression::CompressImageFile(cutout.string(), options, measured));
     EXPECT_EQ(measured.MipLevels(), kCoverageChain) << "a binary cutout is measured as one";
 
-    WriteSidecar(cutout, "TextureImportSettings:\n  Version: 1\n  AlphaMipChain: Box\n");
+    WriteSidecar(cutout, "TextureImportSettings:\n  Version: 2\n  AlphaMipChain: Box\n");
     CompressedTextureImage forcedBox;
     ASSERT_TRUE(TextureCompression::CompressImageFile(cutout.string(), options, forcedBox));
     EXPECT_EQ(forcedBox.MipLevels(), kFullChain) << "Box keeps the averaged full chain";
@@ -318,7 +322,7 @@ TEST(TextureImportSettings, AlphaMipChainOverridesTheMeasuredCutoutGate)
     ASSERT_TRUE(notACutout.HasAlpha);
     EXPECT_EQ(notACutout.MipLevels(), kFullChain) << "a ramp is data, not a cutout";
 
-    WriteSidecar(ramp, "TextureImportSettings:\n  Version: 1\n  AlphaMipChain: Coverage\n");
+    WriteSidecar(ramp, "TextureImportSettings:\n  Version: 2\n  AlphaMipChain: Coverage\n");
     CompressedTextureImage forcedCoverage;
     ASSERT_TRUE(TextureCompression::CompressImageFile(ramp.string(), options, forcedCoverage));
     EXPECT_EQ(forcedCoverage.MipLevels(), kCoverageChain) << "Coverage forces the cutout chain";

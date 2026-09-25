@@ -128,10 +128,14 @@ namespace OloEngine
                 // An unknown version is a hard error rather than a best-effort read: a
                 // future field the cook silently ignores is exactly how a texture ships
                 // in the wrong format without anyone noticing.
-                if (const YAML::Node version = node["Version"]; version && (version.as<u32>(0u) < kOldestSidecarVersion || version.as<u32>(0u) > kSidecarVersion))
+                // A missing Version reads as 1, which is what a version-1 cook
+                // assumes of the same file.
+                const YAML::Node version = node["Version"];
+                const u32 declaredVersion = version ? version.as<u32>(0u) : kOldestSidecarVersion;
+                if (declaredVersion < kOldestSidecarVersion || declaredVersion > kSidecarVersion)
                 {
-                    OLO_CORE_ERROR("TextureImport::Parse - unsupported sidecar version {} (expected {})",
-                                   version.as<u32>(0u), kSidecarVersion);
+                    OLO_CORE_ERROR("TextureImport::Parse - unsupported sidecar version {} (expected {} to {})",
+                                   declaredVersion, kOldestSidecarVersion, kSidecarVersion);
                     return false;
                 }
 
@@ -153,6 +157,14 @@ namespace OloEngine
                 }
                 if (const YAML::Node alphaMipChain = node["AlphaMipChain"]; alphaMipChain)
                 {
+                    // A version-1 file carrying the field is the case the version
+                    // exists for: a version-1 cook would read it and drop the field.
+                    if (declaredVersion < 2u)
+                    {
+                        OLO_CORE_ERROR("TextureImport::Parse - AlphaMipChain needs 'Version: 2' (the sidecar says {})",
+                                       declaredVersion);
+                        return false;
+                    }
                     if (!LookupName(kAlphaMipChainNames, alphaMipChain.as<std::string>(std::string{}), out.AlphaMipChain))
                     {
                         OLO_CORE_ERROR("TextureImport::Parse - unknown AlphaMipChain '{}'",
