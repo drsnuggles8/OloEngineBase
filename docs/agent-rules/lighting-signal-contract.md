@@ -116,8 +116,9 @@ Each of these was a local choice that looked right.
 - **Groom** divides the (already *E/π*) irradiance cube by π again (`GroomStrand.glsl`), making it
   π too dark (#1450, owned by the groom work).
 - **The snow SSS blur** masks by scene-colour alpha, which every non-snow writer sets to 1 (#1451).
-- **Deferred's point-light tile evaluator disagrees with the forward light loop** (#1457). It is a
-  direct-term parity bug, not an ownership one, and predates this work.
+- **#1457 measured Deferred shading a point light differently from Forward.** The evaluators agree
+  (`PointLightEvaluatorParityGpuTest`); the gap was the Forward AO approximation above, which
+  darkens direct light. See [forward-deferred-parity-measurement.md](forward-deferred-parity-measurement.md).
 - **Media** (fog, volumetrics) is applied after surface composition, to reflections included, and
   the reference tracer has none.
 

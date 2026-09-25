@@ -25,6 +25,30 @@
 
 namespace OloEngine
 {
+    namespace
+    {
+        // The attachments a depth-off debug overlay (DrawLine / DrawSphere) may
+        // write, which depends on WHICH target the scene pass is filling.
+        //
+        // Forward's target is colour (0), entity ID (1), view normals (2): the
+        // overlay writes colour and leaves picking and AO alone. Deferred's is
+        // the G-Buffer — albedo (0), normal (1), emissive + material flags (2),
+        // velocity (3), entity ID (4), baked GI (5) — and 0x01 there wrote the
+        // ALBEDO alone. The pixel kept the emissive and flags of whatever was
+        // behind it (the sky's unlit pass-through, usually), so the lighting
+        // pass drew the background and every skeleton bone, joint and camera
+        // gizmo line came out grey on Deferred while Forward drew it in its
+        // emissive colour (found while verifying #1457). Deferred now writes
+        // the lanes the overlay is SHADED from and still skips velocity and
+        // entity ID, as the Forward mask does.
+        [[nodiscard]] u8 DebugOverlayColorWriteMask(RenderingPath path)
+        {
+            constexpr u8 kForwardColourOnly = 0x01;
+            constexpr u8 kGBufferSurfaceLanes = (1u << 0) | (1u << 1) | (1u << 2) | (1u << 5);
+            return path == RenderingPath::Deferred ? kGBufferSurfaceLanes : kForwardColourOnly;
+        }
+    } // namespace
+
     CommandPacket* Renderer3D::DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture)
     {
         OLO_PROFILE_FUNCTION();
@@ -305,8 +329,7 @@ namespace OloEngine
                 // Depth off so lines always pass depth test
                 PODRenderState skelState = FrameDataBufferManager::Get().GetRenderState(drawCmd->renderStateIndex);
                 skelState.depthTestEnabled = false;
-                // Only write to color attachment (0); skip entity-ID (1) and normals (2)
-                skelState.colorAttachmentWriteMask = 0x01;
+                skelState.colorAttachmentWriteMask = DebugOverlayColorWriteMask(s_Data.Settings.Path);
                 drawCmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(skelState);
             }
 
@@ -358,8 +381,7 @@ namespace OloEngine
                 // Depth off so joints always pass depth test
                 PODRenderState jointState = FrameDataBufferManager::Get().GetRenderState(drawCmd->renderStateIndex);
                 jointState.depthTestEnabled = false;
-                // Only write to color attachment (0); skip entity-ID (1) and normals (2)
-                jointState.colorAttachmentWriteMask = 0x01;
+                jointState.colorAttachmentWriteMask = DebugOverlayColorWriteMask(s_Data.Settings.Path);
                 drawCmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(jointState);
             }
 

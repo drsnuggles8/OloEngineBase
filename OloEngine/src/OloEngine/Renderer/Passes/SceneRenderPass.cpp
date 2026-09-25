@@ -310,6 +310,20 @@ namespace OloEngine
         // (or an unresolved MSAA depth attachment), the original fixed-grid
         // dispatch remains the correctness-preserving fallback.
         auto& forwardPlus = Renderer3D::GetForwardPlus();
+        // THE GRID IS SIZED TO THE TARGET THAT IS SHADED, EVERY FRAME (issue
+        // #1457). Fragments find their tile from gl_FragCoord against the
+        // grid's extent, and the depth-aware cull reads this target's depth
+        // with the same extent. Renderer3D::OnWindowResize sizes the grid to
+        // the WINDOW, which is this target only at native resolution: under an
+        // upscale the scene renders at the preset's render scale, every pixel
+        // looked its tile up in a grid 1/scale too large, and whole screen
+        // blocks read another region's cluster — point and spot lights
+        // vanished in rectangles on Forward+ and Deferred while Forward, which
+        // walks the light array, stayed correct.
+        {
+            const auto& targetSpec = renderFB->GetSpecification();
+            forwardPlus.Resize(targetSpec.Width, targetSpec.Height);
+        }
         if (forwardPlus.ShouldUseForwardPlus())
         {
             // Sub-pass bracket (issue #720): isolates LightCulling.comp's GPU-ms

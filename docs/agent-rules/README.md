@@ -155,6 +155,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [procedural-scatter-hash-and-habitat-rules.md](procedural-scatter-hash-and-habitat-rules.md): judge a placement hash by its distinct-offset count, keep gating rules out of the placement signature and moving ones in, and default every new scatter rule to the multiplicative identity.
 - [capture-paths-take-the-projection-seam.md](capture-paths-take-the-projection-seam.md): every matrix a vertex stage feeds to `gl_Position` goes through `RHIProjectionSeam`, a bake's private ortho included, and a capture that skips the y flip draws with culling off.
 - [light-path-photometric-parity.md](light-path-photometric-parity.md): the three light evaluators must agree; a dropped GPU struct field is a dead knob.
+- [forward-deferred-parity-measurement.md](forward-deferred-parity-measurement.md): before blaming a shading function for a Forward/Deferred difference, turn off everything the paths apply differently (screen-space AO, bloom, editor overlays); size any per-pixel grid to the target it shades; a write mask's attachment numbers mean different things per path.
 - [lighting-signal-contract.md](lighting-signal-contract.md): every lit-surface term has one owner, a light partition or a confidence mixture — never two additive estimates — every hand-off names whether it carries radiance, E, E/pi, a contribution or a visibility, and a visibility multiplies only the term it was computed for.
 - [volumetric-cloud-debugging.md](volumetric-cloud-debugging.md): eight causes of a uniform veil, and how to tell "darker" from "directionally darker".
 - [water-shading-nyquist.md](water-shading-nyquist.md): a derived normal carries every factor its displacement carries; drop sub-pixel detail rather than filter it.
@@ -427,6 +428,7 @@ The check passes for a correct implementation and for a broken one.
 | Doc | The instrument that failed |
 |---|---|
 | [live-verification-noise-floor.md](live-verification-noise-floor.md) | A crop check that a mirrored, wrong position scored better on; read tools that answer 200 with a stale frame from an iconified window. |
+| [forward-deferred-parity-measurement.md](forward-deferred-parity-measurement.md) | A live Forward-vs-Deferred diff blamed the point-light evaluator for a gap that was screen-space AO, which Forward applies to the composed colour; the evaluators agreed to 1e-5. |
 | [gpu-readback-stats-channel.md](gpu-readback-stats-channel.md) | A GPU counter that stopped updating is byte-identical to one that is constant. |
 | [automation-build-invocation.md](automation-build-invocation.md) | A build's exit code is 0 three different ways without anything having been built — the lock's stand-down, a no-op incremental, and a build that never started next to last week's binary. |
 | [incomplete-texture-samples-as-zero.md](incomplete-texture-samples-as-zero.md) | A sampled zero is a value, not an error: the frame is wrong exactly where the feature is active and right where it is not, on one vendor only. |
