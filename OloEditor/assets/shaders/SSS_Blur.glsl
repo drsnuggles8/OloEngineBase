@@ -69,11 +69,11 @@ layout(location = 0) out vec4 o_Color;
 // Heap-bindless conversion (issue #691): the body is identical between the two
 // variants, and each name is the slot SSSRenderPass binds.
 #ifdef OLO_BINDLESS
-#define u_Handoff OLO_HEAP_TEX_2D(0)     // TEX_DIFFUSE: scene attachment 4
+#define u_SnowDiffuse OLO_HEAP_TEX_2D(0) // TEX_DIFFUSE: scene attachment 4
 #define u_SceneDepth OLO_HEAP_TEX_2D(19) // TEX_POSTPROCESS_DEPTH
 #else
-layout(binding = 0) uniform sampler2D u_Handoff;     // scene attachment 4, the hand-off lane
-layout(binding = 19) uniform sampler2D u_SceneDepth; // scene depth, for the bilateral weight
+layout(binding = 0) uniform sampler2D u_SnowDiffuse; // scene attachment 4, the hand-off lane
+layout(binding = 19) uniform sampler2D u_SceneDepth;  // scene depth, for the bilateral weight
 #endif
 
 // SSS UBO (binding 14) — SSSUBOData.
@@ -92,7 +92,7 @@ void oloSnowBlurTap(ivec2 texel, ivec2 size, float centreDepth, float falloff, f
                     inout float total)
 {
     texel = clamp(texel, ivec2(0), size - ivec2(1));
-    vec4 tap = texelFetch(u_Handoff, texel, 0);
+    vec4 tap = texelFetch(u_SnowDiffuse, texel, 0);
     float depth = texelFetch(u_SceneDepth, texel, 0).r;
     float weight = exp(-abs(depth - centreDepth) * falloff) * gauss * oloSnowDiffusionWeight(tap.a);
     sum += tap.rgb * weight;
@@ -101,9 +101,9 @@ void oloSnowBlurTap(ivec2 texel, ivec2 size, float centreDepth, float falloff, f
 
 void main()
 {
-    ivec2 size = textureSize(u_Handoff, 0);
+    ivec2 size = textureSize(u_SnowDiffuse, 0);
     ivec2 pixel = clamp(ivec2(gl_FragCoord.xy), ivec2(0), size - ivec2(1));
-    vec4 centre = texelFetch(u_Handoff, pixel, 0);
+    vec4 centre = texelFetch(u_SnowDiffuse, pixel, 0);
     float snowWeight = oloSnowDiffusionWeight(centre.a);
     float strength = snowWeight * clamp(u_SSSFlags.y, 0.0, 1.0);
 
