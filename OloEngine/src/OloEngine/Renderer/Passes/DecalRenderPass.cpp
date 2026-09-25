@@ -242,6 +242,16 @@ namespace OloEngine
             return;
         }
 
+        // The passes before this one bind and unbind GL state directly -- in
+        // Deferred, DeferredLightingPass's fullscreen draws, and this pass's own
+        // GLStateGuard restores program and VAO on exit -- so the dispatcher's
+        // redundant-bind caches no longer describe the context. A decal whose
+        // VAO the cache believed bound skipped the bind and drew from VAO 0: an
+        // access violation in the NVIDIA driver on the first frame of a
+        // transparent decal after a Forward -> Deferred switch. The same fix
+        // ForwardOverlayRenderPass carries for #1404.
+        CommandDispatch::InvalidateBindingCaches();
+
         Ref<Framebuffer> oitFramebuffer;
         if (m_OITEnabled && m_SelectedOITFramebuffer.IsValid())
             oitFramebuffer = context.ResolveFramebuffer(m_SelectedOITFramebuffer);
@@ -386,6 +396,9 @@ namespace OloEngine
 
         const RHI::ResourceHandle gbufferID = writeTargetFB->GetRHIHandle();
         writeTargetFB->Bind();
+        // Same reason as Execute(): the passes before this one bound GL state
+        // behind the dispatcher's redundant-bind caches.
+        CommandDispatch::InvalidateBindingCaches();
 
         // Bind the depth attachment of the *depth-sampling* framebuffer
         // (resolved single-sample in MSAA mode) at TEX_POSTPROCESS_DEPTH so
