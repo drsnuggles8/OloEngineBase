@@ -11,6 +11,7 @@
 #include "OloEngine/Renderer/Commands/CommandPacket.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
+#include "OloEngine/Renderer/OITBlendState.h"
 
 #include <array>
 
@@ -260,10 +261,9 @@ namespace OloEngine
             RenderCommand::SetDepthFunc(RHI::CompareOp::LessOrEqual);
             RenderCommand::SetDepthMask(false);
 
-            RenderCommand::SetBlendStateForAttachment(0, true);
-            RenderCommand::SetBlendStateForAttachment(1, true);
-            RenderCommand::SetBlendFuncForAttachment(0, RHI::BlendFactor::One, RHI::BlendFactor::One);
-            RenderCommand::SetBlendFuncForAttachment(1, RHI::BlendFactor::Zero, RHI::BlendFactor::OneMinusSrcColor);
+            // Stated here for the pass, and re-stated by CommandDispatch::DrawDecal
+            // after each packet's own render state (#1417).
+            ApplyWeightedBlendedOITBlend(RenderCommand::GetRendererAPI());
 
             // The Decal_OIT program override rides on the command (instead of
             // a global on CommandDispatch), which keeps the dispatcher

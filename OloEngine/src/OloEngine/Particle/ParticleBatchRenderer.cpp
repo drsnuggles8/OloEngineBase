@@ -90,6 +90,10 @@ namespace OloEngine
         // GPU billboard resources
         Ref<VertexArray> GPUVAO;
         Ref<Shader> GPUBillboardShader;
+        // The WB-OIT variant (#1417): GPU particles drawn while the particle
+        // pass is in OIT mode. Without it they wrote the scene-colour shader
+        // into the OIT targets and OITResolve discarded every one of them.
+        Ref<Shader> GPUBillboardShaderOIT;
 
         ParticleBatchRenderer::Statistics Stats;
     };
@@ -197,6 +201,7 @@ namespace OloEngine
 
         // GPU billboard shader (reads particle data from SSBO)
         s_Data.GPUBillboardShader = Shader::Create("assets/shaders/Particle_Billboard_GPU.glsl");
+        s_Data.GPUBillboardShaderOIT = Shader::Create("assets/shaders/Particle_Billboard_GPU_OIT.glsl");
     }
 
     void ParticleBatchRenderer::Shutdown()
@@ -234,6 +239,7 @@ namespace OloEngine
         s_Data.CurrentTrailTexture.Reset();
         s_Data.GPUVAO.Reset();
         s_Data.GPUBillboardShader.Reset();
+        s_Data.GPUBillboardShaderOIT.Reset();
     }
 
     void ParticleBatchRenderer::BeginBatch(const EditorCamera& camera)
@@ -411,6 +417,11 @@ namespace OloEngine
         s_Data.UseOITShader = enabled;
     }
 
+    bool ParticleBatchRenderer::IsOITMode()
+    {
+        return s_Data.UseOITShader;
+    }
+
     void ParticleBatchRenderer::Flush()
     {
         if (s_Data.InstanceCount == 0)
@@ -581,8 +592,12 @@ namespace OloEngine
         bool hasTexture = (texture != nullptr);
         UploadParticleParams(hasTexture);
 
-        // Bind GPU billboard shader
-        s_Data.GPUBillboardShader->Bind();
+        // Bind GPU billboard shader -- the OIT variant inside the OIT pass, the
+        // same choice the CPU batch makes in its flush.
+        const Ref<Shader>& shader = (s_Data.UseOITShader && s_Data.GPUBillboardShaderOIT)
+                                        ? s_Data.GPUBillboardShaderOIT
+                                        : s_Data.GPUBillboardShader;
+        shader->Bind();
 
         // Bind particle and alive-index SSBOs so the vertex shader can read them
         gpuSystem.GetParticleSSBO()->Bind();

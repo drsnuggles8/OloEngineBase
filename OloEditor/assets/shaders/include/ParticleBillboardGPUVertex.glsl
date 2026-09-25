@@ -1,0 +1,162 @@
+#ifndef PARTICLE_BILLBOARD_GPU_VERTEX_GLSL
+#define PARTICLE_BILLBOARD_GPU_VERTEX_GLSL
+
+// The GPU-particle billboard VERTEX stage, shared by Particle_Billboard_GPU.glsl
+// (scene colour) and Particle_Billboard_GPU_OIT.glsl (the weighted-blended OIT
+// targets, #1417). Include it straight after the stage's #version line.
+// Reads particle data from SSBO (GPU-driven rendering via indirect draw).
+
+
+#ifdef OLO_VULKAN
+// #691 (ADR 0011 §5): V5 pull — the 8-byte {vec2 a_QuadPos} unit
+// quad on the engine-wide binding 57. Everything per-particle already rides
+// the GPU-particle SSBOs below, indexed by gl_InstanceIndex.
+layout(std430, binding = 57) readonly buffer OloVertexPull
+{
+	float v[];
+} b_Vertices;
+#define OLO_PULLED_VERTEX 1
+#else
+// Per-vertex (unit quad)
+layout(location = 0) in vec2 a_QuadPos;
+#endif
+
+// Per-particle data in SSBO
+struct GPUParticle
+{
+	vec4 PositionLifetime;
+	vec4 VelocityMaxLifetime;
+	vec4 Color;
+	vec4 InitialColor;
+	vec4 InitialVelocitySize;
+	vec4 Misc;  // x = initial size, y = rotation, z = alive, w = entityID
+};
+
+layout(std430, binding = 0) readonly buffer ParticleBuffer
+{
+	GPUParticle particles[];
+};
+
+layout(std430, binding = 1) readonly buffer AliveIndexBuffer
+{
+	uint aliveIndices[];
+};
+
+// Previous-frame particle snapshot (one entry per particle slot, indexed by
+// particle slot — NOT by aliveIndex). Written by Particle_Simulate.comp
+// before integration and by Particle_Emit.comp on spawn.
+struct PrevParticleData
+{
+	vec4 Position;      // xyz = prev world position, w unused
+	vec4 RotationSize;  // x = prev rotation (radians), y = prev size, zw unused
+};
+
+layout(std430, binding = 14) readonly buffer PrevPositionBuffer
+{
+	PrevParticleData prevData[];
+};
+
+layout(std140, binding = 0) uniform Camera
+{
+	mat4 u_ViewProjection;
+	mat4 _camera_pad_view;
+	mat4 _camera_pad_proj;
+	vec4 _camera_pad_position;
+	mat4 u_PrevViewProjection;
+};
+
+layout(std140, binding = 2) uniform ParticleParams
+{
+	vec3 u_CameraRight;
+	vec3 u_CameraUp;
+	int u_HasTexture;
+	int u_SoftParticlesEnabled;
+	float u_SoftParticleDistance;
+	float u_NearClip;
+	float u_FarClip;
+	vec2 u_ViewportSize;
+};
+
+struct VertexOutput
+{
+	vec4 Color;
+	vec2 TexCoord;
+};
+
+layout(location = 0) out VertexOutput Output;
+layout(location = 2) out flat int v_EntityID;
+layout(location = 3) out vec4 v_ClipPosCurr;
+layout(location = 4) out vec4 v_ClipPosPrev;
+
+void main()
+{
+#ifdef OLO_PULLED_VERTEX
+	vec2 a_QuadPos = vec2(b_Vertices.v[gl_VertexIndex * 2 + 0], b_Vertices.v[gl_VertexIndex * 2 + 1]);
+#endif
+	// Look up which particle this instance refers to (via compacted alive index)
+	uint particleIdx = aliveIndices[gl_InstanceIndex];
+	GPUParticle p = particles[particleIdx];
+
+	vec3 position = p.PositionLifetime.xyz;
+	float size = p.InitialVelocitySize.w;
+	float rotation = p.Misc.y;
+	vec3 velocity = p.VelocityMaxLifetime.xyz;
+	float stretchFactor = 0.0; // GPU path: billboard only
+
+	vec3 right;
+	vec3 up;
+
+	// Standard billboard
+	float halfSize = size * 0.5;
+	right = u_CameraRight * halfSize;
+	up = u_CameraUp * halfSize;
+
+	// Apply rotation around billboard normal
+	if (abs(rotation) > 0.001)
+	{
+		float cosR = cos(rotation);
+		float sinR = sin(rotation);
+		vec3 newRight = right * cosR + up * sinR;
+		vec3 newUp = -right * sinR + up * cosR;
+		right = newRight;
+		up = newUp;
+	}
+
+	// Construct world position from unit quad corner offset. For the prev
+	// frame we reconstruct a full quad basis from the snapshotted prev
+	// rotation/size so rotating / scaling particles emit correct motion
+	// vectors into scene FB RT3 (TAA reprojects them cleanly).
+	vec3 worldPos = position + a_QuadPos.x * right + a_QuadPos.y * up;
+
+	PrevParticleData prev = prevData[particleIdx];
+	vec3 prevCenter = prev.Position.xyz;
+	float prevRotation = prev.RotationSize.x;
+	float prevSize = prev.RotationSize.y;
+
+	float prevHalf = prevSize * 0.5;
+	vec3 prevRight = u_CameraRight * prevHalf;
+	vec3 prevUp = u_CameraUp * prevHalf;
+	if (abs(prevRotation) > 0.001)
+	{
+		float cosR = cos(prevRotation);
+		float sinR = sin(prevRotation);
+		vec3 newRight = prevRight * cosR + prevUp * sinR;
+		vec3 newUp = -prevRight * sinR + prevUp * cosR;
+		prevRight = newRight;
+		prevUp = newUp;
+	}
+	vec3 prevWorldPos = prevCenter + a_QuadPos.x * prevRight + a_QuadPos.y * prevUp;
+	vec4 clipCurr = u_ViewProjection     * vec4(worldPos, 1.0);
+	vec4 clipPrev = u_PrevViewProjection * vec4(prevWorldPos, 1.0);
+	gl_Position = clipCurr;
+	v_ClipPosCurr = clipCurr;
+	v_ClipPosPrev = clipPrev;
+
+	// Full [0,1] UV from the quad pos
+	vec2 uv01 = a_QuadPos + vec2(0.5);
+	Output.TexCoord = uv01;
+	Output.Color = p.Color;
+	v_EntityID = int(p.Misc.w);
+}
+
+#endif

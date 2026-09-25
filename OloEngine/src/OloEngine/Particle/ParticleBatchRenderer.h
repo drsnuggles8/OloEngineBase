@@ -132,6 +132,7 @@ namespace OloEngine
         // OIT path is active, and off before returning so the normal
         // alpha-blended shader is used when OIT is disabled.
         static void SetOITMode(bool enabled);
+        [[nodiscard]] static bool IsOITMode();
 
       private:
         static void StartNewBatch();
