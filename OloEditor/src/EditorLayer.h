@@ -264,7 +264,9 @@ namespace OloEngine
         mutable glm::mat4 m_McpTerrainPickTerrainTransform{ 1.0f };
 
         // Unproject a viewport mouse position into a world-space picking ray
-        // (normalized direction, unbounded TMax). False when the viewport is
+        // (normalized direction, unbounded TMax). mousePos is TOP-LEFT origin,
+        // +Y down, on every backend — never the row-flipped readback coordinate.
+        // False when the viewport is
         // degenerate or the camera matrix doesn't invert cleanly.
         bool BuildMouseRay(const glm::vec2& mousePos, const glm::vec2& viewportSize, Ray& outRay) const;
 
