@@ -3,6 +3,7 @@
 #if OLO_WITH_VULKAN
 
 #include "Platform/Vulkan/VulkanBindingState.h"
+#include "Platform/Vulkan/VulkanDescriptorSlotCache.h"
 
 #include "Platform/Vulkan/VulkanRecordingContext.h"
 
@@ -168,6 +169,38 @@ namespace OloEngine
             if (entry == buffer)
             {
                 entry = nullptr;
+            }
+        }
+    }
+
+    void VulkanBindingState::ClearImage(const void* image)
+    {
+        if (image == nullptr || !m_TextureSlotsInitialised)
+        {
+            return;
+        }
+        const auto& slots = VulkanDescriptorSlotCache::Get();
+        const auto names = [&slots, image](const u32 heapSlot)
+        {
+            if (heapSlot == kNoHeapSlot)
+            {
+                return false;
+            }
+            const auto binding = slots.LookupImage(heapSlot);
+            return binding && static_cast<const void*>(binding->Image) == image;
+        };
+        for (auto& heapSlot : m_TextureHeapSlots)
+        {
+            if (names(heapSlot))
+            {
+                heapSlot = kNoHeapSlot;
+            }
+        }
+        for (auto& heapSlot : m_ImageHeapSlots)
+        {
+            if (names(heapSlot))
+            {
+                heapSlot = kNoHeapSlot;
             }
         }
     }

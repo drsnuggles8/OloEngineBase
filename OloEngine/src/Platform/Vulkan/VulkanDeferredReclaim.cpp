@@ -3,6 +3,7 @@
 #if OLO_WITH_VULKAN
 
 #include "Platform/Vulkan/VulkanDeferredReclaim.h"
+#include "Platform/Vulkan/VulkanBindingState.h"
 
 #include "OloEngine/Core/DebugLevers.h"
 
@@ -44,6 +45,15 @@ namespace OloEngine
         if (image == VK_NULL_HANDLE && allocation == VK_NULL_HANDLE)
         {
             return;
+        }
+        // Delete implies unbind, as for buffers and framebuffers: no texture or
+        // image unit may keep naming an image once it is queued for destruction
+        // (see VulkanBindingState::ClearImage). Enqueue runs on the render
+        // thread with no recording region open, so the process-wide mirror is
+        // the only one live.
+        if (image != VK_NULL_HANDLE)
+        {
+            VulkanBindingState::Global().ClearImage(image);
         }
         Entry entry{ .Image = image, .Allocation = allocation, .EnqueuedAtGeneration = m_Generation };
         // Issue #1198: a depth-stencil surface's memory must outlive its last use

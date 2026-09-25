@@ -566,6 +566,76 @@ namespace OloEngine::Tests
     }
 
     // -------------------------------------------------------------------------
+    // Releasing a texture unbinds it: delete implies unbind, as it already did
+    // for buffers and framebuffers (VulkanBindingState's header).
+    //
+    // A texture unit used to keep naming a released image's heap slot until
+    // that slot was retired generations later. The next RecordParallel fork
+    // transitions every sampled image the global binding state names
+    // (TransitionSeededSampledImagesForFork), so a graph transient released by
+    // a resize was put into a new command buffer after it had been queued for
+    // destruction: VUID-vkDestroyImage-image-01000 on every Deferred -> Forward
+    // switch followed by a viewport resize, once the forward screen-space AO
+    // work (#1452) left the view-normals export bound at the end of a frame.
+    // -------------------------------------------------------------------------
+    TEST_F(VulkanTextureInPlaceReload, ReleasingATextureClearsEveryUnitThatNamesIt)
+    {
+        ScopedVulkanApiSelection vulkanApi;
+        VulkanFrameArena::Get().BeginFrame(0);
+
+        FramebufferSpecification fbSpec;
+        fbSpec.Width = 8;
+        fbSpec.Height = 8;
+        fbSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+        auto framebuffer = Framebuffer::Create(fbSpec);
+        ASSERT_NE(framebuffer, nullptr);
+
+        const auto makeTexture = []()
+        {
+            TextureSpecification spec;
+            spec.Width = 4;
+            spec.Height = 4;
+            spec.Format = ImageFormat::RGBA8;
+            spec.GenerateMips = false;
+            auto tex = Texture2D::Create(spec);
+            TArray64<u8> pixels(4u * 4u * 4u);
+            for (sizet i = 0; i < pixels.Num(); ++i)
+                pixels[i] = 0x80;
+            tex->SetData(pixels.GetData(), static_cast<u32>(pixels.Num()));
+            return tex;
+        };
+        auto kept = makeTexture();
+        auto released = makeTexture();
+        ASSERT_TRUE(kept && released);
+
+        constexpr u32 kKeptUnit = 3;
+        constexpr u32 kReleasedUnit = 4;
+        VulkanRendererAPI api;
+        SubmitFrame(api,
+                    [&]()
+                    {
+                        framebuffer->Bind();
+                        api.BindTexture(kKeptUnit, kept->GetRHIHandle());
+                        api.BindTexture(kReleasedUnit, released->GetRHIHandle());
+                        framebuffer->Unbind();
+                    });
+
+        const auto& staged = VulkanBindingState::Global();
+        // The premise: both units name a slot before anything is released.
+        const u32 keptSlot = staged.GetTextureHeapSlot(kKeptUnit);
+        ASSERT_NE(keptSlot, VulkanBindingState::kNoHeapSlot);
+        ASSERT_NE(staged.GetTextureHeapSlot(kReleasedUnit), VulkanBindingState::kNoHeapSlot);
+
+        released = nullptr; // the last reference: the image is queued for reclaim
+
+        EXPECT_EQ(staged.GetTextureHeapSlot(kReleasedUnit), VulkanBindingState::kNoHeapSlot)
+            << "a unit still names the slot of an image that is queued for destruction; the next fork's "
+               "seeded-image transition would record a barrier on it";
+        EXPECT_EQ(staged.GetTextureHeapSlot(kKeptUnit), keptSlot)
+            << "releasing one texture cleared a unit that names a different, live one";
+    }
+
+    // -------------------------------------------------------------------------
     // An array shape the backend cannot map must FAIL the shader build.
     //
     // The first version of this fix logged an error and returned a count of 1,
