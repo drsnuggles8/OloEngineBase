@@ -1568,6 +1568,14 @@ namespace OloEngine
             RHI::ResourceHandle DepthSkinned{};
             RHI::ResourceHandle DepthMaskStatic{};
             RHI::ResourceHandle DepthMaskSkinned{};
+            // Depth + view-normal programs (DepthNormalPrepass*.glsl) for the
+            // FORWARD prepass while screen-space AO is live (issue #1452). Only
+            // the forward PBR programs swap to these; the G-Buffer ones keep the
+            // depth-only swap, whose attachment 2 is the emissive/flags RT.
+            RHI::ResourceHandle DepthNormalStatic{};
+            RHI::ResourceHandle DepthNormalSkinned{};
+            RHI::ResourceHandle DepthNormalMaskStatic{};
+            RHI::ResourceHandle DepthNormalMaskSkinned{};
         };
         static DepthPrepassShaderIDs GetDepthPrepassShaderIDs()
         {
@@ -1588,6 +1596,14 @@ namespace OloEngine
                 ids.DepthMaskStatic = s_Data.DepthPrepassMaskShader->GetRHIHandle();
             if (s_Data.DepthPrepassMaskSkinnedShader)
                 ids.DepthMaskSkinned = s_Data.DepthPrepassMaskSkinnedShader->GetRHIHandle();
+            if (s_Data.DepthNormalPrepassShader)
+                ids.DepthNormalStatic = s_Data.DepthNormalPrepassShader->GetRHIHandle();
+            if (s_Data.DepthNormalPrepassSkinnedShader)
+                ids.DepthNormalSkinned = s_Data.DepthNormalPrepassSkinnedShader->GetRHIHandle();
+            if (s_Data.DepthNormalPrepassMaskShader)
+                ids.DepthNormalMaskStatic = s_Data.DepthNormalPrepassMaskShader->GetRHIHandle();
+            if (s_Data.DepthNormalPrepassMaskSkinnedShader)
+                ids.DepthNormalMaskSkinned = s_Data.DepthNormalPrepassMaskSkinnedShader->GetRHIHandle();
             return ids;
         }
 
@@ -2626,6 +2642,10 @@ namespace OloEngine
             Ref<Shader> DepthPrepassSkinnedShader;
             Ref<Shader> DepthPrepassMaskShader;
             Ref<Shader> DepthPrepassMaskSkinnedShader;
+            Ref<Shader> DepthNormalPrepassShader;
+            Ref<Shader> DepthNormalPrepassSkinnedShader;
+            Ref<Shader> DepthNormalPrepassMaskShader;
+            Ref<Shader> DepthNormalPrepassMaskSkinnedShader;
 
             // Terrain
             Ref<Shader> TerrainPBRShader;

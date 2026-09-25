@@ -37,16 +37,10 @@ layout(location = 4) in vec4 a_BoneWeights;
 #endif
 
 // Camera UBO (binding 0)
-layout(std140, binding = 0) uniform CameraMatrices {
-    mat4 u_ViewProjection;
-    mat4 u_View;
-    mat4 u_Projection;
-    vec3 u_CameraPosition;
-    float _padding0;
-    // Previous-frame view-projection for forward-path TAA velocity
-    // emission. See PBR_MultiLight.glsl for the full design note.
-    mat4 u_PrevViewProjection;
-};
+// The shared camera block (include/CameraCommon.glsl) in EVERY stage: GL
+// links a program only if each stage declares the block identically, and
+// the fragment stage needs its screen-space AO lane (issue #1452).
+#include "include/CameraCommon.glsl"
 
 // Model UBO (binding 3)
 #include "include/InstanceBlock_Vertex.glsl"
@@ -147,14 +141,10 @@ void main()
 // vertex stage — glLinkProgram() rejects per-program UBO blocks whose
 // members disagree between stages. The trailing u_PrevViewProjection is
 // unused in fragment but its declaration keeps the block types identical.
-layout(std140, binding = 0) uniform CameraMatrices {
-    mat4 u_ViewProjection;
-    mat4 u_View;
-    mat4 u_Projection;
-    vec3 u_CameraPosition;
-    float _padding0;
-    mat4 u_PrevViewProjection;
-};
+// The shared camera block (include/CameraCommon.glsl) in EVERY stage: GL
+// links a program only if each stage declares the block identically, and
+// the fragment stage needs its screen-space AO lane (issue #1452).
+#include "include/CameraCommon.glsl"
 
 // Multi-Light UBO (binding 5)
 layout(std140, binding = 5) uniform MultiLightBuffer {
@@ -445,14 +435,6 @@ layout(location = 3) out vec4 o_Velocity;
 layout(location = 4) out vec4 o_SkinDiffuse;
 
 
-// Octahedral encode: unit normal → RG16F [-1,1]²
-vec2 octEncode(vec3 n)
-{
-    n /= (abs(n.x) + abs(n.y) + abs(n.z));
-    if (n.z < 0.0)
-        n.xy = (1.0 - abs(n.yx)) * vec2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0);
-    return n.xy;
-}
 
 // Model UBO (binding 3) for entity ID access
 // Fragment-side ModelMatrices must match the vertex stage's layout
@@ -467,6 +449,12 @@ vec2 octEncode(vec3 n)
 // branch at all, so characters ignored baked lighting entirely).
 #include "include/LightProbeSampling.glsl"
 #include "include/AmbientLadder.glsl"
+// The normal-mapped shading normal and the view-normal encode, shared with
+// the depth-normal prepass so scene attachment 2 is the same value from
+// both (issue #1452).
+#include "include/ForwardShadingNormal.glsl"
+// Screen-space AO for the ambient term (issue #1452).
+#include "include/ForwardScreenSpaceAO.glsl"
 
 // =============================================================================
 // MAIN FRAGMENT SHADER
@@ -494,25 +482,10 @@ void main()
     float ao = OLO_MAT_AO(u_AOMap, v_TexCoord, u_OcclusionStrength, bool(u_UseAOMap));
     vec3 emissive = OLO_MAT_EMISSIVE(u_EmissiveMap, v_TexCoord, u_EmissiveFactor.rgb, bool(u_UseEmissiveMap));
 
-    // Calculate normal
-    vec3 N = normalize(v_Normal);
-    if (u_UseNormalMap == 1)
-    {
-        // THE EXPRESSION-DRIVEN PORE BAND (issue #1243). The skin spelling
-        // takes a second, coarser tap of the SAME normal map and scales the
-        // difference — see oloSkinDetailTangentNormal in
-        // include/SkinLayeredSpecular.glsl for why the band comes out of the
-        // map that is already there rather than out of a second one.
-        //
-        // Branched on the strength, not merely on the kind: the second tap is a
-        // real texture fetch, and a skin material whose author left the detail
-        // fields at their neutral default must cost what it cost before.
-        if (u_MaterialKind == OLO_MATERIAL_KIND_SKIN && u_SkinDetailStrength != 0.0)
-            N = OLO_SKIN_MAT_NORMAL(u_NormalMap, v_TexCoord, v_WorldPos, v_Normal, u_NormalScale,
-                                    u_SkinDetailStrength);
-        else
-            N = OLO_MAT_NORMAL(u_NormalMap, v_TexCoord, v_WorldPos, v_Normal, u_NormalScale);
-    }
+    // Calculate normal — the shared function the depth-normal prepass calls
+    // too (include/ForwardShadingNormal.glsl), so the view normal the AO
+    // passes read is the one this pass lights with.
+    vec3 N = oloForwardMappedNormal(v_Normal, v_TexCoord, v_WorldPos);
     vec3 V = normalize(u_CameraPosition - v_WorldPos);
 
     // THE ROUGHNESS FLOOR THE DEFERRED PATH APPLIES (issue #1336), and in its
@@ -896,7 +869,14 @@ void main()
     // the last moment at which the halves are still separable, and it is where
     // #1241's diffusion of the DIFFUSE half will go. A non-skin material
     // uploads a neutral tint, so this is a multiply by one.
-    OloSurfaceLighting lighting = oloComposeReflectedLighting(Lo, ambient, ao, vec3(0.0));
+    //
+    // `ao` is the material's occlusion times the SCREEN-SPACE AO (issue #1452):
+    // the buffer the AO passes built from the depth prepass before this pass
+    // ran, upsampled the way DeferredLighting upsamples it. It multiplies the
+    // ambient split alone — direct light, transmission and emission are not
+    // occluded by it, exactly as on the deferred path.
+    OloSurfaceLighting lighting = oloComposeReflectedLighting(Lo, ambient, ao * oloForwardScreenSpaceAO(gl_FragCoord.xy),
+                                                              vec3(0.0));
     lighting = oloApplySkinProfile(lighting, u_MaterialKind, u_SkinEvaluationModel,
                                    vec3(u_SkinSpecularTintR, u_SkinSpecularTintG, u_SkinSpecularTintB));
     // `transmitted` joins OUTSIDE the diffuse/specular split (issue #1242),
@@ -1066,7 +1046,7 @@ void main()
     {
         outputN = normalize(mix(N, vec3(0.0, 1.0, 0.0), snowWeight * 0.6));
     }
-    o_ViewNormal = octEncode(normalize(mat3(u_View) * outputN));
+    o_ViewNormal = oloForwardViewNormalOutput(u_View, outputN);
 
     // Screen-space velocity - see PBR_MultiLight.glsl for the derivation.
     // Skinned meshes combine per-bone pose delta (PrevBoneMatrices, binding 31)

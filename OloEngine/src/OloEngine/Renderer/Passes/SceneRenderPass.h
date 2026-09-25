@@ -90,7 +90,53 @@ namespace OloEngine
         // framebuffer dimensions before graph blackboard population/import.
         void PrepareDeferredResources(u32 sampleCount);
 
+        // THE FORWARD PREPASS AS ITS OWN NODE (issue #1452). On Forward and
+        // Forward+ the frame's clear, the bucket's batching and the depth
+        // prepass run in ScenePrepassRenderPass, ahead of the screen-space AO
+        // passes; Execute() then runs only the colour half. With screen-space
+        // AO live the prepass also writes the view normals of attachment 2
+        // (DepthNormalPrepass*.glsl) and is forced on even where the settings
+        // leave it off, because the AO passes read both. The deferred path
+        // never calls these: its AO reads the finished G-Buffer, so its
+        // prepass stays inside Execute().
+        void SetupForwardPrepass(RGBuilder& builder, FrameBlackboard& board);
+        void ExecuteForwardPrepass(RGCommandContext& context, const Ref<Framebuffer>& sceneTarget);
+        //   produced — an AO buffer is built this frame, so the prepass writes
+        //              the view normals it needs and ScenePass reads it;
+        //   applied  — the forward shaders multiply their ambient term by it
+        //              (off while the AO debug view replaces the frame);
+        //   strength — the AO slider, the same number DeferredLighting uses.
+        void SetForwardScreenSpaceAO(bool produced, bool applied, f32 strength)
+        {
+            m_ForwardScreenSpaceAOProduced = produced;
+            m_ForwardScreenSpaceAOApplied = produced && applied;
+            m_ForwardScreenSpaceAOStrength = std::isfinite(strength) ? strength : 1.0f;
+        }
+        [[nodiscard]] bool IsForwardScreenSpaceAOProduced() const noexcept
+        {
+            return m_ForwardScreenSpaceAOProduced;
+        }
+
+        // Setup() reads the AO buffer when a forward AO buffer is produced — so
+        // that is a declaration input.
+        void AppendDeclarationInputs(RGDeclarationKey& key) const override
+        {
+            key.Add(m_ForwardScreenSpaceAOProduced);
+        }
+
       private:
+        // The frame's start: resolve the target, clear every attachment, reset
+        // the fixed-function state, batch and sort the bucket. Shared by both
+        // the forward prepass node and the deferred Execute().
+        [[nodiscard]] Ref<Framebuffer> BeginSceneFrame(bool deferredActive);
+        // Replays the bucket depth-only (or depth + view normal, on the forward
+        // paths with AO live) under the "DepthPrepass" timing bracket.
+        void RunDepthPrepass(bool writeViewNormals);
+        // Copies the scene target's depth and view normals into the graph's
+        // SceneDepth / SceneNormals exports.
+        void ExportSceneDepthAndNormals(RGCommandContext& context, RGTextureHandle depthExport,
+                                        RGTextureHandle normalsExport, bool deferredActive);
+
         // Lazily create / resize the G-Buffer to match the forward target.
         void EnsureGBuffer(u32 width, u32 height, u32 sampleCount);
         // Blit the requested G-Buffer channel into m_Target color[0] so the
@@ -114,5 +160,22 @@ namespace OloEngine
         RGTextureHandle m_SelectedSceneDepthExport{};
         RGTextureHandle m_SelectedSceneNormalsExport{};
         RGTextureHandle m_SelectedVelocityExport{};
+        // The forward prepass node's own export handles (its versions of
+        // SceneDepth / SceneNormals, which the AO nodes read).
+        RGTextureHandle m_PrepassSceneDepthExport{};
+        RGTextureHandle m_PrepassSceneNormalsExport{};
+        RGTextureHandle m_PrepassForwardAODepthExport{};
+        // Set by ExecuteForwardPrepass, consumed by the Execute() that follows
+        // in the same frame: the frame has begun and the bucket is batched.
+        bool m_ForwardPrepassRan = false;
+        // Whether that prepass actually drew (so the colour half must re-test
+        // at GL_LEQUAL with depth writes off).
+        bool m_ForwardPrepassDrew = false;
+        bool m_ForwardScreenSpaceAOProduced = false;
+        bool m_ForwardScreenSpaceAOApplied = false;
+        f32 m_ForwardScreenSpaceAOStrength = 1.0f;
+        // What the colour half reads for the forward shaders' ambient AO.
+        RGTextureHandle m_ForwardAOBuffer{};
+        RGTextureHandle m_ForwardAODepth{};
     };
 } // namespace OloEngine

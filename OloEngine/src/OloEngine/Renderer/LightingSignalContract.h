@@ -130,15 +130,13 @@ namespace OloEngine
     {
         // No AO technique produced a buffer this frame.
         None,
-        // Deferred: DeferredLighting multiplies the ambient split by it.
-        // Exact: direct, emission, transmission and traced indirect are untouched.
+        // Every path: the shader that composes the ambient term multiplies it by
+        // the AO buffer — DeferredLighting on Deferred, and on Forward / Forward+
+        // every forward shader, reading an AO buffer built from the depth
+        // prepass's normals BEFORE forward colour runs (issue #1452). Exact:
+        // direct light, emission, transmission and traced indirect are
+        // untouched. PostProcess_SSAOApply runs only for the AO debug view.
         AmbientTermInLighting,
-        // Forward / Forward+: the AO buffer is built FROM the forward pass's own
-        // normals, after the lighting that would need it, so AOApply multiplies
-        // the composed colour. A DECLARED APPROXIMATION: it also darkens direct
-        // light and emission. Removing it needs the forward pass to export its
-        // ambient term, which every forward writer would have to write.
-        ComposedColorApproximation,
     };
 
     // Where screen-space contact shadows are multiplied in. They are
@@ -194,12 +192,13 @@ namespace OloEngine
         [[nodiscard]] auto operator==(const LightingSignalOwnership&) const -> bool = default;
     };
 
-    [[nodiscard]] constexpr ScreenSpaceAOApplication SelectScreenSpaceAOApplication(bool aoProduced, RenderingPath path)
+    // The same answer on every path since #1452: the forward paths now build
+    // the AO buffer from the depth prepass, ahead of forward colour, so their
+    // shaders can apply it to the ambient term just as the deferred lighting
+    // pass does. Before that the forward paths multiplied the composed colour.
+    [[nodiscard]] constexpr ScreenSpaceAOApplication SelectScreenSpaceAOApplication(bool aoProduced)
     {
-        if (!aoProduced)
-            return ScreenSpaceAOApplication::None;
-        return path == RenderingPath::Deferred ? ScreenSpaceAOApplication::AmbientTermInLighting
-                                               : ScreenSpaceAOApplication::ComposedColorApproximation;
+        return aoProduced ? ScreenSpaceAOApplication::AmbientTermInLighting : ScreenSpaceAOApplication::None;
     }
 
     // Contact shadows march the G-Buffer depth, so they exist on the deferred
@@ -275,7 +274,7 @@ namespace OloEngine
         result.Terms[static_cast<sizet>(LightingTerm::SurfaceTransmission)] = { SurfaceTransmission,
                                                                                 TermComposition::Exclusive };
 
-        result.ScreenSpaceAO = SelectScreenSpaceAOApplication(frame.ScreenSpaceAOProduced, frame.Path);
+        result.ScreenSpaceAO = SelectScreenSpaceAOApplication(frame.ScreenSpaceAOProduced);
         result.ContactShadow = SelectContactShadowApplication(frame.ContactShadowsRequested, frame.Path);
         return result;
     }

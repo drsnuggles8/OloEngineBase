@@ -114,6 +114,10 @@ namespace
         "assets/shaders/DepthPrepass_Skinned.glsl",
         "assets/shaders/DepthPrepass_Mask.glsl",
         "assets/shaders/DepthPrepass_MaskSkinned.glsl",
+        "assets/shaders/DepthNormalPrepass.glsl",
+        "assets/shaders/DepthNormalPrepass_Skinned.glsl",
+        "assets/shaders/DepthNormalPrepass_Mask.glsl",
+        "assets/shaders/DepthNormalPrepass_MaskSkinned.glsl",
         "assets/shaders/Terrain_PBR.glsl",
         "assets/shaders/Terrain_GBuffer.glsl",
         "assets/shaders/Terrain_Depth.glsl",
@@ -341,6 +345,10 @@ namespace OloEngine
         s_Data.DepthPrepassSkinnedShader = m_ShaderLibrary.Get("DepthPrepass_Skinned");
         s_Data.DepthPrepassMaskShader = m_ShaderLibrary.Get("DepthPrepass_Mask");
         s_Data.DepthPrepassMaskSkinnedShader = m_ShaderLibrary.Get("DepthPrepass_MaskSkinned");
+        s_Data.DepthNormalPrepassShader = m_ShaderLibrary.Get("DepthNormalPrepass");
+        s_Data.DepthNormalPrepassSkinnedShader = m_ShaderLibrary.Get("DepthNormalPrepass_Skinned");
+        s_Data.DepthNormalPrepassMaskShader = m_ShaderLibrary.Get("DepthNormalPrepass_Mask");
+        s_Data.DepthNormalPrepassMaskSkinnedShader = m_ShaderLibrary.Get("DepthNormalPrepass_MaskSkinned");
         s_Data.TerrainPBRShader = m_ShaderLibrary.Get("Terrain_PBR");
         s_Data.TerrainGBufferShader = m_ShaderLibrary.Get("Terrain_GBuffer");
         s_Data.TerrainDepthShader = m_ShaderLibrary.Get("Terrain_Depth");

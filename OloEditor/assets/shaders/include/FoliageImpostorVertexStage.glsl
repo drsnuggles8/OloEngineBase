@@ -53,17 +53,11 @@ layout(location = 4) in vec4 a_RotationHeight; // x = Y rotation (rad), y = heig
 layout(location = 5) in vec4 a_ColorAlpha;     // rgb = tint, a = alpha cutoff
 #endif
 
-layout(std140, binding = 0) uniform CameraMatrices
-{
-    mat4 u_ViewProjection;
-    mat4 u_View;
-    mat4 u_Projection;
-    vec3 u_CameraPosition;
-    float _padding0;
-    mat4 u_PrevViewProjection;
-    vec3 u_RenderOrigin;
-    float _padding1;
-};
+// The shared camera block (include/CameraCommon.glsl), identical in every
+// stage of every program that includes this — GL links a program only if
+// its stages agree on the block — and carrying the forward screen-space AO
+// lane (issue #1452).
+#include "CameraCommon.glsl"
 
 // Foliage uploads ONE shared InstanceData entry for all N pulled instances
 // (see FoliageRenderer::Render) — per-instance data rides the 48-byte

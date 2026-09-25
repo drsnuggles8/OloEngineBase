@@ -7,21 +7,11 @@
 
 layout(triangles, equal_spacing, ccw) in;
 
-layout(std140, binding = 0) uniform CameraMatrices
-{
-    mat4 u_ViewProjection;
-    mat4 u_View;
-    mat4 u_Projection;
-    vec3 u_CameraPosition;
-    float _padding0;
-    mat4 u_PrevViewProjection;
-    vec3 u_RenderOrigin; // camera-relative render origin (issue #429)
-    float _padding1;
-    // Reconstruction flavour of u_Projection (#691) — every stage's
-    // declaration must match or glLinkProgram rejects the program; only the
-    // fragment stage reads it. Identical to u_Projection on GL.
-    mat4 u_ProjectionForReconstruction;
-};
+// The shared camera block (include/CameraCommon.glsl), identical in every
+// stage of every program that includes this — GL links a program only if
+// its stages agree on the block — and carrying the forward screen-space AO
+// lane (issue #1452).
+#include "CameraCommon.glsl"
 
 #include "InstanceBlock_Single.glsl"
 

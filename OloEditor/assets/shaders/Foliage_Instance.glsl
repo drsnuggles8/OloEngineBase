@@ -63,17 +63,11 @@ layout(location = 7) in float v_MeshCoverage;
 layout(location = 8) in float v_InstanceSeed; // this plant's own draw (issue #1237)
 
 // Camera UBO (binding 0)
-layout(std140, binding = 0) uniform CameraMatrices
-{
-    mat4 u_ViewProjection;
-    mat4 u_View;
-    mat4 u_Projection;
-    vec3 u_CameraPosition;
-    float _padding0;
-    mat4 u_PrevViewProjection;
-    vec3 u_RenderOrigin; // camera-relative render origin (issue #429)
-    float _padding1;
-};
+// The shared camera block (include/CameraCommon.glsl), identical in every
+// stage of every program that includes this — GL links a program only if
+// its stages agree on the block — and carrying the forward screen-space AO
+// lane (issue #1452).
+#include "include/CameraCommon.glsl"
 
 #include "include/BindlessHeap.glsl"
 
@@ -90,6 +84,8 @@ layout(std140, binding = 0) uniform CameraMatrices
 #include "include/LightProbeSampling.glsl"
 #define OLO_AMBIENT_LADDER_EXPLICIT_CONTROLS
 #include "include/AmbientLadder.glsl"
+// Screen-space AO for the ambient term (issue #1452).
+#include "include/ForwardScreenSpaceAO.glsl"
 // Virtual Shadow Maps (issue #702) — self-contained (UBO 79/80, page-table SSBO
 // 54, sampler 65), and CommandDispatch::BindShadowTextures publishes a DISABLED
 // globals block when VSM is off, so this costs one runtime branch and needs no
@@ -354,7 +350,10 @@ void main()
                                                      u_LeafLobe);
     }
 
-    vec3 litColor = ambient * ao + oloSurfaceLightingSum(Lo) + transmitted;
+    // The material AO times the SCREEN-SPACE AO (issue #1452), on the ambient
+    // term alone — the same product DeferredLighting multiplies its ambient
+    // split by.
+    vec3 litColor = ambient * (ao * oloForwardScreenSpaceAO(gl_FragCoord.xy)) + oloSurfaceLightingSum(Lo) + transmitted;
 
     FragColor = vec4(u_WindWeights.w > 0.5 ? v_Color : litColor, color.a);
 

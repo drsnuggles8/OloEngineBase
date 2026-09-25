@@ -1001,6 +1001,10 @@ namespace OloEngine
             // Projection on GL, row-flip-only on Vulkan.
             cameraData.ProjectionForReconstruction =
                 RHI::AdjustProjectionForShaderReconstruction(data.ProjectionMatrix);
+            // The forward screen-space AO lane (issue #1452) — whatever the
+            // frame has published so far; ScenePass's colour half re-uploads
+            // once the AO buffer of THIS frame exists.
+            cameraData.ScreenSpaceAOParams = CommandDispatch::GetForwardScreenSpaceAOParams();
 
             constexpr auto expectedSize = ShaderBindingLayout::CameraUBO::GetSize();
             static_assert(sizeof(ShaderBindingLayout::CameraUBO) == expectedSize, "CameraUBO size mismatch");
@@ -1306,34 +1310,42 @@ namespace OloEngine
             // makes an unapplied technique change degrade to "no AO" instead.
             const bool ssaoEnabled = data.ActiveGraphAOTechnique == AOTechnique::SSAO && data.PostProcess.SSAOEnabled;
             const bool gtaoEnabled = data.ActiveGraphAOTechnique == AOTechnique::GTAO && data.PostProcess.GTAOEnabled;
-            // WHO MULTIPLIES THE AO IN (issue #1336). The AO buffer is visibility
-            // for the AMBIENT term. On the deferred path DeferredLighting applies
-            // it to the ambient split, so this pass stands down and no longer
-            // darkens direct light, emission, transmission and the traced
-            // indirect tiers with it. The forward paths build the buffer from the
-            // forward pass's own normals, AFTER the lighting that would need it,
-            // so the composed-colour multiply stays there as a declared
-            // approximation (docs/agent-rules/lighting-signal-contract.md).
-            const ScreenSpaceAOApplication aoApplication =
-                SelectScreenSpaceAOApplication(ssaoEnabled || gtaoEnabled, data.Settings.Path);
+            // WHO MULTIPLIES THE AO IN (issues #1336, #1452). The AO buffer is
+            // visibility for the AMBIENT term, and every path now applies it
+            // there: DeferredLighting on Deferred, and on Forward / Forward+ the
+            // forward shaders themselves, reading an AO buffer the depth prepass
+            // fed before forward colour ran. So this pass stands down on every
+            // path, and no longer darkens direct light, emission, transmission
+            // or the traced indirect tiers with it.
+            const bool aoProduced = ssaoEnabled || gtaoEnabled;
+            const ScreenSpaceAOApplication aoApplication = SelectScreenSpaceAOApplication(aoProduced);
             // The AO debug view replaces the frame with the AO term itself, so it
             // keeps this pass on whichever path applies the AO.
             const bool aoDebugView = gtaoEnabled ? data.PostProcess.GTAODebugView : data.PostProcess.SSAODebugView;
-            const bool aoApplyEnabled = (aoApplication == ScreenSpaceAOApplication::ComposedColorApproximation ||
-                                         (aoApplication == ScreenSpaceAOApplication::AmbientTermInLighting && aoDebugView)) &&
+            const bool aoApplyEnabled = aoApplication == ScreenSpaceAOApplication::AmbientTermInLighting && aoDebugView &&
                                         PostProcessPasses.AOApply->IsReadyForExecution();
             PostProcessPasses.AOApply->SetEnabled(aoApplyEnabled);
+            // The SAME strength and depth linearisation on every consumer: SSAO's
+            // slider, or 1 for GTAO (its power is baked in the compute pass), and
+            // the reconstruction projection SSAORenderPass uploads, so a forward
+            // and a deferred pixel of one surface are multiplied by one number.
+            const f32 aoStrength = gtaoEnabled ? 1.0f : data.PostProcess.SSAOIntensity;
+            const bool aoToAmbient = aoApplication == ScreenSpaceAOApplication::AmbientTermInLighting && !aoDebugView;
             if (SceneCompositePasses.DeferredLighting)
             {
-                // The SAME strength and depth linearisation the AOApply pass
-                // would have used: SSAO's slider, or 1 for GTAO (its power is
-                // baked in the compute pass), and the reconstruction projection
-                // SSAORenderPass uploads, so the two consumers multiply by the
-                // same number.
                 const glm::mat4 aoProjection = RHI::AdjustProjectionForShaderReconstruction(data.ProjectionMatrix);
-                SceneCompositePasses.DeferredLighting->SetScreenSpaceAO(
-                    aoApplication == ScreenSpaceAOApplication::AmbientTermInLighting && !aoDebugView,
-                    gtaoEnabled ? 1.0f : data.PostProcess.SSAOIntensity, aoProjection[2][2], aoProjection[3][2]);
+                SceneCompositePasses.DeferredLighting->SetScreenSpaceAO(aoToAmbient, aoStrength, aoProjection[2][2],
+                                                                        aoProjection[3][2]);
+            }
+            if (FrameCorePasses.Scene)
+            {
+                // Forward / Forward+: the prepass writes the view normals the AO
+                // passes read whenever a buffer is PRODUCED (the debug view needs
+                // real AO too), and the forward shaders apply it whenever it goes
+                // to the ambient term. The deferred path ignores both.
+                const bool forwardPath = data.Settings.Path != RenderingPath::Deferred;
+                FrameCorePasses.Scene->SetForwardScreenSpaceAO(forwardPath && aoProduced, forwardPath && aoToAmbient,
+                                                               aoStrength);
             }
             // AO texture selection is setup-owned too; the per-frame hook only
             // updates the enable state and bound UBOs.
@@ -3612,6 +3624,21 @@ namespace OloEngine
                 // No additional handling required.
             }
 
+            // The forward AO upsample's depth (issue #1452): written by the
+            // prepass node, read by every forward shader that applies AO.
+            const auto& aoSceneSpec = pipeline.FrameCorePasses.Scene->GetFramebufferSpecification();
+            if (board.AO.AOBuffer.IsValid() && config.Path != RenderingPath::Deferred &&
+                board.Scene.SceneDepth.IsValid() && aoSceneSpec.Width > 0u && aoSceneSpec.Height > 0u)
+            {
+                RGResourceDesc aoDepthDesc;
+                aoDepthDesc.Kind = RGResourceHandle::Kind::Texture2D;
+                aoDepthDesc.Format = RGResourceFormat::Depth24Stencil8;
+                aoDepthDesc.Width = aoSceneSpec.Width;
+                aoDepthDesc.Height = aoSceneSpec.Height;
+                aoDepthDesc.DebugName = ResourceNames::ForwardAODepth;
+                board.Scene.ForwardAODepth = graph.AllocateTransientTextureHandle(ResourceNames::ForwardAODepth, aoDepthDesc);
+            }
+
             static i32 s_PrevAOTechnique = -1;
             static bool s_PrevSSAOEnabled = false;
             static bool s_PrevGTAOEnabled = false;
@@ -5677,6 +5704,8 @@ namespace OloEngine
         inputs.ActiveAOTechnique = data.PostProcess.ActiveAOTechnique;
 
         inputs.Passes.Scene = FrameCorePasses.Scene.Raw();
+        inputs.Passes.ScenePrepass = FrameCorePasses.ScenePrepass.Raw();
+        inputs.Passes.GPUOcclusionPrepass = FrameCorePasses.GPUOcclusionPrepass.Raw();
         inputs.Passes.Shadow = FrameCorePasses.Shadow.Raw();
         inputs.Passes.DDGIProbeUpdate = FrameCorePasses.DDGIProbeUpdate.Raw();
         inputs.Passes.VirtualShadowMapMark = FrameCorePasses.VirtualShadowMapMark.Raw();
@@ -5785,6 +5814,9 @@ namespace OloEngine
         FrameCorePasses.Scene = Ref<SceneRenderPass>::Create();
         FrameCorePasses.Scene->SetName("ScenePass");
         FrameCorePasses.Scene->Init(scenePassSpec);
+        // Forward prepass as its own node (issue #1452): renders the Scene
+        // pass's bucket into the Scene pass's target, so it owns neither.
+        FrameCorePasses.ScenePrepass = Ref<ScenePrepassRenderPass>::Create(FrameCorePasses.Scene.Raw());
 
         // Realtime DDGI probe update (#632) — path-agnostic, self-disables
         // when no Realtime/Hybrid volume is submitted for the frame. All its
@@ -5834,6 +5866,10 @@ namespace OloEngine
         RenderStreamPasses.GPUOcclusion = Ref<GPUDrivenOcclusionPass>::Create();
         RenderStreamPasses.GPUOcclusion->SetName("GPUDrivenOcclusionPass");
         RenderStreamPasses.GPUOcclusion->Init(scenePassSpec);
+        // Its forward-prepass share (issue #1452), in the core set beside the
+        // scene prepass it follows.
+        FrameCorePasses.GPUOcclusionPrepass =
+            Ref<GPUDrivenOcclusionPrepassPass>::Create(RenderStreamPasses.GPUOcclusion.Raw());
 
         // Forward overlay pass — runs after DeferredLightingPass in Deferred
         // mode to render skybox / terrain / voxel terrain / infinite grid /

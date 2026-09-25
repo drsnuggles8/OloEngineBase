@@ -194,6 +194,9 @@ namespace OloEngine
         CommandDispatch::SetProjectionMatrix(m.ObliqueProjection);
         CommandDispatch::SetViewProjectionMatrix(m.ViewProjection);
         CommandDispatch::SetViewPosition(m.MirrorCameraPosition);
+        // The main view's screen-space AO buffer means nothing from the mirror
+        // camera (issue #1452), so the replay's shaders see it as not live.
+        CommandDispatch::SuspendForwardScreenSpaceAO(true);
         CommandDispatch::UploadCameraUBO();
         CommandDispatch::InvalidateRenderStateCache();
 
@@ -232,6 +235,7 @@ namespace OloEngine
         CommandDispatch::SetProjectionMatrix(realProj);
         CommandDispatch::SetViewProjectionMatrix(realVP);
         CommandDispatch::SetViewPosition(realPos);
+        CommandDispatch::SuspendForwardScreenSpaceAO(false);
         CommandDispatch::UploadCameraUBO();
         CommandDispatch::InvalidateRenderStateCache();
 

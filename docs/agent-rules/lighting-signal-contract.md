@@ -50,7 +50,7 @@ composition and ladder against physics-derived answers), `LightingSignalComposit
 | ReSTIR GI radiance | contribution, **diffuse lobe only** | deferred diffuse half, no AO |
 | ReSTIR PT radiance | contribution, both lobes | deferred, outside the split |
 | SSGI signal | **signed** contribution delta against the ladder | SSGI composite (`base + delta`) |
-| AO buffer | visibility (ambient) | DeferredLighting; forward: AOApply |
+| AO buffer | visibility (ambient) | DeferredLighting; forward: every lit forward shader, through `include/ForwardScreenSpaceAO.glsl` (#1452) |
 | Contact shadow | visibility (Lights[0]) | DeferredLighting's loop |
 | Reflection probe sample | radiance + confidence | mixed over the prefilter, before the DFG weight |
 
@@ -92,9 +92,6 @@ Each of these was a local choice that looked right.
 
 ## Declared approximations (kept on purpose)
 
-- **Forward screen-space AO multiplies the composed colour.** The forward AO buffer is built from the
-  forward pass's own normals, after the lighting that would need it. Removing this needs the forward
-  pass to export its ambient term, a new attachment that all ~45 forward writers must write (#1452).
 - **Legacy split-sum specular uses `F_roughness·A + B`.** Changing it moves every Legacy pixel;
   ClosureV2 is the corrected closure (ADR 0016).
 - **SSGI takes the ladder's radiance as uniform over directions** (the rung's *E/π*). It is exact for
@@ -120,6 +117,31 @@ Each of these was a local choice that looked right.
   direct-term parity bug, not an ownership one, and predates this work.
 - **Media** (fog, volumetrics) is applied after surface composition, to reflections included, and
   the reference tracer has none.
+
+## Forward screen-space AO (#1452)
+
+Forward and Forward+ apply screen-space AO the way Deferred does: to the ambient term, inside the
+shader that composes it. `SelectScreenSpaceAOApplication` answers `AmbientTermInLighting` on every
+path, and `PostProcess_SSAOApply` runs only for the AO debug view.
+
+- **The prepass is its own node.** `ScenePrepassPass` clears, batches and runs ScenePass's bucket
+  depth-only. With a forward AO buffer produced, it also writes the view normal of scene attachment 2
+  through `DepthNormalPrepass*.glsl`, which call the colour pass's own normal function
+  (`include/ForwardShadingNormal.glsl`). With AO live the prepass is forced on even where the
+  settings leave it off.
+- **The order is prepass, AO, colour.** The graph runs `ScenePrepassPass`, then
+  `GPUDrivenOcclusionPrepassPass` (the HZB-culled instances' share), then SSAO or GTAO and the
+  sphere proxies, then ScenePass's colour half.
+- **Every lit forward shader reads it.** That is PBR (static and skinned), terrain, voxel terrain,
+  foliage, groom and water. `CommandDispatch` publishes the AO buffer and `ForwardAODepth` (the
+  prepass depth, copied once) at `TEX_SSAO` / `TEX_POSTPROCESS_DEPTH`. The camera block's
+  `ScreenSpaceAOParams` says whether they are live. A mirrored replay (planar reflection) suspends
+  them.
+- **Unlit or blended writers have no ambient term, so they apply nothing.** These are skybox, light
+  cubes, grid, particles, decals and fluid. There are 18 scene-framebuffer writers, not ~45.
+- **Foliage, groom and water are not in the AO input.** They draw after the AO passes, so they
+  sample the occlusion of the surface behind them. On Deferred, foliage writes the G-Buffer and is in
+  the AO input, so foliage AO differs between the paths by that much.
 
 ## How to add a technique
 

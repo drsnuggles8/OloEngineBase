@@ -36,17 +36,11 @@ layout(location = 6) in vec3 v_PrevWorldPos;
 layout(location = 7) in float v_MeshCoverage;
 layout(location = 8) in float v_InstanceSeed; // this plant's own draw (issue #1237)
 
-layout(std140, binding = 0) uniform CameraMatrices
-{
-    mat4 u_ViewProjection;
-    mat4 u_View;
-    mat4 u_Projection;
-    vec3 u_CameraPosition;
-    float _padding0;
-    mat4 u_PrevViewProjection;
-    vec3 u_RenderOrigin; // camera-relative render origin (issue #429)
-    float _padding1;
-};
+// The shared camera block (include/CameraCommon.glsl), identical in every
+// stage of every program that includes this — GL links a program only if
+// its stages agree on the block — and carrying the forward screen-space AO
+// lane (issue #1452).
+#include "include/CameraCommon.glsl"
 
 #include "include/FoliageParams.glsl"
 

@@ -156,7 +156,7 @@ TEST(LightingSignalContract, HybridTiersOwnNothingWithoutAGBuffer)
         });
 }
 
-TEST(LightingSignalContract, ScreenSpaceAOIsAmbientVisibilityWhereverTheAmbientTermIsSeparable)
+TEST(LightingSignalContract, ScreenSpaceAOIsAmbientVisibilityOnEveryPath)
 {
     ForEveryFrame(
         [](const LightingFrameConfiguration& frame, u32)
@@ -167,19 +167,32 @@ TEST(LightingSignalContract, ScreenSpaceAOIsAmbientVisibilityWhereverTheAmbientT
                 EXPECT_EQ(application, ScreenSpaceAOApplication::None) << "AO applied with no AO buffer produced";
                 return;
             }
-            if (frame.Path == RenderingPath::Deferred)
-            {
-                EXPECT_EQ(application, ScreenSpaceAOApplication::AmbientTermInLighting)
-                    << "the deferred path composes the ambient term itself, so the AO buffer must multiply that term "
-                       "and not the finished frame (direct light, emission and traced indirect included)";
-            }
-            else
-            {
-                EXPECT_EQ(application, ScreenSpaceAOApplication::ComposedColorApproximation)
-                    << "the forward paths build the AO buffer after their lighting; the composed-colour multiply is "
-                       "the declared approximation there";
-            }
+            // Every path composes its ambient term in a shader that can read the
+            // AO buffer: DeferredLighting, and since #1452 every forward shader,
+            // because the forward AO is built from the depth prepass ahead of
+            // forward colour. None of them may multiply the finished frame.
+            EXPECT_EQ(application, ScreenSpaceAOApplication::AmbientTermInLighting)
+                << "path " << static_cast<int>(frame.Path) << ": the AO buffer must multiply the ambient term, not "
+                << "the composed colour (direct light, emission, transmission and traced indirect included)";
         });
+}
+
+TEST(LightingSignalContract, ScreenSpaceAOApplicationDoesNotDependOnThePath)
+{
+    for (const bool produced : { false, true })
+    {
+        LightingFrameConfiguration reference{};
+        reference.Path = RenderingPath::Deferred;
+        reference.ScreenSpaceAOProduced = produced;
+        const ScreenSpaceAOApplication expected = ResolveLightingSignalOwnership(reference).ScreenSpaceAO;
+        for (const RenderingPath path : kPaths)
+        {
+            LightingFrameConfiguration frame = reference;
+            frame.Path = path;
+            EXPECT_EQ(ResolveLightingSignalOwnership(frame).ScreenSpaceAO, expected)
+                << "the forward and deferred paths must apply screen-space AO the same way (issue #1452)";
+        }
+    }
 }
 
 TEST(LightingSignalContract, ContactShadowsAreTheSunsVisibilityAndExistOnlyWithAGBuffer)

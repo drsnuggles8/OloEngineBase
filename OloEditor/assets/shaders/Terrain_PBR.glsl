@@ -72,20 +72,11 @@ layout(location = 1) out vec2 tc_TexCoord[];
 layout(location = 2) out vec3 tc_Normal[];
 
 // Camera UBO (binding 0)
-layout(std140, binding = 0) uniform CameraMatrices {
-    mat4 u_ViewProjection;
-    mat4 u_View;
-    mat4 u_Projection;
-    vec3 u_CameraPosition;
-    float _padding0;
-    mat4 u_PrevViewProjection;
-    // Camera-relative render origin (issue #429): geometry is drawn relative to
-    // it, so add it back to reconstruct absolute world position for the
-    // world-anchored PATTERNS below (triplanar tiling, snow clipmap, editor
-    // brush, snow height). Zero within the first grid cell → no-op near origin.
-    vec3 u_RenderOrigin;
-    float _padding1;
-};
+// The shared camera block (include/CameraCommon.glsl), identical in every
+// stage of every program that includes this — GL links a program only if
+// its stages agree on the block — and carrying the forward screen-space AO
+// lane (issue #1452).
+#include "include/CameraCommon.glsl"
 
 // Terrain UBO (binding 10)
 #include "include/TerrainParamsBlock.glsl"
@@ -145,23 +136,11 @@ layout(location = 1) in vec2 tc_TexCoord[];
 layout(location = 2) in vec3 tc_Normal[];
 
 // Camera UBO (binding 0)
-layout(std140, binding = 0) uniform CameraMatrices {
-    mat4 u_ViewProjection;
-    mat4 u_View;
-    mat4 u_Projection;
-    vec3 u_CameraPosition;
-    float _padding0;
-    // Previous-frame VP for scene FB RT3 velocity. Terrain geometry is
-    // world-static, so this plus the current v_WorldPos gives exact
-    // per-pixel camera-motion velocity for TAA.
-    mat4 u_PrevViewProjection;
-    // Camera-relative render origin (issue #429): geometry is drawn relative to
-    // it, so add it back to reconstruct absolute world position for the
-    // world-anchored PATTERNS below (triplanar tiling, snow clipmap, editor
-    // brush, snow height). Zero within the first grid cell → no-op near origin.
-    vec3 u_RenderOrigin;
-    float _padding1;
-};
+// The shared camera block (include/CameraCommon.glsl), identical in every
+// stage of every program that includes this — GL links a program only if
+// its stages agree on the block — and carrying the forward screen-space AO
+// lane (issue #1452).
+#include "include/CameraCommon.glsl"
 
 // Model UBO (binding 3)
 #include "include/InstanceBlock_Single.glsl"
@@ -270,20 +249,11 @@ void main()
 #include "include/PBRCommon.glsl"
 #include "include/SnowCommon.glsl"
 #include "include/AtmosphereShading.glsl"
-layout(std140, binding = 0) uniform CameraMatrices {
-    mat4 u_ViewProjection;
-    mat4 u_View;
-    mat4 u_Projection;
-    vec3 u_CameraPosition;
-    float _padding0;
-    mat4 u_PrevViewProjection;
-    // Camera-relative render origin (issue #429): geometry is drawn relative to
-    // it, so add it back to reconstruct absolute world position for the
-    // world-anchored PATTERNS below (triplanar tiling, snow clipmap, editor
-    // brush, snow height). Zero within the first grid cell → no-op near origin.
-    vec3 u_RenderOrigin;
-    float _padding1;
-};
+// The shared camera block (include/CameraCommon.glsl), identical in every
+// stage of every program that includes this — GL links a program only if
+// its stages agree on the block — and carrying the forward screen-space AO
+// lane (issue #1452).
+#include "include/CameraCommon.glsl"
 
 // Multi-Light UBO (binding 5)
 layout(std140, binding = 5) uniform MultiLightBuffer {
@@ -383,6 +353,8 @@ layout(binding = 34) uniform sampler2DArray u_ShadowAtlasRaw;
 #include "include/LightProbeSampling.glsl"
 #define OLO_AMBIENT_LADDER_EXPLICIT_CONTROLS
 #include "include/AmbientLadder.glsl"
+// Screen-space AO for the ambient term (issue #1452).
+#include "include/ForwardScreenSpaceAO.glsl"
 
 // IBL textures
 #ifdef OLO_BINDLESS
@@ -797,7 +769,10 @@ void main()
     // into RT1.w and DeferredLightingShared multiplies the ambient split by it).
     // The old `mix(color, color * ao, 0.5)` also darkened every light's direct
     // contribution, which the light's own shadow already accounts for.
-    vec3 color = ambient * ao + Lo;
+    // The material AO times the SCREEN-SPACE AO (issue #1452), on the ambient
+    // term alone — the same product DeferredLighting multiplies its ambient
+    // split by.
+    vec3 color = ambient * (ao * oloForwardScreenSpaceAO(gl_FragCoord.xy)) + Lo;
 
     // Brush preview overlay
     if (u_BrushParams.x > 0.5)

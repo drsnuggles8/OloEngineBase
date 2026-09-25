@@ -89,6 +89,10 @@ namespace OloEngine
             // what made GTAO shade every surface fully occluded in forward, with
             // the artefact swimming as the camera turned (issue #438 follow-up).
             bool SceneNormalsAreViewSpace = false;
+            // Forward paths with screen-space AO only (issue #1452): the
+            // prepass depth, copied once, read by every forward shader's
+            // ambient AO upsample. See ResourceNames::ForwardAODepth.
+            RGTextureHandle ForwardAODepth;
         };
 
         // -----------------------------------------------------------------------

@@ -2,21 +2,20 @@
 // ScreenSpaceAOSampling.glsl — reading the screen-space AO buffer at full
 // resolution (SSAO / GTAO, with the sphere-proxy term folded in).
 //
-// ONE UPSAMPLE, TWO CONSUMERS (issue #1336). The AO buffer is a VISIBILITY
-// signal for the AMBIENT term — the indirect light a ladder rung assumed arrives
-// unoccluded. Who multiplies it in is a lighting-contract decision, made by
-// OloEngine::SelectScreenSpaceAOApplication:
+// ONE UPSAMPLE, EVERY CONSUMER (issues #1336, #1452). The AO buffer is a
+// VISIBILITY signal for the AMBIENT term — the indirect light a ladder rung
+// assumed arrives unoccluded — and every path applies it there
+// (OloEngine::SelectScreenSpaceAOApplication):
 //
-//   - Deferred: DeferredLighting multiplies the ambient split by it, inside the
-//     lighting shader, so direct light, emission, transmission and the traced
-//     indirect tiers are never darkened by it.
-//   - Forward / Forward+: the AO buffer is produced FROM the forward pass's own
-//     normals, after the lighting that would need it has run, so
-//     PostProcess_SSAOApply multiplies the composed colour — a declared
-//     approximation, see docs/agent-rules/lighting-signal-contract.md.
+//   - Deferred: DeferredLighting multiplies the ambient split by it.
+//   - Forward / Forward+: the depth prepass writes the view normals the AO
+//     passes read, the AO passes run before forward colour, and every forward
+//     shader multiplies its ambient term by it through
+//     include/ForwardScreenSpaceAO.glsl.
+//   - PostProcess_SSAOApply draws only the AO debug view.
 //
-// Both call this function, so the value a pixel is multiplied by is the same
-// whichever consumer applies it. The caller defines OLO_SSAO_TAP_DEPTH(uv) to
+// All of them call this function, so the value a pixel is multiplied by is the
+// same whichever consumer applies it. The caller defines OLO_SSAO_TAP_DEPTH(uv) to
 // return the FULL-RESOLUTION depth-buffer value at `uv` (a [0,1] window depth),
 // before including this file.
 // =============================================================================

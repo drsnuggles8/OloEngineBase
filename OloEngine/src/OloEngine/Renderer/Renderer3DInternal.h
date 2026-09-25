@@ -30,6 +30,8 @@
 #include "OloEngine/Renderer/Passes/PlanarReflectionRenderPass.h"
 #include "OloEngine/Renderer/Passes/PrecipitationRenderPass.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
+#include "OloEngine/Renderer/Passes/ScenePrepassRenderPass.h"
+#include "OloEngine/Renderer/Passes/GPUDrivenOcclusionPrepassPass.h"
 #include "OloEngine/Renderer/Passes/ShaderDebugDrawPass.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualGeometryPass.h"
 #include "OloEngine/Renderer/Passes/SelectionOutlineRenderPass.h"
@@ -251,6 +253,12 @@ namespace OloEngine
     {
         Ref<ShadowRenderPass> Shadow;
         Ref<SceneRenderPass> Scene;
+        // The forward paths' depth(-normal) prepass as its own node, ahead of
+        // the screen-space AO passes (issue #1452). Renders Scene's bucket.
+        Ref<ScenePrepassRenderPass> ScenePrepass;
+        // ...and the GPU-driven instanced batches' share of it (issue #1452),
+        // rendered from GPUOcclusion's bucket ahead of the AO passes.
+        Ref<GPUDrivenOcclusionPrepassPass> GPUOcclusionPrepass;
         // Realtime DDGI probe capture/relight/blend (#632). Path-agnostic:
         // registered between ShadowPass (its relight samples the CSM/atlas)
         // and ScenePass (the forward lit shaders sample the atlases it
@@ -275,6 +283,8 @@ namespace OloEngine
             return std::tuple{
                 &FrameCorePassSet::Shadow,
                 &FrameCorePassSet::Scene,
+                &FrameCorePassSet::ScenePrepass,
+                &FrameCorePassSet::GPUOcclusionPrepass,
                 &FrameCorePassSet::DDGIProbeUpdate,
                 &FrameCorePassSet::VirtualShadowMapMark,
                 &FrameCorePassSet::SkeletalDeform,

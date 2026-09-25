@@ -365,6 +365,12 @@ namespace OloEngine::ResourceNames
     inline constexpr std::string_view SceneDepthAttachment = "SceneDepthAttachment"; // Live SceneColor depth attachment view
     inline constexpr std::string_view SceneDepth = "SceneDepth";                     // Semantic scene depth (forward snapshot or deferred G-Buffer depth)
     inline constexpr std::string_view SceneNormals = "SceneNormals";                 // Semantic AO/deferred normals input
+    // Forward paths with screen-space AO (issue #1452): the depth the forward
+    // prepass wrote, copied ONCE. The bilateral upsample in
+    // include/ForwardScreenSpaceAO.glsl reads it beside the AO buffer; nothing
+    // writes it after the prepass, so every forward shader upsamples against
+    // the depth the AO buffer was built from.
+    inline constexpr std::string_view ForwardAODepth = "ForwardAODepth";
 
     // Planar reflection — the opaque scene re-rendered from a mirrored, oblique-
     // clipped camera into a transient color target, sampled projectively by the

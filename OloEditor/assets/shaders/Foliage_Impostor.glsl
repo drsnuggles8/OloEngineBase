@@ -48,17 +48,11 @@ layout(location = 7) in float v_Radius;
 layout(location = 2) in float v_MeshCoverage;
 layout(location = 3) in vec2 v_LodSeedFade; // (instance draw, thinning fade) — issue #1237 // WORLD-space card radius
 
-layout(std140, binding = 0) uniform CameraMatrices
-{
-    mat4 u_ViewProjection;
-    mat4 u_View;
-    mat4 u_Projection;
-    vec3 u_CameraPosition;
-    float _padding0;
-    mat4 u_PrevViewProjection;
-    vec3 u_RenderOrigin;
-    float _padding1;
-};
+// The shared camera block (include/CameraCommon.glsl), identical in every
+// stage of every program that includes this — GL links a program only if
+// its stages agree on the block — and carrying the forward screen-space AO
+// lane (issue #1452).
+#include "include/CameraCommon.glsl"
 
 // PBRCommon first — LightData, MAX_LIGHTS and the BRDF come from it, and the
 // light block below is declared in terms of its LightData struct.
@@ -72,6 +66,8 @@ layout(std140, binding = 0) uniform CameraMatrices
 #include "include/LightProbeSampling.glsl"
 #define OLO_AMBIENT_LADDER_EXPLICIT_CONTROLS
 #include "include/AmbientLadder.glsl"
+// Screen-space AO for the ambient term (issue #1452).
+#include "include/ForwardScreenSpaceAO.glsl"
 #include "include/VirtualShadowSampling.glsl"
 // The vegetation material's LOBE half (issue #1234). No sampling half: an
 // impostor has no leaf maps — its atlas baked them in — so it takes the lobe
@@ -268,7 +264,10 @@ void main()
             leafThickness, leafTint, texture(u_IrradianceMap, -N).rgb * u_LeafIds.z, u_LeafLobe);
     }
 
-    vec3 litColor = ambient * ao + oloSurfaceLightingSum(Lo) + transmitted;
+    // The material AO times the SCREEN-SPACE AO (issue #1452), on the ambient
+    // term alone — the same product DeferredLighting multiplies its ambient
+    // split by.
+    vec3 litColor = ambient * (ao * oloForwardScreenSpaceAO(gl_FragCoord.xy)) + oloSurfaceLightingSum(Lo) + transmitted;
 
     // Foliage blends are OFF (opaque alpha-tested), so this alpha is never
     // seen; the visible fade is the discard SampleImpostorCard applies.

@@ -36,6 +36,10 @@ layout(std140, binding = 0) uniform CameraMatrices {
     // both flavours — wrap in abs() where a magnitude (projection scale) is
     // wanted.
     mat4 u_ProjectionForReconstruction;
+    // Screen-space AO for the FORWARD shaders' ambient term (issue #1452):
+    // x = live, y = strength. Zero on every view but the main view's forward
+    // colour passes. Read through include/ForwardScreenSpaceAO.glsl.
+    vec4 u_ScreenSpaceAOParams;
 };
 
 #endif // CAMERA_COMMON_GLSL
