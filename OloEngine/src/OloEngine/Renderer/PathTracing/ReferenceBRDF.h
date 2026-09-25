@@ -145,6 +145,11 @@ namespace OloEngine::PathTracing
     // always wrong, and it is invisible — the image just converges brighter.
     // The denominator guard here is a denormal floor, not a value clamp;
     // `SamplingRoughness` floors alpha well above where it could engage.
+    //
+    // COSINE-ONLY CALLERS. This scalar form cancels near the peak of a sharp
+    // lobe (see the vector overload below): every caller that holds n and h
+    // uses that one. It stays for callers that only hold a cosine — a chart
+    // density, a finite-difference probe — and nothing on a shading path.
     [[nodiscard]] inline f32 DistributionGGXSamplingDensity(f32 nDotH, f32 roughness) noexcept
     {
         const f32 a = roughness * roughness;
@@ -339,6 +344,8 @@ namespace OloEngine::PathTracing
     // 1 / (4 (v·h)). No GLSL counterpart — the shaders importance-sample but
     // never need the density (they use the NdotL-weighted-average estimator);
     // an unbiased integrator does.
+    // Cosine-only form (the cos-form D cancels at low roughness); shading paths use
+    // the vector overload below.
     [[nodiscard]] inline f32 PdfGGX(f32 nDotH, f32 vDotH, f32 roughness) noexcept
     {
         if (vDotH <= 0.0f)
@@ -583,6 +590,8 @@ namespace OloEngine::PathTracing
     // with the v2 alpha clamp this same D is also what ClosureV2Evaluate
     // evaluates, which is what makes Evaluate/Sample/Pdf agree. GLSL twin: the
     // specular term of closureV2Pdf.
+    // Cosine-only form (the cos-form D cancels at low roughness); shading paths use
+    // the vector overload below.
     [[nodiscard]] inline f32 PdfGGXVNDF(f32 nDotV, f32 nDotH, f32 roughness) noexcept
     {
         if (nDotV <= 0.0f)

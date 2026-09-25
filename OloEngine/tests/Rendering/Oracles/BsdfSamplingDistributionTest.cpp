@@ -548,6 +548,11 @@ namespace OloEngine::Tests::Oracle
         // still). The expected count on the normal is <= 2M x 2^-24 = 0.12;
         // P(Poisson(0.12) >= 3) = 2.7e-4, so <= 2 is the bound.
         constexpr u32 kDraws = 2000000u;
+        // EXACT zero is the event counted (sin theta rounded to 0, not "near
+        // the normal"), so classify the bits rather than compare with a
+        // tolerance: FP_ZERO is +0 and -0 and nothing else.
+        const auto isExactlyOnTheNormal = [](const glm::vec3& d)
+        { return std::fpclassify(d.x) == FP_ZERO && std::fpclassify(d.y) == FP_ZERO; };
         for (f64 roughness : { 0.04, 0.05, 0.1 })
         {
             const f64 predicted = GgxThetaCdf(1.0 / std::sqrt(1.0 + std::ldexp(1.0, -25)), roughness * roughness);
@@ -559,8 +564,8 @@ namespace OloEngine::Tests::Oracle
                 const glm::vec2 xi = NextXi(stream);
                 const glm::vec3 h = PathTracing::ImportanceSampleGGX(xi, Engine::kNormal, static_cast<f32>(roughness));
                 const glm::vec3 o = Pre1347GgxHalfVector(xi, static_cast<f32>(roughness));
-                engineOnTheNormal += (h.x == 0.0f && h.y == 0.0f) ? 1u : 0u;
-                oldOnTheNormal += (o.x == 0.0f && o.y == 0.0f) ? 1u : 0u;
+                engineOnTheNormal += isExactlyOnTheNormal(h) ? 1u : 0u;
+                oldOnTheNormal += isExactlyOnTheNormal(o) ? 1u : 0u;
             }
             const f64 oldFraction = static_cast<f64>(oldOnTheNormal) / kDraws;
             const f64 sigma = std::sqrt(predicted * (1.0 - predicted) / kDraws);

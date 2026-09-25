@@ -874,8 +874,9 @@ At #1347 the live replay held 82 of 88 regions on Vulkan × {Forward, Forward+, 
 test process (testing-architecture.md §9). To run them:
 
 1. Export the rows from a GL run:
-   `OloEngine-Tests.exe --olo-cross-path-export=<dir> --gtest_filter=AllRowsAllArms/CrossPathLightingMatrix.*gl_forward_native:AllRowsAllArms/CrossPathLightingMatrix.*SSGIBounce_gl_deferred_native`
-   run from `OloEditor/`.
+   `OloEngine-Tests.exe --olo-cross-path-export=<dir> --gtest_filter=AllRowsAllArms/CrossPathLightingMatrix.*gl_forward_native:AllRowsAllArms/CrossPathLightingMatrix.*SSGIBounce_gl_deferred_native:AllRowsAllArms/CrossPathLightingMatrix.*ReSTIRDI_gl_deferred_native`
+   run from `OloEditor/`. SSGI and ReSTIR DI export from GL Deferred: SSGI's reference arm, and
+   the raster-loop reference ReSTIR DI is held to.
 2. Launch the editor on Vulkan with MCP writes on.
 3. Run `scripts/cross-path-matrix-live.py --port <n> --backend vulkan --export-dir <dir>`.
 

@@ -55,8 +55,10 @@
 // sharp lobe, a diffuse term and the horizon are each resolved by the rule
 // whose nodes are there. The oracle is evaluated at the f32-rounded directions
 // the engine received, so input rounding is not charged to the engine; what is
-// left is the engine's f32 arithmetic plus one conditioning effect of its
-// cos-form NDF (NdfConditioning), which the furnace and pdf tests measure.
+// left is the engine's f32 arithmetic plus the conditioning of its NDF in the
+// half vector it forms (kVectorNdfConditioning for the vector-form D that
+// ClosureV2Evaluate and both BSDF::Pdf lobes use, kLegacyNdfConditioning for
+// the cos-form D of CookTorranceBRDF).
 //
 // Classification: L1 (pure CPU math, no GL).
 // =============================================================================
@@ -107,25 +109,40 @@ namespace OloEngine::Tests::Oracle
         // chains: ~2e-6. 2e-5 is that with a factor of ten of headroom.
         constexpr f64 kF32Relative = 2.0e-5;
 
-        // Conditioning of the engine's cos-form NDF near its peak. Both
-        // closures compute D from B = nDotH^2 (a2 - 1) + 1, which at the peak
-        // is a2 = alpha^2 left over from cancelling 1 - nDotH^2. nDotH comes
-        // from an f32 normalize and dot: a few ulps of 1, ~2.4e-7 absolute, so
-        // B carries ~6e-7 absolute error with its own rounding, and D ~ 1/B^2
-        // carries 2 x 6e-7 / B relative — at the peak 1.2e-6 / alpha^2: 0.47
-        // at roughness 0.04, 0.19 at 0.05, 2.4e-3 at 0.15, negligible above.
-        // Averaged over the lobe's D cos measure, 1/B has mean 1/(2 a2) (with
-        // u = tan^2 / alpha^2, B ~ a2 (1 + u) and D cos du ~ (1 + u)^-2 du), so
-        // an INTEGRAL of the lobe carries at most half of it. The oracle's tan
-        // form, and a B written as sin^2 + a2 cos^2, do not cancel.
-        [[nodiscard]] f64 NdfConditioning(f64 alpha)
-        {
-            return 1.2e-6 / (alpha * alpha);
-        }
+        // Conditioning of the VECTOR-form NDF (ReferenceBRDF.h
+        // DistributionGGXSamplingDensity(n, h, r): B = |n x h|^2 + a2 (n.h)^2),
+        // which ClosureV2Evaluate and both lobes of BSDF::Pdf use. With
+        // t = tan(theta_h) and D = a2 / (pi cos^4 (t^2 + a2)^2),
+        //   d ln D / d ln t = 4 sin^2 - 4 t^2 / (t^2 + a2),  |.| <= 4,
+        // so a relative error e in tan(theta_h) moves D by at most 4 e, at
+        // every alpha. The engine forms h = normalize(v + l) in f32 from the
+        // received v, l (the oracle sees the same ones), and with n = +z the
+        // cross product (-h.y, h.x, 0) is exact, so t = |s_t| / s_z of s = v + l.
+        // Each component of the sum is correctly rounded, 2^-24 relative however
+        // much v and l cancel, so |s_t| and s_z carry 2^-24 each; normalize's
+        // common scale cancels in the ratio and its per-component products add
+        // 2^-24 each. So e <= 4 x 2^-24, and D's relative error is at most
+        // 16 x 2^-24 = 9.5e-7 at every alpha, 20x under kF32Relative.
+        // Measured: ClosureV2 evaluation 1.7e-6 worst relative (with its f32
+        // arithmetic), PdfGGXVNDF 9.1e-7, PdfGGX 8.4e-7. The bound holds for an
+        // integral of the lobe too (a weighted mean of values each within it).
+        //
+        // It is NOT the allowance the SCALAR form would need. That form takes
+        // B = nDotH^2 (a2 - 1) + 1, which at the peak is a2 left over from
+        // cancelling 1 - nDotH^2 around an nDotH already rounded to a few ulps
+        // of 1: 1.2e-6 / alpha^2 relative, 19 % at roughness 0.05. Holding the
+        // v2 closure and the pdfs to 9.5e-7 is what makes a revert to the
+        // scalar form fail here (it measured +17 % pointwise, +1.3 % on the
+        // furnace and +3.5 % on the pdf integral).
+        constexpr f64 kVectorNdfConditioning = 16.0 / 16777216.0;
 
-        // Legacy never sees that peak: its D is floored at pi B^2 >= 1e-4, so
-        // wherever the floor is inactive B >= sqrt(1e-4 / pi) = 5.6e-3 and the
-        // same 1.2e-6 / B is at most 2.2e-4.
+        // Legacy's CookTorranceBRDF still evaluates the SCALAR cos form
+        // (DistributionGGX: B = nDotH^2 (a2 - 1) + 1 on nDotH = dot(n, h)).
+        // nDotH carries ~2.4e-7 absolute from the f32 normalize and dot, B then
+        // ~6e-7 absolute with its own rounding, and D ~ 1/B^2 carries 2 x 6e-7
+        // / B relative. Legacy never sees the a2-sized peak, though: its D is
+        // floored at pi B^2 >= 1e-4, so wherever the floor is inactive
+        // B >= sqrt(1e-4 / pi) = 5.6e-3 and 1.2e-6 / B is at most 2.2e-4.
         constexpr f64 kLegacyNdfConditioning = 1.2e-6 / 5.6e-3;
 
         // Error of one stored table entry against the true energy (test 5
@@ -428,7 +445,8 @@ namespace OloEngine::Tests::Oracle
         }
 
         // PathTracing::PdfGGX at BSDF::SamplingRoughness, over l — the Legacy
-        // specular density exactly as BSDF::Pdf forms it.
+        // specular density exactly as BSDF::Pdf forms it: the vector overload,
+        // n = +z, h = normalize(v + l) in f32.
         [[nodiscard]] PdfFn EngineLegacySpecularPdf(f64 roughness)
         {
             return [roughness](const glm::dvec3& v, const glm::dvec3& l)
@@ -439,7 +457,7 @@ namespace OloEngine::Tests::Oracle
                     return 0.0;
                 const glm::vec3 h = glm::normalize(vf + lf);
                 const f32 rs = PathTracing::BSDF::SamplingRoughness(static_cast<f32>(roughness));
-                return static_cast<f64>(PathTracing::PdfGGX(h.z, glm::dot(vf, h), rs));
+                return static_cast<f64>(PathTracing::PdfGGX(Engine::kNormal, vf, h, rs));
             };
         }
 
@@ -522,7 +540,8 @@ namespace OloEngine::Tests::Oracle
     // 1. ClosureV2Evaluate, minus its multiple-scattering lobe, IS the model:
     //    D and G2 of [Walter07]/[Heitz14], Schlick F at v.h, and the Lambert
     //    weight (1 - F)(1 - metallic) of ADR 0016. Only f32 arithmetic and the
-    //    NDF conditioning separate the two.
+    //    vector-form NDF's conditioning (kVectorNdfConditioning) separate the
+    //    two.
     // =========================================================================
     TEST(BsdfIdentityOracleTest, ClosureV2SingleScatterAndDiffuseMatchTheModel)
     {
@@ -534,11 +553,11 @@ namespace OloEngine::Tests::Oracle
                 for (f64 metallic : kMetallicGrid)
                 {
                     const MaterialCase m{ albedo, metallic, roughness };
-                    const f64 relTol = kF32Relative + NdfConditioning(ClosureV2Alpha(roughness));
+                    const f64 relTol = kF32Relative + kVectorNdfConditioning;
                     const Verdict verdict =
                         CheckEvaluationAgainstModel(EngineClosureV2SingleScatter(m), OracleClosureV2SingleScatter(m),
                                                     relTol, 1.0e-7, Describe(m));
-                    worst = std::max(worst, verdict.Worst);
+                    worst = std::max(worst, verdict.WorstMeasured);
                     EXPECT_TRUE(verdict.Pass) << "ClosureV2Evaluate's single-scatter + Lambert part departs from "
                                                  "the independent model: "
                                               << Report(verdict);
@@ -612,13 +631,13 @@ namespace OloEngine::Tests::Oracle
                                             ", on the true energies " + Fmt(exact[c]));
                         }
                     }
-                    worstOnTable = std::max(worstOnTable, a.Worst);
+                    worstOnTable = std::max(worstOnTable, a.WorstMeasured);
                     if (interior.Worst > worstInterior)
                     {
                         worstInterior = interior.Worst;
                         worstInteriorWhere = interior.Detail;
                     }
-                    worstEdge = std::max(worstEdge, edge.Worst);
+                    worstEdge = std::max(worstEdge, edge.WorstMeasured);
                     EXPECT_TRUE(a.Pass) << "ClosureV2MultiScatter is not Kulla-Conty on its own table: " << Report(a);
                     EXPECT_TRUE(interior.Pass) << "the table's bilinear resolution costs the lobe more than stated: "
                                                << Report(interior);
@@ -652,7 +671,7 @@ namespace OloEngine::Tests::Oracle
                     const MaterialCase m{ albedo, metallic, roughness };
                     const Verdict verdict =
                         CheckEvaluationAgainstModel(Engine::LegacyBrdf(m), OracleLegacy(m), relTol, 1.0e-7, Describe(m));
-                    worst = std::max(worst, verdict.Worst);
+                    worst = std::max(worst, verdict.WorstMeasured);
                     EXPECT_TRUE(verdict.Pass) << "CookTorranceBRDF is no longer the frozen Legacy version the oracle "
                                                  "reproduces (Legacy is versioned behaviour, AC 6 of #1347 — a "
                                                  "change here is a new version, not a fix): "
@@ -928,9 +947,10 @@ namespace OloEngine::Tests::Oracle
     //    F == 1, F_ms = 1 and the Lambert term is exactly zero.
     //
     //   * single scatter: int f_ss cos = E(mu), the oracle's own quadrature.
-    //     Bound: 4 x the two quadrature estimates, floor 5e-4, plus the NDF
-    //     conditioning of an integral, NdfConditioning(alpha) / 2 — the effect
-    //     is measured here as +1.3 % at roughness 0.05, normal incidence.
+    //     Bound: 4 x the two quadrature estimates, floor 5e-4, plus the
+    //     vector-form NDF's conditioning, kVectorNdfConditioning x E. (The
+    //     scalar cos form read +1.3 % here at roughness 0.05, normal
+    //     incidence; this bound rejects it.)
     //   * full closure: [KullaConty17] makes int f_ms cos = 1 - E(mu) exactly
     //     at F_avg = 1, so the MODEL closes to 1 (to E(mu) where the gate drops
     //     the lobe). The engine departs from that by the table's resolution
@@ -957,7 +977,7 @@ namespace OloEngine::Tests::Oracle
                 const Quadrature full = Albedo(Engine::ClosureV2Brdf(m), v, alpha, 0, 1.25e-4, 512u);
                 const f64 ss = full.Value - EngineMultiScatterAlbedo(m, v);
                 const f64 quadrature = 4.0 * (full.ErrorEstimate + p.SingleScatterError);
-                const f64 conditioning = 0.5 * NdfConditioning(alpha) * p.SingleScatter;
+                const f64 conditioning = kVectorNdfConditioning * p.SingleScatter;
                 EXPECT_NEAR(ss, p.SingleScatter, std::max(kSingleScatterFloor, quadrature) + conditioning)
                     << "roughness " << roughness << ", mu " << mu << ": the engine's single-scatter albedo " << ss
                     << " (quadrature error " << full.ErrorEstimate << ") is not the model's E " << p.SingleScatter;
@@ -1029,7 +1049,7 @@ namespace OloEngine::Tests::Oracle
                 const Quadrature v2Metal = Albedo(Engine::ClosureV2Brdf(metal), v, alpha, 0, 2.5e-4, 512u);
                 const FurnacePrediction p = PredictWhiteMetalFurnace(AsReceived(v).z, roughness);
                 const f64 v2Allowance =
-                    std::max(0.0, p.OnTable - 1.0) + p.EntryBound + 0.5 * NdfConditioning(alpha) * p.SingleScatter;
+                    std::max(0.0, p.OnTable - 1.0) + p.EntryBound + kVectorNdfConditioning * p.SingleScatter;
                 v2MetalMax = std::max(v2MetalMax, v2Metal.Value);
                 EXPECT_LE(v2Metal.Value, 1.0 + std::max(kFloor, 4.0 * v2Metal.ErrorEstimate) + v2Allowance)
                     << "ClosureV2 white metal, " << where << ": albedo " << v2Metal.Value << " (error "
@@ -1057,7 +1077,7 @@ namespace OloEngine::Tests::Oracle
                 const Quadrature v2M = Albedo(v2Model, v, alpha, 0, 2.5e-4, 512u);
                 EXPECT_NEAR(v2D.Value, v2M.Value,
                             std::max(kFloor, 4.0 * (v2D.ErrorEstimate + v2M.ErrorEstimate)) +
-                                0.5 * NdfConditioning(alpha) * v2M.Value)
+                                kVectorNdfConditioning * v2M.Value)
                     << "ClosureV2 white dielectric, " << where << ": engine albedo " << v2D.Value
                     << " is not the model's " << v2M.Value;
                 if (v2M.Value > v2DielectricMax)
@@ -1101,8 +1121,8 @@ namespace OloEngine::Tests::Oracle
                         CheckReciprocity(Engine::ClosureV2Brdf(m), kF32Relative, 1.0e-7, "ClosureV2 " + Describe(m));
                     const Verdict legacy =
                         CheckReciprocity(Engine::LegacyBrdf(m), kF32Relative, 1.0e-7, "Legacy " + Describe(m));
-                    worstV2 = std::max(worstV2, v2.Worst);
-                    worstLegacy = std::max(worstLegacy, legacy.Worst);
+                    worstV2 = std::max(worstV2, v2.WorstMeasured);
+                    worstLegacy = std::max(worstLegacy, legacy.WorstMeasured);
                     EXPECT_TRUE(v2.Pass) << "ClosureV2 is not reciprocal: " << Report(v2);
                     EXPECT_TRUE(legacy.Pass) << "Legacy is not reciprocal: " << Report(legacy);
                 }
@@ -1127,9 +1147,9 @@ namespace OloEngine::Tests::Oracle
     //     v.m <= 0 or a reflection below the horizon — the oracle's D cos
     //     quadrature of that indicator.
     // Bound: max(1e-3, 4 x the estimates) + pS (1 - m_rejected)
-    // NdfConditioning(alpha) / 2 — the cos-form D's integral bias, measured
-    // here at normal incidence as +3.5-3.8 % of the specular mass at roughness
-    // 0 / 0.04 and +1.3 % at 0.05, the same effect as test 7's furnace.
+    // kVectorNdfConditioning: both models' BSDF::Pdf take the vector-form D.
+    // (The scalar cos form's integral bias read +3.5-3.8 % of the specular
+    // mass here at roughness 0 / 0.04 and +1.3 % at 0.05, normal incidence.)
     // =========================================================================
     TEST(BsdfIdentityOracleTest, PdfNormalisesToTheSamplersAcceptedMass)
     {
@@ -1170,7 +1190,7 @@ namespace OloEngine::Tests::Oracle
                                                  { return pdf(v, l); }, 2.5e-4, 512u);
                         const f64 err = std::abs(q.Value - expected);
                         const f64 bound = std::max(kFloor, 4.0 * (q.ErrorEstimate + pS * rejected.ErrorEstimate)) +
-                                          pS * accepted * 0.5 * NdfConditioning(alpha);
+                                          pS * accepted * kVectorNdfConditioning;
                         worst = std::max(worst, err);
                         worstSpecularExcess = std::max(worstSpecularExcess, (q.Value - expected) / (pS * accepted));
                         EXPECT_LE(err, bound) << name << ", " << Describe(m) << ", cos v " << cosV
@@ -1193,7 +1213,8 @@ namespace OloEngine::Tests::Oracle
     //     reflection Jacobian of [Walter07] eq. 14, at alpha = ClosureV2Alpha;
     //   * PdfGGX at SamplingRoughness = D(m) cos(m) / (4 v.m), the density of a
     //     D cos half-vector draw reflected about v.
-    // Both use the cos-form D, so they carry NdfConditioning on top of f32.
+    // Both are the vector overloads BSDF::Pdf calls, so they carry
+    // kVectorNdfConditioning on top of f32.
     // =========================================================================
     TEST(BsdfIdentityOracleTest, SpecularPdfsMatchTheirOracleDensities)
     {
@@ -1205,7 +1226,7 @@ namespace OloEngine::Tests::Oracle
             const f64 alpha = sampling * sampling; // v2 and Legacy sampling share the 0.04 floor
             const PdfFn vndf = Engine::VndfPdf(sampling);
             const PdfFn ggx = EngineLegacySpecularPdf(roughness);
-            const f64 tol = kF32Relative + NdfConditioning(alpha);
+            const f64 tol = kF32Relative + kVectorNdfConditioning;
             for (const auto& [vIn, lIn] : DirectionPairs())
             {
                 const glm::dvec3 v = AsReceived(vIn);
@@ -1256,7 +1277,7 @@ namespace OloEngine::Tests::Oracle
                 for (f64 metallic : { 0.0, 1.0 })
                 {
                     const MaterialCase m{ kColoured, metallic, roughness };
-                    const f64 ssRel = kF32Relative + NdfConditioning(ClosureV2Alpha(roughness));
+                    const f64 ssRel = kF32Relative + kVectorNdfConditioning;
                     const BrdfFn ss = OracleClosureV2SingleScatter(m);
                     const BrdfFn ms = OracleMultiScatterOnTable(m);
                     for (const auto& [vIn, lIn] : pairs)

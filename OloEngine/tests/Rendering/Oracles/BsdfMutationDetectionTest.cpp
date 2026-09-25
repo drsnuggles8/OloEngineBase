@@ -14,15 +14,18 @@
 // parameters. The mutant must fail and the engine must pass. A check that no
 // mutant fails is not evidence; a mutant that survives is a finding and would
 // be documented here as such, never deleted. Engine code is never edited — the
-// mutants live in this file only.
+// mutants live in this file only. Each mutant copies the CURRENT engine body
+// (M1 and M2 the vector overloads PdfGGXVNDF(n, v, h, r) / PdfGGX(n, v, h, r)
+// that BSDF::Pdf calls, M9 BSDF::Pdf itself), so it differs from its engine
+// control in the quoted line and nowhere else.
 //
 //  mutation                          | real-world bug it models                         | caught by                               | why that oracle is independent of the engine
 //  ----------------------------------+--------------------------------------------------+-----------------------------------------+---------------------------------------------
 //  M1 VNDF pdf without G1(v)         | a VNDF pdf copied from D_v without its           | CheckPdfNormalisation vs 1 -            | the below-horizon mass is integrated from
-//                                    | normaliser (pdf no longer integrates to the      | VndfBelowHorizonMass (the oracle's      | Heitz18 eq. 1 in f64 (tan-form D, Lambda
+//     (PdfGGXVNDF(n, v, h, r))       | normaliser (pdf no longer integrates to the      | VndfBelowHorizonMass (the oracle's      | Heitz18 eq. 1 in f64 (tan-form D, Lambda
 //                                    | accepted-draw fraction; #975 contract)           | below-horizon D_v mass)                 | form G1), not from PdfGGXVNDF
 //  M2 PdfGGX without 1/(4 v.h)       | the missing reflection Jacobian (half-vector     | CheckPdfNormalisation vs the oracle's   | the accepted mass is an f64 quadrature of
-//                                    | density used as a direction density)             | accepted D cos mass                     | D cos over half-vectors (Walter07 eq. 33)
+//     (PdfGGX(n, v, h, r))           | density used as a direction density)             | accepted D cos mass                     | D cos over half-vectors (Walter07 eq. 33)
 //  M3 VNDF sampler alpha = roughness | #706 / #904: roughness passed where alpha is     | CheckSamplingDistribution (chi-square)  | expected bin masses are deposited from the
 //                                    | expected (the ALPHA LEDGER in PBRCommon.glsl)    | vs a VisibleNormal lobe at alpha = r^2  | oracle's D_v and D cos CDF (Heitz18, Walter07)
 //  M4 ClosureV2 D at alpha = r       | #706 / #904: NDF on the wrong alpha convention   | CheckEvaluationAgainstModel vs          | Oracle::ClosureV2Brdf: tan-form D, Lambda
@@ -39,7 +42,7 @@
 //  M8a/b Kulla-Conty at alpha /      | the energy table looked up with the wrong        | white furnace (f64 quadrature of f cos, | quadrature and the physical statement
 //        omitted                     | convention; compensation dropped                 | albedo 1, metallic 1) must equal 1      | "F = 1 loses no energy" — not the table
 //  M9 mixture pdf with pS = 0.5      | a MIS density written independently of the      | CheckSamplingDistribution vs the        | the chi-square counts the SAMPLER's draws;
-//                                    | sampler it describes (PBRClosureBSDF.h header)   | oracle mixture Pdf() claims (pinned     | the claimed density is only what is tested
+//     (BSDF::Pdf)                    | sampler it describes (PBRClosureBSDF.h header)   | oracle mixture Pdf() claims (pinned     | the claimed density is only what is tested
 //                                    |                                                  | pointwise to the mutant Pdf)            |
 //  M10 pre-#1347 ImportanceSampleGGX | A REAL BUG, found and fixed by #1347: sin theta  | CheckSamplingDistribution vs an         | expected bin masses are deposited from the
 //      sin = sqrt(1 - cos^2) in f32  | = sqrt(1 - cos^2) in f32 put 2^-25/(a^2+2^-25)   | NdfReflection lobe at alpha = r^2,      | oracle's D cos CDF in f64; the f32
@@ -69,6 +72,7 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstdio>
 #include <functional>
@@ -177,26 +181,30 @@ namespace OloEngine::Tests::Oracle
         // changed line is quoted. Signatures match the engine's.
         // =====================================================================
 
-        // ---- M1: PathTracing::PdfGGXVNDF without G1(v) ----------------------
-        // engine: return g1V * DistributionGGXSamplingDensity(nDotH, roughness) / (4.0f * nDotV);
-        // mutant: return       DistributionGGXSamplingDensity(nDotH, roughness) / (4.0f * nDotV);
-        [[nodiscard]] f32 MutantPdfGGXVNDF_NoG1(f32 nDotV, f32 nDotH, f32 roughness) noexcept
+        // ---- M1: PathTracing::PdfGGXVNDF(n, v, h, r) without G1(v) ----------
+        // engine: return g1V * DistributionGGXSamplingDensity(n, h, roughness) / (4.0f * nDotV);
+        // mutant: return       DistributionGGXSamplingDensity(n, h, roughness) / (4.0f * nDotV);
+        [[nodiscard]] f32 MutantPdfGGXVNDF_NoG1(const glm::vec3& n, const glm::vec3& v, const glm::vec3& h,
+                                                f32 roughness) noexcept
         {
+            const f32 nDotV = glm::dot(n, v);
             if (nDotV <= 0.0f)
                 return 0.0f;
             const f32 alpha = roughness * roughness;
             [[maybe_unused]] const f32 g1V = 1.0f / (1.0f + PathTracing::GgxSmithLambda(nDotV, alpha));
-            return PathTracing::DistributionGGXSamplingDensity(nDotH, roughness) / (4.0f * nDotV);
+            return PathTracing::DistributionGGXSamplingDensity(n, h, roughness) / (4.0f * nDotV);
         }
 
-        // ---- M2: PathTracing::PdfGGX without the reflection Jacobian --------
-        // engine: return DistributionGGXSamplingDensity(nDotH, roughness) * std::max(nDotH, 0.0f) / (4.0f * vDotH);
-        // mutant: return DistributionGGXSamplingDensity(nDotH, roughness) * std::max(nDotH, 0.0f);
-        [[nodiscard]] f32 MutantPdfGGX_NoReflectionJacobian(f32 nDotH, f32 vDotH, f32 roughness) noexcept
+        // ---- M2: PathTracing::PdfGGX(n, v, h, r) without the reflection Jacobian
+        // engine: return DistributionGGXSamplingDensity(n, h, roughness) * std::max(glm::dot(n, h), 0.0f) / (4.0f * vDotH);
+        // mutant: return DistributionGGXSamplingDensity(n, h, roughness) * std::max(glm::dot(n, h), 0.0f);
+        [[nodiscard]] f32 MutantPdfGGX_NoReflectionJacobian(const glm::vec3& n, const glm::vec3& v, const glm::vec3& h,
+                                                            f32 roughness) noexcept
         {
+            const f32 vDotH = glm::dot(v, h);
             if (vDotH <= 0.0f)
                 return 0.0f;
-            return PathTracing::DistributionGGXSamplingDensity(nDotH, roughness) * std::max(nDotH, 0.0f);
+            return PathTracing::DistributionGGXSamplingDensity(n, h, roughness) * std::max(glm::dot(n, h), 0.0f);
         }
 
         // Adapters: Engine::VndfPdf / Engine::GgxReflectionPdf with the mutant
@@ -210,7 +218,7 @@ namespace OloEngine::Tests::Oracle
                 if (lf.z <= 0.0f)
                     return 0.0;
                 const glm::vec3 h = glm::normalize(vf + lf);
-                return static_cast<f64>(MutantPdfGGXVNDF_NoG1(vf.z, std::max(h.z, 0.0f), static_cast<f32>(roughness)));
+                return static_cast<f64>(MutantPdfGGXVNDF_NoG1(kNormal, vf, h, static_cast<f32>(roughness)));
             };
         }
 
@@ -223,8 +231,7 @@ namespace OloEngine::Tests::Oracle
                 if (lf.z <= 0.0f)
                     return 0.0;
                 const glm::vec3 h = glm::normalize(vf + lf);
-                return static_cast<f64>(
-                    MutantPdfGGX_NoReflectionJacobian(h.z, glm::dot(vf, h), static_cast<f32>(roughness)));
+                return static_cast<f64>(MutantPdfGGX_NoReflectionJacobian(kNormal, vf, h, static_cast<f32>(roughness)));
             };
         }
 
@@ -482,17 +489,15 @@ namespace OloEngine::Tests::Oracle
                 return pdfDiffuse;
 
             const glm::vec3 h = glm::normalize(v + l);
-            const f32 nDotH = glm::dot(n, h);
 
             f32 pdfSpecular = 0.0f;
             if (material.Model == PBRModel::ClosureV2)
             {
-                pdfSpecular = PdfGGXVNDF(glm::dot(n, v), std::max(nDotH, 0.0f), ClosureV2Roughness(material.Roughness));
+                pdfSpecular = PdfGGXVNDF(n, v, h, ClosureV2Roughness(material.Roughness));
             }
             else
             {
-                const f32 vDotH = glm::dot(v, h);
-                pdfSpecular = PdfGGX(nDotH, vDotH, SamplingRoughness(material.Roughness));
+                pdfSpecular = PdfGGX(n, v, h, SamplingRoughness(material.Roughness));
             }
 
             return pSpecular * pdfSpecular + (1.0f - pSpecular) * pdfDiffuse;
@@ -833,7 +838,9 @@ namespace OloEngine::Tests::Oracle
         const f32 mutantGI = MutantGIShiftJacobian_NoEnvironmentArm(environment, dst, src);
         std::printf("  [engine] GIShiftJacobian(Environment) = %.9g\n  [mutant] without the arm = %.9g\n",
                     static_cast<f64>(engineGI), static_cast<f64>(mutantGI));
-        EXPECT_EQ(engineGI, 1.0f);
+        // "Exactly 1" is the claim (the arm returns the literal 1.0f), so the
+        // comparison is on the bits, not within a tolerance.
+        EXPECT_EQ(std::bit_cast<u32>(engineGI), std::bit_cast<u32>(1.0f)) << "GIShiftJacobian = " << engineGI;
         EXPECT_GT(std::abs(static_cast<f64>(mutantGI) - 1.0), 1.0e-2)
             << "SURVIVED: the core fed an environment direction returned " << mutantGI;
 
@@ -852,7 +859,8 @@ namespace OloEngine::Tests::Oracle
             std::printf("  [engine] ShiftJacobian(%s) = %.9g, [mutant] without the arm = %.9g\n",
                         std::string(ReSTIR::ToString(kind)).c_str(), static_cast<f64>(engineDI),
                         static_cast<f64>(mutantDI));
-            EXPECT_EQ(engineDI, 1.0f) << ReSTIR::ToString(kind);
+            EXPECT_EQ(std::bit_cast<u32>(engineDI), std::bit_cast<u32>(1.0f))
+                << ReSTIR::ToString(kind) << ": ShiftJacobian = " << engineDI;
             EXPECT_GT(std::abs(static_cast<f64>(mutantDI) - 1.0), 1.0e-2)
                 << "SURVIVED: " << ReSTIR::ToString(kind) << " through the core returned " << mutantDI;
         }

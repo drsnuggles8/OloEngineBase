@@ -27,10 +27,11 @@ Rows the live editor cannot answer are reported, never dropped:
   * a row that requires SSGI runs on Deferred only (the path that hosts it).
 
 1. Export the rows (reference arm only; from OloEditor/, the test binary's scene paths are
-   cwd-relative). SSGIBounce's reference arm is GL Deferred, not Forward, so name it too:
+   cwd-relative). SSGIBounce and ReSTIRDI export from GL Deferred, not Forward (SSGI's reference arm, and the
+   raster-loop reference for ReSTIR DI), so name them too:
      cd OloEditor
      ..\\build\\OloEngine\\tests\\Debug\\OloEngine-Tests.exe --olo-cross-path-export=assets/tests/crosspath-live ^
-       --gtest_filter=AllRowsAllArms/CrossPathLightingMatrix.*gl_forward_native:AllRowsAllArms/CrossPathLightingMatrix.*SSGIBounce_gl_deferred_native
+       --gtest_filter=AllRowsAllArms/CrossPathLightingMatrix.*gl_forward_native:AllRowsAllArms/CrossPathLightingMatrix.*SSGIBounce_gl_deferred_native:AllRowsAllArms/CrossPathLightingMatrix.*ReSTIRDI_gl_deferred_native
    This writes <Row>_<Probe>_Off.olo, <Row>_<Probe>_On.olo and <Row>.json per row.
 
 2. Launch the editor on the backend under test, with MCP autostart and write consent:
@@ -78,6 +79,10 @@ RAY_QUERY_REQUIREMENTS = ("ReSTIR DI", "ReSTIR GI", "ReSTIR PT", "RT reflections
 # The path that hosts a required estimator. SSGI: "Deferred is required for SSR / SSGI"
 # (McpRendererSettings.h kSettings "renderpath"); the fixture asks
 # ResolveLightingSignalOwnership, which this script cannot call.
+class EngagementError(RuntimeError):
+    """The estimator a row exists to measure stood down: a FAILED cell, never NOT RUN."""
+
+
 PATH_REQUIREMENTS = {"SSGI": ("deferred",), "ReSTIR DI": ("deferred",)}
 
 # Fields the editor's scene load OVERWRITES from the project's quality tier after copying
@@ -356,7 +361,7 @@ class Session:
                 stats = self.mcp.call("olo_restir_stats", {})
                 availability = stats.get("availability", {})
                 if not availability.get("active"):
-                    raise RuntimeError("ReSTIR DI did not engage (%s): %s" % (
+                    raise EngagementError("ReSTIR DI did not engage (%s): %s" % (
                         availability.get("status"), availability.get("fallbackReason")))
             values = {}
             for region in regions:
@@ -423,6 +428,10 @@ class Session:
                                                   regions, width, height)
                     on, drift_on = self.capture(row, probe_name, True, os.path.join(base, probe["on"]),
                                                 regions, width, height)
+                except EngagementError as e:
+                    self.results.append((label, False, str(e)))
+                    print("  %s FAILED: %s" % (label, e))
+                    continue
                 except RuntimeError as e:
                     if ray_query:
                         self.not_run.append((label, "attempted on %s and failed (the device may lack ray "

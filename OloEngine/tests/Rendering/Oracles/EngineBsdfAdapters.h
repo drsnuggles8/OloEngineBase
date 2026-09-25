@@ -90,6 +90,10 @@ namespace OloEngine::Tests::Oracle::Engine
     }
 
     // PathTracing::PdfGGXVNDF — the specular density of VNDF sampling, over l.
+    // The VECTOR overload, with h formed in f32 exactly as BSDF::Pdf forms it:
+    // that is the production form (BSDF::Pdf, the CPU tracer, the GLSL
+    // closureV2Pdf). The scalar (nDotV, nDotH) form keeps the cancelling
+    // cos-form NDF and is for cosine-only callers.
     [[nodiscard]] inline PdfFn VndfPdf(f64 roughness)
     {
         return [roughness](const glm::dvec3& v, const glm::dvec3& l)
@@ -99,12 +103,13 @@ namespace OloEngine::Tests::Oracle::Engine
             if (lf.z <= 0.0f)
                 return 0.0;
             const glm::vec3 h = glm::normalize(vf + lf);
-            return static_cast<f64>(PathTracing::PdfGGXVNDF(vf.z, std::max(h.z, 0.0f), static_cast<f32>(roughness)));
+            return static_cast<f64>(PathTracing::PdfGGXVNDF(kNormal, vf, h, static_cast<f32>(roughness)));
         };
     }
 
     // PathTracing::PdfGGX — the density of reflecting v about an
-    // ImportanceSampleGGX half-vector, over l.
+    // ImportanceSampleGGX half-vector, over l. Vector overload, h formed as
+    // BSDF::Pdf forms it (see VndfPdf).
     [[nodiscard]] inline PdfFn GgxReflectionPdf(f64 roughness)
     {
         return [roughness](const glm::dvec3& v, const glm::dvec3& l)
@@ -114,7 +119,7 @@ namespace OloEngine::Tests::Oracle::Engine
             if (lf.z <= 0.0f)
                 return 0.0;
             const glm::vec3 h = glm::normalize(vf + lf);
-            return static_cast<f64>(PathTracing::PdfGGX(h.z, glm::dot(vf, h), static_cast<f32>(roughness)));
+            return static_cast<f64>(PathTracing::PdfGGX(kNormal, vf, h, static_cast<f32>(roughness)));
         };
     }
 

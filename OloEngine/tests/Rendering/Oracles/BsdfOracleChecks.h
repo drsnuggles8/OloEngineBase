@@ -45,13 +45,23 @@ namespace OloEngine::Tests::Oracle
     struct Verdict
     {
         bool Pass = true;
-        f64 Worst = 0.0;    // the worst measured error, in the check's own unit
-        f64 Bound = 0.0;    // the bound it was held to
-        std::string Detail; // where the worst case was, and why that bound
+        // The REPORTED case: the worst FAILING entry once anything has failed,
+        // otherwise the worst entry overall. A failure report must point at a
+        // failure, so once Pass is false a passing entry never replaces it,
+        // however large its measure (a passing case can carry a larger
+        // relative error under a looser absolute floor).
+        f64 Worst = 0.0;         // the reported case's measured error, in the check's own unit
+        f64 Bound = 0.0;         // the bound it was held to
+        std::string Detail;      // where the reported case was, and why that bound
+        f64 WorstMeasured = 0.0; // the largest measure recorded, passing or failing
 
         void Record(bool pass, f64 measured, f64 bound, const std::string& where)
         {
-            if (measured > Worst || (!pass && Pass))
+            WorstMeasured = std::max(WorstMeasured, measured);
+            // The first failure always takes the report; after that only a
+            // worse failure does. While everything passes, the worst pass does.
+            const bool replace = pass ? (Pass && measured > Worst) : (Pass || measured > Worst);
+            if (replace)
             {
                 Worst = measured;
                 Bound = bound;

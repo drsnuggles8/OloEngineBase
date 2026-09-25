@@ -410,7 +410,7 @@ float distributionGGXAnisotropic(vec3 N, vec3 H, vec3 T, vec3 B, float roughness
 // deliberate exceptions state WHY they differ instead of quietly differing:
 //
 //   distributionGGX                alpha = roughness^2   (a  = alpha, a2 = alpha^2)
-//   distributionGGXUnclamped       alpha = roughness^2   (v2 closure + sampling
+//   distributionGGXUnclampedNH     alpha = roughness^2   (v2 closure + sampling
 //                                  densities; NO denominator value clamp — the
 //                                  v2 closure clamps ROUGHNESS instead, see the
 //                                  PBR CLOSURE V2 section)
@@ -1115,22 +1115,11 @@ float closureV2Roughness(float roughness)
     return clamp(roughness, MIN_ROUGHNESS, MAX_ROUGHNESS);
 }
 
-// The TRUE (unclamped) GGX NDF on a cosine — GLSL twin of ReferenceBRDF.h's
+// The TRUE (unclamped) GGX NDF — GLSL twin of ReferenceBRDF.h's vector
 // DistributionGGXSamplingDensity. alpha = roughness^2 per THE ALPHA LEDGER.
 // The denominator floor is a denormal guard, not a value clamp; with the v2
-// alpha floor it never engages.
-float distributionGGXUnclamped(float NdotH, float roughness)
-{
-    float a = roughness * roughness;
-    float a2 = a * a;
-    float c = max(NdotH, 0.0);
-    float denom = (c * c * (a2 - 1.0) + 1.0);
-    denom = PI * denom * denom;
-    return a2 / max(denom, 1.17549435e-38);
-}
-
-// The same density from the VECTORS (issue #1347): sin^2 as |N x H|^2, not
-// 1 - cos^2. The scalar denominator cancels near the peak of a sharp lobe and
+// alpha floor it never engages. From the VECTORS (issue #1347): sin^2 as
+// |N x H|^2, not 1 - cos^2. The scalar denominator cancels near the peak of a sharp lobe and
 // NdotH has already lost H's tangential components to rounding, so D read
 // +3.5 % over the lobe at roughness 0.04. Twin: ReferenceBRDF.h's vector
 // DistributionGGXSamplingDensity. For unit N, H it is the same function.

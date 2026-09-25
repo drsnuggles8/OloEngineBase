@@ -641,9 +641,9 @@ namespace OloEngine::Tests::CrossPath
                                    "RGBA16F SceneColor (2^-11 relative) plus f32 shading against the f64 oracle; the "
                                    "ClosureV2 multi-scatter lobe reads a 16x16 bilinear energy table the oracle "
                                    "re-integrates (BsdfIdentityOracleTest bounds that table)" };
-                probe.CrossArm = { 0.01, 1.0e-3, "every arm shades the same closure; 1 % covers fp16 rounding "
+                probe.CrossArm = { 0.01, 1.0e-4, "every arm shades the same closure; 1 % covers fp16 rounding "
                                                  "of the G-Buffer's packed normal and roughness on Deferred" };
-                probe.TemporalCrossArm = Tolerance{ 0.02, 1.0e-3, "FSR2's reconstruction of a converged static "
+                probe.TemporalCrossArm = Tolerance{ 0.02, 1.0e-4, "FSR2's reconstruction of a converged static "
                                                                   "frame moves 0.8-1.3 % (measured)" };
                 row.Probes.push_back(std::move(probe));
                 row.Invariances.push_back({ "Direct", GtaoToggle(), false, { 0.005, 1.0e-3, "AO is visibility for the ambient term only (#1452): "
@@ -757,10 +757,17 @@ namespace OloEngine::Tests::CrossPath
                 };
                 for (const TileSpec& tile : MaterialTiles())
                     probe.Regions.push_back(Interior(tile));
-                probe.CrossArm = { 0.01, 1.0e-3, "one light evaluated by the same closure; the tile lists must "
+                probe.CrossArm = { 0.01, 2.0e-5, "one light evaluated by the same closure; the tile lists must "
                                                  "contain it wherever it reaches (#1457)" };
-                // The far black-gloss tile reflects the light at ~7e-4.
-                probe.MinimumSignal = 1.0e-4;
+                // The far black-gloss tile reflects the light at ~7e-4, so the
+                // absolute bound is 2e-5: an arm whose tiles drop the light
+                // there must fail, not pass under an absolute slack.
+                probe.MinimumSignal = 5.0e-4;
+                probe.TemporalCrossArm = Tolerance{
+                    0.03, 4.0e-4,
+                    "FSR2's reconstruction moves ~1 % of the full signal, and under these dim tiles that is the "
+                    "flat ambient (~0.03): ~3e-4 on a term of 7e-4 to 0.1 (measured 2-10 % on the dim tiles)"
+                };
                 row.Probes.push_back(std::move(probe));
                 rows.push_back(std::move(row));
             }
@@ -791,6 +798,7 @@ namespace OloEngine::Tests::CrossPath
                 };
                 for (const TileSpec& tile : MaterialTiles())
                     probe.Regions.push_back(Interior(tile));
+                probe.MinimumSignal = 1.0e-2;
                 probe.CrossArm = { 0.02, 2.0e-3, "snow replaces the surface closure identically on every path; "
                                                  "2 % covers Deferred's G-Buffer quantisation of the snow albedo" };
                 probe.TemporalCrossArm = Tolerance{
@@ -826,7 +834,7 @@ namespace OloEngine::Tests::CrossPath
                 // Strips beside the wall, where the AO darkens the ambient.
                 probe.Regions.push_back({ "LeftOfWall", { -0.7, -1.5 }, { -0.3, 1.5 }, {} });
                 probe.Regions.push_back({ "RightOfWall", { 0.3, -1.5 }, { 0.7, 1.5 }, {} });
-                probe.CrossArm = { 0.15, 5.0e-4, "the same GTAO buffer on every path since #1452; 15 % covers "
+                probe.CrossArm = { 0.15, 1.0e-5, "the same GTAO buffer on every path since #1452; 15 % covers "
                                                  "the forward paths building it from the prepass normals and "
                                                  "Deferred from the G-Buffer's packed ones" };
                 // AO darkens a flat-fill ambient of ~0.027: the term is small.
@@ -859,6 +867,7 @@ namespace OloEngine::Tests::CrossPath
                 probe.Regions.push_back({ "FloorBesideWall", { -1.5, -0.6 }, { 1.5, 0.4 }, {} });
                 probe.CrossArm = { 0.10, 1.0e-3, "a screen-space estimate: MSAA and the upscalers change its "
                                                  "input resolution" };
+                probe.MinimumSignal = 1.0e-2;
                 row.Probes.push_back(std::move(probe));
                 rows.push_back(std::move(row));
             }
@@ -905,6 +914,7 @@ namespace OloEngine::Tests::CrossPath
                     probe.Regions.push_back(Interior(tile));
                 probe.CrossArm = { 0.05, 2.0e-3, "a resampled estimate of the same light: 5 % covers the "
                                                  "reservoir's per-pixel noise averaged over a tile" };
+                probe.MinimumSignal = 5.0e-3;
                 row.Probes.push_back(std::move(probe));
                 rows.push_back(std::move(row));
             }
@@ -934,6 +944,7 @@ namespace OloEngine::Tests::CrossPath
                 probe.Term = LightingTerm::DirectSpecular;
                 probe.SetSource = SetSun;
                 probe.Regions.push_back(Interior(mirror));
+                probe.MinimumSignal = 1.0;
                 probe.CrossArm = { 0.05, 1.0e-2, "a sub-pixel lobe: every arm point-samples the same peak, but "
                                                  "MSAA and upscaling resample it" };
                 probe.TemporalCrossArm = Tolerance{
@@ -1396,6 +1407,30 @@ namespace OloEngine::Tests::CrossPath
                              ::testing::Combine(::testing::Range<sizet>(0, Rows().size()),
                                                 ::testing::Range<sizet>(0, Arms().size())),
                              ParamName);
+
+    // An arm that draws NOTHING must fail the cross-arm comparison: that holds
+    // when the reference's signal floor survives the relative slack and still
+    // exceeds the absolute one, MinimumSignal (1 - Relative) > Absolute. Without
+    // it a missing term hides under the absolute bound (a point light the tile
+    // lists drop on a dim tile, a GTAO that never ran).
+    TEST(CrossPathMatrixArms, EverySignalFloorMakesAnEmptyArmFail)
+    {
+        for (const SceneRow& row : Rows())
+        {
+            for (const TermProbe& probe : row.Probes)
+            {
+                std::vector<const Tolerance*> bounds{ &probe.CrossArm };
+                if (probe.TemporalCrossArm)
+                    bounds.push_back(&*probe.TemporalCrossArm);
+                for (const Tolerance* t : bounds)
+                {
+                    EXPECT_GT(probe.MinimumSignal * (1.0 - t->Relative), t->Absolute)
+                        << row.Name << "/" << probe.Name << ": floor " << probe.MinimumSignal << ", bound "
+                        << t->Relative << " relative + " << t->Absolute << " absolute (" << t->Reason << ")";
+                }
+            }
+        }
+    }
 
     // The declared matrix and the enumerated arms are the same list — the
     // fixture never runs a hand-written subset.

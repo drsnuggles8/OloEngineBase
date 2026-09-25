@@ -9,18 +9,6 @@ float PtLegacySamplingRoughness(float roughness)
     return clamp(roughness, MIN_ROUGHNESS, 1.0);
 }
 
-// ReferenceBRDF.h DistributionGGXSamplingDensity: the NDF the Legacy sampler
-// draws from, unclamped in nDotH, guarded against a zero denominator.
-float PtLegacyGGXSamplingDensity(float nDotH, float roughness)
-{
-    const float a = roughness * roughness;
-    const float a2 = a * a;
-    const float c = max(nDotH, 0.0);
-    float denom = (c * c * (a2 - 1.0) + 1.0);
-    denom = PI * denom * denom;
-    return a2 / max(denom, 1.17549435e-38);
-}
-
 // From the vectors, with PBRCommon's cancellation-free distributionGGXUnclampedNH
 // (issue #1347). Twin: ReferenceBRDF.h's vector PdfGGX.
 float PtLegacyPdfGGX(vec3 n, vec3 v, vec3 h, float roughness)
