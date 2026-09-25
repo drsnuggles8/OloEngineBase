@@ -202,7 +202,8 @@ namespace OloEngine::Tests::Oracle
         for (f64 alpha : { 0.2, 0.5, 1.0 })
         {
             const Quadrature q =
-                IntegrateHemisphereUniform(4096, 16, [alpha](const glm::dvec3& m) { return GgxD(m.z, alpha) * m.z; });
+                IntegrateHemisphereUniform(4096, 16, [alpha](const glm::dvec3& m)
+                                           { return GgxD(m.z, alpha) * m.z; });
             EXPECT_NEAR(q.Value, 1.0, std::max(2.0e-3, 4.0 * q.ErrorEstimate)) << "alpha " << alpha;
         }
         // And the CDF is the running integral of that density: the mass at
@@ -210,7 +211,8 @@ namespace OloEngine::Tests::Oracle
         const f64 alpha = 0.3;
         const f64 c = 0.8;
         const Quadrature partial = IntegrateHemisphereUniform(
-            8192, 8, [&](const glm::dvec3& m) { return m.z >= c ? GgxD(m.z, alpha) * m.z : 0.0; });
+            8192, 8, [&](const glm::dvec3& m)
+            { return m.z >= c ? GgxD(m.z, alpha) * m.z : 0.0; });
         EXPECT_NEAR(partial.Value, GgxThetaCdf(c, alpha), 1.0e-3);
         EXPECT_NEAR(GgxCosThetaFromCdf(GgxThetaCdf(c, alpha), alpha), c, 1.0e-12);
     }
@@ -229,7 +231,8 @@ namespace OloEngine::Tests::Oracle
                 // under-sample at the horizon. Here it is bounded.
                 const glm::dvec3 v = Direction(cv, 0.0);
                 const Quadrature q = IntegrateHemisphereUniform(
-                    8192, 512, [&](const glm::dvec3& m) { return std::max(glm::dot(v, m), 0.0) * GgxD(m.z, alpha); });
+                    8192, 512, [&](const glm::dvec3& m)
+                    { return std::max(glm::dot(v, m), 0.0) * GgxD(m.z, alpha); });
                 const f64 expected = cv / GgxG1(cv, alpha);
                 EXPECT_NEAR(q.Value, expected, std::max(1.0e-3 * expected, 4.0 * q.ErrorEstimate))
                     << "alpha " << alpha << ", cos v " << cv << ", quadrature error estimate " << q.ErrorEstimate;

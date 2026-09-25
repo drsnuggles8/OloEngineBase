@@ -30,6 +30,7 @@ contract, pre-commit checks, the add-a-test workflow — live in
     - 6.1 [Design principles](#61-design-principles)
     - 6.2 [The pyramid](#62-the-pyramid)
     - 6.3 [Layer reference (L1–L11)](#63-layer-reference)
+    - 6.4 [Independent oracles and the cross-path lighting matrix](#64-independent-oracles-and-the-cross-path-lighting-matrix)
 7. [Functional / cross-subsystem axis](#7-functional--cross-subsystem-axis)
     - 7.1 [What it catches](#71-what-it-catches)
     - 7.2 [The fixture and its contracts](#72-the-fixture-and-its-contracts)
@@ -768,6 +769,119 @@ Each has a minimal seed corpus in `OloEngine/tests/Fuzzing/corpus/<target>/`.
 **Limitations.** 30 s per target nightly is a smoke budget — it
 catches regressions, not deep bugs. An OSS-Fuzz integration for
 sustained campaigns is a deferred follow-up.
+
+### 6.4 Independent oracles and the cross-path lighting matrix
+
+Issue #1347. A renderer test can make three different claims, and only the
+first is cheap:
+
+1. **Implementation agreement.** The C++ mirror and the GLSL agree
+   (`ReferenceBRDFGpuParityTest`, `ClosureV2GpuParityTest`). A shared wrong
+   formula passes.
+2. **Model correctness.** The implementation matches the physics it claims,
+   derived without calling it. That is what `OloEngine/tests/Rendering/Oracles/`
+   is for.
+3. **Composition.** The final frame composes the right terms on every path.
+   That is what the cross-path matrix is for.
+
+**The independence rule is enforced by the includes.**
+`Rendering/Oracles/IndependentBsdfOracle.h`, `OracleStatistics.h` and
+`BsdfOracleChecks.h` may include only the standard library, glm and
+`Core/Base.h`. `OracleIndependenceTest` reads their `#include` lines and fails
+on anything else. The engine is reached only through
+`EngineBsdfAdapters.h`, which the oracle headers may not include.
+
+**Checks take the implementation as a callable.** The same check runs on the
+engine function in `BsdfIdentityOracleTest` / `BsdfSamplingDistributionTest`
+and on a test-local mutant in `BsdfMutationDetectionTest`: a missing Jacobian,
+alpha = roughness, a doubled denominator, F at n.v. Every mutant must fail
+the check the engine passes. A mutant that survives is a finding, not a
+tolerance to widen.
+
+**Statistics** (`OracleStatistics.h` states them in full):
+
+- Goodness-of-fit tests take IID pseudo-random draws only
+  (`IidStream`, `std::mt19937_64`). Hammersley/Sobol points, a reservoir's M
+  and consecutive frames are refused through `SampleProvenance`. They are
+  stratified or correlated, so a p-value computed from them means nothing.
+- Each family runs 5 independent runs with SplitMix64-derived fixed seeds. It
+  fails if any run is below alpha / runs (Bonferroni). The sampling file adds
+  a second Bonferroni over its 66 families, so the file-wide alpha is 1e-2.
+- Chi-square bins pool to an expected count of at least 5. The expected bin
+  masses are integrated per lobe in the lobe's own inverse-CDF coordinates
+  (`DepositBinMasses`), with the quadrature error measured, never assumed.
+- Every integral reports an error estimate beside its value (`Quadrature`).
+  A tolerance is max(stated floor, k * estimate).
+
+**The cross-path matrix** (`Rendering/CrossPath/`):
+`CrossPathLightingMatrixTest` runs every scene row through every arm and
+compares separated lighting terms, across arms and against the oracle.
+
+- **Arms** are `RendererSupport::PathCoverageRows`, the executable support
+  matrix, never a hand-written list. `CrossPathMatrixArms.EveryDeclaredPathRowIsAnArm`
+  pins that.
+- **A term is separated by its source.** A row renders once with that one
+  term's source off and once with it on, and differences the linear HDR
+  colour at the end of the scene band (`SceneColor`, or the SSGI/SSR/EASU/FSR2
+  composite downstream of it). This works identically on every path; the per-term debug
+  views exist on Deferred only.
+- **Each term is checked three ways.** Against the reference arm (GL Forward
+  native, or the first arm that hosts the row's estimator). Per pixel against
+  the independent oracle, with the camera's real view direction, where the
+  row declares one. And under invariance probes: switching an estimator that
+  does not own the term (GTAO, SSGI) must leave it unchanged.
+- **Evidence.** Every run writes `CrossPathMatrix_<Row>_<Probe>_<Cell>.png`
+  (the separated term, tone-mapped) under `OloEditor/assets/tests/visual/`.
+
+**Adding a scene row.** A new feature adds a row; it does not hand-check six
+paths. Append a `SceneRow` in `BuildRows()`:
+
+1. `Build(scene)`: the entities. Ground tiles at y = 0 under the fixture's
+   straight-down camera, so a region is a rectangle in world units.
+2. One `TermProbe` per term:
+   - `SetSource(scene, on)` switches exactly one term's source. That can be
+     a light's intensity, an emissive factor, an albedo, or a renderer
+     setting such as snow or GTAO.
+   - `Regions` are the ground rectangles to measure; give each an
+     `AnalyticFn` when the model predicts it.
+   - `Analytic` and `CrossArm` are tolerances, each with its reason.
+3. If the row needs an estimator only some paths host, set
+   `Requires`. Arms whose `ResolveLightingSignalOwnership` gives the term no
+   owner of that estimator skip with the contract's answer.
+4. Optionally add `Invariances`: hold a term and switch an estimator that must
+   not move it.
+
+**Which arms skip where.** Every skip is a `GTEST_SKIP` with its reason.
+
+| arm (support row) | in-process (GL 4.6 box, AMD nightly) | where it runs instead / why not |
+|---|---|---|
+| `gl-forward-native`, `gl-forward-plus-native` | every row except `SSGIBounce`, `ReSTIRDI` | `SSGIBounce`: the contract gives Forward/Forward+ no SSGI owner. `ReSTIRDI`: needs a ray-tracing Vulkan device |
+| `gl-deferred-native`, `gl-deferred-msaa4`, `gl-deferred-spatial-msaa4`, `gl-deferred-temporal` | every row except `ReSTIRDI` | `ReSTIRDI`: needs a ray-tracing Vulkan device. The temporal arm skips if FSR2 does not engage (`IsTemporalUpscaleActive`) |
+| `vk-forward-native`, `vk-forward-plus-native`, `vk-deferred-native` | skip: scene-level Vulkan is unreachable in-process | live: `scripts/cross-path-matrix-live.py` in an editor launched with `--rhi vulkan` (SSGI and ReSTIR DI rows on Deferred only; ReSTIR DI must report itself active) |
+| `gl-deferred-temporal-msaa4`, `vk-deferred-temporal`, `gl-deferred-ray-query`, `vk-forward-ray-query`, `vk-deferred-ray-query-unavailable` | skip: the registry declares them Unsupported, with its `Reason` | nowhere, by declaration. They stay arms so the declared and tested matrices cannot drift |
+| any GL arm without a GL 4.6 context (CI software-driver jobs) | skip: the fixture's GPU gate | the AMD nightly (`gpu-conformance-amd.yml` runs the whole suite) |
+
+The temporal arm is measured converged. FSR2 carries history across the OFF→ON switch of a term's
+source, so the fixture resets it with a resolution change before each capture. It also reads
+colour *inside* the frame, through a post-pass hook: the scene-band targets are transient, and
+after the frame their memory holds later passes' output.
+
+At #1347 the live replay held 82 of 88 regions on Vulkan × {Forward, Forward+, Deferred}, with no
+`[error]` or VUID lines. The six that did not are the `ReSTIRDI` row, which measures ReSTIR DI
+×1.5–3.5 brighter than the raster loop on specular tiles (#1483).
+
+**The Vulkan arms are live cells.** Scene-level Vulkan is unreachable in a
+test process (testing-architecture.md §9). To run them:
+
+1. Export the rows from a GL run:
+   `OloEngine-Tests.exe --olo-cross-path-export=<dir> --gtest_filter=AllRowsAllArms/CrossPathLightingMatrix.*gl_forward_native:AllRowsAllArms/CrossPathLightingMatrix.*SSGIBounce_gl_deferred_native`
+   run from `OloEditor/`.
+2. Launch the editor on Vulkan with MCP writes on.
+3. Run `scripts/cross-path-matrix-live.py --port <n> --backend vulkan --export-dir <dir>`.
+
+The script opens each OFF/ON scene in play mode on each path and probes the
+exported target (the one the GL reference read) at the exported pixels. It compares the Vulkan terms against the
+same GL reference and oracle values, and reports `[error]`/`VUID` log lines.
 
 ---
 

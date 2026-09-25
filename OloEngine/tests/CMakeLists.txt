@@ -661,6 +661,10 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/SnowLayerEvidenceTest.cpp
 		Rendering/PropertyTests/DebugLinePathParityTest.cpp
 		Rendering/PropertyTests/DeferredPointLightParityEvidenceTest.cpp
+		# #1347: every declared {backend x path} arm renders the same scene rows and
+		# compares the separated lighting terms across arms and against the
+		# independent BSDF oracle. Arms come from RendererSupport::PathCoverageRows.
+		Rendering/CrossPath/CrossPathLightingMatrixTest.cpp
 		Rendering/PropertyTests/PerfRegressionTests.cpp
 		Rendering/PropertyTests/DataRoundTripTests.cpp
 		Rendering/PropertyTests/GoldenImageTests.cpp

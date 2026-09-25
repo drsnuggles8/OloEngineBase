@@ -164,6 +164,12 @@ namespace OloEngine::Tests
         //       minimisation may spend (default 24; 0 turns minimisation off).
         std::string StateMachineReplay;
         std::vector<u64> StateMachineSeeds;
+        // --olo-cross-path-export=<dir> : the cross-path lighting matrix
+        // (issue #1347, Rendering/CrossPath/) also writes each row's OFF / ON
+        // scenes and a manifest of probe pixels, GL reference values and
+        // analytic values, for scripts/cross-path-matrix-live.py to replay on
+        // the Vulkan arms in a live editor. Empty means "don't export".
+        std::string CrossPathExportDir;
         u32 StateMachineLength = 12;
         u32 StateMachineMinimizeBudget = 24;
     };

@@ -61,7 +61,9 @@ namespace OloEngine::Tests
                 "  --olo-state-machine-seeds=<n,n,...> run these generator seeds instead of the smoke seeds\n"
                 "  --olo-state-machine-length=<n> operations per generated trace (default 12)\n"
                 "  --olo-state-machine-minimize-budget=<n> replays a failure's minimisation may spend\n"
-                "                                 (default 24; 0 disables minimisation)\n");
+                "                                 (default 24; 0 disables minimisation)\n"
+                "  --olo-cross-path-export=<dir>  write the cross-path matrix rows' scenes + manifest for the\n"
+                "                                 live Vulkan replay (scripts/cross-path-matrix-live.py, #1347)\n");
         }
 
         // Returns the value of `--name=value`, or nullopt when `arg` is not that flag.
@@ -253,6 +255,10 @@ namespace OloEngine::Tests
                 }
                 s_Options.RssCeilingMb = parsed;
             }
+            else if (const auto v = ValueOf(arg, "--olo-cross-path-export"))
+            {
+                s_Options.CrossPathExportDir = *v;
+            }
             else if (const auto v = ValueOf(arg, "--olo-state-machine-replay"))
             {
                 s_Options.StateMachineReplay = *v;
@@ -316,7 +322,7 @@ namespace OloEngine::Tests
                      arg == "--olo-capture-manifest" || arg == "--olo-capture-out" ||
                      arg == "--olo-require-renderer-preset" || arg == "--olo-state-machine-replay" ||
                      arg == "--olo-state-machine-seeds" || arg == "--olo-state-machine-length" ||
-                     arg == "--olo-state-machine-minimize-budget")
+                     arg == "--olo-state-machine-minimize-budget" || arg == "--olo-cross-path-export")
             {
                 // The name is right but the `=value` is missing — say that,
                 // rather than sending someone hunting for a typo.
