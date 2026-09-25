@@ -220,6 +220,7 @@ namespace OloEngine::Tests
             output->Bind();
             ::glViewport(0, 0, static_cast<GLsizei>(columns), 2);
             ::glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+            ::glDisable(GL_SCISSOR_TEST); // a leaked scissor would clip the probe, not the lighting
             ::glClear(GL_COLOR_BUFFER_BIT);
             ::glDisable(GL_BLEND);
             ::glDisable(GL_DEPTH_TEST);

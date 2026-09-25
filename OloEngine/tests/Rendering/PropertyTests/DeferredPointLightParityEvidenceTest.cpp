@@ -242,6 +242,14 @@ namespace OloEngine::Tests
             EnableRendering(kWidth, kHeight);
             Scene& scene = GetScene();
 
+            // Screen-space AO off unless a case turns it on: Forward applies it to
+            // the composed colour and Deferred to the ambient term (#1452), so an
+            // AO inherited from an earlier test would be measured as a path gap.
+            // Set here, not in UsePath, so the GTAO case's own setting survives.
+            auto& pp = Renderer3D::GetPostProcessSettings();
+            pp.GTAOEnabled = false;
+            pp.SSAOEnabled = false;
+
             AddMesh("Floor", MeshPrimitive::Plane, { 0.0f, 0.0f, 0.0f }, { 20.0f, 1.0f, 20.0f }, glm::vec3(0.75f), 0.7f);
             AddMesh("Wall", MeshPrimitive::Cube, { 0.0f, 2.5f, -3.0f }, { 12.0f, 5.0f, 0.4f }, glm::vec3(0.75f), 0.5f);
             AddMesh("Box", MeshPrimitive::Cube, { 1.6f, 0.6f, -0.8f }, { 1.2f, 1.2f, 1.2f }, { 0.6f, 0.7f, 0.8f }, 0.35f);
@@ -534,6 +542,14 @@ namespace OloEngine::Tests
         {
             Renderer3D::GetRendererSettings().Path = path;
             Renderer3D::ApplyRendererSettings();
+            // The scene file's post-process block is not applied headlessly, so
+            // pin everything the two paths apply differently (the guide's rule 1).
+            auto& pp = Renderer3D::GetPostProcessSettings();
+            pp.BloomEnabled = false;
+            pp.AutoExposureEnabled = false;
+            pp.Exposure = 1.0f;
+            pp.GTAOEnabled = false;
+            pp.SSAOEnabled = false;
             Frame f;
             RunFrames(kFramesPerCapture);
             std::vector<u8> bottomUp;
