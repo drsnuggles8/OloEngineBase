@@ -70,6 +70,36 @@ namespace OloEngine
 
     namespace TextureImport
     {
+        std::string_view NameOf(TextureImportSettings::FormatChoice value)
+        {
+            return NameIn(kFormatNames, value);
+        }
+
+        std::string_view NameOf(TextureImportSettings::ColorSpaceChoice value)
+        {
+            return NameIn(kColorSpaceNames, value);
+        }
+
+        std::string_view NameOf(TextureImportSettings::AlphaMipChainChoice value)
+        {
+            return NameIn(kAlphaMipChainNames, value);
+        }
+
+        bool FromName(std::string_view name, TextureImportSettings::FormatChoice& out)
+        {
+            return LookupName(kFormatNames, name, out);
+        }
+
+        bool FromName(std::string_view name, TextureImportSettings::ColorSpaceChoice& out)
+        {
+            return LookupName(kColorSpaceNames, name, out);
+        }
+
+        bool FromName(std::string_view name, TextureImportSettings::AlphaMipChainChoice& out)
+        {
+            return LookupName(kAlphaMipChainNames, name, out);
+        }
+
         std::string SidecarPathFor(std::string_view sourceImagePath)
         {
             std::string path(sourceImagePath);

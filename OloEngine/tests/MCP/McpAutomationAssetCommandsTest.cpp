@@ -20,6 +20,7 @@
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Debug/DiagnosticsEventLog.h"
 #include "OloEngine/Project/Project.h"
+#include "OloEngine/Renderer/TextureImportSettings.h"
 #include "UndoRedo/EditorCommand.h"
 #include "TestTempDir.h"
 
@@ -423,7 +424,7 @@ namespace OloEngine::Automation::Tests
         // Writing a sidecar next to an arbitrary file is not.
         const auto written = Call("olo_asset_import_settings",
                                   Json{ { "path", outside.generic_string() },
-                                        { "settings", Json{ { "flipUV", true } } } });
+                                        { "settings", Json{ { "Format", "BC7" } } } });
         EXPECT_TRUE(written.Result.IsError) << written.Result.Content.dump(2);
         EXPECT_FALSE(std::filesystem::exists(outside.string() + ".oloimport"));
     }
@@ -499,29 +500,69 @@ namespace OloEngine::Automation::Tests
     {
         const Json empty = Success("olo_asset_import_settings", Json{ { "path", "Assets/Textures/Checkerboard.png" } });
         EXPECT_FALSE(empty.at("exists").get<bool>());
-        EXPECT_TRUE(empty.at("settings").empty());
+        EXPECT_EQ(empty.at("settings").at("Format").get<std::string>(), "Auto");
+        EXPECT_TRUE(empty.at("settings").at("GenerateMips").is_null());
 
         const Json written = Success("olo_asset_import_settings",
                                      Json{ { "path", "Assets/Textures/Checkerboard.png" },
-                                           { "settings", Json{ { "flipUV", true }, { "srgb", false } } } });
+                                           { "settings", Json{ { "Format", "BC5" }, { "ColorSpace", "Linear" } } } });
         EXPECT_TRUE(written.at("changed").get<bool>());
-        // Nothing consumes these yet, and the result says so rather than letting
-        // a caller believe a setting took effect.
-        EXPECT_FALSE(written.at("appliedByImporter").get<bool>());
+        // The texture cook reads this file (#1453), and the result says so.
+        EXPECT_TRUE(written.at("appliedByImporter").get<bool>());
 
-        // A second write MERGES: setting one key must not drop the others.
+        // A second write MERGES: setting one field must not reset the others.
         const Json merged = Success("olo_asset_import_settings",
                                     Json{ { "path", "Assets/Textures/Checkerboard.png" },
-                                          { "settings", Json{ { "srgb", true } } } });
-        EXPECT_TRUE(merged.at("settings").at("flipUV").get<bool>());
-        EXPECT_TRUE(merged.at("settings").at("srgb").get<bool>());
+                                          { "settings", Json{ { "AlphaMipChain", "Coverage" } } } });
+        EXPECT_EQ(merged.at("settings").at("Format").get<std::string>(), "BC5");
+        EXPECT_EQ(merged.at("settings").at("ColorSpace").get<std::string>(), "Linear");
+        EXPECT_EQ(merged.at("settings").at("AlphaMipChain").get<std::string>(), "Coverage");
 
-        // ...and a null value is how a key is removed. Explicit, not inferred.
-        const Json removed = Success("olo_asset_import_settings",
-                                     Json{ { "path", "Assets/Textures/Checkerboard.png" },
-                                           { "settings", Json{ { "flipUV", nullptr } } } });
-        EXPECT_FALSE(removed.at("settings").contains("flipUV"));
-        EXPECT_TRUE(removed.at("settings").at("srgb").get<bool>());
+        // ...and a null value is how a field goes back to Auto. Explicit, not inferred.
+        const Json reset = Success("olo_asset_import_settings",
+                                   Json{ { "path", "Assets/Textures/Checkerboard.png" },
+                                         { "settings", Json{ { "Format", nullptr } } } });
+        EXPECT_EQ(reset.at("settings").at("Format").get<std::string>(), "Auto");
+        EXPECT_EQ(reset.at("settings").at("ColorSpace").get<std::string>(), "Linear");
+    }
+
+    // #1453: the only reader of this file is the texture cook, which parses the
+    // TextureImportSettings YAML format. The tool used to write JSON there, which
+    // the cook rejected as malformed, so no setting it stored ever applied.
+    TEST_F(AutomationAssetCommandsTest, TheCookReadsWhatImportSettingsWrites)
+    {
+        Success("olo_asset_import_settings",
+                Json{ { "path", "Assets/Textures/Checkerboard.png" },
+                      { "settings", Json{ { "Format", "BC5" }, { "GenerateMips", false }, { "AlphaMipChain", "Box" } } } });
+
+        TextureImportSettings cooked;
+        ASSERT_TRUE(TextureImport::LoadForImage((m_Project / "Assets" / "Textures" / "Checkerboard.png").string(), cooked))
+            << "the sidecar the tool wrote is not one the cook can read:\n"
+            << Read(m_Project / "Assets" / "Textures" / "Checkerboard.png.oloimport");
+        EXPECT_EQ(cooked.Format, TextureImportSettings::FormatChoice::BC5);
+        ASSERT_TRUE(cooked.GenerateMips.has_value());
+        EXPECT_FALSE(*cooked.GenerateMips);
+        EXPECT_EQ(cooked.AlphaMipChain, TextureImportSettings::AlphaMipChainChoice::Box);
+    }
+
+    TEST_F(AutomationAssetCommandsTest, ImportSettingsRefuseWhatTheCookWouldReject)
+    {
+        // A misspelt field or value is refused and writes nothing, rather than
+        // producing a sidecar the cook logs as malformed and ignores.
+        const auto path = m_Project / "Assets" / "Textures" / "Checkerboard.png.oloimport";
+        for (const Json& settings : { Json{ { "flipUV", true } }, Json{ { "Format", "BC9" } },
+                                      Json{ { "GenerateMips", "yes" } }, Json{ { "AlphaMipChain", 3 } } })
+        {
+            const auto result = Call("olo_asset_import_settings",
+                                     Json{ { "path", "Assets/Textures/Checkerboard.png" }, { "settings", settings } });
+            EXPECT_TRUE(result.Result.IsError) << settings.dump();
+            EXPECT_FALSE(std::filesystem::exists(path)) << settings.dump();
+        }
+
+        // Settings for an asset nothing imports with settings are refused by name.
+        Write(m_Project / "Assets" / "Scenes" / "Nothing.olo", "Scene: Nothing");
+        const auto scene = Call("olo_asset_import_settings", Json{ { "path", "Assets/Scenes/Nothing.olo" } });
+        EXPECT_TRUE(scene.Result.IsError) << scene.Result.Content.dump(2);
     }
 
     // The sidecar lands next to an asset inside Assets/, which is the directory
@@ -532,7 +573,7 @@ namespace OloEngine::Automation::Tests
     TEST_F(AutomationAssetCommandsTest, TheSidecarExtensionIsInvisibleToTheHotReloadWatcher)
     {
         Success("olo_asset_import_settings",
-                Json{ { "path", "Assets/Textures/Checkerboard.png" }, { "settings", Json{ { "flipUV", true } } } });
+                Json{ { "path", "Assets/Textures/Checkerboard.png" }, { "settings", Json{ { "Format", "BC7" } } } });
         const auto sidecar = m_Project / "Assets" / "Textures" / "Checkerboard.png.oloimport";
         ASSERT_TRUE(std::filesystem::exists(sidecar));
 
@@ -551,7 +592,7 @@ namespace OloEngine::Automation::Tests
     TEST_F(AutomationAssetCommandsTest, MoveCarriesTheImportSettingsSidecar)
     {
         Success("olo_asset_import_settings",
-                Json{ { "path", "Assets/Textures/Checkerboard.png" }, { "settings", Json{ { "flipUV", true } } } });
+                Json{ { "path", "Assets/Textures/Checkerboard.png" }, { "settings", Json{ { "Format", "BC5" } } } });
         Success("olo_asset_move", Json{ { "path", "Assets/Textures/Checkerboard.png" },
                                         { "destination", "Assets/Textures/Moved/Checkerboard.png" },
                                         { "createDirectories", true } });
@@ -560,14 +601,14 @@ namespace OloEngine::Automation::Tests
         const Json settings = Success("olo_asset_import_settings",
                                       Json{ { "path", "Assets/Textures/Moved/Checkerboard.png" } });
         EXPECT_TRUE(settings.at("exists").get<bool>());
-        EXPECT_TRUE(settings.at("settings").at("flipUV").get<bool>());
+        EXPECT_EQ(settings.at("settings").at("Format").get<std::string>(), "BC5");
     }
 
     TEST_F(AutomationAssetCommandsTest, DeleteTakesTheImportSettingsSidecarWithIt)
     {
         Write(m_Project / "Assets" / "Textures" / "Lonely.png", "nobody-points-here");
         Success("olo_asset_import_settings",
-                Json{ { "path", "Assets/Textures/Lonely.png" }, { "settings", Json{ { "flipUV", true } } } });
+                Json{ { "path", "Assets/Textures/Lonely.png" }, { "settings", Json{ { "Format", "BC7" } } } });
 
         const Json deleted = Success("olo_asset_delete", Json{ { "path", "Assets/Textures/Lonely.png" } });
         ASSERT_TRUE(deleted.at("deleted").get<bool>()) << deleted.dump(2);
@@ -577,11 +618,16 @@ namespace OloEngine::Automation::Tests
 
     TEST_F(AutomationAssetCommandsTest, ImportSettingsRefuseToOverwriteAMalformedSidecar)
     {
-        Write(m_Project / "Assets" / "Textures" / "Checkerboard.png.oloimport", "this is not json");
+        // A sidecar in the old JSON shape this tool wrote before #1453 is one of
+        // these: the cook cannot read it, so it is reported rather than replaced.
+        const std::string legacy = "{\n  \"flipUV\": true\n}\n";
+        Write(m_Project / "Assets" / "Textures" / "Checkerboard.png.oloimport", legacy);
+        const auto read = Call("olo_asset_import_settings", Json{ { "path", "Assets/Textures/Checkerboard.png" } });
+        EXPECT_TRUE(read.Result.IsError) << read.Result.Content.dump(2);
         const auto result = Call("olo_asset_import_settings", Json{ { "path", "Assets/Textures/Checkerboard.png" },
-                                                                    { "settings", Json{ { "flipUV", true } } } });
+                                                                    { "settings", Json{ { "Format", "BC7" } } } });
         EXPECT_TRUE(result.Result.IsError) << result.Result.Content.dump(2);
-        EXPECT_EQ(Read(m_Project / "Assets" / "Textures" / "Checkerboard.png.oloimport"), "this is not json")
+        EXPECT_EQ(Read(m_Project / "Assets" / "Textures" / "Checkerboard.png.oloimport"), legacy)
             << "an unreadable sidecar is a human's problem; clobbering it would destroy whatever they meant to put "
                "there";
     }

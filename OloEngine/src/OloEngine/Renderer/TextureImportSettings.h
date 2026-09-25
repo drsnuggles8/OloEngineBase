@@ -118,5 +118,16 @@ namespace OloEngine
         // unit-testable without touching the filesystem.
         [[nodiscard]] bool Parse(std::string_view yaml, TextureImportSettings& out);
         [[nodiscard]] std::string Emit(const TextureImportSettings& settings);
+
+        // The sidecar's spellings, for a tool that edits one field at a time
+        // (olo_asset_import_settings). The same tables Parse and Emit use, so a
+        // tool cannot write a spelling the cook would reject. FromName returns
+        // false, leaving `out` untouched, for a spelling the sidecar does not have.
+        [[nodiscard]] std::string_view NameOf(TextureImportSettings::FormatChoice value);
+        [[nodiscard]] std::string_view NameOf(TextureImportSettings::ColorSpaceChoice value);
+        [[nodiscard]] std::string_view NameOf(TextureImportSettings::AlphaMipChainChoice value);
+        [[nodiscard]] bool FromName(std::string_view name, TextureImportSettings::FormatChoice& out);
+        [[nodiscard]] bool FromName(std::string_view name, TextureImportSettings::ColorSpaceChoice& out);
+        [[nodiscard]] bool FromName(std::string_view name, TextureImportSettings::AlphaMipChainChoice& out);
     } // namespace TextureImport
 } // namespace OloEngine
