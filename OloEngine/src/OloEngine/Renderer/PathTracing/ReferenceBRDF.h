@@ -30,8 +30,10 @@
 //     PBRCommon.glsl's GEOMETRY FUNCTIONS section for why the two differ and
 //     why that difference is deliberate rather than the #904 bug.
 //   * `CookTorranceBRDF` computes kD = 1 - F with F evaluated at the HALF
-//     vector, which is the common (mildly non-reciprocal) formulation. It is
-//     what ships, so it is what the reference integrates.
+//     vector. It is what ships, so it is what the reference integrates. That
+//     formulation IS reciprocal: dot(h, v) == dot(h, l), and every other factor
+//     is symmetric in (v, l) — BsdfIdentityOracleTest.ClosuresAreReciprocal
+//     measures a worst asymmetry of 5e-7 (issue #1347).
 //
 // Everything here is header-only, allocation-free and GL-independent so the
 // tracer and its contract tests run headless (ADR 0002).
