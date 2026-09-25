@@ -142,6 +142,18 @@ namespace OloEngine
         return s_Data.Pipeline ? s_Data.Pipeline->RenderStreamPasses.Groom.Raw() : nullptr;
     }
 
+    u64 Renderer3D::SetGroomCacheBudgetBytes(u64 bytes)
+    {
+        GroomRenderPass* pass = s_Data.Pipeline ? s_Data.Pipeline->RenderStreamPasses.Groom.Raw() : nullptr;
+        if (pass == nullptr)
+        {
+            return 0;
+        }
+        const u64 previous = pass->GetCacheBudgetBytes();
+        pass->SetCacheBudgetBytes(bytes);
+        return previous;
+    }
+
     RayTracedReflectionPass* Renderer3D::GetRayTracedReflectionPass()
     {
         return s_Data.Pipeline ? s_Data.Pipeline->PostProcessPasses.RayTracedReflection.Raw() : nullptr;

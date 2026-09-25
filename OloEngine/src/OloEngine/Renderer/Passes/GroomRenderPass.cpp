@@ -1206,6 +1206,8 @@ namespace OloEngine
         PruneRestStreams();
         if (m_CacheBytes <= m_CacheBudgetBytes)
         {
+            // Back within budget: re-arm the warning for the next time.
+            (void)m_CacheBudgetWarning.Observe(0);
             return;
         }
 
@@ -1248,11 +1250,13 @@ namespace OloEngine
         // An evicted entity may have been the last holder of its stream.
         PruneRestStreams();
 
-        if (m_CacheBytes > m_CacheBudgetBytes)
+        m_Stats.CacheOverBudgetBytes = m_CacheBytes > m_CacheBudgetBytes ? m_CacheBytes - m_CacheBudgetBytes : 0;
+        // Every resident groom is in use, so the budget cannot be met. Said out
+        // loud rather than dropping a draw: a groom that vanished to fit a
+        // budget is indistinguishable from a broken asset. Said ONCE per entry
+        // into the state and per material growth (#1431), not every frame.
+        if (m_CacheBudgetWarning.Observe(m_Stats.CacheOverBudgetBytes))
         {
-            // Every resident groom is in use, so the budget cannot be met.
-            // Said out loud rather than dropping a draw: a groom that vanished
-            // to fit a budget is indistinguishable from a broken asset.
             OLO_CORE_WARN("GroomRenderPass: strand cache is {:.1f} MiB over its {:.1f} MiB budget and every entry is "
                           "in use this frame; nothing was evicted and every groom is still drawn",
                           static_cast<f64>(m_CacheBytes - m_CacheBudgetBytes) / (1024.0 * 1024.0),
@@ -1282,6 +1286,7 @@ namespace OloEngine
         {
             m_Requests.Empty();
             m_Stats.CachedBytes = m_CacheBytes;
+            m_Stats.CacheBudgetBytes = m_CacheBudgetBytes;
             m_Stats.CachedGrooms = static_cast<u32>(m_Cache.size());
             return;
         }
@@ -1303,6 +1308,7 @@ namespace OloEngine
                                "placeholder buffer; skipping the strand draws rather than binding a null resource.");
             m_Requests.Empty();
             m_Stats.CachedBytes = m_CacheBytes;
+            m_Stats.CacheBudgetBytes = m_CacheBudgetBytes;
             m_Stats.CachedGrooms = static_cast<u32>(m_Cache.size());
             return;
         }
@@ -1792,6 +1798,7 @@ namespace OloEngine
 
         EvictToBudget();
         m_Stats.CachedBytes = m_CacheBytes;
+        m_Stats.CacheBudgetBytes = m_CacheBudgetBytes;
         m_Stats.CachedGrooms = static_cast<u32>(m_Cache.size());
 
         // Requests are per-frame; holding them would draw last frame's grooms

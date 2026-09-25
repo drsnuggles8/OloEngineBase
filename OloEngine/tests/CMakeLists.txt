@@ -121,6 +121,8 @@ add_executable(OloEngine-Tests
 		# Dense-coat self-shadowing (#1248). The pure selection seam: which
 		# representation a coat gets and why it is not what was asked for.
 		Groom/GroomCoatShadowSelectionTest.cpp
+		# The strand cache's over-budget warning is said on change, not every frame (#1431).
+		Groom/GroomCacheBudgetWarningTest.cpp
 		# Coat groups, roles and coat variation (#1251). The role table's survival
 		# through the cook, the per-role budget that keeps the silhouette, and the
 		# pose-independence that makes a regional map stay attached.
