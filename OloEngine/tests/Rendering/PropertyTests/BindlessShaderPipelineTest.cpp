@@ -1152,6 +1152,13 @@ void main()
         // Every entry shader converted under amendment (96), by relative path.
         // #1120 landed the first two; this issue's second slice added the rest.
         static const std::set<std::string> kOnTheMaterialHeapArm{
+            // The forward prepass's depth+normal variants (issue #1452) read the
+            // same material maps as the colour pass they stand in for (alpha
+            // mask, normal map), through the same arm.
+            "DepthNormalPrepass.glsl",
+            "DepthNormalPrepass_Mask.glsl",
+            "DepthNormalPrepass_MaskSkinned.glsl",
+            "DepthNormalPrepass_Skinned.glsl",
             "PBR_GBuffer.glsl",
             "PBR_GBuffer_Skinned.glsl",
             "PBR_MultiLight.glsl",

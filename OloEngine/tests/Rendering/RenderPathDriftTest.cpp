@@ -200,7 +200,12 @@ namespace OloEngine::Tests
         // had to become a macro. Accepting the NAME alone would be a hole — a future edit could
         // point it at a hand-rolled frame and this scan would still pass — so the macro's own
         // definition is checked below, in the owner file, against the same two primitives.
-        const std::regex sharedCallRe(R"((getNormalFromMap(Grad)?|OLO_MAT_NORMAL)\s*\()");
+        // oloForwardMappedNormal (include/ForwardShadingNormal.glsl, issue #1452) is the forward
+        // shaders' and their depth+normal prepass's one mapped-normal helper, so the colour pass
+        // and the prepass cannot disagree about a pixel's normal. It is accepted by name for the
+        // same reason the macro is, and held to the same rule below: its definition must go
+        // through OLO_MAT_NORMAL.
+        const std::regex sharedCallRe(R"((getNormalFromMap(Grad)?|OLO_MAT_NORMAL|oloForwardMappedNormal)\s*\()");
         // Builds a tangent frame of its own. A hand-copied getNormalFromMap always contains
         // one of these — that IS what it is — so this is the pattern that catches the copy
         // before it has a chance to drift, whatever the copier calls their samplers.
@@ -295,6 +300,22 @@ namespace OloEngine::Tests
                        "PBRCommon's ONE tangent frame:\n    "
                     << definition;
             }
+        }
+
+        // THE FORWARD HELPER IS NOT A LOOPHOLE EITHER: its body must reach the shared decode.
+        {
+            const std::filesystem::path helper = shaderDir / "include/ForwardShadingNormal.glsl";
+            const std::string helperSource = StripComments(ReadFile(helper));
+            const std::size_t start = helperSource.find("vec3 oloForwardMappedNormal(");
+            ASSERT_NE(start, std::string::npos)
+                << "oloForwardMappedNormal is accepted as a shared call above but " << helper.string()
+                << " no longer defines it";
+            const std::size_t end = helperSource.find("\n}", start);
+            const std::string body = helperSource.substr(start, end == std::string::npos ? std::string::npos : end - start);
+            EXPECT_NE(body.find("OLO_MAT_NORMAL("), std::string::npos)
+                << "oloForwardMappedNormal no longer goes through OLO_MAT_NORMAL, so every forward shader that "
+                   "calls it has left PBRCommon's ONE tangent frame:\n"
+                << body;
         }
 
         EXPECT_GT(scanned, 20u) << "the shader scan found almost no files — the path or the extension list is wrong "
