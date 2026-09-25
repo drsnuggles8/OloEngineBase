@@ -407,9 +407,9 @@ namespace OloEngine::Tests
                             if (pineHighFar || grassQuarterFar)
                             {
                                 const std::string feature = kArms[a] == Arm::Cooked ? "CookedCutoutCoverage"
-                                                            : kArms[a] == Arm::Off   ? "CookedCutoutCoverageOff"
-                                                                                     : std::string("CookedCutoutCoverage") +
-                                                                                           kArmNames[a];
+                                                            : kArms[a] == Arm::Off  ? "CookedCutoutCoverageOff"
+                                                                                    : std::string("CookedCutoutCoverage") +
+                                                                                         kArmNames[a];
                                 WritePng(feature + "_GL_" + PathName(path) + "_" + kSubjects[s].Name + "Far.png", frame);
                             }
                         }
