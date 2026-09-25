@@ -23,10 +23,9 @@ namespace OloEngine
                                            VkImageLayout layout)
     {
         // FNV-1a over the fields that make two views distinct descriptors.
-        // Component swizzles are deliberately omitted — nothing in the engine
-        // authors swizzled views; if one ever does, add the four components
-        // here (a missed field folds two DIFFERENT views into one slot, which
-        // renders wrong, so the field list is the contract).
+        // A missed field folds two DIFFERENT views into one slot, which renders
+        // wrong, so the field list is the contract. The swizzle is in it since
+        // BC4 textures sample through an (R, R, R, 1) view (#1453).
         constexpr u64 kOffset = 1469598103934665603ull;
         constexpr u64 kPrime = 1099511628211ull;
         u64 hash = kOffset;
@@ -38,6 +37,10 @@ namespace OloEngine
         mix(reinterpret_cast<std::uintptr_t>(image));
         mix(static_cast<u64>(viewInfo.viewType));
         mix(static_cast<u64>(viewInfo.format));
+        mix(static_cast<u64>(viewInfo.components.r));
+        mix(static_cast<u64>(viewInfo.components.g));
+        mix(static_cast<u64>(viewInfo.components.b));
+        mix(static_cast<u64>(viewInfo.components.a));
         mix(static_cast<u64>(viewInfo.subresourceRange.aspectMask));
         mix(static_cast<u64>(viewInfo.subresourceRange.baseMipLevel));
         mix(static_cast<u64>(viewInfo.subresourceRange.levelCount));

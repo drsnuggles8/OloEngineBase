@@ -69,6 +69,14 @@ namespace OloEngine
         // right view instead of hardcoding 2D (issue #691).
         VkImageViewType ViewType = VK_IMAGE_VIEW_TYPE_2D;
 
+        // The swizzle every SAMPLED view of this image carries. Identity for
+        // everything but a BC4 texture, which the engine samples as (R, R, R, 1)
+        // on both backends (TextureCompression::EncodeBC4): GL installs it as a
+        // texture swizzle, and here it rides on each sampled view description.
+        // Storage views stay identity — a swizzled storage view is invalid, and
+        // no block-compressed image is a storage image.
+        VkComponentMapping Components{};
+
         // Stamped by Register() from a process-wide monotonic counter. A
         // destroyed VkImage's handle VALUE can be recycled by the driver for
         // a later image with identical extents; layout trackers key on the

@@ -55,6 +55,16 @@ namespace OloEngine
         // flip the GL twin uses — asset bytes must be identical across
         // backends, since UV sampling is convention-free.
         VulkanTexture2D(const std::string& path, bool srgb, const std::string& identityPath = "");
+        // Cooked block-compressed upload (#1453): every format the cook emits
+        // (TextureCompression) — BC7 sRGB or linear, BC5, BC4 sampled as
+        // (R, R, R, 1), BC6H unsigned and signed. The mip chain is uploaded
+        // exactly as cooked, level by level: an alpha cutout's cooked chain is
+        // coverage-preserving and SHORTER than a full one, and a blit cannot
+        // regenerate a block-compressed level anyway. A device that cannot
+        // sample, filter and receive the format refuses by name, leaving an
+        // unloaded texture (IsLoaded() false) for the caller's missing-texture
+        // handling, never one that samples garbage.
+        explicit VulkanTexture2D(const CompressedTextureImage& image);
         ~VulkanTexture2D() override;
 
         const TextureSpecification& GetSpecification() const override
@@ -110,10 +120,13 @@ namespace OloEngine
 
         [[nodiscard("Use for transparency")]] bool HasAlphaChannel() const override
         {
+            // A cooked texture's alpha was MEASURED by the cook (the GL twin's
+            // rule): an opaque BC7 albedo must not sort into the transparent pass.
+            if (IsCompressedFormat(m_Specification.Format))
+                return m_CompressedHasAlpha;
             return m_Specification.Format == ImageFormat::RGBA8 ||
                    m_Specification.Format == ImageFormat::RGBA16F ||
-                   m_Specification.Format == ImageFormat::RGBA32F ||
-                   m_Specification.Format == ImageFormat::BC7;
+                   m_Specification.Format == ImageFormat::RGBA32F;
         }
 
         [[nodiscard("Store this!")]] u32 GetMipLevelCount() const override
@@ -181,6 +194,10 @@ namespace OloEngine
         // the staging and host paths so the two cannot drift in their barrier
         // scopes — the half of the upload the host route still needs a queue for.
         void RecordMipChain(VkCommandBuffer cmd, VkFilter blitFilter) const;
+        // The compressed constructor's upload: every cooked level copied into
+        // its mip with block-aligned extents, then the whole image to the
+        // sampled layout. False (logged) on a staging or submit failure.
+        bool UploadCompressedLevels(const CompressedTextureImage& image);
         // Whether uploads build the alpha-tested chain on the CPU (issue #1441)
         // instead of blitting it: a cutoff is set and the image is RGBA8 with a
         // chain to fill.
@@ -192,6 +209,8 @@ namespace OloEngine
         u32 m_Height = 0;
         u32 m_MipLevels = 1;
         bool m_IsLoaded = false;
+        // A cooked texture's measured alpha (CompressedTextureImage::HasAlpha).
+        bool m_CompressedHasAlpha = false;
         // #809: set by CreateImage when the image was actually created with
         // VK_IMAGE_USAGE_HOST_TRANSFER_BIT. Not the same question as
         // VulkanDevice::IsHostImageCopyEnabled — the usage bit is also gated

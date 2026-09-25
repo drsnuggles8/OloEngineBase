@@ -3833,6 +3833,7 @@ namespace OloEngine
         view.image = image;
         view.viewType = info->ViewType;
         view.format = info->Format;
+        view.components = info->Components;
         view.subresourceRange.aspectMask = info->HasDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
         view.subresourceRange.baseMipLevel = 0;
         view.subresourceRange.levelCount = std::max(info->MipLevels, 1u);

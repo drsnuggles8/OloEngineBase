@@ -94,18 +94,17 @@ namespace OloEngine
             }
             case RendererAPI::API::Vulkan:
             {
-                // Block-compressed upload (the BCn staging path) is #691
-                // Degrading to null rather than asserting keeps an
-                // asset that happens to be compressed from killing the app —
-                // the caller falls back to its missing-texture handling
-                // (see asset-degradation-and-constructor-preconditions.md).
-                static bool s_Warned = false;
-                if (!s_Warned)
+#if OLO_WITH_VULKAN
+                // The cooked chain uploads as-is (#1453). A device that cannot
+                // sample the format gets an UNLOADED texture and a named error,
+                // not null: IsLoaded() is what the callers' missing-texture
+                // handling already reads.
+                if (VulkanDevice::Get() != nullptr)
                 {
-                    s_Warned = true;
-                    OLO_CORE_WARN("[RHI/Vulkan] compressed-texture upload is not implemented (#691) — "
-                                  "these textures load as null");
+                    return Ref<VulkanTexture2D>::Create(compressedImage);
                 }
+#endif
+                OLO_CORE_ASSERT(false, "RendererAPI::Vulkan: no VulkanDevice is up (or OLO_WITH_VULKAN is compiled out) — cannot create a Vulkan texture!");
                 return nullptr;
             }
             case RendererAPI::API::OpenGL:

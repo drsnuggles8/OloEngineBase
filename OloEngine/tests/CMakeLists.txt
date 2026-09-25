@@ -496,6 +496,7 @@ add_executable(OloEngine-Tests
 		# reads the attachment back — a GetData() round-trip is the substituted
 		# seam here and passes with the bug present.
 		Rendering/VulkanTextureInPlaceReloadTest.cpp
+		Rendering/VulkanCompressedTextureUploadTest.cpp
 		# #691 Phase 7 Stage 1.6b: REAL passes through the REAL render graph on
 		# a device — transients, planner barriers, pass bodies recording via
 		# the process-global backend; first tenant is the golden-gated FXAA
