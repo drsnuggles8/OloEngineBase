@@ -165,8 +165,9 @@ namespace OloEngine
         u32 CommandsSubmitted = 0;
         u32 MeshesCulled = 0;
         // Draws DrawMeshParallel handed to ForwardOverlayPass itself. It returns
-        // nullptr for those, as for a culled mesh, so without this count the
-        // caller would report them as not submitted.
+        // nullptr for those, as for a culled mesh, so without this count
+        // Statistics::ParallelSubmittedMeshes would miss a worker branch whose
+        // draws all went to the overlay.
         u32 ForwardOverlaySubmitted = 0;
         u32 LODSwitches = 0;
         TArray64<u32> ObjectsPerLODLevel;

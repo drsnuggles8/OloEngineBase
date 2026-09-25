@@ -2780,11 +2780,11 @@ namespace OloEngine
 
         // Aggregate statistics.
         u32 totalSubmitted = 0;
+        u32 overlaySubmitted = 0;
         for (i32 i = 0; i < MAX_RENDER_WORKERS; ++i)
         {
-            // Overlay reroutes are submitted draws: the serial branch counts
-            // them, because DrawMesh returns the overlay packet.
-            totalSubmitted += workerStats[i].Submitted + workerStats[i].Context.ForwardOverlaySubmitted;
+            totalSubmitted += workerStats[i].Submitted;
+            overlaySubmitted += workerStats[i].Context.ForwardOverlaySubmitted;
             s_Data.Stats.LODSwitches += workerStats[i].Context.LODSwitches;
             for (sizet j = 0; j < static_cast<sizet>(workerStats[i].Context.ObjectsPerLODLevel.Num()); ++j)
             {
@@ -2795,7 +2795,12 @@ namespace OloEngine
                 s_Data.Stats.ObjectsPerLODLevel[j] += workerStats[i].Context.ObjectsPerLODLevel[j];
             }
         }
-        s_Data.Stats.ParallelSubmittedMeshes += totalSubmitted;
+        // The statistic is the worker branch's evidence, so it counts every
+        // draw a worker produced, the ForwardOverlayPass reroutes included. The
+        // return value matches the serial branch instead: DrawMesh submits an
+        // overlay draw itself and returns nullptr, so that branch does not count
+        // it either.
+        s_Data.Stats.ParallelSubmittedMeshes += totalSubmitted + overlaySubmitted;
 
         return totalSubmitted;
     }
