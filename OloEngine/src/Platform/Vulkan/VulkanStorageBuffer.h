@@ -131,6 +131,12 @@ namespace OloEngine
         /// does not move.
         [[nodiscard]] static u64 GetSnapshotRefusedCount();
 
+        /// Times a transfer-written buffer's (DynamicCopy, StreamCommandOrdered)
+        /// recorded copy was REFUSED — a worker thread, an unresolvable handle, a
+        /// failed staging allocation. The draw then reads the previous contents.
+        /// Process-wide and monotonic, like GetSnapshotRefusedCount (#1427).
+        [[nodiscard]] static u64 GetTransferRefusedCount();
+
         // Drop any live snapshot because someone wrote the PERSISTENT buffer
         // behind SetData's back (issue #1052): VulkanRendererAPI's
         // UploadBufferSubData / CopyBufferSubData reach this buffer by its
@@ -157,6 +163,14 @@ namespace OloEngine
         // write leaves undefined — doing so resurrects exactly the content the
         // clear was issued to remove.
         void NoteGpuWriteThisFrame();
+        // The usages whose CPU writes are recorded transfers into the
+        // persistent buffer rather than mapped writes plus a frame-arena
+        // snapshot: DynamicCopy (a seed in front of a GPU producer) and
+        // StreamCommandOrdered (a large per-frame CPU payload, #1427).
+        [[nodiscard]] bool IsTransferWritten() const noexcept
+        {
+            return m_Usage == StorageBufferUsage::DynamicCopy || m_Usage == StorageBufferUsage::StreamCommandOrdered;
+        }
         [[nodiscard]] bool GpuWroteThisFrame() const;
         void CreateBuffer();
         void ReleaseBuffer();

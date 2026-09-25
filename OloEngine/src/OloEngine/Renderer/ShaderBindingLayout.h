@@ -1621,6 +1621,23 @@ namespace OloEngine
             // comparison a rounding question.
             glm::ivec4 CoatModes{ 0, 0, 0, 0 };
 
+            // ── GPU strand deformation (#1427) ───────────────────────
+            //
+            // How to read the vertex stream and the SSBO_GROOM_DEFORMATION
+            // buffer. They go up at mode 0 — "the stream is final", which is
+            // what every unbound groom and the CPU-deformed reference path draw
+            // — and only a draw whose rest stream AND frame buffer are both in
+            // hand writes mode 1. GLSL twin: include/GroomStrandDeform.glsl.
+            //
+            // x = mode (0 final stream, 1 GPU-deformed rest stream),
+            // y = 1 when guide displacements travel this frame,
+            // z = root records in the buffer, w = guide slots.
+            glm::ivec4 DeformModes{ 0, 0, 0, 0 };
+            // Region starts in 16-byte units: x = roots, y = guide slots,
+            // z = displacements; w = displacement records written this frame.
+            // The guide weights start at 0, always.
+            glm::ivec4 DeformBases{ 0, 0, 0, 0 };
+
             static constexpr u32 GetSize()
             {
                 return static_cast<u32>(sizeof(GroomStrandParamsUBO));
@@ -1629,14 +1646,14 @@ namespace OloEngine
 
         static_assert(sizeof(GroomStrandParamsUBO) % 16 == 0,
                       "GroomStrandParamsUBO must be 16-byte aligned for std140");
-        // 400 B: 208 through #1246's lanes, the five vec4/ivec4 lanes #1247's
-        // fibre material added (288), and #1248's coat-shadow block — one mat4
-        // and three vec4-sized lanes (112). Every lane is vec4-sized or a mat4,
-        // so the std140 layout is the C++ layout and the number is a plain sum
-        // — which is what makes this assertion able to catch a lane added to
-        // one side and not the other.
-        static_assert(sizeof(GroomStrandParamsUBO) == 400,
-                      "GroomStrandParamsUBO std140 size drifted from GLSL expectation (400 B)");
+        // 432 B: 208 through #1246's lanes, the five vec4/ivec4 lanes #1247's
+        // fibre material added (288), #1248's coat-shadow block — one mat4
+        // and three vec4-sized lanes (112) — and #1427's two deformation lanes
+        // (32). Every lane is vec4-sized or a mat4, so the std140 layout is the
+        // C++ layout and the number is a plain sum — which is what makes this
+        // assertion able to catch a lane added to one side and not the other.
+        static_assert(sizeof(GroomStrandParamsUBO) == 432,
+                      "GroomStrandParamsUBO std140 size drifted from GLSL expectation (432 B)");
 
         // @brief Auto-exposure metering/adaptation parameters (issue #691),
         // uploaded at UBO_AUTO_EXPOSURE (58). GLSL twin: the
@@ -3885,6 +3902,33 @@ namespace OloEngine
         // VT kernel failed to compile. 79 was the one number the family could
         // keep, and the namespace had no free ones to give.
         static constexpr u32 SSBO_TERRAIN_VT = 79; // feedback (fragment) / bake params / indirection updates — rebound per use
+
+        // A bound coat's per-frame deformation (issue #1427): the root
+        // transforms, guide weights and guide displacements GroomStrand.glsl's
+        // VERTEX stage evaluates the coat from (include/GroomStrandDeform.glsl).
+        //
+        // THE SAME NUMBER AS SSBO_TERRAIN_VT, ON PURPOSE, and spelled as an
+        // alias of it rather than as a second 79 so SSBOSlotUniqueness still
+        // sees one name per number: this is the "share a dispatch-local number
+        // with buffers that are rebound before every use" route the
+        // SSBO_GPU_STATS note leaves as the only one open. The sharing holds
+        // for the same reasons the three VT buffers' does:
+        //
+        //   * GroomRenderPass binds a buffer here immediately before EVERY
+        //     strand draw — the coat's own, or a one-record placeholder for a
+        //     draw that reads nothing — and never relies on it surviving;
+        //   * every VT user rebinds before its own reads (CommandDispatch
+        //     before each terrain draw, BakeTiles / PublishIndirection before
+        //     their dispatches), so a groom draw between them changes nothing
+        //     they see;
+        //   * GroomStrand.glsl declares nothing else at 79 in any namespace
+        //     (UBO_PREFIX_SUM is 79 too, and only the prefix-sum kernels read
+        //     it), so Vulkan's single-set model has no collision to resolve.
+        //
+        // What would break it: a terrain or groom consumer that reads 79
+        // without binding it first, or a shader that declares two of these
+        // blocks. Neither exists.
+        static constexpr u32 SSBO_GROOM_DEFORMATION = SSBO_TERRAIN_VT;
 
         // The structured GPU readback-stats channel (issue #721). ONE 144-byte
         // block -- overflow-flag word, enable gate, frame index, 32 counter

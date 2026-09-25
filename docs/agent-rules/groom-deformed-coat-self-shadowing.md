@@ -9,8 +9,11 @@ RepresentationStale}`. The static coat's rules are in
 ## The rules
 
 1. **Bake a bound coat from the strands the pass DRAWS, in groom object space.**
-   `AcquireGeometry` hands the deformed vertex stream to `AcquireCoatVolume`, and the bake reads it
-   instead of the asset's rest curves. Those vertices are already in groom object space with the
+   `AcquireDrawnPose` hands the drawn centrelines to `AcquireCoatVolume`, and the bake reads them
+   instead of the asset's rest curves. Since #1427 a bound coat is deformed in the vertex shader, so
+   the pose is evaluated on the CPU from the same frame buffer the GPU reads
+   ([groom-gpu-strand-deformation.md](groom-gpu-strand-deformation.md) rule 8); on the CPU reference
+   path it is corners 0 and 2 of the rebuilt stream. Those vertices are already in groom object space with the
    pose applied, and they reach the screen through the same model matrix the march inverts. So the
    volume and the strands share one space, and the shader lookup (`u_GroomCoatWorldToObject`)
    needs no change at all.
@@ -53,10 +56,9 @@ RepresentationStale}`. The static coat's rules are in
 
 6. **The one refusal left is `DeformedPoseUnavailable`, and it fails closed.**
    `GroomCoatShadowInputs::DeformedPoseAvailable` defaults to false, so a deformed groom has to
-   supply its pose positively. The arm cannot be reached while the strand build runs on the CPU.
-   **It is the arm #1427 will land on:** if deformation moves to the GPU, the bake has to learn to
-   read that output (or the coat falls back, loudly), because the CPU stream this file bakes from
-   will be gone.
+   supply its pose positively. Both deformation paths supply one since #1427: the GPU path
+   evaluates it from the frame buffer the vertex shader reads, the CPU reference path reads it off
+   its rebuilt stream. The arm is reached only when neither produced a pose.
 
 7. **A new 3D texture per bake, never `SetData` into the resident one.** A draw in flight may still
    be sampling the old volume, and an in-place upload into an image a queued Vulkan frame reads is
@@ -109,15 +111,17 @@ contract test), but on the walk it changed 176 rebakes into 177. The drift is no
 re-add it for walking coats without a measurement that says otherwise.
 
 The bake cost above is a Debug build's, timed around the whole bake (segments, binning, packing,
-upload call); how it splits between those was not measured. It sits
-beside #1427's per-frame strand rebuild of the same coats (420 ms/frame Release for three coats, from
-that issue) and belongs to the same fix: a bake that consumes the GPU-side deformed strands #1427
-proposes. This slice measures the cost and does not optimise it; the optimisation is #1445.
+upload call); how it splits between those was not measured. It sat
+beside #1427's per-frame strand rebuild of the same coats (420 ms/frame Release for three coats,
+from that issue). #1427 removed the rebuild and feeds the bake from the GPU path's own frame buffer,
+so the bake is now the largest remaining per-frame groom cost (57-109 ms live, Release, for the three
+walking coats). This slice measures the cost and does not optimise it; the optimisation is #1445.
 
-**On Vulkan, a bound coat larger than 16 MiB is not drawn at all (#1446)**, so a full-size moving
-coat cannot be judged there yet. That is the per-frame vertex re-upload overflowing the frame
-arena, not this bake. #1426's live Vulkan check therefore ran the counters on all three coats and
-the pixel A/B on a coat thinned to fit.
+**On Vulkan, a bound coat larger than 16 MiB was not drawn at all (#1446) — resolved.** That was
+the per-frame vertex re-upload overflowing the frame arena, not this bake. #1446 made large vertex
+streams command-ordered transfers, and #1427 removed the per-frame stream altogether. #1426's live
+Vulkan check predates both, which is why it ran the counters on all three coats and the pixel A/B
+on a coat thinned to fit.
 
 **The acceptance lever** (`ActiveVisualLeversChangeTheMovingLongCoat`, Forward): before #1426
 switching #1248 off changed 2.32% of the moving long coat's frame against a 2.23% repeat floor,
@@ -142,9 +146,9 @@ coat re-dithering in both directions, so it undersells the term.
 - **A negative control displaced ALONG the light hides the error it controls for.** The probe
   slides along its own ray, and the bind-pose answer comes out nearly right by accident. Swing
   perpendicular to the light.
-- **`Execute` passes one reused vertex stream (`m_DeformedVertices`) to both acquire calls.**
-  `AcquireGeometry` clears it first, so an undeformed groom, or a deformed one that built nothing,
-  can never hand the bake the previous groom's pose.
+- **`AcquireDrawnPose` clears the pose first, and `AcquireGeometry` clears the CPU path's stream
+  first**, so an undeformed groom, or a deformed one that built nothing, can never hand the bake the
+  previous groom's pose.
 
 ## Where the evidence lives
 

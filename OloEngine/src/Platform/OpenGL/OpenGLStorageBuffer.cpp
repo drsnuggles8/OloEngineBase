@@ -113,6 +113,12 @@ namespace OloEngine
                 return GL_DYNAMIC_DRAW;
             case StorageBufferUsage::DynamicCopy:
                 return GL_DYNAMIC_COPY;
+            // Rewritten in full every frame and read by the frame's draws: the
+            // textbook STREAM hint. The Vulkan-side meaning (a recorded transfer
+            // rather than a snapshot) has no GL equivalent to ask for —
+            // glNamedBufferSubData is already command-ordered.
+            case StorageBufferUsage::StreamCommandOrdered:
+                return GL_STREAM_DRAW;
         }
 
         // No `default` above, deliberately: a fourth usage is now a -Wswitch

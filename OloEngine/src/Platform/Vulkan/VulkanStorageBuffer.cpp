@@ -24,6 +24,13 @@
 
 namespace OloEngine
 {
+    namespace
+    {
+        // See GetTransferRefusedCount. Defined up here because SetData, which
+        // counts it, comes before the snapshot counter's block below.
+        std::atomic<u64> s_TransferRefusedCount{ 0 };
+    } // namespace
+
     VulkanStorageBuffer::VulkanStorageBuffer(u32 size, u32 binding, StorageBufferUsage usage)
         : m_Size(size), m_Binding(binding), m_Usage(usage)
     {
@@ -107,8 +114,11 @@ namespace OloEngine
         // DynamicDraw means "CPU writes, GPU reads": let VMA prefer a
         // host-writable (BAR/host-visible) placement when one exists, falling
         // back to device-local + a transfer path otherwise. DynamicCopy is
-        // GPU-writes/GPU-reads and stays pure device-local.
-        if (m_Usage != StorageBufferUsage::DynamicCopy)
+        // GPU-writes/GPU-reads and stays pure device-local, and so does
+        // StreamCommandOrdered: every CPU write to it is a recorded transfer
+        // (SetData), so a host-visible placement would never be written
+        // through and would only cost the GPU its reads over the bus.
+        if (!IsTransferWritten())
         {
             allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
                               VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT |
@@ -219,11 +229,35 @@ namespace OloEngine
         // one-shot upload would execute before earlier recorded dispatches and
         // make both of them read the final seed. It also orders the seed after
         // submitted work when a pooled buffer is reused across frames.
-        if (m_Usage == StorageBufferUsage::DynamicCopy)
+        //
+        // A StreamCommandOrdered buffer takes the same route for the opposite
+        // reason (#1427): it IS CPU-written, every frame, and its writes are
+        // megabytes — a bound coat's root transforms. A frame-arena snapshot of
+        // the whole buffer per write would overflow the 16 MiB slot shared by
+        // every root-data allocation in the frame; a recorded copy keeps the
+        // same two guarantees (a draw sees the write before it, a write cannot
+        // race the previous frame's reads) with no arena space at all — the
+        // shape VulkanVertexBuffer's command-ordered streams took in #1446.
+        if (IsTransferWritten())
         {
             if (auto* vk = VulkanUpload::TryGetRecordingVulkanAPI(); vk != nullptr)
             {
-                vk->UploadBufferSubData(m_RHIHandle.Get(), offset, size, data);
+                if (!vk->TryUploadBufferSubData(m_RHIHandle.Get(), offset, size, data))
+                {
+                    // A refused copy leaves the persistent bytes as they were —
+                    // last frame's roots, or zeros — at a valid address no
+                    // draw-time check can question. Said once and counted, so a
+                    // coat frozen or collapsed onto its roots is traceable here.
+                    s_TransferRefusedCount.fetch_add(1, std::memory_order_relaxed);
+                    static std::atomic<bool> s_Warned{ false };
+                    if (!s_Warned.exchange(true, std::memory_order_relaxed))
+                    {
+                        OLO_CORE_ERROR("[RHI/Vulkan] StorageBuffer::SetData (binding {}): the recorded transfer of {} "
+                                       "bytes was refused, so draws read the buffer's previous contents (further "
+                                       "refusals counted, not logged)",
+                                       m_Binding, size);
+                    }
+                }
                 return;
             }
         }
@@ -260,6 +294,11 @@ namespace OloEngine
         std::atomic<u64> s_SnapshotRefusedCount{ 0 };
     } // namespace
 
+    u64 VulkanStorageBuffer::GetTransferRefusedCount()
+    {
+        return s_TransferRefusedCount.load(std::memory_order_relaxed);
+    }
+
     u64 VulkanStorageBuffer::GetSnapshotRefusedCount()
     {
         return s_SnapshotRefusedCount.load(std::memory_order_relaxed);
@@ -292,7 +331,11 @@ namespace OloEngine
         // the command stream needs no CPU staging at all. This guard is what
         // makes a plain SetData safe on the buffers that did not get that
         // treatment.
-        if (m_Usage == StorageBufferUsage::DynamicCopy)
+        //
+        // A StreamCommandOrdered buffer never snapshots either: its writes
+        // reached the persistent buffer as recorded transfers (SetData), and a
+        // snapshot would shadow them exactly as it would a dispatch's.
+        if (IsTransferWritten())
         {
             InvalidateSnapshot();
             return;

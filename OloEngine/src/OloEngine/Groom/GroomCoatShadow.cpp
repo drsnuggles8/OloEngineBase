@@ -366,104 +366,189 @@ namespace OloEngine::GroomCoatShadow
         constexpr sizet kCornersPerSegment = 4;
         constexpr sizet kCornerAtP0 = 0;
         constexpr sizet kCornerAtP1 = 2;
+
+        // A drawn pose as the three functions below read it: a segment count
+        // and each segment's two centreline points and radii. Two sources
+        // exist since #1427 — the CPU-deformed strand stream, and a
+        // GPU-deformed coat's centrelines evaluated on the CPU — and both go
+        // through these templates so they cannot disagree about what a pose is.
+        struct VertexPose
+        {
+            std::span<const GroomStrandVertex> Vertices;
+
+            [[nodiscard]] bool IsWellFormed() const noexcept
+            {
+                return (Vertices.size() % kCornersPerSegment) == 0;
+            }
+            [[nodiscard]] sizet Count() const noexcept
+            {
+                return Vertices.size() / kCornersPerSegment;
+            }
+            [[nodiscard]] CoatSegment Segment(sizet s) const noexcept
+            {
+                const GroomStrandVertex& p0 = Vertices[s * kCornersPerSegment + kCornerAtP0];
+                const GroomStrandVertex& p1 = Vertices[s * kCornersPerSegment + kCornerAtP1];
+                return CoatSegment{ p0.Position, p1.Position, p0.Radius, p1.Radius };
+            }
+        };
+
+        struct SegmentPose
+        {
+            std::span<const CoatSegment> Segments;
+
+            [[nodiscard]] bool IsWellFormed() const noexcept
+            {
+                return true;
+            }
+            [[nodiscard]] sizet Count() const noexcept
+            {
+                return Segments.size();
+            }
+            [[nodiscard]] const CoatSegment& Segment(sizet s) const noexcept
+            {
+                return Segments[s];
+            }
+        };
+
+        template<typename Pose>
+        u32 BuildCoatSegmentsFrom(const Pose& pose, f32 widthScale, std::vector<CoatSegment>& outSegments)
+        {
+            outSegments.clear();
+            if (pose.Count() == 0 || !pose.IsWellFormed())
+            {
+                return 0;
+            }
+            if (!std::isfinite(widthScale) || widthScale <= 0.0f)
+            {
+                return 0;
+            }
+
+            const sizet segmentCount = pose.Count();
+            outSegments.reserve(segmentCount);
+            for (sizet s = 0; s < segmentCount; ++s)
+            {
+                CoatSegment segment = pose.Segment(s);
+                // The pose's Radius is ALREADY a radius (halved once, in the
+                // build) and already carries the coat's per-strand width.
+                // Halving again here is the thinner-coat error BuildCoatSegments
+                // warns about.
+                segment.RadiusA *= widthScale;
+                segment.RadiusB *= widthScale;
+
+                // Dropped, not clamped — BuildCoatSegments' rule, for its reason.
+                if (!IsFiniteVec(segment.A) || !IsFiniteVec(segment.B) || !std::isfinite(segment.RadiusA) ||
+                    !std::isfinite(segment.RadiusB) || segment.RadiusA < 0.0f || segment.RadiusB < 0.0f)
+                {
+                    continue;
+                }
+                outSegments.push_back(segment);
+            }
+            return static_cast<u32>(outSegments.size());
+        }
+
+        template<typename Pose>
+        void CaptureCoatPoseFrom(const Pose& pose, std::vector<glm::vec3>& outMidpoints)
+        {
+            outMidpoints.clear();
+            if (!pose.IsWellFormed())
+            {
+                return;
+            }
+            const sizet segmentCount = pose.Count();
+            outMidpoints.reserve(segmentCount);
+            for (sizet s = 0; s < segmentCount; ++s)
+            {
+                const CoatSegment segment = pose.Segment(s);
+                outMidpoints.push_back((segment.A + segment.B) * 0.5f);
+            }
+        }
+
+        template<typename Pose>
+        f32 MaxCoatPoseDriftFrom(std::span<const glm::vec3> bakedMidpoints, const Pose& pose) noexcept
+        {
+            constexpr f32 kIncomparable = std::numeric_limits<f32>::infinity();
+            if (!pose.IsWellFormed() || pose.Count() != bakedMidpoints.size() || bakedMidpoints.empty())
+            {
+                return kIncomparable;
+            }
+
+            // Squared distances throughout; one sqrt at the end.
+            f32 worstSq = 0.0f;
+            for (sizet s = 0; s < bakedMidpoints.size(); ++s)
+            {
+                const CoatSegment segment = pose.Segment(s);
+                const glm::vec3 now = (segment.A + segment.B) * 0.5f;
+                // A segment that was non-finite at the bake and still is: the bake
+                // DROPPED it (BuildCoatSegmentsFrom), so it is not in the volume
+                // and cannot have moved away from it. Reading it as infinite
+                // drift would rebake a coat with one corrupt strand EVERY frame,
+                // reported as ordinary motion. One that has changed finiteness
+                // either way is a real change and falls through to the
+                // incomparable arm below.
+                if (!IsFiniteVec(bakedMidpoints[s]) && !IsFiniteVec(now))
+                {
+                    continue;
+                }
+                const glm::vec3 delta = now - bakedMidpoints[s];
+                const f32 distSq = glm::dot(delta, delta);
+                // Checked explicitly: std::max drops a NaN when it is the second
+                // argument, so a corrupt point would otherwise read as "did not
+                // move" and keep a bake of a pose nobody can describe.
+                if (!std::isfinite(distSq))
+                {
+                    return kIncomparable;
+                }
+                worstSq = std::max(worstSq, distSq);
+            }
+            return std::sqrt(worstSq);
+        }
     } // namespace
 
     u32 BuildCoatSegmentsFromStrandVertices(std::span<const GroomStrandVertex> vertices, f32 widthScale,
                                             std::vector<CoatSegment>& outSegments)
     {
-        outSegments.clear();
-        if (vertices.empty() || (vertices.size() % kCornersPerSegment) != 0)
-        {
-            return 0;
-        }
-        if (!std::isfinite(widthScale) || widthScale <= 0.0f)
-        {
-            return 0;
-        }
+        return BuildCoatSegmentsFrom(VertexPose{ vertices }, widthScale, outSegments);
+    }
 
-        const sizet segmentCount = vertices.size() / kCornersPerSegment;
-        outSegments.reserve(segmentCount);
-        for (sizet s = 0; s < segmentCount; ++s)
-        {
-            const GroomStrandVertex& p0 = vertices[s * kCornersPerSegment + kCornerAtP0];
-            const GroomStrandVertex& p1 = vertices[s * kCornersPerSegment + kCornerAtP1];
-
-            CoatSegment segment;
-            segment.A = p0.Position;
-            segment.B = p1.Position;
-            // The mesh's Radius is ALREADY a radius (halved once, in the build)
-            // and already carries the coat's per-strand width. Halving again
-            // here is the thinner-coat error BuildCoatSegments warns about.
-            segment.RadiusA = p0.Radius * widthScale;
-            segment.RadiusB = p1.Radius * widthScale;
-
-            // Dropped, not clamped — BuildCoatSegments' rule, for its reason.
-            if (!IsFiniteVec(segment.A) || !IsFiniteVec(segment.B) || !std::isfinite(segment.RadiusA) ||
-                !std::isfinite(segment.RadiusB) || segment.RadiusA < 0.0f || segment.RadiusB < 0.0f)
-            {
-                continue;
-            }
-            outSegments.push_back(segment);
-        }
-        return static_cast<u32>(outSegments.size());
+    u32 BuildCoatSegmentsFromPose(std::span<const CoatSegment> pose, f32 widthScale,
+                                  std::vector<CoatSegment>& outSegments)
+    {
+        return BuildCoatSegmentsFrom(SegmentPose{ pose }, widthScale, outSegments);
     }
 
     void CaptureCoatPose(std::span<const GroomStrandVertex> vertices, std::vector<glm::vec3>& outMidpoints)
     {
-        outMidpoints.clear();
-        if ((vertices.size() % kCornersPerSegment) != 0)
-        {
-            return;
-        }
-        const sizet segmentCount = vertices.size() / kCornersPerSegment;
-        outMidpoints.reserve(segmentCount);
-        for (sizet s = 0; s < segmentCount; ++s)
-        {
-            const glm::vec3& a = vertices[s * kCornersPerSegment + kCornerAtP0].Position;
-            const glm::vec3& b = vertices[s * kCornersPerSegment + kCornerAtP1].Position;
-            outMidpoints.push_back((a + b) * 0.5f);
-        }
+        CaptureCoatPoseFrom(VertexPose{ vertices }, outMidpoints);
+    }
+
+    void CaptureCoatPose(std::span<const CoatSegment> pose, std::vector<glm::vec3>& outMidpoints)
+    {
+        CaptureCoatPoseFrom(SegmentPose{ pose }, outMidpoints);
     }
 
     f32 MaxCoatPoseDrift(std::span<const glm::vec3> bakedMidpoints, std::span<const GroomStrandVertex> vertices) noexcept
     {
-        constexpr f32 kIncomparable = std::numeric_limits<f32>::infinity();
-        if ((vertices.size() % kCornersPerSegment) != 0 ||
-            vertices.size() / kCornersPerSegment != bakedMidpoints.size() || bakedMidpoints.empty())
-        {
-            return kIncomparable;
-        }
+        return MaxCoatPoseDriftFrom(bakedMidpoints, VertexPose{ vertices });
+    }
 
-        // Squared distances throughout; one sqrt at the end.
-        f32 worstSq = 0.0f;
-        for (sizet s = 0; s < bakedMidpoints.size(); ++s)
+    f32 MaxCoatPoseDrift(std::span<const glm::vec3> bakedMidpoints, std::span<const CoatSegment> pose) noexcept
+    {
+        return MaxCoatPoseDriftFrom(bakedMidpoints, SegmentPose{ pose });
+    }
+
+    void CoatPoseFromStrandVertices(std::span<const GroomStrandVertex> vertices, std::vector<CoatSegment>& outPose)
+    {
+        outPose.clear();
+        const VertexPose pose{ vertices };
+        if (!pose.IsWellFormed())
         {
-            const glm::vec3& a = vertices[s * kCornersPerSegment + kCornerAtP0].Position;
-            const glm::vec3& b = vertices[s * kCornersPerSegment + kCornerAtP1].Position;
-            const glm::vec3 now = (a + b) * 0.5f;
-            // A segment that was non-finite at the bake and still is: the bake
-            // DROPPED it (BuildCoatSegmentsFromStrandVertices), so it is not in
-            // the volume and cannot have moved away from it. Reading it as
-            // infinite drift would rebake a coat with one corrupt strand EVERY
-            // frame, reported as ordinary motion. One that has changed
-            // finiteness either way is a real change and falls through to the
-            // incomparable arm below.
-            if (!IsFiniteVec(bakedMidpoints[s]) && !IsFiniteVec(now))
-            {
-                continue;
-            }
-            const glm::vec3 delta = now - bakedMidpoints[s];
-            const f32 distSq = glm::dot(delta, delta);
-            // Checked explicitly: std::max drops a NaN when it is the second
-            // argument, so a corrupt point would otherwise read as "did not
-            // move" and keep a bake of a pose nobody can describe.
-            if (!std::isfinite(distSq))
-            {
-                return kIncomparable;
-            }
-            worstSq = std::max(worstSq, distSq);
+            return;
         }
-        return std::sqrt(worstSq);
+        outPose.reserve(pose.Count());
+        for (sizet s = 0; s < pose.Count(); ++s)
+        {
+            outPose.push_back(pose.Segment(s));
+        }
     }
 
     CoatRebakePolicy SanitizeCoatRebakePolicy(const CoatRebakePolicy& policy) noexcept

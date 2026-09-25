@@ -293,6 +293,15 @@ namespace OloEngine
         // not a quality knob, and it is deliberately not persisted.
         bool HonourSceneTemporalResolveRequests = true;
 
+        // --- Bound-coat deformation (issue #1427) ---
+        // A groom bound to an animating body is deformed in the strand VERTEX
+        // SHADER from a stream built once and a small per-frame buffer. Off
+        // rebuilds and re-uploads every deformed strand on the CPU each frame —
+        // the path that existed before, kept as the reference the GPU path is
+        // measured against. A diagnostic, like the switch above: the two draw
+        // the same coat, and only one of them fits in a frame.
+        bool GroomGpuDeformation = true;
+
         // --- Debug overlays ---
         // Editor-only master switch. Kept process-global with the other renderer
         // debug settings so it survives Edit/Play/Simulate scene copies. Disabling

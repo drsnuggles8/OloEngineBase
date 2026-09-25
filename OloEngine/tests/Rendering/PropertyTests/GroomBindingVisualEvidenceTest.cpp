@@ -10,6 +10,9 @@
 //  short/long animal coats and human hair."
 //
 // Writes OloEditor/assets/tests/visual/GroomBinding[Off]_GL_<Path>[_<Angle>].png
+// and, since #1427, GroomGpuDeformation[Off]_GL_<Path>_<Angle>.png: the same
+// bent coat deformed by the vertex shader, and by the CPU rebuild it replaced
+// ("Off", the reference).
 //
 // The filename carries the {backend} x {path} cell it covers, deliberately
 // including the backend even though it is always GL here: a reader counting
@@ -742,6 +745,234 @@ namespace OloEngine::Tests
             EXPECT_GT(differing, 1000u) << kind.Name << ": this coat did not follow the body";
             EXPECT_LT(worst, 1.0e-3f) << kind.Name << ": this coat collapsed";
         }
+    }
+
+    // ── #1427: the GPU-deformed coat is the CPU-deformed coat ──────────────
+    //
+    // Since #1427 a bound coat is moved by the strand vertex shader from a
+    // stream built once and a per-frame buffer; the CPU rebuild it replaced is
+    // kept behind RendererSettings::GroomGpuDeformation as the reference. The
+    // A/B here is that lever and nothing else: the same bent body, the same
+    // coat, the same camera. The two frames must be the same picture — the
+    // unit contract (GroomGpuDeformationTest) says the vertices agree exactly
+    // on the CPU, and this is where the GPU is held to it.
+    //
+    // NEGATIVE CONTROL in every cell: the unbound coat on the same bent body,
+    // which must differ from the GPU frame by thousands of pixels. Without it a
+    // GPU path that drew nothing, or drew the bind pose, would "match" a CPU
+    // frame that did the same.
+    //
+    // Writes GroomGpuDeformation[Off]_GL_<Path>_<Angle>.png: "Off" is the CPU
+    // reference, so a missing file is an unrun cell.
+    TEST_F(GroomBindingVisualEvidenceTest, TheGpuDeformedCoatIsTheCpuDeformedCoat)
+    {
+        struct PathCase
+        {
+            const char* Name;
+            RenderingPath Path;
+        };
+        const std::array<PathCase, 3> paths = { {
+            { "Forward", RenderingPath::Forward },
+            { "ForwardPlus", RenderingPath::ForwardPlus },
+            { "Deferred", RenderingPath::Deferred },
+        } };
+        struct Angle
+        {
+            const char* Name;
+            glm::vec3 Eye;
+            f32 Yaw;
+            f32 Pitch;
+        };
+        // Front, a raking three-quarter view and the side the hinge lifts
+        // toward: a deformation that is right from the front and wrong in depth
+        // is invisible from one viewpoint.
+        const std::array<Angle, 3> angles = { {
+            { "Front", glm::vec3(0.0f, 0.9f, 4.6f), 0.0f, 0.10f },
+            { "Oblique", glm::vec3(3.2f, 2.2f, 3.2f), -0.785f, 0.40f },
+            { "Side", glm::vec3(-4.6f, 0.9f, 0.0f), 1.5708f, 0.10f },
+        } };
+
+        auto& settings = Renderer3D::GetRendererSettings();
+        // Restored whatever happens below: the lever is process-wide and every
+        // later test in this binary expects the shipped path.
+        struct LeverGuard
+        {
+            RendererSettings& Settings;
+            ~LeverGuard()
+            {
+                Settings.GroomGpuDeformation = true;
+            }
+        } guard{ settings };
+
+        SetBodyPose(55.0f);
+        for (const PathCase& pathCase : paths)
+        {
+            settings.Path = pathCase.Path;
+            Renderer3D::ApplyRendererSettings();
+            for (const Angle& angle : angles)
+            {
+                const std::string cell = std::string("_GL_") + pathCase.Name + "_" + angle.Name;
+
+                SetBindingEnabled(false);
+                std::vector<u8> unbound;
+                Capture("", angle.Eye, angle.Yaw, angle.Pitch, unbound);
+                SetBindingEnabled(true);
+
+                settings.GroomGpuDeformation = false;
+                std::vector<u8> cpu;
+                Capture("GroomGpuDeformationOff" + cell, angle.Eye, angle.Yaw, angle.Pitch, cpu);
+                if (::testing::Test::HasFatalFailure())
+                {
+                    return;
+                }
+                const GroomRenderStats cpuStats = PassStats();
+
+                settings.GroomGpuDeformation = true;
+                std::vector<u8> gpu;
+                Capture("GroomGpuDeformation" + cell, angle.Eye, angle.Yaw, angle.Pitch, gpu);
+                if (::testing::Test::HasFatalFailure())
+                {
+                    return;
+                }
+                const GroomRenderStats gpuStats = PassStats();
+
+                const u32 moved = CountDifferingPixels(gpu, unbound);
+                const u32 differing = CountDifferingPixels(gpu, cpu);
+                std::printf("[groom-gpu-deformation] %-11s %-8s gpu-vs-cpu %u px, gpu-vs-unbound %u px, "
+                            "uploaded %.2f MiB (cpu path %.2f MiB)\n",
+                            pathCase.Name, angle.Name, differing, moved,
+                            static_cast<f64>(gpuStats.DeformedUploadBytes) / (1024.0 * 1024.0),
+                            static_cast<f64>(cpuStats.DeformedUploadBytes) / (1024.0 * 1024.0));
+
+                // Each frame took the path it was asked for, so the comparison
+                // is between the two paths and not two frames of one.
+                EXPECT_EQ(cpuStats.GroomsDeformed, 1u) << cell;
+                EXPECT_EQ(cpuStats.GroomsGpuDeformed, 0u) << cell << ": the reference frame was GPU-deformed";
+                EXPECT_EQ(gpuStats.GroomsDeformed, 1u) << cell;
+                EXPECT_EQ(gpuStats.GroomsGpuDeformed, 1u) << cell << ": the GPU frame fell back to the CPU path";
+                EXPECT_LT(gpuStats.DeformedUploadBytes * 8u, cpuStats.DeformedUploadBytes)
+                    << cell << ": the GPU path must send a fraction of what the CPU path re-uploads";
+
+                EXPECT_GT(MeanLuminance(gpu), 0.02) << cell << ": the GPU frame is (near-)black";
+                EXPECT_GT(moved, 1000u) << cell << ": the bent body did not move the GPU-deformed coat";
+                // The same picture. Not zero, only because the two paths reach
+                // a held-at-rest root by different rounding and the GPU's
+                // quaternion rotate may contract differently from the CPU's; a
+                // path that got a strand wrong moves a whole ribbon, hundreds of
+                // pixels at this framing, and a coat that got its registration
+                // wrong moves thousands.
+                EXPECT_LT(differing, 64u) << cell << ": the GPU-deformed coat is not the CPU-deformed coat";
+            }
+        }
+    }
+
+    // #1427, criterion 4's three coat kinds on the GPU path: the long coat has
+    // the most per-strand rotation to get wrong, the scalp the densest roots.
+    TEST_F(GroomBindingVisualEvidenceTest, EveryCoatTypeIsTheSameCoatOnTheGpuPath)
+    {
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+        auto& settings = Renderer3D::GetRendererSettings();
+        struct LeverGuard
+        {
+            RendererSettings& Settings;
+            ~LeverGuard()
+            {
+                Settings.GroomGpuDeformation = true;
+            }
+        } guard{ settings };
+
+        const glm::vec3 eye{ 0.0f, 0.9f, 4.6f };
+        for (const CoatKind& kind : { kShortAnimalCoat, kLongAnimalCoat, kHumanHair })
+        {
+            InstallCoat(kind);
+            if (::testing::Test::HasFatalFailure())
+            {
+                return;
+            }
+            SetBodyPose(55.0f);
+
+            // The negative control, as in the per-path case: the unbound coat
+            // on the same bent body. Two arms that both drew the bind pose
+            // would otherwise "match".
+            SetBindingEnabled(false);
+            std::vector<u8> unbound;
+            Capture("", eye, 0.0f, 0.10f, unbound);
+            SetBindingEnabled(true);
+
+            settings.GroomGpuDeformation = false;
+            std::vector<u8> cpu;
+            Capture(std::string("GroomGpuDeformationOff_GL_Forward_") + kind.Name, eye, 0.0f, 0.10f, cpu);
+            if (::testing::Test::HasFatalFailure())
+            {
+                return;
+            }
+            const GroomRenderStats cpuStats = PassStats();
+            settings.GroomGpuDeformation = true;
+            std::vector<u8> gpu;
+            Capture(std::string("GroomGpuDeformation_GL_Forward_") + kind.Name, eye, 0.0f, 0.10f, gpu);
+            if (::testing::Test::HasFatalFailure())
+            {
+                return;
+            }
+            const GroomRenderStats stats = PassStats();
+            const u32 differing = CountDifferingPixels(gpu, cpu);
+            const u32 moved = CountDifferingPixels(gpu, unbound);
+            std::printf("[groom-gpu-deformation] coat %-10s gpu-vs-cpu %u px, gpu-vs-unbound %u px\n", kind.Name,
+                        differing, moved);
+            // Each arm took the path it was asked for.
+            EXPECT_EQ(cpuStats.GroomsDeformed, 1u) << kind.Name;
+            EXPECT_EQ(cpuStats.GroomsGpuDeformed, 0u) << kind.Name << ": the reference frame was GPU-deformed";
+            EXPECT_EQ(stats.GroomsGpuDeformed, 1u) << kind.Name;
+            EXPECT_GT(MeanLuminance(gpu), 0.02) << kind.Name;
+            EXPECT_GT(moved, 1000u) << kind.Name << ": the bent body did not move the GPU-deformed coat";
+            EXPECT_LT(differing, 64u) << kind.Name << ": the GPU-deformed coat is not the CPU-deformed coat";
+        }
+    }
+
+    // #1427: a herd sharing one cooked coat holds ONE rest stream. Nothing in
+    // the stream depends on which entity wears it — only the per-frame buffer
+    // does — so a second entity with the same groom, budget, coat and binding
+    // must add a frame buffer's bytes and not another copy of the stream.
+    TEST_F(GroomBindingVisualEvidenceTest, EntitiesWearingOneCoatShareOneRestStream)
+    {
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+        SetBodyPose(55.0f);
+        SetBindingEnabled(true);
+        const glm::vec3 eye{ 0.0f, 0.9f, 4.6f };
+
+        std::vector<u8> one;
+        Capture("", eye, 0.0f, 0.10f, one);
+        ASSERT_FALSE(::testing::Test::HasFatalFailure());
+        const GroomRenderStats single = PassStats();
+        const u64 singleBytes =
+            single.Lod.BytesByRepresentation[static_cast<sizet>(GroomRepresentation::Strand)];
+        ASSERT_EQ(single.GroomsGpuDeformed, 1u);
+        ASSERT_GT(singleBytes, 0u);
+
+        // The same coat on the same body, as a second entity.
+        Entity twin = GetScene().CreateEntity("GroomTwin");
+        twin.AddComponent<GroomComponent>(m_GroomEntity.GetComponent<GroomComponent>());
+        twin.AddComponent<GroomBindingComponent>(m_GroomEntity.GetComponent<GroomBindingComponent>());
+
+        std::vector<u8> two;
+        Capture("", eye, 0.0f, 0.10f, two);
+        ASSERT_FALSE(::testing::Test::HasFatalFailure());
+        const GroomRenderStats pair = PassStats();
+        const u64 pairBytes = pair.Lod.BytesByRepresentation[static_cast<sizet>(GroomRepresentation::Strand)];
+        std::printf("[groom-gpu-deformation] one coat %.2f MiB resident, two entities wearing it %.2f MiB\n",
+                    static_cast<f64>(singleBytes) / (1024.0 * 1024.0), static_cast<f64>(pairBytes) / (1024.0 * 1024.0));
+
+        EXPECT_EQ(pair.GroomsGpuDeformed, 2u) << "both entities must be drawn on the GPU path";
+        EXPECT_EQ(pair.StrandsDrawn, single.StrandsDrawn * 2u) << "both entities draw the whole coat";
+        EXPECT_GT(pairBytes, singleBytes) << "the second entity's own frame buffer is resident too";
+        // Unshared, the second entity would add a whole second stream and the
+        // total would double; shared, it adds one frame buffer — a few percent.
+        EXPECT_LT(pairBytes * 4u, singleBytes * 5u)
+            << "the second entity rebuilt its own rest stream instead of sharing the first";
+
+        GetScene().DestroyEntity(twin);
     }
 
     // ── Criterion 2: a facial morph, with the skeleton standing still ──────

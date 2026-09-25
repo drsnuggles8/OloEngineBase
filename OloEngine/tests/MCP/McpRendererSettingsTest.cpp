@@ -561,6 +561,44 @@ TEST(McpRendererSettingsApply, SceneTemporalResolveReachesTheRefusedTierAndBack)
     EXPECT_TRUE(rs.HonourSceneTemporalResolveRequests);
 }
 
+/// Issue #1427. The GPU-deformation lever: a RendererSettings FIELD whose
+// DEFAULT is the shipped path (gpu), so its job is to reach the CPU reference
+// on purpose for an A/B and come back.
+TEST(McpRendererSettingsApply, GroomDeformationReachesTheCpuReferenceAndBack)
+{
+    PostProcessSettings pp;
+    RendererSettings rs;
+    RS::LeverState lever;
+    ASSERT_TRUE(rs.GroomGpuDeformation) << "a bound coat is deformed on the GPU by default";
+
+    const auto currentValue = [](const PostProcessSettings& p, const RendererSettings& r,
+                                 const RS::LeverState& l) -> std::string
+    {
+        const Json described = RS::Describe(p, r, l);
+        for (const auto& entry : described.at("settings"))
+        {
+            if (entry.at("setting") == "groomdeformation")
+            {
+                return entry.at("currentValue").get<std::string>();
+            }
+        }
+        return "<missing>";
+    };
+    EXPECT_EQ(currentValue(pp, rs, lever), "gpu");
+
+    const auto cpu = RS::Apply(RS::Setting::GroomDeformation, RS::kGroomDeformationCpu, pp, rs, lever);
+    ASSERT_TRUE(cpu.Ok);
+    EXPECT_FALSE(rs.GroomGpuDeformation);
+    EXPECT_EQ(cpu.Data["previousValue"], "gpu");
+    EXPECT_EQ(cpu.Data["restoreWith"], "gpu");
+    EXPECT_FALSE(cpu.RequiresRenderGraphRebuild) << "handed to the pass per frame; nothing to rebuild";
+    EXPECT_EQ(currentValue(pp, rs, lever), "cpu");
+
+    const auto restored = RS::Apply(RS::Setting::GroomDeformation, RS::kGroomDeformationGpu, pp, rs, lever);
+    ASSERT_TRUE(restored.Ok);
+    EXPECT_TRUE(rs.GroomGpuDeformation);
+}
+
 // Describe reads the lever state for the two new settings — 'auto' is
 // write-only, so the current value is always off/on.
 TEST(McpRendererSettingsApply, DescribeReportsLeverCurrentValues)

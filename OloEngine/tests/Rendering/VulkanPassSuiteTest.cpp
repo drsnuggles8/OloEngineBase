@@ -55,7 +55,9 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "OloEngine/Task/Scheduler.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshGpuData.h"
 #include "VirtualRasterCoverageMirror.h"
+#include "../Groom/GroomBindingFixture.h"
 #include "../Groom/GroomStrandFixture.h"
+#include "OloEngine/Groom/GroomBindingBuilder.h"
 #include "VulkanTestSupport.h"
 #include "../TestOptions.h"
 #include "OloEngine/Renderer/Passes/AOApplyRenderPass.h"
@@ -133,6 +135,7 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "Platform/Vulkan/VulkanCapabilities.h"
 #include "Platform/Vulkan/VulkanDescriptorHeapBackend.h"
 #include "Platform/Vulkan/VulkanOneShot.h"
+#include "Platform/Vulkan/VulkanStorageBuffer.h"
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanFrameArena.h"
 #include "Platform/Vulkan/VulkanPipelineBuilder.h"
@@ -8161,6 +8164,246 @@ TEST_F(VulkanPassSuite, GroomStrandCoatCoversPixelsUnderTheVulkanClipConvention)
 
     EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore)
         << "the strand chain fell through to an unimplemented facade stub";
+}
+
+// =============================================================================
+// GROOM GPU DEFORMATION (#1427): a bound coat moved by the strand vertex shader
+// is the coat the CPU rebuild draws — on Vulkan, through the real pass.
+//
+// The GL half is GroomBindingVisualEvidenceTest.TheGpuDeformedCoatIsThe-
+// CpuDeformedCoat; this tenant is the Vulkan half that a headless GL fixture
+// cannot reach. What is Vulkan-specific and therefore pinned here:
+//
+//   * the frame buffer rides SSBO 79 (shared with the terrain VT) and is written
+//     as a RECORDED TRANSFER (StorageBufferUsage::StreamCommandOrdered), never
+//     a frame-arena snapshot — so the snapshot-refusal counter must not move;
+//   * the rest stream's repurposed lanes (root slot, other parameter, end) are
+//     PULLED at the same 16-float stride, so a stride or offset slip draws a
+//     coat that is nothing like the CPU one;
+//   * the SECOND frame refills the cached buffer in place — a refill, not a
+//     build. SubmitFrame waits on the frame's fence before it returns, so the
+//     first frame's draw has COMPLETED by then: this does not cover a refill
+//     while a previous draw is still in flight. The first frame of a pass is
+//     a build, not a refill.
+//
+// THE CONTRACT: the GPU frame and the CPU frame of the same bent pose are the
+// same picture, and both differ from the unbound coat by far more than they
+// differ from each other (the negative control that makes "the same" mean
+// something).
+// =============================================================================
+TEST_F(VulkanPassSuite, GroomGpuDeformedCoatIsTheCpuDeformedCoat)
+{
+    constexpr u32 kSize = 256;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    const u64 stubsBefore = api.GetUnimplementedStubHitCount();
+    const u64 snapshotRefusalsBefore = VulkanStorageBuffer::GetSnapshotRefusedCount();
+    const u64 transferRefusalsBefore = VulkanStorageBuffer::GetTransferRefusedCount();
+
+    // --- a coat bound to a hinged grid ---------------------------------------
+    using namespace OloEngine::GroomBindingTest;
+    GridSurface grid = MakeGrid(8u);
+    WeightAsHinge(grid);
+    Ref<GroomAsset> groom = MakeCoat(96u, 8u, /*height*/ 0.6f);
+    ASSERT_TRUE(groom);
+    Ref<GroomBindingAsset> binding;
+    GroomBindingBuildStats bindStats;
+    std::string reason;
+    ASSERT_TRUE(GroomBindingBuilder::Build(*groom, grid.View(2u), "VulkanSuiteBody", GroomBindingBuildSettings{},
+                                           binding, bindStats, reason))
+        << reason;
+
+    const auto bent = [](f32 degrees)
+    {
+        const glm::vec3 hinge{ 0.5f, 0.0f, 0.0f };
+        glm::mat4 bend = glm::translate(glm::mat4(1.0f), hinge);
+        bend = glm::rotate(bend, glm::radians(degrees), glm::vec3(0.0f, 0.0f, 1.0f));
+        bend = glm::translate(bend, -hinge);
+        return std::vector<glm::mat4>{ glm::mat4(1.0f), bend };
+    };
+    const auto requestAt = [&](f32 degrees, f32 prevDegrees, bool bound)
+    {
+        GroomStrandRequest request;
+        request.Groom = groom;
+        request.Handle = 0x1427u;
+        request.Transform = glm::mat4(1.0f);
+        request.PreviousTransform = glm::mat4(1.0f);
+        request.Color = glm::vec3(0.9f, 0.8f, 0.7f);
+        request.RampFloor = 1.0f;
+        request.AlphaCutoff = 0.5f;
+        request.RequestedMode = GroomCompositionMode::OpaqueRibbon;
+        request.EntityID = 11;
+        // Editor scale, for the reason the scalp tenant above gives: the
+        // fixture's 1 mm strands are sub-pixel at this viewport and the opaque
+        // tier would discard them.
+        request.WidthScale = 24.0f;
+        if (bound)
+        {
+            const auto palette = bent(degrees);
+            const auto prevPalette = bent(prevDegrees);
+            GroomDeformationInputs inputs;
+            inputs.Surface = grid.View(2u);
+            inputs.Skinning = grid.Skinning(palette, prevPalette, true);
+            inputs.HasHistory = true;
+            request.DeformationStats =
+                EvaluateGroomRootTransforms(*groom, *binding, inputs, std::nullopt, request.RootTransforms);
+            request.Binding = binding;
+        }
+        return request;
+    };
+
+    const glm::vec3 eye(0.5f, 0.55f, 2.4f);
+    const glm::mat4 view = glm::lookAt(eye, glm::vec3(0.5f, 0.3f, 0.5f), glm::vec3(0.0f, 1.0f, 0.0f));
+    const glm::mat4 rasterProjection =
+        RHI::AdjustProjectionForBackend(glm::perspective(glm::radians(45.0f), 1.0f, 0.05f, 100.0f));
+    ShaderBindingLayout::CameraUBO cameraData{};
+    cameraData.ViewProjection = rasterProjection * view;
+    cameraData.View = view;
+    cameraData.Projection = rasterProjection;
+    cameraData.Position = eye;
+    cameraData.PrevViewProjection = cameraData.ViewProjection;
+    cameraData.RenderOrigin = glm::vec3(0.0f);
+    auto cameraUbo =
+        UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
+    ASSERT_TRUE(cameraUbo);
+    cameraUbo->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
+    cameraUbo->Bind();
+
+    FramebufferSpecification sceneSpec;
+    sceneSpec.Width = kSize;
+    sceneSpec.Height = kSize;
+    sceneSpec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::RED_INTEGER,
+                              FramebufferTextureFormat::RG16F, FramebufferTextureFormat::RG16F,
+                              FramebufferTextureFormat::RGBA16F, FramebufferTextureFormat::Depth };
+
+    // Renders `frames` through ONE pass object — so every frame after the first
+    // is a refill of that pass's cached coat — and reads back the last.
+    const auto render = [&](const std::vector<GroomStrandRequest>& frames, bool gpu, TArray64<u8>& outPixels,
+                            GroomRenderStats& outStats)
+    {
+        Ref<Framebuffer> sceneFramebuffer = Framebuffer::Create(sceneSpec);
+        ASSERT_TRUE(sceneFramebuffer);
+        auto groomPass = Ref<GroomRenderPass>::Create();
+        groomPass->Init(sceneSpec);
+        groomPass->SetGpuDeformationEnabled(gpu);
+
+        for (const GroomStrandRequest& request : frames)
+        {
+            groomPass->SetRequests(std::span<const GroomStrandRequest>(&request, 1));
+            GroomFrameState frameState;
+            frameState.FrameIndex = 1u;
+            groomPass->SetFrameState(frameState);
+
+            RenderGraph graph;
+            graph.SetTransientMaterializationEnabled(true);
+            auto& blackboard = graph.GetBlackboard();
+            RGResourceDesc sceneDesc;
+            sceneDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+            sceneDesc.Format = RGResourceFormat::RGBA8UNorm;
+            sceneDesc.Width = kSize;
+            sceneDesc.Height = kSize;
+            blackboard.Scene.SceneColor =
+                graph.DeclareTransientFramebuffer(ResourceNames::SceneColor, sceneDesc, sceneFramebuffer);
+            graph.AddNode(groomPass);
+            graph.SetFinalPass("GroomRenderPass");
+            graph.BuildFrameGraph();
+
+            SubmitFrame(
+                [&]()
+                {
+                    sceneFramebuffer->Bind();
+                    RenderCommand::SetViewport(0, 0, kSize, kSize);
+                    RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+                    RenderCommand::SetDepthMask(true);
+                    RenderCommand::SetClearDepth(1.0f);
+                    RenderCommand::Clear();
+
+                    graph.Execute();
+
+                    RHI::Barrier toSampled{};
+                    toSampled.Resource = sceneFramebuffer->GetColorAttachmentHandle(0);
+                    toSampled.Before = RHI::Access::ColorAttachmentWrite;
+                    toSampled.After = RHI::Access::ShaderSampleRead;
+                    api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+                });
+            for (const auto& failure : graph.GetResolveFailures())
+            {
+                ADD_FAILURE() << "GroomRenderPass resolve failure: pass='" << failure.PassName.ToView()
+                              << "' reason='" << failure.Reason.ToView() << "' x" << failure.Count;
+            }
+            EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u) << "a strand draw dropped silently";
+        }
+        outStats = groomPass->GetStats();
+
+        auto* vkScene = static_cast<VulkanFramebuffer*>(sceneFramebuffer.Raw());
+        ASSERT_NE(vkScene->GetColorAttachmentImage(0), nullptr);
+        ASSERT_TRUE(vkScene->GetColorAttachmentImage(0)->GetData(outPixels, 0));
+        ASSERT_EQ(outPixels.Num(), static_cast<sizet>(kSize) * kSize * 4);
+    };
+
+    const auto covered = [](const TArray64<u8>& pixels)
+    {
+        u32 count = 0;
+        for (sizet i = 0; i + 3 < pixels.Num(); i += 4)
+        {
+            count += (pixels[i] > 8 || pixels[i + 1] > 8 || pixels[i + 2] > 8) ? 1u : 0u;
+        }
+        return count;
+    };
+    const auto differing = [](const TArray64<u8>& a, const TArray64<u8>& b)
+    {
+        u32 count = 0;
+        for (sizet i = 0; i + 3 < a.Num() && i + 3 < b.Num(); i += 4)
+        {
+            const int dr = std::abs(static_cast<int>(a[i]) - static_cast<int>(b[i]));
+            const int dg = std::abs(static_cast<int>(a[i + 1]) - static_cast<int>(b[i + 1]));
+            const int db = std::abs(static_cast<int>(a[i + 2]) - static_cast<int>(b[i + 2]));
+            count += (dr > 12 || dg > 12 || db > 12) ? 1u : 0u;
+        }
+        return count;
+    };
+
+    // Two poses, so the GPU run's second frame REFILLS the buffer the first
+    // frame's draw read.
+    const std::vector<GroomStrandRequest> twoFrames{ requestAt(30.0f, 25.0f, true), requestAt(60.0f, 30.0f, true) };
+
+    TArray64<u8> gpuPixels;
+    GroomRenderStats gpuStats;
+    ASSERT_NO_FATAL_FAILURE(render(twoFrames, true, gpuPixels, gpuStats));
+    TArray64<u8> cpuPixels;
+    GroomRenderStats cpuStats;
+    ASSERT_NO_FATAL_FAILURE(render(twoFrames, false, cpuPixels, cpuStats));
+    TArray64<u8> unboundPixels;
+    GroomRenderStats unboundStats;
+    ASSERT_NO_FATAL_FAILURE(render({ requestAt(60.0f, 30.0f, false) }, true, unboundPixels, unboundStats));
+
+    EXPECT_EQ(gpuStats.GroomsGpuDeformed, 1u) << "the GPU run fell back to the CPU path";
+    EXPECT_EQ(gpuStats.CacheBuilds, 0u) << "the second frame rebuilt the rest stream instead of refilling";
+    EXPECT_EQ(cpuStats.GroomsGpuDeformed, 0u) << "the reference run was GPU-deformed";
+    EXPECT_EQ(unboundStats.GroomsDeformed, 0u);
+
+    const u32 gpuCovered = covered(gpuPixels);
+    const u32 moved = differing(gpuPixels, unboundPixels);
+    const u32 mismatch = differing(gpuPixels, cpuPixels);
+    std::printf("[vk-groom-gpu-deformation] covered gpu=%u cpu=%u unbound=%u; gpu-vs-cpu %u px, gpu-vs-unbound %u px; "
+                "uploaded gpu %llu B, cpu %llu B\n",
+                gpuCovered, covered(cpuPixels), covered(unboundPixels), mismatch, moved,
+                static_cast<unsigned long long>(gpuStats.DeformedUploadBytes),
+                static_cast<unsigned long long>(cpuStats.DeformedUploadBytes));
+
+    EXPECT_GT(gpuCovered, 200u) << "the GPU-deformed coat covered almost nothing";
+    EXPECT_GT(moved, 200u) << "the bent pose did not move the GPU-deformed coat off the unbound one";
+    EXPECT_LT(mismatch * 20u, moved) << "the GPU-deformed coat is not the CPU-deformed coat on Vulkan";
+    EXPECT_LT(gpuStats.DeformedUploadBytes * 8u, cpuStats.DeformedUploadBytes)
+        << "the GPU path must send a fraction of what the CPU path re-uploads";
+
+    EXPECT_EQ(VulkanStorageBuffer::GetSnapshotRefusedCount(), snapshotRefusalsBefore)
+        << "the frame buffer took a frame-arena snapshot and it was refused; it must be a recorded transfer";
+    EXPECT_EQ(VulkanStorageBuffer::GetTransferRefusedCount(), transferRefusalsBefore)
+        << "a recorded transfer of the frame buffer was refused, so a draw read stale roots";
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore)
+        << "the deformation chain fell through to an unimplemented facade stub";
 }
 
 // =============================================================================
