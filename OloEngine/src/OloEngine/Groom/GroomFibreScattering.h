@@ -445,7 +445,9 @@ namespace OloEngine
 
     /// THE ENVIRONMENT TERM, per lobe: the fibre's response to a unit uniform
     /// environment, which the caller multiplies by the environment's average
-    /// radiance (an irradiance-map sample over pi).
+    /// radiance. The IBL irradiance cube stores E/pi, which for a uniform sky
+    /// IS that radiance, so the shader uses the cube sample as it is, with no
+    /// further 1/pi (issue #1450, oloGroomFibreEnvironmentRadiance).
     ///
     /// It is each path's mean attenuation over the fibre's width — that path's
     /// ALBEDO, because the longitudinal and azimuthal factors are each

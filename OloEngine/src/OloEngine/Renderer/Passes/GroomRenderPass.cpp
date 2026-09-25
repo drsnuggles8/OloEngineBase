@@ -1616,7 +1616,11 @@ namespace OloEngine
             // MakeGroomFibreParams the tests and the analysis call, so the
             // shader, the CPU model and the measured numbers cannot drift.
             params.FibreSigmaEta = glm::vec4(request.Fibre.SigmaA, request.Fibre.Eta);
-            params.FibreLobe = glm::vec4(request.Fibre.V[0], request.Fibre.S, request.Fibre.Intensity, 0.0f);
+            // w: the sky's IBL intensity, the scale every lit surface's IBL
+            // rung applies to the same cube (#1450). Without it the sky slider
+            // moved the body and left its coat where it was.
+            params.FibreLobe = glm::vec4(request.Fibre.V[0], request.Fibre.S, request.Fibre.Intensity,
+                                         Renderer3D::GetGlobalIBLIntensity());
             params.FibreSinAlpha = glm::vec4(request.Fibre.Sin2kAlpha[0], request.Fibre.Sin2kAlpha[1],
                                              request.Fibre.Sin2kAlpha[2], 0.0f);
             params.FibreCosAlpha = glm::vec4(request.Fibre.Cos2kAlpha[0], request.Fibre.Cos2kAlpha[1],
