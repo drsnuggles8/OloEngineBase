@@ -1996,8 +1996,10 @@ Viewport rays are **refused in Play mode**, because the viewport then shows the 
 runtime camera and the ray would go through the editor camera instead. The unprojection has
 no backend branch: the CPU camera matrices are GL-shaped on both backends (the Vulkan y flip
 is applied only to uploaded matrices, see `RHIProjectionSeam.h`), so the top row is NDC +1
-everywhere. `olo_terrain_pick`'s viewport sources use the same code, and before #607 they
-were mirrored on OpenGL for exactly that reason.
+everywhere. `olo_terrain_pick`'s viewport sources use the same code. Before #607 they were
+vertically mirrored on **both** backends (the shared unprojection expected a bottom-up y and was
+handed a top-left one), and the editor's own brush ray was mirrored on Vulkan, so treat older
+viewport-sourced terrain-pick evidence as suspect.
 
 ### Transient plan & pool introspection (`olo_render_transient_plan`)
 
@@ -2149,9 +2151,11 @@ The settings:
   `requested` {upscale, technique}, `resolved` (`native` | `spatial` | `temporal`),
   and on a fallback `fallback` (`msaaResolved` | `backendNotOpenGL` |
   `upscalerUnavailable` | `sceneNotSized`) plus `reason`. A latch that still
-  answers the previous request reports `resolved: null, pending: true` rather than
-  the old answer. `upscale` and `msaa` writes carry the same block (MSAA refuses
-  FSR2 without touching the technique), and so does the no-argument listing.
+  answers the previous request (upscale, technique, path or Deferred MSAA changed
+  since the last prepared frame) reports `resolved: null, pending: true` rather
+  than the old answer. `upscale`, `msaa` and `renderpath` writes carry the same
+  block (MSAA refuses FSR2 without touching the technique, and on Deferred only),
+  and so does the no-argument listing.
 - **`tonemap`** — tone-map operator: `none` | `reinhard` | `aces` | `uncharted2`.
 - **`renderpath`** — rendering path: `forward` | `forwardplus` | `deferred`.
   Switching **rebuilds the render-graph topology**, and `deferred` is required for

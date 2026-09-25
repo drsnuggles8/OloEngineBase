@@ -5282,12 +5282,6 @@ namespace OloEngine
                                "through the editor camera. Stop playing (or Simulate), or pass a world-space ray.";
             return resolution;
         }
-        if (m_ViewportSize.x <= 0.0f || m_ViewportSize.y <= 0.0f)
-        {
-            resolution.Error = "The viewport has no size (minimized or not laid out yet), so there is no camera "
-                               "projection to cast through.";
-            return resolution;
-        }
         resolution.Ray = MCP::ViewportRay::UnprojectNormalized(normalizedTopLeft, m_EditorCamera.GetViewProjection());
         if (!resolution.Ray)
             resolution.Error = "The editor camera's view-projection could not produce a finite ray.";

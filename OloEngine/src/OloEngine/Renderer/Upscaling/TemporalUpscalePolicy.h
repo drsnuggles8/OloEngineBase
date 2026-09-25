@@ -94,7 +94,7 @@ namespace OloEngine::TemporalUpscalePolicy
         MSAAResolved,        // the scene band has > 1 sample
         BackendNotOpenGL,    // FSR2 has a GL backend only
         UpscalerUnavailable, // GL, but the build/device cannot run it (see TemporalUpscalerStatus)
-        SceneNotSized,       // sample count 0: the scene pass has no framebuffer spec yet
+        SceneNotSized,       // sample count 0: the scene pass has no framebuffer spec yet (checked first, as Evaluate does)
     };
 
     struct Resolution
@@ -116,13 +116,14 @@ namespace OloEngine::TemporalUpscalePolicy
             return { ResolvedUpscaler::Temporal, TemporalFallback::None };
         if (in.Technique != UpscalerTechnique::Temporal)
             return { ResolvedUpscaler::Spatial, TemporalFallback::None };
+        // Evaluate refuses a zero sample count (InvalidSampleCount) before anything else.
+        if (in.SceneSampleCount == 0u)
+            return { ResolvedUpscaler::Spatial, TemporalFallback::SceneNotSized };
         if (IsMSAAResolved(in.SceneSampleCount))
             return { ResolvedUpscaler::Spatial, TemporalFallback::MSAAResolved };
         if (in.Api != RendererSupport::Backend::OpenGL)
             return { ResolvedUpscaler::Spatial, TemporalFallback::BackendNotOpenGL };
-        if (!in.BackendAvailable)
-            return { ResolvedUpscaler::Spatial, TemporalFallback::UpscalerUnavailable };
-        return { ResolvedUpscaler::Spatial, TemporalFallback::SceneNotSized };
+        return { ResolvedUpscaler::Spatial, TemporalFallback::UpscalerUnavailable };
     }
 
     // ---- What FSR2 SUPPRESSES, and why these are functions rather than two

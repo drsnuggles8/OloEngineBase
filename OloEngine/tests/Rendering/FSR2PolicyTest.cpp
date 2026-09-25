@@ -218,9 +218,14 @@ TEST(FSR2PolicyTest, ResolveNamesTheCheckThatRefusedTemporal)
         in.BackendAvailable = false;
         EXPECT_EQ(Resolve(in).Fallback, TemporalFallback::UpscalerUnavailable);
     }
+    // Sample count 0 outranks everything, as Evaluate's InvalidSampleCount does —
+    // including an unusable backend.
+    for (const auto api : { RendererSupport::Backend::OpenGL, RendererSupport::Backend::Vulkan })
     {
         auto in = MakeActive();
         in.SceneSampleCount = 0u;
+        in.Api = api;
+        in.BackendAvailable = api == RendererSupport::Backend::OpenGL;
         EXPECT_EQ(Resolve(in).Fallback, TemporalFallback::SceneNotSized);
     }
     // Upscale off is native with no reason, even with temporal requested.

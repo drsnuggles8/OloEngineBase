@@ -794,7 +794,7 @@ TEST(McpRendererSettingsUpscaler, ReportsTheResolvedTechniqueBesideTheRequest)
     pp.Upscale = UpscaleMode::Quality;
     pp.Technique = UpscalerTechnique::Temporal;
 
-    const Json ran = RS::UpscalerJson(pp, LatchedFor(pp, Policy::ResolvedUpscaler::Temporal));
+    const Json ran = RS::UpscalerJson(pp, RendererSettings{}, LatchedFor(pp, Policy::ResolvedUpscaler::Temporal));
     EXPECT_EQ(ran["requested"]["upscale"], "quality");
     EXPECT_EQ(ran["requested"]["technique"], "temporal");
     EXPECT_EQ(ran["resolved"], "temporal");
@@ -821,7 +821,7 @@ TEST(McpRendererSettingsUpscaler, EveryFallbackCarriesItsCodeAndASentence)
                                  "unsupported on the active RHI backend" },
                            Case{ Policy::TemporalFallback::SceneNotSized, "sceneNotSized", "sample count 0" } })
     {
-        const Json block = RS::UpscalerJson(pp, LatchedFor(pp, Policy::ResolvedUpscaler::Spatial, c.Fallback));
+        const Json block = RS::UpscalerJson(pp, RendererSettings{}, LatchedFor(pp, Policy::ResolvedUpscaler::Spatial, c.Fallback));
         EXPECT_EQ(block["requested"]["technique"], "temporal");
         EXPECT_EQ(block["resolved"], "spatial") << c.Token;
         EXPECT_EQ(block["fallback"], c.Token);
@@ -841,13 +841,28 @@ TEST(McpRendererSettingsUpscaler, AStaleLatchIsPendingNotAnAnswer)
     // ...and the write has just asked for temporal.
     pp.Technique = UpscalerTechnique::Temporal;
 
-    const Json block = RS::UpscalerJson(pp, latched);
+    const Json block = RS::UpscalerJson(pp, RendererSettings{}, latched);
     EXPECT_TRUE(block["resolved"].is_null());
     EXPECT_EQ(block["pending"], true);
     EXPECT_TRUE(block.contains("note"));
 
+    // The path and the Deferred MSAA setting feed the decision too, so a latch
+    // taken before either changed is stale even with the upscale pair unchanged.
+    RendererSettings deferred;
+    deferred.Path = RenderingPath::Deferred;
+    deferred.Deferred.MSAASampleCount = 1u;
+    RS::UpscaleReadback onDeferred = LatchedFor(pp, Policy::ResolvedUpscaler::Temporal);
+    onDeferred.Path = RenderingPath::Deferred;
+    onDeferred.DeferredMSAASampleCount = 1u;
+    EXPECT_EQ(RS::UpscalerJson(pp, deferred, onDeferred)["pending"], false);
+    deferred.Deferred.MSAASampleCount = 4u;
+    EXPECT_EQ(RS::UpscalerJson(pp, deferred, onDeferred)["pending"], true) << "msaa changed since the latch";
+    deferred.Deferred.MSAASampleCount = 1u;
+    deferred.Path = RenderingPath::Forward;
+    EXPECT_EQ(RS::UpscalerJson(pp, deferred, onDeferred)["pending"], true) << "path changed since the latch";
+
     RS::UpscaleReadback never;
-    const Json first = RS::UpscalerJson(pp, never);
+    const Json first = RS::UpscalerJson(pp, RendererSettings{}, never);
     EXPECT_TRUE(first["resolved"].is_null());
     EXPECT_EQ(first["pending"], true);
 }

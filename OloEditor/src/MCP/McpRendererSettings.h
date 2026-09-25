@@ -867,6 +867,8 @@ namespace OloEngine::MCP::RendererSettings
         TemporalUpscalePolicy::Resolution Result;
         UpscaleMode Mode = UpscaleMode::Off;                      // the request Result answers
         UpscalerTechnique Technique = UpscalerTechnique::Spatial; // the request Result answers
+        RenderingPath Path = RenderingPath::Forward;              // ...under this path
+        u32 DeferredMSAASampleCount = 1u;                         // ...and this Deferred MSAA setting
         u32 SceneSampleCount = 1u;
         std::string UpscalerStatus; // ToString(TemporalUpscalerStatus)
     };
@@ -907,15 +909,28 @@ namespace OloEngine::MCP::RendererSettings
     // what the last prepared frame ran. When the latch answers an OLDER request
     // (no frame has been prepared since the write), `resolved` is null and
     // `pending` is true: reporting the old answer as the new one is exactly the
-    // "changed but not applied" lie this block exists to prevent.
-    [[nodiscard]] inline Json UpscalerJson(const PostProcessSettings& pp, const UpscaleReadback& readback)
+    // "changed but not applied" lie this block exists to prevent. EVERY input
+    // the decision reads counts: the upscale pair, the path, and on Deferred the
+    // MSAA setting (which there IS the scene band's sample count).
+    [[nodiscard]] inline bool LatchIsCurrent(const PostProcessSettings& pp, const ::OloEngine::RendererSettings& rs,
+                                             const UpscaleReadback& readback)
+    {
+        if (!readback.Latched || readback.Mode != pp.Upscale || readback.Technique != pp.Technique ||
+            readback.Path != rs.Path)
+        {
+            return false;
+        }
+        return rs.Path != RenderingPath::Deferred || readback.DeferredMSAASampleCount == rs.Deferred.MSAASampleCount;
+    }
+
+    [[nodiscard]] inline Json UpscalerJson(const PostProcessSettings& pp, const ::OloEngine::RendererSettings& rs,
+                                           const UpscaleReadback& readback)
     {
         Json block{
             { "requested", Json{ { "upscale", ValueToken(Setting::Upscale, static_cast<i32>(pp.Upscale)) },
                                  { "technique", ValueToken(Setting::UpscaleTechnique, static_cast<i32>(pp.Technique)) } } },
         };
-        if (const bool current = readback.Latched && readback.Mode == pp.Upscale && readback.Technique == pp.Technique;
-            !current)
+        if (!LatchIsCurrent(pp, rs, readback))
         {
             block["resolved"] = nullptr;
             block["pending"] = true;
@@ -987,7 +1002,7 @@ namespace OloEngine::MCP::RendererSettings
         }
         Json result{ { "settings", std::move(arr) } };
         if (upscaler != nullptr)
-            result["upscaler"] = UpscalerJson(pp, *upscaler);
+            result["upscaler"] = UpscalerJson(pp, rs, *upscaler);
         return result;
     }
 } // namespace OloEngine::MCP::RendererSettings

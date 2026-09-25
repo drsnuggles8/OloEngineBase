@@ -63,7 +63,7 @@ namespace OloEngine::MCP::ViewportRay
     struct ViewportInput
     {
         RaySource Source = RaySource::ViewportPixel;
-        glm::vec2 Coordinate{ 0.0f };      // pixel, or normalized [0,1]
+        glm::vec2 Coordinate{ 0.0f };        // pixel, or normalized [0,1]
         glm::uvec2 ViewportDimensions{ 0u }; // viewportPixel only: the size the pixel was measured in
     };
 

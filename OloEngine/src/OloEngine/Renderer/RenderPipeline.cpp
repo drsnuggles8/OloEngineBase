@@ -656,6 +656,8 @@ namespace OloEngine
         data.UpscaleResolution.SceneSampleCount = activation.SceneSampleCount;
         data.UpscaleResolution.Mode = activation.Mode;
         data.UpscaleResolution.Technique = activation.Technique;
+        data.UpscaleResolution.Path = data.Settings.Path;
+        data.UpscaleResolution.DeferredMSAASampleCount = data.Settings.Deferred.MSAASampleCount;
         data.UpscaleResolution.Latched = true;
 
         // Say WHY when the user asked for FSR2 and did not get it. Silence here is

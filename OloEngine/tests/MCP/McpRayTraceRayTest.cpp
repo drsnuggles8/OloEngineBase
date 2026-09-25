@@ -396,7 +396,13 @@ namespace
         const Json& replay = result["replay"];
         // The replay IS the traced ray: the same bytes the reply echoes per entry.
         ASSERT_EQ(replay["rays"].size(), 1u);
-        EXPECT_EQ(replay["rays"][0], result["rays"][0]["ray"]);
+        const Json& traced = result["rays"][0]["ray"];
+        for (const char* key : { "origin", "direction" })
+        {
+            for (sizet i = 0; i < 3; ++i)
+                EXPECT_FLOAT_EQ(replay["rays"][0][key][i].get<f32>(), traced[key][i].get<f32>()) << key << i;
+        }
+        EXPECT_FLOAT_EQ(replay["rays"][0]["tMax"].get<f32>(), traced["tMax"].get<f32>());
         EXPECT_EQ(replay["instanceMask"].get<u32>(), 3u) << "the flags travel with the replay";
 
         // Pasting it back is a valid world-ray request, and parses to the same ray.

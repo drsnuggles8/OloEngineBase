@@ -974,7 +974,9 @@ namespace OloEngine
             // since the change, so Result answers an older question.
             UpscaleMode Mode = UpscaleMode::Off;
             UpscalerTechnique Technique = UpscalerTechnique::Spatial;
-            bool Latched = false; // false until the first PrepareFrame
+            RenderingPath Path = RenderingPath::Forward;
+            u32 DeferredMSAASampleCount = 1u; // the setting, which on Deferred IS the sample count
+            bool Latched = false;             // false until the first PrepareFrame
         };
         [[nodiscard]] static const UpscaleResolutionState& GetUpscaleResolution() noexcept
         {

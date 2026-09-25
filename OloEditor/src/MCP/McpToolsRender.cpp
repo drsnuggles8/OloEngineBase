@@ -3014,6 +3014,8 @@ namespace OloEngine::MCP
                 readback.Result = latched.Result;
                 readback.Mode = latched.Mode;
                 readback.Technique = latched.Technique;
+                readback.Path = latched.Path;
+                readback.DeferredMSAASampleCount = latched.DeferredMSAASampleCount;
                 readback.SceneSampleCount = latched.SceneSampleCount;
                 readback.UpscalerStatus = std::string(ToString(latched.UpscalerStatus));
                 return readback;
@@ -3193,12 +3195,15 @@ namespace OloEngine::MCP
             // The upscaler's RESULT, read after the settle so it answers this
             // write rather than the frame before it. Attached to every setting
             // that feeds the FSR2 decision: the technique itself, the render
-            // scale, and MSAA (which refuses FSR2 without touching the technique).
-            if (setting == Setting::UpscaleTechnique || setting == Setting::Upscale || setting == Setting::MSAA)
+            // scale, MSAA (which refuses FSR2 without touching the technique), and
+            // the path (which decides whether the MSAA setting counts at all).
+            if (setting == Setting::UpscaleTechnique || setting == Setting::Upscale || setting == Setting::MSAA ||
+                setting == Setting::RenderPath)
             {
                 Json withUpscaler = result;
-                withUpscaler["upscaler"] = host.MarshalRead([&snapshotUpscaler]() -> Json
-                                                            { return UpscalerJson(Renderer3D::GetPostProcessSettings(), snapshotUpscaler()); });
+                withUpscaler["upscaler"] = host.MarshalRead(
+                    [&snapshotUpscaler]() -> Json
+                    { return UpscalerJson(Renderer3D::GetPostProcessSettings(), Renderer3D::GetRendererSettings(), snapshotUpscaler()); });
                 return ToolResult::Structured(withUpscaler);
             }
 
@@ -8842,7 +8847,7 @@ namespace OloEngine::MCP
                                                           .Prop("sceneSampleCount", Schema::Int().Min(0))
                                                           .Prop("temporalUpscalerStatus", Schema::String().Desc("The FSR2 backend's own status."))
                                                           .Prop("note", Schema::String())
-                                                          .Desc("Introspection, and the apply shape of 'upscale' / 'technique' / 'msaa': the REQUESTED upscaler versus the one the pipeline RESOLVED. FSR2 falls back to FSR1 off OpenGL and under MSAA at the same render scale, which nothing on screen shows — so read 'resolved', not 'value'."));
+                                                          .Desc("Introspection, and the apply shape of 'upscale' / 'technique' / 'msaa' / 'renderpath': the REQUESTED upscaler versus the one the pipeline RESOLVED. FSR2 falls back to FSR1 off OpenGL and under MSAA at the same render scale, which nothing on screen shows — so read 'resolved', not 'value'."));
             tool.MainMarshaled = true;
             tool.Handler = Handle_RendererSettingsSet;
             registry.Register(std::move(tool));

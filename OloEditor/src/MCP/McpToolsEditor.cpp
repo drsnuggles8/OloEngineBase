@@ -316,7 +316,7 @@ namespace OloEngine::MCP
             tool.Toolset = "editor";
             tool.Title = "Pick terrain";
             tool.Annotations = ReadOnlyAnnotations();
-            tool.Description = "Ray-cast the active terrain through TerrainGPUPicker using a viewport pixel, normalized viewport coordinate, or explicit world ray. Waits for the asynchronous GPU answer and reports pending distinctly from a miss, with ray id, latency, local/world hit, and overflow flags.";
+            tool.Description = "Ray-cast the active terrain through TerrainGPUPicker using a viewport pixel, normalized viewport coordinate (both top-left origin, +Y down, resolved through the editor camera and refused in Play mode, where the viewport shows the runtime camera), or explicit world ray. The reply's worldRay is the ray actually cast. Waits for the asynchronous GPU answer and reports pending distinctly from a miss, with ray id, latency, local/world hit, and overflow flags.";
             tool.InputSchema = TerrainPick::InputSchema();
             tool.OutputSchema = Schema::Object()
                                     .Prop("status", Schema::String().Enum({ "unavailable", "pending", "answered" }))

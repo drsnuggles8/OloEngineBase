@@ -401,7 +401,7 @@ namespace OloEngine::MCP::RayTraceRay
             .Prop("note", Schema::String().Desc("Present only when status is 'pending'."))
             .Prop("raySource", Schema::String().Enum({ "worldRay", "viewportPixel", "viewportNormalized" }).Desc("Which source the rays came from. Anything but 'worldRay' is a camera ray: it depends on the camera pose at the time of the call."))
             .Prop("viewport", Schema::Object().Desc("Camera sources only: the viewport input as given, plus the normalized top-left coordinate it resolved to."))
-            .Prop("replay", Schema::Object().Desc("Camera sources only: the resolved world ray as a ready-to-send argument object ({rays:[...], flags}). Send it back to re-trace the same ray with the camera out of the loop."))
+            .Prop("replay", Schema::Object().Desc("Camera sources only: the resolved world ray as a ready-to-send argument object: {rays:[...], cullBackFaces, terminateOnFirstHit, instanceMask}, the flags at top level exactly as the input takes them. Send it back to re-trace the same ray with the camera out of the loop."))
             .Prop("batchId", Schema::Int().Min(0).Desc("Identifies this batch. An 'answered' reply always carries the batchId of the rays you submitted, never an older batch's."))
             .Prop("rayCount", Schema::Int().Min(0))
             .Prop("hitCount", Schema::Int().Min(0))
