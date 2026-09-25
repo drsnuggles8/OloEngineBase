@@ -60,12 +60,14 @@ run_arm() {
     local name="$1" launcher="$2" slot step root log i=0
     local arm="$work/$name"
     mkdir -p "$arm"
-    step3_rc=0 step3_pch_other=0 plain_cross_hit=no
+    step3_rc=0 step3_pch_other=0 plain_cross_hit=no step3_pch_hit=no
     (
         # Private cache and logs: never touch the job's shared cache or its stats log.
         export CCACHE_DIR="$arm/cache" CCACHE_NOHASHDIR=1
         export CCACHE_SLOPPINESS="${CCACHE_SLOPPINESS:-pch_defines,time_macros,include_file_mtime,include_file_ctime}"
-        unset CCACHE_STATSLOG CCACHE_DISABLE CCACHE_RECACHE CCACHE_READONLY
+        # Anything that stops the step-3 PCH from being served from cache would make both
+        # arms pass without testing reuse. The PCH is served from direct mode only.
+        unset CCACHE_STATSLOG CCACHE_DISABLE CCACHE_RECACHE CCACHE_READONLY CCACHE_NODIRECT CCACHE_DIRECT
         for step in 1 2 1c; do
             i=$((i + 1))
             slot="${step%c}"
@@ -102,6 +104,14 @@ run_arm() {
     grep -E 'Object file: |Result: (direct_cache_hit|preprocessed_cache_hit|cache_miss)$' "$arm/ccache2.log" \
         | paste -d' ' - - | grep -qE 'Plain\.cpp\.o .*Result: (direct|preprocessed)_cache_hit$' \
         && plain_cross_hit=yes
+    # Step 3 must REUSE a cached PCH (direct mode), or neither arm tested anything.
+    grep -E 'Object file: |Result: (direct_cache_hit|preprocessed_cache_hit|cache_miss)$' "$arm/ccache3.log" \
+        | paste -d' ' - - | grep -qE 'cmake_pch\.hxx\.pch .*Result: direct_cache_hit$' \
+        && step3_pch_hit=yes
+    if [ "$step3_pch_hit" != yes ]; then
+        echo "::error::[$name] INCONCLUSIVE: step 3 did not get a direct-mode cache hit on the PCH, so no cached PCH was reused and the two-slot collision was never exercised"
+        exit 1
+    fi
 
     echo "[$name] slot1 -> slot2 -> slot1 (fresh tree, consumer edited): exit $step3_rc;" \
          "step-3 .pch lines naming slot 2: $step3_pch_other; non-PCH object hit across slots: $plain_cross_hit"
