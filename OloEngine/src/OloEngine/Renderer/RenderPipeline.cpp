@@ -1001,10 +1001,14 @@ namespace OloEngine
             // Projection on GL, row-flip-only on Vulkan.
             cameraData.ProjectionForReconstruction =
                 RHI::AdjustProjectionForShaderReconstruction(data.ProjectionMatrix);
-            // The forward screen-space AO lane (issue #1452) — whatever the
-            // frame has published so far; ScenePass's colour half re-uploads
-            // once the AO buffer of THIS frame exists.
-            cameraData.ScreenSpaceAOParams = CommandDispatch::GetForwardScreenSpaceAOParams();
+            // The forward screen-space AO lane (issue #1452) starts every frame
+            // NOT live. This upload runs before CommandDispatch::ResetState, so
+            // reading the dispatcher here would publish the PREVIOUS frame's
+            // lane: after a Forward -> Deferred switch the forward-lit draws on
+            // Deferred would multiply their ambient by whatever the AO slots
+            // hold. ScenePass's colour half re-uploads the block once this
+            // frame's AO buffer exists.
+            cameraData.ScreenSpaceAOParams = glm::vec4(0.0f);
 
             constexpr auto expectedSize = ShaderBindingLayout::CameraUBO::GetSize();
             static_assert(sizeof(ShaderBindingLayout::CameraUBO) == expectedSize, "CameraUBO size mismatch");

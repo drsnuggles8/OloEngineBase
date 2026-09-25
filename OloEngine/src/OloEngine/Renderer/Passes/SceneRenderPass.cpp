@@ -250,9 +250,11 @@ namespace OloEngine
 
         renderFB->Unbind();
         ExportSceneDepthAndNormals(context, m_PrepassSceneDepthExport,
-                                   writeViewNormals ? m_PrepassSceneNormalsExport : RGTextureHandle{}, false);
+                                   writeViewNormals ? m_PrepassSceneNormalsExport : RGTextureHandle{}, false,
+                                   /*exportVelocity*/ false);
         if (writeViewNormals)
-            ExportSceneDepthAndNormals(context, m_PrepassForwardAODepthExport, RGTextureHandle{}, false);
+            ExportSceneDepthAndNormals(context, m_PrepassForwardAODepthExport, RGTextureHandle{}, false,
+                                       /*exportVelocity*/ false);
 
         m_ForwardPrepassRan = true;
         m_ForwardPrepassDrew = depthPrepass;
@@ -402,7 +404,7 @@ namespace OloEngine
     }
 
     void SceneRenderPass::ExportSceneDepthAndNormals(RGCommandContext& context, const RGTextureHandle depthExport,
-                                                     const RGTextureHandle normalsExport, const bool deferredActive)
+                                                     const RGTextureHandle normalsExport, const bool deferredActive, const bool exportVelocity)
     {
         // Publish scene-derived textures through graph-owned handles. The
         // scene pass still renders into the legacy scene/G-Buffer
@@ -439,7 +441,7 @@ namespace OloEngine
         if (!deferredActive)
             copySceneExport(normalsExport, m_Target->GetColorAttachmentHandle(2));
 
-        if (m_SelectedVelocityExport.IsValid() && depthExport == m_SelectedSceneDepthExport)
+        if (exportVelocity && m_SelectedVelocityExport.IsValid())
         {
             // Velocity is written by the colour pass alone, so it is exported
             // with the colour half's depth/normal export and never by the
@@ -588,6 +590,14 @@ namespace OloEngine
             reflectionProbes.BindForShading();
         }
 
+        // Republish the forward screen-space AO inputs LAST, right before the
+        // colour draws (issue #1452). Forward+ light culling rebinds
+        // TEX_POSTPROCESS_DEPTH to the live depth attachment for its tile
+        // reduction, after BindSceneResources published the AO depth COPY
+        // there; left alone, every colour draw's AO upsample would sample the
+        // attachment it is depth-testing against.
+        CommandDispatch::BindForwardScreenSpaceAO();
+
         // Set up color pass state AFTER occlusion flush (which mutates GL state)
         if (depthPrepass)
         {
@@ -720,7 +730,8 @@ namespace OloEngine
             m_GBuffer->Resolve();
         }
 
-        ExportSceneDepthAndNormals(context, m_SelectedSceneDepthExport, m_SelectedSceneNormalsExport, deferredActive);
+        ExportSceneDepthAndNormals(context, m_SelectedSceneDepthExport, m_SelectedSceneNormalsExport, deferredActive,
+                                   /*exportVelocity*/ true);
 
         // Deferred debug visualisation: until DeferredLightingPass lands in
         // Copy the selected G-Buffer channel into the forward scene

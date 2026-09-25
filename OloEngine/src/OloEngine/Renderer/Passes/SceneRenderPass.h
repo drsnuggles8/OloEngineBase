@@ -133,9 +133,11 @@ namespace OloEngine
         // paths with AO live) under the "DepthPrepass" timing bracket.
         void RunDepthPrepass(bool writeViewNormals);
         // Copies the scene target's depth and view normals into the graph's
-        // SceneDepth / SceneNormals exports.
+        // SceneDepth / SceneNormals exports. `exportVelocity` is the colour
+        // half's alone: velocity is written by the colour draws, and only
+        // ScenePass declares the write to its export.
         void ExportSceneDepthAndNormals(RGCommandContext& context, RGTextureHandle depthExport,
-                                        RGTextureHandle normalsExport, bool deferredActive);
+                                        RGTextureHandle normalsExport, bool deferredActive, bool exportVelocity);
 
         // Lazily create / resize the G-Buffer to match the forward target.
         void EnsureGBuffer(u32 width, u32 height, u32 sampleCount);

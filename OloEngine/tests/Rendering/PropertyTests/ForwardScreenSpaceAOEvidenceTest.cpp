@@ -42,6 +42,7 @@
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
+#include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/RenderingPath.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
@@ -366,6 +367,30 @@ namespace OloEngine::Tests
         std::vector<u8> on;
         Capture(CellName("AOEmissionDirect", true, path), pose, yaw, pitch, on);
         ASSERT_FALSE(HasFatalFailure());
+
+        // THE ORDER THE FORWARD AO RESTS ON, in the production graph this frame
+        // ran: the prepass writes depth and view normals, the AO pass reads them,
+        // and only then does the colour pass sample the AO buffer. Registered
+        // any other way the colour pass would read last frame's AO or none.
+        if (path != PathCell::Deferred)
+        {
+            const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph();
+            ASSERT_TRUE(graph) << "no active render graph after a rendered frame";
+            const auto order = graph->GetExecutionOrder();
+            const auto indexOf = [&order](std::string_view name) -> std::ptrdiff_t
+            {
+                const auto it = std::ranges::find_if(order, [name](const FString& n) { return n.ToView() == name; });
+                return it == order.end() ? -1 : (it - order.begin());
+            };
+            const std::ptrdiff_t prepass = indexOf("ScenePrepassPass");
+            const std::ptrdiff_t aoPass = indexOf(GetParam().Technique == AOTechnique::GTAO ? "GTAOPass" : "SSAOPass");
+            const std::ptrdiff_t scene = indexOf("ScenePass");
+            ASSERT_GE(prepass, 0) << "ScenePrepassPass is not in the forward execution order";
+            ASSERT_GE(aoPass, 0) << "the AO pass is not in the forward execution order";
+            ASSERT_GE(scene, 0) << "ScenePass is not in the forward execution order";
+            EXPECT_LT(prepass, aoPass) << "the AO pass runs before the prepass that writes its depth and normals";
+            EXPECT_LT(aoPass, scene) << "ScenePass's colour draws run before the AO pass that produces their AO";
+        }
 
         const FrameDiff d = Compare(off, on);
         EXPECT_GT(d.MeanOff, 20.0) << "the emission + sun frame rendered (near-)black";

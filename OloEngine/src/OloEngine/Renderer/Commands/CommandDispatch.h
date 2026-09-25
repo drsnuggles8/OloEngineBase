@@ -166,7 +166,6 @@ namespace OloEngine
         // it (the prepass) reads the white placeholder with x = 0.
         static void SetForwardScreenSpaceAO(const glm::vec4& params, RHI::ResourceHandle aoTexture,
                                             RHI::ResourceHandle depthTexture);
-        [[nodiscard]] static const glm::vec4& GetForwardScreenSpaceAOParams();
         // A replay from another camera (the planar mirror) must not read the
         // main view's AO buffer: while suspended the camera lane uploads as
         // "not live" and the samplers get the white placeholder.

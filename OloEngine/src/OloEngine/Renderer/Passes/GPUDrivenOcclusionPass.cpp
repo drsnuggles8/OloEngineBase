@@ -126,8 +126,9 @@ namespace OloEngine
                 captureManager.OnPostSort(m_CommandBucket);
             CommandDispatch::SetDepthPrepassColorPassActive(true);
             m_CommandBucket.ExecuteParallel(rendererAPI);
-            if (!m_Phase2Packets.empty())
+            if (m_ForwardPrepassDrewPhase2 && !m_Phase2Packets.empty())
                 (void)CommandBucket::RecordPackets(rendererAPI, m_Phase2Packets);
+            m_ForwardPrepassDrewPhase2 = false;
             CommandDispatch::SetDepthPrepassColorPassActive(false);
             ExportDepthAndNormals(context, RGTextureHandle{}, m_SelectedSceneNormals);
         }
@@ -137,7 +138,7 @@ namespace OloEngine
             m_CommandBucket.SortCommands();
             if (capturing)
                 captureManager.OnPostSort(m_CommandBucket);
-            DrawPhases(context, true);
+            (void)DrawPhases(context, true);
             // Re-export depth + view-normals so AO / SSR include our instanced
             // geometry (#431). The framebuffer attachments now hold the
             // occluders + phase-1 + phase-2 survivors; copy them over ScenePass's
@@ -184,7 +185,7 @@ namespace OloEngine
         CommandDispatch::BindSceneResources();
     }
 
-    void GPUDrivenOcclusionPass::DrawPhases(RGCommandContext& context, const bool cullPhase2)
+    bool GPUDrivenOcclusionPass::DrawPhases(RGCommandContext& context, const bool cullPhase2)
     {
         auto& rendererAPI = RenderCommand::GetRendererAPI();
 
@@ -201,7 +202,7 @@ namespace OloEngine
         // the recovered (disoccluded) instances. This is the step that removes
         // the one-frame popping the single-phase scheme would show.
         if (m_Phase2Packets.empty() || !cullPhase2)
-            return;
+            return false;
 
         const auto& sceneSpec = m_SceneFramebuffer->GetSpecification();
         const RHI::ResourceHandle depthTex = m_SceneFramebuffer->GetDepthAttachmentHandle();
@@ -230,13 +231,12 @@ namespace OloEngine
             if (prepassActive)
                 CommandDispatch::SetDepthPrepassActive(true, writesNormals);
             (void)CommandBucket::RecordPackets(rendererAPI, m_Phase2Packets);
+            return true;
         }
-        else
-        {
-            BindSceneForDraw(context);
-            if (prepassActive)
-                CommandDispatch::SetDepthPrepassActive(true, writesNormals);
-        }
+        BindSceneForDraw(context);
+        if (prepassActive)
+            CommandDispatch::SetDepthPrepassActive(true, writesNormals);
+        return false;
     }
 
     void GPUDrivenOcclusionPass::ExportDepthAndNormals(RGCommandContext& context, const RGTextureHandle depthExport,
@@ -301,6 +301,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         m_ForwardPrepassDrew = false;
+        m_ForwardPrepassDrewPhase2 = false;
         if (!m_PrepassForwardAODepth.IsValid())
             return;
         if (sceneTarget)
@@ -312,7 +313,7 @@ namespace OloEngine
         BindSceneForDraw(context);
         m_CommandBucket.SortCommands();
         CommandDispatch::SetDepthPrepassActive(true, true);
-        DrawPhases(context, true);
+        const bool drewPhase2 = DrawPhases(context, true);
         CommandDispatch::SetDepthPrepassActive(false);
         // The prepass masked every colour write; the AO passes that follow
         // must not inherit that (see SceneRenderPass::RunDepthPrepass).
@@ -326,6 +327,7 @@ namespace OloEngine
         ExportDepthAndNormals(context, m_PrepassSceneDepth, m_PrepassSceneNormals);
         ExportDepthAndNormals(context, m_PrepassForwardAODepth, RGTextureHandle{});
         m_ForwardPrepassDrew = true;
+        m_ForwardPrepassDrewPhase2 = drewPhase2;
     }
 
     void GPUDrivenOcclusionPass::SubmitPhase2(CommandPacket* packet, const GPUFrustumCuller::TwoPhaseCullResult& cull)

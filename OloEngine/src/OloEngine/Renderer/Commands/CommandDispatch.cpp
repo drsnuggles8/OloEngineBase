@@ -170,6 +170,10 @@ namespace OloEngine
         u32 GPUSceneConsumedDraws = 0;
         u32 GPUSceneFallbackDraws = 0;
         u16 LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
+        // Whether the depth-normal prepass left scene attachment 2 writable
+        // (ApplyPrepassViewNormalWrite). A cache hit in ApplyPODRenderState
+        // closes it, so a draw that does not write the normal never inherits it.
+        bool PrepassNormalWriteOpen = false;
         u16 LastMaterialDataIndex = INVALID_MATERIAL_DATA_INDEX;
         // Heap re-initialisation epoch the cached material UBO was built under.
         // Its per-material heap offsets index THAT heap, so the cache must be
@@ -456,6 +460,7 @@ namespace OloEngine
         {
             // Apply safe defaults so no stale GL state persists
             Data().LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
+            Data().PrepassNormalWriteOpen = false; // the global mask call below resets every attachment
             static const PODRenderState s_Default{};
             api.SetBlendState(s_Default.blendEnabled);
             api.SetDepthTest(s_Default.depthTestEnabled);
@@ -511,8 +516,22 @@ namespace OloEngine
         }
 
         if (renderStateIndex == Data().LastRenderStateIndex)
+        {
+            // The cached state is still in force, except the view-normal write
+            // a previous depth-normal prepass draw opened on top of it.
+            // Outside the prepass the flag is merely stale (RunDepthPrepass
+            // reopened every attachment when it ended) and is dropped silently.
+            if (Data().PrepassNormalWriteOpen)
+            {
+                if (s_FrameData.DepthPrepassActive)
+                    api.SetColorMaskForAttachment(2, false, false, false, false);
+                Data().PrepassNormalWriteOpen = false;
+            }
             return;
+        }
         Data().LastRenderStateIndex = renderStateIndex;
+        // The global colour-mask call below resets every attachment's mask.
+        Data().PrepassNormalWriteOpen = false;
 
         const auto& state = FrameDataBufferManager::Get().GetRenderState(renderStateIndex);
         api.SetBlendState(state.blendEnabled);
@@ -1373,10 +1392,11 @@ namespace OloEngine
     // colour-masked custom program declares no normal the AO passes could
     // trust), and so does every blended draw.
     //
-    // Set explicitly on EVERY prepass draw, on and off. ApplyPODRenderState's
-    // global mask call flattens per-attachment masks, but its cache skips that
-    // call when two draws share a render state — so an enable left by one draw
-    // would otherwise survive into the next.
+    // Set on every prepass draw that calls this. A draw that does not (the
+    // skybox, a quad, a custom program) goes through ApplyPODRenderState alone:
+    // its full apply resets every attachment, and its cache hit closes
+    // attachment 2 when an earlier draw left it open (PrepassNormalWriteOpen),
+    // so the render-state cache stays valid for the whole prepass.
     static void ApplyPrepassViewNormalWrite(RendererAPI& api, u16 renderStateIndex, bool programWritesViewNormal)
     {
         if (!s_FrameData.DepthPrepassActive || !s_FrameData.DepthPrepassWritesNormals)
@@ -1384,14 +1404,11 @@ namespace OloEngine
         const bool blended = renderStateIndex != INVALID_RENDER_STATE_INDEX &&
                              FrameDataBufferManager::Get().GetRenderState(renderStateIndex).blendEnabled;
         const bool enable = programWritesViewNormal && !blended;
-        api.SetColorMaskForAttachment(2, enable, enable, false, false);
-        // An enable must not outlive this draw. A later draw that never calls
-        // this (the skybox, a quad, a custom program) and shares this render
-        // state would hit ApplyPODRenderState's cache and keep attachment 2
-        // writable; forgetting the cached index makes it re-apply the
-        // all-masked prepass state instead.
-        if (enable)
-            Data().LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
+        if (enable != Data().PrepassNormalWriteOpen)
+        {
+            api.SetColorMaskForAttachment(2, enable, enable, false, false);
+            Data().PrepassNormalWriteOpen = enable;
+        }
     }
 
     [[nodiscard]] static bool IsDepthNormalPrepassProgram(RHI::ResourceHandle program)
@@ -1768,11 +1785,6 @@ namespace OloEngine
         s_FrameData.ForwardScreenSpaceAOParams = live ? params : glm::vec4(0.0f);
         s_FrameData.ForwardScreenSpaceAOTexture = live ? aoTexture : RHI::ResourceHandle{};
         s_FrameData.ForwardScreenSpaceAODepth = live ? depthTexture : RHI::ResourceHandle{};
-    }
-
-    const glm::vec4& CommandDispatch::GetForwardScreenSpaceAOParams()
-    {
-        return s_FrameData.ForwardScreenSpaceAOParams;
     }
 
     void CommandDispatch::SuspendForwardScreenSpaceAO(bool suspend)
