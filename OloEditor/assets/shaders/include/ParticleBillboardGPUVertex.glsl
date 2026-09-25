@@ -6,6 +6,11 @@
 // targets, #1417). Include it straight after the stage's #version line.
 // Reads particle data from SSBO (GPU-driven rendering via indirect draw).
 
+// This stage reads gl_InstanceIndex, the VULKAN spelling. It used to be
+// unconvertible for that reason; the bindless route now applies SPIRV-Cross's
+// own translation itself, so the Vulkan spelling stays here -- correct for the
+// default SPIR-V path -- and the GL route rewrites it.
+
 
 #ifdef OLO_VULKAN
 // #691 (ADR 0011 §5): V5 pull — the 8-byte {vec2 a_QuadPos} unit

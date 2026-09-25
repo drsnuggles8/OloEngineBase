@@ -242,15 +242,14 @@ namespace OloEngine::Tests
             // render state set one global blend function over both OIT targets,
             // so the accumulation overflowed and the revealage stayed at 1.
             std::cout << "[DecalOIT] " << pathName << " OIT composite red excess " << oit.RedExcess << '\n';
-
-            // OIT OFF — the control arm: the same transparent decal through the
-            // forward overlay is visible, so the scene and the measurement work.
             EXPECT_GT(oit.RedExcess, 0.15f)
                 << pathName << ": the transparent red decal drawn through OIT is not visible in the composite";
             // Arming the diagnostic must not change what is drawn.
             EXPECT_NEAR(oit.ArmedRedExcess, oit.RedExcess, 0.01f)
                 << pathName << ": the OIT decal composites differently while the visibility diagnostic is armed";
 
+            // OIT OFF — the control arm: the same transparent decal through the
+            // forward overlay is visible, so the scene and the measurement work.
             const ArmResult plain = RenderArm(path, false, pathName);
             EXPECT_GT(plain.ControlLuminance, 0.05f)
                 << pathName << ": the control frame is empty, so the comparison below would mean nothing";
@@ -311,12 +310,14 @@ namespace OloEngine::Tests
     }
 
     // #1417's third question: do PARTICLES through OIT reach the composite? They
-    // share the OIT targets and the resolve with the decal, and neither kind did:
-    // CPU billboards lost the per-attachment blend to the per-emitter blend-mode
-    // helper (the same global SetBlendFunc as the decal packets), and GPU
-    // billboards had no OIT shader at all, so they wrote nothing to the revealage
-    // target. Measured on both: red billboards over the floor, against the same
-    // frame with the particles removed, with OIT on and off.
+    // share the OIT targets and the resolve with the decal, and no kind did:
+    // - CPU billboards lost the per-attachment blend to the per-emitter
+    //   blend-mode helper (the same global SetBlendFunc as the decal packets);
+    // - GPU billboards, mesh particles and trails had no OIT shader at all, so
+    //   they wrote the scene-colour outputs into the OIT targets and nothing
+    //   reached the revealage target.
+    // Measured on every kind: red particles over the floor, against the same
+    // frame with them removed, with OIT on and off.
     TEST_F(DecalOITScene, TransparentParticlesThroughOITReachTheComposite)
     {
         OLO_ENSURE_GPU_OR_SKIP();
@@ -333,14 +334,27 @@ namespace OloEngine::Tests
 
         m_Decal.RemoveComponent<DecalComponent>();
 
-        const auto addParticles = [this](bool gpu)
+        enum class Kind
+        {
+            CpuBillboard,
+            GpuBillboard,
+            Mesh,
+            Trail
+        };
+        const Ref<Mesh> cube = MeshPrimitives::CreateCube();
+        ASSERT_TRUE(cube);
+
+        const auto addParticles = [this, &cube](Kind kind)
         {
             m_Particles = GetScene().CreateEntity("TransparentParticles");
-            auto& system = m_Particles.AddComponent<ParticleSystemComponent>().System;
-            system.RenderMode = ParticleRenderMode::Billboard;
+            auto& component = m_Particles.AddComponent<ParticleSystemComponent>();
+            auto& system = component.System;
+            system.RenderMode = kind == Kind::Mesh ? ParticleRenderMode::Mesh : ParticleRenderMode::Billboard;
+            if (kind == Kind::Mesh)
+                component.ParticleMesh = cube;
             system.GravityModule.Enabled = false;
             system.DragModule.Enabled = false;
-            if (gpu)
+            if (kind == Kind::GpuBillboard)
             {
                 // GPU particles are emitted by the emitter and simulated on the
                 // device, so the sheet is a still stack at the emitter. About a
@@ -357,38 +371,54 @@ namespace OloEngine::Tests
                 return;
             }
             system.Emitter.RateOverTime = 0;
+            if (kind == Kind::Trail)
+            {
+                // Particles sweeping through the centre fast enough to be well
+                // past it when the frame is read, so in the measured box the
+                // trail is the only thing drawn. A ribbon's width is the trail's
+                // width times the particle's size.
+                system.TrailModule.Enabled = true;
+                system.TrailModule.TrailLifetime = 10.0f;
+                system.TrailModule.MinVertexDistance = 0.02f;
+                system.TrailModule.WidthStart = system.TrailModule.WidthEnd = 1.0f;
+                system.TrailModule.ColorStart = system.TrailModule.ColorEnd = { 1.0f, 1.0f, 1.0f, 1.0f };
+            }
             auto& pool = system.GetPool();
             constexpr u32 kCount = 25;
             ASSERT_EQ(pool.Emit(kCount), kCount);
             for (u32 i = 0; i < kCount; ++i)
             {
-                // A 5x5 sheet of overlapping quads just above the floor centre,
-                // so the measured box is covered by several layers.
-                pool.m_Positions[i] = { -0.6f + 0.3f * static_cast<f32>(i % 5), 0.3f,
-                                        -0.6f + 0.3f * static_cast<f32>(i / 5) };
+                // A 5x5 sheet just above the floor centre, so the measured box is
+                // covered by several layers. Trails start left of the box and
+                // sweep through it.
+                const glm::vec3 at{ -0.6f + 0.3f * static_cast<f32>(i % 5), 0.3f,
+                                    -0.6f + 0.3f * static_cast<f32>(i / 5) };
+                pool.m_Positions[i] = kind == Kind::Trail ? glm::vec3(-2.5f, at.y, at.z) : at;
                 pool.m_PrevPositions[i] = pool.m_Positions[i];
+                pool.m_Velocities[i] = kind == Kind::Trail ? glm::vec3(30.0f, 0.0f, 0.0f) : glm::vec3(0.0f);
                 pool.m_Colors[i] = pool.m_InitialColors[i] = { 1.0f, 0.05f, 0.05f, 0.9f };
-                pool.m_Sizes[i] = pool.m_PrevSizes[i] = pool.m_InitialSizes[i] = 0.8f;
+                const f32 size = kind == Kind::Mesh ? 0.3f : (kind == Kind::Trail ? 0.5f : 0.8f);
+                pool.m_Sizes[i] = pool.m_PrevSizes[i] = pool.m_InitialSizes[i] = size;
                 pool.m_Lifetimes[i] = pool.m_MaxLifetimes[i] = 1000.0f;
             }
             system.Update(0.001f, glm::vec3(0.0f));
         };
 
-        const auto measure = [this, &addParticles](RenderingPath path, bool oit, bool gpu, const std::string& tag) -> f32
+        const auto measure = [this, &addParticles](RenderingPath path, bool oit, Kind kind, const char* kindName,
+                                                   const std::string& tag) -> f32
         {
             auto& settings = Renderer3D::GetRendererSettings();
             settings.Path = path;
             settings.OITEnabled = oit;
             Renderer3D::ApplyRendererSettings();
 
-            addParticles(gpu);
-            RunFrames(gpu ? 12 : 4);
+            addParticles(kind);
+            RunFrames(kind == Kind::CpuBillboard || kind == Kind::Mesh ? 4 : 12);
             std::vector<u8> on;
             u32 w = 0;
             u32 h = 0;
             EXPECT_TRUE(ReadbackComposite(on, w, h)) << tag;
-            WritePng("Particle" + std::string(gpu ? "Gpu" : "") + "OIT" + std::string(oit ? "" : "Off") + "_GL_" + tag +
-                         ".png",
+            WritePng("Particle" + std::string(kindName) + "OIT" + std::string(oit ? "" : "Off") + "_GL_" + tag + ".png",
                      on, w, h);
 
             GetScene().DestroyEntity(m_Particles);
@@ -401,21 +431,27 @@ namespace OloEngine::Tests
                    Measure(off, w, w / 2, h / 2, 16).MeanRedMinusGreen;
         };
 
+        struct KindCase
+        {
+            Kind Value;
+            const char* Name;
+        };
         for (const auto& [path, name] : { std::pair{ RenderingPath::Deferred, "Deferred" },
                                           std::pair{ RenderingPath::Forward, "Forward" },
                                           std::pair{ RenderingPath::ForwardPlus, "ForwardPlus" } })
         {
-            for (const bool gpu : { false, true })
+            for (const KindCase kind : { KindCase{ Kind::CpuBillboard, "" }, KindCase{ Kind::GpuBillboard, "Gpu" },
+                                         KindCase{ Kind::Mesh, "Mesh" }, KindCase{ Kind::Trail, "Trail" } })
             {
-                const char* kind = gpu ? "GPU" : "CPU";
-                const f32 oitExcess = measure(path, true, gpu, name);
-                const f32 plainExcess = measure(path, false, gpu, name);
-                std::cout << "[ParticleOIT] " << name << ' ' << kind << " red excess: OIT " << oitExcess << ", OIT off "
+                const f32 oitExcess = measure(path, true, kind.Value, kind.Name, name);
+                const f32 plainExcess = measure(path, false, kind.Value, kind.Name, name);
+                const char* label = kind.Name[0] != '\0' ? kind.Name : "Cpu";
+                std::cout << "[ParticleOIT] " << name << ' ' << label << " red excess: OIT " << oitExcess << ", OIT off "
                           << plainExcess << '\n';
-                EXPECT_GT(plainExcess, 0.15f) << name << ' ' << kind
+                EXPECT_GT(plainExcess, 0.15f) << name << ' ' << label
                                               << ": the red particles are not visible without OIT either, so the scene "
                                                  "does not measure anything";
-                EXPECT_GT(oitExcess, 0.15f) << name << ' ' << kind
+                EXPECT_GT(oitExcess, 0.15f) << name << ' ' << label
                                             << ": the red particles drawn through OIT are not visible in the composite";
             }
         }

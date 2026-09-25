@@ -1,11 +1,12 @@
-#ifndef PARTICLE_BILLBOARD_GPU_FRAGMENT_GLSL
-#define PARTICLE_BILLBOARD_GPU_FRAGMENT_GLSL
+#ifndef PARTICLE_FRAGMENT_COMMON_GLSL
+#define PARTICLE_FRAGMENT_COMMON_GLSL
 
-// What both GPU-particle billboard FRAGMENT stages share: the interpolants, the
-// textures and parameters, and the particle's colour after texturing and the
-// soft-particle fade. Each stage adds its own outputs and packs the colour its
-// way -- scene colour for Particle_Billboard_GPU.glsl, the WB-OIT targets for
-// Particle_Billboard_GPU_OIT.glsl (#1417).
+// What every particle FRAGMENT stage shares -- billboards drawn from the GPU
+// simulation, trails and mesh particles: the interpolants, the textures and
+// parameters, and the particle's colour after texturing and the soft-particle
+// fade. The stage then packs that colour one of two ways:
+// ParticleSceneColourFragment.glsl (scene colour and its auxiliary targets) or
+// ParticleOITFragment.glsl (the weighted-blended OIT targets, #1417).
 
 struct VertexOutput
 {
@@ -18,13 +19,9 @@ layout(location = 0) in VertexOutput Input;
 #include "BindlessHeap.glsl"
 
 // Heap-bindless conversion (issue #691, bucket 1). Both slots move
-// together — ParticleBatchRenderer::BindParticleTextures stages both in one
-// call (glsl-shaders.md §5c).
-//
-// This shader reads gl_InstanceIndex, the VULKAN spelling. It used to be
-// unconvertible for that reason; the bindless route now applies SPIRV-Cross's
-// own translation itself, so the Vulkan spelling stays here — correct for the
-// default SPIR-V path — and the GL route rewrites it.
+// together because ParticleBatchRenderer::BindParticleTextures stages both in
+// one call — converting one and leaving the other would leave the unconverted
+// sampler unbound once this program builds as the bindless variant (§5c).
 #ifdef OLO_BINDLESS
 #define u_Texture OLO_HEAP_TEX_2D(0)
 #define u_DepthTexture OLO_HEAP_TEX_2D(1)
@@ -53,7 +50,7 @@ float LinearizeDepth(float depth)
 
 // The particle's colour for this fragment, after its texture and the soft
 // fade. Discards what would contribute nothing.
-vec4 ParticleGPUBillboardColor()
+vec4 ParticleColor()
 {
 	vec4 texColor = Input.Color;
 	if (u_HasTexture != 0)
