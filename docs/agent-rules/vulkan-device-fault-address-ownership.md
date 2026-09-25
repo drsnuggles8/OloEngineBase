@@ -40,6 +40,7 @@ the graphics queue" instead of "READ of invalid address".
   binding, so "no recorded binding covers" on the IP line is expected, not a failure.
 - **Both a `VkImage` and its `VkDeviceMemory`** appearing over an identical range means a dedicated
   allocation. Two *different* handles over overlapping ranges means VMA recycled the address.
+- **"No recorded binding covers" on the READ line** means the address was computed, not freed. Look for the shader that built it from bad inputs, not for a lifetime bug. #1437 was a shader reading another producer's uniform block ([shared-uniform-binding-bind-before-dispatch.md](shared-uniform-binding-bind-before-dispatch.md)).
 - The reported address is only precise to `addressPrecision`, so the resolver matches the whole
   ± window. Several ranges can legitimately match.
 
