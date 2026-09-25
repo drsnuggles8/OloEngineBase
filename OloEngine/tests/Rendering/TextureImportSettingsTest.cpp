@@ -99,6 +99,28 @@ TEST(TextureImportSettings, EmitParseRoundTrip)
     EXPECT_EQ(restored.AlphaMipChain, TextureImportSettings::AlphaMipChainChoice::Coverage);
 }
 
+TEST(TextureImportSettings, OnlyASidecarThatUsesAlphaMipChainIsVersionTwo)
+{
+    // Version 2 added AlphaMipChain (#1453). A version-1 cook ignores a key it
+    // does not know, so a sidecar that USES the field says version 2 and such a
+    // cook rejects it loudly; one that does not stays version 1 and readable.
+    TextureImportSettings plain;
+    plain.Format = TextureImportSettings::FormatChoice::BC5;
+    const std::string v1 = TextureImport::Emit(plain);
+    EXPECT_NE(v1.find("Version: 1"), std::string::npos) << v1;
+    EXPECT_EQ(v1.find("AlphaMipChain"), std::string::npos) << v1;
+
+    TextureImportSettings boxed;
+    boxed.AlphaMipChain = TextureImportSettings::AlphaMipChainChoice::Box;
+    const std::string v2 = TextureImport::Emit(boxed);
+    EXPECT_NE(v2.find("Version: 2"), std::string::npos) << v2;
+
+    TextureImportSettings parsed;
+    EXPECT_TRUE(TextureImport::Parse(v1, parsed));
+    EXPECT_TRUE(TextureImport::Parse(v2, parsed));
+    EXPECT_FALSE(TextureImport::Parse("TextureImportSettings:\n  Version: 3\n", parsed));
+}
+
 TEST(TextureImportSettings, OmittedFieldsMeanAuto)
 {
     TextureImportSettings settings;

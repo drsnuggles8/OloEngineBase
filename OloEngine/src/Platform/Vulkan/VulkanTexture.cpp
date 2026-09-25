@@ -395,8 +395,14 @@ namespace OloEngine
         // either usage fails image creation.
         const bool isBlockCompressed = IsCompressedFormat(m_Specification.Format);
 
-        VkImageUsageFlags usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-                                  VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        // A block image is never a copy SOURCE (GetData has no readback path for
+        // it), and asking for the usage would need a format feature the
+        // compressed constructor does not check.
+        VkImageUsageFlags usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        if (!isBlockCompressed)
+        {
+            usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+        }
         if (isDepth)
         {
             usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;

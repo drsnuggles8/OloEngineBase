@@ -617,9 +617,11 @@ namespace OloEngine
             }
             if (!decoded)
             {
-                OLO_CORE_ERROR("OpenGLTexture2D: fallback decode of mip {} failed", level);
-                if (level == 0u)
-                    return;
+                // A level left unwritten samples undefined texels at the distance
+                // that selects it. Refuse the texture, as the Vulkan twin does.
+                OLO_CORE_ERROR("OpenGLTexture2D: fallback decode of mip {} of {} failed — not loaded", level,
+                               m_MipLevels);
+                return;
             }
         }
         m_MipsPopulated = m_MipLevels > 1u;
@@ -1006,6 +1008,13 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         if (m_MipLevels <= 1u || m_RendererID == 0u)
+        {
+            return;
+        }
+        // A cooked texture's chain is the one it is meant to have (#1453: a
+        // cutout's is coverage-preserving and capped), and on the no-BPTC
+        // fallback a regenerated chain would replace it with the box chain.
+        if (IsCompressedFormat(m_Specification.Format))
         {
             return;
         }

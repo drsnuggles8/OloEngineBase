@@ -16,7 +16,12 @@ namespace OloEngine
 {
     namespace
     {
-        constexpr u32 kSidecarVersion = 1;
+        // Version 2 added AlphaMipChain (#1453). Emit writes 2 only when that
+        // field is set, so a sidecar that does not use it stays readable by a
+        // version-1 cook; one that does is REJECTED by such a cook, loudly,
+        // instead of cooking with the field silently ignored.
+        constexpr u32 kSidecarVersion = 2;
+        constexpr u32 kOldestSidecarVersion = 1;
 
         // Spelling <-> enum tables. Kept as one table per enum so the parser and the
         // emitter cannot drift apart, and so an unknown spelling is rejected rather than
@@ -123,7 +128,7 @@ namespace OloEngine
                 // An unknown version is a hard error rather than a best-effort read: a
                 // future field the cook silently ignores is exactly how a texture ships
                 // in the wrong format without anyone noticing.
-                if (const YAML::Node version = node["Version"]; version && version.as<u32>(0u) != kSidecarVersion)
+                if (const YAML::Node version = node["Version"]; version && (version.as<u32>(0u) < kOldestSidecarVersion || version.as<u32>(0u) > kSidecarVersion))
                 {
                     OLO_CORE_ERROR("TextureImport::Parse - unsupported sidecar version {} (expected {})",
                                    version.as<u32>(0u), kSidecarVersion);
@@ -179,12 +184,14 @@ namespace OloEngine
         {
             std::ostringstream stream;
             stream << "TextureImportSettings:\n";
-            stream << "  Version: " << kSidecarVersion << "\n";
+            const bool needsVersion2 = settings.AlphaMipChain != TextureImportSettings::AlphaMipChainChoice::Auto;
+            stream << "  Version: " << (needsVersion2 ? kSidecarVersion : kOldestSidecarVersion) << "\n";
             stream << "  Format: " << NameIn(kFormatNames, settings.Format) << "\n";
             stream << "  ColorSpace: " << NameIn(kColorSpaceNames, settings.ColorSpace) << "\n";
             if (settings.GenerateMips.has_value())
                 stream << "  GenerateMips: " << (*settings.GenerateMips ? "true" : "false") << "\n";
-            stream << "  AlphaMipChain: " << NameIn(kAlphaMipChainNames, settings.AlphaMipChain) << "\n";
+            if (needsVersion2)
+                stream << "  AlphaMipChain: " << NameIn(kAlphaMipChainNames, settings.AlphaMipChain) << "\n";
             return stream.str();
         }
 

@@ -526,6 +526,19 @@ namespace OloEngine::Automation::Tests
         EXPECT_EQ(reset.at("settings").at("ColorSpace").get<std::string>(), "Linear");
     }
 
+    // A write that changes no setting leaves a hand-written sidecar alone,
+    // comments and all.
+    TEST_F(AutomationAssetCommandsTest, AnUnchangedSettingDoesNotRewriteAHandWrittenSidecar)
+    {
+        const auto path = m_Project / "Assets" / "Textures" / "Checkerboard.png.oloimport";
+        const std::string handWritten = "# chosen for the terrain splat\nTextureImportSettings:\n  Version: 1\n  Format: BC5\n";
+        Write(path, handWritten);
+        const Json same = Success("olo_asset_import_settings", Json{ { "path", "Assets/Textures/Checkerboard.png" },
+                                                                     { "settings", Json{ { "Format", "BC5" } } } });
+        EXPECT_FALSE(same.at("changed").get<bool>());
+        EXPECT_EQ(Read(path), handWritten);
+    }
+
     // #1453: the only reader of this file is the texture cook, which parses the
     // TextureImportSettings YAML format. The tool used to write JSON there, which
     // the cook rejected as malformed, so no setting it stored ever applied.
@@ -558,6 +571,14 @@ namespace OloEngine::Automation::Tests
             EXPECT_TRUE(result.Result.IsError) << settings.dump();
             EXPECT_FALSE(std::filesystem::exists(path)) << settings.dump();
         }
+
+        // A cooked container is a Texture2D asset, but the cook never reads it:
+        // settings beside it would be stored and never applied.
+        Write(m_Project / "Assets" / "Textures" / "Cooked.olotex", "OTEX");
+        const auto cooked = Call("olo_asset_import_settings",
+                                 Json{ { "path", "Assets/Textures/Cooked.olotex" }, { "settings", Json{ { "Format", "BC7" } } } });
+        EXPECT_TRUE(cooked.Result.IsError) << cooked.Result.Content.dump(2);
+        EXPECT_FALSE(std::filesystem::exists(m_Project / "Assets" / "Textures" / "Cooked.olotex.oloimport"));
 
         // Settings for an asset nothing imports with settings are refused by name.
         Write(m_Project / "Assets" / "Scenes" / "Nothing.olo", "Scene: Nothing");

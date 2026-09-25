@@ -19,6 +19,7 @@
 #include "UndoRedo/EditorCommand.h"
 
 #include <algorithm>
+#include <cctype>
 #include <charconv>
 #include <filesystem>
 #include <functional>
@@ -1387,6 +1388,18 @@ namespace OloEngine::Automation
             if (IsFailure(prepared))
                 return AutomationResult::Error(prepared.at("__error").get<std::string>());
 
+            // A cooked container (.olotex) is a Texture2D asset too, but the cook
+            // never reads one: its blocks ship as-is, so settings beside it would
+            // be stored and never applied.
+            std::string extension = target.AbsolutePath.extension().string();
+            std::ranges::transform(extension, extension.begin(), [](unsigned char c)
+                                   { return static_cast<char>(std::tolower(c)); });
+            if (extension == ".olotex")
+            {
+                return AutomationResult::Error("'" + target.AbsolutePath.filename().string() +
+                                               "' is an already-cooked container; import settings apply to the "
+                                               "source image it was cooked from.");
+            }
             if (target.Type != AssetType::Texture2D)
             {
                 return AutomationResult::Error(
@@ -1445,13 +1458,16 @@ namespace OloEngine::Automation
             // other. A null value resets its field to Auto -- explicit rather than
             // inferred from absence. Every field is validated before anything is
             // written, so a typo in one leaves the file untouched.
+            const std::string before = TextureImport::Emit(settings);
             for (const auto& [key, value] : args.at("settings").items())
             {
                 if (const std::string problem = ApplyTextureImportField(settings, key, value); !problem.empty())
                     return AutomationResult::Error(problem);
             }
+            // Changed means the SETTINGS changed, not the text: a hand-written
+            // sidecar with comments that already says this is left alone.
             const std::string replacement = TextureImport::Emit(settings);
-            const bool changed = !existing || *existing != replacement;
+            const bool changed = !existing || before != replacement;
             if (changed)
             {
                 try
