@@ -581,6 +581,41 @@ namespace OloEngine
         bool m_ReportedSceneTemporalResolve = false;
     };
 
+    namespace Renderer3DDetail
+    {
+        // Set while Renderer3D::DrawLine / DrawSphere submit their see-through
+        // debug mesh. On the Deferred path DrawMesh then sends the draw to
+        // ForwardOverlayPass with the forward PBR shader instead of into the
+        // G-Buffer: a depth-test-off draw writes no depth, so over the sky
+        // DeferredLighting shaded it as background, and its attachment-0-only
+        // mask (written for the scene framebuffer's layout, where 1 is entity
+        // ID and 2 the view normal) kept it out of the G-Buffer's emissive
+        // lane everywhere else. Debug lines and joints were invisible on
+        // Deferred. Thread-local: the flag brackets one call on one thread.
+        inline thread_local bool t_RouteDebugDrawToForwardOverlay = false;
+
+        class DebugDrawForwardOverlayScope
+        {
+          public:
+            DebugDrawForwardOverlayScope()
+                : m_Previous(t_RouteDebugDrawToForwardOverlay)
+            {
+                t_RouteDebugDrawToForwardOverlay = true;
+            }
+            ~DebugDrawForwardOverlayScope()
+            {
+                t_RouteDebugDrawToForwardOverlay = m_Previous;
+            }
+            DebugDrawForwardOverlayScope(const DebugDrawForwardOverlayScope&) = delete;
+            DebugDrawForwardOverlayScope& operator=(const DebugDrawForwardOverlayScope&) = delete;
+            DebugDrawForwardOverlayScope(DebugDrawForwardOverlayScope&&) = delete;
+            DebugDrawForwardOverlayScope& operator=(DebugDrawForwardOverlayScope&&) = delete;
+
+          private:
+            bool m_Previous;
+        };
+    } // namespace Renderer3DDetail
+
     inline Renderer3D::Renderer3DData::Renderer3DData()
         : Pipeline(std::make_unique<RenderPipeline>())
     {

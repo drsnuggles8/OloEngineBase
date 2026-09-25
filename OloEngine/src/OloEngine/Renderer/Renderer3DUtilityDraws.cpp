@@ -295,7 +295,11 @@ namespace OloEngine
         glm::mat4 scale = glm::scale(glm::mat4(1.0f), glm::vec3(length, worldThickness, worldThickness));
         glm::mat4 transform = glm::translate(glm::mat4(1.0f), start) * rot * scale;
 
-        auto* packet = DrawMesh(s_Data.LineQuadMesh, transform, material);
+        CommandPacket* packet = nullptr;
+        {
+            const Renderer3DDetail::DebugDrawForwardOverlayScope overlayScope;
+            packet = DrawMesh(s_Data.LineQuadMesh, transform, material);
+        }
 
         // Modify render state and sort key to ensure skeleton visibility through geometry
         if (packet)
@@ -342,6 +346,7 @@ namespace OloEngine
 
         if (s_Data.SphereMesh)
         {
+            const Renderer3DDetail::DebugDrawForwardOverlayScope overlayScope;
             packet = DrawMesh(s_Data.SphereMesh, transform, material);
         }
         else

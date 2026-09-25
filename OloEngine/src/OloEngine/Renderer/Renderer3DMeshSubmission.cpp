@@ -844,8 +844,12 @@ namespace OloEngine
             // G-Buffer representation — see ShouldRerouteToForwardOverlay at the
             // top of this file.
             const bool deferred = s_Data.Settings.Path == RenderingPath::Deferred;
-            if (ShouldRerouteToForwardOverlay(
-                    material, deferred, s_Data.Pipeline->RenderStreamPasses.ForwardOverlay != nullptr, s_Data.PBRShader))
+            const bool hasForwardOverlay = s_Data.Pipeline->RenderStreamPasses.ForwardOverlay != nullptr;
+            // A see-through debug draw (DrawLine / DrawSphere) — see
+            // Renderer3DDetail::t_RouteDebugDrawToForwardOverlay.
+            const bool debugOverlay = deferred && Renderer3DDetail::t_RouteDebugDrawToForwardOverlay &&
+                                      hasForwardOverlay && s_Data.PBRShader;
+            if (debugOverlay || ShouldRerouteToForwardOverlay(material, deferred, hasForwardOverlay, s_Data.PBRShader))
             {
                 shaderToUse = s_Data.PBRShader;
                 overlayRoute = true;
