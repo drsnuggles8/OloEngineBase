@@ -26,7 +26,9 @@ frames per phase. The deadline is 33.333 ms. The capture frame follows the
 measurement interval, so Beauty and AOVs align to that phase's final pose.
 The three scenarios are stationary, dolly and rapid turn. `EntityMotion` advances
 at the manifest's fixed time step on the GL test host; the live editor advances
-the authored pose once per observed frame, with a real scene clock.
+the authored pose once per observed frame and, since #1470, steps the same
+pinned clock (`StartTimeSeconds + n * FixedDtSeconds`), so both hosts capture
+the water at the same wave phase.
 Generated `*-msaa4.yaml` and `*-upscale-quality.yaml` manifests are diagnostic
 variations of those native presets. Run them separately for the MSAA and
 non-native spatial upscale axes. MSAA variation is generated only for Deferred;

@@ -76,7 +76,7 @@ overshoots by half a step. The invariant to preserve when re-timing a shot is
 `(WarmupFrames - 1) * FixedDtSeconds`. The pose is a **closed form** of the frame index
 (`BenchmarkManifest.cpp::CameraPoseAtFrame`), not an accumulation — that is what lets the test
 binary (stepping a mock clock) and the editor host (counting live frames) trace the same path
-without drifting apart. The editor host re-poses one frame at a time when `Motion` is present.
+without drifting apart. The editor host re-poses, and steps its pinned clock, one frame at a time (issue #1470).
 
 The capture is the **last** warm-up frame, so the recorded pose is the integrated one at
 `WarmupFrames - 1`; `result.json` has it as `cameras[].capturedPose`. Read that, not `Position`.
