@@ -114,6 +114,10 @@ namespace OloEngine
         auto va = MeshPrimitives::GetFullscreenTriangle();
         sceneFB->Bind();
         RenderCommand::SetFramebufferDrawAttachments(sceneFB->GetRHIHandle(), kAttachment0Only);
+        // Open the mask this pass writes through (docs/agent-rules/a-pass-opens-its-own-colour-mask.md):
+        // the draw before it may have left attachment 0 masked, and the blur
+        // would then add nothing.
+        RenderCommand::SetColorMask(true, true, true, true);
         context.SetViewport(0, 0, width, height);
         context.SetDepthTest(false);
         context.SetDepthMask(false);

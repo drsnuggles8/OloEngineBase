@@ -254,6 +254,8 @@ namespace OloEngine
 
         scratchFB->Bind();
         RenderCommand::SetFramebufferDrawAttachments(scratchFB->GetRHIHandle(), kScratchAttachment0);
+        // Open the mask this draw writes through (docs/agent-rules/a-pass-opens-its-own-colour-mask.md).
+        RenderCommand::SetColorMask(true, true, true, true);
         context.SetBlendState(false);
         // Slot 1 (the "original" input) is bound to the same texture on this
         // pass. The shader does not read it here, and binding something real
@@ -275,6 +277,8 @@ namespace OloEngine
 
         sceneFB->Bind();
         RenderCommand::SetFramebufferDrawAttachments(sceneFB->GetRHIHandle(), kAttachment0Only);
+        // Open the mask this draw writes through (docs/agent-rules/a-pass-opens-its-own-colour-mask.md).
+        RenderCommand::SetColorMask(true, true, true, true);
         context.SetBlendState(true);
         // ONE/ONE on colour, ZERO/ONE on alpha. The alpha half is not
         // decoration: scene colour's alpha is the blend alpha of whatever drew

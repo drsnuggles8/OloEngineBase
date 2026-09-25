@@ -2981,7 +2981,6 @@ namespace OloEngine
         config.LateSharpen = TemporalUpscalePolicy::ShouldRunLateSharpen(post.CASEnabled, post.Upscale, data.TemporalUpscaleActive);
         config.VignetteEnabled = post.VignetteEnabled;
         config.FXAAEnabled = post.FXAAEnabled;
-        config.SnowSubsurfaceBlur = data.Snow.Enabled && data.Snow.SSSBlurEnabled;
         config.SkinDiffusionEnabled = SkinDiffusionRunsThisFrame(data.SkinDiffusion, data.Settings.Path, post.MaterialDebug,
                                                                  static_cast<i32>(data.Settings.Deferred.DebugChannel));
         config.SelectionOutlineActive = data.EnableSelectionOutline && !data.SelectionOutlineEntityIDs.IsEmpty();

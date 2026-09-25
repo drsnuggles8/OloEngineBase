@@ -84,7 +84,6 @@ namespace OloEngine
     X(bool, LateSharpen)                                                                              \
     X(bool, VignetteEnabled)                                                                          \
     X(bool, FXAAEnabled)                                                                              \
-    X(bool, SnowSubsurfaceBlur)                                                                       \
     X(bool, SkinDiffusionEnabled)                                                                     \
     X(bool, SelectionOutlineActive)                                                                   \
     X(bool, OverdrawDebugView)                                                                        \

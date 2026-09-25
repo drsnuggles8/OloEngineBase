@@ -327,11 +327,6 @@ namespace OloEngine::Tests
                   d.Precipitation.Enabled = true;
                   d.Precipitation.ScreenStreaksEnabled = true;
               } },
-            { "Snow subsurface blur", [](Access::Data& d)
-              {
-                  d.Snow.Enabled = true;
-                  d.Snow.SSSBlurEnabled = true;
-              } },
             { "OITEnabled", [](Access::Data& d)
               { d.Settings.OITEnabled = !d.Settings.OITEnabled; } },
             { "Path", [](Access::Data& d)
