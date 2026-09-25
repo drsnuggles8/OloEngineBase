@@ -36,12 +36,15 @@
 #include "OloEngine/Particle/ParticleSystem.h"
 #include "OloEngine/Renderer/Commands/CommandLifecycle.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
+#include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/RenderingPath.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 
+#include <glad/gl.h>
 #include <gtest/gtest.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -49,6 +52,7 @@
 #include <stb_image/stb_image_write.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <iostream>
 #include <cstddef>
@@ -415,5 +419,35 @@ namespace OloEngine::Tests
                                             << ": the red particles drawn through OIT are not visible in the composite";
             }
         }
+    }
+
+    // #1417, live only until this: in the editor's decal scene every Forward
+    // frame with OIT on went BLACK. A draw earlier in the frame had left draw
+    // buffer 1's write mask off, and a colour clear honours the mask -- so
+    // OITPreparePass's clear of the revealage target to 1 never landed, the
+    // target kept its creation value of 0, and OITResolve multiplied the scene
+    // by it. The GL backend lifted masks around glClear but not around the
+    // per-attachment clear. Pinned here on the OIT framebuffer's own formats.
+    TEST_F(DecalOITScene, AColourClearIgnoresAWriteMaskAnEarlierDrawLeftBehind)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        FramebufferSpecification spec;
+        spec.Width = 4;
+        spec.Height = 4;
+        spec.Attachments = { FramebufferTextureFormat::RGBA16F, FramebufferTextureFormat::RG16F };
+        Ref<Framebuffer> fb = Framebuffer::Create(spec);
+        ASSERT_TRUE(fb);
+
+        RenderCommand::SetColorMaskForAttachment(1, false, false, false, false);
+        RenderCommand::ClearFramebufferColorAttachment(fb->GetRHIHandle(), 1, glm::vec4(1.0f, 0.5f, 0.0f, 0.0f));
+        // Put the ambient mask back for every later test in the process.
+        RenderCommand::SetColorMask(true, true, true, true);
+
+        std::array<f32, 2> texel{ -1.0f, -1.0f };
+        glGetTextureSubImage(fb->GetColorAttachmentRendererID(1), 0, 1, 1, 0, 1, 1, 1, GL_RG, GL_FLOAT,
+                             static_cast<GLsizei>(sizeof(texel)), texel.data());
+        EXPECT_FLOAT_EQ(texel[0], 1.0f) << "the clear of a masked draw buffer was dropped";
+        EXPECT_FLOAT_EQ(texel[1], 0.5f);
     }
 } // namespace OloEngine::Tests
