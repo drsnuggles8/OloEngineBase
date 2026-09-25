@@ -414,9 +414,18 @@ jobs:
         # them compiling at once (SceneSerializer.cpp + five LuaScriptGlue parts,
         # 13.66 GiB anon between them) when the kernel OOM-killed one against THIS
         # job's own 14 GiB runner unit. The launcher gives those TUs
-        # OLO_HEAVY_COMPILE_JOBS (2) permits and leaves every other compile at the
+        # OLO_HEAVY_COMPILE_JOBS permits and leaves every other compile at the
         # full width. OLO_COMPILE_RSS_LOG records each compile's peak RSS for the
         # report step below: GCC has no -fproc-stat-report.
+        #
+        # ONE permit here, not the shared default of 2, on this job's own
+        # measurement (run 36188061625, GCC Release): McpFieldRegistry.cpp peaks at
+        # 7.36 GiB and AutomationComponentRegistry.cpp at 3.61 GiB, and with two
+        # permits they compiled together, and the overlapping peaks summed to
+        # 15.35 GiB against the 14 GiB unit. The build passed (peaks are not all
+        # simultaneous), but with no margin. The next heavy TU is 2.21 GiB, so one
+        # permit leaves the 7.36 GiB compile the only large one in the unit at a
+        # time; the report step's "reached memory.max" line tracks the margin.
         #
         # KEEP COMMENTS OUT OF THE `run: >` BLOCK BELOW. A folded scalar joins its
         # lines into ONE shell line, so a `#` line inside it comments out every
@@ -435,6 +444,7 @@ jobs:
           -DOLO_LINK_JOBS=1
           -DOLO_LINK_SEMAPHORE_SLOTS=1
           -DOLO_HEAVY_COMPILE_SEMAPHORE=ON
+          -DOLO_HEAVY_COMPILE_JOBS=1
           -DOLO_COMPILE_RSS_LOG=ON
 
       # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
@@ -460,12 +470,13 @@ jobs:
       # step, not in the job env: the `runner` context is not available there, and
       # $RUNNER_TEMP is only defined once a step is running.
       - name: Point ccache at a per-run statistics log
-        # The runner unit's oom_kill counter is cumulative since the unit started, so
-        # the memory report step compares against this snapshot.
+        # The runner unit's memory.events counters are cumulative since the unit
+        # started, so the memory report step compares against this snapshot.
         run: |
           echo "CCACHE_STATSLOG=$RUNNER_TEMP/ccache-stats-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.log" >> "$GITHUB_ENV"
           cg=$(sed -n 's/^0:://p' /proc/self/cgroup)
           echo "OLO_OOM_KILLS_BEFORE_BUILD=$(sed -n 's/^oom_kill //p' "/sys/fs/cgroup$cg/memory.events" 2>/dev/null)" >> "$GITHUB_ENV"
+          echo "OLO_MEMMAX_HITS_BEFORE_BUILD=$(sed -n 's/^max //p' "/sys/fs/cgroup$cg/memory.events" 2>/dev/null)" >> "$GITHUB_ENV"
 
       - name: Build tests
         # Width comes from CMAKE_BUILD_PARALLEL_LEVEL in the job env — see the
@@ -536,6 +547,13 @@ jobs:
             before="${OLO_OOM_KILLS_BEFORE_BUILD:-}"
             if [ -n "$before" ] && [ "$after" != "$before" ]; then
               echo "::error::the kernel OOM-killed $((after - before)) process(es) in THIS runner's unit during the job -- the unit's memory.max, not a neighbour"
+            fi
+            # `max` counts the times the unit reached memory.max and had to reclaim.
+            # Non-zero without an OOM kill means the build fit only by evicting page
+            # cache: no margin left, which is the number to watch before the next kill.
+            hits=$(sed -n 's/^max //p' "/sys/fs/cgroup$cg/memory.events")
+            if [ -n "${OLO_MEMMAX_HITS_BEFORE_BUILD:-}" ]; then
+              echo "unit reached memory.max $((hits - OLO_MEMMAX_HITS_BEFORE_BUILD)) time(s) since the build started" | tee -a "$GITHUB_STEP_SUMMARY"
             fi
           fi
 
