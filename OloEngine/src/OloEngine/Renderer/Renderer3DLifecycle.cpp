@@ -902,6 +902,10 @@ namespace OloEngine
         s_Data.ShadowDepthSkinnedShader.Reset();
         s_Data.DepthPrepassShader.Reset();
         s_Data.DepthPrepassSkinnedShader.Reset();
+        s_Data.DepthNormalPrepassShader.Reset();
+        s_Data.DepthNormalPrepassSkinnedShader.Reset();
+        s_Data.DepthNormalPrepassMaskShader.Reset();
+        s_Data.DepthNormalPrepassMaskSkinnedShader.Reset();
         s_Data.DepthPrepassMaskShader.Reset();
         s_Data.DepthPrepassMaskSkinnedShader.Reset();
         s_Data.TerrainPBRShader.Reset();
