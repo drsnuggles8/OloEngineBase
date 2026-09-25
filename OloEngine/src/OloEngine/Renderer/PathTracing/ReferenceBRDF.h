@@ -290,8 +290,14 @@ namespace OloEngine::PathTracing
         const f32 a = roughness * roughness;
 
         const f32 phi = 2.0f * kPi * xi.x;
-        const f32 cosTheta = std::sqrt(std::max(0.0f, (1.0f - xi.y) / (1.0f + (a * a - 1.0f) * xi.y)));
-        const f32 sinTheta = std::sqrt(std::max(0.0f, 1.0f - cosTheta * cosTheta));
+        // cos^2 and sin^2 from the one denominator (1 + (a^2 - 1) xi) >= a^2 > 0.
+        // sin is NOT sqrt(1 - cos^2): near the pole cos^2 rounds to 1.0f in f32
+        // and that form puts a fraction 2^-25 / (a^2 + 2^-25) of all draws
+        // exactly on the normal — 1.2 % at the 0.04 sampling floor (issue #1347,
+        // BsdfSamplingDistributionTest). a^2 xi / denom has no cancellation.
+        const f32 denom = 1.0f + (a * a - 1.0f) * xi.y;
+        const f32 cosTheta = std::sqrt(std::max(0.0f, (1.0f - xi.y) / denom));
+        const f32 sinTheta = std::sqrt(std::max(0.0f, a * a * xi.y / denom));
 
         const glm::vec3 h(std::cos(phi) * sinTheta, std::sin(phi) * sinTheta, cosTheta);
 

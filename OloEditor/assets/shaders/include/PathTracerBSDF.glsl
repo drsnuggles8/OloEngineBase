@@ -32,8 +32,10 @@ vec3 PtLegacyImportanceSampleGGX(vec2 xi, vec3 n, float roughness)
 {
     const float a = roughness * roughness;
     const float phi = 2.0 * PI * xi.x;
-    const float cosTheta = sqrt(max(0.0, (1.0 - xi.y) / (1.0 + (a * a - 1.0) * xi.y)));
-    const float sinTheta = sqrt(max(0.0, 1.0 - cosTheta * cosTheta));
+    // Same cancellation-free sin as MathCommon.glsl ImportanceSampleGGX (#1347).
+    const float denom = 1.0 + (a * a - 1.0) * xi.y;
+    const float cosTheta = sqrt(max(0.0, (1.0 - xi.y) / denom));
+    const float sinTheta = sqrt(max(0.0, a * a * xi.y / denom));
     const vec3 h = vec3(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);
     vec3 tangent, bitangent;
     OrthonormalBasis(n, tangent, bitangent);

@@ -76,19 +76,23 @@ namespace OloEngine::Tests
         }
     }
 
-    TEST(PathReplayCharts, LegacyRoundedPoleCannotRecoverTheOriginalUniforms)
+    TEST(PathReplayCharts, LegacyNearPoleUniformsKeepTheirAzimuth)
     {
         Charts::Frame frame;
         frame.Roughness = 0.0f;
-        // Two different azimuths collapse to the same float cos(theta)==1
-        // inside the existing oracle. There is no unique directional inverse.
+        // Before issue #1347 ImportanceSampleGGX took sin(theta) as
+        // sqrt(1 - cos^2) in f32: here cos^2 rounded to 1, sin to exactly 0,
+        // and these two azimuths collapsed onto the normal with no inverse.
+        // sin is now sqrt(a^2 xi / (1 + (a^2 - 1) xi)), so the two draws stay
+        // distinct directions.
+        // Raw replay still uses the retained uniforms (a near-pole direction is
+        // quantised in f32), so the inverse is not asserted here.
         const auto first = Charts::Forward(Charts::Chart::LegacyGGX, frame, glm::vec2(0.2f, 0.001f));
         const auto second = Charts::Forward(Charts::Chart::LegacyGGX, frame, glm::vec2(0.7f, 0.001f));
         ASSERT_TRUE(first);
         ASSERT_TRUE(second);
-        EXPECT_LT(glm::length(*first - *second), 1.0e-7f);
-        EXPECT_FALSE(Charts::Inverse(Charts::Chart::LegacyGGX, frame, *first));
-        EXPECT_FALSE(Charts::Inverse(Charts::Chart::LegacyGGX, frame, *second));
+        // Measured 2.0e-4 apart after the fix, exactly 0 before it.
+        EXPECT_GT(glm::length(*first - *second), 1.0e-5f);
     }
 
     TEST(PathReplayCharts, ChangedLobeProbabilityPreservesRawUniformAndChangesResidual)

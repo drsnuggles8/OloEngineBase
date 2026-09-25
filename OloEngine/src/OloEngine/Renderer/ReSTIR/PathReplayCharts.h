@@ -79,8 +79,9 @@ namespace OloEngine::ReSTIR::ReplayCharts
 
     // Reject boundaries and numerical non-invertibility; never clamp a failed
     // coordinate into the chart. Raw replay uses retained original uniforms,
-    // never this inverse: the Legacy float sampler can collapse multiple
-    // near-pole uniforms onto one direction. Reconnection uses rough charts.
+    // never this inverse: the Legacy float sampler collapsed multiple
+    // near-pole uniforms onto one direction before issue #1347, and a pole is
+    // still quantised in f32. Reconnection uses rough charts.
     // A direction round trip is a numerical check,
     // not evidence that a scene-level path shift has the required inverse.
     [[nodiscard("Check the sampler chart result before replay")]] inline std::optional<glm::vec2> Inverse(Chart chart, const Frame& frame,

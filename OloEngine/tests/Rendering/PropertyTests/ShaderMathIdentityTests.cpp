@@ -122,8 +122,9 @@ namespace OloEngine::Tests
             constexpr f32 kPi = 3.14159265359f;
             const f32 a = roughness * roughness;
             const f32 phi = 2.0f * kPi * Xi.x;
-            const f32 cosTheta = std::sqrt((1.0f - Xi.y) / (1.0f + (a * a - 1.0f) * Xi.y));
-            const f32 sinTheta = std::sqrt(1.0f - cosTheta * cosTheta);
+            const f32 denom = 1.0f + (a * a - 1.0f) * Xi.y;
+            const f32 cosTheta = std::sqrt(std::max(0.0f, (1.0f - Xi.y) / denom));
+            const f32 sinTheta = std::sqrt(std::max(0.0f, a * a * Xi.y / denom));
             const glm::vec3 H(std::cos(phi) * sinTheta, std::sin(phi) * sinTheta, cosTheta);
 
             glm::vec3 tangent, bitangent;
