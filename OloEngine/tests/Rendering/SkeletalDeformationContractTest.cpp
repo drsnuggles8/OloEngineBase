@@ -77,6 +77,9 @@ namespace OloEngine::Tests
         constexpr std::array kSkinnedConsumers = {
             std::string_view{ "DepthPrepass_Skinned.glsl" },
             std::string_view{ "DepthPrepass_MaskSkinned.glsl" },
+            // The forward prepass's view-normal variants (issue #1452).
+            std::string_view{ "DepthNormalPrepass_Skinned.glsl" },
+            std::string_view{ "DepthNormalPrepass_MaskSkinned.glsl" },
             std::string_view{ "PBR_GBuffer_Skinned.glsl" },
             std::string_view{ "PBR_MultiLight_Skinned.glsl" },
             std::string_view{ "ShadowDepthSkinned.glsl" },

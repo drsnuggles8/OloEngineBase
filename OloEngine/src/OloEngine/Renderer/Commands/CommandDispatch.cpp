@@ -1341,19 +1341,17 @@ namespace OloEngine
     static RHI::ResourceHandle ResolveDepthPrepassShader(const PODMaterialData& mat)
     {
         const auto& ids = s_FrameData.DepthPrepassShaders;
-        const bool isStatic = (mat.shaderRendererID == ids.PBRStatic ||
-                               mat.shaderRendererID == ids.GBufferStatic);
-        const bool isSkinned = !isStatic &&
-                               (mat.shaderRendererID == ids.PBRSkinned ||
-                                mat.shaderRendererID == ids.GBufferSkinned);
+        const RHI::ResourceHandle program = mat.shaderRendererID;
+        const bool isStatic = (program == ids.PBRStatic || program == ids.GBufferStatic);
+        const bool isSkinned = !isStatic && (program == ids.PBRSkinned || program == ids.GBufferSkinned);
         if (!isStatic && !isSkinned)
-            return mat.shaderRendererID;
+            return program;
 
         const bool isMask = (mat.alphaMode == 1);
         // The forward prepass with screen-space AO live writes the view normal
         // too (issue #1452). Only the FORWARD programs swap to the normal
         // variants: a G-Buffer program's attachment 2 is not a view normal.
-        const bool forwardProgram = (mat.shaderRendererID == ids.PBRStatic || mat.shaderRendererID == ids.PBRSkinned);
+        const bool forwardProgram = (program == ids.PBRStatic || program == ids.PBRSkinned);
         if (s_FrameData.DepthPrepassActive && s_FrameData.DepthPrepassWritesNormals && forwardProgram)
         {
             const RHI::ResourceHandle normalShader =
@@ -1365,7 +1363,7 @@ namespace OloEngine
         const RHI::ResourceHandle depthShader = isStatic
                                                     ? (isMask ? ids.DepthMaskStatic : ids.DepthStatic)
                                                     : (isMask ? ids.DepthMaskSkinned : ids.DepthSkinned);
-        return depthShader.IsValid() ? depthShader : mat.shaderRendererID;
+        return depthShader.IsValid() ? depthShader : program;
     }
 
     // THE FORWARD PREPASS'S ONE COLOUR WRITE (issue #1452): scene attachment
