@@ -380,6 +380,15 @@ namespace OloEngine
         }
 
         RenderCommand::SetFramebufferDrawAttachments(sceneFBID, kLightingAttachments);
+        // EVERY attachment writable, through the GLOBAL setter, which also
+        // resets per-attachment masks. The G-Buffer bucket can end on a draw
+        // whose render state narrows the mask to attachment 0 (the debug line
+        // and skeleton draws, colorAttachmentWriteMask = 0x01), and the
+        // indexed masks it leaves outlive the pass. This draw's second output,
+        // the diffusion hand-off in attachment 4, then reached nothing: skin
+        // had no deferred diffusion and snow no deferred blur whenever such a
+        // draw came last (issue #1451).
+        RenderCommand::SetColorMask(true, true, true, true);
 
         context.SetDepthTest(false);
         context.SetDepthMask(false);
