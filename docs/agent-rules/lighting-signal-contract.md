@@ -131,16 +131,19 @@ path, and `PostProcess_SSAOApply` runs only for the AO debug view.
 - **The order is prepass, AO, colour.** The graph runs `ScenePrepassPass`, then
   `GPUDrivenOcclusionPrepassPass` (the HZB-culled instances' share), then SSAO or GTAO and the
   sphere proxies, then ScenePass's colour half.
-- **Every lit forward shader reads it.** That is PBR (static and skinned), terrain, voxel terrain,
-  foliage, groom and water. `CommandDispatch` publishes the AO buffer and `ForwardAODepth` (the
-  prepass depth, copied once) at `TEX_SSAO` / `TEX_POSTPROCESS_DEPTH`. The camera block's
-  `ScreenSpaceAOParams` says whether they are live. A mirrored replay (planar reflection) suspends
-  them.
-- **Unlit or blended writers have no ambient term, so they apply nothing.** These are skybox, light
-  cubes, grid, particles, decals and fluid. There are 18 scene-framebuffer writers, not ~45.
-- **Foliage, groom and water are not in the AO input.** They draw after the AO passes, so they
-  sample the occlusion of the surface behind them. On Deferred, foliage writes the G-Buffer and is in
-  the AO input, so foliage AO differs between the paths by that much.
+- **A surface reads it only if the prepass drew it.** That is PBR (static and skinned) and terrain
+  and voxel terrain. `CommandDispatch` publishes the AO buffer and `ForwardAODepth` (the prepass
+  depth, copied once) at `TEX_SSAO` / `TEX_POSTPROCESS_DEPTH`, and ScenePass republishes them last,
+  right before its colour draws (Forward+ light culling rebinds slot 19 in between). The camera
+  block's `ScreenSpaceAOParams` says whether they are live; it starts every frame not live. A
+  mirrored replay (planar reflection) suspends them.
+- **Anything not in the prepass takes none,** because at its pixels the AO buffer holds the occlusion
+  of the surface behind it: blended PBR (`u_AlphaMode == 2`), water, groom strands and foliage. On
+  Deferred, water, groom and transparents take none either. Foliage is the one gap: it writes the
+  G-Buffer on Deferred and gets its own AO there, but it is not in the forward prepass, so forward
+  foliage has no screen-space AO until it is (#1474).
+- **Unlit writers have no ambient term, so they apply nothing.** These are skybox, light cubes, grid,
+  particles, decals and fluid. There are 18 scene-framebuffer writers, not ~45.
 
 ## Snow is a material layer (#1451)
 

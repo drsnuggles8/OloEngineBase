@@ -891,7 +891,10 @@ void main()
     // ran, upsampled the way DeferredLighting upsamples it. It multiplies the
     // ambient split alone — direct light, transmission and emission are not
     // occluded by it, exactly as on the deferred path.
-    OloSurfaceLighting lighting = oloComposeReflectedLighting(Lo, ambient, ao * oloForwardScreenSpaceAO(gl_FragCoord.xy),
+    // A BLENDED surface is not in the forward depth-normal prepass, so the AO
+    // buffer holds the occlusion of what is behind it: it takes none (#1452).
+    float screenAO = (u_AlphaMode == 2) ? 1.0 : oloForwardScreenSpaceAO(gl_FragCoord.xy);
+    OloSurfaceLighting lighting = oloComposeReflectedLighting(Lo, ambient, ao * screenAO,
                                                               vec3(0.0));
     lighting = oloApplySkinProfile(lighting, u_MaterialKind, u_SkinEvaluationModel,
                                    vec3(u_SkinSpecularTintR, u_SkinSpecularTintG, u_SkinSpecularTintB));

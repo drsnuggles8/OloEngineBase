@@ -66,8 +66,6 @@ layout(location = 3) in vec2 v_LodSeedFade; // (instance draw, thinning fade) �
 #include "include/LightProbeSampling.glsl"
 #define OLO_AMBIENT_LADDER_EXPLICIT_CONTROLS
 #include "include/AmbientLadder.glsl"
-// Screen-space AO for the ambient term (issue #1452).
-#include "include/ForwardScreenSpaceAO.glsl"
 #include "include/VirtualShadowSampling.glsl"
 // The vegetation material's LOBE half (issue #1234). No sampling half: an
 // impostor has no leaf maps — its atlas baked them in — so it takes the lobe
@@ -264,10 +262,10 @@ void main()
             leafThickness, leafTint, texture(u_IrradianceMap, -N).rgb * u_LeafIds.z, u_LeafLobe);
     }
 
-    // The material AO times the SCREEN-SPACE AO (issue #1452), on the ambient
-    // term alone — the same product DeferredLighting multiplies its ambient
-    // split by.
-    vec3 litColor = ambient * (ao * oloForwardScreenSpaceAO(gl_FragCoord.xy)) + oloSurfaceLightingSum(Lo) + transmitted;
+    // No screen-space AO (issue #1452): foliage is not in the forward
+    // depth-normal prepass, so the AO buffer holds the occlusion of the ground
+    // or wall BEHIND each leaf. The G-Buffer twin gets its own AO on Deferred.
+    vec3 litColor = ambient * ao + oloSurfaceLightingSum(Lo) + transmitted;
 
     // Foliage blends are OFF (opaque alpha-tested), so this alpha is never
     // seen; the visible fade is the discard SampleImpostorCard applies.

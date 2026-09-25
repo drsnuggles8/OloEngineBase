@@ -1,5 +1,4 @@
 #include "OloEnginePCH.h"
-#include "OloEngine/Renderer/Passes/ForwardScreenSpaceAOInputs.h"
 #include "OloEngine/Renderer/Passes/FoliageRenderPass.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Debug/FrameCaptureManager.h"
@@ -24,9 +23,6 @@ namespace OloEngine
 
         if (!HasSubmittedCommands())
             return;
-
-        // Its shaders apply screen-space AO to their ambient term (issue #1452).
-        [[maybe_unused]] const bool readsForwardAO = ReadForwardScreenSpaceAOInputs(builder, board);
 
         if (board.Scene.SceneColor.IsValid())
         {
@@ -121,7 +117,6 @@ namespace OloEngine
         }
 
         m_SceneFramebuffer->Bind();
-        CommandDispatch::BindForwardScreenSpaceAO();
 
         // Sort and dispatch foliage commands through the command bucket
         m_CommandBucket.SortCommands();

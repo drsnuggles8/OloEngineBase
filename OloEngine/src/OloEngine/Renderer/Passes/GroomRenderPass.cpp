@@ -1,5 +1,4 @@
 #include "OloEnginePCH.h"
-#include "OloEngine/Renderer/Passes/ForwardScreenSpaceAOInputs.h"
 #include "OloEngine/Renderer/Passes/GroomRenderPass.h"
 
 #include "OloEngine/Groom/GroomAsset.h"
@@ -184,9 +183,6 @@ namespace OloEngine
         {
             return;
         }
-
-        // Its shaders apply screen-space AO to their ambient term (issue #1452).
-        [[maybe_unused]] const bool readsForwardAO = ReadForwardScreenSpaceAOInputs(builder, board);
 
         if (board.Scene.SceneColor.IsValid())
         {
@@ -1312,7 +1308,6 @@ namespace OloEngine
         }
 
         m_SceneFramebuffer->Bind();
-        CommandDispatch::BindForwardScreenSpaceAO();
 
         // The ACTIVE viewport, not the spec: under a DRS render scale the scene
         // target is bound at a sub-rectangle, and a coat drawn at the full spec

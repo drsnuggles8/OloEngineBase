@@ -302,8 +302,6 @@ layout(binding = 22) uniform sampler2D u_SceneNormals;
 layout(binding = 70) uniform sampler2D u_WaterDisturbance;
 #endif
 #include "include/WaterDisturbanceCommon.glsl"
-// Screen-space AO for the ambient fill below (issue #1452).
-#include "include/ForwardScreenSpaceAO.glsl"
 
 // Advected open-ocean foam (issue #1034, §2.2) — the .g channel of the very
 // same u_WaterDisturbance texture above. No new sampler slot and no new
@@ -812,8 +810,9 @@ void main()
     // Provides a minimum brightness so the water is never pitch black,
     // even without strong reflections or cubemap.  Simulates sky light
     // scattering through the upper water column.
-    // Occluded by the screen-space AO like every forward ambient term (#1452).
-    vec3 ambientOcean = shallowColor * 0.15 * oloForwardScreenSpaceAO(gl_FragCoord.xy);
+    // No screen-space AO (issue #1452): the water surface is not in the forward
+    // depth-normal prepass, so the AO buffer holds the bed's occlusion here.
+    vec3 ambientOcean = shallowColor * 0.15;
     finalColor += ambientOcean;
 
     // --- Specular with noise modulation ---

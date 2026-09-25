@@ -84,8 +84,6 @@ layout(location = 8) in float v_InstanceSeed; // this plant's own draw (issue #1
 #include "include/LightProbeSampling.glsl"
 #define OLO_AMBIENT_LADDER_EXPLICIT_CONTROLS
 #include "include/AmbientLadder.glsl"
-// Screen-space AO for the ambient term (issue #1452).
-#include "include/ForwardScreenSpaceAO.glsl"
 // Virtual Shadow Maps (issue #702) — self-contained (UBO 79/80, page-table SSBO
 // 54, sampler 65), and CommandDispatch::BindShadowTextures publishes a DISABLED
 // globals block when VSM is off, so this costs one runtime branch and needs no
@@ -350,10 +348,10 @@ void main()
                                                      u_LeafLobe);
     }
 
-    // The material AO times the SCREEN-SPACE AO (issue #1452), on the ambient
-    // term alone — the same product DeferredLighting multiplies its ambient
-    // split by.
-    vec3 litColor = ambient * (ao * oloForwardScreenSpaceAO(gl_FragCoord.xy)) + oloSurfaceLightingSum(Lo) + transmitted;
+    // No screen-space AO (issue #1452): foliage is not in the forward
+    // depth-normal prepass, so the AO buffer holds the occlusion of the ground
+    // or wall BEHIND each leaf. The G-Buffer twin gets its own AO on Deferred.
+    vec3 litColor = ambient * ao + oloSurfaceLightingSum(Lo) + transmitted;
 
     FragColor = vec4(u_WindWeights.w > 0.5 ? v_Color : litColor, color.a);
 

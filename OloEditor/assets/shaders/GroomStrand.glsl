@@ -318,11 +318,14 @@ layout(std140, binding = 5) uniform MultiLightBuffer {
 layout(binding = 10) uniform samplerCube u_IrradianceMap; // TEX_USER_0
 #endif
 
-// The camera block the vertex stage declares, for the screen-space AO lane,
-// and the AO itself: the environment term below is the strand's ambient, and
-// screen-space AO is visibility for exactly that (issue #1452).
+// The camera block the vertex stage declares; GL links a program only if its
+// stages agree on the block.
+//
+// No screen-space AO here (issue #1452): a strand is not in the forward
+// depth-normal prepass, so the AO buffer holds the occlusion of the surface
+// BEHIND it at every one of its pixels. The Deferred path's forward-lit groom
+// takes none either.
 #include "include/CameraCommon.glsl"
-#include "include/ForwardScreenSpaceAO.glsl"
 
 // The coat-shadow volume (#1248), TEX_GROOM_COAT_VOLUME. xyz = the voxel's mean
 // fibre direction times its coherence, w = fibre areal density in 1/metre.
@@ -585,10 +588,6 @@ vec3 oloGroomShadeFibre()
 		                                        u_GroomCoatBoundsMin.xyz, u_GroomCoatInvExtent.xyz,
 		                                        v_WorldPos, envDir, u_GroomCoatInvExtent.w, u_GroomCoatModes.x);
 		averageRadiance *= oloGroomCoatTransmittance(envTau, u_GroomCoatBoundsMin.w);
-		// Screen-space AO (issue #1452): the ambient visibility every other
-		// forward surface applies to its environment term.
-		averageRadiance *= oloForwardScreenSpaceAO(gl_FragCoord.xy);
-
 		oloGroomAccumulate(total, oloGroomFibreAmbientResponse(fibre, sinThetaO), averageRadiance);
 	}
 

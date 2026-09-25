@@ -1,7 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
-#include "OloEngine/Renderer/Passes/ForwardScreenSpaceAOInputs.h"
 #include "OloEngine/Renderer/Passes/WaterRenderPass.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
@@ -32,9 +31,6 @@ namespace OloEngine
 
         if (!HasSubmittedCommands())
             return;
-
-        // Its shaders apply screen-space AO to their ambient term (issue #1452).
-        [[maybe_unused]] const bool readsForwardAO = ReadForwardScreenSpaceAOInputs(builder, board);
 
         if (board.Scene.SceneColor.IsValid())
         {
@@ -293,7 +289,6 @@ namespace OloEngine
             Renderer3D::SetWaterSurfaceDepthTextureID(RHI::NullResource);
         }
 
-        CommandDispatch::BindForwardScreenSpaceAO();
         m_CommandBucket.ExecuteParallel(rendererAPI);
 
         // Restore render state after water (water uses blending + depth write off)
