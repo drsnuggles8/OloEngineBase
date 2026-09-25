@@ -289,25 +289,27 @@ void main()
         // them exactly as the bilinear fetch does keeps a tap only when none of
         // its light came from another surface, whatever the slot index.
         //
-        // The gather runs only for a tap whose blended lane is not exactly this
-        // slot's code. Inside a region every texel carries the code, so the
-        // blend equals it; at an edge between this slot and any one other value
-        // the blend equals it only at full weight. The common tap therefore
-        // costs one compare, and only edge taps pay for the four-texel test.
-        bool keep = abs(sampled.a - oloSkinDiffusionEncodeSlot(slot)) < 1.0e-4;
-        if (!keep)
+        // A "blended lane equals this slot's code" shortcut would NOT be exact:
+        // the codes are linear in the slot, so a 50/50 blend of slots s-1 and
+        // s+1 (or of a foreign slot and non-skin) lands exactly on slot s's code.
+        // So every tap gathers; what stays cheap is the test. A lane names this
+        // slot when it is within half a code step of the slot's code -- the same
+        // rounding oloSkinDiffusionSlot applies -- compared as one vector, and
+        // the bilinear footprint is only worked out when some lane is foreign.
+        vec4 lanes = textureGather(u_SkinDiffuseSource, uv, 3);
+        vec4 foreign = step(vec4(0.5 * OLO_SKIN_DIFFUSE_SLOT_SCALE),
+                            abs(lanes - vec4(oloSkinDiffusionEncodeSlot(slot))));
+        if (any(greaterThan(foreign, vec4(0.0))))
         {
-            ivec2 sourceSize = textureSize(u_SkinDiffuseSource, 0);
-            vec2 bilinear = fract(uv * vec2(sourceSize) - 0.5);
+            // The texel grid is the pass target's, which is the source's size.
+            vec2 bilinear = fract(uv * u_SkinDiffusionPass.zw - 0.5);
             // textureGather's component order: (0,1), (1,1), (1,0), (0,0).
             vec4 footprint = vec4((1.0 - bilinear.x) * bilinear.y, bilinear.x * bilinear.y,
                                   bilinear.x * (1.0 - bilinear.y), (1.0 - bilinear.x) * (1.0 - bilinear.y));
-            vec4 lanes = textureGather(u_SkinDiffuseSource, uv, 3);
-            vec4 foreign = vec4(oloSkinDiffusionSlot(lanes.x) != slot, oloSkinDiffusionSlot(lanes.y) != slot,
-                                oloSkinDiffusionSlot(lanes.z) != slot, oloSkinDiffusionSlot(lanes.w) != slot);
-            keep = dot(footprint, foreign) <= 1.0e-3;
+            if (dot(footprint, foreign) <= 1.0e-3)
+                foreign = vec4(0.0);
         }
-        if (!keep)
+        if (any(greaterThan(foreign, vec4(0.0))))
         {
             rejected += weight;
             continue;
