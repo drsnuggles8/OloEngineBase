@@ -259,6 +259,7 @@ namespace OloEngine
         viewInfo.image = image;
         viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
         viewInfo.format = info->Format;
+        viewInfo.components = info->Components; // BC4 reads (R, R, R, 1) here too
         viewInfo.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
         VkImageView view = VK_NULL_HANDLE;
         if (vkCreateImageView(device->GetDevice(), &viewInfo, nullptr, &view) != VK_SUCCESS)

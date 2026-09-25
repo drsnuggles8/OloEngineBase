@@ -737,7 +737,7 @@ namespace OloEngine::Tests
         ASSERT_EQ(texture->GetMipLevelCount(), 3u) << "256 -> 128 -> 64";
 
         const AlphaCoverageMips::Chain expected = AlphaCoverageMips::Build(
-            { level0.GetData(), static_cast<sizet>(level0.Num()) }, kSize, kSize, 3u, /*srgb=*/true, kCutoff);
+            { level0.GetData(), static_cast<sizet>(level0.Num()) }, kSize, kSize, 3u, /*srgb=*/true, /*preserveCoverage=*/true);
         EXPECT_EQ(levelBytes(0), level0) << "rebuilding the chain changed level 0";
         for (i32 i = 0; i < expected.Levels.Num(); ++i)
         {

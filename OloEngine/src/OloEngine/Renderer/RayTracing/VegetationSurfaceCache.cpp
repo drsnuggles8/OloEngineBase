@@ -472,6 +472,18 @@ namespace OloEngine::RayTracing
             const DeformParams params{ parameters.Model, Address(entry.Rest->GetDeviceAddress()),
                                        Address(groupBuffer->GetDeviceAddress()), Address(taskBuffer->GetDeviceAddress()),
                                        static_cast<u32>(tasks.Num()), 0u };
+            // Bind BEFORE every dispatch (#1437). SetData only writes the
+            // buffer; the dispatch reads whatever currently OCCUPIES the
+            // binding point, and both points are shared. UBO_RAY_TRACING (65)
+            // has six other tenants, and DeformedSurfaceCache binds its own
+            // 48-byte block there one pass earlier whenever an animated
+            // surface deforms. Without this bind the shader read that block
+            // as its 96-byte one: Rest, Jobs and Tasks came from past its end,
+            // and the device faulted on a READ of 0x10000000000 in
+            // RayTracingScenePass. UBO_FOLIAGE is shared with the raster
+            // foliage path in the same way.
+            m_Params->Bind();
+            m_Wind->Bind();
             m_Params->SetData(&params, sizeof(params));
             m_Wind->SetData(&parameters.Wind, sizeof(parameters.Wind));
             m_Shader->Bind();

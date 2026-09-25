@@ -102,13 +102,11 @@ namespace OloEngine::VulkanUpload
             case ImageFormat::BC5:
                 return VK_FORMAT_BC5_UNORM_BLOCK;
             case ImageFormat::BC4:
-                // NOTE: BC4 samples (R, 0, 0, 1) and this engine's contract is
-                // (R, R, R, 1) — the OpenGL upload installs a texture swizzle for it
-                // (OpenGLTexture2D's compressed constructor). Vulkan's equivalent is a
-                // VkComponentMapping on the image view, and there is none in the tree
-                // yet. Latent today because the Vulkan compressed-texture upload path
-                // is still a stub (#691); whoever enables it must add the mapping, or
-                // every BC4 texture reads green and blue as zero.
+                // BC4 samples (R, 0, 0, 1) and this engine's contract is
+                // (R, R, R, 1). The OpenGL upload installs a texture swizzle for
+                // it; here VulkanTexture2D registers the same mapping as the
+                // image's VulkanImageInfo::Components, which every sampled view
+                // description carries (#1453).
                 return VK_FORMAT_BC4_UNORM_BLOCK;
             case ImageFormat::BC6H:
                 return VK_FORMAT_BC6H_UFLOAT_BLOCK;

@@ -593,8 +593,11 @@ namespace OloEngine::MCP
                 .Prop("outDir", Schema::String().Desc("Result directory written."))
                 .Prop("attachmentFailures", Schema::Int().Min(0).Desc("Attachments that failed to capture."))
                 .Prop("warmupTimedOut", Schema::Bool().Desc(
-                                            "True when a warm-up wait hit its deadline before the declared "
-                                            "frame count (capture proceeded on whatever had rendered)."))
+                                            "True when a warm-up OR measurement frame wait hit its deadline "
+                                            "(10 s + 250 ms per frame). A measurement timeout ends that "
+                                            "camera's sampling early, so it has fewer measured frames than "
+                                            "the manifest declares (see each scenario's sampleCount) and the "
+                                            "run is not a valid budget sample."))
                 .Required({ "id", "backend", "host", "outDir", "attachmentFailures", "warmupTimedOut" });
         tool.MainMarshaled = true;
         tool.Handler = Handle_BenchmarkCapture;

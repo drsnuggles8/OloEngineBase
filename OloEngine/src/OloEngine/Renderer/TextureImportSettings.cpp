@@ -16,7 +16,12 @@ namespace OloEngine
 {
     namespace
     {
-        constexpr u32 kSidecarVersion = 1;
+        // Version 2 added AlphaMipChain (#1453). Emit writes 2 only when that
+        // field is set, so a sidecar that does not use it stays readable by a
+        // version-1 cook; one that does is REJECTED by such a cook, loudly,
+        // instead of cooking with the field silently ignored.
+        constexpr u32 kSidecarVersion = 2;
+        constexpr u32 kOldestSidecarVersion = 1;
 
         // Spelling <-> enum tables. Kept as one table per enum so the parser and the
         // emitter cannot drift apart, and so an unknown spelling is rejected rather than
@@ -36,6 +41,12 @@ namespace OloEngine
             { "sRGB", TextureImportSettings::ColorSpaceChoice::SRGB },
         } };
 
+        constexpr std::array<std::pair<std::string_view, TextureImportSettings::AlphaMipChainChoice>, 3> kAlphaMipChainNames = { {
+            { "Auto", TextureImportSettings::AlphaMipChainChoice::Auto },
+            { "Coverage", TextureImportSettings::AlphaMipChainChoice::Coverage },
+            { "Box", TextureImportSettings::AlphaMipChainChoice::Box },
+        } };
+
         template<typename Table, typename Value>
         bool LookupName(const Table& table, std::string_view name, Value& out)
         {
@@ -51,7 +62,7 @@ namespace OloEngine
         }
 
         template<typename Table, typename Value>
-        std::string_view NameOf(const Table& table, Value value)
+        std::string_view NameIn(const Table& table, Value value)
         {
             for (const auto& [text, candidate] : table)
             {
@@ -64,6 +75,36 @@ namespace OloEngine
 
     namespace TextureImport
     {
+        std::string_view NameOf(TextureImportSettings::FormatChoice value)
+        {
+            return NameIn(kFormatNames, value);
+        }
+
+        std::string_view NameOf(TextureImportSettings::ColorSpaceChoice value)
+        {
+            return NameIn(kColorSpaceNames, value);
+        }
+
+        std::string_view NameOf(TextureImportSettings::AlphaMipChainChoice value)
+        {
+            return NameIn(kAlphaMipChainNames, value);
+        }
+
+        bool FromName(std::string_view name, TextureImportSettings::FormatChoice& out)
+        {
+            return LookupName(kFormatNames, name, out);
+        }
+
+        bool FromName(std::string_view name, TextureImportSettings::ColorSpaceChoice& out)
+        {
+            return LookupName(kColorSpaceNames, name, out);
+        }
+
+        bool FromName(std::string_view name, TextureImportSettings::AlphaMipChainChoice& out)
+        {
+            return LookupName(kAlphaMipChainNames, name, out);
+        }
+
         std::string SidecarPathFor(std::string_view sourceImagePath)
         {
             std::string path(sourceImagePath);
@@ -87,10 +128,14 @@ namespace OloEngine
                 // An unknown version is a hard error rather than a best-effort read: a
                 // future field the cook silently ignores is exactly how a texture ships
                 // in the wrong format without anyone noticing.
-                if (const YAML::Node version = node["Version"]; version && version.as<u32>(0u) != kSidecarVersion)
+                // A missing Version reads as 1, which is what a version-1 cook
+                // assumes of the same file.
+                const YAML::Node version = node["Version"];
+                const u32 declaredVersion = version ? version.as<u32>(0u) : kOldestSidecarVersion;
+                if (declaredVersion < kOldestSidecarVersion || declaredVersion > kSidecarVersion)
                 {
-                    OLO_CORE_ERROR("TextureImport::Parse - unsupported sidecar version {} (expected {})",
-                                   version.as<u32>(0u), kSidecarVersion);
+                    OLO_CORE_ERROR("TextureImport::Parse - unsupported sidecar version {} (expected {} to {})",
+                                   declaredVersion, kOldestSidecarVersion, kSidecarVersion);
                     return false;
                 }
 
@@ -107,6 +152,23 @@ namespace OloEngine
                     if (!LookupName(kColorSpaceNames, colorSpace.as<std::string>(std::string{}), out.ColorSpace))
                     {
                         OLO_CORE_ERROR("TextureImport::Parse - unknown ColorSpace '{}'", colorSpace.as<std::string>(std::string{}));
+                        return false;
+                    }
+                }
+                if (const YAML::Node alphaMipChain = node["AlphaMipChain"]; alphaMipChain)
+                {
+                    // A version-1 file carrying the field is the case the version
+                    // exists for: a version-1 cook would read it and drop the field.
+                    if (declaredVersion < 2u)
+                    {
+                        OLO_CORE_ERROR("TextureImport::Parse - AlphaMipChain needs 'Version: 2' (the sidecar says {})",
+                                       declaredVersion);
+                        return false;
+                    }
+                    if (!LookupName(kAlphaMipChainNames, alphaMipChain.as<std::string>(std::string{}), out.AlphaMipChain))
+                    {
+                        OLO_CORE_ERROR("TextureImport::Parse - unknown AlphaMipChain '{}'",
+                                       alphaMipChain.as<std::string>(std::string{}));
                         return false;
                     }
                 }
@@ -134,11 +196,14 @@ namespace OloEngine
         {
             std::ostringstream stream;
             stream << "TextureImportSettings:\n";
-            stream << "  Version: " << kSidecarVersion << "\n";
-            stream << "  Format: " << NameOf(kFormatNames, settings.Format) << "\n";
-            stream << "  ColorSpace: " << NameOf(kColorSpaceNames, settings.ColorSpace) << "\n";
+            const bool needsVersion2 = settings.AlphaMipChain != TextureImportSettings::AlphaMipChainChoice::Auto;
+            stream << "  Version: " << (needsVersion2 ? kSidecarVersion : kOldestSidecarVersion) << "\n";
+            stream << "  Format: " << NameIn(kFormatNames, settings.Format) << "\n";
+            stream << "  ColorSpace: " << NameIn(kColorSpaceNames, settings.ColorSpace) << "\n";
             if (settings.GenerateMips.has_value())
                 stream << "  GenerateMips: " << (*settings.GenerateMips ? "true" : "false") << "\n";
+            if (needsVersion2)
+                stream << "  AlphaMipChain: " << NameIn(kAlphaMipChainNames, settings.AlphaMipChain) << "\n";
             return stream.str();
         }
 

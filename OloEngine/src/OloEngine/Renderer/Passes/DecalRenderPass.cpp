@@ -11,6 +11,7 @@
 #include "OloEngine/Renderer/Commands/CommandPacket.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
+#include "OloEngine/Renderer/OITBlendState.h"
 
 #include <array>
 
@@ -241,6 +242,16 @@ namespace OloEngine
             return;
         }
 
+        // The passes before this one bind and unbind GL state directly -- in
+        // Deferred, DeferredLightingPass's fullscreen draws, and this pass's own
+        // GLStateGuard restores program and VAO on exit -- so the dispatcher's
+        // redundant-bind caches no longer describe the context. A decal whose
+        // VAO the cache believed bound skipped the bind and drew from VAO 0: an
+        // access violation in the NVIDIA driver on the first frame of a
+        // transparent decal after a Forward -> Deferred switch. The same fix
+        // ForwardOverlayRenderPass carries for #1404.
+        CommandDispatch::InvalidateBindingCaches();
+
         Ref<Framebuffer> oitFramebuffer;
         if (m_OITEnabled && m_SelectedOITFramebuffer.IsValid())
             oitFramebuffer = context.ResolveFramebuffer(m_SelectedOITFramebuffer);
@@ -260,10 +271,9 @@ namespace OloEngine
             RenderCommand::SetDepthFunc(RHI::CompareOp::LessOrEqual);
             RenderCommand::SetDepthMask(false);
 
-            RenderCommand::SetBlendStateForAttachment(0, true);
-            RenderCommand::SetBlendStateForAttachment(1, true);
-            RenderCommand::SetBlendFuncForAttachment(0, RHI::BlendFactor::One, RHI::BlendFactor::One);
-            RenderCommand::SetBlendFuncForAttachment(1, RHI::BlendFactor::Zero, RHI::BlendFactor::OneMinusSrcColor);
+            // Stated here for the pass, and re-stated by CommandDispatch::DrawDecal
+            // after each packet's own render state (#1417).
+            ApplyWeightedBlendedOITBlend(RenderCommand::GetRendererAPI());
 
             // The Decal_OIT program override rides on the command (instead of
             // a global on CommandDispatch), which keeps the dispatcher
@@ -298,6 +308,9 @@ namespace OloEngine
             RenderCommand::ResetBlendStateForAttachment(1);
             RenderCommand::SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
             context.SetBlendState(false);
+            // A packet's per-attachment mask narrowing (#853) outlives the last
+            // packet unless something widens it; the global call does (#1417).
+            RenderCommand::SetColorMask(true, true, true, true);
 
             context.SetDepthMask(true);
             RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
@@ -327,9 +340,11 @@ namespace OloEngine
         auto& rendererAPI = RenderCommand::GetRendererAPI();
         replaySelected(rendererAPI);
 
-        // Restore render state after decals
+        // Restore render state after decals. The global colour mask withdraws
+        // any per-attachment narrowing the last packet left behind (#1417).
         context.SetDepthMask(true);
         context.SetBlendState(false);
+        RenderCommand::SetColorMask(true, true, true, true);
         RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
         RenderCommand::BackCull();
         CommandDispatch::InvalidateRenderStateCache();
@@ -386,6 +401,9 @@ namespace OloEngine
 
         const RHI::ResourceHandle gbufferID = writeTargetFB->GetRHIHandle();
         writeTargetFB->Bind();
+        // Same reason as Execute(): the passes before this one bound GL state
+        // behind the dispatcher's redundant-bind caches.
+        CommandDispatch::InvalidateBindingCaches();
 
         // Bind the depth attachment of the *depth-sampling* framebuffer
         // (resolved single-sample in MSAA mode) at TEX_POSTPROCESS_DEPTH so

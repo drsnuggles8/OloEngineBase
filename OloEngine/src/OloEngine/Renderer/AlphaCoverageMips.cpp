@@ -17,12 +17,6 @@ namespace OloEngine::AlphaCoverageMips
             return !(static_cast<f32>(alphaByte) / 255.0f < cutoff);
         }
 
-        [[nodiscard]] u8 ScaledAlpha(u32 alphaByte, f32 scale) noexcept
-        {
-            const f32 scaled = std::round(static_cast<f32>(alphaByte) * scale);
-            return static_cast<u8>(std::clamp(scaled, 0.0f, 255.0f));
-        }
-
         using AlphaHistogram = std::array<u64, 256>;
 
         [[nodiscard]] AlphaHistogram HistogramOf(std::span<const u8> rgba) noexcept
@@ -31,17 +25,6 @@ namespace OloEngine::AlphaCoverageMips
             for (sizet i = 3; i < rgba.size(); i += 4)
                 ++histogram[rgba[i]];
             return histogram;
-        }
-
-        [[nodiscard]] f64 CoverageAtScale(const AlphaHistogram& histogram, u64 total, f32 cutoff, f32 scale) noexcept
-        {
-            u64 passing = 0;
-            for (u32 a = 0; a < 256u; ++a)
-            {
-                if (histogram[a] != 0u && Passes(ScaledAlpha(a, scale), cutoff))
-                    passing += histogram[a];
-            }
-            return static_cast<f64>(passing) / static_cast<f64>(total);
         }
 
         [[nodiscard]] const std::array<f32, 256>& SrgbToLinearTable() noexcept
@@ -81,9 +64,11 @@ namespace OloEngine::AlphaCoverageMips
             f32 Weight = 0.0f;
         };
 
-        [[nodiscard]] TArray<TArray<Tap>> AxisTaps(u32 src, u32 dst)
+        using AxisFootprints = TArray<TArray<Tap>>;
+
+        [[nodiscard]] AxisFootprints AxisTaps(u32 src, u32 dst)
         {
-            TArray<TArray<Tap>> taps;
+            AxisFootprints taps;
             taps.SetNum(static_cast<i32>(dst));
             const f64 ratio = static_cast<f64>(src) / static_cast<f64>(dst);
             for (u32 i = 0; i < dst; ++i)
@@ -102,10 +87,9 @@ namespace OloEngine::AlphaCoverageMips
             return taps;
         }
 
-        void Downsample(std::span<const u8> src, u32 srcW, u32 srcH, std::span<u8> dst, u32 dstW, u32 dstH, bool srgb)
+        void Downsample(std::span<const u8> src, u32 srcW, std::span<u8> dst, u32 dstW, u32 dstH,
+                        const AxisFootprints& xTaps, const AxisFootprints& yTaps, bool srgb)
         {
-            const auto xTaps = AxisTaps(srcW, dstW);
-            const auto yTaps = AxisTaps(srcH, dstH);
             const auto& toLinear = SrgbToLinearTable();
 
             for (u32 y = 0; y < dstH; ++y)
@@ -130,6 +114,114 @@ namespace OloEngine::AlphaCoverageMips
                     out[3] = UnormByte(sum[3]);
                 }
             }
+        }
+
+        // The same footprints over an unquantised alpha plane: each level's
+        // value is the exact average alpha of its footprint in level 0, which
+        // is what ranks its texels for the remap. Quantising it to a byte, as
+        // the stored level is, would merge footprints that differ by less than
+        // 1/255 and hand the tie to texel order.
+        void DownsampleAlpha(std::span<const f32> src, u32 srcW, std::span<f32> dst, u32 dstW, u32 dstH,
+                             const AxisFootprints& xTaps, const AxisFootprints& yTaps)
+        {
+            for (u32 y = 0; y < dstH; ++y)
+            {
+                for (u32 x = 0; x < dstW; ++x)
+                {
+                    f32 sum = 0.0f;
+                    for (const Tap& ty : yTaps[static_cast<i32>(y)])
+                    {
+                        for (const Tap& tx : xTaps[static_cast<i32>(x)])
+                            sum += tx.Weight * ty.Weight * src[static_cast<sizet>(ty.Index) * srcW + tx.Index];
+                    }
+                    dst[static_cast<sizet>(y) * dstW + x] = sum;
+                }
+            }
+        }
+
+        // Rank r of N texels gets the value at rank (r + 1/2) * N0 / N of level
+        // 0's N0. For every byte threshold the count of texels at or above it is
+        // then level 0's scaled to N, rounded to the nearest texel, which is the
+        // closest any level of N texels can come.
+        [[nodiscard]] TArray64<u8> RankTargets(const AlphaHistogram& level0, u64 level0Count, u64 count)
+        {
+            TArray64<u8> targets;
+            if (count == 0u || level0Count == 0u)
+                return targets;
+            targets.SetNumUninitialized(static_cast<i64>(count));
+            // Walk level 0's histogram from the top: `above` counts level 0's
+            // texels brighter than `value`. Ranks only grow, so the walk only
+            // moves down.
+            u32 value = 255u;
+            u64 above = 0u;
+            for (u64 rank = 0; rank < count; ++rank)
+            {
+                const u64 source = ((2u * rank + 1u) * level0Count) / (2u * count);
+                while (value > 0u && source >= above + level0[value])
+                {
+                    above += level0[value];
+                    --value;
+                }
+                targets[static_cast<i64>(rank)] = static_cast<u8>(value);
+            }
+            return targets;
+        }
+
+        // Replaces `rgba`'s alpha, in rank order of `footprintAlpha`, with
+        // level 0's alpha values (RankTargets).
+        void MatchAlphaToLevel0(std::span<u8> rgba, std::span<const f32> footprintAlpha, u32 width, u32 height,
+                                const AlphaHistogram& level0, u64 level0Count)
+        {
+            const u64 count = static_cast<u64>(width) * height;
+            if (count == 0u || level0Count == 0u)
+                return;
+
+            struct Ranked
+            {
+                f32 Footprint = 0.0f;
+                f32 Neighbourhood = 0.0f;
+                u32 Index = 0;
+            };
+            TArray64<Ranked> ranked;
+            ranked.SetNumUninitialized(static_cast<i64>(count));
+            for (u32 y = 0; y < height; ++y)
+            {
+                for (u32 x = 0; x < width; ++x)
+                {
+                    // Of two texels whose footprints held the same alpha, the
+                    // one in the denser neighbourhood is the one that continues
+                    // a shape (a blade, a leaf edge) rather than a stray texel.
+                    f32 neighbourhood = 0.0f;
+                    for (i32 dy = -1; dy <= 1; ++dy)
+                    {
+                        const u32 ny = static_cast<u32>(std::clamp(static_cast<i32>(y) + dy, 0, static_cast<i32>(height) - 1));
+                        for (i32 dx = -1; dx <= 1; ++dx)
+                        {
+                            const u32 nx = static_cast<u32>(std::clamp(static_cast<i32>(x) + dx, 0, static_cast<i32>(width) - 1));
+                            neighbourhood += footprintAlpha[static_cast<sizet>(ny) * width + nx];
+                        }
+                    }
+                    const u32 index = y * width + x;
+                    ranked[index] = { footprintAlpha[index], neighbourhood, index };
+                }
+            }
+            // A strict ordering, not a tolerance test: two footprints tie only
+            // when neither sum is larger.
+            std::sort(ranked.GetData(), ranked.GetData() + ranked.Num(), [](const Ranked& a, const Ranked& b)
+                      {
+                          if (a.Footprint > b.Footprint)
+                              return true;
+                          if (a.Footprint < b.Footprint)
+                              return false;
+                          if (a.Neighbourhood > b.Neighbourhood)
+                              return true;
+                          if (a.Neighbourhood < b.Neighbourhood)
+                              return false;
+                          return a.Index < b.Index; });
+
+            const TArray64<u8> targets = RankTargets(level0, level0Count, count);
+            for (u64 rank = 0; rank < count; ++rank)
+                rgba[static_cast<sizet>(ranked[static_cast<i64>(rank)].Index) * 4u + 3u] = targets[static_cast<i64>(rank)];
         }
     } // namespace
 
@@ -163,62 +255,75 @@ namespace OloEngine::AlphaCoverageMips
         return coverage > 0.0f && coverage < 1.0f;
     }
 
+    bool IsCutoutAlpha(std::span<const u8> rgba) noexcept
+    {
+        u64 transparent = 0;
+        u64 opaque = 0;
+        u64 between = 0;
+        for (sizet i = 3; i < rgba.size(); i += 4)
+        {
+            const u8 alpha = rgba[i];
+            if (alpha <= 8u)
+                ++transparent;
+            else if (alpha >= 247u)
+                ++opaque;
+            else
+                ++between;
+        }
+        const u64 total = transparent + opaque + between;
+        return transparent > 0u && opaque > 0u && between * 3u <= total;
+    }
+
+    TArray64<u8> RankedTargetAlpha(std::span<const u8> level0, u64 texelCount)
+    {
+        return RankTargets(HistogramOf(level0), level0.size() / 4u, texelCount);
+    }
+
+    f32 WorstCoverageDifference(std::span<const u8> level, std::span<const u8> level0) noexcept
+    {
+        const u64 count = level.size() / 4u;
+        const u64 count0 = level0.size() / 4u;
+        if (count == 0u || count0 == 0u)
+            return count == count0 ? 0.0f : 1.0f;
+        const AlphaHistogram histogram = HistogramOf(level);
+        const AlphaHistogram histogram0 = HistogramOf(level0);
+        u64 atOrAbove = 0;
+        u64 atOrAbove0 = 0;
+        f64 worst = 0.0;
+        for (u32 threshold = 255u; threshold >= 1u; --threshold)
+        {
+            atOrAbove += histogram[threshold];
+            atOrAbove0 += histogram0[threshold];
+            worst = std::max(worst, std::abs(static_cast<f64>(atOrAbove) / static_cast<f64>(count) -
+                                             static_cast<f64>(atOrAbove0) / static_cast<f64>(count0)));
+        }
+        return static_cast<f32>(worst);
+    }
+
     f32 Coverage(std::span<const u8> rgba, f32 cutoff) noexcept
     {
         const u64 total = rgba.size() / 4u;
         if (total == 0u)
             return 0.0f;
-        return static_cast<f32>(CoverageAtScale(HistogramOf(rgba), total, cutoff, 1.0f));
-    }
-
-    f32 ScaleAlphaToCoverage(std::span<u8> rgba, f32 cutoff, f32 targetCoverage) noexcept
-    {
-        const u64 total = rgba.size() / 4u;
-        if (total == 0u || !std::isfinite(targetCoverage))
-            return 1.0f;
-
         const AlphaHistogram histogram = HistogramOf(rgba);
-        const f64 target = std::clamp(static_cast<f64>(targetCoverage), 0.0, 1.0);
-
-        // Coverage never decreases as the scale grows, so bisect for the
-        // smallest scale that reaches the target, then keep whichever of it
-        // and the largest scale below it lands closer. 256 is enough headroom:
-        // it lifts alpha 1 to 255.
-        f32 lo = 0.0f;
-        f32 hi = 256.0f;
-        for (u32 iteration = 0; iteration < 32u; ++iteration)
+        u64 passing = 0;
+        for (u32 a = 0; a < 256u; ++a)
         {
-            const f32 mid = 0.5f * (lo + hi);
-            if (CoverageAtScale(histogram, total, cutoff, mid) >= target)
-                hi = mid;
-            else
-                lo = mid;
+            if (Passes(a, cutoff))
+                passing += histogram[a];
         }
-        const f64 above = CoverageAtScale(histogram, total, cutoff, hi);
-        const f64 below = CoverageAtScale(histogram, total, cutoff, lo);
-        const f32 scale = std::abs(below - target) < std::abs(above - target) ? lo : hi;
-
-        // The level already matches as well as any scale can: leave it bit-exact.
-        const f64 unscaled = CoverageAtScale(histogram, total, cutoff, 1.0f);
-        if (std::abs(unscaled - target) <= std::abs(CoverageAtScale(histogram, total, cutoff, scale) - target))
-            return 1.0f;
-
-        for (sizet i = 3; i < rgba.size(); i += 4)
-            rgba[i] = ScaledAlpha(rgba[i], scale);
-        return scale;
+        return static_cast<f32>(static_cast<f64>(passing) / static_cast<f64>(total));
     }
 
-    Chain Build(std::span<const u8> level0, u32 width, u32 height, u32 mipLevels, bool srgb, f32 cutoff)
+    Chain Build(std::span<const u8> level0, u32 width, u32 height, u32 mipLevels, bool srgb, bool preserveCoverage)
     {
         Chain chain;
         if (width == 0u || height == 0u || mipLevels <= 1u || level0.size() < static_cast<sizet>(width) * height * 4u)
             return chain;
 
-        const f32 activeCutoff = SanitizeCutoff(cutoff);
-        // A level 0 that passes everywhere or nowhere keeps that property under
-        // any box filter, so there is nothing for the rescale to preserve.
-        const bool preserve = HasPartialCoverage(level0, activeCutoff);
-        const f32 baseCoverage = preserve ? Coverage(level0, activeCutoff) : 0.0f;
+        const u64 level0Count = static_cast<u64>(width) * height;
+        const std::span<const u8> base = level0.first(static_cast<sizet>(level0Count) * 4u);
+        const AlphaHistogram level0Histogram = preserveCoverage ? HistogramOf(base) : AlphaHistogram{};
 
         u64 totalBytes = 0;
         {
@@ -234,22 +339,44 @@ namespace OloEngine::AlphaCoverageMips
         }
         chain.Bytes.SetNumZeroed(static_cast<i64>(totalBytes));
 
-        // The previous level as the box filter produced it, before any rescale.
+        // The previous level as the box filter produced it, before any remap,
+        // so each level is filtered from real averages rather than from the
+        // previous level's remapped alpha.
         TArray64<u8> previous;
-        previous.Append(level0.data(), static_cast<i64>(width) * height * 4);
+        previous.Append(base.data(), static_cast<i64>(base.size()));
+        TArray64<f32> previousAlpha;
+        if (preserveCoverage)
+        {
+            previousAlpha.SetNumUninitialized(static_cast<i64>(level0Count));
+            for (u64 i = 0; i < level0Count; ++i)
+                previousAlpha[static_cast<i64>(i)] = static_cast<f32>(base[static_cast<sizet>(i) * 4u + 3u]) / 255.0f;
+        }
         u32 prevW = width;
         u32 prevH = height;
         TArray64<u8> filtered;
+        TArray64<f32> filteredAlpha;
         for (const Level& level : chain.Levels)
         {
+            const AxisFootprints xTaps = AxisTaps(prevW, level.Width);
+            const AxisFootprints yTaps = AxisTaps(prevH, level.Height);
+
             filtered.SetNumZeroed(static_cast<i64>(level.Width) * level.Height * 4);
-            Downsample({ previous.GetData(), static_cast<sizet>(previous.Num()) }, prevW, prevH,
-                       { filtered.GetData(), static_cast<sizet>(filtered.Num()) }, level.Width, level.Height, srgb);
+            Downsample({ previous.GetData(), static_cast<sizet>(previous.Num()) }, prevW,
+                       { filtered.GetData(), static_cast<sizet>(filtered.Num()) }, level.Width, level.Height, xTaps,
+                       yTaps, srgb);
 
             const std::span<u8> out(chain.Bytes.GetData() + level.Offset, static_cast<sizet>(filtered.Num()));
             std::copy(filtered.GetData(), filtered.GetData() + filtered.Num(), out.begin());
-            if (preserve)
-                ScaleAlphaToCoverage(out, activeCutoff, baseCoverage);
+            if (preserveCoverage)
+            {
+                filteredAlpha.SetNumZeroed(static_cast<i64>(level.Width) * level.Height);
+                DownsampleAlpha({ previousAlpha.GetData(), static_cast<sizet>(previousAlpha.Num()) }, prevW,
+                                { filteredAlpha.GetData(), static_cast<sizet>(filteredAlpha.Num()) }, level.Width,
+                                level.Height, xTaps, yTaps);
+                MatchAlphaToLevel0(out, { filteredAlpha.GetData(), static_cast<sizet>(filteredAlpha.Num()) }, level.Width,
+                                   level.Height, level0Histogram, level0Count);
+                std::swap(previousAlpha, filteredAlpha);
+            }
 
             std::swap(previous, filtered);
             prevW = level.Width;

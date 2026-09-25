@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/RGBuilder.h"
+#include "OloEngine/Renderer/OITBlendState.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Passes/ParticleRenderPass.h"
 #include "OloEngine/Particle/ParticleBatchRenderer.h"
@@ -124,11 +125,8 @@ namespace OloEngine
             RenderCommand::SetDepthFunc(RHI::CompareOp::LessOrEqual);
             context.SetDepthMask(false);
 
-            // Per-attachment blend state: both enabled, different factors.
-            RenderCommand::SetBlendStateForAttachment(0, true);                                                      // accum
-            RenderCommand::SetBlendStateForAttachment(1, true);                                                      // revealage
-            RenderCommand::SetBlendFuncForAttachment(0, RHI::BlendFactor::One, RHI::BlendFactor::One);               // additive
-            RenderCommand::SetBlendFuncForAttachment(1, RHI::BlendFactor::Zero, RHI::BlendFactor::OneMinusSrcColor); // multiplicative
+            // Per-attachment blend state: accum additive, revealage multiplicative.
+            ApplyWeightedBlendedOITBlend(RenderCommand::GetRendererAPI());
 
             // Particles are CAMERA-FACING quads: their winding is whatever the
             // billboard basis happens to produce, and it is not a statement

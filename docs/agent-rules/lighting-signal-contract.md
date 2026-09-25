@@ -43,7 +43,7 @@ composition and ladder against physics-derived answers), `LightingSignalComposit
 
 | Signal | Stores | Consumed by |
 |---|---|---|
-| IBL irradiance cube | *E/π* | ladder IBL rung |
+| IBL irradiance cube | *E/π* | ladder IBL rung; groom environment term, as the sky's average radiance *L* (`oloGroomFibreEnvironmentRadiance`) |
 | Lightmap (atlas, G-Buffer RT5) | *E* + coverage | ladder rung 1, via `oloNormalizedIrradiance` |
 | Probe volume (`sampleProbeVolumeIrradiance`) | *E*: baked SH through `evaluateSHCosineIrradiance`, DDGI atlas | ladder rung 2 via the conversion; ReSTIR GI bounce ÷π |
 | ReSTIR DI radiance | contribution, both lobes, combined | deferred, outside the split |
@@ -90,6 +90,16 @@ Each of these was a local choice that looked right.
 - **ReSTIR PT's value was filed as diffuse**, so the diffusion pass blurred its specular. It is now
   added outside the split.
 
+## Fixed since
+
+- **#1450: the groom's environment term** divided the (already *E/π*) irradiance cube by π again,
+  so every coat read π too dark beside a Lambertian surface under the same sky. It also ignored the
+  sky's IBL intensity. `GroomEnvironmentFurnaceTest` pins both against all three cube producers.
+- **#1457: Deferred shaded a point light differently from Forward.** The evaluators always agreed
+  (`PointLightEvaluatorParityGpuTest`); the gap was Forward's screen-space AO, applied to the
+  composed colour and so darkening direct light too. #1452 applies it to the ambient term on every
+  path. See [forward-deferred-parity-measurement.md](forward-deferred-parity-measurement.md).
+
 ## Declared approximations (kept on purpose)
 
 - **Legacy split-sum specular uses `F_roughness·A + B`.** Changing it moves every Legacy pixel;
@@ -110,10 +120,6 @@ Each of these was a local choice that looked right.
   - emissive triangles past the encodable index, counted in `EmittersBeyondEncodableIndex`. The
     raster paths never light from emissive geometry at all, so this is no worse than DI off.
   - emissive-geometry light on skin pixels, now that skin declines the tier.
-- **Groom** divides the (already *E/π*) irradiance cube by π again (`GroomStrand.glsl`), making it
-  π too dark (#1450, owned by the groom work).
-- **Deferred's point-light tile evaluator disagrees with the forward light loop** (#1457). It is a
-  direct-term parity bug, not an ownership one, and predates this work.
 - **Media** (fog, volumetrics) is applied after surface composition, to reflections included, and
   the reference tracer has none.
 

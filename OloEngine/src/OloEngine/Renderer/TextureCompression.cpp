@@ -3,6 +3,7 @@
 
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Debug/Instrumentor.h"
+#include "OloEngine/Renderer/AlphaCoverageMips.h"
 #include "OloEngine/Renderer/BC6HEncoder.h"
 #include "OloEngine/Renderer/TextureImportSettings.h"
 
@@ -213,6 +214,93 @@ namespace OloEngine
                 }
             }
             return out;
+        }
+
+        // The BC7 blocks of one level, decoded back to RGBA8.
+        [[nodiscard]] TArray64<u8> DecodeBC7Level(const TArray64<u8>& blocks, u32 width, u32 height)
+        {
+            CompressedTextureImage level;
+            level.Format = TextureCompressionFormat::BC7;
+            level.Width = width;
+            level.Height = height;
+            level.Mips.Add(blocks);
+            TArray64<u8> rgba;
+            u32 w = 0;
+            u32 h = 0;
+            if (!TextureCompression::DecodeToRGBA8(level, 0, rgba, w, h))
+                rgba.Reset();
+            return rgba;
+        }
+
+        // Encodes one level of an alpha cutout's coverage-matched chain (#1453)
+        // so that what the GPU DECODES still matches level 0's alpha at every
+        // threshold, not only what went in.
+        //
+        // BC7 moves alpha by a few codes per block, and a matched level feels
+        // it more than level 0 does: the remap sharpens coarse alpha, so blocks
+        // hold high-contrast alpha that the encoder has to compromise on. On the
+        // soft Sponza Mask texture that was up to 1.4 coverage points at a cutoff
+        // after encode against under 0.01 before. So the level is decoded, each
+        // texel's alpha is nudged by how far its decoded alpha sits from the
+        // target for its decoded RANK, and the level is encoded again; the
+        // encode whose decode is closest to level 0 wins. Three passes took
+        // that texture to 0.3 points; a binary card is usually right first time
+        // and stops after one.
+        template<typename EncodeBlockFn>
+        [[nodiscard]] TArray64<u8> EncodeCoverageLevel(TArray64<u8> pixels, u32 width, u32 height,
+                                                       std::span<const u8> level0, EncodeBlockFn&& encodeBlock)
+        {
+            constexpr u32 kPasses = 3;
+            const u64 count = static_cast<u64>(width) * height;
+            const f32 floor = 1.0f / static_cast<f32>(count); // one texel: no level does better
+            const TArray64<u8> targets = AlphaCoverageMips::RankedTargetAlpha(level0, count);
+            const TArray64<u8> intended = pixels; // the matched alpha, for tie-breaks
+
+            TArray64<u8> best = EncodeLevel(pixels, width, height, encodeBlock);
+            TArray64<u8> decoded = DecodeBC7Level(best, width, height);
+            if (decoded.Num() != static_cast<i64>(count) * 4)
+                return best;
+            f32 bestError = AlphaCoverageMips::WorstCoverageDifference(
+                { decoded.GetData(), static_cast<sizet>(decoded.Num()) }, level0);
+
+            TArray64<u32> order;
+            order.SetNumUninitialized(static_cast<i64>(count));
+            for (u32 pass = 0; pass < kPasses && bestError > floor; ++pass)
+            {
+                for (u64 i = 0; i < count; ++i)
+                    order[static_cast<i64>(i)] = static_cast<u32>(i);
+                std::sort(order.GetData(), order.GetData() + order.Num(), [&decoded, &intended](u32 a, u32 b)
+                          {
+                              const u8 da = decoded[static_cast<i64>(a) * 4 + 3];
+                              const u8 db = decoded[static_cast<i64>(b) * 4 + 3];
+                              if (da != db)
+                                  return da > db;
+                              const u8 ia = intended[static_cast<i64>(a) * 4 + 3];
+                              const u8 ib = intended[static_cast<i64>(b) * 4 + 3];
+                              if (ia != ib)
+                                  return ia > ib;
+                              return a < b; });
+                for (u64 rank = 0; rank < count; ++rank)
+                {
+                    const i64 texel = static_cast<i64>(order[static_cast<i64>(rank)]) * 4 + 3;
+                    const i32 nudged = static_cast<i32>(pixels[texel]) + static_cast<i32>(targets[static_cast<i64>(rank)]) -
+                                       static_cast<i32>(decoded[texel]);
+                    pixels[texel] = static_cast<u8>(std::clamp(nudged, 0, 255));
+                }
+
+                TArray64<u8> candidate = EncodeLevel(pixels, width, height, encodeBlock);
+                decoded = DecodeBC7Level(candidate, width, height);
+                if (decoded.Num() != static_cast<i64>(count) * 4)
+                    break;
+                const f32 error = AlphaCoverageMips::WorstCoverageDifference(
+                    { decoded.GetData(), static_cast<sizet>(decoded.Num()) }, level0);
+                if (error < bestError)
+                {
+                    bestError = error;
+                    best = std::move(candidate);
+                }
+            }
+            return best;
         }
 
         // Build a compressed mip chain from a level-0 pixel buffer. `encodeLevel(level, w, h)`
@@ -426,7 +514,8 @@ namespace OloEngine
             return static_cast<sizet>(BlockCount(width)) * BlockCount(height) * BlockSizeBytes(format);
         }
 
-        CompressedTextureImage EncodeBC7(const u8* pixels, u32 width, u32 height, u32 channels, bool srgb, bool generateMips)
+        CompressedTextureImage EncodeBC7(const u8* pixels, u32 width, u32 height, u32 channels, bool srgb, bool generateMips,
+                                         bool preserveAlphaCoverage)
         {
             OLO_PROFILE_FUNCTION();
 
@@ -464,6 +553,28 @@ namespace OloEngine
             // alpha=255 from ExpandToRGBA8, which is opaque — so don't report alpha for
             // those (keeps opaque BC7 albedo out of the transparent render pass).
             image.HasAlpha = (channels == 4);
+
+            // An alpha cutout (#1453): the histogram-matched chain, stopped at
+            // the last level that can still hold the card's coverage. Built by
+            // the same code the runtime uses for a loose texture, so a cooked
+            // cutout samples the levels its source PNG would.
+            if (preserveAlphaCoverage && generateMips && channels == 4)
+            {
+                const TArray64<u8> rgba = ExpandToRGBA8(pixels, width, height, channels);
+                const std::span<const u8> level0{ rgba.GetData(), static_cast<sizet>(rgba.Num()) };
+                const u32 levels = AlphaCoverageMips::CappedLevelCount(width, height, MaxMipLevels(width, height));
+                const AlphaCoverageMips::Chain chain =
+                    AlphaCoverageMips::Build(level0, width, height, levels, srgb, /*preserveCoverage=*/true);
+
+                image.Mips.Add(EncodeLevel(rgba, width, height, encodeBlock));
+                for (const AlphaCoverageMips::Level& level : chain.Levels)
+                {
+                    TArray64<u8> matched;
+                    matched.Append(chain.Bytes.GetData() + level.Offset, static_cast<i64>(level.Width) * level.Height * 4);
+                    image.Mips.Add(EncodeCoverageLevel(matched, level.Width, level.Height, level0, encodeBlock));
+                }
+                return image;
+            }
 
             image.Mips = BuildMipChain<u8>(
                 ExpandToRGBA8(pixels, width, height, channels), width, height, generateMips,
@@ -1048,6 +1159,7 @@ namespace OloEngine
             bool srgb = options.SRGB;
             bool autoSRGBFromName = options.AutoSRGBFromName;
             bool generateMips = options.GenerateMips;
+            auto alphaMipChain = TextureImportSettings::AlphaMipChainChoice::Auto;
 
             // A "<image>.oloimport" sidecar is the only reliable per-texture signal the
             // cook has (#624 item 2). It is what makes BC5 reachable automatically: no
@@ -1094,6 +1206,7 @@ namespace OloEngine
                     }
                     if (settings.GenerateMips.has_value())
                         generateMips = *settings.GenerateMips;
+                    alphaMipChain = settings.AlphaMipChain;
                 }
             }
 
@@ -1206,7 +1319,32 @@ namespace OloEngine
                     image = EncodeBC4(pixels, texelWidth, texelHeight, sourceChannels, generateMips);
                 else
                 {
-                    image = EncodeBC7(pixels, texelWidth, texelHeight, sourceChannels, srgb, generateMips);
+                    // An alpha cutout gets the coverage-preserving chain (#1453).
+                    // Nothing here knows the cutoff, and nothing needs to: the
+                    // chain is right at every cutoff. What is measured is whether
+                    // the alpha is a cutout's at all, so a blended texture or one
+                    // carrying data in alpha keeps its averaged chain.
+                    bool preserveAlphaCoverage = false;
+                    if (usage.HasAlpha && generateMips && sourceChannels == 4)
+                    {
+                        using AlphaMipChainChoice = TextureImportSettings::AlphaMipChainChoice;
+                        const auto texelBytes = static_cast<sizet>(texelWidth) * texelHeight * 4u;
+                        preserveAlphaCoverage =
+                            alphaMipChain == AlphaMipChainChoice::Coverage ||
+                            (alphaMipChain == AlphaMipChainChoice::Auto &&
+                             AlphaCoverageMips::IsCutoutAlpha({ pixels, texelBytes }));
+                        if (preserveAlphaCoverage)
+                        {
+                            OLO_CORE_INFO("TextureCompression: '{}' is an alpha cutout ({}); cooking its coverage-preserving "
+                                          "mip chain, {} levels",
+                                          srcImagePath,
+                                          alphaMipChain == AlphaMipChainChoice::Coverage ? "AlphaMipChain: Coverage" : "measured",
+                                          AlphaCoverageMips::CappedLevelCount(texelWidth, texelHeight,
+                                                                              MaxMipLevels(texelWidth, texelHeight)));
+                        }
+                    }
+                    image = EncodeBC7(pixels, texelWidth, texelHeight, sourceChannels, srgb, generateMips,
+                                      preserveAlphaCoverage);
                     // Alpha is MEASURED, not inferred from the channel count: a 4-channel
                     // PNG whose alpha is a constant 255 is opaque, and reporting it as
                     // transparent puts an opaque albedo in the transparent render pass.

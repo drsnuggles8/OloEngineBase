@@ -1206,6 +1206,8 @@ namespace OloEngine
         PruneRestStreams();
         if (m_CacheBytes <= m_CacheBudgetBytes)
         {
+            // Back within budget: re-arm the warning for the next time.
+            (void)m_CacheBudgetWarning.Observe(0);
             return;
         }
 
@@ -1248,11 +1250,13 @@ namespace OloEngine
         // An evicted entity may have been the last holder of its stream.
         PruneRestStreams();
 
-        if (m_CacheBytes > m_CacheBudgetBytes)
+        m_Stats.CacheOverBudgetBytes = m_CacheBytes > m_CacheBudgetBytes ? m_CacheBytes - m_CacheBudgetBytes : 0;
+        // Every resident groom is in use, so the budget cannot be met. Said out
+        // loud rather than dropping a draw: a groom that vanished to fit a
+        // budget is indistinguishable from a broken asset. Said ONCE per entry
+        // into the state and per material growth (#1431), not every frame.
+        if (m_CacheBudgetWarning.Observe(m_Stats.CacheOverBudgetBytes))
         {
-            // Every resident groom is in use, so the budget cannot be met.
-            // Said out loud rather than dropping a draw: a groom that vanished
-            // to fit a budget is indistinguishable from a broken asset.
             OLO_CORE_WARN("GroomRenderPass: strand cache is {:.1f} MiB over its {:.1f} MiB budget and every entry is "
                           "in use this frame; nothing was evicted and every groom is still drawn",
                           static_cast<f64>(m_CacheBytes - m_CacheBudgetBytes) / (1024.0 * 1024.0),
@@ -1282,6 +1286,13 @@ namespace OloEngine
         {
             m_Requests.Empty();
             m_Stats.CachedBytes = m_CacheBytes;
+            m_Stats.CacheBudgetBytes = m_CacheBudgetBytes;
+            // The cache can still be over budget on a frame that draws nothing.
+            m_Stats.CacheOverBudgetBytes = m_CacheBytes > m_CacheBudgetBytes ? m_CacheBytes - m_CacheBudgetBytes : 0;
+            // Back within budget (a raised budget, an emptied cache) re-arms the
+            // warning here too, not only in EvictToBudget.
+            if (m_Stats.CacheOverBudgetBytes == 0)
+                (void)m_CacheBudgetWarning.Observe(0);
             m_Stats.CachedGrooms = static_cast<u32>(m_Cache.size());
             return;
         }
@@ -1303,6 +1314,13 @@ namespace OloEngine
                                "placeholder buffer; skipping the strand draws rather than binding a null resource.");
             m_Requests.Empty();
             m_Stats.CachedBytes = m_CacheBytes;
+            m_Stats.CacheBudgetBytes = m_CacheBudgetBytes;
+            // The cache can still be over budget on a frame that draws nothing.
+            m_Stats.CacheOverBudgetBytes = m_CacheBytes > m_CacheBudgetBytes ? m_CacheBytes - m_CacheBudgetBytes : 0;
+            // Back within budget (a raised budget, an emptied cache) re-arms the
+            // warning here too, not only in EvictToBudget.
+            if (m_Stats.CacheOverBudgetBytes == 0)
+                (void)m_CacheBudgetWarning.Observe(0);
             m_Stats.CachedGrooms = static_cast<u32>(m_Cache.size());
             return;
         }
@@ -1598,7 +1616,11 @@ namespace OloEngine
             // MakeGroomFibreParams the tests and the analysis call, so the
             // shader, the CPU model and the measured numbers cannot drift.
             params.FibreSigmaEta = glm::vec4(request.Fibre.SigmaA, request.Fibre.Eta);
-            params.FibreLobe = glm::vec4(request.Fibre.V[0], request.Fibre.S, request.Fibre.Intensity, 0.0f);
+            // w: the sky's IBL intensity, the scale every lit surface's IBL
+            // rung applies to the same cube (#1450). Without it the sky slider
+            // moved the body and left its coat where it was.
+            params.FibreLobe = glm::vec4(request.Fibre.V[0], request.Fibre.S, request.Fibre.Intensity,
+                                         Renderer3D::GetGlobalIBLIntensity());
             params.FibreSinAlpha = glm::vec4(request.Fibre.Sin2kAlpha[0], request.Fibre.Sin2kAlpha[1],
                                              request.Fibre.Sin2kAlpha[2], 0.0f);
             params.FibreCosAlpha = glm::vec4(request.Fibre.Cos2kAlpha[0], request.Fibre.Cos2kAlpha[1],
@@ -1792,6 +1814,7 @@ namespace OloEngine
 
         EvictToBudget();
         m_Stats.CachedBytes = m_CacheBytes;
+        m_Stats.CacheBudgetBytes = m_CacheBudgetBytes;
         m_Stats.CachedGrooms = static_cast<u32>(m_Cache.size());
 
         // Requests are per-frame; holding them would draw last frame's grooms
@@ -1823,6 +1846,7 @@ namespace OloEngine
         m_Cache.clear();
         m_RestStreams.clear();
         m_CacheBytes = 0;
+        m_CacheBudgetWarning = {};
         std::vector<GroomStrandVertex>().swap(m_DeformedVertices);
         std::vector<GroomCoatShadow::CoatSegment>().swap(m_DrawnPose);
         m_CacheTick = 0;

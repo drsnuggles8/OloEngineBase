@@ -11,6 +11,9 @@ Selecting the draw buffers (`SetFramebufferDrawAttachments`) is not enough. Draw
 fragment output goes; the mask says whether it is written. A pass can route its second output to
 the right texture and still write nothing there.
 
+The same rule for passes that draw into the WB-OIT targets or replay command packets is in
+[oit-and-colour-mask-ambient-state.md](oit-and-colour-mask-ambient-state.md).
+
 ## Three instances, one PR (#1451 / #1452)
 
 1. **DeferredLightingPass wrote no diffusion hand-off.** It draws scene colour and the hand-off in

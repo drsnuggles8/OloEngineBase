@@ -1584,7 +1584,7 @@ namespace OloEngine
             // this is not what it should be spent on: the strand pass already
             // owns UBO_USER_0 and refills it per draw.
             glm::vec4 FibreSigmaEta{ 0.0f, 0.0f, 0.0f, 1.55f }; // rgb = sigma_a, w = eta
-            glm::vec4 FibreLobe{ 0.0f };                        // x = V[0], y = azimuthal scale, z = intensity, w unused
+            glm::vec4 FibreLobe{ 0.0f };                        // x = V[0], y = azimuthal scale, z = intensity, w = IBL intensity
             glm::vec4 FibreSinAlpha{ 0.0f };                    // xyz = sin(2^k alpha), w unused
             glm::vec4 FibreCosAlpha{ 1.0f, 1.0f, 1.0f, 0.0f };  // xyz = cos(2^k alpha), w unused
             // x = lit at all (0 renders #1246's neutral ramp), y = h-quadrature

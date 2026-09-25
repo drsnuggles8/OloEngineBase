@@ -59,6 +59,7 @@
 // VulkanTestSupport.h pulls <volk.h>, which only exists on the include path
 // when the Vulkan backend is compiled in — it must stay INSIDE the guard.
 #include "../VulkanTestSupport.h"
+#include "Platform/Vulkan/VulkanAddressCommands.h"
 #include "Platform/Vulkan/VulkanDeferredReclaim.h"
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanBufferResources.h"
@@ -76,6 +77,7 @@
 
 #include <array>
 #include <cmath>
+#include <cstring>
 #include <filesystem>
 #include <vector>
 

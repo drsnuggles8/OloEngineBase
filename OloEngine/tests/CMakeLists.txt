@@ -121,6 +121,8 @@ add_executable(OloEngine-Tests
 		# Dense-coat self-shadowing (#1248). The pure selection seam: which
 		# representation a coat gets and why it is not what was asked for.
 		Groom/GroomCoatShadowSelectionTest.cpp
+		# The strand cache's over-budget warning is said on change, not every frame (#1431).
+		Groom/GroomCacheBudgetWarningTest.cpp
 		# Coat groups, roles and coat variation (#1251). The role table's survival
 		# through the cook, the per-role budget that keeps the silhouette, and the
 		# pose-independence that makes a regional map stay attached.
@@ -308,6 +310,7 @@ add_executable(OloEngine-Tests
 		Rendering/FoliageAuthoredMeshContractTest.cpp
 		Rendering/FoliageAlphaCoverageContractTest.cpp
 		Rendering/AlphaCoverageMipsContractTest.cpp
+		Rendering/CookedCutoutCoverageTest.cpp
 		Rendering/VegetationAssetContractTest.cpp
         Rendering/FoliageWindContractTest.cpp
 		Rendering/FoliageInteractionContractTest.cpp
@@ -495,6 +498,7 @@ add_executable(OloEngine-Tests
 		# reads the attachment back — a GetData() round-trip is the substituted
 		# seam here and passes with the bug present.
 		Rendering/VulkanTextureInPlaceReloadTest.cpp
+		Rendering/VulkanCompressedTextureUploadTest.cpp
 		# #691 Phase 7 Stage 1.6b: REAL passes through the REAL render graph on
 		# a device — transients, planner barriers, pass bodies recording via
 		# the process-global backend; first tenant is the golden-gated FXAA
@@ -615,6 +619,10 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/GroomStrandGpuParityTest.cpp
 		Rendering/PropertyTests/GroomCoatTransmittanceParityTest.cpp
 		Rendering/PropertyTests/GroomFibreGpuParityTest.cpp
+		# #1450: the coat's environment term against a Lambertian surface under a
+		# uniform sky, through every production irradiance-cube producer.
+		Rendering/PropertyTests/GroomEnvironmentFurnaceTest.cpp
+		Rendering/PropertyTests/GroomEnvironmentFurnaceEvidenceTest.cpp
 		# #1255: the shipped shaders' linear AOVs against the independent
 		# material references, and the keeper for the leaf lobe's C++
 		# transcription.
@@ -640,10 +648,12 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/RendererValidateTest.cpp
 		Rendering/PropertyTests/ShaderUnitTests.cpp
 		Rendering/PropertyTests/LightingSignalContractGpuTest.cpp
+		Rendering/PropertyTests/PointLightEvaluatorParityGpuTest.cpp
 		Rendering/PropertyTests/LightingSignalCompositionEvidenceTest.cpp
 		Rendering/PropertyTests/ForwardScreenSpaceAOEvidenceTest.cpp
 		Rendering/PropertyTests/SnowLayerEvidenceTest.cpp
 		Rendering/PropertyTests/DebugLinePathParityTest.cpp
+		Rendering/PropertyTests/DeferredPointLightParityEvidenceTest.cpp
 		Rendering/PropertyTests/PerfRegressionTests.cpp
 		Rendering/PropertyTests/DataRoundTripTests.cpp
 		Rendering/PropertyTests/GoldenImageTests.cpp
@@ -775,6 +785,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/FoliageAuthoredMeshEvidenceTest.cpp
 		Rendering/PropertyTests/FoliageAlphaCoverageWarningTest.cpp
 		Rendering/PropertyTests/FoliageLodCoverageEvidenceTest.cpp
+		Rendering/PropertyTests/CookedCutoutCoverageEvidenceTest.cpp
 		Rendering/PropertyTests/FloraTraversalEvidenceTest.cpp
         Rendering/PropertyTests/FoliageGPUCullEvidenceTest.cpp
         Rendering/PropertyTests/FoliageWindEvidenceTest.cpp

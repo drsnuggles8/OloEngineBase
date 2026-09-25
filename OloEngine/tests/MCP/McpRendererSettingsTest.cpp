@@ -599,6 +599,30 @@ TEST(McpRendererSettingsApply, GroomDeformationReachesTheCpuReferenceAndBack)
     EXPECT_TRUE(rs.GroomGpuDeformation);
 }
 
+// Issue #1417. OIT had no MCP lever, so a detached editor session could not
+// reach the path the bug was on. It is a RendererSettings field the pipeline
+// reads every frame and the graph fingerprint carries.
+TEST(McpRendererSettingsApply, OITReachesTheRendererSettingAndBack)
+{
+    PostProcessSettings pp;
+    RendererSettings rs;
+    RS::LeverState lever;
+    const bool initial = rs.OITEnabled;
+
+    const auto on = RS::Apply(RS::Setting::OIT, RS::kOITOn, pp, rs, lever);
+    ASSERT_TRUE(on.Ok);
+    EXPECT_TRUE(rs.OITEnabled);
+    EXPECT_EQ(on.Data["value"], "on");
+    EXPECT_FALSE(on.RequiresRenderGraphRebuild) << "the frame-graph fingerprint carries OITEnabled";
+
+    const auto off = RS::Apply(RS::Setting::OIT, RS::kOITOff, pp, rs, lever);
+    ASSERT_TRUE(off.Ok);
+    EXPECT_FALSE(rs.OITEnabled);
+    EXPECT_EQ(off.Data["previousValue"], "on");
+
+    rs.OITEnabled = initial;
+}
+
 // Describe reads the lever state for the two new settings — 'auto' is
 // write-only, so the current value is always off/on.
 TEST(McpRendererSettingsApply, DescribeReportsLeverCurrentValues)

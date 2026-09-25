@@ -1418,6 +1418,9 @@ namespace OloEngine
         // would decide — a panel that could set pass state would be a second
         // place the technique gets chosen.
         [[nodiscard]] static const GroomRenderPass* GetGroomRenderPass();
+        // The strand-cache budget (#1431). Returns the budget it replaced, or 0
+        // with no pipeline, so a caller that shrinks it can put it back.
+        static u64 SetGroomCacheBudgetBytes(u64 bytes);
         // The ray-query reflection tier (issue #1057), for the post-process
         // panel's fallback and ray counters. Same null contract as above —
         // and the same reason the counters exist at all: both of this slice's

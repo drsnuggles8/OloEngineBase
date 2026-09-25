@@ -9,6 +9,7 @@
 #include "OloEngine/Renderer/AlphaCoverageMips.h"
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/TextureCompression.h"
 #include "Platform/Vulkan/VulkanDeferredReclaim.h"
 #include "Platform/Vulkan/VulkanImageInfoRegistry.h"
 #include "Platform/Vulkan/VulkanOneShot.h"
@@ -134,6 +135,63 @@ namespace OloEngine
             return format == ImageFormat::RGBA16F || format == ImageFormat::RG16F;
         }
 
+        // The engine format a cooked container's blocks upload as.
+        [[nodiscard]] ImageFormat CompressedImageFormat(TextureCompressionFormat format)
+        {
+            switch (format)
+            {
+                case TextureCompressionFormat::BC5:
+                    return ImageFormat::BC5;
+                case TextureCompressionFormat::BC4:
+                    return ImageFormat::BC4;
+                case TextureCompressionFormat::BC6H:
+                    return ImageFormat::BC6H;
+                case TextureCompressionFormat::BC6HSigned:
+                    return ImageFormat::BC6HS;
+                case TextureCompressionFormat::BC7:
+                    return ImageFormat::BC7;
+                case TextureCompressionFormat::None:
+                    break;
+            }
+            return ImageFormat::None;
+        }
+
+        // For the refusal message: which block format a device turned down.
+        [[nodiscard]] const char* BlockFormatName(VkFormat format)
+        {
+            switch (format)
+            {
+                case VK_FORMAT_BC7_SRGB_BLOCK:
+                    return "VK_FORMAT_BC7_SRGB_BLOCK";
+                case VK_FORMAT_BC7_UNORM_BLOCK:
+                    return "VK_FORMAT_BC7_UNORM_BLOCK";
+                case VK_FORMAT_BC5_UNORM_BLOCK:
+                    return "VK_FORMAT_BC5_UNORM_BLOCK";
+                case VK_FORMAT_BC4_UNORM_BLOCK:
+                    return "VK_FORMAT_BC4_UNORM_BLOCK";
+                case VK_FORMAT_BC6H_UFLOAT_BLOCK:
+                    return "VK_FORMAT_BC6H_UFLOAT_BLOCK";
+                case VK_FORMAT_BC6H_SFLOAT_BLOCK:
+                    return "VK_FORMAT_BC6H_SFLOAT_BLOCK";
+                default:
+                    return "a block-compressed format";
+            }
+        }
+
+        // BC4 stores red alone and samples (R, 0, 0, 1). The engine's contract
+        // is (R, R, R, 1) on both backends — the cook picks BC4 only for data
+        // whose G and B already equalled R (TextureCompression::EncodeBC4) — so
+        // every sampled view of a BC4 image replicates red. The GL twin installs
+        // the same mapping as a texture swizzle.
+        [[nodiscard]] VkComponentMapping SampledSwizzleFor(ImageFormat format)
+        {
+            if (format == ImageFormat::BC4)
+            {
+                return { VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_ONE };
+            }
+            return {};
+        }
+
         [[nodiscard]] TArray64<u16> PackF32ClientToHalf(const void* data, u64 floatCount)
         {
             TArray64<u16> halves(floatCount);
@@ -159,11 +217,11 @@ namespace OloEngine
 
         // Mirror the GL twin: block-compressed formats have no population path
         // through the spec ctor — they MUST come via the CompressedTextureImage
-        // overload (not yet implemented for Vulkan). Refuse loudly but non-fatally.
+        // overload, which carries the blocks. Refuse loudly but non-fatally.
         if (IsCompressedFormat(m_Specification.Format))
         {
             OLO_CORE_ERROR("VulkanTexture2D: block-compressed format {} cannot be created from a "
-                           "TextureSpecification — the CompressedTextureImage overload is not implemented",
+                           "TextureSpecification — use the CompressedTextureImage overload",
                            static_cast<u32>(m_Specification.Format));
             m_IsLoaded = false;
             return;
@@ -209,6 +267,80 @@ namespace OloEngine
         m_Specification.SRGB = srgb;
         Invalidate(identityPath.empty() ? path : identityPath, static_cast<u32>(width), static_cast<u32>(height), data, static_cast<u32>(channels));
         ::stbi_image_free(data);
+    }
+
+    VulkanTexture2D::VulkanTexture2D(const CompressedTextureImage& image)
+    {
+        VulkanUpload::TrackLive(this, "VulkanTexture2D(compressed)");
+        OLO_PROFILE_FUNCTION();
+        auto* device = VulkanDevice::Get();
+        OLO_CORE_ASSERT(device != nullptr, "VulkanTexture2D requires a live VulkanDevice");
+
+        m_Width = std::max(image.Width, 1u);
+        m_Height = std::max(image.Height, 1u);
+        if (device == nullptr || !image.IsValid())
+        {
+            OLO_CORE_ERROR("VulkanTexture2D: invalid CompressedTextureImage '{}'", image.SourcePath.ToView());
+            return;
+        }
+
+        m_Path = image.SourcePath; // so GetPath() works (the pack serializer re-reads the .olotex)
+        m_Specification.Width = m_Width;
+        m_Specification.Height = m_Height;
+        m_Specification.SRGB = image.SRGB;
+        m_Specification.Format = CompressedImageFormat(image.Format);
+        m_CompressedHasAlpha = image.HasAlpha;
+        m_MipLevels = image.MipLevels();
+        m_Specification.MipLevels = m_MipLevels;
+        m_Specification.GenerateMips = m_MipLevels > 1u;
+
+        // Every level is checked before anything is created. The GL twin skips
+        // a level whose size is wrong; here a level left unwritten would sample
+        // undefined memory, so a malformed chain refuses the whole texture.
+        if (m_MipLevels > CalculateFullMipCount(m_Width, m_Height))
+        {
+            OLO_CORE_ERROR("VulkanTexture2D: '{}' has {} mip levels, more than a {}x{} image can hold — not loaded",
+                           m_Path.ToView(), m_MipLevels, m_Width, m_Height);
+            return;
+        }
+        for (u32 level = 0; level < m_MipLevels; ++level)
+        {
+            const sizet expected = TextureCompression::MipByteSize(image.Format, std::max(1u, m_Width >> level),
+                                                                   std::max(1u, m_Height >> level));
+            if (static_cast<sizet>(image.Mips[static_cast<i32>(level)].Num()) != expected)
+            {
+                OLO_CORE_ERROR("VulkanTexture2D: '{}' mip {} holds {} bytes, expected {} — not loaded", m_Path.ToView(),
+                               level, image.Mips[static_cast<i32>(level)].Num(), expected);
+                return;
+            }
+        }
+
+        // Ask the device, by format. textureCompressionBC promises all of these
+        // on any desktop GPU, but the promise is a device feature and this is a
+        // per-format question; the answer decides between a texture and a
+        // named refusal. LINEAR filtering is part of the question because every
+        // sampler this texture meets filters linearly (VulkanTexture2DArray's
+        // BC7 check asks the same).
+        const VkFormat format = VulkanUpload::ImageFormatToVkFormat(m_Specification.Format, m_Specification.SRGB);
+        VkFormatProperties props{};
+        vkGetPhysicalDeviceFormatProperties(device->GetPhysicalDevice(), format, &props);
+        constexpr VkFormatFeatureFlags kRequired = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT |
+                                                   VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+        if ((props.optimalTilingFeatures & kRequired) != kRequired)
+        {
+            OLO_CORE_ERROR("VulkanTexture2D: this device cannot sample, filter and receive transfers in {} "
+                           "(optimalTilingFeatures {:#x}) — '{}' is not loaded rather than sampled as garbage",
+                           BlockFormatName(format), static_cast<u32>(props.optimalTilingFeatures), m_Path.ToView());
+            return;
+        }
+
+        CreateImage();
+        m_IsLoaded = UploadCompressedLevels(image);
+        if (!m_IsLoaded)
+        {
+            OLO_CORE_ERROR("VulkanTexture2D: upload of the {}-level {} chain of '{}' failed", m_MipLevels,
+                           BlockFormatName(format), m_Path.ToView());
+        }
     }
 
     VulkanTexture2D::~VulkanTexture2D()
@@ -258,14 +390,24 @@ namespace OloEngine
 
         const VkFormat format = VulkanUpload::ImageFormatToVkFormat(m_Specification.Format, m_Specification.SRGB);
         const bool isDepth = IsDepthImageFormat(m_Specification.Format);
+        // A block-compressed image is sampled and written by copies only: no
+        // BC format can be a colour attachment or a storage image, and naming
+        // either usage fails image creation.
+        const bool isBlockCompressed = IsCompressedFormat(m_Specification.Format);
 
-        VkImageUsageFlags usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-                                  VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        // A block image is never a copy SOURCE (GetData has no readback path for
+        // it), and asking for the usage would need a format feature the
+        // compressed constructor does not check.
+        VkImageUsageFlags usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        if (!isBlockCompressed)
+        {
+            usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+        }
         if (isDepth)
         {
             usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
         }
-        else
+        else if (!isBlockCompressed)
         {
             usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
             // STORAGE only where the format-feature contract allows it without
@@ -299,7 +441,9 @@ namespace OloEngine
         // resize — for a route an attachment can never take. Gating on the
         // driver property instead was tried and is wrong: it disables the
         // whole feature on exactly the hardware it was built for.
-        m_HostTransferUsage = !isDepth && !m_RenderTargetOnly && m_Specification.Samples == 1u &&
+        // A block-compressed image takes the staged level-by-level upload
+        // (UploadCompressedLevels); the host route writes mip 0 only.
+        m_HostTransferUsage = !isDepth && !isBlockCompressed && !m_RenderTargetOnly && m_Specification.Samples == 1u &&
                               device->SupportsHostImageCopyForFormat(format);
         if (m_HostTransferUsage)
         {
@@ -339,6 +483,7 @@ namespace OloEngine
                                                              .Samples = std::max(m_Specification.Samples, 1u),
                                                              .HasDepth = isDepth,
                                                              .HasStencil = isDepth,
+                                                             .Components = SampledSwizzleFor(m_Specification.Format),
                                                          });
 
         m_RHIHandle.Sync(RHI::ResourceKind::Texture, VulkanUpload::VkHandleToU64(m_Image), RHI::Backend::Vulkan);
@@ -431,6 +576,13 @@ namespace OloEngine
         }
         if (width == m_Width && height == m_Height && m_Image != VK_NULL_HANDLE)
         {
+            return;
+        }
+        // A cooked chain has no client data to re-upload, so a resize would
+        // leave an empty compressed image. The GL twin refuses the same way.
+        if (IsCompressedFormat(m_Specification.Format))
+        {
+            OLO_CORE_ERROR("VulkanTexture2D::Resize: not supported for block-compressed textures");
             return;
         }
 
@@ -734,9 +886,9 @@ namespace OloEngine
             UsesAlphaCoverageChain() && uploadSize >= static_cast<u64>(m_Width) * m_Height * 4u;
         if (coverageChainActive)
         {
-            coverageChain = AlphaCoverageMips::Build({ static_cast<const u8*>(uploadData), static_cast<sizet>(uploadSize) },
-                                                     m_Width, m_Height, m_MipLevels, m_Specification.SRGB,
-                                                     m_AlphaCoverageCutoff);
+            const std::span<const u8> base{ static_cast<const u8*>(uploadData), static_cast<sizet>(m_Width) * m_Height * 4u };
+            coverageChain = AlphaCoverageMips::Build(base, m_Width, m_Height, m_MipLevels, m_Specification.SRGB,
+                                                     AlphaCoverageMips::HasPartialCoverage(base, m_AlphaCoverageCutoff));
         }
         const u64 chainBytes = static_cast<u64>(coverageChain.Bytes.Num());
 
@@ -894,6 +1046,97 @@ namespace OloEngine
         return ok;
     }
 
+    bool VulkanTexture2D::UploadCompressedLevels(const CompressedTextureImage& image)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto* device = VulkanDevice::Get();
+        if (device == nullptr || m_Image == VK_NULL_HANDLE)
+        {
+            return false;
+        }
+
+        // Every level back to back in one staging buffer. Each level's size is a
+        // whole number of blocks, so every offset stays a multiple of the block
+        // size (8 bytes for BC4, 16 for the rest), which a copy source needs.
+        TArray<u64> offsets;
+        u64 totalBytes = 0;
+        for (u32 level = 0; level < m_MipLevels; ++level)
+        {
+            offsets.Add(totalBytes);
+            totalBytes += static_cast<u64>(image.Mips[static_cast<i32>(level)].Num());
+        }
+
+        VkBufferCreateInfo stagingInfo{};
+        stagingInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        stagingInfo.size = totalBytes;
+        stagingInfo.usage = VulkanAddressCommands::kStagingSrcUsage;
+        stagingInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+        VmaAllocationCreateInfo stagingAlloc{};
+        stagingAlloc.usage = VMA_MEMORY_USAGE_AUTO;
+        stagingAlloc.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+        VkBuffer staging = VK_NULL_HANDLE;
+        VmaAllocation stagingAllocation = VK_NULL_HANDLE;
+        VmaAllocationInfo stagingOut{};
+        if (vmaCreateBuffer(device->GetAllocator(), &stagingInfo, &stagingAlloc, &staging, &stagingAllocation,
+                            &stagingOut) != VK_SUCCESS)
+        {
+            OLO_CORE_ERROR("VulkanTexture2D::UploadCompressedLevels: staging allocation failed ({} bytes)", totalBytes);
+            return false;
+        }
+        for (u32 level = 0; level < m_MipLevels; ++level)
+        {
+            const TArray64<u8>& blocks = image.Mips[static_cast<i32>(level)];
+            std::memcpy(static_cast<u8*>(stagingOut.pMappedData) + offsets[static_cast<i32>(level)], blocks.GetData(),
+                        static_cast<sizet>(blocks.Num()));
+        }
+        vmaFlushAllocation(device->GetAllocator(), stagingAllocation, 0, totalBytes);
+        const VkDeviceAddress stagingAddress = VulkanAddressCommands::QueryAddress(device->GetDevice(), staging);
+
+        const bool ok = VulkanOneShot::Submit(
+            "VulkanTexture2D::UploadCompressedLevels",
+            [&](VkCommandBuffer cmd)
+            {
+                // Whole image -> TRANSFER_DST, discarding: every level is
+                // overwritten in full below.
+                VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                                 VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT,
+                                                 VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, 0u, m_MipLevels);
+
+                // The copy extent is the level's TEXEL extent, whole. A block
+                // copy's extent must be a multiple of the block size unless it
+                // reaches the edge of the subresource, and a whole level always
+                // does — which is also what makes the 2x2 and 1x1 tail levels
+                // legal: each is one block whose data covers texels that do not
+                // exist. Rows are tightly packed blocks (row length 0).
+                for (u32 level = 0; level < m_MipLevels; ++level)
+                {
+                    const u32 mipW = std::max(1u, m_Width >> level);
+                    const u32 mipH = std::max(1u, m_Height >> level);
+                    VulkanAddressCommands::CmdCopyRangeToImage(
+                        cmd, stagingAddress + offsets[static_cast<i32>(level)], VulkanAddressCommands::StorageUsage::Absent,
+                        static_cast<VkDeviceSize>(image.Mips[static_cast<i32>(level)].Num()), m_Image,
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, { VK_IMAGE_ASPECT_COLOR_BIT, level, 0u, 1u }, { 0, 0, 0 },
+                        { mipW, mipH, 1u });
+                }
+
+                VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                                 VulkanDevice::Get()->GetSampledImageLayout(), VK_PIPELINE_STAGE_2_COPY_BIT,
+                                                 VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                                 VK_ACCESS_2_MEMORY_READ_BIT, 0u, m_MipLevels);
+            });
+
+        vmaDestroyBuffer(device->GetAllocator(), staging, stagingAllocation);
+        if (ok)
+        {
+            // Seed the layout tracker's first sight of the image, as UploadPixels does.
+            VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VulkanDevice::Get()->GetSampledImageLayout());
+        }
+        return ok;
+    }
+
     void VulkanTexture2D::SetData(void* data, u32 size)
     {
         OLO_PROFILE_FUNCTION();
@@ -933,6 +1176,12 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         if (m_MipLevels <= 1u || m_Image == VK_NULL_HANDLE)
+        {
+            return;
+        }
+        // vkCmdBlitImage cannot write a block-compressed level, and the cooked
+        // chain is the one this texture is meant to have.
+        if (IsCompressedFormat(m_Specification.Format))
         {
             return;
         }
@@ -1007,8 +1256,23 @@ namespace OloEngine
         }
         m_AlphaCoverageCutoff = sanitized;
 
-        // Block-compressed uploads do not exist on this backend yet (#691), so
-        // there is no cooked chain to warn about here, unlike the GL twin.
+        if (IsCompressedFormat(m_Specification.Format))
+        {
+            // The cooked chain cannot be rebuilt here and needs no rebuilding: the
+            // cook gives an alpha cutout the chain that holds its coverage at every
+            // cutoff (#1453), stopping at CappedLevelCount levels. A LONGER chain on
+            // a texture with alpha was cooked as a plain box chain, and it thins.
+            // Same rule and message as the GL twin.
+            if (sanitized > 0.0f && m_CompressedHasAlpha &&
+                m_MipLevels > AlphaCoverageMips::CappedLevelCount(m_Width, m_Height, m_MipLevels))
+            {
+                OLO_CORE_WARN("VulkanTexture2D::SetAlphaCoverageCutoff: '{}' is block-compressed with a plain {}-level "
+                              "mip chain, so it thins with distance under its alpha test (cutoff {}). Re-cook it; if the "
+                              "cook still does not treat it as a cutout, set 'AlphaMipChain: Coverage' in its .oloimport",
+                              m_Path.ToView(), m_MipLevels, sanitized);
+            }
+            return;
+        }
         if (!m_IsLoaded || m_Image == VK_NULL_HANDLE || !m_Specification.GenerateMips || m_Specification.Samples > 1u ||
             m_Specification.Format != ImageFormat::RGBA8)
         {

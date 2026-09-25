@@ -14,6 +14,7 @@
 #include "OloEngine/Renderer/Commands/CommandBucket.h"
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/OITBlendState.h"
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Terrain/Foliage/FoliageInteraction.h"
@@ -3385,8 +3386,22 @@ namespace OloEngine
             return;
         }
 
-        // Resolve and apply render state from table
-        ApplyPODRenderState(cmd->renderStateIndex, api);
+        // Resolve and apply render state from table.
+        //
+        // The packet's state is the FORWARD decal's blend, and applying it sets
+        // one global blend function over every attachment. On the OIT variant
+        // that erased the per-attachment accumulate / multiply pair the pass had
+        // stated: the accumulation overflowed, the revealage stayed at 1, and
+        // the decal never reached the composite (#1417). So the OIT pair is
+        // re-stated EVERY time the packet's state is applied, here and after
+        // the receiver diagnostic below.
+        const auto applyPacketState = [&]()
+        {
+            ApplyPODRenderState(cmd->renderStateIndex, api);
+            if (cmd->oitProgramOverride.IsValid())
+                ApplyWeightedBlendedOITBlend(api);
+        };
+        applyPacketState();
 
         // Bind shader (cached). DecalRenderPass may have installed an OIT
         // override on the packet itself (oitProgramOverride) -- substitute
@@ -3491,7 +3506,7 @@ namespace OloEngine
             api.DrawBoundIndexed(RHI::PrimitiveTopology::TriangleList, cmd->indexCount, RHI::IndexType::UInt32, 0);
             Renderer3D::EndDecalReceiverIntersectionQuery();
             InvalidateRenderStateCache();
-            ApplyPODRenderState(cmd->renderStateIndex, api);
+            applyPacketState();
         }
 
         uploadDecalData(cmd->decalParams);

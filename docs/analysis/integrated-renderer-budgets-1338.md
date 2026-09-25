@@ -72,8 +72,8 @@ completed run had distinct valid frame IDs.
 |---|---:|---:|---:|---:|---:|---|
 | Forward, native, raster | 397.77 | 539.19 | 669.55 | 2011.70 | 540 | `vk-forward-live-01` |
 | Forward+, native, raster | 315.60 | 376.48 | 383.97 | 414.86 | 540 | `vk-forward-plus-live-01` |
-| Deferred, native, raster | — | — | — | — | — | device fault in `RayTracingScenePass` before capture |
-| Deferred, native, hybrid RT shadows | — | — | — | — | — | same device fault before capture |
+| Deferred, native, raster | 731.50 | 907.23 | 1016.02 | 1111.18 | 540 | `vk-deferred-live-01` (after #1437) |
+| Deferred, native, hybrid RT shadows | 709.99 | 773.02 | 840.70 | 1275.48 | 540 | `vk-hybrid-live-01` (after #1437) |
 
 The two completed captures include Beauty from all three camera poses and
 stationary HDR/depth. The Forward screenshot shows the foxes, grass and water,
@@ -90,21 +90,46 @@ visible in the GL counter; it is a telemetry scope gap, not a 6 MiB renderer
 memory budget. GPU clocks/load and interfering processes are captured in each
 `host.json`.
 
-Fresh Vulkan editor processes also faulted with Deferred preselected, so the
-failure is not confined to switching from Forward. Removing all groom
-components did not prevent the fault. A reduced scene with terrain, foliage,
-water, lights, ground and sky completed 100/100 frames at 960 × 540, while
-adding one animated fox reproduced the `RayTracingScenePass` invalid read at
-`0x10000000000`. This narrows the trigger to the animated-animal path, without
-proving the responsible instruction. The probe's 100-frame p50/p95/p99 were
-659.80/682.04/700.39 ms, 100/100 misses; this is diagnostic, not a substitute
-for the full integrated workload. The source variants, manifests, probe result
-and fault excerpts are in `vk-deferred-isolation/`. The full Deferred and hybrid
-fault logs are retained beside it. Declared Vulkan Deferred/hybrid support is
-therefore **unvalidated on this workload** pending #1437. The same faulting
-address and pass reproduced after the branch was rebased onto `3dcc26ab0`
-and both the test executable and editor were rebuilt; that log is retained as
-`vk-deferred-rebased-fault-editor.txt.gz`.
+### Deferred and hybrid after #1437
+
+The Deferred and hybrid rows were first blocked by a device fault in
+`RayTracingScenePass` (`READ of invalid address 0x10000000000`). The #1338
+isolation showed it needed an animated fox, but not what read the address.
+The cause (#1437) was the ray-traced vegetation deformer.
+`VegetationSurfaceCache::Dispatch` wrote its uniform block without binding it.
+The slot it uses (`UBO_RAY_TRACING`) is shared, and whenever an animated
+surface deformed, `DeformedSurfaceCache` had bound its own smaller block there
+one pass earlier. The vegetation shader then read addresses from past the end
+of the fox's data. RT vegetation is enabled only on Deferred, which is why
+Forward and Forward+ completed. The fix binds both blocks before every
+dispatch; see
+`docs/agent-rules/shared-uniform-binding-bind-before-dispatch.md`.
+
+Both rows above are single evidence runs on the fixed build (commit
+`c93bab8b8`), each with 540 distinct valid GPU frames, no device fault and no
+validation VUID. Two more fresh-process repeats of each preset also completed.
+They were not retained as budget runs. A sibling worktree's editor was using
+the GPU during these runs, so these are contended observations like the rows
+above. The hybrid row is not directly comparable with the raster row: each run
+saw different concurrent load (see each `host.json`).
+
+A live Vulkan Deferred session on the same scene confirmed that the hybrid
+preset traces. With ray-traced shadows on, the RT shadow pass reported 3
+ray-traced lights and 0 shadow-map fallbacks. `olo_rt_scene_stats` reported
+166 traced TLAS instances, 124 BLAS refits per frame, and 41 animated surfaces
+deformed with none refused. A screenshot A/B of the shadow toggle at the
+editor's default camera was inconclusive: the difference between shadows on
+and off (4,826 changed pixels) did not exceed the difference between two
+shadows-off frames (4,331 pixels) caused by animation. The pass counters, not
+the image, are the evidence that shadows were traced.
+
+The fault reproduced 5 of 5 times on the reduced `IntegratedRendererOneAnimal`
+scene before the fix, including with `OLO_VK_ASYNC_COMPUTE=0`. After it, the
+same scene completed 3 of 3 with Deferred applied after loading, 3 of 3 with
+Deferred selected before loading, and 2 of 2 with async compute off. The
+no-groom variant completed as well. Its fault in #1338 is explained by the same
+cause, since the groom was never involved. The isolation scenes, manifests and
+pre-fix fault logs remain in `vk-deferred-isolation/`.
 
 ## MSAA and upscale controls
 
@@ -125,8 +150,16 @@ Its manifest and failure log are in `gl-nonnative-upscale/`. This is an
 explicitly **unverified non-native cell** for all three GL paths; the parser
 gate applies before path selection. Issue #1397 separately records cropped
 non-native framing in the live editor, so a live editor A/B cannot substitute
-for an aligned headless capture. Vulkan non-native and MSAA controls have not
-been run while its Deferred integrated path faults.
+for an aligned headless capture.
+
+On Vulkan after #1437, the `integrated-deferred-msaa4`,
+`integrated-deferred-upscale-quality` and `integrated-hybrid-upscale-quality`
+manifests each completed once, with no device fault. Their `result.json`
+report the requested MSAA and upscale settings as selected. Like the GL probes,
+these prove the variants no longer fault; they are not budget runs. The
+Deferred upscale probe hit the editor host's per-frame wait deadline and
+measured 254 of 540 frames (`warmupTimedOut: true`), so it gives no usable
+timing.
 
 ## Image and technique evidence
 
@@ -159,10 +192,8 @@ CPU, fence-wait and present-wait distributions are retained in each summary.
 - The 33.333 ms target fails on all measured native GL paths. Investigate
   shadow work and GPU occupancy on an uncontended host before making an
   optimization claim. Feed this baseline to #1259.
-- The two completed Vulkan raster paths also miss 33.333 ms on every sampled
-  frame. Deferred raster and hybrid remain blocked by the animated-animal
-  device fault (#1437); fix and remeasure them before using their declared
-  presets.
+- Every measured Vulkan path, including Deferred and hybrid after #1437,
+  misses 33.333 ms on every sampled frame.
 - Investigate the Vulkan resize image-lifetime VUID, the Forward+ storage
   binding errors, and the visible water difference before claiming backend
   parity.

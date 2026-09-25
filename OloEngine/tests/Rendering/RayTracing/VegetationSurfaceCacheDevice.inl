@@ -265,3 +265,114 @@ TEST_F(RayTracingDevice, HybridConsumersUseTextureAlphaFactorCutoffAndHeapGenera
     hits = trace();
     EXPECT_NEAR(hits[1].y, 1.0f, 1e-6f);
 }
+
+// #1437: the vegetation deformer shares UBO_RAY_TRACING with six other
+// producers, and on Vulkan a uniform buffer reaches a dispatch only as its
+// binding point's current OCCUPANT; SetData alone publishes nothing. When an
+// animated surface deformed first, DeformedSurfaceCache's 48-byte block sat at
+// the slot, the vegetation shader read its 96-byte block from it, and the
+// device faulted in RayTracingScenePass on the Deferred integrated benchmark.
+//
+// The stand-in tenants here are ZERO-filled on purpose. A shader reading them
+// sees TaskCount == 0 and returns, so a regression writes nothing and fails
+// the comparison below instead of faulting the device the way the real one did.
+TEST_F(RayTracingDevice, VegetationDispatchReadsItsOwnParamsAfterAnotherProducerTakesTheSharedBinding)
+{
+    ScopedVulkanRenderCommandSelection selection;
+    const std::array<Vertex, 4> vertices{
+        Vertex({ -0.5f, 0, 0 }, { 0, 1, 0 }, { 0, 0 }), Vertex({ 0.5f, 0, 0 }, { 0, 1, 0 }, { 1, 0 }),
+        Vertex({ 0.5f, 1, 0 }, { 0, 1, 0 }, { 1, 1 }), Vertex({ -0.5f, 1, 0 }, { 0, 1, 0 }, { 0, 1 })
+    };
+    RT::VegetationSurfaceInput input;
+    input.Owner = 17u;
+    input.FirstPlantId = 91u;
+    input.Rest = VertexBuffer::Create(vertices.data(), sizeof(vertices));
+    input.VertexCount = 4u;
+    input.Rows.Add({ glm::vec4(10, 0, 5, 1), glm::vec4(0, 2, 1, FoliageWindPhase(91u)), glm::vec4(1) });
+    input.Parts.Add({ 0u, { 0u, 1u, 2u, 2u, 3u, 0u }, {} });
+    input.DistanceToView = 0.0f;
+    input.DetailedDistance = 12.0f;
+    input.HistoryContinuous = true;
+    input.Wind.WindStrength = 1.0f;
+    input.Wind.WindSpeed = 1.0f;
+    input.VelocityBound = 3.0f;
+
+    constexpr u32 kOutputBytes = 4u * static_cast<u32>(sizeof(Vertex));
+    auto readback = StorageBuffer::Create(kOutputBytes, StorageBuffer::kNoBinding, StorageBufferUsage::DynamicCopy);
+    // Dispatch one extraction and read back the deformed stream its geometry
+    // record names, in the same recording, behind a full barrier.
+    const auto deform = [&](RT::VegetationSurfaceCache& cache, GPUScene& scene)
+    {
+        cache.BeginFrame();
+        scene.BeginExtraction(17u, glm::vec3(0));
+        cache.Queue(input);
+        cache.FinishExtraction(scene);
+        static_cast<void>(scene.EndExtraction());
+        EXPECT_TRUE(cache.HasWork());
+        const GPUSceneInstance* instance = scene.GetLiveInstanceRecordBySlot(0u);
+        const GPUSceneGeometry* geometry =
+            instance != nullptr ? scene.GetLiveGeometryRecordBySlot(instance->GeometryIndex, instance->GeometryGeneration)
+                                : nullptr;
+        std::array<Vertex, 4> out{};
+        if (geometry == nullptr || geometry->VertexAddress == 0u)
+        {
+            ADD_FAILURE() << "the extraction staged no vegetation geometry";
+            return out;
+        }
+        RecordAndSubmit([&]
+                        {
+            EXPECT_EQ(cache.Dispatch(), 1u);
+            RenderCommand::MemoryBarrier(MemoryBarrierFlags::All);
+            VulkanAddressCommands::CmdCopyRange(m_Cmd, geometry->VertexAddress, VulkanAddressCommands::StorageUsage::Present,
+                                                readback->GetDeviceAddress(), VulkanAddressCommands::StorageUsage::Present,
+                                                kOutputBytes); });
+        readback->GetData(out.data(), kOutputBytes);
+        return out;
+    };
+
+    // The cache under test dispatches once, which creates its uniform
+    // buffers and lets them claim both binding points.
+    RT::VegetationSurfaceCache cache;
+    cache.SetEnabled(true);
+    GPUScene scene;
+    const std::array<Vertex, 4> first = deform(cache, scene);
+
+    // Then two other producers take the slots, the way DeformedSurfaceCache
+    // and the raster foliage path do every frame they run.
+    const std::array<u8, 96> zeros{};
+    auto rayTracingTenant = UniformBuffer::Create(static_cast<u32>(zeros.size()), ShaderBindingLayout::UBO_RAY_TRACING);
+    rayTracingTenant->SetData(zeros.data(), static_cast<u32>(zeros.size()));
+    rayTracingTenant->Bind();
+    const std::vector<u8> foliageZeros(sizeof(ShaderBindingLayout::FoliageUBO), 0u);
+    auto foliageTenant = UniformBuffer::Create(static_cast<u32>(foliageZeros.size()), ShaderBindingLayout::UBO_FOLIAGE);
+    foliageTenant->SetData(foliageZeros.data(), static_cast<u32>(foliageZeros.size()));
+    foliageTenant->Bind();
+
+    // A later wind time, so the correct answer differs from what the first
+    // dispatch left in the buffer.
+    input.Wind.Time += 0.5f;
+    const std::array<Vertex, 4> displaced = deform(cache, scene);
+
+    // The oracle: a fresh cache whose own buffers are created during this
+    // dispatch, so nothing can have displaced them.
+    RT::VegetationSurfaceCache reference;
+    reference.SetEnabled(true);
+    GPUScene referenceScene;
+    const std::array<Vertex, 4> expected = deform(reference, referenceScene);
+
+    bool moved = false;
+    for (sizet i = 0; i < expected.size(); ++i)
+    {
+        moved = moved || std::memcmp(&expected[i].Position, &first[i].Position, sizeof(glm::vec3)) != 0;
+        // Bitwise: one shader, one input, one device. Any difference means
+        // the dispatch read parameters other than its own.
+        EXPECT_EQ(std::memcmp(&displaced[i], &expected[i], sizeof(Vertex)), 0)
+            << "vertex " << i << ": the dispatch did not read its own uniform blocks after another producer bound "
+            << "UBO_RAY_TRACING / UBO_FOLIAGE";
+    }
+    // The negative control: without a pose change a regression that writes
+    // nothing would still compare equal to the stale first dispatch.
+    EXPECT_TRUE(moved) << "the wind time step did not move any vertex, so this test cannot see a skipped write";
+    reference.Shutdown();
+    cache.Shutdown();
+}

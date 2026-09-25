@@ -6,7 +6,9 @@
 //   * cook ON, LDR PNG source  -> comes back BC7-compressed and loaded, record < raw RGBA8;
 //   * cook ON, HDR .hdr source -> comes back BC6H-compressed and loaded, record < raw float;
 //   * cook OFF                 -> stays an uncompressed record, proving the policy gates it;
-//   * cook ON but source missing -> falls back to an uncompressed record (no throw, no BC).
+//   * cook ON but source missing -> falls back to an uncompressed record (no throw, no BC);
+//   * cook ON, an alpha-cutout PNG -> BC7 with the coverage-preserving chain that stops at
+//     64 texels (#1453), and an "AlphaMipChain: Box" sidecar reaches the pack cook too.
 // This is the only test that exercises the write-side wiring (flag gating + format
 // selection + embedded-blob round-trip) as one path. Needs a GL context because
 // Texture2D::Create uploads the source pixels; SKIPs cleanly on headless CI.
@@ -21,7 +23,9 @@
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Asset/AssetSerializer.h"
 #include "OloEngine/Project/Project.h"
+#include "OloEngine/Renderer/AlphaCoverageMips.h"
 #include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Renderer/TextureImportSettings.h"
 #include "OloEngine/Serialization/AssetPackFile.h"
 #include "OloEngine/Serialization/FileStream.h"
 
@@ -279,4 +283,44 @@ TEST_F(TextureAutoCookPackTest, CookFailureFallsBackToUncompressedRecord)
     ASSERT_TRUE(roundTripped) << "even a fallback record must reconstruct a non-null texture";
     EXPECT_FALSE(IsCompressedFormat(roundTripped->GetSpecification().Format))
         << "cook failure must leave the texture as an uncompressed record, not a BC format";
+}
+
+// #1453: what the asset pack ships for an alpha cutout. A Mask material whose source image
+// is not on disk (a packed build) resolves its albedo from this record, so this is the
+// chain a shipped game's cutouts sample.
+TEST_F(TextureAutoCookPackTest, AnAlphaCutoutShipsItsCoverageChain)
+{
+    OLO_ENSURE_GPU_OR_SKIP();
+
+#ifndef OLO_TEST_EDITOR_ROOT
+    GTEST_SKIP() << "OLO_TEST_EDITOR_ROOT is not defined; the vegetation card cannot be found";
+#else
+    const fs::path card =
+        fs::path(OLO_TEST_EDITOR_ROOT) / "SandboxProject/Assets/Models/Vegetation/pine/Textures/pine_card.png";
+    m_SourcePath = m_TempDir / "Assets" / "pine_card.png";
+    std::error_code ec;
+    fs::copy_file(card, m_SourcePath, fs::copy_options::overwrite_existing, ec);
+    ASSERT_FALSE(ec) << "cannot stage " << card.string() << ": " << ec.message();
+
+    AssetHandle handle{};
+    ASSERT_NO_FATAL_FAILURE(RegisterSource(handle));
+    TextureSerializer::SetAssetPackCompressionEnabled(true);
+
+    sizet recordSize = 0;
+    Ref<Texture2D> packed = RoundTrip(handle, recordSize);
+    ASSERT_TRUE(packed);
+    ASSERT_TRUE(packed->IsLoaded());
+    EXPECT_EQ(packed->GetSpecification().Format, ImageFormat::BC7);
+    EXPECT_TRUE(packed->HasAlphaChannel());
+    EXPECT_EQ(packed->GetMipLevelCount(), AlphaCoverageMips::CappedLevelCount(512, 512, 10))
+        << "the packed cutout should carry the coverage chain, 512 -> 64";
+
+    // The sidecar is read by the pack cook as well: Box is the plain full chain.
+    TextureImportSettings settings;
+    settings.AlphaMipChain = TextureImportSettings::AlphaMipChainChoice::Box;
+    ASSERT_TRUE(TextureImport::SaveForImage(m_SourcePath.string(), settings));
+    Ref<Texture2D> boxed = RoundTrip(handle, recordSize);
+    ASSERT_TRUE(boxed && boxed->IsLoaded());
+    EXPECT_EQ(boxed->GetMipLevelCount(), 10u);
+#endif
 }

@@ -596,6 +596,7 @@ namespace OloEngine::Tests
             // An IDENTICAL copy of the version-1 arm under a second handle, so it
             // lands in a second profile slot. See the neutral-identity test.
             m_Version1TwinProfile = RegisterProfile("ReferenceHeadV1Twin", version1);
+            m_Version1Parameters = version1;
 
             m_Model = Ref<Model>::Create((EditorRoot() / "assets" / "models" / "InfiniteScanHead" / "Head.fbx").string());
             ASSERT_TRUE(m_Model && m_Model->GetMeshCount() > 0) << "the scanned head did not load";
@@ -751,7 +752,8 @@ namespace OloEngine::Tests
         }
 
         [[nodiscard]] bool CaptureFrame(RenderingPath path, AssetHandle profile, const Pose& pose,
-                                        MaterialDebugView view, const std::string& name, Capture& out)
+                                        MaterialDebugView view, const std::string& name, Capture& out,
+                                        bool diffusion = true)
         {
             if (view != MaterialDebugView::None && path != RenderingPath::Deferred)
             {
@@ -766,7 +768,7 @@ namespace OloEngine::Tests
             // every crease of the head; the "version 1 is black at the ear"
             // claim below is the regression test for that fix
             // (RenderPipeline.cpp, SkinDiffusionRunsThisFrame).
-            Renderer3D::GetSkinDiffusionSettings().Enabled = true;
+            Renderer3D::GetSkinDiffusionSettings().Enabled = diffusion;
             Renderer3D::GetSkinDiffusionSettings().Quality = SkinDiffusionQuality::High;
             Renderer3D::GetRendererSettings().Path = path;
             Renderer3D::GetPostProcessSettings().MaterialDebug = view;
@@ -835,6 +837,7 @@ namespace OloEngine::Tests
         AssetHandle m_AuthoredProfile{};
         AssetHandle m_NeutralProfile{};
         AssetHandle m_Version1TwinProfile{};
+        SkinProfileParameters m_Version1Parameters{};
         RenderingPath m_SavedPath = RenderingPath::Forward;
     };
 
@@ -957,19 +960,14 @@ namespace OloEngine::Tests
     // the specular and the transmission term had something to change if either
     // version gate leaked.
     //
-    // THE FLOOR IS A SECOND SLOT, NOT A SECOND FRAME, and that is a measured
-    // finding rather than a loosening. The neutral arm is a different profile
-    // ASSET, so it occupies a different skin-profile slot, and two slots holding
-    // BYTE-IDENTICAL parameters already differ here: 197 px, max 3/255, on
-    // Forward and Forward+, 6 px max 2 on Deferred — terminator pixels, found
-    // while localising what first looked like a version-gate leak (v1 -> v2 at
-    // strength 0 moved 84 px, v2 -> neutral v3 moved 66 px, and neither exceeds
-    // what a mere slot change does). A same-handle repeat floor is 0 and cannot
-    // see that, so it would fail this claim for a reason that is not the claim.
-    // The twin measures exactly the part of the difference that is the SLOT.
-    // That a slot index reaches the shading at all is a defect in its own
-    // right, tracked as #1422; when it is fixed, the twin floor falls to 0 and
-    // this claim becomes exact again with no edit here.
+    // THE NEUTRAL ARM IS A DIFFERENT PROFILE ASSET, so it occupies a different
+    // skin-profile slot. Until #1422 two slots holding BYTE-IDENTICAL parameters
+    // differed here by up to 3/255 on terminator pixels (the diffusion taps
+    // decoded the slot from a bilinear fetch), and this test had to measure that
+    // as a floor. They are now byte-identical, so the identical twin in a
+    // second slot is asserted to render the same frame, and the claim below is
+    // held to the same-handle repeat floor -- a version-gate leak of a single
+    // LSB can no longer hide under a slot difference.
     TEST_F(SkinReferenceHeadBacklit, ANeutralVersionThreeRendersTheVersionOneFrame)
     {
         OLO_ENSURE_GPU_OR_SKIP();
@@ -991,17 +989,16 @@ namespace OloEngine::Tests
 
             const Difference slotFloor = Diff(version1, twin);
             const Difference d = Diff(version1, neutral);
-            const u32 floor = std::max(repeat.MaxDelta, slotFloor.MaxDelta);
+            const u32 floor = repeat.MaxDelta;
             std::printf("[ReferenceHead %s] neutral v3 vs v1: %llu px differ, max delta %u; identical twin in "
                         "another slot: %llu px, max %u; repeat floor %u\n",
                         p, static_cast<unsigned long long>(d.ChangedPixels), d.MaxDelta,
                         static_cast<unsigned long long>(slotFloor.ChangedPixels), slotFloor.MaxDelta,
                         repeat.MaxDelta);
-            // The slot floor must itself be SMALL, or this test would pass on
-            // anything. Three LSB is what was measured.
-            EXPECT_LE(slotFloor.MaxDelta, 4u)
-                << p << ": two slots holding identical profiles now differ by " << slotFloor.MaxDelta
-                << "/255, so the floor below no longer bounds anything";
+            // #1422: the slot is an identity, not a parameter.
+            EXPECT_EQ(slotFloor.ChangedPixels, 0u)
+                << p << ": two slots holding identical profiles differ in " << slotFloor.ChangedPixels
+                << " px, max " << slotFloor.MaxDelta << "/255";
             EXPECT_LE(d.MaxDelta, floor)
                 << p << ": A NEUTRAL VERSION-3 REFERENCE HEAD DID NOT RENDER THE VERSION-1 FRAME (" << d.ChangedPixels
                 << " px differ, max delta " << d.MaxDelta << " against a floor of " << floor
@@ -1012,8 +1009,89 @@ namespace OloEngine::Tests
             // so the identity is not passing because nothing here can change.
             Capture authored;
             ASSERT_TRUE(CaptureFrame(path, m_AuthoredProfile, kBacklitPose, MaterialDebugView::None, {}, authored));
-            EXPECT_GT(Diff(version1, authored).MaxDelta, floor * 4u)
+            // 12 LSB is the margin this held against the old 3-LSB slot floor;
+            // a zero floor must not make it vacuous.
+            EXPECT_GT(Diff(version1, authored).MaxDelta, std::max(floor * 4u, 12u))
                 << p << ": the authored profile renders the version-1 frame too, so the identity above proves nothing";
+        }
+    }
+
+    // #1422 — THE SLOT IS AN IDENTITY, NOT A PARAMETER. Two profiles holding
+    // byte-identical parameters land in two different slots and must render
+    // the same frame, to the byte, on every raster path. They used to differ by
+    // up to 3/255 on terminator pixels: the diffusion taps decoded the slot of a
+    // BILINEAR fetch of the aux alpha, and at a skin edge that blend decodes as
+    // this slot only while the skin weight is at least (s + 0.5) / (s + 1) --
+    // half for slot 0, three quarters for slot 1, 93% for slot 6. So the same
+    // edge tap was kept in one slot and rejected in the next.
+    //
+    // Pairs 0/1 and 0/6: the error grew with the index, so the highest slot is
+    // the sharp end. Diffusion OFF is the attribution arm: the slot reaches
+    // nothing else in the frame, so with the pass off the twins were already
+    // identical, and they must stay so.
+    TEST_F(SkinReferenceHeadBacklit, IdenticalProfilesInDifferentSlotsRenderTheSameFrame)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        // Claim the slots in a known order: the version-1 arm first (slot 0),
+        // its registered twin second (slot 1), four more identical fillers,
+        // and the last identical twin in slot 6 -- the top of the budget.
+        SkinProfileTable& table = Renderer3D::GetSkinProfileTable();
+        table.Reset();
+        ASSERT_EQ(table.Resolve(m_Version1Profile).Slot, 0u);
+        ASSERT_EQ(table.Resolve(m_Version1TwinProfile).Slot, 1u);
+        for (u32 filler = 2; filler + 1 < kMaxSkinProfileSlots; ++filler)
+        {
+            const std::string name = "ReferenceHeadV1Filler" + std::to_string(filler);
+            ASSERT_EQ(table.Resolve(RegisterProfile(name.c_str(), m_Version1Parameters)).Slot, filler);
+        }
+        const AssetHandle topSlotTwin = RegisterProfile("ReferenceHeadV1TopSlot", m_Version1Parameters);
+        ASSERT_EQ(table.Resolve(topSlotTwin).Slot, kMaxSkinProfileSlots - 1u);
+
+        for (const RenderingPath path : kPaths)
+        {
+            const char* p = PathName(path);
+            Capture diffusedSlot0;
+            for (const bool diffusion : { true, false })
+            {
+                Capture slot0;
+                Capture slot1;
+                Capture slot6;
+                ASSERT_TRUE(CaptureFrame(path, m_Version1Profile, kBacklitPose, MaterialDebugView::None,
+                                         diffusion ? std::string("SkinTwinSlot0_GL_") + p : std::string{}, slot0,
+                                         diffusion));
+                ASSERT_TRUE(CaptureFrame(path, m_Version1TwinProfile, kBacklitPose, MaterialDebugView::None,
+                                         diffusion ? std::string("SkinTwinSlot1_GL_") + p : std::string{}, slot1,
+                                         diffusion));
+                ASSERT_TRUE(CaptureFrame(path, topSlotTwin, kBacklitPose, MaterialDebugView::None,
+                                         diffusion ? std::string("SkinTwinSlot6_GL_") + p : std::string{}, slot6,
+                                         diffusion));
+
+                const Difference d01 = Diff(slot0, slot1);
+                const Difference d06 = Diff(slot0, slot6);
+                std::printf("[SkinTwinSlot %s diffusion %s] slot 0 vs 1: %llu px, max %u; slot 0 vs 6: %llu px, "
+                            "max %u\n",
+                            p, diffusion ? "on" : "off", static_cast<unsigned long long>(d01.ChangedPixels),
+                            d01.MaxDelta, static_cast<unsigned long long>(d06.ChangedPixels), d06.MaxDelta);
+                EXPECT_EQ(d01.ChangedPixels, 0u)
+                    << p << (diffusion ? "" : " (diffusion off)") << ": identical profiles in slots 0 and 1 differ in "
+                    << d01.ChangedPixels << " px, max " << d01.MaxDelta << "/255 -- the slot index reached the shading";
+                EXPECT_EQ(d06.ChangedPixels, 0u)
+                    << p << (diffusion ? "" : " (diffusion off)") << ": identical profiles in slots 0 and 6 differ in "
+                    << d06.ChangedPixels << " px, max " << d06.MaxDelta << "/255 -- the slot index reached the shading";
+
+                if (diffusion)
+                {
+                    diffusedSlot0 = slot0;
+                    continue;
+                }
+                // The contrast that keeps the identity above honest: the pass
+                // really ran and really moved the head, so two equal frames are
+                // not two frames the diffusion never touched.
+                const Difference ran = Diff(diffusedSlot0, slot0);
+                EXPECT_GT(ran.ChangedPixels, 1000u)
+                    << p << ": diffusion on and off render the same head, so the twin identity proves nothing";
+            }
         }
     }
 } // namespace OloEngine::Tests

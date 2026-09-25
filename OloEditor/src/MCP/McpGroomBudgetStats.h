@@ -66,6 +66,13 @@ namespace OloEngine::MCP::GroomBudgetStats
         std::string DominantFallbackReason = "None";
         std::vector<RepresentationRow> Representations;
 
+        // ── The strand cache (#1431) ─────────────────────────────────
+        u64 CachedBytes = 0;
+        u32 CachedGrooms = 0;
+        u64 CacheBudgetBytes = 0;
+        u64 CacheOverBudgetBytes = 0;
+        u32 CacheEvictions = 0;
+
         // ── Coat self-shadowing (#1248, #1426) ───────────────────────
         u32 CoatShadowed = 0;
         u32 CoatFallback = 0;
@@ -140,6 +147,18 @@ namespace OloEngine::MCP::GroomBudgetStats
             { "maxWidthCompensation", snapshot.MaxWidthCompensation },
             { "dominantFallbackReason", snapshot.DominantFallbackReason },
             { "byRepresentation", representations },
+        };
+
+        // The log says "strand cache over budget" once on entry and once per
+        // material growth (#1431); this is the same fact every frame.
+        // overBudgetBytes non-zero means every resident entry was in use and
+        // nothing could be evicted — every groom is still drawn.
+        out["strandCache"] = Json{
+            { "cachedBytes", snapshot.CachedBytes },
+            { "cachedGrooms", snapshot.CachedGrooms },
+            { "budgetBytes", snapshot.CacheBudgetBytes },
+            { "overBudgetBytes", snapshot.CacheOverBudgetBytes },
+            { "evictions", snapshot.CacheEvictions },
         };
 
         // Whether a coat asked for self-shadowing got it, and -- for a coat
