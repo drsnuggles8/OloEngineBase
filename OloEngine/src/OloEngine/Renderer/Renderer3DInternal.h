@@ -583,36 +583,50 @@ namespace OloEngine
 
     namespace Renderer3DDetail
     {
-        // Set while Renderer3D::DrawLine / DrawSphere submit their see-through
-        // debug mesh. On the Deferred path DrawMesh then sends the draw to
-        // ForwardOverlayPass with the forward PBR shader instead of into the
-        // G-Buffer: a depth-test-off draw writes no depth, so over the sky
-        // DeferredLighting shaded it as background, and its attachment-0-only
-        // mask (written for the scene framebuffer's layout, where 1 is entity
-        // ID and 2 the view normal) kept it out of the G-Buffer's emissive
-        // lane everywhere else. Debug lines and joints were invisible on
-        // Deferred. Thread-local: the flag brackets one call on one thread.
-        inline thread_local bool t_RouteDebugDrawToForwardOverlay = false;
+        // A see-through debug mesh (Renderer3D::DrawLine / DrawSphere): what
+        // DrawMesh must do differently while one is being submitted.
+        //
+        //  * On the Deferred path it goes to ForwardOverlayPass with the forward
+        //    PBR shader, not into the G-Buffer: with depth test off it writes no
+        //    depth, so over the sky DeferredLighting shaded it as background,
+        //    and its attachment-0-only mask (written for the scene framebuffer's
+        //    layout, where 1 is entity ID and 2 the view normal) kept it out of
+        //    the G-Buffer's emissive lane everywhere else.
+        //  * On EVERY path its render state is patched INSIDE DrawMesh, before
+        //    the packet can be submitted: depth test off, colour attachment 0
+        //    only, UI view layer, and two-sided when asked. The helpers used to
+        //    patch the returned packet, but the overlay route submits the packet
+        //    itself and returns nullptr, so on Deferred the patch never landed
+        //    and the lines were drawn depth-tested and back-face culled — one
+        //    face of each cross on OpenGL and none on Vulkan (issue #1472).
+        //
+        // Thread-local: the scope brackets one DrawMesh call on one thread.
+        struct DebugDrawRequest
+        {
+            bool Active = false;
+            bool TwoSided = false;
+        };
+        inline thread_local DebugDrawRequest t_DebugDraw{};
 
-        class DebugDrawForwardOverlayScope
+        class DebugDrawScope
         {
           public:
-            DebugDrawForwardOverlayScope()
-                : m_Previous(t_RouteDebugDrawToForwardOverlay)
+            explicit DebugDrawScope(bool twoSided)
+                : m_Previous(t_DebugDraw)
             {
-                t_RouteDebugDrawToForwardOverlay = true;
+                t_DebugDraw = DebugDrawRequest{ .Active = true, .TwoSided = twoSided };
             }
-            ~DebugDrawForwardOverlayScope()
+            ~DebugDrawScope()
             {
-                t_RouteDebugDrawToForwardOverlay = m_Previous;
+                t_DebugDraw = m_Previous;
             }
-            DebugDrawForwardOverlayScope(const DebugDrawForwardOverlayScope&) = delete;
-            DebugDrawForwardOverlayScope& operator=(const DebugDrawForwardOverlayScope&) = delete;
-            DebugDrawForwardOverlayScope(DebugDrawForwardOverlayScope&&) = delete;
-            DebugDrawForwardOverlayScope& operator=(DebugDrawForwardOverlayScope&&) = delete;
+            DebugDrawScope(const DebugDrawScope&) = delete;
+            DebugDrawScope& operator=(const DebugDrawScope&) = delete;
+            DebugDrawScope(DebugDrawScope&&) = delete;
+            DebugDrawScope& operator=(DebugDrawScope&&) = delete;
 
           private:
-            bool m_Previous;
+            DebugDrawRequest m_Previous;
         };
     } // namespace Renderer3DDetail
 

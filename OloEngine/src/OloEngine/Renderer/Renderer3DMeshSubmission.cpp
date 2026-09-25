@@ -846,9 +846,9 @@ namespace OloEngine
             const bool deferred = s_Data.Settings.Path == RenderingPath::Deferred;
             const bool hasForwardOverlay = s_Data.Pipeline->RenderStreamPasses.ForwardOverlay != nullptr;
             // A see-through debug draw (DrawLine / DrawSphere) — see
-            // Renderer3DDetail::t_RouteDebugDrawToForwardOverlay.
-            const bool debugOverlay = deferred && Renderer3DDetail::t_RouteDebugDrawToForwardOverlay &&
-                                      hasForwardOverlay && s_Data.PBRShader;
+            // Renderer3DDetail::DebugDrawRequest.
+            const bool debugOverlay = deferred && Renderer3DDetail::t_DebugDraw.Active && hasForwardOverlay &&
+                                      s_Data.PBRShader;
             if (debugOverlay || ShouldRerouteToForwardOverlay(material, deferred, hasForwardOverlay, s_Data.PBRShader))
             {
                 shaderToUse = s_Data.PBRShader;
@@ -952,6 +952,21 @@ namespace OloEngine
             metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, materialID, depth);
         metadata.m_IsStatic = isStatic;
         metadata.m_DebugName = GetMeshDebugName(meshToUse);
+
+        // A see-through debug draw is patched HERE, before any route can submit
+        // it (Renderer3DDetail::DebugDrawRequest): always visible through
+        // geometry, colour attachment 0 only (no entity ID, no view normal),
+        // after all 3D geometry, and two-sided when the mesh needs it.
+        if (const auto& debugDraw = Renderer3DDetail::t_DebugDraw; debugDraw.Active)
+        {
+            PODRenderState debugState = FrameDataBufferManager::Get().GetRenderState(cmd->renderStateIndex);
+            debugState.depthTestEnabled = false;
+            debugState.colorAttachmentWriteMask = 0x01;
+            if (debugDraw.TwoSided)
+                debugState.cullingEnabled = false;
+            cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(debugState);
+            metadata.m_SortKey.SetViewLayer(ViewLayerType::UI);
+        }
         packet->SetMetadata(metadata);
 
         if (overlayRoute)

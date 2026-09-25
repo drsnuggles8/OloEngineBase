@@ -295,37 +295,12 @@ namespace OloEngine
         glm::mat4 scale = glm::scale(glm::mat4(1.0f), glm::vec3(length, worldThickness, worldThickness));
         glm::mat4 transform = glm::translate(glm::mat4(1.0f), start) * rot * scale;
 
-        CommandPacket* packet = nullptr;
-        {
-            const Renderer3DDetail::DebugDrawForwardOverlayScope overlayScope;
-            packet = DrawMesh(s_Data.LineQuadMesh, transform, material);
-        }
-
-        // Modify render state and sort key to ensure skeleton visibility through geometry
-        if (packet)
-        {
-            if (auto* drawCmd = packet->GetCommandData<DrawMeshCommand>())
-            {
-                // Depth off so lines always pass depth test
-                PODRenderState skelState = FrameDataBufferManager::Get().GetRenderState(drawCmd->renderStateIndex);
-                skelState.depthTestEnabled = false;
-                // Only write to color attachment (0); skip entity-ID (1) and normals (2)
-                skelState.colorAttachmentWriteMask = 0x01;
-                // Two-sided. LineQuadMesh is a cross of two single-sided quads,
-                // so back-face culling keeps only the faces whose winding
-                // points at the camera — and Vulkan's flipped projection
-                // reverses that winding, which culled every debug line there
-                // while OpenGL happened to show the other face.
-                skelState.cullingEnabled = false;
-                drawCmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(skelState);
-            }
-
-            // Move to UI layer so these draw AFTER all 3D geometry
-            PacketMetadata meta = packet->GetMetadata();
-            meta.m_SortKey.SetViewLayer(ViewLayerType::UI);
-            packet->SetMetadata(meta);
-        }
-
+        // Two-sided: LineQuadMesh is a cross of two single-sided quads, so
+        // back-face culling keeps only the faces whose winding points at the
+        // camera — and Vulkan's flipped projection reverses that winding. The
+        // patch itself is applied inside DrawMesh (Renderer3DDetail::DebugDrawRequest).
+        const Renderer3DDetail::DebugDrawScope debugDraw(/*twoSided*/ true);
+        CommandPacket* packet = DrawMesh(s_Data.LineQuadMesh, transform, material);
         return packet;
     }
 
@@ -352,32 +327,16 @@ namespace OloEngine
 
         if (s_Data.SphereMesh)
         {
-            const Renderer3DDetail::DebugDrawForwardOverlayScope overlayScope;
+            // The see-through patch is applied inside DrawMesh
+            // (Renderer3DDetail::DebugDrawRequest). A sphere is closed, so it
+            // keeps its back-face culling.
+            const Renderer3DDetail::DebugDrawScope debugDraw(/*twoSided*/ false);
             packet = DrawMesh(s_Data.SphereMesh, transform, material);
         }
         else
         {
             OLO_CORE_WARN("Renderer3D::DrawSphere: No sphere mesh available; returning nullptr");
             return nullptr;
-        }
-
-        // Modify render state and sort key to ensure joint visibility through geometry
-        if (packet)
-        {
-            if (auto* drawCmd = packet->GetCommandData<DrawMeshCommand>())
-            {
-                // Depth off so joints always pass depth test
-                PODRenderState jointState = FrameDataBufferManager::Get().GetRenderState(drawCmd->renderStateIndex);
-                jointState.depthTestEnabled = false;
-                // Only write to color attachment (0); skip entity-ID (1) and normals (2)
-                jointState.colorAttachmentWriteMask = 0x01;
-                drawCmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(jointState);
-            }
-
-            // Move to UI layer so these draw AFTER all 3D geometry
-            PacketMetadata meta = packet->GetMetadata();
-            meta.m_SortKey.SetViewLayer(ViewLayerType::UI);
-            packet->SetMetadata(meta);
         }
 
         return packet;
