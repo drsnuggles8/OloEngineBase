@@ -311,6 +311,12 @@ namespace OloEngine
                 skelState.depthTestEnabled = false;
                 // Only write to color attachment (0); skip entity-ID (1) and normals (2)
                 skelState.colorAttachmentWriteMask = 0x01;
+                // Two-sided. LineQuadMesh is a cross of two single-sided quads,
+                // so back-face culling keeps only the faces whose winding
+                // points at the camera — and Vulkan's flipped projection
+                // reverses that winding, which culled every debug line there
+                // while OpenGL happened to show the other face.
+                skelState.cullingEnabled = false;
                 drawCmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(skelState);
             }
 
