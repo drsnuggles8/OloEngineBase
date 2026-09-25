@@ -253,43 +253,6 @@ void main()
 #type fragment
 #version 460 core
 
-// Inlined helpers (avoid pulling SnowCommon.glsl which depends on PBR helpers).
-float hash11(float n) { return fract(sin(n) * 43758.5453); }
-vec3 hash33(vec3 p)
-{
-    return vec3(hash11(dot(p, vec3(127.1, 311.7,  74.7))),
-                hash11(dot(p, vec3(269.5, 183.3, 246.1))),
-                hash11(dot(p, vec3(113.5, 271.9, 124.6))));
-}
-vec3 smoothNoise3(vec3 p)
-{
-    vec3 i = floor(p);
-    vec3 f = fract(p);
-    f = f * f * (3.0 - 2.0 * f);
-    vec3 a = mix(hash33(i + vec3(0,0,0)), hash33(i + vec3(1,0,0)), f.x);
-    vec3 b = mix(hash33(i + vec3(0,1,0)), hash33(i + vec3(1,1,0)), f.x);
-    vec3 c = mix(a, b, f.y);
-    vec3 d = mix(hash33(i + vec3(0,0,1)), hash33(i + vec3(1,0,1)), f.x);
-    vec3 e = mix(hash33(i + vec3(0,1,1)), hash33(i + vec3(1,1,1)), f.x);
-    return mix(c, mix(d, e, f.y), f.z);
-}
-vec3 perturbSnowNormal(vec3 N, vec3 worldPos, float strength)
-{
-    if (strength < 0.001) return N;
-    vec3 n1 = smoothNoise3(worldPos *  8.0) * 2.0 - 1.0;
-    vec3 n2 = smoothNoise3(worldPos * 32.0) * 2.0 - 1.0;
-    vec3 perturb = (n1 * 0.6 + n2 * 0.4) * strength;
-    perturb -= N * dot(perturb, N);
-    return normalize(N + perturb);
-}
-float computeSnowWeight(float worldPosY, float normalY, float heightStart,
-                        float heightFull, float slopeStart, float slopeFull)
-{
-    float h = smoothstep(heightStart, heightFull, worldPosY);
-    float s = smoothstep(slopeFull, slopeStart, normalY);
-    return h * s;
-}
-
 layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_ViewProjection;
     mat4 u_View;
@@ -316,14 +279,6 @@ layout(std140, binding = 11) uniform BrushPreview {
     vec4 u_BrushParams;
 };
 
-layout(std140, binding = 13) uniform SnowParams {
-    vec4 u_SnowCoverageParams;
-    vec4 u_SnowAlbedoAndRoughness;
-    vec4 u_SnowSSSColorAndIntensity;
-    vec4 u_SnowSparkleParams;
-    vec4 u_SnowFlags;
-};
-
 layout(std140, binding = 16) uniform SnowAccumulationParamsFS {
     mat4 u_ClipmapViewProjFS[3];
     vec4 u_ClipmapCenterAndExtentFS[3];
@@ -347,6 +302,12 @@ layout(binding = 27) uniform sampler2DArray u_TerrainARMArray;
 layout(binding = 28) uniform sampler2D u_TerrainSplatmap1;
 layout(binding = 30) uniform sampler2D u_SnowDepthMapFS;
 #endif
+
+// Snow as a material layer (issue #1451) and the terrain's cover — the SAME
+// functions Terrain_PBR calls, so Forward and Deferred carry the same snow.
+// SnowLayer.glsl brings the Snow UBO (binding 13).
+#include "include/SnowLayer.glsl"
+#include "include/TerrainSnowWeight.glsl"
 
 layout(location = 0) in vec3 v_WorldPos;
 layout(location = 1) in vec3 v_Normal;
@@ -608,51 +569,24 @@ void main()
         }
     }
 
-    // Snow overlay — blend material properties by snow weight. SSS/sparkle
-    // are forward-only (need lighting-pass access); see docs limitations.
-    if (u_SnowFlags.x > 0.5)
-    {
-        vec3 worldNormal = normalize(v_Normal);
-        float snowWeight = computeSnowWeight(worldPosAbs.y, worldNormal.y,
-                                             u_SnowCoverageParams.x, u_SnowCoverageParams.y,
-                                             u_SnowCoverageParams.z, u_SnowCoverageParams.w);
-
-        if (u_DisplacementParamsFS.z > 0.5)
-        {
-            vec2 clipCenterFS = u_ClipmapCenterAndExtentFS[0].xy;
-            float clipExtentFS = u_ClipmapCenterAndExtentFS[0].z;
-            vec2 snowUVFS = (worldPosAbs.xz - clipCenterFS) / clipExtentFS + 0.5;
-            if (snowUVFS.x >= 0.0 && snowUVFS.x <= 1.0 && snowUVFS.y >= 0.0 && snowUVFS.y <= 1.0)
-            {
-                float accumulatedDepth = texture(u_SnowDepthMapFS, snowUVFS).r;
-                float maxDepth = u_AccumulationParamsFS.y;
-                float depthFactor = clamp(accumulatedDepth / max(maxDepth, 0.01), 0.0, 1.0);
-                snowWeight = max(snowWeight, depthFactor);
-            }
-        }
-
-        if (snowWeight > 0.001)
-        {
-            vec3 snowAlbedo = u_SnowAlbedoAndRoughness.rgb;
-            float snowRoughness = u_SnowAlbedoAndRoughness.w;
-            float normalPerturbStr = u_SnowSparkleParams.w;
-            vec3 snowN = perturbSnowNormal(N, worldPosAbs, normalPerturbStr);
-
-            albedo = mix(albedo, snowAlbedo, snowWeight);
-            roughness = mix(roughness, snowRoughness, snowWeight);
-            metallic = mix(metallic, 0.0, snowWeight);
-            N = normalize(mix(N, snowN, snowWeight));
-            // Snow fills crevices — bias AO upward under heavy snow.
-            ao = mix(ao, 1.0, snowWeight * 0.6);
-        }
-    }
+    // THE SNOW LAYER (issue #1451) — include/SnowLayer.glsl, the same calls
+    // Terrain_PBR makes. The blended material and the snow-FILLED normal go
+    // into the G-Buffer, the weight into RT3.a (the material profile), and
+    // the lighting pass rebuilds the shading normal and adds the sparkle
+    // from those two — it used to be dropped here, so Deferred terrain had
+    // no blur and no sparkle, and a noise of its own.
+    float snowWeight = oloTerrainSnowWeight(worldPosAbs, v_Normal);
+    vec3 terrainEmissive = vec3(0.0);
+    oloSnowLayerBlendMaterial(snowWeight, albedo, metallic, roughness, ao, terrainEmissive);
+    N = oloSnowLayerFilledNormal(N, snowWeight);
 
     o_GBufferAlbedo   = vec4(albedo, metallic);
     o_GBufferNormal   = vec4(octEncodeGB(N), roughness, ao);
     // emissive.a = 0.0 → lit. Terrain does not emit light of its own.
     o_GBufferEmissive = vec4(0.0, 0.0, 0.0, 0.0);
     // Static terrain → zero screen-space velocity.
-    o_GBufferVelocity = vec4(0.0, 0.0, 1.0, 0.0);
+    // .a: the material profile (#1256) is the snow weight (issue #1451).
+    o_GBufferVelocity = vec4(0.0, 0.0, 1.0, snowWeight);
     o_GBufferEntityID = u_EntityID;
     o_GBufferBakedGI = vec4(0.0); // no baked lightmap on this surface (issue #865)
 }

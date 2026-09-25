@@ -25,7 +25,13 @@ namespace OloEngine
     //                       issue #1256 added: .b = COVERAGE, the fraction of
     //                       the pixel the subject occupies (1 for an opaque
     //                       surface), and .a = MATERIAL PROFILE, the position
-    //                       along the material's continuous profile axis.
+    //                       along the material's continuous profile axis —
+    //                       for a snow-covered surface, the SNOW WEIGHT (issue
+    //                       #1451): the G-Buffer writers blend the material by
+    //                       it, and DeferredLighting reads it back to rebuild
+    //                       the snow shading normal, the sparkle and the snow
+    //                       hand-off. The forward paths write the same value
+    //                       into scene attachment 3's .a.
     //                       Widened from RG16F rather than given its own
     //                       attachment because every writer had to be visited
     //                       either way (an unwritten MRT output is undefined),

@@ -362,8 +362,6 @@ namespace OloEngine
 
         struct PostProcessSlot
         {
-            RGFramebufferHandle SSSColor;    // Full-resolution SSS output when the blur stage is enabled and ready
-            RGTextureHandle SSSColorTexture; // Color attachment view of SSSColor
             // Scratch target for the HORIZONTAL half of the separable skin
             // diffusion (issue #1241). Declared only when the pass can
             // actually run, so a scene with no skin pays no full-resolution

@@ -412,8 +412,6 @@ namespace OloEngine::ResourceNames
     inline constexpr std::string_view BrdfLut = "BrdfLut";
 
     // Post-process chain.
-    inline constexpr std::string_view SSSColor = "SSSColor";                       // Full-resolution SSS output when the blur stage is enabled and ready
-    inline constexpr std::string_view SSSColorTexture = "SSSColorTexture";         // Color attachment view of SSSColor
     inline constexpr std::string_view AOApplyColor = "AOApplyColor";               // After AO apply (only valid when SSAO or GTAO is enabled)
     inline constexpr std::string_view AOApplyColorTexture = "AOApplyColorTexture"; // Color attachment view of AOApplyColor
     inline constexpr std::string_view SSGIColor = "SSGIColor";                     // After screen-space GI composite (only valid when SSGI is enabled, deferred path)

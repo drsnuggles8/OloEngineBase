@@ -83,6 +83,17 @@ with no width and no mask anywhere in the transport.
 scene-colour alpha for `SSSRenderPass`. Issue #1231 explicitly rules out overloading it, and
 it is right to: two kinds writing one channel means whichever runs last wins, silently.
 
+> **Note (issue #1451).** Snow's mask later moved into skin's own hand-off lane (scene
+> attachment 4, `.a`). That lane carries skin slots as `(s + 1) / 8` and snow as `-weight`.
+> This is not the channel rejected above, for two reasons. First, each pixel has exactly one
+> writer for this quantity: the surface shader decides, per pixel, whether it hands over skin
+> or snow. Second, the value range is partitioned, so the decision can be read from the value
+> itself: each consumer decodes its own range and reads the other as "not mine"
+> (`include/SnowDiffusionCommon.glsl`). Scene alpha had neither property. Every opaque writer
+> set it to 1 and every blended writer to its blend alpha, so its value depended on draw order.
+> On the deferred path the snow weight crosses the G-Buffer in RT3.a, the #1256 "material
+> profile" channel, because a snow blend is a position along a material profile axis.
+
 **A seventh G-Buffer render target.** It would have cost no model headroom and is where this
 goes eventually. Rejected for now because every one of the ~15 G-Buffer writers must write
 every attachment (an unwritten MRT output is undefined), several of those shaders are owned

@@ -281,10 +281,13 @@ vec3 ApplyCascadeDebug(vec3 color, vec3 worldPos)
 // `sunContactVisibility` (issue #1336) is the screen-space contact shadow of
 // the PRIMARY directional light (Lights[0]), 1.0 when contact shadows are off.
 // It multiplies that one light's visibility and nothing else.
+// `snowWeight` (issue #1451) is the pixel's snow cover, from G-Buffer RT3.a. A
+// caller that includes include/SnowLayer.glsl first gets the snow sparkle in
+// the directional loop and the snow hand-off; anyone else passes 0.
 vec3 ComputeDeferredLitSplit(
     vec3 albedo, float metallic,
     vec3 N, float roughness, float ao, float screenAO, float sunContactVisibility,
-    vec4 emissiveFlags, vec3 worldPos, vec4 bakedGI,
+    vec4 emissiveFlags, vec3 worldPos, vec4 bakedGI, float snowWeight,
     out vec4 skinDiffuse)
 {
     skinDiffuse = vec4(0.0);
@@ -697,6 +700,14 @@ vec3 ComputeDeferredLitSplit(
             lightContrib = oloSkinOralApplyCoat(lightContrib, N, V, lightL, coatRadiance, skinOralLane);
         }
 
+#ifdef SNOW_LAYER_GLSL
+        // Snow sparkle (issue #1451) — the forward paths' lobe, for the same
+        // directional lights, gated by the same visibility.
+        if (lightType == DIRECTIONAL_LIGHT && lightHasDirection)
+            lightContrib.Specular += oloSnowLayerSparkle(N, V, lightL, lightRadiance, worldPos + u_RenderOrigin,
+                                                         snowWeight);
+#endif
+
         Lo = oloSurfaceLightingAdd(Lo, oloSurfaceLightingScale(lightContrib, vec3(lightVisibility)));
 
         // The TRANSMITTED lobe, gated by the SAME visibility the reflected lobe
@@ -850,6 +861,13 @@ vec3 ComputeDeferredLitSplit(
     skinDiffuse = oloSkinDiffusionOutput(lighting, materialKind, skinEvaluationModel,
                                          skinProfileSlot,
                                          oloSkinScatteringMask(materialKind, metallic));
+#ifdef SNOW_LAYER_GLSL
+    // A SNOW pixel hands over its diffuse half in the lane's negative range
+    // (issue #1451) — the same value the forward shaders write, which the snow
+    // blur diffuses and skin diffusion reads as "no profile".
+    if (oloSnowLayerActive(snowWeight))
+        skinDiffuse = vec4(lighting.Diffuse, oloSnowDiffusionEncodeWeight(snowWeight));
+#endif
 
     // The four separated outputs, exposed (issue #1231). Returned BEFORE the
     // debug tints below because those composite over a finished frame and would
@@ -928,7 +946,7 @@ vec3 ComputeDeferredLit(
 {
     vec4 ignoredSkinDiffuse;
     return ComputeDeferredLitSplit(albedo, metallic, N, roughness, ao, screenAO, sunContactVisibility,
-                                   emissiveFlags, worldPos, bakedGI, ignoredSkinDiffuse);
+                                   emissiveFlags, worldPos, bakedGI, 0.0, ignoredSkinDiffuse);
 }
 
 #endif // DEFERRED_LIGHTING_SHARED_GLSL

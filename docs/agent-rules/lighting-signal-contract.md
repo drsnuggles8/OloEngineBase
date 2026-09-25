@@ -112,7 +112,6 @@ Each of these was a local choice that looked right.
   - emissive-geometry light on skin pixels, now that skin declines the tier.
 - **Groom** divides the (already *E/π*) irradiance cube by π again (`GroomStrand.glsl`), making it
   π too dark (#1450, owned by the groom work).
-- **The snow SSS blur** masks by scene-colour alpha, which every non-snow writer sets to 1 (#1451).
 - **Deferred's point-light tile evaluator disagrees with the forward light loop** (#1457). It is a
   direct-term parity bug, not an ownership one, and predates this work.
 - **Media** (fog, volumetrics) is applied after surface composition, to reflections included, and
@@ -142,6 +141,28 @@ path, and `PostProcess_SSAOApply` runs only for the AO debug view.
 - **Foliage, groom and water are not in the AO input.** They draw after the AO passes, so they
   sample the occlusion of the surface behind them. On Deferred, foliage writes the G-Buffer and is in
   the AO input, so foliage AO differs between the paths by that much.
+
+## Snow is a material layer (#1451)
+
+Snow adds no second estimate of any term. `include/SnowLayer.glsl` is the one definition, and every
+path uses it:
+
+- **The covered fraction blends the material** (albedo, roughness, metallic, AO, emission) before
+  lighting. The ordinary closure then lights snow with shadows, every light, the ambient ladder and
+  screen-space AO. The old overlay mixed in a second snow BRDF that ignored shadows and used a flat
+  0.15 x albedo ambient.
+- **Sparkle is a specular lobe of the directional lights**, gated by each light's own visibility.
+  Directional lights are used because every path evaluates them in its loop.
+- **Subsurface is the blur of the diffuse half.** Snow pixels hand `(diffuse, -weight)` to scene
+  attachment 4. `SSSPass` adds `strength * (blur - diffuse)` into scene colour before the
+  transparents. Scene alpha is not a snow channel.
+- **Deferred carries the weight in G-Buffer RT3.a** and the snow-filled normal in RT1.
+  `DeferredLighting` rebuilds the shading normal and adds the sparkle with the same functions.
+
+| Signal | Stores | Consumed by |
+|---|---|---|
+| Hand-off `.a < 0` (scene attachment 4) | snow weight, negated | `SSS_Blur.glsl`; read as "no profile" by skin diffusion |
+| G-Buffer RT3.a / scene attachment 3 `.a` | snow weight (the material profile) | DeferredLighting; TAA reactivity |
 
 ## How to add a technique
 

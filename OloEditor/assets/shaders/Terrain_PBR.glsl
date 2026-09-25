@@ -247,7 +247,6 @@ void main()
 #version 460 core
 
 #include "include/PBRCommon.glsl"
-#include "include/SnowCommon.glsl"
 #include "include/AtmosphereShading.glsl"
 // The shared camera block (include/CameraCommon.glsl), identical in every
 // stage of every program that includes this — GL links a program only if
@@ -297,14 +296,6 @@ layout(std140, binding = 11) uniform BrushPreview {
     vec4 u_BrushParams;        // x = active (1.0/0.0), y = falloff, z = mode, w = unused
 };
 
-// Snow UBO (binding 13)
-layout(std140, binding = 13) uniform SnowParams {
-    vec4 u_SnowCoverageParams;
-    vec4 u_SnowAlbedoAndRoughness;
-    vec4 u_SnowSSSColorAndIntensity;
-    vec4 u_SnowSparkleParams;
-    vec4 u_SnowFlags;
-};
 
 // Snow Accumulation UBO (binding 16) — fragment access
 layout(std140, binding = 16) uniform SnowAccumulationParamsFS {
@@ -320,6 +311,12 @@ layout(std140, binding = 16) uniform SnowAccumulationParamsFS {
 #else
 layout(binding = 30) uniform sampler2D u_SnowDepthMapFS;
 #endif
+
+// Snow as a material layer (issue #1451), and the terrain's cover: the
+// procedural weight raised by the accumulation clipmap, shared with
+// Terrain_GBuffer so the two paths carry the same snow.
+#include "include/SnowLayer.glsl"
+#include "include/TerrainSnowWeight.glsl"
 
 // Shadow maps — CSM array + the budgeted local-light shadow atlas (issue #435)
 #ifdef OLO_BINDLESS
@@ -636,6 +633,16 @@ void main()
         N = normalize(TBN * normalMap);
     }
 
+    // THE SNOW LAYER (issue #1451) — include/SnowLayer.glsl, the same calls
+    // Terrain_GBuffer makes. The material is blended toward snow before any
+    // light is evaluated, the FILLED normal is what attachment 2 stores, and
+    // the SHADING normal derived from it lights the surface.
+    float snowWeight = oloTerrainSnowWeight(worldPosAbs, v_Normal);
+    vec3 terrainEmissive = vec3(0.0);
+    oloSnowLayerBlendMaterial(snowWeight, albedo, metallic, roughness, ao, terrainEmissive);
+    vec3 snowFilledN = oloSnowLayerFilledNormal(N, snowWeight);
+    N = oloSnowLayerShadingNormal(snowFilledN, worldPosAbs, snowWeight);
+
     vec3 V = normalize(u_CameraPosition - v_WorldPos);
 
     // Weather response + cloud shadow (issue #633) — same order as
@@ -644,15 +651,23 @@ void main()
     atmosphereApplyWetness(albedo, roughness, N);
     float cloudShadow = atmosphereCloudShadow(v_WorldPos);
 
-    // Calculate direct lighting from all lights
+    // Calculate direct lighting from all lights. `LoDiffuse` is the diffuse
+    // half of the same sum, for the snow hand-off (issue #1451); `Lo` keeps
+    // the combined value it always had, so a pixel without snow is
+    // unchanged to the bit.
     vec3 Lo = vec3(0.0);
+    vec3 LoDiffuse = vec3(0.0);
 
     // Forward+ path: per-cluster culled point/spot lights
     bool fplusActive = (fplus_Params.z != 0u);
     if (fplusActive)
     {
         float fplusViewDepth = -(u_View * vec4(v_WorldPos, 1.0)).z;
-        Lo += fplusEvaluateTileLights(N, V, v_WorldPos, albedo, metallic, roughness, fplusViewDepth);
+        OloSurfaceLighting fplusLit = fplusEvaluateTileLightsSplit(N, V, v_WorldPos, albedo, metallic, roughness,
+                                                                   fplusViewDepth, OLO_PBR_MODEL_LEGACY,
+                                                                   vec2(0.0, 1.0), vec4(0.0));
+        Lo += oloSurfaceLightingSum(fplusLit);
+        LoDiffuse += fplusLit.Diffuse;
     }
 
     // UBO light loop: when Forward+ is active, only directional lights (at array start).
@@ -662,10 +677,23 @@ void main()
     {
         int lightType = int(u_Lights[i].position.w);
 
-        vec3 lightContrib = calculateLightContribution(u_Lights[i], N, V, albedo, metallic, roughness, v_WorldPos);
+        OloSurfaceLighting lightSplit = calculateLightContributionSplit(u_Lights[i], N, V, albedo, metallic,
+                                                                        roughness, v_WorldPos, OLO_PBR_MODEL_LEGACY);
+        vec3 lightContrib = oloSurfaceLightingSum(lightSplit);
+        // The visibility every branch below multiplies in, tracked alongside
+        // so the diffuse twin is gated identically.
+        float lightVisibility = 1.0;
+        // Snow sparkle (issue #1451): a glint lobe for directional lights,
+        // added BEFORE the shadow factors so they gate it with the rest.
+        vec3 sparkleL;
+        vec3 sparkleRadiance;
+        if (lightType == DIRECTIONAL_LIGHT && oloSnowLayerActive(snowWeight) &&
+            oloLightSample(u_Lights[i], v_WorldPos, sparkleL, sparkleRadiance))
+            lightContrib += oloSnowLayerSparkle(N, V, sparkleL, sparkleRadiance, worldPosAbs, snowWeight);
         if (lightType == DIRECTIONAL_LIGHT)
         {
             lightContrib *= cloudShadow;
+            lightVisibility *= cloudShadow;
         }
         if (lightType == DIRECTIONAL_LIGHT && u_DirectionalShadowEnabled != 0)
         {
@@ -685,6 +713,7 @@ void main()
                 u_SoftShadowMode
             );
             lightContrib *= shadow;
+            lightVisibility *= shadow;
         }
         else if (lightType == SPOT_LIGHT)
         {
@@ -695,6 +724,7 @@ void main()
             if (vsmLocalShadow(v_WorldPos, N, atlasEntry, false, localShadow))
             {
                 lightContrib *= localShadow;
+                lightVisibility *= localShadow;
             }
             else if (atlasEntry >= 0 && atlasEntry < u_AtlasEntryCount)
             {
@@ -710,6 +740,7 @@ void main()
                     u_ShadowParams.z
                 );
                 lightContrib *= shadow;
+                lightVisibility *= shadow;
             }
         }
         else if (lightType == POINT_LIGHT || lightType == SPHERE_AREA_LIGHT)
@@ -722,6 +753,7 @@ void main()
             if (vsmLocalShadow(v_WorldPos, N, baseEntry, true, localShadow))
             {
                 lightContrib *= localShadow;
+                lightVisibility *= localShadow;
             }
             else if (baseEntry >= 0 && baseEntry + 5 < u_AtlasEntryCount)
             {
@@ -739,10 +771,12 @@ void main()
                     u_ShadowParams.z
                 );
                 lightContrib *= shadow;
+                lightVisibility *= shadow;
             }
         }
 
         Lo += lightContrib;
+        LoDiffuse += lightSplit.Diffuse * lightVisibility;
     }
 
     // Ambient — the shared ladder (issue #1336). No lightmap on terrain (it
@@ -760,9 +794,10 @@ void main()
                                                        probeViewDepth);
         terrainPrefiltered = mix(terrainPrefiltered, probeSpecular.rgb, probeSpecular.a);
     }
-    vec3 ambient = oloSurfaceLightingSum(evaluateAmbientLadderSplitEx(
+    OloSurfaceLighting ambientSplit = evaluateAmbientLadderSplitEx(
         vec4(0.0), v_WorldPos, N, V, albedo, metallic, roughness, u_IrradianceMap, u_BRDFLutMap,
-        terrainPrefiltered, terrainEnableIBL, u_TerrainAmbientLadder.y > 0.5, u_TerrainAmbientLadder.z));
+        terrainPrefiltered, terrainEnableIBL, u_TerrainAmbientLadder.y > 0.5, u_TerrainAmbientLadder.z);
+    vec3 ambient = oloSurfaceLightingSum(ambientSplit);
 
     // AO is visibility for the AMBIENT term only (issue #1336), exactly as the
     // deferred path composes this surface (Terrain_GBuffer writes the same `ao`
@@ -772,7 +807,8 @@ void main()
     // The material AO times the SCREEN-SPACE AO (issue #1452), on the ambient
     // term alone — the same product DeferredLighting multiplies its ambient
     // split by.
-    vec3 color = ambient * (ao * oloForwardScreenSpaceAO(gl_FragCoord.xy)) + Lo;
+    float ambientVisibility = ao * oloForwardScreenSpaceAO(gl_FragCoord.xy);
+    vec3 color = ambient * ambientVisibility + Lo;
 
     // Brush preview overlay
     if (u_BrushParams.x > 0.5)
@@ -805,110 +841,25 @@ void main()
         }
     }
 
-    // Snow overlay (applied after brush preview so snow is visible under brush)
-    float snowWeight = 0.0;
-    if (u_SnowFlags.x > 0.5)
-    {
-        vec3 worldNormal = normalize(v_Normal);
-        snowWeight = computeSnowWeight(worldPosAbs.y, worldNormal,
-                                       u_SnowCoverageParams.x, u_SnowCoverageParams.y,
-                                       u_SnowCoverageParams.z, u_SnowCoverageParams.w,
-                                       u_SnowFlags.y);
-
-        // Boost snow weight from accumulation depth map
-        if (u_DisplacementParamsFS.z > 0.5)
-        {
-            vec2 clipCenterFS = u_ClipmapCenterAndExtentFS[0].xy;
-            float clipExtentFS = u_ClipmapCenterAndExtentFS[0].z;
-            vec2 snowUVFS = (worldPosAbs.xz - clipCenterFS) / clipExtentFS + 0.5;
-            if (snowUVFS.x >= 0.0 && snowUVFS.x <= 1.0 && snowUVFS.y >= 0.0 && snowUVFS.y <= 1.0)
-            {
-                float accumulatedDepth = texture(u_SnowDepthMapFS, snowUVFS).r;
-                float maxDepth = u_AccumulationParamsFS.y;
-                // Depth-based weight: thicker snow = stronger coverage
-                float depthFactor = clamp(accumulatedDepth / max(maxDepth, 0.01), 0.0, 1.0);
-                snowWeight = max(snowWeight, depthFactor);
-            }
-        }
-
-        if (snowWeight > 0.001)
-        {
-            vec3 snowAlbedo = u_SnowAlbedoAndRoughness.rgb;
-            float snowRoughness = u_SnowAlbedoAndRoughness.w;
-            vec3 sssColor = u_SnowSSSColorAndIntensity.rgb;
-            float sssIntensity = u_SnowSSSColorAndIntensity.w;
-            float sparkleIntensity = u_SnowSparkleParams.x;
-            float sparkleDensity = u_SnowSparkleParams.y;
-            float sparkleScale = u_SnowSparkleParams.z;
-            float normalPerturbStr = u_SnowSparkleParams.w;
-
-            vec3 snowN = perturbSnowNormal(N, worldPosAbs, normalPerturbStr);
-
-            vec3 snowLo = vec3(0.0);
-            for (int i = 0; i < min(u_LightCount, MAX_LIGHTS); ++i)
-            {
-                vec3 L = vec3(0.0);
-                vec3 lightColor = u_Lights[i].color.rgb * u_Lights[i].color.w;
-                float attenuation = 1.0;
-                int lightType = int(u_Lights[i].position.w);
-
-                if (lightType == DIRECTIONAL_LIGHT)
-                {
-                    L = normalize(-u_Lights[i].direction.xyz);
-                }
-                else
-                {
-                    vec3 toLight = u_Lights[i].position.xyz - v_WorldPos;
-                    float dist = length(toLight);
-                    L = toLight / dist;
-                    float constant = u_Lights[i].attenuationParams.x;
-                    float linear = u_Lights[i].attenuationParams.y;
-                    float quadratic = u_Lights[i].attenuationParams.z;
-                    attenuation = 1.0 / (constant + linear * dist + quadratic * dist * dist);
-                }
-
-                vec3 contrib = snowBRDF(snowN, V, L, snowAlbedo, snowRoughness,
-                                        sssColor, sssIntensity, sparkleIntensity,
-                                        sparkleDensity, sparkleScale, worldPosAbs);
-                snowLo += contrib * lightColor * attenuation;
-            }
-
-            // Snow ambient: snow has very high albedo (~0.95) and scatters
-            // significant indirect light. Use a higher ambient factor than the
-            // standard 0.03 to capture sky light bouncing off the snow surface.
-            vec3 snowAmbient = 0.15 * snowAlbedo;
-            vec3 snowColor = snowAmbient + snowLo;
-
-            color = mix(color, snowColor, snowWeight);
-        }
-    }
-
-    // Output
+    // Output. Alpha is 1: the snow mask rides the hand-off (issue #1451).
     o_Color = vec4(color, 1.0);
-    // SSS mask: write snow weight to alpha for SSSRenderPass bilateral blur.
-    // Alpha is reset to 1.0 by SSS_Blur before PostProcess (see SnowCommon.glsl contract).
-    if (snowWeight > 0.001)
-        o_Color.a = snowWeight;
     o_EntityID = u_EntityID;
 
-    // View-space normal for SSAO/post-processing.
-    // Snow fills geometric crevices, creating a smoother surface. Blend the
-    // terrain normal toward world-up so SSAO "sees" the filled-in geometry
-    // rather than producing dark occlusion in crevices hidden under snow.
-    // Do NOT use the noise-perturbed snow normal here — that micro-detail is
-    // for lighting only; feeding it to SSAO causes false gray occlusion.
-    vec3 outputN = N;
-    if (snowWeight > 0.001)
-    {
-        outputN = normalize(mix(N, vec3(0.0, 1.0, 0.0), snowWeight * 0.6));
-    }
-    vec3 viewNormal = normalize(mat3(u_View) * outputN);
-    o_ViewNormal = octEncode(viewNormal);
+    // The snow-FILLED normal for AO (include/SnowLayer.glsl): snow fills the
+    // crevices, and the crystalline micro-perturbation stays out of the AO
+    // input, where it read as grey speckle.
+    o_ViewNormal = octEncode(normalize(mat3(u_View) * snowFilledN));
 
     vec4 clipCurr = u_ViewProjection     * vec4(v_WorldPos, 1.0);
     vec4 clipPrev = u_PrevViewProjection * vec4(v_WorldPos, 1.0);
     vec2 ndcCurr = clipCurr.xy / clipCurr.w;
     vec2 ndcPrev = clipPrev.xy / clipPrev.w;
-    o_Velocity = vec4((ndcCurr - ndcPrev) * 0.5, 1.0, 0.0);
-    o_SkinDiffuse = vec4(0.0); // not skin -- see the declaration above (#1241)
+    // .a: the material profile (#1256) is the snow weight, as in G-Buffer RT3.a.
+    o_Velocity = vec4((ndcCurr - ndcPrev) * 0.5, 1.0, snowWeight);
+    // Not skin (#1241); a snow pixel hands its diffuse half to the snow blur
+    // in the lane's negative range (issue #1451).
+    o_SkinDiffuse = oloSnowLayerActive(snowWeight)
+                        ? vec4(LoDiffuse + ambientSplit.Diffuse * ambientVisibility,
+                               oloSnowDiffusionEncodeWeight(snowWeight))
+                        : vec4(0.0);
 }

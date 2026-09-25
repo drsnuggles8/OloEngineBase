@@ -240,6 +240,10 @@ layout(location = 0) out vec4 o_Color;
 // in order, spell the same target as location 4.
 layout(location = 1) out vec4 o_SkinDiffuse;
 
+// The snow layer (issue #1451), BEFORE the shared lighting body so its snow
+// terms compile in. This pass only reads a weight, so no coverage and no wind.
+#define OLO_SNOW_LAYER_NO_COVERAGE 1
+#include "include/SnowLayer.glsl"
 #include "include/DeferredLightingShared.glsl"
 
 // The AO buffer is single-sample, so its depth-aware upsample weighs against
@@ -313,6 +317,8 @@ void main()
     // so a silhouette pixel hands over the average of the samples that ARE skin
     // rather than whichever sample happened to be last (issue #1241).
     vec4 skinDiffuseAccum = vec4(0.0);
+    // ...and the snow hand-off beside it (issue #1451), in its own range.
+    vec4 snowDiffuseAccum = vec4(0.0);
     for (int s = 0; s < sampleCount; ++s)
     {
         float depth = texelFetch(u_GBufferDepth, pixel, s).r;
@@ -346,10 +352,24 @@ void main()
 
         vec4 bakedGI = texelFetch(u_GBufferBakedGI, pixel, s);
 
+        // The snow layer, per sample (issue #1451) — see DeferredLighting.glsl.
+        float snowWeight = clamp(texelFetch(u_GBufferVelocity, pixel, s).a, 0.0, 1.0);
+        N = oloSnowLayerShadingNormal(N, worldPos + u_RenderOrigin, snowWeight);
+
         vec4 sampleSkinDiffuse;
         accum += ComputeDeferredLitSplit(albedo, metallic, N, roughness, ao, screenAO, sunContactVisibility,
-                                         emissiveFlags, worldPos, bakedGI, sampleSkinDiffuse);
-        skinDiffuseAccum += sampleSkinDiffuse;
+                                         emissiveFlags, worldPos, bakedGI, snowWeight, sampleSkinDiffuse);
+        // Snow and skin average apart: a silhouette pixel that is part snow
+        // and part skin must not average a skin slot code with a negative
+        // snow weight into a code neither wrote.
+        if (sampleSkinDiffuse.a < 0.0)
+        {
+            snowDiffuseAccum += sampleSkinDiffuse;
+        }
+        else
+        {
+            skinDiffuseAccum += sampleSkinDiffuse;
+        }
     }
 
     vec3 color = accum / float(sampleCount);
@@ -363,4 +383,10 @@ void main()
     o_SkinDiffuse = (resolvedSlot >= OLO_SKIN_DIFFUSE_SLOT_NONE)
                         ? vec4(0.0)
                         : vec4(skinDiffuseAccum.rgb, oloSkinDiffusionEncodeSlot(resolvedSlot));
+    // A pixel whose samples are mostly snow hands over snow. The weight is the
+    // pixel's coverage-weighted snow (the snow samples' -weights averaged over
+    // ALL samples), which is what the blur should diffuse by at a silhouette.
+    snowDiffuseAccum /= float(sampleCount);
+    if (resolvedSlot >= OLO_SKIN_DIFFUSE_SLOT_NONE && oloSnowLayerActive(oloSnowDiffusionWeight(snowDiffuseAccum.a)))
+        o_SkinDiffuse = snowDiffuseAccum;
 }

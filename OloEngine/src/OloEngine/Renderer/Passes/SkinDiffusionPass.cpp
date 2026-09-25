@@ -277,11 +277,12 @@ namespace OloEngine
         RenderCommand::SetFramebufferDrawAttachments(sceneFB->GetRHIHandle(), kAttachment0Only);
         context.SetBlendState(true);
         // ONE/ONE on colour, ZERO/ONE on alpha. The alpha half is not
-        // decoration: scene colour's alpha is snow's transient SSS mask
-        // (SnowCommon.glsl), and a plain additive blend would add this pass's
-        // zero alpha to it -- harmless -- but a future non-zero would not be.
-        // Saying "leave alpha exactly as it is" is the contract, so it is what
-        // is written.
+        // decoration: scene colour's alpha is the blend alpha of whatever drew
+        // there, and a plain additive blend would add this pass's zero alpha
+        // to it -- harmless -- but a future non-zero would not be. Saying
+        // "leave alpha exactly as it is" is the contract, so it is what is
+        // written. (Snow's blur mask used to ride this alpha; since #1451 it
+        // rides the hand-off lane this pass reads, in a disjoint range.)
         RenderCommand::SetBlendFuncSeparate(RHI::BlendFactor::One, RHI::BlendFactor::One,
                                             RHI::BlendFactor::Zero, RHI::BlendFactor::One);
         RenderCommand::SetBlendEquation(RHI::BlendOp::Add);

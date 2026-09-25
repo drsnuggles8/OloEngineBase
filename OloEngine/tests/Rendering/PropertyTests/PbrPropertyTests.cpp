@@ -1818,4 +1818,77 @@ namespace OloEngine::Tests
             }
         }
     }
+
+    // =========================================================================
+    // The diffusion hand-off lane (issues #1241, #1451).
+    //
+    // Scene attachment 4's alpha names who diffuses a pixel's diffuse half:
+    // skin slot s as (s + 1) / 8, snow weight w as -w, nothing as 0. The two
+    // producers never write one pixel twice for this quantity; the ranges are
+    // disjoint so each consumer can tell its own values from the other's.
+    // ShaderUnit_DiffusionHandoffLane.glsl encodes through the production
+    // helpers, pushes the value through fp16 (the attachment's storage) and
+    // decodes it with BOTH decoders.
+    // =========================================================================
+    TEST(DiffusionHandoffLaneTest, SkinSlotsAndSnowWeightsShareTheLaneWithoutCrossTalk)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        constexpr u32 kWidth = 64;
+        constexpr u32 kSnowRow = 0;
+        constexpr u32 kClearedRow = 8;
+        constexpr u32 kHeight = 9;
+        PbrProbeHarness harness(kWidth, kHeight, "assets/shaders/tests/ShaderUnit_DiffusionHandoffLane.glsl");
+        harness.Draw();
+
+        std::vector<f32> pixels;
+        harness.ReadOutputRgbaFloat(pixels);
+        ASSERT_EQ(pixels.size(), static_cast<std::size_t>(kWidth) * kHeight * 4);
+
+        constexpr f32 kNoProfile = 7.0f; // OLO_SKIN_DIFFUSE_SLOT_NONE
+        // fp16 carries a value in (0, 1] to within 2^-11 of itself.
+        constexpr f32 kHalfTolerance = 1.0f / 2048.0f;
+        for (u32 row = 0; row < kHeight; ++row)
+        {
+            for (u32 x = 0; x < kWidth; ++x)
+            {
+                const std::size_t idx = (static_cast<std::size_t>(row) * kWidth + x) * 4;
+                const f32 lane = pixels[idx + 0];
+                const f32 skinSlot = pixels[idx + 1];
+                const f32 snowWeight = pixels[idx + 2];
+                const f32 countsAsSnow = pixels[idx + 3];
+                ASSERT_TRUE(std::isfinite(lane) && std::isfinite(skinSlot) && std::isfinite(snowWeight) &&
+                            std::isfinite(countsAsSnow))
+                    << "row " << row << " x " << x << ": non-finite texel — the probe draw or readback failed";
+
+                if (row == kSnowRow)
+                {
+                    const f32 weight = static_cast<f32>(x) / static_cast<f32>(kWidth - 1);
+                    EXPECT_NEAR(snowWeight, weight, kHalfTolerance)
+                        << "snow weight " << weight << " did not survive the half-float lane (read " << snowWeight
+                        << ", lane " << lane << ")";
+                    EXPECT_EQ(skinSlot, kNoProfile)
+                        << "a SNOW value (weight " << weight << ", lane " << lane << ") decoded as skin slot "
+                        << skinSlot << " — skin diffusion would blur snow with a skin profile";
+                    EXPECT_EQ(countsAsSnow, x == 0 ? 0.0f : 1.0f)
+                        << "weight " << weight << ": only a zero weight may read as no snow";
+                }
+                else if (row == kClearedRow)
+                {
+                    EXPECT_EQ(lane, 0.0f);
+                    EXPECT_EQ(skinSlot, kNoProfile) << "the cleared lane must name no skin profile";
+                    EXPECT_EQ(snowWeight, 0.0f) << "the cleared lane must carry no snow";
+                }
+                else
+                {
+                    const f32 slot = static_cast<f32>(row - 1);
+                    EXPECT_EQ(skinSlot, slot) << "skin slot " << slot << " did not survive (lane " << lane << ")";
+                    EXPECT_EQ(snowWeight, 0.0f)
+                        << "a SKIN value (slot " << slot << ", lane " << lane << ") decoded as snow weight "
+                        << snowWeight << " — the snow blur would smear a face";
+                    EXPECT_EQ(countsAsSnow, 0.0f);
+                }
+            }
+        }
+    }
 } // namespace OloEngine::Tests

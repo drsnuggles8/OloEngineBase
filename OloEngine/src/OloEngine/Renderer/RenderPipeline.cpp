@@ -4049,18 +4049,6 @@ namespace OloEngine
             board.Scratch.FluidRefraction = declareGraphOnlyTexture("FluidRefraction", fluidRefrDesc);
         }
 
-        if (pipeline.PostProcessPasses.SSS &&
-            config.SnowSubsurfaceBlur &&
-            pipeline.PostProcessPasses.SSS->IsReadyForExecution())
-        {
-            const auto sssOutput = declareSceneBandOutput(
-                ResourceNames::SSSColor,
-                ResourceNames::SSSColorTexture,
-                RGResourceFormat::RGBA16Float);
-            board.Post.SSSColor = sssOutput.Framebuffer;
-            board.Post.SSSColorTexture = sssOutput.Texture;
-        }
-
         // The skin diffusion scratch (issue #1241) — the horizontal half of the
         // separable blur. Declared only when the pass can actually run, so a
         // scene with no skin pays nothing for it; the pass itself skips both
@@ -4798,7 +4786,8 @@ namespace OloEngine
         // PostProcessColor is an alias handle to the latest upstream graph
         // resource in the dynamic chain, NOT a separate imported resource.
         // This preserves declaration-derived reachability:
-        //   AOApplyColor -> Bloom, SSSColor -> Bloom, or SceneColor -> Bloom.
+        //   AOApplyColor -> Bloom, or SceneColor -> Bloom. (The snow blur writes
+        //   SceneColor in place since #1451, so it has no output of its own.)
         // Importing a fresh `PostProcessColor` framebuffer here severs that
         // producer/consumer chain, which lets AO/SSS get culled and can feed
         // stale/black data into the post stack.
@@ -4891,13 +4880,6 @@ namespace OloEngine
             board.Post.PostProcessColorTexture = board.Post.AOApplyColorTexture;
             postProcessTargetFramebuffer = ResourceNames::AOApplyColor;
             postProcessTargetTexture = ResourceNames::AOApplyColorTexture;
-        }
-        else if (board.Post.SSSColor.IsValid())
-        {
-            board.Post.PostProcessColor = board.Post.SSSColor;
-            board.Post.PostProcessColorTexture = board.Post.SSSColorTexture;
-            postProcessTargetFramebuffer = ResourceNames::SSSColor;
-            postProcessTargetTexture = ResourceNames::SSSColorTexture;
         }
         else
         {

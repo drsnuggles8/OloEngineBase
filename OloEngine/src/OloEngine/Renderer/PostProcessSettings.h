@@ -1167,7 +1167,13 @@ namespace OloEngine
         glm::vec3 Albedo = glm::vec3(0.92f, 0.93f, 0.98f);
         f32 Roughness = 0.65f;
 
-        // SSS
+        // Subsurface scattering (issue #1451). SSSIntensity is the fraction of
+        // a snow pixel's DIFFUSE light the blur redistributes (strength =
+        // snowWeight * SSSIntensity, 0..1); it acts only with SSSBlurEnabled.
+        // SSSColor is carried and serialized but NOT READ by any shader: in
+        // the old per-light snow BRDF it tinted a transmission term that the
+        // BRDF's own cosine always multiplied by zero, so it never changed a
+        // pixel, and the snow layer that replaced that BRDF has no such term.
         glm::vec3 SSSColor = glm::vec3(0.4f, 0.6f, 0.9f);
         f32 SSSIntensity = 0.6f;
 
@@ -1215,7 +1221,7 @@ namespace OloEngine
     {
         // vec4(BlurRadius, BlurFalloff, ScreenWidth, ScreenHeight)
         glm::vec4 BlurParams = glm::vec4(2.0f, 1.0f, 0.0f, 0.0f);
-        // vec4(Enabled, pad, pad, pad)
+        // vec4(Enabled, Strength = SnowSettings::SSSIntensity, pad, pad)
         glm::vec4 Flags = glm::vec4(0.0f);
 
         static constexpr u32 GetSize()
