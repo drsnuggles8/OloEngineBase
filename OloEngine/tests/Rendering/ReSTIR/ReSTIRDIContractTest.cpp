@@ -609,6 +609,17 @@ namespace OloEngine::Tests
         EXPECT_EQ(reasonWhen([](auto& i)
                              { i.Engagement.CandidateLightCount = 33; }),
                   ReSTIRDIFallbackReason::BelowEngagementThreshold);
+        // Issue #1336: a live light the shaders cannot reach would light
+        // NOTHING under the tier, because the deferred pass stops walking the
+        // clustered tiles when the tier is live — so the tier stands down.
+        EXPECT_EQ(reasonWhen([](auto& i)
+                             { i.LightsBeyondShaderBound = 1u; }),
+                  ReSTIRDIFallbackReason::LightsBeyondShaderBound);
+        // ...and a missing device still outranks it, like every capability.
+        ReSTIRDITechniqueInputs beyondAndNoDevice = healthy();
+        beyondAndNoDevice.LightsBeyondShaderBound = 3u;
+        beyondAndNoDevice.RayTracingAvailable = false;
+        EXPECT_EQ(SelectReSTIRDITechnique(beyondAndNoDevice).Reason, ReSTIRDIFallbackReason::RayTracingUnavailable);
 
         // A missing DEVICE outranks a small light set: reporting "too few
         // lights" on a machine that cannot ray trace at all would send the user

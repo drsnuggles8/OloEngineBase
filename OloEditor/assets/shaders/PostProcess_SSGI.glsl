@@ -43,15 +43,32 @@ void main()
 // G-Buffer, then cast a cosine-weighted hemisphere of short rays around the
 // normal. Each ray linear-marches in view space against scene depth; on a hit
 // (the ray passes just behind a visible surface, within a thickness tolerance)
-// the lit scene colour at the hit UV is the incoming indirect radiance. The
-// average radiance over the hemisphere, tinted by the receiver albedo, is the
-// one-bounce indirect diffuse — so a saturated wall bleeds its colour onto a
-// neutral floor. Unlike SSR (a replace/mix that substitutes a mirror
-// reflection), indirect diffuse is *extra* bounced light, so it is ADDED to the
-// lit colour, weighted by the SSGI intensity.
+// the lit scene colour at the hit UV is the incoming indirect radiance — so a
+// saturated wall bleeds its colour onto a neutral floor.
+//
+// WHAT IT OWNS (issue #1336). The lighting pass has ALREADY added indirect
+// diffuse to this pixel: the ambient ladder's rung (lightmap, probe volume or
+// IBL), which assumed radiance arrives from every direction of the hemisphere.
+// SSGI is a second estimate of that same quantity, better informed over the
+// directions its rays resolve on screen and uninformed everywhere else. So it
+// must REPLACE the ladder over the directions it resolved, never add to it:
+// adding counts the sky (or the baked bounce) behind a wall AND the wall's
+// bounced light for the same directions. With `c` the resolved fraction of the
+// cosine-weighted hemisphere, the pixel's indirect diffuse becomes
+//
+//     (1 - c) * ladder  +  kD * albedo * mean(resolved radiance)
+//
+// and this pass hands the composite the difference from what the frame already
+// carries: kD * albedo * sum(w_i * L_i) / N  -  c * ladder. It is SIGNED — a
+// floor under a dark overhang loses the sky the ladder gave it — and a miss
+// contributes exactly nothing, because the ladder still answers for it. The
+// ladder is re-selected here by the SAME function the lighting pass shaded the
+// pixel with (include/AmbientLadder.glsl), with the same AO applied, so the
+// fraction removed is the fraction that was there.
+// docs/agent-rules/lighting-signal-contract.md has the ownership table.
 //
 // OUTPUT (issue #902): this pass writes ONLY the stochastic term into the
-// dedicated SSGISignal target — rgb = the indirect diffuse estimate, a = the
+// dedicated SSGISignal target — rgb = the signed indirect-diffuse delta, a = the
 // positive view-space depth of the shading point (the temporal resolve's
 // disocclusion test needs it and there is no depth history buffer). It no
 // longer composites: PostProcess_SSGIResolve.glsl accumulates the signal and
@@ -61,9 +78,8 @@ void main()
 //
 // Cosine-weighted importance sampling (Malley's method) means the Monte-Carlo
 // estimator of the diffuse irradiance integral is simply the mean of the
-// per-ray radiance: Lo = albedo * (1/N) * sum(Li). Rays that leave the screen or
-// hit the sky see no on-screen light and contribute zero — screen-space GI can
-// only gather what is already on screen, so it fades out at screen borders.
+// per-ray radiance, and the resolved fraction is the mean of the per-ray
+// confidence.
 //
 // The hemisphere directions come from the shared blue-noise sampler (issue
 // #706) rather than the interleaved-gradient hash this pass used to carry. Same
@@ -98,11 +114,24 @@ layout(location = 0) in vec2 v_TexCoord;
 #define u_DepthTexture OLO_HEAP_TEX_2D(19)   // TEX_POSTPROCESS_DEPTH
 #define u_GBufferNormal OLO_HEAP_TEX_2D(44)  // TEX_GBUFFER_NORMAL
 #define u_GBufferAlbedo OLO_HEAP_TEX_2D(43)  // TEX_GBUFFER_ALBEDO
+#define u_GBufferBakedGI OLO_HEAP_TEX_2D(69) // TEX_GBUFFER_BAKEDGI (#1336)
+#define u_IrradianceMap OLO_HEAP_TEX_CUBE(10) // TEX_USER_0 (#1336)
+#define u_ScreenSpaceAO OLO_HEAP_TEX_2D(20)  // TEX_SSAO (#1336)
+#define u_GBufferEmissive OLO_HEAP_TEX_2D(45) // TEX_GBUFFER_EMISSIVE (#1336)
 #else
 layout(binding = 0) uniform sampler2D u_SceneColor;     // lit upstream HDR colour (indirect light source)
 layout(binding = 19) uniform sampler2D u_DepthTexture;  // scene depth (nonlinear, [0,1])
 layout(binding = 44) uniform sampler2D u_GBufferNormal; // RT1: rg = oct world normal, z = roughness, w = ao
 layout(binding = 43) uniform sampler2D u_GBufferAlbedo; // RT0: rgb = albedo, a = metallic
+// The ladder the trace replaces (issue #1336): RT5 is the lightmap sample the
+// lighting pass handed the ladder, the irradiance cube its IBL rung, the AO
+// buffer the visibility it multiplied the result by. Bound by SSGIRenderPass
+// (white / placeholder when a source is absent; the UBO lanes gate the reads).
+layout(binding = 69) uniform sampler2D u_GBufferBakedGI;
+layout(binding = 10) uniform samplerCube u_IrradianceMap;
+layout(binding = 20) uniform sampler2D u_ScreenSpaceAO;
+// RT2's flag lane: an unlit pixel was given no ladder (issue #1336).
+layout(binding = 45) uniform sampler2D u_GBufferEmissive;
 #endif
 
 // The shared blue-noise tile at TEX_BLUE_NOISE (17) plus the sample sequence
@@ -128,7 +157,23 @@ layout(std140, binding = 40) uniform SSGIParams
     vec4 u_TraceParams;    // x = trace width, y = trace height, z = 1/width, w = 1/height
     vec4 u_DenoiseParams;  // x = PreBlurRadius (px), y = PostBlurMinRadius, z = PostBlurMaxRadius, w = VarianceKnee
     vec4 u_DenoiseGuide;   // x = PlaneTolerance (relative), y = NormalPower, z = TargetHistoryLength, w = RayDistribution (0/1)
+    vec4 u_LadderParams;   // #1336: x = EnableIBL, y = EnableLightProbes, z = IBLIntensity, w = unused
+    vec4 u_ScreenAOParams; // #1336: x = live, y = strength, z/w = reconstruction projection (2,2) / (3,2)
+    mat4 u_InverseRelativeView; // #1336: inverse of the render-relative view
 };
+
+// The ambient ladder and the AO upsample the lighting pass shaded this pixel
+// with (issue #1336). LightProbeSampling brings the probe volume's own
+// bindings (UBO 22 / 51, SSBO 8, the always-bound DDGI atlas slots).
+#include "include/PBRCommon.glsl"
+#include "include/LightProbeSampling.glsl"
+#define OLO_AMBIENT_LADDER_EXPLICIT_CONTROLS
+#include "include/AmbientLadder.glsl"
+// The weather wetness DeferredLighting applies before its ladder (UBO 54 plus
+// the always-bound cloud-shadow slot 62, as GBufferRaySurface.glsl uses it).
+#include "include/AtmosphereShading.glsl"
+#define OLO_SSAO_TAP_DEPTH(uv) texture(u_DepthTexture, (uv)).r
+#include "include/ScreenSpaceAOSampling.glsl"
 
 // The sky sentinel this pass writes into alpha now lives in the denoiser
 // header, because every later stage of the chain has to recognise it — see
@@ -229,11 +274,59 @@ void main()
         return;
     }
 
-    vec3 albedo = texelFetch(u_GBufferAlbedo, centerTexel, 0).rgb;
+    // An UNLIT pixel (grid, light billboards) took no ambient in the lighting
+    // pass, so there is no ladder here for the trace to replace (issue #1336).
+    if (oloGBufferFlagsAreUnlit(oloDecodeGBufferFlags(texelFetch(u_GBufferEmissive, centerTexel, 0).a)))
+    {
+        o_Color = vec4(0.0, 0.0, 0.0, viewDepth);
+        return;
+    }
+
+    vec4 albedoMetallic = texelFetch(u_GBufferAlbedo, centerTexel, 0);
+    vec3 albedo = albedoMetallic.rgb;
 
     // World normal -> view space.
     vec3 Nworld = OctDecode(gN.xy);
     vec3 Nview = normalize(mat3(u_View) * Nworld);
+
+    // ---- THE LADDER THIS PIXEL WAS SHADED WITH (issue #1336) --------------
+    // Re-selected by the same function DeferredLightingShared called, from the
+    // same inputs: RT5, the probe volume, the irradiance cube, the same rung
+    // controls, and the same material x screen-space AO it was multiplied by.
+    // `u_View` is the ABSOLUTE view the marcher projects with; the ladder needs
+    // the RENDER-RELATIVE position the probe-volume bounds are uploaded in, the
+    // one DeferredLighting gets by subtracting u_RenderOrigin. The CPU uploads
+    // that inverse once per frame rather than inverting a mat4 per pixel.
+    vec3 worldPos = (u_InverseRelativeView * vec4(P, 1.0)).xyz;
+    vec3 Vworld = normalize(u_InverseRelativeView[3].xyz - worldPos);
+    float metallic = albedoMetallic.a;
+    // The surface DeferredLighting shaded: roughness floored as it is read,
+    // then the weather wetness on albedo and roughness, in that order.
+    float roughness = max(gN.z, MIN_ROUGHNESS);
+    atmosphereApplyWetness(albedo, roughness, Nworld);
+    float screenAO = 1.0;
+    if (u_ScreenAOParams.x > 0.5)
+        screenAO = oloScreenSpaceAOVisibility(
+            oloSampleScreenSpaceAO(u_ScreenSpaceAO, v_TexCoord, u_ScreenAOParams.z, u_ScreenAOParams.w),
+            u_ScreenAOParams.y);
+    // RT5 only when the pass bound the real one (u_LadderParams.w): the white
+    // placeholder would read as "lightmapped, E = 1".
+    vec4 lightmapSample = (u_LadderParams.w > 0.5) ? texelFetch(u_GBufferBakedGI, centerTexel, 0) : vec4(0.0);
+    OloAmbientDiffuseRung rung = oloSelectAmbientDiffuseRung(
+        lightmapSample, worldPos, Nworld, Vworld, u_IrradianceMap,
+        u_LadderParams.x > 0.5, u_LadderParams.y > 0.5, u_LadderParams.z);
+    vec3 ladderDiffuse =
+        oloAmbientDiffuseFromRung(rung, albedo, metallic, roughness, Nworld, Vworld) * (gN.w * screenAO);
+    // The weight a resolved ray's radiance is reflected with: the SAME weight the
+    // rung applies to its own irradiance — the (1 - F)(1 - metallic) body-lobe
+    // split on every physical rung, so a metal takes no diffuse bounce (the old
+    // `albedo * mean(L)` gave it in full), and plain albedo on the flat fill.
+    // Weighting the two estimates differently would make the mixture change
+    // the pixel even where the resolved radiance equals what the rung assumed.
+    OloAmbientDiffuseRung unitRung = rung;
+    unitRung.NormalizedIrradiance = vec3(1.0);
+    unitRung.Scale = 1.0;
+    vec3 diffuseWeight = oloAmbientDiffuseFromRung(unitRung, albedo, metallic, roughness, Nworld, Vworld);
 
     float maxSteps = u_RayParams.x;
     float maxDist = u_RayParams.y;
@@ -250,6 +343,7 @@ void main()
     uint frameIndex = uint(max(u_Flags.y, 0.0));
 
     vec3 indirect = vec3(0.0);
+    float resolved = 0.0; // sum of per-ray confidence: the directions SSGI answers for
 
     for (int r = 0; r < HARD_MAX_RAYS; ++r)
     {
@@ -310,7 +404,9 @@ void main()
                     edgeFade *= smoothstep(0.0, edge, uv.y) * smoothstep(0.0, edge, 1.0 - uv.y);
                 }
                 float distFade = 1.0 - clamp(traveled / maxDist, 0.0, 1.0);
-                indirect += texture(u_SceneColor, uv).rgb * edgeFade * distFade;
+                float confidence = edgeFade * distFade;
+                indirect += texture(u_SceneColor, uv).rgb * confidence;
+                resolved += confidence;
                 break;
             }
             else if (delta >= thickness)
@@ -322,10 +418,19 @@ void main()
         }
     }
 
-    // Cosine-weighted estimator: irradiance mean over ALL rays (misses = 0), then
-    // tint by the receiver's diffuse albedo. Diffuse reflectance already folds the
-    // 1/pi normalisation, so Lo = albedo * mean(Li).
-    vec3 indirectDiffuse = albedo * (indirect / float(rayCount));
+    // The mixture's DIFFERENCE from the frame (issue #1336): the resolved
+    // directions' radiance through the body lobe, minus the share of the
+    // ladder's estimate those directions carried. A miss adds 0 to both sums,
+    // so an unresolved hemisphere hands back exactly zero and the ladder keeps
+    // it. Diffuse reflectance already folds the 1/pi normalisation, so a
+    // resolved ray contributes kD * albedo * L.
+    float invRays = 1.0 / float(rayCount);
+    vec3 indirectDiffuse = diffuseWeight * (indirect * invRays) - (resolved * invRays) * ladderDiffuse;
+
+    // A non-finite ladder (a probe atlas read gone wrong) must not enter the
+    // accumulator, where one NaN spreads through the history.
+    if (any(isnan(indirectDiffuse)) || any(isinf(indirectDiffuse)))
+        indirectDiffuse = vec3(0.0);
 
     // Signal only — no base colour, no intensity, no debug branch. All three
     // belong to the composite draw (PostProcess_SSGIComposite.glsl); mixing any

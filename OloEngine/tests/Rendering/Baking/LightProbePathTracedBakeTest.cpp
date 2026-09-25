@@ -19,10 +19,12 @@
 //      signature (a probe facing the red wall reconstructs red-shifted).
 //   3. CONVENTION: the pipeline stores RAW RADIANCE PROJECTIONS
 //      (c_i = ∫ L·Y_i dω, matching LightProbeBaker::ProjectToSH — no cosine
-//      convolution, no 1/π), so the shader's evaluateSH reconstructs
-//      band-limited RADIANCE, not irradiance E. A uniform environment pins
-//      that numerically: evaluateSH returns L while EstimateIrradiance
-//      returns π·L. See the convention note in LightProbeBaker.cpp.
+//      convolution, no 1/π), so the plain evaluateSH reconstructs
+//      band-limited RADIANCE, not irradiance E. The probe sampler applies the
+//      cosine lobe per band (evaluateSHCosineIrradiance, issue #1336) and so
+//      hands the lit passes E. A uniform environment pins both numerically:
+//      evaluateSH returns L, while the production irradiance evaluator and
+//      EstimateIrradiance both return π·L.
 //   4. DETERMINISM: two bakes of the same room are bit-identical (memcmp),
 //      per the bake's per-probe-seed contract.
 //
@@ -63,15 +65,16 @@ namespace OloEngine::Tests
     namespace
     {
         // ---------------------------------------------------------------------
-        // Faithful CPU port of the shader's SH evaluation, cited from
+        // Faithful CPU port of the shader's RADIANCE reconstruction, cited from
         // OloEditor/assets/shaders/include/SphericalHarmonics.glsl:
-        //   - evaluateSHBasis (lines 23-34): the 9 L2 basis values,
-        //   - evaluateSH (lines 38-49): plain dot product against the stored
-        //     coefficient vec3s, clamped at zero.
-        // Deliberately NO cosine-convolution factors and NO normalization —
-        // that is exactly what the shader computes from the 9 vec4s that
-        // sampleLightProbeGrid fetches (LightProbeSampling.glsl lines 72-153;
-        // u_ProbeIntensity defaults to 1 and is not modelled here).
+        //   - evaluateSHBasis: the 9 L2 basis values,
+        //   - evaluateSH: plain dot product against the stored coefficient
+        //     vec3s, clamped at zero.
+        // Deliberately NO cosine-convolution factors and NO normalization. The
+        // probe sampler (sampleLightProbeGrid) consumed exactly this until
+        // issue #1336; it now evaluates evaluateSHCosineIrradiance, whose CPU
+        // twin is SHBasis::EvaluateCosineConvolvedIrradiance. This port stays
+        // as the storage-convention pin: it is what the coefficients MEAN.
         // ---------------------------------------------------------------------
         [[nodiscard]] glm::vec3 ShaderEvaluateSH(const SHCoefficients& sh, const glm::vec3& n)
         {
@@ -100,9 +103,11 @@ namespace OloEngine::Tests
         // prediction of the irradiance E(n) = ∫ L(ω)·max(0, n·ω) dω is
         //     E_SH(n) = Σ c_i · Â_l(i) · Y_i(n)
         // with the cosine-lobe convolution factors Â_0 = π, Â_1 = 2π/3,
-        // Â_2 = π/4 (Ramamoorthi & Hanrahan 2001). The SHADER applies none of
-        // these — see ShaderEvaluateSH above and the convention test below —
-        // so this bridge lives in the test only, to compare like with like.
+        // Â_2 = π/4 (Ramamoorthi & Hanrahan 2001). Written out here from the
+        // paper rather than calling the production evaluator, so the
+        // production twin (SHBasis::EvaluateCosineConvolvedIrradiance, what
+        // the probe sampler's GLSL mirrors since #1336) is checked AGAINST an
+        // independent derivation instead of against itself.
         // ---------------------------------------------------------------------
         [[nodiscard]] glm::vec3 ShIrradiance(const SHCoefficients& sh, const glm::vec3& n)
         {
@@ -353,6 +358,12 @@ namespace OloEngine::Tests
 
             shaderEval[i] = ShaderEvaluateSH(sh, point.Normal);
             shIrradiance[i] = ShIrradiance(sh, point.Normal);
+            // The production evaluator IS the independent bridge, to float
+            // rounding: the same band factors, the same basis.
+            const glm::vec3 production = SHBasis::EvaluateCosineConvolvedIrradiance(sh, point.Normal);
+            EXPECT_NEAR(production.r, shIrradiance[i].r, 1e-4f * std::max(1.0f, shIrradiance[i].r)) << "point " << i;
+            EXPECT_NEAR(production.g, shIrradiance[i].g, 1e-4f * std::max(1.0f, shIrradiance[i].g)) << "point " << i;
+            EXPECT_NEAR(production.b, shIrradiance[i].b, 1e-4f * std::max(1.0f, shIrradiance[i].b)) << "point " << i;
             u32 const oracleSeed = PathTracing::MakePixelSeed(static_cast<u32>(i), 0xADDu, tracer.Seed);
             oracle[i] = PathTracing::PathTracer::EstimateIrradiance(
                 baked.Room.World, position, point.Normal, tracer, oracleSeed);
@@ -364,9 +375,10 @@ namespace OloEngine::Tests
         // legitimately deviate; [0.6, 1.6] catches units slips (a stray π, a
         // lost 4π/N, a cosine factor applied twice) without failing on the
         // approximation itself. Compared via the cosine-convolved SH
-        // irradiance, the quantity in the ORACLE's units — the raw shader
-        // reconstruction is radiance-convention and sits ~1/π below E by
-        // design (pinned by the UniformEnvironment test below).
+        // irradiance, the quantity in the ORACLE's units and — since #1336 —
+        // the quantity the probe sampler hands the lit passes. The raw
+        // radiance reconstruction sits ~1/π below E (pinned by the
+        // UniformEnvironment test below).
         for (sizet i = 0; i < kPointCount; ++i)
         {
             f32 const oracleMean = MeanChannel(oracle[i]);
@@ -504,9 +516,9 @@ namespace OloEngine::Tests
         }
 
         // ...while TRUE irradiance of the same field is π·L — the reference
-        // oracle integrates a constant, so it returns it near-exactly. This is
-        // the measured divergence between the probe pipeline's shader output
-        // and PathTracer::EstimateIrradiance units: a factor of π on band 0.
+        // oracle integrates a constant, so it returns it near-exactly. This
+        // factor of π on band 0 is what the probe sampler used to hand the
+        // lit passes short, and what evaluateSHCosineIrradiance now restores.
         PathTracing::PathTracerSettings tracer;
         tracer.SamplesPerPixel = 32;
         tracer.MaxBounces = 1;
@@ -525,6 +537,17 @@ namespace OloEngine::Tests
         EXPECT_NEAR(eSh.r / oracleE.r, 1.0f, 0.06f);
         EXPECT_NEAR(eSh.g / oracleE.g, 1.0f, 0.06f);
         EXPECT_NEAR(eSh.b / oracleE.b, 1.0f, 0.06f);
+
+        // And the PRODUCTION evaluator — what the probe sampler's GLSL mirrors
+        // — lands on the oracle's E for every normal, not just +Y (issue
+        // #1336): the probe volume hands the ambient ladder full irradiance.
+        for (const glm::vec3& n : normals)
+        {
+            const glm::vec3 eProd = SHBasis::EvaluateCosineConvolvedIrradiance(sh, n);
+            EXPECT_NEAR(eProd.r / oracleE.r, 1.0f, 0.06f) << "normal " << n.x << "," << n.y << "," << n.z;
+            EXPECT_NEAR(eProd.g / oracleE.g, 1.0f, 0.06f) << "normal " << n.x << "," << n.y << "," << n.z;
+            EXPECT_NEAR(eProd.b / oracleE.b, 1.0f, 0.06f) << "normal " << n.x << "," << n.y << "," << n.z;
+        }
     }
 
     TEST(LightProbePathTracedBake, BuriedProbeIsFlaggedInvalid)

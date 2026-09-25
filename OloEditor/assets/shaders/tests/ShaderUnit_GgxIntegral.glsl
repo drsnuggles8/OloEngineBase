@@ -30,7 +30,13 @@ uniform int u_ThetaSteps;
 uniform int u_PhiSteps;
 
 const float PI = 3.14159265358979;
-const float EPSILON = 1e-6;
+// PBRCommon.glsl's EPSILON — the clamp the shipped distributionGGX applies.
+// This copy used 1e-6, so the probe integrated a function that does not ship
+// (issue #1336). PBRCommon itself cannot be included in a compute stage (its
+// ambient helpers use implicit-LOD texture()), so the copy mirrors it and the
+// CPU side stays above the roughness where the clamp engages (~0.27; see
+// ReferenceBRDFTest.GgxNdfPeakIsEpsilonClampedAtLowRoughness).
+const float EPSILON = 1e-4;
 
 float distributionGGX(vec3 N, vec3 H, float roughness)
 {

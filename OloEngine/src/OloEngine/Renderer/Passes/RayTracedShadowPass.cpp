@@ -48,6 +48,7 @@ namespace OloEngine
         RenderGraphNode::Setup(builder, blackboard);
         m_SelectedSceneDepthTexture = {};
         m_SelectedGBufferNormalTexture = {};
+        m_SelectedGBufferEmissiveTexture = {};
         m_SelectedVelocityTexture = {};
         m_SelectedHistoryTexture = {};
         m_SelectedSurfaceHistoryTexture = {};
@@ -75,6 +76,14 @@ namespace OloEngine
             builder.Read(blackboard.GBuffer.GBufferNormal, RGReadUsage::ShaderSample);
         m_SelectedSceneDepthTexture = blackboard.Scene.SceneDepth;
         m_SelectedGBufferNormalTexture = blackboard.GBuffer.GBufferNormal;
+        // RT2's flag lane says which pixels have a transmitted lobe, the only
+        // ones that trace a back-facing channel (issue #1336).
+        if (blackboard.GBuffer.GBufferEmissive.IsValid())
+        {
+            [[maybe_unused]] const auto emissiveRead =
+                builder.Read(blackboard.GBuffer.GBufferEmissive, RGReadUsage::ShaderSample);
+            m_SelectedGBufferEmissiveTexture = blackboard.GBuffer.GBufferEmissive;
+        }
 
         // Preserve the exact packed surface metadata this resolve sampled.
         // Declared from Setup, not from PopulateBlackboard: BuildFrameGraph
@@ -524,6 +533,18 @@ namespace OloEngine
                                         RHI::HeapSlotLifetime::FrameTransient);
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_NORMAL, gbufferNormalID,
                                         RHI::HeapSlotLifetime::FrameTransient);
+        {
+            // A missing RT2 binds white, whose flag lane reads as unlit: no pixel
+            // then traces a back-facing channel, which is the pre-#1336 answer.
+            const RHI::ResourceHandle emissiveID = m_SelectedGBufferEmissiveTexture.IsValid()
+                                                       ? context.ResolveTextureHandle(m_SelectedGBufferEmissiveTexture)
+                                                       : RHI::ResourceHandle{};
+            const RHI::ResourceHandle whiteID =
+                Renderer3D::GetWhiteTexture() ? Renderer3D::GetWhiteTexture()->GetRHIHandle() : RHI::ResourceHandle{};
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_EMISSIVE,
+                                            emissiveID.IsValid() ? emissiveID : whiteID,
+                                            RHI::HeapSlotLifetime::FrameTransient);
+        }
         BindBlueNoiseTexture(context, m_BlueNoiseTexture);
         drawFullscreen();
         signalFramebuffer->Unbind();
@@ -620,6 +641,7 @@ namespace OloEngine
         m_Target = nullptr;
         m_SelectedSceneDepthTexture = {};
         m_SelectedGBufferNormalTexture = {};
+        m_SelectedGBufferEmissiveTexture = {};
         m_SelectedVelocityTexture = {};
         m_SelectedHistoryTexture = {};
         m_SelectedSurfaceHistoryTexture = {};

@@ -118,6 +118,9 @@ layout(std140, binding = 40) uniform SSGIParams
     vec4 u_TraceParams;     // x = trace width, y = trace height, z = 1/width, w = 1/height
     vec4 u_DenoiseParams;
     vec4 u_DenoiseGuide;
+    vec4 u_LadderParams;   // #1336, read by the trace only
+    vec4 u_ScreenAOParams; // #1336, read by the trace only
+    mat4 u_InverseRelativeView; // #1336, read by the trace only
 };
 
 // Relative view-depth tolerance for the disocclusion test. 5% of the shading
@@ -242,11 +245,12 @@ void main()
         vec4(current.rgb, 0.0), previousMoments, historyAccepted, 255.0);
     vec3 variance = OloTemporalVariance(moments).rgb;
 
-    // Indirect diffuse is a non-negative radiance; the variance clip can
-    // undershoot on a hard edge, and a negative here would darken the composite
-    // below the direct lighting. Alpha carries THIS frame's depth forward so
-    // next frame's disocclusion test has something to compare against.
-    o_Color = vec4(max(resolved, vec3(0.0)), current.a);
+    // The signal is a SIGNED delta against the ambient ladder since #1336 —
+    // negative where on-screen geometry blocks sky the ladder counted — so it
+    // is NOT clamped at zero here; the composite clamps the finished colour.
+    // Alpha carries THIS frame's depth forward so next frame's disocclusion
+    // test has something to compare against.
+    o_Color = vec4(resolved, current.a);
     o_MomentsFirst = vec4(moments.First.rgb, moments.HistoryLength);
     o_MomentsSecond = vec4(moments.Second.rgb, dot(variance, vec3(0.2126, 0.7152, 0.0722)));
     o_HistoryDiagnostics = vec4(float(rejectionReasons), moments.HistoryLength,

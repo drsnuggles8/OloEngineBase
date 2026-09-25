@@ -63,12 +63,15 @@ void main()
 //   * a uniform environment (plus, optionally, the frame's prefiltered
 //     environment cube) collected at full weight on escape.
 //
-// THE CLOSURE IS SHARED, NOT RE-DERIVED. Every surface shades with the v2
-// closure's Evaluate / Sample / Pdf triple from PBRCommon.glsl, whose C++ twins
-// the CPU tracer integrates; ClosureV2GpuParityTest and
-// ClosureV2SampleGpuParityTest pin all three on the device. A Legacy material
-// is therefore shaded as ClosureV2 here — counted on the CPU side
-// (GpuPathTracerStats::LegacyMaterialsShadedAsClosureV2), never silent.
+// THE CLOSURE IS SHARED, NOT RE-DERIVED. Every surface shades with ITS OWN
+// closure version: PtEvaluateBRDF / PtBsdfPdf / PtSampleBRDF
+// (include/PathTracerBSDF.glsl) dispatch on the material's ClosureVersion
+// exactly as PBRClosureBSDF.h does for the CPU tracer — the v2 triple from
+// PBRCommon.glsl (ClosureV2GpuParityTest, ClosureV2SampleGpuParityTest), and
+// the Legacy sampler mirrored in PathTracerBSDF.glsl (pinned end to end by
+// GpuPathTracerDevice's Legacy Cornell parity). An earlier revision shaded
+// Legacy as ClosureV2 and counted it; that counter no longer exists because
+// the substitution no longer happens (comment corrected in #1336).
 //
 // PROGRESSIVE ACCUMULATION. Attachment 1 carries the running radiance SUM with
 // the sample COUNT in alpha, extracted into a registry-owned history every

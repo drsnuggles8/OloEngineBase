@@ -91,6 +91,9 @@ layout(std140, binding = 40) uniform SSGIParams
     vec4 u_TraceParams;    // x = trace width, y = trace height, z = 1/width, w = 1/height
     vec4 u_DenoiseParams;  // x = PreBlurRadius (px), y = PostBlurMinRadius, z = PostBlurMaxRadius, w = VarianceKnee
     vec4 u_DenoiseGuide;   // x = PlaneTolerance, y = NormalPower, z = TargetHistoryLength, w = RayDistribution
+    vec4 u_LadderParams;   // #1336, read by the trace only
+    vec4 u_ScreenAOParams; // #1336, read by the trace only
+    mat4 u_InverseRelativeView; // #1336, read by the trace only
 };
 
 void main()

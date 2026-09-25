@@ -9,6 +9,7 @@
 
 #include <cmath>
 #include <limits>
+#include <vector>
 
 // =============================================================================
 // Screen-Space Global Illumination — CPU contract tests.
@@ -147,13 +148,13 @@ TEST(ScreenSpaceGI, SSGIUBOGetSizeMatchesSizeof)
 }
 
 // The std140 block in PostProcess_SSGI.glsl is laid out byte-for-byte against
-// this struct: 3 mat4 (192) + 8 vec4 (128) = 320. The trailing vec4s are read by
+// this struct: 3 mat4 (192) + 10 vec4 (160) + 1 mat4 (64) = 416. The trailing lanes are read by
 // the SAME block declared in the four other shaders of the pass
 // (PreBlur / Resolve / PostBlur / Composite), so a drift here breaks five
 // shaders — which is why the offsets, not just the size, are pinned.
 TEST(ScreenSpaceGI, SSGIUBOLayoutSizeMatchesShader)
 {
-    EXPECT_EQ(sizeof(SSGIUBOData), 320u) << "SSGIUBOData drifted from the PostProcess_SSGI.glsl SSGIParams block";
+    EXPECT_EQ(sizeof(SSGIUBOData), 416u) << "SSGIUBOData drifted from the PostProcess_SSGI.glsl SSGIParams block";
     EXPECT_EQ(offsetof(SSGIUBOData, RayParams), 192u) << "RayParams must follow the 3 matrices at offset 192";
     EXPECT_EQ(offsetof(SSGIUBOData, TemporalParams), 256u) << "TemporalParams must follow Flags at offset 256";
     // Issue #708's three lanes. SSGIRenderPass::Execute patches TraceParams by
@@ -162,6 +163,11 @@ TEST(ScreenSpaceGI, SSGIUBOLayoutSizeMatchesShader)
     EXPECT_EQ(offsetof(SSGIUBOData, TraceParams), 272u) << "TraceParams must follow TemporalParams at offset 272";
     EXPECT_EQ(offsetof(SSGIUBOData, DenoiseParams), 288u);
     EXPECT_EQ(offsetof(SSGIUBOData, DenoiseGuide), 304u);
+    // Issue #1336's two lanes — the ambient ladder the trace replaces. Execute
+    // patches both by offsetof, for the reason TraceParams gives above.
+    EXPECT_EQ(offsetof(SSGIUBOData, LadderParams), 320u);
+    EXPECT_EQ(offsetof(SSGIUBOData, ScreenAOParams), 336u);
+    EXPECT_EQ(offsetof(SSGIUBOData, InverseRelativeView), 352u);
 }
 
 TEST(ScreenSpaceGI, SSGIBindingIsUniqueAndExpected)
@@ -307,50 +313,97 @@ TEST(ScreenSpaceGI, MarchStepsBoundedByDistanceAndStepCap)
 
 // ---- Indirect-diffuse estimator ---------------------------------------------
 
-// Cosine-weighted MC of a CONSTANT incoming radiance L over the hemisphere
-// returns L (the pdf cancels the cosine), so the one-bounce diffuse out is
-// albedo * L — no extra 1/pi, since diffuse reflectance already folds it. The
-// shader sums per-ray radiance and divides by the ray count, then tints by
-// albedo; this pins that arithmetic. Misses contribute zero (screen-space sees
-// no off-screen light), which scales the bounce by the on-screen hit fraction.
-TEST(ScreenSpaceGI, IndirectDiffuseIsAlbedoTimesMeanRadiance)
+// THE ESTIMATOR IS A REPLACEMENT OVER THE RESOLVED DIRECTIONS (issue #1336).
+//
+// The lighting pass has already added the ambient ladder's indirect diffuse,
+// which assumed radiance arrives from EVERY direction. The trace answers for the
+// directions its rays resolve on screen, so it hands back
+//
+//     delta = kD*albedo * sum(w_i * L_i) / N  -  (sum(w_i) / N) * ladder
+//
+// (w_i the per-ray confidence, 0 for a miss). This mirrors the tail of
+// PostProcess_SSGI.glsl's main(); a uniform ladder of radiance Lbar stands for
+// ladder = kD*albedo*Lbar.
+namespace
+{
+    glm::vec3 SSGIDelta(const glm::vec3& diffuseWeight, const glm::vec3& ladder, const std::vector<glm::vec4>& rays)
+    {
+        glm::vec3 radiance(0.0f);
+        float resolved = 0.0f;
+        for (const glm::vec4& ray : rays) // rgb = hit radiance, a = confidence (0 = miss)
+        {
+            radiance += glm::vec3(ray) * ray.a;
+            resolved += ray.a;
+        }
+        const float invRays = 1.0f / static_cast<float>(rays.size());
+        return diffuseWeight * (radiance * invRays) - (resolved * invRays) * ladder;
+    }
+} // namespace
+
+TEST(ScreenSpaceGI, TheEstimateReplacesTheLadderOverResolvedDirectionsOnly)
 {
     const glm::vec3 albedo(0.8f, 0.2f, 0.2f);
-    const glm::vec3 L(1.0f, 1.0f, 1.0f);
-    const int rayCount = 8;
+    const glm::vec3 skyRadiance(1.0f, 1.0f, 1.0f);
+    const glm::vec3 ladder = albedo * skyRadiance; // what the lighting pass already added
+    constexpr int kRays = 8;
 
-    // All rays hit constant radiance L.
+    // Every ray resolves exactly the radiance the ladder assumed: SSGI adds
+    // NOTHING. The pre-#1336 additive estimator added albedo * L here — the
+    // same light a second time.
     {
-        glm::vec3 sum(0.0f);
-        for (int i = 0; i < rayCount; ++i)
-            sum += L;
-        const glm::vec3 indirect = albedo * (sum / static_cast<float>(rayCount));
-        EXPECT_NEAR(indirect.r, albedo.r * L.r, 1e-5f);
-        EXPECT_NEAR(indirect.g, albedo.g * L.g, 1e-5f);
-        EXPECT_NEAR(indirect.b, albedo.b * L.b, 1e-5f);
+        const std::vector<glm::vec4> rays(kRays, glm::vec4(skyRadiance, 1.0f));
+        const glm::vec3 delta = SSGIDelta(albedo, ladder, rays);
+        EXPECT_NEAR(delta.r, 0.0f, 1e-6f);
+        EXPECT_NEAR(delta.g, 0.0f, 1e-6f);
+        const glm::vec3 legacyAdditive = albedo * skyRadiance;
+        EXPECT_GT(legacyAdditive.r, 0.0f) << "paired negative: the additive estimator double-counted this pixel";
     }
 
-    // Half the rays miss (radiance 0): the bounce halves.
+    // Every ray misses: the ladder keeps the whole hemisphere, delta is zero.
     {
-        glm::vec3 sum(0.0f);
-        for (int i = 0; i < rayCount; ++i)
-            sum += (i % 2 == 0) ? L : glm::vec3(0.0f);
-        const glm::vec3 indirect = albedo * (sum / static_cast<float>(rayCount));
-        EXPECT_NEAR(indirect.r, albedo.r * 0.5f, 1e-5f);
+        const std::vector<glm::vec4> rays(kRays, glm::vec4(0.0f));
+        const glm::vec3 delta = SSGIDelta(albedo, ladder, rays);
+        EXPECT_FLOAT_EQ(delta.r, 0.0f);
+    }
+
+    // Half the rays hit a dark occluder: the sky the ladder counted behind it
+    // is taken BACK. The delta is negative, and that is the point.
+    {
+        std::vector<glm::vec4> rays;
+        for (int i = 0; i < kRays; ++i)
+            rays.push_back((i % 2 == 0) ? glm::vec4(0.0f, 0.0f, 0.0f, 1.0f) : glm::vec4(0.0f));
+        const glm::vec3 delta = SSGIDelta(albedo, ladder, rays);
+        EXPECT_NEAR(delta.r, -0.5f * ladder.r, 1e-6f);
+        EXPECT_LT(delta.r, 0.0f);
+    }
+
+    // Half the rays hit a bright red wall: those directions carry the wall's
+    // radiance instead of the sky's; the other half keep the ladder.
+    {
+        const glm::vec3 wall(3.0f, 0.2f, 0.2f);
+        std::vector<glm::vec4> rays;
+        for (int i = 0; i < kRays; ++i)
+            rays.push_back((i % 2 == 0) ? glm::vec4(wall, 1.0f) : glm::vec4(0.0f));
+        const glm::vec3 delta = SSGIDelta(albedo, ladder, rays);
+        const glm::vec3 finalIndirect = ladder + delta;
+        const glm::vec3 expected = 0.5f * ladder + 0.5f * albedo * wall;
+        EXPECT_NEAR(finalIndirect.r, expected.r, 1e-5f);
+        EXPECT_NEAR(finalIndirect.g, expected.g, 1e-5f);
     }
 }
 
-// Additive composite (vs SSR's replace/mix): indirect diffuse is EXTRA bounced
-// light, so out = base + indirectDiffuse * intensity.
-TEST(ScreenSpaceGI, CompositeIsAdditive)
+// The composite adds the SIGNED delta and clamps the finished colour, never
+// the delta: clamping the delta at zero would leave the sky behind every
+// occluder double-counted, which is the bug the delta exists to remove.
+TEST(ScreenSpaceGI, CompositeClampsTheFinishedColourNotTheDelta)
 {
     const glm::vec3 base(0.3f, 0.3f, 0.3f);
-    const glm::vec3 indirectDiffuse(0.2f, 0.05f, 0.05f);
-    const float intensity = 2.0f;
-    const glm::vec3 out = base + indirectDiffuse * intensity;
-    EXPECT_NEAR(out.r, 0.3f + 0.2f * 2.0f, 1e-5f);
-    EXPECT_NEAR(out.g, 0.3f + 0.05f * 2.0f, 1e-5f);
-    EXPECT_GT(out.r, base.r) << "additive GI must brighten, never darken";
+    const glm::vec3 delta(-0.1f, 0.05f, -0.5f);
+    const float intensity = 1.0f;
+    const glm::vec3 out = glm::max(base + delta * intensity, glm::vec3(0.0f));
+    EXPECT_NEAR(out.r, 0.2f, 1e-6f) << "a negative delta must darken: it removes the ladder's share it replaced";
+    EXPECT_NEAR(out.g, 0.35f, 1e-6f);
+    EXPECT_FLOAT_EQ(out.b, 0.0f) << "overshoot below zero is clamped on the finished colour";
 }
 
 // ---- Edge fade --------------------------------------------------------------

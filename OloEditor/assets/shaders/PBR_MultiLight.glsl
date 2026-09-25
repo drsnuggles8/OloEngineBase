@@ -568,6 +568,14 @@ void main()
     }
     vec3 V = normalize(u_CameraPosition - v_WorldPos);
 
+    // THE ROUGHNESS FLOOR THE DEFERRED PATH APPLIES (issue #1336), and in its
+    // order: DeferredLighting.glsl reads the G-Buffer roughness through
+    // max(.., MIN_ROUGHNESS) and only then applies the wetness below. Without
+    // the floor a Legacy material authored below 0.04 took a sharper GGX peak
+    // on Forward / Forward+ than on Deferred, and so did every ray tier's
+    // surface decode (GBufferRaySurface.glsl, same floor, same order).
+    roughness = max(roughness, MIN_ROUGHNESS);
+
     // Weather response (issue #633): rain-wet surfaces darken and gloss up
     // before any lighting reads albedo/roughness.
     atmosphereApplyWetness(albedo, roughness, N);
@@ -942,7 +950,7 @@ void main()
     // the last moment at which the halves are still separable, and it is where
     // #1241's diffusion of the DIFFUSE half will go. A non-skin material
     // uploads a neutral tint, so this is a multiply by one.
-    OloSurfaceLighting lighting = oloSurfaceLightingAdd(oloSurfaceLightingScale(ambient, vec3(ao)), Lo);
+    OloSurfaceLighting lighting = oloComposeReflectedLighting(Lo, ambient, ao, vec3(0.0));
     lighting = oloApplySkinProfile(lighting, u_MaterialKind, u_SkinEvaluationModel,
                                    vec3(u_SkinSpecularTintR, u_SkinSpecularTintG, u_SkinSpecularTintB));
     // `transmitted` joins OUTSIDE the diffuse/specular split (issue #1242),
@@ -956,7 +964,7 @@ void main()
     // photons would be counted by both transports. Outside the split, the
     // diffusion pass cannot see it. See Renderer/SkinTransmission.h for the
     // full three-premise argument.
-    vec3 color = oloSurfaceLightingSum(lighting) + transmitted + emissive;
+    vec3 color = oloComposeSurfaceRadiance(lighting, vec3(0.0), transmitted, emissive);
 
     // Physical transmission / IOR / volume (issue #970).
     //

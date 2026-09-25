@@ -23,11 +23,19 @@ bool PTVisible(PTVertex v, vec3 target)
     PTCount(1u);
     return !OloRtIsOccluded(origin, target, u_Params.y);
 }
+// The environment an escaping path collects: the uniform radiance PLUS the
+// bound cube times its intensity — the SAME sum GpuPathTracer.glsl's
+// EnvironmentRadiance (the oracle) and ReSTIR GI's OloGIEnvironmentRadiance
+// return, fed from the same settings. This used to return the cube INSTEAD of
+// the uniform term whenever a cube was bound, so a scene with both lit its
+// PT-owned indirect with less sky than the oracle it is validated against
+// (issue #1336).
 vec3 PTEnvironment(vec3 direction)
 {
+    vec3 radiance = u_Environment.rgb;
     if ((u_EmissiveTable.w & OLO_RESTIR_PT_FLAG_ENVIRONMENT) != 0u)
-        return textureLod(u_EnvironmentCube, direction, 0.0).rgb * u_EstimatorParams.y;
-    return u_Environment.rgb;
+        radiance += textureLod(u_EnvironmentCube, direction, 0.0).rgb * u_EstimatorParams.y;
+    return radiance;
 }
 PTVertex PTFromHit(OloRtHit hit, vec3 view)
 {

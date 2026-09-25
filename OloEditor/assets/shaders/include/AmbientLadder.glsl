@@ -1,52 +1,67 @@
 // =============================================================================
-// AmbientLadder.glsl — the forward PBR ambient (indirect diffuse + specular)
-// source ladder, shared by PBR_MultiLight and PBR_MultiLight_Skinned (issue
-// #439). One definition so the static (lightmapped) and dynamic (probe-lit)
-// forward paths cannot drift structurally: same rungs, same helpers, same
-// energy-split semantics.
+// AmbientLadder.glsl — the PBR ambient (indirect diffuse + specular) source
+// ladder. ONE definition for every consumer (issues #439, #1336):
+// PBR_MultiLight and PBR_MultiLight_Skinned (forward), DeferredLightingShared
+// (deferred, which used to carry a hand-kept copy of these rungs) and
+// PostProcess_SSGI (which needs the diffuse rung it replaces). Same rungs, same
+// helpers, same energy split — by construction rather than by review.
 //
 // Rungs, first match wins:
 //   1. baked lightmap   (lightmapSample.a > 0.5 — static receivers only;
 //                        dynamic shaders pass vec4(0.0) and skip the rung)
-//   2. probe volume     (u_EnableLightProbes, non-zero probe irradiance)
-//   3. environment IBL  (u_EnableIBL)
-//   4. flat ambient     (calculateSimpleAmbient)
-// IBL *specular* (prefilteredColor + BRDF LUT) is kept on rungs 1–2 when
-// u_EnableIBL is on — the lightmap/probes replace only the diffuse term.
+//   2. probe volume     (enableProbes, non-zero probe irradiance)
+//   3. environment IBL  (enableIBL)
+//   4. flat ambient     (calculateSimpleAmbient's constant)
+// IBL *specular* (prefilteredColor + BRDF LUT) is kept on every rung when
+// enableIBL is on — the lightmap/probes replace only the diffuse term.
 //
-// UNITS CAVEAT: the lightmap atlas stores irradiance E; the baked-SH probe
-// path reconstructs band-limited RADIANCE (an up-to-π underestimate the
-// legacy cubemap bake established — deliberately preserved and numerically
-// pinned by LightProbePathTracedBakeTest, see LightProbeBaker.cpp). The
-// ladder unifies the STRUCTURE of the two paths, not yet the two sources'
-// units; a probe-lit dynamic object can read up to ~π darker than the
-// lightmapped floor it stands on.
+// UNITS (issue #1336): the lightmap atlas and the probe volume (baked SH and
+// DDGI alike) hand back full irradiance E; the diffuse helper takes NORMALIZED
+// irradiance E/pi, the quantity the IBL irradiance cube stores. Each E source
+// therefore enters through oloNormalizedIrradiance(), once, at its rung — the
+// conversion the lightmap and DDGI rungs used to skip, shading their pixels pi
+// times brighter than the reference `albedo / pi * E`.
 //
 // Include prerequisites (each includer declares these BEFORE this file):
-//   - PBRCommon.glsl (calculateCombinedAmbientPrefiltered,
-//     calculateLightProbeAmbient, calculateIBLPrefiltered,
-//     calculateSimpleAmbient)
+//   - PBRCommon.glsl (calculateLightProbeAmbient, oloNormalizedIrradiance,
+//     fresnelSchlickRoughness)
 //   - LightProbeSampling.glsl (sampleProbeVolumeIrradiance)
-//   - the material UBO members u_EnableIBL, u_EnableLightProbes,
-//     u_IBLIntensity
+//   - for the evaluateAmbientLadder{,Split} spellings only: the material UBO
+//     members u_EnableIBL, u_EnableLightProbes, u_IBLIntensity. An includer
+//     without that UBO (a fullscreen pass) defines
+//     OLO_AMBIENT_LADDER_EXPLICIT_CONTROLS and calls the ...Ex spelling.
 // =============================================================================
 
 #ifndef AMBIENT_LADDER_GLSL
 #define AMBIENT_LADDER_GLSL
 
-// The REAL body (issue #1231): every rung keeps its diffuse and specular halves
-// apart, so a caller that blurs the diffuse ambient for skin can reach them.
-// evaluateAmbientLadder below sums it and is what every existing caller uses.
-//
-// The rung STRUCTURE is untouched -- same order, same gates, same helpers. Only
-// the helper spellings changed, each to its `...Split` twin, which are
-// themselves wrappers' bodies in PBRCommon.glsl rather than second copies.
-OloSurfaceLighting evaluateAmbientLadderSplit(vec4 lightmapSample, vec3 worldPos, vec3 N, vec3 V,
-                                              vec3 albedo, float metallic, float roughness, float ao,
-                                              samplerCube irradianceMap, sampler2D brdfLut,
-                                              vec3 prefilteredColor)
+// The flat fill's constant, in the same units as a rung's normalized
+// irradiance: calculateSimpleAmbient is `0.03 * albedo`.
+const vec3 OLO_AMBIENT_FLAT_FILL = vec3(0.03);
+
+// THE DIFFUSE RUNG AS DATA (issue #1336). Which normalized irradiance the
+// selected rung hands the diffuse helper, at what scale, and whether the
+// Fresnel/metallic split applies (the flat fill carries none). Selecting it is
+// the ladder's whole decision; the diffuse term is then a pure function of it,
+// which is what lets SSGI ask "what did the ladder assume arrives here?" and
+// get the answer the lighting pass used, not a second opinion.
+struct OloAmbientDiffuseRung
 {
-    OloSurfaceLighting ambient;
+    vec3 NormalizedIrradiance; // E / pi (flat fill: OLO_AMBIENT_FLAT_FILL)
+    float Scale;               // iblIntensity on an IBL-enabled rung, 1 otherwise
+    bool FresnelWeighted;      // false only for the flat fill
+};
+
+OloAmbientDiffuseRung oloAmbientFlatFillRung()
+{
+    return OloAmbientDiffuseRung(OLO_AMBIENT_FLAT_FILL, 1.0, false);
+}
+
+OloAmbientDiffuseRung oloSelectAmbientDiffuseRung(vec4 lightmapSample, vec3 worldPos, vec3 N, vec3 V,
+                                                  samplerCube irradianceMap, bool enableIBL,
+                                                  bool enableProbes, float iblIntensity)
+{
+    float iblScale = enableIBL ? iblIntensity : 1.0;
     if (lightmapSample.a > 0.5)
     {
         // Baked lightmap replaces the diffuse ambient term with the same
@@ -54,71 +69,79 @@ OloSurfaceLighting evaluateAmbientLadderSplit(vec4 lightmapSample, vec3 worldPos
         // the sample's alpha, NOT the colour: a validly baked pure-black texel
         // (an enclosed surface no indirect light reaches) must keep its baked
         // darkness rather than fall through and glow with sky IBL.
-        // Deliberately not gated on u_EnableLightProbes: baked GI is its own
-        // source, and the scene kill switch lives in u_LightmapEnabled.
-        if (u_EnableIBL == 1)
-        {
-            ambient = calculateCombinedAmbientPrefilteredSplit(lightmapSample.rgb, N, V, albedo,
-                                                               metallic, roughness,
-                                                               brdfLut, prefilteredColor);
-            ambient = oloSurfaceLightingScale(ambient, vec3(u_IBLIntensity));
-        }
-        else
-        {
-            ambient = calculateLightProbeAmbientSplit(lightmapSample.rgb, albedo, metallic, roughness, N, V);
-        }
+        // Deliberately not gated on enableProbes: baked GI is its own source,
+        // and the scene kill switch lives in u_LightmapEnabled.
+        return OloAmbientDiffuseRung(oloNormalizedIrradiance(lightmapSample.rgb), iblScale, true);
     }
-    else if (u_EnableLightProbes == 1 && u_EnableIBL == 1)
+    if (enableProbes)
     {
-        // Combined: probe diffuse + IBL specular. Issue #632: unified probe
-        // sampling — realtime DDGI atlases when a Realtime/Hybrid volume is
-        // bound, baked SH otherwise.
+        // Issue #632: unified probe sampling — realtime DDGI atlases when a
+        // Realtime/Hybrid volume is bound, baked SH otherwise.
         vec3 probeIrradiance = sampleProbeVolumeIrradiance(worldPos, N, V);
         if (dot(probeIrradiance, probeIrradiance) > 0.0)
-        {
-            ambient = calculateCombinedAmbientPrefilteredSplit(probeIrradiance, N, V, albedo,
-                                                               metallic, roughness,
-                                                               brdfLut, prefilteredColor);
-            ambient = oloSurfaceLightingScale(ambient, vec3(u_IBLIntensity));
-        }
-        else
-        {
-            // Outside probe volume — fall back to IBL
-            ambient = calculateIBLPrefilteredSplit(N, V, albedo, metallic, roughness,
-                                                   irradianceMap, brdfLut, prefilteredColor);
-            ambient = oloSurfaceLightingScale(ambient, vec3(u_IBLIntensity));
-        }
+            return OloAmbientDiffuseRung(oloNormalizedIrradiance(probeIrradiance), iblScale, true);
+        // Outside the probe volume: fall back to IBL, or to the flat fill.
     }
-    else if (u_EnableLightProbes == 1)
-    {
-        // Probes only, no IBL specular
-        vec3 probeIrradiance = sampleProbeVolumeIrradiance(worldPos, N, V);
-        if (dot(probeIrradiance, probeIrradiance) > 0.0)
-        {
-            ambient = calculateLightProbeAmbientSplit(probeIrradiance, albedo, metallic, roughness, N, V);
-        }
-        else
-        {
-            ambient = calculateSimpleAmbientSplit(albedo, metallic, ao);
-        }
-    }
-    else if (u_EnableIBL == 1)
-    {
-        ambient = calculateIBLPrefilteredSplit(N, V, albedo, metallic, roughness,
-                                               irradianceMap, brdfLut, prefilteredColor);
-        ambient = oloSurfaceLightingScale(ambient, vec3(u_IBLIntensity));
-    }
-    else
-    {
-        ambient = calculateSimpleAmbientSplit(albedo, metallic, ao);
-    }
+    if (enableIBL)
+        return OloAmbientDiffuseRung(texture(irradianceMap, N).rgb, iblIntensity, true);
+    return oloAmbientFlatFillRung();
+}
+
+// The diffuse half of the ambient term for a selected rung — BRDF-weighted
+// outgoing radiance, before AO.
+vec3 oloAmbientDiffuseFromRung(OloAmbientDiffuseRung rung, vec3 albedo, float metallic, float roughness,
+                               vec3 N, vec3 V)
+{
+    if (!rung.FresnelWeighted)
+        return rung.NormalizedIrradiance * albedo * rung.Scale;
+    return calculateLightProbeAmbient(rung.NormalizedIrradiance, albedo, metallic, roughness, N, V) * rung.Scale;
+}
+
+// The specular half: the caller-resolved prefiltered radiance (global
+// prefilter, or the distance-impostor probe blend) through the split-sum LUT.
+// Present on every rung when IBL is on, absent when it is off.
+vec3 oloAmbientSpecular(vec3 N, vec3 V, vec3 albedo, float metallic, float roughness, sampler2D brdfLut,
+                        vec3 prefilteredColor)
+{
+    vec3 F0 = mix(vec3(DEFAULT_DIELECTRIC_F0), albedo, metallic);
+    vec3 F = fresnelSchlickRoughness(max(dot(N, V), 0.0), F0, roughness);
+    vec2 envBRDF = texture(brdfLut, vec2(max(dot(N, V), 0.0), roughness)).rg;
+    return prefilteredColor * (F * envBRDF.x + envBRDF.y);
+}
+
+// THE LADDER, controls passed in (issue #1336) — what the deferred pass calls
+// with its DeferredLightingControls lanes, and what the material-UBO spelling
+// below forwards to. Diffuse and specular kept apart (issue #1231), so a caller
+// that blurs the diffuse ambient for skin can reach them.
+OloSurfaceLighting evaluateAmbientLadderSplitEx(vec4 lightmapSample, vec3 worldPos, vec3 N, vec3 V,
+                                                vec3 albedo, float metallic, float roughness,
+                                                samplerCube irradianceMap, sampler2D brdfLut,
+                                                vec3 prefilteredColor, bool enableIBL, bool enableProbes,
+                                                float iblIntensity)
+{
+    OloAmbientDiffuseRung rung = oloSelectAmbientDiffuseRung(lightmapSample, worldPos, N, V, irradianceMap,
+                                                             enableIBL, enableProbes, iblIntensity);
+    OloSurfaceLighting ambient;
+    ambient.Diffuse = oloAmbientDiffuseFromRung(rung, albedo, metallic, roughness, N, V);
+    ambient.Specular = enableIBL ? oloAmbientSpecular(N, V, albedo, metallic, roughness, brdfLut, prefilteredColor) *
+                                       iblIntensity
+                                 : vec3(0.0);
     return ambient;
 }
 
-// The combined spelling every existing caller uses. Same rungs, same values:
-// each `...Split` helper is the body of the vec3 helper it replaced, and the
-// scale-then-sum here is the same per-component product as the old
-// `ambient *= u_IBLIntensity` followed by the caller's addition.
+#ifndef OLO_AMBIENT_LADDER_EXPLICIT_CONTROLS
+// The forward spelling: the controls come from the material UBO.
+OloSurfaceLighting evaluateAmbientLadderSplit(vec4 lightmapSample, vec3 worldPos, vec3 N, vec3 V,
+                                              vec3 albedo, float metallic, float roughness, float ao,
+                                              samplerCube irradianceMap, sampler2D brdfLut,
+                                              vec3 prefilteredColor)
+{
+    return evaluateAmbientLadderSplitEx(lightmapSample, worldPos, N, V, albedo, metallic, roughness,
+                                        irradianceMap, brdfLut, prefilteredColor, u_EnableIBL == 1,
+                                        u_EnableLightProbes == 1, u_IBLIntensity);
+}
+
+// The combined spelling.
 vec3 evaluateAmbientLadder(vec4 lightmapSample, vec3 worldPos, vec3 N, vec3 V,
                            vec3 albedo, float metallic, float roughness, float ao,
                            samplerCube irradianceMap, sampler2D brdfLut,
@@ -128,5 +151,6 @@ vec3 evaluateAmbientLadder(vec4 lightmapSample, vec3 worldPos, vec3 N, vec3 V,
                                                             metallic, roughness, ao,
                                                             irradianceMap, brdfLut, prefilteredColor));
 }
+#endif
 
 #endif // AMBIENT_LADDER_GLSL

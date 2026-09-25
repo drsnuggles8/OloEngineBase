@@ -81,6 +81,45 @@ namespace OloEngine
             return m_MaterialDebugView;
         }
 
+        // Screen-space AO applied to the AMBIENT term inside this pass (issue
+        // #1336) — RenderPipeline sets it from SelectScreenSpaceAOApplication,
+        // which on the deferred path takes the AO buffer away from
+        // PostProcess_SSAOApply's whole-frame multiply. `projA` / `projB` are
+        // the reconstruction projection's (2,2) / (3,2) coefficients, the pair
+        // the AO pass's own depth-aware upsample linearises with.
+        void SetScreenSpaceAO(bool applyToAmbient, f32 intensity, f32 projA, f32 projB) noexcept
+        {
+            m_ScreenAOToAmbient = applyToAmbient;
+            m_ScreenAOIntensity = intensity;
+            m_ScreenAOProjA = projA;
+            m_ScreenAOProjB = projB;
+        }
+        // The DeferredLightingControls ScreenAOParams lanes as RenderPipeline
+        // set them: x = applied to the ambient here, y = strength, z/w = the
+        // reconstruction projection's (2,2) / (3,2). SSGI replaces a fraction
+        // of the SAME ambient and needs the same AO to know how much is there.
+        [[nodiscard]] glm::vec4 ScreenSpaceAOParams() const noexcept
+        {
+            return { m_ScreenAOToAmbient ? 1.0f : 0.0f, m_ScreenAOIntensity, m_ScreenAOProjA, m_ScreenAOProjB };
+        }
+
+        // Screen-space contact shadows applied to the PRIMARY directional
+        // light's visibility inside this pass (issue #1336), from the march
+        // parameters in `ubo` (UBO_CONTACT_SHADOW, filled by RenderPipeline).
+        // Off when `applyToSun` is false or no UBO was handed over.
+        void SetContactShadow(bool applyToSun, const Ref<UniformBuffer>& ubo) noexcept
+        {
+            m_ContactShadowInLighting = applyToSun;
+            m_ContactShadowUBO = ubo;
+        }
+
+        // The ambient ladder's rung controls this pass shades with (issue
+        // #1336): x = EnableIBL (a complete global IBL trio is bound), y =
+        // EnableLightProbes, z = IBLIntensity, w = 0. ONE function, read by
+        // Execute for DeferredLightingControls and by RenderPipeline for SSGI,
+        // so the two cannot disagree about which rung a pixel took.
+        [[nodiscard]] static glm::vec4 AmbientLadderControls();
+
       private:
         // Composite the virtualized-geometry cluster/LOD/overdraw debug image over the LIT
         // scene colour (issue #629). No-op unless VirtualMeshRegistry's debug mode is active
@@ -134,5 +173,11 @@ namespace OloEngine
         MaterialDebugView m_MaterialDebugView = MaterialDebugView::None;
         bool m_PerSampleLighting = true;
         bool m_UseMSAAShading = false;
+        bool m_ScreenAOToAmbient = false;
+        f32 m_ScreenAOIntensity = 1.0f;
+        f32 m_ScreenAOProjA = 0.0f;
+        f32 m_ScreenAOProjB = 0.0f;
+        bool m_ContactShadowInLighting = false;
+        Ref<UniformBuffer> m_ContactShadowUBO;
     };
 } // namespace OloEngine

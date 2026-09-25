@@ -1087,6 +1087,22 @@ namespace OloEngine
         // x = PlaneTolerance (relative), y = NormalPower, z = TargetHistoryLength, w = RayDistribution (0/1)
         glm::vec4 DenoiseGuide = glm::vec4(kSSGIDenoisePlaneTolerance, kSSGIDenoiseNormalPower,
                                            kSSGIDenoiseTargetHistoryLength, 1.0f);
+        // THE LADDER SSGI REPLACES (issue #1336). The trace re-selects the
+        // ambient ladder's diffuse rung at its receiver — the same function the
+        // lighting pass shaded it with — so it can hand back the fraction of it
+        // the on-screen hits now answer for instead of adding the hits on top.
+        // x = EnableIBL, y = EnableLightProbes, z = IBLIntensity (the deferred
+        // pass's DeferredLightingControls lanes), w = unused
+        glm::vec4 LadderParams = glm::vec4(0.0f, 0.0f, 1.0f, 0.0f);
+        // The screen-space AO the lighting pass multiplied the ambient by, so
+        // the replaced fraction is the ambient the frame actually carries.
+        // x = live, y = strength, z/w = reconstruction projection (2,2) / (3,2)
+        glm::vec4 ScreenAOParams = glm::vec4(0.0f);
+        // Issue #1336: inverse of the RENDER-RELATIVE view, read by the trace to
+        // place its ladder sample in the space the probe-volume bounds are
+        // uploaded in (the lit passes subtract the render origin for the same
+        // reason). `View` above is the absolute view the marcher needs.
+        glm::mat4 InverseRelativeView = glm::mat4(1.0f);
 
         static constexpr u32 GetSize()
         {
@@ -1095,7 +1111,7 @@ namespace OloEngine
     };
 
     static_assert(sizeof(SSGIUBOData) % 16 == 0, "SSGIUBOData must be 16-byte aligned for std140");
-    static_assert(sizeof(SSGIUBOData) == 320, "SSGIUBOData std140 size drifted — update PostProcess_SSGI.glsl layout");
+    static_assert(sizeof(SSGIUBOData) == 416, "SSGIUBOData std140 size drifted — update PostProcess_SSGI.glsl layout");
 
     // GPU-side UBO layout for screen-space contact shadows (std140, binding 41).
     // All math the PostProcess_ContactShadow.glsl ray march needs: camera matrices

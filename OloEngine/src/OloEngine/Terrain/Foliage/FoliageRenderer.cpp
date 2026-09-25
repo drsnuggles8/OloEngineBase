@@ -14,6 +14,7 @@
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Passes/DeferredLightingPass.h"
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
@@ -1177,12 +1178,11 @@ namespace OloEngine
                 // it: the forward program carries the lobe in the two lanes
                 // above and reads no slot. kFoliageLeafSlotNone says so.
                 {
-                    const bool globalIblBound = Renderer3D::GetGlobalIrradianceMapHandle().IsValid() &&
-                                                Renderer3D::GetGlobalPrefilterMapHandle().IsValid() &&
-                                                Renderer3D::GetGlobalBRDFLutMapHandle().IsValid();
-                    foliageUBOData.LeafIds = glm::vec4(static_cast<f32>(kFoliageLeafSlotNone),
-                                                       globalIblBound ? 1.0f : 0.0f,
-                                                       Renderer3D::GetGlobalIBLIntensity(), 0.0f);
+                    // The deferred pass's own ladder controls (issue #1336):
+                    // .y IBL bound, .z IBL intensity, .w probe volume.
+                    const glm::vec4 ladderControls = DeferredLightingPass::AmbientLadderControls();
+                    foliageUBOData.LeafIds = glm::vec4(static_cast<f32>(kFoliageLeafSlotNone), ladderControls.x,
+                                                       ladderControls.z, ladderControls.y);
                 }
 
                 // The leaf maps, through the SAME seam the albedo goes through

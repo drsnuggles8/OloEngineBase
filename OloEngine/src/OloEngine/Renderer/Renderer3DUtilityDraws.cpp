@@ -764,7 +764,8 @@ namespace OloEngine
         RHI::ResourceHandle albedoArrayID, RHI::ResourceHandle normalArrayID, RHI::ResourceHandle armArrayID,
         const glm::mat4& transform,
         i32 entityID,
-        u32 instanceCount)
+        u32 instanceCount,
+        const VoxelTerrainSurface& surface)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -814,6 +815,7 @@ namespace OloEngine
         cmd->albedoArrayTextureID = albedoArrayID;
         cmd->normalArrayTextureID = normalArrayID;
         cmd->armArrayTextureID = armArrayID;
+        cmd->surface = surface;
         cmd->transform = transform;
         cmd->entityID = entityID;
 

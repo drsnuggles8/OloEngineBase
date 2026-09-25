@@ -114,6 +114,15 @@ layout(std140, binding = 30) uniform DeferredLightingControls {
     vec4 u_DeferredControls; // x=EnableIBL, y=EnableLightProbes, z=IBLIntensity, w=CascadeDebug
     vec4 u_MSAAParams;       // x=SampleCount (float, >=1), y=ReSTIR DI live, z=ReSTIR GI live,
                              // w=MaterialDebugView (issue #1231)
+    // Screen-space AO applied to the AMBIENT term here (issue #1336):
+    //   x = 1 when u_ScreenSpaceAO multiplies the ambient split in this pass
+    //       (OloEngine::SelectScreenSpaceAOApplication), 0 = no screen AO
+    //   y = strength, z/w = the reconstruction projection's (2,2) / (3,2)
+    //       coefficients, the pair SSAORenderPass uploads, for the upsample.
+    vec4 u_ScreenAOParams;
+    // x = 1 when screen-space contact shadows multiply the PRIMARY directional
+    // light's visibility (Lights[0]) in this pass (issue #1336); yzw = unused.
+    vec4 u_LightingFlags;
     // The skin profile table (issue #1231), indexed by the three-bit slot the
     // G-Buffer flags lane carries. MUST mirror DeferredControlsData in
     // DeferredLightingPass.cpp, which static_asserts this size.
@@ -192,6 +201,10 @@ layout(binding = 34) uniform sampler2DArray u_ShadowAtlasRaw;
 layout(binding = 72) uniform sampler2D u_RayTracedShadowMask;
 layout(binding = 73) uniform sampler2D u_ReSTIRDIRadiance; // ReSTIR DI resolved direct lighting (#1140)
 layout(binding = 74) uniform sampler2D u_ReSTIRGIRadiance; // ReSTIR GI resolved indirect diffuse (#1169)
+// Screen-space AO (SSAO / GTAO, issue #1336): visibility for the AMBIENT term,
+// applied here rather than to the composed frame. Single-sample, like the AO
+// pass that wrote it. Bound to white when no AO technique produced it.
+layout(binding = 20) uniform sampler2D u_ScreenSpaceAO;
 
 // Clustered light lists (issue #435) — included after the ShadowData block +
 // atlas samplers so the evaluator can attenuate culled lights by their entry.
@@ -229,6 +242,20 @@ layout(location = 1) out vec4 o_SkinDiffuse;
 
 #include "include/DeferredLightingShared.glsl"
 
+// The AO buffer is single-sample, so its depth-aware upsample weighs against
+// sample 0 — the same sample the resolved depth the forward consumer reads
+// would have taken its first contribution from. The contact-shadow march reads
+// the same tap.
+float oloMSAASampleZeroDepth(vec2 uv)
+{
+    ivec2 size = textureSize(u_GBufferDepth);
+    return texelFetch(u_GBufferDepth, clamp(ivec2(uv * vec2(size)), ivec2(0), size - ivec2(1)), 0).r;
+}
+#define OLO_SSAO_TAP_DEPTH(uv) oloMSAASampleZeroDepth(uv)
+#include "include/ScreenSpaceAOSampling.glsl"
+#define OLO_CONTACT_SHADOW_TAP_DEPTH(uv) oloMSAASampleZeroDepth(uv)
+#include "include/ContactShadowCommon.glsl"
+
 void main()
 {
     ivec2 pixel = ivec2(gl_FragCoord.xy);
@@ -262,6 +289,25 @@ void main()
     // contribute their raw emissive so silhouette pixels where some
     // samples fell outside geometry still anti-alias correctly against
     // the sky / background emissive.
+    // Screen-space AO for the ambient term (issue #1336): one value per PIXEL,
+    // shared by every sample, because the AO pass that wrote it is single-sample.
+    float screenAO = 1.0;
+    if (u_ScreenAOParams.x > 0.5)
+        screenAO = oloScreenSpaceAOVisibility(
+            oloSampleScreenSpaceAO(u_ScreenSpaceAO, v_TexCoord, u_ScreenAOParams.z, u_ScreenAOParams.w),
+            u_ScreenAOParams.y);
+
+    // Contact shadows for the primary directional light (issue #1336), one
+    // march per PIXEL from sample 0's surface, shared by every sample — the
+    // same resolution the post pass it replaced marched at.
+    float sunContactVisibility = 1.0;
+    if (u_LightingFlags.x > 0.5)
+    {
+        float contactDepth = texelFetch(u_GBufferDepth, pixel, 0).r;
+        vec3 contactN = OctDecodeGB(texelFetch(u_GBufferNormal, pixel, 0).xy);
+        sunContactVisibility = oloContactShadowVisibility(v_TexCoord, contactDepth, contactN, gl_FragCoord.xy);
+    }
+
     vec3 accum = vec3(0.0);
     // The diffusion hand-off accumulates per sample exactly as the colour does,
     // so a silhouette pixel hands over the average of the samples that ARE skin
@@ -301,8 +347,8 @@ void main()
         vec4 bakedGI = texelFetch(u_GBufferBakedGI, pixel, s);
 
         vec4 sampleSkinDiffuse;
-        accum += ComputeDeferredLitSplit(albedo, metallic, N, roughness, ao, emissiveFlags,
-                                         worldPos, bakedGI, sampleSkinDiffuse);
+        accum += ComputeDeferredLitSplit(albedo, metallic, N, roughness, ao, screenAO, sunContactVisibility,
+                                         emissiveFlags, worldPos, bakedGI, sampleSkinDiffuse);
         skinDiffuseAccum += sampleSkinDiffuse;
     }
 

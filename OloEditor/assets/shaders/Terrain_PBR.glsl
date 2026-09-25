@@ -373,6 +373,17 @@ layout(binding = 34) uniform sampler2DArray u_ShadowAtlasRaw;
 #define FPLUS_ATLAS_SHADOWS 1
 #include "include/ForwardPlusCommon.glsl"
 
+// The ambient ladder (issue #1336) — the SAME function PBR_MultiLight and the
+// deferred pass shade with, controls from the terrain UBO's AmbientLadder lane
+// (filled at dispatch from DeferredLightingPass::AmbientLadderControls). This
+// shader used to take only the flat fill, so forward terrain was lit by 0.03 *
+// albedo while the deferred pass lit the same terrain with the IBL / probes.
+#define OLO_REFLECTION_PROBE_SAMPLERS
+#include "include/ReflectionProbes.glsl"
+#include "include/LightProbeSampling.glsl"
+#define OLO_AMBIENT_LADDER_EXPLICIT_CONTROLS
+#include "include/AmbientLadder.glsl"
+
 // IBL textures
 #ifdef OLO_BINDLESS
 #define u_IrradianceMap OLO_HEAP_TEX_CUBE(10)  // TEX_USER_0
@@ -762,11 +773,31 @@ void main()
         Lo += lightContrib;
     }
 
-    // Ambient / IBL
-    vec3 ambient = calculateSimpleAmbient(albedo, metallic, ao);
+    // Ambient — the shared ladder (issue #1336). No lightmap on terrain (it
+    // has no second UV set), so the ladder starts at the probe rung. The
+    // specular source is the global prefilter parallax-corrected by the
+    // reflection probes, exactly as PBR_MultiLight and the deferred pass do.
+    bool terrainEnableIBL = u_TerrainAmbientLadder.x > 0.5;
+    vec3 terrainR = reflect(-V, N);
+    vec3 terrainPrefiltered = vec3(0.0);
+    if (terrainEnableIBL)
+    {
+        terrainPrefiltered = textureLod(u_PrefilterMap, terrainR, roughness * MAX_REFLECTION_LOD).rgb;
+        float probeViewDepth = -(u_View * vec4(v_WorldPos, 1.0)).z;
+        vec4 probeSpecular = oloSampleReflectionProbes(v_WorldPos, N, terrainR, roughness * MAX_REFLECTION_LOD,
+                                                       probeViewDepth);
+        terrainPrefiltered = mix(terrainPrefiltered, probeSpecular.rgb, probeSpecular.a);
+    }
+    vec3 ambient = oloSurfaceLightingSum(evaluateAmbientLadderSplitEx(
+        vec4(0.0), v_WorldPos, N, V, albedo, metallic, roughness, u_IrradianceMap, u_BRDFLutMap,
+        terrainPrefiltered, terrainEnableIBL, u_TerrainAmbientLadder.y > 0.5, u_TerrainAmbientLadder.z));
 
-    vec3 color = ambient + Lo;
-    color = mix(color, color * ao, 0.5);
+    // AO is visibility for the AMBIENT term only (issue #1336), exactly as the
+    // deferred path composes this surface (Terrain_GBuffer writes the same `ao`
+    // into RT1.w and DeferredLightingShared multiplies the ambient split by it).
+    // The old `mix(color, color * ao, 0.5)` also darkened every light's direct
+    // contribution, which the light's own shadow already accounts for.
+    vec3 color = ambient * ao + Lo;
 
     // Brush preview overlay
     if (u_BrushParams.x > 0.5)

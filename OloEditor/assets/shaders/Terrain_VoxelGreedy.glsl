@@ -177,6 +177,14 @@ layout(binding = 26) uniform sampler2DArray u_TerrainNormalArray;
 layout(binding = 27) uniform sampler2DArray u_TerrainARMArray;
 #endif
 
+// The ambient ladder (issue #1336) — see Terrain_PBR.glsl; controls from the
+// terrain UBO's AmbientLadder lane, which DrawVoxelMesh now uploads.
+#define OLO_REFLECTION_PROBE_SAMPLERS
+#include "include/ReflectionProbes.glsl"
+#include "include/LightProbeSampling.glsl"
+#define OLO_AMBIENT_LADDER_EXPLICIT_CONTROLS
+#include "include/AmbientLadder.glsl"
+
 layout(location = 0) in vec3 v_WorldPos;
 layout(location = 1) in vec3 v_Normal;
 layout(location = 2) flat in uint v_Material;
@@ -369,9 +377,24 @@ void main()
         Lo += lightContrib;
     }
 
-    vec3 ambient = calculateSimpleAmbient(albedo, metallic, ao);
-    vec3 color = ambient + Lo;
-    color = mix(color, color * ao, 0.5);
+    // Ambient — the shared ladder (issue #1336), as Terrain_PBR.glsl does.
+    bool terrainEnableIBL = u_TerrainAmbientLadder.x > 0.5;
+    vec3 terrainR = reflect(-V, N);
+    vec3 terrainPrefiltered = vec3(0.0);
+    if (terrainEnableIBL)
+    {
+        terrainPrefiltered = textureLod(u_PrefilterMap, terrainR, roughness * MAX_REFLECTION_LOD).rgb;
+        float probeViewDepth = -(u_View * vec4(v_WorldPos, 1.0)).z;
+        vec4 probeSpecular = oloSampleReflectionProbes(v_WorldPos, N, terrainR, roughness * MAX_REFLECTION_LOD,
+                                                       probeViewDepth);
+        terrainPrefiltered = mix(terrainPrefiltered, probeSpecular.rgb, probeSpecular.a);
+    }
+    vec3 ambient = oloSurfaceLightingSum(evaluateAmbientLadderSplitEx(
+        vec4(0.0), v_WorldPos, N, V, albedo, metallic, roughness, u_IrradianceMap, u_BRDFLutMap,
+        terrainPrefiltered, terrainEnableIBL, u_TerrainAmbientLadder.y > 0.5, u_TerrainAmbientLadder.z));
+    // AO is visibility for the AMBIENT term only (issue #1336) — the old
+    // `mix(color, color * ao, 0.5)` also darkened every light's direct term.
+    vec3 color = ambient * ao + Lo;
 
     o_Color = vec4(color, 1.0);
     o_EntityID = u_EntityID;

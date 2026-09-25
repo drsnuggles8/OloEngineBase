@@ -314,7 +314,7 @@ namespace OloEngine::Tests
 
     // -------------------------------------------------------------------------
     // Contract 3b — forward and deferred enter the ladder at the same rung, with
-    // the same gate and the same helpers.
+    // the same gate, through ONE ladder.
     //
     // The gate is the assertion that matters. Branching on the sampled COLOUR
     // instead of the coverage alpha collapses "validly baked pure black" (an
@@ -322,32 +322,40 @@ namespace OloEngine::Tests
     // "never baked" (must fall through), and the enclosed room glows with sky
     // IBL. That is the exact leak the bake exists to kill, and it was the first
     // draft's bug on the forward path.
+    //
+    // Since #1336 the deferred pass no longer keeps its own copy of the rungs:
+    // it calls AmbientLadder.glsl's evaluateAmbientLadderSplitEx with RT5 as the
+    // lightmap sample. So the gate is asserted ONCE, in the ladder, and the
+    // deferred side is asserted to route RT5 into that ladder rather than to
+    // re-derive a rung of its own — the drift this test used to catch between
+    // two copies can no longer arise.
     // -------------------------------------------------------------------------
-    TEST(GBufferBakedGIContract, BothPathsGateTheLightmapRungOnCoverageAndUseTheSameHelpers)
+    TEST(GBufferBakedGIContract, BothPathsGateTheLightmapRungOnCoverageThroughOneLadder)
     {
-        const std::string forward = ReadWholeFile(ShaderRoot() / "include" / "AmbientLadder.glsl");
+        const std::string ladder = ReadWholeFile(ShaderRoot() / "include" / "AmbientLadder.glsl");
         const std::string deferred = ReadWholeFile(ShaderRoot() / "include" / "DeferredLightingShared.glsl");
-        ASSERT_FALSE(forward.empty());
+        const std::string forward = ReadWholeFile(ShaderRoot() / "PBR_MultiLight.glsl");
+        ASSERT_FALSE(ladder.empty());
         ASSERT_FALSE(deferred.empty());
+        ASSERT_FALSE(forward.empty());
 
-        EXPECT_TRUE(std::regex_search(forward, std::regex(R"(lightmapSample\.a\s*>\s*0\.5)")))
-            << "the forward ambient ladder no longer gates its lightmap rung on the sample's COVERAGE "
-               "alpha";
-        EXPECT_TRUE(std::regex_search(deferred, std::regex(R"(bakedGI\.a\s*>\s*0\.5)")))
-            << "the deferred ambient ladder does not gate its lightmap rung on RT5's COVERAGE alpha. A "
+        EXPECT_TRUE(std::regex_search(ladder, std::regex(R"(lightmapSample\.a\s*>\s*0\.5)")))
+            << "the ambient ladder no longer gates its lightmap rung on the sample's COVERAGE alpha. A "
                "colour-based gate (dot(rgb, rgb) > 0) makes a validly baked black texel indistinguishable "
                "from an unbaked one, and the enclosed room glows with sky IBL.";
 
-        // Both rungs replace the DIFFUSE ambient with the baked irradiance and
-        // keep IBL specular — same two helpers, chosen the same way.
-        for (const auto* helper : { "calculateCombinedAmbientPrefiltered", "calculateLightProbeAmbient" })
-        {
-            EXPECT_NE(forward.find(helper), std::string::npos)
-                << "AmbientLadder.glsl no longer calls " << helper;
-            EXPECT_NE(deferred.find(helper), std::string::npos)
-                << "DeferredLightingShared.glsl no longer calls " << helper
-                << " — the two paths' ambient rungs have drifted apart, which is invisible in either "
-                   "path alone";
-        }
+        // The lightmap's full irradiance E enters through the ONE conversion
+        // (issue #1336) — never raw.
+        EXPECT_TRUE(std::regex_search(ladder,
+                                      std::regex(R"(oloNormalizedIrradiance\(\s*lightmapSample\.rgb\s*\))")))
+            << "the lightmap rung no longer converts E to the ladder's E/pi through oloNormalizedIrradiance";
+
+        EXPECT_TRUE(std::regex_search(deferred, std::regex(R"(evaluateAmbientLadderSplitEx\(\s*bakedGI\s*,)")))
+            << "DeferredLightingShared.glsl no longer hands RT5 to the shared ladder — a deferred-only rung "
+               "would let the two paths' ambient drift apart, which is invisible in either path alone";
+        EXPECT_EQ(deferred.find("bakedGI.a > 0.5"), std::string::npos)
+            << "DeferredLightingShared.glsl re-derives the lightmap rung itself instead of calling the ladder";
+        EXPECT_TRUE(std::regex_search(forward, std::regex(R"(evaluateAmbientLadderSplit\(\s*lightmapSample\s*,)")))
+            << "PBR_MultiLight.glsl no longer hands its lightmap sample to the shared ladder";
     }
 } // namespace OloEngine::Tests

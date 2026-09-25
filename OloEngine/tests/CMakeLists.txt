@@ -376,6 +376,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/VolumetricShadowVisualEvidenceTest.cpp
 		Rendering/AutoExposureMathTest.cpp
 		Rendering/ReflectionTierContractTest.cpp
+		Rendering/LightingSignalContractTest.cpp
 		Rendering/ScreenSpaceReflectionMathTest.cpp
 		Rendering/ScreenSpaceDenoiseMathTest.cpp
 		Rendering/ScreenSpaceGIMathTest.cpp
@@ -638,6 +639,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/GLStateGuardTest.cpp
 		Rendering/PropertyTests/RendererValidateTest.cpp
 		Rendering/PropertyTests/ShaderUnitTests.cpp
+		Rendering/PropertyTests/LightingSignalContractGpuTest.cpp
+		Rendering/PropertyTests/LightingSignalCompositionEvidenceTest.cpp
 		Rendering/PropertyTests/PerfRegressionTests.cpp
 		Rendering/PropertyTests/DataRoundTripTests.cpp
 		Rendering/PropertyTests/GoldenImageTests.cpp

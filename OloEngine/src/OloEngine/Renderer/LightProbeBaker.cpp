@@ -291,24 +291,21 @@ namespace OloEngine
     // ProjectToSH() above stores the RAW RADIANCE PROJECTION of the incident
     // field:
     //     c_i = ∫ L(ω) · Y_i(ω) dω        (no cosine convolution, no 1/π)
-    // and the shader side (SphericalHarmonics.glsl::evaluateSH, consumed by
-    // LightProbeSampling.glsl::sampleLightProbeGrid) reconstructs
-    //     Σ c_i · Y_i(n)
-    // — the band-limited RADIANCE arriving from direction n, NOT the
-    // irradiance E(n). For a uniform field of radiance L the shader returns L
-    // where true irradiance is π·L; band-wise, E(n) would need the cosine-lobe
-    // convolution factors Â_0 = π, Â_1 = 2π/3, Â_2 = π/4 applied per
-    // coefficient (Ramamoorthi & Hanrahan 2001), which neither side of this
-    // pipeline applies. This bake REPLICATES that convention so its output is
-    // photometrically interchangeable with the cubemap route's for the same
-    // incident light field (light-path-photometric-parity rule 1: matching the
-    // shipped raster path beats textbook correctness — the two bake buttons
-    // must not light the same scene differently). The divergence from the
-    // DDGI atlas and the scene lightmap (both store FULL irradiance E — see
-    // DDGI_BlendIrradiance.glsl / LightmapSampling.glsl headers and
-    // docs/agent-rules/reference-path-tracer.md §4) is therefore PRE-EXISTING
-    // in the baked-SH path and is deliberately not fixed here: rescaling
-    // means touching BOTH bake routes and every already-baked scene at once.
+    // — the band-limited RADIANCE, not the irradiance E(n). This bake
+    // REPLICATES that storage convention so its output is photometrically
+    // interchangeable with the cubemap route's for the same incident light
+    // field (light-path-photometric-parity rule 1: the two bake buttons must
+    // not light the same scene differently).
+    //
+    // THE READ applies the cosine lobe (issue #1336): the probe sampler
+    // evaluates SphericalHarmonics.glsl::evaluateSHCosineIrradiance — the
+    // factors Â_0 = π, Â_1 = 2π/3, Â_2 = π/4 per band (Ramamoorthi & Hanrahan
+    // 2001), CPU twin SHBasis::EvaluateCosineConvolvedIrradiance — and so hands
+    // the lit passes FULL irradiance E, the same unit the DDGI atlas and the
+    // scene lightmap store. Fixing it at the read left this storage, both bake
+    // routes and every already-baked asset untouched; the ambient ladder then
+    // converts E to the E/π its helpers take, once, for all three sources
+    // (docs/agent-rules/lighting-signal-contract.md).
     //
     // THE ESTIMATOR: N uniform-sphere directions (pdf = 1/4π) from the probe
     // position, full TracePath radiance along each, Monte Carlo projection

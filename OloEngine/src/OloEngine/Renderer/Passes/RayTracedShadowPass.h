@@ -194,6 +194,7 @@ namespace OloEngine
 
         RGTextureHandle m_SelectedSceneDepthTexture{};
         RGTextureHandle m_SelectedGBufferNormalTexture{};
+        RGTextureHandle m_SelectedGBufferEmissiveTexture{}; // RT2: which pixels transmit (#1336)
         RGTextureHandle m_SelectedVelocityTexture{};
         RGTextureHandle m_SelectedHistoryTexture{};
         RGTextureHandle m_SelectedSurfaceHistoryTexture{};

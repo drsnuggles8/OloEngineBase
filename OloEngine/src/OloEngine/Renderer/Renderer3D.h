@@ -585,7 +585,9 @@ namespace OloEngine
             // Binary greedy meshing (issue #727). Non-zero draws `indexCount`
             // indices of the shared unit quad once per merged packed quad;
             // zero keeps the marching-cubes indexed triangle-soup draw.
-            u32 instanceCount = 0);
+            u32 instanceCount = 0,
+            // The terrain-UBO values the voxel shaders read (issue #1336).
+            const VoxelTerrainSurface& surface = {});
 
         // Skeleton visualization
         static void DrawSkeleton(const Skeleton& skeleton, const glm::mat4& modelMatrix,

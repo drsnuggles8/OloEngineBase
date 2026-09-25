@@ -11,6 +11,11 @@
 // Lit passes call sampleProbeVolumeIrradiance(), which routes/blends per the
 // bound volume's mode (u_DDGIEnabled / u_DDGIHybridBlend from UBO 51).
 //
+// UNITS (issue #1336): both backends, and so the entry point, return full
+// irradiance E. The ambient ladder converts it once, through
+// oloNormalizedIrradiance (PBRCommon.glsl); the ReSTIR GI bounce vertex divides
+// by pi itself. Nothing else may consume it raw.
+//
 // Depends on: SphericalHarmonics.glsl, DDGICommon.glsl
 // =============================================================================
 
@@ -148,8 +153,11 @@ vec3 sampleLightProbeGrid(vec3 worldPos, vec3 normal)
     for (int i = 0; i < SH_COEFFICIENT_COUNT; ++i)
         blendedCoeffs[i] *= invWeight;
 
-    // Evaluate SH for the surface normal
-    vec3 irradiance = evaluateSH(blendedCoeffs, normal);
+    // Irradiance E at the surface normal (issue #1336): the bake stores
+    // radiance projections, so the cosine lobe is applied here, per band. The
+    // plain evaluateSH reconstruction handed back radiance, pi times smaller than
+    // the DDGI atlas's E it is blended with below.
+    vec3 irradiance = evaluateSHCosineIrradiance(blendedCoeffs, normal);
     return irradiance * u_ProbeIntensity;
 }
 

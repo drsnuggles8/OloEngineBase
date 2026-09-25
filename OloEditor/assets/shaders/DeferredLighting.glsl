@@ -122,6 +122,15 @@ layout(std140, binding = 30) uniform DeferredLightingControls {
     vec4 u_DeferredControls; // x=EnableIBL, y=EnableLightProbes, z=IBLIntensity, w=CascadeDebug
     vec4 u_MSAAParams;       // x=SampleCount (float, >=1), y=ReSTIR DI live, z=ReSTIR GI live,
                              // w=MaterialDebugView (issue #1231)
+    // Screen-space AO applied to the AMBIENT term here (issue #1336):
+    //   x = 1 when u_ScreenSpaceAO multiplies the ambient split in this pass
+    //       (OloEngine::SelectScreenSpaceAOApplication), 0 = no screen AO
+    //   y = strength, z/w = the reconstruction projection's (2,2) / (3,2)
+    //       coefficients, the pair SSAORenderPass uploads, for the upsample.
+    vec4 u_ScreenAOParams;
+    // x = 1 when screen-space contact shadows multiply the PRIMARY directional
+    // light's visibility (Lights[0]) in this pass (issue #1336); yzw = unused.
+    vec4 u_LightingFlags;
     // The skin profile table (issue #1231), indexed by the three-bit slot the
     // G-Buffer flags lane carries. MUST mirror DeferredControlsData in
     // DeferredLightingPass.cpp, which static_asserts this size.
@@ -210,6 +219,7 @@ layout(std140, binding = 30) uniform DeferredLightingControls {
 #define u_RayTracedShadowMask OLO_HEAP_TEX_2D(72)          // TEX_RAY_TRACED_SHADOW
 #define u_ReSTIRDIRadiance OLO_HEAP_TEX_2D(73)            // TEX_RESTIR_DI_RADIANCE (#1140)
 #define u_ReSTIRGIRadiance OLO_HEAP_TEX_2D(74)            // TEX_RESTIR_GI_RADIANCE (#1169)
+#define u_ScreenSpaceAO    OLO_HEAP_TEX_2D(20)            // TEX_SSAO (#1336)
 #else
 // IBL cubemaps.
 layout(binding = 10) uniform samplerCube u_IrradianceMap;
@@ -229,6 +239,10 @@ layout(binding = 34) uniform sampler2DArray u_ShadowAtlasRaw;
 layout(binding = 72) uniform sampler2D u_RayTracedShadowMask;
 layout(binding = 73) uniform sampler2D u_ReSTIRDIRadiance; // ReSTIR DI resolved direct lighting (#1140)
 layout(binding = 74) uniform sampler2D u_ReSTIRGIRadiance; // ReSTIR GI resolved indirect diffuse (#1169)
+// Screen-space AO (SSAO / GTAO, issue #1336): visibility for the AMBIENT term,
+// applied here rather than to the composed frame. Bound to white when no AO
+// technique produced it; u_ScreenAOParams.x says whether it is meaningful.
+layout(binding = 20) uniform sampler2D u_ScreenSpaceAO;
 #endif
 
 // Clustered light lists (issue #435) — included after the ShadowData block +
@@ -273,6 +287,11 @@ layout(location = 0) out vec4 o_Color;
 layout(location = 1) out vec4 o_SkinDiffuse;
 
 #include "include/DeferredLightingShared.glsl"
+
+#define OLO_SSAO_TAP_DEPTH(uv) texture(u_GBufferDepth, (uv)).r
+#include "include/ScreenSpaceAOSampling.glsl"
+#define OLO_CONTACT_SHADOW_TAP_DEPTH(uv) texture(u_GBufferDepth, (uv)).r
+#include "include/ContactShadowCommon.glsl"
 
 void main()
 {
@@ -326,8 +345,23 @@ void main()
     // which the ladder reads as "no baked GI" and falls through to probes/IBL.
     vec4 bakedGI = texture(u_GBufferBakedGI, v_TexCoord);
 
-    vec3 color = ComputeDeferredLitSplit(albedo, metallic, N, roughness, ao, emissive,
-                                         worldPos, bakedGI, o_SkinDiffuse);
+    // Screen-space AO for the ambient term (issue #1336) — the same upsample
+    // PostProcess_SSAOApply runs on the forward paths, handed to the ambient
+    // split alone. 1.0 when no AO technique ran.
+    float screenAO = 1.0;
+    if (u_ScreenAOParams.x > 0.5)
+        screenAO = oloScreenSpaceAOVisibility(
+            oloSampleScreenSpaceAO(u_ScreenSpaceAO, v_TexCoord, u_ScreenAOParams.z, u_ScreenAOParams.w),
+            u_ScreenAOParams.y);
+
+    // Contact shadows for the primary directional light (issue #1336): a
+    // visibility for THAT light, applied inside the loop — not to the frame.
+    float sunContactVisibility = 1.0;
+    if (u_LightingFlags.x > 0.5)
+        sunContactVisibility = oloContactShadowVisibility(v_TexCoord, depth, N, gl_FragCoord.xy);
+
+    vec3 color = ComputeDeferredLitSplit(albedo, metallic, N, roughness, ao, screenAO, sunContactVisibility,
+                                         emissive, worldPos, bakedGI, o_SkinDiffuse);
 
     o_Color = vec4(color, 1.0);
 }

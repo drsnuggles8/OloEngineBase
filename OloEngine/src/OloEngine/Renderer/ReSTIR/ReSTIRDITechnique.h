@@ -95,6 +95,13 @@ namespace OloEngine
         // per-pixel candidate budget, so resampling would enumerate the same set
         // the clustered loop already walks. See ReSTIRDIEngagePredicate.
         BelowEngagementThreshold,
+        // A live punctual / area light sits at a GPU Scene slot past the
+        // shaders' loop bound (kReSTIRDIMaxLightSlots). While this tier is live
+        // the deferred pass hands it every non-directional light and skips the
+        // clustered tiles, so that light would light NOTHING; standing down
+        // gives the whole frame back to the clustered path, which does reach it
+        // (issue #1336 — a dropped term is not a fallback).
+        LightsBeyondShaderBound,
 
         Count
     };
@@ -125,6 +132,10 @@ namespace OloEngine
                 return "the scene has no more emitters than this tier samples per pixel, so resampling "
                        "would enumerate the same set the clustered loop already walks, and cost four passes "
                        "to do it";
+            case ReSTIRDIFallbackReason::LightsBeyondShaderBound:
+                return "a live light sits past the shaders' light-slot bound; the tier cannot sample it and "
+                       "the clustered path it replaces would stop lighting it, so the clustered path keeps "
+                       "the frame";
             case ReSTIRDIFallbackReason::Count:
                 break;
         }
@@ -352,6 +363,7 @@ namespace OloEngine
         bool GPUSceneAvailable = false;   ///< Instance / geometry / material / light tables are addressable.
         bool TargetsAvailable = false;    ///< The graph produced this frame's reservoir targets.
         bool HistoryLayoutMatches = true; ///< The history planes were written at kReservoirLayoutVersion.
+        u32 LightsBeyondShaderBound = 0;  ///< Live non-directional lights past kReSTIRDIMaxLightSlots.
         // Explicit backend; production fills this from RendererAPI::GetAPI().
         RendererSupport::Backend Api = RendererSupport::Backend::Vulkan;
 
@@ -404,6 +416,8 @@ namespace OloEngine
             return fallback(ReSTIRDIFallbackReason::TargetUnavailable);
         if (!inputs.HistoryLayoutMatches)
             return fallback(ReSTIRDIFallbackReason::LayoutVersionMismatch);
+        if (inputs.LightsBeyondShaderBound != 0u)
+            return fallback(ReSTIRDIFallbackReason::LightsBeyondShaderBound);
         // LAST, and deliberately so: every guard above names a missing
         // capability the user can act on, and reporting "the scene has too few
         // lights" in front of "this device has no ray tracing" would bury the
@@ -462,16 +476,19 @@ namespace OloEngine
         // report how many did.
         u64 RaysDispatchedUpperBound = 0;
 
-        // Live emitters at slots the shaders' loops cannot reach. They light
-        // the clustered frame and the path tracer but not this tier.
+        // Live emitters at slots the shaders' loops cannot reach. Non-zero
+        // stands the tier down (ReSTIRDIFallbackReason::LightsBeyondShaderBound):
+        // with the tier live the deferred pass skips the clustered tiles, so
+        // these lights would light nothing at all (issue #1336).
         u32 LightsBeyondShaderBound = 0;
         // Emitters past the largest index the reservoir's identity lane can
         // name (ReSTIR::kMaxEncodableLightIndex). A separate count from the one
         // above because it has a different cause and a different fix: the loop
         // bound is a shader constant, this is the GPU LAYOUT's addressing limit.
         // Non-zero means the tier is resampling a subset of the emissive set;
-        // the remainder stays on the clustered path rather than being sampled
-        // under an aliased index.
+        // the remainder is excluded rather than sampled under an aliased index.
+        // No raster estimator lights from emissive geometry, so the excluded
+        // ones light nothing — no worse than the tier being off, and counted.
         u32 EmittersBeyondEncodableIndex = 0;
         // Settings values the pass clamped before upload. Non-zero means the
         // frame did LESS than the settings asked for.

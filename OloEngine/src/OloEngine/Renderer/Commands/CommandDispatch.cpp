@@ -28,6 +28,7 @@
 #include "OloEngine/Renderer/LightCulling/TiledForwardPlus.h"
 #include "OloEngine/Renderer/ShaderResourceRegistry.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Passes/DeferredLightingPass.h"
 #include "OloEngine/Renderer/Shadow/VirtualShadowMap.h"
 #include "OloEngine/Renderer/Water/WaterDisturbanceSystem.h"
 #include "OloEngine/Renderer/Water/WaterRainRippleSystem.h"
@@ -2964,6 +2965,24 @@ namespace OloEngine
         ++Data().Stats.DrawCalls;
     }
 
+    // The ambient ladder's sources for a forward TERRAIN draw (issue #1336).
+    // Mesh draws bind the IBL trio per material (BindPBRTextures); terrain and
+    // voxel draws bound none, so their forward shaders could only use the flat
+    // fill while the deferred pass lit the same terrain with the full ladder.
+    // The global maps are what DeferredLightingPass shades with, so both paths
+    // now take the same rung. A missing map is simply not bound; the
+    // AmbientLadder lane's EnableIBL — from the same availability test —
+    // keeps the shader from reading the slot.
+    static void BindTerrainAmbientLadder(RendererAPI& api, ShaderBindingLayout::TerrainUBO& ubo)
+    {
+        ubo.AmbientLadder = DeferredLightingPass::AmbientLadderControls();
+        BindTrackedTexture(api, Renderer3D::GetGlobalIrradianceMapHandle(), ShaderBindingLayout::TEX_USER_0,
+                           RHI::NullSamplerKind::Cube);
+        BindTrackedTexture(api, Renderer3D::GetGlobalPrefilterMapHandle(), ShaderBindingLayout::TEX_USER_1,
+                           RHI::NullSamplerKind::Cube);
+        BindTrackedTexture(api, Renderer3D::GetGlobalBRDFLutMapHandle(), ShaderBindingLayout::TEX_USER_2);
+    }
+
     void CommandDispatch::DrawTerrainPatch(const void* data, RendererAPI& api)
     {
         OLO_PROFILE_FUNCTION();
@@ -3009,7 +3028,9 @@ namespace OloEngine
         // Upload terrain UBO (per-chunk data with tess factors)
         if (auto terrainUBO = Renderer3D::GetTerrainUBO(); terrainUBO)
         {
-            terrainUBO->SetData(&cmd->terrainUBOData, ShaderBindingLayout::TerrainUBO::GetSize());
+            ShaderBindingLayout::TerrainUBO uboData = cmd->terrainUBOData;
+            BindTerrainAmbientLadder(api, uboData);
+            terrainUBO->SetData(&uboData, ShaderBindingLayout::TerrainUBO::GetSize());
             api.BindUniformBuffer(ShaderBindingLayout::UBO_TERRAIN, terrainUBO->GetRHIHandle());
         }
 
@@ -3130,6 +3151,21 @@ namespace OloEngine
             modelData.PrevModel = cmd->transform; // voxel: routed through ForwardOverlayPass, no motion tracking
             UploadModelInstance(modelData, Data().ModelInstanceBuffer);
             // Legacy ModelMatrixUBO binding retired — all shaders now read transforms from the InstanceBuffer SSBO at binding 15.
+        }
+
+        // The terrain UBO the voxel shaders read (issue #1336). This draw used
+        // to upload none, so u_TerrainParams.w and u_LayerTilingScales0/1 were
+        // whatever the last heightmap chunk left in the buffer — zeros on a
+        // voxel-only terrain — and the ambient ladder lane would have been too.
+        if (auto terrainUBO = Renderer3D::GetTerrainUBO(); terrainUBO)
+        {
+            ShaderBindingLayout::TerrainUBO uboData{};
+            uboData.TerrainParams.w = cmd->surface.TriplanarSharpness;
+            uboData.LayerTilingScales0 = cmd->surface.LayerTilingScales0;
+            uboData.LayerTilingScales1 = cmd->surface.LayerTilingScales1;
+            BindTerrainAmbientLadder(api, uboData);
+            terrainUBO->SetData(&uboData, ShaderBindingLayout::TerrainUBO::GetSize());
+            api.BindUniformBuffer(ShaderBindingLayout::UBO_TERRAIN, terrainUBO->GetRHIHandle());
         }
 
         // Bind textures for triplanar sampling
@@ -3429,16 +3465,15 @@ namespace OloEngine
             foliageData.LeafLobe = glm::vec4(cmd->leafTransmissionDistortion, cmd->leafTransmissionPower,
                                              cmd->leafTransmissionWrap, cmd->leafTransmissionAmbient);
             // .y says whether the global IBL trio is actually bound, .z is its
-            // intensity. Foliage carries no Material, so these cannot ride a
-            // material UBO the way every mesh's do — and a scene with no
-            // EnvironmentMap binds nothing, which the shader must be able to
-            // tell from "bound and black".
-            const bool globalIblBound = Renderer3D::GetGlobalIrradianceMapHandle().IsValid() &&
-                                        Renderer3D::GetGlobalPrefilterMapHandle().IsValid() &&
-                                        Renderer3D::GetGlobalBRDFLutMapHandle().IsValid();
-            foliageData.LeafIds = glm::vec4(static_cast<f32>(cmd->leafProfileSlot),
-                                            globalIblBound ? 1.0f : 0.0f,
-                                            Renderer3D::GetGlobalIBLIntensity(), 0.0f);
+            // intensity, .w the probe-volume switch. Foliage carries no
+            // Material, so these cannot ride a material UBO the way every mesh's
+            // do — and a scene with no EnvironmentMap binds nothing, which the
+            // shader must be able to tell from "bound and black". They are the
+            // deferred pass's own ladder controls (issue #1336), so forward
+            // foliage takes the same rung.
+            const glm::vec4 ladderControls = DeferredLightingPass::AmbientLadderControls();
+            foliageData.LeafIds = glm::vec4(static_cast<f32>(cmd->leafProfileSlot), ladderControls.x, ladderControls.z,
+                                            ladderControls.y);
 
             foliageUBO->SetData(&foliageData, ShaderBindingLayout::FoliageUBO::GetSize());
             api.BindUniformBuffer(ShaderBindingLayout::UBO_FOLIAGE, foliageUBO->GetRHIHandle());
