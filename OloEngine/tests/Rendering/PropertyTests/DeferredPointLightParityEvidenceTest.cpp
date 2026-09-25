@@ -554,6 +554,7 @@ namespace OloEngine::Tests
     TEST_F(DeferredPointLightParitySceneTest, DDGITestRedPointLightMatchesForward)
     {
         OLO_ENSURE_GPU_OR_SKIP();
+        ASSERT_FALSE(HasFatalFailure()) << "DDGITest.olo did not load in BuildScene";
         ScopedMockTime mockTime(kCaptureTime);
 
         const Frame forward = Capture(RenderingPath::Forward, "DeferredPointLightParity_GL_Forward_DDGITest");
