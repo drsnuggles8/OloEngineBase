@@ -2,8 +2,10 @@
 #include <gtest/gtest.h>
 
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -305,57 +307,315 @@ namespace
     }
 } // namespace
 
-// An UNOCCLUDED surface must integrate to full visibility at every tilt.
+// =============================================================================
+// Issue #1463: an unoccluded flat plane reads full visibility from every view
+// elevation, and a contact crease still reads occluded.
 //
-// GTAO.comp seeds each slice's two horizon cosines, then recovers the horizon
-// angles with acos() and evaluates the arc integral. acos() returns a magnitude,
-// so it cannot distinguish (n - HALF_PI) from (HALF_PI - n): seeding the pair
-// with cos(n +/- HALF_PI) therefore made BOTH horizons converge to the same
-// angle as |n| grew, and the arc integral -- which measures the span between
-// them -- fell to zero. A surface with no occluders at all reported FULL
-// occlusion, with the error scaling continuously from none at n == 0 to total
-// at n == HALF_PI. That is invisible looking dead-on at a surface and worst on
-// a large flat expanse seen edge-on, which is why it survived every existing
-// GPU evidence test (all shot at modest tilt on a small floor).
+// GtaoPixelVisibility below is a per-pixel CPU mirror of GTAO.comp's main():
+// slice loop, step distribution, texel-centre rounding, falloff, horizon
+// update, h0/h1 reconstruction, arc integral and power curve. It traces an
+// analytic scene (an infinite floor at y = 0, optionally a wall standing on it)
+// through the same GL-convention NDCToView unprojection GTAORenderPass
+// uploads, in place of the HZB. It does not model HZB mips: those reduce with
+// max(), so they return a FARTHER depth, which can only lower a horizon.
 //
-// Seeding both horizons at -1 ("no occluder on either side") reconstructs
-// symmetrically for every n, since acos(-1) = PI on both sides.
-TEST(GTAOMath, UnoccludedSurfaceIntegratesToFullVisibilityAtEveryTilt)
+// The mirror carries both horizon conventions, so the pre-fix arm is an
+// executable record of the defect: it reproduces the issue's live
+// olo_render_probe_pixel readings on DDGITest.olo's floor (1.00 / 0.71 / 0.34)
+// to within a few hundredths, which is what licenses trusting the fixed arm.
+// The GPU half is GTAOVisualEvidenceTest's elevation sweep.
+// =============================================================================
+
+namespace
 {
-    // Mirrors the shader's arc integral for one slice, given the two seeded
-    // horizon cosines and the tilt n.
-    const auto sliceVisibility = [](float n, float horizonCos0, float horizonCos1)
+    enum class HorizonConvention
     {
-        const float h0 = n + std::max(-std::acos(horizonCos0) - n, -kPi * 0.5f);
-        const float h1 = n + std::min(std::acos(horizonCos1) - n, kPi * 0.5f);
-        const float iarc0 = -std::cos(2.0f * h0 - n) + std::cos(n) + 2.0f * h0 * std::sin(n);
-        const float iarc1 = -std::cos(2.0f * h1 - n) + std::cos(n) + 2.0f * h1 * std::sin(n);
-        return 0.25f * (iarc0 + iarc1); // projectedNormalLen == 1 for this check
+        // GTAO.comp since #1463: horizon cosines against viewVec, seeded at the
+        // low horizon cos(n +/- HALF_PI), sample 0 (+omega) bounds h1, falloff
+        // fades towards the low horizon, samples at least 2 px out.
+        XeGTAO,
+        // GTAO.comp before #1463: horizon cosines against viewNormal, seeded
+        // at -1, sample 0 bounds h0, falloff mixed from the running horizon,
+        // samples at least 1 px out.
+        Pre1463,
     };
 
-    // Sweep tilt from dead-on to fully grazing.
-    for (int i = 0; i <= 10; ++i)
+    struct GtaoMirrorCamera
     {
-        const float n = (kPi * 0.5f) * (static_cast<float>(i) / 10.0f);
+        static constexpr int kWidth = 1024;
+        static constexpr int kHeight = 768;
 
-        // The fix: both horizons seeded at -1. The raw arc integral is not
-        // normalised to exactly 1 -- it grows past 1 with tilt, and the shader
-        // scales it by projectedNormalLen (which shrinks with tilt) and clamps
-        // to [0,1]. The property that matters, and the one the defect broke, is
-        // that an unoccluded slice never integrates to LESS than full visibility.
-        const float fixed = sliceVisibility(n, -1.0f, -1.0f);
-        EXPECT_GE(fixed, 1.0f - 1e-4f)
-            << "An unoccluded slice must never integrate to less than full visibility, but at n = "
-            << n << " rad it gave " << fixed << ". The horizon seeding regressed.";
+        glm::vec3 Eye{ 0.0f };
+        glm::mat4 View{ 1.0f };
+        glm::mat4 InvView{ 1.0f };
+        glm::mat4 Projection{ 1.0f };
+        glm::vec2 NDCToViewMul{ 1.0f };
+        glm::vec2 NDCToViewAdd{ 0.0f };
 
-        // The old seeding, kept as an executable record of the defect: correct
-        // dead-on, collapsing to zero as the surface tilts away.
-        const float old = sliceVisibility(n, std::cos(n + kPi * 0.5f), std::cos(n - kPi * 0.5f));
-        if (i == 0)
-            EXPECT_NEAR(old, 1.0f, 1e-4f) << "the old seeding was correct only at n == 0";
-        if (i == 10)
-            EXPECT_NEAR(old, 0.0f, 1e-4f) << "the old seeding collapsed to zero when fully grazing";
+        GtaoMirrorCamera(const glm::vec3& eye, const glm::vec3& target) : Eye(eye)
+        {
+            const glm::vec3 forward = glm::normalize(target - eye);
+            const glm::vec3 up = std::abs(forward.y) > 0.99f ? glm::vec3(0.0f, 0.0f, -1.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
+            View = glm::lookAt(eye, target, up);
+            InvView = glm::inverse(View);
+            Projection = glm::perspective(glm::radians(60.0f), static_cast<float>(kWidth) / static_cast<float>(kHeight), 0.05f, 1000.0f);
+            // GTAORenderPass::UploadGTAOUniforms, GL convention on both axes.
+            NDCToViewMul = glm::vec2(2.0f / Projection[0][0], 2.0f / Projection[1][1]);
+            NDCToViewAdd = glm::vec2(-1.0f / Projection[0][0], -1.0f / Projection[1][1]);
+        }
+
+        // Screen position, in pixels, of a world-space point.
+        [[nodiscard]] glm::vec2 PixelOf(const glm::vec3& world) const
+        {
+            const glm::vec4 clip = Projection * View * glm::vec4(world, 1.0f);
+            const glm::vec2 ndc = glm::vec2(clip) / clip.w;
+            return (ndc * 0.5f + 0.5f) * glm::vec2(kWidth, kHeight);
+        }
+    };
+
+    struct MirrorHit
+    {
+        float Depth = 1.0e6f; // positive view distance; the far default is sky
+        glm::vec3 WorldNormal{ 0.0f, 1.0f, 0.0f };
+        bool Hit = false;
+    };
+
+    // Floor y = 0, plus (when hasWall) a wall z = wallZ facing +z that stands on it.
+    MirrorHit TraceMirrorScene(const GtaoMirrorCamera& camera, const glm::vec2& screenUV, bool hasWall, float wallZ)
+    {
+        // A view-space ray scaled to unit depth: ComputeViewspacePosition(uv, 1).
+        const glm::vec3 rayView(camera.NDCToViewMul * screenUV + camera.NDCToViewAdd, -1.0f);
+        const glm::vec3 rayWorld = glm::mat3(camera.InvView) * rayView;
+        MirrorHit best;
+        if (rayWorld.y < 0.0f)
+        {
+            const float t = -camera.Eye.y / rayWorld.y;
+            const glm::vec3 p = camera.Eye + t * rayWorld;
+            if (!hasWall || p.z >= wallZ)
+                best = { t, glm::vec3(0.0f, 1.0f, 0.0f), true };
+        }
+        if (hasWall && rayWorld.z < 0.0f)
+        {
+            const float t = (wallZ - camera.Eye.z) / rayWorld.z;
+            const glm::vec3 p = camera.Eye + t * rayWorld;
+            if (p.y >= 0.0f && (!best.Hit || t < best.Depth))
+                best = { t, glm::vec3(0.0f, 0.0f, 1.0f), true };
+        }
+        return best;
     }
+
+    struct GtaoMirrorInputs
+    {
+        HorizonConvention Convention = HorizonConvention::XeGTAO;
+        float NoiseSlice = 0.5f;
+        float NoiseSample = 0.5f;
+        bool HasWall = false;
+        float WallZ = 0.0f;
+    };
+
+    // Production defaults (PostProcessSettings.h): GTAORadius 0.5, GTAOPower
+    // 2.2, GTAOFalloffRange 0.615, GTAOSampleDistribution 2.0,
+    // GTAOThinCompensation 0.
+    float GtaoPixelVisibility(const GtaoMirrorCamera& camera, const glm::vec2& pixel, const GtaoMirrorInputs& in)
+    {
+        constexpr int kSlices = 9;
+        constexpr int kSteps = 3;
+        constexpr float kHalfPi = kPi * 0.5f;
+        constexpr float kRadius = 0.5f;
+        constexpr float kFalloffRange = 0.615f;
+        constexpr float kSampleDistributionPower = 2.0f;
+        constexpr float kFinalValuePower = 2.2f;
+        const bool xe = in.Convention == HorizonConvention::XeGTAO;
+
+        const glm::vec2 pixelSize(1.0f / GtaoMirrorCamera::kWidth, 1.0f / GtaoMirrorCamera::kHeight);
+        const glm::vec2 uv = pixel * pixelSize;
+        const auto viewspacePosition = [&camera](const glm::vec2& screenPos, float depth)
+        { return glm::vec3((camera.NDCToViewMul * screenPos + camera.NDCToViewAdd) * depth, -depth); };
+
+        const MirrorHit centre = TraceMirrorScene(camera, uv, in.HasWall, in.WallZ);
+        EXPECT_TRUE(centre.Hit) << "mirror pixel (" << pixel.x << ", " << pixel.y << ") sees no geometry";
+        const glm::vec3 pixCenterPos = viewspacePosition(uv, centre.Depth);
+        const glm::vec3 viewVec = glm::normalize(-pixCenterPos);
+        const glm::vec3 viewNormal = glm::normalize(glm::mat3(camera.View) * centre.WorldNormal);
+
+        const float pixelRadius = kRadius * (1.0f / camera.NDCToViewMul.x) * GtaoMirrorCamera::kWidth / centre.Depth;
+        if (pixelRadius < 2.0f)
+            return 1.0f;
+
+        float visibility = 0.0f;
+        for (int slice = 0; slice < kSlices; ++slice)
+        {
+            const float sliceAngle = (static_cast<float>(slice) + in.NoiseSlice) * (kPi / kSlices);
+            const glm::vec2 omega(std::cos(sliceAngle), std::sin(sliceAngle));
+            const glm::vec3 directionVS(omega, 0.0f);
+            const glm::vec3 orthoDirectionVS = directionVS - glm::dot(directionVS, viewVec) * viewVec;
+            const glm::vec3 axisVS = glm::normalize(glm::cross(directionVS, viewVec));
+            const glm::vec3 projectedNormal = viewNormal - axisVS * glm::dot(viewNormal, axisVS);
+            const float projectedNormalLen = glm::length(projectedNormal);
+            const float signN = glm::sign(glm::dot(orthoDirectionVS, projectedNormal));
+            const float cosN = glm::clamp(glm::dot(projectedNormal, viewVec) / std::max(projectedNormalLen, 1e-6f), 0.0f, 1.0f);
+            const float n = signN * std::acos(cosN);
+
+            const float lowHorizonCos0 = std::cos(n + kHalfPi);
+            const float lowHorizonCos1 = std::cos(n - kHalfPi);
+            float horizonCos0 = xe ? lowHorizonCos0 : -1.0f;
+            float horizonCos1 = xe ? lowHorizonCos1 : -1.0f;
+
+            for (int step = 0; step < kSteps; ++step)
+            {
+                const float stepNoise = std::pow((static_cast<float>(step) + in.NoiseSample) / kSteps, kSampleDistributionPower);
+                const float sampleOffsetPixels = std::max(stepNoise * pixelRadius, xe ? 2.0f : 1.0f);
+                const glm::vec2 sampleOffset = glm::round(omega * sampleOffsetPixels) * pixelSize;
+
+                std::array<float, 2> sampleCos{};
+                std::array<float, 2> weight{};
+                for (int side = 0; side < 2; ++side)
+                {
+                    const glm::vec2 sampleUV = side == 0 ? uv + sampleOffset : uv - sampleOffset;
+                    const glm::vec3 samplePos = viewspacePosition(sampleUV, TraceMirrorScene(camera, sampleUV, in.HasWall, in.WallZ).Depth);
+                    const glm::vec3 delta = samplePos - pixCenterPos;
+                    const float dist = glm::length(delta);
+                    const glm::vec3 horizonVec = delta / std::max(dist, 1e-6f);
+                    weight[side] = glm::clamp(1.0f - (dist / kRadius - (1.0f - kFalloffRange)) / kFalloffRange, 0.0f, 1.0f);
+                    sampleCos[side] = glm::dot(horizonVec, xe ? viewVec : viewNormal);
+                }
+
+                if (xe)
+                {
+                    horizonCos0 = std::max(horizonCos0, glm::mix(lowHorizonCos0, sampleCos[0], weight[0]));
+                    horizonCos1 = std::max(horizonCos1, glm::mix(lowHorizonCos1, sampleCos[1], weight[1]));
+                }
+                else
+                {
+                    horizonCos0 = std::max(horizonCos0, glm::mix(horizonCos0, sampleCos[0], weight[0]));
+                    horizonCos1 = std::max(horizonCos1, glm::mix(horizonCos1, sampleCos[1], weight[1]));
+                }
+            }
+
+            float h0 = 0.0f;
+            float h1 = 0.0f;
+            if (xe)
+            {
+                h0 = -std::acos(glm::clamp(horizonCos1, -1.0f, 1.0f));
+                h1 = std::acos(glm::clamp(horizonCos0, -1.0f, 1.0f));
+                h0 = n + glm::clamp(h0 - n, -kHalfPi, kHalfPi);
+                h1 = n + glm::clamp(h1 - n, -kHalfPi, kHalfPi);
+            }
+            else
+            {
+                h0 = n + std::max(-std::acos(glm::clamp(horizonCos0, -1.0f, 1.0f)) - n, -kHalfPi);
+                h1 = n + std::min(std::acos(glm::clamp(horizonCos1, -1.0f, 1.0f)) - n, kHalfPi);
+            }
+
+            const float iarc0 = -std::cos(2.0f * h0 - n) + std::cos(n) + 2.0f * h0 * std::sin(n);
+            const float iarc1 = -std::cos(2.0f * h1 - n) + std::cos(n) + 2.0f * h1 * std::sin(n);
+            visibility += 0.25f * (iarc0 + iarc1) * projectedNormalLen;
+        }
+
+        visibility = glm::clamp(visibility / kSlices, 0.03f, 1.0f);
+        return glm::clamp(std::pow(visibility, kFinalValuePower), 0.03f, 1.0f);
+    }
+
+    // Mean and minimum over an 8x8 grid of (slice, sample) noise values: the
+    // spread the R2 noise covers across a denoise footprint.
+    struct NoiseStats
+    {
+        float Mean = 0.0f;
+        float Min = 1.0f;
+    };
+
+    NoiseStats GtaoOverNoise(const GtaoMirrorCamera& camera, const glm::vec2& pixel, GtaoMirrorInputs in)
+    {
+        constexpr int kGrid = 8;
+        NoiseStats stats;
+        for (int i = 0; i < kGrid; ++i)
+        {
+            for (int j = 0; j < kGrid; ++j)
+            {
+                in.NoiseSlice = (static_cast<float>(i) + 0.5f) / kGrid;
+                in.NoiseSample = (static_cast<float>(j) + 0.5f) / kGrid;
+                const float v = GtaoPixelVisibility(camera, pixel, in);
+                stats.Mean += v / static_cast<float>(kGrid * kGrid);
+                stats.Min = std::min(stats.Min, v);
+            }
+        }
+        return stats;
+    }
+
+    // Camera 6 m from a floor point, `zenithDeg` away from the floor normal
+    // (0 = straight down, 75 = 15 degrees above the floor).
+    GtaoMirrorCamera FloorCameraAtZenith(float zenithDeg)
+    {
+        const float zenith = glm::radians(zenithDeg);
+        return GtaoMirrorCamera(glm::vec3(0.0f, 6.0f * std::cos(zenith), 6.0f * std::sin(zenith)), glm::vec3(0.0f));
+    }
+} // namespace
+
+// THE #1463 CONTRACT, CPU half: an unoccluded plane reads AO >= 0.97 from 0 to
+// 75 degrees, at the screen centre and off-centre (where viewVec departs from
+// the camera axis). The minimum over noise has its own looser floor: one R2
+// draw is one pixel before the denoise averages its neighbours.
+TEST(GTAOMath, UnoccludedPlaneIsFullyVisibleFromEveryElevation)
+{
+    for (float zenithDeg : { 0.0f, 15.0f, 30.0f, 45.0f, 60.0f, 75.0f })
+    {
+        const GtaoMirrorCamera camera = FloorCameraAtZenith(zenithDeg);
+        for (const glm::vec2& at : { glm::vec2(0.5f, 0.5f), glm::vec2(0.25f, 0.3f), glm::vec2(0.8f, 0.35f) })
+        {
+            const glm::vec2 pixel = at * glm::vec2(GtaoMirrorCamera::kWidth, GtaoMirrorCamera::kHeight);
+            const NoiseStats stats = GtaoOverNoise(camera, pixel, {});
+            EXPECT_GE(stats.Mean, 0.97f) << "unoccluded floor, " << zenithDeg << " degrees from the normal, screen ("
+                                         << at.x << ", " << at.y << "): mean AO " << stats.Mean;
+            EXPECT_GE(stats.Min, 0.94f) << "unoccluded floor, " << zenithDeg << " degrees, screen (" << at.x << ", "
+                                        << at.y << "): one noise draw reads " << stats.Min;
+        }
+    }
+}
+
+// Negative control for the mirror, and the executable record of #1463: the
+// pre-fix conventions reproduce the issue's live readings of DDGITest.olo's
+// floor at [0,0,7] from its three cameras. If this arm stopped matching them,
+// the mirror would no longer be evidence about the shader.
+TEST(GTAOMath, Pre1463ConventionsReproduceTheMeasuredFloorDarkening)
+{
+    struct Reading
+    {
+        glm::vec3 Eye;
+        float Measured;
+    };
+    const glm::vec3 floorPoint(0.0f, 0.0f, 7.0f);
+    const glm::vec2 centre(GtaoMirrorCamera::kWidth * 0.5f, GtaoMirrorCamera::kHeight * 0.5f);
+    for (const Reading& r : { Reading{ { 0.0f, 4.0f, 7.0f }, 1.00f }, Reading{ { 0.0f, 4.0f, 3.0f }, 0.71f },
+                              Reading{ { 0.0f, 1.0f, 2.0f }, 0.34f } })
+    {
+        const GtaoMirrorCamera camera(r.Eye, floorPoint);
+        GtaoMirrorInputs pre;
+        pre.Convention = HorizonConvention::Pre1463;
+        EXPECT_NEAR(GtaoOverNoise(camera, centre, pre).Mean, r.Measured, 0.04f)
+            << "the pre-#1463 arm no longer reproduces the live reading from eye (" << r.Eye.x << ", " << r.Eye.y
+            << ", " << r.Eye.z << ")";
+        EXPECT_GE(GtaoOverNoise(camera, centre, {}).Mean, 0.97f)
+            << "the fixed conventions still darken the floor from eye (" << r.Eye.x << ", " << r.Eye.y << ", "
+            << r.Eye.z << ")";
+    }
+}
+
+// Positive control: fixing the flat plane must not flatten real occlusion. A
+// floor point 5 cm from a wall reads clearly occluded, and the occlusion fades
+// back to full visibility beyond the 0.5 m radius.
+TEST(GTAOMath, ContactCreaseStaysOccluded)
+{
+    const GtaoMirrorCamera camera(glm::vec3(0.0f, 3.0f, 3.0f), glm::vec3(0.0f, 0.0f, -2.0f));
+    GtaoMirrorInputs in;
+    in.HasWall = true;
+    in.WallZ = -2.0f;
+
+    const float nearFloor = GtaoOverNoise(camera, camera.PixelOf({ 0.0f, 0.0f, -1.95f }), in).Mean;
+    const float nearWall = GtaoOverNoise(camera, camera.PixelOf({ 0.0f, 0.05f, -2.0f }), in).Mean;
+    const float openFloor = GtaoOverNoise(camera, camera.PixelOf({ 0.0f, 0.0f, -1.0f }), in).Mean;
+    EXPECT_LT(nearFloor, 0.65f) << "floor 5 cm from the wall is not occluded (AO " << nearFloor << ")";
+    EXPECT_LT(nearWall, 0.65f) << "wall 5 cm above the floor is not occluded (AO " << nearWall << ")";
+    EXPECT_GE(openFloor, 0.97f) << "floor 1 m from the wall, twice the radius, is still occluded (AO " << openFloor << ")";
 }
 
 TEST(GTAOMath, FarPlaneClassificationToleratesFilteredDepthUlps)
@@ -376,24 +636,33 @@ TEST(GTAOMath, FarPlaneClassificationToleratesFilteredDepthUlps)
     EXPECT_FALSE(ClassifiesAsSky(0.5f));
 }
 
-// Source guard for the seeding above: the maths test proves WHY -1 is required,
-// this proves GTAO.comp still does it. Without this the pair could silently
-// regress -- the arc-integral test mirrors the formula, it does not read the
-// shader.
-TEST(GTAOMath, GtaoShaderSeedsHorizonsFullyBehindSurface)
+// Source guard for the conventions the mirror above assumes. One find per
+// load-bearing line, so reverting any one of them fails here: the mirror
+// proves WHY, this proves GTAO.comp still does it.
+TEST(GTAOMath, GtaoShaderUsesXeGtaoHorizonConventions)
 {
     const std::string src = ReadRepoFile(std::filesystem::path{ "assets" } / "shaders" / "compute" / "GTAO.comp");
     ASSERT_FALSE(src.empty());
-    EXPECT_NE(src.find("float horizonCos0 = -1.0;"), std::string::npos)
-        << "GTAO.comp no longer seeds horizonCos0 at -1";
-    EXPECT_NE(src.find("float horizonCos1 = -1.0;"), std::string::npos)
-        << "GTAO.comp no longer seeds horizonCos1 at -1";
-    // The exact regression this guards: acos() drops the sign of (n -/+ HALF_PI),
-    // so seeding from it collapses both horizons together as the surface tilts
-    // and an unoccluded grazing surface reports full occlusion.
-    EXPECT_EQ(src.find("horizonCos0 = cos(n + XE_GTAO_HALF_PI)"), std::string::npos)
-        << "GTAO.comp seeds its horizons from cos(n +/- HALF_PI) again — a flat surface viewed "
-           "edge-on will integrate to zero visibility and the frame will go black";
+    for (const char* line : {
+             "const float lowHorizonCos0 = cos(n + XE_GTAO_HALF_PI);",
+             "const float lowHorizonCos1 = cos(n - XE_GTAO_HALF_PI);",
+             "float horizonCos0 = lowHorizonCos0;",
+             "float horizonCos1 = lowHorizonCos1;",
+             "mix(lowHorizonCos0, dot(sampleHorizon0, viewVec), weight0)",
+             "mix(lowHorizonCos1, dot(sampleHorizon1, viewVec), weight1)",
+             "float h0 = -acos(clamp(horizonCos1, -1.0, 1.0));",
+             "float h1 = acos(clamp(horizonCos0, -1.0, 1.0));",
+             "#define XE_GTAO_MIN_SAMPLE_OFFSET_PIXELS 2.0",
+             "max(stepNoise * pixelRadius, XE_GTAO_MIN_SAMPLE_OFFSET_PIXELS)",
+         })
+    {
+        EXPECT_NE(src.find(line), std::string::npos) << "GTAO.comp lost: " << line;
+    }
+    // The pre-#1463 form: horizons measured against the normal.
+    EXPECT_EQ(src.find("dot(sampleHorizon0, viewNormal)"), std::string::npos)
+        << "GTAO.comp measures horizons against viewNormal again; n and h0/h1 are angles from viewVec (#1463)";
+    EXPECT_EQ(src.find("dot(sampleHorizon1, viewNormal)"), std::string::npos)
+        << "GTAO.comp measures horizons against viewNormal again; n and h0/h1 are angles from viewVec (#1463)";
 }
 
 TEST(GTAOMath, NDCToViewConstantsUseGLConventionOnBothAxes)
