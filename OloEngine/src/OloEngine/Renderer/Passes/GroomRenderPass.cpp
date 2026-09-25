@@ -1289,6 +1289,10 @@ namespace OloEngine
             m_Stats.CacheBudgetBytes = m_CacheBudgetBytes;
             // The cache can still be over budget on a frame that draws nothing.
             m_Stats.CacheOverBudgetBytes = m_CacheBytes > m_CacheBudgetBytes ? m_CacheBytes - m_CacheBudgetBytes : 0;
+            // Back within budget (a raised budget, an emptied cache) re-arms the
+            // warning here too, not only in EvictToBudget.
+            if (m_Stats.CacheOverBudgetBytes == 0)
+                (void)m_CacheBudgetWarning.Observe(0);
             m_Stats.CachedGrooms = static_cast<u32>(m_Cache.size());
             return;
         }
@@ -1313,6 +1317,10 @@ namespace OloEngine
             m_Stats.CacheBudgetBytes = m_CacheBudgetBytes;
             // The cache can still be over budget on a frame that draws nothing.
             m_Stats.CacheOverBudgetBytes = m_CacheBytes > m_CacheBudgetBytes ? m_CacheBytes - m_CacheBudgetBytes : 0;
+            // Back within budget (a raised budget, an emptied cache) re-arms the
+            // warning here too, not only in EvictToBudget.
+            if (m_Stats.CacheOverBudgetBytes == 0)
+                (void)m_CacheBudgetWarning.Observe(0);
             m_Stats.CachedGrooms = static_cast<u32>(m_Cache.size());
             return;
         }
@@ -1834,6 +1842,7 @@ namespace OloEngine
         m_Cache.clear();
         m_RestStreams.clear();
         m_CacheBytes = 0;
+        m_CacheBudgetWarning = {};
         std::vector<GroomStrandVertex>().swap(m_DeformedVertices);
         std::vector<GroomCoatShadow::CoatSegment>().swap(m_DrawnPose);
         m_CacheTick = 0;
