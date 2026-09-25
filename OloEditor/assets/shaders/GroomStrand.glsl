@@ -93,7 +93,7 @@ layout(std140, binding = 7) uniform GroomStrandParams {
 	// lane from UBOStructures::GroomStrandParamsUBO — see that struct for why
 	// they are derived on the CPU rather than here.
 	vec4 u_GroomFibreSigmaEta; // rgb = sigma_a, w = eta
-	vec4 u_GroomFibreLobe;     // x = V[0], y = azimuthal scale, z = intensity, w unused
+	vec4 u_GroomFibreLobe;     // x = V[0], y = azimuthal scale, z = intensity, w = IBL intensity
 	vec4 u_GroomFibreSinAlpha; // xyz = sin(2^k alpha)
 	vec4 u_GroomFibreCosAlpha; // xyz = cos(2^k alpha)
 	ivec4 u_GroomFibreModes;   // x = lit, y = h-quadrature order, z = debug mode, w unused
@@ -382,7 +382,7 @@ layout(std140, binding = 7) uniform GroomStrandParams {
 	// lane from UBOStructures::GroomStrandParamsUBO — see that struct for why
 	// they are derived on the CPU rather than here.
 	vec4 u_GroomFibreSigmaEta; // rgb = sigma_a, w = eta
-	vec4 u_GroomFibreLobe;     // x = V[0], y = azimuthal scale, z = intensity, w unused
+	vec4 u_GroomFibreLobe;     // x = V[0], y = azimuthal scale, z = intensity, w = IBL intensity
 	vec4 u_GroomFibreSinAlpha; // xyz = sin(2^k alpha)
 	vec4 u_GroomFibreCosAlpha; // xyz = cos(2^k alpha)
 	ivec4 u_GroomFibreModes;   // x = lit, y = h-quadrature order, z = debug mode, w unused
@@ -571,7 +571,7 @@ vec3 oloGroomShadeFibre()
 	if (length(perpV) > 1e-6)
 	{
 		vec3 envDir = normalize(perpV);
-		vec3 averageRadiance = oloGroomFibreEnvironmentRadiance(u_IrradianceMap, envDir);
+		vec3 averageRadiance = oloGroomFibreEnvironmentRadiance(u_IrradianceMap, envDir, u_GroomFibreLobe.w);
 
 		// The environment is occluded by the coat too, and along the SAME
 		// direction it is sampled from — so this is the one extra march that is

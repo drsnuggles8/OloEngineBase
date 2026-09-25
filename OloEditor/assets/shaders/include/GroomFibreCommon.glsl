@@ -476,10 +476,14 @@ OloGroomFibreLobes oloGroomFibreAmbientResponse(OloGroomFibre fibre, float sinTh
 // Lambertian surface lit by the same cube, because the old comment took the
 // cube for full irradiance E. docs/agent-rules/lighting-signal-contract.md
 // lists what each signal stores; GroomEnvironmentFurnaceTest pins this against
-// both producers.
-vec3 oloGroomFibreEnvironmentRadiance(samplerCube irradianceMap, vec3 direction)
+// every producer.
+//
+// `iblIntensity` is the sky's IBL intensity (Renderer3D::GetGlobalIBLIntensity),
+// the same scale AmbientLadder.glsl's IBL rung applies to this cube, so the coat
+// and the body it grows from brighten together.
+vec3 oloGroomFibreEnvironmentRadiance(samplerCube irradianceMap, vec3 direction, float iblIntensity)
 {
-	return texture(irradianceMap, direction).rgb;
+	return texture(irradianceMap, direction).rgb * iblIntensity;
 }
 
 // The fibre's projected width as seen from `wi`: a strand lit end-on

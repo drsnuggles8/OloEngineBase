@@ -22,6 +22,7 @@
 //      percentile to the sphere's centre.
 //   3. NOTHING BUT THE SKY LIGHTS IT. With IBL off, the coat is black, so 1
 //      and 2 measure the environment term and not a stray light.
+//   4. THE SKY'S IBL INTENSITY SCALES THE COAT AS IT SCALES THE SPHERE.
 //
 // On all three rendering paths and for both producers the scene can pick (the
 // importance-sampled convolution and the L2 SH projection). The coat draws
@@ -195,11 +196,14 @@ namespace OloEngine::Tests
             return values[k];
         }
 
-        // The mean green of a 7x7 patch at the sphere's projected centre, where
-        // it faces the camera.
+        // The mean green of a 7x7 patch near the sphere's projected centre,
+        // where it faces the camera. Offset by 12 px (about 8 degrees of
+        // normal): the frame carries a bright dot at the exact centre that is
+        // not surface shading, and read there the sphere measured x1.29 instead
+        // of x1.02.
         [[nodiscard]] f32 SphereCentreGreen(const Frame& frame)
         {
-            const glm::ivec2 centre = ProjectToPixel(kSpherePosition);
+            const glm::ivec2 centre = ProjectToPixel(kSpherePosition) + glm::ivec2(-12, 12);
             f32 sum = 0.0f;
             u32 count = 0;
             for (i32 dy = -3; dy <= 3; ++dy)
@@ -492,24 +496,68 @@ namespace OloEngine::Tests
                 // A coat that drew almost nothing would pass any ratio below.
                 EXPECT_GT(coat.size(), 5000u) << "the coat barely rendered";
 
-                // The reference itself: a dielectric Lambertian body keeps about
-                // (1 - F) of albedo * L head-on, plus a rough specular sliver.
-                EXPECT_GT(sphere / expected, 0.85f) << "the Lambertian sphere reads darker than the sky allows";
-                EXPECT_LT(sphere / expected, 1.30f) << "the Lambertian sphere reads brighter than the sky allows";
+                // The reference itself: a dielectric body keeps (1 - F) of
+                // albedo * L head-on, plus its rough specular lobe's small share
+                // of the sky. Measured x1.02.
+                EXPECT_GT(sphere / expected, 0.90f) << "the Lambertian sphere reads darker than the sky allows";
+                EXPECT_LT(sphere / expected, 1.20f) << "the Lambertian sphere reads brighter than the sky allows";
 
                 // 1. The coat's bright end is the head-on albedo times the sky.
-                //    The extra 1/pi of #1450 reads about 0.3.
+                //    Measured 0.92; the extra 1/pi of #1450 read 0.29.
                 EXPECT_GT(coatBright / expected, 0.70f)
                     << "THE COAT IS TOO DARK FOR THE SKY LIGHTING IT: its bright end is " << coatBright / expected
                     << " of sky radiance times albedo. About 0.32 is issue #1450's extra 1/pi.";
                 EXPECT_LT(coatBright / expected, 1.10f)
                     << "the coat is brighter than a fibre of this albedo can be under this sky";
 
-                // 2. And so it matches the sphere of the same albedo.
-                EXPECT_GT(coatBright / sphere, 0.60f) << "the coat reads far darker than the Lambertian sphere";
-                EXPECT_LT(coatBright / sphere, 1.25f) << "the coat reads brighter than the Lambertian sphere";
+                // 2. And so it matches the sphere of the same albedo. Measured
+                //    0.90 with the fix and 0.29 without it.
+                EXPECT_GT(coatBright / sphere, 0.75f) << "the coat reads far darker than the Lambertian sphere";
+                EXPECT_LT(coatBright / sphere, 1.15f) << "the coat reads brighter than the Lambertian sphere";
             }
         }
+    }
+
+    TEST_F(GroomEnvironmentFurnaceEvidenceTest, TheSkysIblIntensityScalesTheCoatWithTheSphere)
+    {
+        // The sky's IBL intensity scales every lit surface's IBL rung
+        // (Renderer3D::GetGlobalIBLIntensity). It must scale the coat's
+        // environment term too, or the slider brightens a body and leaves its
+        // coat behind. The strand pass carries it in FibreLobe.w.
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+        auto& env = m_SkyEntity.GetComponent<EnvironmentMapComponent>();
+
+        Frame strandless;
+        SetStrandsVisible(false);
+        Capture("", strandless);
+        SetStrandsVisible(true);
+
+        std::array<f32, 2> coat{};
+        std::array<f32, 2> sphere{};
+        constexpr std::array<f32, 2> kIntensities{ 1.0f, 2.0f };
+        for (sizet i = 0; i < kIntensities.size(); ++i)
+        {
+            env.m_IBLIntensity = kIntensities[i];
+            Frame frame;
+            Capture(i == 0 ? std::string() : std::string("GroomEnvFurnaceIbl2_GL_Forward"), frame);
+            if (::testing::Test::HasFatalFailure())
+            {
+                return;
+            }
+            coat[i] = Percentile(CoatGreen(frame, strandless), 0.9f);
+            sphere[i] = SphereCentreGreen(frame);
+        }
+        std::printf("[groom-env-furnace] IBL intensity 1 -> 2: coat %.4f -> %.4f (x%.3f), sphere %.4f -> %.4f "
+                    "(x%.3f)\n",
+                    coat[0], coat[1], coat[0] > 0.0f ? coat[1] / coat[0] : 0.0f, sphere[0], sphere[1],
+                    sphere[0] > 0.0f ? sphere[1] / sphere[0] : 0.0f);
+
+        ASSERT_GT(coat[0], 0.05f) << "the coat did not render";
+        ASSERT_GT(sphere[0], 0.05f) << "the sphere did not render";
+        EXPECT_NEAR(sphere[1] / sphere[0], 2.0f, 0.1f) << "the sphere's IBL rung did not follow the intensity";
+        EXPECT_NEAR(coat[1] / coat[0], 2.0f, 0.1f)
+            << "THE COAT IGNORES THE SKY'S IBL INTENSITY while the sphere beside it doubles";
     }
 
     TEST_F(GroomEnvironmentFurnaceEvidenceTest, WithTheSkyOffNothingLightsTheCoat)

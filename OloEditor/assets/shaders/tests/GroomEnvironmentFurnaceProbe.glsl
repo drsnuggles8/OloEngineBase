@@ -14,6 +14,8 @@
 //   column 4     a Lambertian surface on the ambient ladder's IBL rung:
 //                calculateLightProbeAmbient fed the same cube's sample
 //   column 5     oloGroomFibreEnvironmentRadiance alone, along -Y
+//   column 6     the same at IBL intensity 2.5, which must scale it as it
+//                scales the ladder's IBL rung
 //
 // Both readers must recover the same L. The coat reading 1/pi of it is #1450.
 // Coat self-shadowing is left out on purpose: it multiplies the term by a
@@ -102,7 +104,7 @@ void main()
 		const float kSinThetaO[4] = float[4](0.0, 0.3, 0.6, 0.85);
 
 		OloGroomFibreLobes response = oloGroomFibreAmbientResponse(oloProbeFibre(), kSinThetaO[column]);
-		vec3 averageRadiance = oloGroomFibreEnvironmentRadiance(u_IrradianceMap, kDirections[column]);
+		vec3 averageRadiance = oloGroomFibreEnvironmentRadiance(u_IrradianceMap, kDirections[column], 1.0);
 		result = oloGroomFibreSum(response) * averageRadiance;
 	}
 	else if (column == 4)
@@ -113,7 +115,11 @@ void main()
 	}
 	else if (column == 5)
 	{
-		result = oloGroomFibreEnvironmentRadiance(u_IrradianceMap, vec3(0.0, -1.0, 0.0));
+		result = oloGroomFibreEnvironmentRadiance(u_IrradianceMap, vec3(0.0, -1.0, 0.0), 1.0);
+	}
+	else if (column == 6)
+	{
+		result = oloGroomFibreEnvironmentRadiance(u_IrradianceMap, vec3(0.0, -1.0, 0.0), 2.5);
 	}
 
 	o_Result = vec4(result, 1.0);

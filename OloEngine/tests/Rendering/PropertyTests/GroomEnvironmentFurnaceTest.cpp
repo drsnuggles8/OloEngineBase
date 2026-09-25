@@ -24,6 +24,10 @@
 // advanced shader is missing). A groom samples whichever one the scene baked,
 // so each has to hand it the same quantity.
 //
+// THE SKY'S IBL INTENSITY scales the coat's term as it scales the ladder's IBL
+// rung. The strand pass used to ignore it, so the sky slider brightened a body
+// and left its coat behind.
+//
 // Negative control, run when this was written: restoring the `* (1.0 /
 // OLO_GROOM_FIBRE_PI)` in oloGroomFibreEnvironmentRadiance turns every
 // coat/Lambertian ratio below into 0.318.
@@ -66,7 +70,9 @@ namespace OloEngine::Tests
         constexpr u32 kCoatColumns = 4;
         constexpr u32 kLambertColumn = 4;
         constexpr u32 kRawColumn = 5;
-        constexpr u32 kColumnCount = 6;
+        constexpr u32 kScaledColumn = 6;
+        constexpr u32 kColumnCount = 7;
+        constexpr f32 kProbeIblIntensity = 2.5f;
 
         // THE FIXTURE, mirrored from GroomEnvironmentFurnaceProbe.glsl.
         constexpr glm::vec3 kUniformRadiance{ 1.2f, 0.9f, 0.6f };
@@ -301,6 +307,11 @@ namespace OloEngine::Tests
                                std::string("oloGroomFibreEnvironmentRadiance does not return the sky's radiance L "
                                            "for a uniform sky; a reading of L / pi is issue #1450") +
                                    channel);
+                // The sky's IBL intensity scales the coat's term as the
+                // ladder's IBL rung scales the body's. Before #1450 the strand
+                // pass never uploaded it, so the sky slider left the coat alone.
+                ExpectRelative(columns[kScaledColumn][ch], kProbeIblIntensity * columns[kRawColumn][ch],
+                               "oloGroomFibreEnvironmentRadiance ignores the IBL intensity" + channel);
                 const f32 lambertianL = columns[kLambertColumn][ch] / lambertian[ch];
                 ExpectRelative(lambertianL, kUniformRadiance[ch],
                                "the Lambertian IBL rung does not reflect (1 - F) * albedo * L from this cube, so the "
