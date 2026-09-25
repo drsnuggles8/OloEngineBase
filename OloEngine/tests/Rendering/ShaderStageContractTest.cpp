@@ -362,6 +362,9 @@ namespace OloEngine::Tests
             { "Foliage_Instance_GBuffer.glsl", { ShaderBindingLayout::SSBO_VERTEX_PULL, ShaderBindingLayout::SSBO_BONE_PULL } },
             { "Foliage_Impostor.glsl", { ShaderBindingLayout::SSBO_VERTEX_PULL, ShaderBindingLayout::SSBO_BONE_PULL } },
             { "Foliage_Impostor_GBuffer.glsl", { ShaderBindingLayout::SSBO_VERTEX_PULL, ShaderBindingLayout::SSBO_BONE_PULL } },
+            // The forward prepass twins (issue #1474), on the same vertex stages.
+            { "Foliage_Instance_DepthNormal.glsl", { ShaderBindingLayout::SSBO_VERTEX_PULL, ShaderBindingLayout::SSBO_BONE_PULL } },
+            { "Foliage_Impostor_DepthNormal.glsl", { ShaderBindingLayout::SSBO_VERTEX_PULL, ShaderBindingLayout::SSBO_BONE_PULL } },
         };
 
         const fs::path root = SH::ResolveShaderRoot();

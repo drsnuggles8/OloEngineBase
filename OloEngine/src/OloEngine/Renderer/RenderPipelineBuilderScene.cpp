@@ -130,13 +130,19 @@ namespace OloEngine::RenderPipelineBuilderInternal
         // sphere proxies are registered between it and ScenePass: they read the
         // depth and view normals the prepass exported, and ScenePass's colour
         // sub-pass reads the AO buffer. Deferred keeps the order below, because
-        // its AO reads the finished G-Buffer.
+        // its AO reads the finished G-Buffer. Every forward geometry pass whose
+        // shaders apply that AO has its share here: the GPU-driven instanced
+        // batches (#1452) and foliage (#1474).
         if (!inputs.Deferred && inputs.Passes->ScenePrepass)
         {
             graph.AddNode(PrepareGraphNode("ScenePrepassPass", inputs.Passes->ScenePrepass));
             if (inputs.Passes->GPUOcclusionPrepass)
             {
                 graph.AddNode(PrepareGraphNode("GPUDrivenOcclusionPrepassPass", inputs.Passes->GPUOcclusionPrepass));
+            }
+            if (inputs.Passes->FoliagePrepass)
+            {
+                graph.AddNode(PrepareGraphNode("FoliagePrepassPass", inputs.Passes->FoliagePrepass));
             }
             RegisterScreenSpaceAONodes(graph, inputs);
         }

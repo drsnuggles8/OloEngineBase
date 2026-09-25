@@ -23,6 +23,14 @@
 //      environment, so the ambient ladder's flat fill is the only light. AO must
 //      darken the creases (positive control), and the per-pixel darkening on a
 //      forward path must match the Deferred path's (parity).
+//   3. FOLIAGE (issue #1474). The ambient-only light of scene 2 on a terrain
+//      of wind-animated pines: authored meshes and cards up close (the instance
+//      program) and octahedral impostors far off (the impostor program). Forward
+//      foliage used to take no AO, because it was not in the forward prepass, so
+//      its darkening differed from Deferred's by exactly the leaves' own AO.
+//      Same parity bar as scene 2, and AO may only darken: a pixel that gets
+//      BRIGHTER with AO on is a leaf fragment the colour pass lost to depth the
+//      foliage prepass wrote differently.
 //
 // Path cells: Forward with ForwardPlusAutoSwitch (the default, prepass already
 // on), Forward with the auto-switch and the prepass setting OFF (the one
@@ -37,6 +45,7 @@
 
 #include "RendererAttachedTest.h"
 #include "RenderPropertyTest.h"
+#include "RendererStateCheck.h"
 
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Framebuffer.h"
@@ -48,6 +57,9 @@
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
+#include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
+#include "OloEngine/Terrain/TerrainGenerator.h"
+#include "OloEngine/Terrain/TerrainMaterial.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 
 #include <glad/gl.h>
@@ -59,6 +71,8 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <iostream>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -250,6 +264,51 @@ namespace OloEngine::Tests
             Renderer3D::ApplyRendererSettings();
         }
 
+        struct Frames
+        {
+            std::vector<u8> Off;
+            std::vector<u8> On;
+        };
+
+        // A forward cell's AO darkening matches the Deferred reference's: the
+        // same pixels darken by the same amount. The darkening is compared
+        // rather than the frames, so any unrelated difference between the two
+        // paths' lighting cancels out of the measurement.
+        void ExpectDarkeningParity(const Frames& cell, const Frames& reference, PathCell path, const char* feature)
+        {
+            // Positive control on both: AO darkened something.
+            const FrameDiff cellDiff = Compare(cell.Off, cell.On);
+            const FrameDiff refDiff = Compare(reference.Off, reference.On);
+            EXPECT_GT(refDiff.MeanOff, 20.0) << "the ambient-only frame rendered (near-)black on Deferred";
+            EXPECT_GT(refDiff.Darkened, 500u) << "AO darkened almost nothing on Deferred, so parity is vacuous";
+            EXPECT_GT(cellDiff.Darkened, 500u) << "AO darkened almost nothing on " << PathName(path);
+
+            const std::vector<f32> cellDark = Darkening(cell.Off, cell.On);
+            const std::vector<f32> refDark = Darkening(reference.Off, reference.On);
+            f64 meanDelta = 0.0;
+            f64 refMass = 0.0;
+            u64 disagreeing = 0;
+            for (std::size_t i = 0; i < cellDark.size(); ++i)
+            {
+                const f64 delta = std::abs(static_cast<f64>(cellDark[i]) - refDark[i]);
+                meanDelta += delta;
+                refMass += std::abs(static_cast<f64>(refDark[i]));
+                if (delta > 8.0)
+                    ++disagreeing;
+            }
+            meanDelta /= static_cast<f64>(cellDark.size());
+            refMass /= static_cast<f64>(cellDark.size());
+            std::cout << "[" << feature << "] " << PathName(path) << " " << TechniqueName(GetParam().Technique)
+                      << ": mean |cell - deferred| darkening " << meanDelta << ", deferred mass " << refMass
+                      << ", disagreeing " << disagreeing << '\n';
+            EXPECT_LT(meanDelta, 0.15 * refMass + 0.25)
+                << PathName(path) << " AO DARKENS DIFFERENTLY FROM DEFERRED: mean |cell - deferred| darkening "
+                << meanDelta << " levels against a mean Deferred darkening of " << refMass << ". Compare the "
+                << feature << "*_" << PathName(path) << " and " << feature << "*_Deferred PNGs.";
+            EXPECT_LT(disagreeing, cellDark.size() / 100u)
+                << disagreeing << " pixels darken by more than 8 levels differently from Deferred";
+        }
+
         [[nodiscard]] std::string CellName(const char* feature, bool on, PathCell path) const
         {
             return std::string(feature) + (on ? "" : "Off") + "_GL_" + PathName(path) + "_" +
@@ -420,12 +479,6 @@ namespace OloEngine::Tests
             AddCreaseGeometry(glm::vec3(0.8f), glm::vec3(0.0f), glm::vec3(0.0f), glm::vec3(0.0f));
         }
 
-        struct Frames
-        {
-            std::vector<u8> Off;
-            std::vector<u8> On;
-        };
-
         void CaptureCell(PathCell path, const glm::vec3& pose, f32 yaw, f32 pitch, const char* angle, Frames& out)
         {
             UsePath(path, 8.0f);
@@ -467,39 +520,188 @@ namespace OloEngine::Tests
             CaptureCell(PathCell::Deferred, pose.Position, pose.Yaw, pose.Pitch, pose.Name, reference);
             ASSERT_FALSE(HasFatalFailure());
 
-            // Positive control on both: AO darkened the creases.
-            const FrameDiff cellDiff = Compare(cell.Off, cell.On);
-            const FrameDiff refDiff = Compare(reference.Off, reference.On);
-            EXPECT_GT(refDiff.MeanOff, 20.0) << "the ambient-only frame rendered (near-)black on Deferred";
-            EXPECT_GT(refDiff.Darkened, 500u) << "AO darkened almost nothing on Deferred, so parity is vacuous";
-            EXPECT_GT(cellDiff.Darkened, 500u) << "AO darkened almost nothing on " << PathName(path);
-
-            // Parity: the same pixels darken by the same amount. The darkening
-            // is compared rather than the frames, so any unrelated difference
-            // between the two paths' lighting cancels out of the measurement.
-            const std::vector<f32> cellDark = Darkening(cell.Off, cell.On);
-            const std::vector<f32> refDark = Darkening(reference.Off, reference.On);
-            f64 meanDelta = 0.0;
-            f64 refMass = 0.0;
-            u64 disagreeing = 0;
-            for (std::size_t i = 0; i < cellDark.size(); ++i)
-            {
-                const f64 delta = std::abs(static_cast<f64>(cellDark[i]) - refDark[i]);
-                meanDelta += delta;
-                refMass += std::abs(static_cast<f64>(refDark[i]));
-                if (delta > 8.0)
-                    ++disagreeing;
-            }
-            meanDelta /= static_cast<f64>(cellDark.size());
-            refMass /= static_cast<f64>(cellDark.size());
-            EXPECT_LT(meanDelta, 0.15 * refMass + 0.25)
-                << PathName(path) << " AO DARKENS DIFFERENTLY FROM DEFERRED: mean |cell - deferred| darkening "
-                << meanDelta << " levels against a mean Deferred darkening of " << refMass << ". Compare the "
-                << "AOAmbient*_" << PathName(path) << " and AOAmbient*_Deferred PNGs.";
-            EXPECT_LT(disagreeing, cellDark.size() / 100u)
-                << disagreeing << " pixels darken by more than 8 levels differently from Deferred";
+            ExpectDarkeningParity(cell, reference, path, "AOAmbient");
         }
     }
 
     INSTANTIATE_TEST_SUITE_P(AllPaths, AOAmbientParityTest, ::testing::ValuesIn(kAllCells), AOCaseName);
+
+    // -------------------------------------------------------------------------
+    // 3. Foliage (issue #1474): the leaves take the same AO on every path.
+    // -------------------------------------------------------------------------
+    class AOFoliageParityTest : public ForwardScreenSpaceAOTest
+    {
+      protected:
+        // The Drift conifer and the shared leaf albedo, relative to OloEditor/
+        // (the suite's working directory), as the other foliage evidence uses.
+        static constexpr const char* kPineMesh = "SandboxProject/Assets/Models/Vegetation/pine.obj";
+        static constexpr const char* kFoliageAlbedo = "assets/textures/grass.png";
+
+        RendererState::Snapshot m_SavedState;
+        Entity m_Terrain;
+
+        void TearDown() override
+        {
+            RendererAttachedTest::TearDown();
+            RendererState::Restore(m_SavedState);
+        }
+
+        void BuildScene() override
+        {
+            ASSERT_TRUE(RendererState::Capture(m_SavedState));
+            // Wind on, so the prepass and the colour pass have to agree on a
+            // DEFORMED plant: the case the shared vertex stage and `invariant
+            // gl_Position` exist for.
+            auto& wind = Renderer3D::GetWindSettings();
+            wind = WindSettings{};
+            wind.Enabled = true;
+            wind.Direction = glm::normalize(glm::vec3(1.0f, 0.0f, 0.3f));
+            wind.Speed = 8.0f;
+            wind.GustStrength = 0.6f;
+            wind.GustFrequency = 0.4f;
+
+            EnableRendering(kWidth, kHeight);
+            // Scene 2's light: no light, no environment, exposure 8, so the
+            // ambient ladder's flat fill is the only light and AO's darkening
+            // is tens of levels.
+            UsePath(PathCell::Deferred, 8.0f);
+
+            m_Terrain = GetScene().CreateEntityWithUUID(UUID(1474), "Terrain");
+            auto& terrain = m_Terrain.AddComponent<TerrainComponent>();
+            terrain.m_ProceduralEnabled = true;
+            terrain.m_ProceduralSeed = 11;
+            terrain.m_ProceduralResolution = 64;
+            terrain.m_ProceduralOctaves = 2;
+            terrain.m_ProceduralFrequency = 1.0f;
+            terrain.m_WorldSizeX = 128.0f;
+            terrain.m_WorldSizeZ = 128.0f;
+            terrain.m_HeightScale = 1.0f; // near-flat: the plants carry the occlusion
+            terrain.m_TessellationEnabled = false;
+            terrain.m_Material = Ref<TerrainMaterial>::Create();
+            for (auto layer : TerrainGenerator::MakeDefaultLayers())
+            {
+                layer.BaseColor = glm::vec3(0.8f);
+                terrain.m_Material->AddLayer(layer);
+            }
+
+            auto& foliage = m_Terrain.AddComponent<FoliageComponent>();
+            foliage.m_Enabled = true;
+            FoliageLayer pines;
+            pines.Name = "Pines";
+            pines.MeshPath = kPineMesh;
+            pines.AlbedoPath = kFoliageAlbedo;
+            pines.Density = 0.03f;
+            pines.SplatmapChannel = -1;
+            pines.MinSlopeAngle = 0.0f;
+            pines.MaxSlopeAngle = 60.0f;
+            pines.MinScale = 1.0f;
+            pines.MaxScale = 1.0f;
+            pines.MinHeight = 6.0f;
+            pines.MaxHeight = 9.0f;
+            pines.BaseColor = glm::vec3(0.8f);
+            pines.AlphaCutoff = 0.25f;
+            // Both programs in one frame: the authored mesh and the card (the
+            // instance program) up to 45 m, the octahedral impostor beyond.
+            pines.UseAuthoredMesh = true;
+            pines.MeshFadeStartDistance = 25.0f;
+            pines.MeshViewDistance = 30.0f;
+            pines.UseImpostor = true;
+            pines.ImpostorStartDistance = 40.0f;
+            pines.ImpostorTransitionBand = 5.0f;
+            pines.ImpostorFramesPerAxis = 4;
+            pines.ImpostorAtlasResolution = 256;
+            pines.ViewDistance = 300.0f;
+            pines.FadeStartDistance = 280.0f;
+            pines.WindStrength = 2.0f;
+            pines.WindStiffness = 0.4f;
+            pines.WindBranchWeight = 0.7f;
+            pines.WindLeafWeight = 0.8f;
+            foliage.m_Layers.Add(pines);
+            foliage.m_NeedsRebuild = true;
+        }
+
+        void CaptureCell(PathCell path, const glm::vec3& pose, f32 yaw, f32 pitch, const char* angle, Frames& out)
+        {
+            UsePath(path, 8.0f);
+            SetAO(false);
+            Capture(CellName("AOFoliage", false, path) + "_" + angle, pose, yaw, pitch, out.Off);
+            ASSERT_FALSE(HasFatalFailure());
+            SetAO(true);
+            Capture(CellName("AOFoliage", true, path) + "_" + angle, pose, yaw, pitch, out.On);
+        }
+
+        // Both foliage programs drew this frame: an instance draw (mesh or
+        // card) and an impostor draw. Without both, a passing parity says
+        // nothing about one of the two prepass twins.
+        void ExpectBothFoliagePrograms()
+        {
+            auto& foliage = m_Terrain.GetComponent<FoliageComponent>();
+            ASSERT_TRUE(foliage.m_Renderer) << "the foliage layer never built";
+            const auto info = foliage.m_Renderer->GetActiveLayerDrawInfo();
+            const std::span draws(info.GetData(), static_cast<sizet>(info.Num()));
+            EXPECT_TRUE(std::ranges::any_of(draws, [](const auto& draw)
+                                            { return draw.UseImpostor; }))
+                << "no impostor draw, so Foliage_Impostor_DepthNormal went untested";
+            EXPECT_TRUE(std::ranges::any_of(draws, [](const auto& draw)
+                                            { return !draw.UseImpostor; }))
+                << "no instance draw, so Foliage_Instance_DepthNormal went untested";
+        }
+    };
+
+    TEST_P(AOFoliageParityTest, ForwardFoliageTakesTheAODeferredFoliageTakes)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        ScopedMockTime mockTime(kCaptureTime);
+        const PathCell path = GetParam().Path;
+        if (path == PathCell::Deferred)
+            GTEST_SKIP() << "Deferred is the reference every other cell is compared against";
+
+        struct Pose
+        {
+            glm::vec3 Position;
+            f32 Yaw;
+            f32 Pitch;
+            const char* Name;
+        };
+        // Standing in the stand looking down the terrain (meshes and cards in
+        // front, impostors behind them), and from above the canopy.
+        const std::array<Pose, 2> poses = { {
+            { { 64.0f, 5.0f, 110.0f }, 0.0f, 0.12f, "Stand" },
+            { { 64.0f, 30.0f, 118.0f }, 0.0f, 0.55f, "Above" },
+        } };
+
+        for (const Pose& pose : poses)
+        {
+            SCOPED_TRACE(pose.Name);
+            Frames cell;
+            CaptureCell(path, pose.Position, pose.Yaw, pose.Pitch, pose.Name, cell);
+            ASSERT_FALSE(HasFatalFailure());
+            ExpectBothFoliagePrograms();
+            Frames reference;
+            CaptureCell(PathCell::Deferred, pose.Position, pose.Yaw, pose.Pitch, pose.Name, reference);
+            ASSERT_FALSE(HasFatalFailure());
+
+            ExpectDarkeningParity(cell, reference, path, "AOFoliage");
+
+            // AO may only darken. A pixel that BRIGHTENS with AO on is one the
+            // colour pass drew differently: a leaf fragment lost to prepass
+            // depth it did not match exactly (the wind-deformed case).
+            u64 brightened = 0;
+            const std::vector<f32> dark = Darkening(cell.Off, cell.On);
+            for (const f32 d : dark)
+            {
+                if (d < -6.0f)
+                    ++brightened;
+            }
+            std::cout << "[AOFoliage] " << PathName(path) << " " << TechniqueName(GetParam().Technique) << " "
+                      << pose.Name << ": " << brightened << " pixels brighter with AO on\n";
+            EXPECT_LT(brightened, dark.size() / 1000u)
+                << brightened << " pixels got BRIGHTER when AO turned on, on " << PathName(path)
+                << ". AO only darkens, so the colour pass drew those pixels differently: foliage fragments lost "
+                   "to prepass depth that did not match. See the AOFoliage*_"
+                << PathName(path) << " PNGs.";
+        }
+    }
+
+    INSTANTIATE_TEST_SUITE_P(AllPaths, AOFoliageParityTest, ::testing::ValuesIn(kAllCells), AOCaseName);
 } // namespace OloEngine::Tests

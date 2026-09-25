@@ -202,7 +202,8 @@ TEST(FoliageImpostorPlacementTest, BothFoliageStagesPlaceInstancesThroughTheTerr
 
 // The specific regression: the impostor stage must not go back to treating the
 // instance position as absolute world.
-constexpr const char* kImpostorPrograms[] = { "Foliage_Impostor.glsl", "Foliage_Impostor_GBuffer.glsl" };
+constexpr const char* kImpostorPrograms[] = { "Foliage_Impostor.glsl", "Foliage_Impostor_GBuffer.glsl",
+                                              "Foliage_Impostor_DepthNormal.glsl" };
 
 TEST(FoliageImpostorPlacementTest, ImpostorDoesNotTreatInstancePositionsAsAbsoluteWorld)
 {

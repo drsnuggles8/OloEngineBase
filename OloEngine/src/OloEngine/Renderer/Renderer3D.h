@@ -1579,6 +1579,13 @@ namespace OloEngine
             RHI::ResourceHandle DepthNormalSkinned{};
             RHI::ResourceHandle DepthNormalMaskStatic{};
             RHI::ResourceHandle DepthNormalMaskSkinned{};
+            // The forward foliage programs and their depth + view-normal
+            // prepass twins (issue #1474), swapped by DrawFoliageLayer while the
+            // forward prepass writes normals.
+            RHI::ResourceHandle FoliageInstance{};
+            RHI::ResourceHandle FoliageImpostor{};
+            RHI::ResourceHandle FoliageInstanceDepthNormal{};
+            RHI::ResourceHandle FoliageImpostorDepthNormal{};
         };
         static DepthPrepassShaderIDs GetDepthPrepassShaderIDs()
         {
@@ -1607,6 +1614,14 @@ namespace OloEngine
                 ids.DepthNormalMaskStatic = s_Data.DepthNormalPrepassMaskShader->GetRHIHandle();
             if (s_Data.DepthNormalPrepassMaskSkinnedShader)
                 ids.DepthNormalMaskSkinned = s_Data.DepthNormalPrepassMaskSkinnedShader->GetRHIHandle();
+            if (s_Data.FoliageShader)
+                ids.FoliageInstance = s_Data.FoliageShader->GetRHIHandle();
+            if (s_Data.FoliageImpostorShader)
+                ids.FoliageImpostor = s_Data.FoliageImpostorShader->GetRHIHandle();
+            if (s_Data.FoliageDepthNormalShader)
+                ids.FoliageInstanceDepthNormal = s_Data.FoliageDepthNormalShader->GetRHIHandle();
+            if (s_Data.FoliageImpostorDepthNormalShader)
+                ids.FoliageImpostorDepthNormal = s_Data.FoliageImpostorDepthNormalShader->GetRHIHandle();
             return ids;
         }
 
@@ -2671,6 +2686,11 @@ namespace OloEngine
             // GBufferAlbedo / GBufferNormal, so SSAO / SSGI / SSR see no
             // canopy occluder at all.
             Ref<Shader> FoliageImpostorGBufferShader;
+            // The forward depth-normal prepass twins of the instance and
+            // impostor programs (issue #1474): Foliage_Instance_DepthNormal.glsl,
+            // Foliage_Impostor_DepthNormal.glsl.
+            Ref<Shader> FoliageDepthNormalShader;
+            Ref<Shader> FoliageImpostorDepthNormalShader;
 
             // Water
             Ref<Shader> WaterShader;

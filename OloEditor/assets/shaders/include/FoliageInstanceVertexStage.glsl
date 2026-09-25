@@ -108,6 +108,14 @@ layout(location = 7) out float v_MeshCoverage;
 // per-fragment coin flip rather than a partition.
 layout(location = 8) out float v_InstanceSeed;
 
+// THE FORWARD PREPASS CONTRACT (issue #1474). Foliage_Instance_DepthNormal.glsl
+// writes this stage's depth ahead of the screen-space AO passes, and
+// Foliage_Instance.glsl then re-tests it at GL_LEQUAL. The two are different
+// programs, so equal depth is a promise only `invariant` makes. Every includer
+// is on the raw-GLSL route with the colour pass (they all mention OLO_BINDLESS),
+// which glsl-shaders.md §7a-bis requires of an invariant group.
+invariant gl_Position;
+
 void main()
 {
 #ifdef OLO_PULLED_VERTEX

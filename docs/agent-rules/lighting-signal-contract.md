@@ -135,19 +135,24 @@ path, and `PostProcess_SSAOApply` runs only for the AO debug view.
   (`include/ForwardShadingNormal.glsl`). With AO live the prepass is forced on even where the
   settings leave it off.
 - **The order is prepass, AO, colour.** The graph runs `ScenePrepassPass`, then
-  `GPUDrivenOcclusionPrepassPass` (the HZB-culled instances' share), then SSAO or GTAO and the
-  sphere proxies, then ScenePass's colour half.
-- **A surface reads it only if the prepass drew it.** That is PBR (static and skinned) and terrain
-  and voxel terrain. `CommandDispatch` publishes the AO buffer and `ForwardAODepth` (the prepass
+  `GPUDrivenOcclusionPrepassPass` (the HZB-culled instances' share), then `FoliagePrepassPass`
+  (foliage's share, #1474), then SSAO or GTAO and the sphere proxies, then ScenePass's colour half.
+- **A surface reads it only if the prepass drew it.** That is PBR (static and skinned), terrain,
+  voxel terrain and foliage. `CommandDispatch` publishes the AO buffer and `ForwardAODepth` (the prepass
   depth, copied once) at `TEX_SSAO` / `TEX_POSTPROCESS_DEPTH`, and ScenePass republishes them last,
   right before its colour draws (Forward+ light culling rebinds slot 19 in between). The camera
   block's `ScreenSpaceAOParams` says whether they are live; it starts every frame not live. A
   mirrored replay (planar reflection) suspends them.
 - **Anything not in the prepass takes none,** because at its pixels the AO buffer holds the occlusion
-  of the surface behind it: blended PBR (`u_AlphaMode == 2`), water, groom strands and foliage. On
-  Deferred, water, groom and transparents take none either. Foliage is the one gap: it writes the
-  G-Buffer on Deferred and gets its own AO there, but it is not in the forward prepass, so forward
-  foliage has no screen-space AO until it is (#1474).
+  of the surface behind it: blended PBR (`u_AlphaMode == 2`), water and groom strands. On Deferred,
+  water, groom and transparents take none either.
+- **A prepass twin must carve its colour program's exact coverage.** Foliage draws in the prepass
+  through `Foliage_Instance_DepthNormal` / `Foliage_Impostor_DepthNormal` (swapped in by
+  `DrawFoliageLayer`), and the colour programs re-test that depth at `GL_LEQUAL`. So each twin
+  includes its colour program's vertex stage, which declares `invariant gl_Position`, and repeats
+  its discards exactly: the forward rule, not the G-Buffer twin's 0.3 cut or density dither. A
+  twin that discards differently loses leaf fragments in colour, which shows as pixels that get
+  brighter when AO turns on (`AOFoliageParityTest`).
 - **Unlit writers have no ambient term, so they apply nothing.** These are skybox, light cubes, grid,
   particles, decals and fluid. There are 18 scene-framebuffer writers, not ~45.
 
