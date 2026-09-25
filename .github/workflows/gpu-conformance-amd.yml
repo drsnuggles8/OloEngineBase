@@ -740,6 +740,7 @@ jobs:
           python3 scripts/nightly_red_streak.py \
             --workflow gpu-conformance-amd.yml \
             --job "Linux / AMD Navi 10 (radeonsi, hardware)" \
+            --timeout-minutes 120 \
             --result "$RESULT" \
             --run-id "$GITHUB_RUN_ID" \
             $DRY_RUN | tee -a "$GITHUB_STEP_SUMMARY"
