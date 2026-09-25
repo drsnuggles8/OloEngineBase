@@ -632,9 +632,17 @@ namespace OloEngine
         activation.Mode = data.PostProcess.Upscale;
         activation.Technique = data.PostProcess.Technique;
         activation.BackendAvailable = PostProcessPasses.FSR2 && PostProcessPasses.FSR2->IsUpscalerAvailable();
-        activation.SceneSampleCount = FrameCorePasses.Scene
-                                          ? FrameCorePasses.Scene->GetFramebufferSpecification().Samples
-                                          : 1u;
+        // The scene band's REAL sample count. On Deferred, MSAA lives in the
+        // G-buffer (PrepareDeferredResources below sizes it from this same
+        // setting), while the Scene colour framebuffer is created single-sample
+        // on every path — so reading its spec alone made the MSAA guard
+        // unreachable, and FSR2 ran over a resolved G-buffer.
+        const u32 sceneFramebufferSamples = FrameCorePasses.Scene
+                                                ? FrameCorePasses.Scene->GetFramebufferSpecification().Samples
+                                                : 1u;
+        activation.SceneSampleCount = data.Settings.Path == RenderingPath::Deferred
+                                          ? std::max(sceneFramebufferSamples, data.Settings.Deferred.MSAASampleCount)
+                                          : sceneFramebufferSamples;
         activation.Api = RendererAPI::GetAPI() == RendererAPI::API::Vulkan
                              ? RendererSupport::Backend::Vulkan
                              : RendererSupport::Backend::OpenGL;

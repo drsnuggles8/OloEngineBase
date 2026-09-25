@@ -451,6 +451,13 @@ namespace OloEngine::Tests
         std::vector<u8> px;
         RunFramesAndCapture(MakeCamera({ 0.0f, 7.0f, 16.0f }, 0.0f, 0.32f), 4, "MSAAFallback", px);
 
+        // A lit frame alone does not prove the guard fired: FSR2 over an
+        // MSAA-resolved G-buffer ALSO renders, and did — the activation read the
+        // single-sample Scene colour framebuffer and never saw the G-buffer's
+        // samples. So assert the decision itself.
+        const bool temporalRan = Renderer3D::IsTemporalUpscaleActive();
+        const auto resolution = Renderer3D::GetUpscaleResolution();
+
         pp.Upscale = UpscaleMode::Off;
         pp.Technique = UpscalerTechnique::Spatial;
         settings.Deferred.MSAASampleCount = savedSamples;
@@ -459,6 +466,10 @@ namespace OloEngine::Tests
 
         if (::testing::Test::HasFatalFailure())
             return;
+
+        EXPECT_FALSE(temporalRan) << "FSR2 ran over a 4x MSAA G-buffer; the MSAA guard did not fire";
+        EXPECT_EQ(resolution.Result.Fallback, TemporalUpscalePolicy::TemporalFallback::MSAAResolved);
+        EXPECT_EQ(resolution.SceneSampleCount, 4u);
 
         EXPECT_GT(MeanLuma(px), 20.0)
             << "requesting FSR2 with MSAA active produced a (near-)black frame. The guard is supposed to "
