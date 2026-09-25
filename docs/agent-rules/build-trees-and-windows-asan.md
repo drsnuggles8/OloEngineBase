@@ -783,6 +783,13 @@ this repo configures with no `-G`, so it gets **Unix Makefiles**, so *both* pool
 are silently inert there. Nothing warns — the pools simply do not exist in the
 generated makefiles.
 
+> **`olo_heavy` also needs CMake 4.4**, and the olo-ci runner has 3.31.8, so it was inert
+> even in the one Linux job that configures with `-G Ninja` (`gpu-conformance-amd.yml`,
+> OOM-killed for 20 nights, #1473). `-DOLO_HEAVY_COMPILE_SEMAPHORE=ON`
+> (`cmake/HeavyCompileSemaphore.cmake`) bounds the same TU set through a compiler
+> launcher on any CMake version, Ninja or Makefiles:
+> [ci-oom-read-the-kernel-report.md](ci-oom-read-the-kernel-report.md).
+
 Two things follow, and the first one cost this repo ten weeks of red CI.
 
 1. **A bare `--parallel` means the opposite thing per generator, and only the

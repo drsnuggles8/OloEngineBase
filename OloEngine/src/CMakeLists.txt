@@ -2209,25 +2209,25 @@ set(OLO_ENGINE_LIBRARY_PARTS OloEngine OloEngineRenderer OloEngineContent PARENT
 # "6,400 MB in 22 s" was from the broken recipe and does not reproduce) and
 # LuaScriptGlue_EngineApi.cpp (1.18 GiB, #21). Both remain excluded from whole-program
 # optimization below; that is a separate concern from compile scheduling.
-if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
-	olo_bind_heavy_compile_pool(OloEngineContent "${CMAKE_CURRENT_SOURCE_DIR}"
-		# Every TU in this target measuring >= 1.5 GiB peak compiler RSS, ranked #3-#15
-		# tree-wide. See the block comment above for the threshold and how to re-derive it.
-		"OloEngine/Scene/Scene.cpp"
-		"OloEngine/Scene/SceneSerializer.cpp"
-		"OloEngine/SaveGame/SaveGameSerializer.cpp"
-		"OloEngine/Scripting/VisualScript/ComponentFieldRegistry.cpp"
-		"OloEngine/Scripting/Lua/LuaScriptGlue.cpp"
-		"OloEngine/Scripting/Lua/LuaScriptGlue_World.cpp"
-		"OloEngine/Scripting/Lua/LuaScriptGlue_Gameplay.cpp"
-		"OloEngine/Scripting/Lua/LuaScriptGlue_Characters.cpp"
-		"OloEngine/Scripting/Lua/LuaScriptGlue_SceneGraph.cpp"
-		"OloEngine/Scripting/Lua/LuaScriptGlue_Effects.cpp"
-		"OloEngine/Scripting/Lua/LuaScriptGlue_Environment.cpp"
-		"OloEngine/Scripting/Lua/LuaScriptGlue_Core.cpp"
-		"OloEngine/Scripting/Lua/LuaScriptGlue_Platform.cpp"
-	)
-endif()
+# Called on every tree: without the pool it only records the manifest that
+# OLO_HEAVY_COMPILE_SEMAPHORE bounds the same TUs with (#1473).
+olo_bind_heavy_compile_pool(OloEngineContent "${CMAKE_CURRENT_SOURCE_DIR}"
+	# Every TU in this target measuring >= 1.5 GiB peak compiler RSS, ranked #3-#15
+	# tree-wide. See the block comment above for the threshold and how to re-derive it.
+	"OloEngine/Scene/Scene.cpp"
+	"OloEngine/Scene/SceneSerializer.cpp"
+	"OloEngine/SaveGame/SaveGameSerializer.cpp"
+	"OloEngine/Scripting/VisualScript/ComponentFieldRegistry.cpp"
+	"OloEngine/Scripting/Lua/LuaScriptGlue.cpp"
+	"OloEngine/Scripting/Lua/LuaScriptGlue_World.cpp"
+	"OloEngine/Scripting/Lua/LuaScriptGlue_Gameplay.cpp"
+	"OloEngine/Scripting/Lua/LuaScriptGlue_Characters.cpp"
+	"OloEngine/Scripting/Lua/LuaScriptGlue_SceneGraph.cpp"
+	"OloEngine/Scripting/Lua/LuaScriptGlue_Effects.cpp"
+	"OloEngine/Scripting/Lua/LuaScriptGlue_Environment.cpp"
+	"OloEngine/Scripting/Lua/LuaScriptGlue_Core.cpp"
+	"OloEngine/Scripting/Lua/LuaScriptGlue_Platform.cpp"
+)
 
 # Whole-program optimization is what made these objects enormous, and it buys nothing here: every
 # one is one-shot registration or (de)serialization that runs at startup or at scene load, never

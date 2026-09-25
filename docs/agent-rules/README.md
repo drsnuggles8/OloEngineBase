@@ -50,6 +50,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 
 - [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md): never build msvc and clangcl trees together; caches, link bounds, memory, the local ASan recipe.
 - [build-memory-per-tu.md](build-memory-per-tu.md): set `--parallel` and every memory cap from the published per-TU peak-RSS ranking, not from a remembered number.
+- [ci-oom-read-the-kernel-report.md](ci-oom-read-the-kernel-report.md): for a CI OOM kill, read the kernel's OOM report, which names the full cgroup and every resident process, before blaming a neighbour.
 - [concurrent-cmake-configure.md](concurrent-cmake-configure.md): one configure at a time per build tree; the error blames your CMakeLists.txt and LTO instead.
 - [static-archive-4gib-ceiling.md](static-archive-4gib-ceiling.md): a .lib cannot exceed 4 GiB, and `LNK1248` under-reports the overshoot.
 - [vcpkg-dependency-management.md](vcpkg-dependency-management.md): read before adding, bumping or removing a dependency; the CRT triplet mismatch is heap corruption.
@@ -396,6 +397,7 @@ No crash, no error, no log line; work or data disappears and the system keeps ru
 
 | Doc | What was dropped |
 |---|---|
+| [ci-oom-read-the-kernel-report.md](ci-oom-read-the-kernel-report.md) | The heavy-TU compile bound, on a runner whose CMake was too old for the pool, and a `-D` flag after a `#` inside a folded `run: >` block. The AMD nightly was OOM-killed for 20 nights. |
 | [binary-greedy-voxel-meshing.md](binary-greedy-voxel-meshing.md) | The neighbour rebuild after a carve, leaving a stale wall. |
 | [component-serializer-codegen.md](component-serializer-codegen.md) | A field, from every save. |
 | [terrain-virtual-texturing.md](terrain-virtual-texturing.md) §4 | An unmapping, once publishing became incremental. |

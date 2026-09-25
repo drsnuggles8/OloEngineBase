@@ -1689,13 +1689,13 @@ add_executable(OloEngine-Tests
 		Functional/Accessibility/SubtitlesFollowDialogueStateTest.cpp
 )
 
-if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
-	# The editor's heavy TUs are bound on OloEditorCore now (#1314) — this target links
-	# that library instead of recompiling its sources, so there is nothing here to pool.
-	olo_bind_heavy_compile_pool(OloEngine-Tests "${CMAKE_CURRENT_SOURCE_DIR}"
-		"ComponentRoundTripTest.cpp"
-	)
-endif()
+# The editor's heavy TUs are bound on OloEditorCore now (#1314) — this target links
+# that library instead of recompiling its sources, so there is nothing here to pool.
+# Called on every tree: without the pool it only records the manifest that
+# OLO_HEAVY_COMPILE_SEMAPHORE bounds the same TUs with (#1473).
+olo_bind_heavy_compile_pool(OloEngine-Tests "${CMAKE_CURRENT_SOURCE_DIR}"
+	"ComponentRoundTripTest.cpp"
+)
 
 target_link_libraries(OloEngine-Tests
 	OloHeaderToolClassifier

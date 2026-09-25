@@ -126,14 +126,16 @@ class Permit:
         self.fd: int | None = None
         self.index: int | None = None
 
-    def acquire(self, directory: str, slots: int, timeout: float) -> bool:
+    def acquire(self, directory: str, slots: int, timeout: float, activity: str = "linking") -> bool:
+        # `activity` only words the notes below: heavy-compile-semaphore.py reuses this
+        # class for compiles and passes "compiling".
         if fcntl is None:
-            note("fcntl unavailable (not a POSIX host) — linking unthrottled")
+            note(f"fcntl unavailable (not a POSIX host) — {activity} unthrottled")
             return False
         try:
             os.makedirs(directory, exist_ok=True)
         except OSError as exc:
-            note(f"cannot create permit directory {directory!r} ({exc}) — linking unthrottled")
+            note(f"cannot create permit directory {directory!r} ({exc}) — {activity} unthrottled")
             return False
 
         deadline = time.monotonic() + timeout
@@ -144,7 +146,7 @@ class Permit:
                 try:
                     fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o666)
                 except OSError as exc:
-                    note(f"cannot open permit {path!r} ({exc}) — linking unthrottled")
+                    note(f"cannot open permit {path!r} ({exc}) — {activity} unthrottled")
                     return False
                 try:
                     fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -153,14 +155,14 @@ class Permit:
                     continue  # Held by someone else; try the next permit.
                 except Exception as exc:  # pragma: no cover - defensive
                     os.close(fd)
-                    note(f"flock failed ({exc}) — linking unthrottled")
+                    note(f"flock failed ({exc}) — {activity} unthrottled")
                     return False
                 self.fd = fd
                 self.index = index
                 return True
 
             if time.monotonic() >= deadline:
-                note(f"timed out after {timeout:g}s waiting for a permit — linking anyway (fail-open)")
+                note(f"timed out after {timeout:g}s waiting for a permit — {activity} anyway (fail-open)")
                 return False
             if not announced_wait:
                 note(f"all {slots} permits busy — waiting")

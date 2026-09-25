@@ -474,17 +474,22 @@ include(cmake/LinkSemaphore.cmake)
 #
 # Raise -DOLO_HEAVY_COMPILE_JOBS=<N> (or set it to the compile -j width) to
 # loosen the throttle without reverting the file-set wiring.
+#
+# Outside that condition the pool does not exist, and cmake/HeavyCompileSemaphore.cmake
+# (included below) can bound the same TU set with a launcher instead — the olo-ci box runs
+# CMake 3.31, where that gap OOM-killed the AMD GPU nightly (#1473). Both read
+# OLO_HEAVY_COMPILE_JOBS, so it is declared and validated for every generator.
+set(OLO_HEAVY_COMPILE_JOBS "2" CACHE STRING
+    "Maximum concurrent compiles of the handful of memory-heavy TUs (the LuaScriptGlue_*.cpp parts, McpFieldRegistry.cpp — issue #822). The olo_heavy Ninja pool, or OLO_HEAVY_COMPILE_SEMAPHORE where that pool is unavailable.")
+# Same rule, and the same reason, as OLO_LINK_JOBS above: depth 0 or empty
+# passes straight through CMake AND Ninja and leaves the pool silently uncapped.
+if(NOT OLO_HEAVY_COMPILE_JOBS MATCHES "^[1-9][0-9]*$")
+    message(FATAL_ERROR
+        "OLO_HEAVY_COMPILE_JOBS must be a positive integer (got '${OLO_HEAVY_COMPILE_JOBS}'). "
+        "It bounds concurrent compiles of the memory-heavy TU set; 0 or empty "
+        "would leave them effectively uncapped.")
+endif()
 if(CMAKE_VERSION VERSION_GREATER_EQUAL 4.4 AND CMAKE_GENERATOR MATCHES "Ninja")
-    set(OLO_HEAVY_COMPILE_JOBS "2" CACHE STRING
-        "Maximum concurrent compiles of the handful of memory-heavy TUs (the LuaScriptGlue_*.cpp parts, McpFieldRegistry.cpp — issue #822). Ninja generators only.")
-    # Same rule, and the same reason, as OLO_LINK_JOBS above: depth 0 or empty
-    # passes straight through CMake AND Ninja and leaves the pool silently uncapped.
-    if(NOT OLO_HEAVY_COMPILE_JOBS MATCHES "^[1-9][0-9]*$")
-        message(FATAL_ERROR
-            "OLO_HEAVY_COMPILE_JOBS must be a positive integer (got '${OLO_HEAVY_COMPILE_JOBS}'). "
-            "It bounds concurrent compiles of the memory-heavy TU set; 0 or empty "
-            "would leave them effectively uncapped.")
-    endif()
     # APPEND — the link pool above already set JOB_POOLS; a plain (non-APPEND) set
     # here would silently clobber olo_link's registration, uncapping links instead
     # of adding a second pool alongside them.
@@ -493,6 +498,9 @@ if(CMAKE_VERSION VERSION_GREATER_EQUAL 4.4 AND CMAKE_GENERATOR MATCHES "Ninja")
 else()
     set(OLO_HEAVY_COMPILE_POOL_AVAILABLE FALSE)
 endif()
+# After CompilerCache.cmake (it wraps the launcher chosen there) and before the
+# add_subdirectory() calls (a launcher is read when a target is created).
+include(cmake/HeavyCompileSemaphore.cmake)
 
 # --------------------------------------------------------------------------
 # Static-archive headroom against the 4 GiB COFF ceiling (issue #762).
@@ -697,6 +705,9 @@ add_subdirectory(OloServer)
 # OloEngine so nlohmann_json::nlohmann_json and httplib::httplib exist, and it
 # links NOTHING else -- see OloCtl/CMakeLists.txt for why that is a constraint.
 add_subdirectory(OloCtl)
+
+# Every target has handed its heavy TUs to olo_bind_heavy_compile_pool() by now.
+olo_write_heavy_compile_manifest()
 
 set_target_properties(OloEngine-LuaScriptCore PROPERTIES FOLDER "Scripting")
 set_target_properties(OloServer PROPERTIES FOLDER "Applications")

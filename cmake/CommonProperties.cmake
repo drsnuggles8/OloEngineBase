@@ -419,10 +419,12 @@ endfunction()
 # TYPE SOURCE (not SOURCES) in set_property(FILE_SET ...)'s own example is a documented-but-wrong
 # CMake 4.4 doc snippet — verified against a throwaway project: it errors "set_property required
 # TARGET option is missing". The working form is set_property(FILE_SET <name> TARGET <target> ...).
+#
+# CALL IT ON EVERY TREE, pool or not. It records FILES in the global OLO_HEAVY_COMPILE_SOURCES
+# before the pool check, and that list is the manifest cmake/HeavyCompileSemaphore.cmake bounds
+# the same TUs with where the pool does not exist (CMake < 4.4 or a non-Ninja generator, #1473).
+# Only the caller's REMOVE_ITEM from its plain source list stays conditional on the pool.
 function(olo_bind_heavy_compile_pool target_name base_dir)
-    if(NOT OLO_HEAVY_COMPILE_POOL_AVAILABLE)
-        return()
-    endif()
     set(_olo_heavy_files "")
     foreach(_olo_heavy_file ${ARGN})
         if(IS_ABSOLUTE "${_olo_heavy_file}")
@@ -431,6 +433,15 @@ function(olo_bind_heavy_compile_pool target_name base_dir)
             list(APPEND _olo_heavy_files "${base_dir}/${_olo_heavy_file}")
         endif()
     endforeach()
+    set(_olo_heavy_normalised "")
+    foreach(_olo_heavy_file ${_olo_heavy_files})
+        cmake_path(NORMAL_PATH _olo_heavy_file)
+        list(APPEND _olo_heavy_normalised "${_olo_heavy_file}")
+    endforeach()
+    set_property(GLOBAL APPEND PROPERTY OLO_HEAVY_COMPILE_SOURCES ${_olo_heavy_normalised})
+    if(NOT OLO_HEAVY_COMPILE_POOL_AVAILABLE)
+        return()
+    endif()
     target_sources(${target_name} PRIVATE
         FILE_SET olo_heavy_compile TYPE SOURCES
         BASE_DIRS ${base_dir}
