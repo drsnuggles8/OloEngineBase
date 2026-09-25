@@ -1,5 +1,7 @@
 #include "OloEnginePCH.h"
 #include "Material.h"
+#include "OloEngine/Math/Math.h"
+#include "OloEngine/Renderer/AlphaCoverageMips.h"
 
 namespace OloEngine
 {
@@ -125,6 +127,30 @@ namespace OloEngine
             m_AttenuationDistance = other.m_AttenuationDistance;
         }
         return *this;
+    }
+
+    void Material::PrepareAlphaTestMips() const
+    {
+        if (m_AlphaMode == AlphaMode::Opaque)
+            return;
+        Ref<Texture2D> albedo = GetAlbedoMap();
+        if (!albedo)
+            albedo = GetDiffuseMap();
+        if (!albedo)
+            return;
+
+        const f32 wanted = m_AlphaMode == AlphaMode::Mask ? AlphaCoverageMips::SanitizeCutoff(m_AlphaCutoff) : 0.0f;
+        const f32 current = albedo->GetAlphaCoverageCutoff();
+        if (current > 0.0f && !Math::BitwiseEqual(current, wanted))
+        {
+            OLO_CORE_WARN("Material '{}': its albedo '{}' already carries an alpha-test mip chain for cutoff {}, which this "
+                          "{} material replaces ({}). A texture shared between materials keeps whichever was applied "
+                          "last; give them separate textures if both must hold.",
+                          m_Name.ToView(), albedo->GetPath(), current,
+                          m_AlphaMode == AlphaMode::Mask ? "Mask" : "Blend",
+                          wanted > 0.0f ? "cutoff " + std::to_string(wanted) : std::string("plain chain"));
+        }
+        albedo->SetAlphaCoverageCutoff(wanted);
     }
 
     Ref<Material> Material::Create(const Ref<OloEngine::Shader>& shader, const FString& name)

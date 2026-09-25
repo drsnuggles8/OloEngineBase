@@ -1991,6 +1991,9 @@ namespace OloEngine
                 materialRef->GetFlag(MaterialFlag::TwoSided) ? "true" : "false");
         }
 
+        // Every map is resolved: a Mask albedo gets its coverage-preserving
+        // mip chain now (issue #1441).
+        materialRef->PrepareAlphaTestMips();
         return materialRef;
     }
 

@@ -873,6 +873,8 @@
 		"OloEngine/Renderer/TextureCompression.cpp"
 		"OloEngine/Renderer/TextureCompression.h"
 		"OloEngine/Renderer/TextureImportSettings.cpp"
+		"OloEngine/Renderer/AlphaCoverageMips.cpp"
+		"OloEngine/Renderer/AlphaCoverageMips.h"
 		"OloEngine/Renderer/TextureImportSettings.h"
 		"OloEngine/Renderer/TextureCubemap.cpp"
 		"OloEngine/Renderer/TextureCubemap.h"

@@ -307,6 +307,7 @@ add_executable(OloEngine-Tests
 		Rendering/FoliageLodTransitionContractTest.cpp
 		Rendering/FoliageAuthoredMeshContractTest.cpp
 		Rendering/FoliageAlphaCoverageContractTest.cpp
+		Rendering/AlphaCoverageMipsContractTest.cpp
 		Rendering/VegetationAssetContractTest.cpp
         Rendering/FoliageWindContractTest.cpp
 		Rendering/FoliageInteractionContractTest.cpp

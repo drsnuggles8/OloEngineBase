@@ -48,6 +48,7 @@ TEST(VulkanTextureInPlaceReload, SkipsWhenNotCompiledIn)
 
 #else
 
+#include "OloEngine/Renderer/AlphaCoverageMips.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/IndexBuffer.h"
 #include "OloEngine/Renderer/RenderCommand.h"
@@ -599,6 +600,92 @@ namespace OloEngine::Tests
                 << "a specialization-constant-sized sampler array must not build — spirv-cross reports the "
                    "constant's ID, not a length, so any count read from it is nonsense";
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Issue #1441 on this backend: an alpha-tested texture's chain is built on
+    // the CPU and COPIED level by level instead of blitted, and stops at the
+    // AlphaCoverageMips level cap. Read back through the image itself and
+    // compared byte for byte with the builder the GL twin uploads, so the two
+    // backends are held to the same levels. The fixture's zero-validation-error
+    // teardown (sync validation in Debug) covers the barriers around the copies.
+    // -------------------------------------------------------------------------
+    TEST_F(VulkanTextureInPlaceReload, AnAlphaTestedTextureUploadsTheCoverageChainLevelByLevel)
+    {
+        ScopedVulkanApiSelection vulkanApi;
+
+        constexpr u32 kSize = 256;
+        constexpr f32 kCutoff = 0.5f;
+        const std::filesystem::path path = OloEngine::Tests::TempFile("olo_vk_alpha_coverage_1441.png");
+        TArray64<u8> pixels(static_cast<sizet>(kSize) * kSize * 4u);
+        for (u32 y = 0; y < kSize; ++y)
+        {
+            for (u32 x = 0; x < kSize; ++x)
+            {
+                u32 h = x * 73856093u ^ y * 19349663u;
+                h ^= h >> 13;
+                h *= 0x5bd1e995u;
+                h ^= h >> 15;
+                u8* texel = &pixels[(static_cast<i64>(y) * kSize + x) * 4];
+                texel[0] = 60u;
+                texel[1] = 140u;
+                texel[2] = 30u;
+                texel[3] = (h % 100u) < 30u ? 255u : 0u;
+            }
+        }
+        ASSERT_NE(::stbi_write_png(path.string().c_str(), kSize, kSize, 4, pixels.GetData(), kSize * 4), 0);
+
+        Ref<Texture2D> texture = Texture2D::Create(path.string(), /*srgb=*/true);
+        ASSERT_TRUE(texture && texture->IsLoaded());
+        ASSERT_EQ(texture->GetMipLevelCount(), 9u) << "a file texture gets its full chain before any cutoff is set";
+
+        const auto levelBytes = [&](u32 level)
+        {
+            TArray64<u8> bytes;
+            EXPECT_TRUE(texture->GetData(bytes, level)) << "level " << level;
+            return bytes;
+        };
+        const auto coverageOf = [&](const TArray64<u8>& bytes)
+        { return AlphaCoverageMips::Coverage({ bytes.GetData(), static_cast<sizet>(bytes.Num()) }, kCutoff); };
+
+        // The control: the blit chain thins this cutout by level 2.
+        const TArray64<u8> level0 = levelBytes(0);
+        const f32 base = coverageOf(level0);
+        EXPECT_LT(coverageOf(levelBytes(2)), 0.5f * base) << "the blit chain no longer thins this cutout; the control is void";
+
+        const RHI::ResourceHandle identity = texture->GetRHIHandle();
+        texture->SetAlphaCoverageCutoff(kCutoff);
+        EXPECT_EQ(texture->GetRHIHandle(), identity) << "rebuilding the chain must keep the texture's identity";
+        ASSERT_EQ(texture->GetMipLevelCount(), AlphaCoverageMips::CappedLevelCount(kSize, kSize, 9u));
+        ASSERT_EQ(texture->GetMipLevelCount(), 3u) << "256 -> 128 -> 64";
+
+        const AlphaCoverageMips::Chain expected = AlphaCoverageMips::Build(
+            { level0.GetData(), static_cast<sizet>(level0.Num()) }, kSize, kSize, 3u, /*srgb=*/true, kCutoff);
+        EXPECT_EQ(levelBytes(0), level0) << "rebuilding the chain changed level 0";
+        for (i32 i = 0; i < expected.Levels.Num(); ++i)
+        {
+            const TArray64<u8> actual = levelBytes(static_cast<u32>(i) + 1u);
+            const AlphaCoverageMips::Level& level = expected.Levels[i];
+            ASSERT_EQ(static_cast<u64>(actual.Num()), static_cast<u64>(level.Width) * level.Height * 4u);
+            i64 mismatches = 0;
+            for (i64 b = 0; b < actual.Num(); ++b)
+                mismatches += actual[b] != expected.Bytes[static_cast<i64>(level.Offset) + b] ? 1 : 0;
+            EXPECT_EQ(mismatches, 0) << "level " << (i + 1) << " is not what the CPU builder (and the GL twin) upload";
+            EXPECT_NEAR(coverageOf(actual), base, 0.05f) << "level " << (i + 1);
+        }
+
+        // An in-place reload keeps the cutoff and the capped chain.
+        ASSERT_TRUE(texture->Reload());
+        EXPECT_EQ(texture->GetMipLevelCount(), 3u);
+        EXPECT_NEAR(coverageOf(levelBytes(2)), base, 0.05f) << "a reload dropped the coverage-preserving chain";
+
+        // Clearing it restores the full blit chain.
+        texture->SetAlphaCoverageCutoff(0.0f);
+        EXPECT_EQ(texture->GetMipLevelCount(), 9u);
+        EXPECT_LT(coverageOf(levelBytes(2)), 0.5f * base);
+
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
     }
 } // namespace OloEngine::Tests
 

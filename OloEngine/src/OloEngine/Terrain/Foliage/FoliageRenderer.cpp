@@ -819,6 +819,21 @@ namespace OloEngine
                 renderData.AlphaCoverageDirty = true;
             }
 
+            // Every albedo this layer draws is alpha-tested at the LAYER's
+            // cutoff, the card's and each mesh part's alike, so each gets the
+            // mip chain that keeps its passing fraction at every level (issue
+            // #1441). A plain box chain thins a cutout with distance. A no-op
+            // when the cutoff is unchanged, so this costs nothing per
+            // regeneration; editing the cutoff rebuilds the chains.
+            if (renderData.AlbedoTexture)
+                renderData.AlbedoTexture->SetAlphaCoverageCutoff(layer.AlphaCutoff);
+            for (const auto& part : renderData.MeshParts)
+            {
+                // By value: Ref<T> propagates the constness of the handle.
+                if (Ref<Texture2D> partAlbedo = part.Albedo)
+                    partAlbedo->SetAlphaCoverageCutoff(layer.AlphaCutoff);
+            }
+
             // ── The leaf material (issue #1234) ─────────────────────────────
             // All three maps are LINEAR data, not authored colour: a tangent
             // normal, a roughness and a thickness. sRGB-decoding any of them

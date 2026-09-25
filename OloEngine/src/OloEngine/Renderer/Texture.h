@@ -203,6 +203,27 @@ namespace OloEngine
         // No-op when the texture has a single level.
         virtual void RegenerateMips() = 0;
 
+        // Build this texture's mip chain for an ALPHA-TESTED consumer (issue #1441):
+        // every level keeps the fraction of texels that survive `alpha < cutoff`
+        // that level 0 has, instead of box-filtering it away with distance
+        // (AlphaCoverageMips.h has the method and why it is needed).
+        //
+        // The cutoff belongs to whoever alpha-tests the texture, which the texture
+        // cannot know at load, so the loaders that do know call this: the model
+        // importers for a Mask material's albedo (Material::PrepareAlphaTestMips)
+        // and FoliageRenderer for a layer's albedos. It is remembered, so an
+        // in-place Reload() keeps it. A cutoff that is not finite and in (0, 1]
+        // restores the plain chain. A no-op when the value is unchanged, and for a
+        // texture with no chain to rebuild — single level, or not RGBA8. A
+        // block-compressed texture's chain was baked offline and cannot be
+        // rebuilt here; that case warns once rather than pretending.
+        //
+        // Not for per-frame use: it re-uploads the chain. A cutoff animated for a
+        // dissolve effect must not be routed here.
+        virtual void SetAlphaCoverageCutoff(f32 cutoff) = 0;
+        // 0 when the chain is the plain box filter.
+        [[nodiscard("Store this!")]] virtual f32 GetAlphaCoverageCutoff() const = 0;
+
         // Recreate the texture with new dimensions (same spec otherwise).
         // Needed because glTextureStorage2D allocates immutable storage.
         virtual void Resize(u32 width, u32 height) = 0;
