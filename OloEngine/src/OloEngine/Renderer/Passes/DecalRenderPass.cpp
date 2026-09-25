@@ -308,6 +308,9 @@ namespace OloEngine
             RenderCommand::ResetBlendStateForAttachment(1);
             RenderCommand::SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
             context.SetBlendState(false);
+            // A packet's per-attachment mask narrowing (#853) outlives the last
+            // packet unless something widens it; the global call does (#1417).
+            RenderCommand::SetColorMask(true, true, true, true);
 
             context.SetDepthMask(true);
             RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
@@ -337,9 +340,11 @@ namespace OloEngine
         auto& rendererAPI = RenderCommand::GetRendererAPI();
         replaySelected(rendererAPI);
 
-        // Restore render state after decals
+        // Restore render state after decals. The global colour mask withdraws
+        // any per-attachment narrowing the last packet left behind (#1417).
         context.SetDepthMask(true);
         context.SetBlendState(false);
+        RenderCommand::SetColorMask(true, true, true, true);
         RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
         RenderCommand::BackCull();
         CommandDispatch::InvalidateRenderStateCache();
