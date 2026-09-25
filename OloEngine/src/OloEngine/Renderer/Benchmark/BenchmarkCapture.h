@@ -256,6 +256,11 @@ namespace OloEngine::Benchmark
         // frame count, so with this set it may describe a frame that never
         // rendered. result.json says so rather than asserting a pose it cannot
         // back.
+        //
+        // Despite the name, the editor host ALSO sets it when a MEASUREMENT
+        // frame wait times out: McpToolsBenchmark then ends that camera's
+        // sampling early, so the run has fewer measured frames than the
+        // manifest declares and is not a valid budget sample.
         bool WarmupTimedOut = false;
         f32 FinalMockTimeSeconds = 0.0f;
         TArray<PassTimingRecord> PassTimings;
