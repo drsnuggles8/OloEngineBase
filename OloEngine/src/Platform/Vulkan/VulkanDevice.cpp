@@ -866,6 +866,13 @@ namespace OloEngine
         // feature is off. When-supported, never a gate row.
         enabledFeatures.samplerAnisotropy = supported.samplerAnisotropy;
         m_SamplerAnisotropyEnabled = supported.samplerAnisotropy == VK_TRUE;
+        // textureCompressionBC: the cooked asset pack ships BC7/BC5/BC4/BC6H
+        // (#440), which VulkanTexture2D uploads as-is (#1453). The feature is
+        // the device's promise that every BC format samples and filters; the
+        // texture still asks per format before it creates an image, so a
+        // device without it refuses by name instead of sampling garbage.
+        // When-supported, never a gate row.
+        enabledFeatures.textureCompressionBC = supported.textureCompressionBC;
         m_TessellationShaderEnabled = supported.tessellationShader == VK_TRUE;
         m_GeometryShaderEnabled = supported.geometryShader == VK_TRUE;
         m_MultiDrawIndirectEnabled = supported.multiDrawIndirect == VK_TRUE;

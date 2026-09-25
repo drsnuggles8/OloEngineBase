@@ -15,9 +15,11 @@
 #include "OloEngine/Renderer/MaterialAsset.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ShaderLibrary.h"
+#include "OloEngine/Renderer/TextureImportSettings.h"
 #include "UndoRedo/EditorCommand.h"
 
 #include <algorithm>
+#include <cctype>
 #include <charconv>
 #include <filesystem>
 #include <functional>
@@ -1310,16 +1312,70 @@ namespace OloEngine::Automation
 
         // ---- olo_asset_import_settings ----------------------------------------
 
-        // Per-asset import settings have no store in the engine: AssetMetadata is
-        // handle/type/path/status/mtime, and the one import option that exists
-        // (MeshImportOptions::FlipUV) is passed per call and never persisted. So
-        // this command owns a sidecar.
+        // The one per-asset import-settings reader in the engine is the texture
+        // cook: TextureCompression::CompressImageFile reads "<image>.oloimport" in
+        // the TextureImportSettings YAML format (Renderer/TextureImportSettings.h).
+        // So this command reads and writes THAT format, through its own Parse and
+        // Emit. It used to keep a free-form JSON object in the same file, which
+        // the cook's parser rejects -- every setting it stored was logged as a
+        // malformed sidecar and ignored (#1453).
         //
         // ".oloimport" is deliberately NOT in the asset extension map. That is what
         // makes writing one safe: DecideFileWatchAction ignores any path whose
         // extension resolves to AssetType::None, so a sidecar landing next to an
         // asset cannot trigger the auto-import of a stray file -- the exact hazard
         // this epic was warned about.
+
+        // The fields as the sidecar spells them. GenerateMips is the one without
+        // an "Auto" spelling: unset is null.
+        Json TextureImportSettingsToJson(const TextureImportSettings& settings)
+        {
+            Json out{ { "Format", std::string(TextureImport::NameOf(settings.Format)) },
+                      { "ColorSpace", std::string(TextureImport::NameOf(settings.ColorSpace)) },
+                      { "AlphaMipChain", std::string(TextureImport::NameOf(settings.AlphaMipChain)) },
+                      { "GenerateMips", nullptr } };
+            if (settings.GenerateMips.has_value())
+                out["GenerateMips"] = *settings.GenerateMips;
+            return out;
+        }
+
+        // Applies one requested field. A null value resets it to Auto (unset for
+        // GenerateMips). Returns an error message, empty on success.
+        template<typename Choice>
+        std::string ApplyChoice(const std::string& key, const Json& value, Choice& field)
+        {
+            if (value.is_null())
+            {
+                field = Choice::Auto;
+                return {};
+            }
+            if (!value.is_string() || !TextureImport::FromName(value.get<std::string>(), field))
+                return key + " must be one of the sidecar's spellings (see the tool description), or null for Auto.";
+            return {};
+        }
+
+        std::string ApplyTextureImportField(TextureImportSettings& settings, const std::string& key, const Json& value)
+        {
+            if (key == "Format")
+                return ApplyChoice(key, value, settings.Format);
+            if (key == "ColorSpace")
+                return ApplyChoice(key, value, settings.ColorSpace);
+            if (key == "AlphaMipChain")
+                return ApplyChoice(key, value, settings.AlphaMipChain);
+            if (key == "GenerateMips")
+            {
+                if (value.is_null())
+                    settings.GenerateMips.reset();
+                else if (value.is_boolean())
+                    settings.GenerateMips = value.get<bool>();
+                else
+                    return "GenerateMips must be true, false, or null for Auto.";
+                return {};
+            }
+            return "Unknown import setting '" + key +
+                   "'. A texture's settings are Format, ColorSpace, GenerateMips and AlphaMipChain.";
+        }
+
         AutomationResult AssetImportSettings(IAutomationHost& host, const Json& args)
         {
             ProjectView project;
@@ -1332,6 +1388,27 @@ namespace OloEngine::Automation
             if (IsFailure(prepared))
                 return AutomationResult::Error(prepared.at("__error").get<std::string>());
 
+            // A cooked container (.olotex) is a Texture2D asset too, but the cook
+            // never reads one: its blocks ship as-is, so settings beside it would
+            // be stored and never applied.
+            std::string extension = target.AbsolutePath.extension().string();
+            std::ranges::transform(extension, extension.begin(), [](unsigned char c)
+                                   { return static_cast<char>(std::tolower(c)); });
+            if (extension == ".olotex")
+            {
+                return AutomationResult::Error("'" + target.AbsolutePath.filename().string() +
+                                               "' is an already-cooked container; import settings apply to the "
+                                               "source image it was cooked from.");
+            }
+            if (target.Type != AssetType::Texture2D)
+            {
+                return AutomationResult::Error(
+                    "Import settings exist only for texture sources: the texture cook is the one importer that reads "
+                    "an '<asset>.oloimport' sidecar. '" +
+                    target.AbsolutePath.filename().string() + "' is a " + std::string(AssetUtils::AssetTypeToString(target.Type)) +
+                    ", which nothing reads import settings for.");
+            }
+
             const std::filesystem::path sidecar = SidecarPath(target.AbsolutePath);
             FileContents existing;
             try
@@ -1343,19 +1420,17 @@ namespace OloEngine::Automation
                 return AutomationResult::Error(std::string("Cannot read import settings: ") + error.what());
             }
 
-            Json settings = Json::object();
-            if (existing)
+            TextureImportSettings settings;
+            if (existing && !TextureImport::Parse(*existing, settings))
             {
-                settings = Json::parse(*existing, nullptr, false);
-                if (settings.is_discarded() || !settings.is_object())
-                {
-                    // Refused on a READ too, not just a write: reporting an empty
-                    // settings object for a file that plainly holds something would
-                    // be a silent fallback, and the caller would then write over it.
-                    return AutomationResult::Error("The import-settings sidecar is not a JSON object: " +
-                                                   sidecar.generic_string() +
-                                                   ". Refusing to read or overwrite it; fix or remove it by hand.");
-                }
+                // Refused on a READ too, not just a write: reporting default
+                // settings for a file that plainly holds something would be a
+                // silent fallback, and the caller would then write over it. The
+                // cook refuses the same file, so the sidecar is doing nothing now.
+                return AutomationResult::Error("The import-settings sidecar is not a TextureImportSettings file the cook "
+                                               "can read: " +
+                                               sidecar.generic_string() +
+                                               ". Refusing to read or overwrite it; fix or remove it by hand.");
             }
 
             const bool writing = args.contains("settings");
@@ -1364,8 +1439,9 @@ namespace OloEngine::Automation
                 return AutomationResult::Structured(Json{ { "asset", DescribeTarget(target, project) },
                                                           { "sidecar", sidecar.generic_string() },
                                                           { "exists", existing.has_value() },
-                                                          { "settings", std::move(settings) },
+                                                          { "settings", TextureImportSettingsToJson(settings) },
                                                           { "changed", false },
+                                                          { "appliedByImporter", true },
                                                           { "undoable", false } });
             }
             if (!args.at("settings").is_object())
@@ -1378,18 +1454,20 @@ namespace OloEngine::Automation
                 return AutomationResult::Error(contained.at("__error").get<std::string>());
             }
 
-            // Merge rather than replace, so setting one key does not silently drop
-            // every other. A null VALUE removes its key -- the only way to unset
-            // one, and explicit rather than inferred from absence.
+            // Merge rather than replace, so setting one field does not reset every
+            // other. A null value resets its field to Auto -- explicit rather than
+            // inferred from absence. Every field is validated before anything is
+            // written, so a typo in one leaves the file untouched.
+            const std::string before = TextureImport::Emit(settings);
             for (const auto& [key, value] : args.at("settings").items())
             {
-                if (value.is_null())
-                    settings.erase(key);
-                else
-                    settings[key] = value;
+                if (const std::string problem = ApplyTextureImportField(settings, key, value); !problem.empty())
+                    return AutomationResult::Error(problem);
             }
-            const std::string replacement = settings.dump(2) + "\n";
-            const bool changed = !existing || *existing != replacement;
+            // Changed means the SETTINGS changed, not the text: a hand-written
+            // sidecar with comments that already says this is left alone.
+            const std::string replacement = TextureImport::Emit(settings);
+            const bool changed = !existing || before != replacement;
             if (changed)
             {
                 try
@@ -1404,14 +1482,13 @@ namespace OloEngine::Automation
             return AutomationResult::Structured(Json{ { "asset", DescribeTarget(target, project) },
                                                       { "sidecar", sidecar.generic_string() },
                                                       { "exists", true },
-                                                      { "settings", std::move(settings) },
+                                                      { "settings", TextureImportSettingsToJson(settings) },
                                                       { "changed", changed },
-                                                      // Nothing reads these yet: the engine has no per-asset import
-                                                      // settings pipeline, so this command stores and returns them
-                                                      // and no importer consults them. Said here rather than
-                                                      // implied, because a settings write that looks like it took
-                                                      // effect and did not is exactly a silent fallback.
-                                                      { "appliedByImporter", false },
+                                                      // The texture cook reads this file on the next asset-pack
+                                                      // build (it has no cache). A loaded texture is unaffected
+                                                      // until then, which is why this does not claim to have
+                                                      // reimported anything.
+                                                      { "appliedByImporter", true },
                                                       { "undoable", false } });
         }
 
@@ -1655,13 +1732,15 @@ namespace OloEngine::Automation
                  AssetReimport, true, AutomationUndo::Irreversible, false);
 
         Register(registry, "olo_asset_import_settings", "Get or set import settings",
-                 "Read (omit 'settings') or merge (provide 'settings') an asset's per-asset import settings, stored "
-                 "in a '<asset>.oloimport' JSON sidecar. A null value removes its key. NOTE appliedByImporter is "
-                 "false: the engine has no per-asset import-settings pipeline yet, so these are stored and returned "
-                 "but no importer consults them. NOT undoable.",
+                 "Read (omit 'settings') or merge (provide 'settings') a texture's import settings, stored in the "
+                 "'<image>.oloimport' sidecar the texture cook reads when it builds the asset pack. Fields: Format "
+                 "(Auto|BC7|BC5|BC4|BC6H|BC6HSigned), ColorSpace (Auto|Linear|sRGB), GenerateMips (true|false), "
+                 "AlphaMipChain (Auto|Coverage|Box: Coverage keeps an alpha cutout's alpha-test coverage at every "
+                 "mip, Box averages alpha for a blended or data alpha; Auto measures it). A null value resets a "
+                 "field to Auto. Texture sources only. NOT undoable.",
                  TargetSelector().Prop("settings", Schema::Object().Desc(
-                                                       "Keys to merge into the sidecar. Omit to read. A null value "
-                                                       "removes that key.")),
+                                                       "Fields to merge into the sidecar. Omit to read. A null value "
+                                                       "resets that field to Auto.")),
                  Schema::Object()
                      .Prop("asset", AssetDescriptionSchema())
                      .Prop("sidecar", Schema::String())

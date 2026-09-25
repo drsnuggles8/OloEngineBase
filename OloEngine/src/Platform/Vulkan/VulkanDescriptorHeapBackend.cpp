@@ -135,6 +135,7 @@ namespace OloEngine
         view.image = image;
         view.viewType = info->ViewType;
         view.format = info->Format;
+        view.components = info->Components;
         view.subresourceRange.aspectMask = info->HasDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
         view.subresourceRange.baseMipLevel = 0;
         view.subresourceRange.levelCount = std::max(info->MipLevels, 1u);
@@ -271,6 +272,10 @@ namespace OloEngine
             viewInfo.viewType = info->ViewType;
         }
         viewInfo.format = format;
+        // A storage view must be identity-swizzled; only sampled views carry
+        // the image's swizzle (VulkanImageInfo::Components).
+        if (!storage)
+            viewInfo.components = info->Components;
         viewInfo.subresourceRange.aspectMask =
             info->HasDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
         viewInfo.subresourceRange.baseMipLevel = std::min(view.Range.BaseMip, mipCount - 1u);
