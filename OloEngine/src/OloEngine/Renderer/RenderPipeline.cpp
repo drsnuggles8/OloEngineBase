@@ -3629,10 +3629,12 @@ namespace OloEngine
 
             // The forward AO upsample's depth (issue #1452): written by the
             // prepass node, read by every forward shader that applies AO.
-            const auto& aoSceneSpec = pipeline.FrameCorePasses.Scene->GetFramebufferSpecification();
             if (board.AO.AOBuffer.IsValid() && config.Path != RenderingPath::Deferred &&
-                board.Scene.SceneDepth.IsValid() && aoSceneSpec.Width > 0u && aoSceneSpec.Height > 0u)
+                board.Scene.SceneDepth.IsValid() && pipeline.FrameCorePasses.Scene &&
+                pipeline.FrameCorePasses.Scene->GetFramebufferSpecification().Width > 0u &&
+                pipeline.FrameCorePasses.Scene->GetFramebufferSpecification().Height > 0u)
             {
+                const auto& aoSceneSpec = pipeline.FrameCorePasses.Scene->GetFramebufferSpecification();
                 RGResourceDesc aoDepthDesc;
                 aoDepthDesc.Kind = RGResourceHandle::Kind::Texture2D;
                 aoDepthDesc.Format = RGResourceFormat::Depth24Stencil8;

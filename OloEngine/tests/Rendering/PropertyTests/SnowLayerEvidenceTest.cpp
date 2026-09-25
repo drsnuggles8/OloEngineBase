@@ -100,6 +100,9 @@ namespace OloEngine::Tests
         {
             f64 MeanA = 0.0;
             f64 MeanAbsDiff = 0.0;
+            // Per channel as well as luminance: two colours of equal luma
+            // must not pass as the same snow.
+            std::array<f64, 3> MeanAbsDiffRgb{};
             u32 MaxAbsDiff = 0;
             u64 Changed = 0; // pixels with any channel differing
             u64 Count = 0;
@@ -119,7 +122,12 @@ namespace OloEngine::Tests
                     d.MeanAbsDiff += std::abs(Luma(&a[idx]) - Luma(&b[idx]));
                     u32 pixelMax = 0;
                     for (int c = 0; c < 3; ++c)
-                        pixelMax = std::max(pixelMax, static_cast<u32>(std::abs(static_cast<int>(a[idx + c]) - static_cast<int>(b[idx + c]))));
+                    {
+                        const u32 channelDiff =
+                            static_cast<u32>(std::abs(static_cast<int>(a[idx + c]) - static_cast<int>(b[idx + c])));
+                        d.MeanAbsDiffRgb[static_cast<std::size_t>(c)] += channelDiff;
+                        pixelMax = std::max(pixelMax, channelDiff);
+                    }
                     d.MaxAbsDiff = std::max(d.MaxAbsDiff, pixelMax);
                     if (pixelMax > 0)
                         ++d.Changed;
@@ -130,6 +138,8 @@ namespace OloEngine::Tests
             {
                 d.MeanA /= static_cast<f64>(d.Count);
                 d.MeanAbsDiff /= static_cast<f64>(d.Count);
+                for (f64& channel : d.MeanAbsDiffRgb)
+                    channel /= static_cast<f64>(d.Count);
             }
             return d;
         }
@@ -345,6 +355,11 @@ namespace OloEngine::Tests
                     << PathName(cell) << " SNOW DIFFERS FROM FORWARD: mean |d luma| " << whole.MeanAbsDiff << ", max "
                     << whole.MaxAbsDiff << ", " << whole.Changed << " pixels differ. Compare SnowParity_GL_Forward"
                     << suffix << ".png / SnowParity_GL_" << PathName(cell) << suffix << ".png.";
+                const f64 worstChannel = *std::ranges::max_element(whole.MeanAbsDiffRgb);
+                EXPECT_LT(worstChannel, 1.5)
+                    << PathName(cell) << " SNOW COLOUR DIFFERS FROM FORWARD: mean |d| per channel (r,g,b) = ("
+                    << whole.MeanAbsDiffRgb[0] << ", " << whole.MeanAbsDiffRgb[1] << ", " << whole.MeanAbsDiffRgb[2]
+                    << "), so equal luminance is hiding a hue difference.";
             }
         }
     }

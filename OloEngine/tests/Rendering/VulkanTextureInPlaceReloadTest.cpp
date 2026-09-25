@@ -610,6 +610,9 @@ namespace OloEngine::Tests
 
         constexpr u32 kKeptUnit = 3;
         constexpr u32 kReleasedUnit = 4;
+        // The released image bound at a SECOND unit too: every unit that names
+        // it must be cleared, not just the first one found.
+        constexpr u32 kReleasedUnitB = 7;
         VulkanRendererAPI api;
         SubmitFrame(api,
                     [&]()
@@ -617,6 +620,7 @@ namespace OloEngine::Tests
                         framebuffer->Bind();
                         api.BindTexture(kKeptUnit, kept->GetRHIHandle());
                         api.BindTexture(kReleasedUnit, released->GetRHIHandle());
+                        api.BindTexture(kReleasedUnitB, released->GetRHIHandle());
                         framebuffer->Unbind();
                     });
 
@@ -625,12 +629,15 @@ namespace OloEngine::Tests
         const u32 keptSlot = staged.GetTextureHeapSlot(kKeptUnit);
         ASSERT_NE(keptSlot, VulkanBindingState::kNoHeapSlot);
         ASSERT_NE(staged.GetTextureHeapSlot(kReleasedUnit), VulkanBindingState::kNoHeapSlot);
+        ASSERT_NE(staged.GetTextureHeapSlot(kReleasedUnitB), VulkanBindingState::kNoHeapSlot);
 
         released = nullptr; // the last reference: the image is queued for reclaim
 
         EXPECT_EQ(staged.GetTextureHeapSlot(kReleasedUnit), VulkanBindingState::kNoHeapSlot)
             << "a unit still names the slot of an image that is queued for destruction; the next fork's "
                "seeded-image transition would record a barrier on it";
+        EXPECT_EQ(staged.GetTextureHeapSlot(kReleasedUnitB), VulkanBindingState::kNoHeapSlot)
+            << "the second unit naming the released image was left bound";
         EXPECT_EQ(staged.GetTextureHeapSlot(kKeptUnit), keptSlot)
             << "releasing one texture cleared a unit that names a different, live one";
     }
