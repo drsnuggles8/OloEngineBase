@@ -466,7 +466,8 @@ namespace OloEngine
 
             /// The packed RGBA16F volume: xyz = the voxel's mean fibre
             /// direction times its coherence, w = fibre areal density. Null
-            /// until the first successful bake.
+            /// until the first successful bake. Always CoatRing[CoatSlot]'s
+            /// texture.
             Ref<Texture3D> CoatVolume;
             /// The volume's object-space box, needed to map a shading point
             /// into it.
@@ -667,7 +668,7 @@ namespace OloEngine
         /// Returns false, leaving the resident volume untouched, when the bake
         /// produced nothing.
         bool BakeCoatVolume(CacheEntry& entry, std::span<const GroomCoatShadow::CoatSegment> segments,
-                            u32 resolution);
+                            u32 resolution, u32* outOccupiedVoxels = nullptr);
 
         /// The CPU path's rebuilt stream for the groom being processed, reused
         /// across draws so a bound coat does not allocate it twice. Empty on the
@@ -675,6 +676,15 @@ namespace OloEngine
         std::vector<GroomStrandVertex> m_DeformedVertices;
         /// The drawn pose handed to the coat bake, reused across draws.
         std::vector<GroomCoatShadow::CoatSegment> m_DrawnPose;
+        /// The CPU path's FULL drawn pose, before the bake subset (#1445).
+        std::vector<GroomCoatShadow::CoatSegment> m_DrawnPoseFull;
+        /// The bake's scratch, reused across bakes so a coat that rebakes every
+        /// frame does not allocate its segments, its volume and its packed
+        /// texels every frame (#1445).
+        std::vector<GroomCoatShadow::CoatSegment> m_CoatSegments;
+        GroomCoatShadow::DensityVolume m_CoatVolumeScratch;
+        std::vector<u16> m_CoatPackHalf;
+        std::vector<f32> m_CoatPackFloat;
 
         GroomCoatShadow::CoatRebakePolicy m_CoatRebakePolicy;
         bool m_GpuDeformation = true;

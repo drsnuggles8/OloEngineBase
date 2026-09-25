@@ -568,6 +568,12 @@ namespace OloEngine::GroomCoatShadow
             out.StaleDriftVoxels = defaults.StaleDriftVoxels;
         }
         out.StaleDriftVoxels = std::max(out.StaleDriftVoxels, out.MaxDriftVoxels);
+        // Negative or NaN is replaced, zero is honoured: zero means "bake every
+        // segment", which is the switch a comparison needs.
+        if (!std::isfinite(out.BakeSegmentsPerOccupiedVoxel) || out.BakeSegmentsPerOccupiedVoxel < 0.0f)
+        {
+            out.BakeSegmentsPerOccupiedVoxel = defaults.BakeSegmentsPerOccupiedVoxel;
+        }
         return out;
     }
 
@@ -589,6 +595,69 @@ namespace OloEngine::GroomCoatShadow
     bool CoatBakeIsStale(f32 driftVoxels, const CoatRebakePolicy& policy) noexcept
     {
         return !(driftVoxels <= policy.StaleDriftVoxels);
+    }
+
+    u32 CoatBakeSubsetStride(u64 segments, u32 occupiedVoxels, f32 segmentsPerOccupiedVoxel) noexcept
+    {
+        if (segments == 0u || occupiedVoxels == 0u || !std::isfinite(segmentsPerOccupiedVoxel) ||
+            !(segmentsPerOccupiedVoxel > 0.0f))
+        {
+            return 1u;
+        }
+        const f64 perVoxel = static_cast<f64>(segments) / static_cast<f64>(occupiedVoxels);
+        const f64 stride = std::floor(perVoxel / static_cast<f64>(segmentsPerOccupiedVoxel));
+        // Bounded so a pathological count cannot wrap the u32; a stride this
+        // large keeps nothing on any coat that has a volume at all.
+        return static_cast<u32>(std::clamp(stride, 1.0, 65536.0));
+    }
+
+    bool CoatBakeKeepsSegment(u32 index, u32 stride) noexcept
+    {
+        if (stride <= 1u)
+        {
+            return true;
+        }
+        // murmur3's finaliser: a full-avalanche integer hash, so the kept
+        // segments are spread along every strand rather than landing on the
+        // same positions of each one -- which `index % stride` would do for a
+        // coat whose strands all have a multiple of `stride` segments, keeping
+        // the roots and never the tips.
+        u32 h = index ^ 0x1445'C0A7u;
+        h ^= h >> 16;
+        h *= 0x85EB'CA6Bu;
+        h ^= h >> 13;
+        h *= 0xC2B2'AE35u;
+        h ^= h >> 16;
+        return h % stride == 0u;
+    }
+
+    f32 SubsampleCoatSegments(std::span<const CoatSegment> segments, u32 stride, std::vector<CoatSegment>& out)
+    {
+        out.clear();
+        if (stride <= 1u)
+        {
+            out.assign(segments.begin(), segments.end());
+            return 1.0f;
+        }
+        out.reserve(segments.size() / stride + 1u);
+        for (sizet s = 0; s < segments.size(); ++s)
+        {
+            if (CoatBakeKeepsSegment(static_cast<u32>(s), stride))
+            {
+                out.push_back(segments[s]);
+            }
+        }
+        if (out.empty())
+        {
+            return 1.0f;
+        }
+        const f32 scale = static_cast<f32>(segments.size()) / static_cast<f32>(out.size());
+        for (CoatSegment& segment : out)
+        {
+            segment.RadiusA *= scale;
+            segment.RadiusB *= scale;
+        }
+        return scale;
     }
 
     // =========================================================================
@@ -980,19 +1049,16 @@ namespace OloEngine::GroomCoatShadow
         }
         const u64 voxels = static_cast<u64>(Dimensions.x) * static_cast<u64>(Dimensions.y) *
                            static_cast<u64>(Dimensions.z);
-        // ONE RGBA32F, 16 bytes a voxel: what the renderer actually uploads.
+        // ONE RGBA16F, 8 bytes a voxel: what the renderer uploads (#1445). It
+        // was RGBA32F until the GL backend's RGBA16F upload was fixed to take
+        // half-float client data; the pass still falls back to RGBA32F for a
+        // volume whose density overflows a half, which no coat measured here
+        // comes near.
         //
-        // It is not what the packing would prefer -- RGBA16F would halve it --
-        // but Texture3D's RGBA16F declares 8 bytes a texel while uploading its
-        // client data as GL_FLOAT, so SetData rejects the only buffer it could
-        // be handed. Quoting the smaller number here would make every memory
-        // row in the analysis describe a texture the engine cannot currently
-        // create.
-        //
-        // BOTH volume modes therefore cost the same bytes, and the isotropic
-        // arm is a COMPUTE saving rather than a memory one. The memory lever at
-        // runtime is the shadow LOD, which is cubic in the resolution.
-        return voxels * 16ull;
+        // BOTH volume modes cost the same bytes, and the isotropic arm is a
+        // COMPUTE saving rather than a memory one. The memory lever at runtime
+        // is the shadow LOD, which is cubic in the resolution.
+        return voxels * 8ull;
     }
 
     glm::vec3 DensityVolume::VoxelSize() const noexcept
@@ -1007,7 +1073,14 @@ namespace OloEngine::GroomCoatShadow
     bool BuildDensityVolume(std::span<const CoatSegment> segments, const DensityVolumeSettings& settings,
                             DensityVolume& outVolume, DensityVolumeBuildStats* outStats)
     {
-        outVolume = DensityVolume{};
+        // Reset field by field rather than by assignment, so a caller that
+        // rebakes into the same volume every frame (a walking coat, #1445)
+        // keeps the two arrays' capacity instead of reallocating them.
+        outVolume.Dimensions = glm::ivec3(0);
+        outVolume.BoundsMin = glm::vec3(0.0f);
+        outVolume.BoundsMax = glm::vec3(0.0f);
+        outVolume.Density.clear();
+        outVolume.Direction.clear();
         if (outStats != nullptr)
         {
             *outStats = DensityVolumeBuildStats{};

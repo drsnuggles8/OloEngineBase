@@ -1804,6 +1804,15 @@ namespace OloEngine::Tests
             u32 Rebakes = 0;
             u64 BakeMicroseconds = 0;
             u64 WorstFrameMicroseconds = 0;
+            // #1445's split, summed over the walk. Pose is the evaluation of
+            // the drawn centrelines the bake reads, outside BakeMicroseconds.
+            u64 PoseMicroseconds = 0;
+            u64 DriftMicroseconds = 0;
+            u64 SegmentMicroseconds = 0;
+            u64 BinMicroseconds = 0;
+            u64 PackMicroseconds = 0;
+            u64 UploadMicroseconds = 0;
+            u32 MaxBakeStride = 0;
             f32 WorstDriftVoxels = 0.0f;
             u32 MinShadowed = 0xFFFFFFFFu;
             u32 StaleEver = 0;
@@ -1832,6 +1841,13 @@ namespace OloEngine::Tests
                 cost.Rebakes += c.DeformedRebakes;
                 cost.BakeMicroseconds += c.BakeMicroseconds;
                 cost.WorstFrameMicroseconds = std::max(cost.WorstFrameMicroseconds, c.BakeMicroseconds);
+                cost.PoseMicroseconds += PassStats().DeformedPoseMicroseconds;
+                cost.DriftMicroseconds += c.DriftMicroseconds;
+                cost.SegmentMicroseconds += c.BakeSegmentMicroseconds;
+                cost.BinMicroseconds += c.BakeBinMicroseconds;
+                cost.PackMicroseconds += c.BakePackMicroseconds;
+                cost.UploadMicroseconds += c.BakeUploadMicroseconds;
+                cost.MaxBakeStride = std::max(cost.MaxBakeStride, c.MaxBakeStride);
                 cost.WorstDriftVoxels = std::max(cost.WorstDriftVoxels, c.MaxDriftVoxels);
                 cost.MinShadowed = std::min(cost.MinShadowed, c.ShadowedGrooms);
                 cost.StaleEver += c.ByReason[static_cast<sizet>(GroomCoatShadowFallbackReason::RepresentationStale)];
@@ -1847,6 +1863,14 @@ namespace OloEngine::Tests
                         static_cast<f64>(c.BakeMicroseconds) / 1000.0 / std::max(1u, c.Frames),
                         static_cast<f64>(c.WorstFrameMicroseconds) / 1000.0, static_cast<f64>(c.WorstDriftVoxels),
                         c.MinShadowed, c.StaleEver);
+            const f64 perFrame = 1000.0 * std::max(1u, c.Frames);
+            std::printf("[groom-animals] coat rebake %s by stage, ms/frame: pose %.2f, drift %.2f, segments %.2f, "
+                        "binning %.2f, pack %.2f, texture create+upload %.2f; subset stride up to %u\n",
+                        label, static_cast<f64>(c.PoseMicroseconds) / perFrame,
+                        static_cast<f64>(c.DriftMicroseconds) / perFrame,
+                        static_cast<f64>(c.SegmentMicroseconds) / perFrame,
+                        static_cast<f64>(c.BinMicroseconds) / perFrame, static_cast<f64>(c.PackMicroseconds) / perFrame,
+                        static_cast<f64>(c.UploadMicroseconds) / perFrame, c.MaxBakeStride);
             std::fflush(stdout);
         };
 
