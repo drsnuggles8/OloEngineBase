@@ -49,6 +49,10 @@ namespace OloEngine
         void OnReset() override;
 
       private:
+        // Copies a scene-target attachment into its graph export (the
+        // self-copy and zero-size guards SceneRenderPass's exports have).
+        void CopyToExport(RGCommandContext& context, RGTextureHandle handle, RHI::ResourceHandle source) const;
+
         Ref<Framebuffer> m_SceneFramebuffer;
         RGTextureHandle m_SelectedVelocityExport;
         RGTextureHandle m_SelectedSceneDepthExport;

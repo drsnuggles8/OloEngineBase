@@ -6,10 +6,11 @@
 // on the forward paths: the octahedral VIEW normal SSAO, GTAO and the sphere
 // proxies read (issue #1452).
 //
-// One definition for every forward writer of that attachment: the PBR colour
-// pass and the DepthNormalPrepass* programs (through ForwardShadingNormal.glsl),
-// and the foliage depth-normal prepass programs (issue #1474), which have no PBR
-// material block and so cannot include ForwardShadingNormal.glsl itself.
+// Shared by the PBR colour pass and the DepthNormalPrepass* programs (through
+// ForwardShadingNormal.glsl) and by the foliage depth-normal prepass programs
+// (issue #1474), which have no PBR material block and so cannot include
+// ForwardShadingNormal.glsl itself. Terrain_PBR, Terrain_Voxel and
+// Terrain_VoxelGreedy still carry private copies of the same encode.
 // Needs nothing from the includer.
 // =============================================================================
 

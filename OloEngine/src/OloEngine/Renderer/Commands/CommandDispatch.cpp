@@ -1426,9 +1426,12 @@ namespace OloEngine
     // screen-space AO passes. Only while the prepass writes normals: that is
     // the one prepass the foliage bucket is replayed in, and the deferred
     // Geometry-bucket prepass keeps the G-Buffer foliage program whole (see
-    // DrawFoliageLayer). A missing twin keeps the colour program, which the
-    // prepass masks to depth only; its pixels then read as unoccluded, so that
-    // is said once rather than left to look like foliage with no AO.
+    // DrawFoliageLayer). A MISSING twin returns the null handle and the caller
+    // skips the draw: the colour program cannot write the view normal, and its
+    // depth over whatever normal the scene prepass left in attachment 2 would
+    // pair a leaf's depth with the ground's normal. Skipped, foliage is out of
+    // the prepass exactly as before #1474, so its forward AO is that of the
+    // surface behind it, which is said once rather than left to be found.
     [[nodiscard]] static RHI::ResourceHandle ResolveFoliageDepthNormalPrepassShader(RHI::ResourceHandle program)
     {
         if (!s_FrameData.DepthPrepassActive || !s_FrameData.DepthPrepassWritesNormals)
@@ -1446,10 +1449,11 @@ namespace OloEngine
         static std::atomic<bool> s_WarnedMissingTwin{ false };
         if (!s_WarnedMissingTwin.exchange(true, std::memory_order_relaxed))
         {
-            OLO_CORE_WARN("CommandDispatch::DrawFoliageLayer: no Foliage_*_DepthNormal program is loaded, so the forward "
-                          "prepass draws foliage depth-only and forward foliage takes no screen-space AO (issue #1474).");
+            OLO_CORE_WARN("CommandDispatch::DrawFoliageLayer: no Foliage_*_DepthNormal program is loaded, so foliage is left "
+                          "out of the forward prepass and forward foliage takes the screen-space AO of the surface behind "
+                          "it (issue #1474).");
         }
-        return program;
+        return RHI::ResourceHandle{};
     }
 
     // Helper: Upload bone matrices from FrameDataBuffer.
@@ -3583,6 +3587,8 @@ namespace OloEngine
         // stage with `invariant gl_Position`, the same discards), or the
         // LEqual colour pass would lose edge fragments.
         const RHI::ResourceHandle shaderToBind = ResolveFoliageDepthNormalPrepassShader(cmd->shaderRendererID);
+        if (!shaderToBind.IsValid())
+            return; // no twin: this layer stays out of the forward prepass (see the resolver)
         ApplyPrepassViewNormalWrite(api, cmd->renderStateIndex, IsDepthNormalPrepassProgram(shaderToBind));
         if (Data().CurrentBoundShader != shaderToBind)
         {

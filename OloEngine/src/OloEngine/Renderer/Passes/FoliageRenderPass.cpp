@@ -147,20 +147,8 @@ namespace OloEngine
 
         m_SceneFramebuffer->Unbind();
 
-        const auto copyExport = [&context, this](RGTextureHandle handle, RHI::ResourceHandle source)
-        {
-            if (!handle.IsValid() || !source.IsValid())
-                return;
-            const auto destination = context.ResolveTextureHandle(handle);
-            if (!destination.IsValid() || destination == source)
-                return;
-            const auto& spec = m_SceneFramebuffer->GetSpecification();
-            RenderCommand::CopyImageSubData(source, RendererAPI::TextureTargetType::Texture2D,
-                                            destination, RendererAPI::TextureTargetType::Texture2D,
-                                            spec.Width, spec.Height);
-        };
-        copyExport(m_SelectedVelocityExport, m_SceneFramebuffer->GetColorAttachmentHandle(3));
-        copyExport(m_SelectedSceneDepthExport, m_SceneFramebuffer->GetDepthAttachmentHandle());
+        CopyToExport(context, m_SelectedVelocityExport, m_SceneFramebuffer->GetColorAttachmentHandle(3));
+        CopyToExport(context, m_SelectedSceneDepthExport, m_SceneFramebuffer->GetDepthAttachmentHandle());
 
         // Reset bucket for next frame
         ResetCommandBucket();
@@ -168,31 +156,13 @@ namespace OloEngine
 
     void FoliageRenderPass::SetupForwardPrepass(RGBuilder& builder, FrameBlackboard& board)
     {
-        m_PrepassSceneDepth = {};
-        m_PrepassSceneNormals = {};
-        m_PrepassForwardAODepth = {};
         // Only with a forward AO buffer, the one consumer this share exists
-        // for — the same gate as GPUDrivenOcclusionPass::SetupForwardPrepass.
-        if (board.Config.Path == RenderingPath::Deferred || !board.AO.AOBuffer.IsValid() ||
-            !board.Scene.ForwardAODepth.IsValid())
-        {
-            return;
-        }
-        builder.DependsOnPass("ScenePrepassPass");
-        if (board.Scene.SceneColor.IsValid())
-            builder.Write(board.Scene.SceneColor, RGWriteUsage::RenderTarget);
-        if (board.Scene.SceneDepth.IsValid())
-        {
-            m_PrepassSceneDepth = board.Scene.SceneDepth;
-            builder.Write(board.Scene.SceneDepth, RGWriteUsage::TransferDest);
-        }
-        if (board.Scene.SceneNormals.IsValid())
-        {
-            m_PrepassSceneNormals = board.Scene.SceneNormals;
-            builder.Write(board.Scene.SceneNormals, RGWriteUsage::TransferDest);
-        }
-        m_PrepassForwardAODepth = board.Scene.ForwardAODepth;
-        builder.Write(board.Scene.ForwardAODepth, RGWriteUsage::TransferDest);
+        // for — the same declaration GPUDrivenOcclusionPass's share makes.
+        ForwardPrepassShareExports exports;
+        DeclareForwardPrepassShare(builder, board, exports);
+        m_PrepassSceneDepth = exports.SceneDepth;
+        m_PrepassSceneNormals = exports.SceneNormals;
+        m_PrepassForwardAODepth = exports.ForwardAODepth;
     }
 
     void FoliageRenderPass::ExecuteForwardPrepass(RGCommandContext& context, const Ref<Framebuffer>& sceneTarget)
@@ -205,8 +175,21 @@ namespace OloEngine
         if (!m_SceneFramebuffer || m_CommandBucket.GetCommandCount() == 0)
             return;
 
+        // The prepass is the bucket's FIRST touch this frame, so its capture
+        // entry is the one that sees the submission order; Execute()'s then
+        // records the sorted bucket its colour draws replay (issue #463).
+        auto& captureManager = FrameCaptureManager::GetInstance();
+        const bool capturing = captureManager.IsCapturing();
+        if (capturing)
+        {
+            captureManager.BeginPass("FoliagePrepassPass");
+            captureManager.OnPreSort(m_CommandBucket);
+        }
+
         m_SceneFramebuffer->Bind();
         m_CommandBucket.SortCommands();
+        if (capturing)
+            captureManager.OnPostSort(m_CommandBucket);
         // Depth + view normal: DrawFoliageLayer swaps each forward foliage
         // program for its Foliage_*_DepthNormal twin and opens attachment 2.
         CommandDispatch::SetDepthPrepassActive(true, true);
@@ -221,22 +204,25 @@ namespace OloEngine
 
         // Export again, now with the leaves in them: the AO passes registered
         // after FoliagePrepassPass read these versions.
-        const auto& spec = m_SceneFramebuffer->GetSpecification();
-        const auto copyExport = [&context, &spec](RGTextureHandle handle, RHI::ResourceHandle source)
-        {
-            if (!handle.IsValid() || !source.IsValid())
-                return;
-            const auto destination = context.ResolveTextureHandle(handle);
-            if (!destination.IsValid() || destination == source)
-                return;
-            RenderCommand::CopyImageSubData(source, RendererAPI::TextureTargetType::Texture2D,
-                                            destination, RendererAPI::TextureTargetType::Texture2D,
-                                            spec.Width, spec.Height);
-        };
         const RHI::ResourceHandle depth = m_SceneFramebuffer->GetDepthAttachmentHandle();
-        copyExport(m_PrepassSceneDepth, depth);
-        copyExport(m_PrepassSceneNormals, m_SceneFramebuffer->GetColorAttachmentHandle(2));
-        copyExport(m_PrepassForwardAODepth, depth);
+        CopyToExport(context, m_PrepassSceneDepth, depth);
+        CopyToExport(context, m_PrepassSceneNormals, m_SceneFramebuffer->GetColorAttachmentHandle(2));
+        CopyToExport(context, m_PrepassForwardAODepth, depth);
+    }
+
+    void FoliageRenderPass::CopyToExport(RGCommandContext& context, RGTextureHandle handle, RHI::ResourceHandle source) const
+    {
+        if (!handle.IsValid() || !source.IsValid() || !m_SceneFramebuffer)
+            return;
+        const auto& spec = m_SceneFramebuffer->GetSpecification();
+        if (spec.Width == 0u || spec.Height == 0u)
+            return;
+        const auto destination = context.ResolveTextureHandle(handle);
+        if (!destination.IsValid() || destination == source)
+            return;
+        RenderCommand::CopyImageSubData(source, RendererAPI::TextureTargetType::Texture2D,
+                                        destination, RendererAPI::TextureTargetType::Texture2D,
+                                        spec.Width, spec.Height);
     }
 
     Ref<Framebuffer> FoliageRenderPass::GetTarget() const

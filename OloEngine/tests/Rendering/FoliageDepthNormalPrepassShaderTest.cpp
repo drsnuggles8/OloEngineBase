@@ -150,6 +150,16 @@ namespace OloEngine::Tests
                 << "the twin compiles the shared impostor discard rule differently from its colour program";
         }
 
+        // The impostor pair's discards live in the shared sampling include, so
+        // the counts above are 0 == 0 there: pin that both fragments take them
+        // from that include and call its one entry point.
+        for (const char* impostor : { "Foliage_Impostor_DepthNormal.glsl", "Foliage_Impostor.glsl" })
+        {
+            const Stages stages = Load(impostor);
+            EXPECT_TRUE(MentionsOutsideComments(stages.Fragment, "include/FoliageImpostorSampling.glsl")) << impostor;
+            EXPECT_EQ(CountOutsideComments(stages.Fragment, "SampleImpostorCard()"), 1) << impostor;
+        }
+
         // The instance pair's three discards are the same three conditions.
         const Stages prepass = Load("Foliage_Instance_DepthNormal.glsl");
         const Stages colour = Load("Foliage_Instance.glsl");

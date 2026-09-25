@@ -269,32 +269,14 @@ namespace OloEngine
 
     void GPUDrivenOcclusionPass::SetupForwardPrepass(RGBuilder& builder, FrameBlackboard& board)
     {
-        m_PrepassSceneDepth = {};
-        m_PrepassSceneNormals = {};
-        m_PrepassForwardAODepth = {};
         // Only with a forward AO buffer: that is the one consumer the prepass
         // share exists for. Without it this node declares nothing and the
         // pass draws in one go, exactly as before #1452.
-        if (board.Config.Path == RenderingPath::Deferred || !board.AO.AOBuffer.IsValid() ||
-            !board.Scene.ForwardAODepth.IsValid())
-        {
-            return;
-        }
-        builder.DependsOnPass("ScenePrepassPass");
-        if (board.Scene.SceneColor.IsValid())
-            builder.Write(board.Scene.SceneColor, RGWriteUsage::RenderTarget);
-        if (board.Scene.SceneDepth.IsValid())
-        {
-            m_PrepassSceneDepth = board.Scene.SceneDepth;
-            builder.Write(board.Scene.SceneDepth, RGWriteUsage::TransferDest);
-        }
-        if (board.Scene.SceneNormals.IsValid())
-        {
-            m_PrepassSceneNormals = board.Scene.SceneNormals;
-            builder.Write(board.Scene.SceneNormals, RGWriteUsage::TransferDest);
-        }
-        m_PrepassForwardAODepth = board.Scene.ForwardAODepth;
-        builder.Write(board.Scene.ForwardAODepth, RGWriteUsage::TransferDest);
+        ForwardPrepassShareExports exports;
+        DeclareForwardPrepassShare(builder, board, exports);
+        m_PrepassSceneDepth = exports.SceneDepth;
+        m_PrepassSceneNormals = exports.SceneNormals;
+        m_PrepassForwardAODepth = exports.ForwardAODepth;
     }
 
     void GPUDrivenOcclusionPass::ExecuteForwardPrepass(RGCommandContext& context, const Ref<Framebuffer>& sceneTarget)
