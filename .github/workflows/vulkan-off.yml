@@ -69,6 +69,9 @@ on:
       - 'OloEngine/CMakeLists.txt'
       - 'OloEngine/vendor/CMakeLists.txt'
       - 'cmake/**'
+      # The #1460 PCH launcher and the check that replays the two-slot collision.
+      - 'scripts/ccache-pch-launcher.sh'
+      - 'scripts/check-ccache-pch-two-root.sh'
       - 'CMakePresets.json'
       - 'vcpkg.json'
       - 'OloEngine/src/Platform/Vulkan/**'
@@ -213,6 +216,27 @@ jobs:
             exit 1
           fi
           echo "OK: building the GL-only configuration (backend object code and Vulkan ports both out)."
+
+      # #1460: this job once compiled against a PCH from the OTHER runner slot's checkout.
+      # The two slots share one ccache with base_dir set, and both stored their .pch under
+      # one result key. The script replays slot 1 -> slot 2 -> slot 1 on a tiny PCH project
+      # with this box's clang and ccache in a PRIVATE cache: plain ccache must reproduce the
+      # redefinition, and scripts/ccache-pch-launcher.sh must prevent it while non-PCH
+      # objects still hit across roots. Seconds, and before the build, so it fails fast.
+      # Self-hosted only: that is where base_dir is set and ccache is the launcher.
+      - name: Verify a cached PCH cannot cross runner slots (self-hosted)
+        if: runner.environment != 'github-hosted'
+        run: |
+          set -euo pipefail
+          # The real tree first: the launcher must be on this build's compile lines, or the
+          # toy result below says nothing about it.
+          n=$( (grep -rl --include=build.make 'ccache-pch-launcher.sh' build || true) | wc -l)
+          echo "build.make files routing compiles through ccache-pch-launcher.sh: $n"
+          if [ "$n" -eq 0 ]; then
+            echo "::error::cmake/CompilerCache.cmake did not wire scripts/ccache-pch-launcher.sh into this tree (#1460)"
+            exit 1
+          fi
+          bash scripts/check-ccache-pch-two-root.sh "$OLO_COMPILER_CACHE_TOOL" "${{ steps.linux.outputs.cxx }}"
 
       # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
       # is the whole point: the combined actions/cache action saves in a POST-JOB

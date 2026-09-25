@@ -295,6 +295,27 @@ if(OLO_ENABLE_COMPILER_CACHE)
                 "Precompiled headers: left enabled alongside the compiler cache — a GNU-frontend "
                 "clang PCH is cacheable and CCACHE_SLOPPINESS carries pch_defines,time_macros "
                 "(issue #1314).")
+
+            # A CACHED PCH MUST NOT CROSS CHECKOUT ROOTS (issue #1460). With base_dir set, as
+            # it is for the two olo-ci runner slots, ccache stored both slots' .pch under ONE
+            # result key, and a slot's own direct-mode hit then served the other slot's .pch.
+            # Clang records absolute header paths in a PCH, so the next consumer that missed
+            # failed with "redefinition of 'ArraySize'" against the other slot's Base.h. The
+            # launcher clears base_dir for the PCH-producing compile only; the script's header
+            # has the mechanism, and scripts/check-ccache-pch-two-root.sh reproduces it.
+            #
+            # POSIX hosts only: it is a /bin/sh script, and Windows ccache does not relativise
+            # the preprocessed include paths that make the two keys collide in the first place.
+            get_filename_component(_olo_cache_tool_name "${OLO_COMPILER_CACHE_TOOL}" NAME)
+            if(CMAKE_HOST_UNIX AND _olo_cache_tool_name MATCHES "^ccache")
+                set(_olo_pch_launcher "${CMAKE_CURRENT_LIST_DIR}/../scripts/ccache-pch-launcher.sh")
+                cmake_path(NORMAL_PATH _olo_pch_launcher)
+                set(CMAKE_C_COMPILER_LAUNCHER   /bin/sh "${_olo_pch_launcher}" "${OLO_COMPILER_CACHE_TOOL}")
+                set(CMAKE_CXX_COMPILER_LAUNCHER /bin/sh "${_olo_pch_launcher}" "${OLO_COMPILER_CACHE_TOOL}")
+                message(STATUS "Compiler launcher: ${_olo_pch_launcher} (PCH compiles hashed without base_dir, issue #1460)")
+                unset(_olo_pch_launcher)
+            endif()
+            unset(_olo_cache_tool_name)
         endif()
         unset(_olo_pch_uncacheable)
         unset(_olo_pch_reason)

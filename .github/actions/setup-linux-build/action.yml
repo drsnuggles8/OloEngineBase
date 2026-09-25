@@ -342,8 +342,17 @@ runs:
           #   BASEDIR+NOHASHDIR, no prefix-map    slot 2: HIT, comp_dir names SLOT 1
           #   BASEDIR+NOHASHDIR + prefix-map      slot 2: HIT, comp_dir = /olo/build
           #
-          # The last row is byte-identical objects, PCH included -- so the PCH does
-          # not poison the compiles that consume it.
+          # The last row is byte-identical OBJECTS. It said nothing about the PCH,
+          # and the PCH is NOT safe under this setting (#1460, CI run 36045750117:
+          # "redefinition of 'ArraySize'", previous definition in the OTHER slot's
+          # Base.h). A .pch records absolute header paths, and base_dir made both
+          # slots store their .pch under one ccache result key, each overwriting the
+          # other's. cmake/CompilerCache.cmake therefore routes compiles through
+          # scripts/ccache-pch-launcher.sh, which clears base_dir for the
+          # PCH-producing compile only; scripts/check-ccache-pch-two-root.sh
+          # reproduces both the bug and the fix. What is actually shared across
+          # slots is the NON-PCH objects: a PCH consumer's key hashes the .pch
+          # bytes, which differ per slot, so consumers never shared, before or after.
           #
           # BOTH variables are required, and BASEDIR for a reason that is not
           # obvious: `-ffile-prefix-map=<abs source root>=/olo` itself contains the
@@ -371,8 +380,10 @@ runs:
         # constraint. One Linux sanitizer build is 1,653 TUs at ~944 KB/entry, and
         # 7-9 distinct flag sets can land on this box; ~20-26 GB holds ONE
         # generation of all of them, so 30G held barely one and any two
-        # consecutive commits evicted each other. 120G is ~5 generations, and
-        # ~10 now that slots share (above).
+        # consecutive commits evicted each other. 120G is ~5 generations. The
+        # slot sharing above does not double that: it covers only the non-PCH
+        # objects, and the PCH consumers (most engine and test TUs) are still
+        # stored once per slot (#1460).
         #
         # Bounded by /home, not by taste: the cache is on /home (NVMe), measured
         # 218G used of 389G with 171G free, of which this cache was 28 GiB. 120G

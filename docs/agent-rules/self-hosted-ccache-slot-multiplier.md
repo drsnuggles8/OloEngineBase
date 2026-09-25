@@ -56,8 +56,13 @@ under different `actions-runner-ci-N/_work` roots, Debug + ASan, with a PCH:
 | `CCACHE_BASEDIR` + `CCACHE_NOHASHDIR` | HIT | **names slot 1** |
 | the above + `-ffile-prefix-map` | HIT | `/olo/build`, byte-identical objects |
 
-The PCH hits too, so it does not poison the compiles that consume it. Through real CMake
-with the launcher wired up, slot 2 hits slot 1's object: 1 miss + 1 hit of 2 calls.
+Through real CMake with the launcher wired up, slot 2 hits slot 1's object: 1 miss + 1 hit
+of 2 calls. **That row covers objects, not the PCH.** A `.pch` records absolute header
+paths, and `base_dir` made both slots store theirs under one result key: CI served one slot
+the other's `.pch` and failed with a redefinition (#1460,
+[ccache-pch-result-key-collision.md](ccache-pch-result-key-collision.md)). PCH consumers,
+most engine and test TUs, hash the `.pch` bytes and so never share across slots at all;
+the sharing is real for the non-PCH objects only.
 
 ### base_dir is not optional, for a non-obvious reason
 
@@ -92,8 +97,8 @@ One generation of the object set, measured the same day:
   lesson from the `--parallel` work applies here unchanged.
 
 That is **~20-26 GB to hold one generation of everything**, so a 30G cap held barely one
-and any two consecutive commits evicted each other. 120G is ~5 generations, ~10 now that
-the slots share.
+and any two consecutive commits evicted each other. 120G is ~5 generations. Slot sharing
+does not double that, because the PCH consumers are still stored once per slot (#1460).
 
 **Then the filesystem decides, the way the store decides on hosted.** The cache is on
 `/home` (NVMe): 218G used of 389G, 171G free, of which this cache was 28 GiB. `120G` is

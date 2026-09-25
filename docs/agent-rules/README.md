@@ -79,6 +79,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [self-hosted-ccache-slot-multiplier.md](self-hosted-ccache-slot-multiplier.md): size a self-hosted compiler cache by configurations x the runner slots that can build them, make the slots share rather than paying for both, and let the filesystem overrule the number.
 - [cache-entry-version-is-the-path-string.md](cache-entry-version-is-the-path-string.md): a cache's restore and its save must be handed the same path string, character for character; two spellings of one directory are two caches.
 - [compiler-cache-uncacheable-compiles.md](compiler-cache-uncacheable-compiles.md): print the cache statistics after every CI build and read the uncacheable line; a PCH without `CCACHE_SLOPPINESS` and a per-commit macro each made every engine object a miss.
+- [ccache-pch-result-key-collision.md](ccache-pch-result-key-collision.md): never let ccache's `base_dir` share a precompiled header across checkout roots; run the PCH-producing compile without it, because both roots stored their `.pch` under one result key and a slot was served the other slot's paths.
 - [shader-pack-bake.md](shader-pack-bake.md): the CI-baked `.osp` pack, its content-hash invalidation, and why a fresh worktree does not fetch it.
 - [steamworks-platform-integration.md](steamworks-platform-integration.md): the SDK is developer-supplied, CI builds a stub, and exactly one TU may include a Valve header.
 
@@ -472,6 +473,7 @@ The logic is right; when it runs, or how long it lives, is wrong.
 | [follow-camera-and-character-query-seams.md](follow-camera-and-character-query-seams.md) | Input before the physics kick, camera last. |
 | [two-phase-occlusion-culling.md](two-phase-occlusion-culling.md) | Pass order decides who still sees previous-frame depth. |
 | [virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md) | Clearing the LRU bit one step early evicts the whole cache every frame; a perspective face cannot be culled like an ortho level (§8). |
+| [ccache-pch-result-key-collision.md](ccache-pch-result-key-collision.md) | Two runner slots write their `.pch` to one ccache result key, and whichever wrote last is what the other slot's next direct-mode hit gets: a redefinition only when a consumer also misses, gone on re-run. |
 | [virtual-geometry-into-a-second-shadow-technique.md](virtual-geometry-into-a-second-shadow-technique.md) | A whole caster family loses its shadow when a second technique is switched on and nobody routed it there; a shared parameter block's zero value must not mean "on". |
 | [terrain-virtual-texturing.md](terrain-virtual-texturing.md) | Touch a priority-ordered LRU in reverse (§5); coarse-to-fine fill is one dispatch per level with barriers (§3a). |
 | [async-fault-in-under-a-residency-cache.md](async-fault-in-under-a-residency-cache.md) | Allocating the slot before the asynchronous read completes evicts a resident entry to hold nothing; every counter stays correct and only the picture gets coarser. |
