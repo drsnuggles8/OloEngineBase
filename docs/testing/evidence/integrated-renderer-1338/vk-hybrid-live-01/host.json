@@ -1,0 +1,21 @@
+{
+  "backend": "vulkan",
+  "host": "editor-mcp",
+  "buildConfig": "Debug",
+  "compiler": "clang-cl",
+  "os": "Windows 11 10.0.22631",
+  "gpuProbeBefore": "NVIDIA GeForce RTX 4090, 617.14, 720 MHz, 18 %, 6011 MiB, 39, 27.15 W",
+  "gpuProbeAfter": "NVIDIA GeForce RTX 4090, 617.14, 975 MHz, 1 %, 8581 MiB, 40, 24.97 W",
+  "presentation": "editor swapchain",
+  "shaderCacheState": "inherited; directory not pinned",
+  "sceneReload": "first load after fresh editor launch",
+  "editorPid": 63660,
+  "captureResultExit": "success",
+  "validationVuidCount": 0,
+  "validationVuids": [],
+  "deviceFault": false,
+  "env": [],
+  "preDeferred": false,
+  "sourceState": "fix commit c93bab8b8 on 9e66ba71c",
+  "recordedAfter": "2026-09-25T10:53:13.401491+00:00"
+}
