@@ -1042,8 +1042,11 @@ namespace OloEngine
         if (outCapped != nullptr)
         {
             // Relative, so the f32 division cannot report a role sitting
-            // exactly at its need as one short of it.
-            *outCapped = static_cast<f32>(available) / static_cast<f32>(kept) > compensation * (1.0f + 1.0e-6f);
+            // exactly at its need as one short of it. A cap of 1 asks for no
+            // compensation at all (no LOD, or LOD off), and a role thinned by
+            // the plain budget there is not "at the cap".
+            *outCapped = compensation > 1.0f &&
+                         static_cast<f32>(available) / static_cast<f32>(kept) > compensation * (1.0f + 1.0e-6f);
         }
         return compensation;
     }

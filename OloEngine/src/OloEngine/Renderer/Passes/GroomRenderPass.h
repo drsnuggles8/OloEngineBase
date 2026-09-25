@@ -554,6 +554,9 @@ namespace OloEngine
             /// The stride THIS frame's pose was taken at. 1 means the bake that
             /// follows is a full one, and it is the one that measures.
             u32 CoatPoseStride = 1;
+            /// The stride the RESIDENT volume was baked at. A different stride
+            /// is a different segment set, so it is a rebuild, never drift.
+            u32 CoatBakedStride = 1;
             /// The GPU path's subset of the rest stream's pose segments at
             /// CoatPoseSubsetStride, radii already scaled. Rebuilt when the
             /// stride or the stream changes; empty at a stride of 1.
@@ -573,9 +576,10 @@ namespace OloEngine
             struct CoatVolumeSlot
             {
                 Ref<Texture3D> Texture;
-                /// The cache tick a draw last bound it at; meaningless until
-                /// Bound.
-                u64 LastBoundTick = 0;
+                /// The FRAME a draw last bound it in (GroomFrameState::
+                /// FrameIndex, shared by every camera's Execute in one frame);
+                /// meaningless until Bound.
+                u32 LastBoundFrame = 0;
                 bool Bound = false;
             };
             std::array<CoatVolumeSlot, kCoatVolumeRing> CoatRing;
@@ -668,7 +672,7 @@ namespace OloEngine
         /// Returns false, leaving the resident volume untouched, when the bake
         /// produced nothing.
         bool BakeCoatVolume(CacheEntry& entry, std::span<const GroomCoatShadow::CoatSegment> segments,
-                            u32 resolution, u32* outOccupiedVoxels = nullptr);
+                            u32 resolution, bool ring, u32* outOccupiedVoxels = nullptr);
 
         /// The CPU path's rebuilt stream for the groom being processed, reused
         /// across draws so a bound coat does not allocate it twice. Empty on the

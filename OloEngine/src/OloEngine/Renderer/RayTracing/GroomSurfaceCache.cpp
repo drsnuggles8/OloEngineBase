@@ -157,6 +157,12 @@ namespace OloEngine::RayTracing
         // rule #1258 applies to the LOD budgets, for the same reason.
         GroomStrandBuildSettings build = request.Build;
         build.MaxStrands = std::min(build.MaxStrands, decision.StrandBudget);
+        // COOKED radii, as the conversion below assumes: the raster build
+        // widens each thinned role in the stream (#1428), but the proxy's own
+        // compensation is taken on this build's achieved fraction, which already
+        // counts the LOD's thinning as well as the tier's. Leaving the raster cap
+        // in would widen every thinned strand twice.
+        build.MaxWidthCompensation = 1.0f;
 
         GroomStrandDeformation deformation;
         const bool deformed = IsDeformed(request);
@@ -194,9 +200,9 @@ namespace OloEngine::RayTracing
 
         GroomProxyConversionSettings conversion;
         // BOTH FACTORS, exactly as the raster draw composes them.
-        // BuildGroomStrandMesh emits the COOKED radii and applies neither:
-        // the raster path multiplies them in the shader by
-        // `request.WidthScale * widthCompensation` (GroomRenderPass), so a
+        // BuildGroomStrandMesh emits the COOKED radii here (the cap is 1 above)
+        // and applies neither: the raster path carries its LOD compensation in
+        // the stream and `request.WidthScale` in the shader, so a
         // proxy that applied only the compensation would be thinner in ray
         // space than on screen for every groom exported at another unit
         // scale — a coat whose shadow is too light with nothing to say why.

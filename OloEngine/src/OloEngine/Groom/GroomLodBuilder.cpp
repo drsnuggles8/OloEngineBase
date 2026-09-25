@@ -535,8 +535,12 @@ namespace OloEngine
                         covered.Widths.push_back(sample.Width);
                     }
                     const f64 summedWidth = SummedWidth(covered);
+                    // The covered width costs eight sorts; measured only where
+                    // it is the card's width or the caller asked for the stat.
                     const f64 coveredClusterWidth =
-                        CoveredWidth(covered, ownPoints[p], PolylineTangent(ownPoints, p), footprint);
+                        coveredWidth || outStats != nullptr
+                            ? CoveredWidth(covered, ownPoints[p], PolylineTangent(ownPoints, p), footprint)
+                            : summedWidth;
                     const f64 clusterWidth = coveredWidth ? coveredClusterWidth : summedWidth;
                     out.Points.push_back(ownPoints[p]);
                     out.PointWidths.push_back(
@@ -566,7 +570,9 @@ namespace OloEngine
                         covered.Widths.push_back(sample.Width);
                     }
                     const f64 coveredClusterWidth =
-                        CoveredWidth(covered, meanPoints[j], PolylineTangent(meanPoints, j), footprint);
+                        coveredWidth || outStats != nullptr
+                            ? CoveredWidth(covered, meanPoints[j], PolylineTangent(meanPoints, j), footprint)
+                            : widthSum[j];
                     // SUMMED or COVERED, never averaged: that is the
                     // apparent-density contract, one band carrying the width
                     // its members carried. Clamped to the format bound so a

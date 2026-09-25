@@ -9134,8 +9134,8 @@ namespace OloEngine
                 // MaxStrands would rebuild every groom's vertex buffer every
                 // frame, which is the cost the cache exists to remove. What the
                 // halvings would leave as a visible density step is removed by
-                // the width compensation, which is a UBO value the pass applies
-                // per draw — see GroomLod.h.
+                // the width compensation, which the build applies per role to
+                // the stream it caches (#1428) -- see GroomRoleWidthCompensation.
                 request.Build.MaxStrands =
                     std::max(1u, static_cast<u32>(static_cast<f32>(groomComponent.m_MaxRenderStrands) *
                                                   request.Lod.VisibilityFraction));

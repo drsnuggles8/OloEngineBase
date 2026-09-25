@@ -1914,8 +1914,12 @@ namespace OloEngine::Tests
         // pose, the reset to the clip start makes it stale on frame one, and
         // this case would pass on the jump without ever testing drift that
         // accumulates while the coat walks.
+        // TWO frames: the first bake of an entry is a full one that measures
+        // the coat, and the second takes the subset it chose (#1445). A stride
+        // change is a rebuild rather than drift, so seeding with one frame would
+        // count that rebuild inside the frozen walk.
         Renderer3D::SetGroomCoatRebakePolicy(shipped);
-        (void)walk(1);
+        (void)walk(2);
         Renderer3D::SetGroomCoatRebakePolicy(frozen);
         const WalkCost frozenCost = walk(kWalk);
         report("frozen", frozenCost);

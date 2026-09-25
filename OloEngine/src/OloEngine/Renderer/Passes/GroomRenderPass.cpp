@@ -908,7 +908,7 @@ namespace OloEngine
     }
 
     bool GroomRenderPass::BakeCoatVolume(CacheEntry& entry, std::span<const GroomCoatShadow::CoatSegment> segments,
-                                         u32 resolution, u32* outOccupiedVoxels)
+                                         u32 resolution, bool ring, u32* outOccupiedVoxels)
     {
         if (segments.empty())
         {
@@ -992,17 +992,19 @@ namespace OloEngine
         // ── The ring (#1445) ───────────────────────────────────────────
         //
         // A RING SLOT IS REWRITTEN IN PLACE only when no recording still to be
-        // submitted can read it: never one a draw bound on this tick or the
-        // one before (a split-screen frame executes this pass once per
-        // camera). Everything bound before that is in a submitted frame, and
+        // submitted can read it: never one a draw bound in this FRAME or the
+        // one before. Counted in frames, not in this pass's ticks, because the
+        // pass executes once per camera and every camera's draws in one frame
+        // share one submission. Everything bound before that is submitted, and
         // both backends order an upload after the reads already submitted --
         // GL by its own rules, Vulkan because SetData is a one-shot on the
         // same queue whose barrier's first scope is everything submitted
         // before it. The bake's dimensions move with the pose, so a slot whose
         // texture is the wrong size or format gets a new texture instead, and
         // the old one's Ref is dropped into the deferred deletion as before.
-        const auto readable = [this](const CacheEntry::CoatVolumeSlot& slot)
-        { return slot.Bound && slot.LastBoundTick + 1u >= m_CacheTick; };
+        const u32 frame = m_FrameState.FrameIndex;
+        const auto readable = [frame](const CacheEntry::CoatVolumeSlot& slot)
+        { return slot.Bound && frame - slot.LastBoundFrame <= 1u; };
         const auto fits = [&spec](const CacheEntry::CoatVolumeSlot& slot)
         {
             if (!slot.Texture)
@@ -1036,7 +1038,9 @@ namespace OloEngine
                 for (u32 i = 0; i < kCoatVolumeRing; ++i)
                 {
                     const CacheEntry::CoatVolumeSlot& candidate = entry.CoatRing[i];
-                    const u64 age = candidate.Bound ? candidate.LastBoundTick : 0u;
+                    // Unsigned distance, so the wrapped frame counter orders
+                    // correctly across its wrap.
+                    const u64 age = candidate.Bound ? ~static_cast<u64>(frame - candidate.LastBoundFrame) : 0u;
                     if ((!unreadableOnly || !readable(candidate)) && (pick == kCoatVolumeRing || age < oldest))
                     {
                         pick = i;
@@ -1069,6 +1073,19 @@ namespace OloEngine
 
         entry.CoatSlot = target;
         entry.CoatVolume = slot.Texture;
+        // A coat that does not rebake as it moves (a static coat, rebuilt only
+        // on a LOD or authoring change) keeps ONE volume: the others are
+        // dropped into the deferred deletion, which outlives their frames.
+        if (!ring)
+        {
+            for (u32 i = 0; i < kCoatVolumeRing; ++i)
+            {
+                if (i != target)
+                {
+                    entry.CoatRing[i] = {};
+                }
+            }
+        }
         entry.CoatBoundsMin = volume.BoundsMin;
         entry.CoatBoundsMax = volume.BoundsMax;
         entry.CoatResolution = resolution;
@@ -1090,8 +1107,10 @@ namespace OloEngine
             if (held.Texture)
             {
                 const Texture3DSpecification& heldSpec = held.Texture->GetSpecification();
-                ringBytes += static_cast<u64>(heldSpec.Width) * heldSpec.Height * heldSpec.Depth *
-                             (heldSpec.Format == Texture3DFormat::RGBA16F ? 8ull : 16ull);
+                const u64 texelBytes = heldSpec.Format == Texture3DFormat::RGBA16F   ? 8ull
+                                       : heldSpec.Format == Texture3DFormat::RGBA32F ? 16ull
+                                                                                     : 4ull; // R32F, RGBA8
+                ringBytes += static_cast<u64>(heldSpec.Width) * heldSpec.Height * heldSpec.Depth * texelBytes;
             }
         }
         m_CacheBytes -= std::min(m_CacheBytes, entry.CoatBytes);
@@ -1282,7 +1301,12 @@ namespace OloEngine
         // sampled, because a rest volume under a posed coat is exactly the
         // failure this slice removes.
         const bool deformed = inputs.GroomIsDeformed;
-        const bool bakeSourceMatches = entry.CoatBakedFromPose == deformed;
+        // And, for a pose bake, the SUBSET it was baked from (#1445): a stride
+        // change is a different segment set, so it is a rebuild, not drift --
+        // which also keeps a coat whose drift rebake is switched off shadowed
+        // across the one stride change its first full bake makes.
+        const bool bakeSourceMatches =
+            entry.CoatBakedFromPose == deformed && (!deformed || entry.CoatBakedStride == entry.CoatPoseStride);
 
         // ── The drift bound (#1426) ──────────────────────────────────
         //
@@ -1351,7 +1375,14 @@ namespace OloEngine
             else
             {
                 GroomCoatShadow::CoatSampleSettings sampleSettings;
-                sampleSettings.MaxStrands = request.Build.MaxStrands;
+                // The WHOLE coat, not the budget's stride of it. A bound coat's
+                // bake reads the drawn stream, whose radii carry the budget's
+                // per-role compensation (#1428), so it stores the coat's full
+                // fibre area at every LOD step; a static coat must too, or the
+                // two bake different shadows at the same step. It rebakes only
+                // on a LOD, resolution or authoring change, so the full walk is
+                // paid rarely; MaxSegments still bounds it.
+                sampleSettings.MaxStrands = std::max(request.Build.MaxStrands, request.Groom->GetCurveCount());
                 sampleSettings.MaxSegments = request.Build.MaxSegments;
                 sampleSettings.WidthScale = request.WidthScale;
                 sampleSettings.GuidesOnly = request.Build.GuidesOnly;
@@ -1364,7 +1395,7 @@ namespace OloEngine
             m_Stats.CoatShadow.BakeSegmentMicroseconds += MicrosecondsSince(segmentStart);
 
             u32 occupiedVoxels = 0;
-            if (emitted > 0 && BakeCoatVolume(entry, segments, resolution, &occupiedVoxels))
+            if (emitted > 0 && BakeCoatVolume(entry, segments, resolution, deformed, &occupiedVoxels))
             {
                 entry.CoatLodStep = lodStep;
                 entry.CoatWidthScale = request.WidthScale;
@@ -1376,6 +1407,7 @@ namespace OloEngine
                     // was baked.
                     GroomCoatShadow::CaptureCoatPose(drawnPose, entry.CoatBakedPose);
                     entry.CoatBakedFromPose = true;
+                    entry.CoatBakedStride = entry.CoatPoseStride;
                     driftVoxels = 0.0f;
                     ++m_Stats.CoatShadow.DeformedRebakes;
                     m_Stats.CoatShadow.MaxBakeStride = std::max(m_Stats.CoatShadow.MaxBakeStride, entry.CoatPoseStride);
@@ -1752,7 +1784,7 @@ namespace OloEngine
                 // submitted can read it (BakeCoatVolume).
                 CacheEntry::CoatVolumeSlot& bound = entry->CoatRing[entry->CoatSlot];
                 bound.Bound = true;
-                bound.LastBoundTick = m_CacheTick;
+                bound.LastBoundFrame = m_FrameState.FrameIndex;
             }
             context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GROOM_COAT_VOLUME,
                                             coatActive ? entry->CoatVolume->GetRHIHandle()
@@ -1776,7 +1808,6 @@ namespace OloEngine
             bool compensationCapped = false;
             const f32 widthCompensation = GroomMaxRoleWidthCompensation(
                 entry->Stats, request.Build.MaxWidthCompensation, &compensationCapped);
-            const f32 effectiveWidthScale = request.WidthScale;
 
             // ── The LOD counters (#1252) ────────────────────────────
             //
@@ -1838,7 +1869,7 @@ namespace OloEngine
             params.IDs = glm::ivec4(request.EntityID, 0, 0, 0);
             params.Viewport = glm::vec4(static_cast<f32>(viewportWidth), static_cast<f32>(viewportHeight), 0.0f, 0.0f);
             params.RampWidth =
-                glm::vec4(request.RampFloor, effectiveWidthScale, objectScale, request.AlphaCutoff);
+                glm::vec4(request.RampFloor, request.WidthScale, objectScale, request.AlphaCutoff);
             params.ModeFrame = glm::ivec4(static_cast<i32>(decision.Effective),
                                           static_cast<i32>(m_FrameState.FrameIndex),
                                           static_cast<i32>(kStochasticSeed), 0);

@@ -496,6 +496,16 @@ TEST(GroomCoatAuthoring, EachRoleIsWidenedByWhatItsOwnStrideKept)
     const auto whisker = static_cast<sizet>(GroomCoatRole::Whisker);
     ASSERT_GT(stats.StrideByRole[undercoat], stats.StrideByRole[guard]) << "the budget must thin the roles unequally";
     EXPECT_FLOAT_EQ(expected[whisker], 1.0f) << "a role kept whole is not widened";
+    // A cap of 1 asks for no compensation (no LOD, or LOD off): a role thinned
+    // by the plain budget there is not "at the cap", or every budgeted coat
+    // would be counted in GroomsAtCompensationCap.
+    bool capped = true;
+    EXPECT_FLOAT_EQ(GroomRoleWidthCompensation(stats.AvailableByRole[undercoat], stats.StrideByRole[undercoat], 1.0f,
+                                               &capped),
+                    1.0f);
+    EXPECT_FALSE(capped);
+    (void)GroomRoleWidthCompensation(stats.AvailableByRole[undercoat], stats.StrideByRole[undercoat], 1.5f, &capped);
+    EXPECT_TRUE(capped) << "a role that needs more than a real cap allows is at the cap";
     EXPECT_GT(expected[undercoat], expected[guard]) << "the role thinned harder is widened more";
 
     // Every strand is widened by its OWN role's number: the thinned undercoat by
