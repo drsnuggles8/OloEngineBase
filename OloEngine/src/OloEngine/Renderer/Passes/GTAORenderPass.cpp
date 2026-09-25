@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/Passes/AOTargetIdentity.h"
 #include "OloEngine/Renderer/Passes/GTAORenderPass.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 namespace OloEngine
@@ -589,8 +590,20 @@ namespace OloEngine
 
     void GTAORenderPass::UploadGTAOUniforms(UBOStructures::GTAOUBO& data, UniformBuffer& upload)
     {
-        f32 projScale00 = m_Projection[0][0];
-        f32 projScale11 = m_Projection[1][1];
+        // THE ROW ORDER OF THE TEXTURES THIS PASS READS (issue #1463). On
+        // Vulkan the projection seam flips clip y, so memory row 0 (uv v = 0)
+        // holds the TOP of the view where GL holds the bottom
+        // (RHIProjectionSeam.h). The seam's reconstruction projection carries
+        // exactly that row flip and is identity on GL, so proj11 below is
+        // negative on Vulkan and every reconstructed position lands the right
+        // way up. With the raw projection Vulkan reconstructed the scene
+        // mirrored against its (unmirrored) view normals; the old symmetric
+        // horizon seed hid most of it, XeGTAO's side-sensitive one does not
+        // (a 45-degree floor read 0.22 live). GTAO.comp takes +omega's view
+        // direction from sign(u_NDCToViewMul) for the same reason.
+        const glm::mat4 reconstruction = RHI::AdjustProjectionForShaderReconstruction(m_Projection);
+        f32 projScale00 = reconstruction[0][0];
+        f32 projScale11 = reconstruction[1][1];
 
         // NDCToView: unproject from normalized screen [0,1] to view-space XY.
         //

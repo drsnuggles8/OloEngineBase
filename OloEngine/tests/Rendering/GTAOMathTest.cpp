@@ -351,25 +351,33 @@ namespace
         glm::mat4 Projection{ 1.0f };
         glm::vec2 NDCToViewMul{ 1.0f };
         glm::vec2 NDCToViewAdd{ 0.0f };
+        // Vulkan's row order: the projection seam flips clip y, so memory row 0
+        // (uv v = 0) is the TOP of the view there and the bottom on GL.
+        bool TopDownRows = false;
 
-        GtaoMirrorCamera(const glm::vec3& eye, const glm::vec3& target) : Eye(eye)
+        GtaoMirrorCamera(const glm::vec3& eye, const glm::vec3& target, bool topDownRows = false)
+            : Eye(eye), TopDownRows(topDownRows)
         {
             const glm::vec3 forward = glm::normalize(target - eye);
             const glm::vec3 up = std::abs(forward.y) > 0.99f ? glm::vec3(0.0f, 0.0f, -1.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
             View = glm::lookAt(eye, target, up);
             InvView = glm::inverse(View);
             Projection = glm::perspective(glm::radians(60.0f), static_cast<float>(kWidth) / static_cast<float>(kHeight), 0.05f, 1000.0f);
-            // GTAORenderPass::UploadGTAOUniforms, GL convention on both axes.
-            NDCToViewMul = glm::vec2(2.0f / Projection[0][0], 2.0f / Projection[1][1]);
-            NDCToViewAdd = glm::vec2(-1.0f / Projection[0][0], -1.0f / Projection[1][1]);
+            // GTAORenderPass::UploadGTAOUniforms: the seam's reconstruction
+            // projection, whose proj11 is negated on Vulkan's top-down rows.
+            const float proj11 = topDownRows ? -Projection[1][1] : Projection[1][1];
+            NDCToViewMul = glm::vec2(2.0f / Projection[0][0], 2.0f / proj11);
+            NDCToViewAdd = glm::vec2(-1.0f / Projection[0][0], -1.0f / proj11);
         }
 
         // Screen position, in pixels, of a world-space point.
         [[nodiscard]] glm::vec2 PixelOf(const glm::vec3& world) const
         {
             const glm::vec4 clip = Projection * View * glm::vec4(world, 1.0f);
-            const glm::vec2 ndc = glm::vec2(clip) / clip.w;
-            return (ndc * 0.5f + 0.5f) * glm::vec2(kWidth, kHeight);
+            glm::vec2 uv = glm::vec2(clip) / clip.w * 0.5f + 0.5f;
+            if (TopDownRows)
+                uv.y = 1.0f - uv.y;
+            return uv * glm::vec2(kWidth, kHeight);
         }
     };
 
@@ -411,6 +419,10 @@ namespace
         float NoiseSample = 0.5f;
         bool HasWall = false;
         float WallZ = 0.0f;
+        // Take +omega's view direction from the unpack's signs (GTAO.comp since
+        // #1463's Vulkan follow-up). False is omega verbatim, which is only
+        // right on GL's bottom-up rows.
+        bool UnpackSigns = true;
     };
 
     // Production defaults (PostProcessSettings.h): GTAORadius 0.5, GTAOPower
@@ -447,7 +459,7 @@ namespace
         {
             const float sliceAngle = (static_cast<float>(slice) + in.NoiseSlice) * (kPi / kSlices);
             const glm::vec2 omega(std::cos(sliceAngle), std::sin(sliceAngle));
-            const glm::vec3 directionVS(omega, 0.0f);
+            const glm::vec3 directionVS(in.UnpackSigns ? omega * glm::sign(camera.NDCToViewMul) : omega, 0.0f);
             const glm::vec3 orthoDirectionVS = directionVS - glm::dot(directionVS, viewVec) * viewVec;
             const glm::vec3 axisVS = glm::normalize(glm::cross(directionVS, viewVec));
             const glm::vec3 projectedNormal = viewNormal - axisVS * glm::dot(viewNormal, axisVS);
@@ -600,6 +612,40 @@ TEST(GTAOMath, Pre1463ConventionsReproduceTheMeasuredFloorDarkening)
     }
 }
 
+// THE SAME CONTRACT ON VULKAN'S ROW ORDER. Memory row 0 is the top of the
+// view there, so screen +y is view -y, and GTAO.comp takes +omega's view
+// direction from sign(u_NDCToViewMul). With omega taken verbatim every slice
+// with a vertical component has its sides swapped: the pre-follow-up arm below
+// reproduces the live Vulkan reading of the issue's 45-degree floor (0.216).
+TEST(GTAOMath, UnoccludedPlaneIsFullyVisibleOnVulkanRowOrder)
+{
+    for (float zenithDeg : { 0.0f, 15.0f, 30.0f, 45.0f, 60.0f, 75.0f })
+    {
+        const float zenith = glm::radians(zenithDeg);
+        const GtaoMirrorCamera camera(glm::vec3(0.0f, 6.0f * std::cos(zenith), 6.0f * std::sin(zenith)), glm::vec3(0.0f),
+                                      /*topDownRows*/ true);
+        const glm::vec2 centre(GtaoMirrorCamera::kWidth * 0.5f, GtaoMirrorCamera::kHeight * 0.5f);
+        const NoiseStats stats = GtaoOverNoise(camera, centre, {});
+        EXPECT_GE(stats.Mean, 0.97f) << "unoccluded floor on top-down rows, " << zenithDeg << " degrees: AO "
+                                     << stats.Mean;
+    }
+
+    const GtaoMirrorCamera issueCamera(glm::vec3(0.0f, 4.0f, 3.0f), glm::vec3(0.0f, 0.0f, 7.0f), /*topDownRows*/ true);
+    const glm::vec2 centre(GtaoMirrorCamera::kWidth * 0.5f, GtaoMirrorCamera::kHeight * 0.5f);
+    GtaoMirrorInputs verbatim;
+    verbatim.UnpackSigns = false;
+    EXPECT_NEAR(GtaoOverNoise(issueCamera, centre, verbatim).Mean, 0.216f, 0.04f)
+        << "omega taken verbatim on top-down rows no longer reproduces the live Vulkan reading";
+    EXPECT_GE(GtaoOverNoise(issueCamera, centre, {}).Mean, 0.97f);
+
+    GtaoMirrorInputs crease;
+    crease.HasWall = true;
+    crease.WallZ = -2.0f;
+    const GtaoMirrorCamera creaseCamera(glm::vec3(0.0f, 3.0f, 3.0f), glm::vec3(0.0f, 0.0f, -2.0f), /*topDownRows*/ true);
+    EXPECT_LT(GtaoOverNoise(creaseCamera, creaseCamera.PixelOf({ 0.0f, 0.0f, -1.95f }), crease).Mean, 0.65f)
+        << "the crease is not occluded on top-down rows";
+}
+
 // Positive control: fixing the flat plane must not flatten real occlusion. A
 // floor point 5 cm from a wall reads clearly occluded, and the occlusion fades
 // back to full visibility beyond the 0.5 m radius.
@@ -654,6 +700,7 @@ TEST(GTAOMath, GtaoShaderUsesXeGtaoHorizonConventions)
              "float h1 = acos(clamp(horizonCos0, -1.0, 1.0));",
              "#define XE_GTAO_MIN_SAMPLE_OFFSET_PIXELS 2.0",
              "max(stepNoise * pixelRadius, XE_GTAO_MIN_SAMPLE_OFFSET_PIXELS)",
+             "vec3 directionVS = vec3(omega * sign(u_NDCToViewMul), 0.0);",
          })
     {
         EXPECT_NE(src.find(line), std::string::npos) << "GTAO.comp lost: " << line;
@@ -684,6 +731,23 @@ TEST(GTAOMath, NDCToViewConstantsUseGLConventionOnBothAxes)
         << "NDCToViewAdd lost its GL-convention negative Y term";
     EXPECT_EQ(src.find("-2.0f / projScale11"), std::string::npos)
         << "the D3D top-down Y flip is back in NDCToViewMul — grazing views will collapse to black again";
+}
+
+// ...and the scale comes from the seam's RECONSTRUCTION projection, which is
+// the row flip Vulkan's top-down rows need (identity on GL). Both passes that
+// unpack screen uv this way must take it.
+TEST(GTAOMath, ScreenUnpackCarriesTheVulkanRowFlip)
+{
+    for (const char* pass : { "GTAORenderPass.cpp", "SphereProxyAORenderPass.cpp" })
+    {
+        SCOPED_TRACE(pass);
+        const std::string src = ReadRepoFile(std::filesystem::path{ ".." } / "OloEngine" / "src" / "OloEngine" / "Renderer" / "Passes" / pass);
+        ASSERT_FALSE(src.empty());
+        EXPECT_NE(src.find("RHI::AdjustProjectionForShaderReconstruction(m_Projection)"), std::string::npos)
+            << pass << " unpacks screen uv with the raw projection again: on Vulkan every reconstructed position is "
+                       "mirrored about the horizontal";
+        EXPECT_EQ(src.find("projScale11 = m_Projection[1][1]"), std::string::npos) << pass;
+    }
 }
 
 TEST(GTAOMath, TemporalNoiseOnlyAnimatesUnderTAA)

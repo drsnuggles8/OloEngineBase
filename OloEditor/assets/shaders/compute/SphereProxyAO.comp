@@ -295,9 +295,10 @@ void main()
         vec2 uvMin = tileOriginPx * pixelSize;
         vec2 uvMax = (tileOriginPx + vec2(float(OLO_SPA_TILE_SIZE))) * pixelSize;
 
-        // NDCToViewMul is positive on both axes, so the UV corner extremes map
-        // to the view-space XY extremes at a given depth; the depth scaling is
-        // positive too, so only the two depths need testing.
+        // The UV corner extremes map to the view-space XY extremes at a given
+        // depth whatever NDCToViewMul's signs (its y is negative on Vulkan,
+        // whose memory row 0 is the top of the view), hence the min/max; the
+        // depth scaling is positive, so only the two depths need testing.
         vec2 xyA = u_NDCToViewMul * uvMin + u_NDCToViewAdd;
         vec2 xyB = u_NDCToViewMul * uvMax + u_NDCToViewAdd;
         vec2 lo = min(xyA, xyB);

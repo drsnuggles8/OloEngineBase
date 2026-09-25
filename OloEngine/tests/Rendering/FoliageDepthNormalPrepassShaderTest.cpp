@@ -129,7 +129,7 @@ namespace OloEngine::Tests
             const std::string stage = SH::ReadWholeFile(SH::ResolveShaderRoot() / "include" / twin.VertexInclude);
             EXPECT_EQ(CountOutsideComments(stage, "invariant gl_Position;"), 1)
                 << twin.VertexInclude << " lost `invariant gl_Position`: the prepass twin and the colour program are "
-                   "two programs, and nothing else makes their depth equal for the colour pass's GL_LEQUAL test";
+                                         "two programs, and nothing else makes their depth equal for the colour pass's GL_LEQUAL test";
         }
     }
 

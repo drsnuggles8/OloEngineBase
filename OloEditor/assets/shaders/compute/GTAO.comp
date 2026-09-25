@@ -469,8 +469,12 @@ void main()
         float sliceAngle = (float(slice) + noiseSlice) * (XE_GTAO_PI / float(XE_GTAO_SLICE_COUNT));
         vec2 omega = vec2(cos(sliceAngle), sin(sliceAngle));
 
-        // Direction in view-space (projected onto the tangent plane)
-        vec3 directionVS = vec3(omega.x, omega.y, 0.0);
+        // +omega's direction in view space. The screen-to-view unpack's signs
+        // say which way a screen axis points: proj11, and so NDCToViewMul.y,
+        // is negative on Vulkan, whose memory row 0 is the top of the view
+        // (GTAORenderPass::UploadGTAOUniforms). Taking omega verbatim would
+        // swap the two sides of every slice with a vertical component there.
+        vec3 directionVS = vec3(omega * sign(u_NDCToViewMul), 0.0);
         // orthoDirectionVS / axisVS / projectedNormal / cosN all measure the
         // surface normal's tilt relative to the SLICE PLANE, which is spanned
         // by the per-pixel view vector and the slice's screen direction --
@@ -507,11 +511,12 @@ void main()
         // (issue #1463). Every horizon cosine below is an angle from viewVec
         // in the slice plane, the same frame n is measured in.
         //
-        //   SIDES. Sample 0 is taken at +omega in screen UV. GTAORenderPass's
-        //   NDCToView is GL convention on both axes (screen y-up is view y-up;
-        //   XeGTAO's (cos, -sin) screen omega exists only for D3D's top-down v),
-        //   so +omega IS +directionVS: sample 0 bounds the POSITIVE side of the
-        //   slice, the side n is signed towards, and reconstructs h1. Sample 1
+        //   SIDES. Sample 0 is taken at +omega in screen UV, which is
+        //   +directionVS in view space (directionVS carries the unpack's
+        //   signs, so this holds on GL's bottom-up rows and Vulkan's top-down
+        //   ones; XeGTAO's (cos, -sin) omega is the same idea for D3D's
+        //   top-down v). So sample 0 bounds the POSITIVE side of the slice,
+        //   the side n is signed towards, and reconstructs h1. Sample 1
         //   bounds the negative side and reconstructs h0.
         //   LOW HORIZON. With that pairing, seeding each side at its tangent,
         //   cos(n +/- HALF_PI), round-trips through acos exactly:
