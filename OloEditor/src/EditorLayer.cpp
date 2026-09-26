@@ -5157,6 +5157,7 @@ namespace OloEngine
         m_ActiveScene->OnRuntimeStop();
 
         m_ActiveScene = loaded.LoadedScene;
+        ResetRendererForSceneSwap();
         // Unlike OnScenePlay's Scene::Copy, this scene was just deserialized and
         // has never seen the viewport, so size it before the runtime starts.
         if (m_ViewportSize.x > 0.0f && m_ViewportSize.y > 0.0f)
