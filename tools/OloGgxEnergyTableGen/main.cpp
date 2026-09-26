@@ -33,9 +33,12 @@
 //
 // THE ESTIMATOR
 // -------------
-//   Ess(mu_o, r) = E[ G2/G1 ]  over Heitz-2018 VNDF-sampled half vectors,
+//   Ess(mu_o, r)     = E[ G2/G1 ]               over Heitz-2018 VNDF-sampled
+//   Schlick(mu_o, r) = E[ G2/G1 (1 - v.h)^5 ]   half vectors,
 //
-// the estimator identity f*cos/pdf == F * (G2/G1) with F == 1. A below-horizon
+// the estimator identity f*cos/pdf == F * (G2/G1), with F == 1 for Ess and the
+// Schlick grazing factor for the second moment (issue #1479's diffuse coupling
+// needs the lobe's albedo for any F0: F0 (Ess - Schlick) + Schlick). A below-horizon
 // reflection scores zero but STILL divides by the sample count — that is what
 // makes the near-mirror rows non-zero at all, and getting it wrong changes the
 // low-roughness rows by orders of magnitude. ClosureV2Test.cpp's EstimateEss
@@ -124,9 +127,20 @@ namespace
                          SamplerDetail::ToUnitFloat(SamplerDetail::ReverseBits(i)));
     }
 
-    // Ess(mu, r) with the ENGINE'S OWN sampler and weight. Mirrors
-    // ClosureV2Test::EstimateEss exactly — that test is this function's pin.
-    [[nodiscard]] f64 EstimateEss(f32 mu, f32 roughness, u32 sampleCount) noexcept
+    // The two moments of the single-scattering lobe one table entry stores.
+    struct Moments
+    {
+        f64 Ess = 0.0;     // E[G2/G1]:               the albedo with F == 1
+        f64 Schlick = 0.0; // E[G2/G1 (1 - v.h)^5]:   its Schlick-weighted part
+    };
+
+    // Ess(mu, r) and the Schlick moment with the ENGINE'S OWN sampler, weight
+    // and Fresnel. Ess mirrors ClosureV2Test::EstimateEss exactly — that test
+    // is this function's pin. The Schlick moment is the same estimator with
+    // the engine's FresnelSchlick at F0 = 0, i.e. (1 - v.h)^5, as the extra
+    // factor, so the single-scatter albedo for any F0 is
+    //   E_ss(mu, F0) = F0 Ess + (1 - F0) Schlick = F0 (Ess - Schlick) + Schlick.
+    [[nodiscard]] Moments EstimateMoments(f32 mu, f32 roughness, u32 sampleCount) noexcept
     {
         const f32 clamped = ClosureV2Roughness(roughness);
         const f32 alpha = clamped * clamped;
@@ -134,7 +148,8 @@ namespace
         const glm::vec3 wo(sinO, 0.0f, mu);
         const f32 lambdaV = GgxSmithLambda(wo.z, alpha);
 
-        f64 sum = 0.0;
+        f64 ess = 0.0;
+        f64 schlick = 0.0;
         for (u32 i = 0; i < sampleCount; ++i)
         {
             const glm::vec2 xi = Hammersley(i, sampleCount);
@@ -144,23 +159,62 @@ namespace
                 continue; // scores zero; the division below still counts it
 
             const f32 lambdaL = GgxSmithLambda(wi.z, alpha);
-            sum += static_cast<f64>((1.0f + lambdaV) / (1.0f + lambdaV + lambdaL));
+            const f32 weight = (1.0f + lambdaV) / (1.0f + lambdaV + lambdaL);
+            const f32 grazing = FresnelSchlick(std::max(glm::dot(wo, h), 0.0f), glm::vec3(0.0f)).x;
+            ess += static_cast<f64>(weight);
+            schlick += static_cast<f64>(weight * grazing);
         }
-        return sum / static_cast<f64>(sampleCount);
+        return { ess / static_cast<f64>(sampleCount), schlick / static_cast<f64>(sampleCount) };
     }
 
-    // E_avg(r): the cosine-weighted hemispherical average of Ess, normalised —
-    // 2 * integral_0^1 Ess(mu, r) mu dmu, by midpoint quadrature over mu.
-    [[nodiscard]] f64 EstimateEavg(f32 roughness, u32 quadraturePoints, u32 sampleCount) noexcept
+    // The cosine-weighted hemispherical averages of both moments, normalised —
+    // 2 * integral_0^1 M(mu, r) mu dmu, by midpoint quadrature over mu. The
+    // nodes sit at (q + 0.5) / N >= 1/128, clear of the mu floor below.
+    [[nodiscard]] Moments EstimateAverages(f32 roughness, u32 quadraturePoints, u32 sampleCount) noexcept
     {
-        f64 acc = 0.0;
+        Moments acc;
         for (u32 q = 0; q < quadraturePoints; ++q)
         {
             const f32 mu = (static_cast<f32>(q) + 0.5f) / static_cast<f32>(quadraturePoints);
-            acc += 2.0 * EstimateEss(mu, roughness, sampleCount) * static_cast<f64>(mu);
+            const Moments m = EstimateMoments(mu, roughness, sampleCount);
+            acc.Ess += 2.0 * m.Ess * static_cast<f64>(mu);
+            acc.Schlick += 2.0 * m.Schlick * static_cast<f64>(mu);
         }
-        return acc / static_cast<f64>(quadraturePoints);
+        return { acc.Ess / static_cast<f64>(quadraturePoints), acc.Schlick / static_cast<f64>(quadraturePoints) };
     }
+
+    // -------------------------------------------------------------------------
+    // The grid (issue #1478)
+    // -------------------------------------------------------------------------
+    //
+    // NODE-CENTRED ON A SQUARE-ROOT AXIS, in both mu and roughness: node j of
+    // N sits at value (j / (N - 1))^2, so the lookup coordinate of a value x is
+    // sqrt(x) (N - 1). Both endpoints are nodes, so no lookup clamps or
+    // extrapolates anywhere in [0, 1]^2.
+    //
+    // Node-centred because the cell-centred grid before it clamped a quarter
+    // cell short of mu = 0, mu = 1 and r = 1, which read the white furnace
+    // 3.8 % short at r = 1 (#1478). Square-root spaced because 1 - Ess is not
+    // smooth on a linear mu axis: it is 0 at mu = 0 and peaks at mu ~ alpha
+    // before falling, so at low roughness the whole feature sits inside the
+    // first linear cell. Measured against the independent oracle over the whole
+    // domain (worst |white furnace - 1|): linear j/15 nodes 4.2 % for mu >= 0.05
+    // and 10 % below it — no better than the cell-centred table — against 0.8 %
+    // and 2.4 % for these nodes at the same 16 x 16 size.
+    //
+    // The node values come from the engine's GgxEnergyNodeValue, the inverse of
+    // the GgxEnergyTableCoordinate the lookups use, so the bake and the lookup
+    // cannot disagree about where a node sits.
+    //
+    // mu = 0 cannot be estimated as such: the estimator's weight G2/G1 needs
+    // Lambda(mu_v), which is infinite there. It is baked at kMuFloor, the
+    // cosine floor GgxSmithLambda already applies, and the lookup places that
+    // value at coordinate 0. The limit it stands in for is 1 - Ess -> 0 (at a
+    // grazing view every visible facet reflects above the horizon and
+    // G2/G1 -> 1); the loss at 1e-4 is 0.012 at the smoothest rows and below
+    // 1e-3 from roughness 0.2 up, so the node sits within the table's own
+    // interpolation error of that limit.
+    constexpr f32 kMuFloor = 1.0e-4f;
 
     // -------------------------------------------------------------------------
     // IEEE-754 binary16 packing, round-to-nearest-even
@@ -218,19 +272,15 @@ namespace
         return ((h & 0x8000u) != 0u) ? -magnitude : magnitude;
     }
 
-    // Even entry in the LOW half, odd in the HIGH half — matching
-    // unpackHalf2x16's (low, high) return on both sides.
-    [[nodiscard]] std::vector<u32> PackPairs(const std::vector<f64>& values)
+    // One entry per word: 1 - Ess in the LOW half, the Schlick moment in the
+    // HIGH half — matching unpackHalf2x16's (low, high) = (x, y) return on
+    // both sides, so one decode yields both terms of one grid node.
+    [[nodiscard]] std::vector<u32> PackInterleaved(const std::vector<f64>& low, const std::vector<f64>& high)
     {
-        std::vector<u32> words(values.size() / 2u, 0u);
-        for (sizet i = 0; i < values.size(); ++i)
-        {
-            const u32 half = ToHalfRoundToNearestEven(values[i]);
-            if ((i & 1u) == 0u)
-                words[i >> 1] = half;
-            else
-                words[i >> 1] |= (half << 16);
-        }
+        std::vector<u32> words(low.size(), 0u);
+        for (sizet i = 0; i < low.size(); ++i)
+            words[i] = static_cast<u32>(ToHalfRoundToNearestEven(low[i])) |
+                       (static_cast<u32>(ToHalfRoundToNearestEven(high[i])) << 16);
         return words;
     }
 
@@ -286,7 +336,22 @@ namespace
         return out.str();
     }
 
-    [[nodiscard]] std::string EmitHeader(const Options& o, const std::vector<u32>& loss, const std::vector<u32>& lossAvg)
+    // The lookup-axis prose both files carry — one source, so the two headers
+    // cannot describe the grid differently.
+    [[nodiscard]] std::string GridConventions(const Options& o, std::string_view lambdaName)
+    {
+        std::ostringstream out;
+        out << "//   * NODE-CENTRED, SQUARE-ROOT SPACED (issue #1478): node j of " << o.Grid << " sits at\n"
+            << "//     (j / " << (o.Grid - 1u) << ")^2 on both axes, so a value x has lookup coordinate\n"
+            << "//     sqrt(x) * " << (o.Grid - 1u) << ". Both endpoints are nodes: the bilinear lookup never\n"
+            << "//     clamps and never extrapolates. Entry index = row (roughness) * " << o.Grid << " + column (mu).\n"
+            << "//   * mu = 0 is baked at mu = 1e-4, the cosine floor " << lambdaName << " applies\n"
+            << "//     (the estimator's G2/G1 needs a finite Lambda(mu_v)); the true limit there\n"
+            << "//     is 1 - Ess -> 0, and the node sits within the table's resolution of it.\n";
+        return out.str();
+    }
+
+    [[nodiscard]] std::string EmitHeader(const Options& o, const std::vector<u32>& table, const std::vector<u32>& avg)
     {
         std::ostringstream out;
         out << "#pragma once\n"
@@ -298,50 +363,50 @@ namespace
                "#include <array>\n"
                "\n"
                "// =============================================================================\n"
-               "// GGX SINGLE-SCATTER ENERGY-LOSS TABLES — GENERATED, DO NOT HAND-EDIT\n"
+               "// GGX SINGLE-SCATTER ENERGY TABLES — GENERATED, DO NOT HAND-EDIT\n"
                "// =============================================================================\n"
                "//\n"
                "// Emitted by tools/OloGgxEnergyTableGen (issue #998) alongside its GLSL twin\n"
                "// OloEditor/assets/shaders/include/PBRClosureV2Energy.glsl — the SAME packed\n"
-               "// words, hex for hex, consumed by the ClosureV2 closure's Kulla-Conty\n"
-               "// multiple-scattering energy compensation on both sides of the CPU/GPU parity\n"
-               "// boundary.\n"
+               "// words, hex for hex, consumed by the ClosureV2 closure on both sides of the\n"
+               "// CPU/GPU parity boundary: its Kulla-Conty multiple-scattering compensation and\n"
+               "// its energy-conserving diffuse coupling (ADR 0016 §4).\n"
                "//\n"
-               "// The tables store 1 - Ess(mu, r), where Ess is the directional albedo of the\n"
-               "// SINGLE-scattering GGX specular lobe with F == 1:\n"
+               "// Each grid node (mu, r) stores two moments of the SINGLE-scattering GGX\n"
+               "// specular lobe, estimated over Heitz-2018 VNDF-sampled half vectors:\n"
                "//\n"
-               "//   Ess(mu_o, r) = E[ G2/G1 ]  over Heitz-2018 VNDF-sampled half vectors\n"
+               "//   x: 1 - Ess(mu, r),  Ess     = E[ G2/G1 ]               (the albedo, F == 1)\n"
+               "//   y: Schlick(mu, r),  Schlick = E[ G2/G1 (1 - v.h)^5 ]   (its grazing part)\n"
                "//\n"
                "// (the estimator identity f*cos/pdf == F * (G2/G1); see the VNDF block in\n"
-               "// PBRCommon.glsl). The LOSS form is stored because the compensation term\n"
-               "// consumes (1 - Ess) directly and the near-mirror rows are ~1e-5, where\n"
-               "// \"1.0f minus a stored 0.99999f\" would shred float precision.\n"
+               "// PBRCommon.glsl). Together they give the lobe's albedo for ANY Schlick F0,\n"
                "//\n"
-               "// STORAGE IS PACKED — two IEEE-754 halfs per u32, and the packing is\n"
-               "// LOAD-BEARING on the GPU side: a plain `const float["
-            << (o.Grid * o.Grid)
-            << "]` in the GLSL twin\n"
-               "// passed glslc but failed NVIDIA's GL linker with \"C5025: lvalue in assignment\n"
-               "// too complex\" once the lookups were inlined at PBR_MultiLight.glsl's three\n"
-               "// lighting call sites (SPIRV-Cross materialises a dynamically-indexed constant\n"
-               "// array as a local temporary per site). Both languages therefore carry the\n"
-               "// packed words and decode them identically (glm::unpackHalf2x16 here,\n"
-               "// unpackHalf2x16 in GLSL), so the two sides evaluate the SAME quantized\n"
-               "// values. Half quantization costs at most 2.3e-4 absolute on any entry — the\n"
-               "// generator audits that bound and refuses to emit a table exceeding it — an\n"
-               "// order of magnitude under every consuming tolerance.\n"
+               "//   E_ss(mu, F0) = F0 (Ess - Schlick) + Schlick,\n"
+               "//\n"
+               "// which is what the diffuse coupling subtracts. The LOSS form of Ess is stored\n"
+               "// because the compensation consumes (1 - Ess) directly and the near-mirror rows\n"
+               "// are ~1e-5, where \"1.0f minus a stored 0.99999f\" would shred float precision.\n"
+               "// The averages row stores both moments cosine-averaged over mu,\n"
+               "// 2 int M(mu) mu dmu: (1 - E_avg, Schlick_avg).\n"
+               "//\n"
+               "// STORAGE IS PACKED — one node per u32, as two IEEE-754 halfs — and the\n"
+               "// packing is LOAD-BEARING on the GPU side: a plain `const float[256]` in the\n"
+               "// GLSL twin passed glslc but failed NVIDIA's GL linker with \"C5025: lvalue in\n"
+               "// assignment too complex\" once the lookups were inlined at PBR_MultiLight.glsl's\n"
+               "// three lighting call sites (SPIRV-Cross materialises a dynamically-indexed\n"
+               "// constant array as a local temporary per site). Both languages therefore\n"
+               "// carry the packed words and decode them identically (glm::unpackHalf2x16\n"
+               "// here, unpackHalf2x16 in GLSL), so the two sides evaluate the SAME quantized\n"
+               "// values. Half quantization costs at most 2^-12 = 2.44e-4 absolute on any\n"
+               "// entry (half an ulp of the [0.5, 1) binade) — the generator audits that bound\n"
+               "// and refuses to emit a table exceeding it.\n"
                "//\n"
                "// Conventions (must match the v2 closure on both sides):\n"
                "//   * alpha = clamp(r, kMinRoughness, 1)^2 — the v2 perceptual clamp, so each\n"
-               "//     row is exactly the albedo of the lobe the v2 sampler samples.\n"
-               "//   * Cell-centered grid: mu_j = (j + 0.5)/"
-            << o.Grid
-            << " across a row (a u32 packs the\n"
-               "//     even column in its LOW half, the odd column in its HIGH half),\n"
-               "//     r_k = (k + 0.5)/"
-            << o.Grid
-            << " down rows; bilinear lookup clamps at the edges.\n"
-               "//\n"
+               "//     row is exactly the albedo of the lobe the v2 sampler samples. Lookups\n"
+               "//     take AUTHORED roughness; the rows bake the clamp in.\n"
+            << GridConventions(o, "GgxSmithLambda")
+            << "//\n"
                "// REGENERATION IS A TOOL RUN, NOT A RECIPE (ADR 0016 §6):\n"
                "//\n"
                "//   cmake --build <build-dir> --target OloGgxEnergyTableGen\n"
@@ -362,10 +427,10 @@ namespace
                "// word counts — a non-default grid has to update those expectations (or derive\n"
                "// them from kGgxEnergyTableSize) in the same change, or that pin fails.\n"
                "// The tool calls the engine's own SampleGGXVNDFTangent / GgxSmithLambda /\n"
-               "// ClosureV2Roughness out of ReferenceBRDF.h, which is what makes\n"
-               "// generator-vs-engine estimator drift structurally impossible. ClosureV2Test\n"
-               "// recomputes entries with that same sampler and fails if either copy rots, and\n"
-               "// parses the GLSL twin so the two files cannot drift apart.\n"
+               "// FresnelSchlick / ClosureV2Roughness out of ReferenceBRDF.h, which is what\n"
+               "// makes generator-vs-engine estimator drift structurally impossible.\n"
+               "// ClosureV2Test recomputes entries with that same sampler and fails if either\n"
+               "// copy rots, and parses the GLSL twin so the two files cannot drift apart.\n"
                "// =============================================================================\n"
                "\n"
                "namespace OloEngine::PathTracing\n"
@@ -375,46 +440,44 @@ namespace
             << o.Grid
             << ";\n"
                "\n"
-               "    // 1 - Ess(mu, r), half-packed. Linear entry index i = row * "
-            << o.Grid
-            << " + column;\n"
-               "    // word = kGgxEnergyLossPacked[i >> 1], low/high half selected by i & 1.\n";
-        out << EmitCppArray(loss, "kGgxEnergyLossPacked", 8u);
+               "    // One grid node per word: half(1 - Ess) | half(Schlick) << 16.\n"
+               "    // Entry index i = row * "
+            << o.Grid << " + column; word = kGgxEnergyPacked[i].\n";
+        out << EmitCppArray(table, "kGgxEnergyPacked", 8u);
         out << "\n"
-               "    // 1 - E_avg(r), half-packed, indexed by the same cell-centered roughness rows.\n";
-        out << EmitCppArray(lossAvg, "kGgxEnergyLossAvgPacked", 8u);
+               "    // The averages row, one roughness node per word:\n"
+               "    // half(1 - E_avg) | half(Schlick_avg) << 16.\n";
+        out << EmitCppArray(avg, "kGgxEnergyAvgPacked", 8u);
         out << "\n"
-               "    // Decode one linear entry of the loss table (i in [0, "
+               "    // Decode one grid node (i in [0, "
             << (o.Grid * o.Grid - 1u)
-            << "]).\n"
-               "    // GLSL twin: ggxEnergyLossEntry in PBRClosureV2Energy.glsl.\n"
-               "    [[nodiscard]] inline f32 GgxEnergyLossEntry(u32 i) noexcept\n"
+            << "]): x = 1 - Ess, y = Schlick.\n"
+               "    // GLSL twin: ggxEnergyEntry in PBRClosureV2Energy.glsl.\n"
+               "    [[nodiscard]] inline glm::vec2 GgxEnergyEntry(u32 i) noexcept\n"
                "    {\n"
-               "        const glm::vec2 pair = glm::unpackHalf2x16(kGgxEnergyLossPacked[i >> 1]);\n"
-               "        return ((i & 1u) == 0u) ? pair.x : pair.y;\n"
+               "        return glm::unpackHalf2x16(kGgxEnergyPacked[i]);\n"
                "    }\n"
                "\n"
-               "    // Decode one entry of the averaged-loss row (i in [0, "
+               "    // Decode one averages node (i in [0, "
             << (o.Grid - 1u)
-            << "]).\n"
-               "    // GLSL twin: ggxEnergyLossAvgEntry in PBRClosureV2Energy.glsl.\n"
-               "    [[nodiscard]] inline f32 GgxEnergyLossAvgEntry(u32 i) noexcept\n"
+            << "]): x = 1 - E_avg, y = Schlick_avg.\n"
+               "    // GLSL twin: ggxEnergyAvgEntry in PBRClosureV2Energy.glsl.\n"
+               "    [[nodiscard]] inline glm::vec2 GgxEnergyAvgEntry(u32 i) noexcept\n"
                "    {\n"
-               "        const glm::vec2 pair = glm::unpackHalf2x16(kGgxEnergyLossAvgPacked[i >> 1]);\n"
-               "        return ((i & 1u) == 0u) ? pair.x : pair.y;\n"
+               "        return glm::unpackHalf2x16(kGgxEnergyAvgPacked[i]);\n"
                "    }\n"
                "\n"
                "} // namespace OloEngine::PathTracing\n";
         return out.str();
     }
 
-    [[nodiscard]] std::string EmitGlsl(const Options& o, const std::vector<u32>& loss, const std::vector<u32>& lossAvg)
+    [[nodiscard]] std::string EmitGlsl(const Options& o, const std::vector<u32>& table, const std::vector<u32>& avg)
     {
-        const sizet lossVectors = loss.size() / 4u;
-        const sizet avgVectors = lossAvg.size() / 4u;
+        const sizet tableVectors = table.size() / 4u;
+        const sizet avgVectors = avg.size() / 4u;
         std::ostringstream out;
         out << "// =============================================================================\n"
-               "// GGX SINGLE-SCATTER ENERGY-LOSS TABLES — GENERATED, DO NOT HAND-EDIT\n"
+               "// GGX SINGLE-SCATTER ENERGY TABLES — GENERATED, DO NOT HAND-EDIT\n"
                "// =============================================================================\n"
                "//\n"
                "// Emitted by tools/OloGgxEnergyTableGen (issue #998). The command line that\n"
@@ -424,54 +487,49 @@ namespace
                "// ADR 0016 §6.\n"
                "//\n"
                "// Data for PBR closure v2's Kulla-Conty multiple-scattering energy compensation\n"
-               "// (Kulla & Conty, \"Revisiting Physically Based Shading at Imageworks\", 2017).\n"
+               "// (Kulla & Conty, \"Revisiting Physically Based Shading at Imageworks\", 2017)\n"
+               "// and its energy-conserving diffuse coupling (issue #1479).\n"
                "//\n"
-               "// The tables store 1 - Ess(mu, r): the fraction of energy the SINGLE-scattering\n"
-               "// GGX specular lobe loses to inter-facet shadowing, where\n"
+               "// Each grid node (mu, r) stores two moments of the SINGLE-scattering GGX\n"
+               "// specular lobe, over Heitz-2018 VNDF-sampled half vectors:\n"
                "//\n"
-               "//   Ess(mu_o, r) = E[ G2/G1 ]  over Heitz-2018 VNDF-sampled half vectors,\n"
+               "//   x: 1 - Ess(mu, r),  Ess     = E[ G2/G1 ]              (the albedo, F == 1)\n"
+               "//   y: Schlick(mu, r),  Schlick = E[ G2/G1 (1 - v.h)^5 ]  (its grazing part)\n"
                "//\n"
-               "// which is the exact estimator identity f*cos/pdf == F * (G2/G1) with F == 1\n"
-               "// (see the VNDF block in PBRCommon.glsl). The LOSS form is stored rather than\n"
-               "// Ess itself because the compensation term consumes (1 - Ess) directly and the\n"
-               "// near-mirror rows are ~1e-5, where \"1.0 minus a stored 0.99999\" would shred\n"
-               "// float precision.\n"
+               "// the exact estimator identity f*cos/pdf == F * (G2/G1) (see the VNDF block in\n"
+               "// PBRCommon.glsl). Together they give the lobe's albedo for any Schlick F0,\n"
+               "// E_ss(mu, F0) = F0 (Ess - Schlick) + Schlick. The LOSS form of Ess is stored\n"
+               "// because the compensation consumes (1 - Ess) directly and the near-mirror\n"
+               "// rows are ~1e-5, where \"1.0 minus a stored 0.99999\" would shred float\n"
+               "// precision. The averages row holds (1 - E_avg, Schlick_avg), each moment\n"
+               "// cosine-averaged over mu.\n"
                "//\n"
-               "// STORAGE IS PACKED, AND THE PACKING IS LOAD-BEARING. Two IEEE-754 half floats\n"
-               "// per uint, four uints per uvec4 — "
-            << (lossVectors + avgVectors) << " uvec4 constants instead of " << (o.Grid * o.Grid + o.Grid)
-            << " floats.\n"
-               "// A plain `const float["
-            << (o.Grid * o.Grid)
-            << "]` here LINKED FINE through glslc but FAILED AT\n"
-               "// RUNTIME on NVIDIA GL (\"error C5025: lvalue in assignment too complex\"):\n"
-               "// SPIRV-Cross materialises a dynamically-indexed constant array as a\n"
-               "// function-local temporary copy, and once the lookups were inlined at the\n"
+               "// STORAGE IS PACKED, AND THE PACKING IS LOAD-BEARING. One node per uint (two\n"
+               "// IEEE-754 half floats), four uints per uvec4 — "
+            << (tableVectors + avgVectors) << " uvec4 constants for "
+            << 2u * (o.Grid * o.Grid + o.Grid)
+            << "\n"
+               "// scalars. A plain `const float[256]` here LINKED FINE through glslc but\n"
+               "// FAILED AT RUNTIME on NVIDIA GL (\"error C5025: lvalue in assignment too\n"
+               "// complex\"): SPIRV-Cross materialises a dynamically-indexed constant array as\n"
+               "// a function-local temporary copy, and once the lookups were inlined at the\n"
                "// three lighting call sites of a large shader (PBR_MultiLight.glsl) the\n"
                "// driver's complexity limit tripped — while single-call-site probe shaders\n"
-               "// compiled the very same array without complaint. Packing cuts the emitted\n"
-               "// assignment count ~8x, far below the cliff. See glsl-shaders.md §12.\n"
+               "// compiled the very same array without complaint. Packing keeps the emitted\n"
+               "// element count at an eighth of the scalar count. See glsl-shaders.md §12.\n"
                "//\n"
-               "// Half precision costs at most 2.3e-4 absolute on any entry — the generator\n"
-               "// audits that bound and refuses to emit a table exceeding it — an order of\n"
-               "// magnitude under every consuming tolerance; entries below the compensation\n"
-               "// gate (lossAvg < 1e-4 returns 0) don't matter at all.\n"
+               "// Half precision costs at most 2^-12 = 2.44e-4 absolute on any entry — the\n"
+               "// generator audits that bound and refuses to emit a table exceeding it.\n"
                "//\n"
                "// Conventions (must match the v2 closure on both sides of the parity boundary):\n"
                "//   * alpha = clamp(r, MIN_ROUGHNESS, 1)^2 — the v2 perceptual clamp, so each\n"
-               "//     row is exactly the albedo of the lobe the v2 sampler samples.\n"
-               "//   * Cell-centered grid: mu_j = (j + 0.5)/"
-            << o.Grid
-            << " across a row (a uint packs the\n"
-               "//     even column in its LOW half and the odd column in its HIGH half, matching\n"
-               "//     unpackHalf2x16's (low, high) return), r_k = (k + 0.5)/"
-            << o.Grid
-            << " down rows;\n"
-               "//     bilinear lookup clamps at the edges and never extrapolates.\n"
-               "//   * Estimator: "
+               "//     row is exactly the albedo of the lobe the v2 sampler samples. Lookups\n"
+               "//     take AUTHORED roughness; the rows bake the clamp in.\n"
+            << GridConventions(o, "ggxSmithLambda")
+            << "//   * Estimator: "
             << o.Samples
-            << " deterministic Hammersley points per entry; E_avg uses a\n"
-               "//     "
+            << " deterministic Hammersley points per node; the averages use\n"
+               "//     a "
             << o.AvgPoints << "-point midpoint quadrature over mu at " << o.AvgSamples
             << " points per evaluation.\n"
                "//\n"
@@ -479,7 +537,7 @@ namespace
                "// — the SAME packed words, decoded with glm::unpackHalf2x16, so the two sides\n"
                "// evaluate identical quantized values. ClosureV2Test pins both files against\n"
                "// the estimator and against each other; the GPU parity probe covers the full\n"
-               "// compensated closure.\n"
+               "// closure.\n"
                "// =============================================================================\n"
                "#ifndef PBR_CLOSURE_V2_ENERGY_GLSL\n"
                "#define PBR_CLOSURE_V2_ENERGY_GLSL\n"
@@ -488,33 +546,30 @@ namespace
             << o.Grid
             << "\n"
                "\n"
-               "// 1 - Ess(mu, r), half-packed. Linear entry index i = row * "
+               "// One grid node per word: half(1 - Ess) | half(Schlick) << 16.\n"
+               "// Entry index i = row * "
             << o.Grid
-            << " + column;\n"
-               "// word = kGgxEnergyLossPacked[i >> 3][(i >> 1) & 3], low/high half by i & 1.\n";
-        out << EmitGlslArray(loss, "kGgxEnergyLossPacked");
+            << " + column; word = kGgxEnergyPacked[i >> 2][i & 3].\n";
+        out << EmitGlslArray(table, "kGgxEnergyPacked");
         out << "\n"
-               "// 1 - E_avg(r), half-packed, indexed by the same cell-centered roughness rows.\n";
-        out << EmitGlslArray(lossAvg, "kGgxEnergyLossAvgPacked");
+               "// The averages row, one roughness node per word:\n"
+               "// half(1 - E_avg) | half(Schlick_avg) << 16.\n";
+        out << EmitGlslArray(avg, "kGgxEnergyAvgPacked");
         out << "\n"
-               "// Decode one linear entry of the loss table (i in [0, "
+               "// Decode one grid node (i in [0, "
             << (o.Grid * o.Grid - 1u)
-            << "]).\n"
-               "float ggxEnergyLossEntry(int i)\n"
+            << "]): x = 1 - Ess, y = Schlick.\n"
+               "vec2 ggxEnergyEntry(int i)\n"
                "{\n"
-               "    uint word = kGgxEnergyLossPacked[i >> 3][(i >> 1) & 3];\n"
-               "    vec2 pair = unpackHalf2x16(word);\n"
-               "    return ((i & 1) == 0) ? pair.x : pair.y;\n"
+               "    return unpackHalf2x16(kGgxEnergyPacked[i >> 2][i & 3]);\n"
                "}\n"
                "\n"
-               "// Decode one entry of the averaged-loss row (i in [0, "
+               "// Decode one averages node (i in [0, "
             << (o.Grid - 1u)
-            << "]).\n"
-               "float ggxEnergyLossAvgEntry(int i)\n"
+            << "]): x = 1 - E_avg, y = Schlick_avg.\n"
+               "vec2 ggxEnergyAvgEntry(int i)\n"
                "{\n"
-               "    uint word = kGgxEnergyLossAvgPacked[i >> 3][(i >> 1) & 3];\n"
-               "    vec2 pair = unpackHalf2x16(word);\n"
-               "    return ((i & 1) == 0) ? pair.x : pair.y;\n"
+               "    return unpackHalf2x16(kGgxEnergyAvgPacked[i >> 2][i & 3]);\n"
                "}\n"
                "\n"
                "#endif // PBR_CLOSURE_V2_ENERGY_GLSL\n";
@@ -574,8 +629,8 @@ namespace
                      "  --repo-root DIR    repository root (default: the current directory)\n"
                      "  --header PATH      override the C++ output path\n"
                      "  --glsl PATH        override the GLSL output path\n"
-                     "  --grid N           table edge length (default 16; also needs ClosureV2Test's\n"
-                     "                     twin-drift pin updated, which hardcodes the sizes)\n"
+                     "  --grid N           table edge length, a multiple of 4 (default 16; also needs\n"
+                     "                     ClosureV2Test's twin-drift pin updated, which hardcodes the sizes)\n"
                      "  --samples N        VNDF samples per entry (default 4096)\n"
                      "  --avg-points N     E_avg midpoint quadrature points (default 64)\n"
                      "  --avg-samples N    VNDF samples per quadrature point (default 2048)\n"
@@ -641,13 +696,13 @@ int main(int argc, char** argv)
         }
     }
 
-    // The GLSL twin packs eight entries per uvec4 and its decode helpers shift
-    // by 3, so a grid whose rows do not divide into whole uvec4s would emit a
-    // table the shader cannot index. Refuse rather than emit something subtly
-    // wrong — this is the flag a future widening reaches for first.
-    if (options.Grid % 8u != 0u)
+    // The GLSL twin packs four nodes per uvec4 and its decode helpers shift
+    // by 2, so a grid whose averages row does not divide into whole uvec4s would
+    // emit a table the shader cannot index. Refuse rather than emit something
+    // subtly wrong — this is the flag a future widening reaches for first.
+    if (options.Grid % 4u != 0u)
     {
-        std::cerr << "error: --grid must be a multiple of 8 (the GLSL twin packs 8 entries per uvec4); got "
+        std::cerr << "error: --grid must be a multiple of 4 (the GLSL twin packs 4 nodes per uvec4); got "
                   << options.Grid << "\n";
         return 2;
     }
@@ -658,26 +713,33 @@ int main(int argc, char** argv)
         options.GlslPath = options.RepoRoot / "OloEditor/assets/shaders/include/PBRClosureV2Energy.glsl";
 
     // ---- bake ---------------------------------------------------------------
-    std::vector<f64> loss(static_cast<sizet>(options.Grid) * options.Grid);
+    const sizet nodes = static_cast<sizet>(options.Grid) * options.Grid;
+    std::vector<f64> loss(nodes);
+    std::vector<f64> schlick(nodes);
     for (u32 row = 0; row < options.Grid; ++row)
     {
-        const f32 roughness = (static_cast<f32>(row) + 0.5f) / static_cast<f32>(options.Grid);
+        const f32 roughness = GgxEnergyNodeValue(row, options.Grid);
         for (u32 col = 0; col < options.Grid; ++col)
         {
-            const f32 mu = (static_cast<f32>(col) + 0.5f) / static_cast<f32>(options.Grid);
-            loss[static_cast<sizet>(row) * options.Grid + col] = 1.0 - EstimateEss(mu, roughness, options.Samples);
+            const f32 mu = std::max(GgxEnergyNodeValue(col, options.Grid), kMuFloor);
+            const Moments m = EstimateMoments(mu, roughness, options.Samples);
+            loss[static_cast<sizet>(row) * options.Grid + col] = 1.0 - m.Ess;
+            schlick[static_cast<sizet>(row) * options.Grid + col] = m.Schlick;
         }
     }
 
     std::vector<f64> lossAvg(options.Grid);
+    std::vector<f64> schlickAvg(options.Grid);
     for (u32 row = 0; row < options.Grid; ++row)
     {
-        const f32 roughness = (static_cast<f32>(row) + 0.5f) / static_cast<f32>(options.Grid);
-        lossAvg[row] = 1.0 - EstimateEavg(roughness, options.AvgPoints, options.AvgSamples);
+        const Moments m =
+            EstimateAverages(GgxEnergyNodeValue(row, options.Grid), options.AvgPoints, options.AvgSamples);
+        lossAvg[row] = 1.0 - m.Ess;
+        schlickAvg[row] = m.Schlick;
     }
 
-    const std::vector<u32> lossWords = PackPairs(loss);
-    const std::vector<u32> lossAvgWords = PackPairs(lossAvg);
+    const std::vector<u32> tableWords = PackInterleaved(loss, schlick);
+    const std::vector<u32> avgWords = PackInterleaved(lossAvg, schlickAvg);
 
     // ---- audit the quantization claim the emitted comments make -------------
     f64 worstError = 0.0;
@@ -687,8 +749,11 @@ int main(int argc, char** argv)
             worstError = std::max(worstError, std::abs(v - FromHalf(ToHalfRoundToNearestEven(v))));
     };
     audit(loss);
+    audit(schlick);
     audit(lossAvg);
-    constexpr f64 kQuantizationBudget = 2.3e-4;
+    audit(schlickAvg);
+    // Half an ulp of the [0.5, 1) binade: every stored value is in [0, 1).
+    constexpr f64 kQuantizationBudget = 1.0 / 4096.0;
     std::cout << "half quantization: worst absolute error " << worstError << " (budget " << kQuantizationBudget
               << ")\n";
     if (worstError > kQuantizationBudget)
@@ -698,8 +763,8 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    const std::string header = EmitHeader(options, lossWords, lossAvgWords);
-    const std::string glsl = EmitGlsl(options, lossWords, lossAvgWords);
+    const std::string header = EmitHeader(options, tableWords, avgWords);
+    const std::string glsl = EmitGlsl(options, tableWords, avgWords);
 
     if (options.ToStdout)
     {
