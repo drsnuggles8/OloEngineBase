@@ -125,7 +125,10 @@ OLO_LEVER_TOGGLE(VulkanNoDepthReclaimHold, "OLO_VULKAN_NO_DEPTH_RECLAIM_HOLD",
 OLO_LEVER_TOGGLE(VulkanAftermathCrashDumps, "OLO_VULKAN_AFTERMATH",
                  "Arm NVIDIA Nsight Aftermath GPU crash dumps and enable VK_NV_device_diagnostics_config "
                  "resource tracking, so a device loss writes a .nv-gpudmp and logs the page-fault RESOURCE "
-                 "— its handle, format, extent, and whether its memory was already freed (#1198). This is "
+                 "— its handle, format, extent, and whether its memory was already freed (#1198) — plus a "
+                 "decoded .json next to the dump: the faulted warp mapped to a shader source line, and the "
+                 "driver's automatic markers with CPU call stacks (resolve them with nv-aftermath-format -p "
+                 "<pdb dir>) that name the command in flight (#1511). This is "
                  "the only source of that last fact: VK_EXT_device_fault gives an address and the NV "
                  "checkpoints give a pass, but neither says what lived there. Needs a build configured with "
                  "AFTERMATH_SDK_ROOT; without one this warns rather than going quiet. OFF by default — "

@@ -350,6 +350,9 @@ namespace OloEngine
         static void LogAddressOwners(u64 address, u64 precision);
 
         void LogQueueCheckpoints() const;
+        // Write the resource heap to CrashReports/ for a post-mortem of the
+        // driver's reserved-range descriptors (issue #1511).
+        void DumpDescriptorHeapForFault() const;
 
         // Validation-error counter: the debug messenger increments this on
         // every ERROR-severity validation message. Tests assert it stays 0.

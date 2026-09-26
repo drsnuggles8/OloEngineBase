@@ -31,6 +31,8 @@
 
 #include "Platform/Vulkan/VulkanDevice.h"
 
+#include <filesystem>
+
 namespace OloEngine
 {
     class VulkanResourceHeap
@@ -79,7 +81,8 @@ namespace OloEngine
         // Record the heap bind into a command buffer. Must run before any draw
         // whose pipeline carries heap mappings; re-recorded per command buffer
         // (binds are command-buffer state).
-        void CmdBind(VkCommandBuffer cmd);
+        // False when the heap could not be created (no device): nothing was bound.
+        bool CmdBind(VkCommandBuffer cmd);
 
         // Byte stride between consecutive slots — also the mapping's
         // heapIndexStride, by construction.
@@ -97,6 +100,18 @@ namespace OloEngine
         // Teardown (device idle): enqueue the buffer for reclaim, forget
         // state; lazily re-creatable.
         void Release();
+
+        // Device-loss diagnostic (#1511): write the whole heap, as the CPU
+        // sees it, to `path`. Its first GetReservedRangeSize() bytes are the
+        // implementation's reserved range — the descriptors the driver writes
+        // for its own copy / clear / blit / resolve shaders — and the rest is
+        // the engine's slots, starting at GetSlotRegionOffset(). False when
+        // there is no heap or the file could not be written.
+        [[nodiscard]] bool WriteDiagnosticDump(const std::filesystem::path& path) const;
+        [[nodiscard]] VkDeviceSize GetReservedRangeSize() const
+        {
+            return m_ReservedRangeSize;
+        }
 
       private:
         VulkanResourceHeap() = default;

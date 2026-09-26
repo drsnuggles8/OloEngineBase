@@ -63,6 +63,11 @@ namespace OloEngine::VulkanAftermath
     // only paid by a session that asked for crash dumps.
     void RegisterShaderBinary(const char* name, const void* spirv, sizet sizeBytes);
 
+    // Record a process-lifetime checkpoint marker string (the engine's
+    // vkCmdSetCheckpointNV payload, one per pass). A dump resolves only
+    // registered pointers into pass names; anything else stays an address.
+    void RegisterCheckpointMarker(const char* marker);
+
     // Release the crash-dump handler. Safe to call when never initialized.
     void Shutdown();
 } // namespace OloEngine::VulkanAftermath

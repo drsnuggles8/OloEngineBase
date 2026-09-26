@@ -18,13 +18,17 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <thread>
 #include <vector>
 #include <unordered_map>
+#include <unordered_set>
 #include <string>
 #include <mutex>
+#include <utility>
 
 #endif
 
@@ -36,14 +40,48 @@ namespace OloEngine::VulkanAftermath
         std::atomic<bool> s_Initialized{ false };
         std::atomic<bool> s_DumpReceived{ false };
 
-        // Shader-binary hash -> our own name for it. Written while shaders are
-        // created (any thread), read once from the crash-dump callback.
+        // Shader-binary hash -> our name for it plus a copy of the SPIR-V.
+        // Written while shaders are created (any thread), read from the
+        // crash-dump path. The SPIR-V is what lets the decoder map a faulting
+        // warp's program counter back to a SPIR-V instruction (issue #1511):
+        // "the PBR fragment shader was active" names a suspect, the faulting
+        // instruction names the access.
         // Aftermath invokes its callbacks from driver threads and does not
         // serialize them; two concurrent dumps would race the same filename and
         // interleave their decode output.
+        struct ShaderRecord
+        {
+            std::string Name;
+            std::vector<u32> Spirv;
+        };
         std::mutex s_CrashDumpMutex;
         std::mutex s_ShaderNameMutex;
-        std::unordered_map<u64, std::string> s_ShaderNames;
+        std::unordered_map<u64, ShaderRecord> s_Shaders;
+
+        // Shader debug info the driver hands over (deferred until a dump
+        // exists, GpuCrashDumpFeatureFlags_DeferDebugInfoCallbacks), keyed by
+        // its identifier. The decoder asks for it by identifier when it maps
+        // a program counter to an instruction.
+        std::mutex s_DebugInfoMutex;
+        std::map<std::pair<u64, u64>, std::vector<u8>> s_DebugInfo;
+
+        // The last dump, kept so the JSON can be generated after the driver
+        // has finished calling back with debug info (OnDeviceLost), not from
+        // inside the dump callback where that info may not have arrived yet.
+        std::vector<u8> s_LastDump;
+        std::filesystem::path s_LastDumpPath;
+
+        // Checkpoint marker strings (VulkanRendererAPI interns them for the
+        // process lifetime). Only a pointer in this set is dereferenced when
+        // Aftermath asks us to resolve a marker.
+        std::mutex s_MarkerMutex;
+        std::unordered_set<const void*> s_Markers;
+
+        [[nodiscard]] const std::filesystem::path& CrashReportDir()
+        {
+            static const std::filesystem::path s_Dir{ "CrashReports" };
+            return s_Dir;
+        }
 
         [[nodiscard]] bool Requested()
         {
@@ -159,9 +197,20 @@ namespace OloEngine::VulkanAftermath
                             GFSDK_Aftermath_Result_Success)
                         {
                             const std::lock_guard lock(s_ShaderNameMutex);
-                            if (const auto it = s_ShaderNames.find(binaryHash.hash); it != s_ShaderNames.end())
+                            if (const auto it = s_Shaders.find(binaryHash.hash); it != s_Shaders.end())
                             {
-                                name = it->second;
+                                name = it->second.Name;
+                                // The binary next to the dump, so nv-aftermath-format
+                                // -b CrashReports/shaders can map it offline too.
+                                std::error_code ec;
+                                const auto dir = CrashReportDir() / "shaders";
+                                std::filesystem::create_directories(dir, ec);
+                                const auto spv = dir / (std::to_string(binaryHash.hash) + ".spv");
+                                if (std::ofstream out{ spv, std::ios::binary }; out)
+                                {
+                                    out.write(reinterpret_cast<const char*>(it->second.Spirv.data()),
+                                              static_cast<std::streamsize>(it->second.Spirv.size() * sizeof(u32)));
+                                }
                             }
                         }
                         OLO_CORE_ERROR("[Aftermath]   active shader: '{}' hash={:#x} binaryHash={:#x} type={} "
@@ -185,7 +234,7 @@ namespace OloEngine::VulkanAftermath
             // decoder rejects it, the file is still on disk for Nsight.
             try
             {
-                const std::filesystem::path dir{ "CrashReports" };
+                const std::filesystem::path& dir = CrashReportDir();
                 std::error_code ec;
                 std::filesystem::create_directories(dir, ec);
                 const auto stamp = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -197,6 +246,9 @@ namespace OloEngine::VulkanAftermath
                     out.write(static_cast<const char*>(dump), static_cast<std::streamsize>(dumpSize));
                     OLO_CORE_ERROR("[Aftermath] crash dump written to {}", path.string());
                 }
+                const auto* bytes = static_cast<const u8*>(dump);
+                s_LastDump.assign(bytes, bytes + dumpSize);
+                s_LastDumpPath = path;
             }
             catch (const std::exception& e)
             {
@@ -214,11 +266,103 @@ namespace OloEngine::VulkanAftermath
             }
         }
 
-        void GFSDK_AFTERMATH_CALL OnShaderDebugInfo(const void* /*debugInfo*/, const u32 /*size*/, void* /*userData*/)
+        void GFSDK_AFTERMATH_CALL OnShaderDebugInfo(const void* debugInfo, const u32 size, void* /*userData*/)
         {
-            // Not persisted yet: mapping a shader hash back to source needs the
-            // debug-info blobs keyed by identifier, which is worth doing only
-            // once a fault actually names a shader we cannot otherwise place.
+            GFSDK_Aftermath_ShaderDebugInfoIdentifier id = {};
+            if (debugInfo == nullptr || size == 0u ||
+                GFSDK_Aftermath_GetShaderDebugInfoIdentifier(GFSDK_Aftermath_Version_API, debugInfo, size, &id) !=
+                    GFSDK_Aftermath_Result_Success)
+            {
+                return;
+            }
+            try
+            {
+                const auto* bytes = static_cast<const u8*>(debugInfo);
+                {
+                    const std::lock_guard lock(s_DebugInfoMutex);
+                    s_DebugInfo[{ id.id[0], id.id[1] }].assign(bytes, bytes + size);
+                }
+                // On disk as well, named the way Nsight Graphics and
+                // nv-aftermath-format -g look for it.
+                std::error_code ec;
+                std::filesystem::create_directories(CrashReportDir(), ec);
+                const auto path = CrashReportDir() / ("shader-" + std::to_string(id.id[0]) + "-" +
+                                                      std::to_string(id.id[1]) + ".nvdbg");
+                if (std::ofstream out{ path, std::ios::binary }; out)
+                {
+                    out.write(static_cast<const char*>(debugInfo), static_cast<std::streamsize>(size));
+                }
+            }
+            catch (...)
+            {
+                // A diagnostic must never take the crash path down with it.
+            }
+        }
+
+        void GFSDK_AFTERMATH_CALL LookupShaderDebugInfo(const GFSDK_Aftermath_ShaderDebugInfoIdentifier* id,
+                                                        PFN_GFSDK_Aftermath_SetData setData, void* /*userData*/)
+        {
+            const std::lock_guard lock(s_DebugInfoMutex);
+            if (const auto it = s_DebugInfo.find({ id->id[0], id->id[1] }); it != s_DebugInfo.end())
+            {
+                setData(it->second.data(), static_cast<u32>(it->second.size()));
+            }
+        }
+
+        void GFSDK_AFTERMATH_CALL LookupShaderBinary(const GFSDK_Aftermath_ShaderBinaryHash* hash,
+                                                     PFN_GFSDK_Aftermath_SetData setData, void* /*userData*/)
+        {
+            const std::lock_guard lock(s_ShaderNameMutex);
+            if (const auto it = s_Shaders.find(hash->hash); it != s_Shaders.end())
+            {
+                setData(it->second.Spirv.data(), static_cast<u32>(it->second.Spirv.size() * sizeof(u32)));
+            }
+        }
+
+        // The decoder's own full report: faulted warps with their program
+        // counters mapped to SPIR-V instructions, the automatic and engine
+        // checkpoints, and every shader and resource it knows about. The log
+        // lines from DecodeAndLog are the summary; this file is the evidence.
+        void WriteJsonReport()
+        {
+            const std::lock_guard lock(s_CrashDumpMutex);
+            if (s_LastDump.empty())
+            {
+                return;
+            }
+            GFSDK_Aftermath_GpuCrashDump_Decoder decoder = {};
+            if (GFSDK_Aftermath_GpuCrashDump_CreateDecoder(GFSDK_Aftermath_Version_API, s_LastDump.data(),
+                                                           static_cast<u32>(s_LastDump.size()),
+                                                           &decoder) != GFSDK_Aftermath_Result_Success)
+            {
+                OLO_CORE_ERROR("[Aftermath] could not create a decoder for the JSON report");
+                return;
+            }
+            u32 jsonSize = 0;
+            if (GFSDK_Aftermath_GpuCrashDump_GenerateJSON(
+                    decoder, GFSDK_Aftermath_GpuCrashDumpDecoderFlags_ALL_INFO,
+                    GFSDK_Aftermath_GpuCrashDumpFormatterFlags_UTF8_OUTPUT, LookupShaderDebugInfo, LookupShaderBinary,
+                    nullptr, nullptr, &jsonSize) == GFSDK_Aftermath_Result_Success &&
+                jsonSize > 0u)
+            {
+                std::string json(jsonSize, '\0');
+                if (GFSDK_Aftermath_GpuCrashDump_GetJSON(decoder, jsonSize, json.data()) ==
+                    GFSDK_Aftermath_Result_Success)
+                {
+                    auto path = s_LastDumpPath;
+                    path.replace_extension(".json");
+                    if (std::ofstream out{ path, std::ios::binary }; out)
+                    {
+                        out.write(json.data(), static_cast<std::streamsize>(std::strlen(json.c_str())));
+                        OLO_CORE_ERROR("[Aftermath] decoded report written to {}", path.string());
+                    }
+                }
+            }
+            else
+            {
+                OLO_CORE_ERROR("[Aftermath] GFSDK_Aftermath_GpuCrashDump_GenerateJSON failed");
+            }
+            GFSDK_Aftermath_GpuCrashDump_DestroyDecoder(decoder);
         }
 
         void GFSDK_AFTERMATH_CALL OnDescription(PFN_GFSDK_Aftermath_AddGpuCrashDumpDescription addValue,
@@ -228,13 +372,24 @@ namespace OloEngine::VulkanAftermath
             addValue(GFSDK_Aftermath_GpuCrashDumpDescriptionKey_ApplicationVersion, "dev");
         }
 
-        void GFSDK_AFTERMATH_CALL OnResolveMarker(const void* /*markerData*/, const u32 /*markerDataSize*/,
-                                                  void* /*userData*/,
-                                                  PFN_GFSDK_Aftermath_ResolveMarker /*resolveMarker*/)
+        void GFSDK_AFTERMATH_CALL OnResolveMarker(const void* markerData, const u32 markerDataSize,
+                                                  void* /*userData*/, PFN_GFSDK_Aftermath_ResolveMarker resolveMarker)
         {
-            // No application markers are pushed: the pass names already reach a
-            // fault report through VK_NV_device_diagnostic_checkpoints, so
-            // there is nothing here to resolve.
+            // The engine's checkpoints (vkCmdSetCheckpointNV, one per pass) carry
+            // a bare pointer to an interned pass name. Resolving it puts the pass
+            // names into the dump itself, so the JSON report and Nsight show
+            // "ShadowPass" rather than an address. Only a pointer the engine
+            // registered is dereferenced.
+            if (markerDataSize != 0u || markerData == nullptr)
+            {
+                return;
+            }
+            const std::lock_guard lock(s_MarkerMutex);
+            if (s_Markers.contains(markerData))
+            {
+                const auto* text = static_cast<const char*>(markerData);
+                resolveMarker(text, static_cast<u32>(std::strlen(text) + 1u));
+            }
         }
     } // namespace
 
@@ -339,6 +494,19 @@ namespace OloEngine::VulkanAftermath
                            "have been a GPU fault this process caused",
                            kTimeout.count(), static_cast<int>(status));
         }
+        else
+        {
+            // Finished: every deferred debug-info callback has run, so the
+            // decoder can map program counters to SPIR-V now.
+            try
+            {
+                WriteJsonReport();
+            }
+            catch (const std::exception& e)
+            {
+                OLO_CORE_ERROR("[Aftermath] writing the JSON report threw: {}", e.what());
+            }
+        }
     }
 
     void RegisterShaderBinary(const char* name, const void* spirv, const sizet sizeBytes)
@@ -358,12 +526,31 @@ namespace OloEngine::VulkanAftermath
         }
         try
         {
+            const auto* words = static_cast<const u32*>(spirv);
+            ShaderRecord record{ name, std::vector<u32>(words, words + sizeBytes / sizeof(u32)) };
             const std::lock_guard lock(s_ShaderNameMutex);
-            s_ShaderNames.emplace(hash.hash, name);
+            s_Shaders.insert_or_assign(hash.hash, std::move(record));
         }
         catch (...)
         {
             // A diagnostic must never take a shader compile down with it.
+        }
+    }
+
+    void RegisterCheckpointMarker(const char* marker)
+    {
+        if (!IsEnabled() || marker == nullptr)
+        {
+            return;
+        }
+        try
+        {
+            const std::lock_guard lock(s_MarkerMutex);
+            s_Markers.insert(marker);
+        }
+        catch (...)
+        {
+            // Unresolved markers still show as addresses; never fail a record.
         }
     }
 
@@ -416,6 +603,10 @@ namespace OloEngine::VulkanAftermath
     }
 
     void RegisterShaderBinary(const char*, const void*, sizet)
+    {
+    }
+
+    void RegisterCheckpointMarker(const char*)
     {
     }
 

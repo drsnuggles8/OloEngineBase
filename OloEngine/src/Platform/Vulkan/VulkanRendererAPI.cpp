@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "OloEngine/Renderer/RHI/RHIResources.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "Platform/Vulkan/VulkanAftermath.h"
 #include "Platform/Vulkan/VulkanBarrierLowering.h"
 #include "Platform/Vulkan/VulkanBindingState.h"
 #include "Platform/Vulkan/VulkanBufferBindingDiagnostics.h"
@@ -1414,7 +1415,10 @@ namespace OloEngine
             static std::mutex s_Mutex;
             static std::unordered_set<std::string> s_Markers;
             const std::lock_guard lock(s_Mutex);
-            return s_Markers.emplace(label).first->c_str();
+            const auto [it, inserted] = s_Markers.emplace(label);
+            if (inserted)
+                VulkanAftermath::RegisterCheckpointMarker(it->c_str());
+            return it->c_str();
         }
     } // namespace
 
