@@ -78,8 +78,16 @@ What is unique to the cascade region: its items are the only ones that each rend
 command buffer. The atlas items share one layer; the scene items share one target. A read that no
 submitted command asks for fits the #1198 explanation, driver-side per-depth-surface bookkeeping.
 It is not proven: this box has no Nsight Aftermath SDK, and only Aftermath could name the shader
-and say whether the read was the driver's. If you have it, run the lever-on arm with
-`OLO_VULKAN_AFTERMATH=1` before trusting this workaround further.
+and say whether the read was the driver's. The Aftermath run that would settle it, for this
+fault and #1198's together, is #1511.
+
+## What the visual check found
+
+Recording the cascades inline leaves the cascade layers byte-identical, but the lit Vulkan forward
+frame gets darker near ground. That is not this change: GTAO's `AOBuffer` is **all 255** on master
+because of an async-compute race, and the synchronous Vulkan result (`OLO_VK_ASYNC_COMPUTE=0`,
+identical inline or forked) darkens flat ground where GL does not. Both are #1512. Diff the
+intermediate targets (`olo_render_capture_target`) before blaming the pass you changed.
 
 ## Two traps
 

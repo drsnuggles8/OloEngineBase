@@ -127,7 +127,7 @@ OLO_LEVER_TOGGLE(VulkanParallelCascadeRecording, "OLO_VULKAN_PARALLEL_CSM",
                  "inline because forking them — each item rendering into a different layer of the cascade array "
                  "from its own secondary command buffer — was followed by a device fault reading a scene target "
                  "freed after a resize or render-path switch, with no engine-side reference to it. This lever "
-                 "exists so that workaround can be re-tested against a new driver rather than trusted forever.")
+                 "exists so that workaround can be re-tested against a new driver rather than trusted forever (#1511).")
 OLO_LEVER_TOGGLE(VulkanAftermathCrashDumps, "OLO_VULKAN_AFTERMATH",
                  "Arm NVIDIA Nsight Aftermath GPU crash dumps and enable VK_NV_device_diagnostics_config "
                  "resource tracking, so a device loss writes a .nv-gpudmp and logs the page-fault RESOURCE "
