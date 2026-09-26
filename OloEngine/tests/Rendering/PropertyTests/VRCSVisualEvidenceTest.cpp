@@ -90,6 +90,7 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -161,9 +162,14 @@ namespace OloEngine::Tests
             f64 AcrossBoundary = 0.0;
             f64 WithinTile = 0.0;
 
+            // A band whose ONLY steps sit on tile boundaries is the purest seam
+            // there is, so it reads infinite; a band with no steps at all has no
+            // seam and reads 0 (the flatness guard at the call site rejects it).
             [[nodiscard]] f64 Ratio() const
             {
-                return WithinTile > 1e-6 ? AcrossBoundary / WithinTile : 0.0;
+                if (WithinTile > 1e-6)
+                    return AcrossBoundary / WithinTile;
+                return AcrossBoundary > 1e-6 ? std::numeric_limits<f64>::infinity() : 0.0;
             }
         };
 
@@ -203,11 +209,13 @@ namespace OloEngine::Tests
             return m;
         }
 
-        // The metric's negative control: the same frame with a half-strength
-        // tile-row lattice painted in, each pixel averaged with the first row of
+        // The metric's negative control: the same frame with a tile-row lattice
+        // painted in, each pixel moved `strength` of the way to the first row of
         // its 8-row tile. That is the artefact the seam check exists to catch,
-        // at a strength a viewer would see, so the check must trip on it.
-        [[nodiscard]] std::vector<u8> WithTileRowLattice(const std::vector<u8>& px)
+        // so the check must trip on it: at 0.5, a lattice a viewer would see; at
+        // 1, every tile row a flat copy of its leader, whose only steps are on
+        // tile boundaries.
+        [[nodiscard]] std::vector<u8> WithTileRowLattice(const std::vector<u8>& px, f32 strength)
         {
             std::vector<u8> out(px);
             const sizet rowBytes = static_cast<sizet>(kWidth) * 4u;
@@ -216,8 +224,9 @@ namespace OloEngine::Tests
                 const u32 leader = (y / kTilePitch) * kTilePitch;
                 for (sizet i = 0; i < rowBytes; ++i)
                 {
-                    const u32 mixed = (static_cast<u32>(px[y * rowBytes + i]) + px[leader * rowBytes + i]) / 2u;
-                    out[y * rowBytes + i] = static_cast<u8>(mixed);
+                    const f32 own = px[y * rowBytes + i];
+                    const f32 lead = px[leader * rowBytes + i];
+                    out[y * rowBytes + i] = static_cast<u8>(std::lround(own + (lead - own) * strength));
                 }
             }
             return out;
@@ -518,7 +527,9 @@ namespace OloEngine::Tests
             const SeamMeasure seamOff = MeasureTileSeams(aoOff, kGradientX0, kGradientX1, kGradientY0, kGradientY1);
             const SeamMeasure seamOn = MeasureTileSeams(aoOn, kGradientX0, kGradientX1, kGradientY0, kGradientY1);
             const SeamMeasure seamLattice =
-                MeasureTileSeams(WithTileRowLattice(aoOff), kGradientX0, kGradientX1, kGradientY0, kGradientY1);
+                MeasureTileSeams(WithTileRowLattice(aoOff, 0.5f), kGradientX0, kGradientX1, kGradientY0, kGradientY1);
+            const SeamMeasure seamPureLattice =
+                MeasureTileSeams(WithTileRowLattice(aoOff, 1.0f), kGradientX0, kGradientX1, kGradientY0, kGradientY1);
             // The band holds a gradient worth measuring (1.0 / 1.1 luma per row
             // measured; the open floor this band replaced read exactly 0 once
             // #1463 removed its phantom occlusion), and the metric can see a
@@ -530,6 +541,10 @@ namespace OloEngine::Tests
             EXPECT_GE(seamLattice.Ratio(), seamOff.Ratio() + 0.6)
                 << "a half-strength tile-row lattice painted into the control frame reads " << seamLattice.Ratio()
                 << " against " << seamOff.Ratio() << ": the seam check below could not see a real one either";
+            // Steps ONLY on tile boundaries: the within-tile denominator is 0.
+            EXPECT_GE(seamPureLattice.Ratio(), seamOff.Ratio() + 0.6)
+                << "a boundary-only tile-row lattice reads " << seamPureLattice.Ratio()
+                << ": a seam with flat tiles between would pass the check below";
             EXPECT_LT(seamOn.Ratio(), seamOff.Ratio() + 0.6)
                 << "steps ACROSS 8-pixel tile boundaries grew relative to steps within a tile: "
                 << seamOff.Ratio() << " -> " << seamOn.Ratio()

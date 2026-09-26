@@ -1,7 +1,7 @@
 # A renderer PR's GPU tests run after it merges, if at all
 
 **Run the GPU suites a renderer change reaches on your own box before the PR, and list them in its
-verification matrix: PR CI runs none of them.** When the change fixes a defect in what a neutral
+verification matrix: for an ordinary renderer change, PR CI runs none of them.** When the change fixes a defect in what a neutral
 input reads (an open plane, an unlit surface, an empty buffer), also run every test that *measures*
 that feature, because some of them may have been calibrated on the defect.
 
@@ -10,7 +10,7 @@ that feature, because some of them may have been calibrated on the defect.
 | suite | PR CI | first automated run |
 |---|---|---|
 | GL evidence / property tests (`*Evidence*`, `CrossPathLightingMatrix`, goldens) | hosted runners have no GPU: they **skip**, and the job is green | the nightly AMD conformance job (`gpu-conformance-amd.yml`) and the llvmpipe nightly (`cross-vendor.yml`), after the merge |
-| Vulkan device tests (`VulkanPassSuite.*`, `*Device.*`) | skip | **none**: the lavapipe nightly skips them too, since it fails the ADR 0010 contract ([vulkan-software-driver-ci.md](vulkan-software-driver-ci.md)) |
+| Vulkan device tests (`VulkanPassSuite.*`, `*Device.*`) | skip; `vulkan-software.yml` runs on a PR only when it or `VulkanCapabilities.*` changes, and lavapipe skips these there too | **none**: the lavapipe nightly skips them too, since it fails the ADR 0010 contract ([vulkan-software-driver-ci.md](vulkan-software-driver-ci.md)) |
 
 A green PR says nothing about any of these. A `Windows` run lists its skipped cases in the job
 summary; read it once to see how much of your change's surface it covers.
