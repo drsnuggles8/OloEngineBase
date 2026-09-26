@@ -448,6 +448,23 @@ namespace OloEngine
         /// segments, binning, packing and the upload call. The cost #1427 is
         /// accounting for, measured where it is spent.
         u64 BakeMicroseconds = 0;
+        /// BakeMicroseconds split by stage (#1445), so a slow bake says which
+        /// part is slow: turning the pose into bake segments, binning them
+        /// into the volume, packing the texels, and creating and uploading the
+        /// texture. The four sum to BakeMicroseconds minus the pose capture
+        /// and the bookkeeping around them. The pose EVALUATION the bake reads
+        /// is not in here; it is GroomRenderPassStats::DeformedPoseMicroseconds.
+        u64 BakeSegmentMicroseconds = 0;
+        u64 BakeBinMicroseconds = 0;
+        u64 BakePackMicroseconds = 0;
+        u64 BakeUploadMicroseconds = 0;
+        /// CPU time spent measuring every bound coat's drift against its bake,
+        /// paid each frame whether or not a rebake follows.
+        u64 DriftMicroseconds = 0;
+        /// The largest subset stride a bound coat was baked at this frame
+        /// (GroomCoatShadow::CoatBakeSubsetStride): 1 for a full bake, 0 when
+        /// nothing deformed was baked.
+        u32 MaxBakeStride = 0;
 
         void Record(const GroomCoatShadowDecision& decision) noexcept
         {
@@ -503,7 +520,11 @@ namespace OloEngine
                    Rebuilds == other.Rebuilds && MaxAgeFrames == other.MaxAgeFrames &&
                    ResidentBytes == other.ResidentBytes && DeformedRebakes == other.DeformedRebakes &&
                    Math::BitwiseEqual(MaxDriftVoxels, other.MaxDriftVoxels) &&
-                   BakeMicroseconds == other.BakeMicroseconds;
+                   BakeMicroseconds == other.BakeMicroseconds &&
+                   BakeSegmentMicroseconds == other.BakeSegmentMicroseconds &&
+                   BakeBinMicroseconds == other.BakeBinMicroseconds && BakePackMicroseconds == other.BakePackMicroseconds &&
+                   BakeUploadMicroseconds == other.BakeUploadMicroseconds && DriftMicroseconds == other.DriftMicroseconds &&
+                   MaxBakeStride == other.MaxBakeStride;
         }
     };
 } // namespace OloEngine

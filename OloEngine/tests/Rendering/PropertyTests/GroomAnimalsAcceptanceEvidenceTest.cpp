@@ -47,6 +47,7 @@
 #include "OloEngine/Groom/GroomCoat.h"
 #include "OloEngine/Groom/GroomCooker.h"
 #include "OloEngine/Groom/GroomLodBuilder.h"
+#include "OloEngine/Groom/GroomStrandMesh.h"
 #include "OloEngine/Groom/GroomSurfaceFrame.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/AnimatedModel.h"
@@ -1803,6 +1804,15 @@ namespace OloEngine::Tests
             u32 Rebakes = 0;
             u64 BakeMicroseconds = 0;
             u64 WorstFrameMicroseconds = 0;
+            // #1445's split, summed over the walk. Pose is the evaluation of
+            // the drawn centrelines the bake reads, outside BakeMicroseconds.
+            u64 PoseMicroseconds = 0;
+            u64 DriftMicroseconds = 0;
+            u64 SegmentMicroseconds = 0;
+            u64 BinMicroseconds = 0;
+            u64 PackMicroseconds = 0;
+            u64 UploadMicroseconds = 0;
+            u32 MaxBakeStride = 0;
             f32 WorstDriftVoxels = 0.0f;
             u32 MinShadowed = 0xFFFFFFFFu;
             u32 StaleEver = 0;
@@ -1831,6 +1841,13 @@ namespace OloEngine::Tests
                 cost.Rebakes += c.DeformedRebakes;
                 cost.BakeMicroseconds += c.BakeMicroseconds;
                 cost.WorstFrameMicroseconds = std::max(cost.WorstFrameMicroseconds, c.BakeMicroseconds);
+                cost.PoseMicroseconds += PassStats().DeformedPoseMicroseconds;
+                cost.DriftMicroseconds += c.DriftMicroseconds;
+                cost.SegmentMicroseconds += c.BakeSegmentMicroseconds;
+                cost.BinMicroseconds += c.BakeBinMicroseconds;
+                cost.PackMicroseconds += c.BakePackMicroseconds;
+                cost.UploadMicroseconds += c.BakeUploadMicroseconds;
+                cost.MaxBakeStride = std::max(cost.MaxBakeStride, c.MaxBakeStride);
                 cost.WorstDriftVoxels = std::max(cost.WorstDriftVoxels, c.MaxDriftVoxels);
                 cost.MinShadowed = std::min(cost.MinShadowed, c.ShadowedGrooms);
                 cost.StaleEver += c.ByReason[static_cast<sizet>(GroomCoatShadowFallbackReason::RepresentationStale)];
@@ -1846,6 +1863,14 @@ namespace OloEngine::Tests
                         static_cast<f64>(c.BakeMicroseconds) / 1000.0 / std::max(1u, c.Frames),
                         static_cast<f64>(c.WorstFrameMicroseconds) / 1000.0, static_cast<f64>(c.WorstDriftVoxels),
                         c.MinShadowed, c.StaleEver);
+            const f64 perFrame = 1000.0 * std::max(1u, c.Frames);
+            std::printf("[groom-animals] coat rebake %s by stage, ms/frame: pose %.2f, drift %.2f, segments %.2f, "
+                        "binning %.2f, pack %.2f, texture create+upload %.2f; subset stride up to %u\n",
+                        label, static_cast<f64>(c.PoseMicroseconds) / perFrame,
+                        static_cast<f64>(c.DriftMicroseconds) / perFrame,
+                        static_cast<f64>(c.SegmentMicroseconds) / perFrame,
+                        static_cast<f64>(c.BinMicroseconds) / perFrame, static_cast<f64>(c.PackMicroseconds) / perFrame,
+                        static_cast<f64>(c.UploadMicroseconds) / perFrame, c.MaxBakeStride);
             std::fflush(stdout);
         };
 
@@ -1889,8 +1914,12 @@ namespace OloEngine::Tests
         // pose, the reset to the clip start makes it stale on frame one, and
         // this case would pass on the jump without ever testing drift that
         // accumulates while the coat walks.
+        // TWO frames: the first bake of an entry is a full one that measures
+        // the coat, and the second takes the subset it chose (#1445). A stride
+        // change is a rebuild rather than drift, so seeding with one frame would
+        // count that rebuild inside the frozen walk.
         Renderer3D::SetGroomCoatRebakePolicy(shipped);
-        (void)walk(1);
+        (void)walk(2);
         Renderer3D::SetGroomCoatRebakePolicy(frozen);
         const WalkCost frozenCost = walk(kWalk);
         report("frozen", frozenCost);
@@ -2118,44 +2147,74 @@ namespace OloEngine::Tests
     }
 
     // =========================================================================
-    // Criterion 2, LOD: walking the camera away hands the long coat from
-    // strands to cooked cards, and the coat keeps its share of the animal.
+    // Criterion 2, LOD (#1252, #1428): walking the camera away hands each coat
+    // from strands to cooked cards, and the coat keeps its part of the picture.
+    //
+    // TWO MEASURES, because they disagree and the difference is the point.
+    //   * CONTRAST: the summed |luma(coat on) - luma(coat off)|. Linear in
+    //     coverage and in the coat's shading, so it is the quantity a card tier
+    //     can conserve, and the one the tolerance is on.
+    //   * SHARE: pixels the coat visibly changes, over the animal's silhouette.
+    //     A THRESHOLDED count, so it is not linear in coverage: a card tier
+    //     carries the same coverage in fewer, fuller pixels than the sub-pixel
+    //     strands it replaces and counts fewer of them over the threshold. It
+    //     is bounded as the gross-pop guard it always was.
+    //
+    // The pose is FROZEN. The first version captured the coat on and off while
+    // the walk advanced between them, so the legs moving read as coat: it put
+    // the long coat's share at 0.84 of the animal where it is 0.41, and the
+    // card tier's error at 1.35 where it was 1.9 (#1428).
     // =========================================================================
     TEST_F(GroomAnimalsAcceptanceEvidenceTest, TheCoatKeepsItsCoverageFromNearToFar)
     {
         SetPath(RenderingPath::Forward);
         (void)PlayFromStart(30);
-        SubjectRig& s = m_LongCoat;
-        const glm::vec3 target = s.Position + glm::vec3(0.0f, 1.15f, 0.0f);
+        for (SubjectRig* subject : Subjects())
+        {
+            subject->Body.GetComponent<AnimationStateComponent>().m_IsPlaying = false;
+        }
         const glm::vec3 away = glm::normalize(glm::vec3(1.0f, 0.12f, 0.08f));
 
         // A FIXED field of view: the animal genuinely shrinks with distance,
         // which is what the LOD ladder answers to. (Narrowing the lens to keep
-        // it the same size on screen holds the ladder at one rung.)
+        // it the same size on screen holds the ladder at one rung.) The hand-over
+        // is the first stop past CardPixelSize's dead band, where a pop would be.
         struct Stop
         {
             const char* Name;
             f32 Distance;
         };
-        const Stop stops[] = { { "Near", 5.0f }, { "Mid", 14.0f }, { "Far", 32.0f } };
+        const Stop nearStop{ "Near", 5.0f };
+        const Stop midStop{ "Mid", 14.0f };
+        const Stop handoverStop{ "Handover", 19.0f };
+        const Stop farStop{ "Far", 32.0f };
 
-        // The coat's share of the animal's own silhouette, with the ladder
-        // on and off at the same pose and distance. The ladder must keep that
-        // share while drawing a fraction of the strands.
-        const auto share = [&](bool ladder, const Stop& stop, const std::string& name, u32& strands,
-                               GroomRepresentation& representation, f32& compensation)
+        struct Arm
+        {
+            f64 Share = 0.0;
+            f64 Contrast = 0.0;
+            u32 Strands = 0;
+            GroomRepresentation Representation = GroomRepresentation::Strand;
+        };
+        // One arm: the coat on and off at this stop, and the animal's silhouette
+        // on the coat-OFF frame so the coat cannot inflate its own denominator.
+        const auto measure = [&](SubjectRig& s, bool ladder, const Stop& stop, const std::string& png, bool crop)
         {
             s.Coat.GetComponent<GroomLodComponent>().m_Enabled = ladder;
+            const glm::vec3 target = s.Position + glm::vec3(0.0f, 1.15f, 0.0f);
             const View view{ target + away * stop.Distance, target, 40.0f };
+            Arm arm;
             std::vector<u8> on;
-            const u32 coat = CoatPixels(s, view, name, "", &on);
-            strands = PassStats().StrandsDrawn;
-            compensation = PassStats().Lod.MaxWidthCompensation;
+            const u32 coat = CoatPixels(s, view, crop ? "" : png, "", &on);
             const GroomStrandRequest* req = RequestFor(s);
-            representation = req != nullptr ? req->Lod.Representation : GroomRepresentation::Strand;
-            // The animal: every pixel that is not the flat grey sky or the
-            // ground behind it, measured on the coat-OFF frame so the coat
-            // cannot inflate its own denominator.
+            arm.Representation = req != nullptr ? req->Lod.Representation : GroomRepresentation::Strand;
+            // THIS coat's strands, from its own request: the pass's count is
+            // every groom drawn, and another coat on a different tier moves it.
+            if (req != nullptr)
+            {
+                const GroomCoatContext coatContext{ &req->Coat, req->Groom->GetGroupCoats() };
+                arm.Strands = PlanGroomStrandMesh(req->BuildSource(), req->Build, &coatContext).StrandsSelected;
+            }
             s.Coat.GetComponent<GroomComponent>().m_RenderStrands = false;
             std::vector<u8> bare;
             ColdHistory();
@@ -2171,58 +2230,135 @@ namespace OloEngine::Tests
             Capture("", view, nothing, 8);
             bodyTransform.Translation = home;
             const u32 animal = CountDiffering(bare, nothing);
-            std::printf("[groom-animals] lod %s ladder=%d: representation=%u strands=%u compensation=%.2f coat=%u "
-                        "animal=%u share=%.3f\n",
-                        stop.Name, ladder ? 1 : 0, static_cast<u32>(representation), strands,
-                        static_cast<f64>(compensation), coat, animal,
-                        animal > 0 ? static_cast<f64>(coat) / animal : 0.0);
-            std::fflush(stdout);
-            if (!name.empty())
+            arm.Share = animal > 0 ? static_cast<f64>(coat) / static_cast<f64>(animal) : 0.0;
+            for (sizet i = 0; i + 3 < on.size(); i += 4)
+            {
+                const f64 lit = 0.2126 * on[i] + 0.7152 * on[i + 1] + 0.0722 * on[i + 2];
+                const f64 unlit = 0.2126 * bare[i] + 0.7152 * bare[i + 1] + 0.0722 * bare[i + 2];
+                arm.Contrast += std::abs(lit - unlit);
+            }
+            if (crop)
             {
                 // Rule 1 of the visual criteria: look at it enlarged. The crop
                 // is centred on the animal and shrinks with it.
                 const u32 half = std::max(24u, static_cast<u32>(220.0f * 5.0f / stop.Distance));
                 const u32 scale = std::max(2u, 360u / half);
-                WriteEnlargedCrop(name + "_Crop", on, kWidth / 2u - half, kHeight / 2u - half * 9u / 16u, half * 2u,
+                WriteEnlargedCrop(png + "_Crop", on, kWidth / 2u - half, kHeight / 2u - half * 9u / 16u, half * 2u,
                                   half * 9u / 8u, std::min(scale, 8u));
             }
-            return animal > 0 ? static_cast<f64>(coat) / static_cast<f64>(animal) : 0.0;
+            return arm;
         };
 
-        for (const Stop& stop : stops)
+        struct Kept
         {
-            SCOPED_TRACE(stop.Name);
-            u32 strandsOn = 0, strandsOff = 0;
-            GroomRepresentation repOn{}, repOff{};
-            f32 compOn = 1.0f, compOff = 1.0f;
-            const f64 withLadder =
-                share(true, stop, "GroomAnimalsLod_GL_Forward_" + std::string(stop.Name), strandsOn, repOn, compOn);
-            const f64 without =
-                share(false, stop, "GroomAnimalsLodOff_GL_Forward_" + std::string(stop.Name), strandsOff, repOff, compOff);
+            f64 Share = 0.0;
+            f64 Contrast = 0.0;
+            Arm On;
+            Arm Off;
+        };
+        const auto keep = [&](SubjectRig& s, const Stop& stop, const std::string& path, bool crop)
+        {
+            const std::string tail = path + "_" + s.Tag + "_" + stop.Name;
+            Kept k;
+            k.On = measure(s, true, stop, "GroomAnimalsLod_GL_" + tail, crop);
+            k.Off = measure(s, false, stop, "GroomAnimalsLodOff_GL_" + tail, crop);
+            s.Coat.GetComponent<GroomLodComponent>().m_Enabled = true;
+            k.Share = k.Off.Share > 0.0 ? k.On.Share / k.Off.Share : 0.0;
+            k.Contrast = k.Off.Contrast > 0.0 ? k.On.Contrast / k.Off.Contrast : 0.0;
+            std::printf("[groom-animals] lod %s %s %s: representation %u, strands %u / %u, share %.3f / %.3f (kept "
+                        "%.3f), contrast %.0f / %.0f (kept %.3f)\n",
+                        path.c_str(), s.Tag.c_str(), stop.Name, static_cast<u32>(k.On.Representation), k.On.Strands,
+                        k.Off.Strands, k.On.Share, k.Off.Share, k.Share, k.On.Contrast, k.Off.Contrast, k.Contrast);
+            std::fflush(stdout);
+            return k;
+        };
+
+        // THE BOUNDS, and why they are not one number (groom-card-coverage.md).
+        //
+        // On the STRAND tier the budget's per-role compensation keeps the
+        // contrast to within 10% (measured 1.06 and 1.02 at Mid).
+        //
+        // On the CARD tier the ceiling is the defect #1428 was filed for: cards
+        // cooked to their members' summed width drew 2.6x the coat's contrast,
+        // and 1.10 fails that at any stop. The floor is lower because what is
+        // left after the width fix is not the width. With the coats' self-shadow
+        // switched off the long coat keeps 0.98 at the hand-over and 0.94 at
+        // 32 m, on every path; with it on, 0.88 and 0.82 -- the card tier's
+        // coarser fibres shadow less even at the coat's fibre area -- and the
+        // short coat keeps 0.85 and 0.74, 0.81 at 32 m even unshadowed. Those two
+        // residuals are #1428's remaining work, and the floor sits below them
+        // so this case pins the fix without pretending they are closed.
+        constexpr f64 kStrandTierTolerance = 0.10;
+        constexpr f64 kCardTierFloor = 0.70;
+        constexpr f64 kCardTierCeiling = 1.10;
+        // The share's gross-pop guard: the card tier puts its coverage in fewer
+        // pixels than the strands did (see the header), so it is bounded below
+        // far more loosely than it is above. The summed cards read 1.9-2.0.
+        constexpr f64 kShareFloor = 0.20;
+        constexpr f64 kShareCeiling = 1.15;
+
+        for (SubjectRig* s : { &m_LongCoat, &m_ShortCoat })
+        {
+            SCOPED_TRACE(s->Name);
+            // THE CONTROL: close up both arms draw every strand at its own width,
+            // so the two frames are the same frame and anything but 1 is the
+            // measurement, not the ladder.
+            const Kept atNear = keep(*s, nearStop, "Forward", true);
             ASSERT_FALSE(HasFatalFailure());
-            ASSERT_GT(without, 0.02) << "the coat must be visible at " << stop.Name << " to be conserved at all";
-            const f64 kept = withLadder / without;
-            std::printf("[groom-animals] lod %s: the ladder keeps %.3f of the full coat's share\n", stop.Name, kept);
-            if (std::string(stop.Name) != "Far")
+            ASSERT_GT(atNear.Off.Share, 0.02) << "the coat must be visible to be conserved at all";
+            EXPECT_EQ(atNear.On.Strands, atNear.Off.Strands) << "the control drew different strands";
+            EXPECT_NEAR(atNear.Contrast, 1.0, 0.01) << "two identical frames measured different coats";
+
+            for (const Stop& stop : { midStop, handoverStop, farStop })
             {
-                EXPECT_NEAR(kept, 1.0, 0.30) << stop.Name << ": the ladder must keep the coat's share of the animal";
-            }
-            else
-            {
-                // MEASURED GAP, not a tolerance chosen to pass: at 32 m the
-                // cooked card tier covers ~1.3x the share of the full strand
-                // coat on this animal (it was 1.32 on the run that filed the
-                // issue). #1252's own reference coats land within a few
-                // percent; this coat does not. The bound here catches a GROSS
-                // hand-over pop in either direction and nothing finer; the
-                // finer contract is the follow-up issue's.
-                EXPECT_GT(kept, 0.70) << "the card tier must not lose the coat";
-                EXPECT_LT(kept, 1.50) << "the card tier must not balloon the coat";
-                EXPECT_EQ(repOn, GroomRepresentation::Card) << "at 32 m the long coat is on the cooked card tier";
-                EXPECT_LT(strandsOn * 4u, strandsOff) << "and draws under a quarter of the strands";
+                SCOPED_TRACE(stop.Name);
+                const Kept k = keep(*s, stop, "Forward", true);
+                ASSERT_FALSE(HasFatalFailure());
+                EXPECT_GT(k.Share, kShareFloor) << "the ladder lost the coat";
+                EXPECT_LT(k.Share, kShareCeiling) << "the ladder ballooned the coat";
+                if (std::string_view(stop.Name) == midStop.Name)
+                {
+                    EXPECT_EQ(k.On.Representation, GroomRepresentation::Strand) << "Mid must be on the strand tier";
+                    EXPECT_NEAR(k.Contrast, 1.0, kStrandTierTolerance) << "the strand budget did not keep the contrast";
+                }
+                else
+                {
+                    EXPECT_GT(k.Contrast, kCardTierFloor) << "the card tier lost the coat";
+                    EXPECT_LT(k.Contrast, kCardTierCeiling) << "the card tier ballooned the coat";
+                    EXPECT_EQ(k.On.Representation, GroomRepresentation::Card) << "past the hand-over the coat is on cards";
+                    EXPECT_LT(k.On.Strands * 4u, k.Off.Strands) << "and draws under a quarter of the strands";
+                }
             }
         }
-        s.Coat.GetComponent<GroomLodComponent>().m_Enabled = true;
+
+        // The hand-over on the other two paths, and under MSAA, where the pop
+        // would show if the card tier's coverage depended on how the frame is
+        // composed. Full frames, on and off: the A/B is the evidence.
+        auto& rs = Renderer3D::GetRendererSettings();
+        const u32 restoreSamples = rs.Deferred.MSAASampleCount;
+        struct PathCell
+        {
+            const char* Name;
+            RenderingPath Path;
+            u32 Samples;
+        };
+        for (const PathCell& cell : { PathCell{ "Deferred", RenderingPath::Deferred, 1u },
+                                      PathCell{ "ForwardPlus", RenderingPath::ForwardPlus, 1u },
+                                      PathCell{ "DeferredMsaa4", RenderingPath::Deferred, 4u } })
+        {
+            SCOPED_TRACE(cell.Name);
+            SetPath(cell.Path);
+            rs.Deferred.MSAASampleCount = cell.Samples;
+            const Kept k = keep(m_LongCoat, handoverStop, cell.Name, false);
+            ASSERT_FALSE(HasFatalFailure());
+            EXPECT_EQ(k.On.Representation, GroomRepresentation::Card);
+            EXPECT_GT(k.Contrast, kCardTierFloor) << cell.Name;
+            EXPECT_LT(k.Contrast, kCardTierCeiling) << cell.Name;
+            EXPECT_GT(k.Share, kShareFloor) << cell.Name;
+            EXPECT_LT(k.Share, kShareCeiling) << cell.Name;
+        }
+        rs.Deferred.MSAASampleCount = restoreSamples;
+        SetPath(RenderingPath::Forward);
     }
 
     // =========================================================================

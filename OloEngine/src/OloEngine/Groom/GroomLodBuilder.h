@@ -112,6 +112,60 @@ namespace OloEngine
         return "MeanCentreline";
     }
 
+    // How wide a card is: what its cluster's members COVER as the renderer draws
+    // them at the hand-over, or what they would cover if none overlapped.
+    //
+    // TWO CANDIDATES, and the second one is the fix for #1428. The first
+    // version summed the members' widths, which is exact only while no member
+    // hides behind another. Strands that share a clump cell grow from roots a
+    // few millimetres apart and are combed the same way, so on a dense coat
+    // they overlap heavily: on the long-coated horse the long-hair role's
+    // members cover 0.40 of their summed width, and the summed card tier drew
+    // 1.35-1.9x the coat's share of the animal past the hand-over.
+    //
+    // THE PIXEL IS PART OF THE ANSWER, and the exact geometric union is the
+    // wrong target without it. Past the hand-over a strand is thinner than a
+    // pixel; the strand shader widens it to one pixel at an alpha of its true
+    // width, and overlapping strands then cover 1 - prod(1 - alpha), as if
+    // they were independent. So a lock of strands that geometrically covers one
+    // strand's width is DRAWN wider than that, by an amount set by the pixel.
+    // The exact union made the card tier keep 0.65 of the coat's share; the
+    // sum made it keep 1.92. The card needs what the strands are drawn as.
+    enum class GroomCardWidth : u8
+    {
+        /// The sum of the members' widths: the covered width of a cluster in
+        /// which no member overlaps another, and what every cluster tends to
+        /// as the pixel grows past it. The measured-and-rejected alternative.
+        Summed = 0,
+
+        /// The width the members cover AS THE STRAND SHADER DRAWS THEM when
+        /// the coat is GroomCardSettings::SourcePixelSize pixels across: each
+        /// member a band of its own width at its own offset from the card,
+        /// widened to a pixel at a proportional alpha if it is thinner, the
+        /// bands composited as independent layers, integrated across the card
+        /// and averaged over the directions it can be seen from. The exact
+        /// geometric union when SourcePixelSize is zero; never more than the
+        /// sum; the sum itself when no two members overlap -- which is why the
+        /// reference coats #1252 measured barely moved.
+        Covered = 1,
+
+        Count
+    };
+
+    [[nodiscard]] constexpr std::string_view ToString(GroomCardWidth width) noexcept
+    {
+        switch (width)
+        {
+            case GroomCardWidth::Summed:
+                return "Summed";
+            case GroomCardWidth::Covered:
+                return "Covered";
+            case GroomCardWidth::Count:
+                break;
+        }
+        return "Summed";
+    }
+
     // How a card level is formed. Every field is an AUTHORING choice with a
     // visible consequence, which is why none of them is a magic number inside
     // the builder.
@@ -121,6 +175,9 @@ namespace OloEngine
         /// measured comparison selected — see
         /// docs/analysis/groom-representation-lod-1252.md.
         GroomCardAggregation Aggregation = GroomCardAggregation::RepresentativeStrand;
+
+        /// How wide each card is. The default is the one #1428 measured.
+        GroomCardWidth Width = GroomCardWidth::Covered;
 
         /// Root-UV cell edge one card is formed over. This is the knob: a
         /// larger cell means fewer, fatter cards and a coarser silhouette.
@@ -140,8 +197,14 @@ namespace OloEngine
         /// lost the comparison.
         u32 PointsPerCard = 6;
 
-        /// Recorded on the level as the apparent size the cook aimed at.
-        /// Advisory: GroomLodPolicy decides where the hand-over happens.
+        /// The coat's apparent size, in pixels across its largest extent, at
+        /// which the cook expects the card tier to take over. Recorded on the
+        /// level, and it sets the pixel GroomCardWidth::Covered measures at:
+        /// one pixel spans (largest extent / SourcePixelSize) of the groom.
+        /// GroomLodPolicy still decides where the hand-over happens, so keep
+        /// this equal to the policy's CardPixelSize (both default to 256); a
+        /// card is only width-matched to the strands at the size it was cooked
+        /// for. Zero measures the exact geometric union instead.
         f32 SourcePixelSize = 256.0f;
 
         /// Upper bound on the cards produced. EXCEEDING IT IS AN ERROR, NOT A
@@ -163,11 +226,16 @@ namespace OloEngine
         u32 SmallestCluster = 0;
         u32 LargestCluster = 0;
         f32 MeanCluster = 0.0f;
-        /// Summed cooked width of every member, and of every card, sampled at
-        /// the parameters the emitted card uses. EQUAL to within float
-        /// accumulation and the format's width clamp, and asserted rather than
-        /// assumed: this IS the apparent-density claim of criterion 1, and a
-        /// clustering bug that dropped a member would show here first.
+        /// Summed cooked width of every member, the width those members
+        /// COVER as drawn at the hand-over (GroomCardWidth::Covered), and the
+        /// width every card carries,
+        /// all sampled at the parameters the emitted card uses. The card sum
+        /// EQUALS the member sum under Summed and the covered sum under
+        /// Covered, to within float accumulation and the format's width clamp,
+        /// and it is asserted rather than assumed: this IS the apparent-density
+        /// claim of criterion 1, and a clustering bug that dropped a member
+        /// would show here first. Covered over Summed is how much the members
+        /// overlap: 1 when none do.
         ///
         /// The two are NOT comparable between aggregations: MeanCentreline
         /// samples PointsPerCard uniform parameters and RepresentativeStrand
@@ -175,7 +243,11 @@ namespace OloEngine
         /// totals under the two. Compare each against its own card sum, never
         /// one mode's against the other's.
         f64 MemberWidthSum = 0.0;
+        f64 MemberCoveredWidthSum = 0.0;
         f64 CardWidthSum = 0.0;
+        /// One pixel at the hand-over, in groom units: the footprint
+        /// GroomCardWidth::Covered measured at. Zero means the exact union.
+        f32 PixelFootprint = 0.0f;
     };
 
     class GroomLodBuilder

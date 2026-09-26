@@ -18,9 +18,13 @@
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
 
+#include <glm/gtc/packing.hpp>
+
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <chrono>
+#include <limits>
 #include <vector>
 
 namespace OloEngine
@@ -31,6 +35,35 @@ namespace OloEngine
         // same frame must produce the same picture, or every pixel A/B in the
         // verification matrix becomes a comparison of two noise fields.
         constexpr u32 kStochasticSeed = 1246;
+
+        // The fibre area of a curve set: the sum over its segments of length
+        // times mean DIAMETER, which is what a density volume bins (#1248). Of
+        // the cooked geometry, before any coat authoring, so a card level and
+        // the groom it was cooked from are compared like for like.
+        [[nodiscard]] f64 FibreArea(const GroomCurveView& curves) noexcept
+        {
+            f64 area = 0.0;
+            const auto& points = curves.GetPoints();
+            const auto& widths = curves.GetPointWidths();
+            for (u32 curve = 0; curve < curves.GetCurveCount(); ++curve)
+            {
+                const u32 first = curves.GetCurveFirstPoint(curve);
+                const u32 count = curves.GetCurvePointCount(curve);
+                for (u32 i = 0; i + 1u < count; ++i)
+                {
+                    const f64 length = static_cast<f64>(glm::length(points[first + i + 1u] - points[first + i]));
+                    area += length * 0.5 * (static_cast<f64>(widths[first + i]) + static_cast<f64>(widths[first + i + 1u]));
+                }
+            }
+            return area;
+        }
+
+        // Microseconds since `start`, for the per-stage counters.
+        [[nodiscard]] u64 MicrosecondsSince(std::chrono::steady_clock::time_point start) noexcept
+        {
+            return static_cast<u64>(
+                std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count());
+        }
 
         // How many coat volumes may be resident at once. A budget rather than
         // "as many as ask", because the representation is a 3D texture whose size
@@ -54,6 +87,12 @@ namespace OloEngine
         {
             cacheBytes -= std::min(cacheBytes, entry.CoatBytes);
             entry.CoatVolume = nullptr;
+            // The whole ring: its bytes are all in CoatBytes, so all of it goes.
+            for (auto& slot : entry.CoatRing)
+            {
+                slot = {};
+            }
+            entry.CoatSlot = 0;
             entry.CoatResolution = 0;
             entry.CoatBytes = 0;
             entry.CoatBakedPose.clear();
@@ -234,6 +273,9 @@ namespace OloEngine
         key = mix(key, static_cast<u64>(request.Build.MaxStrands));
         key = mix(key, static_cast<u64>(request.Build.MaxSegments));
         key = mix(key, request.Build.GuidesOnly ? 1ull : 0ull);
+        // The per-role width compensation is BUILT INTO the stream (#1428), so
+        // a different cap is different geometry.
+        key = mix(key, static_cast<u64>(std::bit_cast<u32>(request.Build.MaxWidthCompensation)));
         // The coat authoring (#1251), as one digest. It is a FIELD of the build
         // settings for exactly this reason: the geometry a coat produces depends
         // on every slider on GroomCoatComponent and on the CONTENT of both root-UV
@@ -298,6 +340,7 @@ namespace OloEngine
         key = mix(key, static_cast<u64>(request.Build.MaxStrands));
         key = mix(key, static_cast<u64>(request.Build.MaxSegments));
         key = mix(key, request.Build.GuidesOnly ? 1ull : 0ull);
+        key = mix(key, static_cast<u64>(std::bit_cast<u32>(request.Build.MaxWidthCompensation)));
         key = mix(key, request.Build.CoatDigest);
         key = mix(key, static_cast<u64>(std::to_underlying(request.Lod.Representation)));
         key = mix(key, request.Binding ? static_cast<u64>(request.Binding->GetHandle()) : 0ull);
@@ -588,18 +631,76 @@ namespace OloEngine
                                                indices, rootCurves, &coat, &stream.PoseSegments);
                 stream.PoseSegmentsBuilt = true;
             }
+            // THE BAKE SUBSET (#1445), taken BEFORE the evaluation so the
+            // evaluation, the drift and the binning all pay for the subset
+            // rather than the coat. The same hash on the same segment order as
+            // the CPU path's SubsampleCoatSegments, so the two paths bake the
+            // same segments.
+            entry.CoatFullPoseSegments = stream.PoseSegments.size();
+            RefreshCoatBakeStride(entry);
+            entry.CoatPoseStride = entry.CoatBakeStride;
+            std::span<const GroomRestPoseSegment> evaluate = stream.PoseSegments;
+            if (entry.CoatPoseStride > 1u)
+            {
+                if (entry.CoatPoseSubsetStride != entry.CoatPoseStride || entry.CoatPoseSubsetSource != &stream)
+                {
+                    entry.CoatPoseSubset.clear();
+                    for (sizet s = 0; s < stream.PoseSegments.size(); ++s)
+                    {
+                        if (GroomCoatShadow::CoatBakeKeepsSegment(static_cast<u32>(s), entry.CoatPoseStride))
+                        {
+                            entry.CoatPoseSubset.push_back(stream.PoseSegments[s]);
+                        }
+                    }
+                    // Never empty: a stride that kept nothing bakes the coat
+                    // whole, as SubsampleCoatSegments does on the CPU path.
+                    if (entry.CoatPoseSubset.empty())
+                    {
+                        entry.CoatPoseSubset.assign(stream.PoseSegments.begin(), stream.PoseSegments.end());
+                    }
+                    const f32 scale = static_cast<f32>(stream.PoseSegments.size()) /
+                                      static_cast<f32>(entry.CoatPoseSubset.size());
+                    for (GroomRestPoseSegment& segment : entry.CoatPoseSubset)
+                    {
+                        segment.Radius0 *= scale;
+                        segment.Radius1 *= scale;
+                    }
+                    entry.CoatPoseSubsetStride = entry.CoatPoseStride;
+                    entry.CoatPoseSubsetSource = &stream;
+                }
+                evaluate = entry.CoatPoseSubset;
+            }
             // THE POSE THE GPU DRAWS: evaluated from the same packed bytes the
             // vertex shader reads, by the CPU twin of its arithmetic.
-            EvaluateGroomDeformedPose(entry.DeformCpu, stream.PoseSegments, m_DrawnPose);
+            EvaluateGroomDeformedPose(entry.DeformCpu, evaluate, m_DrawnPose);
         }
         else
         {
-            GroomCoatShadow::CoatPoseFromStrandVertices(m_DeformedVertices, m_DrawnPose);
+            GroomCoatShadow::CoatPoseFromStrandVertices(m_DeformedVertices, m_DrawnPoseFull);
+            entry.CoatFullPoseSegments = m_DrawnPoseFull.size();
+            RefreshCoatBakeStride(entry);
+            entry.CoatPoseStride = entry.CoatBakeStride;
+            (void)GroomCoatShadow::SubsampleCoatSegments(m_DrawnPoseFull, entry.CoatPoseStride, m_DrawnPose);
         }
         m_Stats.DeformedPoseMicroseconds += static_cast<u64>(
             std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - poseStart)
                 .count());
         return m_DrawnPose;
+    }
+
+    void GroomRenderPass::RefreshCoatBakeStride(CacheEntry& entry) const noexcept
+    {
+        // THE STRIDE THE CURRENT POLICY WANTS, taken before the pose rather
+        // than only after a bake, so a policy change reaches a coat standing
+        // still: its pose then comes out at the new stride, which differs from
+        // the resident bake's, and that is a rebuild. Only once a full bake has
+        // measured the coat; a resolution change is re-measured at the bake.
+        if (entry.CoatFullOccupiedVoxels > 0u && entry.CoatOccupancyResolution == entry.CoatResolution)
+        {
+            entry.CoatBakeStride =
+                GroomCoatShadow::CoatBakeSubsetStride(entry.CoatFullPoseSegments, entry.CoatFullOccupiedVoxels,
+                                                      m_CoatRebakePolicy.BakeSegmentsPerOccupiedVoxel);
+        }
     }
 
     GroomRenderPass::CacheEntry* GroomRenderPass::AcquireGeometry(const GroomStrandRequest& request)
@@ -828,7 +929,7 @@ namespace OloEngine
     }
 
     bool GroomRenderPass::BakeCoatVolume(CacheEntry& entry, std::span<const GroomCoatShadow::CoatSegment> segments,
-                                         u32 resolution)
+                                         u32 resolution, bool ring, u32* outOccupiedVoxels)
     {
         if (segments.empty())
         {
@@ -837,10 +938,18 @@ namespace OloEngine
 
         GroomCoatShadow::DensityVolumeSettings volumeSettings;
         volumeSettings.Resolution = resolution;
-        GroomCoatShadow::DensityVolume volume;
-        if (!GroomCoatShadow::BuildDensityVolume(segments, volumeSettings, volume, nullptr))
+        GroomCoatShadow::DensityVolume& volume = m_CoatVolumeScratch;
+        GroomCoatShadow::DensityVolumeBuildStats volumeStats;
+        const auto binStart = std::chrono::steady_clock::now();
+        const bool binned = GroomCoatShadow::BuildDensityVolume(segments, volumeSettings, volume, &volumeStats);
+        m_Stats.CoatShadow.BakeBinMicroseconds += MicrosecondsSince(binStart);
+        if (!binned)
         {
             return false;
+        }
+        if (outOccupiedVoxels != nullptr)
+        {
+            *outOccupiedVoxels = volumeStats.OccupiedVoxels;
         }
 
         // ONE RGBA texture: xyz = mean fibre direction * coherence,
@@ -848,50 +957,156 @@ namespace OloEngine
         // march is a per-fragment hot loop and two fetches per step
         // would double its bandwidth — and because the sampler
         // namespace had exactly one index left.
+        //
+        // RGBA16F, half the bytes of the RGBA32F it was until #1445 fixed the
+        // GL backend's half-float upload. The direction is in [-1, 1] and the
+        // density is a fibre area per volume, a few hundred at most on every
+        // coat measured; a volume whose density would overflow a half keeps
+        // the RGBA32F path rather than uploading infinities.
         const sizet voxels = static_cast<sizet>(volume.Dimensions.x) * static_cast<sizet>(volume.Dimensions.y) *
                              static_cast<sizet>(volume.Dimensions.z);
-        std::vector<f32> packed(voxels * 4u, 0.0f);
-        for (sizet i = 0; i < voxels; ++i)
+        const auto packStart = std::chrono::steady_clock::now();
+        constexpr f32 kLargestHalf = 65504.0f;
+        const f32 densest = volume.Density.empty() ? 0.0f : *std::max_element(volume.Density.begin(), volume.Density.end());
+        const bool half = densest < kLargestHalf;
+        const void* texels = nullptr;
+        sizet texelBytes = 0;
+        if (half)
         {
-            packed[i * 4u + 0u] = volume.Direction[i].x;
-            packed[i * 4u + 1u] = volume.Direction[i].y;
-            packed[i * 4u + 2u] = volume.Direction[i].z;
-            packed[i * 4u + 3u] = volume.Density[i];
+            m_CoatPackHalf.resize(voxels * 4u);
+            for (sizet i = 0; i < voxels; ++i)
+            {
+                m_CoatPackHalf[i * 4u + 0u] = glm::packHalf1x16(volume.Direction[i].x);
+                m_CoatPackHalf[i * 4u + 1u] = glm::packHalf1x16(volume.Direction[i].y);
+                m_CoatPackHalf[i * 4u + 2u] = glm::packHalf1x16(volume.Direction[i].z);
+                m_CoatPackHalf[i * 4u + 3u] = glm::packHalf1x16(volume.Density[i]);
+            }
+            texels = m_CoatPackHalf.data();
+            texelBytes = m_CoatPackHalf.size() * sizeof(u16);
         }
+        else
+        {
+            m_CoatPackFloat.resize(voxels * 4u);
+            for (sizet i = 0; i < voxels; ++i)
+            {
+                m_CoatPackFloat[i * 4u + 0u] = volume.Direction[i].x;
+                m_CoatPackFloat[i * 4u + 1u] = volume.Direction[i].y;
+                m_CoatPackFloat[i * 4u + 2u] = volume.Direction[i].z;
+                m_CoatPackFloat[i * 4u + 3u] = volume.Density[i];
+            }
+            texels = m_CoatPackFloat.data();
+            texelBytes = m_CoatPackFloat.size() * sizeof(f32);
+        }
+        m_Stats.CoatShadow.BakePackMicroseconds += MicrosecondsSince(packStart);
 
         Texture3DSpecification spec;
         spec.Width = static_cast<u32>(volume.Dimensions.x);
         spec.Height = static_cast<u32>(volume.Dimensions.y);
         spec.Depth = static_cast<u32>(volume.Dimensions.z);
-        // RGBA32F, 16 bytes a voxel, and NOT the RGBA16F the packing
-        // would prefer: Texture3D's RGBA16F declares 8 bytes a texel
-        // but uploads its client data as GL_FLOAT, so SetData's own
-        // size check rejects the only buffer it could be handed. The
-        // engine's one other RGBA16F volume is written by a compute
-        // image store and never goes through SetData, which is why the
-        // mismatch has not been hit before. Half the memory is
-        // available here the moment that path is fixed.
-        spec.Format = Texture3DFormat::RGBA32F;
+        spec.Format = half ? Texture3DFormat::RGBA16F : Texture3DFormat::RGBA32F;
         // CLAMP, never repeat. A march that leaves the box must read the
         // empty boundary voxel, not wrap round to the other side of the
         // animal — and the bake pads its bounds precisely so those
         // boundary voxels are empty.
         spec.Repeat = false;
 
-        // A NEW texture per bake, never a SetData into the resident one,
-        // including for a bound coat that rebakes every few frames (#1426).
-        // The draw that last sampled the old volume may still be in flight,
-        // and on Vulkan an in-place upload into an image a queued frame reads
-        // is a hazard rather than a copy; releasing the Ref defers the delete
-        // behind that frame instead. The bake's dimensions also move with the
-        // pose, so an in-place upload would need its own resize path anyway.
-        Ref<Texture3D> texture = Texture3D::Create(spec);
-        if (!texture)
+        // ── The ring (#1445) ───────────────────────────────────────────
+        //
+        // A RING SLOT IS REWRITTEN IN PLACE only when no recording still to be
+        // submitted can read it: never one a draw bound in this FRAME or the
+        // one before. Counted in frames, not in this pass's ticks, because the
+        // pass executes once per camera and every camera's draws in one frame
+        // share one submission. Everything bound before that is submitted, and
+        // both backends order an upload after the reads already submitted --
+        // GL by its own rules, Vulkan because SetData is a one-shot on the
+        // same queue whose barrier's first scope is everything submitted
+        // before it. The bake's dimensions move with the pose, so a slot whose
+        // texture is the wrong size or format gets a new texture instead, and
+        // the old one's Ref is dropped into the deferred deletion as before.
+        const u32 frame = m_FrameState.FrameIndex;
+        const auto readable = [frame](const CacheEntry::CoatVolumeSlot& slot)
+        { return slot.Bound && frame - slot.LastBoundFrame <= 1u; };
+        const auto fits = [&spec](const CacheEntry::CoatVolumeSlot& slot)
         {
-            return false;
+            if (!slot.Texture)
+            {
+                return false;
+            }
+            const Texture3DSpecification& have = slot.Texture->GetSpecification();
+            return have.Width == spec.Width && have.Height == spec.Height && have.Depth == spec.Depth &&
+                   have.Format == spec.Format;
+        };
+        u32 target = kCoatVolumeRing;
+        for (u32 i = 0; i < kCoatVolumeRing && target == kCoatVolumeRing; ++i)
+        {
+            if (!readable(entry.CoatRing[i]) && fits(entry.CoatRing[i]))
+            {
+                target = i;
+            }
         }
-        texture->SetData(packed.data(), static_cast<u32>(packed.size() * sizeof(f32)));
-        entry.CoatVolume = texture;
+        const bool inPlace = target != kCoatVolumeRing;
+        if (!inPlace)
+        {
+            // An unreadable slot to replace, the least recently bound first;
+            // failing that (every slot bound in the last two ticks, which one
+            // camera rebaking once a frame cannot cause) the least recently
+            // bound of all. Replacing a texture is always safe: the old one
+            // outlives its frames in the deferred deletion.
+            const auto leastRecentlyBound = [&](bool unreadableOnly)
+            {
+                u32 pick = kCoatVolumeRing;
+                u64 oldest = std::numeric_limits<u64>::max();
+                for (u32 i = 0; i < kCoatVolumeRing; ++i)
+                {
+                    const CacheEntry::CoatVolumeSlot& candidate = entry.CoatRing[i];
+                    // Unsigned distance, so the wrapped frame counter orders
+                    // correctly across its wrap.
+                    const u64 age = candidate.Bound ? ~static_cast<u64>(frame - candidate.LastBoundFrame) : 0u;
+                    if ((!unreadableOnly || !readable(candidate)) && (pick == kCoatVolumeRing || age < oldest))
+                    {
+                        pick = i;
+                        oldest = age;
+                    }
+                }
+                return pick;
+            };
+            target = leastRecentlyBound(true);
+            if (target == kCoatVolumeRing)
+            {
+                target = leastRecentlyBound(false);
+            }
+        }
+
+        const auto uploadStart = std::chrono::steady_clock::now();
+        CacheEntry::CoatVolumeSlot& slot = entry.CoatRing[target];
+        if (!inPlace)
+        {
+            Ref<Texture3D> texture = Texture3D::Create(spec);
+            if (!texture)
+            {
+                return false;
+            }
+            slot.Texture = texture;
+            slot.Bound = false;
+        }
+        slot.Texture->SetData(texels, static_cast<u32>(texelBytes));
+        m_Stats.CoatShadow.BakeUploadMicroseconds += MicrosecondsSince(uploadStart);
+
+        entry.CoatSlot = target;
+        entry.CoatVolume = slot.Texture;
+        // A coat that does not rebake as it moves (a static coat, rebuilt only
+        // on a LOD or authoring change) keeps ONE volume: the others are
+        // dropped into the deferred deletion, which outlives their frames.
+        if (!ring)
+        {
+            for (u32 i = 0; i < kCoatVolumeRing; ++i)
+            {
+                if (i != target)
+                {
+                    entry.CoatRing[i] = {};
+                }
+            }
+        }
         entry.CoatBoundsMin = volume.BoundsMin;
         entry.CoatBoundsMax = volume.BoundsMax;
         entry.CoatResolution = resolution;
@@ -904,10 +1119,23 @@ namespace OloEngine
         // three-voxel one.
         const glm::vec3 voxelSize = volume.VoxelSize();
         entry.CoatVoxelSize = std::min({ voxelSize.x, voxelSize.y, voxelSize.z });
-        // Replacing a bake: the old bytes come off before the new
-        // ones go on, or a resolution change leaks the difference.
+        // EVERY slot's bytes, because every slot is resident: the old bytes
+        // come off before the new ones go on, or a resolution change leaks
+        // the difference.
+        u64 ringBytes = 0;
+        for (const CacheEntry::CoatVolumeSlot& held : entry.CoatRing)
+        {
+            if (held.Texture)
+            {
+                const Texture3DSpecification& heldSpec = held.Texture->GetSpecification();
+                const u64 texelBytes = heldSpec.Format == Texture3DFormat::RGBA16F   ? 8ull
+                                       : heldSpec.Format == Texture3DFormat::RGBA32F ? 16ull
+                                                                                     : 4ull; // R32F, RGBA8
+                ringBytes += static_cast<u64>(heldSpec.Width) * heldSpec.Height * heldSpec.Depth * texelBytes;
+            }
+        }
         m_CacheBytes -= std::min(m_CacheBytes, entry.CoatBytes);
-        entry.CoatBytes = static_cast<u64>(packed.size() * sizeof(f32));
+        entry.CoatBytes = ringBytes;
         m_CacheBytes += entry.CoatBytes;
         entry.CoatBuiltTick = m_CacheTick;
         return true;
@@ -1094,7 +1322,12 @@ namespace OloEngine
         // sampled, because a rest volume under a posed coat is exactly the
         // failure this slice removes.
         const bool deformed = inputs.GroomIsDeformed;
-        const bool bakeSourceMatches = entry.CoatBakedFromPose == deformed;
+        // And, for a pose bake, the SUBSET it was baked from (#1445): a stride
+        // change is a different segment set, so it is a rebuild, not drift --
+        // which also keeps a coat whose drift rebake is switched off shadowed
+        // across the one stride change its first full bake makes.
+        const bool bakeSourceMatches =
+            entry.CoatBakedFromPose == deformed && (!deformed || entry.CoatBakedStride == entry.CoatPoseStride);
 
         // ── The drift bound (#1426) ──────────────────────────────────
         //
@@ -1105,8 +1338,10 @@ namespace OloEngine
         f32 driftVoxels = 0.0f;
         if (deformed && entry.CoatVolume && bakeSourceMatches)
         {
+            const auto driftStart = std::chrono::steady_clock::now();
             driftVoxels = GroomCoatShadow::CoatDriftInVoxels(
                 GroomCoatShadow::MaxCoatPoseDrift(entry.CoatBakedPose, drawnPose), entry.CoatVoxelSize);
+            m_Stats.CoatShadow.DriftMicroseconds += MicrosecondsSince(driftStart);
         }
         const bool poseMoved = deformed && GroomCoatShadow::CoatRebakeIsDue(driftVoxels, m_CoatRebakePolicy);
 
@@ -1124,21 +1359,64 @@ namespace OloEngine
         {
             const auto bakeStart = std::chrono::steady_clock::now();
 
-            std::vector<GroomCoatShadow::CoatSegment> segments;
+            std::vector<GroomCoatShadow::CoatSegment>& segments = m_CoatSegments;
             u32 emitted = 0;
+            const auto segmentStart = std::chrono::steady_clock::now();
             if (deformed)
             {
                 // The DRAWN strands: the same budget, the same LOD tier, the
                 // same coat authoring and the same guide motion the ribbons on
                 // screen were built with, because they are those ribbons.
-                emitted = GroomCoatShadow::BuildCoatSegmentsFromPose(drawnPose, request.WidthScale, segments);
+                //
+                // EXCEPT THEIR WIDTH, on the card tier (#1428). A card is drawn
+                // as wide as its members COVER, which on a dense coat is well
+                // under the fibre they are made of -- a lock of forty strands
+                // covers little more than one -- and fibre is what shadows. So a
+                // card-tier bake is scaled back up to the coat's own fibre area.
+                // Without it the card tier read as a lighter coat than the
+                // strands it replaced: switching the long coat's self-shadow off
+                // moved the card tier from 0.85 of the strand tier's contrast to
+                // 0.97, and from 0.75 to 0.93 at 32 m.
+                f32 fibreScale = 1.0f;
+                if (request.LodLevel != nullptr)
+                {
+                    // Keyed on the LEVEL it was measured from, so a recooked
+                    // level on a reused cache entry is measured again.
+                    if (!(entry.CoatFibreAreaScale > 0.0f) || entry.CoatFibreAreaSource != request.LodLevel)
+                    {
+                        entry.CoatFibreAreaSource = request.LodLevel;
+                        const f64 base = FibreArea(request.Groom->GetCurveView());
+                        const f64 level = FibreArea(request.LodLevel->GetCurveView());
+                        const f64 scale = level > 0.0 ? base / level : 1.0;
+                        entry.CoatFibreAreaScale =
+                            std::isfinite(scale) && scale > 0.0 ? static_cast<f32>(scale) : 1.0f;
+                    }
+                    fibreScale = entry.CoatFibreAreaScale;
+                }
+                emitted = GroomCoatShadow::BuildCoatSegmentsFromPose(drawnPose, request.WidthScale * fibreScale,
+                                                                     segments);
             }
             else
             {
                 GroomCoatShadow::CoatSampleSettings sampleSettings;
                 sampleSettings.MaxStrands = request.Build.MaxStrands;
                 sampleSettings.MaxSegments = request.Build.MaxSegments;
-                sampleSettings.WidthScale = request.WidthScale;
+                // COMPENSATED AS THE DRAWN COAT IS (#1428). A bound coat's bake
+                // reads the drawn stream, whose radii carry the LOD's width
+                // compensation, so it stores the coat's fibre area at every LOD
+                // step; this bake samples the asset at its own uniform stride, so
+                // it takes the same compensation for that stride, under the same
+                // cap. With no LOD the cap is 1: a coat AUTHORED sparse through
+                // m_MaxRenderStrands is drawn sparse and shadows sparse (rule 3 of
+                // groom-coat-self-shadowing.md).
+                const u32 curves = request.Groom->GetCurveCount();
+                const u32 sampleStride =
+                    curves > request.Build.MaxStrands && request.Build.MaxStrands > 0u
+                        ? (curves + request.Build.MaxStrands - 1u) / request.Build.MaxStrands
+                        : 1u;
+                const f32 sampleCompensation = GroomRoleWidthCompensation(curves, sampleStride,
+                                                                          request.Build.MaxWidthCompensation);
+                sampleSettings.WidthScale = request.WidthScale * sampleCompensation;
                 sampleSettings.GuidesOnly = request.Build.GuidesOnly;
 
                 // IDENTITY, not the model matrix: the bake is in OBJECT space so
@@ -1146,8 +1424,10 @@ namespace OloEngine
                 // shading point back through u_GroomCoatWorldToObject.
                 emitted = GroomCoatShadow::BuildCoatSegments(*request.Groom, glm::mat4(1.0f), sampleSettings, segments);
             }
+            m_Stats.CoatShadow.BakeSegmentMicroseconds += MicrosecondsSince(segmentStart);
 
-            if (emitted > 0 && BakeCoatVolume(entry, segments, resolution))
+            u32 occupiedVoxels = 0;
+            if (emitted > 0 && BakeCoatVolume(entry, segments, resolution, deformed, &occupiedVoxels))
             {
                 entry.CoatLodStep = lodStep;
                 entry.CoatWidthScale = request.WidthScale;
@@ -1159,8 +1439,26 @@ namespace OloEngine
                     // was baked.
                     GroomCoatShadow::CaptureCoatPose(drawnPose, entry.CoatBakedPose);
                     entry.CoatBakedFromPose = true;
+                    entry.CoatBakedStride = entry.CoatPoseStride;
                     driftVoxels = 0.0f;
                     ++m_Stats.CoatShadow.DeformedRebakes;
+                    m_Stats.CoatShadow.MaxBakeStride = std::max(m_Stats.CoatShadow.MaxBakeStride, entry.CoatPoseStride);
+
+                    // THE SUBSET THE NEXT BAKES USE (#1445). A full bake is the
+                    // one that measures how many voxels the coat occupies; the
+                    // stride is only trusted at the resolution it was measured
+                    // at, so a shadow-LOD change takes one full bake to re-measure.
+                    if (entry.CoatPoseStride == 1u)
+                    {
+                        entry.CoatFullOccupiedVoxels = occupiedVoxels;
+                        entry.CoatOccupancyResolution = resolution;
+                    }
+                    entry.CoatBakeStride =
+                        entry.CoatOccupancyResolution == resolution
+                            ? GroomCoatShadow::CoatBakeSubsetStride(entry.CoatFullPoseSegments,
+                                                                    entry.CoatFullOccupiedVoxels,
+                                                                    m_CoatRebakePolicy.BakeSegmentsPerOccupiedVoxel)
+                            : 1u;
                 }
                 else
                 {
@@ -1512,6 +1810,14 @@ namespace OloEngine
             // Cube kind exists to avoid). The placeholder is therefore a
             // PRECONDITION of drawing at all: Execute refuses to run without
             // one rather than binding something of the wrong shape.
+            if (coatActive)
+            {
+                // What the ring must not rewrite while a recording still to be
+                // submitted can read it (BakeCoatVolume).
+                CacheEntry::CoatVolumeSlot& bound = entry->CoatRing[entry->CoatSlot];
+                bound.Bound = true;
+                bound.LastBoundFrame = m_FrameState.FrameIndex;
+            }
             context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GROOM_COAT_VOLUME,
                                             coatActive ? entry->CoatVolume->GetRHIHandle()
                                                        : m_CoatPlaceholder->GetRHIHandle(),
@@ -1520,31 +1826,20 @@ namespace OloEngine
 
             // ── The coverage compensation (#1252) ───────────────────
             //
-            // FROM THE ACHIEVED FRACTION, never the requested one, and this is
-            // the only place the achieved fraction exists: the strand budget is
-            // spent as an integer STRIDE PER ROLE, so a budget asked for 0.4 of
-            // a role retains a third of it. Compensating by the policy's 1/0.4
-            // would leave the coat a sixth thinner than it started, and the
-            // error compounds at every step down the ladder.
+            // IN THE STREAM, PER ROLE, since #1428: the budget thins each role
+            // at its own stride, so the build widens each role's strands by the
+            // inverse of what that role's stride kept
+            // (GroomRoleWidthCompensation). What used to be applied here -- one
+            // number for the whole groom -- widened guard hair the budget had
+            // not thinned. What is left here is the counters; they come out of
+            // the cache entry's own build stats, from the ACHIEVED fraction per
+            // role (rule 2).
             //
-            // The numbers come out of the cache entry's own build stats, which
-            // cost nothing to read — they were computed when the geometry was
-            // built and are what the inspector already shows.
-            //
-            // It multiplies the AUTHORING width scale rather than replacing it:
-            // m_WidthScale is a unit-scale lever for a groom exported at a
-            // different scale, and this is a density correction. Folding them
-            // into one number would make turning the LOD off change a coat that
-            // was authored at 0.5.
-            const f32 achievedFraction =
-                entry->Stats.StrandsAvailable > 0u
-                    ? static_cast<f32>(entry->Stats.StrandsSelected) / static_cast<f32>(entry->Stats.StrandsAvailable)
-                    : 1.0f;
-            const f32 widthCompensation =
-                request.LodPolicy.Enabled
-                    ? GroomLodWidthCompensation(achievedFraction, request.LodPolicy.MaxWidthCompensation)
-                    : 1.0f;
-            const f32 effectiveWidthScale = request.WidthScale * widthCompensation;
+            // m_WidthScale stays the authoring lever it always was: a unit-scale
+            // correction, never folded together with a density correction.
+            bool compensationCapped = false;
+            const f32 widthCompensation = GroomMaxRoleWidthCompensation(
+                entry->Stats, request.Build.MaxWidthCompensation, &compensationCapped);
 
             // ── The LOD counters (#1252) ────────────────────────────
             //
@@ -1575,11 +1870,11 @@ namespace OloEngine
             }
             m_Stats.Lod.MaxWidthCompensation =
                 std::max(m_Stats.Lod.MaxWidthCompensation, widthCompensation);
-            // A coat AT the cap is genuinely thinner than it was authored, and
-            // criterion 1 is a claim about exactly that. The comparison is
-            // against the sanitised policy's cap, so it cannot be true because
-            // an author typed a NaN.
-            if (widthCompensation >= request.LodPolicy.MaxWidthCompensation && widthCompensation > 1.0f)
+            // A coat with a role AT the cap is genuinely thinner than it was
+            // authored, and criterion 1 is a claim about exactly that. The cap
+            // went through GroomLodWidthCompensation's sanitising, so this
+            // cannot be true because an author typed a NaN.
+            if (compensationCapped)
             {
                 ++m_Stats.Lod.GroomsAtCompensationCap;
             }
@@ -1606,7 +1901,7 @@ namespace OloEngine
             params.IDs = glm::ivec4(request.EntityID, 0, 0, 0);
             params.Viewport = glm::vec4(static_cast<f32>(viewportWidth), static_cast<f32>(viewportHeight), 0.0f, 0.0f);
             params.RampWidth =
-                glm::vec4(request.RampFloor, effectiveWidthScale, objectScale, request.AlphaCutoff);
+                glm::vec4(request.RampFloor, request.WidthScale, objectScale, request.AlphaCutoff);
             params.ModeFrame = glm::ivec4(static_cast<i32>(decision.Effective),
                                           static_cast<i32>(m_FrameState.FrameIndex),
                                           static_cast<i32>(kStochasticSeed), 0);

@@ -460,6 +460,96 @@ TEST(GroomCoatAuthoring, TheBudgetSpendsItselfOnTheSilhouetteLast)
     }
 }
 
+TEST(GroomCoatAuthoring, EachRoleIsWidenedByWhatItsOwnStrideKept)
+{
+    // #1428. The budget thins each role at its OWN stride (the case above), so
+    // the width compensation that restores the coverage has to be per role too.
+    // One number for the whole groom -- what the pass applied before -- widened
+    // a role the budget had not thinned: on the long-coated horse guard hair at
+    // stride 1 came out 2.2x thick beside an undercoat at stride 7, and the coat
+    // drew 1.12x its share of the animal at the step.
+    Ref<GroomAsset> groom = MakeCoatGroom();
+    ASSERT_TRUE(groom);
+    const GroomCoatSettings settings = ActiveSettings();
+    const GroomCoatContext coat = ContextFor(*groom, settings);
+
+    GroomStrandBuildSettings build;
+    build.MaxStrands = 200u;
+    build.CoatDigest = GroomCoatDigest(settings);
+    std::vector<GroomStrandVertex> bare;
+    std::vector<GroomStrandVertex> widened;
+    std::vector<u32> indices;
+    build.MaxWidthCompensation = 1.0f;
+    const GroomStrandMeshStats stats = BuildGroomStrandMesh(*groom, build, bare, indices, nullptr, &coat);
+    build.MaxWidthCompensation = 8.0f;
+    (void)BuildGroomStrandMesh(*groom, build, widened, indices, nullptr, &coat);
+    ASSERT_EQ(bare.size(), widened.size()) << "the cap widens strands; it must not change which ones are drawn";
+    ASSERT_FALSE(bare.empty());
+
+    std::array<f32, GroomCoatRoleCount> expected{};
+    for (sizet role = 0; role < GroomCoatRoleCount; ++role)
+    {
+        expected[role] = GroomRoleWidthCompensation(stats.AvailableByRole[role], stats.StrideByRole[role], 8.0f);
+    }
+    const auto undercoat = static_cast<sizet>(GroomCoatRole::Undercoat);
+    const auto guard = static_cast<sizet>(GroomCoatRole::GuardHair);
+    const auto whisker = static_cast<sizet>(GroomCoatRole::Whisker);
+    ASSERT_GT(stats.StrideByRole[undercoat], stats.StrideByRole[guard]) << "the budget must thin the roles unequally";
+    EXPECT_FLOAT_EQ(expected[whisker], 1.0f) << "a role kept whole is not widened";
+    // A cap of 1 asks for no compensation (no LOD, or LOD off): a role thinned
+    // by the plain budget there is not "at the cap", or every budgeted coat
+    // would be counted in GroomsAtCompensationCap.
+    bool capped = true;
+    EXPECT_FLOAT_EQ(GroomRoleWidthCompensation(stats.AvailableByRole[undercoat], stats.StrideByRole[undercoat], 1.0f,
+                                               &capped),
+                    1.0f);
+    EXPECT_FALSE(capped);
+    (void)GroomRoleWidthCompensation(stats.AvailableByRole[undercoat], stats.StrideByRole[undercoat], 1.5f, &capped);
+    EXPECT_TRUE(capped) << "a role that needs more than a real cap allows is at the cap";
+    EXPECT_GT(expected[undercoat], expected[guard]) << "the role thinned harder is widened more";
+
+    // Every strand is widened by its OWN role's number: the thinned undercoat by
+    // its compensation, and every role the budget kept whole not at all. What
+    // no strand gets is the groom-wide factor the pass used to apply.
+    const f32 groomWide = static_cast<f32>(stats.StrandsAvailable) / static_cast<f32>(stats.StrandsSelected);
+    ASSERT_GT(groomWide, 1.5f) << "the budget must bite for the control to mean anything";
+    u32 widenedAsUndercoat = 0;
+    u32 notWidened = 0;
+    for (sizet v = 0; v < bare.size(); ++v)
+    {
+        ASSERT_GT(bare[v].Radius, 0.0f);
+        const f32 ratio = widened[v].Radius / bare[v].Radius;
+        bool matched = false;
+        for (sizet role = 0; role < GroomCoatRoleCount; ++role)
+        {
+            matched = matched || (stats.AvailableByRole[role] > 0u &&
+                                  std::abs(ratio - expected[role]) <= expected[role] * 1.0e-5f);
+        }
+        ASSERT_TRUE(matched) << "vertex " << v << " was widened by " << ratio << ", which is no role's compensation";
+        EXPECT_GT(std::abs(ratio - groomWide), groomWide * 1.0e-3f) << "vertex " << v << " got the groom-wide factor";
+        widenedAsUndercoat += std::abs(ratio - expected[undercoat]) <= expected[undercoat] * 1.0e-5f ? 1u : 0u;
+        notWidened += std::abs(ratio - 1.0f) <= 1.0e-5f ? 1u : 0u;
+    }
+    EXPECT_GT(widenedAsUndercoat, 0u) << "the thinned undercoat was not widened";
+    EXPECT_GT(notWidened, 0u) << "a role the budget kept whole was widened";
+    EXPECT_EQ(widenedAsUndercoat + notWidened, static_cast<u32>(bare.size()))
+        << "at this budget only the undercoat is thinned; every other strand keeps its width";
+
+    // And each role's coverage survives the step: what the stride kept, times
+    // what it was widened by, is what the role had.
+    for (sizet role = 0; role < GroomCoatRoleCount; ++role)
+    {
+        const u32 available = stats.AvailableByRole[role];
+        if (available == 0u)
+        {
+            continue;
+        }
+        const u32 kept = (available + stats.StrideByRole[role] - 1u) / stats.StrideByRole[role];
+        EXPECT_NEAR(static_cast<f32>(kept) * expected[role], static_cast<f32>(available), available * 1.0e-5f)
+            << "role " << role;
+    }
+}
+
 TEST(GroomCoatAuthoring, AGroomWithNoRolesBehavesExactlyAsItDidBefore)
 {
     // Every group Unassigned: one weight, so the per-role solver must collapse

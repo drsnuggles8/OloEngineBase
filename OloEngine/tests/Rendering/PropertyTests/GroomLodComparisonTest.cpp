@@ -452,21 +452,23 @@ namespace
                 ASSERT_TRUE(asGroom) << coat.Name << ": " << reason;
 
                 std::printf("\n[groom-lod] ### %s cell %.4f: %u strands -> %u cards (cluster min %u mean %.1f max %u), "
-                            "member width sum %.6f vs card width sum %.6f\n",
+                            "member width sum %.6f, covered %.6f (%.3f), card width sum %.6f\n",
                             coat.Name.c_str(), static_cast<f64>(cell), stats.CurvesConsidered, stats.CardsBuilt,
                             stats.SmallestCluster, static_cast<f64>(stats.MeanCluster), stats.LargestCluster,
-                            stats.MemberWidthSum, stats.CardWidthSum);
+                            stats.MemberWidthSum, stats.MemberCoveredWidthSum,
+                            stats.MemberCoveredWidthSum / std::max(stats.MemberWidthSum, 1.0e-30), stats.CardWidthSum);
 
                 // -- The cook's own density claim --------------------------
                 //
-                // Summing the members' widths into the card is what is supposed to
-                // make it carry the cluster's covered area. Asserted on the COOK's
-                // numbers, before any camera is involved, because a clustering bug
-                // that dropped a member would show here as a width deficit and
-                // everywhere else as a slightly thin coat that looks plausible.
-                ASSERT_GT(stats.MemberWidthSum, 0.0) << coat.Name;
-                EXPECT_NEAR(stats.CardWidthSum / stats.MemberWidthSum, 1.0, 1.0e-3)
-                    << coat.Name << ": the cards do not carry their members' total width";
+                // Giving the card the width its members COVER (#1428) is what is
+                // supposed to make it carry the cluster's covered area. Asserted
+                // on the COOK's numbers, before any camera is involved, because a
+                // clustering bug that dropped a member would show here as a width
+                // deficit and everywhere else as a slightly thin coat that looks
+                // plausible.
+                ASSERT_GT(stats.MemberCoveredWidthSum, 0.0) << coat.Name;
+                EXPECT_NEAR(stats.CardWidthSum / stats.MemberCoveredWidthSum, 1.0, 1.0e-3)
+                    << coat.Name << ": the cards do not carry the width their members cover";
                 EXPECT_LT(stats.CardsBuilt, stats.CurvesConsidered) << coat.Name << ": the card level reduced nothing";
 
                 cardArms.push_back(CardArm{ cell, aggregation, asGroom, stats });

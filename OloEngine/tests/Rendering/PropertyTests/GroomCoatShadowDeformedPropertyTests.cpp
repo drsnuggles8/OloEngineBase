@@ -21,6 +21,9 @@
 //      (cost) and on transmittance error against a fresh bake (lag). The
 //      numbers docs/agent-rules/groom-deformed-coat-self-shadowing.md quotes are the
 //      ones this prints.
+//   4. THE SUBSET (#1445). A walking coat is baked from a hashed subset of its
+//      segments, radii scaled; measured against the exact answer over strides
+//      down past rule 4's floor, which is where the shipped target comes from.
 //
 // Everything is deterministic: GroomStrandFixture's integer hash, no <random>.
 // =============================================================================
@@ -33,6 +36,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <cstdio>
 #include <limits>
 #include <numbers>
@@ -643,4 +647,163 @@ TEST(GroomCoatShadowDeformed, ADriftBoundHoldsItsLagAndCostsNothingWhileStill)
     {
         EXPECT_GT(c.StillBakes, 0u) << "every " << c.Param << " stopped paying while still, which it cannot know to do";
     }
+}
+
+// ── 4. The subset (#1445) ────────────────────────────────────────────────────
+
+TEST(GroomCoatShadowDeformed, ASubsetBakeKeepsTheShadowItReplaces)
+{
+    // A walking coat rebakes every frame, and every stage of the bake costs one
+    // step per segment while the volume stays 64^3. So it bakes from a subset:
+    // each segment kept with probability 1/stride, its radius scaled by the
+    // achieved fraction's inverse. That keeps the EXPECTED density in every
+    // voxel; what it costs is variance, and rule 4 says where that starts to
+    // matter -- a voxel holding one strand or none stores a sample, not an
+    // average.
+    //
+    // Measured here against the EXACT answer, over strides that leave from
+    // dozens of segments per occupied voxel down to under one, and judged as
+    // EXCESS over the full bake's own error (the representation's bias sits
+    // under every arm equally). The shipped target is the stride
+    // CoatBakeSubsetStride picks at CoatRebakePolicy's default.
+    const Pelt pelt = MakePelt(40000u);
+    ASSERT_TRUE(pelt.Groom);
+    constexpr u32 kResolution = 32u;
+
+    DensityVolumeSettings settings;
+    settings.Resolution = kResolution;
+    DensityVolume full;
+    DensityVolumeBuildStats fullStats;
+    ASSERT_TRUE(BuildDensityVolume(pelt.RestSegments, settings, full, &fullStats));
+    const f64 perVoxel = static_cast<f64>(pelt.RestSegments.size()) / static_cast<f64>(fullStats.OccupiedVoxels);
+
+    const glm::vec3 light = glm::normalize(glm::vec3(1.0f, 0.3f, 0.2f));
+    std::vector<CoatProbe> probes;
+    ASSERT_GT(BuildCoatProbes(pelt.RestSegments, light, 300u, 1445u, probes), 100u);
+
+    glm::vec3 lo{ 0.0f };
+    glm::vec3 hi{ 0.0f };
+    ASSERT_TRUE(CoatSegmentBounds(pelt.RestSegments, lo, hi));
+    const glm::vec3 extent = hi - lo;
+    const f32 area = 2.0f * (extent.x * extent.y + extent.y * extent.z + extent.z * extent.x) / 3.0f;
+    const f32 spacing = std::sqrt(area / static_cast<f32>(pelt.Groom->GetCurveCount()));
+    ReferenceSettings reference;
+    reference.Rays = 64u;
+    reference.FootprintRadius = spacing * 4.0f;
+    CoatSegmentGrid grid;
+    ASSERT_TRUE(BuildCoatSegmentGrid(pelt.RestSegments, 64u, grid));
+    const std::vector<f32> truth = EvaluateCoatShadowReference(pelt.RestSegments, probes, kKappa, reference, &grid);
+
+    f64 darkening = 0.0;
+    for (const f32 t : truth)
+    {
+        darkening += 1.0 - static_cast<f64>(t);
+    }
+    darkening /= static_cast<f64>(truth.size());
+    ASSERT_GT(darkening, 0.1) << "the probes are not inside enough coat to measure anything";
+
+    const auto errorAt = [&](u32 stride, u32* outKept)
+    {
+        std::vector<CoatSegment> subset;
+        (void)SubsampleCoatSegments(pelt.RestSegments, stride, subset);
+        *outKept = static_cast<u32>(subset.size());
+        DensityVolume volume;
+        EXPECT_TRUE(BuildDensityVolume(subset, settings, volume));
+        std::vector<f32> got;
+        got.reserve(probes.size());
+        for (const CoatProbe& p : probes)
+        {
+            got.push_back(Transmittance(volume, p.Position, p.Direction));
+        }
+        return CompareCoatShadow(got, truth, 0.0);
+    };
+
+    u32 kept = 0;
+    const CoatShadowError fullError = errorAt(1u, &kept);
+    ASSERT_EQ(kept, pelt.RestSegments.size());
+    const u32 shipped = CoatBakeSubsetStride(pelt.RestSegments.size(), fullStats.OccupiedVoxels,
+                                             CoatRebakePolicy{}.BakeSegmentsPerOccupiedVoxel);
+    std::printf("[groom-coat-deformed] subset: %zu segments, %u occupied voxels (%.1f per voxel), truth darkening "
+                "%.4f, shipped stride %u\n",
+                pelt.RestSegments.size(), fullStats.OccupiedVoxels, perVoxel, darkening, shipped);
+    std::printf("[groom-coat-deformed] subset stride 1: |dT| mean %.4f max %.4f bias %+.4f\n", fullError.MeanAbs,
+                fullError.MaxAbs, fullError.Bias);
+
+    f64 shippedExcess = 0.0;
+    f64 sparseExcess = 0.0;
+    const u32 sparseStride = static_cast<u32>(std::max(2.0, std::ceil(perVoxel * 2.0)));
+    for (const u32 stride : { 2u, 4u, 8u, 16u, shipped, sparseStride })
+    {
+        const CoatShadowError e = errorAt(stride, &kept);
+        const f64 excess = e.MeanAbs - fullError.MeanAbs;
+        std::printf("[groom-coat-deformed] subset stride %u: %u kept (%.1f per voxel), |dT| mean %.4f max %.4f bias "
+                    "%+.4f, excess %+.4f\n",
+                    stride, kept, static_cast<f64>(kept) / fullStats.OccupiedVoxels, e.MeanAbs, e.MaxAbs, e.Bias,
+                    excess);
+        if (stride == shipped)
+        {
+            shippedExcess = excess;
+        }
+        if (stride == sparseStride)
+        {
+            sparseExcess = excess;
+        }
+    }
+
+    ASSERT_GT(shipped, 1u) << "the pelt must be dense enough for the shipped target to thin it, or this case measures "
+                              "the full bake twice";
+    // The shipped subset costs a small fraction of the effect it shadows...
+    EXPECT_LT(shippedExcess, 0.01) << "the shipped subset adds more error than the full bake has";
+    // ...and the metric can see a subset that is too thin -- the negative
+    // control, rule 4's regime: under one segment per occupied voxel.
+    EXPECT_GT(sparseExcess, shippedExcess * 2.0 + 0.002)
+        << "a subset leaving under a segment per voxel scored no worse than the shipped one, so this case cannot tell "
+           "a safe stride from an unsafe one";
+}
+
+TEST(GroomCoatShadowDeformed, TheSubsetIsTheSameSegmentsEveryFrameAndKeepsTheCoatsMass)
+{
+    // A subset that changed per bake would re-dither the shadow every frame on
+    // a coat that is only walking; the selection is a hash of the index.
+    // And the scale is the ACHIEVED fraction's inverse, so the binned areal
+    // mass -- what the volume stores -- is the full coat's.
+    const Pelt pelt = MakePelt(4000u);
+    ASSERT_TRUE(pelt.Groom);
+    std::vector<CoatSegment> first;
+    std::vector<CoatSegment> second;
+    const f32 scale = SubsampleCoatSegments(pelt.RestSegments, 5u, first);
+    (void)SubsampleCoatSegments(pelt.RestSegments, 5u, second);
+    ASSERT_EQ(first.size(), second.size());
+    for (sizet s = 0; s < first.size(); ++s)
+    {
+        ASSERT_EQ(std::memcmp(&first[s], &second[s], sizeof(CoatSegment)), 0) << "segment " << s;
+    }
+    EXPECT_NEAR(scale, static_cast<f32>(pelt.RestSegments.size()) / static_cast<f32>(first.size()), 1.0e-6f);
+    EXPECT_NEAR(static_cast<f64>(first.size()) / pelt.RestSegments.size(), 0.2, 0.02)
+        << "a stride of 5 keeps about a fifth";
+
+    DensityVolumeSettings settings;
+    settings.Resolution = 32u;
+    DensityVolume full;
+    DensityVolume thinned;
+    DensityVolumeBuildStats fullStats;
+    DensityVolumeBuildStats thinnedStats;
+    ASSERT_TRUE(BuildDensityVolume(pelt.RestSegments, settings, full, &fullStats));
+    ASSERT_TRUE(BuildDensityVolume(first, settings, thinned, &thinnedStats));
+    EXPECT_NEAR(thinnedStats.TotalArealMass / fullStats.TotalArealMass, 1.0, 0.02)
+        << "the subset lost fibre area, which is shadow";
+
+    // Stride 1 is the identity; no target, or nothing measured yet, is stride 1.
+    EXPECT_EQ(SubsampleCoatSegments(pelt.RestSegments, 1u, first), 1.0f);
+    EXPECT_EQ(first.size(), pelt.RestSegments.size());
+    EXPECT_EQ(CoatBakeSubsetStride(100000u, 0u, 8.0f), 1u);
+    EXPECT_EQ(CoatBakeSubsetStride(100000u, 1000u, 0.0f), 1u);
+    EXPECT_EQ(CoatBakeSubsetStride(100000u, 1000u, 8.0f), 12u);
+    EXPECT_EQ(CoatBakeSubsetStride(1000u, 1000u, 8.0f), 1u) << "a coat already under the target is baked whole";
+
+    // A stride past a small coat's whole segment count must not keep NOTHING:
+    // an empty pose reads as "no pose" and would release the coat's volume.
+    const std::vector<CoatSegment> few(pelt.RestSegments.begin(), pelt.RestSegments.begin() + 3);
+    EXPECT_EQ(SubsampleCoatSegments(few, 100000u, first), 1.0f);
+    EXPECT_EQ(first.size(), few.size()) << "an over-large stride keeps the coat whole";
 }

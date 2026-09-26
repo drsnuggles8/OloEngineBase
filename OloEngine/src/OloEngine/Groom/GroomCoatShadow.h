@@ -235,6 +235,14 @@ namespace OloEngine
             /// because those make the resident bake a different coat.
             bool RebakeOnDrift = true;
 
+            /// Bake a bound coat from a SUBSET of its drawn segments, leaving
+            /// about this many in each voxel its full bake occupied (#1445).
+            /// Zero bakes every segment. See CoatBakeSubsetStride: the number
+            /// is rule 4's floor, the point below which a voxel stores a sample
+            /// rather than an average, and it was chosen from the measured
+            /// sweep in GroomCoatShadowDeformed.ASubsetBakeKeepsTheShadowItReplaces.
+            f32 BakeSegmentsPerOccupiedVoxel = 8.0f;
+
             /// Bit-exact per float, per cpp-coding-quality §2a: a defaulted
             /// operator== here would be a float `==`. Field by field rather
             /// than a whole-object memcmp, because the trailing bool leaves
@@ -243,7 +251,8 @@ namespace OloEngine
             {
                 return Math::BitwiseEqual(MaxDriftVoxels, other.MaxDriftVoxels) &&
                        Math::BitwiseEqual(StaleDriftVoxels, other.StaleDriftVoxels) &&
-                       RebakeOnDrift == other.RebakeOnDrift;
+                       RebakeOnDrift == other.RebakeOnDrift &&
+                       Math::BitwiseEqual(BakeSegmentsPerOccupiedVoxel, other.BakeSegmentsPerOccupiedVoxel);
             }
         };
 
@@ -263,6 +272,40 @@ namespace OloEngine
 
         // Is the volume too far from the drawn coat to be sampled at all?
         [[nodiscard]] bool CoatBakeIsStale(f32 driftVoxels, const CoatRebakePolicy& policy) noexcept;
+
+        // ── Baking from a subset (#1445) ────────────────────────────────────
+        //
+        // A bound coat rebakes every frame on a walk, and every stage of that
+        // bake -- evaluating the drawn pose, measuring its drift, turning it into
+        // segments, binning them -- costs one step per SEGMENT, while the volume
+        // it fills is a fixed 64^3. A long coat of 94k strands put about seventy
+        // segments in each voxel it occupied. So it is baked from a subset:
+        // each segment kept with probability 1/stride, and each kept segment's
+        // radius scaled by (segments / kept), so the expected areal density in
+        // every voxel -- which is what the volume stores -- is the full coat's.
+        //
+        // THE SAME SEGMENTS EVERY FRAME. The choice is a hash of the segment's
+        // index, not a draw per bake: a subset that changed per frame would
+        // re-dither the shadow every frame on a coat that is only walking.
+        //
+        // RULE 4 BOUNDS HOW FAR. A voxel holding one strand or none stores a
+        // sample, not an average, so the stride is the one that leaves
+        // `segmentsPerOccupiedVoxel` in each voxel the FULL bake occupied, on
+        // average. 1 when the coat already has fewer, or when either count is
+        // zero (nothing measured yet), or when the target is zero (off).
+        [[nodiscard]] u32 CoatBakeSubsetStride(u64 segments, u32 occupiedVoxels,
+                                               f32 segmentsPerOccupiedVoxel) noexcept;
+
+        // Is the segment at `index` in the stride's subset? Always true at a
+        // stride of 1.
+        [[nodiscard]] bool CoatBakeKeepsSegment(u32 index, u32 stride) noexcept;
+
+        // `segments`' subset at `stride` into `out` (cleared first), each kept
+        // radius multiplied by the returned scale: segments / kept, the
+        // ACHIEVED fraction's inverse rather than the stride, for the reason
+        // the strand budget compensates on the achieved fraction. Returns 1 and
+        // copies everything at a stride of 1.
+        f32 SubsampleCoatSegments(std::span<const CoatSegment> segments, u32 stride, std::vector<CoatSegment>& out);
 
         // ── The ground truth ────────────────────────────────────────────────
 

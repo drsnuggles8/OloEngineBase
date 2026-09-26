@@ -2,7 +2,7 @@
 
 Read before touching `OloEngine/src/OloEngine/Groom/GroomLod*.{h,cpp}`,
 `GroomStrandMesh.{h,cpp}`'s `GroomBuildSource`, `Scene::PublishGroomStrandRequests`'s LOD block,
-`GroomRenderPass`'s width compensation, or section 10 of the `.ologroom` format.
+`GroomRoleWidthCompensation` in `GroomStrandMesh.cpp`, or section 10 of the `.ologroom` format.
 
 ## The rules
 
@@ -16,18 +16,23 @@ Read before touching `OloEngine/src/OloEngine/Groom/GroomLod*.{h,cpp}`,
 
 2. **Compensate on the ACHIEVED fraction, never the requested one.** The strand budget is spent as
    an integer *stride per role* (`GroomStrandMesh.cpp`), so a budget that asked for 0.4 of a role
-   retains a third of it. The pass reads `StrandsSelected / StrandsAvailable` back out of the cache
-   entry's build stats; compensating on the policy's number instead leaves the coat a sixth thin at
-   one step and compounds at every step after.
+   retains a third of it. Compensating on the policy's number instead leaves the coat a sixth thin
+   at one step and compounds at every step after. **And per role, in the build** (#1428): each
+   role is widened by the inverse of what its own stride kept (`GroomRoleWidthCompensation`); one
+   groom-wide number widened guard hair the budget had not thinned. See
+   [groom-card-coverage.md](groom-card-coverage.md).
 
-3. **Budgets move in HALVINGS; the compensation is continuous.** The strand geometry is cached,
-   keyed on the build settings, so a budget that slid with the camera would rebuild every groom's
-   vertex buffer every frame — the exact cost the cache exists to remove. The width compensation is
-   a UBO value, so at the instant a stride doubles it doubles with it and the coat's total coverage
+3. **Budgets move in HALVINGS, and the compensation moves with them.** The strand geometry is
+   cached, keyed on the build settings, so a budget that slid with the camera would rebuild every
+   groom's vertex buffer every frame — the exact cost the cache exists to remove. Since #1428 the
+   width compensation is built into that cached stream, per role, with the cap in the cache key: a
+   stride step and its compensation change together, in one rebuild, and the coat's total coverage
    does not move. What remains at a step is *spatial*, and that is what the distance thresholds
    bound.
 
-4. **A card is a KEPT STRAND widened to its cluster's total width — never an average.** A mean
+4. **A card is a KEPT STRAND widened to what its cluster COVERS — never an average, and never the
+   sum** (#1428: on a dense coat the summed card drew 2.6x the coat; see
+   [groom-card-coverage.md](groom-card-coverage.md)). A mean
    centreline is the textbook hair card and it measured worse on every coat at every distance:
    averaging curves that diverge produces a shorter, straighter curve, so it loses exactly the
    spread that gives a tuft its silhouette. On the short coat it lost 45 % of the covered area

@@ -60,7 +60,7 @@ namespace OloEngine
 
         // Upload a full-volume client buffer (Width*Height*Depth texels,
         // tightly packed, in the format's native layout — e.g. R32F is one
-        // f32 per texel). Whole-image overwrite only, matching the GL
+        // f32 per texel, RGBA16F four HALF floats). Whole-image overwrite only, matching the GL
         // facade's SetData contract on Texture2D; there is no partial
         // sub-region upload for volumes. `size` must exactly match the
         // expected byte count or the upload is dropped (logged, not asserted

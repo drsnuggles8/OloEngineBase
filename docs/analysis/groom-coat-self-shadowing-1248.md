@@ -122,10 +122,10 @@ step (see below — three voxels per step is better *and* cheaper), deep map 3 f
 
 **Memory, as the CPU model accounts it:** isotropic 435 KiB (pelt) / 252 KiB (scalp), anisotropic
 2.1 MiB / 1.2 MiB, deep map 320 KiB **per light**. Those figures assume the tightest packing each
-candidate could use. **What actually ships is one RGBA32F volume, 16 bytes a voxel** — 3.6 MiB for
-the pelt at 64³ — because `Texture3D`'s RGBA16F declares 8 bytes a texel while uploading its client
-data as `GL_FLOAT`, so `SetData` rejects the only buffer it could be handed. Half of that is
-available the moment that path is fixed.
+candidate could use. **What actually ships is one RGBA16F volume, 8 bytes a voxel** — 1.8 MiB for
+the pelt at 64³. Until #1445 it was RGBA32F at 16 bytes, because `Texture3D`'s RGBA16F declared 8
+bytes a texel while uploading its client data as `GL_FLOAT`, so `SetData` rejected the only buffer
+it could be handed; #1445 fixed the upload and halved the volume.
 
 **And the volume is not literally 64³.** `Resolution` sets the voxel count on the LONGEST bounds
 axis only; `BuildDensityVolume` derives the other two so the voxels stay cubic. On the reference

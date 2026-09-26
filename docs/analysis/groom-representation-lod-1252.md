@@ -76,6 +76,10 @@ a result, not a coincidence, and is why the contract is asserted on a *band* rat
 
 ## Finding 2 — a mean-centreline card is the textbook construction and it is worse
 
+(Since #1428 a card carries the width its members COVER rather than their sum; these reference
+coats barely overlap, covered/sum 0.94-0.99, so the comparison below stands. See
+`docs/agent-rules/groom-card-coverage.md`.)
+
 The first card builder averaged each cluster's members into one centreline, resampled to a fixed
 point count, carrying their summed width. That is the classic hair card minus the texture. Measured
 against keeping the cluster's most central member verbatim and scaling *its* widths to the cluster

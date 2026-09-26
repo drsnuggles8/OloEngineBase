@@ -60,9 +60,15 @@ RepresentationStale}`. The static coat's rules are in
    evaluates it from the frame buffer the vertex shader reads, the CPU reference path reads it off
    its rebuilt stream. The arm is reached only when neither produced a pose.
 
-7. **A new 3D texture per bake, never `SetData` into the resident one.** A draw in flight may still
-   be sampling the old volume, and an in-place upload into an image a queued Vulkan frame reads is
-   a hazard, not a copy. The bake's dimensions also move with the pose.
+7. **Never `SetData` into a volume a recording still to be submitted can read.** A draw in flight
+   may still be sampling the old volume. Since #1445 each coat keeps a three-slot ring and rewrites
+   only a slot not bound on this tick or the one before; a slot of the wrong size (the bake's
+   dimensions move with the pose) gets a new texture. The reasoning and the measured cost are in
+   [groom-coat-bake-cost.md](groom-coat-bake-cost.md), which also covers the bake subset.
+
+8. **A card-tier bake is scaled to the coat's fibre area.** Cards are drawn as wide as their
+   members cover, which is less than the fibre they are made of (#1428); see
+   [groom-card-coverage.md](groom-card-coverage.md) rule 2.
 
 ## Measured
 
@@ -114,8 +120,8 @@ The bake cost above is a Debug build's, timed around the whole bake (segments, b
 upload call); how it splits between those was not measured. It sat
 beside #1427's per-frame strand rebuild of the same coats (420 ms/frame Release for three coats,
 from that issue). #1427 removed the rebuild and feeds the bake from the GPU path's own frame buffer,
-so the bake is now the largest remaining per-frame groom cost (57-109 ms live, Release, for the three
-walking coats). This slice measures the cost and does not optimise it; the optimisation is #1445.
+so the bake was then the largest remaining per-frame groom cost (57-109 ms live, Release, for the three
+walking coats). #1445 split it by stage and cut it to about 11.5 ms: [groom-coat-bake-cost.md](groom-coat-bake-cost.md).
 
 **On Vulkan, a bound coat larger than 16 MiB was not drawn at all (#1446) — resolved.** That was
 the per-frame vertex re-upload overflowing the frame arena, not this bake. #1446 made large vertex

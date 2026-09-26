@@ -47,9 +47,11 @@ namespace OloEngine
         }
 
         // Client (glTextureSubImage3D) format/type pair matching the internal
-        // formats above — RGBA8 is normalized u8, everything else is f32
-        // client data (R32F/RGBA16F/RGBA32F all accept GL_FLOAT and let the
-        // driver convert/pack, same as the Texture2D facade's contract).
+        // formats above and Texture3DFormatBytesPerPixel's sizes -- RGBA8 is
+        // normalized u8, RGBA16F is HALF-float client data (8 bytes a texel,
+        // what the size check and the Vulkan backend both expect), R32F and
+        // RGBA32F are f32. RGBA16F used to say GL_FLOAT here, so the one
+        // buffer the size check accepted was read as twice its length (#1445).
         void Texture3DFormatToGLClient(Texture3DFormat format, GLenum& outFormat, GLenum& outType)
         {
             switch (format)
@@ -59,6 +61,9 @@ namespace OloEngine
                     outType = GL_UNSIGNED_BYTE;
                     return;
                 case Texture3DFormat::RGBA16F:
+                    outFormat = GL_RGBA;
+                    outType = GL_HALF_FLOAT;
+                    return;
                 case Texture3DFormat::RGBA32F:
                     outFormat = GL_RGBA;
                     outType = GL_FLOAT;
