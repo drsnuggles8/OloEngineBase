@@ -51,6 +51,29 @@ namespace
     // SmoothFrameTime — pure single EMA step
     // =========================================================================
 
+    // =========================================================================
+    // FrameDelta — the raw delta Application::Run hands to FramePacer
+    // =========================================================================
+
+    TEST(FramePacerFrameDelta, IsTheForwardDifference)
+    {
+        EXPECT_NEAR(FramePacer::FrameDelta(10.0f, 10.25f), 0.25f, 1e-6f);
+    }
+
+    // Issue #1470: a benchmark capture pins the mock clock to its manifest's
+    // t0, far below the wall clock an editor has been reading. The step
+    // backwards must be a zero-length frame, not a -588 s Timestep.
+    TEST(FramePacerFrameDelta, ABackwardsClockIsAZeroLengthFrame)
+    {
+        EXPECT_EQ(FramePacer::FrameDelta(600.0f, 12.0f), 0.0f);
+    }
+
+    TEST(FramePacerFrameDelta, NonFiniteReadingsAreAZeroLengthFrame)
+    {
+        EXPECT_EQ(FramePacer::FrameDelta(0.0f, kInf), 0.0f);
+        EXPECT_EQ(FramePacer::FrameDelta(kNaN, 1.0f), 0.0f);
+    }
+
     TEST(FramePacerSmoothStep, AlphaOneAdoptsTheSample)
     {
         EXPECT_FLOAT_EQ(FramePacer::SmoothFrameTime(0.010f, 0.020f, 1.0f), 0.020f);

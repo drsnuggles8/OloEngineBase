@@ -122,6 +122,12 @@ namespace OloEngine
         return remaining - spinMargin;
     }
 
+    f32 FramePacer::FrameDelta(f32 previousTime, f32 currentTime)
+    {
+        const f32 delta = currentTime - previousTime;
+        return (std::isfinite(delta) && delta > 0.0f) ? delta : 0.0f;
+    }
+
     f32 FramePacer::SmoothFrameTime(f32 previous, f32 sample, f32 alpha)
     {
         if (!std::isfinite(sample))

@@ -109,6 +109,15 @@ namespace OloEngine
         // the sample; a bad alpha is treated as 1.0) and clamps alpha to [0, 1].
         [[nodiscard]] static f32 SmoothFrameTime(f32 previous, f32 sample, f32 alpha);
 
+        // The raw frame delta between two Time::GetTime() readings, never
+        // negative and never non-finite. The engine clock can step BACKWARDS:
+        // Time::SetMockTime pins it to a value below the wall clock the previous
+        // frame read (a benchmark capture pinning t0 = 12 s in an editor that
+        // has been up for ten minutes, issue #1470). A negative delta would reach
+        // every layer as a negative Timestep and run systems in reverse; a
+        // backwards step is a frame in which no time passed.
+        [[nodiscard]] static f32 FrameDelta(f32 previousTime, f32 currentTime);
+
       private:
         void UpdateTimerResolution();
 
