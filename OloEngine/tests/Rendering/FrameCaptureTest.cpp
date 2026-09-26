@@ -649,6 +649,19 @@ TEST_F(FrameCapturePipelineTest, CaptureGenerationRisesWhenTheRetainedFramesAreF
     // oldest. Every call after the 60th timed out against a live viewport. The
     // generation is what a waiter can rely on.
     auto& mgr = FrameCaptureManager::GetInstance();
+    // The manager is a process singleton: restore its limit and drop these
+    // captures on EVERY exit, an early ASSERT included, or later tests run
+    // with a three-frame limit.
+    struct RestoreCaptureLimit
+    {
+        FrameCaptureManager& Manager;
+        u32 Previous;
+        ~RestoreCaptureLimit()
+        {
+            Manager.SetMaxCapturedFrames(Previous);
+            Manager.ClearCaptures();
+        }
+    } const restore{ mgr, mgr.GetMaxCapturedFrames() };
     mgr.ClearCaptures();
     mgr.SetMaxCapturedFrames(3);
     auto bucket = MakeTestBucket(1);
@@ -672,9 +685,6 @@ TEST_F(FrameCapturePipelineTest, CaptureGenerationRisesWhenTheRetainedFramesAreF
     EXPECT_EQ(mgr.GetCapturedFrameCount(), countBefore) << "a full manager evicts, so the count cannot signal a capture";
     EXPECT_GT(mgr.GetCaptureGeneration(), generationBefore) << "the generation must still say a new frame landed";
     EXPECT_EQ(mgr.GetCapturedFramesCopy().Last().FrameNumber, 4u);
-
-    mgr.SetMaxCapturedFrames(60); // Restore default
-    mgr.ClearCaptures();
 }
 
 // =============================================================================
