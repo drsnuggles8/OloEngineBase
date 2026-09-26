@@ -1319,6 +1319,11 @@ namespace OloEngine
         }
         if (!rendered)
         {
+            // The clear below runs as a driver-internal shader that reads its
+            // descriptor from the bound resource heap's reserved range, so the
+            // heaps are bound first, as in every other recording (#1511). With
+            // no frame callback, BeginRecording never bound them here.
+            (void)VulkanResourceHeap::Get().CmdBindIfCreated(frame.Cmd);
             // UNDEFINED -> TRANSFER_DST: previous contents are irrelevant (we clear).
             VkImageMemoryBarrier2 toTransfer{};
             toTransfer.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;

@@ -714,6 +714,13 @@ namespace OloEngine
         // dispatch creates it. See
         // docs/agent-rules/vulkan-descriptor-heap-rebind-after-execute-commands.md.
         static void BindDescriptorHeaps(VulkanRecordingContext& ctx);
+        // The command buffer's bind state became undefined (a resume, a
+        // vkCmdExecuteCommands): forget the caches and bind the heaps again, in
+        // one step so no caller can do the first without the second.
+        static void ForgetBindsAndRebindHeaps(VulkanRecordingContext& ctx);
+        // The draw and dispatch front-ends: create and bind the heaps if this
+        // recording has none bound yet.
+        static void EnsureDescriptorHeapsForDrawOrDispatch(VulkanRecordingContext& ctx);
 
         // End the scope if active (barriers/copies/dispatches are illegal
         // inside a rendering instance).

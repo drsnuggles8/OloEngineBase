@@ -10,6 +10,13 @@
 #include "Platform/Vulkan/VulkanDevice.h"
 #endif
 
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/String.h"
+
+#include <chrono>
+#include <filesystem>
+#include <string>
+
 #if OLO_WITH_AFTERMATH
 
 #include <GFSDK_Aftermath.h>
@@ -17,16 +24,13 @@
 #include <GFSDK_Aftermath_GpuCrashDumpDecoding.h>
 
 #include <atomic>
-#include <chrono>
 #include <cstring>
-#include <filesystem>
 #include <fstream>
 #include <map>
 #include <thread>
 #include <vector>
 #include <unordered_map>
 #include <unordered_set>
-#include <string>
 #include <mutex>
 #include <utility>
 
@@ -34,6 +38,22 @@
 
 namespace OloEngine::VulkanAftermath
 {
+    std::filesystem::path CrashReportDirectory()
+    {
+        const std::filesystem::path dir{ "CrashReports" };
+        std::error_code ec;
+        std::filesystem::create_directories(dir, ec);
+        return dir;
+    }
+
+    std::filesystem::path CrashReportPath(const std::string_view stem, const std::string_view extension)
+    {
+        const auto stamp =
+            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
+                .count();
+        return CrashReportDirectory() / (std::string(stem) + "-" + std::to_string(stamp) + std::string(extension));
+    }
+
 #if OLO_WITH_AFTERMATH
     namespace
     {
@@ -51,8 +71,8 @@ namespace OloEngine::VulkanAftermath
         // interleave their decode output.
         struct ShaderRecord
         {
-            std::string Name;
-            std::vector<u32> Spirv;
+            FString Name;
+            TArray<u32> Spirv;
         };
         std::mutex s_CrashDumpMutex;
         std::mutex s_ShaderNameMutex;
@@ -63,12 +83,12 @@ namespace OloEngine::VulkanAftermath
         // its identifier. The decoder asks for it by identifier when it maps
         // a program counter to an instruction.
         std::mutex s_DebugInfoMutex;
-        std::map<std::pair<u64, u64>, std::vector<u8>> s_DebugInfo;
+        std::map<std::pair<u64, u64>, TArray<u8>> s_DebugInfo;
 
         // The last dump, kept so the JSON can be generated after the driver
         // has finished calling back with debug info (OnDeviceLost), not from
         // inside the dump callback where that info may not have arrived yet.
-        std::vector<u8> s_LastDump;
+        TArray<u8> s_LastDump;
         std::filesystem::path s_LastDumpPath;
 
         // Checkpoint marker strings (VulkanRendererAPI interns them for the
@@ -76,12 +96,6 @@ namespace OloEngine::VulkanAftermath
         // Aftermath asks us to resolve a marker.
         std::mutex s_MarkerMutex;
         std::unordered_set<const void*> s_Markers;
-
-        [[nodiscard]] const std::filesystem::path& CrashReportDir()
-        {
-            static const std::filesystem::path s_Dir{ "CrashReports" };
-            return s_Dir;
-        }
 
         [[nodiscard]] bool Requested()
         {
@@ -199,17 +213,17 @@ namespace OloEngine::VulkanAftermath
                             const std::lock_guard lock(s_ShaderNameMutex);
                             if (const auto it = s_Shaders.find(binaryHash.hash); it != s_Shaders.end())
                             {
-                                name = it->second.Name;
+                                name = *it->second.Name;
                                 // The binary next to the dump, so nv-aftermath-format
                                 // -b CrashReports/shaders can map it offline too.
                                 std::error_code ec;
-                                const auto dir = CrashReportDir() / "shaders";
+                                const auto dir = CrashReportDirectory() / "shaders";
                                 std::filesystem::create_directories(dir, ec);
                                 const auto spv = dir / (std::to_string(binaryHash.hash) + ".spv");
                                 if (std::ofstream out{ spv, std::ios::binary }; out)
                                 {
-                                    out.write(reinterpret_cast<const char*>(it->second.Spirv.data()),
-                                              static_cast<std::streamsize>(it->second.Spirv.size() * sizeof(u32)));
+                                    out.write(reinterpret_cast<const char*>(it->second.Spirv.GetData()),
+                                              static_cast<std::streamsize>(it->second.Spirv.Num() * sizeof(u32)));
                                 }
                             }
                         }
@@ -234,20 +248,15 @@ namespace OloEngine::VulkanAftermath
             // decoder rejects it, the file is still on disk for Nsight.
             try
             {
-                const std::filesystem::path& dir = CrashReportDir();
-                std::error_code ec;
-                std::filesystem::create_directories(dir, ec);
-                const auto stamp = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                       std::chrono::system_clock::now().time_since_epoch())
-                                       .count();
-                const auto path = dir / ("OloEngine-" + std::to_string(stamp) + ".nv-gpudmp");
+                const auto path = CrashReportPath("OloEngine", ".nv-gpudmp");
                 if (std::ofstream out{ path, std::ios::binary }; out)
                 {
                     out.write(static_cast<const char*>(dump), static_cast<std::streamsize>(dumpSize));
                     OLO_CORE_ERROR("[Aftermath] crash dump written to {}", path.string());
                 }
                 const auto* bytes = static_cast<const u8*>(dump);
-                s_LastDump.assign(bytes, bytes + dumpSize);
+                s_LastDump.Reset();
+                s_LastDump.Append(bytes, static_cast<i32>(dumpSize));
                 s_LastDumpPath = path;
             }
             catch (const std::exception& e)
@@ -280,14 +289,14 @@ namespace OloEngine::VulkanAftermath
                 const auto* bytes = static_cast<const u8*>(debugInfo);
                 {
                     const std::lock_guard lock(s_DebugInfoMutex);
-                    s_DebugInfo[{ id.id[0], id.id[1] }].assign(bytes, bytes + size);
+                    auto& blob = s_DebugInfo[{ id.id[0], id.id[1] }];
+                    blob.Reset();
+                    blob.Append(bytes, static_cast<i32>(size));
                 }
                 // On disk as well, named the way Nsight Graphics and
                 // nv-aftermath-format -g look for it.
-                std::error_code ec;
-                std::filesystem::create_directories(CrashReportDir(), ec);
-                const auto path = CrashReportDir() / ("shader-" + std::to_string(id.id[0]) + "-" +
-                                                      std::to_string(id.id[1]) + ".nvdbg");
+                const auto path = CrashReportDirectory() / ("shader-" + std::to_string(id.id[0]) + "-" +
+                                                            std::to_string(id.id[1]) + ".nvdbg");
                 if (std::ofstream out{ path, std::ios::binary }; out)
                 {
                     out.write(static_cast<const char*>(debugInfo), static_cast<std::streamsize>(size));
@@ -305,7 +314,7 @@ namespace OloEngine::VulkanAftermath
             const std::lock_guard lock(s_DebugInfoMutex);
             if (const auto it = s_DebugInfo.find({ id->id[0], id->id[1] }); it != s_DebugInfo.end())
             {
-                setData(it->second.data(), static_cast<u32>(it->second.size()));
+                setData(it->second.GetData(), static_cast<u32>(it->second.Num()));
             }
         }
 
@@ -315,7 +324,7 @@ namespace OloEngine::VulkanAftermath
             const std::lock_guard lock(s_ShaderNameMutex);
             if (const auto it = s_Shaders.find(hash->hash); it != s_Shaders.end())
             {
-                setData(it->second.Spirv.data(), static_cast<u32>(it->second.Spirv.size() * sizeof(u32)));
+                setData(it->second.Spirv.GetData(), static_cast<u32>(it->second.Spirv.Num() * sizeof(u32)));
             }
         }
 
@@ -326,13 +335,13 @@ namespace OloEngine::VulkanAftermath
         void WriteJsonReport()
         {
             const std::lock_guard lock(s_CrashDumpMutex);
-            if (s_LastDump.empty())
+            if (s_LastDump.IsEmpty())
             {
                 return;
             }
             GFSDK_Aftermath_GpuCrashDump_Decoder decoder = {};
-            if (GFSDK_Aftermath_GpuCrashDump_CreateDecoder(GFSDK_Aftermath_Version_API, s_LastDump.data(),
-                                                           static_cast<u32>(s_LastDump.size()),
+            if (GFSDK_Aftermath_GpuCrashDump_CreateDecoder(GFSDK_Aftermath_Version_API, s_LastDump.GetData(),
+                                                           static_cast<u32>(s_LastDump.Num()),
                                                            &decoder) != GFSDK_Aftermath_Result_Success)
             {
                 OLO_CORE_ERROR("[Aftermath] could not create a decoder for the JSON report");
@@ -345,15 +354,16 @@ namespace OloEngine::VulkanAftermath
                     nullptr, nullptr, &jsonSize) == GFSDK_Aftermath_Result_Success &&
                 jsonSize > 0u)
             {
-                std::string json(jsonSize, '\0');
-                if (GFSDK_Aftermath_GpuCrashDump_GetJSON(decoder, jsonSize, json.data()) ==
+                TArray<char> json;
+                json.SetNumZeroed(static_cast<i32>(jsonSize));
+                if (GFSDK_Aftermath_GpuCrashDump_GetJSON(decoder, jsonSize, json.GetData()) ==
                     GFSDK_Aftermath_Result_Success)
                 {
                     auto path = s_LastDumpPath;
                     path.replace_extension(".json");
                     if (std::ofstream out{ path, std::ios::binary }; out)
                     {
-                        out.write(json.data(), static_cast<std::streamsize>(std::strlen(json.c_str())));
+                        out.write(json.GetData(), static_cast<std::streamsize>(std::strlen(json.GetData())));
                         OLO_CORE_ERROR("[Aftermath] decoded report written to {}", path.string());
                     }
                 }
@@ -496,8 +506,16 @@ namespace OloEngine::VulkanAftermath
         }
         else
         {
-            // Finished: every deferred debug-info callback has run, so the
-            // decoder can map program counters to SPIR-V now.
+            // Finished means every deferred debug-info callback has run, so the
+            // decoder can map program counters to source. A dump that arrived
+            // but was still collecting at the deadline is written all the same
+            // (it is the evidence) and says what it may lack.
+            if (status != GFSDK_Aftermath_CrashDump_Status_Finished)
+            {
+                OLO_CORE_ERROR("[Aftermath] the dump was still being collected after {} s (status {}) — the JSON "
+                               "report may lack shader source mapping",
+                               kTimeout.count(), static_cast<int>(status));
+            }
             try
             {
                 WriteJsonReport();
@@ -526,8 +544,9 @@ namespace OloEngine::VulkanAftermath
         }
         try
         {
-            const auto* words = static_cast<const u32*>(spirv);
-            ShaderRecord record{ name, std::vector<u32>(words, words + sizeBytes / sizeof(u32)) };
+            ShaderRecord record;
+            record.Name = FString(name);
+            record.Spirv.Append(static_cast<const u32*>(spirv), static_cast<i32>(sizeBytes / sizeof(u32)));
             const std::lock_guard lock(s_ShaderNameMutex);
             s_Shaders.insert_or_assign(hash.hash, std::move(record));
         }

@@ -379,17 +379,34 @@ namespace OloEngine
         // binds); PrepareDraw re-binds pipeline/viewport/scissor per draw, and
         // frame-scoped state — the backbuffer publication, the pending clear,
         // framebuffer selections, draw counters — deliberately survives.
-        ctx.ForgetCommandBufferBinds();
-        BindDescriptorHeaps(ctx);
+        ForgetBindsAndRebindHeaps(ctx);
     }
 
     void VulkanRendererAPI::BindDescriptorHeaps(VulkanRecordingContext& ctx)
     {
         if (ctx.Cmd == VK_NULL_HANDLE)
             return;
-        // Binds BOTH heaps (the sampler heap cascades inside CmdBind), if they
-        // exist; the first draw or dispatch creates them otherwise.
+        // Binds BOTH heaps (the sampler heap cascades inside CmdBind), if the
+        // resource heap exists; the first draw or dispatch creates it otherwise.
         ctx.HeapBoundThisRecording = VulkanResourceHeap::Get().CmdBindIfCreated(ctx.Cmd);
+    }
+
+    void VulkanRendererAPI::ForgetBindsAndRebindHeaps(VulkanRecordingContext& ctx)
+    {
+        ctx.ForgetCommandBufferBinds();
+        BindDescriptorHeaps(ctx);
+    }
+
+    void VulkanRendererAPI::EnsureDescriptorHeapsForDrawOrDispatch(VulkanRecordingContext& ctx)
+    {
+        // Every recording already has its heaps bound (BindDescriptorHeaps) once
+        // they exist; this creates them on the first draw or dispatch of a
+        // process that has none yet. Latched per recording like every other bind
+        // cache: a heap that cannot be created is not retried per draw.
+        if (ctx.HeapBoundThisRecording)
+            return;
+        (void)VulkanResourceHeap::Get().CmdBind(ctx.Cmd);
+        ctx.HeapBoundThisRecording = true;
     }
 
     bool VulkanRendererAPI::RecordStagedImageUpload(VkImage image, u32 mip, u32 baseLayer, u32 width, u32 height,
@@ -2553,10 +2570,7 @@ namespace OloEngine
                                : VkRect2D{ { 0, 0 }, targetExtent };
         vkCmdSetScissorWithCount(ctx.Cmd, 1, &scissor);
 
-        // Creates the heaps on the first draw or dispatch of a process that has
-        // none yet; otherwise BindDescriptorHeaps bound them already (#1511).
-        if (!ctx.HeapBoundThisRecording)
-            ctx.HeapBoundThisRecording = VulkanResourceHeap::Get().CmdBind(ctx.Cmd);
+        EnsureDescriptorHeapsForDrawOrDispatch(ctx);
 
         const bool assembled = gpuWrittenRootData != 0u
                                    ? PushRootDataAddress(gpuWrittenRootData)
@@ -3580,10 +3594,7 @@ namespace OloEngine
         }
 
         vkCmdBindPipeline(ctx.Cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
-        // Creates the heaps on the first draw or dispatch of a process that has
-        // none yet; otherwise BindDescriptorHeaps bound them already (#1511).
-        if (!ctx.HeapBoundThisRecording)
-            ctx.HeapBoundThisRecording = VulkanResourceHeap::Get().CmdBind(ctx.Cmd);
+        EnsureDescriptorHeapsForDrawOrDispatch(ctx);
         if (!AssembleAndPushRootData(layout, shader->GetName().c_str(), nullptr,
                                      /*commandOrderedBufferReads=*/false))
         {
@@ -3638,10 +3649,7 @@ namespace OloEngine
         }
 
         vkCmdBindPipeline(ctx.Cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
-        // Creates the heaps on the first draw or dispatch of a process that has
-        // none yet; otherwise BindDescriptorHeaps bound them already (#1511).
-        if (!ctx.HeapBoundThisRecording)
-            ctx.HeapBoundThisRecording = VulkanResourceHeap::Get().CmdBind(ctx.Cmd);
+        EnsureDescriptorHeapsForDrawOrDispatch(ctx);
         if (!AssembleAndPushRootData(layout, shader->GetName().c_str(), nullptr,
                                      /*commandOrderedBufferReads=*/false))
         {
@@ -8218,8 +8226,8 @@ namespace OloEngine
                 if (beforeExecute)
                     beforeExecute(index);
                 vkCmdExecuteCommands(main.Cmd, 1u, &m_Items[index]->Cmd);
-                main.ForgetCommandBufferBinds();
-                BindDescriptorHeaps(main);
+                // The bracket records on the primary between executes.
+                ForgetBindsAndRebindHeaps(main);
                 if (afterExecute)
                     afterExecute(index);
             }
@@ -8227,16 +8235,15 @@ namespace OloEngine
         else if (!secondaries.empty())
         {
             vkCmdExecuteCommands(main.Cmd, static_cast<u32>(secondaries.size()), secondaries.data());
+            // Command-buffer state is undefined on the primary after
+            // vkCmdExecuteCommands: the per-command-buffer caches must not claim
+            // otherwise (the ResumeRecordingAfterFlush shape). The heap bindings
+            // are part of that state and are re-specified AT ONCE (#1511): a
+            // secondary without VkCommandBufferInheritanceDescriptorHeapInfoEXT
+            // leaves the primary's heaps unbound, and the pass after a fork often
+            // records a copy before its next draw (SceneRenderPass's depth export).
+            ForgetBindsAndRebindHeaps(main);
         }
-        // Command-buffer state is undefined on the primary after
-        // vkCmdExecuteCommands: the per-command-buffer caches must not claim
-        // otherwise (the ResumeRecordingAfterFlush shape). The heap bindings
-        // are part of that state and are re-specified AT ONCE (#1511): a
-        // secondary without VkCommandBufferInheritanceDescriptorHeapInfoEXT
-        // leaves the primary's heaps unbound, and the pass after a fork often
-        // records a copy before its next draw (SceneRenderPass's depth export).
-        main.ForgetCommandBufferBinds();
-        BindDescriptorHeaps(main);
         Shader::SetBoundProgramBindless(seededProgramBindless);
         Shader::SetBoundProgramMaterialOffsets(seededProgramMaterialOffsets);
         // GL's sticky framebuffer state after a loop is the LAST iteration's.

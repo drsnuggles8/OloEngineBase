@@ -2,6 +2,9 @@
 
 #include "OloEngine/Core/Base.h"
 
+#include <filesystem>
+#include <string_view>
+
 // =============================================================================
 // VulkanAftermath.h — NVIDIA Nsight Aftermath GPU crash dumps (issue #1198).
 //
@@ -67,6 +70,13 @@ namespace OloEngine::VulkanAftermath
     // vkCmdSetCheckpointNV payload, one per pass). A dump resolves only
     // registered pointers into pass names; anything else stays an address.
     void RegisterCheckpointMarker(const char* marker);
+
+    // Where every device-loss artefact goes — the .nv-gpudmp, its JSON, the
+    // shader debug info and the descriptor-heap dump — so they sit together.
+    // Created on demand. Available with or without the SDK.
+    [[nodiscard]] std::filesystem::path CrashReportDirectory();
+    // "<CrashReportDirectory>/<stem>-<ms since epoch><extension>".
+    [[nodiscard]] std::filesystem::path CrashReportPath(std::string_view stem, std::string_view extension);
 
     // Release the crash-dump handler. Safe to call when never initialized.
     void Shutdown();

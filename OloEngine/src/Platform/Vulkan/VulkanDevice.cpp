@@ -19,8 +19,6 @@
 
 #include <algorithm>
 #include <atomic>
-#include <chrono>
-#include <filesystem>
 #include <mutex>
 #include <optional>
 #include <stdexcept>
@@ -1645,19 +1643,19 @@ namespace OloEngine
 
     void VulkanDevice::DumpDescriptorHeapForFault() const
     {
-        std::error_code ec;
-        const std::filesystem::path dir{ "CrashReports" };
-        std::filesystem::create_directories(dir, ec);
-        const auto stamp =
-            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
-                .count();
-        const auto path = dir / ("descriptor-heap-" + std::to_string(stamp) + ".bin");
+        const auto path = VulkanAftermath::CrashReportPath("descriptor-heap", ".bin");
         const auto& heap = VulkanResourceHeap::Get();
         if (heap.WriteDiagnosticDump(path))
         {
             OLO_CORE_ERROR("[Vulkan] descriptor heap written to {} (first {} B are the implementation's reserved "
                            "range, then the engine's slots)",
                            path.string(), heap.GetReservedRangeSize());
+        }
+        else
+        {
+            OLO_CORE_ERROR("[Vulkan] no descriptor-heap dump for this fault: the heap is not mapped (released or "
+                           "never created) or {} could not be written",
+                           path.string());
         }
     }
 
