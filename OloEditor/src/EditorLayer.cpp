@@ -4308,9 +4308,10 @@ namespace OloEngine
         }
 
         std::error_code ec;
-        path = std::filesystem::weakly_canonical(path, ec);
-        if (ec)
-            path = std::filesystem::path(request.Path).lexically_normal();
+        // weakly_canonical returns an empty path on failure, so keep the resolved
+        // one (normalised) rather than assigning over it.
+        const std::filesystem::path canonical = std::filesystem::weakly_canonical(path, ec);
+        path = ec ? path.lexically_normal() : canonical;
         result.ResolvedPath = path.string();
 
         // The panels save back to the file they loaded, so a consented open must
