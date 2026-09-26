@@ -302,12 +302,19 @@ namespace OloEngine
             return;
         }
 
+        const bool extentChanged = width != m_Specification.Width || height != m_Specification.Height;
         m_Specification.Width = width;
         m_Specification.Height = height;
         // Physical resize supersedes the DRS override — clear it so the new
         // physical size is used directly until SetRenderScale() re-applies.
         m_RenderViewportWidth = 0;
         m_RenderViewportHeight = 0;
+
+        // An unchanged extent keeps the attachments: the spec is immutable apart
+        // from its extent, and a render-path switch resizes every graph node to
+        // the unchanged viewport (issue #1511, the Vulkan twin's comment).
+        if (!extentChanged && m_RendererID != 0)
+            return;
 
         Invalidate();
     }

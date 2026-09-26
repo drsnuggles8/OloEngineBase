@@ -317,6 +317,26 @@ namespace OloEngine
             OLO_CORE_WARN("VulkanFramebuffer::Resize: ignoring zero extent {}x{}", width, height);
             return;
         }
+        // An unchanged extent keeps the attachments (issue #1511). The spec is
+        // immutable apart from its extent, so a rebuild would only replace every
+        // image with an identical one under a new handle — and a render-path
+        // switch re-adds each graph node, which resizes it to the unchanged
+        // viewport, so that used to happen to every scene attachment on every
+        // switch. Only the DRS override resets, as for a real resize. A raw
+        // facade framebuffer (attachments installed or detached from outside)
+        // is not "unchanged" in that sense and keeps the rebuild semantics.
+        const bool ownAttachmentsLive =
+            !m_HasExternalAttachments && m_ColorAttachments.Num() == m_ColorAttachmentSpecifications.Num() &&
+            std::ranges::all_of(m_ColorAttachments, [](const Ref<VulkanTexture2D>& a)
+                                { return a != nullptr; }) &&
+            (m_DepthAttachment != nullptr) ==
+                (m_DepthAttachmentSpecification.TextureFormat != FramebufferTextureFormat::None);
+        if (width == m_Specification.Width && height == m_Specification.Height && ownAttachmentsLive)
+        {
+            m_RenderViewportWidth = 0u;
+            m_RenderViewportHeight = 0u;
+            return;
+        }
         if (m_HasExternalAttachments)
         {
             // CreateAttachments would replace the externally-owned wiring

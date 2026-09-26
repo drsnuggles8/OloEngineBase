@@ -36,6 +36,7 @@ TEST(VulkanResourceFactory, SkipsWhenNotCompiledIn)
 
 #else
 
+#include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/IndexBuffer.h"
 #include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
@@ -1266,6 +1267,43 @@ TEST_F(VulkanResourceFactory, DepthStencilImagesAreHeldOneGenerationLongerThanCo
     EXPECT_EQ(reclaim.GetPendingCount(), baseline)
         << "after kDepthStencilHoldGenerations the depth image must be destroyed too - the hold is one extra "
            "generation, not a leak";
+}
+
+// Issue #1511: a resize to the extent a framebuffer already has keeps its
+// attachments — no image is replaced, so nothing is enqueued for reclaim. A
+// render-path switch resizes every graph node to the unchanged viewport, and
+// replacing every scene attachment on each switch was the trigger the freed-
+// scene-target fault needed. A real resize still replaces them.
+TEST_F(VulkanResourceFactory, FramebufferResizeToTheSameExtentKeepsItsAttachments)
+{
+    ScopedVulkanApiSelection vulkanApi;
+    auto& reclaim = VulkanDeferredReclaim::Get();
+
+    FramebufferSpecification spec;
+    spec.Width = 16;
+    spec.Height = 16;
+    spec.Attachments = { FramebufferTextureFormat::RGBA16F, FramebufferTextureFormat::DEPTH24STENCIL8 };
+    auto fb = Framebuffer::Create(spec);
+    ASSERT_NE(fb, nullptr);
+    const auto colourBefore = fb->GetColorAttachmentHandle(0);
+    const auto depthBefore = fb->GetDepthAttachmentHandle();
+    ASSERT_TRUE(colourBefore.IsValid());
+    ASSERT_TRUE(depthBefore.IsValid());
+    fb->SetRenderViewportSize(8u, 8u);
+    const sizet pendingBefore = reclaim.GetPendingCount();
+
+    fb->Resize(16u, 16u);
+
+    EXPECT_EQ(fb->GetColorAttachmentHandle(0), colourBefore);
+    EXPECT_EQ(fb->GetDepthAttachmentHandle(), depthBefore);
+    EXPECT_EQ(reclaim.GetPendingCount(), pendingBefore) << "no attachment may be retired by a same-extent resize";
+    EXPECT_EQ(fb->GetRenderViewportWidth(), 0u) << "a resize still clears the DRS override";
+
+    fb->Resize(24u, 16u);
+    EXPECT_NE(fb->GetColorAttachmentHandle(0), colourBefore) << "a real resize replaces the attachments";
+    EXPECT_GE(reclaim.GetPendingCount(), pendingBefore + 2u);
+    fb = nullptr;
+    CompleteFrames(static_cast<u32>(VulkanDeferredReclaim::kFramesInFlight));
 }
 
 TEST_F(VulkanResourceFactory, StorageBufferDataPathsRoundTrip)

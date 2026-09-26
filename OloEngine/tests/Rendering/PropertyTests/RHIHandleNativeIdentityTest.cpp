@@ -318,6 +318,36 @@ namespace OloEngine::Tests
         EXPECT_EQ(NativeOf(colourAfter), static_cast<u64>(fb->GetColorAttachmentRendererID(0)));
     }
 
+    // Issue #1511: a resize to the extent a framebuffer already has keeps its
+    // attachments. A render-path switch re-adds every graph node, and each node
+    // resizes its framebuffer to the unchanged viewport; recreating the scene
+    // targets on every switch was the trigger the Vulkan fault needed. Only the
+    // DRS override resets, as a real resize would.
+    TEST(RHIHandleNativeIdentity, FramebufferResizeToTheSameExtentKeepsItsAttachments)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        FramebufferSpecification spec;
+        spec.Width = 16;
+        spec.Height = 16;
+        spec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::Depth };
+        auto fb = Framebuffer::Create(spec);
+        ASSERT_TRUE(fb);
+        const auto colourBefore = fb->GetColorAttachmentHandle(0);
+        const auto depthBefore = fb->GetDepthAttachmentHandle();
+        const u32 nativeBefore = fb->GetColorAttachmentRendererID(0);
+        fb->SetRenderViewportSize(8u, 8u);
+
+        fb->Resize(16u, 16u);
+
+        EXPECT_EQ(fb->GetColorAttachmentHandle(0), colourBefore);
+        EXPECT_EQ(fb->GetDepthAttachmentHandle(), depthBefore);
+        EXPECT_EQ(fb->GetColorAttachmentRendererID(0), nativeBefore) << "the GL texture must not be recreated";
+        EXPECT_TRUE(RHI::ResourceRegistry::Get().IsLive(colourBefore));
+        EXPECT_EQ(fb->GetRenderViewportWidth(), 0u) << "a resize still clears the DRS override";
+        EXPECT_EQ(fb->GetRenderViewportHeight(), 0u);
+    }
+
     // ==========================================================================
     // The facade's handle forms are now the ONLY forms (issue #691, item
     // 4), so every caller exercises them. This test predates that and is kept
