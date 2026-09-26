@@ -389,6 +389,7 @@ namespace OloEngine::MCP
                                                    .Prop("y", Schema::Number())
                                                    .Prop("width", Schema::Number())
                                                    .Prop("height", Schema::Number())
+                                                   .Prop("ownWindow", Schema::Bool().Desc("True when the panel floats in its own OS window; input is still routed to it."))
                                                    .Desc("space:\"panel\" only: the window the coordinates were relative to, its top-left in window space and its size."))
                                 .Prop("wheel", Schema::Object().Prop("x", Schema::Number()).Prop("y", Schema::Number()).Desc("wheel only: the notches sent."))
                                 .Prop("resolved", Schema::Object().Desc("Cursor-placing actions (click/move/drag/wheel) only; omitted for key/text. A resolved point {windowX, windowY, viewportPixelX, viewportPixelY, insideViewport} for click/move, or {from, to} of two such points for drag."))

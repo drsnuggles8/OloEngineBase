@@ -85,7 +85,12 @@ namespace OloEngine::MCP::AssetOpen
                 return "Invalid 'path': parent-directory traversal ('..') is not allowed.";
         }
 
-        out.DiscardUnsaved = args.value("discardUnsaved", false);
+        if (args.contains("discardUnsaved"))
+        {
+            if (!args["discardUnsaved"].is_boolean())
+                return "Invalid 'discardUnsaved': expected a boolean.";
+            out.DiscardUnsaved = args["discardUnsaved"].get<bool>();
+        }
         return std::nullopt;
     }
 

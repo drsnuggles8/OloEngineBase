@@ -4311,7 +4311,10 @@ namespace OloEngine
         // not reach outside the project: containment is checked on the FINAL
         // (canonical) path, which a '..' check on the argument cannot establish
         // for an absolute path or a registry entry.
-        const std::filesystem::path assetRoot = std::filesystem::weakly_canonical(Project::GetAssetDirectory(), ec);
+        std::error_code rootEc;
+        std::filesystem::path assetRoot = std::filesystem::weakly_canonical(Project::GetAssetDirectory(), rootEc);
+        if (rootEc)
+            assetRoot = Project::GetAssetDirectory().lexically_normal();
         const std::filesystem::path relative = path.lexically_relative(assetRoot);
         if (relative.empty() || *relative.begin() == ".." || relative.is_absolute())
         {
