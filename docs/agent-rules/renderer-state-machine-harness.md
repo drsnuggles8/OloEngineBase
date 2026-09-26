@@ -50,9 +50,9 @@ compiler; a CPU test pins seed 1349 against an independent Python port.
 
 A target is held **bit-exact** only if its own control pair (the same state on two consecutive
 frames) is bit-exact. A target whose control moves has something frame-indexed in it; that one
-target is compared at **distribution** level (channel means, a log-luminance histogram and 16×16
-tile means, each within twice the control's own difference or a floor) and the run reports it as a
-fallback. A pair never passes because its control was noisy. TAA beauty is the deliberate
+target is compared at **distribution** level (channel means and a log-luminance histogram within
+twice the control's own difference, 16×16 tile means within three times it or 1% of the target's
+peak) and the run reports it as a fallback. A pair never passes because its control was noisy. TAA beauty is the deliberate
 distribution case (`TemporalBeautyMatchesInDistribution`).
 
 **Guards run before any statistic, and a missing measurement is never a tolerance** (#1492). A
@@ -64,9 +64,9 @@ and a histogram floor of 4, which nothing can exceed, and read NaN as black.
 
 **Means and histograms are blind to where texels are.** A half-image swap and a moved patch have the
 same mean and histogram as the original. The tile term catches them; it averages per-texel noise
-away, so an independently seeded noise pair still passes. Calibrated on the corpus: no clean
-comparison used more than a quarter of the tile allowance, and the stale-key fault moved a tile by
-fifteen times it. `RendererStateMachineComparison*` pins every case on the CPU.
+away, so an independently seeded noise pair still passes. Its floor is relative to the target's
+peak, so a dim buffer is not judged on a scale of 1. Calibrated on the corpus: no clean comparison
+used more than 22% of the tile allowance, and the stale-key fault moved a tile by twenty times it. `RendererStateMachineComparison*` pins every case on the CPU.
 
 ## Read intermediates at a pinned point, never after the frame
 
@@ -89,8 +89,8 @@ input was). The input was correctly compared at distribution level; the composit
 on a control that was stable by coincidence. Every target read later in the frame than the first
 noisy one is now compared at distribution level too. Before blaming the engine for a one-step
 difference in a quantised target, look at what fed it. This spread was re-examined in #1492 and
-kept: with the tile term, a downstream target still fails any change above 1% of a tile, so the
-spread only admits sub-tile drift, and following real resource lineage would need the graph's read
+kept: with the tile term, a downstream target still fails a tile mean that moves by more than 1%
+of its peak, so the spread only admits sub-tile drift, and following real resource lineage would need the graph's read
 sets inside a pure comparison.
 
 ## Negative controls

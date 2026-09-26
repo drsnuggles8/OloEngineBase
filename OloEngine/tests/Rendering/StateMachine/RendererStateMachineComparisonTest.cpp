@@ -30,6 +30,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <string>
 #include <vector>
@@ -117,8 +118,8 @@ namespace OloEngine::Tests::StateMachine
         {
             const std::vector<ControlFloor> controls =
                 MeasureControls(Frame(WithNoise(base, 11u, 0.02f)), Frame(WithNoise(base, 12u, 0.02f)));
-            EXPECT_EQ(controls.size(), 1u);
-            EXPECT_FALSE(controls.empty() || controls[0].Exact) << "the premise: a noisy control pair";
+            EXPECT_TRUE(controls.size() == 1u && controls[0].Calibrated && !controls[0].Exact)
+                << "the premise: one calibrated, noisy control";
             return controls;
         }
 
@@ -137,6 +138,106 @@ namespace OloEngine::Tests::StateMachine
     } // namespace
 
     // =========================================================================
+    // The two criteria (the manifest's, as code)
+    // =========================================================================
+
+    TEST(RendererStateMachineComparison, AnExactTargetCatchesOneTexel)
+    {
+        FrameCapture a;
+        a.Targets.push_back(MakeTarget("SceneColorTexture", 8u, 8u, 0.25f));
+        FrameCapture b = a;
+        const std::vector<ControlFloor> exact = MeasureControls(a, a);
+        ASSERT_EQ(exact.size(), 1u);
+        EXPECT_TRUE(exact[0].Exact);
+        EXPECT_TRUE(CompareCaptures(a, b, exact).Held);
+
+        b.Targets[0].Texels[17] = 0.2500001f;
+        const Comparison comparison = CompareCaptures(a, b, exact);
+        EXPECT_FALSE(comparison.Held) << "one texel one ulp off must fail an exact target";
+        EXPECT_FALSE(comparison.AnyDistributionFallback);
+        ASSERT_EQ(comparison.Targets.size(), 1u);
+        EXPECT_EQ(comparison.Targets[0].DifferingTexels, 1u);
+    }
+
+    TEST(RendererStateMachineComparison, ANoisyControlFallsBackToDistributionAndSaysSo)
+    {
+        FrameCapture first;
+        // 0.3, not 0.5: 0.5 is exactly a log-luminance bin edge, where any
+        // downward nudge changes bin and no upward one does.
+        first.Targets.push_back(MakeTarget("AOBuffer", 16u, 16u, 0.3f));
+        FrameCapture second = first;
+        // Frame-index noise: a few texels move a little, both ways, between
+        // two frames of one state.
+        for (sizet i = 0; i < second.Targets[0].Texels.size(); i += 37u)
+            second.Targets[0].Texels[i] += (i / 37u) % 2u == 0u ? 0.01f : -0.01f;
+        const std::vector<ControlFloor> controls = MeasureControls(first, second);
+        ASSERT_FALSE(controls[0].Exact);
+
+        FrameCapture candidate = second;
+        for (sizet i = 3; i < candidate.Targets[0].Texels.size(); i += 41u)
+            candidate.Targets[0].Texels[i] -= 0.01f;
+        const Comparison noiseLike = CompareCaptures(second, candidate, controls);
+        EXPECT_TRUE(noiseLike.Held) << noiseLike.Describe();
+        EXPECT_TRUE(noiseLike.AnyDistributionFallback) << "a fallback must be reported, never hidden";
+
+        // A real difference (a black frame where there was grey) is far
+        // outside any noise floor and must still fail at distribution level.
+        FrameCapture broken = second;
+        std::ranges::fill(broken.Targets[0].Texels, 0.0f);
+        EXPECT_FALSE(CompareCaptures(second, broken, controls).Held);
+    }
+
+    TEST(RendererStateMachineComparison, ATargetCapturedOnOneSideOnlyFails)
+    {
+        FrameCapture a;
+        a.Targets.push_back(MakeTarget("UIComposite", 4u, 4u, 1.0f));
+        a.Targets.push_back(MakeTarget("SSRColorTexture", 4u, 4u, 1.0f));
+        FrameCapture b;
+        b.Targets.push_back(MakeTarget("UIComposite", 4u, 4u, 1.0f));
+        const Comparison comparison = CompareCaptures(a, b, MeasureControls(a, a));
+        EXPECT_FALSE(comparison.Held) << "a pass that ran in one execution only is a difference";
+        EXPECT_NE(comparison.Describe().find("SSRColorTexture"), std::string::npos);
+    }
+
+    // A target read after a noisy one cannot be held bit-exact on the strength
+    // of its own control: its input moves, and a quantised output that rounded
+    // the same way on two control frames can round the other way on a third.
+    // Upstream of the noise, exactness still holds.
+    TEST(RendererStateMachineComparison, TargetsDownstreamOfANoisyTargetFallBackToDistribution)
+    {
+        const auto frame = [](f32 early, f32 noisy, f32 late)
+        {
+            FrameCapture capture;
+            capture.Targets.push_back(MakeTarget("Early", 8u, 8u, early));
+            capture.Targets.back().ReadOrder = 1u;
+            capture.Targets.push_back(MakeTarget("Noisy", 8u, 8u, noisy));
+            capture.Targets.back().ReadOrder = 2u;
+            capture.Targets.push_back(MakeTarget("Late", 8u, 8u, late));
+            capture.Targets.back().ReadOrder = 3u;
+            return capture;
+        };
+        const FrameCapture first = frame(0.25f, 0.5f, 0.75f);
+        FrameCapture second = frame(0.25f, 0.5f, 0.75f);
+        second.Targets[1].Texels[5] = 0.51f; // the noisy target's own frame-to-frame wobble
+        const std::vector<ControlFloor> controls = MeasureControls(first, second);
+        ASSERT_TRUE(controls[0].Exact);
+        ASSERT_FALSE(controls[1].Exact);
+        ASSERT_TRUE(controls[2].Exact) << "the premise: Late's own control happened to be stable";
+
+        // Late moved by one quantisation step at one texel: noise, not a fault.
+        FrameCapture candidate = second;
+        candidate.Targets[2].Texels[9] = 0.75f + (1.0f / 255.0f);
+        const Comparison comparison = CompareCaptures(second, candidate, controls);
+        EXPECT_TRUE(comparison.Held) << comparison.Describe();
+        EXPECT_TRUE(comparison.AnyDistributionFallback);
+
+        // The same one-texel move BEFORE the noise is still an exact failure.
+        FrameCapture early = second;
+        early.Targets[0].Texels[9] = 0.25f + (1.0f / 255.0f);
+        EXPECT_FALSE(CompareCaptures(second, early, controls).Held) << "a target upstream of the noise stays exact";
+    }
+
+    // =========================================================================
     // Non-finite values
     // =========================================================================
 
@@ -144,6 +245,7 @@ namespace OloEngine::Tests::StateMachine
     {
         const TargetCapture black = MakeTarget("SceneColorTexture", 8u, 8u, 0.0f);
         const std::vector<ControlFloor> exact = MeasureControls(Frame(black), Frame(black));
+        ASSERT_EQ(exact.size(), 1u);
         ASSERT_TRUE(exact[0].Exact);
 
         const TargetCapture nan = MakeTarget("SceneColorTexture", 8u, 8u, std::numeric_limits<f32>::quiet_NaN());
@@ -294,6 +396,7 @@ namespace OloEngine::Tests::StateMachine
         const TargetCapture grey = MakeTarget("SceneColorTexture", kSize, kSize, 0.3f);
         const std::vector<ControlFloor> exact = MeasureControls(Frame(grey), Frame(grey));
         const std::vector<ControlFloor> noisy = NoisyControls(grey);
+        ASSERT_EQ(noisy.size(), 1u);
         ASSERT_GT(noisy[0].TileShift, 0.0);
 
         const std::vector<ControlFloor> merged = MergeControls(exact, noisy);
@@ -372,6 +475,49 @@ namespace OloEngine::Tests::StateMachine
         }
     }
 
+    // The floor is 1% of the target's own peak, not of max(1, mean): a dim
+    // target (an SSR or emissive buffer whose whole signal is below 0.01)
+    // must not hide a permutation under an absolute floor.
+    TEST(RendererStateMachineComparisonSpatial, ADimTargetStillCatchesAPermutation)
+    {
+        const auto dim = [](bool swapped, u64 seed)
+        {
+            TargetCapture target = HalfImage(swapped);
+            for (sizet i = 0; i < target.Texels.size(); ++i)
+            {
+                if (i % 4u != 3u)
+                    target.Texels[i] *= 0.005f;
+            }
+            return WithNoise(std::move(target), seed, 0.0001f);
+        };
+        const std::vector<ControlFloor> controls = MeasureControls(Frame(dim(false, 11u)), Frame(dim(false, 12u)));
+        ASSERT_EQ(controls.size(), 1u);
+        ASSERT_FALSE(controls[0].Exact);
+        const Comparison noise = CompareCaptures(Frame(dim(false, 12u)), Frame(dim(false, 13u)), controls);
+        EXPECT_TRUE(noise.Held) << noise.Describe();
+        const Comparison swapped = CompareCaptures(Frame(dim(false, 12u)), Frame(dim(true, 13u)), controls);
+        EXPECT_FALSE(swapped.Held) << "a mirrored image with a peak of 0.005 passed under the floor";
+    }
+
+    // An extent that is not a multiple of the tile has no sliver tile: a
+    // one-texel-wide column would be the noisiest mean and loosen every tile.
+    TEST(RendererStateMachineComparisonSpatial, AnOddExtentHasNoSliverTile)
+    {
+        TargetCapture wide = MakeTarget("BloomColorTexture", 33u, 17u, 0.2f);
+        TargetCapture moved = wide;
+        // Only the last column differs: under a 16-wide grid it would be a
+        // tile of its own and move by the full 0.6; in the 16x17 tile that
+        // holds it (x = 17..32) it moves by 0.6 / 16.
+        for (u32 y = 0; y < 17u; ++y)
+        {
+            for (u32 c = 0; c < 3u; ++c)
+                moved.Texels[((static_cast<sizet>(y) * 33u + 32u) * 4u) + c] = 0.8f;
+        }
+        EXPECT_NEAR(TileShift(wide, moved), 0.6 / 16.0, 1.0e-6);
+        EXPECT_TRUE(std::isinf(TileShift(wide, MakeTarget("BloomColorTexture", 17u, 33u, 0.2f))))
+            << "tiles of different extents cover different texels; comparing them by index is meaningless";
+    }
+
     // A target downstream of a noisy one is held at distribution level even
     // when its own control was bit-stable (the #1349 quantisation case, pinned
     // in RendererStateMachineComparison.TargetsDownstreamOfANoisyTargetFallBackToDistribution).
@@ -393,6 +539,7 @@ namespace OloEngine::Tests::StateMachine
         const FrameCapture first = frame(WithNoise(grey, 11u, 0.02f), HalfImage(false));
         const FrameCapture second = frame(WithNoise(grey, 12u, 0.02f), HalfImage(false));
         const std::vector<ControlFloor> controls = MeasureControls(first, second);
+        ASSERT_EQ(controls.size(), 2u);
         ASSERT_FALSE(controls[0].Exact);
         ASSERT_TRUE(controls[1].Exact) << "the premise: Late's own control is bit-stable";
 

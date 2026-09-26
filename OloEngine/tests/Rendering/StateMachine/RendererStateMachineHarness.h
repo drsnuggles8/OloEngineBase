@@ -145,9 +145,11 @@ namespace OloEngine::Tests::StateMachine
     [[nodiscard]] f64 HistogramDistance(const TargetCapture& a, const TargetCapture& b);
     [[nodiscard]] f64 MeanShift(const TargetCapture& a, const TargetCapture& b);
     // The largest per-channel difference between the two targets' means over
-    // any one tile of kCompareTileSize x kCompareTileSize texels. The spatial
-    // term: a mean and a histogram are both blind to a permutation of texels,
-    // a tile mean is not, and it still averages per-texel noise away.
+    // any one tile (kCompareTileSize texels a side, up to twice that where
+    // the extent is not a multiple of it); +infinity for different extents.
+    // The spatial term: a mean and a histogram are both blind to a
+    // permutation of texels, a tile mean is not, and it still averages
+    // per-texel noise away.
     [[nodiscard]] f64 TileShift(const TargetCapture& a, const TargetCapture& b);
     inline constexpr u32 kCompareTileSize = 16u;
 
