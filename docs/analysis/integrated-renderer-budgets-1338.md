@@ -77,7 +77,10 @@ completed run had distinct valid frame IDs.
 
 The two completed captures include Beauty from all three camera poses and
 stationary HDR/depth. The Forward screenshot shows the foxes, grass and water,
-but its water reads as a raised flat sheet relative to the GL capture. The
+but its water reads as a raised flat sheet relative to the GL capture. That
+geometry difference was the editor host's live clock plus a doubled water
+displacement, both fixed in #1470; see `water-parity-1470/`. The remaining
+Vulkan Forward difference is shading (whitish water, #1486). The
 Forward+ path switch logged 15 unpublished storage-binding errors for
 `PBR_MultiLight`, `PBR_MultiLight_Skinned` and `Terrain_PBR`. The Forward run
 logged `VUID-vkDestroyImage-image-01000` during a 1920 × 1080 resize. Neither
@@ -194,9 +197,10 @@ CPU, fence-wait and present-wait distributions are retained in each summary.
   optimization claim. Feed this baseline to #1259.
 - Every measured Vulkan path, including Deferred and hybrid after #1437,
   misses 33.333 ms on every sampled frame.
-- Investigate the Vulkan resize image-lifetime VUID, the Forward+ storage
-  binding errors, and the visible water difference before claiming backend
-  parity.
+- Investigate the Vulkan resize image-lifetime VUID and the Forward+ storage
+  binding errors (#1487) before claiming backend parity. The water geometry
+  difference is resolved (#1470, `water-parity-1470/`); Vulkan Forward water
+  shading is #1486.
 - Enable valid sub-scale benchmark readback and resolve the live-editor crop
   (#1397) before evaluating non-native upscaling quality or performance.
 - Improve the integrated content fixture's grass/water boundary and bound

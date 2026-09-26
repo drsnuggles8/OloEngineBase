@@ -678,21 +678,21 @@ TEST(WaterShoreWave, TheShaderCarriesTheSameConstantsAsTheHeader)
         << " dispersion iterations";
 }
 
-// The shore transform is applied in the vertex stage AND the tess-eval stage,
-// which is what makes the colour pass and the surface-depth capture agree — they
-// replay one shared chain. A stage that quietly kept the deep-water entry point
-// would show as depth artefacts at the waterline rather than as wrong waves.
-TEST(WaterShoreWave, BothDisplacingStagesUseTheShoreAwareSum)
+// The shore transform is applied in the tess-eval stage — the ONE displacing
+// stage since issue #1470 (the vertex stage places the resting surface and never
+// displaces; WaterRendering's VertexStageNeverDisplaces pins that). Water.glsl
+// and Water_Depth.glsl both include it, which is what makes the colour pass and
+// the surface-depth capture agree. A stage that quietly kept the deep-water
+// entry point would show as depth artefacts at the waterline rather than as
+// wrong waves.
+TEST(WaterShoreWave, TheDisplacingStageUsesTheShoreAwareSum)
 {
-    for (const char* stage : { "include/WaterVertexStage.glsl", "include/WaterTessEvalStage.glsl" })
-    {
-        const std::string source = ReadShaderSource(stage);
-        ASSERT_FALSE(source.empty()) << stage;
-        EXPECT_NE(source.find("waterShoreSample("), std::string::npos)
-            << stage << " never samples the seabed";
-        EXPECT_NE(source.find("sumGerstnerWavesShore("), std::string::npos)
-            << stage << " still calls the deep-water octave sum";
-        EXPECT_EQ(source.find("= sumGerstnerWaves("), std::string::npos)
-            << stage << " has a displacement site left on the deep-water entry point";
-    }
+    const std::string source = ReadShaderSource("include/WaterTessEvalStage.glsl");
+    ASSERT_FALSE(source.empty());
+    EXPECT_NE(source.find("waterShoreSample("), std::string::npos)
+        << "WaterTessEvalStage.glsl never samples the seabed";
+    EXPECT_NE(source.find("sumGerstnerWavesShore("), std::string::npos)
+        << "WaterTessEvalStage.glsl still calls the deep-water octave sum";
+    EXPECT_EQ(source.find("= sumGerstnerWaves("), std::string::npos)
+        << "WaterTessEvalStage.glsl has a displacement site left on the deep-water entry point";
 }

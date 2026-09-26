@@ -61,6 +61,16 @@ namespace OloEngine
 
     f32 FramePacer::SmoothDelta(f32 rawDelta)
     {
+        // A zero-length frame (a pinned mock clock that did not advance, or
+        // stepped backwards — FrameDelta reports both as 0) stays zero-length:
+        // blending 0 into the average would hand the layers a fraction of the
+        // previous frame's time for a frame in which no time passed, and drag
+        // the average down for the frames after it. The average is untouched.
+        if (std::isfinite(rawDelta) && rawDelta <= 0.0f)
+        {
+            return 0.0f;
+        }
+
         if (!m_HasSmoothedDelta)
         {
             m_SmoothedDelta = std::isfinite(rawDelta) ? rawDelta : 0.0f;
@@ -120,6 +130,12 @@ namespace OloEngine
             return 0.0f;
         }
         return remaining - spinMargin;
+    }
+
+    f32 FramePacer::FrameDelta(f32 previousTime, f32 currentTime)
+    {
+        const f32 delta = currentTime - previousTime;
+        return (std::isfinite(delta) && delta > 0.0f) ? delta : 0.0f;
     }
 
     f32 FramePacer::SmoothFrameTime(f32 previous, f32 sample, f32 alpha)

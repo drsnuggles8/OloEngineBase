@@ -51,6 +51,29 @@ namespace
     // SmoothFrameTime — pure single EMA step
     // =========================================================================
 
+    // =========================================================================
+    // FrameDelta — the raw delta Application::Run hands to FramePacer
+    // =========================================================================
+
+    TEST(FramePacerFrameDelta, IsTheForwardDifference)
+    {
+        EXPECT_NEAR(FramePacer::FrameDelta(10.0f, 10.25f), 0.25f, 1e-6f);
+    }
+
+    // Issue #1470: a benchmark capture pins the mock clock to its manifest's
+    // t0, far below the wall clock an editor has been reading. The step
+    // backwards must be a zero-length frame, not a -588 s Timestep.
+    TEST(FramePacerFrameDelta, ABackwardsClockIsAZeroLengthFrame)
+    {
+        EXPECT_EQ(FramePacer::FrameDelta(600.0f, 12.0f), 0.0f);
+    }
+
+    TEST(FramePacerFrameDelta, NonFiniteReadingsAreAZeroLengthFrame)
+    {
+        EXPECT_EQ(FramePacer::FrameDelta(0.0f, kInf), 0.0f);
+        EXPECT_EQ(FramePacer::FrameDelta(kNaN, 1.0f), 0.0f);
+    }
+
     TEST(FramePacerSmoothStep, AlphaOneAdoptsTheSample)
     {
         EXPECT_FLOAT_EQ(FramePacer::SmoothFrameTime(0.010f, 0.020f, 1.0f), 0.020f);
@@ -175,6 +198,19 @@ namespace
         const f32 kept = pacer.SmoothDelta(kNaN);
         EXPECT_FLOAT_EQ(kept, 0.016f);
         EXPECT_FLOAT_EQ(pacer.GetSmoothedDelta(), 0.016f);
+    }
+
+    // A pinned mock clock produces zero-length frames (issue #1470). With
+    // smoothing on, they must stay zero-length rather than replaying a
+    // fraction of the previous frame's time, and must not drag the average.
+    TEST(FramePacerSmoothing, AZeroLengthFrameStaysZeroAndLeavesTheAverage)
+    {
+        FramePacer pacer;
+        pacer.SetSmoothingFactor(0.2f);
+        pacer.SmoothDelta(0.016f);
+        EXPECT_EQ(pacer.SmoothDelta(0.0f), 0.0f);
+        EXPECT_FLOAT_EQ(pacer.GetSmoothedDelta(), 0.016f);
+        EXPECT_FLOAT_EQ(pacer.SmoothDelta(0.016f), 0.016f);
     }
 
     TEST(FramePacerSmoothing, ResetReseedsOnNextSample)

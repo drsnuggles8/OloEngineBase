@@ -176,9 +176,12 @@ and is unchanged.
 `LinearDepth` is skipped in the editor host by design — the editor camera seam cannot pin the
 manifest's near/far clips, so metric linear depth is only available from the test binary.
 
-**Do not compare editor-host captures pixel-for-pixel against test-binary ones.** The editor runs
-a live clock with its own frame pacing (`result.json` records `host: "editor-mcp"` and says so);
-the comparison above is qualitative — same subject, same pose, same rig behaviour.
+**Do not compare editor-host captures pixel-for-pixel against test-binary ones.** Since #1470 the
+editor host pins the scene clock to the manifest's `Determinism` block the way the test binary does,
+so animated geometry (water, wave phase, the animation clock) lands at the same time; but frame
+pacing, quality tiering and TAA history stay the live editor's (`result.json` records
+`host: "editor-mcp"`). The comparison above is qualitative — same subject, same pose, same rig
+behaviour.
 
 ### Editor-host capture races the editor's own warm-up
 

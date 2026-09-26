@@ -1311,3 +1311,57 @@ TEST(WaterRendering, BloomDownsampleKillsNonFiniteInputs)
     EXPECT_EQ(src.find("mix(result, vec3(0.0), vec3(isnan"), std::string::npos)
         << "the non-finite kill regressed to mix(), which propagates NaN";
 }
+
+// Issue #1470: the water surface is displaced ONCE, in the tess-eval stage.
+// Every program that includes WaterVertexStage.glsl also has a TES and every
+// water draw is a patch list, so "tessellation off" is a tess level of 1, not
+// "no TES". The vertex stage used to displace whenever the tess factor was 0 —
+// the WaterComponent default — and the TES displaced the displaced point again:
+// double height, double choppy drift, a surface physics (one displacement) does
+// not agree with. Counted, not searched, so a partial revert fails too; the
+// frame-level half is WaterSingleDisplacementEvidenceTest.
+namespace
+{
+    std::size_t CountOccurrences(const std::string& haystack, const std::string& needle)
+    {
+        std::size_t count = 0;
+        for (std::size_t at = haystack.find(needle); at != std::string::npos; at = haystack.find(needle, at + 1))
+            ++count;
+        return count;
+    }
+} // namespace
+
+TEST(WaterRendering, VertexStageNeverDisplaces)
+{
+    const std::filesystem::path shaders = std::filesystem::path{ "assets" } / "shaders";
+    const std::string vertex = ReadShaderSource(shaders / "include" / "WaterVertexStage.glsl");
+    const std::string tessEval = ReadShaderSource(shaders / "include" / "WaterTessEvalStage.glsl");
+    ASSERT_FALSE(vertex.empty());
+    ASSERT_FALSE(tessEval.empty());
+
+    // Every displacement entry point: the analytic sums, the FFT cascade sum and
+    // its raw texture, the seabed sample the shore transform needs, the wake.
+    for (const char* entry : { "sumGerstnerWaves", "sampleOceanCascades(", "u_FFTDisplacement",
+                               "waterShoreSample(", "waterWakeEvaluate(" })
+    {
+        EXPECT_EQ(CountOccurrences(vertex, entry), 0u)
+            << "WaterVertexStage.glsl references '" << entry << "' — the vertex stage displaces again, and the "
+            << "tess-eval stage will displace its output a second time (issue #1470)";
+    }
+
+    // The one displacing stage: one FFT cascade sum, and the analytic sum for
+    // this frame and the previous one (velocity).
+    EXPECT_EQ(CountOccurrences(tessEval, "sampleOceanCascades("), 1u);
+    EXPECT_EQ(CountOccurrences(tessEval, "sumGerstnerWavesShore("), 2u);
+
+    // ...and it runs in every program the vertex stage is part of.
+    for (const char* program : { "Water.glsl", "Water_Depth.glsl" })
+    {
+        const std::string source = ReadShaderSource(shaders / program);
+        ASSERT_FALSE(source.empty()) << program;
+        EXPECT_EQ(CountOccurrences(source, "#include \"include/WaterVertexStage.glsl\""), 1u) << program;
+        EXPECT_EQ(CountOccurrences(source, "#type tess_evaluation"), 1u)
+            << program << " has no tess-eval stage, so nothing would displace its surface";
+        EXPECT_EQ(CountOccurrences(source, "#include \"include/WaterTessEvalStage.glsl\""), 1u) << program;
+    }
+}

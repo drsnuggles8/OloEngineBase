@@ -878,8 +878,10 @@ TEST(OceanCascade, EveryWaterStageSumsTheCascadesThroughTheSharedFunction)
     const std::filesystem::path root = RepoRoot();
     ASSERT_FALSE(root.empty()) << "could not locate the repo root from the test working directory";
 
+    // Not the vertex stage: it never touches the field (issue #1470 — the
+    // tess-eval stage is the one displacing stage; WaterRendering's
+    // VertexStageNeverDisplaces pins that).
     const char* stages[] = {
-        "OloEditor/assets/shaders/include/WaterVertexStage.glsl",
         "OloEditor/assets/shaders/include/WaterTessEvalStage.glsl",
         "OloEditor/assets/shaders/Water.glsl",
     };

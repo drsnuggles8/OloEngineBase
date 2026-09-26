@@ -152,9 +152,6 @@ layout(location = 2) in vec2 v_TexCoord[];
 layout(location = 3) in vec3 v_ViewDir[];
 layout(location = 4) in vec3 v_Tangent[];
 layout(location = 5) in vec3 v_Bitangent[];
-#ifndef OLO_VULKAN
-layout(location = 6) in float v_WaveHeight[]; // non-tess fallback interface only
-#endif
 layout(location = 7) in vec3 v_PrevWorldPos[];
 layout(location = 9) in float v_ProjSpacing[]; // issue #1035, see the vertex stage
 

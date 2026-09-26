@@ -595,7 +595,9 @@ namespace OloEngine
             CVars::DispatchPendingChanges();
 
             const auto timeNow = Time::GetTime();
-            const f32 rawDelta = timeNow - m_LastFrameTime;
+            // Never negative: a mock clock pinned below the wall clock steps
+            // time backwards (FramePacer::FrameDelta).
+            const f32 rawDelta = FramePacer::FrameDelta(m_LastFrameTime, timeNow);
             m_UnscaledDeltaTime = rawDelta;
             // EMA-smooth the delta handed to layers to damp frame-time jitter
             // (issue #456). With smoothing disabled (default) this returns the

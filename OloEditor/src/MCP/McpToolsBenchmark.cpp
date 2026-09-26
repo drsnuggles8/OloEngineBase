@@ -7,12 +7,18 @@
 // renderer-settings/exposure apply → viewport override → camera pose → warmed
 // frames → Benchmark::CaptureAttachment → Benchmark::WriteResultDirectory.
 //
-// Determinism here is BEST-EFFORT: the live editor renders with real dt and
-// its own frame pacing, so the mock-clock stepping the test-binary front door
-// performs does not apply. result.json records host:"editor-mcp", so an
-// editor-host result can never be mistaken for the deterministic test-binary
-// product. The run-twice acceptance proof lives on the test-binary front door;
-// this one exists for backend parity and live inspection.
+// Time is PINNED here the way the test-binary front door pins it (issue
+// #1470): Time::SetMockTime(StartTimeSeconds + n * FixedDtSeconds), stepped
+// once per frame index across every camera, so the scene clock that drives
+// water / foliage / animation reaches the same value at capture as it does
+// in the test binary. Before this the host rendered with the live clock and a
+// GL-vs-Vulkan comparison compared two different wave phases. The editor may
+// render more than one frame per step (its loop does not wait for us), but the
+// scene clock integrates clock DELTAS, so the extra frames add 0 and the value
+// at capture is exact. What stays best-effort is everything the editor owns
+// per frame — its pacing, quality tiering and TAA history length — so
+// result.json still records host:"editor-mcp" and the run-twice acceptance
+// proof stays on the test-binary front door.
 // =============================================================================
 
 #include "OloEnginePCH.h"
@@ -27,6 +33,7 @@
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Scene/Scene.h"
+#include "OloEngine/Utils/PlatformUtils.h"
 
 #include <glad/gl.h>
 #include <glm/glm.hpp>
@@ -49,27 +56,57 @@ namespace OloEngine::MCP
         // scene; same rationale as the scene-control timeout.
         constexpr std::chrono::milliseconds kBenchmarkMarshalTimeout{ 120000 };
 
-        // The shared settle helper with a deadline scaled to the declared
-        // warm-up frame count (a benchmark waits 128+ frames, not a 2-3 frame
-        // screenshot settle).
+        // The shared settle helper. Every capture step now awaits ONE frame
+        // (issue #1470), so the deadline is the benchmark marshal budget rather
+        // than 10 s + 250 ms per frame: that per-frame share used to pool
+        // across a 64-frame warm-up and absorb the one frame a freshly switched
+        // Vulkan render path spends compiling pipelines, and a 10 s deadline on
+        // that single frame would end the warm-up there.
         bool AwaitBenchmarkFrames(IAutomationHost& host, u64 baseFrame, u32 frames)
         {
-            const auto deadline = std::chrono::seconds(10) + std::chrono::milliseconds(250) * frames;
-            return AwaitRenderedFrames(host, baseFrame, static_cast<int>(frames),
-                                       std::chrono::duration_cast<std::chrono::milliseconds>(deadline));
+            const auto scaled = std::chrono::seconds(10) + std::chrono::milliseconds(250) * frames;
+            const auto deadline = std::max(std::chrono::duration_cast<std::chrono::milliseconds>(scaled),
+                                           kBenchmarkMarshalTimeout);
+            return AwaitRenderedFrames(host, baseFrame, static_cast<int>(frames), deadline);
         }
 
-        u64 CurrentFrame(IAutomationHost& host)
+        // Pin the engine clock on the render thread (the thread whose frames
+        // read it). Marshalled, not set from this handler's thread, so a frame
+        // never reads a half-updated pair of statics.
+        void SetMockClock(IAutomationHost& host, f32 seconds)
         {
-            if (!host.Context().GetFrameIndex)
-            {
-                return 0;
-            }
-            return host
-                .MarshalRead([&host]() -> Json
-                             { return Json{ { "frame", host.Context().GetFrameIndex() } }; })
-                .value("frame", static_cast<u64>(0));
+            // The benchmark budget, not the default one: this is the FIRST marshal
+            // a capture makes, and a freshly launched Vulkan editor can still be
+            // inside its shader warm-up when it arrives.
+            (void)host.MarshalRead([seconds]() -> Json
+                                   {
+                Time::SetMockTime(seconds);
+                return Json{ { "ok", true } }; },
+                                   kBenchmarkMarshalTimeout);
         }
+
+        // Releases the pinned clock on EVERY exit path — an early error return
+        // or a marshal timeout throwing out of the handler would otherwise
+        // leave the whole editor frozen at the capture's time, animations and
+        // all. Best effort and non-throwing, like the renderer-state guard.
+        struct MockClockReleaseGuard
+        {
+            IAutomationHost* Host = nullptr;
+            ~MockClockReleaseGuard()
+            {
+                try
+                {
+                    (void)Host->MarshalRead([]() -> Json
+                                            {
+                        Time::ClearMockTime();
+                        return Json{ { "ok", true } }; },
+                                            kBenchmarkMarshalTimeout);
+                }
+                catch (...)
+                {
+                }
+            }
+        };
 
         ToolResult Handle_BenchmarkCapture(IAutomationHost& host, const Json& args)
         {
@@ -109,6 +146,18 @@ namespace OloEngine::MCP
             {
                 return ToolResult::Error("Camera control is not available in this editor build.");
             }
+
+            // ---- Pin the clock BEFORE the scene opens (issue #1470) ----------
+            // The scene seeds its animation clock from Time::GetTime() on its
+            // first update, so t0 has to be in place first — the test-binary
+            // host's order (docs/guides/renderer-benchmarks.md, step 2).
+            const f32 clockStart = manifest->StartTimeSeconds;
+            const f32 clockDt = manifest->FixedDtSeconds;
+            // The guard FIRST: the marshal below can time out and throw, and the
+            // abandoned job still runs later (nothing dequeues it), so a guard
+            // constructed after it would leave the editor pinned at t0.
+            const MockClockReleaseGuard clockGuard{ &host };
+            SetMockClock(host, clockStart);
 
             // ---- Open the manifest's scene (same seam as olo_scene_open) ----
             const std::string scenePath = manifest->ScenePath.ToStdString();
@@ -304,64 +353,65 @@ namespace OloEngine::MCP
                 const u32 warmFrames = cameraSpec.WarmupFrames.value_or(manifest->WarmupFrames);
                 totalWarmFrames += warmFrames;
 
-                const auto poseAt = [&host, &cameraSpec, fovDegrees, dt = manifest->FixedDtSeconds](u32 frame)
+                // Everything one capture step changes — camera pose, pinned
+                // clock, entity motion — plus the frame index the await counts
+                // from, in ONE marshal. Every marshal waits for the editor's
+                // next frame, so separate ones cost a frame each per step; at
+                // the Debug editor's few fps on the integrated scene that was
+                // most of a 40-minute capture. The clock and the entity motion
+                // share one frame index, as they do in the test binary. Returns
+                // the frame index, or nullopt when an EntityMotion target is
+                // missing.
+                const auto applyStep = [&host, &cameraSpec, manifestCopy, fovDegrees, clockStart,
+                                        clockDt](std::optional<u32> poseFrame, u32 motionFrame) -> std::optional<u64>
                 {
-                    const auto pose = Benchmark::CameraPoseAtFrame(cameraSpec, frame, dt);
-                    const glm::vec3 position = pose.Position;
-                    const f32 yawRadians = glm::radians(pose.YawDegrees);
-                    const f32 pitchRadians = glm::radians(pose.PitchDegrees);
-                    host.MarshalRead(
-                        [&host, position, yawRadians, pitchRadians, fovDegrees]() -> Json
+                    std::optional<Benchmark::ManifestCameraPose> pose;
+                    if (poseFrame)
+                        pose = Benchmark::CameraPoseAtFrame(cameraSpec, *poseFrame, manifestCopy->FixedDtSeconds);
+                    const f32 seconds = clockStart + static_cast<f32>(motionFrame) * clockDt;
+                    const Json result = host.MarshalRead(
+                        [&host, manifestCopy, pose, fovDegrees, seconds, motionFrame]() -> Json
                         {
-                            host.Context().SetCameraPose(position, yawRadians, pitchRadians, fovDegrees);
-                            return Json{ { "ok", true } };
-                        });
+                            if (pose)
+                            {
+                                host.Context().SetCameraPose(pose->Position, glm::radians(pose->YawDegrees),
+                                                             glm::radians(pose->PitchDegrees), fovDegrees);
+                            }
+                            Time::SetMockTime(seconds);
+                            bool ok = true;
+                            if (!manifestCopy->EntityMotions.IsEmpty())
+                            {
+                                std::string error;
+                                Ref<Scene> active = host.Context().GetActiveScene();
+                                ok = active && Benchmark::ApplyEntityMotion(*active, *manifestCopy, motionFrame, error);
+                            }
+                            const u64 frameIndex = host.Context().GetFrameIndex ? host.Context().GetFrameIndex() : 0;
+                            return Json{ { "ok", ok }, { "frame", frameIndex } };
+                        },
+                        kBenchmarkMarshalTimeout);
+                    if (!result.value("ok", false))
+                        return std::nullopt;
+                    return result.value("frame", static_cast<u64>(0));
                 };
 
-                const auto motionAt = [&host, manifestCopy](u32 frame) -> bool
+                // One frame at a time for EVERY camera: the pose (issue #1239)
+                // and the pinned clock (issue #1470) both advance BETWEEN live
+                // frames, on the schedule the test-binary host walks — both go
+                // through CameraPoseAtFrame and t0 + n * dt. A still camera
+                // used to wait out its whole warm-up in one await, which is
+                // exactly where a frozen or live clock would have diverged
+                // from the test binary's. Capturing a moving manifest as a
+                // still frame would be a silently wrong picture, which is the
+                // one outcome this schema exists to prevent.
+                for (u32 frame = 0; frame < warmFrames; ++frame)
                 {
-                    if (manifestCopy->EntityMotions.IsEmpty())
-                        return true;
-                    const Json result = host.MarshalRead([&host, manifestCopy, frame]() -> Json
-                                                         {
-                        std::string error;
-                        Ref<Scene> active = host.Context().GetActiveScene();
-                        const bool ok = active && Benchmark::ApplyEntityMotion(*active, *manifestCopy, frame, error);
-                        return Json{ { "ok", ok }, { "error", error } }; });
-                    return result.value("ok", false);
-                };
-
-                if (!cameraSpec.Motion && manifest->EntityMotions.IsEmpty())
-                {
-                    // Still camera: pose once, then wait out the whole warm-up
-                    // in one await — the issue-#974 path, unchanged.
-                    poseAt(0u);
-                    if (!AwaitBenchmarkFrames(host, CurrentFrame(host), warmFrames))
+                    const std::optional<u64> baseFrame = applyStep(frame, trajectoryFrame++);
+                    if (!baseFrame)
+                        return ToolResult::Error("EntityMotion target missing from the active scene");
+                    if (!AwaitBenchmarkFrames(host, *baseFrame, 1u))
                     {
                         warmupTimedOut = true; // recorded, not fatal — capture what we have
-                    }
-                    trajectoryFrame += warmFrames;
-                }
-                else
-                {
-                    // Moving camera (issue #1239): the pose has to advance
-                    // BETWEEN live frames, so re-pose and wait one frame at a
-                    // time. This is the same schedule the test-binary host
-                    // walks — both go through CameraPoseAtFrame — just paid for
-                    // with one marshal per frame instead of one per camera.
-                    // Capturing a moving manifest as a still frame would be a
-                    // silently wrong picture, which is the one outcome this
-                    // schema exists to prevent.
-                    for (u32 frame = 0; frame < warmFrames; ++frame)
-                    {
-                        poseAt(frame);
-                        if (!motionAt(trajectoryFrame++))
-                            return ToolResult::Error("EntityMotion target missing from the active scene");
-                        if (!AwaitBenchmarkFrames(host, CurrentFrame(host), 1u))
-                        {
-                            warmupTimedOut = true;
-                            break;
-                        }
+                        break;
                     }
                 }
 
@@ -370,13 +420,12 @@ namespace OloEngine::MCP
                 // 300-frame ring cannot silently discard the tail of a run.
                 for (u32 frame = 0; frame < manifest->MeasurementFrames; ++frame)
                 {
-                    if (cameraSpec.Motion)
-                    {
-                        poseAt(warmFrames + frame);
-                    }
-                    if (!motionAt(trajectoryFrame++))
+                    const std::optional<u32> poseFrame =
+                        cameraSpec.Motion ? std::optional<u32>(warmFrames + frame) : std::nullopt;
+                    const std::optional<u64> baseFrame = applyStep(poseFrame, trajectoryFrame++);
+                    if (!baseFrame)
                         return ToolResult::Error("EntityMotion target missing from the active scene");
-                    if (!AwaitBenchmarkFrames(host, CurrentFrame(host), 1u))
+                    if (!AwaitBenchmarkFrames(host, *baseFrame, 1u))
                     {
                         warmupTimedOut = true;
                         break;
@@ -486,7 +535,9 @@ namespace OloEngine::MCP
             // MCP summary alone is not part of the result directory, and capturedPose
             // is derived from the DECLARED frame count.
             runInfo.WarmupTimedOut = warmupTimedOut;
-            runInfo.FinalMockTimeSeconds = 0.0f; // live clock — no mock stepping in this host
+            // The last value applyStep() set — the time the final frame rendered at.
+            runInfo.FinalMockTimeSeconds =
+                clockStart + static_cast<f32>(trajectoryFrame > 0u ? trajectoryFrame - 1u : 0u) * clockDt;
             runInfo.PassTimings = *passTimings;
             runInfo.Timing = *timingValidity;
             runInfo.Resolution = *resolution;
@@ -544,8 +595,10 @@ namespace OloEngine::MCP
             summary["attachmentFailures"] = failures;
             summary["warmupTimedOut"] = warmupTimedOut;
             summary["determinismNote"] =
-                "editor-mcp host: live clock, no mock-time stepping — the deterministic run-twice product is the "
-                "test binary's --olo-capture-manifest front door (docs/guides/renderer-benchmarks.md)";
+                "editor-mcp host: the scene clock is pinned to the manifest's StartTimeSeconds + n * FixedDtSeconds "
+                "like the test binary's, but frame pacing, quality tiering and TAA history stay the live editor's — "
+                "the deterministic run-twice product is the test binary's --olo-capture-manifest front door "
+                "(docs/guides/renderer-benchmarks.md)";
             return ToolResult::Structured(summary);
         }
     } // namespace
@@ -571,8 +624,9 @@ namespace OloEngine::MCP
             "and provenance). Pass 'manifest' (path to a .yaml under assets/benchmark/manifests/, resolved "
             "against OloEditor/) and optionally 'outDir'. This editor front door exists mainly to run manifests "
             "under --rhi=vulkan (the headless test-binary front door, OloEngine-Tests --olo-capture-manifest=, "
-            "is GL-only and is the DETERMINISTIC one — this host renders with the live clock, best-effort; the "
-            "editor also owns its viewport-helper toggles and quality tiering per frame, so editor chrome or "
+            "is GL-only and is the DETERMINISTIC one — this host pins the scene clock to the manifest's "
+            "Determinism block like the test binary does, but the "
+            "editor still owns its frame pacing, viewport-helper toggles and quality tiering per frame, so editor chrome or "
             "tiering-adjusted post settings can appear in this host's frames, and the viewport-size override may "
             "not take on every backend — per-attachment dims in result.json record what was actually captured). "
             "This is a WRITE tool: refused unless 'Allow writes' is enabled in the editor's MCP Server panel.";
