@@ -660,24 +660,47 @@ namespace OloEngine::Tests
             GTAOVisualEvidenceTest::BuildScene();
         }
 
+        // The whole AOBuffer, raw (RGBA float readback; AO in .r).
+        struct AOImage
+        {
+            i32 Width = 0;
+            i32 Height = 0;
+            std::vector<f32> Texels;
+
+            [[nodiscard]] f32 At(i32 x, i32 y) const
+            {
+                return Texels[(static_cast<std::size_t>(y) * static_cast<std::size_t>(Width) + static_cast<std::size_t>(x)) * 4u];
+            }
+        };
+
+        [[nodiscard]] AOImage ReadAO()
+        {
+            AOImage image;
+            const u32 ao = Renderer3D::ResolveFrameGraphTexture(ResourceNames::AOBuffer);
+            EXPECT_NE(ao, 0u) << "no AOBuffer this frame";
+            if (ao == 0u)
+                return image;
+            ::glGetTextureLevelParameteriv(ao, 0, GL_TEXTURE_WIDTH, &image.Width);
+            ::glGetTextureLevelParameteriv(ao, 0, GL_TEXTURE_HEIGHT, &image.Height);
+            if (image.Width > 0 && image.Height > 0)
+                ReadbackRgbaFloat(ao, static_cast<u32>(image.Width), static_cast<u32>(image.Height), image.Texels);
+            return image;
+        }
+
         // Mean raw AO over a (2*half+1)^2 window at the centre of AOBuffer:
         // the texels under the camera's focus point.
         [[nodiscard]] f64 CentreAO(i32 half)
         {
-            const u32 ao = Renderer3D::ResolveFrameGraphTexture(ResourceNames::AOBuffer);
-            EXPECT_NE(ao, 0u) << "no AOBuffer this frame";
-            if (ao == 0u)
+            const AOImage image = ReadAO();
+            if (image.Texels.empty())
                 return -1.0;
-            GLint w = 0;
-            GLint h = 0;
-            ::glGetTextureLevelParameteriv(ao, 0, GL_TEXTURE_WIDTH, &w);
-            ::glGetTextureLevelParameteriv(ao, 0, GL_TEXTURE_HEIGHT, &h);
+            const i32 w = image.Width;
+            const i32 h = image.Height;
             EXPECT_GT(w, 2 * half);
             EXPECT_GT(h, 2 * half);
             if (w <= 2 * half || h <= 2 * half)
                 return -1.0;
-            std::vector<f32> texels;
-            ReadbackRgbaFloat(ao, static_cast<u32>(w), static_cast<u32>(h), texels);
+            const std::vector<f32>& texels = image.Texels;
             f64 sum = 0.0;
             u32 count = 0;
             for (i32 y = h / 2 - half; y <= h / 2 + half; ++y)
@@ -760,6 +783,93 @@ namespace OloEngine::Tests
         std::cout << "[GTAO #1463] " << PathTag(GetParam()) << " crease, 5 cm from the wall: AO " << crease << '\n';
         EXPECT_LE(crease, 0.75) << "the cube/floor contact crease is not clearly occluded (AO " << crease
                                 << "). See GTAO_" << m_EvidencePrefix << "Crease.png";
+    }
+
+    // Issue #1503: GTAO reads the HZB mip chain on GL, as it does on Vulkan.
+    // GTAODepthMipOffset decides which level each horizon sample reads; before
+    // the fix, GL's HZB had no mip filter and every read came from level 0, so
+    // moving the offset from its 3.3 default to 0 changed 21 pixels live on GL
+    // against 350k on Vulkan. Prediction for a working chain: many texels
+    // change, and the crease gets BRIGHTER, because the coarser levels are
+    // max-reduced (farther) depths, and a farther occluder can only lower a
+    // horizon. Evidence: GTAO_GL_<Path>_MipOffset33.png / _MipOffset0.png.
+    TEST_P(GTAOElevationEvidenceTest, HorizonSamplesReadTheHzbMipChain)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        struct ScopedMockTime
+        {
+            explicit ScopedMockTime(f32 t)
+            {
+                Time::SetMockTime(t);
+            }
+            ~ScopedMockTime()
+            {
+                Time::ClearMockTime();
+            }
+        } scopedMockTime(kCaptureTime);
+
+        auto& pp = Renderer3D::GetPostProcessSettings();
+        pp.ActiveAOTechnique = AOTechnique::GTAO;
+        pp.GTAOEnabled = true;
+        pp.GTAORadius = 0.5f;
+        pp.GTAOPower = 2.2f;
+        pp.GTAOFalloffRange = 0.615f;
+        pp.GTAOSampleDistribution = 2.0f;
+        pp.GTAOThinCompensation = 0.0f;
+        pp.GTAODenoiseEnabled = true;
+        pp.GTAODenoisePasses = 4;
+        pp.GTAODenoiseBeta = 1.2f;
+        pp.GTAODebugView = true;
+
+        EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 1000.0f);
+        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        camera.Focus(glm::vec3(0.0f, 0.0f, 2.55f), 8.0f, 0.0f, glm::radians(35.0f));
+
+        const auto captureAt = [&](f32 mipOffset, const char* tag)
+        {
+            pp.GTAODepthMipOffset = mipOffset;
+            Renderer3D::ApplyRendererSettings();
+            std::vector<u8> pixels;
+            Capture(tag, camera, pixels);
+            return ReadAO();
+        };
+        const AOImage fine = captureAt(3.3f, "MipOffset33");
+        if (::testing::Test::HasFatalFailure())
+            return;
+        const AOImage coarse = captureAt(0.0f, "MipOffset0");
+        if (::testing::Test::HasFatalFailure())
+            return;
+        ASSERT_FALSE(fine.Texels.empty());
+        ASSERT_EQ(fine.Texels.size(), coarse.Texels.size());
+
+        std::size_t changed = 0;
+        for (i32 y = 0; y < fine.Height; ++y)
+            for (i32 x = 0; x < fine.Width; ++x)
+                changed += std::abs(fine.At(x, y) - coarse.At(x, y)) > 2.0f / 255.0f ? 1u : 0u;
+        const f64 changedFraction =
+            static_cast<f64>(changed) / (static_cast<f64>(fine.Width) * static_cast<f64>(fine.Height));
+
+        // The crease: the same window CentreAO(1) reads for the positive control.
+        const auto creaseAO = [](const AOImage& image)
+        {
+            f64 sum = 0.0;
+            for (i32 y = image.Height / 2 - 1; y <= image.Height / 2 + 1; ++y)
+                for (i32 x = image.Width / 2 - 1; x <= image.Width / 2 + 1; ++x)
+                    sum += image.At(x, y);
+            return sum / 9.0;
+        };
+        const f64 creaseFine = creaseAO(fine);
+        const f64 creaseCoarse = creaseAO(coarse);
+        std::cout << "[GTAO #1503] " << PathTag(GetParam()) << " mip offset 3.3 -> 0: " << changedFraction * 100.0
+                  << " % of texels change; crease AO " << creaseFine << " -> " << creaseCoarse << '\n';
+
+        EXPECT_GE(changedFraction, 0.01) << "moving GTAODepthMipOffset from 3.3 to 0 changed " << changedFraction * 100.0
+                                         << " % of the AO buffer: the horizon samples are not reading the HZB's "
+                                            "mip chain (issue #1503). See GTAO_"
+                                         << m_EvidencePrefix << "MipOffset0.png";
+        EXPECT_GT(creaseCoarse, creaseFine)
+            << "coarser, max-reduced HZB levels must lower the crease's horizons, not raise them (crease AO "
+            << creaseFine << " -> " << creaseCoarse << ")";
     }
 
     INSTANTIATE_TEST_SUITE_P(AllPaths, GTAOElevationEvidenceTest,

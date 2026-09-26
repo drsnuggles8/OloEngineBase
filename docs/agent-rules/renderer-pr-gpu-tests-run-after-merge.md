@@ -49,13 +49,18 @@ clamped off-screen samples to uv [0, 1]. The HZB is sampled with the texture's o
 `Repeat` by default. Wherever the viewport reaches the texture edge (uv 0, and every side of a
 power-of-two viewport), a linear fetch therefore blended in the opposite edge's depth. That drew
 phantom occlusion along the screen border: 103/255 against 240 on the test's top row. The old
-horizon convention had hidden it. Fix: near the texture edge, `SampleHZBDepth` reads each trilinear
-level with a four-tap `texelFetch` whose taps are clamped to that level. The first attempt clamped
-both levels at the coarse level's half-texel. The device test passed, but a live sloped floor showed
-the fine level reading 16 px inside the frame and darkening the border (173 against master's 176).
-A flat test input cannot catch that; a live A/B against the base shader did. Review then found why
-a sampler-based clamp is unsafe on GL: the pooled HZB has no mipmap min filter there, so every
-`textureLod` on it reads level 0.
+horizon convention had hidden it. The same inherited sampler had a second defect on GL (#1503): a
+chain written by compute never counts as mipmapped, so the min filter was `GL_LINEAR` and every
+`textureLod` on the HZB read level 0. GTAO ignored its mip selection on GL, and the HZB's own
+reduction built every GL level from mip 4 up out of level-0 samples, including the levels occlusion
+culling and SSR read. Fix: GTAO states a trilinear, clamp-to-edge sampler for the HZB (new
+`SetTextureSampling` for GL's slot path, plus the bind's desc for Vulkan and the heap paths), and
+`HZB.comp` reduces its parent with `texelFetch`. Two shader-side clamps came first. One read the
+fine level 16 px inside the frame on a sloped floor (a live A/B against the base shader caught it;
+a flat test input cannot). The other only worked around the sampler instead of stating it.
+
+**Rule this adds: a texture a shader samples by LOD states its sampler.** An inherited sampler is
+whatever the texture was created with, and on GL a compute-written mip chain is never "populated".
 
 How the three were told apart: a per-pixel CPU port of `GTAO.comp` (the mirror in
 `GTAOMathTest.cpp`) was run against the device test's exact input. Its pre-#1463 arm reproduced

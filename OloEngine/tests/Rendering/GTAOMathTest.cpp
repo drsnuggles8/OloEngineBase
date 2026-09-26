@@ -787,64 +787,67 @@ TEST(GTAOMath, GtaoShaderSkyEarlyOutIsUlpTolerant)
            "depth (1.0 - 1 D24 ULP) will classify as geometry and blacken the sky";
 }
 
-// An off-screen horizon sample never reads depth from the opposite screen
-// edge. The HZB is sampled through the texture's own sampler (Repeat by
-// default), so the viewport clamp alone left a linear fetch at uv 0, and at
-// every edge of a power-of-two viewport, half in the texel on the far side:
-// VulkanPassSuite.GtaoIsOpenOnUniformDepthAndDarkensACrease (128 x 128) read an
-// unoccluded top row at 103/255 against a control of 240. The border read is
-// per mip level (one clamp for both trilinear levels moves the fine read inward
-// and darkened a receding floor's border live, 173 against 176) and built from
-// texelFetch (GL's pooled HZB has no mipmap min filter, so a clamped textureLod
-// reads level 0 at the coarse level's inset). The device test needs Vulkan
-// hardware and runs on no CI job; this pin runs everywhere.
-TEST(GTAOMath, GtaoHzbFetchNeverWrapsToTheOppositeEdge)
+namespace
 {
-    const std::string src = ReadRepoFile(std::filesystem::path{ "assets" } / "shaders" / "compute" / "GTAO.comp");
-    ASSERT_FALSE(src.empty());
-    const auto bodyOf = [&src](const std::string& signature) -> std::string
-    {
-        const auto begin = src.find(signature);
-        if (begin == std::string::npos)
-            return {};
-        const auto end = src.find("\n}", begin);
-        return end == std::string::npos ? std::string{} : src.substr(begin, end - begin);
-    };
-    const auto count = [](const std::string& haystack, const std::string& needle)
+    int CountOccurrences(const std::string& haystack, const std::string& needle)
     {
         int n = 0;
         for (auto at = haystack.find(needle); at != std::string::npos; at = haystack.find(needle, at + needle.size()))
             ++n;
         return n;
-    };
+    }
+} // namespace
 
-    const std::string level = bodyOf("float FetchHZBLevelClamped(");
-    ASSERT_FALSE(level.empty()) << "GTAO.comp lost FetchHZBLevelClamped";
-    EXPECT_EQ(count(level, "texelFetch(u_HZBDepth, "), 4) << "the per-level border read is no longer a four-tap texelFetch";
-    EXPECT_EQ(count(level, "clamp(i0, ivec2(0), size - 1)"), 1) << "the first tap is no longer clamped to the level";
-    EXPECT_EQ(count(level, "clamp(i0 + 1, ivec2(0), size - 1)"), 1) << "the second tap is no longer clamped to the level";
-    EXPECT_EQ(count(level, "texture"), 0) << "the border read samples through the sampler again";
+// GTAO's HZB is sampled trilinear and clamp-to-edge because GTAORenderPass
+// STATES that sampler (issue #1503), on the texture object (GL's slot path
+// ignores a bind's desc) and in the bind's desc (Vulkan and the heap paths).
+// Inherited, the HZB was Repeat, so a linear fetch at the texture edge blended
+// the opposite edge's depth in: VulkanPassSuite.GtaoIsOpenOnUniformDepthAndDarkensACrease
+// (128 x 128) read an open top row at 103/255 against 240. And on GL it had no
+// mip filter, so every read was level 0: a GTAODepthMipOffset change moved 21
+// pixels on GL against 350k on Vulkan. The device test needs Vulkan hardware
+// and runs on no CI job; GTAOVisualEvidenceTest's mip check needs a GPU; this
+// pin runs everywhere.
+TEST(GTAOMath, GtaoStatesItsHzbSamplerOnEveryBindPath)
+{
+    const std::string pass = ReadRepoFile(std::filesystem::path{ ".." } / "OloEngine" / "src" / "OloEngine" / "Renderer" /
+                                          "Passes" / "GTAORenderPass.cpp");
+    ASSERT_FALSE(pass.empty());
+    const auto begin = pass.find("static const RHI::SamplerDesc s_HZBSampler");
+    ASSERT_NE(begin, std::string::npos) << "GTAORenderPass no longer states the HZB's sampler";
+    const auto end = pass.find("}();", begin);
+    ASSERT_NE(end, std::string::npos);
+    const std::string desc = pass.substr(begin, end - begin);
+    EXPECT_EQ(CountOccurrences(desc, "desc.Source = RHI::SamplerSource::Explicit;"), 1)
+        << "an inherited desc is the Repeat, level-0 sampler the fix replaced";
+    EXPECT_EQ(CountOccurrences(desc, "desc.LinearMipFilter = true;"), 1) << "the HZB sampler lost its mip filter";
+    EXPECT_EQ(CountOccurrences(desc, "= RHI::AddressMode::ClampToEdge;"), 3)
+        << "every axis of the HZB sampler must clamp to the edge";
+    // Both halves: the object state for GL's slot path, the desc for the rest.
+    EXPECT_EQ(CountOccurrences(pass, "RenderCommand::SetTextureSampling(hzbID, s_HZBSampler);"), 1)
+        << "GL's slot path samples with the texture object's state, which is no longer set";
+    EXPECT_EQ(CountOccurrences(pass, "m_HZBGenerator.GetHZBLifetime(), s_HZBSampler);"), 1)
+        << "the HZB bind no longer carries the stated desc";
+}
 
-    const std::string depth = bodyOf("float SampleHZBDepth(");
-    ASSERT_FALSE(depth.empty()) << "GTAO.comp lost SampleHZBDepth";
-    EXPECT_EQ(count(depth, "FetchHZBLevelClamped(hzbUV, lo)"), 1) << "the border path no longer reads the fine level clamped";
-    EXPECT_EQ(count(depth, "FetchHZBLevelClamped(hzbUV, hi)"), 1) << "the border path no longer reads the coarse level clamped";
-    // Exactly one unclamped trilinear fetch: the interior fast path. A second
-    // one is a border read that can wrap again.
-    EXPECT_EQ(count(depth, "textureLod(u_HZBDepth, hzbUV, mipLevel)"), 1)
-        << "SampleHZBDepth has an unclamped trilinear fetch outside its interior fast path";
-    // Both halves of the fast-path test: uv 0 is the edge that wraps at every
-    // viewport size, not only a power-of-two one.
-    EXPECT_EQ(count(depth, "all(greaterThanEqual(hzbUV, halfTexel))"), 1)
-        << "the fast path no longer excludes the uv-0 border";
-    EXPECT_EQ(count(depth, "all(lessThanEqual(hzbUV, vec2(1.0) - halfTexel))"), 1)
-        << "the fast path no longer excludes the far border";
-    // The border read sizes its levels from these; left at their defaults it
-    // reads texel (0, 0) of level 0 for every border sample.
-    EXPECT_EQ(count(src, "g_HZBLevels = max(textureQueryLevels(u_HZBDepth), 1);"), 1)
-        << "main() no longer reads the HZB's level count before sampling";
-    EXPECT_EQ(count(src, "g_HZBSize0 = textureSize(u_HZBDepth, 0);"), 1)
-        << "main() no longer reads the HZB's base size before sampling";
+// The HZB's reduction reads its parent mip with integer fetches (issue #1503).
+// It read the parent through the HZB's own sampler, which on GL has no mip
+// filter, so textureLod ignored the level and every GL level from the second
+// batch up was built from level-0 samples, not the reduce of its parent. That
+// fed GTAO, occlusion culling and SSR's HiZ alike.
+TEST(GTAOMath, HzbReductionReadsItsParentMipWithTexelFetch)
+{
+    const std::string src = ReadRepoFile(std::filesystem::path{ "assets" } / "shaders" / "compute" / "HZB.comp");
+    ASSERT_FALSE(src.empty());
+    const auto begin = src.find("vec4 Gather4(");
+    ASSERT_NE(begin, std::string::npos) << "HZB.comp lost Gather4";
+    const auto end = src.find("\n}", begin);
+    ASSERT_NE(end, std::string::npos);
+    const std::string gather = src.substr(begin, end - begin);
+    EXPECT_EQ(CountOccurrences(gather, "texelFetch(tex, "), 4) << "the parent reduce is no longer four integer fetches";
+    EXPECT_EQ(CountOccurrences(gather, "textureLod("), 0) << "the parent reduce samples through the sampler again";
+    EXPECT_EQ(CountOccurrences(src, "Reduce4(Gather4(u_InputDepth, dispatchThreadId, u_FirstLod - 1))"), 1)
+        << "the second-batch reduce no longer reads the parent of this thread's texel";
 }
 
 // Issue #771, layer 1 — the AO CONSUMER must follow the graph, not the setting.
