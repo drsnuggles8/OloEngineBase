@@ -9,31 +9,24 @@ float PtLegacySamplingRoughness(float roughness)
     return clamp(roughness, MIN_ROUGHNESS, 1.0);
 }
 
-// ReferenceBRDF.h DistributionGGXSamplingDensity: the NDF the Legacy sampler
-// draws from, unclamped in nDotH, guarded against a zero denominator.
-float PtLegacyGGXSamplingDensity(float nDotH, float roughness)
+// From the vectors, with PBRCommon's cancellation-free distributionGGXUnclampedNH
+// (issue #1347). Twin: ReferenceBRDF.h's vector PdfGGX.
+float PtLegacyPdfGGX(vec3 n, vec3 v, vec3 h, float roughness)
 {
-    const float a = roughness * roughness;
-    const float a2 = a * a;
-    const float c = max(nDotH, 0.0);
-    float denom = (c * c * (a2 - 1.0) + 1.0);
-    denom = PI * denom * denom;
-    return a2 / max(denom, 1.17549435e-38);
-}
-
-float PtLegacyPdfGGX(float nDotH, float vDotH, float roughness)
-{
+    const float vDotH = dot(v, h);
     if (vDotH <= 0.0)
         return 0.0;
-    return PtLegacyGGXSamplingDensity(nDotH, roughness) * max(nDotH, 0.0) / (4.0 * vDotH);
+    return distributionGGXUnclampedNH(n, h, roughness) * max(dot(n, h), 0.0) / (4.0 * vDotH);
 }
 
 vec3 PtLegacyImportanceSampleGGX(vec2 xi, vec3 n, float roughness)
 {
     const float a = roughness * roughness;
     const float phi = 2.0 * PI * xi.x;
-    const float cosTheta = sqrt(max(0.0, (1.0 - xi.y) / (1.0 + (a * a - 1.0) * xi.y)));
-    const float sinTheta = sqrt(max(0.0, 1.0 - cosTheta * cosTheta));
+    // Same cancellation-free sin as MathCommon.glsl ImportanceSampleGGX (#1347).
+    const float denom = 1.0 + (a * a - 1.0) * xi.y;
+    const float cosTheta = sqrt(max(0.0, (1.0 - xi.y) / denom));
+    const float sinTheta = sqrt(max(0.0, a * a * xi.y / denom));
     const vec3 h = vec3(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);
     vec3 tangent, bitangent;
     OrthonormalBasis(n, tangent, bitangent);
@@ -50,9 +43,7 @@ float PtLegacyPdf(vec3 n, vec3 v, vec3 l, vec3 albedo, float metallic, float rou
     if (!(pSpecular > 0.0))
         return pdfDiffuse;
     const vec3 h = normalize(v + l);
-    const float nDotH = dot(n, h);
-    const float vDotH = dot(v, h);
-    const float pdfSpecular = PtLegacyPdfGGX(nDotH, vDotH, PtLegacySamplingRoughness(roughness));
+    const float pdfSpecular = PtLegacyPdfGGX(n, v, h, PtLegacySamplingRoughness(roughness));
     return pSpecular * pdfSpecular + (1.0 - pSpecular) * pdfDiffuse;
 }
 

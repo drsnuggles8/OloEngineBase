@@ -260,6 +260,13 @@ add_executable(OloEngine-Tests
 		Rendering/PathTracing/NonlocalTransportReferenceTest.cpp
 		Rendering/PathTracing/ClosureV2Test.cpp
 		Rendering/PathTracing/ClosureV2ConsistencyTest.cpp
+		# #1347: oracles that share no code with the renderer. The headers in
+		# Rendering/Oracles/ may include only the standard library, glm and
+		# Core/Base.h; OracleIndependenceTest enforces that on the includes.
+		Rendering/Oracles/OracleIndependenceTest.cpp
+		Rendering/Oracles/BsdfIdentityOracleTest.cpp
+		Rendering/Oracles/BsdfSamplingDistributionTest.cpp
+		Rendering/Oracles/BsdfMutationDetectionTest.cpp
 		Rendering/PathTracing/PathTracerFurnaceTest.cpp
 		Rendering/PathTracing/PathTracerCornellBoxTest.cpp
 		Rendering/PathTracing/ReferenceSceneBuilderTest.cpp
@@ -658,6 +665,10 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/SnowLayerEvidenceTest.cpp
 		Rendering/PropertyTests/DebugLinePathParityTest.cpp
 		Rendering/PropertyTests/DeferredPointLightParityEvidenceTest.cpp
+		# #1347: every declared {backend x path} arm renders the same scene rows and
+		# compares the separated lighting terms across arms and against the
+		# independent BSDF oracle. Arms come from RendererSupport::PathCoverageRows.
+		Rendering/CrossPath/CrossPathLightingMatrixTest.cpp
 		Rendering/PropertyTests/PerfRegressionTests.cpp
 		Rendering/PropertyTests/DataRoundTripTests.cpp
 		Rendering/PropertyTests/GoldenImageTests.cpp
@@ -1889,7 +1900,7 @@ set(OLO_MESH_CACHE_TESTS
 # whenever anyone adds a test file. So these do not belong in a shared budget at
 # all, and listing them here is the fix rather than raising a timeout.
 set(OLO_HEAVY_TESTS
-	"*VisualEvidence*:*Evidence*:*VisualTest*:*GpuContract*:*GPUContract*:*Benchmark*:*PerfProbe*:*Perf.*:PathTracer*:ReSTIRDIOracle.*:ReSTIRGIOracle.*:DDGIReferenceParity*:DriftSailingTest.*:SailTest.*:CPUFluidSolver.*:FluidCouplingTest.*:GaussianSplat*:VulkanPassSuite.*:VulkanParallelRecordingDevice.*:AssetSceneLoad.*:RuntimeAssetPackTest.*:ProceduralSkyBake*:StarNestSkyBake*:ModelLoadDeterminism.*:VirtualGeometry*:OceanFFT*:LightmapBleedRoom.*:LightmapInstancedBleedRoom.*:AutoMeshLODScene.*:DeferredOccludedInstanceFieldScene.*:ModelComponentGPUSceneScene.*:GPUSceneRasterMigrationScene.*:SubmeshMaterialPathParity.*:ShaderDebugDraw*:TerrainGPUPick*:TerrainGPUQuadtree*:TwoSidedShadowCast.*:McpHeadlessAttachTest.*:SceneRenders3D.*:WorldTransformPropagation*:RenderPathDrift.*:BindlessShaderPipeline.*:GPUScene.*:GPUSceneAntiDuplicationRatchet.*:DebugLevers.*:FunctionalTestFixtureCoverage.*:FlockingViaSceneTickTest.*:ShaderUBOSizeConsistency.*:ShaderReflectionBinding.*:ShaderCrossConsistency.*:GroomCoverageComparison.*:GroomCoverageStability.*:GroomFibreEnergyTest.*:GroomCoatShadowComparison.*:GroomCoatShadowReference.*:GroomLodShellTier.*:GroomLodComparisonHumanScalp.*:GroomLodComparisonLongCoat.*:GroomLodComparisonShortCoat.*")
+	"*VisualEvidence*:*Evidence*:*VisualTest*:*GpuContract*:*GPUContract*:*Benchmark*:*PerfProbe*:*Perf.*:PathTracer*:ReSTIRDIOracle.*:ReSTIRGIOracle.*:DDGIReferenceParity*:DriftSailingTest.*:SailTest.*:CPUFluidSolver.*:FluidCouplingTest.*:GaussianSplat*:VulkanPassSuite.*:VulkanParallelRecordingDevice.*:AssetSceneLoad.*:RuntimeAssetPackTest.*:ProceduralSkyBake*:StarNestSkyBake*:ModelLoadDeterminism.*:VirtualGeometry*:OceanFFT*:LightmapBleedRoom.*:LightmapInstancedBleedRoom.*:AutoMeshLODScene.*:DeferredOccludedInstanceFieldScene.*:ModelComponentGPUSceneScene.*:GPUSceneRasterMigrationScene.*:SubmeshMaterialPathParity.*:ShaderDebugDraw*:TerrainGPUPick*:TerrainGPUQuadtree*:TwoSidedShadowCast.*:McpHeadlessAttachTest.*:SceneRenders3D.*:WorldTransformPropagation*:RenderPathDrift.*:BindlessShaderPipeline.*:GPUScene.*:GPUSceneAntiDuplicationRatchet.*:DebugLevers.*:FunctionalTestFixtureCoverage.*:FlockingViaSceneTickTest.*:ShaderUBOSizeConsistency.*:ShaderReflectionBinding.*:ShaderCrossConsistency.*:GroomCoverageComparison.*:GroomCoverageStability.*:GroomFibreEnergyTest.*:GroomCoatShadowComparison.*:GroomCoatShadowReference.*:GroomLodShellTier.*:GroomLodComparisonHumanScalp.*:GroomLodComparisonLongCoat.*:GroomLodComparisonShortCoat.*:AllRowsAllArms/CrossPathLightingMatrix.*:BsdfSamplingDistribution*:BsdfMutationDetectionTest.*:BsdfIdentityOracleTest.*")
 
 # --olo-* flags for every ctest-launched test process (a CMake list, so
 # `-DOLO_TESTS_CTEST_ARGS=--olo-gl-backend=none` is one flag and

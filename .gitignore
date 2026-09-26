@@ -72,6 +72,8 @@ OloEditor/assets/tests/captures/
 # artefacts, never project content.
 OloEditor/assets/mcp-captures/
 /assets/tests/captures/
+# --olo-cross-path-export scenes + manifests for the live Vulkan replay (#1347).
+OloEditor/assets/tests/crosspath-live/
 
 # Opt-in high-resolution path-tracer evidence (--olo-pathtracer-evidence). Only
 # regenerated on demand, so a committed copy would silently go stale against the

@@ -91,8 +91,12 @@ vec3 ImportanceSampleGGX(vec2 Xi, vec3 N, float roughness)
     float a = roughness * roughness;
 
     float phi = 2.0 * PI * Xi.x;
-    float cosTheta = sqrt((1.0 - Xi.y) / (1.0 + (a * a - 1.0) * Xi.y));
-    float sinTheta = sqrt(1.0 - cosTheta * cosTheta);
+    // sin from its own cancellation-free form, not sqrt(1 - cos^2): near the
+    // pole cos^2 rounds to 1.0 and that puts a fraction 2^-25 / (a^2 + 2^-25)
+    // of the draws exactly on N (issue #1347). Twin: ReferenceBRDF.h.
+    float denom = 1.0 + (a * a - 1.0) * Xi.y;
+    float cosTheta = sqrt(max(0.0, (1.0 - Xi.y) / denom));
+    float sinTheta = sqrt(max(0.0, a * a * Xi.y / denom));
 
     // Tangent-space half-vector from spherical coordinates.
     vec3 H = vec3(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);

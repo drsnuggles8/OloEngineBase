@@ -49,7 +49,7 @@ float PTChartDensity(PTVertex v, vec3 l)
     {
         vec3 h = normalize(view + l);
         float r = closureV2Roughness(v.PositionRoughness.w);
-        conditional = uint(v.ShadingNormalClosure.w) == OLO_RT_CLOSURE_V2 ? distributionGGXUnclamped(max(dot(n, h), 0.0), r) / (4.0 * dot(n, view) * (1.0 + ggxSmithLambda(dot(n, view), r * r))) : PtLegacyPdfGGX(dot(n, h), dot(view, h), r);
+        conditional = uint(v.ShadingNormalClosure.w) == OLO_RT_CLOSURE_V2 ? distributionGGXUnclampedNH(n, h, r) / (4.0 * dot(n, view) * (1.0 + ggxSmithLambda(dot(n, view), r * r))) : PtLegacyPdfGGX(n, view, h, r);
     }
     float c = PTBranchMass(v) * conditional;
     return PTFinite(c) && c > 0.0 ? c : 0.0;

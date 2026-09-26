@@ -410,7 +410,7 @@ float distributionGGXAnisotropic(vec3 N, vec3 H, vec3 T, vec3 B, float roughness
 // deliberate exceptions state WHY they differ instead of quietly differing:
 //
 //   distributionGGX                alpha = roughness^2   (a  = alpha, a2 = alpha^2)
-//   distributionGGXUnclamped       alpha = roughness^2   (v2 closure + sampling
+//   distributionGGXUnclampedNH     alpha = roughness^2   (v2 closure + sampling
 //                                  densities; NO denominator value clamp — the
 //                                  v2 closure clamps ROUGHNESS instead, see the
 //                                  PBR CLOSURE V2 section)
@@ -1115,16 +1115,23 @@ float closureV2Roughness(float roughness)
     return clamp(roughness, MIN_ROUGHNESS, MAX_ROUGHNESS);
 }
 
-// The TRUE (unclamped) GGX NDF on a cosine — GLSL twin of ReferenceBRDF.h's
+// The TRUE (unclamped) GGX NDF — GLSL twin of ReferenceBRDF.h's vector
 // DistributionGGXSamplingDensity. alpha = roughness^2 per THE ALPHA LEDGER.
 // The denominator floor is a denormal guard, not a value clamp; with the v2
-// alpha floor it never engages.
-float distributionGGXUnclamped(float NdotH, float roughness)
+// alpha floor it never engages. From the VECTORS (issue #1347): sin^2 as
+// |N x H|^2, not 1 - cos^2. The scalar denominator cancels near the peak of a sharp lobe and
+// NdotH has already lost H's tangential components to rounding, so D read
+// +3.5 % over the lobe at roughness 0.04. Twin: ReferenceBRDF.h's vector
+// DistributionGGXSamplingDensity. For unit N, H it is the same function.
+float distributionGGXUnclampedNH(vec3 N, vec3 H, float roughness)
 {
     float a = roughness * roughness;
     float a2 = a * a;
-    float c = max(NdotH, 0.0);
-    float denom = (c * c * (a2 - 1.0) + 1.0);
+    float c = dot(N, H);
+    if (c <= 0.0)
+        return a2 * INV_PI;
+    vec3 t = cross(N, H);
+    float denom = dot(t, t) + a2 * c * c;
     denom = PI * denom * denom;
     return a2 / max(denom, 1.17549435e-38);
 }
@@ -1198,10 +1205,9 @@ OloSurfaceLighting closureV2EvaluateSplit(vec3 N, vec3 V, vec3 L, vec3 albedo, f
     vec3 H = normalize(V + L);
     float NdotV = max(dot(N, V), 0.0);
     float NdotL = max(dot(N, L), 0.0);
-    float NdotH = max(dot(N, H), 0.0);
 
     vec3 F0 = mix(vec3(DEFAULT_DIELECTRIC_F0), albedo, metallic);
-    float D = distributionGGXUnclamped(NdotH, r);
+    float D = distributionGGXUnclampedNH(N, H, r);
     float Vis = visibilitySmithGGXCorrelated(N, V, L, r);
     vec3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
 
@@ -1317,9 +1323,8 @@ float closureV2Pdf(vec3 N, vec3 V, vec3 L, vec3 albedo, float metallic, float ro
     if (NdotV > 0.0)
     {
         vec3 H = normalize(V + L);
-        float NdotH = max(dot(N, H), 0.0);
         float G1V = 1.0 / (1.0 + ggxSmithLambda(NdotV, alpha));
-        pdfSpecular = G1V * distributionGGXUnclamped(NdotH, r) / (4.0 * NdotV);
+        pdfSpecular = G1V * distributionGGXUnclampedNH(N, H, r) / (4.0 * NdotV);
     }
 
     return pSpecular * pdfSpecular + (1.0 - pSpecular) * pdfDiffuse;

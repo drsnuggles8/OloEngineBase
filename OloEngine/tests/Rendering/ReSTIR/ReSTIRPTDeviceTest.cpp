@@ -104,7 +104,7 @@ namespace OloEngine::Tests
         // on the same path. That is issue #1288, and it hides on a diffuse arm
         // because the Lambert term is the same expression in both closures:
         // Legacy's distributionGGX clamps its DENOMINATOR (max(denom, EPSILON))
-        // while its sampling density PtLegacyGGXSamplingDensity does not, so a
+        // while its sampling density (distributionGGXUnclampedNH) does not, so a
         // near-specular lobe loses almost all of its energy in f/pdf and a
         // rough one loses none. Before this constant the lane was the literal
         // 2.0, which DID mean ClosureV2 until the #1231 flags layout gave the

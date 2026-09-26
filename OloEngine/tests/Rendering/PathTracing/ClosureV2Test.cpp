@@ -408,8 +408,9 @@ namespace OloEngine::Tests
     // both (dot(h, v) == dot(h, l)); the height-correlated V is symmetric in
     // (NdotV, NdotL); the Kulla-Conty term is symmetric by construction
     // (lossV * lossL); and the diffuse term depends on v, l only through that
-    // same F(h). ADR 0016 §5 records reciprocity as a v2 design property —
-    // Legacy is deliberately NOT held to it.
+    // same F(h). ADR 0016 §5 records reciprocity as a v2 design property.
+    // Legacy has it too, for the same F(h) reason; the independent check of
+    // both is BsdfIdentityOracleTest.ClosuresAreReciprocal (issue #1347).
     // =========================================================================
     TEST(ClosureV2, ClosureV2IsReciprocal)
     {

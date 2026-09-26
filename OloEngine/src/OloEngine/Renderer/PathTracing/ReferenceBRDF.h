@@ -30,8 +30,10 @@
 //     PBRCommon.glsl's GEOMETRY FUNCTIONS section for why the two differ and
 //     why that difference is deliberate rather than the #904 bug.
 //   * `CookTorranceBRDF` computes kD = 1 - F with F evaluated at the HALF
-//     vector, which is the common (mildly non-reciprocal) formulation. It is
-//     what ships, so it is what the reference integrates.
+//     vector. It is what ships, so it is what the reference integrates. That
+//     formulation IS reciprocal: dot(h, v) == dot(h, l), and every other factor
+//     is symmetric in (v, l) — BsdfIdentityOracleTest.ClosuresAreReciprocal
+//     measures a worst asymmetry of 5e-7 (issue #1347).
 //
 // Everything here is header-only, allocation-free and GL-independent so the
 // tracer and its contract tests run headless (ADR 0002).
@@ -143,12 +145,41 @@ namespace OloEngine::PathTracing
     // always wrong, and it is invisible — the image just converges brighter.
     // The denominator guard here is a denormal floor, not a value clamp;
     // `SamplingRoughness` floors alpha well above where it could engage.
+    //
+    // COSINE-ONLY CALLERS. This scalar form cancels near the peak of a sharp
+    // lobe (see the vector overload below): every caller that holds n and h
+    // uses that one. It stays for callers that only hold a cosine — a chart
+    // density, a finite-difference probe — and nothing on a shading path.
     [[nodiscard]] inline f32 DistributionGGXSamplingDensity(f32 nDotH, f32 roughness) noexcept
     {
         const f32 a = roughness * roughness;
         const f32 a2 = a * a;
         const f32 c = std::max(nDotH, 0.0f);
         f32 denom = (c * c * (a2 - 1.0f) + 1.0f);
+        denom = kPi * denom * denom;
+        return a2 / std::max(denom, std::numeric_limits<f32>::min());
+    }
+
+    // The same density from the VECTORS, which is what every caller that has
+    // them should use (issue #1347). The scalar form's denominator
+    // c^2 (a^2 - 1) + 1 is 1 - c^2 + a^2 c^2: near the lobe peak it subtracts
+    // two numbers within ~a^2 of each other, and c = dot(n, h) has already lost
+    // the half-vector's small tangential components to f32 rounding of h.z.
+    // Measured against the f64 oracle, D averaged over the lobe read +3.5 % at
+    // roughness 0.04 and +1.3 % at 0.05 (single points up to +17 %), so the v2
+    // white furnace and both specular pdfs integrated above 1. sin^2 taken as
+    // |n x h|^2 keeps those components at full relative precision:
+    // BsdfIdentityOracleTest measures 1.0000 after. For unit n and h the two
+    // forms are the same function.
+    [[nodiscard]] inline f32 DistributionGGXSamplingDensity(const glm::vec3& n, const glm::vec3& h, f32 roughness) noexcept
+    {
+        const f32 a = roughness * roughness;
+        const f32 a2 = a * a;
+        const f32 c = glm::dot(n, h);
+        if (c <= 0.0f)
+            return a2 * kInvPi; // the scalar form's value at max(nDotH, 0) = 0
+        const glm::vec3 t = glm::cross(n, h);
+        f32 denom = glm::dot(t, t) + a2 * c * c;
         denom = kPi * denom * denom;
         return a2 / std::max(denom, std::numeric_limits<f32>::min());
     }
@@ -290,8 +321,14 @@ namespace OloEngine::PathTracing
         const f32 a = roughness * roughness;
 
         const f32 phi = 2.0f * kPi * xi.x;
-        const f32 cosTheta = std::sqrt(std::max(0.0f, (1.0f - xi.y) / (1.0f + (a * a - 1.0f) * xi.y)));
-        const f32 sinTheta = std::sqrt(std::max(0.0f, 1.0f - cosTheta * cosTheta));
+        // cos^2 and sin^2 from the one denominator (1 + (a^2 - 1) xi) >= a^2 > 0.
+        // sin is NOT sqrt(1 - cos^2): near the pole cos^2 rounds to 1.0f in f32
+        // and that form puts a fraction 2^-25 / (a^2 + 2^-25) of all draws
+        // exactly on the normal — 1.2 % at the 0.04 sampling floor (issue #1347,
+        // BsdfSamplingDistributionTest). a^2 xi / denom has no cancellation.
+        const f32 denom = 1.0f + (a * a - 1.0f) * xi.y;
+        const f32 cosTheta = std::sqrt(std::max(0.0f, (1.0f - xi.y) / denom));
+        const f32 sinTheta = std::sqrt(std::max(0.0f, a * a * xi.y / denom));
 
         const glm::vec3 h(std::cos(phi) * sinTheta, std::sin(phi) * sinTheta, cosTheta);
 
@@ -307,11 +344,23 @@ namespace OloEngine::PathTracing
     // 1 / (4 (v·h)). No GLSL counterpart — the shaders importance-sample but
     // never need the density (they use the NdotL-weighted-average estimator);
     // an unbiased integrator does.
+    // Cosine-only form (the cos-form D cancels at low roughness); shading paths use
+    // the vector overload below.
     [[nodiscard]] inline f32 PdfGGX(f32 nDotH, f32 vDotH, f32 roughness) noexcept
     {
         if (vDotH <= 0.0f)
             return 0.0f;
         return DistributionGGXSamplingDensity(nDotH, roughness) * std::max(nDotH, 0.0f) / (4.0f * vDotH);
+    }
+
+    // PdfGGX from the vectors, with the cancellation-free D (see the vector
+    // DistributionGGXSamplingDensity). BSDF::Pdf uses this one.
+    [[nodiscard]] inline f32 PdfGGX(const glm::vec3& n, const glm::vec3& v, const glm::vec3& h, f32 roughness) noexcept
+    {
+        const f32 vDotH = glm::dot(v, h);
+        if (vDotH <= 0.0f)
+            return 0.0f;
+        return DistributionGGXSamplingDensity(n, h, roughness) * std::max(glm::dot(n, h), 0.0f) / (4.0f * vDotH);
     }
 
     // Cosine-weighted hemisphere sample about `n` (Malley's method).
@@ -470,10 +519,9 @@ namespace OloEngine::PathTracing
         const glm::vec3 h = glm::normalize(v + l);
         const f32 nDotV = std::max(glm::dot(n, v), 0.0f);
         const f32 nDotL = std::max(glm::dot(n, l), 0.0f);
-        const f32 nDotH = std::max(glm::dot(n, h), 0.0f);
 
         const glm::vec3 f0 = glm::mix(glm::vec3(kDefaultDielectricF0), albedo, metallic);
-        const f32 d = DistributionGGXSamplingDensity(nDotH, r);
+        const f32 d = DistributionGGXSamplingDensity(n, h, r);
         const f32 vis = VisibilitySmithGGXCorrelated(nDotV, nDotL, r);
         const glm::vec3 f = FresnelSchlick(std::max(glm::dot(h, v), 0.0f), f0);
 
@@ -542,6 +590,8 @@ namespace OloEngine::PathTracing
     // with the v2 alpha clamp this same D is also what ClosureV2Evaluate
     // evaluates, which is what makes Evaluate/Sample/Pdf agree. GLSL twin: the
     // specular term of closureV2Pdf.
+    // Cosine-only form (the cos-form D cancels at low roughness); shading paths use
+    // the vector overload below.
     [[nodiscard]] inline f32 PdfGGXVNDF(f32 nDotV, f32 nDotH, f32 roughness) noexcept
     {
         if (nDotV <= 0.0f)
@@ -549,6 +599,18 @@ namespace OloEngine::PathTracing
         const f32 alpha = roughness * roughness;
         const f32 g1V = 1.0f / (1.0f + GgxSmithLambda(nDotV, alpha));
         return g1V * DistributionGGXSamplingDensity(nDotH, roughness) / (4.0f * nDotV);
+    }
+
+    // PdfGGXVNDF from the vectors, with the cancellation-free D. BSDF::Pdf and
+    // the GLSL closureV2Pdf use this form.
+    [[nodiscard]] inline f32 PdfGGXVNDF(const glm::vec3& n, const glm::vec3& v, const glm::vec3& h, f32 roughness) noexcept
+    {
+        const f32 nDotV = glm::dot(n, v);
+        if (nDotV <= 0.0f)
+            return 0.0f;
+        const f32 alpha = roughness * roughness;
+        const f32 g1V = 1.0f / (1.0f + GgxSmithLambda(nDotV, alpha));
+        return g1V * DistributionGGXSamplingDensity(n, h, roughness) / (4.0f * nDotV);
     }
 
     // -------------------------------------------------------------------------
