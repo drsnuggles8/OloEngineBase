@@ -419,6 +419,7 @@ add_executable(OloEngine-Tests
 		Rendering/DDGI/DDGIMathTest.cpp
 		Rendering/SSRHiZTraversalTest.cpp
 		Rendering/RenderGraphFingerprintTest.cpp
+		Rendering/RenderGraphFrameCaptureBackendTest.cpp
 		Rendering/RenderGraphDeclarationIdentityTest.cpp
 		Rendering/CommandPacketTest.cpp
 		Rendering/CommandAllocatorTest.cpp

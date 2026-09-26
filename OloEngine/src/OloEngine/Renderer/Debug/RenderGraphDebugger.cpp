@@ -954,6 +954,16 @@ namespace OloEngine
 
     void RenderGraphDebugger::DrawCapturePanel(const Ref<RenderGraph>& graph)
     {
+        // Auto-capture is on by default, so without this check merely opening
+        // the panel on Vulkan installed the GL-only capture hook and crashed the
+        // editor on the next pass (issue #607 verification).
+        if (!RenderGraphFrameCapture::IsSupported())
+        {
+            m_FrameCapture.InstallHook(nullptr);
+            ImGui::TextDisabled("Per-pass frame capture is OpenGL-only; it is off on this backend.");
+            return;
+        }
+
         ImGui::SameLine();
         if (const bool hookInstalled = m_FrameCapture.IsHookInstalled(graph.get()); ImGui::Button(hookInstalled ? "Recapture Frame" : "Capture Frame"))
         {
