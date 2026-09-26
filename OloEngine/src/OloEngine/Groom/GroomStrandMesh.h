@@ -353,6 +353,11 @@ namespace OloEngine
         /// level's count would reject every deformation at card range.
         u32 BaseCurveCount = 0;
 
+        /// The BASE groom's group ranges, for a LOD level; empty for the base
+        /// itself. How many base strands a level stands for per group is what
+        /// scales the coat's per-strand jitter on a card (#1428).
+        std::span<const GroomGroupRange> BaseGroupRanges{};
+
         [[nodiscard]] u32 SourceCurve(u32 curve) const noexcept
         {
             return SourceCurves.empty() ? curve : SourceCurves[curve];
@@ -432,6 +437,33 @@ namespace OloEngine
     // frame cost and a frame. `outCurves` is cleared first.
     void SelectGroomStrandCurves(const GroomBuildSource& source, const GroomStrandBuildSettings& settings,
                                  TArray<u32>& outCurves, const GroomCoatContext* coat = nullptr);
+
+    // THE CARD TIER'S SELF-SHADOW IS BAKED AT EACH GROUP'S FIBRE AREA (#1428).
+    //
+    // Per segment the build of `level` emits, in the order it emits them, the
+    // factor that takes the drawn radius back to the fibre it stands for: the
+    // base groom's fibre area (segment length x diameter, summed) over the
+    // level's, per coat GROUP. A card is drawn as wide as its members cover,
+    // which is a different fraction of their fibre in every group -- 0.9 of it
+    // in a body undercoat, a fifth in a dense tail -- and the self-shadow volume
+    // stores fibre. One groom-wide factor (2.7 on the long-coated horse, 3.2 on
+    // the short) baked the body's cards at two to three times their fibre and
+    // the tail's at two thirds of it. A group the level has no fibre in scales
+    // by 1. `outPerSegment` is cleared first.
+    void GroomCardFibreScales(const GroomAsset& base, const GroomLodLevel& level,
+                              const GroomStrandBuildSettings& settings, const GroomCoatContext* coat,
+                              std::vector<f32>& outPerSegment);
+
+    /// The same, from a per-group table measured once per level with
+    /// GroomCardFibreByGroup -- the walk over the base groom's points is the
+    /// expensive half, and it depends on the asset and the level alone.
+    void GroomCardFibreScales(const GroomAsset& base, const GroomLodLevel& level, std::span<const f32> byGroup,
+                              const GroomStrandBuildSettings& settings, const GroomCoatContext* coat,
+                              std::vector<f32>& outPerSegment);
+
+    /// Per coat group, the base groom's fibre area over `level`'s; 1 where the
+    /// level has none of a group.
+    [[nodiscard]] std::vector<f32> GroomCardFibreByGroup(const GroomAsset& base, const GroomLodLevel& level);
     void SelectGroomStrandCurves(const GroomAsset& groom, const GroomStrandBuildSettings& settings,
                                  TArray<u32>& outCurves, const GroomCoatContext* coat = nullptr);
 

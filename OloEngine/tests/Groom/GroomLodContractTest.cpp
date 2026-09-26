@@ -31,12 +31,16 @@
 
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Groom/GroomBuilder.h"
+#include "OloEngine/Groom/GroomCoat.h"
 #include "OloEngine/Groom/GroomCooker.h"
 #include "OloEngine/Groom/GroomLod.h"
 #include "OloEngine/Groom/GroomLodBuilder.h"
+#include "OloEngine/Groom/GroomStrandMesh.h"
 
+#include <algorithm>
 #include <cmath>
 #include <numbers>
+#include <span>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -705,6 +709,180 @@ TEST(GroomLodCook, ACardIsAsWideAsWhatItsMembersCoverAndNoWider)
     settings.Width = GroomCardWidth::Count;
     EXPECT_FALSE(GroomLodBuilder::BuildCardLevel(*groom, settings, level, reason, nullptr));
     EXPECT_NE(reason.find("width model"), std::string::npos) << reason;
+}
+
+TEST(GroomLodCook, TheCardTierShadowIsBakedAtEachGroupsFibreArea)
+{
+    // #1428. The self-shadow volume stores FIBRE, and a card is drawn as wide as
+    // its members cover -- one strand's width for a lock of sixteen identical
+    // strands, all sixteen for a fan whose strands never overlap. So a card
+    // stands for sixteen times its drawn fibre in one group and once its drawn
+    // fibre in the other, and any single factor over-darkens one of them. On
+    // the horses the groom-wide factor was 2.7-3.2 where the body's groups
+    // needed 1.1 and the tail's 4-5. Measured on the drawn streams: each
+    // group's baked fibre (drawn length x diameter x its segment's scale) is
+    // the base groom's.
+    constexpr u32 kMembers = 16u;
+    const Ref<GroomAsset> groom = MakeLockAndFan(kMembers, 1.0e-3f, 0.01f);
+    ASSERT_TRUE(groom);
+    GroomLodLevel level;
+    std::string reason;
+    ASSERT_TRUE(GroomLodBuilder::BuildCardLevel(*groom, GroomCardSettings{}, level, reason, nullptr)) << reason;
+
+    GroomStrandBuildSettings build;
+    build.MaxStrands = groom->GetCurveCount();
+    std::vector<f32> scales;
+    GroomCardFibreScales(*groom, level, build, nullptr, scales);
+
+    // Fibre per group of a stream, each segment weighted by `weights` (or 1).
+    const auto fibre = [&](const GroomBuildSource& source, std::span<const f32> weights)
+    {
+        std::vector<GroomStrandVertex> vertices;
+        std::vector<u32> indices;
+        (void)BuildGroomStrandMesh(source, build, vertices, indices);
+        std::vector<f64> byGroup(groom->GetGroupCount(), 0.0);
+        // One scale per emitted segment, or the weighting below would read
+        // past the list -- the very regression this case exists to catch.
+        EXPECT_TRUE(weights.empty() || weights.size() * 4u == vertices.size())
+            << weights.size() << " scales for " << vertices.size() / 4u << " segments";
+        if (!weights.empty() && weights.size() * 4u != vertices.size())
+        {
+            return byGroup;
+        }
+        sizet segment = 0;
+        for (u32 curve = 0; curve < source.Curves.GetCurveCount(); ++curve)
+        {
+            for (u32 i = 0; i + 1u < source.Curves.GetCurvePointCount(curve); ++i, ++segment)
+            {
+                const GroomStrandVertex& p0 = vertices[segment * 4u];
+                const GroomStrandVertex& p1 = vertices[(segment * 4u) + 2u];
+                const f64 weight = weights.empty() ? 1.0 : static_cast<f64>(weights[segment]);
+                byGroup[source.Curves.GetCurveGroupIds()[curve]] +=
+                    static_cast<f64>(glm::length(p1.Position - p0.Position)) * (p0.Radius + p1.Radius) * weight;
+            }
+        }
+        EXPECT_EQ(segment * 4u, vertices.size());
+        return byGroup;
+    };
+    const std::vector<f64> base = fibre(GroomBuildSource::FromAsset(*groom), {});
+    const std::vector<f64> baked = fibre(GroomBuildSource::FromLevel(*groom, level), scales);
+    ASSERT_EQ(base.size(), 2u);
+    for (sizet group = 0; group < base.size(); ++group)
+    {
+        ASSERT_GT(base[group], 0.0);
+        EXPECT_NEAR(baked[group] / base[group], 1.0, 1.0e-4) << "group " << group << " baked at the wrong fibre area";
+    }
+
+    // And the two groups need different factors, so no one number could.
+    f32 lowest = scales.front();
+    f32 highest = scales.front();
+    for (const f32 scale : scales)
+    {
+        lowest = std::min(lowest, scale);
+        highest = std::max(highest, scale);
+    }
+    EXPECT_GT(highest, 3.0f * lowest) << "the fixture must need different factors per group";
+}
+
+TEST(GroomLodCook, ACardCarriesItsMembersMeanJitterAndNotOneStrands)
+{
+    // #1428. The coat's length jitter is a per-STRAND draw of +/- the amplitude.
+    // A card stands for the N strands of its cell, so what it should carry is
+    // the mean of their N draws, whose spread is the amplitude over sqrt(N).
+    // Drawn at the full amplitude per card, a whole cluster's length moved
+    // together: the long cards' tips stood out of the long coat as lone, dense
+    // lumps in its self-shadow volume, and the card tier darkened the coat 15%
+    // more than the strands did. Measured on the drawn stream, per curve: its
+    // drawn length over its cooked length is exactly the multiplier it got.
+    const Ref<GroomAsset> pelt = MakeTestPelt();
+    ASSERT_TRUE(pelt);
+    GroomLodLevel level;
+    std::string reason;
+    // Coarse cells, so a card stands for enough strands that sqrt(N) is a
+    // real reduction rather than a rounding of 1.
+    GroomCardSettings cardSettings;
+    cardSettings.CellSize = 0.15f;
+    ASSERT_TRUE(GroomLodBuilder::BuildCardLevel(*pelt, cardSettings, level, reason, nullptr)) << reason;
+
+    constexpr f32 kJitter = 0.4f;
+    GroomCoatSettings coatSettings;
+    coatSettings.Enabled = true;
+    coatSettings.Seed = 7u;
+    coatSettings.LengthJitter = kJitter;
+    const GroomCoatContext coat{ &coatSettings, pelt->GetGroupCoats() };
+    GroomStrandBuildSettings build;
+    build.MaxStrands = pelt->GetCurveCount();
+
+    // Every curve's drawn/cooked length. The budget keeps every curve, so the
+    // stream is the curves in order, four corners per segment.
+    const auto multipliers = [&](const GroomBuildSource& source)
+    {
+        std::vector<GroomStrandVertex> vertices;
+        std::vector<u32> indices;
+        const GroomStrandMeshStats stats = BuildGroomStrandMesh(source, build, vertices, indices, nullptr, &coat);
+        EXPECT_EQ(stats.StrandsSelected, source.Curves.GetCurveCount()) << "the budget must keep every curve";
+        std::vector<f32> out;
+        sizet corner = 0;
+        for (u32 curve = 0; curve < source.Curves.GetCurveCount(); ++curve)
+        {
+            const u32 first = source.Curves.GetCurveFirstPoint(curve);
+            f64 cooked = 0.0;
+            f64 drawn = 0.0;
+            for (u32 i = 0; i + 1u < source.Curves.GetCurvePointCount(curve); ++i, corner += 4u)
+            {
+                cooked += glm::length(source.Curves.GetPoints()[first + i + 1u] - source.Curves.GetPoints()[first + i]);
+                drawn += glm::length(vertices[corner + 2u].Position - vertices[corner].Position);
+            }
+            out.push_back(static_cast<f32>(drawn / cooked));
+        }
+        EXPECT_EQ(corner, vertices.size());
+        return out;
+    };
+    const auto spread = [](const std::vector<f32>& values)
+    {
+        f64 mean = 0.0;
+        for (const f32 v : values)
+        {
+            mean += v;
+        }
+        mean /= static_cast<f64>(values.size());
+        f64 variance = 0.0;
+        for (const f32 v : values)
+        {
+            variance += (v - mean) * (v - mean);
+        }
+        return std::sqrt(variance / static_cast<f64>(values.size()));
+    };
+
+    // The strands keep the authored draw: uniform on +/- the amplitude.
+    const std::vector<f32> strands = multipliers(GroomBuildSource::FromAsset(*pelt));
+    EXPECT_NEAR(spread(strands), kJitter / std::sqrt(3.0), 0.1 * kJitter / std::sqrt(3.0));
+
+    // Each card inside its group's amplitude over sqrt(members), and the
+    // jitter not simply switched off.
+    const std::vector<f32> cards = multipliers(GroomBuildSource::FromLevel(*pelt, level));
+    std::vector<u32> cardsInGroup(pelt->GetGroupCount(), 0u);
+    for (const u16 group : level.CurveGroupIds)
+    {
+        ++cardsInGroup[group];
+    }
+    f32 widest = 0.0f;
+    f64 expectedVariance = 0.0;
+    for (u32 card = 0; card < cards.size(); ++card)
+    {
+        const u16 group = level.CurveGroupIds[card];
+        const f32 members = static_cast<f32>(pelt->GetGroupRanges()[group].CurveCount) /
+                            static_cast<f32>(cardsInGroup[group]);
+        ASSERT_GT(members, 4.0f) << "the cook must cluster for the claim to mean anything";
+        const f32 amplitude = kJitter / std::sqrt(members);
+        EXPECT_LE(std::abs(cards[card] - 1.0f), amplitude + 1.0e-4f) << "card " << card << " of group " << group;
+        widest = std::max(widest, std::abs(cards[card] - 1.0f) / amplitude);
+        expectedVariance += static_cast<f64>(amplitude) * amplitude / 3.0;
+    }
+    EXPECT_GT(widest, 0.5f) << "the cards carry no jitter at all: the mean of N draws still varies";
+    const f64 expected = std::sqrt(expectedVariance / static_cast<f64>(cards.size()));
+    EXPECT_NEAR(spread(cards), expected, 0.25 * expected) << "the cards' spread is not the members' mean's";
+    EXPECT_LT(spread(cards), 0.5 * spread(strands)) << "a card drew one strand's jitter for its whole cluster";
 }
 
 TEST(GroomLodCook, ARawFixtureIsRefusedBecauseItsRootUVsAreUnaddressable)

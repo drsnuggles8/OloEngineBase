@@ -530,15 +530,18 @@ namespace OloEngine
             /// voxels, after any rebake. Zero for an undeformed coat.
             f32 CoatDriftVoxels = 0.0f;
 
-            /// A CARD-tier entry's fibre-area scale (#1428): the base groom's
-            /// fibre area (sum of segment length x diameter) over the card
-            /// level's. A card carries the width its members COVER on screen,
-            /// which on a dense coat is well under the fibre they are made of,
-            /// and the self-shadow volume stores fibre, not coverage. Measured
-            /// once, on the first bake; 0 until then, 1 on the strand tier.
-            f32 CoatFibreAreaScale = 0.0f;
-            /// The level CoatFibreAreaScale was measured from.
-            const GroomLodLevel* CoatFibreAreaSource = nullptr;
+            /// A CARD-tier entry's fibre scale per drawn segment (#1428), from
+            /// GroomCardFibreScales: per coat group, the base groom's fibre
+            /// area over the card level's. A card carries the width its members
+            /// COVER on screen, a different fraction of their fibre in every
+            /// group, and the self-shadow volume stores fibre, not coverage.
+            /// Applied where the pose is formed, before the bake subset.
+            /// Empty on the strand tier.
+            std::vector<f32> CoatFibreScales;
+            /// The level CoatFibreScales was measured from.
+            const GroomLodLevel* CoatFibreScalesSource = nullptr;
+            /// A scale list that did not match the pose's length was reported.
+            bool CoatFibreMismatchReported = false;
 
             // ── The bake subset (#1445) ─────────────────────────────
 
@@ -676,6 +679,30 @@ namespace OloEngine
         /// Sets CoatBakeStride from the current rebake policy and the coat's
         /// measured occupancy (#1445).
         void RefreshCoatBakeStride(CacheEntry& entry) const noexcept;
+
+        /// GroomCardFibreByGroup for this request's LOD level, measured once
+        /// per level and shared by every entry and stream that draws it.
+        const std::vector<f32>& CardFibreByGroup(const GroomStrandRequest& request);
+
+        /// The entry's CoatFibreScales for this request's LOD level, measured
+        /// once per level; empty on the strand tier.
+        const std::vector<f32>& CardFibreScales(const GroomStrandRequest& request, CacheEntry& entry);
+
+        /// Multiplies a card level's rest pose by GroomCardFibreScales; a
+        /// no-op on the strand tier. Every GPU-path pose goes through it.
+        void ScaleRestPoseToCardFibre(const GroomStrandRequest& request, std::vector<GroomRestPoseSegment>& pose);
+
+        /// Per LOD level, the per-group fibre table (#1428). Keyed on the level
+        /// AND its size, so a recooked level at a reused address is measured
+        /// again rather than served its predecessor's factors.
+        struct CardFibreTable
+        {
+            const GroomLodLevel* Level = nullptr;
+            u32 Curves = 0;
+            sizet Points = 0;
+            std::vector<f32> ByGroup;
+        };
+        std::vector<CardFibreTable> m_CardFibreTables;
 
         bool BakeCoatVolume(CacheEntry& entry, std::span<const GroomCoatShadow::CoatSegment> segments,
                             u32 resolution, bool ring, u32* outOccupiedVoxels = nullptr);

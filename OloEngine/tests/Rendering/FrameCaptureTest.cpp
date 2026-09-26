@@ -642,6 +642,51 @@ TEST_F(FrameCapturePipelineTest, CaptureGenerationIncrements)
     EXPECT_GT(gen2, gen1) << "Capture generation should increment after clear";
 }
 
+TEST_F(FrameCapturePipelineTest, CaptureGenerationRisesWhenTheRetainedFramesAreFull)
+{
+    // #1510. olo_render_frame_breakdown waited for the retained COUNT to rise,
+    // which it never does once the manager is full: the new capture evicts the
+    // oldest. Every call after the 60th timed out against a live viewport. The
+    // generation is what a waiter can rely on.
+    auto& mgr = FrameCaptureManager::GetInstance();
+    // The manager is a process singleton: restore its limit and drop these
+    // captures on EVERY exit, an early ASSERT included, or later tests run
+    // with a three-frame limit.
+    struct RestoreCaptureLimit
+    {
+        FrameCaptureManager& Manager;
+        u32 Previous;
+        ~RestoreCaptureLimit()
+        {
+            Manager.SetMaxCapturedFrames(Previous);
+            Manager.ClearCaptures();
+        }
+    } const restore{ mgr, mgr.GetMaxCapturedFrames() };
+    mgr.ClearCaptures();
+    mgr.SetMaxCapturedFrames(3);
+    auto bucket = MakeTestBucket(1);
+    bucket.SortCommands();
+    for (u32 f = 0; f < 3; ++f)
+    {
+        mgr.CaptureNextFrame();
+        mgr.OnPreSort(bucket);
+        mgr.OnPostSort(bucket);
+        mgr.OnFrameEnd(f + 1, 0.1, 0.0, 0.1);
+    }
+    ASSERT_EQ(mgr.GetCapturedFrameCount(), 3u);
+
+    const u64 countBefore = mgr.GetCapturedFrameCount();
+    const u64 generationBefore = mgr.GetCaptureGeneration();
+    mgr.CaptureNextFrame();
+    mgr.OnPreSort(bucket);
+    mgr.OnPostSort(bucket);
+    mgr.OnFrameEnd(4, 0.1, 0.0, 0.1);
+
+    EXPECT_EQ(mgr.GetCapturedFrameCount(), countBefore) << "a full manager evicts, so the count cannot signal a capture";
+    EXPECT_GT(mgr.GetCaptureGeneration(), generationBefore) << "the generation must still say a new frame landed";
+    EXPECT_EQ(mgr.GetCapturedFramesCopy().Last().FrameNumber, 4u);
+}
+
 // =============================================================================
 // Frame Export Tests — CSV and Markdown
 // =============================================================================
