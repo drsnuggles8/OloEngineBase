@@ -17,9 +17,9 @@ namespace OloEngine
     // Recording state machine
     enum class CaptureState : u8
     {
-        Idle = 0,          // Not capturing
-        CaptureNextFrame,  // Will capture the next frame, then await GPU results
-        Recording,         // Continuously capturing until stopped
+        Idle = 0,           // Not capturing
+        CaptureNextFrame,   // Will capture the next frame, then await GPU results
+        Recording,          // Continuously capturing until stopped
         AwaitingGpuResults, // One-shot frame captured; holding the commit until the
                             // GPU timer queries issued during the capture frame are
                             // readable (they resolve one-plus frames later). No new
