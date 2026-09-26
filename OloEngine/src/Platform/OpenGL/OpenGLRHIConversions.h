@@ -197,6 +197,19 @@ namespace OloEngine::Utils
         return GL_LINEAR;
     }
 
+    // GL couples the mip filter into MIN_FILTER. `linearMip == false` means NO
+    // MIP FILTERING, not "nearest mip": mapping it to a *_MIPMAP_* enum was a
+    // silent divergence between the heap sampler and the slot path for SSAO's
+    // noise, which sets the flag false and must not minify through a chain.
+    [[nodiscard]] inline GLenum ToGLMinFilter(RHI::Filter minFilter, bool linearMip)
+    {
+        if (minFilter == RHI::Filter::Nearest)
+        {
+            return linearMip ? GL_NEAREST_MIPMAP_LINEAR : GL_NEAREST;
+        }
+        return linearMip ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR;
+    }
+
     [[nodiscard]] inline GLenum ToGL(RHI::AddressMode mode)
     {
         switch (mode)

@@ -4554,6 +4554,20 @@ namespace OloEngine
         VulkanImageInfoRegistry::Get().SetSamplerAddressMode(reinterpret_cast<VkImage>(native), mode);
     }
 
+    void VulkanRendererAPI::SetTextureSampling(RHI::ResourceHandle texture, const RHI::SamplerDesc& sampler)
+    {
+        // The registry holds one address mode per image; U stands for all
+        // three, as SetTextureWrap applies one mode to every axis.
+        SetTextureFilter(texture, sampler.MinFilter, sampler.MagFilter);
+        SetTextureWrap(texture, sampler.AddressU);
+        const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(texture);
+        if (native == 0u)
+            return; // SetTextureFilter already reported the unresolved handle
+        VulkanImageInfoRegistry::Get().SetSamplerMipmapMode(
+            reinterpret_cast<VkImage>(native),
+            sampler.LinearMipFilter ? VK_SAMPLER_MIPMAP_MODE_LINEAR : VK_SAMPLER_MIPMAP_MODE_NEAREST);
+    }
+
     void VulkanRendererAPI::UploadTextureSubImage2D(RHI::ResourceHandle texture, u32 width, u32 height, RHI::Format sourceFormat, const void* data)
     {
         if (RefuseOnWorker("UploadTextureSubImage2D"))

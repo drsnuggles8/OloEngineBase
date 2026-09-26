@@ -156,6 +156,7 @@ namespace OloEngine
         void SetTextureFilter(RHI::ResourceHandle texture, RHI::Filter minFilter, RHI::Filter magFilter) override;
         void SetTextureWrap(u32 textureID, RHI::AddressMode wrap);
         void SetTextureWrap(RHI::ResourceHandle texture, RHI::AddressMode wrap) override;
+        void SetTextureSampling(RHI::ResourceHandle texture, const RHI::SamplerDesc& sampler) override;
         void UploadTextureSubImage2D(u32 textureID, u32 width, u32 height,
                                      RHI::Format sourceFormat, const void* data);
         void UploadTextureSubImage2D(RHI::ResourceHandle texture, u32 width, u32 height,
