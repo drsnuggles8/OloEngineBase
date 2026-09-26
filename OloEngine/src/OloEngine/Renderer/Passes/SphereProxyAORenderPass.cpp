@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 
 #include <algorithm>
 
@@ -196,8 +197,14 @@ namespace OloEngine
         if (!m_UBO)
             return;
 
-        const f32 projScale00 = m_Projection[0][0];
-        const f32 projScale11 = m_Projection[1][1];
+        // The seam's reconstruction projection, so proj11 carries the Vulkan
+        // row flip (memory row 0 is the TOP of the view there): see
+        // GTAORenderPass::UploadGTAOUniforms. The raw projection reconstructed
+        // every receiver mirrored about the horizontal on Vulkan, so a proxy
+        // darkened the pixels at its vertically mirrored screen position.
+        const glm::mat4 reconstruction = RHI::AdjustProjectionForShaderReconstruction(m_Projection);
+        const f32 projScale00 = reconstruction[0][0];
+        const f32 projScale11 = reconstruction[1][1];
 
         // GL convention on both axes, matching GTAO.comp's unpack: the depth and
         // normals this pass fetches are the same GL-convention textures, and

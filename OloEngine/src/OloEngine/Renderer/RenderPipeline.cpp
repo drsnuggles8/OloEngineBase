@@ -5693,6 +5693,7 @@ namespace OloEngine
         inputs.Passes.Scene = FrameCorePasses.Scene.Raw();
         inputs.Passes.ScenePrepass = FrameCorePasses.ScenePrepass.Raw();
         inputs.Passes.GPUOcclusionPrepass = FrameCorePasses.GPUOcclusionPrepass.Raw();
+        inputs.Passes.FoliagePrepass = FrameCorePasses.FoliagePrepass.Raw();
         inputs.Passes.Shadow = FrameCorePasses.Shadow.Raw();
         inputs.Passes.DDGIProbeUpdate = FrameCorePasses.DDGIProbeUpdate.Raw();
         inputs.Passes.VirtualShadowMapMark = FrameCorePasses.VirtualShadowMapMark.Raw();
@@ -5873,6 +5874,9 @@ namespace OloEngine
         RenderStreamPasses.Foliage = Ref<FoliageRenderPass>::Create();
         RenderStreamPasses.Foliage->SetName("FoliagePass");
         RenderStreamPasses.Foliage->Init(finalPassSpec);
+        // Its forward-prepass share (issue #1474), in the core set beside the
+        // scene and GPU-driven prepasses it follows.
+        FrameCorePasses.FoliagePrepass = Ref<FoliagePrepassPass>::Create(RenderStreamPasses.Foliage.Raw());
 
         // Groom strand visibility (#1246). Path- and backend-agnostic: it
         // draws into the scene framebuffer, which carries a populated depth

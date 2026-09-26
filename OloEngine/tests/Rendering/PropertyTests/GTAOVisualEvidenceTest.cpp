@@ -61,6 +61,7 @@
 #include "RendererAttachedTest.h"
 #include "RenderPropertyTest.h"
 
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/RenderingPath.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
@@ -81,6 +82,7 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <iostream>
 #include <string>
 #include <vector>
 
@@ -422,17 +424,11 @@ namespace OloEngine::Tests
 
                 // 1b) THE ISSUE #533 SYMPTOM, checked directly on the composite: GTAO
                 //     must not crush the open floor to a near-black fraction of its
-                //     GTAO-off brightness. The production GTAOPower=2.2 contrast curve,
-                //     combined with a residual, non-degenerate self-occlusion the
-                //     underlying per-slice horizon integral has for a tilted-but-
-                //     unoccluded surface (verified analytically: even in the
-                //     continuous-slice limit this simplified closed-form arc integral
-                //     does not reconstruct exactly 1.0 for a tilted normal -- a
-                //     separate, deeper GTAO-quality characteristic tracked for
-                //     follow-up, not a regression from any fix here), legitimately
-                //     darkens the open floor substantially. This threshold is
-                //     deliberately loose: it guards against the reported "essentially
-                //     fully black" collapse, not against ordinary tuned contrast.
+                //     GTAO-off brightness. Deliberately loose: it guards the reported
+                //     "essentially fully black" collapse. The tight bar (an unoccluded
+                //     floor reads AO >= 0.97 from 0 to 75 degrees) is
+                //     GTAOElevationEvidenceTest's, since #1463 fixed the view-angle
+                //     darkening this comment used to call a residual of the integral.
                 EXPECT_GT(onFloorLit, offFloorLit * 0.15)
                     << "GTAO-on lit floor (" << onFloorLit << ") is far darker than GTAO-off (" << offFloorLit
                     << ") on OPEN ground -- near-black composite regression. See GTAO_On_" << pose.Name
@@ -455,15 +451,11 @@ namespace OloEngine::Tests
                 //    wired for GTAO — see GTAOMathTest.cpp for the degenerate-formula
                 //    regression tests (both that bug and the follow-up cosN-tautology
                 //    bug the per-pixel view-vector basis also fixes).
-                //    NOTE: with the production GTAOPower=2.2 curve, GTAO's open-ground
-                //    reading still isn't SSAO-white (SSAOVisualEvidenceTest's floor
-                //    threshold is 165) — verified analytically that this simplified
-                //    per-slice horizon closed-form does not reconstruct exactly 1.0
-                //    for a tilted-but-unoccluded surface even in the continuous-slice
-                //    limit, independent of any bug fixed here. That residual is a
-                //    separate, deeper GTAO-quality characteristic (tracked for
-                //    follow-up), not the #533 "essentially fully black" regression
-                //    this test guards.
+                //    The earlier note here said the open ground could never read
+                //    white because the horizon integral does not reconstruct 1.0 for a
+                //    tilted surface. It does: the shortfall was issue #1463 (horizons
+                //    measured against the normal, not the view vector), and
+                //    GTAOElevationEvidenceTest now pins the raw AO at >= 0.97.
                 EXPECT_GT(floorAO, 50.0)
                     << "open flat floor is essentially black in the AO buffer (luma=" << floorAO
                     << ") at a grazing camera angle -- GTAO is collapsing to near-zero, not just tuned "
@@ -472,14 +464,10 @@ namespace OloEngine::Tests
 
                 // 4) The cube/floor contact crease must not read BRIGHTER than the
                 //    open floor (a sanity check on the AO buffer's polarity/values).
-                //    NOTE: unlike SSAO (SSAOVisualEvidenceTest asserts a clearly
-                //    darker localised crease band), GTAO's horizon search here does
-                //    not yet produce a strongly visually distinct darker band at this
-                //    cube/floor junction (the crease reads close to, though not
-                //    brighter than, the already partly self-occluded open floor).
-                //    That is a separate localised-contact-occlusion quality gap from
-                //    #533's near-black bug and is not asserted strictly here; only the
-                //    weak polarity check below guards against a sign-flipped AO term.
+                //    Only a polarity check here. The crease used to read close to the
+                //    open floor because the floor itself was falsely occluded (#1463);
+                //    GTAOElevationEvidenceTest now asserts the crease strictly, on the
+                //    raw AO buffer (<= 0.75 five centimetres from the wall).
                 EXPECT_LT(creaseAO, floorAO + 10.0)
                     << "crease reads brighter than open floor -- possible sign-flipped AO term (darkest "
                        "crease cell="
@@ -612,4 +600,170 @@ namespace OloEngine::Tests
                "grows with camera rotation. Compare GTAO_Fwd_Parity_Forward.png against "
                "GTAO_Fwd_Parity_Deferred.png.";
     }
+
+    // =========================================================================
+    // Issue #1463, GPU half: an UNOCCLUDED floor reads AO >= 0.97 from 0 to 75
+    // degrees off its normal, on every rendering path, and a contact crease
+    // still reads clearly occluded.
+    //
+    // Before #1463 GTAO measured its horizons against the surface normal while
+    // reconstructing them as angles from the view vector, which clipped the lit
+    // half of every slice by the normal's tilt: DDGITest.olo's open floor read
+    // 1.00 straight down, 0.71 at 45 degrees and 0.34 grazing. The CPU mirror in
+    // GTAOMathTest reproduces those numbers from the old conventions; this
+    // reads the real AOBuffer, raw, after the real pipeline.
+    //
+    // Production GTAO settings (radius 0.5, power 2.2), because the issue's
+    // numbers are production numbers. The floor point is at (10, 0, 10), 7.5 m
+    // clear of the cube, so nothing lies within the radius of it. AOBuffer is a
+    // transient read AFTER the frame, so aliasing is off for the fixture: with
+    // it on, the planner may hand the texture to a later pass first.
+    //
+    // Evidence: GTAO_GL_<Path>_Elevation<deg>.png and GTAO_GL_<Path>_Crease.png,
+    // the AO debug view of each pose.
+    // =========================================================================
+    class GTAOElevationEvidenceTest : public GTAOVisualEvidenceTest, public ::testing::WithParamInterface<RenderingPath>
+    {
+      public:
+        [[nodiscard]] static const char* PathTag(RenderingPath path)
+        {
+            switch (path)
+            {
+                case RenderingPath::Forward:
+                    return "Forward";
+                case RenderingPath::ForwardPlus:
+                    return "ForwardPlus";
+                case RenderingPath::Deferred:
+                    return "Deferred";
+            }
+            return "Unknown";
+        }
+
+      protected:
+        void SetUp() override
+        {
+            m_SavedDisableAliasing = Levers::DisableTransientAliasing();
+            Levers::SetDisableTransientAliasing(true);
+            GTAOVisualEvidenceTest::SetUp();
+        }
+
+        void TearDown() override
+        {
+            GTAOVisualEvidenceTest::TearDown();
+            Levers::SetDisableTransientAliasing(m_SavedDisableAliasing);
+        }
+
+        void BuildScene() override
+        {
+            m_RenderPath = GetParam();
+            m_EvidencePrefix = std::string("GL_") + PathTag(GetParam()) + "_";
+            GTAOVisualEvidenceTest::BuildScene();
+        }
+
+        // Mean raw AO over a (2*half+1)^2 window at the centre of AOBuffer:
+        // the texels under the camera's focus point.
+        [[nodiscard]] f64 CentreAO(i32 half)
+        {
+            const u32 ao = Renderer3D::ResolveFrameGraphTexture(ResourceNames::AOBuffer);
+            EXPECT_NE(ao, 0u) << "no AOBuffer this frame";
+            if (ao == 0u)
+                return -1.0;
+            GLint w = 0;
+            GLint h = 0;
+            ::glGetTextureLevelParameteriv(ao, 0, GL_TEXTURE_WIDTH, &w);
+            ::glGetTextureLevelParameteriv(ao, 0, GL_TEXTURE_HEIGHT, &h);
+            EXPECT_GT(w, 2 * half);
+            EXPECT_GT(h, 2 * half);
+            if (w <= 2 * half || h <= 2 * half)
+                return -1.0;
+            std::vector<f32> texels;
+            ReadbackRgbaFloat(ao, static_cast<u32>(w), static_cast<u32>(h), texels);
+            f64 sum = 0.0;
+            u32 count = 0;
+            for (i32 y = h / 2 - half; y <= h / 2 + half; ++y)
+            {
+                for (i32 x = w / 2 - half; x <= w / 2 + half; ++x)
+                {
+                    const std::size_t texel = static_cast<std::size_t>(y) * static_cast<std::size_t>(w) + static_cast<std::size_t>(x);
+                    sum += texels[texel * 4u];
+                    ++count;
+                }
+            }
+            return sum / static_cast<f64>(count);
+        }
+
+        bool m_SavedDisableAliasing = false;
+    };
+
+    TEST_P(GTAOElevationEvidenceTest, UnoccludedFloorIsFullyVisibleFromEveryElevation)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        struct ScopedMockTime
+        {
+            explicit ScopedMockTime(f32 t)
+            {
+                Time::SetMockTime(t);
+            }
+            ~ScopedMockTime()
+            {
+                Time::ClearMockTime();
+            }
+        } scopedMockTime(kCaptureTime);
+
+        auto& pp = Renderer3D::GetPostProcessSettings();
+        pp.ActiveAOTechnique = AOTechnique::GTAO;
+        pp.GTAOEnabled = true;
+        pp.GTAORadius = 0.5f;             // production default
+        pp.GTAOPower = 2.2f;              // production default
+        pp.GTAOFalloffRange = 0.615f;     // production default
+        pp.GTAOSampleDistribution = 2.0f; // production default
+        pp.GTAOThinCompensation = 0.0f;   // production default
+        pp.GTAODepthMipOffset = 3.3f;     // production default
+        pp.GTAODenoiseEnabled = true;     // production default
+        pp.GTAODenoisePasses = 4;         // production default
+        pp.GTAODenoiseBeta = 1.2f;        // production default
+        pp.GTAODebugView = true;          // the evidence PNG shows the AO buffer
+        Renderer3D::ApplyRendererSettings();
+
+        const auto aim = [](const glm::vec3& target, f32 distance, f32 pitchDeg)
+        {
+            EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 1000.0f);
+            camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+            camera.Focus(target, distance, 0.0f, glm::radians(pitchDeg));
+            return camera;
+        };
+
+        const glm::vec3 openFloor(10.0f, 0.0f, 10.0f);
+        for (const i32 zenithDeg : { 0, 15, 30, 45, 60, 75 })
+        {
+            SCOPED_TRACE(zenithDeg);
+            EditorCamera camera = aim(openFloor, 6.0f, 90.0f - static_cast<f32>(zenithDeg));
+            std::vector<u8> pixels;
+            Capture("Elevation" + std::to_string(zenithDeg), camera, pixels);
+            if (::testing::Test::HasFatalFailure())
+                return;
+            const f64 ao = CentreAO(8);
+            std::cout << "[GTAO #1463] " << PathTag(GetParam()) << " open floor, " << zenithDeg
+                      << " deg from the normal: AO " << ao << '\n';
+            EXPECT_GE(ao, 0.97) << "an unoccluded floor " << zenithDeg << " degrees from its normal reads AO " << ao
+                                << " (issue #1463). See GTAO_" << m_EvidencePrefix << "Elevation" << zenithDeg << ".png";
+        }
+
+        // Positive control: a floor point 5 cm in front of the 5 m cube's +z
+        // face. Fixing the flat plane must not flatten the crease.
+        EditorCamera creaseCamera = aim(glm::vec3(0.0f, 0.0f, 2.55f), 8.0f, 35.0f);
+        std::vector<u8> pixels;
+        Capture("Crease", creaseCamera, pixels);
+        if (::testing::Test::HasFatalFailure())
+            return;
+        const f64 crease = CentreAO(1);
+        std::cout << "[GTAO #1463] " << PathTag(GetParam()) << " crease, 5 cm from the wall: AO " << crease << '\n';
+        EXPECT_LE(crease, 0.75) << "the cube/floor contact crease is not clearly occluded (AO " << crease
+                                << "). See GTAO_" << m_EvidencePrefix << "Crease.png";
+    }
+
+    INSTANTIATE_TEST_SUITE_P(AllPaths, GTAOElevationEvidenceTest,
+                             ::testing::Values(RenderingPath::Forward, RenderingPath::ForwardPlus, RenderingPath::Deferred),
+                             [](const ::testing::TestParamInfo<RenderingPath>& info)
+                             { return std::string(GTAOElevationEvidenceTest::PathTag(info.param)); });
 } // namespace OloEngine::Tests

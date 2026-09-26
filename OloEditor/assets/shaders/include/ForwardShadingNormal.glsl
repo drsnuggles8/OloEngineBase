@@ -42,20 +42,8 @@ vec3 oloForwardMappedNormal(vec3 vertexNormal, vec2 uv, vec3 worldPos)
     return N;
 }
 
-// Octahedral encode: unit normal -> RG16F [-1,1]^2.
-vec2 oloOctEncodeViewNormal(vec3 n)
-{
-    n /= (abs(n.x) + abs(n.y) + abs(n.z));
-    if (n.z < 0.0)
-        n.xy = (1.0 - abs(n.yx)) * vec2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0);
-    return n.xy;
-}
-
-// What scene attachment 2 stores for a world-space normal: the octahedral view
-// normal SSAO, GTAO and the sphere proxies read.
-vec2 oloForwardViewNormalOutput(mat4 view, vec3 worldNormal)
-{
-    return oloOctEncodeViewNormal(normalize(mat3(view) * worldNormal));
-}
+// oloOctEncodeViewNormal / oloForwardViewNormalOutput: what scene attachment 2
+// stores, shared with the foliage prepass programs (issue #1474).
+#include "ViewNormalOutput.glsl"
 
 #endif // FORWARD_SHADING_NORMAL_GLSL

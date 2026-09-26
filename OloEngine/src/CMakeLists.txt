@@ -1134,6 +1134,8 @@
 		"OloEngine/Renderer/Passes/ForwardScreenSpaceAOInputs.h"
 		"OloEngine/Renderer/Passes/GPUDrivenOcclusionPrepassPass.h"
 		"OloEngine/Renderer/Passes/GPUDrivenOcclusionPrepassPass.cpp"
+		"OloEngine/Renderer/Passes/FoliagePrepassPass.h"
+		"OloEngine/Renderer/Passes/FoliagePrepassPass.cpp"
 		"OloEngine/Renderer/Passes/ShaderDebugDrawPass.h"
 		"OloEngine/Renderer/Passes/ShaderDebugDrawPass.cpp"
 		"OloEngine/Renderer/Passes/DeferredLightingPass.h"

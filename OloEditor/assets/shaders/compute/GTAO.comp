@@ -105,6 +105,7 @@ layout(binding = 6) uniform usampler2D u_ShadingRate;
 #define XE_GTAO_DEPTH_MIP_LEVELS    5
 #define XE_GTAO_PI                  3.14159265358979
 #define XE_GTAO_HALF_PI             1.57079632679490
+#define XE_GTAO_MIN_SAMPLE_OFFSET_PIXELS 2.0
 
 // Far-plane (sky) classification tolerance. Never compare a sampled depth
 // against 1.0 exactly: any filtered read of a D24 depth source can
@@ -468,8 +469,12 @@ void main()
         float sliceAngle = (float(slice) + noiseSlice) * (XE_GTAO_PI / float(XE_GTAO_SLICE_COUNT));
         vec2 omega = vec2(cos(sliceAngle), sin(sliceAngle));
 
-        // Direction in view-space (projected onto the tangent plane)
-        vec3 directionVS = vec3(omega.x, omega.y, 0.0);
+        // +omega's direction in view space. The screen-to-view unpack's signs
+        // say which way a screen axis points: proj11, and so NDCToViewMul.y,
+        // is negative on Vulkan, whose memory row 0 is the top of the view
+        // (GTAORenderPass::UploadGTAOUniforms). Taking omega verbatim would
+        // swap the two sides of every slice with a vertical component there.
+        vec3 directionVS = vec3(omega * sign(u_NDCToViewMul), 0.0);
         // orthoDirectionVS / axisVS / projectedNormal / cosN all measure the
         // surface normal's tilt relative to the SLICE PLANE, which is spanned
         // by the per-pixel view vector and the slice's screen direction --
@@ -502,25 +507,33 @@ void main()
         float cosN = clamp(dot(projectedNormal, viewVec) / max(projectedNormalLen, 1e-6), 0.0, 1.0);
         float n = signN * acos(cosN);
 
-        // Horizon angles, initialised to "no occluder found on this side".
+        // Horizons: XeGTAO's side and sign conventions, all three of them
+        // (issue #1463). Every horizon cosine below is an angle from viewVec
+        // in the slice plane, the same frame n is measured in.
         //
-        // These MUST start at -1 (horizon fully behind the surface), not at
-        // cos(n +/- HALF_PI). The h0/h1 reconstruction below recovers an angle
-        // with acos(), which discards the sign of (n -/+ HALF_PI) -- so for the
-        // unoccluded case the old initialisation produced:
-        //     n = 0        ->  h0 = -HALF_PI, h1 = +HALF_PI  -> visibility 1  (correct)
-        //     n = HALF_PI  ->  h0 =  0,       h1 =  0        -> visibility 0  (wrong)
-        // i.e. a surface with NO occluders reported full occlusion, with the
-        // error growing continuously as the surface tilts away from dead-on.
-        // That is why this was invisible looking straight down (n == 0) and why
-        // a grazing view across a large flat surface -- a sea, a quay, a floor
-        // seen edge-on -- went uniformly black, then pinned at the 0.03
-        // visibility floor below (0.03 * 255 = 8, the exact value observed).
-        // With -1 both sides reconstruct symmetrically (acos(-1) = PI), giving
-        // h0 = n - HALF_PI and h1 = n + HALF_PI for every n, and max() in the
-        // march below still lets any real occluder raise the horizon.
-        float horizonCos0 = -1.0;
-        float horizonCos1 = -1.0;
+        //   SIDES. Sample 0 is taken at +omega in screen UV, which is
+        //   +directionVS in view space (directionVS carries the unpack's
+        //   signs, so this holds on GL's bottom-up rows and Vulkan's top-down
+        //   ones; XeGTAO's (cos, -sin) omega is the same idea for D3D's
+        //   top-down v). So sample 0 bounds the POSITIVE side of the slice,
+        //   the side n is signed towards, and reconstructs h1. Sample 1
+        //   bounds the negative side and reconstructs h0.
+        //   LOW HORIZON. With that pairing, seeding each side at its tangent,
+        //   cos(n +/- HALF_PI), round-trips through acos exactly:
+        //   acos(cos(n + HALF_PI)) = n + HALF_PI because n + HALF_PI is in
+        //   [0, PI]. An earlier version paired sample 0 with h0, lost the sign
+        //   there, and patched it by seeding -1 and measuring horizons against
+        //   viewNormal instead. The patch reconstructed the tangent at +/-HALF_PI
+        //   from viewVec rather than at n +/- HALF_PI, which clipped the lit half
+        //   of every slice by n: an unoccluded floor read 1.00 looking straight
+        //   down, 0.71 at 45 degrees and 0.34 grazing.
+        //   FALLOFF. A sample beyond the radius fades towards the low horizon,
+        //   never towards the running maximum, so a distant sample can only
+        //   ever report "no occluder".
+        const float lowHorizonCos0 = cos(n + XE_GTAO_HALF_PI);
+        const float lowHorizonCos1 = cos(n - XE_GTAO_HALF_PI);
+        float horizonCos0 = lowHorizonCos0;
+        float horizonCos1 = lowHorizonCos1;
 
         // March along the slice direction
         for (int step = 0; step < XE_GTAO_STEPS_PER_SLICE; step++)
@@ -528,8 +541,17 @@ void main()
             float stepBaseNoise = float(step) + noiseSample;
             float stepNoise = pow(stepBaseNoise / float(XE_GTAO_STEPS_PER_SLICE), u_SampleDistributionPower);
 
-            // Sample offset in pixels, then convert to UV
-            float sampleOffsetPixels = max(stepNoise * pixelRadius, 1.0);
+            // Sample offset in pixels, then convert to UV.
+            //
+            // At least XE_GTAO_MIN_SAMPLE_OFFSET_PIXELS: the offset is rounded
+            // to a texel centre below, and at 1 px that rounding turns the
+            // slice direction by up to 22.5 degrees. The sample then sits on
+            // the surface but OUT of the slice plane, and on a plane seen at a
+            // grazing angle its horizon reads above the tangent: phantom
+            // occlusion of a flat floor, ~0.96 at 75 degrees from the normal.
+            // At 2 px the same floor reads 0.99 and a contact crease is
+            // unchanged (GTAOMath.UnoccludedPlaneIsFullyVisibleFromEveryElevation).
+            float sampleOffsetPixels = max(stepNoise * pixelRadius, XE_GTAO_MIN_SAMPLE_OFFSET_PIXELS);
 
             // Adaptive mip level from pixel distance
             float mipLevel = clamp(log2(sampleOffsetPixels) - u_DepthMIPSamplingOffset, 0.0, float(XE_GTAO_DEPTH_MIP_LEVELS));
@@ -555,49 +577,32 @@ void main()
             vec3 sampleHorizon0 = sampleDelta0 / max(dist0, 1e-6);
             vec3 sampleHorizon1 = sampleDelta1 / max(dist1, 1e-6);
 
-            // Falloff based on distance relative to effect radius
-            float falloffBase0 = dist0 / u_EffectRadius;
-            float falloffBase1 = dist1 / u_EffectRadius;
+            // Falloff based on distance relative to effect radius. Thin
+            // occluder compensation is XeGTAO's thickness heuristic: stretch
+            // the depth component of the distance, so a sample far in front of
+            // or behind the centre (a thin pole, a leaf) fades out sooner than
+            // one beside it. At 0 (the default) this is the plain distance.
+            float thinScale = 1.0 + u_ThinOccluderCompensation;
+            float falloffBase0 = length(vec3(sampleDelta0.xy, sampleDelta0.z * thinScale)) / u_EffectRadius;
+            float falloffBase1 = length(vec3(sampleDelta1.xy, sampleDelta1.z * thinScale)) / u_EffectRadius;
             float falloffRange = u_EffectFalloffRange;
             float weight0 = clamp(1.0 - (falloffBase0 - (1.0 - falloffRange)) / falloffRange, 0.0, 1.0);
             float weight1 = clamp(1.0 - (falloffBase1 - (1.0 - falloffRange)) / falloffRange, 0.0, 1.0);
 
-            // Update horizon cosines (max with existing, weighted by falloff)
-            float newHorizonCos0 = dot(sampleHorizon0, viewNormal);
-            float newHorizonCos1 = dot(sampleHorizon1, viewNormal);
-
-            // Thin occluder compensation
-            //
-            // The compensation term must be measured from -1 (the "no occluder
-            // found" horizon set above), NOT from 0. Scaling horizonCos itself
-            // makes thinComp negative while the horizon is still unoccluded, so
-            // horizonCos - thinComp = -1 + compensation RAISES the floor above
-            // -1 and re-introduces exactly the phantom occlusion the -1
-            // initialisation exists to prevent -- a slice that found nothing
-            // would report itself partly occluded. Basing it on the distance
-            // from -1 keeps an unoccluded horizon pinned at -1 (thinComp == 0)
-            // and only decays a horizon some real occluder already raised.
-            if (u_ThinOccluderCompensation > 0.0)
-            {
-                float thinComp0 = (horizonCos0 + 1.0) * u_ThinOccluderCompensation;
-                float thinComp1 = (horizonCos1 + 1.0) * u_ThinOccluderCompensation;
-                horizonCos0 = max(horizonCos0 - thinComp0, mix(horizonCos0, newHorizonCos0, weight0));
-                horizonCos1 = max(horizonCos1 - thinComp1, mix(horizonCos1, newHorizonCos1, weight1));
-            }
-            else
-            {
-                horizonCos0 = max(horizonCos0, mix(horizonCos0, newHorizonCos0, weight0));
-                horizonCos1 = max(horizonCos1, mix(horizonCos1, newHorizonCos1, weight1));
-            }
+            // Horizon cosines against viewVec, faded towards the low horizon.
+            float sampleHorizonCos0 = mix(lowHorizonCos0, dot(sampleHorizon0, viewVec), weight0);
+            float sampleHorizonCos1 = mix(lowHorizonCos1, dot(sampleHorizon1, viewVec), weight1);
+            horizonCos0 = max(horizonCos0, sampleHorizonCos0);
+            horizonCos1 = max(horizonCos1, sampleHorizonCos1);
         }
 
-        // Integrate visibility from horizon angles
-        // Clamp to the normal hemisphere
-        horizonCos0 = clamp(horizonCos0, -1.0, 1.0);
-        horizonCos1 = clamp(horizonCos1, -1.0, 1.0);
-
-        float h0 = n + max(-acos(horizonCos0) - n, -XE_GTAO_HALF_PI);
-        float h1 = n + min( acos(horizonCos1) - n,  XE_GTAO_HALF_PI);
+        // Horizon angles from viewVec, clamped to the normal's hemisphere.
+        // Sample 1 (the -omega side) is h0 and sample 0 (+omega) is h1; see
+        // the SIDES note above.
+        float h0 = -acos(clamp(horizonCos1, -1.0, 1.0));
+        float h1 = acos(clamp(horizonCos0, -1.0, 1.0));
+        h0 = n + clamp(h0 - n, -XE_GTAO_HALF_PI, XE_GTAO_HALF_PI);
+        h1 = n + clamp(h1 - n, -XE_GTAO_HALF_PI, XE_GTAO_HALF_PI);
 
         // Inner integral: 0.25 * (cos(2h-n) + 2h*sin(n) + cos(n))
         float iarc0 = -cos(2.0 * h0 - n) + cos(n) + 2.0 * h0 * sin(n);

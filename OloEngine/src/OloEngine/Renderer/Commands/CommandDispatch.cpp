@@ -1417,7 +1417,43 @@ namespace OloEngine
         const auto& ids = s_FrameData.DepthPrepassShaders;
         return program.IsValid() &&
                (program == ids.DepthNormalStatic || program == ids.DepthNormalSkinned ||
-                program == ids.DepthNormalMaskStatic || program == ids.DepthNormalMaskSkinned);
+                program == ids.DepthNormalMaskStatic || program == ids.DepthNormalMaskSkinned ||
+                program == ids.FoliageInstanceDepthNormal || program == ids.FoliageImpostorDepthNormal);
+    }
+
+    // The forward foliage programs' depth + view-normal twins (issue #1474),
+    // for FoliagePrepassPass's replay of the foliage bucket ahead of the
+    // screen-space AO passes. Only while the prepass writes normals: that is
+    // the one prepass the foliage bucket is replayed in, and the deferred
+    // Geometry-bucket prepass keeps the G-Buffer foliage program whole (see
+    // DrawFoliageLayer). A MISSING twin returns the null handle and the caller
+    // skips the draw: the colour program cannot write the view normal, and its
+    // depth over whatever normal the scene prepass left in attachment 2 would
+    // pair a leaf's depth with the ground's normal. Skipped, foliage is out of
+    // the prepass exactly as before #1474, so its forward AO is that of the
+    // surface behind it, which is said once rather than left to be found.
+    [[nodiscard]] static RHI::ResourceHandle ResolveFoliageDepthNormalPrepassShader(RHI::ResourceHandle program)
+    {
+        if (!s_FrameData.DepthPrepassActive || !s_FrameData.DepthPrepassWritesNormals)
+            return program;
+        const auto& ids = s_FrameData.DepthPrepassShaders;
+        RHI::ResourceHandle twin{};
+        if (program == ids.FoliageInstance)
+            twin = ids.FoliageInstanceDepthNormal;
+        else if (program == ids.FoliageImpostor)
+            twin = ids.FoliageImpostorDepthNormal;
+        else
+            return program;
+        if (twin.IsValid())
+            return twin;
+        static std::atomic<bool> s_WarnedMissingTwin{ false };
+        if (!s_WarnedMissingTwin.exchange(true, std::memory_order_relaxed))
+        {
+            OLO_CORE_WARN("CommandDispatch::DrawFoliageLayer: no Foliage_*_DepthNormal program is loaded, so foliage is left "
+                          "out of the forward prepass and forward foliage takes the screen-space AO of the surface behind "
+                          "it (issue #1474).");
+        }
+        return RHI::ResourceHandle{};
     }
 
     // Helper: Upload bone matrices from FrameDataBuffer.
@@ -3534,20 +3570,30 @@ namespace OloEngine
         // Resolve and apply render state from table
         ApplyPODRenderState(cmd->renderStateIndex, api);
 
-        // Bind shader (cached). NO depth-only swap here, unlike DrawMesh
-        // (ResolveDepthPrepassShader) and DrawWater (WaterDepthShaderID): in
-        // Deferred the Geometry bucket is replayed with DepthPrepassActive, so
-        // a G-Buffer foliage program runs its FULL fragment stage in the
-        // prepass (colour writes masked) and again in the colour pass. Measured
-        // on courtyard.diagnostic when the impostor card joined that bucket
-        // (#1225): ScenePass/DepthPrepass +0.085 ms median, N=5, Debug, RTX
-        // 4090, ~720 cards. A Foliage_*_Depth swap would have to reproduce the
-        // identical coverage / parallax / discard math or the LEqual colour
-        // pass loses edge fragments — only the post-coverage work is skippable.
-        if (Data().CurrentBoundShader != cmd->shaderRendererID)
+        // Bind shader (cached). TWO prepasses replay foliage, and they differ.
+        //
+        // DEFERRED: no swap. The Geometry bucket is replayed with
+        // DepthPrepassActive, so a G-Buffer foliage program runs its FULL
+        // fragment stage in the prepass (colour writes masked) and again in the
+        // colour pass. Measured on courtyard.diagnostic when the impostor card
+        // joined that bucket (#1225): ScenePass/DepthPrepass +0.085 ms median,
+        // N=5, Debug, RTX 4090, ~720 cards.
+        //
+        // FORWARD with screen-space AO live (issue #1474): FoliagePrepassPass
+        // replays the foliage bucket ahead of the AO passes, and the forward
+        // program swaps for its Foliage_*_DepthNormal twin, which writes the
+        // view normal of scene attachment 2 and nothing else. The twins
+        // reproduce the colour program's coverage exactly (the same vertex
+        // stage with `invariant gl_Position`, the same discards), or the
+        // LEqual colour pass would lose edge fragments.
+        const RHI::ResourceHandle shaderToBind = ResolveFoliageDepthNormalPrepassShader(cmd->shaderRendererID);
+        if (!shaderToBind.IsValid())
+            return; // no twin: this layer stays out of the forward prepass (see the resolver)
+        ApplyPrepassViewNormalWrite(api, cmd->renderStateIndex, IsDepthNormalPrepassProgram(shaderToBind));
+        if (Data().CurrentBoundShader != shaderToBind)
         {
-            api.BindShaderProgram(cmd->shaderRendererID);
-            Data().CurrentBoundShader = cmd->shaderRendererID;
+            api.BindShaderProgram(shaderToBind);
+            Data().CurrentBoundShader = shaderToBind;
             ++Data().Stats.ShaderBinds;
         }
 

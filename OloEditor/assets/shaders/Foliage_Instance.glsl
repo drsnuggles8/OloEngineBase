@@ -91,6 +91,10 @@ layout(location = 8) in float v_InstanceSeed; // this plant's own draw (issue #1
 // the directional light; a forward foliage shader that only knew about CSM
 // would disagree with it in exactly the frames VSM is on.
 #include "include/VirtualShadowSampling.glsl"
+// Screen-space AO for the ambient term (issues #1452, #1474). Foliage is in the
+// forward depth-normal prepass (FoliagePrepassPass), so the AO buffer at a
+// leaf's pixel is the leaf's own occlusion.
+#include "include/ForwardScreenSpaceAO.glsl"
 
 // Multi-Light UBO (binding 5) — THE FULL BLOCK, matching PBR_MultiLight.glsl.
 // It used to be declared here as a four-int header plus Light[0] only: a
@@ -348,10 +352,10 @@ void main()
                                                      u_LeafLobe);
     }
 
-    // No screen-space AO (issue #1452): foliage is not in the forward
-    // depth-normal prepass, so the AO buffer holds the occlusion of the ground
-    // or wall BEHIND each leaf. The G-Buffer twin gets its own AO on Deferred.
-    vec3 litColor = ambient * ao + oloSurfaceLightingSum(Lo) + transmitted;
+    // Screen-space AO on the ambient term only, as DeferredLighting applies it
+    // to the G-Buffer twin: ambient * (ao * screenAO), with direct light and
+    // both halves of the transmission untouched (issue #1474).
+    vec3 litColor = ambient * (ao * oloForwardScreenSpaceAO(gl_FragCoord.xy)) + oloSurfaceLightingSum(Lo) + transmitted;
 
     FragColor = vec4(u_WindWeights.w > 0.5 ? v_Color : litColor, color.a);
 

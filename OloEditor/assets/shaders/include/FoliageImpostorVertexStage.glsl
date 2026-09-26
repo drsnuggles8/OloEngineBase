@@ -92,6 +92,11 @@ layout(location = 2) out float v_MeshCoverage;
 // instead; the impostor stage never read that lane, so it is carried here.
 layout(location = 3) out vec2 v_LodSeedFade;
 
+// THE FORWARD PREPASS CONTRACT (issue #1474): Foliage_Impostor_DepthNormal.glsl
+// writes this stage's depth and Foliage_Impostor.glsl re-tests it at GL_LEQUAL.
+// See FoliageInstanceVertexStage.glsl for why that needs `invariant`.
+invariant gl_Position;
+
 void main()
 {
 #ifdef OLO_PULLED_VERTEX

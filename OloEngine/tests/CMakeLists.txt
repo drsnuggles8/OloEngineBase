@@ -315,6 +315,7 @@ add_executable(OloEngine-Tests
         Rendering/FoliageWindContractTest.cpp
 		Rendering/FoliageInteractionContractTest.cpp
 		Rendering/FoliageImpostorShaderInterfaceTest.cpp
+		Rendering/FoliageDepthNormalPrepassShaderTest.cpp
 		Rendering/PODCommandTest.cpp
 		Rendering/ShaderBindingLayoutTest.cpp
 		Rendering/ShaderReflectionBindingTest.cpp
