@@ -833,7 +833,18 @@ TEST(GTAOMath, GtaoHzbFetchNeverWrapsToTheOppositeEdge)
     // one is a border read that can wrap again.
     EXPECT_EQ(count(depth, "textureLod(u_HZBDepth, hzbUV, mipLevel)"), 1)
         << "SampleHZBDepth has an unclamped trilinear fetch outside its interior fast path";
-    EXPECT_EQ(count(depth, "vec2(1.0) - halfTexelHi"), 1) << "the fast path no longer excludes the coarse level's border";
+    // Both halves of the fast-path test: uv 0 is the edge that wraps at every
+    // viewport size, not only a power-of-two one.
+    EXPECT_EQ(count(depth, "all(greaterThanEqual(hzbUV, halfTexel))"), 1)
+        << "the fast path no longer excludes the uv-0 border";
+    EXPECT_EQ(count(depth, "all(lessThanEqual(hzbUV, vec2(1.0) - halfTexel))"), 1)
+        << "the fast path no longer excludes the far border";
+    // The border read sizes its levels from these; left at their defaults it
+    // reads texel (0, 0) of level 0 for every border sample.
+    EXPECT_EQ(count(src, "g_HZBLevels = max(textureQueryLevels(u_HZBDepth), 1);"), 1)
+        << "main() no longer reads the HZB's level count before sampling";
+    EXPECT_EQ(count(src, "g_HZBSize0 = textureSize(u_HZBDepth, 0);"), 1)
+        << "main() no longer reads the HZB's base size before sampling";
 }
 
 // Issue #771, layer 1 — the AO CONSUMER must follow the graph, not the setting.

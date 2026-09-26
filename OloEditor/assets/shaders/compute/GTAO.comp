@@ -145,12 +145,19 @@ float LinearizeDepth(float deviceZ)
 int g_HZBLevels = 1;
 ivec2 g_HZBSize0 = ivec2(1);
 
+// Size of one HZB level: the pyramid is power-of-two, so level L is level 0
+// shifted right by L, never below one texel.
+ivec2 HZBLevelSize(int level)
+{
+    return max(g_HZBSize0 >> level, ivec2(1));
+}
+
 // Bilinear read of ONE HZB level with clamp-to-edge semantics, built from
 // texelFetch so neither the bound sampler's address mode nor its mip filter
 // can change it: the integer taps are clamped to THAT level's texel range.
 float FetchHZBLevelClamped(vec2 hzbUV, int level)
 {
-    ivec2 size = max(g_HZBSize0 >> level, ivec2(1));
+    ivec2 size = HZBLevelSize(level);
     vec2 texel = hzbUV * vec2(size) - 0.5;
     ivec2 i0 = ivec2(floor(texel));
     vec2 f = texel - vec2(i0);
@@ -186,15 +193,19 @@ float SampleHZBDepth(vec2 screenUV, float mipLevel)
     // up to 2^mip / 2 pixels inside the frame: on a receding floor, a nearer
     // depth and a phantom occluder of its own). texelFetch, because on GL the
     // pooled HZB has no mipmap min filter, so a clamped textureLod there reads
-    // level 0 at the coarse level's inset.
+    // level 0 at the coarse level's inset. (GL's INTERIOR reads are level 0
+    // for the same reason, while this border read takes the level asked for;
+    // which of the two GL should do everywhere is #1503.)
     vec2 hzbUV = clamp(screenUV, vec2(0.0), vec2(1.0)) * u_HZBUVFactor;
     int lo = min(int(mipLevel), g_HZBLevels - 1);
     int hi = min(lo + 1, g_HZBLevels - 1);
-    vec2 halfTexelHi = 0.5 / vec2(max(g_HZBSize0 >> hi, ivec2(1)));
-    if (all(greaterThanEqual(hzbUV, halfTexelHi)) && all(lessThanEqual(hzbUV, vec2(1.0) - halfTexelHi)))
+    float coarseWeight = hi == lo ? 0.0 : clamp(mipLevel - float(lo), 0.0, 1.0);
+    // The footprint reaches as far as the coarsest level the fetch READS: hi
+    // only while it carries weight (far samples sit at an integer mip).
+    vec2 halfTexel = 0.5 / vec2(HZBLevelSize(coarseWeight > 0.0 ? hi : lo));
+    if (all(greaterThanEqual(hzbUV, halfTexel)) && all(lessThanEqual(hzbUV, vec2(1.0) - halfTexel)))
         return textureLod(u_HZBDepth, hzbUV, mipLevel).r;
     float fineDepth = FetchHZBLevelClamped(hzbUV, lo);
-    float coarseWeight = hi == lo ? 0.0 : clamp(mipLevel - float(lo), 0.0, 1.0);
     if (coarseWeight <= 0.0)
         return fineDepth;
     return mix(fineDepth, FetchHZBLevelClamped(hzbUV, hi), coarseWeight);
@@ -420,7 +431,7 @@ void main()
     vec2 pixelSize = vec2(1.0) / vec2(u_ScreenWidth, u_ScreenHeight);
     vec2 normalizedScreenPos = (vec2(pixCoord) + 0.5) * pixelSize;
 
-    g_HZBLevels = textureQueryLevels(u_HZBDepth);
+    g_HZBLevels = max(textureQueryLevels(u_HZBDepth), 1); // 0 for an incomplete texture
     g_HZBSize0 = textureSize(u_HZBDepth, 0);
 
     // Sample depth from HZB mip 0 (HZB maps scene UV [0,1] to full texture)
