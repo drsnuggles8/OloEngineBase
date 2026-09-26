@@ -632,13 +632,33 @@ namespace OloEngine
         activation.Mode = data.PostProcess.Upscale;
         activation.Technique = data.PostProcess.Technique;
         activation.BackendAvailable = PostProcessPasses.FSR2 && PostProcessPasses.FSR2->IsUpscalerAvailable();
-        activation.SceneSampleCount = FrameCorePasses.Scene
-                                          ? FrameCorePasses.Scene->GetFramebufferSpecification().Samples
-                                          : 1u;
+        // The scene band's REAL sample count. On Deferred, MSAA lives in the
+        // G-buffer (PrepareDeferredResources below sizes it from this same
+        // setting), while the Scene colour framebuffer is created single-sample
+        // on every path — so reading its spec alone made the MSAA guard
+        // unreachable, and FSR2 ran over a resolved G-buffer.
+        const u32 sceneFramebufferSamples = FrameCorePasses.Scene
+                                                ? FrameCorePasses.Scene->GetFramebufferSpecification().Samples
+                                                : 1u;
+        activation.SceneSampleCount = data.Settings.Path == RenderingPath::Deferred
+                                          ? std::max(sceneFramebufferSamples, data.Settings.Deferred.MSAASampleCount)
+                                          : sceneFramebufferSamples;
         activation.Api = RendererAPI::GetAPI() == RendererAPI::API::Vulkan
                              ? RendererSupport::Backend::Vulkan
                              : RendererSupport::Backend::OpenGL;
         data.TemporalUpscaleActive = TemporalUpscalePolicy::ShouldRunTemporalUpscale(activation);
+        // The same decision, classified for whoever has to REPORT it (the MCP
+        // renderer-settings readback): requested and resolved are different
+        // facts, and the reason is latched here rather than re-derived there.
+        data.UpscaleResolution.Result = TemporalUpscalePolicy::Resolve(activation);
+        data.UpscaleResolution.UpscalerStatus = PostProcessPasses.FSR2 ? PostProcessPasses.FSR2->GetUpscalerStatus()
+                                                                       : TemporalUpscalerStatus::NotConfigured;
+        data.UpscaleResolution.SceneSampleCount = activation.SceneSampleCount;
+        data.UpscaleResolution.Mode = activation.Mode;
+        data.UpscaleResolution.Technique = activation.Technique;
+        data.UpscaleResolution.Path = data.Settings.Path;
+        data.UpscaleResolution.DeferredMSAASampleCount = data.Settings.Deferred.MSAASampleCount;
+        data.UpscaleResolution.Latched = true;
 
         // Say WHY when the user asked for FSR2 and did not get it. Silence here is
         // the worst outcome: the frame still renders, at the render scale they
@@ -651,9 +671,7 @@ namespace OloEngine
             temporalRequested && !data.TemporalUpscaleActive)
         {
             const bool msaaSceneBand = TemporalUpscalePolicy::IsMSAAResolved(activation.SceneSampleCount);
-            const TemporalUpscalerStatus status =
-                PostProcessPasses.FSR2 ? PostProcessPasses.FSR2->GetUpscalerStatus()
-                                       : TemporalUpscalerStatus::NotConfigured;
+            const TemporalUpscalerStatus status = data.UpscaleResolution.UpscalerStatus;
 
             // -1 == "nothing reported yet"; the MSAA case is folded in as a
             // distinct code because it is not a backend status at all.

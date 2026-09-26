@@ -36,6 +36,7 @@
 
 #include "MCP/McpRayTraceRay.h"
 
+#include <algorithm>
 #include <limits>
 #include <string>
 
@@ -327,6 +328,109 @@ namespace
         EXPECT_EQ(result["missCount"].get<u32>(), 3u);
     }
 
+    // ---- camera ray sources (#607) ----------------------------------------
+    //
+    // A camera ray is not deterministic — it moves with the pose — so the
+    // sources never mix, every reply names its source, and a camera reply
+    // carries the resolved world ray as `replay` so it can be re-traced with the
+    // camera out of the loop.
+
+    TEST(McpRayTraceRay, AViewportSourceParsesToOneUnresolvedCameraRay)
+    {
+        const RTR::Request pixel = ParseOk(Json{
+            { "viewportPixel", { { "coordinate", { 320.0, 180.0 } }, { "width", 640 }, { "height", 360 } } },
+            { "cullBackFaces", true } });
+        EXPECT_EQ(pixel.Source, OloEngine::MCP::ViewportRay::RaySource::ViewportPixel);
+        EXPECT_TRUE(pixel.Rays.empty()) << "the handler resolves the ray through the camera, not the parser";
+        EXPECT_TRUE(pixel.CullBackFaces) << "flags still apply to a camera ray";
+
+        const RTR::Request normalized = ParseOk(Json{ { "viewportNormalized", { 0.25, 0.75 } } });
+        EXPECT_EQ(normalized.Source, OloEngine::MCP::ViewportRay::RaySource::ViewportNormalized);
+
+        EXPECT_EQ(ParseOk(OneRay()).Source, OloEngine::MCP::ViewportRay::RaySource::WorldRay);
+    }
+
+    TEST(McpRayTraceRay, WorldAndCameraRaysNeverShareARequest)
+    {
+        Json mixed = OneRay();
+        mixed["viewportNormalized"] = Json::array({ 0.5, 0.5 });
+        const std::string error = ParseError(mixed);
+        EXPECT_NE(error.find("exactly one"), std::string::npos) << error;
+
+        Json both{ { "viewportNormalized", { 0.5, 0.5 } },
+                   { "viewportPixel", { { "coordinate", { 1.0, 1.0 } }, { "width", 4 }, { "height", 4 } } } };
+        EXPECT_FALSE(ParseError(both).empty());
+    }
+
+    TEST(McpRayTraceRay, EveryReplyNamesItsRaySource)
+    {
+        for (const RTR::Status state : { RTR::Status::Unavailable, RTR::Status::Pending, RTR::Status::Answered })
+        {
+            RTR::Snapshot world;
+            world.State = state;
+            EXPECT_EQ(RTR::BuildResult(world)["raySource"], "worldRay");
+            EXPECT_FALSE(RTR::BuildResult(world).contains("replay")) << "a world ray is its own replay";
+
+            RTR::Snapshot camera;
+            camera.State = state;
+            camera.Input = ParseOk(Json{ { "viewportNormalized", { 0.5, 0.5 } } });
+            EXPECT_EQ(RTR::BuildResult(camera)["raySource"], "viewportNormalized");
+            EXPECT_EQ(RTR::BuildResult(camera)["viewport"]["source"], "viewportNormalized");
+        }
+    }
+
+    TEST(McpRayTraceRay, ACameraReplyCarriesTheResolvedRayAsReadyToSendArgs)
+    {
+        RTR::Snapshot snapshot;
+        snapshot.State = RTR::Status::Answered;
+        snapshot.Input = ParseOk(Json{ { "viewportNormalized", { 0.5, 0.5 } }, { "instanceMask", 3 } });
+        snapshot.Input.Rays = { RTR::Ray{ { 0.0f, 1.0f, 9.9f }, { 0.0f, 0.0f, -1.0f }, 0.0f, 99.9f } };
+        RTR::Hit hit;
+        hit.IsHit = true;
+        hit.Distance = 9.9f;
+        hit.InstanceSlot = 4;
+        snapshot.Hits = { hit };
+
+        const Json result = RTR::BuildResult(snapshot);
+        ASSERT_TRUE(result.contains("replay")) << result.dump(2);
+        const Json& replay = result["replay"];
+        // The replay IS the traced ray: the same bytes the reply echoes per entry.
+        ASSERT_EQ(replay["rays"].size(), 1u);
+        const Json& traced = result["rays"][0]["ray"];
+        for (const char* key : { "origin", "direction" })
+        {
+            for (sizet i = 0; i < 3; ++i)
+                EXPECT_FLOAT_EQ(replay["rays"][0][key][i].get<f32>(), traced[key][i].get<f32>()) << key << i;
+        }
+        EXPECT_FLOAT_EQ(replay["rays"][0]["tMax"].get<f32>(), traced["tMax"].get<f32>());
+        EXPECT_EQ(replay["instanceMask"].get<u32>(), 3u) << "the flags travel with the replay";
+
+        // Pasting it back is a valid world-ray request, and parses to the same ray.
+        const RTR::Request replayed = ParseOk(replay);
+        EXPECT_EQ(replayed.Source, OloEngine::MCP::ViewportRay::RaySource::WorldRay);
+        ASSERT_EQ(replayed.Rays.size(), 1u);
+        EXPECT_FLOAT_EQ(replayed.Rays[0].Origin.z, 9.9f);
+        EXPECT_FLOAT_EQ(replayed.Rays[0].TMax, 99.9f);
+        EXPECT_EQ(replayed.InstanceMask, 3u);
+    }
+
+    TEST(McpRayTraceRay, AnUnavailableCameraReplyStillNamesTheRayItWouldHaveTraced)
+    {
+        RTR::Snapshot resolved;
+        resolved.State = RTR::Status::Unavailable;
+        resolved.UnavailableReason = "no hardware ray tracing";
+        resolved.Input = ParseOk(Json{ { "viewportNormalized", { 0.5, 0.5 } } });
+        resolved.Input.Rays = { RTR::Ray{} };
+        EXPECT_TRUE(RTR::BuildResult(resolved).contains("replay"));
+
+        // Refused before resolution (Play mode): no ray, so no replay to offer.
+        RTR::Snapshot refused = resolved;
+        refused.Input.Rays.clear();
+        const Json result = RTR::BuildResult(refused);
+        EXPECT_FALSE(result.contains("replay"));
+        EXPECT_EQ(result["reason"], "no hardware ray tracing");
+    }
+
     TEST(McpRayTraceRay, TheSchemasAdvertiseTheSameCapTheParserEnforces)
     {
         const Json schema = RTR::InputSchema();
@@ -336,5 +440,17 @@ namespace
         // the parser — the schema and the guard must not disagree.
         EXPECT_EQ(schema["properties"]["instanceMask"]["minimum"].get<u32>(), 1u);
         EXPECT_EQ(schema["properties"]["instanceMask"]["maximum"].get<u32>(), 255u);
+
+        // 'rays' is one of three exclusive sources now, so the schema gate must
+        // not require it — or a viewport request is refused before the parser runs.
+        EXPECT_TRUE(schema["properties"].contains("viewportPixel"));
+        EXPECT_TRUE(schema["properties"].contains("viewportNormalized"));
+        if (schema.contains("required"))
+        {
+            for (const Json& key : schema["required"])
+                EXPECT_NE(key, "rays");
+        }
+        const Json output = RTR::OutputSchema();
+        EXPECT_NE(std::find(output["required"].begin(), output["required"].end(), "raySource"), output["required"].end());
     }
 } // namespace

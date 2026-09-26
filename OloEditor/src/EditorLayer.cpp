@@ -911,6 +911,8 @@ namespace OloEngine
             { return SetMcpEditorDebugDraw(category, enabled); };
             mcpContext.TerrainPick = [this](const MCP::TerrainPick::Request& request, bool submit) -> MCP::TerrainPick::Snapshot
             { return TerrainPickFromMcp(request, submit); };
+            mcpContext.ResolveViewportRay = [this](const glm::vec2& normalizedTopLeft) -> MCP::ViewportRay::CameraRayResolution
+            { return ResolveViewportRayFromMcp(normalizedTopLeft); };
             mcpContext.LightmapBake = [this](const MCP::LightmapBake::Request& request, bool start) -> MCP::LightmapBake::Snapshot
             { return LightmapBakeFromMcp(request, start); };
 
@@ -2061,6 +2063,13 @@ namespace OloEngine
             mx -= m_ViewportBounds[0].x;
             my -= m_ViewportBounds[0].y;
             glm::vec2 const viewportSize = m_ViewportBounds[1] - m_ViewportBounds[0];
+            // The TOP-DOWN mouse position, for every world ray cast below. The
+            // flip that follows is a READBACK concern only: rays go through the
+            // CPU view-projection, which is GL-shaped on every backend, so a
+            // ray built from the flipped y is mirrored on whichever backend the
+            // flip does not match (it was on Vulkan, since #801 made the flip
+            // GL-only).
+            const glm::vec2 mouseTopDown{ mx, my };
             // Mouse y is top-down; the EntityID attachment is bottom-up on GL
             // only (ADR 0011 amendment (85)), so the origin conversion is a
             // GL-arm concern: glReadPixels / OpenGLFramebuffer::ReadPixel
@@ -2149,7 +2158,7 @@ namespace OloEngine
                     VoxelRayHit voxelHit;
                     Ref<VoxelOverride> voxels;
                     Ray mouseRay;
-                    if (BuildMouseRay({ mx, my }, viewportSize, mouseRay) && m_ActiveScene)
+                    if (BuildMouseRay(mouseTopDown, viewportSize, mouseRay) && m_ActiveScene)
                     {
                         auto terrainView = m_ActiveScene->GetAllEntitiesWith<TransformComponent, TerrainComponent>();
                         for (const auto terrainEntity : terrainView)
@@ -2190,7 +2199,7 @@ namespace OloEngine
                 else
                 {
                     glm::vec3 terrainHitPos{};
-                    const bool hasTerrainHit = TerrainRaycast({ mx, my }, viewportSize, terrainHitPos);
+                    const bool hasTerrainHit = TerrainRaycast(mouseTopDown, viewportSize, terrainHitPos);
                     m_TerrainEditorPanel.OnUpdate(ts, terrainHitPos, hasTerrainHit, mouseDown);
                 }
             }
@@ -2216,7 +2225,7 @@ namespace OloEngine
                 {
                     OLO_PROFILE_SCOPE("EditorLayer::ScatterBrushRaycast");
 
-                    hasHit = TerrainRaycast({ mx, my }, viewportSize, hitPos);
+                    hasHit = TerrainRaycast(mouseTopDown, viewportSize, hitPos);
                     if (hasHit && m_ActiveScene)
                     {
                         // Pull the surface normal from the same terrain entity
@@ -2246,7 +2255,7 @@ namespace OloEngine
                     // terrain-vs-mesh precedence.
                     if (m_ActiveScene)
                     {
-                        if (Ray mouseRay; BuildMouseRay({ mx, my }, viewportSize, mouseRay))
+                        if (Ray mouseRay; BuildMouseRay(mouseTopDown, viewportSize, mouseRay))
                         {
                             if (hasHit)
                             {
@@ -2277,7 +2286,7 @@ namespace OloEngine
                 m_TilemapPainterPanel.SetTargetEntity(m_SceneHierarchyPanel.GetSelectedEntity());
 
                 Ray mouseRay;
-                const bool hasRay = BuildMouseRay({ mx, my }, viewportSize, mouseRay);
+                const bool hasRay = BuildMouseRay(mouseTopDown, viewportSize, mouseRay);
                 const bool mouseDown = Input::IsMouseButtonPressed(Mouse::ButtonLeft) &&
                                        !ImGuizmo::IsOver() && !Input::IsKeyPressed(Key::LeftAlt);
                 m_TilemapPainterPanel.OnUpdate(mouseRay, hasRay, mouseDown);
@@ -5249,24 +5258,34 @@ namespace OloEngine
             return false;
         }
 
-        // Convert mouse position to NDC [-1, 1]
-        f32 ndcX = (mousePos.x / viewportSize.x) * 2.0f - 1.0f;
-        f32 ndcY = (mousePos.y / viewportSize.y) * 2.0f - 1.0f;
+        // mousePos is TOP-LEFT origin, +Y down, on every backend; the shared
+        // unprojection owns the y flip (see McpViewportRay.h for why it has no
+        // backend branch). One arithmetic for the brush and the MCP ray tools.
+        const auto ray = MCP::ViewportRay::UnprojectNormalized(mousePos / viewportSize, m_EditorCamera.GetViewProjection());
+        if (!ray)
+        {
+            return false;
+        }
+        outRay = Ray(ray->Origin, ray->Direction);
+        return true;
+    }
 
-        // Unproject near and far points
-        glm::mat4 invVP = glm::inverse(m_EditorCamera.GetViewProjection());
-        glm::vec4 nearNDC(ndcX, ndcY, -1.0f, 1.0f);
-        glm::vec4 farNDC(ndcX, ndcY, 1.0f, 1.0f);
-
-        glm::vec4 nearWorld = invVP * nearNDC;
-        glm::vec4 farWorld = invVP * farNDC;
-        nearWorld /= nearWorld.w;
-        farWorld /= farWorld.w;
-
-        outRay = Ray(glm::vec3(nearWorld), glm::normalize(glm::vec3(farWorld) - glm::vec3(nearWorld)));
-        // A degenerate view-projection (uninitialized camera, zero-size
-        // viewport mid-resize) yields NaNs through the inverse/normalize.
-        return Math::IsFinite(outRay.Origin) && Math::IsFinite(outRay.Direction);
+    MCP::ViewportRay::CameraRayResolution EditorLayer::ResolveViewportRayFromMcp(const glm::vec2& normalizedTopLeft) const
+    {
+        MCP::ViewportRay::CameraRayResolution resolution;
+        // Play renders the scene's runtime camera, not m_EditorCamera. A ray
+        // through the editor camera would then name a pixel the caller never
+        // saw — refused, not approximated.
+        if (m_SceneState == SceneState::Play)
+        {
+            resolution.Error = "The viewport shows the runtime camera in Play mode, and viewport rays are resolved "
+                               "through the editor camera. Stop playing (or Simulate), or pass a world-space ray.";
+            return resolution;
+        }
+        resolution.Ray = MCP::ViewportRay::UnprojectNormalized(normalizedTopLeft, m_EditorCamera.GetViewProjection());
+        if (!resolution.Ray)
+            resolution.Error = "The editor camera's view-projection could not produce a finite ray.";
+        return resolution;
     }
 
     bool EditorLayer::IsGpuTerrainPickingEnabled()
@@ -5426,17 +5445,15 @@ namespace OloEngine
             }
             else
             {
-                glm::vec2 viewportSize = request.Source == MCP::TerrainPick::RaySource::ViewportPixel
-                                             ? glm::vec2(request.ViewportDimensions)
-                                             : m_ViewportSize;
-                glm::vec2 coordinate = request.Source == MCP::TerrainPick::RaySource::ViewportPixel
-                                           ? request.Coordinate
-                                           : request.Coordinate * viewportSize;
-                if (!BuildMouseRay(coordinate, viewportSize, worldRay))
+                const MCP::ViewportRay::ViewportInput viewport{ request.Source, request.Coordinate,
+                                                                request.ViewportDimensions };
+                const auto resolved = ResolveViewportRayFromMcp(MCP::ViewportRay::Normalized(viewport));
+                if (!resolved.Ray)
                 {
-                    snapshot.UnavailableReason = "The editor camera or viewport could not produce a finite ray.";
+                    snapshot.UnavailableReason = resolved.Error;
                     return snapshot;
                 }
+                worldRay = Ray(resolved.Ray->Origin, resolved.Ray->Direction);
                 maxDistance = 2000.0f;
             }
 

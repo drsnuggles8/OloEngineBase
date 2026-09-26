@@ -276,7 +276,7 @@ and for what to do when adding a tool.
 | `olo_groom_budget_stats` | What the groom pass DREW this frame beside what the multi-animal budget DECIDED before it (#1258), plus the rolling 600-frame time window. Before this, reading either from outside the process meant grepping the log for `built strand geometry ... (stride N)` — lines that only appear on a geometry CACHE MISS, so a steady-state frame reports nothing and the numbers depend on session length. `animalBudget.enabled` is the first field to read: `false` means the population budget is not involved and a thinned coat is its own distance ladder's doing, which has a completely different fix. `heroesCoarsened` must be 0 while `AnimalProtectHero` is set — the hero contract as a number. `budgetExceeded` means everything that could give way is at its cap and the frame still does not fit, with the hero deliberately left at full rate; it is the only way that state is visible from outside. `maxStarvedFrames` measures PRESSURE, not unfairness — it grows for every animal when nothing can be served. `frameTime` reports the TAIL because amortising a population's work does not remove it, and badly phased it makes p99 worse while every average improves; `overBudgetFrames` sits beside the percentiles because at 600 samples p99 is six frames and cannot tell one bad frame from six. `strandCache` reports the strand-buffer cache every frame (`cachedBytes`, `cachedGrooms`, `budgetBytes`, `overBudgetBytes`, `evictions`); non-zero `overBudgetBytes` means every resident coat was in use, which the log says only on entry and on material growth (#1431). All counts are LAST-FRAME; availability follows the groom pass |
 | `olo_skeletal_deformation_stats` | The shared skeletal deformation output (#1226): skinned skeletons advanced last frame, bone matrices covered, and history resets by cause. The advance counts are LAST-FRAME; the `historyResets` block is a session total. `skeletonsWithoutHistory` is the number emitting zero bone motion because their previous pose was dropped rather than because nothing moved — persistently non-zero means something drops history every frame, which looks like animation that never reaches the motion vectors |
 | `olo_rt_scene_stats` | The hardware ray-tracing scene (#978): whether ray query is usable and why not when it is not, resident BLAS population by geometry class, TLAS instances, acceleration-structure and scratch memory, compaction savings, and this frame's build/refit/compaction/retire counts. `unavailable` (no RT on this device) and `noData` (RT live, no TLAS built yet) are distinct. The `gpuScene` block — emitted whatever the status is — reports the canonical scene the structures are BUILT FROM: live instance/geometry/material records and `notStagedTotal`, the renderable geometry that produced none. The `vegetation` block — also emitted whatever the status is, because a producer that refuses its work is exactly what makes the scene report `noData` — carries representation split, reuse, dispatch batches, memory, refusals, history reset and readiness. Read it first: a small `tlasInstances` beside a large `notStagedTotal` means most of the scene is not in the acceleration structure at all (#1065) |
-| `olo_rt_trace_ray` | Trace up to 64 deterministic world-space rays against the LIVE scene's TLAS and get, per ray: hit/miss, distance, world position, all three barycentrics, the GPU Scene instance/primitive/material/geometry slots, the interpolated UV, and the world shading normal with its winding sign (#607, running #978's `RayTracingProbe.comp`). This is what separates *the TLAS was built* from *the TLAS is correct* — `olo_rt_scene_stats`' counters look the same whether an instance transform transposed or everything is right. A **miss is a first-class answer** with its ray echoed beside it. `terminateOnFirstHit` makes a visibility ray; `instanceMask` is ANDed with each instance's mask. **Vulkan only** — see [Tracing a ray you know the answer to](#tracing-a-ray-you-know-the-answer-to-olo_rt_trace_ray) |
+| `olo_rt_trace_ray` | Trace up to 64 deterministic world-space rays, **or one camera ray from a viewport pixel** (`viewportPixel` / `viewportNormalized`, exactly one source per call, reply carries `raySource` and a `replay` world ray), against the LIVE scene's TLAS and get, per ray: hit/miss, distance, world position, all three barycentrics, the GPU Scene instance/primitive/material/geometry slots, the interpolated UV, and the world shading normal with its winding sign (#607, running #978's `RayTracingProbe.comp`). This is what separates *the TLAS was built* from *the TLAS is correct* — `olo_rt_scene_stats`' counters look the same whether an instance transform transposed or everything is right. A **miss is a first-class answer** with its ray echoed beside it. `terminateOnFirstHit` makes a visibility ray; `instanceMask` is ANDed with each instance's mask. **Vulkan only** — see [Tracing a ray you know the answer to](#tracing-a-ray-you-know-the-answer-to-olo_rt_trace_ray) |
 | `olo_rt_vegetation_diagnostic` | **(consented write)** force every wind-aware vegetation group to a detailed update instead of its distance-selected temporal snapshot, so a detailed-versus-proxy A/B is measurable on one running editor (#1240). Omit `forceDetailed` to read the current state; `false` restores automatic distance selection. It changes UPDATE FREQUENCY ONLY — not plants, wind, camera, raster LOD or budgets — and is render-thread state that no scene, save-game or asset owns, so it is never persisted. Restore it when the benchmark ends; a session left forced keeps paying for refreshes it does not need. Read the result against `olo_rt_scene_stats.vegetation`, whose `detailedGroups`/`proxyGroups` split is what the override moves. Gated behind **Agent writes** |
 | `olo_pathtracer_stats` | The GPU reference path tracer's counters for the last completed frame (#1055): `status` (`unavailable` / `disabled` / `fallback` with the reason / `active`), the accumulation state (samples per pixel, samples added, `consecutiveRestarts` — a climbing count means the image can never converge), the scene as the tracer saw it (emissive triangles and area, punctual and sphere-area lights, lights past the shader's slot bound, Legacy-closure materials), the texture path (`texturesAvailable`, and the counted limits `hitsShadedUntextured` / `maskedGeometryTracedAsSolid` / `materialTexturesUnresolved` where it is not), and the settings the frame ran with. Read it before trusting a traced frame as ground truth: every `true` limit names a term the frame is missing |
 | `olo_restir_stats` | The ReSTIR DI tier's verdict and counters for the last completed frame (#1140): `status` (`unavailable` / `disabled` / `fallback` with the reason named / `active`), the MEASURED engagement criterion's own inputs (emitter count, the per-pixel candidate budget it must exceed, the hysteresis margin), the light census, and what the estimator actually did — which normalisation ran, the reservoir layout version, `historyPlanesAvailable` against `historyPlanesRequired`, and whether temporal and visibility reuse ran at all. Read it before trusting a resampled frame: `visibilityReuseRan` false means light leaks through occluders, `temporalReuseRan` false means every pixel restarted this frame, `lightsBeyondShaderBound` and `emittersBeyondEncodableIndex` name emitters the tier cannot reach, and `settingsClamped` means the frame did LESS than was asked. This is the tool that turns "the frame is black" into a named cause; it found `TargetUnavailable` and an unbound GPU Scene during bring-up. Directional lights are deliberately absent from every count — the clustered loop keeps them so they keep their cascades, their ray-traced shadow mask channel and their cloud shadow |
@@ -299,7 +299,7 @@ and for what to do when adding a tool.
 | `olo_render_toggle_pass` | flip a post-process / fog feature on/off (`name` + optional `enabled`) — the ephemeral A/B loop: toggle off → `olo_screenshot` → toggle on → `olo_screenshot`. No `name` lists every pass + its live state |
 | `olo_render_set_debug_view` | switch the viewport to a raw AO/SSR/SSGI buffer, the overdraw heatmap, or a virtualized-geometry visualization (`mode`: none/ssao/gtao/ssr/ssgi/overdraw/**vgclusterid/vglod/vgoverdraw**); reports whether the backing pass is actually running, and (for the vg\* modes) the `captureTarget` to read back. No `mode` lists the modes + current state |
 | `olo_renderer_support` | read-only: the active backend, render path and device capabilities, and whether the current static-mesh configuration and each production preset are eligible, evaluated through `RendererSupport`. The requested / capable / selected / produced / consumed stages are reported separately; selected, produced and consumed stay null until their own runtime oracles observe them, and presets for the inactive backend have unknown eligibility |
-| `olo_renderer_settings_set` | **(consented write)** set any of the multi-valued, session-global renderer settings, including render path, deferred MSAA/per-sample lighting, depth/culling, shadow/VSM debug, DDGI, HZB, upscale, tonemap and `scenetemporalresolve` (`honour`/`ignore`: whether a scene holding a stochastic groom gets the TAA it requests, #1429; `ignore` reproduces the bald fallback) and `groomdeformation` (`gpu`/`cpu`: where a bound coat is deformed, #1427; `cpu` is the per-frame rebuild kept as the A/B reference) and `oit` (`on`/`off`: weighted-blended OIT for transparent decals and particles, #1417; the only way a detached session reaches the OIT path). The enum-valued sibling of `olo_render_toggle_pass`; topology-affecting writes rebuild the graph and every write reports `previousValue` for restore-prior-value (no undo stack). No args lists every setting + current value + allowed values. Gated behind **Agent writes** (Disabled/Prompt/Allow all) |
+| `olo_renderer_settings_set` | **(consented write)** set any of the multi-valued, session-global renderer settings, including render path, deferred MSAA/per-sample lighting, depth/culling, shadow/VSM debug, DDGI, HZB, upscale, `technique` (`spatial`/`temporal`: FSR1 vs FSR2; the reply's `upscaler` block reports the **resolved** technique and why a temporal request fell back), tonemap and `scenetemporalresolve` (`honour`/`ignore`: whether a scene holding a stochastic groom gets the TAA it requests, #1429; `ignore` reproduces the bald fallback) and `groomdeformation` (`gpu`/`cpu`: where a bound coat is deformed, #1427; `cpu` is the per-frame rebuild kept as the A/B reference) and `oit` (`on`/`off`: weighted-blended OIT for transparent decals and particles, #1417; the only way a detached session reaches the OIT path). The enum-valued sibling of `olo_render_toggle_pass`; topology-affecting writes rebuild the graph and every write reports `previousValue` for restore-prior-value (no undo stack). No args lists every setting + current value + allowed values. Gated behind **Agent writes** (Disabled/Prompt/Allow all) |
 | `olo_postprocess_settings_get` | read the live post-process / AO / fog parameters — the whole Post Processing panel as JSON, which nothing else exposes. No args lists every field with value, type, range and description; `group` narrows to one block (ao, bloom, ssr, ssgi, contactshadow, fog, exposure, dof, …); `field` returns one. Read-only, so it is **not** behind the write gate — parameter values no longer have to be read off a screenshot of the panel. See [Post-process / AO / fog parameters](#post-process--ao--fog-parameters-olo_postprocess_settings_get--_set) |
 | `olo_postprocess_settings_set` | **(consented write)** write one post-process / AO / fog parameter — the part of the renderer `olo_renderer_settings_set` never reached. `ActiveAOTechnique` (none/ssao/gtao) makes the same-scene same-pose GTAO-vs-SSAO A/B one call; it is **not** scene-serialised, so before this it could not be driven at all. Also every GTAO/SSAO parameter, the `*DebugView` flags, bloom, DOF, TAA, SSR, SSGI, contact shadows, exposure and the whole fog block. Numerics **clamp** to the serializer's own range (`clamped:true` + `range`); reports `previousValue` for restore-prior-value. Gated behind **Agent writes** |
 | `olo_scene_set_time_of_day` | **(consented write)** set the scene's time-of-day clock — writes the **serialized `TimeOfDayComponent`** (the single authoritative sun source since issue #633; the old ephemeral override is retired): `hours` [0,24) and/or `dayOfYear`, `latitudeDegrees`, `timeScale`, `paused`, `enabled`. TimeOfDaySystem drives the sun/sky from it next frame, edit and play alike; returns the component state + derived sun elevation / isNight / sun+moon directions. In-memory edit (persisted on scene save); errors with guidance when the scene has no `TimeOfDayComponent`. `clear`:true is a legacy no-op (note only). Gated behind **Agent writes** |
@@ -1937,7 +1937,7 @@ the tool trustworthy at all. A missed entry carries **no** hit fields: a miss re
 | `answered` | the trace ran; `hitCount: 0` here means everything genuinely missed |
 
 **Vulkan only.** `GL_EXT_ray_query` has no OpenGL representation, so on a GL context this returns
-`unavailable` with that as the reason rather than a page of zeros. Relaunch the editor with `--rhi=vulkan` (note: `driver.ps1 -Action attach` has no passthrough for it, so an `attach` session is an OpenGL one).
+`unavailable` with that as the reason rather than a page of zeros. Relaunch the editor with `--rhi=vulkan` (`driver.ps1 -Action attach -Rhi vulkan`; confirm `[RHI] Backend: Vulkan (source: --rhi flag)` in `OloEngine.log`, because a plain `attach` session is an OpenGL one).
 
 **Why it settles a few frames.** The dispatch has to be recorded *inside* a frame, after
 `RayTracingScenePass` has built the structures and emitted its build→read barrier; an MCP handler
@@ -1961,6 +1961,45 @@ Two things worth knowing before you read a result:
 surface. `0 <= tMin <= tMax`, a finite origin/direction and a non-zero direction are **spec
 requirements** of `rayQueryInitializeEXT`, not conventions — violating one is undefined behaviour
 on the device, so such a ray is refused with a reason rather than traced.
+
+#### Camera rays: trace what is under a pixel, then replay it as a world ray
+
+`rays` is one of **three mutually exclusive ray sources**. The other two cast **one** ray
+through the editor camera, with the same shapes and arithmetic `olo_terrain_pick` takes:
+`viewportPixel: { coordinate: [x, y], width, height }` or `viewportNormalized: [x, y]`. Both
+are **top-left origin, +Y down** (the space of an `olo_screenshot` image), and a pixel is
+divided by the `width`/`height` *you* measured it in, so a pixel read off a downscaled
+screenshot and its native twin address the same point. The render resolution never enters,
+so a non-native `upscale` does not move the ray. The ray runs from the near plane to the far
+plane (`tMin` 0, `tMax` the span between them).
+
+**The rule: never compare two camera traces and blame the renderer.** A camera ray depends
+on the camera pose at the moment of the call, so a hit that changed between two calls may be
+the camera, not the TLAS. That is why the sources never mix in one request, and why every
+reply says which one it used:
+
+```jsonc
+// olo_rt_trace_ray { "viewportNormalized": [0.5, 0.5] }
+{ "status": "answered", "raySource": "viewportNormalized",
+  "viewport": { "source": "viewportNormalized", "coordinate": [0.5, 0.5], "normalized": [0.5, 0.5] },
+  "replay": { "rays": [ { "origin": [..], "direction": [..], "tMin": 0, "tMax": 999.9 } ],
+              "cullBackFaces": false, "terminateOnFirstHit": false, "instanceMask": 255 },
+  "rays": [ { "index": 0, "hit": true, "instanceSlot": 12, ... } ], ... }
+```
+
+`replay` is the resolved world ray as a ready-to-send argument object. To A/B a change, trace
+the pixel once, then send `replay` back on both arms: the camera is then out of the loop and
+the answer is deterministic. `replay` is present on `unavailable` replies too, whenever the
+ray resolved, so an OpenGL session still tells you which ray it would have traced.
+
+Viewport rays are **refused in Play mode**, because the viewport then shows the scene's
+runtime camera and the ray would go through the editor camera instead. The unprojection has
+no backend branch: the CPU camera matrices are GL-shaped on both backends (the Vulkan y flip
+is applied only to uploaded matrices, see `RHIProjectionSeam.h`), so the top row is NDC +1
+everywhere. `olo_terrain_pick`'s viewport sources use the same code. Before #607 they were
+vertically mirrored on **both** backends (the shared unprojection expected a bottom-up y and was
+handed a top-left one), and the editor's own brush ray was mirrored on Vulkan, so treat older
+viewport-sourced terrain-pick evidence as suspect.
 
 ### Transient plan & pool introspection (`olo_render_transient_plan`)
 
@@ -2103,6 +2142,20 @@ The settings:
 
 - **`upscale`** — FSR1 spatial-upscale mode: `off` | `quality` | `balanced` |
   `performance` | `ultraperformance` (the #480 motivating case).
+- **`technique`** — which algorithm reconstructs display resolution at that render
+  scale: `spatial` (FSR1) | `temporal` (FSR2, #684). FSR2 runs **on OpenGL with a
+  single-sample scene band only**; on Vulkan or under MSAA the frame falls back to
+  FSR1 *at the same render scale*, so the image looks plausible either way. The
+  written `value` is therefore only the request. The reply's **`upscaler`** block
+  is the result, read from the pipeline's per-frame latch after the settle:
+  `requested` {upscale, technique}, `resolved` (`native` | `spatial` | `temporal`),
+  and on a fallback `fallback` (`msaaResolved` | `backendNotOpenGL` |
+  `upscalerUnavailable` | `sceneNotSized`) plus `reason`. A latch that still
+  answers the previous request (upscale, technique, path or Deferred MSAA changed
+  since the last prepared frame) reports `resolved: null, pending: true` rather
+  than the old answer. `upscale`, `msaa` and `renderpath` writes carry the same
+  block (MSAA refuses FSR2 without touching the technique, and on Deferred only),
+  and so does the no-argument listing.
 - **`tonemap`** — tone-map operator: `none` | `reinhard` | `aces` | `uncharted2`.
 - **`renderpath`** — rendering path: `forward` | `forwardplus` | `deferred`.
   Switching **rebuilds the render-graph topology**, and `deferred` is required for

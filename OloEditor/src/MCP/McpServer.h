@@ -36,6 +36,7 @@
 #include "MCP/McpExposure.h"
 #include "MCP/McpLightmapBake.h"
 #include "MCP/McpTerrainPick.h"
+#include "MCP/McpViewportRay.h"
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Scene/Scene.h"
@@ -639,6 +640,11 @@ namespace OloEngine::MCP
         // Submit/poll the editor's asynchronous TerrainGPUPicker. `submit` is
         // true once, then false while the MCP worker waits for matching RayId.
         std::function<TerrainPick::Snapshot(const TerrainPick::Request& request, bool submit)> TerrainPick;
+        // Resolve a TOP-LEFT normalized viewport coordinate to a world ray through
+        // the camera that drew the viewport (olo_rt_trace_ray / olo_terrain_pick,
+        // #607). Main-thread only. An empty Ray carries the reason in Error —
+        // e.g. Play mode, where the viewport shows the runtime camera.
+        std::function<ViewportRay::CameraRayResolution(const glm::vec2& normalizedTopLeft)> ResolveViewportRay;
         std::function<LightmapBake::Snapshot(const LightmapBake::Request& request, bool start)> LightmapBake;
 
         // ---- Consented, undoable project writes (issue #306) ------------
