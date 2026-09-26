@@ -4184,8 +4184,7 @@ namespace OloEngine
         {
             case ContentFileType::Dialogue:
                 outcome.Panel = DialogueEditor;
-                if (!ResolveUnsavedChanges(m_DialogueEditorPanel.HasUnsavedChanges(), "Dialogue", "dialogue", policy,
-                                           [this]()
+                if (!ResolveUnsavedChanges(m_DialogueEditorPanel.HasUnsavedChanges(), "Dialogue", "dialogue", policy, [this]()
                                            { return m_DialogueEditorPanel.SaveIfNeeded(); }, outcome))
                     return outcome;
                 m_DialogueEditorPanel.OpenDialogue(path);
@@ -4193,8 +4192,7 @@ namespace OloEngine
                 break;
             case ContentFileType::Cinematic:
                 outcome.Panel = CinematicTimeline;
-                if (!ResolveUnsavedChanges(m_CinematicTimelinePanel.HasUnsavedChanges(), "Cinematic", "cinematic sequence", policy,
-                                           [this]()
+                if (!ResolveUnsavedChanges(m_CinematicTimelinePanel.HasUnsavedChanges(), "Cinematic", "cinematic sequence", policy, [this]()
                                            { return m_CinematicTimelinePanel.SaveIfNeeded(); }, outcome))
                     return outcome;
                 m_CinematicTimelinePanel.OpenSequence(path);
@@ -4202,8 +4200,7 @@ namespace OloEngine
                 break;
             case ContentFileType::VisualScript:
                 outcome.Panel = VisualScriptEditor;
-                if (!ResolveUnsavedChanges(m_VisualScriptEditorPanel.HasUnsavedChanges(), "Visual Script", "visual script", policy,
-                                           [this]()
+                if (!ResolveUnsavedChanges(m_VisualScriptEditorPanel.HasUnsavedChanges(), "Visual Script", "visual script", policy, [this]()
                                            { return m_VisualScriptEditorPanel.SaveIfNeeded(); }, outcome))
                     return outcome;
                 m_VisualScriptEditorPanel.OpenGraph(path);
@@ -4211,8 +4208,7 @@ namespace OloEngine
                 break;
             case ContentFileType::ShaderGraph:
                 outcome.Panel = ShaderGraphEditor;
-                if (!ResolveUnsavedChanges(m_ShaderGraphEditorPanel.HasUnsavedChanges(), "Shader Graph", "shader graph", policy,
-                                           [this]()
+                if (!ResolveUnsavedChanges(m_ShaderGraphEditorPanel.HasUnsavedChanges(), "Shader Graph", "shader graph", policy, [this]()
                                            { return m_ShaderGraphEditorPanel.SaveIfNeeded(); }, outcome))
                     return outcome;
                 m_ShaderGraphEditorPanel.OpenShaderGraph(path);
@@ -4220,8 +4216,7 @@ namespace OloEngine
                 break;
             case ContentFileType::SoundGraph:
                 outcome.Panel = SoundGraphEditor;
-                if (!ResolveUnsavedChanges(m_SoundGraphEditorPanel.HasUnsavedChanges(), "Sound Graph", "sound graph", policy,
-                                           [this]()
+                if (!ResolveUnsavedChanges(m_SoundGraphEditorPanel.HasUnsavedChanges(), "Sound Graph", "sound graph", policy, [this]()
                                            { return m_SoundGraphEditorPanel.SaveIfNeeded(); }, outcome))
                     return outcome;
                 m_SoundGraphEditorPanel.OpenSoundGraph(path);
@@ -4229,8 +4224,7 @@ namespace OloEngine
                 break;
             case ContentFileType::Shader:
                 outcome.Panel = ShaderEditor;
-                if (!ResolveUnsavedChanges(m_ShaderEditorPanel.HasUnsavedChanges(), "Shader", "shader", policy,
-                                           [this]()
+                if (!ResolveUnsavedChanges(m_ShaderEditorPanel.HasUnsavedChanges(), "Shader", "shader", policy, [this]()
                                            { return m_ShaderEditorPanel.Save(); }, outcome))
                     return outcome;
                 m_ShaderEditorPanel.OpenFile(path);
@@ -4238,8 +4232,7 @@ namespace OloEngine
                 break;
             case ContentFileType::SkillTree:
                 outcome.Panel = SkillTreeEditor;
-                if (!ResolveUnsavedChanges(m_SkillTreeEditorPanel.HasUnsavedChanges(), "Skill Tree", "skill tree", policy,
-                                           [this]()
+                if (!ResolveUnsavedChanges(m_SkillTreeEditorPanel.HasUnsavedChanges(), "Skill Tree", "skill tree", policy, [this]()
                                            { return m_SkillTreeEditorPanel.SaveIfNeeded(); }, outcome))
                     return outcome;
                 m_SkillTreeEditorPanel.OpenSkillTree(path);
