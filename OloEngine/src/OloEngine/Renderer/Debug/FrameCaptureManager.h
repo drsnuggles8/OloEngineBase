@@ -20,10 +20,14 @@ namespace OloEngine
         Idle = 0,          // Not capturing
         CaptureNextFrame,  // Will capture the next frame, then await GPU results
         Recording,         // Continuously capturing until stopped
-        AwaitingGpuResults // One-shot frame captured; holding the commit until the
-                           // GPU timer queries issued during the capture frame are
-                           // readable (they resolve one-plus frames later). No new
-                           // recording happens in this state.
+        AwaitingGpuResults, // One-shot frame captured; holding the commit until the
+                            // GPU timer queries issued during the capture frame are
+                            // readable (they resolve one-plus frames later). No new
+                            // recording happens in this state.
+        Committing          // CommitFrame has claimed the parked frame and is
+                            // publishing it. Claimed by compare-exchange, so a
+                            // CancelCapture that lands first wins and one that
+                            // lands later cannot un-publish a frame in the ring.
     };
 
     // Manages frame capture/recording for the command bucket visualization tool
@@ -42,7 +46,8 @@ namespace OloEngine
         // committed, so a requester that stopped waiting leaves no armed capture
         // to fire on a later frame (or on the next scene's first frames).
         // Recording is left running: it belongs to whoever started it. Returns
-        // true when a capture was withdrawn. Touches only the atomic state, so it
+        // true when a capture was withdrawn, false once CommitFrame has claimed the frame
+        // for publication (Committing). Touches only the atomic state, so it
         // is safe from any thread — a cancelled MCP call cannot reach the game
         // thread any more (MarshalRead refuses it) and must still withdraw.
         bool CancelCapture();

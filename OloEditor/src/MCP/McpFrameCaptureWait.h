@@ -20,6 +20,7 @@
 #include <nlohmann/json.hpp>
 
 #include <chrono>
+#include <mutex>
 #include <string>
 #include <thread>
 
@@ -59,6 +60,14 @@ namespace OloEngine::MCP
     inline FrameCaptureWaitResult CaptureOneFrame(Automation::IAutomationHost& host,
                                                   std::chrono::milliseconds timeout = std::chrono::seconds(3))
     {
+        // One capture in flight at a time. The manager arms a single, unowned
+        // capture: a second call arriving while the first is armed would share
+        // it, and the first call's withdrawal on timeout would then take it
+        // from the second. The game thread never takes this lock, so holding it
+        // across MarshalRead cannot deadlock.
+        static std::mutex s_CaptureInFlight;
+        const std::scoped_lock inFlight(s_CaptureInFlight);
+
         const nlohmann::json trigger = host.MarshalRead([]() -> nlohmann::json
                                                         {
             FrameCaptureManager& fcm = FrameCaptureManager::GetInstance();

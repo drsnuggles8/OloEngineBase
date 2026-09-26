@@ -258,6 +258,15 @@ namespace OloEngine
                 // Pool never initialized (the capture frame issued no queries):
                 // nothing will ever resolve — commit immediately without timings.
 
+                // Claim the frame before publishing it (#1504). CancelCapture
+                // runs on any thread, so it may have withdrawn the capture since
+                // the switch read the state; a withdrawn frame must not reach
+                // the ring. Once claimed, a late cancel finds Committing and
+                // leaves the publication alone.
+                auto claim = CaptureState::AwaitingGpuResults;
+                if (!m_State.compare_exchange_strong(claim, CaptureState::Committing, std::memory_order_acq_rel))
+                    break;
+
                 if (resolved)
                     ApplyGpuTimingsToSource(resultsMs);
                 else
@@ -420,12 +429,12 @@ namespace OloEngine
         }
 
         // State machine transition (a one-shot capture — committed either directly
-        // via the legacy OnFrameEnd path or from the deferred AwaitingGpuResults
-        // hold — returns to Idle; recording stays in Recording for the next frame).
-        auto expected = CaptureState::CaptureNextFrame;
+        // via the legacy OnFrameEnd path or from the claimed deferred hold —
+        // returns to Idle; recording stays in Recording for the next frame).
+        auto expected = CaptureState::Committing;
         if (!m_State.compare_exchange_strong(expected, CaptureState::Idle, std::memory_order_acq_rel))
         {
-            expected = CaptureState::AwaitingGpuResults;
+            expected = CaptureState::CaptureNextFrame;
             m_State.compare_exchange_strong(expected, CaptureState::Idle, std::memory_order_acq_rel);
         }
 
