@@ -857,7 +857,7 @@ paths. Append a `SceneRow` in `BuildRows()`:
 |---|---|---|
 | `gl-forward-native`, `gl-forward-plus-native` | every row except `SSGIBounce`, `ReSTIRDI` | `SSGIBounce`: the contract gives Forward/Forward+ no SSGI owner. `ReSTIRDI`: needs a ray-tracing Vulkan device |
 | `gl-deferred-native`, `gl-deferred-msaa4`, `gl-deferred-spatial-msaa4`, `gl-deferred-temporal` | every row except `ReSTIRDI` | `ReSTIRDI`: needs a ray-tracing Vulkan device. The temporal arm skips if FSR2 does not engage (`IsTemporalUpscaleActive`) |
-| `vk-forward-native`, `vk-forward-plus-native`, `vk-deferred-native` | skip: scene-level Vulkan is unreachable in-process | live: `scripts/cross-path-matrix-live.py` in an editor launched with `--rhi vulkan` (SSGI and ReSTIR DI rows on Deferred only; ReSTIR DI must report itself active) |
+| `vk-forward-native`, `vk-forward-plus-native`, `vk-deferred-native` | skip: scene-level Vulkan is unreachable in-process | live: `scripts/cross-path-matrix-live.py` in an editor launched with `--rhi vulkan` (SSGI and the ReSTIR DI/GI/PT rows on Deferred only; each ReSTIR tier must report itself active) |
 | `gl-deferred-temporal-msaa4`, `vk-deferred-temporal`, `gl-deferred-ray-query`, `vk-forward-ray-query`, `vk-deferred-ray-query-unavailable` | skip: the registry declares them Unsupported, with its `Reason` | nowhere, by declaration. They stay arms so the declared and tested matrices cannot drift |
 | any GL arm without a GL 4.6 context (CI software-driver jobs) | skip: the fixture's GPU gate | the AMD nightly (`gpu-conformance-amd.yml` runs the whole suite) |
 
@@ -866,9 +866,11 @@ source, so the fixture resets it with a resolution change before each capture. I
 colour *inside* the frame, through a post-pass hook: the scene-band targets are transient, and
 after the frame their memory holds later passes' output.
 
-At #1347 the live replay held 82 of 88 regions on Vulkan × {Forward, Forward+, Deferred}, with no
-`[error]` or VUID lines. The six that did not are the `ReSTIRDI` row, which measures ReSTIR DI
-×1.5–3.5 brighter than the raster loop on specular tiles (#1483).
+At #1347 the live replay held 94 of 100 regions on Vulkan × {Forward, Forward+, Deferred}, with no
+`[error]` lines. The six that did not are the `ReSTIRDI` row, which measures ReSTIR DI ×1.5–3.5
+brighter than the raster loop on specular tiles (#1483). The `ReSTIRGIOwnership` and
+`ReSTIRPTOwnership` rows hold: with either indirect tier live, emission and the sun's direct term
+are unchanged.
 
 **The Vulkan arms are live cells.** Scene-level Vulkan is unreachable in a
 test process (testing-architecture.md §9). To run them:

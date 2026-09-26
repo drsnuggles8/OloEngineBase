@@ -83,7 +83,13 @@ class EngagementError(RuntimeError):
     """The estimator a row exists to measure stood down: a FAILED cell, never NOT RUN."""
 
 
-PATH_REQUIREMENTS = {"SSGI": ("deferred",), "ReSTIR DI": ("deferred",)}
+PATH_REQUIREMENTS = {"SSGI": ("deferred",), "ReSTIR DI": ("deferred",), "ReSTIR GI": ("deferred",),
+                     "ReSTIR PT": ("deferred",)}
+
+# The tier's own statistics tool (McpToolsRender.cpp), per the manifest's estimatorField: the
+# cell compares the estimator only if the tier says it is ACTIVE this frame.
+ENGAGEMENT_TOOLS = {"ReSTIRDIEnabled": "olo_restir_stats", "ReSTIRGIEnabled": "olo_restir_gi_stats",
+                    "ReSTIRPTEnabled": "olo_restir_pt_stats"}
 
 # Fields the editor's scene load OVERWRITES from the project's quality tier after copying
 # the scene's post-process settings (EditorLayer.cpp LoadEditorSceneFile ->
@@ -357,12 +363,15 @@ class Session:
                 self.probe(first[0], first[1], width, height, force_frame=True)
             # An estimator row compares the estimator, not a silent fallback: olo_restir_stats
             # (McpToolsRender.cpp) must say the tier is ACTIVE this frame, or the cell fails.
-            if state and self.estimator_field == "ReSTIRDIEnabled":
-                stats = self.mcp.call("olo_restir_stats", {})
+            tool = ENGAGEMENT_TOOLS.get(self.estimator_field)
+            if tool and state:
+                stats = self.mcp.call(tool, {})
                 availability = stats.get("availability", {})
-                if not availability.get("active"):
-                    raise EngagementError("ReSTIR DI did not engage (%s): %s" % (
-                        availability.get("status"), availability.get("fallbackReason")))
+                active = availability.get("active", stats.get("active"))
+                if not active:
+                    raise EngagementError("%s reports the tier inactive (%s): %s" % (
+                        tool, availability.get("status", stats.get("status")),
+                        availability.get("fallbackReason", stats.get("reason", json.dumps(stats)[:300]))))
             values = {}
             for region in regions:
                 values[region["name"]] = [self.probe(x, y, width, height) for x, y in region["pixels"]]

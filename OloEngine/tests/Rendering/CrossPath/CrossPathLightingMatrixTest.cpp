@@ -614,6 +614,90 @@ namespace OloEngine::Tests::CrossPath
                      "ReSTIRDIEnabled" };
         }
 
+        EstimatorToggle ReSTIRGIToggle()
+        {
+            return { "ReSTIR GI", [](bool on)
+                     { Renderer3D::GetPostProcessSettings().ReSTIRGI.Enabled = on; },
+                     LightingEstimator::ReSTIRGI, [](LightingFrameConfiguration& f)
+                     { f.ReSTIRGIActive = true; },
+                     "ReSTIRGIEnabled" };
+        }
+
+        EstimatorToggle ReSTIRPTToggle()
+        {
+            return { "ReSTIR PT", [](bool on)
+                     { Renderer3D::GetPostProcessSettings().ReSTIRPT.Enabled = on; },
+                     LightingEstimator::ReSTIRPT, [](LightingFrameConfiguration& f)
+                     { f.ReSTIRPTActive = true; },
+                     "ReSTIRPTEnabled" };
+        }
+
+        // Emitters on the top row, sun-lit surfaces on the bottom, all on one
+        // plane: coplanar tiles cannot light each other, so an indirect tier
+        // (ReSTIR GI / PT) has no bounce to add to the measured regions, and the
+        // terms it does NOT own — emission, the sun's direct light — must come
+        // out exactly as the raster reference and the oracle have them.
+        const std::vector<TileSpec>& OwnershipTiles()
+        {
+            static const std::vector<TileSpec> tiles = {
+                { "OwnEmitDim", { -3.6, -1.9 }, 3.0, glm::vec3(0.0f), 0.0f, 0.8f, PBRModel::Legacy, glm::vec3(0.2f) },
+                { "OwnEmitWarm", { 0.0, -1.9 }, 3.0, glm::vec3(0.0f), 0.0f, 0.8f, PBRModel::Legacy, { 4.0f, 1.0f, 0.25f } },
+                { "OwnEmitHdr", { 3.6, -1.9 }, 3.0, glm::vec3(0.0f), 0.0f, 0.8f, PBRModel::ClosureV2, glm::vec3(20.0f) },
+                { "OwnLegacyWhite", { -3.6, 1.9 }, 3.0, glm::vec3(0.8f), 0.0f, 1.0f, PBRModel::Legacy },
+                { "OwnV2White", { 0.0, 1.9 }, 3.0, glm::vec3(0.8f), 0.0f, 0.6f, PBRModel::ClosureV2 },
+                { "OwnV2Copper", { 3.6, 1.9 }, 3.0, { 0.95f, 0.64f, 0.54f }, 1.0f, 0.4f, PBRModel::ClosureV2 },
+            };
+            return tiles;
+        }
+
+        // A row that holds emission and the direct sun term while an indirect
+        // ray-query tier owns indirect diffuse (GI) or all indirect light (PT).
+        SceneRow IndirectTierOwnershipRow(std::string_view name, std::string_view motivation, EstimatorToggle tier)
+        {
+            SceneRow row;
+            row.Name = name;
+            row.Motivation = motivation;
+            row.Requires = std::move(tier);
+            row.Build = [](Scene& scene)
+            {
+                for (const TileSpec& tile : OwnershipTiles())
+                    AddTile(scene, tile);
+                AddSun(scene, kSunIntensity);
+            };
+            TermProbe emission;
+            emission.Name = "Emission";
+            emission.Term = LightingTerm::Emission;
+            emission.SetSource = [](Scene& scene, bool on)
+            {
+                for (const TileSpec& tile : OwnershipTiles())
+                    if (Material* m = FindMaterial(scene, tile.Name))
+                        m->SetEmissiveFactor(glm::vec4(on ? tile.Emissive : glm::vec3(0.0f), 1.0f));
+            };
+            for (sizet i = 0; i < 3; ++i)
+                emission.Regions.push_back(
+                    Interior(OwnershipTiles()[i], ConstantAnalytic(glm::dvec3(OwnershipTiles()[i].Emissive))));
+            emission.Analytic = { 2.0e-3, 1.0e-4, "emission is the material's radiance, written once; an "
+                                                  "indirect tier does not own it" };
+            emission.CrossArm = { 2.0e-3, 1.0e-4, "the indirect tier owns no part of emission (#1336)" };
+            row.Probes.push_back(std::move(emission));
+
+            TermProbe direct;
+            direct.Name = "Direct";
+            direct.Term = LightingTerm::DirectDiffuse;
+            direct.SetSource = SetSun;
+            const glm::dvec3 towardLight = -glm::dvec3(kSunDirection);
+            for (sizet i = 3; i < 6; ++i)
+                direct.Regions.push_back(Interior(
+                    OwnershipTiles()[i], DirectionalLightAnalytic(OwnershipTiles()[i], towardLight,
+                                                                  glm::dvec3(kSunIntensity))));
+            direct.Analytic = { 0.03, 2.0e-3, "as the DirectionalLight row: fp16 SceneColor and f32 shading "
+                                              "against the f64 oracle" };
+            direct.CrossArm = { 0.01, 1.0e-4, "the raster loop keeps the directional light whichever indirect "
+                                              "tier is live (#1336); coplanar tiles give it no bounce to add" };
+            row.Probes.push_back(std::move(direct));
+            return row;
+        }
+
         std::vector<SceneRow> BuildRows()
         {
             std::vector<SceneRow> rows;
@@ -955,6 +1039,14 @@ namespace OloEngine::Tests::CrossPath
                 row.Probes.push_back(std::move(probe));
                 rows.push_back(std::move(row));
             }
+
+            // -- 10, 11. The indirect ray-query tiers own no direct or emitted light
+            rows.push_back(IndirectTierOwnershipRow(
+                "ReSTIRGIOwnership", "#1169 / #1336: ReSTIR GI owns indirect diffuse, and only that",
+                ReSTIRGIToggle()));
+            rows.push_back(IndirectTierOwnershipRow(
+                "ReSTIRPTOwnership", "#1211 / #1336: ReSTIR PT owns indirect light, and only that",
+                ReSTIRPTToggle()));
 
             return rows;
         }
