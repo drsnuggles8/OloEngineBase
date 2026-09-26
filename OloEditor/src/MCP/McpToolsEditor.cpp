@@ -144,31 +144,55 @@ namespace OloEngine::MCP
                 return ToolResult::Error(message);
             }
 
+            // Wait on the frame counter alone. AwaitRenderedFrames also waits for the
+            // viewport to be capture-ready, which a throttled or resizing viewport is
+            // not, and has nothing to do with whether a panel loaded its file.
+            const auto readState = [&host, &opened]()
+            {
+                const Json j = host.MarshalRead([&host, opened]() -> Json
+                                                {
+                    const McpAssetEditorState s = host.Context().GetAssetEditorState(opened);
+                    return Json{ { "open", s.PanelOpen }, { "loaded", s.LoadedPath }, { "matches", s.Matches } }; });
+                McpAssetEditorState read;
+                read.PanelOpen = j.value("open", false);
+                read.LoadedPath = j.value("loaded", std::string{});
+                read.Matches = j.value("matches", false);
+                return read;
+            };
+            const auto waitForFrame = [&host](u64 target)
+            {
+                if (!host.Context().GetFrameIndex)
+                    return false;
+                const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+                while (std::chrono::steady_clock::now() < deadline && !host.IsCurrentCallCancelled())
+                {
+                    const u64 frame = host.MarshalRead([&host]() -> Json
+                                                       { return Json{ { "frame", host.Context().GetFrameIndex() } }; })
+                                          .value("frame", static_cast<u64>(0));
+                    if (frame >= target)
+                        return true;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                }
+                return false;
+            };
+
             McpAssetEditorState state;
             int framesWaited = 0;
             bool timedOut = true;
             while (framesWaited < AssetOpen::s_MaxSettleFrames)
             {
                 framesWaited += 2;
-                if (!AwaitRenderedFrames(host, opened.BaseFrame, framesWaited))
-                    break;
-                state = [&]()
-                {
-                    const Json j = host.MarshalRead([&host, opened]() -> Json
-                                                    {
-                        const McpAssetEditorState s = host.Context().GetAssetEditorState(opened);
-                        return Json{ { "open", s.PanelOpen }, { "loaded", s.LoadedPath }, { "matches", s.Matches } }; });
-                    McpAssetEditorState read;
-                    read.PanelOpen = j.value("open", false);
-                    read.LoadedPath = j.value("loaded", std::string{});
-                    read.Matches = j.value("matches", false);
-                    return read;
-                }();
+                const bool advanced = waitForFrame(opened.BaseFrame + static_cast<u64>(framesWaited));
+                // Read even when the wait gave up: the reply must describe the panel
+                // as it is, not a default-constructed "not open".
+                state = readState();
                 if (state.PanelOpen && state.Matches)
                 {
                     timedOut = false;
                     break;
                 }
+                if (!advanced)
+                    break;
             }
             return ToolResult::Structured(AssetOpen::ToJson(opened, state, framesWaited, timedOut));
         }

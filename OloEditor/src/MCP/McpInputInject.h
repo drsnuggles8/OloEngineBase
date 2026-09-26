@@ -613,13 +613,8 @@ namespace OloEngine::MCP::InputInject
         {
             const McpInputPanelWindow* found = out;
             out = nullptr;
-            // A panel floating in its own OS window is addressable as long as ImGui
-            // named the viewport it lives in; the plan then tells ImGui that viewport
-            // is the hovered one.
-            if (!found->OnMainViewport && found->ViewportId == 0)
-                return "Panel '" + std::string(PanelLabel(found->Name)) +
-                       "' is in its own OS window but its ImGui viewport is unknown, so input cannot be routed "
-                       "to it. Dock it into the editor first.";
+            // A panel floating in its own OS window is addressable too: the plan
+            // names its viewport as the hovered one (see ResolvePoint).
             if (found->Width < 1.0f || found->Height < 1.0f)
                 return "Panel '" + std::string(PanelLabel(found->Name)) + "' has no size (collapsed?).";
             out = found;
@@ -757,8 +752,10 @@ namespace OloEngine::MCP::InputInject
                 const f32 pixelY = (imguiScreenY - info.PanelY) * info.DpiScale;
                 out.ViewportPixelX = pixelX;
                 out.ViewportPixelY = pixelY;
-                out.InsideViewport = pixelWidth >= 1.0f && pixelHeight >= 1.0f && pixelX >= 0.0f && pixelY >= 0.0f &&
-                                     pixelX < pixelWidth && pixelY < pixelHeight;
+                // A point in a panel's own OS window is never in the 3D viewport, even
+                // where that window happens to lie over it on the desktop.
+                out.InsideViewport = out.ViewportId == 0 && pixelWidth >= 1.0f && pixelHeight >= 1.0f && pixelX >= 0.0f &&
+                                     pixelY >= 0.0f && pixelX < pixelWidth && pixelY < pixelHeight;
                 break;
             }
         }
@@ -1178,7 +1175,9 @@ namespace OloEngine::MCP::InputInject
                                      "downscale-proof, and the safest choice after a screenshot. \"window\" = window-client "
                                      "pixels (origin top-left) covering the whole editor dockspace; physical pixels on "
                                      "Windows, so on a 150% display a full-HD editor is 1920x1080 here. Use it to click "
-                                     "ImGui panels, menus, and buttons OUTSIDE the 3D viewport. \"panel\" = pixels "
+                                     "ImGui panels, menus, and buttons OUTSIDE the 3D viewport. It always hits the main "
+                                     "window, even where a panel floating in its own OS window overlaps it; address such a "
+                                     "panel with \"panel\". \"panel\" = pixels "
                                      "relative to the top-left corner of the ImGui window named by 'panel', whatever the "
                                      "dock layout. For mouseDelta the same three spaces scale the "
                                      "DISPLACEMENT: \"window\" is 1:1 with the units Input::GetMousePosition reports, "

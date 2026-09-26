@@ -1519,9 +1519,14 @@ TEST(McpInputInjectPanel, AFloatingPanelIsReachedThroughItsOwnViewport)
     }
     EXPECT_EQ(moves, 1);
 
-    // Without a viewport id there is nothing to route to: refused, not guessed.
-    windows[4].ViewportId = 0;
-    EXPECT_TRUE(Inject::FindPanelWindow(windows, "Sound Graph Editor", graph).has_value());
+    // Its own OS window is never the 3D viewport, even where it lies over the
+    // viewport panel on the desktop.
+    windows[4].X = 400.0f;
+    windows[4].Y = 200.0f;
+    ASSERT_FALSE(Inject::FindPanelWindow(windows, "Sound Graph Editor", graph).has_value());
+    Inject::ResolvedPoint overViewport;
+    ASSERT_FALSE(Inject::ResolvePoint(info, Inject::Space::Panel, 100.0f, 100.0f, overViewport, graph).has_value());
+    EXPECT_FALSE(overViewport.InsideViewport);
 }
 
 TEST(McpInputInjectPanel, ParseNeedsThePanelNameAndRefusesADisplacement)

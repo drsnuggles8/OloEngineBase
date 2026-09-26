@@ -17,6 +17,7 @@
 // Engine-free (McpServer.h + the schema DSL only), like McpSceneControl.h, so the
 // MCP unit tests can include it without an editor TU.
 
+#include "MCP/McpSceneControl.h"
 #include "MCP/McpSchemaBuilder.h"
 #include "MCP/McpServer.h"
 
@@ -35,24 +36,6 @@ namespace OloEngine::MCP::AssetOpen
     // panel's state as final. The slowest route (Sound Graph) needs two frames
     // after its window first exists; the rest is slack for a throttled frame.
     inline constexpr int s_MaxSettleFrames = 30;
-
-    // Reject a ".." path component. Checked between separators so a file name that
-    // merely contains two dots ("a..b.olosg") is fine. Same rule as olo_scene_open.
-    [[nodiscard]] inline bool HasParentTraversal(std::string_view path)
-    {
-        sizet start = 0;
-        while (start <= path.size())
-        {
-            const sizet sep = path.find_first_of("/\\", start);
-            const std::string_view component = path.substr(start, sep == std::string_view::npos ? std::string_view::npos : sep - start);
-            if (component == "..")
-                return true;
-            if (sep == std::string_view::npos)
-                break;
-            start = sep + 1;
-        }
-        return false;
-    }
 
     // An asset handle arrives as a decimal string (u64 does not survive a JSON
     // double, and every other tool prints handles as strings) or as a JSON integer.
@@ -96,7 +79,9 @@ namespace OloEngine::MCP::AssetOpen
             if (!args["path"].is_string() || args["path"].get<std::string>().empty())
                 return "Invalid 'path': expected a non-empty file path.";
             out.Path = args["path"].get<std::string>();
-            if (HasParentTraversal(out.Path))
+            // The editor also checks containment on the final, canonical path;
+            // this refuses the obvious case before anything touches the disk.
+            if (SceneControl::HasParentTraversal(out.Path))
                 return "Invalid 'path': parent-directory traversal ('..') is not allowed.";
         }
 
@@ -110,8 +95,8 @@ namespace OloEngine::MCP::AssetOpen
             .Prop("handle", Schema::Raw(Json{ { "type", Json::array({ "string", "integer" }) } })
                                 .Desc("Asset handle (decimal string, as olo_asset_* tools print it). Pass this OR 'path'."))
             .Prop("path", Schema::String().Desc("File to open. Relative paths resolve against the project's asset directory "
-                                                "(e.g. \"SoundGraphs/HelloDing.olosoundgraph\"); an absolute path is also "
-                                                "accepted. '..' is rejected. Pass this OR 'handle'."))
+                                                "(e.g. \"SoundGraphs/HelloDing.olosoundgraph\"); an absolute path must still lie "
+                                                "inside it. '..' is rejected. Pass this OR 'handle'."))
             .Prop("discardUnsaved", Schema::Bool().Desc("The target editor (or, for a scene, the current scene) has unsaved "
                                                         "changes: false (default) refuses and says so, true discards them. The "
                                                         "Content Browser asks with a native Yes/No/Cancel dialog here, which an "

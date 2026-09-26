@@ -1356,10 +1356,15 @@ namespace OloEngine
                 // relative to the main window (the backend adds the main window's
                 // position back), and ImGui is told which viewport is hovered, since
                 // the backend only ever reports the one the physical mouse is over.
-                // A main-window point names the MAIN viewport rather than none: with
-                // no hovered viewport reported, ImGui keeps hit-testing the last one
-                // it saw hovered, which after a floating-panel plan is that panel's
-                // (measured: hoveredWindow null over the right-hand dock).
+                // A window-space point names the MAIN viewport, never none: with no
+                // hovered viewport reported, ImGui keeps hit-testing the last one it
+                // saw hovered, which after a floating-panel plan is that panel's
+                // (measured: hoveredWindow null over the dock). Deliberately not "the
+                // OS window on top there": a floating panel's OS window can overlap
+                // the editor, but the desktop z-order also interleaves other
+                // applications and ImGui's focus-stamp fallback got it wrong when
+                // measured, so space:"window" means the main dockspace and a floating
+                // panel is addressed with space:"panel".
                 ImGuiLayer::SetMouseViewportOverride(event.Viewport != 0 ? event.Viewport : ImGui::GetMainViewport()->ID);
                 ::ImGui_ImplGlfw_CursorPosCallback(window, static_cast<f64>(event.X), static_cast<f64>(event.Y));
                 // Arm the landing probe: next tick, once ImGui's NewFrame has applied
@@ -4173,11 +4178,12 @@ namespace OloEngine
     EditorLayer::AssetOpenOutcome EditorLayer::OpenAssetInEditor(const std::filesystem::path& path, ContentFileType type,
                                                                  UnsavedChangesPolicy policy)
     {
+        using enum MCP::EditorPanels::PanelId;
         AssetOpenOutcome outcome;
         switch (type)
         {
             case ContentFileType::Dialogue:
-                outcome.Panel = "dialogue_editor";
+                outcome.Panel = DialogueEditor;
                 if (!ResolveUnsavedChanges(m_DialogueEditorPanel.HasUnsavedChanges(), "Dialogue", "dialogue", policy,
                                            [this]()
                                            { return m_DialogueEditorPanel.SaveIfNeeded(); }, outcome))
@@ -4186,7 +4192,7 @@ namespace OloEngine
                 m_ShowDialogueEditor = true;
                 break;
             case ContentFileType::Cinematic:
-                outcome.Panel = "cinematic_timeline";
+                outcome.Panel = CinematicTimeline;
                 if (!ResolveUnsavedChanges(m_CinematicTimelinePanel.HasUnsavedChanges(), "Cinematic", "cinematic sequence", policy,
                                            [this]()
                                            { return m_CinematicTimelinePanel.SaveIfNeeded(); }, outcome))
@@ -4195,7 +4201,7 @@ namespace OloEngine
                 m_ShowCinematicTimeline = true;
                 break;
             case ContentFileType::VisualScript:
-                outcome.Panel = "visual_script_editor";
+                outcome.Panel = VisualScriptEditor;
                 if (!ResolveUnsavedChanges(m_VisualScriptEditorPanel.HasUnsavedChanges(), "Visual Script", "visual script", policy,
                                            [this]()
                                            { return m_VisualScriptEditorPanel.SaveIfNeeded(); }, outcome))
@@ -4204,7 +4210,7 @@ namespace OloEngine
                 m_ShowVisualScriptEditor = true;
                 break;
             case ContentFileType::ShaderGraph:
-                outcome.Panel = "shader_graph_editor";
+                outcome.Panel = ShaderGraphEditor;
                 if (!ResolveUnsavedChanges(m_ShaderGraphEditorPanel.HasUnsavedChanges(), "Shader Graph", "shader graph", policy,
                                            [this]()
                                            { return m_ShaderGraphEditorPanel.SaveIfNeeded(); }, outcome))
@@ -4213,7 +4219,7 @@ namespace OloEngine
                 m_ShowShaderGraphEditor = true;
                 break;
             case ContentFileType::SoundGraph:
-                outcome.Panel = "sound_graph_editor";
+                outcome.Panel = SoundGraphEditor;
                 if (!ResolveUnsavedChanges(m_SoundGraphEditorPanel.HasUnsavedChanges(), "Sound Graph", "sound graph", policy,
                                            [this]()
                                            { return m_SoundGraphEditorPanel.SaveIfNeeded(); }, outcome))
@@ -4222,7 +4228,7 @@ namespace OloEngine
                 m_ShowSoundGraphEditor = true;
                 break;
             case ContentFileType::Shader:
-                outcome.Panel = "shader_editor";
+                outcome.Panel = ShaderEditor;
                 if (!ResolveUnsavedChanges(m_ShaderEditorPanel.HasUnsavedChanges(), "Shader", "shader", policy,
                                            [this]()
                                            { return m_ShaderEditorPanel.Save(); }, outcome))
@@ -4231,7 +4237,7 @@ namespace OloEngine
                 m_ShowShaderEditor = true;
                 break;
             case ContentFileType::SkillTree:
-                outcome.Panel = "skill_tree_editor";
+                outcome.Panel = SkillTreeEditor;
                 if (!ResolveUnsavedChanges(m_SkillTreeEditorPanel.HasUnsavedChanges(), "Skill Tree", "skill tree", policy,
                                            [this]()
                                            { return m_SkillTreeEditorPanel.SaveIfNeeded(); }, outcome))
@@ -4240,7 +4246,7 @@ namespace OloEngine
                 m_ShowSkillTreeEditor = true;
                 break;
             case ContentFileType::Scene:
-                outcome.Panel = "scene";
+                outcome.IsScene = true;
                 if (policy == UnsavedChangesPolicy::Prompt)
                 {
                     if (!ConfirmDiscardChanges())
@@ -4272,63 +4278,6 @@ namespace OloEngine
         return outcome;
     }
 
-    namespace
-    {
-        [[nodiscard]] std::string_view ContentFileTypeName(ContentFileType type)
-        {
-            switch (type)
-            {
-                case ContentFileType::Directory:
-                    return "Directory";
-                case ContentFileType::Image:
-                    return "Image";
-                case ContentFileType::Model3D:
-                    return "Model3D";
-                case ContentFileType::Scene:
-                    return "Scene";
-                case ContentFileType::Script:
-                    return "Script";
-                case ContentFileType::Audio:
-                    return "Audio";
-                case ContentFileType::Video:
-                    return "Video";
-                case ContentFileType::Material:
-                    return "Material";
-                case ContentFileType::Shader:
-                    return "Shader";
-                case ContentFileType::StreamingRegion:
-                    return "StreamingRegion";
-                case ContentFileType::Dialogue:
-                    return "Dialogue";
-                case ContentFileType::ShaderGraph:
-                    return "ShaderGraph";
-                case ContentFileType::SoundGraph:
-                    return "SoundGraph";
-                case ContentFileType::SaveGame:
-                    return "SaveGame";
-                case ContentFileType::Cinematic:
-                    return "Cinematic";
-                case ContentFileType::FluidSettings:
-                    return "FluidSettings";
-                case ContentFileType::SkillTree:
-                    return "SkillTree";
-                case ContentFileType::CharacterClass:
-                    return "CharacterClass";
-                case ContentFileType::ExperienceCurve:
-                    return "ExperienceCurve";
-                case ContentFileType::VisualScript:
-                    return "VisualScript";
-                case ContentFileType::Volume:
-                    return "Volume";
-                case ContentFileType::Groom:
-                    return "Groom";
-                case ContentFileType::Unknown:
-                default:
-                    return "Unknown";
-            }
-        }
-    } // namespace
-
     MCP::McpAssetOpenResult EditorLayer::OpenAssetFromMcp(const MCP::McpAssetOpenRequest& request)
     {
         MCP::McpAssetOpenResult result;
@@ -4357,10 +4306,25 @@ namespace OloEngine
             if (path.is_relative())
                 path = Project::GetAssetFileSystemPath(path);
         }
-        path = path.lexically_normal();
-        result.ResolvedPath = path.string();
 
         std::error_code ec;
+        path = std::filesystem::weakly_canonical(path, ec);
+        if (ec)
+            path = std::filesystem::path(request.Path).lexically_normal();
+        result.ResolvedPath = path.string();
+
+        // The panels save back to the file they loaded, so a consented open must
+        // not reach outside the project: containment is checked on the FINAL
+        // (canonical) path, which a '..' check on the argument cannot establish
+        // for an absolute path or a registry entry.
+        const std::filesystem::path assetRoot = std::filesystem::weakly_canonical(Project::GetAssetDirectory(), ec);
+        const std::filesystem::path relative = path.lexically_relative(assetRoot);
+        if (relative.empty() || *relative.begin() == ".." || relative.is_absolute())
+        {
+            result.Message = "Refusing to open a file outside the project's asset directory (" + assetRoot.string() + "): " + result.ResolvedPath;
+            return result;
+        }
+
         if (!std::filesystem::is_regular_file(path, ec))
         {
             result.Message = "File not found: " + result.ResolvedPath;
@@ -4370,15 +4334,16 @@ namespace OloEngine
             result.Handle = static_cast<u64>(editorAssets->GetAssetHandleFromFilePath(path));
 
         const ContentFileType type = GetFileTypeFromExtension(path);
-        result.FileType = std::string(ContentFileTypeName(type));
+        result.FileType = GetContentFileTypeName(type);
         result.BaseFrame = m_FrameIndex;
 
         const AssetOpenOutcome outcome = OpenAssetInEditor(path, type, request.DiscardUnsaved ? UnsavedChangesPolicy::Discard : UnsavedChangesPolicy::Refuse);
-        result.Panel = outcome.Panel;
+        result.Panel = outcome.PanelName();
         result.Ok = outcome.Dispatched;
-        result.Message = outcome.Dispatched ? "Dispatched to " + outcome.Panel + "." : outcome.Message;
-        if (!outcome.Dispatched && outcome.Message.empty())
-            result.Message = "The " + outcome.Panel + " route declined to open the file.";
+        if (outcome.Dispatched)
+            result.Message = "Dispatched to " + result.Panel + ".";
+        else
+            result.Message = outcome.Message.empty() ? "The " + result.Panel + " route declined to open the file." : outcome.Message;
         return result;
     }
 

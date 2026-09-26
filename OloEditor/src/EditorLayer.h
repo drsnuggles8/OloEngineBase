@@ -32,6 +32,7 @@
 #include "Panels/ShaderEditorPanel.h"
 #include "Panels/AudioEventsPanel.h"
 
+#include "MCP/McpEditorPanels.h"
 #include "MCP/McpServer.h" // McpInputEvent / McpInputPlan (the input-injection queue below holds them by value)
 #include "UndoRedo/EditorCommand.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
@@ -229,8 +230,19 @@ namespace OloEngine
         {
             bool Dispatched = false;       // a panel (or the scene) took the file
             bool BlockedByUnsaved = false; // refused: the target has unsaved changes
-            std::string Panel;             // olo_editor_panel_list name, or "scene"
+            // The panel that edits the file; empty for a scene (IsScene) or an
+            // unsupported type. An id rather than a name, so a typo cannot compile.
+            std::optional<MCP::EditorPanels::PanelId> Panel;
+            bool IsScene = false;
             std::string Message;
+
+            // The olo_editor_panel_list name, "scene", or "" for an unsupported type.
+            [[nodiscard]] std::string PanelName() const
+            {
+                if (IsScene)
+                    return "scene";
+                return Panel ? std::string(MCP::EditorPanels::kPanels[static_cast<sizet>(*Panel)].Name) : std::string{};
+            }
         };
         AssetOpenOutcome OpenAssetInEditor(const std::filesystem::path& path, ContentFileType type, UnsavedChangesPolicy policy);
         // Returns true to go ahead with the open. Prompt asks Yes/No/Cancel and runs

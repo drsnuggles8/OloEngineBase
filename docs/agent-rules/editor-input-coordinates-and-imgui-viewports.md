@@ -38,6 +38,11 @@ it is the last word. `EditorLayer` sets it on every injected position, to the pa
 or to the main viewport, and clears it when the plan drains. The position itself stays relative
 to the main window's client origin; the backend adds the main window's desktop position back.
 
+Do not try to pick "the OS window on top" for a window-space point. Measured: ImGui's
+`LastFocusedStampCount` fallback chose the MCP Diagnostics Server window, which Windows had
+BELOW the editor, and the real top window at that point was a Windows Security dialog from
+another process. Window space means the main dockspace; floating panels use `space:"panel"`.
+
 ## 3. Docked windows are "child windows"
 
 `ImGui::BeginDocked` ORs `ImGuiWindowFlags_ChildWindow` into a docked window. A filter that
