@@ -80,4 +80,5 @@ representation's own error.
   budget that lets coats lag would buy little, and it needs the stale bound's prioritisation.
 - **Vulkan's blocking upload.** `VulkanTexture3D::SetData` waits on a fence per bake, so on
   Vulkan each rebake drains the queue. The ring does not change that; a recorded, in-frame upload
-  would. Measured live in the PR, not fixed here.
+  would. Live on Vulkan (Release editor, `Scenes/GroomAnimals.olo`) the whole bake read 4.8-8.9 ms
+  a frame for three walking coats, so it is not worth that change yet.

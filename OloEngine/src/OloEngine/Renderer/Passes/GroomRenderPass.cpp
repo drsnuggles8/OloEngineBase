@@ -1375,16 +1375,24 @@ namespace OloEngine
             else
             {
                 GroomCoatShadow::CoatSampleSettings sampleSettings;
-                // The WHOLE coat, not the budget's stride of it. A bound coat's
-                // bake reads the drawn stream, whose radii carry the budget's
-                // per-role compensation (#1428), so it stores the coat's full
-                // fibre area at every LOD step; a static coat must too, or the
-                // two bake different shadows at the same step. It rebakes only
-                // on a LOD, resolution or authoring change, so the full walk is
-                // paid rarely; MaxSegments still bounds it.
-                sampleSettings.MaxStrands = std::max(request.Build.MaxStrands, request.Groom->GetCurveCount());
+                sampleSettings.MaxStrands = request.Build.MaxStrands;
                 sampleSettings.MaxSegments = request.Build.MaxSegments;
-                sampleSettings.WidthScale = request.WidthScale;
+                // COMPENSATED AS THE DRAWN COAT IS (#1428). A bound coat's bake
+                // reads the drawn stream, whose radii carry the LOD's width
+                // compensation, so it stores the coat's fibre area at every LOD
+                // step; this bake samples the asset at its own uniform stride, so
+                // it takes the same compensation for that stride, under the same
+                // cap. With no LOD the cap is 1: a coat AUTHORED sparse through
+                // m_MaxRenderStrands is drawn sparse and shadows sparse (rule 3 of
+                // groom-coat-self-shadowing.md).
+                const u32 curves = request.Groom->GetCurveCount();
+                const u32 sampleStride =
+                    curves > request.Build.MaxStrands && request.Build.MaxStrands > 0u
+                        ? (curves + request.Build.MaxStrands - 1u) / request.Build.MaxStrands
+                        : 1u;
+                const f32 sampleCompensation = GroomRoleWidthCompensation(curves, sampleStride,
+                                                                          request.Build.MaxWidthCompensation);
+                sampleSettings.WidthScale = request.WidthScale * sampleCompensation;
                 sampleSettings.GuidesOnly = request.Build.GuidesOnly;
 
                 // IDENTITY, not the model matrix: the bake is in OBJECT space so
