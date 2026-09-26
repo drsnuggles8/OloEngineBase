@@ -72,11 +72,19 @@ run:
 ```
 
 `destroyed=true` plus the Vulkan-only `MemoryFreed` residency says the GPU read a resource the CPU
-had already destroyed. That is the fact; it is **not yet blame**. Whether the stale reference is the
-engine's or the driver's needs the audit in the next section — on #1198 the same signal turned out
-to be a driver-side read once every engine-side reference had been shown absent.
-`type=5` is `GFSDK_Aftermath_ShaderType_Fragment` and `client=4` is `GraphicsProcessingCluster`, so
-the read is a texture fetch in a fragment shader rather than a depth-test or copy.
+had already destroyed. That is the fact; it is **not yet blame**. `type=5` is
+`GFSDK_Aftermath_ShaderType_Fragment` and `client=4` is `GraphicsProcessingCluster`.
+
+Three more things the dump holds, all of which the one-line decode above threw away (#1511):
+
+- **`internal=true`** on the active shader means a driver-internal shader: the engine recorded a
+  copy, clear, blit or resolve, not a draw.
+- **The JSON report** (`CrashReports/*.json`, written by `OLO_VULKAN_AFTERMATH=1`) maps the
+  faulted warp to a source line, e.g. `PBR_MultiLight.glsl:7137`. The line number is in the
+  preprocessed source, with includes inlined.
+- **The automatic markers carry CPU call stacks.** `nv-aftermath-format -j -p <dir holding
+  OloEditor.pdb> <dump>` resolves them. The `NotStarted` / `Executing` entry is the command in
+  flight, named down to the engine function that recorded it.
 
 Requires a build configured with `AFTERMATH_SDK_ROOT` (the SDK is licensed, so it is resolved from
 the environment and never vendored — the Steamworks rule). Without it the lever warns rather than
@@ -89,40 +97,24 @@ handle whenever validation is on. Matching them by handle silently finds nothing
 correlate on the address range, or run the capture with `VK_LOADER_LAYERS_DISABLE=*` so the two
 namespaces coincide.
 
-## When every reference is absent: audit by interposition, then treat it as the driver's
+## When every reference is absent: dump the descriptor heap before blaming the driver
 
-#1198's fault survived every engine-side fix because the read was not the engine's. The way to
-establish that — rather than assert it — is to interpose the API and audit the *data*, in this
-order, each on a faulting run:
+This section used to end in "treat it as the driver's", and on #1198 that was wrong. #1198 and
+#1504 each audited every engine reference on faulting runs: descriptor writes, every image-bearing
+command, the command buffers submitted after the free, and a `vkDeviceWaitIdle` before it. All came
+back empty, correctly, because the stale reference was not the engine's command. It was a descriptor
+the DRIVER had written into the reserved range of the engine's own resource heap, for an earlier copy
+of the then-current target. A later copy, recorded after `vkCmdExecuteCommands` had left the
+primary's heaps unbound, read it. The rule and the evidence are in
+[vulkan-descriptor-heap-rebind-after-execute-commands.md](vulkan-descriptor-heap-rebind-after-execute-commands.md).
 
-1. **Was a descriptor ever written for the image?** Shadow every `vkWriteResourceDescriptorsEXT`
-   at its single funnel. If the answer is never, no stale-descriptor theory can be right, cached or
-   not.
-2. **Does any command submitted after the destroy reference it?** Interpose the volk pointers for
-   every image-bearing command (barriers, copies, blits, clears, resolves, `vkCmdBeginRendering`
-   through a view→image map built from `vkCreateImageView`) and log from the trigger onward.
-3. **Was any command buffer submitted after the trigger recorded before it?** Hook
-   `vkBeginCommandBuffer` / `vkQueueSubmit2` / `vkCmdExecuteCommands` and compare frames — a stale
-   secondary or parked primary carries the old address inside its command data.
-4. **Is the reader in flight at the free?** `vkDeviceWaitIdle` immediately before the free. If the
-   fault survives that, the reader is submitted afterwards.
+So the audit has one more step, and it comes before any "driver bookkeeping" theory. Any device
+loss writes `CrashReports/descriptor-heap-*.bin`. Decode its reserved range and check whether an
+entry's image covers the faulting address.
 
-On #1198 all four came back empty on faulting runs, with Aftermath reporting an address-translation
-fault at the destroyed depth attachment's exact base address, the scene fragment shader active. A
-read that no submitted command asks for is the driver's per-surface bookkeeping for a depth target
-(hierarchical-Z / compression metadata is keyed by the surface base), consulted for the first
-rendering frame after a same-spec replacement. The engine-side response is
-`VulkanDeferredReclaim::kDepthStencilHoldGenerations`: depth-stencil images outlive their last use
-by one generation more than everything else, behind `OLO_VULKAN_NO_DEPTH_RECLAIM_HOLD` so it can be
-re-tested against a new driver. Two traps on the way: a `WasDestroyed` set keyed on raw driver
-handles false-positives the moment the driver recycles a handle value (it does, immediately), and
-an audit that runs *after* the destroy pass's own cleanup measures the tidied-up state and reports
-zero — run it at the top of `DestroyEntry`, or at enqueue.
-
-One more discipline the same issue paid for: a fault that reproduces roughly 1 run in 3 makes a
-single clean run worthless as evidence. Replay every arm N>=8 before believing it, and interleave
-the arms rather than running them in blocks. Three consecutive clean runs on #1198's own base
-looked like "already fixed" and were not.
+Two disciplines from the same investigations still hold. First, a fault that reproduces 1 run in 3
+makes a single clean run worthless: replay every arm N>=8, interleaved. Second, run a destroy-side
+audit at enqueue or at the top of `DestroyEntry`, not after the destroy pass has tidied up.
 
 Related: [vulkan-async-compute-queue.md](vulkan-async-compute-queue.md) — the async batch is what
 submits a pass's command buffer mid-frame, which is what puts GPU execution and CPU recording of
