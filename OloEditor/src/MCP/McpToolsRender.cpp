@@ -8840,7 +8840,7 @@ namespace OloEngine::MCP
                                     .Prop("note", Schema::String().Desc("Apply shape: a caveat about the values just reported — that the ray-traced counters are one frame stale, or that virtual shadow maps refused to initialise and the effective state is being reported."))
                                     .Prop("upscaler", Schema::Object()
                                                           .Prop("requested", Schema::Object().Desc("The live request: { upscale, technique } tokens."))
-                                                          .Prop("resolved", Schema::String().Desc("What the last prepared frame RAN: 'native' | 'spatial' | 'temporal'. null while pending."))
+                                                          .Prop("resolved", Schema::Raw(Json{ { "type", Json::array({ "string", "null" }) }, { "enum", Json::array({ "native", "spatial", "temporal", nullptr }) } }).Desc("What the last prepared frame RAN: 'native' | 'spatial' | 'temporal'. null while pending."))
                                                           .Prop("pending", Schema::Bool().Desc("True when no frame has been prepared since the request, so there is no result for it yet."))
                                                           .Prop("fallback", Schema::String().Desc("Present when technique 'temporal' resolved to 'spatial': msaaResolved | backendNotOpenGL | upscalerUnavailable | sceneNotSized."))
                                                           .Prop("reason", Schema::String().Desc("The fallback as a sentence."))
