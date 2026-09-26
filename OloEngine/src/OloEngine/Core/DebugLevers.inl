@@ -122,6 +122,12 @@ OLO_LEVER_TOGGLE(VulkanNoDepthReclaimHold, "OLO_VULKAN_NO_DEPTH_RECLAIM_HOLD",
                  "replaced; this lever exists so it can be re-tested against a new driver rather than trusted "
                  "forever. Turning it on restores the device fault on a live forward -> forward+ switch on the "
                  "driver it was measured on.")
+OLO_LEVER_TOGGLE(VulkanParallelCascadeRecording, "OLO_VULKAN_PARALLEL_CSM",
+                 "Record the directional-light shadow cascades as parallel items again (#1504). They are recorded "
+                 "inline because forking them — each item rendering into a different layer of the cascade array "
+                 "from its own secondary command buffer — was followed by a device fault reading a scene target "
+                 "freed after a resize or render-path switch, with no engine-side reference to it. This lever "
+                 "exists so that workaround can be re-tested against a new driver rather than trusted forever.")
 OLO_LEVER_TOGGLE(VulkanAftermathCrashDumps, "OLO_VULKAN_AFTERMATH",
                  "Arm NVIDIA Nsight Aftermath GPU crash dumps and enable VK_NV_device_diagnostics_config "
                  "resource tracking, so a device loss writes a .nv-gpudmp and logs the page-fault RESOURCE "

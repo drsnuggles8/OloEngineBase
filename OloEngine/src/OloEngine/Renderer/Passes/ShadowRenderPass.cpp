@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
@@ -542,8 +543,30 @@ namespace OloEngine
                                 shaders, m_ItemResources[item], recordingInstancedDraws ? &m_ItemTallies[item] : nullptr,
                                 virtualCasters ? &m_VirtualItemResources[item] : nullptr, item);
         };
-        RenderCommand::RecordParallel(activeCount, recordItem, instanceCapacity);
+        if (RecordsRegionInParallel(type))
+        {
+            RenderCommand::RecordParallel(activeCount, recordItem, instanceCapacity);
+        }
+        else
+        {
+            for (u32 item = 0; item < activeCount; ++item)
+                recordItem(item);
+        }
         ReplayProfilerTallies(type, recordingInstancedDraws);
+    }
+
+    bool ShadowRenderPass::RecordsRegionInParallel(const ShadowPassType type)
+    {
+        // The cascades are recorded inline (#1504). Forked, each item renders
+        // into a DIFFERENT layer of the cascade array from its own secondary
+        // command buffer — the only region that does — and on the NVIDIA
+        // driver that was followed by a device fault reading a scene target
+        // freed after a resize or render-path switch: 7/8 faulting runs forked,
+        // 0/8 inline, and inlining the atlas, prepass or scene regions instead
+        // made no difference. No engine-side reference to the freed image
+        // exists; see docs/agent-rules/vulkan-parallel-cascade-recording-fault.md.
+        // The atlas region, whose items share one layer, still forks.
+        return type != ShadowPassType::CSM || Levers::VulkanParallelCascadeRecording();
     }
 
     void ShadowRenderPass::EnsureItemResources(u32 count, u32 instanceCapacity)
