@@ -606,6 +606,7 @@ add_executable(OloEngine-Tests
 		Rendering/StateMachine/StateMachineCoverage.cpp
 		Rendering/StateMachine/RendererStateMachineHarness.cpp
 		Rendering/StateMachine/RendererStateMachinePolicyTest.cpp
+		Rendering/StateMachine/RendererStateMachineComparisonTest.cpp
 		Rendering/StateMachine/RendererStateMachineEvidenceTest.cpp
 		Rendering/StateMachine/RendererStateMachineNegativeControlTest.cpp
 		Rendering/PropertyTests/GPUFluidSolverParityTest.cpp
