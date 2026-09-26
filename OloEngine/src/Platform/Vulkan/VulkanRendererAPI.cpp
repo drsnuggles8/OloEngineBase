@@ -4556,13 +4556,25 @@ namespace OloEngine
 
     void VulkanRendererAPI::SetTextureSampling(RHI::ResourceHandle texture, const RHI::SamplerDesc& sampler)
     {
-        // The registry holds one address mode per image; U stands for all
-        // three, as SetTextureWrap applies one mode to every axis.
-        SetTextureFilter(texture, sampler.MinFilter, sampler.MagFilter);
-        SetTextureWrap(texture, sampler.AddressU);
         const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(texture);
         if (native == 0u)
-            return; // SetTextureFilter already reported the unresolved handle
+        {
+            UnimplementedStub("SetTextureSampling(unresolved texture)", StubKind::PreconditionFailure);
+            return;
+        }
+        // The registry holds ONE address mode per image, and U stands for all
+        // three (as SetTextureWrap applies one mode to every axis). GL applies
+        // each axis, so a desc that differs per axis samples differently on the
+        // two backends: said once, not silently.
+        if (sampler.AddressV != sampler.AddressU || sampler.AddressW != sampler.AddressU)
+        {
+            static std::atomic<bool> s_Warned{ false };
+            if (!s_Warned.exchange(true, std::memory_order_relaxed))
+                OLO_CORE_WARN("VulkanRendererAPI::SetTextureSampling: per-axis address modes differ, and the "
+                              "image-info registry holds one; applying AddressU to every axis");
+        }
+        SetTextureFilter(texture, sampler.MinFilter, sampler.MagFilter);
+        SetTextureWrap(texture, sampler.AddressU);
         VulkanImageInfoRegistry::Get().SetSamplerMipmapMode(
             reinterpret_cast<VkImage>(native),
             sampler.LinearMipFilter ? VK_SAMPLER_MIPMAP_MODE_LINEAR : VK_SAMPLER_MIPMAP_MODE_NEAREST);

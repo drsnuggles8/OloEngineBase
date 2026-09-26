@@ -7,7 +7,6 @@
 #include "OloEngine/Renderer/Passes/GTAORenderPass.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
-#include "OloEngine/Renderer/RHI/RHIResources.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 namespace OloEngine
@@ -710,25 +709,12 @@ namespace OloEngine
         // created Repeat, and on GL its chain is written by compute, so the
         // object never counts as mipmapped and its min filter stays GL_LINEAR:
         // every GL read came from level 0 (a GTAODepthMipOffset change moved 21
-        // pixels on GL against 350k on Vulkan). GL's slot path samples with the
-        // object's own state and ignores a bind's desc, Vulkan and both heap
-        // paths use the desc, so both are set from one SamplerDesc.
+        // pixels on GL against 350k on Vulkan). HZBGenerator::Generate put
+        // SamplingDesc() on the texture object before its first bind (GL's slot
+        // path samples with that); the bind carries it for Vulkan and the heap.
         const RHI::ResourceHandle hzbID = m_HZBGenerator.GetHZBTexture();
-        static const RHI::SamplerDesc s_HZBSampler = []
-        {
-            RHI::SamplerDesc desc;
-            desc.Source = RHI::SamplerSource::Explicit;
-            desc.MinFilter = RHI::Filter::Linear;
-            desc.MagFilter = RHI::Filter::Linear;
-            desc.LinearMipFilter = true;
-            desc.AddressU = RHI::AddressMode::ClampToEdge;
-            desc.AddressV = RHI::AddressMode::ClampToEdge;
-            desc.AddressW = RHI::AddressMode::ClampToEdge;
-            return desc;
-        }();
-        RenderCommand::SetTextureSampling(hzbID, s_HZBSampler);
-        HeapBinding::BindTextureOrOffset(GTAO_HZB_TEXTURE_SLOT, hzbID,
-                                         m_HZBGenerator.GetHZBLifetime(), s_HZBSampler);
+        HeapBinding::BindTextureOrOffset(GTAO_HZB_TEXTURE_SLOT, hzbID, m_HZBGenerator.GetHZBLifetime(),
+                                         HZBGenerator::SamplingDesc());
 
         HeapBinding::BindTextureOrOffset(GTAO_NORMALS_TEXTURE_SLOT, normalsTextureID,
                                          RHI::HeapSlotLifetime::FrameTransient);

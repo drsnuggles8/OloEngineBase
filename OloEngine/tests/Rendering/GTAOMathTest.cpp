@@ -798,36 +798,66 @@ namespace
     }
 } // namespace
 
-// GTAO's HZB is sampled trilinear and clamp-to-edge because GTAORenderPass
-// STATES that sampler (issue #1503), on the texture object (GL's slot path
-// ignores a bind's desc) and in the bind's desc (Vulkan and the heap paths).
-// Inherited, the HZB was Repeat, so a linear fetch at the texture edge blended
-// the opposite edge's depth in: VulkanPassSuite.GtaoIsOpenOnUniformDepthAndDarkensACrease
-// (128 x 128) read an open top row at 103/255 against 240. And on GL it had no
-// mip filter, so every read was level 0: a GTAODepthMipOffset change moved 21
-// pixels on GL against 350k on Vulkan. The device test needs Vulkan hardware
-// and runs on no CI job; GTAOVisualEvidenceTest's mip check needs a GPU; this
-// pin runs everywhere.
+// The HZB is sampled trilinear and clamp-to-edge because HZBGenerator STATES
+// that sampler (issue #1503): on the texture object once per texture, before
+// its first bind (GL's slot path samples with the object's state, and on GL's
+// heap path a bindless handle freezes it), and in every bind's desc (Vulkan
+// and the heap paths). Inherited, the HZB was Repeat, so a linear fetch at the
+// texture edge blended the opposite edge's depth in:
+// VulkanPassSuite.GtaoIsOpenOnUniformDepthAndDarkensACrease (128 x 128) read an
+// open top row at 103/255 against 240. And on GL it had no mip filter, so every
+// read was level 0: a GTAODepthMipOffset change moved 21 pixels on GL against
+// 350k on Vulkan. The device test needs Vulkan hardware and runs on no CI job;
+// GTAOVisualEvidenceTest's mip check needs a GPU; this pin runs everywhere.
 TEST(GTAOMath, GtaoStatesItsHzbSamplerOnEveryBindPath)
 {
-    const std::string pass = ReadRepoFile(std::filesystem::path{ ".." } / "OloEngine" / "src" / "OloEngine" / "Renderer" /
-                                          "Passes" / "GTAORenderPass.cpp");
-    ASSERT_FALSE(pass.empty());
-    const auto begin = pass.find("static const RHI::SamplerDesc s_HZBSampler");
-    ASSERT_NE(begin, std::string::npos) << "GTAORenderPass no longer states the HZB's sampler";
-    const auto end = pass.find("}();", begin);
+    const auto renderer = std::filesystem::path{ ".." } / "OloEngine" / "src" / "OloEngine" / "Renderer";
+    const std::string generator = ReadRepoFile(renderer / "HZBGenerator.cpp");
+    ASSERT_FALSE(generator.empty());
+    const auto begin = generator.find("const RHI::SamplerDesc& HZBGenerator::SamplingDesc()");
+    ASSERT_NE(begin, std::string::npos) << "HZBGenerator no longer states the pyramid's sampler";
+    const auto end = generator.find("}();", begin);
     ASSERT_NE(end, std::string::npos);
-    const std::string desc = pass.substr(begin, end - begin);
+    const std::string desc = generator.substr(begin, end - begin);
     EXPECT_EQ(CountOccurrences(desc, "desc.Source = RHI::SamplerSource::Explicit;"), 1)
         << "an inherited desc is the Repeat, level-0 sampler the fix replaced";
     EXPECT_EQ(CountOccurrences(desc, "desc.LinearMipFilter = true;"), 1) << "the HZB sampler lost its mip filter";
     EXPECT_EQ(CountOccurrences(desc, "= RHI::AddressMode::ClampToEdge;"), 3)
         << "every axis of the HZB sampler must clamp to the edge";
-    // Both halves: the object state for GL's slot path, the desc for the rest.
-    EXPECT_EQ(CountOccurrences(pass, "RenderCommand::SetTextureSampling(hzbID, s_HZBSampler);"), 1)
-        << "GL's slot path samples with the texture object's state, which is no longer set";
-    EXPECT_EQ(CountOccurrences(pass, "m_HZBGenerator.GetHZBLifetime(), s_HZBSampler);"), 1)
-        << "the HZB bind no longer carries the stated desc";
+
+    // The object state, once per texture, before the batches bind it.
+    const auto generate = generator.find("void HZBGenerator::Generate(");
+    ASSERT_NE(generate, std::string::npos);
+    const auto stated = generator.find("RenderCommand::SetTextureSampling(hzb, SamplingDesc());", generate);
+    const auto firstBind = generator.find("m_HZBShader->Bind();", generate);
+    ASSERT_NE(stated, std::string::npos) << "Generate() no longer puts the sampler on the texture object";
+    ASSERT_NE(firstBind, std::string::npos);
+    EXPECT_LT(stated, firstBind) << "the sampler is stated after the first bind, which a bindless handle freezes";
+    EXPECT_EQ(CountOccurrences(generator, "hzb != m_SamplingStatedFor"), 1)
+        << "the object state is written every frame again, not once per texture";
+
+    // The descs: the reduce's own read and GTAO's read.
+    EXPECT_EQ(CountOccurrences(generator, "BindTextureOrOffset(4, hzbTex, hzbLifetime, SamplingDesc());"), 1)
+        << "the reduce's heap view of the pyramid no longer carries the stated desc";
+    const std::string pass = ReadRepoFile(renderer / "Passes" / "GTAORenderPass.cpp");
+    ASSERT_FALSE(pass.empty());
+    EXPECT_EQ(CountOccurrences(pass, "HZBGenerator::SamplingDesc());"), 1)
+        << "GTAO's HZB bind no longer carries the stated desc";
+
+    // And the shader reads it through that sampler: one clamped textureLod at
+    // the sample's mip, no integer fetch that would bypass the mip chain.
+    const std::string shader = ReadRepoFile(std::filesystem::path{ "assets" } / "shaders" / "compute" / "GTAO.comp");
+    ASSERT_FALSE(shader.empty());
+    const auto sampleBegin = shader.find("float SampleHZBDepth(");
+    ASSERT_NE(sampleBegin, std::string::npos) << "GTAO.comp lost SampleHZBDepth";
+    const auto sampleEnd = shader.find("\n}", sampleBegin);
+    ASSERT_NE(sampleEnd, std::string::npos);
+    const std::string sample = shader.substr(sampleBegin, sampleEnd - sampleBegin);
+    EXPECT_EQ(CountOccurrences(sample, "clamp(screenUV, vec2(0.0), vec2(1.0))"), 1)
+        << "off-screen samples no longer clamp to the viewport before the HZB UV factor";
+    EXPECT_EQ(CountOccurrences(sample, "textureLod(u_HZBDepth, clampedScreenUV * u_HZBUVFactor, mipLevel)"), 1)
+        << "SampleHZBDepth no longer reads the pyramid trilinear at the sample's mip";
+    EXPECT_EQ(CountOccurrences(sample, "texelFetch("), 0) << "an integer fetch bypasses the sampler and the mip chain";
 }
 
 // The HZB's reduction reads its parent mip with integer fetches (issue #1503).

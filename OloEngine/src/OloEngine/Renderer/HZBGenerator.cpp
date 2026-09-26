@@ -56,6 +56,7 @@ namespace OloEngine
         m_HZBTexture.Reset();
         m_ExternalHZBTexture = RHI::NullResource;
         m_ExternalMipCount = 0;
+        m_SamplingStatedFor = RHI::NullResource;
         m_HZBWidth = 0;
         m_HZBHeight = 0;
         m_MipCount = 0;
@@ -135,6 +136,15 @@ namespace OloEngine
             return;
         }
 
+        // State the pyramid's sampler on a texture we have not stated it on yet,
+        // BEFORE the batches below bind it: on GL's heap path those binds mint
+        // bindless handles, and a handle freezes the object's sampling state.
+        if (const RHI::ResourceHandle hzb = GetHZBTexture(); hzb != m_SamplingStatedFor)
+        {
+            RenderCommand::SetTextureSampling(hzb, SamplingDesc());
+            m_SamplingStatedFor = hzb;
+        }
+
         m_HZBShader->Bind();
 
         // Process mips in batches of 4
@@ -147,6 +157,23 @@ namespace OloEngine
 
         // Ensure HZB writes are visible before GTAO reads
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::TextureFetch | MemoryBarrierFlags::ShaderImageAccess);
+    }
+
+    const RHI::SamplerDesc& HZBGenerator::SamplingDesc()
+    {
+        static const RHI::SamplerDesc s_Desc = []
+        {
+            RHI::SamplerDesc desc;
+            desc.Source = RHI::SamplerSource::Explicit;
+            desc.MinFilter = RHI::Filter::Linear;
+            desc.MagFilter = RHI::Filter::Linear;
+            desc.LinearMipFilter = true;
+            desc.AddressU = RHI::AddressMode::ClampToEdge;
+            desc.AddressV = RHI::AddressMode::ClampToEdge;
+            desc.AddressW = RHI::AddressMode::ClampToEdge;
+            return desc;
+        }();
+        return s_Desc;
     }
 
     void HZBGenerator::SetExternalHZBTexture(RHI::ResourceHandle texture, u32 mipCount)
@@ -204,7 +231,10 @@ namespace OloEngine
         {
             // Need a barrier so previous batch writes are visible as texture fetches
             RenderCommand::MemoryBarrier(MemoryBarrierFlags::TextureFetch | MemoryBarrierFlags::ShaderImageAccess);
-            HeapBinding::BindTextureOrOffset(4, hzbTex, hzbLifetime);
+            // HZB.comp reads its parent with texelFetch, so the sampler does not
+            // change the result; the desc is passed so the heap view minted here
+            // agrees with the one GTAO samples through.
+            HeapBinding::BindTextureOrOffset(4, hzbTex, hzbLifetime, SamplingDesc());
         }
 
         // Compute source and destination sizes.
@@ -247,29 +277,11 @@ namespace OloEngine
         // re-uploads the bound buffer; Vulkan's arena-versioned UBOs mint a
         // fresh per-dispatch address on every SetData).
 
+        // Both passes address their input with integer texel coordinates
+        // (HZB.comp: the first pass clamps to the scene depth's last texel, the
+        // reduce to the parent mip's; issue #1503), so the UV-mapping fields of
+        // the block are reserved and left zero.
         UBOStructures::HZBParamsUBO hzbParams{};
-        if (isFirstPass)
-        {
-            // bufferUV must map HZB texel coords -> scene-depth UVs.
-            // bufferUV = (threadId + 0.5) * (1/vw, 1/vh) so that an HZB
-            // texel at threadId in [0, vw) lands on scene-depth pixel
-            // threadId. Threads at threadId >= vw produce bufferUV > 1
-            // and are clamped via u_InputViewportMaxBound to the viewport
-            // edge; the resulting outside-viewport HZB region is never
-            // sampled by GTAO (which uses u_HZBUVFactor = vw/hzbW).
-            hzbParams.DispatchThreadIdToBufferUV =
-                glm::vec2(1.0f / static_cast<f32>(srcW), 1.0f / static_cast<f32>(srcH));
-            hzbParams.InputViewportMaxBound =
-                glm::vec2((static_cast<f32>(srcW) - 0.5f) / static_cast<f32>(srcW),
-                          (static_cast<f32>(srcH) - 0.5f) / static_cast<f32>(srcH));
-        }
-        else
-        {
-            hzbParams.DispatchThreadIdToBufferUV =
-                glm::vec2(2.0f / static_cast<f32>(srcW), 2.0f / static_cast<f32>(srcH));
-            hzbParams.InputViewportMaxBound = glm::vec2(1.0f);
-        }
-        hzbParams.InvSize = glm::vec2(1.0f / static_cast<f32>(srcW), 1.0f / static_cast<f32>(srcH));
         hzbParams.FirstLod = static_cast<i32>(startMip);
         hzbParams.IsFirstPass = isFirstPass ? 1 : 0;
         hzbParams.ReduceOp = static_cast<i32>(m_ReduceMode);

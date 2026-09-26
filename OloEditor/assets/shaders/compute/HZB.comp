@@ -30,9 +30,9 @@ layout(local_size_x = LOCAL_SIZE, local_size_y = LOCAL_SIZE, local_size_z = 1) i
 // ---------------------------------------------------------------------------
 layout(std140, binding = 59) uniform HZBParams
 {
-    vec2 u_DispatchThreadIdToBufferUV;  // 1.0 / dstMip0Size
-    vec2 u_InputViewportMaxBound;       // (srcSize - 0.5) / srcSize  (clamp bound)
-    vec2 u_InvSize;                     // 1.0 / srcMipSize
+    vec2 u_DispatchThreadIdToBufferUV;  // reserved: both passes address by integer texel (#1503)
+    vec2 u_InputViewportMaxBound;       // reserved
+    vec2 u_InvSize;                     // reserved
     int  u_FirstLod;                    // Starting destination mip level
     int  u_IsFirstPass;                 // 1 = read from scene depth, 0 = read from HZB
     int  u_ReduceOp;                    // 0 = max (farthest), 1 = min (nearest)
@@ -179,8 +179,8 @@ void main()
         // whole sky as geometry at the far plane, producing black/noisy
         // AO over the background (viewport-size dependent, appeared after
         // window maximize). HZB texels beyond the viewport sub-rect clamp
-        // to the depth image's edge texel (matches the previous
-        // u_InputViewportMaxBound clamp semantics).
+        // to the depth image's edge texel (the clamp the uv-mapped read
+        // used to do through u_InputViewportMaxBound, now reserved).
         //
         // The exact fetch is also this thread's contribution to the shared-
         // memory reduction below: the first pass writes mip 0 at 1:1 scale,
@@ -197,7 +197,7 @@ void main()
     else
     {
         // Subsequent batches: each thread covers a 2x2 block of the parent
-        // mip (u_DispatchThreadIdToBufferUV = 2 / parentSize), reduced here.
+        // mip, fetched by integer texel coordinates and reduced here.
         reducedDepth = Reduce4(Gather4(u_InputDepth, dispatchThreadId, u_FirstLod - 1));
         WriteMip(0, dispatchThreadId, reducedDepth);
     }
