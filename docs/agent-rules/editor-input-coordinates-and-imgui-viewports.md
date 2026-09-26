@@ -19,8 +19,8 @@ stale value was `olo_input_inject`'s window-space bound, so the right-hand dock 
 Browser could not be reached. Both platform windows now read the size back after creation.
 
 `Window::s_HighDPIScaleFactor` is the monitor content scale, not "ImGui units to framebuffer
-pixels". The factor for that is `io.DisplayFramebufferScale`. See the issue filed from #607
-about the viewport render size, which multiplies by the former.
+pixels". The factor for that is `io.DisplayFramebufferScale`. The viewport render size multiplies
+by the former, so on Windows it renders 1.5x per axis at 150%: #1495.
 
 ## 2. Tell ImGui which viewport the synthetic cursor is over
 
