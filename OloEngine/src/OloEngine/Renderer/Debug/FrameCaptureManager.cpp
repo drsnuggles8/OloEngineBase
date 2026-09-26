@@ -62,6 +62,22 @@ namespace OloEngine
         }
     }
 
+    bool FrameCaptureManager::CancelCapture()
+    {
+        // State only, so any thread may call it. The pending frame the game
+        // thread may be filling is left alone: once the state is Idle every
+        // capture hook and CommitFrame ignore it, and the next arm
+        // (CaptureNextFrame / StartRecording) resets it. Compare-exchange, never
+        // a blind store: the capture may have completed since the caller gave
+        // up on it, and the state may since have moved to Recording, which a
+        // store to Idle would stop.
+        auto expected = CaptureState::CaptureNextFrame;
+        if (m_State.compare_exchange_strong(expected, CaptureState::Idle, std::memory_order_acq_rel))
+            return true;
+        expected = CaptureState::AwaitingGpuResults;
+        return m_State.compare_exchange_strong(expected, CaptureState::Idle, std::memory_order_acq_rel);
+    }
+
     std::optional<CapturedFrameData> FrameCaptureManager::GetSelectedFrame() const
     {
         TUniqueLock<FMutex> lock(m_Mutex);
@@ -242,6 +258,15 @@ namespace OloEngine
                 // Pool never initialized (the capture frame issued no queries):
                 // nothing will ever resolve — commit immediately without timings.
 
+                // Claim the frame before publishing it (#1504). CancelCapture
+                // runs on any thread, so it may have withdrawn the capture since
+                // the switch read the state; a withdrawn frame must not reach
+                // the ring. Once claimed, a late cancel finds Committing and
+                // leaves the publication alone.
+                auto claim = CaptureState::AwaitingGpuResults;
+                if (!m_State.compare_exchange_strong(claim, CaptureState::Committing, std::memory_order_acq_rel))
+                    break;
+
                 if (resolved)
                     ApplyGpuTimingsToSource(resultsMs);
                 else
@@ -404,12 +429,12 @@ namespace OloEngine
         }
 
         // State machine transition (a one-shot capture — committed either directly
-        // via the legacy OnFrameEnd path or from the deferred AwaitingGpuResults
-        // hold — returns to Idle; recording stays in Recording for the next frame).
-        auto expected = CaptureState::CaptureNextFrame;
+        // via the legacy OnFrameEnd path or from the claimed deferred hold —
+        // returns to Idle; recording stays in Recording for the next frame).
+        auto expected = CaptureState::Committing;
         if (!m_State.compare_exchange_strong(expected, CaptureState::Idle, std::memory_order_acq_rel))
         {
-            expected = CaptureState::AwaitingGpuResults;
+            expected = CaptureState::CaptureNextFrame;
             m_State.compare_exchange_strong(expected, CaptureState::Idle, std::memory_order_acq_rel);
         }
 

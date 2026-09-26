@@ -1264,6 +1264,10 @@ add_executable(OloEngine-Tests
 		# olo_render_frame_breakdown (#306 item D, bullet 2). Header-only
 		# (MCP/McpFrameBreakdown.h), no extra editor TU pulled in.
 		MCP/McpFrameBreakdownTest.cpp
+		# The one-shot capture wait behind olo_render_frame_breakdown and
+		# olo_perf_capture_frame withdraws a capture it stopped waiting for
+		# (#1504). Header-only (MCP/McpFrameCaptureWait.h).
+		MCP/McpFrameCaptureWaitTest.cpp
 		# Pure per-pass GPU/CPU timings shaping behind olo_perf_pass_timings
 		# (#316: split whole-frame GPU time by render-graph pass). Header-only
 		# (MCP/McpPassTimings.h), no extra editor TU pulled in.
