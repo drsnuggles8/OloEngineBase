@@ -673,11 +673,12 @@ namespace OloEngine::Tests::Oracle
         // the resolution shows at the 20 % level. On a dielectric F_ms is
         // ~0.007 and the coupled Lambert's table error is a few percent of a
         // term that is small wherever it is large, so the engine's measured
-        // worst is 3.9e-3 relative; 5e-3 is the bound. Every mutant below
+        // worst is 3.9e-3 relative; 8e-3 is the bound, the same 2x margin as the
+        // furnace bound below. Every mutant below
         // changes the D / Vis / F part, which a dielectric shows as plainly
         // as a metal.
         const MaterialCase kV2EvaluationMaterial{ glm::dvec3(0.9, 0.6, 0.3), 0.0, 0.3 };
-        constexpr f64 kV2EvaluationRelTol = 5.0e-3;
+        constexpr f64 kV2EvaluationRelTol = 8.0e-3;
         constexpr f64 kV2EvaluationAbsTol = 1.0e-6;
     } // namespace
 

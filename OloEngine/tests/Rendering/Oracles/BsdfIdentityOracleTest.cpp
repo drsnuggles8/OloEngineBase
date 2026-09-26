@@ -632,7 +632,8 @@ namespace OloEngine::Tests::Oracle
         [[nodiscard]] f64 EngineMultiScatterAlbedo(const MaterialCase& m, const glm::dvec3& v)
         {
             const BrdfFn ms = EngineClosureV2MultiScatter(m);
-            return IntegrateOverCosine([&](f64 mu) { return ms(v, Direction(mu, 0.0)).x; });
+            return IntegrateOverCosine([&](f64 mu)
+                                       { return ms(v, Direction(mu, 0.0)).x; });
         }
 
         struct FurnacePrediction

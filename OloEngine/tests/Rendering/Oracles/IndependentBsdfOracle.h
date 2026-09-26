@@ -347,7 +347,8 @@ namespace OloEngine::Tests::Oracle
 
     [[nodiscard]] inline Quadrature GgxDirectionalAlbedo(f64 muV, f64 alpha, u32 nT = 512, u32 nPhi = 128)
     {
-        return GgxDirectionalMoment(muV, alpha, nT, nPhi, [](f64) { return 1.0; });
+        return GgxDirectionalMoment(muV, alpha, nT, nPhi, [](f64)
+                                    { return 1.0; });
     }
 
     // The Schlick moment of the same lobe: its albedo with Schlick's grazing
@@ -358,7 +359,8 @@ namespace OloEngine::Tests::Oracle
     // (issue #1479).
     [[nodiscard]] inline Quadrature GgxDirectionalSchlickMoment(f64 muV, f64 alpha, u32 nT = 512, u32 nPhi = 128)
     {
-        return GgxDirectionalMoment(muV, alpha, nT, nPhi, [](f64 vDotM) { return std::pow(1.0 - vDotM, 5.0); });
+        return GgxDirectionalMoment(muV, alpha, nT, nPhi, [](f64 vDotM)
+                                    { return std::pow(1.0 - vDotM, 5.0); });
     }
 
     // Cosine-weighted average of a directional moment, [KullaConty17]:
@@ -384,13 +386,15 @@ namespace OloEngine::Tests::Oracle
     // E_avg = 2 int_0^1 E(mu) mu dmu.
     [[nodiscard]] inline Quadrature GgxAverageAlbedo(f64 alpha, u32 nMu = 64, u32 nT = 256, u32 nPhi = 64)
     {
-        return CosineAverage([&](f64 mu) { return GgxDirectionalAlbedo(mu, alpha, nT, nPhi).Value; }, nMu);
+        return CosineAverage([&](f64 mu)
+                             { return GgxDirectionalAlbedo(mu, alpha, nT, nPhi).Value; }, nMu);
     }
 
     // S_avg = 2 int_0^1 S(mu) mu dmu.
     [[nodiscard]] inline Quadrature GgxAverageSchlickMoment(f64 alpha, u32 nMu = 64, u32 nT = 256, u32 nPhi = 64)
     {
-        return CosineAverage([&](f64 mu) { return GgxDirectionalSchlickMoment(mu, alpha, nT, nPhi).Value; }, nMu);
+        return CosineAverage([&](f64 mu)
+                             { return GgxDirectionalSchlickMoment(mu, alpha, nT, nPhi).Value; }, nMu);
     }
 
     // =========================================================================
@@ -502,7 +506,7 @@ namespace OloEngine::Tests::Oracle
     };
 
     [[nodiscard]] inline ClosureV2TableTerms EvaluateClosureV2TableTerms(const glm::dvec3& albedo, f64 metallic,
-                                                                  const ClosureV2Energies& e)
+                                                                         const ClosureV2Energies& e)
     {
         const glm::dvec3 f0 = BaseF0(albedo, metallic);
         ClosureV2TableTerms terms;

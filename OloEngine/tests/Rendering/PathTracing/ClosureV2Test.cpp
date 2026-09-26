@@ -112,12 +112,11 @@ namespace OloEngine::Tests
             return EstimateMoments(mu, roughness, sampleCount).Ess;
         }
 
-        // The table's node values (GgxEnergyTables.h "Conventions"): node j of
-        // N at (j / (N - 1))^2 on both axes.
+        // The table's node values (GgxEnergyTables.h "Conventions"): the engine's
+        // own inverse of the lookup coordinate, the same one the generator bakes at.
         [[nodiscard]] f32 NodeValue(u32 node)
         {
-            const f32 x = static_cast<f32>(node) / static_cast<f32>(kGgxEnergyTableSize - 1);
-            return x * x;
+            return GgxEnergyNodeValue(node);
         }
 
         // Uniform-hemisphere Monte Carlo estimate of the LEGACY directional

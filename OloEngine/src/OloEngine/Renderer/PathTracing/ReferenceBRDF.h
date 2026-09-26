@@ -459,6 +459,16 @@ namespace OloEngine::PathTracing
         return std::sqrt(std::clamp(value, 0.0f, 1.0f)) * static_cast<f32>(kGgxEnergyTableSize - 1);
     }
 
+    // The inverse: the mu or roughness value node `node` of a `gridSize` grid
+    // sits at, (node / (gridSize - 1))^2. No GLSL twin — shaders only ever go
+    // value -> coordinate. The generator bakes at these values (with its own
+    // --grid) and ClosureV2Test recomputes entries at them.
+    [[nodiscard]] inline f32 GgxEnergyNodeValue(u32 node, u32 gridSize = kGgxEnergyTableSize) noexcept
+    {
+        const f32 x = static_cast<f32>(node) / static_cast<f32>(gridSize - 1);
+        return x * x;
+    }
+
     // GLSL: ggxEnergy — bilinear lookup of both single-scatter moments,
     // x = 1 - Ess(mu, r) and y = Schlick(mu, r) (GgxEnergyTables.h).
     // `roughness` is AUTHORED perceptual roughness; the table rows bake the v2

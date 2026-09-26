@@ -137,8 +137,11 @@ feature sits inside the first linear cell. Measured against the independent
 oracle over the whole domain, linear `j/15` nodes were no better than the
 cell-centred table (worst furnace error 4.2 % for μ ≥ 0.05, 10 % below it);
 square-root nodes of the same 16×16 size give 0.8 % and 2.4 %. μ = 0 is
-baked at μ = 1e-4, the cosine floor `GgxSmithLambda` applies, so node 0 is the
-closure the engine actually evaluates there. Lookups take AUTHORED roughness;
+baked at μ = 1e-4, the cosine floor `GgxSmithLambda` applies (the estimator's
+`G2/G1` needs a finite Λ(μv)), and the lookup places it at coordinate 0; the
+limit it stands in for is `1 − Ess → 0`, and the loss at 1e-4 is 0.012 at the
+smoothest rows and below 1e-3 from roughness 0.2 up — inside the table's own
+grazing resolution. Lookups take AUTHORED roughness;
 rows 0–3 all hold the r = 0.04 lobe the clamp produces.
 
 The packing is not cosmetic. The first cut stored a plain `const float[256]`

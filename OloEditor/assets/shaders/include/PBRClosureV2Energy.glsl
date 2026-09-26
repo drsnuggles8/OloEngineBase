@@ -48,8 +48,9 @@
 //     (j / 15)^2 on both axes, so a value x has lookup coordinate
 //     sqrt(x) * 15. Both endpoints are nodes: the bilinear lookup never
 //     clamps and never extrapolates. Entry index = row (roughness) * 16 + column (mu).
-//   * mu = 0 is baked at mu = 1e-4, the cosine floor ggxSmithLambda applies, so
-//     node 0 is the closure the engine actually evaluates there.
+//   * mu = 0 is baked at mu = 1e-4, the cosine floor ggxSmithLambda applies
+//     (the estimator's G2/G1 needs a finite Lambda(mu_v)); the true limit there
+//     is 1 - Ess -> 0, and the node sits within the table's resolution of it.
 //   * Estimator: 4096 deterministic Hammersley points per node; the averages use
 //     a 64-point midpoint quadrature over mu at 2048 points per evaluation.
 //

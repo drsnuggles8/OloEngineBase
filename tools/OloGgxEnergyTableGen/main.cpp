@@ -202,19 +202,19 @@ namespace
     // and 10 % below it — no better than the cell-centred table — against 0.8 %
     // and 2.4 % for these nodes at the same 16 x 16 size.
     //
-    // mu = 0 is baked at kMuFloor. The engine's GgxSmithLambda floors every
-    // cosine at 1e-4, so the closure it shades with is the mu = 1e-4 closure
-    // for any mu at or below that; the node stores exactly that closure's
-    // energy rather than a limit the renderer never evaluates. (The limit
-    // itself is 1 - Ess -> 0: at a grazing view every visible facet reflects
-    // above the horizon and G2/G1 -> 1.)
+    // The node values come from the engine's GgxEnergyNodeValue, the inverse of
+    // the GgxEnergyTableCoordinate the lookups use, so the bake and the lookup
+    // cannot disagree about where a node sits.
+    //
+    // mu = 0 cannot be estimated as such: the estimator's weight G2/G1 needs
+    // Lambda(mu_v), which is infinite there. It is baked at kMuFloor, the
+    // cosine floor GgxSmithLambda already applies, and the lookup places that
+    // value at coordinate 0. The limit it stands in for is 1 - Ess -> 0 (at a
+    // grazing view every visible facet reflects above the horizon and
+    // G2/G1 -> 1); the loss at 1e-4 is 0.012 at the smoothest rows and below
+    // 1e-3 from roughness 0.2 up, so the node sits within the table's own
+    // interpolation error of that limit.
     constexpr f32 kMuFloor = 1.0e-4f;
-
-    [[nodiscard]] f32 NodeValue(u32 node, u32 grid) noexcept
-    {
-        const f32 x = static_cast<f32>(node) / static_cast<f32>(grid - 1u);
-        return x * x;
-    }
 
     // -------------------------------------------------------------------------
     // IEEE-754 binary16 packing, round-to-nearest-even
@@ -345,8 +345,9 @@ namespace
             << "//     (j / " << (o.Grid - 1u) << ")^2 on both axes, so a value x has lookup coordinate\n"
             << "//     sqrt(x) * " << (o.Grid - 1u) << ". Both endpoints are nodes: the bilinear lookup never\n"
             << "//     clamps and never extrapolates. Entry index = row (roughness) * " << o.Grid << " + column (mu).\n"
-            << "//   * mu = 0 is baked at mu = 1e-4, the cosine floor " << lambdaName << " applies, so\n"
-            << "//     node 0 is the closure the engine actually evaluates there.\n";
+            << "//   * mu = 0 is baked at mu = 1e-4, the cosine floor " << lambdaName << " applies\n"
+            << "//     (the estimator's G2/G1 needs a finite Lambda(mu_v)); the true limit there\n"
+            << "//     is 1 - Ess -> 0, and the node sits within the table's resolution of it.\n";
         return out.str();
     }
 
@@ -717,10 +718,10 @@ int main(int argc, char** argv)
     std::vector<f64> schlick(nodes);
     for (u32 row = 0; row < options.Grid; ++row)
     {
-        const f32 roughness = NodeValue(row, options.Grid);
+        const f32 roughness = GgxEnergyNodeValue(row, options.Grid);
         for (u32 col = 0; col < options.Grid; ++col)
         {
-            const f32 mu = std::max(NodeValue(col, options.Grid), kMuFloor);
+            const f32 mu = std::max(GgxEnergyNodeValue(col, options.Grid), kMuFloor);
             const Moments m = EstimateMoments(mu, roughness, options.Samples);
             loss[static_cast<sizet>(row) * options.Grid + col] = 1.0 - m.Ess;
             schlick[static_cast<sizet>(row) * options.Grid + col] = m.Schlick;
@@ -731,7 +732,8 @@ int main(int argc, char** argv)
     std::vector<f64> schlickAvg(options.Grid);
     for (u32 row = 0; row < options.Grid; ++row)
     {
-        const Moments m = EstimateAverages(NodeValue(row, options.Grid), options.AvgPoints, options.AvgSamples);
+        const Moments m =
+            EstimateAverages(GgxEnergyNodeValue(row, options.Grid), options.AvgPoints, options.AvgSamples);
         lossAvg[row] = 1.0 - m.Ess;
         schlickAvg[row] = m.Schlick;
     }
