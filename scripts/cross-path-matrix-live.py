@@ -51,7 +51,7 @@ path, and any other export directory by its absolute path; the reply's resolved 
 checked against the file either way.
 
 The run leaves the editor as it found it (the viewport override is reset, Play is
-stopped, the scene open at the start is reopened, then the render path and MSAA are put
+stopped, the scene open at the start is reopened, then the render path, MSAA and upscale are put
 back). olo_scene_summary reports a scene NAME, not a file, so the original scene is found
 as <name>.olo under --project-assets; pass --restore-scene when that is ambiguous. Unsaved
 edits in the scene open at the start are lost when the first row is opened.
@@ -556,7 +556,7 @@ def main():
         else:
             print("WARNING: the scene open at the start (%r) was not found as one <name>.olo under %s; it is NOT "
                   "reopened (pass --restore-scene)" % (start.get("name"), args.project_assets))
-        for setting in ("renderpath", "msaa"):
+        for setting in ("renderpath", "msaa", "upscale"):
             if original.get(setting):
                 steps.append(("restore %s=%s" % (setting, original[setting]),
                               lambda s=setting: mcp.call("olo_renderer_settings_set",
