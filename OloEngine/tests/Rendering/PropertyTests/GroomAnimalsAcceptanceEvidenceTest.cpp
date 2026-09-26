@@ -2402,8 +2402,22 @@ namespace OloEngine::Tests
         // would show if the card tier's coverage depended on how the frame is
         // composed.
         auto& rs = Renderer3D::GetRendererSettings();
-        const u32 restoreSamples = rs.Deferred.MSAASampleCount;
         auto& post = Renderer3D::GetPostProcessSettings();
+        // Restored on every exit, an early ASSERT included: these are process
+        // globals, and the next test would otherwise run upscaled.
+        struct Restore
+        {
+            u32 Samples;
+            UpscaleMode Upscale;
+            UpscalerTechnique Technique;
+            ~Restore()
+            {
+                Renderer3D::GetRendererSettings().Deferred.MSAASampleCount = Samples;
+                Renderer3D::GetPostProcessSettings().Upscale = Upscale;
+                Renderer3D::GetPostProcessSettings().Technique = Technique;
+                SetPath(RenderingPath::Forward);
+            }
+        } const restore{ rs.Deferred.MSAASampleCount, post.Upscale, post.Technique };
         struct PathCell
         {
             const char* Name;
@@ -2423,23 +2437,25 @@ namespace OloEngine::Tests
                          UpscalerTechnique::Temporal } })
         {
             SCOPED_TRACE(cell.Name);
-            SetPath(cell.Path);
             rs.Deferred.MSAASampleCount = cell.Samples;
             post.Upscale = cell.Upscale;
             post.Technique = cell.Technique;
-            const Kept k = keep(m_LongCoat, handoverStop, cell.Name, false);
+            SetPath(cell.Path);
+            const Kept k = keep(m_LongCoat, handoverStop, cell.Name, true);
             ASSERT_FALSE(HasFatalFailure());
             EXPECT_GT(k.Off.Lit.Cov, 1000.0) << cell.Name << ": the coat must be measurable on this path";
             EXPECT_EQ(k.On.Representation, GroomRepresentation::Card);
+            // WHICH resolve: an unavailable FSR2 falls back to FSR1, and the
+            // FSR2 cell would quietly measure the other upscaler.
+            if (cell.Technique == UpscalerTechnique::Temporal)
+            {
+                EXPECT_TRUE(Renderer3D::IsTemporalUpscaleActive()) << "FSR2 must own this frame";
+            }
             EXPECT_GT(k.Coverage, kCoverageFloor) << cell.Name;
             EXPECT_LT(k.Coverage, kCoverageCeiling) << cell.Name;
             EXPECT_GT(k.Energy, kShippedEnergyFloor) << cell.Name;
             EXPECT_LT(k.Energy, kShippedEnergyCeiling) << cell.Name;
         }
-        rs.Deferred.MSAASampleCount = restoreSamples;
-        post.Upscale = UpscaleMode::Off;
-        post.Technique = UpscalerTechnique::Spatial;
-        SetPath(RenderingPath::Forward);
     }
 
     // =========================================================================

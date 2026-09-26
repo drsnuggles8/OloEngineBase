@@ -540,6 +540,8 @@ namespace OloEngine
             std::vector<f32> CoatFibreScales;
             /// The level CoatFibreScales was measured from.
             const GroomLodLevel* CoatFibreScalesSource = nullptr;
+            /// A scale list that did not match the pose's length was reported.
+            bool CoatFibreMismatchReported = false;
 
             // ── The bake subset (#1445) ─────────────────────────────
 
@@ -678,14 +680,29 @@ namespace OloEngine
         /// measured occupancy (#1445).
         void RefreshCoatBakeStride(CacheEntry& entry) const noexcept;
 
+        /// GroomCardFibreByGroup for this request's LOD level, measured once
+        /// per level and shared by every entry and stream that draws it.
+        const std::vector<f32>& CardFibreByGroup(const GroomStrandRequest& request);
+
         /// The entry's CoatFibreScales for this request's LOD level, measured
         /// once per level; empty on the strand tier.
-        static const std::vector<f32>& CardFibreScales(const GroomStrandRequest& request, CacheEntry& entry);
+        const std::vector<f32>& CardFibreScales(const GroomStrandRequest& request, CacheEntry& entry);
 
         /// Multiplies a card level's rest pose by GroomCardFibreScales; a
         /// no-op on the strand tier. Every GPU-path pose goes through it.
-        static void ScaleRestPoseToCardFibre(const GroomStrandRequest& request,
-                                             std::vector<GroomRestPoseSegment>& pose);
+        void ScaleRestPoseToCardFibre(const GroomStrandRequest& request, std::vector<GroomRestPoseSegment>& pose);
+
+        /// Per LOD level, the per-group fibre table (#1428). Keyed on the level
+        /// AND its size, so a recooked level at a reused address is measured
+        /// again rather than served its predecessor's factors.
+        struct CardFibreTable
+        {
+            const GroomLodLevel* Level = nullptr;
+            u32 Curves = 0;
+            sizet Points = 0;
+            std::vector<f32> ByGroup;
+        };
+        std::vector<CardFibreTable> m_CardFibreTables;
 
         bool BakeCoatVolume(CacheEntry& entry, std::span<const GroomCoatShadow::CoatSegment> segments,
                             u32 resolution, bool ring, u32* outOccupiedVoxels = nullptr);

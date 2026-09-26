@@ -249,9 +249,19 @@ void main()
 	if (eyeDistance > 2.0 * radiusWorld)
 	{
 		vec4 clipFront = u_ViewProjection * vec4(worldCurr.xyz + (axisToEye * (radiusWorld / eyeDistance)), 1.0);
-		if (clipFront.w > 1e-6)
+		// Only while the front surface is still in front of the near plane: a
+		// fibre whose axis is just inside it keeps the axis's depth rather
+		// than being clipped away. u_ViewProjection is the rasterizer flavour,
+		// so NDC depth starts at 0 on Vulkan and at -1 on OpenGL.
+#ifdef OLO_VULKAN
+		const float nearDepth = 0.0;
+#else
+		const float nearDepth = -1.0;
+#endif
+		float frontDepth = clipFront.w > 1e-6 ? clipFront.z / clipFront.w : nearDepth;
+		if (frontDepth > nearDepth)
 		{
-			gl_Position.z = (clipFront.z / clipFront.w) * gl_Position.w;
+			gl_Position.z = frontDepth * gl_Position.w;
 		}
 	}
 

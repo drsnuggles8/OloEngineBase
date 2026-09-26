@@ -453,6 +453,17 @@ namespace OloEngine
     void GroomCardFibreScales(const GroomAsset& base, const GroomLodLevel& level,
                               const GroomStrandBuildSettings& settings, const GroomCoatContext* coat,
                               std::vector<f32>& outPerSegment);
+
+    /// The same, from a per-group table measured once per level with
+    /// GroomCardFibreByGroup -- the walk over the base groom's points is the
+    /// expensive half, and it depends on the asset and the level alone.
+    void GroomCardFibreScales(const GroomAsset& base, const GroomLodLevel& level, std::span<const f32> byGroup,
+                              const GroomStrandBuildSettings& settings, const GroomCoatContext* coat,
+                              std::vector<f32>& outPerSegment);
+
+    /// Per coat group, the base groom's fibre area over `level`'s; 1 where the
+    /// level has none of a group.
+    [[nodiscard]] std::vector<f32> GroomCardFibreByGroup(const GroomAsset& base, const GroomLodLevel& level);
     void SelectGroomStrandCurves(const GroomAsset& groom, const GroomStrandBuildSettings& settings,
                                  TArray<u32>& outCurves, const GroomCoatContext* coat = nullptr);
 

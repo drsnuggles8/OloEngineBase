@@ -663,6 +663,13 @@ namespace OloEngine
             // At the fibre each card stands for, per group (#1428); the same
             // segment order as the stream the vertices came from.
             const std::vector<f32>& fibre = CardFibreScales(request, entry);
+            if (!fibre.empty() && fibre.size() != m_DrawnPoseFull.size() && !entry.CoatFibreMismatchReported)
+            {
+                entry.CoatFibreMismatchReported = true;
+                OLO_CORE_WARN("GroomRenderPass: card-tier fibre scales cover {} segments but the drawn pose has {}; "
+                              "the self-shadow bake is wrong for the difference (groom {})",
+                              fibre.size(), m_DrawnPoseFull.size(), static_cast<u64>(request.Handle));
+            }
             for (sizet s = 0; s < m_DrawnPoseFull.size() && s < fibre.size(); ++s)
             {
                 m_DrawnPoseFull[s].RadiusA *= fibre[s];
@@ -692,10 +699,32 @@ namespace OloEngine
         if (entry.CoatFibreScalesSource != request.LodLevel)
         {
             const GroomCoatContext coat{ &request.Coat, request.Groom->GetGroupCoats() };
-            GroomCardFibreScales(*request.Groom, *request.LodLevel, request.Build, &coat, entry.CoatFibreScales);
+            GroomCardFibreScales(*request.Groom, *request.LodLevel, CardFibreByGroup(request), request.Build, &coat,
+                                 entry.CoatFibreScales);
             entry.CoatFibreScalesSource = request.LodLevel;
+            entry.CoatFibreMismatchReported = false;
         }
         return entry.CoatFibreScales;
+    }
+
+    const std::vector<f32>& GroomRenderPass::CardFibreByGroup(const GroomStrandRequest& request)
+    {
+        const GroomLodLevel& level = *request.LodLevel;
+        for (const CardFibreTable& table : m_CardFibreTables)
+        {
+            if (table.Level == &level && table.Curves == level.GetCurveCount() && table.Points == level.Points.size())
+            {
+                return table.ByGroup;
+            }
+        }
+        // A handful of levels at most; a level that went away leaves a small
+        // stale row, bounded by how many levels a session ever cooks.
+        CardFibreTable& table = m_CardFibreTables.emplace_back();
+        table.Level = &level;
+        table.Curves = level.GetCurveCount();
+        table.Points = level.Points.size();
+        table.ByGroup = GroomCardFibreByGroup(*request.Groom, level);
+        return table.ByGroup;
     }
 
     void GroomRenderPass::ScaleRestPoseToCardFibre(const GroomStrandRequest& request,
@@ -712,7 +741,13 @@ namespace OloEngine
         }
         const GroomCoatContext coat{ &request.Coat, request.Groom->GetGroupCoats() };
         std::vector<f32> fibre;
-        GroomCardFibreScales(*request.Groom, *request.LodLevel, request.Build, &coat, fibre);
+        GroomCardFibreScales(*request.Groom, *request.LodLevel, CardFibreByGroup(request), request.Build, &coat, fibre);
+        if (fibre.size() != pose.size())
+        {
+            OLO_CORE_WARN("GroomRenderPass: card-tier fibre scales cover {} segments but the rest pose has {}; "
+                          "the self-shadow bake is wrong for the difference (groom {})",
+                          fibre.size(), pose.size(), static_cast<u64>(request.Handle));
+        }
         for (sizet s = 0; s < pose.size() && s < fibre.size(); ++s)
         {
             pose[s].Radius0 *= fibre[s];

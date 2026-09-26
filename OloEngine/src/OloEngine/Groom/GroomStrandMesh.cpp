@@ -401,11 +401,8 @@ namespace OloEngine
         }
     }
 
-    void GroomCardFibreScales(const GroomAsset& base, const GroomLodLevel& level,
-                              const GroomStrandBuildSettings& settings, const GroomCoatContext* coat,
-                              std::vector<f32>& outPerSegment)
+    std::vector<f32> GroomCardFibreByGroup(const GroomAsset& base, const GroomLodLevel& level)
     {
-        outPerSegment.clear();
         const u32 groups = base.GetGroupCount();
         const auto fibreByGroup = [groups](const GroomCurveView& curves)
         {
@@ -436,7 +433,14 @@ namespace OloEngine
             const f64 scale = levelArea[group] > 0.0 ? baseArea[group] / levelArea[group] : 1.0;
             scaleByGroup[group] = std::isfinite(scale) && scale > 0.0 ? static_cast<f32>(scale) : 1.0f;
         }
+        return scaleByGroup;
+    }
 
+    void GroomCardFibreScales(const GroomAsset& base, const GroomLodLevel& level, std::span<const f32> byGroup,
+                              const GroomStrandBuildSettings& settings, const GroomCoatContext* coat,
+                              std::vector<f32>& outPerSegment)
+    {
+        outPerSegment.clear();
         // The segments in the order the build emits them: the curves its
         // selection walks, each curve's segments in turn, up to the segment cap.
         const GroomBuildSource source = GroomBuildSource::FromLevel(base, level);
@@ -445,13 +449,21 @@ namespace OloEngine
         for (const u32 curve : curves)
         {
             const u16 group = source.Curves.GetCurveGroupIds()[curve];
-            const f32 scale = group < groups ? scaleByGroup[group] : 1.0f;
+            const f32 scale = group < byGroup.size() ? byGroup[group] : 1.0f;
             const u32 segments = CountCurveSegments(source.Curves, curve);
             for (u32 s = 0; s < segments && outPerSegment.size() < settings.MaxSegments; ++s)
             {
                 outPerSegment.push_back(scale);
             }
         }
+    }
+
+    void GroomCardFibreScales(const GroomAsset& base, const GroomLodLevel& level,
+                              const GroomStrandBuildSettings& settings, const GroomCoatContext* coat,
+                              std::vector<f32>& outPerSegment)
+    {
+        const std::vector<f32> byGroup = GroomCardFibreByGroup(base, level);
+        GroomCardFibreScales(base, level, byGroup, settings, coat, outPerSegment);
     }
 
     GroomStrandMeshStats PlanGroomStrandMesh(const GroomBuildSource& source, const GroomStrandBuildSettings& settings,
@@ -561,6 +573,10 @@ namespace OloEngine
         // more than the strands' did (the strands' jitter averages out within
         // every voxel). N is per group: the base groom's strands over the
         // level's cards.
+        //
+        // Only the WALK takes it. The selection (Plan, SelectGroomStrandCurves)
+        // reads the raw coat, which is the same answer because jitter never
+        // decides Keep or Role; a jitter that did would make the two disagree.
         [[nodiscard]] const GroomCoatContext* CardTierCoat(const GroomBuildSource& source, const GroomCoatContext* coat,
                                                            GroomCoatContext& scratch, std::vector<f32>& scales)
         {

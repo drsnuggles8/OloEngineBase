@@ -741,6 +741,14 @@ TEST(GroomLodCook, TheCardTierShadowIsBakedAtEachGroupsFibreArea)
         std::vector<u32> indices;
         (void)BuildGroomStrandMesh(source, build, vertices, indices);
         std::vector<f64> byGroup(groom->GetGroupCount(), 0.0);
+        // One scale per emitted segment, or the weighting below would read
+        // past the list -- the very regression this case exists to catch.
+        EXPECT_TRUE(weights.empty() || weights.size() * 4u == vertices.size())
+            << weights.size() << " scales for " << vertices.size() / 4u << " segments";
+        if (!weights.empty() && weights.size() * 4u != vertices.size())
+        {
+            return byGroup;
+        }
         sizet segment = 0;
         for (u32 curve = 0; curve < source.Curves.GetCurveCount(); ++curve)
         {
