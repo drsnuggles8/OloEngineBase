@@ -200,6 +200,19 @@ namespace
         EXPECT_FLOAT_EQ(pacer.GetSmoothedDelta(), 0.016f);
     }
 
+    // A pinned mock clock produces zero-length frames (issue #1470). With
+    // smoothing on, they must stay zero-length rather than replaying a
+    // fraction of the previous frame's time, and must not drag the average.
+    TEST(FramePacerSmoothing, AZeroLengthFrameStaysZeroAndLeavesTheAverage)
+    {
+        FramePacer pacer;
+        pacer.SetSmoothingFactor(0.2f);
+        pacer.SmoothDelta(0.016f);
+        EXPECT_EQ(pacer.SmoothDelta(0.0f), 0.0f);
+        EXPECT_FLOAT_EQ(pacer.GetSmoothedDelta(), 0.016f);
+        EXPECT_FLOAT_EQ(pacer.SmoothDelta(0.016f), 0.016f);
+    }
+
     TEST(FramePacerSmoothing, ResetReseedsOnNextSample)
     {
         FramePacer pacer;

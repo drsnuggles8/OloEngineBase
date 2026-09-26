@@ -75,7 +75,8 @@ namespace OloEngine
         // Feed the raw per-frame delta (seconds); returns the EMA-smoothed delta
         // and stores it. The first call (or first after Reset) seeds the average
         // with rawDelta. A non-finite rawDelta is ignored (the previous smoothed
-        // value is returned unchanged).
+        // value is returned unchanged). A zero or negative rawDelta is a frame in
+        // which no time passed: it returns 0 and leaves the average untouched.
         f32 SmoothDelta(f32 rawDelta);
         [[nodiscard]] f32 GetSmoothedDelta() const
         {
