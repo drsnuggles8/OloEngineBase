@@ -879,6 +879,14 @@ namespace OloEngine
             { return QueueMcpInput(plan); };
             mcpContext.GetInputState = [this]() -> MCP::McpInputStateSnapshot
             { return GetMcpInputState(); };
+            mcpContext.GetInputPanelWindows = []() -> std::vector<MCP::McpInputPanelWindow>
+            { return GetMcpInputPanelWindows(); };
+            // olo_asset_open (#607): the Content Browser's double-click route, with the
+            // unsaved-changes question answered by an argument instead of a modal.
+            mcpContext.OpenAsset = [this](const MCP::McpAssetOpenRequest& request) -> MCP::McpAssetOpenResult
+            { return OpenAssetFromMcp(request); };
+            mcpContext.GetAssetEditorState = [this](const MCP::McpAssetOpenResult& opened) -> MCP::McpAssetEditorState
+            { return GetMcpAssetEditorState(opened); };
             // olo_editor_select_entity (#607): select/clear the Scene Hierarchy
             // panel's selection so the Properties inspector draws the requested
             // entity — see SelectEntityInEditor for the UUID resolution + the
@@ -1032,6 +1040,7 @@ namespace OloEngine
         m_McpInputQueue.clear();
         ReleaseSyntheticMouseButtons();
         RestoreCursorOverWindowState();
+        ImGuiLayer::SetMouseViewportOverride(0);
         SyntheticInput::Reset();
 
         // Properly stop the scene if still in play/simulate mode
@@ -1217,6 +1226,7 @@ namespace OloEngine
         if (m_McpInputQueue.empty())
         {
             SyntheticInput::ClearMousePosition();
+            ImGuiLayer::SetMouseViewportOverride(0);
             ReleaseSyntheticMouseButtons();
             // Arm the hand-back rather than doing it here: see the countdown at the
             // top of this function for why it must not land before the caller reads
@@ -1342,6 +1352,20 @@ namespace OloEngine
                 // when multi-viewport is enabled, so ImGui ends up with the right screen
                 // coordinate without us duplicating that math.
                 SyntheticInput::SetMousePosition({ event.X, event.Y });
+                // A point in a panel floating in its own OS window: X/Y are still
+                // relative to the main window (the backend adds the main window's
+                // position back), and ImGui is told which viewport is hovered, since
+                // the backend only ever reports the one the physical mouse is over.
+                // A window-space point names the MAIN viewport, never none: with no
+                // hovered viewport reported, ImGui keeps hit-testing the last one it
+                // saw hovered, which after a floating-panel plan is that panel's
+                // (measured: hoveredWindow null over the dock). Deliberately not "the
+                // OS window on top there": a floating panel's OS window can overlap
+                // the editor, but the desktop z-order also interleaves other
+                // applications and ImGui's focus-stamp fallback got it wrong when
+                // measured, so space:"window" means the main dockspace and a floating
+                // panel is addressed with space:"panel".
+                ImGuiLayer::SetMouseViewportOverride(event.Viewport != 0 ? event.Viewport : ImGui::GetMainViewport()->ID);
                 ::ImGui_ImplGlfw_CursorPosCallback(window, static_cast<f64>(event.X), static_cast<f64>(event.Y));
                 // Arm the landing probe: next tick, once ImGui's NewFrame has applied
                 // its queue, SampleMcpCursorLanding checks whether this position is
@@ -1426,6 +1450,15 @@ namespace OloEngine
                 ::ImGui_ImplGlfw_CharCallback(window, static_cast<unsigned int>(event.Code));
                 break;
             }
+            case MCP::McpInputEvent::Kind::MouseWheel:
+            {
+                // The backend's scroll callback feeds io.AddMouseWheelEvent AND chains
+                // to the engine's own GLFW scroll callback (MouseScrolledEvent), so a
+                // graph canvas and the editor camera both see it, as they would a
+                // real wheel.
+                ::ImGui_ImplGlfw_ScrollCallback(window, static_cast<f64>(event.X), static_cast<f64>(event.Y));
+                break;
+            }
         }
     }
 
@@ -1471,10 +1504,66 @@ namespace OloEngine
             }
         }
 
-        const Window& appWindow = Application::Get().GetWindow();
-        info.WindowWidth = appWindow.GetWidth();
-        info.WindowHeight = appWindow.GetHeight();
+        // The extent window-space coordinates are valid in is the dockspace the panels
+        // are laid out in — ImGui's main viewport — measured, not Window::GetWidth():
+        // that one used to keep the pre-GLFW_SCALE_TO_MONITOR request size (1280x720
+        // for a 1920x1080 window on a 150% display) and hid the whole right-hand dock
+        // and the Content Browser from the bounds check below it (issue #607).
+        if (const ImGuiViewport* mainViewport = ImGui::GetMainViewport(); mainViewport != nullptr)
+        {
+            info.WindowWidth = static_cast<u32>(std::max(0.0f, mainViewport->Size.x));
+            info.WindowHeight = static_cast<u32>(std::max(0.0f, mainViewport->Size.y));
+        }
+        info.FramebufferScaleX = io.DisplayFramebufferScale.x;
+        info.FramebufferScaleY = io.DisplayFramebufferScale.y;
+        if (auto* const window = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow()); window)
+        {
+            int framebufferWidth = 0;
+            int framebufferHeight = 0;
+            ::glfwGetFramebufferSize(window, &framebufferWidth, &framebufferHeight);
+            info.FramebufferWidth = static_cast<u32>(std::max(0, framebufferWidth));
+            info.FramebufferHeight = static_cast<u32>(std::max(0, framebufferHeight));
+        }
         return info;
+    }
+
+    // Every top-level ImGui window, for olo_input_inject's space:"panel" (issue #607).
+    // Child windows are skipped: they are regions inside a panel, not panels, and
+    // their generated names ("Parent/Child_1234") are not something a caller names.
+    // A DOCKED panel also carries ImGuiWindowFlags_ChildWindow (ImGui::BeginDocked
+    // sets it) but has DockIsActive, so it is kept; dock-node host windows are not
+    // panels either.
+    std::vector<MCP::McpInputPanelWindow> EditorLayer::GetMcpInputPanelWindows()
+    {
+        std::vector<MCP::McpInputPanelWindow> windows;
+        const ImGuiContext* const context = ::GImGui;
+        if (context == nullptr)
+            return windows;
+
+        const ImGuiViewport* const mainViewport = ImGui::GetMainViewport();
+        windows.reserve(static_cast<sizet>(context->Windows.Size));
+        for (const ImGuiWindow* const window : context->Windows)
+        {
+            if (window == nullptr || (window->Flags & ImGuiWindowFlags_DockNodeHost) != 0)
+                continue;
+            if ((window->Flags & ImGuiWindowFlags_ChildWindow) != 0 && !window->DockIsActive)
+                continue;
+            MCP::McpInputPanelWindow entry;
+            entry.Name = window->Name;
+            entry.X = window->Pos.x;
+            entry.Y = window->Pos.y;
+            entry.Width = window->Size.x;
+            entry.Height = window->Size.y;
+            entry.Active = window->WasActive;
+            // A docked tab that is not the selected one is still submitted every
+            // frame (Begin returns false), so WasActive alone would call it visible;
+            // DockTabIsVisible is ImGui's "this is the selected tab".
+            entry.Hidden = window->DockIsActive ? !window->DockTabIsVisible : window->Hidden;
+            entry.OnMainViewport = window->Viewport == nullptr || window->Viewport == mainViewport;
+            entry.ViewportId = window->Viewport != nullptr ? window->Viewport->ID : 0;
+            windows.push_back(std::move(entry));
+        }
+        return windows;
     }
 
     MCP::McpInputStateSnapshot EditorLayer::GetMcpInputState() const
@@ -4050,150 +4139,269 @@ namespace OloEngine
         // we're keeping it simple by integrating everything into the scene render.
     }
 
+    bool EditorLayer::ResolveUnsavedChanges(bool hasUnsavedChanges, std::string_view titleNoun, std::string_view sentenceNoun,
+                                            UnsavedChangesPolicy policy, const std::function<bool()>& save, AssetOpenOutcome& outcome)
+    {
+        if (!hasUnsavedChanges)
+            return true;
+
+        switch (policy)
+        {
+            case UnsavedChangesPolicy::Discard:
+                return true;
+            case UnsavedChangesPolicy::Refuse:
+                outcome.BlockedByUnsaved = true;
+                outcome.Message = "The current " + std::string(sentenceNoun) +
+                                  " has unsaved changes. Save it first, or pass discardUnsaved:true to drop them.";
+                return false;
+            case UnsavedChangesPolicy::Prompt:
+            default:
+                break;
+        }
+
+        const std::string title = "Unsaved " + std::string(titleNoun);
+        const std::string message = "The current " + std::string(sentenceNoun) +
+                                    " has unsaved changes. Do you want to save before opening a new one?";
+        auto const result = MessagePrompt::YesNoCancel(title.c_str(), message.c_str());
+        switch (result)
+        {
+            case MessagePromptResult::Yes:
+                return save();
+            case MessagePromptResult::Cancel:
+                return false;
+            case MessagePromptResult::No:
+            default:
+                return true;
+        }
+    }
+
+    EditorLayer::AssetOpenOutcome EditorLayer::OpenAssetInEditor(const std::filesystem::path& path, ContentFileType type,
+                                                                 UnsavedChangesPolicy policy)
+    {
+        using enum MCP::EditorPanels::PanelId;
+        AssetOpenOutcome outcome;
+        switch (type)
+        {
+            case ContentFileType::Dialogue:
+                outcome.Panel = DialogueEditor;
+                if (!ResolveUnsavedChanges(m_DialogueEditorPanel.HasUnsavedChanges(), "Dialogue", "dialogue", policy, [this]()
+                                           { return m_DialogueEditorPanel.SaveIfNeeded(); }, outcome))
+                    return outcome;
+                m_DialogueEditorPanel.OpenDialogue(path);
+                m_ShowDialogueEditor = true;
+                break;
+            case ContentFileType::Cinematic:
+                outcome.Panel = CinematicTimeline;
+                if (!ResolveUnsavedChanges(m_CinematicTimelinePanel.HasUnsavedChanges(), "Cinematic", "cinematic sequence", policy, [this]()
+                                           { return m_CinematicTimelinePanel.SaveIfNeeded(); }, outcome))
+                    return outcome;
+                m_CinematicTimelinePanel.OpenSequence(path);
+                m_ShowCinematicTimeline = true;
+                break;
+            case ContentFileType::VisualScript:
+                outcome.Panel = VisualScriptEditor;
+                if (!ResolveUnsavedChanges(m_VisualScriptEditorPanel.HasUnsavedChanges(), "Visual Script", "visual script", policy, [this]()
+                                           { return m_VisualScriptEditorPanel.SaveIfNeeded(); }, outcome))
+                    return outcome;
+                m_VisualScriptEditorPanel.OpenGraph(path);
+                m_ShowVisualScriptEditor = true;
+                break;
+            case ContentFileType::ShaderGraph:
+                outcome.Panel = ShaderGraphEditor;
+                if (!ResolveUnsavedChanges(m_ShaderGraphEditorPanel.HasUnsavedChanges(), "Shader Graph", "shader graph", policy, [this]()
+                                           { return m_ShaderGraphEditorPanel.SaveIfNeeded(); }, outcome))
+                    return outcome;
+                m_ShaderGraphEditorPanel.OpenShaderGraph(path);
+                m_ShowShaderGraphEditor = true;
+                break;
+            case ContentFileType::SoundGraph:
+                outcome.Panel = SoundGraphEditor;
+                if (!ResolveUnsavedChanges(m_SoundGraphEditorPanel.HasUnsavedChanges(), "Sound Graph", "sound graph", policy, [this]()
+                                           { return m_SoundGraphEditorPanel.SaveIfNeeded(); }, outcome))
+                    return outcome;
+                m_SoundGraphEditorPanel.OpenSoundGraph(path);
+                m_ShowSoundGraphEditor = true;
+                break;
+            case ContentFileType::Shader:
+                outcome.Panel = ShaderEditor;
+                if (!ResolveUnsavedChanges(m_ShaderEditorPanel.HasUnsavedChanges(), "Shader", "shader", policy, [this]()
+                                           { return m_ShaderEditorPanel.Save(); }, outcome))
+                    return outcome;
+                m_ShaderEditorPanel.OpenFile(path);
+                m_ShowShaderEditor = true;
+                break;
+            case ContentFileType::SkillTree:
+                outcome.Panel = SkillTreeEditor;
+                if (!ResolveUnsavedChanges(m_SkillTreeEditorPanel.HasUnsavedChanges(), "Skill Tree", "skill tree", policy, [this]()
+                                           { return m_SkillTreeEditorPanel.SaveIfNeeded(); }, outcome))
+                    return outcome;
+                m_SkillTreeEditorPanel.OpenSkillTree(path);
+                m_ShowSkillTreeEditor = true;
+                break;
+            case ContentFileType::Scene:
+                outcome.IsScene = true;
+                if (policy == UnsavedChangesPolicy::Prompt)
+                {
+                    if (!ConfirmDiscardChanges())
+                        return outcome;
+                    OpenScene(path);
+                    break;
+                }
+                if (policy == UnsavedChangesPolicy::Refuse && m_CommandHistory.IsDirty())
+                {
+                    outcome.BlockedByUnsaved = true;
+                    outcome.Message = "The current scene has unsaved changes. Save it first, or pass discardUnsaved:true to drop them.";
+                    return outcome;
+                }
+                // No caller to answer the auto-save recovery modal OpenScene can raise,
+                // so load the file directly, exactly as olo_scene_open does.
+                if (m_SceneState != SceneState::Edit)
+                    OnSceneStop();
+                if (!LoadEditorSceneFile(path, path))
+                {
+                    outcome.Message = "Failed to load scene (deserialize error; see the engine log): " + path.string();
+                    return outcome;
+                }
+                break;
+            default:
+                outcome.Message = "No editor panel opens this kind of file; the Content Browser's double-click does nothing for it either.";
+                return outcome;
+        }
+        outcome.Dispatched = true;
+        return outcome;
+    }
+
+    MCP::McpAssetOpenResult EditorLayer::OpenAssetFromMcp(const MCP::McpAssetOpenRequest& request)
+    {
+        MCP::McpAssetOpenResult result;
+        result.Available = true;
+        if (!Project::GetActive())
+        {
+            result.Message = "No project is open.";
+            return result;
+        }
+        auto editorAssets = Project::HasAssetManager() ? Project::GetAssetManager().As<EditorAssetManager>() : nullptr;
+
+        std::filesystem::path path;
+        if (request.Handle != 0)
+        {
+            if (!editorAssets || !editorAssets->GetMetadata(request.Handle).IsValid())
+            {
+                result.Message = "Unknown asset handle " + std::to_string(request.Handle) + ".";
+                return result;
+            }
+            path = editorAssets->GetFileSystemPath(request.Handle);
+            result.Handle = request.Handle;
+        }
+        else
+        {
+            path = std::filesystem::path(request.Path);
+            if (path.is_relative())
+                path = Project::GetAssetFileSystemPath(path);
+        }
+
+        std::error_code ec;
+        // weakly_canonical returns an empty path on failure, so keep the resolved
+        // one (normalised) rather than assigning over it.
+        const std::filesystem::path canonical = std::filesystem::weakly_canonical(path, ec);
+        path = ec ? path.lexically_normal() : canonical;
+        result.ResolvedPath = path.string();
+
+        // The panels save back to the file they loaded, so a consented open must
+        // not reach outside the project: containment is checked on the FINAL
+        // (canonical) path, which a '..' check on the argument cannot establish
+        // for an absolute path or a registry entry.
+        std::error_code rootEc;
+        std::filesystem::path assetRoot = std::filesystem::weakly_canonical(Project::GetAssetDirectory(), rootEc);
+        if (rootEc)
+            assetRoot = Project::GetAssetDirectory().lexically_normal();
+        const std::filesystem::path relative = path.lexically_relative(assetRoot);
+        if (relative.empty() || *relative.begin() == ".." || relative.is_absolute())
+        {
+            result.Message = "Refusing to open a file outside the project's asset directory (" + assetRoot.string() + "): " + result.ResolvedPath;
+            return result;
+        }
+
+        if (!std::filesystem::is_regular_file(path, ec))
+        {
+            result.Message = "File not found: " + result.ResolvedPath;
+            return result;
+        }
+        if (result.Handle == 0 && editorAssets)
+            result.Handle = static_cast<u64>(editorAssets->GetAssetHandleFromFilePath(path));
+
+        const ContentFileType type = GetFileTypeFromExtension(path);
+        result.FileType = GetContentFileTypeName(type);
+        result.BaseFrame = m_FrameIndex;
+
+        const AssetOpenOutcome outcome = OpenAssetInEditor(path, type, request.DiscardUnsaved ? UnsavedChangesPolicy::Discard : UnsavedChangesPolicy::Refuse);
+        result.Panel = outcome.PanelName();
+        result.Ok = outcome.Dispatched;
+        if (outcome.Dispatched)
+            result.Message = "Dispatched to " + result.Panel + ".";
+        else
+            result.Message = outcome.Message.empty() ? "The " + result.Panel + " route declined to open the file." : outcome.Message;
+        return result;
+    }
+
+    // What the target panel NOW reports as loaded. Read after the tool has let the
+    // panel's deferred load run, so this is the answer, not the request.
+    MCP::McpAssetEditorState EditorLayer::GetMcpAssetEditorState(const MCP::McpAssetOpenResult& opened) const
+    {
+        MCP::McpAssetEditorState state;
+        std::filesystem::path loaded;
+        if (opened.Panel == "scene")
+        {
+            state.PanelOpen = true;
+            loaded = m_EditorScenePath;
+        }
+        else if (const auto* descriptor = MCP::EditorPanels::Find(opened.Panel); descriptor != nullptr)
+        {
+            state.PanelOpen = McpPanelVisibility(descriptor->Id);
+            using enum MCP::EditorPanels::PanelId;
+            switch (descriptor->Id)
+            {
+                case DialogueEditor:
+                    loaded = m_DialogueEditorPanel.GetLoadedFilePath();
+                    break;
+                case CinematicTimeline:
+                    loaded = m_CinematicTimelinePanel.GetLoadedFilePath();
+                    break;
+                case VisualScriptEditor:
+                    loaded = m_VisualScriptEditorPanel.GetLoadedFilePath();
+                    break;
+                case ShaderGraphEditor:
+                    loaded = m_ShaderGraphEditorPanel.GetLoadedFilePath();
+                    break;
+                case SoundGraphEditor:
+                    loaded = m_SoundGraphEditorPanel.GetLoadedFilePath();
+                    break;
+                case ShaderEditor:
+                    loaded = m_ShaderEditorPanel.GetLoadedFilePath();
+                    break;
+                case SkillTreeEditor:
+                    loaded = m_SkillTreeEditorPanel.GetLoadedFilePath();
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        state.LoadedPath = loaded.string();
+        if (!loaded.empty())
+        {
+            std::error_code ec;
+            state.Matches = std::filesystem::equivalent(loaded, opened.ResolvedPath, ec);
+            if (ec)
+                state.Matches = loaded.lexically_normal() == std::filesystem::path(opened.ResolvedPath).lexically_normal();
+        }
+        return state;
+    }
+
     void EditorLayer::BindContentBrowserSelectionCallback()
     {
         m_ContentBrowserPanel->SetAssetSelectedCallback([this](const std::filesystem::path& path, ContentFileType type)
-                                                        {
-            if (type == ContentFileType::Dialogue)
-            {
-                m_DialogueEditorPanel.OpenDialogue(path);
-                m_ShowDialogueEditor = true;
-            }
-            else if (type == ContentFileType::Cinematic)
-            {
-                m_CinematicTimelinePanel.OpenSequence(path);
-                m_ShowCinematicTimeline = true;
-            }
-            else if (type == ContentFileType::VisualScript)
-            {
-                if (m_VisualScriptEditorPanel.HasUnsavedChanges())
-                {
-                    auto const result = MessagePrompt::YesNoCancel(
-                        "Unsaved Visual Script",
-                        "The current visual script has unsaved changes. Do you want to save before opening a new one?");
-
-                    switch (result)
-                    {
-                        case MessagePromptResult::Yes:
-                            if (!m_VisualScriptEditorPanel.SaveIfNeeded())
-                                return;
-                            break;
-                        case MessagePromptResult::Cancel:
-                            return;
-                        case MessagePromptResult::No:
-                        default:
-                            break;
-                    }
-                }
-                m_VisualScriptEditorPanel.OpenGraph(path);
-                m_ShowVisualScriptEditor = true;
-            }
-            else if (type == ContentFileType::ShaderGraph)
-            {
-                if (m_ShaderGraphEditorPanel.HasUnsavedChanges())
-                {
-                    auto const result = MessagePrompt::YesNoCancel(
-                        "Unsaved Shader Graph",
-                        "The current shader graph has unsaved changes. Do you want to save before opening a new one?");
-
-                    switch (result)
-                    {
-                        case MessagePromptResult::Yes:
-                            if (!m_ShaderGraphEditorPanel.SaveIfNeeded())
-                                return;
-                            break;
-                        case MessagePromptResult::Cancel:
-                            return;
-                        case MessagePromptResult::No:
-                        default:
-                            break;
-                    }
-                }
-                m_ShaderGraphEditorPanel.OpenShaderGraph(path);
-                m_ShowShaderGraphEditor = true;
-            }
-            else if (type == ContentFileType::SoundGraph)
-            {
-                if (m_SoundGraphEditorPanel.HasUnsavedChanges())
-                {
-                    auto const result = MessagePrompt::YesNoCancel(
-                        "Unsaved Sound Graph",
-                        "The current sound graph has unsaved changes. Do you want to save before opening a new one?");
-                    switch (result)
-                    {
-                        case MessagePromptResult::Yes:
-                            if (!m_SoundGraphEditorPanel.SaveIfNeeded())
-                                return;
-                            break;
-                        case MessagePromptResult::Cancel:
-                            return;
-                        case MessagePromptResult::No:
-                        default:
-                            break;
-                    }
-                }
-                m_SoundGraphEditorPanel.OpenSoundGraph(path);
-                m_ShowSoundGraphEditor = true;
-            }
-            else if (type == ContentFileType::Shader)
-            {
-                if (m_ShaderEditorPanel.HasUnsavedChanges())
-                {
-                    auto const result = MessagePrompt::YesNoCancel(
-                        "Unsaved Shader",
-                        "The current shader has unsaved changes. Do you want to save before opening a new one?");
-
-                    switch (result)
-                    {
-                        case MessagePromptResult::Yes:
-                            if (!m_ShaderEditorPanel.Save())
-                                return;
-                            break;
-                        case MessagePromptResult::Cancel:
-                            return;
-                        case MessagePromptResult::No:
-                        default:
-                            break;
-                    }
-                }
-                m_ShaderEditorPanel.OpenFile(path);
-                m_ShowShaderEditor = true;
-            }
-            else if (type == ContentFileType::SkillTree)
-            {
-                if (m_SkillTreeEditorPanel.HasUnsavedChanges())
-                {
-                    auto const result = MessagePrompt::YesNoCancel(
-                        "Unsaved Skill Tree",
-                        "The current skill tree has unsaved changes. Do you want to save before opening a new one?");
-
-                    switch (result)
-                    {
-                        case MessagePromptResult::Yes:
-                            if (!m_SkillTreeEditorPanel.SaveIfNeeded())
-                                return;
-                            break;
-                        case MessagePromptResult::Cancel:
-                            return;
-                        case MessagePromptResult::No:
-                        default:
-                            break;
-                    }
-                }
-                m_SkillTreeEditorPanel.OpenSkillTree(path);
-                m_ShowSkillTreeEditor = true;
-            }
-            else if (type == ContentFileType::Scene)
-            {
-                if (ConfirmDiscardChanges())
-                {
-                    OpenScene(path);
-                }
-            }
-            else
-            {
-                // No additional handling required.
-            } });
+                                                        { (void)OpenAssetInEditor(path, type, UnsavedChangesPolicy::Prompt); });
 
         // "Edit in Timeline" on the CinematicComponent inspector opens the
         // referenced sequence in the timeline panel.

@@ -212,6 +212,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [runtime-scene-switching.md](runtime-scene-switching.md): the host applies a scene swap after the tick; five ordering rules and the `Project` mount.
 - [server-authoritative-networking-loop.md](server-authoritative-networking-loop.md): grep for callers of the entry point, not for tests.
 - [mcp-setter-based-field-registry.md](mcp-setter-based-field-registry.md): copy-then-swap MCP writes are unsound when `operator=` cannot reproduce a setter's side effects.
+- [editor-input-coordinates-and-imgui-viewports.md](editor-input-coordinates-and-imgui-viewports.md): editor window coordinates are physical pixels on Windows, synthetic input has to name the ImGui viewport it hovers, docked windows carry the child-window flag, and per-pass frame capture is OpenGL-only.
 - [mcp-protocol-eras.md](mcp-protocol-eras.md): the stateless core is a second transport; adding `server/discover` alone breaks working clients.
 - [automation-build-invocation.md](automation-build-invocation.md): a build started from inside the editor goes through `build-lock.ps1` or it does not happen, the editor process is the lock's identity, cancellation kills the job object rather than the shim, and `OloEditor` is refused by allow-list.
 - [automation-event-bus.md](automation-event-bus.md): an event carries identities, never a read's content; a subscriber holds a cursor into the one 512-record ring and is told the count it lost; only a mutating command publishes its completion.
@@ -449,6 +450,7 @@ The check passes for a correct implementation and for a broken one.
 
 | Doc | The instrument that failed |
 |---|---|
+| [editor-input-coordinates-and-imgui-viewports.md](editor-input-coordinates-and-imgui-viewports.md) | `olo_input_inject` refused the whole right-hand dock as "outside the editor window (1280x720)": the bound was a window size cached before `GLFW_SCALE_TO_MONITOR` resized the window to 1920x1080. |
 | [live-verification-noise-floor.md](live-verification-noise-floor.md) | A crop check that a mirrored, wrong position scored better on; read tools that answer 200 with a stale frame from an iconified window. |
 | [forward-deferred-parity-measurement.md](forward-deferred-parity-measurement.md) | A live Forward-vs-Deferred diff blamed the point-light evaluator for a gap that was screen-space AO, which Forward applies to the composed colour; the evaluators agreed to 1e-5. |
 | [gpu-readback-stats-channel.md](gpu-readback-stats-channel.md) | A GPU counter that stopped updating is byte-identical to one that is constant. |

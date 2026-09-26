@@ -48,6 +48,9 @@ namespace OloEngine
             return false;
 #endif
         }
+
+        // See ImGuiLayer::SetMouseViewportOverride. Main thread only, like all ImGui IO.
+        u32 s_MouseViewportOverride = 0;
     } // namespace
 
     ImGuiLayer::ImGuiLayer()
@@ -238,8 +241,17 @@ namespace OloEngine
         VulkanImGuiBackend::NewFrame(); // no-op unless the Vulkan backend initialised
 #endif
         ::ImGui_ImplGlfw_NewFrame();
+        // After the backend queued the viewport it measured, so ours wins (ImGui
+        // applies its input queue in order at NewFrame).
+        if (const ImGuiIO& io = ImGui::GetIO(); s_MouseViewportOverride != 0 && (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) != 0)
+            ImGui::GetIO().AddMouseViewportEvent(s_MouseViewportOverride);
         ImGui::NewFrame();
         ImGuizmo::BeginFrame();
+    }
+
+    void ImGuiLayer::SetMouseViewportOverride(u32 viewportId)
+    {
+        s_MouseViewportOverride = viewportId;
     }
 
     void ImGuiLayer::End()

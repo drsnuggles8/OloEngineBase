@@ -8,6 +8,7 @@
 #include "OloEngine/Renderer/GBuffer.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RenderGraph.h"
+#include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include <algorithm>
@@ -172,8 +173,17 @@ namespace OloEngine
         }
     }
 
+    bool RenderGraphFrameCapture::IsSupported()
+    {
+        return RendererAPI::GetAPI() == RendererAPI::API::OpenGL;
+    }
+
     void RenderGraphFrameCapture::InstallHook(RenderGraph* graph)
     {
+        if (graph != nullptr && !IsSupported())
+        {
+            graph = nullptr;
+        }
         if (m_InstalledGraph == graph)
         {
             return;

@@ -154,8 +154,16 @@ namespace OloEngine
             return !m_Captures.IsEmpty();
         }
 
+        // Whether per-pass capture can run on the active backend. Only OpenGL:
+        // the blit, the backbuffer read-source selection and the alpha swizzle
+        // live behind FrameCaptureBackend.h, which only Platform/OpenGL defines.
+        // On Vulkan those are null GL entry points, so installing the hook there
+        // crashed the editor on the first captured pass.
+        [[nodiscard]] static bool IsSupported();
+
         // Installs the post-pass hook on the supplied render graph.
-        // Pass nullptr to uninstall. Safe to call multiple times.
+        // Pass nullptr to uninstall. Safe to call multiple times. Refuses (and
+        // uninstalls) when IsSupported() is false.
         void InstallHook(RenderGraph* graph);
 
         // Whether THIS tool's hook is installed on `graph`. The graph's own

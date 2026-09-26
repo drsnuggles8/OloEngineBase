@@ -217,6 +217,7 @@ namespace OloEngine::Tests::StateMachine
             it->Name = name;
             it->PinnedPass = std::string(pass);
             it->ReadOrder = ++session.Reads;
+            it->Format = static_cast<u32>(internalFormat);
             it->Width = static_cast<u32>(width);
             it->Height = static_cast<u32>(height);
             ReadbackRgbaFloat(texture, it->Width, it->Height, it->Texels);
@@ -241,6 +242,60 @@ namespace OloEngine::Tests::StateMachine
                    std::memcmp(a.Texels.data(), b.Texels.data(), a.Texels.size() * sizeof(f32)) == 0;
         }
 
+        [[nodiscard]] std::string Extent(const TargetCapture& target)
+        {
+            return std::to_string(target.Width) + "x" + std::to_string(target.Height);
+        }
+
+        [[nodiscard]] std::string Joined(std::string first, const std::string& second)
+        {
+            if (!first.empty() && !second.empty())
+                first += "; ";
+            return first + second;
+        }
+
+        // Why `target`'s texels are not an RGBA readback of its own extent.
+        [[nodiscard]] std::string MalformedReason(const TargetCapture& target)
+        {
+            const sizet expected = static_cast<sizet>(target.Width) * target.Height * 4u;
+            if (expected == 0u)
+                return "an empty " + Extent(target) + " target";
+            if (target.Texels.size() != expected)
+                return std::to_string(target.Texels.size()) + " texel values for a " + Extent(target) + " RGBA target (" +
+                       std::to_string(expected) + ")";
+            return {};
+        }
+
+        // The shape guard: why `a` and `b` are not two readbacks of one target.
+        [[nodiscard]] std::string ShapeMismatch(const TargetCapture& a, const TargetCapture& b)
+        {
+            if (a.Format != b.Format)
+                return "format " + std::to_string(a.Format) + " vs " + std::to_string(b.Format);
+            if (a.Width != b.Width || a.Height != b.Height)
+                return "size " + Extent(a) + " vs " + Extent(b);
+            const std::string first = MalformedReason(a);
+            const std::string second = MalformedReason(b);
+            return Joined(first.empty() ? first : "first: " + first, second.empty() ? second : "second: " + second);
+        }
+
+        // The finiteness guard. Takes a well-formed target.
+        [[nodiscard]] std::string NonFiniteReason(const TargetCapture& target, std::string_view where)
+        {
+            sizet count = 0;
+            sizet first = 0;
+            for (sizet i = 0; i < target.Texels.size(); ++i)
+            {
+                if (!std::isfinite(target.Texels[i]) && count++ == 0u)
+                    first = i;
+            }
+            if (count == 0u)
+                return {};
+            const sizet texel = first / 4u;
+            return std::to_string(count) + " non-finite value(s) in the " + std::string(where) + ", the first " +
+                   std::to_string(target.Texels[first]) + " at texel (" + std::to_string(texel % target.Width) + ", " +
+                   std::to_string(texel / target.Width) + ") channel " + "RGBA"[first % 4u];
+        }
+
         [[nodiscard]] std::array<f64, 4> ChannelMeans(const TargetCapture& target)
         {
             std::array<f64, 4> sums{};
@@ -248,31 +303,78 @@ namespace OloEngine::Tests::StateMachine
             for (sizet i = 0; i < texels; ++i)
             {
                 for (sizet c = 0; c < 4u; ++c)
-                {
-                    const f32 value = target.Texels[(i * 4u) + c];
-                    sums[c] += std::isfinite(value) ? static_cast<f64>(value) : 0.0;
-                }
+                    sums[c] += static_cast<f64>(target.Texels[(i * 4u) + c]);
             }
             for (f64& sum : sums)
                 sum /= static_cast<f64>(std::max<sizet>(texels, 1u));
             return sums;
         }
 
-        [[nodiscard]] std::array<u32, 16> LuminanceHistogram(const TargetCapture& target)
+        [[nodiscard]] std::array<u32, 17> LuminanceHistogram(const TargetCapture& target)
         {
-            // Log-spaced so HDR and LDR targets both spread over the bins.
-            std::array<u32, 16> bins{};
+            // Log-spaced so HDR and LDR targets both spread over the bins. The
+            // guards keep non-finite values out; one that gets here anyway has
+            // a bin of its own rather than reading as black.
+            std::array<u32, 17> bins{};
             const sizet texels = target.Texels.size() / 4u;
             for (sizet i = 0; i < texels; ++i)
             {
                 const f32* t = &target.Texels[i * 4u];
                 const f64 luminance = (0.2126 * t[0]) + (0.7152 * t[1]) + (0.0722 * t[2]);
-                const f64 l = std::isfinite(luminance) ? std::max(luminance, 0.0) : 0.0;
-                const f64 position = (std::log2(l + 1.0e-4) + 12.0) / 16.0; // [-12, 4] -> [0, 1]
+                if (!std::isfinite(luminance))
+                {
+                    ++bins[16];
+                    continue;
+                }
+                const f64 position = (std::log2(std::max(luminance, 0.0) + 1.0e-4) + 12.0) / 16.0; // [-12, 4] -> [0, 1]
                 const auto bin = static_cast<sizet>(std::clamp(position, 0.0, 0.999999) * 16.0);
                 ++bins[bin];
             }
             return bins;
+        }
+
+        // Per-channel means of each tile, 4 per tile, row-major. The extent is
+        // split into whole kCompareTileSize steps and the remainder spread over
+        // them, so every tile is 16 to 31 texels a side: an edge sliver one
+        // texel wide would be the noisiest tile and set the allowance for all.
+        [[nodiscard]] std::vector<f64> TileMeans(const TargetCapture& target)
+        {
+            const u32 tilesX = std::max(target.Width / kCompareTileSize, 1u);
+            const u32 tilesY = std::max(target.Height / kCompareTileSize, 1u);
+            std::vector<f64> means(static_cast<sizet>(tilesX) * tilesY * 4u, 0.0);
+            std::vector<u32> counts(static_cast<sizet>(tilesX) * tilesY, 0u);
+            for (u32 y = 0; y < target.Height; ++y)
+            {
+                for (u32 x = 0; x < target.Width; ++x)
+                {
+                    const sizet tileX = static_cast<sizet>(x) * tilesX / target.Width;
+                    const sizet tileY = static_cast<sizet>(y) * tilesY / target.Height;
+                    const sizet tile = (tileY * tilesX) + tileX;
+                    ++counts[tile];
+                    const f32* t = &target.Texels[((static_cast<sizet>(y) * target.Width) + x) * 4u];
+                    for (sizet c = 0; c < 4u; ++c)
+                        means[(tile * 4u) + c] += static_cast<f64>(t[c]);
+                }
+            }
+            for (sizet i = 0; i < means.size(); ++i)
+                means[i] /= static_cast<f64>(std::max(counts[i / 4u], 1u));
+            return means;
+        }
+
+        // The brightest tile's largest colour mean: what "1% of the signal" is
+        // measured against. Per tile, not per texel, so one specular texel at
+        // 50 does not loosen the floor for the whole target, and a dim target
+        // is not judged on a scale of 1.
+        [[nodiscard]] f64 TilePeak(const TargetCapture& target)
+        {
+            const std::vector<f64> means = TileMeans(target);
+            f64 peak = 0.0;
+            for (sizet i = 0; i < means.size(); ++i)
+            {
+                if (i % 4u != 3u)
+                    peak = std::max(peak, std::abs(means[i]));
+            }
+            return peak;
         }
 
         [[nodiscard]] u32 PoolObjectCount(RenderGraph& graph)
@@ -380,30 +482,93 @@ namespace OloEngine::Tests::StateMachine
         return l1 / texels;
     }
 
+    f64 TileShift(const TargetCapture& a, const TargetCapture& b)
+    {
+        // Tiles of different extents do not cover the same texels.
+        if (a.Width != b.Width || a.Height != b.Height)
+            return std::numeric_limits<f64>::infinity();
+        const std::vector<f64> ta = TileMeans(a);
+        const std::vector<f64> tb = TileMeans(b);
+        f64 shift = 0.0;
+        for (sizet i = 0; i < ta.size(); ++i)
+            shift = std::max(shift, std::abs(ta[i] - tb[i]));
+        return shift;
+    }
+
     std::vector<ControlFloor> MeasureControls(const FrameCapture& first, const FrameCapture& second)
     {
         std::vector<ControlFloor> controls;
-        for (const TargetCapture& target : second.Targets)
+        const auto measure = [&first, &second, &controls](const std::string& name)
         {
+            if (FindControl(controls, name) != nullptr)
+                return;
             ControlFloor floor;
-            floor.Name = target.Name;
-            const TargetCapture* other = FindTarget(first, target.Name);
-            if (other == nullptr || other->Width != target.Width || other->Height != target.Height)
-            {
-                // Present in one control frame only: nothing about it is stable.
-                floor.Exact = false;
-                floor.MeanShift = 1.0e30;
-                floor.HistogramL1 = 2.0;
-            }
+            floor.Name = name;
+            const TargetCapture* a = FindTarget(first, name);
+            const TargetCapture* b = FindTarget(second, name);
+            if (a == nullptr || b == nullptr)
+                floor.Why = std::string("captured in the ") + (a == nullptr ? "second" : "first") + " control frame only";
+            else if (const std::string mismatch = ShapeMismatch(*a, *b); !mismatch.empty())
+                floor.Why = "the control frames disagree in shape: " + mismatch;
             else
+                floor.Why = Joined(NonFiniteReason(*a, "first control frame"), NonFiniteReason(*b, "second control frame"));
+            floor.Calibrated = floor.Why.empty();
+            if (!floor.Calibrated)
             {
-                floor.Exact = TexelsIdentical(*other, target);
-                floor.MeanShift = floor.Exact ? 0.0 : MeanShift(*other, target);
-                floor.HistogramL1 = floor.Exact ? 0.0 : HistogramDistance(*other, target);
+                floor.Exact = false;
+            }
+            else if (floor.Exact = TexelsIdentical(*a, *b); !floor.Exact)
+            {
+                floor.MeanShift = MeanShift(*a, *b);
+                floor.HistogramL1 = HistogramDistance(*a, *b);
+                floor.TileShift = TileShift(*a, *b);
             }
             controls.push_back(std::move(floor));
-        }
+        };
+        // The second frame's order first: it is the one the pairs compare.
+        for (const TargetCapture& target : second.Targets)
+            measure(target.Name);
+        for (const TargetCapture& target : first.Targets)
+            measure(target.Name);
         return controls;
+    }
+
+    std::vector<ControlFloor> MergeControls(const std::vector<ControlFloor>& first, const std::vector<ControlFloor>& second)
+    {
+        const auto uncalibrate = [](ControlFloor& floor, std::string why)
+        {
+            if (floor.Calibrated)
+                floor.Why = std::move(why);
+            floor.Calibrated = false;
+            floor.Exact = false;
+        };
+        std::vector<ControlFloor> merged = first;
+        for (ControlFloor& floor : merged)
+        {
+            if (!floor.Calibrated)
+                floor.Why = "first execution: " + floor.Why;
+            else if (FindControl(second, floor.Name) == nullptr)
+                uncalibrate(floor, "measured by the first execution's controls only");
+        }
+        for (const ControlFloor& other : second)
+        {
+            const auto it = std::ranges::find(merged, other.Name, &ControlFloor::Name);
+            if (it == merged.end())
+            {
+                ControlFloor& added = merged.emplace_back(other);
+                if (!added.Calibrated)
+                    added.Why = "second execution: " + added.Why;
+                uncalibrate(added, "measured by the second execution's controls only");
+                continue;
+            }
+            if (!other.Calibrated)
+                uncalibrate(*it, "second execution: " + other.Why);
+            it->Exact = it->Exact && other.Exact;
+            it->MeanShift = std::max(it->MeanShift, other.MeanShift);
+            it->HistogramL1 = std::max(it->HistogramL1, other.HistogramL1);
+            it->TileShift = std::max(it->TileShift, other.TileShift);
+        }
+        return merged;
     }
 
     Comparison CompareCaptures(const FrameCapture& a, const FrameCapture& b, const std::vector<ControlFloor>& controls)
@@ -414,6 +579,20 @@ namespace OloEngine::Tests::StateMachine
         // control's own measurement is the bar.
         constexpr f64 kMeanFloorRelative = 1.0e-3;
         constexpr f64 kHistogramFloor = 0.02;
+        constexpr f64 kControlHeadroom = 2.0;
+        // The spatial term: a tile mean may move by three times what the
+        // control's tiles moved, or 1% of the brightest tile's mean (2.5 steps
+        // of a full-range 8-bit target). Three, not two: the largest of a few
+        // hundred tile differences is itself a noisy statistic, and two noisy
+        // SSR frames came within 1.8x of each other on the corpus. The floor is
+        // relative to the brightest tile, not to max(1, mean), or a dim
+        // target's whole signal would sit under it, and not to the brightest
+        // texel, or one specular highlight would loosen it for every tile.
+        // Measured on the corpus (#1492): no clean comparison used more than a
+        // quarter of this allowance, while the stale-key fault that
+        // fresh-vs-sequence catches moved a tile by 24 times it.
+        constexpr f64 kTileFloorRelative = 1.0e-2;
+        constexpr f64 kTileHeadroom = 3.0;
 
         // Everything read after the first noisy target in the frame is held at
         // distribution level too, whatever its own control says. Its input
@@ -422,15 +601,30 @@ namespace OloEngine::Tests::StateMachine
         // way on both control frames and the other way on a third, and failed an
         // exact comparison for no reason of its own (found by this harness,
         // #1349, as a 5-texel difference that only appeared after two unrelated
-        // tests had run first).
+        // tests had run first). Kept deliberately (#1492) rather than replaced
+        // by resource lineage: with the tile term a downstream target still
+        // fails any tile mean that moves by more than 1% of the brightest
+        // tile, so what the spread admits is sub-tile, sub-percent drift, and
+        // following lineage would need the graph's read sets inside a pure CPU
+        // comparison.
         u32 firstNoisy = std::numeric_limits<u32>::max();
         for (const TargetCapture& target : a.Targets)
         {
-            if (const ControlFloor* control = FindControl(controls, target.Name); control != nullptr && !control->Exact)
+            if (const ControlFloor* control = FindControl(controls, target.Name);
+                control != nullptr && control->Calibrated && !control->Exact)
                 firstNoisy = std::min(firstNoisy, target.ReadOrder);
         }
 
         Comparison out;
+        // A guard failed: no statistic of this target means anything.
+        const auto reject = [&out](TargetVerdict verdict, const std::string& why)
+        {
+            verdict.Rejected = true;
+            verdict.Held = false;
+            verdict.Detail += why;
+            out.Held = false;
+            out.Targets.push_back(std::move(verdict));
+        };
         for (const TargetCapture& target : a.Targets)
         {
             TargetVerdict verdict;
@@ -438,26 +632,36 @@ namespace OloEngine::Tests::StateMachine
             const TargetCapture* other = FindTarget(b, target.Name);
             if (other == nullptr)
             {
-                verdict.Held = false;
-                verdict.Detail = "captured in the first execution only (pinned after " + target.PinnedPass + ")";
-                out.Held = false;
-                out.Targets.push_back(std::move(verdict));
+                reject(std::move(verdict), "captured in the first execution only (pinned after " + target.PinnedPass + ")");
                 continue;
             }
-            if (other->Width != target.Width || other->Height != target.Height)
+            if (const std::string mismatch = ShapeMismatch(target, *other); !mismatch.empty())
             {
-                verdict.Held = false;
-                verdict.Detail = "size " + std::to_string(target.Width) + "x" + std::to_string(target.Height) + " vs " +
-                                 std::to_string(other->Width) + "x" + std::to_string(other->Height);
-                out.Held = false;
-                out.Targets.push_back(std::move(verdict));
+                reject(std::move(verdict), mismatch);
+                continue;
+            }
+            if (const std::string invalid =
+                    Joined(NonFiniteReason(target, "first execution"), NonFiniteReason(*other, "second execution"));
+                !invalid.empty())
+            {
+                reject(std::move(verdict), invalid);
+                continue;
+            }
+            const ControlFloor* control = FindControl(controls, target.Name);
+            if (control == nullptr)
+            {
+                reject(std::move(verdict), "no control measured it, so no criterion for it exists");
+                continue;
+            }
+            if (!control->Calibrated)
+            {
+                reject(std::move(verdict), "its controls calibrate nothing: " + control->Why);
                 continue;
             }
             if (other->PinnedPass != target.PinnedPass)
                 verdict.Detail = "pinned after " + target.PinnedPass + " vs " + other->PinnedPass + "; ";
 
-            const ControlFloor* control = FindControl(controls, target.Name);
-            verdict.Exact = (control == nullptr || control->Exact) && target.ReadOrder <= firstNoisy;
+            verdict.Exact = control->Exact && target.ReadOrder <= firstNoisy;
             const sizet texels = target.Texels.size() / 4u;
             for (sizet i = 0; i < texels; ++i)
             {
@@ -470,7 +674,7 @@ namespace OloEngine::Tests::StateMachine
                     if (std::memcmp(&x, &y, sizeof(f32)) != 0)
                     {
                         differs = true;
-                        delta = std::max(delta, std::isfinite(x) && std::isfinite(y) ? std::abs(static_cast<f64>(x) - y) : 1.0e30);
+                        delta = std::max(delta, std::abs(static_cast<f64>(x) - y));
                     }
                 }
                 if (differs)
@@ -493,17 +697,22 @@ namespace OloEngine::Tests::StateMachine
                 out.AnyDistributionFallback = true;
                 const f64 shift = MeanShift(target, *other);
                 const f64 histogram = HistogramDistance(target, *other);
+                const f64 tiles = TileShift(target, *other);
                 const auto means = ChannelMeans(target);
                 const f64 magnitude = std::max({ 1.0, std::abs(means[0]), std::abs(means[1]), std::abs(means[2]) });
-                const f64 controlShift = control != nullptr ? control->MeanShift : 0.0;
-                const f64 controlHistogram = control != nullptr ? control->HistogramL1 : 0.0;
-                const f64 allowedShift = std::max(2.0 * controlShift, kMeanFloorRelative * magnitude);
-                const f64 allowedHistogram = std::max(2.0 * controlHistogram, kHistogramFloor);
-                verdict.Held = shift <= allowedShift && histogram <= allowedHistogram;
+                const f64 allowedShift = std::max(kControlHeadroom * control->MeanShift, kMeanFloorRelative * magnitude);
+                const f64 allowedHistogram = std::max(kControlHeadroom * control->HistogramL1, kHistogramFloor);
+                const f64 allowedTiles =
+                    std::max(kTileHeadroom * control->TileShift,
+                             kTileFloorRelative * std::max(TilePeak(target), TilePeak(*other)));
+                verdict.Held = shift <= allowedShift && histogram <= allowedHistogram && tiles <= allowedTiles;
                 if (!verdict.Held)
-                    verdict.Detail += "distribution differs: mean shift " + std::to_string(shift) + " (allowed " +
+                    verdict.Detail += "distribution differs (" + std::to_string(verdict.DifferingTexels) + " of " +
+                                      std::to_string(texels) + " texels, max delta " + std::to_string(verdict.MaxDelta) +
+                                      "): mean shift " + std::to_string(shift) + " (allowed " +
                                       std::to_string(allowedShift) + "), histogram L1 " + std::to_string(histogram) +
-                                      " (allowed " + std::to_string(allowedHistogram) + ")";
+                                      " (allowed " + std::to_string(allowedHistogram) + "), tile shift " +
+                                      std::to_string(tiles) + " (allowed " + std::to_string(allowedTiles) + ")";
             }
             if (!verdict.Held)
                 out.Held = false;
@@ -515,10 +724,7 @@ namespace OloEngine::Tests::StateMachine
             {
                 TargetVerdict verdict;
                 verdict.Name = target.Name;
-                verdict.Held = false;
-                verdict.Detail = "captured in the second execution only (pinned after " + target.PinnedPass + ")";
-                out.Held = false;
-                out.Targets.push_back(std::move(verdict));
+                reject(std::move(verdict), "captured in the second execution only (pinned after " + target.PinnedPass + ")");
             }
         }
         return out;
@@ -537,7 +743,8 @@ namespace OloEngine::Tests::StateMachine
                 out += "  ...\n";
                 break;
             }
-            out += "  " + target.Name + (target.Exact ? " [exact]" : " [distribution]") + ": " + target.Detail + "\n";
+            const char* criterion = target.Rejected ? " [rejected]" : (target.Exact ? " [exact]" : " [distribution]");
+            out += "  " + target.Name + criterion + ": " + target.Detail + "\n";
         }
         return out;
     }
@@ -1017,6 +1224,7 @@ namespace OloEngine::Tests::StateMachine
             composite.Name = std::string(kCompositeName);
             composite.PinnedPass = "end of frame";
             composite.ReadOrder = std::numeric_limits<u32>::max();
+            composite.Format = GL_RGBA8;
             composite.Width = width;
             composite.Height = height;
             composite.Texels.resize(capture.Composite.size());
@@ -1241,19 +1449,8 @@ namespace OloEngine::Tests::StateMachine
         const FrameCapture fresh = CaptureFrame();
 
         // A target is held exact only if BOTH executions' controls are exact.
-        std::vector<ControlFloor> controls = MeasureControls(sequenceFirst, sequence);
-        for (const ControlFloor& other : MeasureControls(freshFirst, fresh))
-        {
-            const auto it = std::ranges::find(controls, other.Name, &ControlFloor::Name);
-            if (it == controls.end())
-            {
-                controls.push_back(other);
-                continue;
-            }
-            it->Exact = it->Exact && other.Exact;
-            it->MeanShift = std::max(it->MeanShift, other.MeanShift);
-            it->HistogramL1 = std::max(it->HistogramL1, other.HistogramL1);
-        }
+        const std::vector<ControlFloor> controls =
+            MergeControls(MeasureControls(sequenceFirst, sequence), MeasureControls(freshFirst, fresh));
         const Comparison comparison = CompareCaptures(sequence, fresh, controls);
         Coverage::RecordComparison("fresh-vs-sequence.gl", comparison.AnyDistributionFallback);
         if (!comparison.Held)

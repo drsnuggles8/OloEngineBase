@@ -32,6 +32,7 @@
 #include "Panels/ShaderEditorPanel.h"
 #include "Panels/AudioEventsPanel.h"
 
+#include "MCP/McpEditorPanels.h"
 #include "MCP/McpServer.h" // McpInputEvent / McpInputPlan (the input-injection queue below holds them by value)
 #include "UndoRedo/EditorCommand.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
@@ -214,6 +215,43 @@ namespace OloEngine
         void SyncWindowTitle() const;
         void BindContentBrowserSelectionCallback();
 
+        // Open a file in the editor panel that edits it — THE dispatch behind the
+        // Content Browser's double-click, shared with olo_asset_open (issue #607) so
+        // the two cannot drift. `policy` answers "the target has unsaved changes":
+        // the Content Browser asks the user (Prompt); an MCP caller cannot answer a
+        // native modal, so it refuses or discards by argument.
+        enum class UnsavedChangesPolicy : u8
+        {
+            Prompt,
+            Refuse,
+            Discard
+        };
+        struct AssetOpenOutcome
+        {
+            bool Dispatched = false;       // a panel (or the scene) took the file
+            bool BlockedByUnsaved = false; // refused: the target has unsaved changes
+            // The panel that edits the file; empty for a scene (IsScene) or an
+            // unsupported type. An id rather than a name, so a typo cannot compile.
+            std::optional<MCP::EditorPanels::PanelId> Panel;
+            bool IsScene = false;
+            std::string Message;
+
+            // The olo_editor_panel_list name, "scene", or "" for an unsupported type.
+            [[nodiscard]] std::string PanelName() const
+            {
+                if (IsScene)
+                    return "scene";
+                return Panel ? std::string(MCP::EditorPanels::kPanels[static_cast<sizet>(*Panel)].Name) : std::string{};
+            }
+        };
+        AssetOpenOutcome OpenAssetInEditor(const std::filesystem::path& path, ContentFileType type, UnsavedChangesPolicy policy);
+        // Returns true to go ahead with the open. Prompt asks Yes/No/Cancel and runs
+        // `save` on Yes; Refuse fills `outcome` and stops; Discard goes ahead.
+        bool ResolveUnsavedChanges(bool hasUnsavedChanges, std::string_view titleNoun, std::string_view sentenceNoun,
+                                   UnsavedChangesPolicy policy, const std::function<bool()>& save, AssetOpenOutcome& outcome);
+        [[nodiscard]] MCP::McpAssetOpenResult OpenAssetFromMcp(const MCP::McpAssetOpenRequest& request);
+        [[nodiscard]] MCP::McpAssetEditorState GetMcpAssetEditorState(const MCP::McpAssetOpenResult& opened) const;
+
         // Unsaved-changes prompt: returns true if ok to proceed, false if cancelled
         bool ConfirmDiscardChanges();
         bool OnWindowClose(WindowCloseEvent const& e);
@@ -303,6 +341,7 @@ namespace OloEngine
         void SampleMcpCursorLanding();
         [[nodiscard]] MCP::McpInputViewportInfo GetMcpInputViewportInfo() const;
         [[nodiscard]] MCP::McpInputStateSnapshot GetMcpInputState() const;
+        [[nodiscard]] static std::vector<MCP::McpInputPanelWindow> GetMcpInputPanelWindows();
 
         // ---- MCP editor liveness (issue #607) ----------------------------------
         // Frame counter + wall-clock gap since the last completed frame + window

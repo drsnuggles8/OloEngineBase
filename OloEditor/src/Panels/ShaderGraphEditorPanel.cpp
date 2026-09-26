@@ -1377,6 +1377,10 @@ namespace OloEngine
         m_PendingLoadPath = path;
         m_PendingLoadHandle = 0;
         m_PendingLoadFrameDelay = 0;
+        // The load runs inside OnImGuiRender after Begin() succeeds, so a window
+        // docked behind another tab would never perform it. Bring it forward,
+        // as the Sound Graph panel does.
+        ImGui::SetWindowFocus("###ShaderGraphEditor");
     }
 
     void ShaderGraphEditorPanel::OpenShaderGraph(AssetHandle handle)
@@ -1387,6 +1391,7 @@ namespace OloEngine
             m_PendingLoadPath = Project::GetAssetFileSystemPath(metadata.FilePath);
             m_PendingLoadHandle = handle;
             m_PendingLoadFrameDelay = 0;
+            ImGui::SetWindowFocus("###ShaderGraphEditor");
         }
     }
 

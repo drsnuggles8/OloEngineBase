@@ -94,6 +94,10 @@ namespace OloEngine
     // Returns the drag-drop payload tag for a given file type.
     const char* GetDragDropPayloadType(ContentFileType type);
 
+    // The enumerator's name ("SoundGraph", "Unknown"), for tool replies and logs.
+    // Every enumerator is listed; add a case when you add one above.
+    const char* GetContentFileTypeName(ContentFileType type);
+
     // A single item (file or directory) displayed in the content browser grid.
     class ContentBrowserItem
     {
