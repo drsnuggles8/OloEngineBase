@@ -308,17 +308,10 @@ namespace OloEngine::Tests::StateMachine
 
         // Every target at distribution level, whatever its controls say: the
         // claim here is the stochastic one.
-        std::vector<ControlFloor> controls = MeasureControls(sequenceFirst, sequence);
-        const std::vector<ControlFloor> freshControls = MeasureControls(freshFirst, fresh);
+        std::vector<ControlFloor> controls =
+            MergeControls(MeasureControls(sequenceFirst, sequence), MeasureControls(freshFirst, fresh));
         for (ControlFloor& control : controls)
-        {
             control.Exact = false;
-            if (const auto it = std::ranges::find(freshControls, control.Name, &ControlFloor::Name); it != freshControls.end())
-            {
-                control.MeanShift = std::max(control.MeanShift, it->MeanShift);
-                control.HistogramL1 = std::max(control.HistogramL1, it->HistogramL1);
-            }
-        }
         ASSERT_FALSE(sequence.Composite.empty()) << "the sequence-reached capture has no composite";
         ASSERT_FALSE(fresh.Composite.empty()) << "the directly configured capture has no composite";
         const Comparison comparison = CompareCaptures(sequence, fresh, controls);

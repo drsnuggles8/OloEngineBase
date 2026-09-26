@@ -69,9 +69,11 @@ namespace OloEngine::Tests::StateMachine
         // comparisons were exact and how many fell back. A pair never passes
         // because its control was noisy; it passes a weaker test, and says so.
         ExactTexels,
-        // Same distribution, not the same texels: per-channel mean and a
-        // 16-bin luminance histogram, compared against the noise floor a
-        // same-state control pair measures. For temporally accumulated or
+        // Same distribution, not the same texels: per-channel mean, a 16-bin
+        // luminance histogram and 16x16 tile means (the spatial term: the
+        // first two are blind to a permutation), compared against the noise
+        // floor a same-state control pair measures. A target the controls
+        // could not calibrate fails; it never becomes a tolerance. For temporally accumulated or
         // stochastic beauty (TAA on), where two equivalent executions converge
         // to the same image by different paths.
         Distribution,
@@ -96,7 +98,8 @@ namespace OloEngine::Tests::StateMachine
                       "0 differing texels (float bits) on each target whose same-state control pair is itself 0; a "
                       "target with a noisy control is compared under distribution and counted as a fallback" },
         CriterionRow{ Criterion::Distribution, "distribution",
-                      "per-channel mean and 16-bin luminance histogram L1 within max(2 x control, floor) of each other" },
+                      "per-channel mean, 16-bin luminance histogram L1 and 16x16 tile means within max(2 x control, floor) "
+                      "of each other; every target first finite, same shape, and calibrated by its control" },
         CriterionRow{ Criterion::PlanDigest, "plan-digest", "RenderGraph::ComputeCompiledPlanDigest equal" },
         CriterionRow{ Criterion::Invariant, "invariant",
                       "an independent model of the property (lifetimes recomputed from declarations, compositing "

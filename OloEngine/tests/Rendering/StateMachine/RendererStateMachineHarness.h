@@ -60,6 +60,10 @@ namespace OloEngine::Tests::StateMachine
         // target with a larger value was read later in the frame. The end-of-
         // frame composite is UINT32_MAX.
         u32 ReadOrder = 0;
+        // The GL internal format the texels were read from (the composite is
+        // GL_RGBA8). Two executions that stored a target in different formats
+        // did not produce the same target, whatever the float readback says.
+        u32 Format = 0;
         u32 Width = 0;
         u32 Height = 0;
         std::vector<f32> Texels; // RGBA float, bottom-up
@@ -79,11 +83,15 @@ namespace OloEngine::Tests::StateMachine
         std::string Skipped;
     };
 
-    // How one target compared. `Exact` says which criterion it was held to:
-    // true when both executions' own controls were bit-identical.
+    // How one target compared. `Rejected`: it failed a guard (captured on one
+    // side only, a shape mismatch, a non-finite value, no calibrated control)
+    // before any statistic was computed. Otherwise `Exact` says which
+    // criterion it was held to: true when its control was bit-identical and
+    // nothing read before it in the frame was noisy.
     struct TargetVerdict
     {
         std::string Name;
+        bool Rejected = false;
         bool Exact = true;
         bool Held = true;
         u32 DifferingTexels = 0;
@@ -99,24 +107,49 @@ namespace OloEngine::Tests::StateMachine
         [[nodiscard]] std::string Describe() const;
     };
 
-    // Per-target noise measured from two consecutive frames of one state.
+    // Per-target noise measured from two frames of one state. A target the two
+    // frames cannot calibrate (captured in one only, shapes that differ, a
+    // non-finite value) is `Calibrated = false` with the reason in `Why`, and
+    // any comparison of it fails: a missing measurement is never a tolerance.
     struct ControlFloor
     {
         std::string Name;
+        bool Calibrated = true;
+        std::string Why;
         bool Exact = true;
         f64 MeanShift = 0.0;   // largest per-channel mean difference
         f64 HistogramL1 = 0.0; // luminance histogram L1 distance, as a fraction of texels
+        f64 TileShift = 0.0;   // largest per-tile, per-channel mean difference (see TileShift)
     };
 
     // Compare `a` with `b`, holding each target exact when `controls` say it is
-    // deterministic and at distribution level otherwise. Pure; CPU-tested.
+    // deterministic and at distribution level otherwise. Every target first
+    // passes the guards (present in both, same format and extent, a texel count
+    // that matches the extent, every value finite, a calibrated control), and
+    // one that fails a guard is rejected before any statistic. Pure; CPU-tested.
     [[nodiscard]] Comparison CompareCaptures(const FrameCapture& a, const FrameCapture& b,
                                              const std::vector<ControlFloor>& controls);
+    // One floor per target in EITHER frame.
     [[nodiscard]] std::vector<ControlFloor> MeasureControls(const FrameCapture& first, const FrameCapture& second);
-    // The luminance-histogram L1 distance between two targets of equal size,
-    // as a fraction of the texel count (0 = identical distributions, 2 = disjoint).
+    // Two executions' controls as one: a target is exact only if both are,
+    // calibrated only if both calibrated it, and its floors are the larger of
+    // the two. A target only one execution measured is uncalibrated.
+    [[nodiscard]] std::vector<ControlFloor> MergeControls(const std::vector<ControlFloor>& first,
+                                                          const std::vector<ControlFloor>& second);
+
+    // The statistics below take two targets that passed the guards: the same
+    // extent, a matching texel count, every value finite.
+    //
+    // The luminance-histogram L1 distance, as a fraction of the texel count
+    // (0 = identical distributions, 2 = disjoint).
     [[nodiscard]] f64 HistogramDistance(const TargetCapture& a, const TargetCapture& b);
     [[nodiscard]] f64 MeanShift(const TargetCapture& a, const TargetCapture& b);
+    // The largest per-channel difference between the two targets' means over
+    // any one tile of kCompareTileSize x kCompareTileSize texels. The spatial
+    // term: a mean and a histogram are both blind to a permutation of texels,
+    // a tile mean is not, and it still averages per-texel noise away.
+    [[nodiscard]] f64 TileShift(const TargetCapture& a, const TargetCapture& b);
+    inline constexpr u32 kCompareTileSize = 16u;
 
     struct PairFailure
     {
