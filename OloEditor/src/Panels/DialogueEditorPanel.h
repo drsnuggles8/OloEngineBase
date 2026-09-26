@@ -43,6 +43,14 @@ namespace OloEngine
         {
             return m_IsDirty;
         }
+        // Save when dirty. True when nothing is left unsaved afterwards (a
+        // cancelled Save As dialog leaves the tree dirty).
+        bool SaveIfNeeded()
+        {
+            if (m_IsDirty)
+                SaveDialogue();
+            return !m_IsDirty;
+        }
         [[nodiscard]] bool IsOpen() const
         {
             return m_IsOpen;

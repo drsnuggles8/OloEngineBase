@@ -67,6 +67,11 @@ namespace OloEngine
         {
             return m_Dirty;
         }
+        // Save when dirty. True when nothing is left unsaved afterwards.
+        bool SaveIfNeeded()
+        {
+            return !m_Dirty || Save();
+        }
 
         /// Drop the edited sequence (e.g. on project switch) so a stale Ref/path
         /// from a previous project can't be saved into the new one.

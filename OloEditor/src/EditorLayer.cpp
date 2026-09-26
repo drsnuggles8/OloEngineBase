@@ -4178,11 +4178,19 @@ namespace OloEngine
         {
             case ContentFileType::Dialogue:
                 outcome.Panel = "dialogue_editor";
+                if (!ResolveUnsavedChanges(m_DialogueEditorPanel.HasUnsavedChanges(), "Dialogue", "dialogue", policy,
+                                           [this]()
+                                           { return m_DialogueEditorPanel.SaveIfNeeded(); }, outcome))
+                    return outcome;
                 m_DialogueEditorPanel.OpenDialogue(path);
                 m_ShowDialogueEditor = true;
                 break;
             case ContentFileType::Cinematic:
                 outcome.Panel = "cinematic_timeline";
+                if (!ResolveUnsavedChanges(m_CinematicTimelinePanel.HasUnsavedChanges(), "Cinematic", "cinematic sequence", policy,
+                                           [this]()
+                                           { return m_CinematicTimelinePanel.SaveIfNeeded(); }, outcome))
+                    return outcome;
                 m_CinematicTimelinePanel.OpenSequence(path);
                 m_ShowCinematicTimeline = true;
                 break;
