@@ -783,6 +783,9 @@ this repo configures with no `-G`, so it gets **Unix Makefiles**, so *both* pool
 are silently inert there. Nothing warns — the pools simply do not exist in the
 generated makefiles.
 
+`olo_heavy` also needs CMake 4.4, which the olo-ci runner lacks; `-DOLO_HEAVY_COMPILE_SEMAPHORE=ON`
+bounds the same TUs anywhere: [ci-oom-read-the-kernel-report.md](ci-oom-read-the-kernel-report.md).
+
 Two things follow, and the first one cost this repo ten weeks of red CI.
 
 1. **A bare `--parallel` means the opposite thing per generator, and only the

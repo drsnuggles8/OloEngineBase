@@ -401,8 +401,9 @@ function(olo_set_common_include_directories target_name)
 endfunction()
 
 # Bind FILES to a JOB_POOL_COMPILE-bound SOURCES file set on target_name (CMake 4.4+, Ninja
-# only — issue #822). No-op unless OLO_HEAVY_COMPILE_POOL_AVAILABLE (set once in the root
-# CMakeLists.txt, alongside the olo_heavy pool itself and its OLO_HEAVY_COMPILE_JOBS validation).
+# only — issue #822). The binding happens only under OLO_HEAVY_COMPILE_POOL_AVAILABLE (set once
+# in the root CMakeLists.txt, alongside the olo_heavy pool itself and its OLO_HEAVY_COMPILE_JOBS
+# validation); the recording described below happens on every tree.
 #
 # Each FILE must already be REMOVED from target_name's plain source list by the caller — a file
 # added via a FILE_SET SOURCES set is a distinct code path from the ordinary SOURCES target
@@ -419,10 +420,12 @@ endfunction()
 # TYPE SOURCE (not SOURCES) in set_property(FILE_SET ...)'s own example is a documented-but-wrong
 # CMake 4.4 doc snippet — verified against a throwaway project: it errors "set_property required
 # TARGET option is missing". The working form is set_property(FILE_SET <name> TARGET <target> ...).
+#
+# CALL IT ON EVERY TREE, pool or not. It records FILES in the global OLO_HEAVY_COMPILE_SOURCES
+# before the pool check, and that list is the manifest cmake/HeavyCompileSemaphore.cmake bounds
+# the same TUs with where the pool does not exist (CMake < 4.4 or a non-Ninja generator, #1473).
+# Only the caller's REMOVE_ITEM from its plain source list stays conditional on the pool.
 function(olo_bind_heavy_compile_pool target_name base_dir)
-    if(NOT OLO_HEAVY_COMPILE_POOL_AVAILABLE)
-        return()
-    endif()
     set(_olo_heavy_files "")
     foreach(_olo_heavy_file ${ARGN})
         if(IS_ABSOLUTE "${_olo_heavy_file}")
@@ -431,6 +434,15 @@ function(olo_bind_heavy_compile_pool target_name base_dir)
             list(APPEND _olo_heavy_files "${base_dir}/${_olo_heavy_file}")
         endif()
     endforeach()
+    set(_olo_heavy_normalised "")
+    foreach(_olo_heavy_file ${_olo_heavy_files})
+        cmake_path(NORMAL_PATH _olo_heavy_file)
+        list(APPEND _olo_heavy_normalised "${_olo_heavy_file}")
+    endforeach()
+    set_property(GLOBAL APPEND PROPERTY OLO_HEAVY_COMPILE_SOURCES ${_olo_heavy_normalised})
+    if(NOT OLO_HEAVY_COMPILE_POOL_AVAILABLE)
+        return()
+    endif()
     target_sources(${target_name} PRIVATE
         FILE_SET olo_heavy_compile TYPE SOURCES
         BASE_DIRS ${base_dir}

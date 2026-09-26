@@ -282,17 +282,17 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}
 			FILES ${OLO_EDITOR_CORE_SOURCES}
 )
 
-if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
-	olo_bind_heavy_compile_pool(OloEditorCore "${CMAKE_CURRENT_SOURCE_DIR}"
-		# Ranks #1 and #2 of 1761 TUs by peak compiler RSS (8.09 and 3.85 GiB, Linux
-		# Debug + ASan, 2026-09-17). Both instantiate typed snapshots over the complete
-		# generated component set.
-		"MCP/McpFieldRegistry.cpp"
-		"Automation/AutomationComponentRegistry.cpp"
-		# 1.50 GiB, #17 — at the >= 1.5 GiB membership threshold (#1307).
-		"MCP/McpToolsRender.cpp"
-	)
-endif()
+# Called on every tree: without the pool it only records the manifest that
+# OLO_HEAVY_COMPILE_SEMAPHORE bounds the same TUs with (#1473).
+olo_bind_heavy_compile_pool(OloEditorCore "${CMAKE_CURRENT_SOURCE_DIR}"
+	# Ranks #1 and #2 of 1761 TUs by peak compiler RSS (8.09 and 3.85 GiB, Linux
+	# Debug + ASan, 2026-09-17). Both instantiate typed snapshots over the complete
+	# generated component set.
+	"MCP/McpFieldRegistry.cpp"
+	"Automation/AutomationComponentRegistry.cpp"
+	# 1.50 GiB, #17 — at the >= 1.5 GiB membership threshold (#1307).
+	"MCP/McpToolsRender.cpp"
+)
 
 add_executable(OloEditor
 		${EDITOR_SOURCES}

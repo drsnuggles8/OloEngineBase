@@ -112,12 +112,17 @@ jobs:
     #
     # WHY RETIRE IT: the three runners share ONE `MemoryMax=19G` account slice
     # while each unit is capped at 14 GiB, so the box could dispatch three heavy
-    # jobs into a budget sized for two. That is not theoretical — it is why this
-    # job has failed every night since 2026-09-06: a `cc1plus` in this runner's
-    # cgroup was OOM-killed 15-20 minutes into "Build tests" on six consecutive
-    # nights, each time while asan.yml's 01:23 UTC nightly was building on the
-    # other two slots. Three runners in a two-job budget IS the bug; removing the
-    # third slot fixes it structurally, with no semaphore and no new mechanism.
+    # jobs into a budget sized for two.
+    #
+    # THAT WAS NOT WHY THIS JOB WAS RED, although this comment used to say so
+    # (#1473). Every nightly OOM kill from 2026-09-09 to 2026-09-25, on
+    # olo-gpu-amd and on olo-ci alike, reads `CONSTRAINT_MEMCG` with oom_memcg set
+    # to THIS job's own runner unit: its 14 GiB `memory.max` was full, the shared
+    # slice was not. And asan.yml's nightly runs hosted, not on this box. What
+    # filled the unit was six heavy TUs compiling at once, because the `olo_heavy`
+    # pool never existed under the runner's CMake 3.31; the configure step's
+    # OLO_HEAVY_COMPILE_SEMAPHORE is the fix. Retiring the third runner still
+    # stands on its own grounds, above.
     #
     # WHAT IT COSTS: this job can now queue behind a long CI job instead of
     # starting the moment its cron fires. That is the right trade — it currently
@@ -131,7 +136,12 @@ jobs:
     # CI jobs cannot contend for the GPU while this runs: every sanitizer job
     # passes `--olo-gl-backend=none` (asan.yml) and so never opens the device.
     runs-on: [self-hosted, linux, x64, olo-ci]
-    timeout-minutes: 120
+    # 150, not 120 (#1473): a COLD build with one heavy-compile permit measured
+    # 60 min (run 36210684757, 1863 of 1923 compiles missed ccache), and the full
+    # suite 38 min (run 36188061625). With setup that is ~103 min, too close to
+    # 120 for a night after a header change that invalidates the cache. The
+    # red-streak job's --timeout-minutes below must match this value.
+    timeout-minutes: 150
 
     env:
       BUILD_TYPE: Release
@@ -167,13 +177,15 @@ jobs:
       # that the pathological tail (2 x 8.09 plus 6 Release TUs) does not
       # obviously fit in 19 GiB, and the typical case comfortably does.
       #
-      # THE 6 IS STILL LEFT AS-IS, and deliberately: it was set on a measurement
-      # (the --parallel 12 that ran the job out of memory), and lowering it on a
-      # guess is the mistake this file's neighbours just had to unwind. Nothing
-      # bounds COMPILE concurrency across the two slots -- OLO_LINK_SEMAPHORE_SLOTS
-      # below bounds linkers only -- so if this job OOMs again with the box at two
-      # slots, that is the measurement arriving, and the fix is a number from
-      # .github/workflows/build-memory.yml, not another guess here.
+      # THE 6 STAYS, and #1473 is why lowering it would have been the wrong fix.
+      # The job did OOM again at two slots, and the measurement (the kernel's OOM
+      # report, 2026-09-25) showed the six lanes were not six typical compiles: they
+      # were six HEAVY ones, 2.1-2.4 GiB resident each, 13.66 GiB together, in this
+      # job's own 14 GiB unit. The first 829 edges of the same build ran at this
+      # width without trouble. So the heavy TUs are bounded by name
+      # (OLO_HEAVY_COMPILE_SEMAPHORE, configure step) and everything else keeps the
+      # width; the "Compile memory report" step prints the per-TU peaks and the
+      # largest overlapping sum, which is the number to revisit this against.
       CMAKE_BUILD_PARALLEL_LEVEL: 6
       # CPM/FetchContent pull vendor sources into OloEngine/vendor/ *inside the
       # workspace*, which the wipe + checkout clears every run. Without a cache
@@ -395,6 +407,35 @@ jobs:
         #
         # ccache: unlike a hosted runner, this box keeps its cache between runs,
         # so a warm rebuild is minutes rather than an hour.
+        #
+        # OLO_LINK_JOBS is the Ninja pool and bounds links WITHIN this build.
+        # OLO_LINK_SEMAPHORE_SLOTS bounds them ACROSS jobs: the other CI slot is a
+        # separate build the pool cannot see, and two 10-11 GiB links in one 19 GiB
+        # slice is 22.3 GiB. The shared default is 2, measured on a 64 GB dev box.
+        #
+        # OLO_HEAVY_COMPILE_SEMAPHORE is the fix for #1473. The runner's CMake is the
+        # distro's 3.31.8 and the `olo_heavy` Ninja pool needs 4.4, so without it
+        # nothing kept the heavy TUs apart: every nightly from 2026-09-09 had six of
+        # them compiling at once (SceneSerializer.cpp + five LuaScriptGlue parts,
+        # 13.66 GiB anon between them) when the kernel OOM-killed one against THIS
+        # job's own 14 GiB runner unit. The launcher gives those TUs
+        # OLO_HEAVY_COMPILE_JOBS permits and leaves every other compile at the
+        # full width. OLO_COMPILE_RSS_LOG records each compile's peak RSS for the
+        # report step below: GCC has no -fproc-stat-report.
+        #
+        # ONE permit here, not the shared default of 2, on this job's own
+        # measurement (run 36188061625, GCC Release): McpFieldRegistry.cpp peaks at
+        # 7.36 GiB and AutomationComponentRegistry.cpp at 3.61 GiB, and with two
+        # permits they compiled together, and the overlapping peaks summed to
+        # 15.35 GiB against the 14 GiB unit. The build passed (peaks are not all
+        # simultaneous), but with no margin. The next heavy TU is 2.21 GiB, so one
+        # permit leaves the 7.36 GiB compile the only large one in the unit at a
+        # time; the report step's "reached memory.max" line tracks the margin.
+        #
+        # KEEP COMMENTS OUT OF THE `run: >` BLOCK BELOW. A folded scalar joins its
+        # lines into ONE shell line, so a `#` line inside it comments out every
+        # argument after it. That is how -DOLO_LINK_SEMAPHORE_SLOTS=1 went missing
+        # here: the configure log said "Link semaphore: ON, 2 permit(s)".
         run: >
           cmake -S . -B build -G Ninja
           ${{ steps.vcpkg.outputs.toolchain-args }}
@@ -406,11 +447,10 @@ jobs:
           -DOLO_VIDEO_FFMPEG=OFF
           -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF
           -DOLO_LINK_JOBS=1
-          # OLO_LINK_JOBS is the Ninja pool and bounds links WITHIN this build.
-          # This bounds them ACROSS jobs: the other CI slot is a separate build
-          # the pool cannot see, and two 10-11 GiB links in one 19 GiB slice is
-          # 22.3 GiB. The shared default is 2, measured on a 64 GB dev box.
           -DOLO_LINK_SEMAPHORE_SLOTS=1
+          -DOLO_HEAVY_COMPILE_SEMAPHORE=ON
+          -DOLO_HEAVY_COMPILE_JOBS=1
+          -DOLO_COMPILE_RSS_LOG=ON
 
       # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
       # is the whole point: the combined actions/cache action saves in a POST-JOB
@@ -435,7 +475,13 @@ jobs:
       # step, not in the job env: the `runner` context is not available there, and
       # $RUNNER_TEMP is only defined once a step is running.
       - name: Point ccache at a per-run statistics log
-        run: echo "CCACHE_STATSLOG=$RUNNER_TEMP/ccache-stats-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.log" >> "$GITHUB_ENV"
+        # The runner unit's memory.events counters are cumulative since the unit
+        # started, so the memory report step compares against this snapshot.
+        run: |
+          echo "CCACHE_STATSLOG=$RUNNER_TEMP/ccache-stats-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.log" >> "$GITHUB_ENV"
+          cg=$(sed -n 's/^0:://p' /proc/self/cgroup)
+          echo "OLO_OOM_KILLS_BEFORE_BUILD=$(sed -n 's/^oom_kill //p' "/sys/fs/cgroup$cg/memory.events" 2>/dev/null)" >> "$GITHUB_ENV"
+          echo "OLO_MEMMAX_HITS_BEFORE_BUILD=$(sed -n 's/^max //p' "/sys/fs/cgroup$cg/memory.events" 2>/dev/null)" >> "$GITHUB_ENV"
 
       - name: Build tests
         # Width comes from CMAKE_BUILD_PARALLEL_LEVEL in the job env — see the
@@ -480,6 +526,40 @@ jobs:
             echo "::warning::SHARED cumulative counters for $CCACHE_DIR and include any other"
             echo "::warning::job that compiled on this box. They are not this build's."
             ccache -s -v
+          fi
+
+      # What the build held in memory, and whether the kernel had to step in. #1473
+      # was diagnosed from the kernel's OOM report because the job's own log said
+      # only "Killed signal terminated program cc1plus"; this puts both halves in the
+      # log. The ranking comes from OLO_COMPILE_RSS_LOG (see the configure step), and
+      # memory.events is THIS runner's unit: an `oom_kill` count that moved during the
+      # job means the unit cap, not a neighbour, killed something.
+      - name: Compile memory report
+        if: always()
+        run: |
+          set -uo pipefail
+          if [ -s build/olo-compile-rss.tsv ]; then
+            python3 scripts/heavy-compile-semaphore.py --report=build/olo-compile-rss.tsv --top=15 --cap-gib=14 \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::no build/olo-compile-rss.tsv -- was the heavy-compile semaphore configured?"
+          fi
+          cg=$(sed -n 's/^0:://p' /proc/self/cgroup)
+          if [ -r "/sys/fs/cgroup$cg/memory.events" ]; then
+            echo "runner unit $cg: memory.max=$(cat /sys/fs/cgroup$cg/memory.max)"
+            cat "/sys/fs/cgroup$cg/memory.events"
+            after=$(sed -n 's/^oom_kill //p' "/sys/fs/cgroup$cg/memory.events")
+            before="${OLO_OOM_KILLS_BEFORE_BUILD:-}"
+            if [ -n "$before" ] && [ "$after" != "$before" ]; then
+              echo "::error::the kernel OOM-killed $((after - before)) process(es) in THIS runner's unit during the job -- the unit's memory.max, not a neighbour"
+            fi
+            # `max` counts the times the unit reached memory.max and had to reclaim.
+            # Non-zero without an OOM kill means the build fit only by evicting page
+            # cache: no margin left, which is the number to watch before the next kill.
+            hits=$(sed -n 's/^max //p' "/sys/fs/cgroup$cg/memory.events")
+            if [ -n "${OLO_MEMMAX_HITS_BEFORE_BUILD:-}" ]; then
+              echo "unit reached memory.max $((hits - OLO_MEMMAX_HITS_BEFORE_BUILD)) time(s) since the build started" | tee -a "$GITHUB_STEP_SUMMARY"
+            fi
           fi
 
       # ---------------------------------------------------------------------
@@ -641,3 +721,49 @@ jobs:
       - name: Report disk usage
         if: always()
         run: df -h "${{ github.workspace }}" && du -sh build 2>/dev/null || true
+
+  # -------------------------------------------------------------------------
+  # Make a red streak visible without anyone opening the Actions tab (#1473).
+  # This nightly was red for 20 nights before anyone noticed: a failed
+  # scheduled run notifies nobody who is not already looking. After two red
+  # scheduled nights in a row this opens ONE issue (label ci-nightly-red, with
+  # an olo-score block so /start-work ranks it), retitles and comments on it
+  # each further red night, and the first green scheduled run closes it.
+  #
+  # A SEPARATE, HOSTED job, so the self-hosted job above keeps its read-only
+  # token: `issues: write` never reaches the runner on the box. The script
+  # makes API calls only; it runs no code from the build.
+  #
+  # A workflow_dispatch runs it with --dry-run: it prints what it would do and
+  # writes nothing, so the mechanism can be exercised from a branch.
+  # -------------------------------------------------------------------------
+  red-streak:
+    name: Red-streak alert
+    needs: amd-hardware
+    if: always() && github.repository == 'drsnuggles8/OloEngineBase'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/nightly_red_streak.py
+          sparse-checkout-cone-mode: false
+
+      - name: Open, update or close the red-streak issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULT: ${{ needs.amd-hardware.result }}
+          DRY_RUN: ${{ github.event_name != 'schedule' && '--dry-run' || '' }}
+        run: |
+          python3 scripts/nightly_red_streak.py \
+            --workflow gpu-conformance-amd.yml \
+            --job "Linux / AMD Navi 10 (radeonsi, hardware)" \
+            --timeout-minutes 150 \
+            --result "$RESULT" \
+            --run-id "$GITHUB_RUN_ID" \
+            $DRY_RUN | tee -a "$GITHUB_STEP_SUMMARY"

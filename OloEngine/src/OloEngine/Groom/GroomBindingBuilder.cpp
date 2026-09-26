@@ -138,6 +138,19 @@ namespace OloEngine
             bool Found = false;
         };
 
+        // A root on a shared edge is Clamped, not Exact. ClosestPointOnTriangle's
+        // Voronoi-region tests cannot decide that on their own: on an edge the
+        // determinant that separates "interior" from "edge region" is zero in exact
+        // arithmetic, so its sign in f32 is rounding, and it differs by compiler.
+        // (0.3, 0, 0.7) on a 4-division grid came out Clamped under MSVC and clang
+        // and Exact under GCC -O3, which the AMD nightly's GCC build reported.
+        // The barycentric weight is scale-free, so one tolerance fits every mesh.
+        [[nodiscard]] bool OnTriangleEdge(const glm::vec3& barycentric) noexcept
+        {
+            constexpr f32 kEdgeWeight = 1.0e-5f;
+            return std::min({ barycentric.x, barycentric.y, barycentric.z }) <= kEdgeWeight;
+        }
+
         // Tests one triangle and keeps it when it is strictly closer, OR exactly
         // as close and lower-indexed.
         //
@@ -602,7 +615,7 @@ namespace OloEngine
             {
                 quality = GroomRootBindQuality::Distant;
             }
-            else if (!closest.Interior)
+            else if (!closest.Interior || OnTriangleEdge(closest.Barycentric))
             {
                 quality = GroomRootBindQuality::Clamped;
             }
