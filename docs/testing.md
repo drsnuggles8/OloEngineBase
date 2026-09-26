@@ -855,8 +855,8 @@ paths. Append a `SceneRow` in `BuildRows()`:
 
 | arm (support row) | in-process (GL 4.6 box, AMD nightly) | where it runs instead / why not |
 |---|---|---|
-| `gl-forward-native`, `gl-forward-plus-native` | every row except `SSGIBounce`, `ReSTIRDI` | `SSGIBounce`: the contract gives Forward/Forward+ no SSGI owner. `ReSTIRDI`: needs a ray-tracing Vulkan device |
-| `gl-deferred-native`, `gl-deferred-msaa4`, `gl-deferred-spatial-msaa4`, `gl-deferred-temporal` | every row except `ReSTIRDI` | `ReSTIRDI`: needs a ray-tracing Vulkan device. The temporal arm skips if FSR2 does not engage (`IsTemporalUpscaleActive`) |
+| `gl-forward-native`, `gl-forward-plus-native` | every row except `SSGIBounce` and the ReSTIR rows | `SSGIBounce`: the contract gives Forward/Forward+ no SSGI owner. `ReSTIRDI`, `ReSTIRGIOwnership`, `ReSTIRPTOwnership`: need a ray-tracing Vulkan device |
+| `gl-deferred-native`, `gl-deferred-msaa4`, `gl-deferred-spatial-msaa4`, `gl-deferred-temporal` | every row except the ReSTIR rows | `ReSTIRDI`, `ReSTIRGIOwnership`, `ReSTIRPTOwnership`: need a ray-tracing Vulkan device (`gl-deferred-native` exports their raster reference). The temporal arm skips if FSR2 does not engage (`IsTemporalUpscaleActive`) |
 | `vk-forward-native`, `vk-forward-plus-native`, `vk-deferred-native` | skip: scene-level Vulkan is unreachable in-process | live: `scripts/cross-path-matrix-live.py` in an editor launched with `--rhi vulkan` (SSGI and the ReSTIR DI/GI/PT rows on Deferred only; each ReSTIR tier must report itself active) |
 | `gl-deferred-temporal-msaa4`, `vk-deferred-temporal`, `gl-deferred-ray-query`, `vk-forward-ray-query`, `vk-deferred-ray-query-unavailable` | skip: the registry declares them Unsupported, with its `Reason` | nowhere, by declaration. They stay arms so the declared and tested matrices cannot drift |
 | any GL arm without a GL 4.6 context (CI software-driver jobs) | skip: the fixture's GPU gate | the AMD nightly (`gpu-conformance-amd.yml` runs the whole suite) |

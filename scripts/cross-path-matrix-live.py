@@ -369,9 +369,11 @@ class Session:
                 availability = stats.get("availability", {})
                 active = availability.get("active", stats.get("active"))
                 if not active:
-                    raise EngagementError("%s reports the tier inactive (%s): %s" % (
-                        tool, availability.get("status", stats.get("status")),
-                        availability.get("fallbackReason", stats.get("reason", json.dumps(stats)[:300]))))
+                    # olo_restir_stats / _gi_stats nest {status, fallbackReason} under
+                    # "availability"; olo_restir_pt_stats puts fallbackReason at the top level.
+                    status = availability.get("status", stats.get("status", "inactive"))
+                    reason = availability.get("fallbackReason") or stats.get("fallbackReason") or json.dumps(stats)[:300]
+                    raise EngagementError("%s reports the tier inactive (%s): %s" % (tool, status, reason))
             values = {}
             for region in regions:
                 values[region["name"]] = [self.probe(x, y, width, height) for x, y in region["pixels"]]
