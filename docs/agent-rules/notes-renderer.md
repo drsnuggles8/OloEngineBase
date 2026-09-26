@@ -1504,3 +1504,22 @@ Specular, profile-id and mask views. The Transmission view of a version-1 head, 
 exactly zero, showed every crease. `SkinDiffusionRunsThisFrame` (`RenderPipeline.cpp`) now turns
 the pass off under every view except Diffuse, and one helper feeds the pass settings, the scratch
 declaration and the graph fingerprint. Apply the same check to any other in-place pass.
+
+## "Tessellation off" still runs the tess-eval stage — only one stage may displace
+
+Every water program has a TES and every water draw is a patch list, so the TES always runs; a tess
+factor of 0 only means a tess level of 1. The water vertex stage used to displace whenever the
+factor was 0 (the `WaterComponent` default), and the TES then displaced the displaced point again:
+double swell, double choppy drift, sampled at the wrong XZ, on every default water scene for as
+long as the branch existed (#1470). The same trap applies to any program that pairs a displacing
+vertex stage with a TES. `WaterRendering.VertexStageNeverDisplaces` counts the entry points.
+
+**A live-clock capture is not a backend A/B for anything animated.** The editor's
+`olo_benchmark_capture` rendered with the live clock until #1470, so a GL-vs-Vulkan pair of the
+integrated benchmark compared two wave phases of a 10 m tile under a 180 m swell and read as
+"Vulkan renders different geometry". Pinned, the two agree to a 1 px median edge offset.
+
+**Disabling one term of a `max()` proves nothing about the others.** Isolating the water's foam by
+switching one source off at a time left it white at every step, because another term was
+saturated. Switch every source off together first, then re-enable one at a time. And a
+`pow(1 - x, power)` term is not disabled by a huge `power` when `x` is 0.
