@@ -132,6 +132,18 @@ namespace OloEngine::Tests
 
             EnableRendering(kWidth, kHeight);
 
+            // Kill the editor overlays, as every band-sampling evidence fixture
+            // does: the world-axis helper's +X line runs through the side band
+            // at the cube's row, and its pink raised the band's RED above its
+            // green, so the halo check measured the gizmo (R=106 G=104, "a grey
+            // wash") while the halo itself was plainly green (#1484).
+            auto& settings = Renderer3D::GetRendererSettings();
+            settings.ShowGrid = false;
+            settings.ShowLightGizmos = false;
+            settings.ShowWorldAxisHelper = false;
+            settings.ShowCameraFrustums = false;
+            Renderer3D::ApplyRendererSettings();
+
             // Bloom is path-independent (it operates on the lit HDR scene
             // colour), so leave the renderer on its default path. No skybox /
             // IBL and no lights: the scene stays dark except for the emissive
