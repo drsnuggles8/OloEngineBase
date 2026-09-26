@@ -426,6 +426,14 @@ namespace OloEngine
         static u32 InvalidateTemporalHistories(
             TemporalHistoryInvalidationCause cause,
             std::optional<TemporalHistoryEffect> effect = std::nullopt);
+        // Restart every per-frame sampling sequence (the stochastic, TAA jitter,
+        // cloud and fog frame indices) at the values a freshly initialised
+        // renderer starts from, and drop the temporal histories built on the old
+        // sequence. The indices are process-global and never reset otherwise, so
+        // without this a render depends on how many frames ran before it: the
+        // test harness calls it per test so a visual test renders the same
+        // frames whether it runs first in its process or after 800 others.
+        static void ResetFrameSequences();
         static void ResetGPUScene();
         [[nodiscard]] static const GPUSceneFrameStats& GetGPUSceneStats();
 

@@ -117,6 +117,10 @@ namespace OloEngine::Tests
         m_SavedShadowSettings = Renderer3D::GetShadowMap().GetSettings();
         m_SettingsSnapshotted = true;
 
+        // Every test renders the frame sequence a fresh process would, so its
+        // output does not depend on how many frames earlier tests rendered.
+        Renderer3D::ResetFrameSequences();
+
         m_Scene = Scene::Create();
         // Rendering is OFF by default: the cheap smoke tests only need the
         // cross-subsystem tick to run post-init. Subclasses that want the

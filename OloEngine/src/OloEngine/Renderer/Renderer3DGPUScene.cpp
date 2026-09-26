@@ -689,6 +689,17 @@ namespace OloEngine
         return s_Data.RGraph ? s_Data.RGraph->InvalidateTemporalHistories(cause, effect) : 0u;
     }
 
+    void Renderer3D::ResetFrameSequences()
+    {
+        s_Data.StochasticFrameIndex = 0;
+        s_Data.TAAJitterFrameIndex = 0;
+        s_Data.CurrJitterUV = glm::vec2(0.0f);
+        s_Data.PrevJitterUV = glm::vec2(0.0f);
+        s_Data.CloudFrameIndex = 0;
+        s_Data.FogFrameIndex = 0;
+        InvalidateTemporalHistories(TemporalHistoryInvalidationCause::JitterReset);
+    }
+
     const GPUScene& Renderer3D::GetGPUScene()
     {
         return s_Data.SceneGPU;
