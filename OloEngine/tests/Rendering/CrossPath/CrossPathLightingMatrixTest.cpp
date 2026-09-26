@@ -222,7 +222,10 @@ namespace OloEngine::Tests::CrossPath
             {
                 for (int c = 0; c < 3; ++c)
                 {
-                    const f64 v = std::max(0.0, static_cast<f64>(on.Rgba[i * 4u + c] - off.Rgba[i * 4u + c]));
+                    // Magnitude, not max(0, .): a term may be negative (AO darkening
+                    // the ambient, snow over a brighter surface), and clamping drew
+                    // every such row as a black image.
+                    const f64 v = std::abs(static_cast<f64>(on.Rgba[i * 4u + c] - off.Rgba[i * 4u + c]));
                     const f64 mapped = std::pow(v / (1.0 + v), 1.0 / 2.2);
                     rgba[i * 4u + c] = static_cast<u8>(std::clamp(mapped * 255.0 + 0.5, 0.0, 255.0));
                 }
