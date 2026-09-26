@@ -97,8 +97,9 @@ namespace OloEngine::Tests::StateMachine
             };
             for (sizet i = 0; i < target.Texels.size(); ++i)
             {
+                // Alpha is not what a stochastic effect moves.
                 if (i % 4u == 3u)
-                    continue; // alpha is not what a stochastic effect moves
+                    continue;
                 const f64 unit = static_cast<f64>(next() >> 11u) * (1.0 / 9007199254740992.0); // [0, 1)
                 target.Texels[i] += static_cast<f32>(((unit * 2.0) - 1.0) * amplitude);
             }
