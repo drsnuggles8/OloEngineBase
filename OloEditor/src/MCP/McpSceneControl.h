@@ -66,24 +66,33 @@ namespace OloEngine::MCP::SceneControl
     // (a ".." component would let a consented write escape the project tree). The
     // editor hook does the rest (resolve relative to the asset directory, check the
     // file exists, deserialize). Returns a human-readable error, or nullopt on OK.
+    // True when `path` has a ".." component. Checked between separators so a file
+    // name that merely contains two dots ("a..b.olo") is fine. Shared with
+    // olo_asset_open (McpAssetOpen.h).
+    [[nodiscard]] inline bool HasParentTraversal(std::string_view path)
+    {
+        sizet start = 0;
+        while (start <= path.size())
+        {
+            const sizet sep = path.find_first_of("/\\", start);
+            const std::string_view comp = path.substr(start, sep == std::string_view::npos ? std::string_view::npos : sep - start);
+            if (comp == "..")
+                return true;
+            if (sep == std::string_view::npos)
+                break;
+            start = sep + 1;
+        }
+        return false;
+    }
+
     [[nodiscard]] inline std::optional<std::string> ValidateScenePath(std::string_view path)
     {
         if (path.empty())
             return "Missing required argument 'path' (a .olo or .scene scene file, relative to the project asset directory).";
 
-        // Reject a ".." path component (traversal out of the project). Check between
-        // separators so a filename that merely contains ".." (e.g. "a..b.olo") is fine.
-        sizet start = 0;
-        while (start <= path.size())
-        {
-            sizet sep = path.find_first_of("/\\", start);
-            const std::string_view comp = path.substr(start, sep == std::string_view::npos ? std::string_view::npos : sep - start);
-            if (comp == "..")
-                return "Invalid 'path': parent-directory traversal ('..') is not allowed.";
-            if (sep == std::string_view::npos)
-                break;
-            start = sep + 1;
-        }
+        // Reject a ".." path component (traversal out of the project).
+        if (HasParentTraversal(path))
+            return "Invalid 'path': parent-directory traversal ('..') is not allowed.";
 
         if (const std::string ext = LowercaseExtension(path); ext != ".olo" && ext != ".scene")
             return "Invalid 'path': expected a scene file ending in .olo or .scene.";

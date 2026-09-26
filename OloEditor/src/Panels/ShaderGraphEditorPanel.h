@@ -26,6 +26,12 @@ namespace OloEngine
         void OpenShaderGraph(AssetHandle handle);
         void NewShaderGraph();
 
+        // The file the panel has actually loaded (empty = none). olo_asset_open (issue #607)
+        // reads this back instead of trusting that an Open* call succeeded.
+        [[nodiscard]] const std::filesystem::path& GetLoadedFilePath() const
+        {
+            return m_CurrentFilePath;
+        }
         [[nodiscard]] bool HasUnsavedChanges() const
         {
             return m_IsDirty;

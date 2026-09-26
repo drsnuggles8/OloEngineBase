@@ -43,8 +43,10 @@
 // split as McpSceneControl.h / McpReloadScript.h — so this pulls no extra editor TU
 // into the MCP test binary.
 
+#include "MCP/McpEditorPanels.h"
 #include "MCP/McpSchemaBuilder.h"
 #include "MCP/McpServer.h"
+#include "MCP/McpTokenNormalization.h"
 #include "OloEngine/Core/KeyCodes.h"
 #include "OloEngine/Core/MouseCodes.h"
 
@@ -80,6 +82,9 @@ namespace OloEngine::MCP::InputInject
     // the consequence before the tool reads back the resulting state / the agent
     // takes a screenshot.
     inline constexpr int s_TrailingSettleFrames = 3;
+    // Largest |wheelX| / |wheelY| one call accepts. A real notch is 1.0; this is a
+    // typo guard (a pixel count pasted into a notch field), not a capability limit.
+    inline constexpr f32 s_MaxWheelNotches = 100.0f;
 
     // ---- request -----------------------------------------------------------------
 
@@ -90,7 +95,10 @@ namespace OloEngine::MCP::InputInject
         Drag,
         MouseDelta,
         Key,
-        Text
+        Text,
+        // Scroll the mouse wheel at (x, y). ImGui routes the wheel to the window
+        // under the cursor, so the position is part of the request, not optional.
+        Wheel
     };
 
     enum class Space
@@ -102,9 +110,13 @@ namespace OloEngine::MCP::InputInject
         // Fractional [0, 1] across the viewport, origin top-left. Downscale-proof:
         // the right space to use after a downscaled olo_screenshot.
         ViewportNormalized,
-        // OS window client-area pixels (logical), origin top-left. The space the ImGui
-        // panels live in — use it to click a menu / button / hierarchy row.
-        Window
+        // Window-client pixels, origin top-left: the ImGui dockspace every docked
+        // panel lives in (McpInputViewportInfo::WindowWidth/Height). Physical pixels
+        // on Windows, where GLFW makes the process per-monitor DPI aware.
+        Window,
+        // Pixels relative to the top-left corner of one ImGui window (a panel), named
+        // by `panel`. Immune to where the dock layout put that panel.
+        Panel
     };
 
     enum class KeyAction
@@ -160,6 +172,13 @@ namespace OloEngine::MCP::InputInject
         KeyAction KeyAct = KeyAction::Tap;
 
         std::string Text;
+
+        // wheel: notches, GLFW convention (+Y = wheel up / away from the user).
+        f32 WheelX = 0.0f;
+        f32 WheelY = 0.0f;
+
+        // space "panel": the ImGui window the coordinates are relative to.
+        std::string Panel;
     };
 
     // ---- key names ---------------------------------------------------------------
@@ -312,6 +331,8 @@ namespace OloEngine::MCP::InputInject
             return Space::ViewportNormalized;
         if (folded == "window")
             return Space::Window;
+        if (folded == "panel")
+            return Space::Panel;
         return std::nullopt;
     }
 
@@ -337,16 +358,27 @@ namespace OloEngine::MCP::InputInject
             out.Act = Action::Key;
         else if (action == "text")
             out.Act = Action::Text;
+        else if (action == "wheel")
+            out.Act = Action::Wheel;
         else
-            return "Invalid 'action': expected one of click, move, drag, key, text.";
+            return "Invalid 'action': expected one of click, move, drag, mouseDelta, key, text, wheel.";
 
         // Coordinate space (mouse actions only; harmless otherwise).
         if (args.contains("space"))
         {
             const auto space = MapSpaceName(args["space"].get<std::string>());
             if (!space)
-                return "Invalid 'space': expected one of viewport, viewportNorm, window.";
+                return "Invalid 'space': expected one of viewport, viewportNorm, window, panel.";
             out.CoordSpace = *space;
+        }
+        if (out.CoordSpace == Space::Panel)
+        {
+            if (!args.contains("panel") || !args["panel"].is_string() || args["panel"].get<std::string>().empty())
+                return "space \"panel\" needs 'panel': the panel's window title (e.g. \"Content Browser\") or an "
+                       "olo_editor_panel_list name.";
+            out.Panel = args["panel"].get<std::string>();
+            if (out.Act == Action::MouseDelta)
+                return "space \"panel\" names a position, and mouseDelta is a displacement; use \"window\" for it.";
         }
 
         // Modifiers.
@@ -390,6 +422,31 @@ namespace OloEngine::MCP::InputInject
                     return error;
                 if (auto error = readFinite("y", out.Y))
                     return error;
+                break;
+            }
+            case Action::Wheel:
+            {
+                if (auto error = readFinite("x", out.X))
+                    return error;
+                if (auto error = readFinite("y", out.Y))
+                    return error;
+                const bool hasWheelX = args.contains("wheelX");
+                const bool hasWheelY = args.contains("wheelY");
+                if (!hasWheelX && !hasWheelY)
+                    return "Missing required argument 'wheelY' (notches, + = wheel up) or 'wheelX' for a wheel action.";
+                if (hasWheelX)
+                {
+                    if (auto error = readFinite("wheelX", out.WheelX))
+                        return error;
+                }
+                if (hasWheelY)
+                {
+                    if (auto error = readFinite("wheelY", out.WheelY))
+                        return error;
+                }
+                if (std::fabs(out.WheelX) > s_MaxWheelNotches || std::fabs(out.WheelY) > s_MaxWheelNotches)
+                    return "Invalid wheel amount: at most " + std::to_string(static_cast<int>(s_MaxWheelNotches)) +
+                           " notches per call.";
                 break;
             }
             case Action::Drag:
@@ -494,6 +551,107 @@ namespace OloEngine::MCP::InputInject
         return info.LogicalHeight * info.DpiScale;
     }
 
+    // ---- the "panel" space: find one ImGui window by what a caller would call it ----
+
+    // The part of an ImGui window name that is displayed: everything before "##".
+    [[nodiscard]] inline std::string_view PanelLabel(std::string_view windowName)
+    {
+        const sizet hashes = windowName.find("##");
+        return hashes == std::string_view::npos ? windowName : windowName.substr(0, hashes);
+    }
+
+    // The "###id" part of a window name, which stays fixed while the label changes
+    // (e.g. "Sound Graph Editor - HelloDing*###SoundGraphEditor"). Empty when absent.
+    [[nodiscard]] inline std::string_view PanelStableId(std::string_view windowName)
+    {
+        const sizet hashes = windowName.find("###");
+        return hashes == std::string_view::npos ? std::string_view{} : windowName.substr(hashes + 3);
+    }
+
+    // Does `window` answer to `requested`? Compared after NormalizeToken (case and
+    // punctuation folded), against the label, the ###id, and - when `requested` is
+    // an olo_editor_panel_list name such as "renderer_settings" - that panel's title.
+    [[nodiscard]] inline bool PanelMatches(const McpInputPanelWindow& window, std::string_view requested)
+    {
+        const std::string wanted = NormalizeToken(requested);
+        if (wanted.empty())
+            return false;
+        const std::string label = NormalizeToken(PanelLabel(window.Name));
+        if (label == wanted)
+            return true;
+        if (const std::string_view stableId = PanelStableId(window.Name); !stableId.empty() && NormalizeToken(stableId) == wanted)
+            return true;
+        if (const EditorPanels::PanelDescriptor* descriptor = EditorPanels::Find(requested); descriptor != nullptr)
+            return label == NormalizeToken(descriptor->Title);
+        return false;
+    }
+
+    // Pick the window `requested` names. A panel that is not addressable says why:
+    // closed, docked behind another tab, or floated out into its own OS window. Each
+    // has a different remedy, and "not found" alone sends the caller hunting for a
+    // typo that is not there.
+    [[nodiscard]] inline std::optional<std::string> FindPanelWindow(const std::vector<McpInputPanelWindow>& windows,
+                                                                    std::string_view requested,
+                                                                    const McpInputPanelWindow*& out)
+    {
+        out = nullptr;
+        const McpInputPanelWindow* inactive = nullptr;
+        const McpInputPanelWindow* hidden = nullptr;
+        for (const McpInputPanelWindow& window : windows)
+        {
+            if (!PanelMatches(window, requested))
+                continue;
+            if (!window.Active)
+                inactive = &window;
+            else if (window.Hidden)
+                hidden = &window;
+            else if (out == nullptr)
+                out = &window;
+        }
+
+        if (out != nullptr)
+        {
+            const McpInputPanelWindow* found = out;
+            out = nullptr;
+            // A panel floating in its own OS window is addressable too: the plan
+            // names its viewport as the hovered one (see ResolvePoint).
+            if (found->Width < 1.0f || found->Height < 1.0f)
+                return "Panel '" + std::string(PanelLabel(found->Name)) + "' has no size (collapsed?).";
+            out = found;
+            return std::nullopt;
+        }
+        if (hidden != nullptr)
+            return "Panel '" + std::string(PanelLabel(hidden->Name)) +
+                   "' is docked behind another tab, so none of it is on screen. Click its tab first.";
+        if (inactive != nullptr)
+            return "Panel '" + std::string(PanelLabel(inactive->Name)) +
+                   "' exists but is not open. Open it with olo_editor_panel_set.";
+
+        std::string visible;
+        for (const McpInputPanelWindow& window : windows)
+        {
+            if (!window.Active || window.Hidden)
+                continue;
+            if (!visible.empty())
+                visible += ", ";
+            visible += "\"" + std::string(PanelLabel(window.Name)) + "\"";
+        }
+        return "No editor window matches panel '" + std::string(requested) + "'. Visible windows: " +
+               (visible.empty() ? std::string("(none)") : visible) + ".";
+    }
+
+    // "1920x1080 window-client pixels (the editor's dockspace; framebuffer 1920x1080)"
+    // - the extent every window-space error reports, so a caller calibrates against
+    // the space the panels are actually laid out in.
+    [[nodiscard]] inline std::string WindowExtentText(const McpInputViewportInfo& info)
+    {
+        std::string text = std::to_string(info.WindowWidth) + "x" + std::to_string(info.WindowHeight) +
+                           " window-client pixels (the editor's dockspace";
+        if (info.FramebufferWidth > 0 && info.FramebufferHeight > 0)
+            text += "; framebuffer " + std::to_string(info.FramebufferWidth) + "x" + std::to_string(info.FramebufferHeight);
+        return text + ")";
+    }
+
     struct ResolvedPoint
     {
         // Window-client logical pixels (what the injected MousePos event carries).
@@ -504,6 +662,9 @@ namespace OloEngine::MCP::InputInject
         f32 ViewportPixelX = 0.0f;
         f32 ViewportPixelY = 0.0f;
         bool InsideViewport = false;
+        // Non-zero when the point lies in a panel floating in its own OS window: the
+        // ImGui viewport ImGui must treat as hovered (see ImGuiLayer::SetMouseViewportOverride).
+        u32 ViewportId = 0;
     };
 
     // Resolve an (x, y) in `space` to window-client logical pixels.
@@ -517,8 +678,12 @@ namespace OloEngine::MCP::InputInject
     // window's own position must come back out. GLFW's cursor-pos callback — where the
     // injected event enters — speaks window-client coordinates and adds the window
     // position back itself, so the two conversions cancel exactly.
+    //
+    // Space::Panel is window-relative: `panel` (from FindPanelWindow) supplies the
+    // ImGui-screen origin, and the point must also lie inside that window.
     [[nodiscard]] inline std::optional<std::string> ResolvePoint(const McpInputViewportInfo& info, Space space,
-                                                                 f32 x, f32 y, ResolvedPoint& out)
+                                                                 f32 x, f32 y, ResolvedPoint& out,
+                                                                 const McpInputPanelWindow* panel = nullptr)
     {
         const f32 pixelWidth = ViewportPixelWidth(info);
         const f32 pixelHeight = ViewportPixelHeight(info);
@@ -556,18 +721,41 @@ namespace OloEngine::MCP::InputInject
                 break;
             }
             case Space::Window:
+            case Space::Panel:
             {
-                // Already window-client; lift into ImGui screen space so the shared
-                // conversion below (and the viewport-pixel echo) still applies.
-                imguiScreenX = info.WindowX + x;
-                imguiScreenY = info.WindowY + y;
+                if (space == Space::Panel)
+                {
+                    if (panel == nullptr)
+                        return "space \"panel\" was not resolved to an editor window.";
+                    if (x < 0.0f || y < 0.0f || x >= panel->Width || y >= panel->Height)
+                    {
+                        return "Point (" + std::to_string(static_cast<int>(x)) + ", " + std::to_string(static_cast<int>(y)) +
+                               ") is outside panel '" + std::string(PanelLabel(panel->Name)) + "', which is " +
+                               std::to_string(static_cast<int>(panel->Width)) + "x" +
+                               std::to_string(static_cast<int>(panel->Height)) +
+                               " pixels (origin = its top-left corner, title bar / tab included).";
+                    }
+                    imguiScreenX = panel->X + x;
+                    imguiScreenY = panel->Y + y;
+                    if (!panel->OnMainViewport)
+                        out.ViewportId = panel->ViewportId;
+                }
+                else
+                {
+                    // Already window-client; lift into ImGui screen space so the shared
+                    // conversion below (and the viewport-pixel echo) still applies.
+                    imguiScreenX = info.WindowX + x;
+                    imguiScreenY = info.WindowY + y;
+                }
 
                 const f32 pixelX = (imguiScreenX - info.PanelX) * info.DpiScale;
                 const f32 pixelY = (imguiScreenY - info.PanelY) * info.DpiScale;
                 out.ViewportPixelX = pixelX;
                 out.ViewportPixelY = pixelY;
-                out.InsideViewport = pixelWidth >= 1.0f && pixelHeight >= 1.0f && pixelX >= 0.0f && pixelY >= 0.0f &&
-                                     pixelX < pixelWidth && pixelY < pixelHeight;
+                // A point in a panel's own OS window is never in the 3D viewport, even
+                // where that window happens to lie over it on the desktop.
+                out.InsideViewport = out.ViewportId == 0 && pixelWidth >= 1.0f && pixelHeight >= 1.0f && pixelX >= 0.0f &&
+                                     pixelY >= 0.0f && pixelX < pixelWidth && pixelY < pixelHeight;
                 break;
             }
         }
@@ -575,15 +763,17 @@ namespace OloEngine::MCP::InputInject
         out.WindowX = imguiScreenX - info.WindowX;
         out.WindowY = imguiScreenY - info.WindowY;
 
-        if (info.WindowWidth > 0 && info.WindowHeight > 0)
+        // A point in a floating panel's own OS window is legitimately outside the
+        // main window's client area; the panel bounds check above already applies.
+        if (info.WindowWidth > 0 && info.WindowHeight > 0 && out.ViewportId == 0)
         {
             if (out.WindowX < 0.0f || out.WindowY < 0.0f ||
                 out.WindowX >= static_cast<f32>(info.WindowWidth) ||
                 out.WindowY >= static_cast<f32>(info.WindowHeight))
             {
                 return "Resolved window-client point (" + std::to_string(static_cast<int>(out.WindowX)) + ", " +
-                       std::to_string(static_cast<int>(out.WindowY)) + ") is outside the editor window (" +
-                       std::to_string(info.WindowWidth) + "x" + std::to_string(info.WindowHeight) + ").";
+                       std::to_string(static_cast<int>(out.WindowY)) + ") is outside the editor window, which is " +
+                       WindowExtentText(info) + ".";
             }
         }
         return std::nullopt;
@@ -621,6 +811,7 @@ namespace OloEngine::MCP::InputInject
                 break;
             }
             case Space::Window:
+            case Space::Panel: // refused by ParseRequest: a displacement has no origin
             {
                 outDx = dx;
                 outDy = dy;
@@ -634,12 +825,13 @@ namespace OloEngine::MCP::InputInject
 
     namespace Detail
     {
-        inline McpInputEvent MousePos(f32 x, f32 y)
+        inline McpInputEvent MousePos(f32 x, f32 y, u32 viewport = 0)
         {
             McpInputEvent e;
             e.Type = McpInputEvent::Kind::MousePos;
             e.X = x;
             e.Y = y;
+            e.Viewport = viewport;
             return e;
         }
         inline McpInputEvent MouseDeltaEvent(f32 dx, f32 dy)
@@ -670,6 +862,14 @@ namespace OloEngine::MCP::InputInject
             e.Type = McpInputEvent::Kind::Key;
             e.Code = key;
             e.Down = down;
+            return e;
+        }
+        inline McpInputEvent WheelEvent(f32 wheelX, f32 wheelY)
+        {
+            McpInputEvent e;
+            e.Type = McpInputEvent::Kind::MouseWheel;
+            e.X = wheelX;
+            e.Y = wheelY;
             return e;
         }
         inline McpInputEvent CharEvent(u32 codepoint)
@@ -712,10 +912,12 @@ namespace OloEngine::MCP::InputInject
     // `info` is only consulted for the mouse actions (to resolve coordinates); pass a
     // default-constructed one for key/text. `outStart` / `outEnd` receive the resolved
     // points (for the result JSON) when the action is coordinate-bearing; `outDelta`
-    // (optional) receives the resolved displacement for Action::MouseDelta.
+    // (optional) receives the resolved displacement for Action::MouseDelta. `panel`
+    // is the window FindPanelWindow picked when the request is in Space::Panel.
     [[nodiscard]] inline std::optional<std::string> BuildPlan(const Request& request, const McpInputViewportInfo& info,
                                                               McpInputPlan& plan, ResolvedPoint& outStart,
-                                                              ResolvedPoint& outEnd, ResolvedDelta* outDelta = nullptr)
+                                                              ResolvedPoint& outEnd, ResolvedDelta* outDelta = nullptr,
+                                                              const McpInputPanelWindow* panel = nullptr)
     {
         using namespace Detail;
         plan.Frames.clear();
@@ -724,20 +926,20 @@ namespace OloEngine::MCP::InputInject
         {
             case Action::Move:
             {
-                if (auto error = ResolvePoint(info, request.CoordSpace, request.X, request.Y, outStart))
+                if (auto error = ResolvePoint(info, request.CoordSpace, request.X, request.Y, outStart, panel))
                     return error;
                 outEnd = outStart;
-                plan.Frames.push_back({ MousePos(outStart.WindowX, outStart.WindowY) });
+                plan.Frames.push_back({ MousePos(outStart.WindowX, outStart.WindowY, outStart.ViewportId) });
                 AppendIdleFrames(plan, s_MoveSettleFrames);
                 break;
             }
             case Action::Click:
             {
-                if (auto error = ResolvePoint(info, request.CoordSpace, request.X, request.Y, outStart))
+                if (auto error = ResolvePoint(info, request.CoordSpace, request.X, request.Y, outStart, panel))
                     return error;
                 outEnd = outStart;
 
-                plan.Frames.push_back({ MousePos(outStart.WindowX, outStart.WindowY) });
+                plan.Frames.push_back({ MousePos(outStart.WindowX, outStart.WindowY, outStart.ViewportId) });
                 // Settle, then arm the modifiers one frame BEFORE the press so both
                 // ImGui and the poll-based Input:: overlay already see them held when
                 // the button-press event is dispatched.
@@ -769,12 +971,12 @@ namespace OloEngine::MCP::InputInject
             }
             case Action::Drag:
             {
-                if (auto error = ResolvePoint(info, request.CoordSpace, request.X, request.Y, outStart))
+                if (auto error = ResolvePoint(info, request.CoordSpace, request.X, request.Y, outStart, panel))
                     return error;
-                if (auto error = ResolvePoint(info, request.CoordSpace, request.ToX, request.ToY, outEnd))
+                if (auto error = ResolvePoint(info, request.CoordSpace, request.ToX, request.ToY, outEnd, panel))
                     return error;
 
-                plan.Frames.push_back({ MousePos(outStart.WindowX, outStart.WindowY) });
+                plan.Frames.push_back({ MousePos(outStart.WindowX, outStart.WindowY, outStart.ViewportId) });
                 AppendIdleFrames(plan, s_MoveSettleFrames - 1);
                 {
                     std::vector<McpInputEvent> frame;
@@ -793,11 +995,38 @@ namespace OloEngine::MCP::InputInject
                                                           : outStart.WindowX + (outEnd.WindowX - outStart.WindowX) * t;
                     const f32 y = (step == request.Steps) ? outEnd.WindowY
                                                           : outStart.WindowY + (outEnd.WindowY - outStart.WindowY) * t;
-                    plan.Frames.push_back({ MousePos(x, y) });
+                    plan.Frames.push_back({ MousePos(x, y, (step == request.Steps) ? outEnd.ViewportId : outStart.ViewportId) });
                 }
 
                 AppendIdleFrames(plan, s_ButtonHoldFrames);
                 plan.Frames.push_back({ MouseButton(request.Button, false) });
+                if (request.Mods.Any())
+                {
+                    std::vector<McpInputEvent> frame;
+                    AppendModifiers(frame, request.Mods, false);
+                    plan.Frames.push_back(std::move(frame));
+                }
+                AppendIdleFrames(plan, s_TrailingSettleFrames);
+                break;
+            }
+            case Action::Wheel:
+            {
+                if (auto error = ResolvePoint(info, request.CoordSpace, request.X, request.Y, outStart, panel))
+                    return error;
+                outEnd = outStart;
+
+                // Same lead-in as a click: ImGui routes the wheel to the window it
+                // believes is HOVERED, and that belief is only updated at NewFrame
+                // after the move is applied. Wheeling on the move's own frame would
+                // scroll whatever was under the previous cursor position.
+                plan.Frames.push_back({ MousePos(outStart.WindowX, outStart.WindowY, outStart.ViewportId) });
+                AppendIdleFrames(plan, s_MoveSettleFrames - 1);
+                {
+                    std::vector<McpInputEvent> frame;
+                    AppendModifiers(frame, request.Mods, true);
+                    plan.Frames.push_back(std::move(frame));
+                }
+                plan.Frames.push_back({ WheelEvent(request.WheelX, request.WheelY) });
                 if (request.Mods.Any())
                 {
                     std::vector<McpInputEvent> frame;
@@ -923,29 +1152,42 @@ namespace OloEngine::MCP::InputInject
     {
         return Schema::Object()
             .Prop("action", Schema::String()
-                                .Enum({ "click", "move", "drag", "mouseDelta", "key", "text" })
+                                .Enum({ "click", "move", "drag", "mouseDelta", "key", "text", "wheel" })
                                 .Desc("click = press+release at (x, y). move = just move the cursor. "
                                       "drag = press at (fromX, fromY), move in steps, release at (toX, toY). "
                                       "mouseDelta = displace the cursor by (dx, dy) RELATIVELY, for mouse-look rigs "
                                       "and other consumers that integrate movement across frames. "
-                                      "key = press/release/tap a key. text = type characters into the focused widget."))
-            .Prop("x", Schema::Number().Desc("click/move: horizontal coordinate in 'space'."))
-            .Prop("y", Schema::Number().Desc("click/move: vertical coordinate in 'space' (origin top-left, +Y down)."))
+                                      "key = press/release/tap a key. text = type characters into the focused widget. "
+                                      "wheel = scroll the mouse wheel by (wheelX, wheelY) notches with the cursor at (x, y) - "
+                                      "graph-canvas zoom, list scrolling."))
+            .Prop("x", Schema::Number().Desc("click/move/wheel: horizontal coordinate in 'space'."))
+            .Prop("y", Schema::Number().Desc("click/move/wheel: vertical coordinate in 'space' (origin top-left, +Y down)."))
             .Prop("fromX", Schema::Number().Desc("drag: start horizontal coordinate in 'space'."))
             .Prop("fromY", Schema::Number().Desc("drag: start vertical coordinate in 'space'."))
             .Prop("toX", Schema::Number().Desc("drag: end horizontal coordinate in 'space'."))
             .Prop("toY", Schema::Number().Desc("drag: end vertical coordinate in 'space'."))
             .Prop("space", Schema::String()
-                               .Enum({ "viewport", "viewportNorm", "window" })
+                               .Enum({ "viewport", "viewportNorm", "window", "panel" })
                                .Desc("Coordinate space (default \"viewport\"). "
                                      "\"viewport\" = pixels of the olo_screenshot image at NATIVE resolution "
                                      "(origin top-left); if your screenshot was downscaled by maxWidth, these are NOT "
                                      "its pixels. \"viewportNorm\" = fractional [0,1] across the viewport — "
-                                     "downscale-proof, and the safest choice after a screenshot. \"window\" = OS window "
-                                     "client pixels (origin top-left) — use this to click ImGui panels, menus, and "
-                                     "buttons OUTSIDE the 3D viewport. For mouseDelta the same three spaces scale the "
+                                     "downscale-proof, and the safest choice after a screenshot. \"window\" = window-client "
+                                     "pixels (origin top-left) covering the whole editor dockspace; physical pixels on "
+                                     "Windows, so on a 150% display a full-HD editor is 1920x1080 here. Use it to click "
+                                     "ImGui panels, menus, and buttons OUTSIDE the 3D viewport. It always hits the main "
+                                     "window, even where a panel floating in its own OS window overlaps it; address such a "
+                                     "panel with \"panel\". \"panel\" = pixels "
+                                     "relative to the top-left corner of the ImGui window named by 'panel', whatever the "
+                                     "dock layout. For mouseDelta the same three spaces scale the "
                                      "DISPLACEMENT: \"window\" is 1:1 with the units Input::GetMousePosition reports, "
                                      "which is what a rig's look sensitivity is calibrated in."))
+            .Prop("panel", Schema::String().Desc("space \"panel\": the window to address - its title as shown on its tab "
+                                                 "(\"Content Browser\", \"Scene Hierarchy\") or an olo_editor_panel_list name "
+                                                 "(\"renderer_settings\"). Case and punctuation are ignored."))
+            .Prop("wheelX", Schema::Number().Desc("wheel: horizontal notches (+ = right). Default 0."))
+            .Prop("wheelY", Schema::Number().Desc("wheel: vertical notches, GLFW/ImGui convention: + = wheel up / away "
+                                                  "(zoom in on a graph canvas, scroll a list up). 1 = one notch. Default 0."))
             .Prop("button", Schema::String().Enum({ "left", "right", "middle" }).Desc("click/drag: mouse button (default left)."))
             .Prop("doubleClick", Schema::Bool().Desc("click: send two clicks in quick succession (default false)."))
             .Prop("steps", Schema::Int().Min(1).Max(64).Desc("drag: interpolation steps between the endpoints, one per frame (default 8)."))
@@ -1006,7 +1248,7 @@ namespace OloEngine::MCP::InputInject
     // there is nothing to verify for them.
     [[nodiscard]] inline bool ActionMovesTheCursor(Action action) noexcept
     {
-        return action == Action::Click || action == Action::Move || action == Action::Drag;
+        return action == Action::Click || action == Action::Move || action == Action::Drag || action == Action::Wheel;
     }
 
     [[nodiscard]] inline std::string CursorNotLandedMessage(f32 askedX, f32 askedY, f32 landedX, f32 landedY)
@@ -1029,7 +1271,8 @@ namespace OloEngine::MCP::InputInject
                                      const McpInputViewportInfo& info, const Request& request,
                                      const ResolvedPoint& start, const ResolvedPoint& end, bool timedOut,
                                      const ResolvedDelta* delta = nullptr,
-                                     const std::string& stallReason = {})
+                                     const std::string& stallReason = {},
+                                     const McpInputPanelWindow* panel = nullptr)
     {
         // Did the position we injected actually become ImGui's cursor? Only meaningful
         // for the actions that inject one, only once the editor has reported a
@@ -1074,7 +1317,7 @@ namespace OloEngine::MCP::InputInject
                                        { "reset", delta->Reset } };
         }
 
-        if (request.Act == Action::Click || request.Act == Action::Move || request.Act == Action::Drag)
+        if (ActionMovesTheCursor(request.Act))
         {
             const auto pointJson = [](const ResolvedPoint& point) -> Json
             {
@@ -1090,6 +1333,24 @@ namespace OloEngine::MCP::InputInject
             j["viewport"] = Json{ { "pixelWidth", ViewportPixelWidth(info) },
                                   { "pixelHeight", ViewportPixelHeight(info) },
                                   { "dpiScale", info.DpiScale } };
+            // The extent space:"window" is checked against, with the numbers that
+            // tell a coordinate-unit mismatch apart from a layout one (issue #607).
+            j["window"] = Json{ { "width", info.WindowWidth },
+                                { "height", info.WindowHeight },
+                                { "framebufferWidth", info.FramebufferWidth },
+                                { "framebufferHeight", info.FramebufferHeight },
+                                { "framebufferScale", Json::array({ info.FramebufferScaleX, info.FramebufferScaleY }) } };
+            if (request.CoordSpace == Space::Panel && panel != nullptr)
+            {
+                j["panel"] = Json{ { "name", std::string(PanelLabel(panel->Name)) },
+                                   { "x", panel->X - info.WindowX },
+                                   { "y", panel->Y - info.WindowY },
+                                   { "width", panel->Width },
+                                   { "height", panel->Height },
+                                   { "ownWindow", !panel->OnMainViewport } };
+            }
+            if (request.Act == Action::Wheel)
+                j["wheel"] = Json{ { "x", request.WheelX }, { "y", request.WheelY } };
         }
 
         // The state change the injection caused — the whole reason the tool exists.

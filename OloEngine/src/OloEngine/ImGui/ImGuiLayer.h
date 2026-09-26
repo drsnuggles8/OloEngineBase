@@ -52,6 +52,14 @@ namespace OloEngine
 
         static void SetDarkThemeColors();
 
+        // Tell ImGui which of its platform viewports the mouse is over, overriding
+        // what the GLFW backend measured this frame; 0 clears it. For synthetic input
+        // (olo_input_inject, issue #607): with multi-viewport on, the backend reports
+        // the viewport the PHYSICAL mouse hovers, which is none while an agent drives
+        // the editor, so ImGui would never hit-test a panel floating in its own OS
+        // window. Applied after the backend's NewFrame so it is the last word.
+        static void SetMouseViewportOverride(u32 viewportId);
+
       private:
         bool m_BlockEvents = true;
     };

@@ -419,6 +419,7 @@ add_executable(OloEngine-Tests
 		Rendering/DDGI/DDGIMathTest.cpp
 		Rendering/SSRHiZTraversalTest.cpp
 		Rendering/RenderGraphFingerprintTest.cpp
+		Rendering/RenderGraphFrameCaptureBackendTest.cpp
 		Rendering/RenderGraphDeclarationIdentityTest.cpp
 		Rendering/CommandPacketTest.cpp
 		Rendering/CommandAllocatorTest.cpp
@@ -1498,6 +1499,7 @@ add_executable(OloEngine-Tests
 		MCP/McpLightmapBakeTest.cpp
 		# Editor panel visibility and clean viewport-overlay controls (#607).
 		MCP/McpEditorPanelsTest.cpp
+		MCP/McpAssetOpenTest.cpp
 		MCP/McpEditorDebugDrawTest.cpp
 		# Consented MCP WRITE tool: olo_editor_select_entity (#607) — select/clear
 		# the Scene Hierarchy panel's selection so the Properties inspector draws a

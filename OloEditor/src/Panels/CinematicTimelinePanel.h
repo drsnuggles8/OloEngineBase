@@ -57,9 +57,20 @@ namespace OloEngine
         {
             return m_Open;
         }
+        // The file the panel has actually loaded (empty = none). olo_asset_open (issue #607)
+        // reads this back instead of trusting that an Open* call succeeded.
+        [[nodiscard]] const std::filesystem::path& GetLoadedFilePath() const
+        {
+            return m_FilePath;
+        }
         [[nodiscard]] bool HasUnsavedChanges() const
         {
             return m_Dirty;
+        }
+        // Save when dirty. True when nothing is left unsaved afterwards.
+        bool SaveIfNeeded()
+        {
+            return !m_Dirty || Save();
         }
 
         /// Drop the edited sequence (e.g. on project switch) so a stale Ref/path
