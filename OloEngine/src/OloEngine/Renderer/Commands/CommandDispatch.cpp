@@ -822,9 +822,13 @@ namespace OloEngine
         //
         // AND IT IS ITSELF CHECKED, because HeapOffset::Invalid is 0xFFFFFFFF and
         // writing THAT into a lane is the exact out-of-bounds index this null
-        // exists to prevent. Byte offset 0 is inside the heap buffer, so it is the
-        // least-bad substitute; the arm is stood down as well (below), so nothing
-        // this function can reach still samples. Unreachable in practice — a device
+        // exists to prevent. Byte offset 0 is inside the heap buffer but it is NOT
+        // a safe descriptor: it is the start of the implementation's reserved
+        // range, whose entries name whatever image the driver's own copy or clear
+        // last touched (#1511, where a shader reading lane 0 faulted on a freed
+        // scene target). It is tolerable here only because the arm is stood down
+        // as well (below), so nothing this function can reach samples it — and a
+        // lane must never reach the shader as 0 by any other route. Unreachable in practice — a device
         // that cannot resolve a null cannot create the shader module either, and
         // fails loudly at vkCreateShaderModule — but the fallback must not be the
         // one value that turns a degraded frame into undefined behaviour.

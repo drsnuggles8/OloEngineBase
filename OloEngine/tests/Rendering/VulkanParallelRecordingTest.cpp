@@ -1522,4 +1522,92 @@ TEST_F(VulkanParallelRecordingDevice, WorkerArenaBlockIsDroppedWhenTheFrameRewin
     }
 }
 
+// =============================================================================
+// Issue #1511: the descriptor heaps are bound for the whole of every recording
+// =============================================================================
+//
+// A copy, clear, blit or resolve runs on NVIDIA as a driver-internal shader
+// whose descriptors the driver writes into the BOUND heap's reserved range.
+// After vkCmdExecuteCommands the primary's heap binding is undefined — the
+// secondaries carry no VkCommandBufferInheritanceDescriptorHeapInfoEXT — and
+// the backend used to re-bind only at the next draw or dispatch. The scene
+// pass's depth-export copy, recorded straight after its forked region, then
+// read whatever descriptor the reserved range last held: one naming a scene
+// target freed at an earlier resize, and the device faulted.
+
+TEST_F(VulkanParallelRecordingDevice, DescriptorHeapsStayBoundAcrossForksAndResumes)
+{
+    ScopedVulkanRenderCommandSelection renderCommandSelection;
+    EnsureTaskWorkers();
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    const DrawKit kit = MakeDrawKit();
+    ASSERT_EQ(kit.Shader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+    constexpr u32 kSize = 16;
+    std::vector<TintedTarget> targets;
+    targets.push_back(MakeTintedTarget(kSize, { 1.0f, 0.0f, 0.0f, 1.0f }));
+    targets.push_back(MakeTintedTarget(kSize, { 0.0f, 1.0f, 0.0f, 1.0f }));
+    std::vector<Ref<Framebuffer>> framebuffers;
+    for (const auto& target : targets)
+        framebuffers.push_back(target.Target);
+
+    VkCommandBuffer handover = VK_NULL_HANDLE;
+    VkCommandBufferAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.commandPool = m_Device->GetCommandPool();
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandBufferCount = 1;
+    ASSERT_EQ(vkAllocateCommandBuffers(m_Device->GetDevice(), &allocInfo, &handover), VK_SUCCESS);
+
+    // Production creates the heaps at context bring-up, before any recording;
+    // BindDescriptorHeaps binds only heaps that exist.
+    ASSERT_TRUE(VulkanResourceHeap::Get().EnsureCreated());
+
+    VulkanRendererAPI& api = renderCommandSelection.Get();
+    const auto drawItem = [&](const u32 item)
+    { DrawTintedTriangle(api, kit, targets[item], kSize); };
+    bool atBegin = false;
+    bool afterFork = false;
+    bool afterResume = false;
+    bool afterReturn = false;
+    std::vector<bool> betweenExecutes;
+    SubmitPassFrame(api, framebuffers,
+                    [&]()
+                    {
+                        atBegin = api.AreDescriptorHeapsBound();
+
+                        api.RecordParallel(2, drawItem);
+                        afterFork = api.AreDescriptorHeapsBound();
+
+                        // The render graph's timed form executes one secondary at a
+                        // time and runs its bracket on the primary in between.
+                        api.RecordParallelOrdered(2, drawItem, {}, [&](u32)
+                                                  { betweenExecutes.push_back(api.AreDescriptorHeapsBound()); }, 0);
+
+                        // A mid-frame flush and an async-compute segment hand the
+                        // recording to a fresh primary and back again.
+                        const VkCommandBuffer frameCmd = api.SuspendRecordingForFlush();
+                        ASSERT_NE(frameCmd, VK_NULL_HANDLE);
+                        VkCommandBufferBeginInfo beginInfo{};
+                        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+                        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+                        ASSERT_EQ(vkBeginCommandBuffer(handover, &beginInfo), VK_SUCCESS);
+                        api.ResumeRecordingAfterFlush(handover);
+                        afterResume = api.AreDescriptorHeapsBound();
+                        ASSERT_EQ(api.SuspendRecordingForFlush(), handover);
+                        ASSERT_EQ(vkEndCommandBuffer(handover), VK_SUCCESS);
+                        api.ResumeRecordingAfterFlush(frameCmd);
+                        afterReturn = api.AreDescriptorHeapsBound();
+                    });
+    vkFreeCommandBuffers(m_Device->GetDevice(), m_Device->GetCommandPool(), 1, &handover);
+
+    const auto stats = api.GetParallelRecordingStats();
+    ASSERT_EQ(stats.SecondariesExecuted, 4u) << "both regions must really fork, or nothing here ran the executes";
+    EXPECT_TRUE(atBegin) << "BeginRecording must bind the heaps before the first command, not at the first draw";
+    EXPECT_TRUE(afterFork) << "vkCmdExecuteCommands leaves the primary's heaps undefined; they must be re-bound at once";
+    EXPECT_EQ(betweenExecutes, (std::vector<bool>{ true, true })) << "the per-item bracket records on the primary";
+    EXPECT_TRUE(afterResume) << "a command buffer handed over by a flush or async segment starts unbound";
+    EXPECT_TRUE(afterReturn);
+}
+
 #endif // OLO_WITH_VULKAN

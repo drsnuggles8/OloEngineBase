@@ -83,6 +83,12 @@ namespace OloEngine
         // (binds are command-buffer state).
         // False when the heap could not be created (no device): nothing was bound.
         bool CmdBind(VkCommandBuffer cmd);
+        // CmdBind without the lazy creation: binds only a heap that already
+        // exists (#1511). With no heap there is no reserved range, so a copy or
+        // clear recorded without one cannot read a stale internal descriptor;
+        // the recording paths that bind eagerly use this so they never create a
+        // heap nothing will sample.
+        bool CmdBindIfCreated(VkCommandBuffer cmd);
 
         // Byte stride between consecutive slots — also the mapping's
         // heapIndexStride, by construction.

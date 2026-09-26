@@ -241,6 +241,11 @@ namespace OloEngine
         return true;
     }
 
+    bool VulkanResourceHeap::CmdBindIfCreated(VkCommandBuffer cmd)
+    {
+        return m_Buffer != VK_NULL_HANDLE && CmdBind(cmd);
+    }
+
     bool VulkanResourceHeap::WriteDiagnosticDump(const std::filesystem::path& path) const
     {
         if (m_Mapped == nullptr || m_TotalSize == 0)
