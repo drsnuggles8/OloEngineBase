@@ -147,7 +147,8 @@ namespace OloEngine::WaterProbe
             WaterWakeSystem::GetHullData(), WaterWakeSystem::GetHullCount(), volume.m_WakeHeightScale,
             volume.m_WakeFlattenStrength, worldXZ, 0.0f);
 
-        // Mirrors the shader's order exactly (WaterVertexStage/WaterTessEval):
+        // Mirrors the shader's order exactly (WaterTessEvalStage.glsl, the one
+        // stage that displaces the surface since #1470):
         // suppress the ocean displacement inside the hull footprint FIRST,
         // relative to the undisplaced plane, then add the wake height. Applying
         // them the other way round would flatten away part of the wake's own

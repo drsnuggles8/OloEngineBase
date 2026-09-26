@@ -298,9 +298,11 @@ void main()
     float amplitude = u_WaveParams.z;
     float frequency = u_WaveParams.w;
 
-    // Seabed under this tessellated vertex (issue #1033). Same one-sample rule
-    // as the vertex stage, and the same absolute-world-XZ addressing — the two
-    // stages displace the same surface and must not disagree about where it is.
+    // Seabed under this tessellated vertex (issue #1033), sampled once and at
+    // the absolute world XZ. This is the ONLY stage that displaces the surface
+    // (issue #1470): the vertex stage hands it the resting position, and
+    // Water.glsl and Water_Depth.glsl both include this stage, so the colour
+    // pass and the surface-depth capture displace identically.
     WaterShoreSample shore = waterShoreSample(posAbs.xz, u_ShoreParams);
     float shoreBreak = 0.0;
     float shoreJacobian = 1.0;
@@ -309,9 +311,9 @@ void main()
     vec3 displacedPos;
     if (u_FFTParams.x > 0.5)
     {
-        // Band-limited cascade sum (issue #969), through the SAME shared
-        // function the vertex stage uses — the two stages displace the same
-        // surface and must not each own a copy of how.
+        // Band-limited cascade sum (issue #969), through the shared function
+        // the fragment stage's foam and the CPU mirror
+        // (OceanFFTField::SampleCascades) also go through.
         OceanCascadeSample fft = sampleOceanCascades(posAbs.xz, u_FFTParams, u_FFTCascadeParams);
         vec3 fftDisp = vec3(fft.Displacement.x * u_FFTParams.w,
                             fft.Displacement.y * u_FFTParams.z,
@@ -338,7 +340,8 @@ void main()
             }
         }
         displacedPos = pos + fftDisp;
-        // Zero/NaN-safe — see the vertex-stage FFT branch.
+        // Zero/NaN-safe: a zero or non-finite texel would otherwise make
+        // normalize() emit NaN into the whole triangle's interpolants.
         vec3 fftNormal = oceanCascadeNormal(fft);
         displacedNormal = (dot(fftNormal, fftNormal) > 1e-12) ? normalize(fftNormal) : vec3(0.0, 1.0, 0.0);
         v_PrevWorldPos = displacedPos; // FFT field has no prev-frame copy

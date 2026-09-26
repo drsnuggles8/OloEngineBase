@@ -687,15 +687,12 @@ TEST(WaterShoreWave, TheShaderCarriesTheSameConstantsAsTheHeader)
 // wrong waves.
 TEST(WaterShoreWave, TheDisplacingStageUsesTheShoreAwareSum)
 {
-    for (const char* stage : { "include/WaterTessEvalStage.glsl" })
-    {
-        const std::string source = ReadShaderSource(stage);
-        ASSERT_FALSE(source.empty()) << stage;
-        EXPECT_NE(source.find("waterShoreSample("), std::string::npos)
-            << stage << " never samples the seabed";
-        EXPECT_NE(source.find("sumGerstnerWavesShore("), std::string::npos)
-            << stage << " still calls the deep-water octave sum";
-        EXPECT_EQ(source.find("= sumGerstnerWaves("), std::string::npos)
-            << stage << " has a displacement site left on the deep-water entry point";
-    }
+    const std::string source = ReadShaderSource("include/WaterTessEvalStage.glsl");
+    ASSERT_FALSE(source.empty());
+    EXPECT_NE(source.find("waterShoreSample("), std::string::npos)
+        << "WaterTessEvalStage.glsl never samples the seabed";
+    EXPECT_NE(source.find("sumGerstnerWavesShore("), std::string::npos)
+        << "WaterTessEvalStage.glsl still calls the deep-water octave sum";
+    EXPECT_EQ(source.find("= sumGerstnerWaves("), std::string::npos)
+        << "WaterTessEvalStage.glsl has a displacement site left on the deep-water entry point";
 }

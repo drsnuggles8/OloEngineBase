@@ -56,14 +56,18 @@ namespace OloEngine::MCP
         // scene; same rationale as the scene-control timeout.
         constexpr std::chrono::milliseconds kBenchmarkMarshalTimeout{ 120000 };
 
-        // The shared settle helper with a deadline scaled to the declared
-        // warm-up frame count (a benchmark waits 128+ frames, not a 2-3 frame
-        // screenshot settle).
+        // The shared settle helper. Every capture step now awaits ONE frame
+        // (issue #1470), so the deadline is the benchmark marshal budget rather
+        // than 10 s + 250 ms per frame: that per-frame share used to pool
+        // across a 64-frame warm-up and absorb the one frame a freshly switched
+        // Vulkan render path spends compiling pipelines, and a 10 s deadline on
+        // that single frame would end the warm-up there.
         bool AwaitBenchmarkFrames(IAutomationHost& host, u64 baseFrame, u32 frames)
         {
-            const auto deadline = std::chrono::seconds(10) + std::chrono::milliseconds(250) * frames;
-            return AwaitRenderedFrames(host, baseFrame, static_cast<int>(frames),
-                                       std::chrono::duration_cast<std::chrono::milliseconds>(deadline));
+            const auto scaled = std::chrono::seconds(10) + std::chrono::milliseconds(250) * frames;
+            const auto deadline = std::max(std::chrono::duration_cast<std::chrono::milliseconds>(scaled),
+                                           kBenchmarkMarshalTimeout);
+            return AwaitRenderedFrames(host, baseFrame, static_cast<int>(frames), deadline);
         }
 
         // Pin the engine clock on the render thread (the thread whose frames
@@ -149,9 +153,11 @@ namespace OloEngine::MCP
             // host's order (docs/guides/renderer-benchmarks.md, step 2).
             const f32 clockStart = manifest->StartTimeSeconds;
             const f32 clockDt = manifest->FixedDtSeconds;
-            u32 clockFrame = 0;
-            SetMockClock(host, clockStart);
+            // The guard FIRST: the marshal below can time out and throw, and the
+            // abandoned job still runs later (nothing dequeues it), so a guard
+            // constructed after it would leave the editor pinned at t0.
             const MockClockReleaseGuard clockGuard{ &host };
+            SetMockClock(host, clockStart);
 
             // ---- Open the manifest's scene (same seam as olo_scene_open) ----
             const std::string scenePath = manifest->ScenePath.ToStdString();
@@ -352,15 +358,17 @@ namespace OloEngine::MCP
                 // from, in ONE marshal. Every marshal waits for the editor's
                 // next frame, so separate ones cost a frame each per step; at
                 // the Debug editor's few fps on the integrated scene that was
-                // most of a 40-minute capture. Returns the frame index, or
-                // nullopt when an EntityMotion target is missing.
-                const auto applyStep = [&host, &cameraSpec, manifestCopy, fovDegrees, clockStart, clockDt,
-                                        &clockFrame](std::optional<u32> poseFrame, u32 motionFrame) -> std::optional<u64>
+                // most of a 40-minute capture. The clock and the entity motion
+                // share one frame index, as they do in the test binary. Returns
+                // the frame index, or nullopt when an EntityMotion target is
+                // missing.
+                const auto applyStep = [&host, &cameraSpec, manifestCopy, fovDegrees, clockStart,
+                                        clockDt](std::optional<u32> poseFrame, u32 motionFrame) -> std::optional<u64>
                 {
                     std::optional<Benchmark::ManifestCameraPose> pose;
                     if (poseFrame)
                         pose = Benchmark::CameraPoseAtFrame(cameraSpec, *poseFrame, manifestCopy->FixedDtSeconds);
-                    const f32 seconds = clockStart + static_cast<f32>(clockFrame++) * clockDt;
+                    const f32 seconds = clockStart + static_cast<f32>(motionFrame) * clockDt;
                     const Json result = host.MarshalRead(
                         [&host, manifestCopy, pose, fovDegrees, seconds, motionFrame]() -> Json
                         {
@@ -529,7 +537,7 @@ namespace OloEngine::MCP
             runInfo.WarmupTimedOut = warmupTimedOut;
             // The last value applyStep() set — the time the final frame rendered at.
             runInfo.FinalMockTimeSeconds =
-                clockStart + static_cast<f32>(clockFrame > 0u ? clockFrame - 1u : 0u) * clockDt;
+                clockStart + static_cast<f32>(trajectoryFrame > 0u ? trajectoryFrame - 1u : 0u) * clockDt;
             runInfo.PassTimings = *passTimings;
             runInfo.Timing = *timingValidity;
             runInfo.Resolution = *resolution;

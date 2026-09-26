@@ -1,9 +1,10 @@
 // WaterVertexStage.glsl — shared stage body for Water.glsl and Water_Depth.glsl.
-// The surface-depth capture replays the SAME displacement chain as the
-// color pass (Gerstner/FFT displacement, camera-relative origin); any drift between the two
-// puts the underwater fog's captured surface at a different height than
-// the drawn one. Included by both after their own `#type`/`#version`
-// lines; sibling includes resolve inside include/.
+// Places the RESTING surface (world grid or projected grid, camera-relative
+// origin) and never displaces it: both programs displace in their shared
+// tess-eval stage (issue #1470, see the end of main()), so the surface-depth
+// capture replays the colour pass's displacement exactly. Included by both
+// after their own `#type`/`#version` lines; sibling includes resolve inside
+// include/.
 
 #ifdef OLO_VULKAN
 // #691 (ADR 0011 §5): V1 engine-vertex pull. Binding 57 is the

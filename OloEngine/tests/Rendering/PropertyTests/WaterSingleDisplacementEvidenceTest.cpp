@@ -19,9 +19,15 @@
 // agreement means tess off displaces once too. With the vertex-stage
 // displacement restored this fails by tens of thousands of pixels.
 //
+// The CONTROL is the same surface with no swell (amplitude 0): agreement
+// between two flat frames would pass the comparison above while displacing
+// nothing, so the displaced frame must differ from the flat one by a real
+// margin.
+//
 // Every capture writes WaterSingleDisplacement_GL_<Path>_<Pose>.png (tess off,
-// the default) and WaterSingleDisplacementTessOn_GL_<Path>_<Pose>.png (the
-// reference) under OloEditor/assets/tests/visual/. GL only: the fixture needs a
+// the default), WaterSingleDisplacementTessOn_GL_<Path>_<Pose>.png (the
+// reference) and WaterSingleDisplacementOff_GL_<Path>_<Pose>.png (the flat
+// control) under OloEditor/assets/tests/visual/. GL only: the fixture needs a
 // GL 4.6 context and skips without one; the Vulkan cells are live-verified.
 // =============================================================================
 
@@ -60,6 +66,9 @@ namespace OloEngine::Tests
         constexpr u32 kHeight = 450;
         constexpr f32 kCaptureTime = 7.0f;
         constexpr u32 kFramesPerCapture = 4;
+        // 1 m Gerstner on a 16 m tile: a doubled displacement moves the surface
+        // by a visible fraction of the tile.
+        constexpr f32 kAmplitude = 1.0f;
 
         // A channel further apart than this is a difference. The two draws are
         // the same patches through the same stages, so they agree exactly where
@@ -202,7 +211,7 @@ namespace OloEngine::Tests
             wc.m_WorldSizeZ = 16.0f;
             wc.m_GridResolutionX = 64;
             wc.m_GridResolutionZ = 64;
-            wc.m_WaveAmplitude = 1.0f;
+            wc.m_WaveAmplitude = kAmplitude;
             wc.m_WaveFrequency = 0.5f;
             wc.m_TessellationEnabled = false;
             // Factor 1: "on" subdivides nothing, so it is the same patch layout.
@@ -260,14 +269,26 @@ namespace OloEngine::Tests
                 const Frame off = Capture("WaterSingleDisplacement" + cell);
                 m_Water.GetComponent<WaterComponent>().m_TessellationEnabled = true;
                 const Frame on = Capture("WaterSingleDisplacementTessOn" + cell);
+                m_Water.GetComponent<WaterComponent>().m_TessellationEnabled = false;
+                m_Water.GetComponent<WaterComponent>().m_WaveAmplitude = 0.0f;
+                const Frame flat = Capture("WaterSingleDisplacementOff" + cell);
+                m_Water.GetComponent<WaterComponent>().m_WaveAmplitude = kAmplitude;
                 ASSERT_FALSE(HasFatalFailure());
 
                 u32 maxAbs = 0;
                 const u64 differing = CountDifferingPixels(off, on, maxAbs);
+                u32 flatMaxAbs = 0;
+                const u64 displacedVsFlat = CountDifferingPixels(off, flat, flatMaxAbs);
                 const u64 water = CountWaterPixels(off);
-                std::printf("[#1470] %-28s water px %7llu | tess off vs on: %7llu px over %u (max %3u)\n",
+                std::printf("[#1470] %-28s water px %7llu | tess off vs on: %7llu px over %u (max %3u) | vs flat: %7llu px\n",
                             cell.c_str() + 1, static_cast<unsigned long long>(water),
-                            static_cast<unsigned long long>(differing), kTolerance, maxAbs);
+                            static_cast<unsigned long long>(differing), kTolerance, maxAbs,
+                            static_cast<unsigned long long>(displacedVsFlat));
+
+                // The control: the swell is actually there.
+                EXPECT_GT(displacedVsFlat, static_cast<u64>(kWidth) * kHeight / 50u)
+                    << cell << ": the displaced surface renders like a flat one - nothing is displacing it, so the "
+                    << "tess off / tess on agreement below proves nothing";
 
                 // The surface is in the frame — agreement is not two empty frames.
                 EXPECT_GT(water, static_cast<u64>(kWidth) * kHeight / 20u)

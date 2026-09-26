@@ -10,8 +10,9 @@
 // deliberately only the arithmetic, in the same order, with the same constants.
 //
 // Included by WaterCommon.glsl, so it is in scope for every stage that
-// displaces the surface — the colour pass AND the surface-depth capture, which
-// replay one shared chain (WaterVertexStage.glsl's header comment). There is no
+// displaces the surface — the tess-eval stage of the colour pass AND of the
+// surface-depth capture, which replay one shared chain (WaterTessEvalStage.glsl,
+// the only displacing stage since issue #1470). There is no
 // way to shoal in one and not the other.
 //
 // Sampling is behind a hook so this file needs no sampler of its own: each
