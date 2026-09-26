@@ -17,7 +17,10 @@ hardware job, on a hosted runner: the self-hosted job keeps its read-only token.
 A night is judged by the HARDWARE job's conclusion, never the run's: the run's includes
 this alert job, so a night where only the alert failed would otherwise count as red.
 `success` is green, `skipped` is neither, and `cancelled` is red only when the job ran
-to its `timeout-minutes` (see verdict()). Everything else is red.
+to its `timeout-minutes` (see verdict()). Everything else is red. A neutral night
+neither breaks nor extends a streak: the streak counts consecutive OBSERVED nights,
+and the usual neutral night is a run the concurrency group cancelled because a
+dispatch arrived, which says nothing about whether the nightly still fails.
 
 What it does, with the streak counted over SCHEDULED runs, newest first, this run
 included:
