@@ -5178,6 +5178,7 @@ namespace OloEngine
         m_SceneState = SceneState::Simulate;
 
         m_ActiveScene = Scene::Copy(m_EditorScene);
+        ResetRendererForSceneSwap();
         m_ActiveScene->OnSimulationStart();
 
         BindPanelsToScene(m_ActiveScene, nullptr);
