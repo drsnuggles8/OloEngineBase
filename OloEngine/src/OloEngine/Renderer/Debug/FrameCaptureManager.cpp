@@ -62,6 +62,24 @@ namespace OloEngine
         }
     }
 
+    bool FrameCaptureManager::CancelCapture()
+    {
+        // Compare-exchange, never a blind store: the capture may have completed
+        // since the caller gave up on it, and the state may since have moved to
+        // Recording, which a store to Idle would stop.
+        auto expected = CaptureState::CaptureNextFrame;
+        if (!m_State.compare_exchange_strong(expected, CaptureState::Idle, std::memory_order_acq_rel))
+        {
+            expected = CaptureState::AwaitingGpuResults;
+            if (!m_State.compare_exchange_strong(expected, CaptureState::Idle, std::memory_order_acq_rel))
+                return false;
+        }
+
+        m_PendingFrame = CapturedFrameData{};
+        m_CurrentPassIndex = -1;
+        return true;
+    }
+
     std::optional<CapturedFrameData> FrameCaptureManager::GetSelectedFrame() const
     {
         TUniqueLock<FMutex> lock(m_Mutex);

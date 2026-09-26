@@ -9,6 +9,7 @@
 #include "MCP/McpClusterGridStats.h"
 #include "MCP/McpDDGIProbeStats.h"
 #include "MCP/McpFrameBreakdown.h"
+#include "MCP/McpFrameCaptureWait.h"
 #include "MCP/McpFroxelFogProbe.h"
 #include "MCP/McpGpuReadbackStats.h"
 #include "MCP/McpGoldenCompare.h"
@@ -205,40 +206,12 @@ namespace OloEngine::MCP
                                          "report always covers all pipeline stages and every command. Omit them, "
                                          "or use format:\"json\".");
 
-            // Trigger a one-frame capture on the game thread and note the capture
-            // GENERATION beforehand, as Handle_PerfCaptureFrame does. A frame-count
-            // comparison never fires once the ring is at capacity: the commit evicts
-            // the oldest frame, the count stays put, and every call times out.
-            const Json trigger = host.MarshalRead([]() -> Json
-                                                  {
-                FrameCaptureManager& fcm = FrameCaptureManager::GetInstance();
-                const auto beforeGen = fcm.GetCaptureGeneration();
-                fcm.CaptureNextFrame();
-                return Json{ { "beforeGen", beforeGen } }; });
-            const auto beforeGen = trigger.value("beforeGen", static_cast<u64>(0));
-
-            TArray<CapturedFrameData> frames;
-            bool captured = false;
-            int polls = 0;
-            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
-            while (std::chrono::steady_clock::now() < deadline)
-            {
-                if (host.IsCurrentCallCancelled())
-                    return ToolResult::Error("Cancelled while waiting for the frame capture.");
-                if (FrameCaptureManager::GetInstance().GetCaptureGeneration() > beforeGen)
-                {
-                    frames = FrameCaptureManager::GetInstance().GetCapturedFramesCopy();
-                    if (!frames.IsEmpty())
-                    {
-                        captured = true;
-                        break;
-                    }
-                }
-                host.EmitProgress(static_cast<f64>(++polls), -1.0, "waiting for the captured frame");
-                std::this_thread::sleep_for(std::chrono::milliseconds(50));
-            }
-            if (!captured)
-                return ToolResult::Error("Frame capture timed out (is the editor rendering the viewport?).");
+            // Arm a one-frame capture and wait for it; a timeout or a cancel
+            // withdraws it again, so it cannot fire on a later frame (#1504).
+            const FrameCaptureWaitResult wait = CaptureOneFrame(host);
+            if (!wait.Captured())
+                return ToolResult::Error(wait.ErrorMessage());
+            const TArray<CapturedFrameData>& frames = wait.Frames;
 
             const CapturedFrameData& cap = frames.Last();
 

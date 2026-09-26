@@ -643,6 +643,114 @@ TEST_F(FrameCapturePipelineTest, CaptureGenerationIncrements)
 }
 
 // =============================================================================
+// CancelCapture (issue #1504): a requester that stopped waiting leaves no armed
+// capture behind to fire on a later frame or on the next scene's first frames.
+// =============================================================================
+
+TEST_F(FrameCapturePipelineTest, CancelCaptureDisarmsAnArmedCapture)
+{
+    auto& mgr = FrameCaptureManager::GetInstance();
+
+    mgr.CaptureNextFrame();
+    ASSERT_EQ(mgr.GetState(), CaptureState::CaptureNextFrame);
+
+    EXPECT_TRUE(mgr.CancelCapture());
+    EXPECT_EQ(mgr.GetState(), CaptureState::Idle);
+
+    // The frame the capture was armed for arrives afterwards: nothing records it.
+    const u64 genBefore = mgr.GetCaptureGeneration();
+    auto bucket = MakeTestBucket(3);
+    bucket.SortCommands();
+    mgr.BeginPass("ScenePass");
+    mgr.OnPreSort(bucket);
+    mgr.OnPostSort(bucket);
+    mgr.CommitFrame();
+    mgr.CommitFrame();
+
+    EXPECT_EQ(mgr.GetState(), CaptureState::Idle);
+    EXPECT_EQ(mgr.GetCaptureGeneration(), genBefore);
+    EXPECT_EQ(mgr.GetCapturedFrameCount(), 0u);
+}
+
+TEST_F(FrameCapturePipelineTest, CancelCaptureDropsAFrameAwaitingGpuResults)
+{
+    auto& mgr = FrameCaptureManager::GetInstance();
+    auto bucket = MakeTestBucket(3);
+    bucket.SortCommands();
+
+    // The capture frame runs and parks, waiting for its GPU timer queries.
+    mgr.CaptureNextFrame();
+    mgr.BeginPass("ScenePass");
+    mgr.OnPreSort(bucket);
+    mgr.OnPostSort(bucket);
+    mgr.CommitFrame();
+    ASSERT_EQ(mgr.GetState(), CaptureState::AwaitingGpuResults);
+
+    const u64 genBefore = mgr.GetCaptureGeneration();
+    EXPECT_TRUE(mgr.CancelCapture());
+    EXPECT_EQ(mgr.GetState(), CaptureState::Idle);
+
+    // The later frame that would have resolved and committed the parked capture.
+    mgr.CommitFrame();
+    EXPECT_EQ(mgr.GetCaptureGeneration(), genBefore);
+    EXPECT_EQ(mgr.GetCapturedFrameCount(), 0u);
+
+    // The manager is reusable: the next capture records only its own frame.
+    mgr.CaptureNextFrame();
+    mgr.OnPreSort(bucket);
+    mgr.OnPostSort(bucket);
+    mgr.OnFrameEnd(7, 0.1, 0.0, 0.1);
+    const auto frames = mgr.GetCapturedFramesCopy();
+    ASSERT_EQ(frames.Num(), 1u);
+    EXPECT_EQ(frames[0].FrameNumber, 7u);
+    EXPECT_EQ(frames[0].Passes.Num(), 1u) << "the cancelled capture's pass must not leak into the next capture";
+}
+
+TEST_F(FrameCapturePipelineTest, CancelCaptureIsANoOpWhenIdle)
+{
+    auto& mgr = FrameCaptureManager::GetInstance();
+    ASSERT_EQ(mgr.GetState(), CaptureState::Idle);
+
+    EXPECT_FALSE(mgr.CancelCapture());
+    EXPECT_EQ(mgr.GetState(), CaptureState::Idle);
+}
+
+TEST_F(FrameCapturePipelineTest, CancelCaptureLeavesRecordingRunning)
+{
+    auto& mgr = FrameCaptureManager::GetInstance();
+    auto bucket = MakeTestBucket(2);
+    bucket.SortCommands();
+
+    mgr.StartRecording();
+    EXPECT_FALSE(mgr.CancelCapture());
+    EXPECT_EQ(mgr.GetState(), CaptureState::Recording);
+
+    // Recording still records.
+    mgr.OnPreSort(bucket);
+    mgr.OnPostSort(bucket);
+    mgr.OnFrameEnd(1, 0.1, 0.0, 0.1);
+    EXPECT_EQ(mgr.GetCapturedFrameCount(), 1u);
+    EXPECT_EQ(mgr.GetState(), CaptureState::Recording);
+}
+
+TEST_F(FrameCapturePipelineTest, CancelCaptureAfterTheCaptureCompletedChangesNothing)
+{
+    auto& mgr = FrameCaptureManager::GetInstance();
+    auto bucket = MakeTestBucket(2);
+    bucket.SortCommands();
+
+    // The capture lands just before the requester gives up on it.
+    mgr.CaptureNextFrame();
+    mgr.OnPreSort(bucket);
+    mgr.OnPostSort(bucket);
+    mgr.OnFrameEnd(3, 0.1, 0.0, 0.1);
+    ASSERT_EQ(mgr.GetState(), CaptureState::Idle);
+
+    EXPECT_FALSE(mgr.CancelCapture());
+    EXPECT_EQ(mgr.GetCapturedFrameCount(), 1u) << "a late cancel must not remove a committed frame";
+}
+
+// =============================================================================
 // Frame Export Tests — CSV and Markdown
 // =============================================================================
 
