@@ -642,6 +642,41 @@ TEST_F(FrameCapturePipelineTest, CaptureGenerationIncrements)
     EXPECT_GT(gen2, gen1) << "Capture generation should increment after clear";
 }
 
+TEST_F(FrameCapturePipelineTest, CaptureGenerationRisesWhenTheRetainedFramesAreFull)
+{
+    // #1510. olo_render_frame_breakdown waited for the retained COUNT to rise,
+    // which it never does once the manager is full: the new capture evicts the
+    // oldest. Every call after the 60th timed out against a live viewport. The
+    // generation is what a waiter can rely on.
+    auto& mgr = FrameCaptureManager::GetInstance();
+    mgr.ClearCaptures();
+    mgr.SetMaxCapturedFrames(3);
+    auto bucket = MakeTestBucket(1);
+    bucket.SortCommands();
+    for (u32 f = 0; f < 3; ++f)
+    {
+        mgr.CaptureNextFrame();
+        mgr.OnPreSort(bucket);
+        mgr.OnPostSort(bucket);
+        mgr.OnFrameEnd(f + 1, 0.1, 0.0, 0.1);
+    }
+    ASSERT_EQ(mgr.GetCapturedFrameCount(), 3u);
+
+    const u64 countBefore = mgr.GetCapturedFrameCount();
+    const u64 generationBefore = mgr.GetCaptureGeneration();
+    mgr.CaptureNextFrame();
+    mgr.OnPreSort(bucket);
+    mgr.OnPostSort(bucket);
+    mgr.OnFrameEnd(4, 0.1, 0.0, 0.1);
+
+    EXPECT_EQ(mgr.GetCapturedFrameCount(), countBefore) << "a full manager evicts, so the count cannot signal a capture";
+    EXPECT_GT(mgr.GetCaptureGeneration(), generationBefore) << "the generation must still say a new frame landed";
+    EXPECT_EQ(mgr.GetCapturedFramesCopy().Last().FrameNumber, 4u);
+
+    mgr.SetMaxCapturedFrames(60); // Restore default
+    mgr.ClearCaptures();
+}
+
 // =============================================================================
 // Frame Export Tests — CSV and Markdown
 // =============================================================================
