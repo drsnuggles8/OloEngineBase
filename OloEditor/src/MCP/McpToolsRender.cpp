@@ -205,16 +205,17 @@ namespace OloEngine::MCP
                                          "report always covers all pipeline stages and every command. Omit them, "
                                          "or use format:\"json\".");
 
-            // Trigger a one-frame capture on the game thread and note how many frames
-            // were already retained, so we can detect the new one (identical to
-            // Handle_PerfCaptureFrame).
+            // Trigger a one-frame capture on the game thread and note the capture
+            // GENERATION beforehand, as Handle_PerfCaptureFrame does. A frame-count
+            // comparison never fires once the ring is at capacity: the commit evicts
+            // the oldest frame, the count stays put, and every call times out.
             const Json trigger = host.MarshalRead([]() -> Json
                                                   {
                 FrameCaptureManager& fcm = FrameCaptureManager::GetInstance();
-                const auto before = static_cast<u64>(fcm.GetCapturedFramesCopy().Num());
+                const auto beforeGen = fcm.GetCaptureGeneration();
                 fcm.CaptureNextFrame();
-                return Json{ { "before", before } }; });
-            const auto before = trigger.value("before", static_cast<u64>(0));
+                return Json{ { "beforeGen", beforeGen } }; });
+            const auto beforeGen = trigger.value("beforeGen", static_cast<u64>(0));
 
             TArray<CapturedFrameData> frames;
             bool captured = false;
@@ -224,11 +225,14 @@ namespace OloEngine::MCP
             {
                 if (host.IsCurrentCallCancelled())
                     return ToolResult::Error("Cancelled while waiting for the frame capture.");
-                frames = FrameCaptureManager::GetInstance().GetCapturedFramesCopy();
-                if (static_cast<u64>(frames.Num()) > before && !frames.IsEmpty())
+                if (FrameCaptureManager::GetInstance().GetCaptureGeneration() > beforeGen)
                 {
-                    captured = true;
-                    break;
+                    frames = FrameCaptureManager::GetInstance().GetCapturedFramesCopy();
+                    if (!frames.IsEmpty())
+                    {
+                        captured = true;
+                        break;
+                    }
                 }
                 host.EmitProgress(static_cast<f64>(++polls), -1.0, "waiting for the captured frame");
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));
