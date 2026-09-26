@@ -310,19 +310,6 @@ namespace OloEngine::Tests::StateMachine
             return sums;
         }
 
-        // The largest colour magnitude in the target: what "1% of the signal"
-        // is measured against, so a dim target is not judged on a scale of 1.
-        [[nodiscard]] f64 Peak(const TargetCapture& target)
-        {
-            f64 peak = 0.0;
-            for (sizet i = 0; i < target.Texels.size(); ++i)
-            {
-                if (i % 4u != 3u)
-                    peak = std::max(peak, std::abs(static_cast<f64>(target.Texels[i])));
-            }
-            return peak;
-        }
-
         [[nodiscard]] std::array<u32, 17> LuminanceHistogram(const TargetCapture& target)
         {
             // Log-spaced so HDR and LDR targets both spread over the bins. The
@@ -372,6 +359,22 @@ namespace OloEngine::Tests::StateMachine
             for (sizet i = 0; i < means.size(); ++i)
                 means[i] /= static_cast<f64>(std::max(counts[i / 4u], 1u));
             return means;
+        }
+
+        // The brightest tile's largest colour mean: what "1% of the signal" is
+        // measured against. Per tile, not per texel, so one specular texel at
+        // 50 does not loosen the floor for the whole target, and a dim target
+        // is not judged on a scale of 1.
+        [[nodiscard]] f64 TilePeak(const TargetCapture& target)
+        {
+            const std::vector<f64> means = TileMeans(target);
+            f64 peak = 0.0;
+            for (sizet i = 0; i < means.size(); ++i)
+            {
+                if (i % 4u != 3u)
+                    peak = std::max(peak, std::abs(means[i]));
+            }
+            return peak;
         }
 
         [[nodiscard]] u32 PoolObjectCount(RenderGraph& graph)
@@ -578,14 +581,16 @@ namespace OloEngine::Tests::StateMachine
         constexpr f64 kHistogramFloor = 0.02;
         constexpr f64 kControlHeadroom = 2.0;
         // The spatial term: a tile mean may move by three times what the
-        // control's tiles moved, or 1% of the target's peak (2.5 steps of a
-        // full-range 8-bit target). Three, not two: the largest of a few
+        // control's tiles moved, or 1% of the brightest tile's mean (2.5 steps
+        // of a full-range 8-bit target). Three, not two: the largest of a few
         // hundred tile differences is itself a noisy statistic, and two noisy
         // SSR frames came within 1.8x of each other on the corpus. The floor is
-        // relative to the peak, not to max(1, mean), or a dim target's whole
-        // signal would sit under it. Measured on the corpus (#1492): no clean
-        // comparison used more than 22% of this allowance, while the stale-key
-        // fault that fresh-vs-sequence catches moved a tile by twenty times it.
+        // relative to the brightest tile, not to max(1, mean), or a dim
+        // target's whole signal would sit under it, and not to the brightest
+        // texel, or one specular highlight would loosen it for every tile.
+        // Measured on the corpus (#1492): no clean comparison used more than a
+        // quarter of this allowance, while the stale-key fault that
+        // fresh-vs-sequence catches moved a tile by 24 times it.
         constexpr f64 kTileFloorRelative = 1.0e-2;
         constexpr f64 kTileHeadroom = 3.0;
 
@@ -598,9 +603,10 @@ namespace OloEngine::Tests::StateMachine
         // #1349, as a 5-texel difference that only appeared after two unrelated
         // tests had run first). Kept deliberately (#1492) rather than replaced
         // by resource lineage: with the tile term a downstream target still
-        // fails any tile mean that moves by more than 1% of its peak, so what
-        // the spread admits is sub-tile, sub-percent drift, and following lineage would need the
-        // graph's read sets inside a pure CPU comparison.
+        // fails any tile mean that moves by more than 1% of the brightest
+        // tile, so what the spread admits is sub-tile, sub-percent drift, and
+        // following lineage would need the graph's read sets inside a pure CPU
+        // comparison.
         u32 firstNoisy = std::numeric_limits<u32>::max();
         for (const TargetCapture& target : a.Targets)
         {
@@ -697,7 +703,8 @@ namespace OloEngine::Tests::StateMachine
                 const f64 allowedShift = std::max(kControlHeadroom * control->MeanShift, kMeanFloorRelative * magnitude);
                 const f64 allowedHistogram = std::max(kControlHeadroom * control->HistogramL1, kHistogramFloor);
                 const f64 allowedTiles =
-                    std::max(kTileHeadroom * control->TileShift, kTileFloorRelative * std::max(Peak(target), Peak(*other)));
+                    std::max(kTileHeadroom * control->TileShift,
+                             kTileFloorRelative * std::max(TilePeak(target), TilePeak(*other)));
                 verdict.Held = shift <= allowedShift && histogram <= allowedHistogram && tiles <= allowedTiles;
                 if (!verdict.Held)
                     verdict.Detail += "distribution differs (" + std::to_string(verdict.DifferingTexels) + " of " +

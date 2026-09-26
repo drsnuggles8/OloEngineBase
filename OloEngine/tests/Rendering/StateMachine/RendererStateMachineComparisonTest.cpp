@@ -499,6 +499,26 @@ namespace OloEngine::Tests::StateMachine
         EXPECT_FALSE(swapped.Held) << "a mirrored image with a peak of 0.005 passed under the floor";
     }
 
+    // Nor does one bright texel raise the floor: a specular highlight at 50
+    // in an otherwise unit-range image must not make a half-image swap
+    // pass, in whichever capture it sits.
+    TEST(RendererStateMachineComparisonSpatial, OneBrightTexelDoesNotLoosenTheFloor)
+    {
+        const auto frame = [](bool swapped, u64 seed)
+        {
+            TargetCapture target = WithNoise(HalfImage(swapped), seed, 0.02f);
+            for (u32 c = 0; c < 3u; ++c)
+                target.Texels[(((5u * kSize) + 40u) * 4u) + c] = 50.0f;
+            return target;
+        };
+        const std::vector<ControlFloor> controls = MeasureControls(Frame(frame(false, 11u)), Frame(frame(false, 12u)));
+        ASSERT_EQ(controls.size(), 1u);
+        const Comparison noise = CompareCaptures(Frame(frame(false, 12u)), Frame(frame(false, 13u)), controls);
+        EXPECT_TRUE(noise.Held) << noise.Describe();
+        const Comparison swapped = CompareCaptures(Frame(frame(false, 12u)), Frame(frame(true, 13u)), controls);
+        EXPECT_FALSE(swapped.Held) << "one texel at 50 loosened the tile floor enough to pass a mirrored image";
+    }
+
     // An extent that is not a multiple of the tile has no sliver tile: a
     // one-texel-wide column would be the noisiest mean and loosen every tile.
     TEST(RendererStateMachineComparisonSpatial, AnOddExtentHasNoSliverTile)

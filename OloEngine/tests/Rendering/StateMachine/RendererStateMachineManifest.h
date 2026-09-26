@@ -99,8 +99,8 @@ namespace OloEngine::Tests::StateMachine
                       "target with a noisy control is compared under distribution and counted as a fallback" },
         CriterionRow{ Criterion::Distribution, "distribution",
                       "per-channel mean and 16-bin luminance histogram L1 within max(2 x control, floor), 16x16 tile means "
-                      "within max(3 x control, 1% of peak); every target first finite, same shape, and calibrated by its "
-                      "control" },
+                      "within max(3 x control, 1% of the brightest tile); every target first finite, same shape, and "
+                      "calibrated by its control" },
         CriterionRow{ Criterion::PlanDigest, "plan-digest", "RenderGraph::ComputeCompiledPlanDigest equal" },
         CriterionRow{ Criterion::Invariant, "invariant",
                       "an independent model of the property (lifetimes recomputed from declarations, compositing "
