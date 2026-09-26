@@ -548,7 +548,6 @@ TEST(GroomCoatAuthoring, EachRoleIsWidenedByWhatItsOwnStrideKept)
         EXPECT_NEAR(static_cast<f32>(kept) * expected[role], static_cast<f32>(available), available * 1.0e-5f)
             << "role " << role;
     }
-
 }
 
 TEST(GroomCoatAuthoring, AGroomWithNoRolesBehavesExactlyAsItDidBefore)
