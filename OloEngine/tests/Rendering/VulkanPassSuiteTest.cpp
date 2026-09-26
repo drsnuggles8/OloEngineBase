@@ -526,6 +526,11 @@ class VulkanPassSuite : public ::testing::Test
 
         VulkanDevice::ResetValidationErrorCount();
 
+        // Tenants drive passes without a scene, so nothing overwrites the frame
+        // camera the last rendered scene left in Renderer3D; an earlier GL test's
+        // render origin would shift every origin-relative upload (#1484).
+        Renderer3D::ResetFrameCamera();
+
         // The graph's pass bodies route through the RenderCommand statics —
         // the PROCESS-GLOBAL backend must be the Vulkan one for the duration.
         // Selection stays active for the whole test (factories switch on it
