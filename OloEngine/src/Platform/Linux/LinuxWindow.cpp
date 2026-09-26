@@ -97,6 +97,23 @@ namespace OloEngine
             ++s_GLFWWindowCount;
         }
 
+        // GLFW_SCALE_TO_MONITOR (set above on a high-DPI monitor) makes glfwCreateWindow
+        // resize the window to props * content scale BEFORE any size callback exists, so
+        // WindowData would otherwise keep the requested size until the first real resize:
+        // a 1280x720 request on a 150% display is a 1920x1080 window that GetWidth() /
+        // GetHeight() reported as 1280x720 (issue #607 — it hid the right-hand dock from
+        // olo_input_inject's window-space bounds check). Read the size the window got.
+        {
+            int createdWidth = 0;
+            int createdHeight = 0;
+            GLFWAPI::glfwGetWindowSize(m_Window, &createdWidth, &createdHeight);
+            if (createdWidth > 0 && createdHeight > 0)
+            {
+                m_Data.Width = static_cast<u32>(createdWidth);
+                m_Data.Height = static_cast<u32>(createdHeight);
+            }
+        }
+
         m_Context = GraphicsContext::Create(m_Window);
         if (!m_Context)
         {
