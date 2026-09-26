@@ -1066,7 +1066,7 @@ vec3 sampleGGXVNDF(vec3 N, vec3 V, float roughness, vec2 Xi)
 // A VERSIONED closure. cookTorranceBRDF above is the Legacy model and is
 // frozen: every existing material, scene and golden keeps it bit for bit.
 // ClosureV2 is the explicit opt-in (Material::SetPBRModel, the u_PBRModel UBO
-// lane, ReferenceMaterial::Model) and differs from Legacy in exactly four
+// lane, ReferenceMaterial::Model) and differs from Legacy in exactly five
 // documented ways:
 //
 //   1. ONE geometry term. The specular lobe is D * V * F with the
@@ -1087,6 +1087,15 @@ vec3 sampleGGXVNDF(vec3 N, vec3 V, float roughness, vec2 Xi)
 //      lobe — the property a path tracer / ReSTIR estimator depends on, and
 //      the reason Legacy needed two Ds (see DistributionGGXSamplingDensity in
 //      ReferenceBRDF.h: a PDF describes the SAMPLER, never the integrand).
+//   5. An energy-conserving diffuse weight (issue #1479). The Lambert term is
+//      weighted by (1 - E_spec(NdotV)) (1 - E_spec(NdotL)) / (1 - E_spec_avg),
+//      E_spec being the whole specular lobe's Fresnel-aware directional albedo
+//      from the same generated tables, instead of Legacy's (1 - F(H)). A
+//      white dielectric then reflects exactly what it receives, and the
+//      weight is symmetric in V/L, so the closure stays reciprocal.
+//
+// v2 is not frozen: it changes in place (ADR 0016 §1) while it is not the
+// default, and even then only under the repo's no-legacy rule.
 //
 // The Evaluate / Sample / Pdf triple is mirrored in C++ and pinned:
 //   Renderer/PathTracing/ReferenceBRDF.h   — function-for-function twins
@@ -1102,9 +1111,11 @@ vec3 sampleGGXVNDF(vec3 N, vec3 V, float roughness, vec2 Xi)
 //   * IBL / ambient stays on the split-sum LUT with no multi-scatter term;
 //     energy compensation applies to punctual direct lighting and the CPU
 //     reference tracer in this slice.
-//   * The diffuse split keeps the (1 - F(H)) * (1 - metallic) Lambert term,
-//     documented as THE energy split. F at the half vector is symmetric in
-//     wo/wi, so the v2 closure is reciprocal.
+//   * The diffuse lobe is still SAMPLED cosine-weighted and selected with
+//     the F0-vs-albedo luminance split (closureV2SpecularProbability). Both
+//     are variance choices, unbiased for any value; the coupling's weight is
+//     ~1 at normal incidence, where that split is measured, so it did not
+//     move with it (ADR 0016 §5).
 
 #include "PBRClosureV2Energy.glsl"
 
@@ -1136,42 +1147,74 @@ float distributionGGXUnclampedNH(vec3 N, vec3 H, float roughness)
     return a2 / max(denom, 1.17549435e-38);
 }
 
-// Bilinear lookup into the generated 16x16 single-scatter energy-LOSS table
-// (1 - Ess). Cell-centered grid; clamped at the edges, never extrapolates.
-// `roughness` is the AUTHORED perceptual roughness (the table rows bake the
-// v2 alpha clamp in, so callers pass it un-floored). Entries decode from the
-// half-packed constants in PBRClosureV2Energy.glsl — see that file's header
-// for why the packing itself is load-bearing (NVIDIA C5025 at link).
-float ggxEnergyLoss(float mu, float roughness)
+// Where a mu or roughness value lands on the generated energy table's axis.
+// The nodes are node-centred and square-root spaced, value_j = (j / (N - 1))^2
+// (issue #1478; PBRClosureV2Energy.glsl says why), so the coordinate is
+// sqrt(value) * (N - 1) and both endpoints are nodes: nothing clamps short of
+// 0 or 1 and nothing extrapolates. C++ twin: GgxEnergyTableCoordinate.
+float ggxEnergyTableCoordinate(float value)
 {
-    float fs = float(OLO_GGX_ENERGY_TABLE_SIZE);
-    float x = clamp(clamp(mu, 0.0, 1.0) * fs - 0.5, 0.0, fs - 1.0);
-    float y = clamp(clamp(roughness, 0.0, 1.0) * fs - 0.5, 0.0, fs - 1.0);
-    int x0 = int(floor(x));
-    int y0 = int(floor(y));
-    int x1 = min(x0 + 1, OLO_GGX_ENERGY_TABLE_SIZE - 1);
-    int y1 = min(y0 + 1, OLO_GGX_ENERGY_TABLE_SIZE - 1);
+    return sqrt(clamp(value, 0.0, 1.0)) * float(OLO_GGX_ENERGY_TABLE_SIZE - 1);
+}
+
+// Bilinear lookup of both single-scatter moments in the generated 16x16
+// table: x = 1 - Ess(mu, r), y = Schlick(mu, r). `roughness` is the AUTHORED
+// perceptual roughness (the table rows bake the v2 alpha clamp in, so callers
+// pass it un-floored). The lower cell index stops at N - 2 so value 1 reads the
+// last node with weight 1. Entries decode from the half-packed constants in
+// PBRClosureV2Energy.glsl — see that file's header for why the packing itself
+// is load-bearing (NVIDIA C5025 at link). C++ twin: GgxEnergy.
+vec2 ggxEnergy(float mu, float roughness)
+{
+    float x = ggxEnergyTableCoordinate(mu);
+    float y = ggxEnergyTableCoordinate(roughness);
+    int x0 = min(int(x), OLO_GGX_ENERGY_TABLE_SIZE - 2);
+    int y0 = min(int(y), OLO_GGX_ENERGY_TABLE_SIZE - 2);
     float fx = x - float(x0);
     float fy = y - float(y0);
-    float v00 = ggxEnergyLossEntry(y0 * OLO_GGX_ENERGY_TABLE_SIZE + x0);
-    float v10 = ggxEnergyLossEntry(y0 * OLO_GGX_ENERGY_TABLE_SIZE + x1);
-    float v01 = ggxEnergyLossEntry(y1 * OLO_GGX_ENERGY_TABLE_SIZE + x0);
-    float v11 = ggxEnergyLossEntry(y1 * OLO_GGX_ENERGY_TABLE_SIZE + x1);
+    vec2 v00 = ggxEnergyEntry(y0 * OLO_GGX_ENERGY_TABLE_SIZE + x0);
+    vec2 v10 = ggxEnergyEntry(y0 * OLO_GGX_ENERGY_TABLE_SIZE + x0 + 1);
+    vec2 v01 = ggxEnergyEntry((y0 + 1) * OLO_GGX_ENERGY_TABLE_SIZE + x0);
+    vec2 v11 = ggxEnergyEntry((y0 + 1) * OLO_GGX_ENERGY_TABLE_SIZE + x0 + 1);
     return mix(mix(v00, v10, fx), mix(v01, v11, fx), fy);
 }
 
-// Linear lookup of 1 - E_avg(roughness) over the same cell-centered axis.
-float ggxEnergyLossAverage(float roughness)
+// Linear lookup of the averages row over the same roughness axis:
+// x = 1 - E_avg(r), y = Schlick_avg(r). C++ twin: GgxEnergyAverage.
+vec2 ggxEnergyAverage(float roughness)
 {
-    float fs = float(OLO_GGX_ENERGY_TABLE_SIZE);
-    float y = clamp(clamp(roughness, 0.0, 1.0) * fs - 0.5, 0.0, fs - 1.0);
-    int y0 = int(floor(y));
-    int y1 = min(y0 + 1, OLO_GGX_ENERGY_TABLE_SIZE - 1);
+    float y = ggxEnergyTableCoordinate(roughness);
+    int y0 = min(int(y), OLO_GGX_ENERGY_TABLE_SIZE - 2);
     float fy = y - float(y0);
-    return mix(ggxEnergyLossAvgEntry(y0), ggxEnergyLossAvgEntry(y1), fy);
+    return mix(ggxEnergyAvgEntry(y0), ggxEnergyAvgEntry(y0 + 1), fy);
 }
 
-// Kulla-Conty multiple-scattering compensation lobe:
+// The directional albedo of the WHOLE v2 specular lobe from one table read
+// `energy` = (1 - Ess, Schlick):
+//
+//     E_spec = F0 (Ess - Schlick) + Schlick   single scatter, Schlick F
+//            + F_ms (1 - Ess)                 the Kulla-Conty lobe's integral
+//
+// The second line is exact: the lobe's l-dependence is (1 - Ess(mu_l)) /
+// (1 - E_avg) and 2 int (1 - Ess) mu dmu = 1 - E_avg. The same expression on
+// the averages row gives E_spec_avg. C++ twin: ClosureV2SpecularAlbedo.
+vec3 closureV2SpecularAlbedo(vec2 energy, vec3 F0, vec3 fresnelMs)
+{
+    return F0 * (1.0 - energy.x - energy.y) + energy.y + fresnelMs * energy.x;
+}
+
+// What the energy tables give closureV2EvaluateSplit for one (V, L) pair.
+// C++ twin: ClosureV2EnergyTerms.
+struct ClosureV2Energy
+{
+    vec3 MultiScatter;    // Kulla-Conty lobe, cosine NOT included
+    vec3 DiffuseCoupling; // the Lambert weight that replaces (1 - F(V.H))
+};
+
+// Every table-driven term of the v2 closure, from one lookup per direction
+// and one of the averages row. C++ twin: ClosureV2Energy.
+//
+// (a) Kulla-Conty multiple-scattering compensation lobe:
 //
 //     f_ms = F_ms * (1 - Ess(NdotV)) * (1 - Ess(NdotL)) / (pi * (1 - E_avg))
 //     F_ms = F_avg^2 * E_avg / (1 - F_avg * (1 - E_avg)),  F_avg = F0 + (1-F0)/21
@@ -1179,22 +1222,43 @@ float ggxEnergyLossAverage(float roughness)
 // Symmetric in NdotV/NdotL, so it preserves reciprocity. With F_avg == 1 the
 // hemispherical integral of f_ms * cos is exactly 1 - Ess(NdotV): the white
 // furnace closes to 1 analytically, which is what the furnace test asserts.
-vec3 closureV2MultiScatter(float NdotV, float NdotL, float roughness, vec3 F0)
+//
+// (b) The energy-conserving diffuse coupling (issue #1479):
+//
+//     w_d = (1 - E_spec(NdotV)) (1 - E_spec(NdotL)) / (1 - E_spec_avg)
+//
+// per channel. Its cosine integral over L is exactly 1 - E_spec(NdotV), so a
+// white dielectric reflects what it receives. The (1 - F(V.H)) weight it
+// replaces subtracted each pair's own half-vector Fresnel instead, and at
+// grazing view left the diffuse almost all its energy while the specular took
+// ~0.9 of it (1.83x at roughness 0.05). Symmetric, so v2 stays reciprocal. A
+// negative 1 - E_spec (bilinear overshoot) reads as 0; the 1e-4 denominator
+// floor is reached only by an F0 -> 1 channel, whose numerator is ~0 too.
+ClosureV2Energy closureV2Energy(float NdotV, float NdotL, float roughness, vec3 F0)
 {
-    float lossAvg = ggxEnergyLossAverage(roughness);
+    vec2 average = ggxEnergyAverage(roughness);
+    vec2 energyV = ggxEnergy(NdotV, roughness);
+    vec2 energyL = ggxEnergy(NdotL, roughness);
+    float lossAvg = average.x;
+
+    ClosureV2Energy terms;
+    terms.MultiScatter = vec3(0.0);
+    vec3 fresnelMs = vec3(0.0);
     // Below the table's resolution the lobe is near-mirror and sheds nothing
     // worth compensating; this also guards the 1/lossAvg denominator.
-    if (lossAvg < 1.0e-4)
-        return vec3(0.0);
+    if (lossAvg >= 1.0e-4)
+    {
+        float eAvg = 1.0 - lossAvg;
+        vec3 fAvg = F0 + (vec3(1.0) - F0) * (1.0 / 21.0);
+        fresnelMs = fAvg * fAvg * eAvg / (vec3(1.0) - fAvg * lossAvg);
+        terms.MultiScatter = fresnelMs * (energyV.x * energyL.x) / (PI * lossAvg);
+    }
 
-    float lossV = ggxEnergyLoss(NdotV, roughness);
-    float lossL = ggxEnergyLoss(NdotL, roughness);
-    float eAvg = 1.0 - lossAvg;
-
-    vec3 fAvg = F0 + (vec3(1.0) - F0) * (1.0 / 21.0);
-    vec3 fresnelMs = fAvg * fAvg * eAvg / (vec3(1.0) - fAvg * lossAvg);
-
-    return fresnelMs * (lossV * lossL) / (PI * lossAvg);
+    vec3 remainingV = max(vec3(1.0) - closureV2SpecularAlbedo(energyV, F0, fresnelMs), vec3(0.0));
+    vec3 remainingL = max(vec3(1.0) - closureV2SpecularAlbedo(energyL, F0, fresnelMs), vec3(0.0));
+    vec3 remainingAvg = max(vec3(1.0) - closureV2SpecularAlbedo(average, F0, fresnelMs), vec3(1.0e-4));
+    terms.DiffuseCoupling = remainingV * remainingL / remainingAvg;
+    return terms;
 }
 
 // v2 Evaluate: f(V, L) WITHOUT the cosine term, matching cookTorranceBRDF's
@@ -1212,16 +1276,16 @@ OloSurfaceLighting closureV2EvaluateSplit(vec3 N, vec3 V, vec3 L, vec3 albedo, f
     vec3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
 
     // The energy lookup takes the AUTHORED roughness per its contract — the
-    // table rows bake the v2 clamp in, so row 0 IS the r = 0.04 row and
-    // passing the clamped r here would double-apply the clamp (14% into row 1
-    // for authored r < 0.04). C++ twin agrees (ClosureV2Evaluate).
-    vec3 specular = D * Vis * F + closureV2MultiScatter(NdotV, NdotL, roughness, F0);
+    // table rows bake the v2 clamp in (rows 0-3 all hold the r = 0.04 lobe,
+    // and 0.04 lands on node 3, so the clamped r would read the same value).
+    // C++ twin agrees (ClosureV2Evaluate).
+    ClosureV2Energy energy = closureV2Energy(NdotV, NdotL, roughness, F0);
+    vec3 specular = D * Vis * F + energy.MultiScatter;
 
-    vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
+    vec3 kD = energy.DiffuseCoupling * (1.0 - metallic);
     // Split, not summed (issue #1231). The multiple-scattering compensation is
     // part of the SPECULAR half (it folds back into the specular lobe the
-    // single-scatter GGX term lost), which is what the line above already
-    // computed -- so this is a regrouping, not a change of maths.
+    // single-scatter GGX term lost); the coupling belongs to the DIFFUSE half.
     return OloSurfaceLighting(kD * albedo * INV_PI, specular);
 }
 

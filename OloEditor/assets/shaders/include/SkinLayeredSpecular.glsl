@@ -128,13 +128,24 @@ vec3 oloSkinSpecularMix(vec3 narrow, vec3 broad, float broadWeight)
 // The layered closure: the versioned PBR closure evaluated at two roughnesses
 // and mixed, DIFFUSE TAKEN FROM THE NARROW ARM.
 //
-// Taking the diffuse from one arm is not an approximation here. Neither shipped
-// closure's diffuse half depends on roughness — both are `kD * albedo / PI`
-// with kD built from the Fresnel term, which is a function of the half-vector
-// and F0 — so the two arms' diffuse values are identical and mixing them would
-// be arithmetic with no effect. Should a future closure make diffuse
-// roughness-dependent, THIS is the line that has to change, which is why it is
-// stated rather than left to be noticed.
+// Taking the diffuse from one arm is exact for Legacy and a stated
+// approximation for ClosureV2. Legacy's diffuse half is `kD * albedo / PI` with
+// kD built from the half-vector Fresnel, which does not depend on roughness, so
+// both arms' diffuse values are identical. ClosureV2's Lambert is weighted by
+// the energy-conserving coupling of issue #1479, which subtracts the specular
+// lobe's directional albedo E_spec — and that DOES depend on roughness, so the
+// broad arm's diffuse differs from the narrow arm's.
+//
+// The narrow arm's diffuse is kept anyway, deliberately: #1243's contract is
+// that the lobe mixture never touches the diffusion (SkinLayeredSpecular-
+// EvidenceTest's first claim, measured on the diffuse AOV), and the mixture of
+// a narrow-arm diffuse with a mixed specular departs from the fully mixed
+// closure by w (D_broad - D_narrow), which in energy is w (E_spec,narrow -
+// E_spec,broad) x albedo: small head-on, where a dielectric's E_spec is ~F0 at
+// any roughness, and largest at grazing view, where a narrow lobe's E_spec
+// climbs toward 1 faster than a broad one's. Mixing the diffuse halves too
+// would make the mixture exactly energy conserving and break that contract;
+// THIS is the line that changes if that trade is ever reversed.
 //
 // `skinLobe` is the profile lane's xy: x = LobeMix (w), y = LobeRoughnessScale.
 // x <= 0 returns the single-lobe result without evaluating anything twice, so a
