@@ -800,4 +800,10 @@ TEST(GroomCoatShadowDeformed, TheSubsetIsTheSameSegmentsEveryFrameAndKeepsTheCoa
     EXPECT_EQ(CoatBakeSubsetStride(100000u, 1000u, 0.0f), 1u);
     EXPECT_EQ(CoatBakeSubsetStride(100000u, 1000u, 8.0f), 12u);
     EXPECT_EQ(CoatBakeSubsetStride(1000u, 1000u, 8.0f), 1u) << "a coat already under the target is baked whole";
+
+    // A stride past a small coat's whole segment count must not keep NOTHING:
+    // an empty pose reads as "no pose" and would release the coat's volume.
+    const std::vector<CoatSegment> few(pelt.RestSegments.begin(), pelt.RestSegments.begin() + 3);
+    EXPECT_EQ(SubsampleCoatSegments(few, 100000u, first), 1.0f);
+    EXPECT_EQ(first.size(), few.size()) << "an over-large stride keeps the coat whole";
 }

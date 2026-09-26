@@ -637,6 +637,7 @@ namespace OloEngine
             // the CPU path's SubsampleCoatSegments, so the two paths bake the
             // same segments.
             entry.CoatFullPoseSegments = stream.PoseSegments.size();
+            RefreshCoatBakeStride(entry);
             entry.CoatPoseStride = entry.CoatBakeStride;
             std::span<const GroomRestPoseSegment> evaluate = stream.PoseSegments;
             if (entry.CoatPoseStride > 1u)
@@ -651,10 +652,14 @@ namespace OloEngine
                             entry.CoatPoseSubset.push_back(stream.PoseSegments[s]);
                         }
                     }
-                    const f32 scale = entry.CoatPoseSubset.empty()
-                                          ? 1.0f
-                                          : static_cast<f32>(stream.PoseSegments.size()) /
-                                                static_cast<f32>(entry.CoatPoseSubset.size());
+                    // Never empty: a stride that kept nothing bakes the coat
+                    // whole, as SubsampleCoatSegments does on the CPU path.
+                    if (entry.CoatPoseSubset.empty())
+                    {
+                        entry.CoatPoseSubset.assign(stream.PoseSegments.begin(), stream.PoseSegments.end());
+                    }
+                    const f32 scale = static_cast<f32>(stream.PoseSegments.size()) /
+                                      static_cast<f32>(entry.CoatPoseSubset.size());
                     for (GroomRestPoseSegment& segment : entry.CoatPoseSubset)
                     {
                         segment.Radius0 *= scale;
@@ -673,6 +678,7 @@ namespace OloEngine
         {
             GroomCoatShadow::CoatPoseFromStrandVertices(m_DeformedVertices, m_DrawnPoseFull);
             entry.CoatFullPoseSegments = m_DrawnPoseFull.size();
+            RefreshCoatBakeStride(entry);
             entry.CoatPoseStride = entry.CoatBakeStride;
             (void)GroomCoatShadow::SubsampleCoatSegments(m_DrawnPoseFull, entry.CoatPoseStride, m_DrawnPose);
         }
@@ -680,6 +686,21 @@ namespace OloEngine
             std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - poseStart)
                 .count());
         return m_DrawnPose;
+    }
+
+    void GroomRenderPass::RefreshCoatBakeStride(CacheEntry& entry) const noexcept
+    {
+        // THE STRIDE THE CURRENT POLICY WANTS, taken before the pose rather
+        // than only after a bake, so a policy change reaches a coat standing
+        // still: its pose then comes out at the new stride, which differs from
+        // the resident bake's, and that is a rebuild. Only once a full bake has
+        // measured the coat; a resolution change is re-measured at the bake.
+        if (entry.CoatFullOccupiedVoxels > 0u && entry.CoatOccupancyResolution == entry.CoatResolution)
+        {
+            entry.CoatBakeStride =
+                GroomCoatShadow::CoatBakeSubsetStride(entry.CoatFullPoseSegments, entry.CoatFullOccupiedVoxels,
+                                                      m_CoatRebakePolicy.BakeSegmentsPerOccupiedVoxel);
+        }
     }
 
     GroomRenderPass::CacheEntry* GroomRenderPass::AcquireGeometry(const GroomStrandRequest& request)
@@ -1359,8 +1380,11 @@ namespace OloEngine
                 f32 fibreScale = 1.0f;
                 if (request.LodLevel != nullptr)
                 {
-                    if (!(entry.CoatFibreAreaScale > 0.0f))
+                    // Keyed on the LEVEL it was measured from, so a recooked
+                    // level on a reused cache entry is measured again.
+                    if (!(entry.CoatFibreAreaScale > 0.0f) || entry.CoatFibreAreaSource != request.LodLevel)
                     {
+                        entry.CoatFibreAreaSource = request.LodLevel;
                         const f64 base = FibreArea(request.Groom->GetCurveView());
                         const f64 level = FibreArea(request.LodLevel->GetCurveView());
                         const f64 scale = level > 0.0 ? base / level : 1.0;

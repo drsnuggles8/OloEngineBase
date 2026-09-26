@@ -2,7 +2,7 @@
 
 Read before touching `OloEngine/src/OloEngine/Groom/GroomLod*.{h,cpp}`,
 `GroomStrandMesh.{h,cpp}`'s `GroomBuildSource`, `Scene::PublishGroomStrandRequests`'s LOD block,
-`GroomRenderPass`'s width compensation, or section 10 of the `.ologroom` format.
+`GroomRoleWidthCompensation` in `GroomStrandMesh.cpp`, or section 10 of the `.ologroom` format.
 
 ## The rules
 
@@ -22,10 +22,11 @@ Read before touching `OloEngine/src/OloEngine/Groom/GroomLod*.{h,cpp}`,
    groom-wide number widened guard hair the budget had not thinned. See
    [groom-card-coverage.md](groom-card-coverage.md).
 
-3. **Budgets move in HALVINGS; the compensation is continuous.** The strand geometry is cached,
-   keyed on the build settings, so a budget that slid with the camera would rebuild every groom's
-   vertex buffer every frame — the exact cost the cache exists to remove. The width compensation is
-   a UBO value, so at the instant a stride doubles it doubles with it and the coat's total coverage
+3. **Budgets move in HALVINGS, and the compensation moves with them.** The strand geometry is
+   cached, keyed on the build settings, so a budget that slid with the camera would rebuild every
+   groom's vertex buffer every frame — the exact cost the cache exists to remove. Since #1428 the
+   width compensation is built into that cached stream, per role, with the cap in the cache key: a
+   stride step and its compensation change together, in one rebuild, and the coat's total coverage
    does not move. What remains at a step is *spatial*, and that is what the distance thresholds
    bound.
 

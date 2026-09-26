@@ -2318,6 +2318,7 @@ namespace OloEngine::Tests
                 EXPECT_LT(k.Share, kShareCeiling) << "the ladder ballooned the coat";
                 if (std::string_view(stop.Name) == midStop.Name)
                 {
+                    EXPECT_EQ(k.On.Representation, GroomRepresentation::Strand) << "Mid must be on the strand tier";
                     EXPECT_NEAR(k.Contrast, 1.0, kStrandTierTolerance) << "the strand budget did not keep the contrast";
                 }
                 else

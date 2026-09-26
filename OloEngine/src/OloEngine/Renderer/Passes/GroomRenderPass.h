@@ -537,6 +537,8 @@ namespace OloEngine
             /// and the self-shadow volume stores fibre, not coverage. Measured
             /// once, on the first bake; 0 until then, 1 on the strand tier.
             f32 CoatFibreAreaScale = 0.0f;
+            /// The level CoatFibreAreaScale was measured from.
+            const GroomLodLevel* CoatFibreAreaSource = nullptr;
 
             // ── The bake subset (#1445) ─────────────────────────────
 
@@ -671,6 +673,10 @@ namespace OloEngine
         /// the two cannot disagree about packing, format or byte accounting.
         /// Returns false, leaving the resident volume untouched, when the bake
         /// produced nothing.
+        /// Sets CoatBakeStride from the current rebake policy and the coat's
+        /// measured occupancy (#1445).
+        void RefreshCoatBakeStride(CacheEntry& entry) const noexcept;
+
         bool BakeCoatVolume(CacheEntry& entry, std::span<const GroomCoatShadow::CoatSegment> segments,
                             u32 resolution, bool ring, u32* outOccupiedVoxels = nullptr);
 

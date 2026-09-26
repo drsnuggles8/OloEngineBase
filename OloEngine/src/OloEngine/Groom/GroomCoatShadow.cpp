@@ -649,6 +649,10 @@ namespace OloEngine::GroomCoatShadow
         }
         if (out.empty())
         {
+            // A stride past a small coat's whole segment count kept nothing. An
+            // empty pose reads as "no pose" downstream and releases the volume,
+            // so the coat is baked whole instead.
+            out.assign(segments.begin(), segments.end());
             return 1.0f;
         }
         const f32 scale = static_cast<f32>(segments.size()) / static_cast<f32>(out.size());
