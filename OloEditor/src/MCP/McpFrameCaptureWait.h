@@ -66,7 +66,7 @@ namespace OloEngine::MCP
                                                   std::chrono::milliseconds timeout = std::chrono::seconds(3))
     {
         const nlohmann::json trigger = host.MarshalRead([]() -> nlohmann::json
-                                              {
+                                                        {
             FrameCaptureManager& fcm = FrameCaptureManager::GetInstance();
             const auto beforeGen = fcm.GetCaptureGeneration();
             fcm.CaptureNextFrame();
@@ -106,7 +106,7 @@ namespace OloEngine::MCP
         try
         {
             const nlohmann::json cancel = host.MarshalRead([]() -> nlohmann::json
-                                                 { return nlohmann::json{ { "withdrawn", FrameCaptureManager::GetInstance().CancelCapture() } }; });
+                                                           { return nlohmann::json{ { "withdrawn", FrameCaptureManager::GetInstance().CancelCapture() } }; });
             if (!cancel.value("withdrawn", false) && result.Outcome == FrameCaptureWaitOutcome::TimedOut &&
                 takeFramesIfCommitted())
                 result.Outcome = FrameCaptureWaitOutcome::Captured;
