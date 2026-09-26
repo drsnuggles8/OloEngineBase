@@ -38,11 +38,13 @@ namespace OloEngine
         void StopRecording();
 
         // Withdraws a pending one-shot capture (issue #1504): CaptureNextFrame and
-        // AwaitingGpuResults return to Idle and the parked frame is dropped, so a
-        // requester that stopped waiting leaves no armed capture to fire on a later
-        // frame (or on the next scene's first frames). Recording is left running:
-        // it belongs to whoever started it. Returns true when a capture was
-        // withdrawn. Call on the game thread, which owns the pending frame.
+        // AwaitingGpuResults return to Idle and the parked frame is never
+        // committed, so a requester that stopped waiting leaves no armed capture
+        // to fire on a later frame (or on the next scene's first frames).
+        // Recording is left running: it belongs to whoever started it. Returns
+        // true when a capture was withdrawn. Touches only the atomic state, so it
+        // is safe from any thread — a cancelled MCP call cannot reach the game
+        // thread any more (MarshalRead refuses it) and must still withdraw.
         bool CancelCapture();
 
         CaptureState GetState() const

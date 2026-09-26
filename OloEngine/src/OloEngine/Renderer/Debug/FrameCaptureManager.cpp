@@ -64,20 +64,18 @@ namespace OloEngine
 
     bool FrameCaptureManager::CancelCapture()
     {
-        // Compare-exchange, never a blind store: the capture may have completed
-        // since the caller gave up on it, and the state may since have moved to
-        // Recording, which a store to Idle would stop.
+        // State only, so any thread may call it. The pending frame the game
+        // thread may be filling is left alone: once the state is Idle every
+        // capture hook and CommitFrame ignore it, and the next arm
+        // (CaptureNextFrame / StartRecording) resets it. Compare-exchange, never
+        // a blind store: the capture may have completed since the caller gave
+        // up on it, and the state may since have moved to Recording, which a
+        // store to Idle would stop.
         auto expected = CaptureState::CaptureNextFrame;
-        if (!m_State.compare_exchange_strong(expected, CaptureState::Idle, std::memory_order_acq_rel))
-        {
-            expected = CaptureState::AwaitingGpuResults;
-            if (!m_State.compare_exchange_strong(expected, CaptureState::Idle, std::memory_order_acq_rel))
-                return false;
-        }
-
-        m_PendingFrame = CapturedFrameData{};
-        m_CurrentPassIndex = -1;
-        return true;
+        if (m_State.compare_exchange_strong(expected, CaptureState::Idle, std::memory_order_acq_rel))
+            return true;
+        expected = CaptureState::AwaitingGpuResults;
+        return m_State.compare_exchange_strong(expected, CaptureState::Idle, std::memory_order_acq_rel);
     }
 
     std::optional<CapturedFrameData> FrameCaptureManager::GetSelectedFrame() const
