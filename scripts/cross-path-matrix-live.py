@@ -27,11 +27,11 @@ Rows the live editor cannot answer are reported, never dropped:
   * a row that requires SSGI runs on Deferred only (the path that hosts it).
 
 1. Export the rows (reference arm only; from OloEditor/, the test binary's scene paths are
-   cwd-relative). SSGIBounce and ReSTIRDI export from GL Deferred, not Forward (SSGI's reference arm, and the
-   raster-loop reference for ReSTIR DI), so name them too:
+   cwd-relative). SSGIBounce and the ReSTIR rows (DI, GI and PT ownership) export from GL Deferred, not Forward
+   (SSGI's reference arm, and the raster reference each ReSTIR tier is held to), so name them too:
      cd OloEditor
      ..\\build\\OloEngine\\tests\\Debug\\OloEngine-Tests.exe --olo-cross-path-export=assets/tests/crosspath-live ^
-       --gtest_filter=AllRowsAllArms/CrossPathLightingMatrix.*gl_forward_native:AllRowsAllArms/CrossPathLightingMatrix.*SSGIBounce_gl_deferred_native:AllRowsAllArms/CrossPathLightingMatrix.*ReSTIRDI_gl_deferred_native
+       --gtest_filter=AllRowsAllArms/CrossPathLightingMatrix.*gl_forward_native:AllRowsAllArms/CrossPathLightingMatrix.*SSGIBounce_gl_deferred_native:AllRowsAllArms/CrossPathLightingMatrix.*ReSTIR*_gl_deferred_native
    This writes <Row>_<Probe>_Off.olo, <Row>_<Probe>_On.olo and <Row>.json per row.
 
 2. Launch the editor on the backend under test, with MCP autostart and write consent:

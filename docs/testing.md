@@ -876,9 +876,9 @@ are unchanged.
 test process (testing-architecture.md §9). To run them:
 
 1. Export the rows from a GL run:
-   `OloEngine-Tests.exe --olo-cross-path-export=<dir> --gtest_filter=AllRowsAllArms/CrossPathLightingMatrix.*gl_forward_native:AllRowsAllArms/CrossPathLightingMatrix.*SSGIBounce_gl_deferred_native:AllRowsAllArms/CrossPathLightingMatrix.*ReSTIRDI_gl_deferred_native`
-   run from `OloEditor/`. SSGI and ReSTIR DI export from GL Deferred: SSGI's reference arm, and
-   the raster-loop reference ReSTIR DI is held to.
+   `OloEngine-Tests.exe --olo-cross-path-export=<dir> --gtest_filter=AllRowsAllArms/CrossPathLightingMatrix.*gl_forward_native:AllRowsAllArms/CrossPathLightingMatrix.*SSGIBounce_gl_deferred_native:AllRowsAllArms/CrossPathLightingMatrix.*ReSTIR*_gl_deferred_native`
+   run from `OloEditor/`. SSGI and every ReSTIR row (DI, GI and PT ownership) export from GL Deferred:
+   SSGI's reference arm, and the raster reference each ReSTIR tier is held to.
 2. Launch the editor on Vulkan with MCP writes on.
 3. Run `scripts/cross-path-matrix-live.py --port <n> --backend vulkan --export-dir <dir>`.
 
