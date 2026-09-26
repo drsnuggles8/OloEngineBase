@@ -2305,7 +2305,8 @@ namespace OloEngine::Tests
             k.On = measure(s, true, stop, crops ? "GroomAnimalsLod_GL_" + tail : "");
             k.Off = measure(s, false, stop, crops ? "GroomAnimalsLodOff_GL_" + tail : "");
             s.Coat.GetComponent<GroomLodComponent>().m_Enabled = true;
-            const auto ratio = [](f64 on, f64 off) { return off > 0.0 ? on / off : 0.0; };
+            const auto ratio = [](f64 on, f64 off)
+            { return off > 0.0 ? on / off : 0.0; };
             k.Coverage = ratio(k.On.Lit.Cov, k.Off.Lit.Cov);
             k.Radiance = ratio(k.On.Unshadowed.Luma / std::max(k.On.Unshadowed.Cov, 1.0),
                                k.Off.Unshadowed.Luma / std::max(k.Off.Unshadowed.Cov, 1.0));
