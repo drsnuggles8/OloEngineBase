@@ -420,6 +420,13 @@ namespace OloEngine
         const GroomCoatSettings* Settings = nullptr;
         std::span<const GroomCoatGroupDesc> Groups{};
 
+        /// Per group: the factor on every per-strand JITTER amplitude. Empty
+        /// means 1 for every group, which is every strand-tier build. A card
+        /// level fills it (GroomCardTierCoat in GroomStrandMesh.cpp, #1428): a
+        /// card stands for N strands, so it carries their MEAN jitter, whose
+        /// spread is the per-strand amplitude over sqrt(N).
+        std::span<const f32> JitterScales{};
+
         /// True when there is anything to apply at all.
         [[nodiscard]] bool IsActive() const noexcept
         {
@@ -430,6 +437,10 @@ namespace OloEngine
         /// groom carries no table (an asset cooked before format version 2 that
         /// was loaded rather than re-imported) or the id is out of range.
         [[nodiscard]] GroomCoatGroupDesc GroupDesc(u16 groupId) const noexcept;
+
+        /// JitterScales[groupId], or 1 when the table is empty or the id is out
+        /// of range.
+        [[nodiscard]] f32 JitterScale(u16 groupId) const noexcept;
     };
 
     // -------------------------------------------------------------------------

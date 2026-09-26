@@ -225,6 +225,36 @@ void main()
 	gl_Position = clipCurr;
 	gl_Position.xy += offsetNdc * clipCurr.w;
 
+	// THE FIBRE'S FRONT SURFACE, NOT ITS AXIS (#1428). The ribbon stands for a
+	// cylinder, and what the camera sees of a cylinder is its near side, one
+	// radius closer than the axis. Only the DEPTH moves -- the screen position
+	// and the velocity stay the axis's. A card's radius is its cluster's
+	// covered half-width, centimetres: drawn at its axis, the body hid the
+	// card's fringe wherever the skin curves towards the camera, and the long
+	// coat's card tier lost 9% of its coverage over the animal to it. A
+	// strand's radius is a fraction of a millimetre, which is still enough to
+	// lift its root out of a depth tie with the skin it grows from (the strand
+	// tier gained 2% there).
+	//
+	// The eye, recovered from the VIEW MATRIX rather than read from the camera
+	// block's position lane. The view matrix is rigid, so its inverse
+	// translation is exact — and, decisively, it is in whatever space u_View is
+	// in. u_ViewProjection is uploaded RENDER-RELATIVE (issue #429), so this
+	// eye is render-relative too, automatically and without this shader having
+	// to know the origin or trust a second lane to have been shifted the same
+	// way.
+	vec3 eyeWorld = -(transpose(mat3(u_View)) * u_View[3].xyz);
+	vec3 axisToEye = eyeWorld - worldCurr.xyz;
+	float eyeDistance = length(axisToEye);
+	if (eyeDistance > 2.0 * radiusWorld)
+	{
+		vec4 clipFront = u_ViewProjection * vec4(worldCurr.xyz + (axisToEye * (radiusWorld / eyeDistance)), 1.0);
+		if (clipFront.w > 1e-6)
+		{
+			gl_Position.z = (clipFront.z / clipFront.w) * gl_Position.w;
+		}
+	}
+
 	v_Coords = a_Coords;
 	v_Alpha = oloGroomWidenedAlpha(halfWidthPixels);
 	v_SegmentId = floatBitsToUint(a_SegmentId);
@@ -266,15 +296,7 @@ void main()
 	v_WorldTangent = length(segmentWorld) > 1e-8 ? normalize(segmentWorld) : vec3(1.0, 0.0, 0.0);
 
 	v_WorldPos = worldCurr.xyz;
-	// The eye, recovered from the VIEW MATRIX rather than read from the camera
-	// block's position lane. The view matrix is rigid, so its inverse
-	// translation is exact — and, decisively, it is in whatever space u_View is
-	// in. u_ViewProjection is uploaded RENDER-RELATIVE (issue #429), so this
-	// eye is render-relative too, automatically and without this shader having
-	// to know the origin or trust a second lane to have been shifted the same
-	// way.
-	vec3 eyeWorld = -(transpose(mat3(u_View)) * u_View[3].xyz);
-	v_WorldView = eyeWorld - worldCurr.xyz;
+	v_WorldView = axisToEye;
 	v_CoatTint = oloGroomUnpackTint(a_Tint);
 }
 

@@ -342,6 +342,7 @@ namespace OloEngine
         // what SourceCurves indexes into. GroomLodLevel::Validate has already
         // bounded every entry against it, on cook and on load.
         source.BaseCurveCount = base.GetCurveCount();
+        source.BaseGroupRanges = base.GetGroupRanges();
         return source;
     }
 
@@ -396,6 +397,59 @@ namespace OloEngine
                 }
                 outCurves.Add(curve);
                 segments += CountCurveSegments(groom, curve);
+            }
+        }
+    }
+
+    void GroomCardFibreScales(const GroomAsset& base, const GroomLodLevel& level,
+                              const GroomStrandBuildSettings& settings, const GroomCoatContext* coat,
+                              std::vector<f32>& outPerSegment)
+    {
+        outPerSegment.clear();
+        const u32 groups = base.GetGroupCount();
+        const auto fibreByGroup = [groups](const GroomCurveView& curves)
+        {
+            std::vector<f64> area(groups, 0.0);
+            const auto& points = curves.GetPoints();
+            const auto& widths = curves.GetPointWidths();
+            for (u32 curve = 0; curve < curves.GetCurveCount(); ++curve)
+            {
+                const u16 group = curves.GetCurveGroupIds()[curve];
+                if (group >= groups)
+                {
+                    continue;
+                }
+                const u32 first = curves.GetCurveFirstPoint(curve);
+                for (u32 i = 0; i + 1u < curves.GetCurvePointCount(curve); ++i)
+                {
+                    area[group] += static_cast<f64>(glm::length(points[first + i + 1u] - points[first + i])) * 0.5 *
+                                   (static_cast<f64>(widths[first + i]) + static_cast<f64>(widths[first + i + 1u]));
+                }
+            }
+            return area;
+        };
+        const std::vector<f64> baseArea = fibreByGroup(base.GetCurveView());
+        const std::vector<f64> levelArea = fibreByGroup(level.GetCurveView());
+        std::vector<f32> scaleByGroup(groups, 1.0f);
+        for (u32 group = 0; group < groups; ++group)
+        {
+            const f64 scale = levelArea[group] > 0.0 ? baseArea[group] / levelArea[group] : 1.0;
+            scaleByGroup[group] = std::isfinite(scale) && scale > 0.0 ? static_cast<f32>(scale) : 1.0f;
+        }
+
+        // The segments in the order the build emits them: the curves its
+        // selection walks, each curve's segments in turn, up to the segment cap.
+        const GroomBuildSource source = GroomBuildSource::FromLevel(base, level);
+        TArray<u32> curves;
+        SelectGroomStrandCurves(source, settings, curves, coat);
+        for (const u32 curve : curves)
+        {
+            const u16 group = source.Curves.GetCurveGroupIds()[curve];
+            const f32 scale = group < groups ? scaleByGroup[group] : 1.0f;
+            const u32 segments = CountCurveSegments(source.Curves, curve);
+            for (u32 s = 0; s < segments && outPerSegment.size() < settings.MaxSegments; ++s)
+            {
+                outPerSegment.push_back(scale);
             }
         }
     }
@@ -494,12 +548,63 @@ namespace OloEngine
         //
         // `onCurve(curve, sourceCurve)` runs once per curve that will emit, before
         // its first segment; `onSegment(const RestSegment&)` runs per segment.
+        // A CARD CARRIES ITS MEMBERS' MEAN JITTER, NOT ONE STRAND'S (#1428).
+        //
+        // The coat's length, width and shade jitter are per-strand draws of
+        // +/- the amplitude. A card stands for the N strands of its cell, so the
+        // quantity it should carry is the MEAN of their N draws, whose spread is
+        // the amplitude over sqrt(N) -- about 4% of it on the long coat's cards.
+        // Drawing a full per-strand jitter per card moved a whole cluster's
+        // length together: the long cards' tips stood out of the coat as lone,
+        // dense lumps in the self-shadow volume, their own fragments sat inside
+        // that density, and the card tier's self-shadow darkened the coat 15%
+        // more than the strands' did (the strands' jitter averages out within
+        // every voxel). N is per group: the base groom's strands over the
+        // level's cards.
+        [[nodiscard]] const GroomCoatContext* CardTierCoat(const GroomBuildSource& source, const GroomCoatContext* coat,
+                                                           GroomCoatContext& scratch, std::vector<f32>& scales)
+        {
+            if (coat == nullptr || !coat->IsActive() || source.BaseGroupRanges.empty())
+            {
+                return coat;
+            }
+            const GroomCoatSettings& settings = *coat->Settings;
+            if (!(settings.LengthJitter > 0.0f) && !(settings.WidthJitter > 0.0f) && !(settings.ShadeJitter > 0.0f))
+            {
+                return coat;
+            }
+            const sizet groups = source.BaseGroupRanges.size();
+            std::vector<u32> cards(groups, 0u);
+            for (const u16 group : source.Curves.GetCurveGroupIds())
+            {
+                if (group < groups)
+                {
+                    ++cards[group];
+                }
+            }
+            scales.assign(groups, 1.0f);
+            for (sizet group = 0; group < groups; ++group)
+            {
+                const u32 strands = source.BaseGroupRanges[group].CurveCount;
+                if (cards[group] > 0u && strands > cards[group])
+                {
+                    scales[group] = std::sqrt(static_cast<f32>(cards[group]) / static_cast<f32>(strands));
+                }
+            }
+            scratch = *coat;
+            scratch.JitterScales = scales;
+            return &scratch;
+        }
+
         template<typename OnCurve, typename OnSegment>
         void WalkStrandSegments(const GroomBuildSource& source, const GroomStrandBuildSettings& settings,
                                 const GroomCoatContext* coat, GroomStrandMeshStats& stats, OnCurve&& onCurve,
                                 OnSegment&& onSegment)
         {
             const GroomCurveView& groom = source.Curves;
+            GroomCoatContext cardCoat;
+            std::vector<f32> jitterScales;
+            coat = CardTierCoat(source, coat, cardCoat, jitterScales);
 
             const Selection selection = SelectCurves(groom, settings, coat);
             stats.StrandsAvailable = selection.AvailableTotal;
