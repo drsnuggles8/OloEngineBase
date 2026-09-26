@@ -9,6 +9,7 @@
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 // Synthetic input injection MCP tool (issue #607): olo_input_inject.
 //
@@ -101,11 +102,26 @@ namespace OloEngine::MCP
                         if (!info.Available && !request.ResetOnly)
                             return Json{ { "__error", "The editor viewport is not ready yet." } };
 
+                        // space:"panel" resolves its origin from the live ImGui window
+                        // list in this same job, for the same reason the geometry is
+                        // read here: a relayout between lookup and enqueue would aim
+                        // the plan at wherever the panel used to be.
+                        std::vector<McpInputPanelWindow> panelWindows;
+                        const McpInputPanelWindow* panel = nullptr;
+                        if (request.CoordSpace == Inject::Space::Panel)
+                        {
+                            if (!context.GetInputPanelWindows)
+                                return Json{ { "__error", "space \"panel\" is not available in this build (no editor window list)." } };
+                            panelWindows = context.GetInputPanelWindows();
+                            if (const auto error = Inject::FindPanelWindow(panelWindows, request.Panel, panel))
+                                return Json{ { "__error", *error } };
+                        }
+
                         McpInputPlan plan;
                         Inject::ResolvedPoint start;
                         Inject::ResolvedPoint end;
                         Inject::ResolvedDelta delta;
-                        if (const auto error = Inject::BuildPlan(request, info, plan, start, end, &delta))
+                        if (const auto error = Inject::BuildPlan(request, info, plan, start, end, &delta, panel))
                             return Json{ { "__error", *error } };
 
                         // Last check before the side effect: if this call already timed
@@ -133,6 +149,16 @@ namespace OloEngine::MCP
                                      { "dpiScale", info.DpiScale },
                                      { "windowWidth", info.WindowWidth },
                                      { "windowHeight", info.WindowHeight },
+                                     { "framebufferWidth", info.FramebufferWidth },
+                                     { "framebufferHeight", info.FramebufferHeight },
+                                     { "framebufferScaleX", info.FramebufferScaleX },
+                                     { "framebufferScaleY", info.FramebufferScaleY },
+                                     { "panelName", panel != nullptr ? panel->Name : std::string{} },
+                                     { "panelRectX", panel != nullptr ? panel->X : 0.0f },
+                                     { "panelRectY", panel != nullptr ? panel->Y : 0.0f },
+                                     { "panelRectW", panel != nullptr ? panel->Width : 0.0f },
+                                     { "panelRectH", panel != nullptr ? panel->Height : 0.0f },
+                                     { "panelOwnWindow", panel != nullptr && !panel->OnMainViewport },
                                      { "startWindowX", start.WindowX },
                                      { "startWindowY", start.WindowY },
                                      { "startPixelX", start.ViewportPixelX },
@@ -253,6 +279,18 @@ namespace OloEngine::MCP
             info.DpiScale = accepted.value("dpiScale", 1.0f);
             info.WindowWidth = accepted.value("windowWidth", static_cast<u32>(0));
             info.WindowHeight = accepted.value("windowHeight", static_cast<u32>(0));
+            info.FramebufferWidth = accepted.value("framebufferWidth", static_cast<u32>(0));
+            info.FramebufferHeight = accepted.value("framebufferHeight", static_cast<u32>(0));
+            info.FramebufferScaleX = accepted.value("framebufferScaleX", 1.0f);
+            info.FramebufferScaleY = accepted.value("framebufferScaleY", 1.0f);
+
+            McpInputPanelWindow panel;
+            panel.Name = accepted.value("panelName", std::string{});
+            panel.X = accepted.value("panelRectX", 0.0f);
+            panel.Y = accepted.value("panelRectY", 0.0f);
+            panel.Width = accepted.value("panelRectW", 0.0f);
+            panel.Height = accepted.value("panelRectH", 0.0f);
+            panel.OnMainViewport = !accepted.value("panelOwnWindow", false);
 
             Inject::ResolvedPoint start;
             start.WindowX = accepted.value("startWindowX", 0.0f);
@@ -275,7 +313,8 @@ namespace OloEngine::MCP
             delta.Reset = accepted.value("deltaReset", false);
 
             Json out = Inject::ToJson(result, state, info, request, start, end, timedOut, &delta,
-                                      stateJson.value("stallReason", std::string{}));
+                                      stateJson.value("stallReason", std::string{}),
+                                      panel.Name.empty() ? nullptr : &panel);
             if (const Json liveness = stateJson.value("liveness", Json(nullptr)); !liveness.is_null())
                 out["liveness"] = liveness;
             return ToolResult::Structured(out);
@@ -301,7 +340,9 @@ namespace OloEngine::MCP
             "This is a WRITE tool: refused unless 'Allow writes' is enabled in the editor's MCP panel (or "
             "OLO_MCP_ALLOW_WRITES=1), because a click can move a gizmo and a key can delete an entity.\n\n"
             "Actions: click / move / drag (mouse, ABSOLUTE), mouseDelta (mouse, RELATIVE), key "
-            "(press/release/tap, with modifiers), text (type into the focused widget).\n\n"
+            "(press/release/tap, with modifiers), text (type into the focused widget), wheel (scroll "
+            "wheelY/wheelX notches with the cursor at x/y: graph-canvas zoom, list scrolling; ImGui sends "
+            "the wheel to the window under the cursor).\n\n"
             "ABSOLUTE vs RELATIVE. click/move/drag inject a cursor POSITION, held only while the call is in "
             "flight — right for ImGui widgets, menus and gizmo drags, and useless for anything that "
             "integrates 'mouse - lastMousePos' ACROSS frames, such as a mouse-look rig: it sees the position "
@@ -317,8 +358,13 @@ namespace OloEngine::MCP
             "top-left. Note olo_screenshot downscales to maxWidth — if it did, its pixels are NOT these.\n"
             "  viewportNorm  fractional [0,1] across the viewport. Downscale-proof; prefer it when you read "
             "a coordinate off a screenshot (x = px/imageWidth, y = py/imageHeight).\n"
-            "  window        OS window client pixels — the space the ImGui panels/menus/buttons live in. "
-            "Use this to click UI OUTSIDE the 3D viewport.\n\n"
+            "  window        window-client pixels covering the whole editor dockspace — the space the ImGui "
+            "panels/menus/buttons live in. Physical pixels on Windows (a full-HD editor on a 150% display is "
+            "1920x1080 here); every reply reports the extent as 'window'. Use this to click UI OUTSIDE the "
+            "3D viewport.\n"
+            "  panel         pixels from the top-left corner of the ImGui window named by 'panel' (\"Content "
+            "Browser\", \"Scene Hierarchy\", or an olo_editor_panel_list name). Layout-proof; a closed, "
+            "tab-hidden or floated-out panel is refused with the reason.\n\n"
             "Calls are SYNCHRONOUS: the injected events are applied one frame at a time (a click is press, "
             "hold, release across frames — a same-frame press+release is invisible to ImGui) and the call "
             "returns only once those frames have been rendered, so you can immediately follow with "
@@ -330,7 +376,23 @@ namespace OloEngine::MCP
                                 .Prop("ok", Schema::Bool().Desc("Injection accepted, every planned frame rendered before the settle timeout, AND (for click/move/drag) the injected cursor position verifiably became the editor's cursor. False always means the 'after' state cannot be trusted as the result of what you asked for; 'message' says which of the three failed."))
                                 .Prop("framesInjected", Schema::Int().Min(0))
                                 .Prop("message", Schema::String())
-                                .Prop("resolved", Schema::Object().Desc("Mouse actions (click/move/drag) only; omitted for key/text. A resolved point {windowX, windowY, viewportPixelX, viewportPixelY, insideViewport} for click/move, or {from, to} of two such points for drag."))
+                                .Prop("window", Schema::Object()
+                                                    .Prop("width", Schema::Int().Min(0))
+                                                    .Prop("height", Schema::Int().Min(0))
+                                                    .Prop("framebufferWidth", Schema::Int().Min(0))
+                                                    .Prop("framebufferHeight", Schema::Int().Min(0))
+                                                    .Prop("framebufferScale", Schema::Array(Schema::Number()))
+                                                    .Desc("Cursor-placing actions only: the extent space:\"window\" is valid in (the ImGui dockspace), plus the OS framebuffer size and ImGui's framebuffer scale."))
+                                .Prop("panel", Schema::Object()
+                                                   .Prop("name", Schema::String())
+                                                   .Prop("x", Schema::Number())
+                                                   .Prop("y", Schema::Number())
+                                                   .Prop("width", Schema::Number())
+                                                   .Prop("height", Schema::Number())
+                                                   .Prop("ownWindow", Schema::Bool().Desc("True when the panel floats in its own OS window; input is still routed to it."))
+                                                   .Desc("space:\"panel\" only: the window the coordinates were relative to, its top-left in window space and its size."))
+                                .Prop("wheel", Schema::Object().Prop("x", Schema::Number()).Prop("y", Schema::Number()).Desc("wheel only: the notches sent."))
+                                .Prop("resolved", Schema::Object().Desc("Cursor-placing actions (click/move/drag/wheel) only; omitted for key/text. A resolved point {windowX, windowY, viewportPixelX, viewportPixelY, insideViewport} for click/move, or {from, to} of two such points for drag."))
                                 .Prop("resolvedDelta", Schema::Object()
                                                            .Prop("windowDx", Schema::Number())
                                                            .Prop("windowDy", Schema::Number())

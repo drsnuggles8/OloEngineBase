@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "MCP/McpAccessibility.h"
+#include "MCP/McpAssetOpen.h"
 #include "MCP/McpEditorDebugDraw.h"
 #include "MCP/McpEditorPanels.h"
 #include "MCP/McpLightmapBake.h"
@@ -100,6 +101,100 @@ namespace OloEngine::MCP
             if (!result.value("ok", false))
                 return ToolResult::Error(result.value("message", "Could not change editor debug-draw state."));
             return ToolResult::Structured(result);
+        }
+
+        // olo_asset_open (issue #607). Dispatch on the main thread through the
+        // Content Browser's own route, then keep reading the target panel back until
+        // it reports the requested file as loaded (most panels load it a couple of
+        // frames later) or the settle budget runs out. The reply is that readback,
+        // never the dispatch's say-so.
+        ToolResult Handle_AssetOpen(IAutomationHost& host, const Json& args)
+        {
+            if (!host.Context().OpenAsset || !host.Context().GetAssetEditorState)
+                return ToolResult::Error("Opening assets is not available in this host (no editor).");
+
+            McpAssetOpenRequest request;
+            if (const auto error = AssetOpen::ParseRequest(args, request))
+                return ToolResult::Error(*error);
+
+            // A scene load runs inside this job and can take as long as olo_scene_open.
+            constexpr std::chrono::milliseconds kOpenTimeout{ 120000 };
+            const Json dispatched = host.MarshalRead([&host, request]() -> Json
+                                                     {
+                const McpAssetOpenResult r = host.Context().OpenAsset(request);
+                return Json{ { "ok", r.Ok }, { "path", r.ResolvedPath }, { "handle", r.Handle },
+                             { "fileType", r.FileType }, { "panel", r.Panel }, { "message", r.Message },
+                             { "baseFrame", r.BaseFrame } }; },
+                                                     kOpenTimeout);
+
+            McpAssetOpenResult opened;
+            opened.Available = true;
+            opened.Ok = dispatched.value("ok", false);
+            opened.ResolvedPath = dispatched.value("path", std::string{});
+            opened.Handle = dispatched.value("handle", static_cast<u64>(0));
+            opened.FileType = dispatched.value("fileType", std::string{});
+            opened.Panel = dispatched.value("panel", std::string{});
+            opened.Message = dispatched.value("message", std::string{});
+            opened.BaseFrame = dispatched.value("baseFrame", static_cast<u64>(0));
+            if (!opened.Ok)
+            {
+                std::string message = opened.Message;
+                if (!opened.FileType.empty())
+                    message += " (file type: " + opened.FileType + ")";
+                return ToolResult::Error(message);
+            }
+
+            // Wait on the frame counter alone. AwaitRenderedFrames also waits for the
+            // viewport to be capture-ready, which a throttled or resizing viewport is
+            // not, and has nothing to do with whether a panel loaded its file.
+            const auto readState = [&host, &opened]()
+            {
+                const Json j = host.MarshalRead([&host, opened]() -> Json
+                                                {
+                    const McpAssetEditorState s = host.Context().GetAssetEditorState(opened);
+                    return Json{ { "open", s.PanelOpen }, { "loaded", s.LoadedPath }, { "matches", s.Matches } }; });
+                McpAssetEditorState read;
+                read.PanelOpen = j.value("open", false);
+                read.LoadedPath = j.value("loaded", std::string{});
+                read.Matches = j.value("matches", false);
+                return read;
+            };
+            const auto waitForFrame = [&host](u64 target)
+            {
+                if (!host.Context().GetFrameIndex)
+                    return false;
+                const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+                while (std::chrono::steady_clock::now() < deadline && !host.IsCurrentCallCancelled())
+                {
+                    const u64 frame = host.MarshalRead([&host]() -> Json
+                                                       { return Json{ { "frame", host.Context().GetFrameIndex() } }; })
+                                          .value("frame", static_cast<u64>(0));
+                    if (frame >= target)
+                        return true;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                }
+                return false;
+            };
+
+            McpAssetEditorState state;
+            int framesWaited = 0;
+            bool timedOut = true;
+            while (framesWaited < AssetOpen::s_MaxSettleFrames)
+            {
+                framesWaited += 2;
+                const bool advanced = waitForFrame(opened.BaseFrame + static_cast<u64>(framesWaited));
+                // Read even when the wait gave up: the reply must describe the panel
+                // as it is, not a default-constructed "not open".
+                state = readState();
+                if (state.PanelOpen && state.Matches)
+                {
+                    timedOut = false;
+                    break;
+                }
+                if (!advanced)
+                    break;
+            }
+            return ToolResult::Structured(AssetOpen::ToJson(opened, state, framesWaited, timedOut));
         }
 
         ToolResult Handle_AccessibilityGet(IAutomationHost& host, const Json& args)
@@ -235,6 +330,27 @@ namespace OloEngine::MCP
                                     .Required({ "available", "ok", "changed", "panel", "message" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_EditorPanelSet;
+            registry.Register(std::move(tool));
+        }
+        {
+            ToolDef tool;
+            tool.Name = "olo_asset_open";
+            tool.Toolset = "editor";
+            tool.Title = "Open asset in its editor";
+            tool.Annotations = MutatingAnnotations(true);
+            tool.ProjectWrite = true;
+            tool.Description =
+                "Open a file in the editor panel that edits it, through the same dispatch as a Content Browser "
+                "double-click: .olosoundgraph -> Sound Graph Editor, .oloskilltree -> Skill Tree Editor, .olovs -> "
+                "Visual Script Editor, .olosg -> Shader Graph Editor, .olodialogue -> Dialogue Editor, .olocine -> "
+                "Cinematic Timeline, .glsl/.vert/.frag/.hlsl -> Shader Editor, .olo/.scene -> the active scene. A file "
+                "type the Content Browser does not open (e.g. .olomat) is refused with its type named. Pass 'handle' "
+                "or 'path'. Unsaved changes in the target refuse the open unless discardUnsaved:true. ok is true only "
+                "once the panel reports the requested file as loaded; the reply carries that readback.";
+            tool.InputSchema = AssetOpen::InputSchema();
+            tool.OutputSchema = AssetOpen::OutputSchema();
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_AssetOpen;
             registry.Register(std::move(tool));
         }
         {

@@ -114,6 +114,60 @@ namespace OloEngine
         return ContentFileType::Unknown;
     }
 
+    const char* GetContentFileTypeName(ContentFileType type)
+    {
+        switch (type)
+        {
+            case ContentFileType::Unknown:
+                return "Unknown";
+            case ContentFileType::Directory:
+                return "Directory";
+            case ContentFileType::Image:
+                return "Image";
+            case ContentFileType::Model3D:
+                return "Model3D";
+            case ContentFileType::Scene:
+                return "Scene";
+            case ContentFileType::Script:
+                return "Script";
+            case ContentFileType::Audio:
+                return "Audio";
+            case ContentFileType::Video:
+                return "Video";
+            case ContentFileType::Material:
+                return "Material";
+            case ContentFileType::Shader:
+                return "Shader";
+            case ContentFileType::StreamingRegion:
+                return "StreamingRegion";
+            case ContentFileType::Dialogue:
+                return "Dialogue";
+            case ContentFileType::ShaderGraph:
+                return "ShaderGraph";
+            case ContentFileType::SoundGraph:
+                return "SoundGraph";
+            case ContentFileType::SaveGame:
+                return "SaveGame";
+            case ContentFileType::Cinematic:
+                return "Cinematic";
+            case ContentFileType::FluidSettings:
+                return "FluidSettings";
+            case ContentFileType::SkillTree:
+                return "SkillTree";
+            case ContentFileType::CharacterClass:
+                return "CharacterClass";
+            case ContentFileType::ExperienceCurve:
+                return "ExperienceCurve";
+            case ContentFileType::VisualScript:
+                return "VisualScript";
+            case ContentFileType::Volume:
+                return "Volume";
+            case ContentFileType::Groom:
+                return "Groom";
+        }
+        return "Unknown";
+    }
+
     const char* GetDragDropPayloadType(ContentFileType type)
     {
         switch (type)

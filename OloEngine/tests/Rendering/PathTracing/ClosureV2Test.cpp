@@ -65,14 +65,22 @@ namespace OloEngine::Tests
             return glm::vec3(std::cos(phi) * sinTheta, std::sin(phi) * sinTheta, cosTheta);
         }
 
+        struct Moments
+        {
+            f64 Ess = 0.0;
+            f64 Schlick = 0.0;
+        };
+
         // Ess(mu, r): the directional albedo of the single-scattering GGX lobe
         // with F == 1, estimated with the ENGINE'S OWN sampler and weight — the
         // estimator identity f*cos/pdf == F * (G2/G1) with the height-correlated
         // Smith G2 and the VNDF's G1 (see GgxEnergyTables.h's regeneration
-        // comment and the VNDF block in PBRCommon.glsl). A below-horizon
-        // reflection scores 0 but still divides by N, exactly as the table
-        // generator counts it.
-        [[nodiscard]] f64 EstimateEss(f32 mu, f32 roughness, u32 sampleCount)
+        // comment and the VNDF block in PBRCommon.glsl) — and its Schlick
+        // moment, the same weight times (1 - v.h)^5, spelled out here rather
+        // than through FresnelSchlick so the generator's use of that function
+        // is checked, not shared. A below-horizon reflection scores 0 but still
+        // divides by N, exactly as the table generator counts it.
+        [[nodiscard]] Moments EstimateMoments(f32 mu, f32 roughness, u32 sampleCount)
         {
             const f32 clamped = ClosureV2Roughness(roughness);
             const f32 alpha = clamped * clamped;
@@ -80,7 +88,8 @@ namespace OloEngine::Tests
             const glm::vec3 wo(sinO, 0.0f, mu);
             const f32 lambdaV = GgxSmithLambda(wo.z, alpha);
 
-            f64 sum = 0.0;
+            f64 ess = 0.0;
+            f64 schlick = 0.0;
             for (u32 i = 0; i < sampleCount; ++i)
             {
                 const glm::vec2 xi = Hammersley(i, sampleCount);
@@ -90,9 +99,24 @@ namespace OloEngine::Tests
                     continue; // scores zero; the division by sampleCount below still counts it
 
                 const f32 lambdaL = GgxSmithLambda(wi.z, alpha);
-                sum += static_cast<f64>((1.0f + lambdaV) / (1.0f + lambdaV + lambdaL));
+                const f32 weight = (1.0f + lambdaV) / (1.0f + lambdaV + lambdaL);
+                const f32 c = 1.0f - std::clamp(glm::dot(wo, h), 0.0f, 1.0f);
+                ess += static_cast<f64>(weight);
+                schlick += static_cast<f64>(weight * c * c * c * c * c);
             }
-            return sum / static_cast<f64>(sampleCount);
+            return { ess / static_cast<f64>(sampleCount), schlick / static_cast<f64>(sampleCount) };
+        }
+
+        [[nodiscard]] f64 EstimateEss(f32 mu, f32 roughness, u32 sampleCount)
+        {
+            return EstimateMoments(mu, roughness, sampleCount).Ess;
+        }
+
+        // The table's node values (GgxEnergyTables.h "Conventions"): the engine's
+        // own inverse of the lookup coordinate, the same one the generator bakes at.
+        [[nodiscard]] f32 NodeValue(u32 node)
+        {
+            return GgxEnergyNodeValue(node);
         }
 
         // Uniform-hemisphere Monte Carlo estimate of the LEGACY directional
@@ -154,12 +178,14 @@ namespace OloEngine::Tests
     // =========================================================================
     // 1. The anti-rot pin for the generated table.
     //
-    // Recompute a subset of kGgxEnergyLoss entries with the engine's own
-    // functions (SampleGGXVNDFTangent + GgxSmithLambda), on the table's own
-    // conventions: cell-centered grid, alpha = ClosureV2Roughness(r)^2, 4096
-    // deterministic Hammersley samples. If someone regenerates the table with a
-    // different convention (unclamped alpha, node-centered grid, Ess stored
-    // instead of loss, rows and columns swapped) — or edits an entry by hand —
+    // Recompute a subset of kGgxEnergyPacked nodes — both halves, 1 - Ess and
+    // the Schlick moment — with the engine's own functions
+    // (SampleGGXVNDFTangent + GgxSmithLambda), on the table's own conventions:
+    // node-centred square-root grid (mu = 0 baked at the 1e-4 cosine floor),
+    // alpha = ClosureV2Roughness(r)^2, 4096 deterministic Hammersley samples.
+    // If someone regenerates the table with a different convention (unclamped
+    // alpha, a linear or cell-centred grid, Ess stored instead of loss, the
+    // halves or the rows and columns swapped) — or edits an entry by hand —
     // this recomputation disagrees.
     // =========================================================================
     TEST(ClosureV2, EnergyTablesMatchTheirOwnEstimator)
@@ -167,30 +193,37 @@ namespace OloEngine::Tests
         constexpr u32 kSamples = 4096;
 
         // Every 3rd row/column — {0, 3, 6, 9, 12, 15} — which also covers all
-        // four corner cells (0,0), (0,15), (15,0), (15,15), the places a
-        // clamping or off-by-one regeneration bug lands first.
+        // four corner nodes (0,0), (0,15), (15,0), (15,15), the places a
+        // grid or off-by-one regeneration bug lands first.
         for (u32 row = 0; row < kGgxEnergyTableSize; row += 3)
         {
-            const f32 rCell = (static_cast<f32>(row) + 0.5f) / static_cast<f32>(kGgxEnergyTableSize);
+            const f32 rNode = NodeValue(row);
             for (u32 col = 0; col < kGgxEnergyTableSize; col += 3)
             {
-                const f32 muCell = (static_cast<f32>(col) + 0.5f) / static_cast<f32>(kGgxEnergyTableSize);
+                const f32 muNode = std::max(NodeValue(col), 1.0e-4f);
 
-                const f64 recomputed = EstimateEss(muCell, rCell, kSamples);
-                const f64 stored = 1.0 - static_cast<f64>(GgxEnergyLossEntry(row * kGgxEnergyTableSize + col));
+                const Moments recomputed = EstimateMoments(muNode, rNode, kSamples);
+                const glm::vec2 stored = GgxEnergyEntry(row * kGgxEnergyTableSize + col);
+                const std::string where = "table row (roughness) = " + std::to_string(row) + " (r = " +
+                                          std::to_string(rNode) + "), column (mu) = " + std::to_string(col) +
+                                          " (mu = " + std::to_string(muNode) + ")";
+                constexpr const char* kRebake =
+                    "kGgxEnergyPacked no longer matches what the engine's own VNDF sampler measures.\n"
+                    "Either the table was regenerated with different conventions or one side of the\n"
+                    "estimator changed. Rebake with tools/OloGgxEnergyTableGen (issue #998), which\n"
+                    "calls this same sampler and rewrites both language twins; the REGENERATION\n"
+                    "block in GgxEnergyTables.h carries the command line.";
 
                 // 2e-3 separates a rotted or wrong-convention table (a missing
                 // alpha clamp, swapped axes, Ess-instead-of-loss are all off at
                 // the percent level or worse) from the residual difference
                 // between two 4096-sample Hammersley estimates of the integral.
-                EXPECT_NEAR(recomputed, stored, 2e-3)
-                    << "table row (roughness) = " << row << " (r = " << rCell << "), "
-                    << "column (mu) = " << col << " (mu = " << muCell << ")\n"
-                    << "kGgxEnergyLoss no longer matches what the engine's own VNDF sampler measures.\n"
-                    << "Either the table was regenerated with different conventions or one side of the\n"
-                    << "estimator changed. Rebake with tools/OloGgxEnergyTableGen (issue #998), which\n"
-                    << "calls this same sampler and rewrites both language twins; the REGENERATION\n"
-                    << "block in GgxEnergyTables.h carries the command line.";
+                EXPECT_NEAR(recomputed.Ess, 1.0 - static_cast<f64>(stored.x), 2e-3)
+                    << where << ", the 1 - Ess half\n"
+                    << kRebake;
+                EXPECT_NEAR(recomputed.Schlick, static_cast<f64>(stored.y), 2e-3)
+                    << where << ", the Schlick half\n"
+                    << kRebake;
             }
         }
     }
@@ -219,30 +252,30 @@ namespace OloEngine::Tests
             << "the GLSL table-size macro changed (or moved) without this pin being updated — the "
                "C++ side still indexes a 16x16 grid";
 
-        const std::vector<u32> loss = ParseGlslPackedArray(src, "const uvec4 kGgxEnergyLossPacked[32]");
-        const std::vector<u32> lossAvg = ParseGlslPackedArray(src, "const uvec4 kGgxEnergyLossAvgPacked[2]");
+        const std::vector<u32> table = ParseGlslPackedArray(src, "const uvec4 kGgxEnergyPacked[64]");
+        const std::vector<u32> avg = ParseGlslPackedArray(src, "const uvec4 kGgxEnergyAvgPacked[4]");
 
-        // 128 + 8 packed words is the full generated payload; a miscount means
-        // the parse anchored on the wrong text or the arrays were resized on
-        // one side.
-        ASSERT_EQ(loss.size(), 128u) << "kGgxEnergyLossPacked in the GLSL twin no longer holds 128 words";
-        ASSERT_EQ(lossAvg.size(), 8u) << "kGgxEnergyLossAvgPacked in the GLSL twin no longer holds 8 words";
+        // 256 + 16 packed words (one per node) is the full generated payload;
+        // a miscount means the parse anchored on the wrong text or the arrays
+        // were resized on one side.
+        ASSERT_EQ(table.size(), 256u) << "kGgxEnergyPacked in the GLSL twin no longer holds 256 words";
+        ASSERT_EQ(avg.size(), 16u) << "kGgxEnergyAvgPacked in the GLSL twin no longer holds 16 words";
 
         // EXACT integer equality: both sides are meant to be the SAME hex
         // words (the half-packed table is the one generated artifact emitted
         // into two languages), so any inequality is a real divergence, never
         // floating-point noise. The packing itself is load-bearing on the GPU
         // side — see PBRClosureV2Energy.glsl's header (NVIDIA C5025).
-        for (u32 i = 0; i < static_cast<u32>(loss.size()); ++i)
+        for (u32 i = 0; i < static_cast<u32>(table.size()); ++i)
         {
-            EXPECT_EQ(loss[i], kGgxEnergyLossPacked[i])
-                << "kGgxEnergyLossPacked word " << i << " differs between PBRClosureV2Energy.glsl and "
+            EXPECT_EQ(table[i], kGgxEnergyPacked[i])
+                << "kGgxEnergyPacked word " << i << " differs between PBRClosureV2Energy.glsl and "
                 << "GgxEnergyTables.h — the two generated files have drifted; regenerate BOTH.";
         }
-        for (u32 i = 0; i < static_cast<u32>(lossAvg.size()); ++i)
+        for (u32 i = 0; i < static_cast<u32>(avg.size()); ++i)
         {
-            EXPECT_EQ(lossAvg[i], kGgxEnergyLossAvgPacked[i])
-                << "kGgxEnergyLossAvgPacked word " << i << " differs between PBRClosureV2Energy.glsl and "
+            EXPECT_EQ(avg[i], kGgxEnergyAvgPacked[i])
+                << "kGgxEnergyAvgPacked word " << i << " differs between PBRClosureV2Energy.glsl and "
                 << "GgxEnergyTables.h — the two generated files have drifted; regenerate BOTH.";
         }
     }
@@ -407,9 +440,11 @@ namespace OloEngine::Tests
     // HALF vector, and for unit v, l the half vector makes equal angles with
     // both (dot(h, v) == dot(h, l)); the height-correlated V is symmetric in
     // (NdotV, NdotL); the Kulla-Conty term is symmetric by construction
-    // (lossV * lossL); and the diffuse term depends on v, l only through that
-    // same F(h). ADR 0016 §5 records reciprocity as a v2 design property.
-    // Legacy has it too, for the same F(h) reason; the independent check of
+    // (lossV * lossL); and the diffuse coupling is a product of one factor
+    // per direction, (1 - E_spec(NdotV)) (1 - E_spec(NdotL)) (issue #1479).
+    // ADR 0016 §5 records reciprocity as a v2 design property. Legacy has it
+    // too, because its (1 - F(h)) diffuse weight sits at the half vector; the
+    // independent check of
     // both is BsdfIdentityOracleTest.ClosuresAreReciprocal (issue #1347).
     // =========================================================================
     TEST(ClosureV2, ClosureV2IsReciprocal)

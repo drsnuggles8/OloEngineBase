@@ -202,14 +202,15 @@ and for what to do when adding a tool.
 | `olo_scene_simulate` | **(consented write)** enter Simulate through the real editor toolbar path, running physics/runtime systems with the editor camera; reports `mode`, `playing`, and `simulating` and settles frames before returning |
 | `olo_reflection_probe_bake` | **(consented write)** synchronously run the real reflection-probe baker for one exact, uniquely named probe entity; non-undoable |
 | `olo_groom_bind` | **(consented write)** bind the groom on `entity` to the animated surface of `target` (omitted = the entity's own mesh), cook the `.ologroombinding` next to the groom, import it and point the entity's `GroomBindingComponent` at it — the automation surface for the Groom Binding inspector's **Build Binding** button, and literally the same code path (issue #1249). Returns the QUALITY of the bind, not just a handle: `rootsExact` / `rootsClamped` / `rootsDistant`, `maxRestDistance` and `meanRestDistance` are how a groom bound to the WRONG body is a number rather than a look — a large `rootsDistant` means the coat does not sit on that surface at all. `searchRadius` (default 0.25, object space) is where Exact/Clamped ends and Distant begins; roots past it are still bound, because dropping them would leave a bald patch. Edit mode only and deliberately so: a binding records the body's BIND POSE, so building one from an animated pose is correct for that frame and wrong for every other, which nothing downstream can detect. **Irreversible** — it writes an asset file and imports it, so Ctrl-Z would take back the component assignment while leaving the cooked binding on disk; rebind instead, which is deterministic |
-| `olo_editor_panel_list` / `olo_editor_panel_set` | enumerate all 34 controllable ImGui panels and open/close one by stable name. `olo_editor_panel_set` is a **(consented write)** that changes session UI state and is gated behind **Agent writes** |
+| `olo_editor_panel_list` / `olo_editor_panel_set` | enumerate all 35 controllable ImGui panels and open/close one by stable name. `olo_editor_panel_set` is a **(consented write)** that changes session UI state and is gated behind **Agent writes** |
 | `olo_editor_actions` | the editor command registry (issue #1131): every menu, toolbar and shortcut action the editor declares, each with the registry command that performs it — plus that command's `available`, `projectWrite` and `undo` on this host — or a `note` saying why none does. `automatedOnly:true` lists only the rows that have a command. See [The editor command registry](#the-editor-command-registry-olo_editor_actions) |
 | `olo_editor_pause` / `olo_editor_step` | the toolbar Pause/Resume and Step buttons: pause or resume the running Play/Simulate session (idempotent, `changed:false` when already there; an error in Edit mode) and advance a **paused** session by `frames` (1..60, default 1), after which it stays paused. Ephemeral runtime control of the session, like `olo_viewport_set_size`, so neither needs write consent. Both report `mode` and `sceneName` |
 | `olo_editor_gizmo_set` | select the viewport gizmo — `none` / `translate` / `rotate` / `scale`, the Q/W/E/R shortcuts in order. Session UI state, not project data, so no write consent; refused while a gizmo drag is in progress |
 | `olo_editor_build_shader_pack` | **(consented write)** the Build > Build Shader Pack menu item: write `assets/ShaderPack.osp` from the live 2D and 3D shader libraries and report `ok` + `outputPath`. Synchronous; overwrites the previous pack; not undoable. Gated behind **Agent writes** |
 | `olo_accessibility_get` / `olo_accessibility_set` | read or set all nine process-global subtitle, text-scale, and color-vision settings. `olo_accessibility_set` is a **(consented write)**; writes return `restoreWith`, and color-blind mode changes rebuild the render graph. Setter gated behind **Agent writes** |
 | `olo_lightmap_bake` | **(consented write)** start/poll or block on the editor's actual baked-GI lightmap pipeline, with stable operation id, progress, counts, errors, and optional scene save after attachment |
-| `olo_editor_debug_draw_set` | **(consented write)** toggle eight editor overlay categories or the non-destructive `all` master across Edit/Play/Simulate; `all:false` produces a clean viewport capture |
+| `olo_editor_debug_draw_set` | **(consented write)** toggle eight editor overlay categories (`grid`, `component_gizmos`, `world_axis`, `camera_frustums`, `light_gizmos`, `physics_colliders`, `bounding_boxes`, `selection_outline`) or the non-destructive `all` master across Edit/Play/Simulate; `all:false` produces a clean viewport capture. The reply's `state` is read back from `RendererSettings`, which `EditorLayer` pushes into the scene every frame, so a toggle holds across frames |
+| `olo_asset_open` | **(consented write)** open a file in the panel that edits it, through the same `EditorLayer::OpenAssetInEditor` dispatch as a Content Browser double-click: Sound Graph, Skill Tree, Visual Script (`.olovs`), Shader Graph, Dialogue, Cinematic, Shader, or a scene. `handle` or `path` (asset-relative; anything resolving outside the project's asset directory is refused, since the panels save back to the file they loaded). A type the Content Browser does not open (`.olomaterial`, `.olomat`) is refused with its type named. Unsaved changes in the target refuse unless `discardUnsaved:true` (the Content Browser asks with a native modal instead). `ok` is the panel's own readback: open AND reporting the requested file as loaded, after its deferred load had frames to run. See [Opening assets](#opening-assets-olo_asset_open) |
 | `olo_terrain_pick` | asynchronous read-only TerrainGPUPicker cast from a viewport pixel, normalized coordinate, or explicit world ray; reports pending vs miss, ray id, local/world hit, latency, and overflow flags |
 | `olo_scene_open` | **(consented write)** open / switch the active scene by `path` (a `.olo`/`.scene` file, relative paths resolve against the project asset directory) — the scriptable scene switch. Loads directly, bypassing the auto-save recovery modal a remote agent can't click; stops Play mode first; **cancels any pending auto-save recovery** (an armed recovery modal used to be able to swap the freshly opened scene back out when its button was clicked later, issue #607). Reports the loaded scene name + entity count and settles rendered frames before returning. Gated behind **Agent writes** |
 | `olo_scene_play` / `olo_scene_stop` | **(consented write)** enter / leave Play mode — the same as the editor's Play/Stop buttons, so an agent can verify anything that only runs in Play (physics, cloth, scripts). Transient + fully reversible (stop restores the authored scene); idempotent (`changed:false` when already in that state); **settles rendered frames after a real transition** so an immediately following `olo_screenshot` shows the new state, not the last pre-transition frame (the uniform-grey trap, issue #607); `olo_scene_summary` reports `isPlaying` to confirm. Gated behind **Agent writes** |
@@ -314,7 +315,7 @@ and for what to do when adding a tool.
 | `olo_physics_overlap` | bodies overlapping a sphere (`radius`) or box (`halfExtents`) at `origin`; requires Play mode |
 | `olo_physics_why_no_collision` | explain why two entities (`a`, `b`) are NOT colliding — the "player falls through the floor" debugger: root-cause `reasonCode`, summary, ordered checks, and per-entity facts |
 | `olo_set_collision_layer` | **(consented write)** set an entity's rigidbody collision layer (`entity`, `layer`). The counterpart to `olo_physics_why_no_collision`: that one explains why two bodies do not collide, this one fixes the common cause. Routed through the editor's undo stack, so an applied change is a single Ctrl-Z |
-| `olo_input_inject` | **(consented write)** inject synthetic mouse/keyboard input — `click` / `move` / `drag` / `mouseDelta` / `key` / `text` — into the editor's own input stream, so you can verify that an interactive handler actually FIRES (a viewport click selects the right entity; a panel button does what it claims), not merely that the editor renders. Synchronous: returns once the injected frames have been rendered, with the resulting selected/hovered entity in `after`. `mouseDelta` drives **delta-integrating** consumers (mouse-look rigs) that absolute injection provably cannot — see [Relative mouse movement](#relative-mouse-movement-mousedelta). Refuses loudly when the editor's loop is parked. Gated behind **Agent writes**. See [Interactive UI verification](#interactive-ui-verification-olo_input_inject) |
+| `olo_input_inject` | **(consented write)** inject synthetic mouse/keyboard input — `click` / `move` / `drag` / `mouseDelta` / `key` / `text` / `wheel` — into the editor's own input stream, so you can verify that an interactive handler actually FIRES (a viewport click selects the right entity; a panel button does what it claims), not merely that the editor renders. Synchronous: returns once the injected frames have been rendered, with the resulting selected/hovered entity in `after`. `mouseDelta` drives **delta-integrating** consumers (mouse-look rigs) that absolute injection provably cannot — see [Relative mouse movement](#relative-mouse-movement-mousedelta). Refuses loudly when the editor's loop is parked. Gated behind **Agent writes**. See [Interactive UI verification](#interactive-ui-verification-olo_input_inject) |
 | `olo_tests_list` | the GoogleTest cases `OloEngine-Tests` holds, each with source file, line and its `OLO_TEST_LAYER` classification (the renderer pyramid L1–L11 and the Functional / unit axes), plus a per-layer count. Filter by gtest expression, `suite`, explicit `cases` or `layer`. A selection that matches nothing is an **error**, not an empty list |
 | `olo_tests_run` | run a filtered selection as a child process and get **structured** per-case results — pass/fail/skip/disabled, the verbatim gtest failure text, per-case timings, each case's layer — with no console parsing. Runs the binary, not the editor's renderer, so the CPU-only suites inherit no GPU skip condition. Failures only by default (`includePassed` for the whole set). Never silently partial: a zero-match selection, a child that crashed / timed out / was cancelled, and a report that does not account for every selected case are all errors that **name** what is missing. See [Structured test execution](#structured-test-execution-olo_tests_list--olo_tests_run) |
 | `olo_project_validate` | every project validator in one call — asset-registry problems, shader compile/link errors, recent script errors, and the live render graph's hazard sweep — as one structured report. Each section invokes the standalone command's own handler, so it reports exactly what the editor panels show. A validator that cannot run here comes back `unavailable` **with its reason** and makes the report's `ok` false: an unrun check is never a clean bill of health |
@@ -743,7 +744,7 @@ appear under the `script` toolset — see "Script-defined tools" below):
 | `camera` | `olo_screenshot`, `olo_camera_get`, `olo_camera_set_pose`, `olo_camera_orbit`, `olo_camera_frame_entity`, `olo_camera_freeze_culling`, `olo_viewport_set_size` |
 | `physics` | `olo_physics_layer_matrix`, `olo_physics_list_colliders`, `olo_physics_contacts`, `olo_physics_raycast`, `olo_physics_overlap`, `olo_physics_why_no_collision`, `olo_set_collision_layer` |
 | `input` | `olo_input_inject` |
-| `editor` | `olo_editor_panel_list`, `olo_editor_panel_set`, `olo_accessibility_get`, `olo_accessibility_set`, `olo_lightmap_bake`, `olo_editor_debug_draw_set`, `olo_terrain_pick`, `olo_editor_actions`, `olo_editor_pause`, `olo_editor_step`, `olo_editor_gizmo_set`, `olo_editor_build_shader_pack` |
+| `editor` | `olo_editor_panel_list`, `olo_editor_panel_set`, `olo_asset_open`, `olo_accessibility_get`, `olo_accessibility_set`, `olo_lightmap_bake`, `olo_editor_debug_draw_set`, `olo_terrain_pick`, `olo_editor_actions`, `olo_editor_pause`, `olo_editor_step`, `olo_editor_gizmo_set`, `olo_editor_build_shader_pack` |
 | `tests` | `olo_tests_list`, `olo_tests_run` |
 | `build` | `olo_build_list`, `olo_build_run` |
 | `validation` | `olo_project_validate` |
@@ -1297,8 +1298,8 @@ between injected frames, so panel-space clicks never land a selection.
   "entity": "12652600558176869447", "name": "Cube",
   "message": "Selected 'Cube'." }
 
-// olo_screenshot { "space": "window" } (or the run-oloengine driver's full-window
-// shot) now shows the Properties panel drawing Cube's components.
+// The run-oloengine driver's full-window shot (driver.ps1 -Action shot) now shows
+// the Properties panel drawing Cube's components. olo_screenshot is viewport-only.
 
 // olo_editor_select_entity { "clear": true }
 { "available": true, "ok": true, "changed": true, "selected": false,
@@ -1456,9 +1457,64 @@ The response's `after` block already reports the consequence — no second round
 // 3) olo_screenshot {}                    -> the selection outline is now drawn around it
 ```
 
-For an ImGui widget (a menu, a panel button, a hierarchy row), use `space: "window"` and
-read the pixel off a full-window screenshot from the `run-oloengine` driver
-(`driver.ps1 -Action shot`, which captures the whole window, not just the viewport).
+For an ImGui widget (a menu, a panel button, a hierarchy row), use `space: "panel"` or
+`space: "window"`.
+
+- **`space: "panel"`** with `panel: "<window title>"` (`"Content Browser"`, `"Scene Hierarchy"`,
+  or an `olo_editor_panel_list` name such as `"renderer_settings"`) takes coordinates from that
+  ImGui window's top-left corner, title bar or tab included, wherever the dock layout put it.
+  The reply's `panel` block gives its window-space rect. A panel that cannot be addressed says
+  why: not open (`olo_editor_panel_set`), docked behind another tab (click its tab first), or
+  no such window (the reply lists the visible ones). A panel **floating in its own OS window**
+  works too: graph editors open that way by default (`imgui.ini` places them at desktop
+  (60, 60)), and the plan tells ImGui which viewport is hovered, because the GLFW backend only
+  reports the viewport the physical mouse is over. `panel.ownWindow` says when that happened.
+- **`space: "window"`** covers the whole editor dockspace: window-client pixels, which on
+  Windows are **physical** pixels (GLFW makes the process per-monitor DPI aware). On a 150%
+  display a full-HD editor is 1920x1080 here and 3840x2054 maximised. Every cursor-placing reply
+  reports the extent as `window` `{width, height, framebufferWidth, framebufferHeight,
+  framebufferScale}`, and an out-of-range point is refused with the same numbers. It always
+  hits the main window, even where a floating panel's OS window overlaps it on the desktop
+  (desktop z-order interleaves other applications, so it is not a stable target); use
+  `space: "panel"` for a floating panel. (Until #607
+  the bound came from `Window::GetWidth()`, which kept the 1280x720 creation request after
+  `GLFW_SCALE_TO_MONITOR` had made the window 1920x1080, so the right-hand dock and the Content
+  Browser were unreachable.) Read the pixel off a full-window screenshot from the
+  `run-oloengine` driver (`driver.ps1 -Action shot`); its PNG includes the title bar, so probe
+  with a `move` and read `after.hoveredWindow` before clicking.
+
+**`wheel`** scrolls by `wheelY` (and/or `wheelX`) notches with the cursor at `x`/`y`, in any
+space. + is wheel up: zoom in on an `EditorUI::GraphCanvas`, scroll a list up. The cursor moves
+first and the wheel follows once ImGui has registered the hover, because ImGui sends the wheel
+to the window under the cursor; `modifiers: ["ctrl"]` holds across the wheel frame.
+
+```jsonc
+// olo_asset_open { "path": "SoundGraphs/HelloDing.olosoundgraph" }
+// olo_input_inject { "action": "wheel", "space": "panel", "panel": "Sound Graph Editor",
+//                    "x": 700, "y": 400, "wheelY": 1 }
+{ "ok": true, "wheel": { "x": 0, "y": 1 },
+  "panel": { "name": "Sound Graph Editor - HelloDing.olosoundgraph", "ownWindow": true, ... },
+  "after": { "hoveredWindow": "Sound Graph Editor###SoundGraphEditor/##SGRCanvas_3E55840C", ... } }
+```
+
+### Opening assets (`olo_asset_open`)
+
+**(consented write.)** Opens a file the way a Content Browser double-click does, through the
+same `EditorLayer::OpenAssetInEditor` function, so the two routes cannot drift. Scenes load like
+`olo_scene_open` (no auto-save recovery modal). The reply is the target panel's readback, not
+an acknowledgement: most panels deserialize a couple of frames after the request and only log a
+parse failure, so the tool waits (up to 30 frames) until the panel reports the requested file as
+loaded, and says what it shows instead when it does not.
+
+```jsonc
+// olo_asset_open { "path": "Progression/warrior_skills.oloskilltree" }
+{ "ok": true, "panel": "skill_tree_editor", "panelOpen": true, "fileType": "SkillTree",
+  "handle": "4544736348022301307", "framesWaited": 2,
+  "loadedPath": "...\\Assets\\Progression\\warrior_skills.oloskilltree", ... }
+// olo_asset_open { "path": "Materials/Brass.olomaterial" }
+// -> error: "No editor panel opens this kind of file; the Content Browser's double-click
+//    does nothing for it either. (file type: Unknown)"
+```
 
 **`after.hoveredWindow` / `hoveredId` / `activeId` — did the click reach a widget at all?
 (issue #921)**

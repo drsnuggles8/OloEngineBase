@@ -33,9 +33,23 @@ namespace OloEngine
         void OpenDialogue(AssetHandle handle);
 
         // Check if panel has unsaved changes
+        // The file the panel has actually loaded (empty = none). olo_asset_open (issue #607)
+        // reads this back instead of trusting that an Open* call succeeded.
+        [[nodiscard]] const std::filesystem::path& GetLoadedFilePath() const
+        {
+            return m_CurrentFilePath;
+        }
         [[nodiscard]] bool HasUnsavedChanges() const
         {
             return m_IsDirty;
+        }
+        // Save when dirty. True when nothing is left unsaved afterwards (a
+        // cancelled Save As dialog leaves the tree dirty).
+        bool SaveIfNeeded()
+        {
+            if (m_IsDirty)
+                SaveDialogue();
+            return !m_IsDirty;
         }
         [[nodiscard]] bool IsOpen() const
         {

@@ -384,7 +384,8 @@ namespace OloEngine::MCP
             MouseOffsetReset, // zero the accumulated relative displacement
             MouseButton,      // press/release mouse button `Code`
             Key,              // press/release GLFW key `Code`
-            Char              // type unicode codepoint `Code`
+            Char,             // type unicode codepoint `Code`
+            MouseWheel        // scroll by (X, Y) wheel notches, GLFW convention (+Y = up / away)
         };
 
         Kind Type = Kind::MousePos;
@@ -394,6 +395,7 @@ namespace OloEngine::MCP
         // SyntheticInput's persistent cursor offset (issue #607; see the
         // "mouseDelta" section of McpInputInject.h for why relative injection
         // cannot be expressed as a sequence of absolute positions).
+        // MouseWheel: the scroll offsets GLFW's scroll callback carries.
         f32 X = 0.0f;
         f32 Y = 0.0f;
         // MouseButton: GLFW mouse-button index. Key: GLFW key code (== OloEngine
@@ -401,6 +403,10 @@ namespace OloEngine::MCP
         i32 Code = 0;
         // MouseButton / Key only: true = press, false = release.
         bool Down = false;
+        // MousePos only: the ImGui viewport (ImGuiID) the point lies in when it is a
+        // panel floating in its own OS window; 0 = the main window. X/Y stay relative
+        // to the MAIN window's client origin either way.
+        u32 Viewport = 0;
     };
 
     // A frame-quantized injection plan. `Frames[i]` is applied at the start of the
@@ -447,9 +453,37 @@ namespace OloEngine::MCP
         f32 LogicalWidth = 0.0f;
         f32 LogicalHeight = 0.0f;
         f32 DpiScale = 1.0f;
-        // OS window client-area size, logical pixels.
+        // The extent `space:"window"` coordinates are valid in: the ImGui MAIN
+        // VIEWPORT, i.e. the dockspace every docked panel is laid out in, in the same
+        // window-client units the injected events carry. On Windows those are
+        // physical pixels (GLFW makes the process per-monitor DPI aware), so on a
+        // 150% display a 1280x720 window request is a 1920x1080 extent (issue #607).
         u32 WindowWidth = 0;
         u32 WindowHeight = 0;
+        // Diagnostics reported alongside the extent so a coordinate mismatch can be
+        // read rather than guessed: the OS framebuffer size and ImGui's
+        // DisplayFramebufferScale (1.0 on Windows, 2.0 on a Retina-style platform).
+        u32 FramebufferWidth = 0;
+        u32 FramebufferHeight = 0;
+        f32 FramebufferScaleX = 1.0f;
+        f32 FramebufferScaleY = 1.0f;
+    };
+
+    // One top-level ImGui window, as the `space:"panel"` coordinate space sees it
+    // (olo_input_inject, issue #607). Rect in ImGui screen coordinates (the same
+    // space McpInputViewportInfo::PanelX/WindowX use).
+    struct McpInputPanelWindow
+    {
+        // The full ImGui window name, including any "##id" / "###id" suffix.
+        std::string Name;
+        f32 X = 0.0f;
+        f32 Y = 0.0f;
+        f32 Width = 0.0f;
+        f32 Height = 0.0f;
+        bool Active = false;         // submitted (Begin) on the last frame
+        bool Hidden = false;         // e.g. a docked tab behind another tab
+        bool OnMainViewport = false; // false when dragged out into its own OS window
+        u32 ViewportId = 0;          // the ImGui viewport it is drawn in (ImGuiID)
     };
 
     // Post-injection observation: what the editor looks like once the plan drained.
@@ -532,6 +566,37 @@ namespace OloEngine::MCP
         bool Focused = false;       // OS keyboard focus (injection does NOT require it)
         bool Visible = true;
         bool CaptureUnready = false; // throttle-skipped, or mid viewport-resize transient
+    };
+
+    // olo_asset_open (issue #607): open a file in its editor panel through the SAME
+    // dispatch the Content Browser's double-click uses (EditorLayer::OpenAssetInEditor).
+    struct McpAssetOpenRequest
+    {
+        u64 Handle = 0;   // non-zero: resolve through the asset registry
+        std::string Path; // otherwise: relative to the asset directory, or absolute
+        // The target panel (or the scene) has unsaved changes. The Content Browser
+        // asks with a native modal an agent cannot answer; false refuses, true discards.
+        bool DiscardUnsaved = false;
+    };
+
+    struct McpAssetOpenResult
+    {
+        bool Available = false;
+        bool Ok = false; // the dispatch ran; whether the file LOADED is McpAssetEditorState
+        std::string ResolvedPath;
+        u64 Handle = 0;
+        std::string FileType; // the Content Browser's ContentFileType, as text
+        std::string Panel;    // olo_editor_panel_list name, or "scene"
+        std::string Message;
+        u64 BaseFrame = 0;
+    };
+
+    // The target panel's own readback, taken after its deferred load had frames to run.
+    struct McpAssetEditorState
+    {
+        bool PanelOpen = false;
+        std::string LoadedPath; // what the panel reports as loaded ("" = nothing)
+        bool Matches = false;   // LoadedPath is the requested file (filesystem-equivalent)
     };
 
     struct McpEditorPanelState
@@ -750,6 +815,15 @@ namespace OloEngine::MCP
         std::function<McpInputViewportInfo()> GetInputViewportInfo;
         std::function<McpInputInjectResult(const McpInputPlan& plan)> InjectInput;
         std::function<McpInputStateSnapshot()> GetInputState;
+        // Every top-level ImGui window with its rect, for `space:"panel"`. Main thread.
+        std::function<std::vector<McpInputPanelWindow>()> GetInputPanelWindows;
+
+        // ---- olo_asset_open (issue #607) -----------------------------------------
+        // Dispatch through the Content Browser's double-click route, then read the
+        // target panel back once its deferred load has had frames to run. Both
+        // main-thread only.
+        std::function<McpAssetOpenResult(const McpAssetOpenRequest& request)> OpenAsset;
+        std::function<McpAssetEditorState(const McpAssetOpenResult& opened)> GetAssetEditorState;
     };
 
     // An MCP resource: a passive, addressable blob (vs. an active tool). The reader

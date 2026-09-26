@@ -932,11 +932,17 @@ TEST(McpInputInjectSchema, RequiresActionAndIsClosed)
 
     const Json actionEnum = schema["properties"]["action"]["enum"];
     ASSERT_TRUE(actionEnum.is_array());
-    EXPECT_EQ(actionEnum.size(), 6u);
+    EXPECT_EQ(actionEnum.size(), 7u);
     // A count alone would pass if a rename dropped mouseDelta and added something
     // else; the schema enum is what a client validates against before the handler
     // ever sees the call, so the action has to be named here to be reachable.
     EXPECT_NE(std::ranges::find(actionEnum, Json("mouseDelta")), actionEnum.end());
+    EXPECT_NE(std::ranges::find(actionEnum, Json("wheel")), actionEnum.end());
+
+    const Json spaceEnum = schema["properties"]["space"]["enum"];
+    EXPECT_NE(std::ranges::find(spaceEnum, Json("panel")), spaceEnum.end());
+    EXPECT_TRUE(schema["properties"].contains("panel"));
+    EXPECT_TRUE(schema["properties"].contains("wheelY"));
 }
 
 // ---- relative injection: the "mouseDelta" action (issue #607) ------------------
@@ -1236,4 +1242,303 @@ TEST(McpInputInjectDelta, AbsoluteActionsAreUnchangedByTheAdditionOfTheDeltaActi
     ASSERT_EQ(buttons.MoveFrames.size(), 1u);
     ASSERT_EQ(buttons.PressFrames.size(), 1u);
     EXPECT_GE(buttons.PressFrames[0] - buttons.MoveFrames[0], Inject::s_MoveSettleFrames);
+}
+
+// ---- wheel (issue #607) --------------------------------------------------------
+// Graph-canvas zoom and list scrolling are wheel-only. ImGui routes the wheel to the
+// window it believes is HOVERED, and that belief only updates at NewFrame after a
+// move lands, so the wheel must trail the move exactly like a click's press does.
+
+namespace
+{
+    struct WheelTimeline
+    {
+        std::vector<int> MoveFrames;
+        std::vector<int> WheelFrames;
+        std::vector<McpInputEvent> WheelEvents;
+        int ButtonEvents = 0;
+    };
+
+    WheelTimeline WheelTimelineOf(const McpInputPlan& plan)
+    {
+        WheelTimeline timeline;
+        for (int frameIndex = 0; frameIndex < static_cast<int>(plan.Frames.size()); ++frameIndex)
+        {
+            for (const McpInputEvent& event : plan.Frames[static_cast<std::size_t>(frameIndex)])
+            {
+                if (event.Type == McpInputEvent::Kind::MousePos)
+                {
+                    timeline.MoveFrames.push_back(frameIndex);
+                }
+                else if (event.Type == McpInputEvent::Kind::MouseWheel)
+                {
+                    timeline.WheelFrames.push_back(frameIndex);
+                    timeline.WheelEvents.push_back(event);
+                }
+                else if (event.Type == McpInputEvent::Kind::MouseButton)
+                {
+                    ++timeline.ButtonEvents;
+                }
+            }
+        }
+        return timeline;
+    }
+} // namespace
+
+TEST(McpInputInjectWheel, ParseNeedsAPositionAndAtLeastOneAxis)
+{
+    Inject::Request request;
+    EXPECT_FALSE(Inject::ParseRequest(Json{ { "action", "wheel" }, { "x", 10 }, { "y", 20 }, { "wheelY", -2 } }, request).has_value());
+    EXPECT_EQ(request.Act, Inject::Action::Wheel);
+    EXPECT_FLOAT_EQ(request.WheelY, -2.0f);
+    EXPECT_FLOAT_EQ(request.WheelX, 0.0f);
+
+    Inject::Request noAxis;
+    EXPECT_TRUE(Inject::ParseRequest(Json{ { "action", "wheel" }, { "x", 10 }, { "y", 20 } }, noAxis).has_value());
+    Inject::Request noPosition;
+    EXPECT_TRUE(Inject::ParseRequest(Json{ { "action", "wheel" }, { "wheelY", 1 } }, noPosition).has_value());
+    // A pixel count pasted into a notch field is refused, not sent as 400 notches.
+    Inject::Request tooFar;
+    EXPECT_TRUE(Inject::ParseRequest(Json{ { "action", "wheel" }, { "x", 1 }, { "y", 1 }, { "wheelY", 400 } }, tooFar).has_value());
+}
+
+TEST(McpInputInjectWheel, PlanMovesSettlesThenSendsOneWheelEventAndNoButtons)
+{
+    Inject::Request request;
+    ASSERT_FALSE(Inject::ParseRequest(Json{ { "action", "wheel" }, { "space", "viewport" }, { "x", 640 }, { "y", 360 }, { "wheelX", 0.5 }, { "wheelY", 3 } }, request)
+                     .has_value());
+    McpInputPlan plan;
+    Inject::ResolvedPoint start;
+    Inject::ResolvedPoint end;
+    ASSERT_FALSE(Inject::BuildPlan(request, MakeViewportInfo(), plan, start, end).has_value());
+
+    const WheelTimeline timeline = WheelTimelineOf(plan);
+    ASSERT_EQ(timeline.MoveFrames.size(), 1u);
+    ASSERT_EQ(timeline.WheelFrames.size(), 1u);
+    EXPECT_GE(timeline.WheelFrames[0] - timeline.MoveFrames[0], Inject::s_MoveSettleFrames);
+    EXPECT_FLOAT_EQ(timeline.WheelEvents[0].X, 0.5f);
+    EXPECT_FLOAT_EQ(timeline.WheelEvents[0].Y, 3.0f);
+    EXPECT_EQ(timeline.ButtonEvents, 0);
+    EXPECT_FLOAT_EQ(start.WindowX, 940.0f);
+    // Trailing settle frames so the caller's next screenshot shows the zoom.
+    EXPECT_GE(static_cast<int>(plan.Frames.size()) - 1 - timeline.WheelFrames[0], Inject::s_TrailingSettleFrames);
+}
+
+TEST(McpInputInjectWheel, CtrlWheelHoldsTheModifierAcrossTheWheelFrame)
+{
+    Inject::Request request;
+    ASSERT_FALSE(Inject::ParseRequest(Json{ { "action", "wheel" }, { "x", 5 }, { "y", 5 }, { "wheelY", 1 }, { "modifiers", Json::array({ "ctrl" }) } }, request)
+                     .has_value());
+    McpInputPlan plan;
+    Inject::ResolvedPoint start;
+    Inject::ResolvedPoint end;
+    ASSERT_FALSE(Inject::BuildPlan(request, MakeViewportInfo(), plan, start, end).has_value());
+
+    int ctrlDown = -1;
+    int ctrlUp = -1;
+    for (int frame = 0; frame < static_cast<int>(plan.Frames.size()); ++frame)
+    {
+        for (const McpInputEvent& event : plan.Frames[static_cast<std::size_t>(frame)])
+        {
+            if (event.Type == McpInputEvent::Kind::Key && event.Code == Key::LeftControl)
+                (event.Down ? ctrlDown : ctrlUp) = frame;
+        }
+    }
+    const int wheelFrame = WheelTimelineOf(plan).WheelFrames.at(0);
+    EXPECT_GE(ctrlDown, 0);
+    EXPECT_LT(ctrlDown, wheelFrame);
+    EXPECT_GT(ctrlUp, wheelFrame);
+}
+
+TEST_F(McpInputInjectTest, WheelReplyNamesTheNotchesAndTheWindowExtent)
+{
+    m_Server.SetAllowWrites(true);
+    const Json response = m_Server.HandleMessage(
+        MakeCallRequest(1, "olo_input_inject", Json{ { "action", "wheel" }, { "space", "window" }, { "x", 900 }, { "y", 400 }, { "wheelY", -1 } }));
+    ASSERT_TRUE(response.contains("result")) << response.dump();
+    const Json body = Json::parse(response["result"]["content"][0]["text"].get<std::string>());
+    EXPECT_TRUE(body["ok"].get<bool>()) << body.dump();
+    EXPECT_FLOAT_EQ(body["wheel"]["y"].get<f32>(), -1.0f);
+    EXPECT_EQ(body["window"]["width"].get<u32>(), 1920u);
+    EXPECT_EQ(body["window"]["height"].get<u32>(), 1080u);
+    EXPECT_TRUE(body["after"].contains("cursorLanding"));
+}
+
+// ---- the window-space extent (issue #607) --------------------------------------
+// The live failure: on a 150% display the editor window is 1920x1080 window-client
+// pixels, but the bound came from Window::GetWidth(), still holding the 1280x720
+// creation request, so the right-hand dock at x = 1552 was refused. The extent is
+// now the dockspace; this pins that a point there resolves, and that the refusal
+// names the extent AND the framebuffer, the two numbers that tell units from layout.
+
+TEST(McpInputInjectWindowExtent, TheRightHandDockOfAFullHdEditorIsReachable)
+{
+    const McpInputViewportInfo info = MakeViewportInfo();
+    Inject::ResolvedPoint point;
+    EXPECT_FALSE(Inject::ResolvePoint(info, Inject::Space::Window, 1552.0f, 479.0f, point).has_value());
+    EXPECT_FLOAT_EQ(point.WindowX, 1552.0f);
+}
+
+TEST(McpInputInjectWindowExtent, RefusalReportsTheDockspaceAndFramebufferExtent)
+{
+    McpInputViewportInfo info = MakeViewportInfo();
+    info.FramebufferWidth = 1920;
+    info.FramebufferHeight = 1080;
+    Inject::ResolvedPoint point;
+    const auto error = Inject::ResolvePoint(info, Inject::Space::Window, 9000.0f, 9000.0f, point);
+    ASSERT_TRUE(error.has_value());
+    EXPECT_NE(error->find("1920x1080 window-client pixels"), std::string::npos) << *error;
+    EXPECT_NE(error->find("framebuffer 1920x1080"), std::string::npos) << *error;
+}
+
+// ---- the panel space (issue #607) -------------------------------------------------
+
+namespace
+{
+    using OloEngine::MCP::McpInputPanelWindow;
+
+    McpInputPanelWindow PanelWindow(std::string name, f32 x, f32 y, f32 w, f32 h, bool active = true, bool hidden = false)
+    {
+        McpInputPanelWindow window;
+        window.Name = std::move(name);
+        window.X = x;
+        window.Y = y;
+        window.Width = w;
+        window.Height = h;
+        window.Active = active;
+        window.Hidden = hidden;
+        window.OnMainViewport = true;
+        window.ViewportId = 1;
+        return window;
+    }
+
+    // The main window sits at desktop (50, 40) as in MakeViewportInfo, so a panel at
+    // window-client (410, 693) is at ImGui screen (460, 733).
+    std::vector<McpInputPanelWindow> DockLayout()
+    {
+        return {
+            PanelWindow("DockSpace Demo", 50.0f, 40.0f, 1920.0f, 1080.0f),
+            PanelWindow("Console", 460.0f, 733.0f, 941.0f, 387.0f),
+            PanelWindow("Content Browser", 460.0f, 733.0f, 941.0f, 387.0f, true, /*hidden*/ true),
+            PanelWindow("Renderer Settings", 1404.0f, 71.0f, 566.0f, 525.0f),
+            PanelWindow("Sound Graph Editor - HelloDing.olosoundgraph###SoundGraphEditor", 60.0f, 60.0f, 1200.0f, 700.0f),
+            PanelWindow("Dialogue Editor", 0.0f, 0.0f, 100.0f, 100.0f, /*active*/ false),
+        };
+    }
+} // namespace
+
+TEST(McpInputInjectPanel, NamesMatchTheLabelTheStableIdAndThePanelRegistry)
+{
+    const auto windows = DockLayout();
+    EXPECT_TRUE(Inject::PanelMatches(windows[1], "console"));
+    EXPECT_TRUE(Inject::PanelMatches(windows[3], "renderer_settings")); // olo_editor_panel_list name
+    EXPECT_TRUE(Inject::PanelMatches(windows[3], "Renderer-Settings"));
+    // The label carries the open file name; the ###id stays fixed.
+    EXPECT_TRUE(Inject::PanelMatches(windows[4], "SoundGraphEditor"));
+    EXPECT_TRUE(Inject::PanelMatches(windows[4], "Sound Graph Editor"));
+    EXPECT_FALSE(Inject::PanelMatches(windows[4], "Sound Graph"));
+    EXPECT_FALSE(Inject::PanelMatches(windows[1], ""));
+}
+
+TEST(McpInputInjectPanel, EachUnaddressableStateSaysWhy)
+{
+    const auto windows = DockLayout();
+    const McpInputPanelWindow* found = nullptr;
+
+    ASSERT_FALSE(Inject::FindPanelWindow(windows, "Console", found).has_value());
+    ASSERT_NE(found, nullptr);
+    EXPECT_EQ(found->Name, "Console");
+
+    auto error = Inject::FindPanelWindow(windows, "Content Browser", found);
+    ASSERT_TRUE(error.has_value());
+    EXPECT_EQ(found, nullptr);
+    EXPECT_NE(error->find("behind another tab"), std::string::npos) << *error;
+
+    error = Inject::FindPanelWindow(windows, "dialogue_editor", found);
+    ASSERT_TRUE(error.has_value());
+    EXPECT_NE(error->find("not open"), std::string::npos) << *error;
+
+    error = Inject::FindPanelWindow(windows, "Nope", found);
+    ASSERT_TRUE(error.has_value());
+    EXPECT_NE(error->find("\"Console\""), std::string::npos) << *error;
+    EXPECT_EQ(error->find("\"Content Browser\""), std::string::npos) << "a tab-hidden panel is not visible: " << *error;
+}
+
+TEST(McpInputInjectPanel, CoordinatesAreRelativeToThePanelAndBoundedByIt)
+{
+    const McpInputViewportInfo info = MakeViewportInfo();
+    const auto windows = DockLayout();
+    const McpInputPanelWindow* console = nullptr;
+    ASSERT_FALSE(Inject::FindPanelWindow(windows, "Console", console).has_value());
+
+    Inject::ResolvedPoint point;
+    ASSERT_FALSE(Inject::ResolvePoint(info, Inject::Space::Panel, 40.0f, 60.0f, point, console).has_value());
+    EXPECT_FLOAT_EQ(point.WindowX, 450.0f); // 460 - 50 + 40
+    EXPECT_FLOAT_EQ(point.WindowY, 753.0f); // 733 - 40 + 60
+    EXPECT_EQ(point.ViewportId, 0u);
+
+    EXPECT_TRUE(Inject::ResolvePoint(info, Inject::Space::Panel, 941.0f, 10.0f, point, console).has_value());
+    EXPECT_TRUE(Inject::ResolvePoint(info, Inject::Space::Panel, 10.0f, 10.0f, point, nullptr).has_value());
+}
+
+// A graph editor opens floating in its own OS window by default. With the physical
+// mouse elsewhere the GLFW backend reports no hovered viewport, so the plan has to
+// carry the panel's viewport for ImGui to hit-test it at all. Its point may lie
+// outside the main window's client area, and must not be refused for that.
+TEST(McpInputInjectPanel, AFloatingPanelIsReachedThroughItsOwnViewport)
+{
+    auto windows = DockLayout();
+    windows[4].OnMainViewport = false;
+    windows[4].ViewportId = 0xBEEF;
+    windows[4].X = 3000.0f; // right of the 1920-wide main window
+    const McpInputViewportInfo info = MakeViewportInfo();
+
+    const McpInputPanelWindow* graph = nullptr;
+    ASSERT_FALSE(Inject::FindPanelWindow(windows, "Sound Graph Editor", graph).has_value());
+
+    Inject::Request request;
+    ASSERT_FALSE(Inject::ParseRequest(Json{ { "action", "wheel" }, { "space", "panel" }, { "panel", "Sound Graph Editor" }, { "x", 600 }, { "y", 400 }, { "wheelY", 1 } }, request)
+                     .has_value());
+    McpInputPlan plan;
+    Inject::ResolvedPoint start;
+    Inject::ResolvedPoint end;
+    ASSERT_FALSE(Inject::BuildPlan(request, info, plan, start, end, nullptr, graph).has_value());
+    EXPECT_EQ(start.ViewportId, 0xBEEFu);
+    EXPECT_FLOAT_EQ(start.WindowX, 3550.0f); // 3000 + 600 - 50: outside the main window, not clamped
+    int moves = 0;
+    for (const auto& frame : plan.Frames)
+    {
+        for (const McpInputEvent& event : frame)
+        {
+            if (event.Type == McpInputEvent::Kind::MousePos)
+            {
+                ++moves;
+                EXPECT_EQ(event.Viewport, 0xBEEFu);
+            }
+        }
+    }
+    EXPECT_EQ(moves, 1);
+
+    // Its own OS window is never the 3D viewport, even where it lies over the
+    // viewport panel on the desktop.
+    windows[4].X = 400.0f;
+    windows[4].Y = 200.0f;
+    ASSERT_FALSE(Inject::FindPanelWindow(windows, "Sound Graph Editor", graph).has_value());
+    Inject::ResolvedPoint overViewport;
+    ASSERT_FALSE(Inject::ResolvePoint(info, Inject::Space::Panel, 100.0f, 100.0f, overViewport, graph).has_value());
+    EXPECT_FALSE(overViewport.InsideViewport);
+}
+
+TEST(McpInputInjectPanel, ParseNeedsThePanelNameAndRefusesADisplacement)
+{
+    Inject::Request missing;
+    EXPECT_TRUE(Inject::ParseRequest(Json{ { "action", "move" }, { "space", "panel" }, { "x", 1 }, { "y", 1 } }, missing).has_value());
+
+    Inject::Request delta;
+    EXPECT_TRUE(Inject::ParseRequest(Json{ { "action", "mouseDelta" }, { "space", "panel" }, { "panel", "Console" }, { "dx", 1 }, { "dy", 1 } }, delta).has_value());
+
+    Inject::Request ok;
+    ASSERT_FALSE(Inject::ParseRequest(Json{ { "action", "click" }, { "space", "panel" }, { "panel", "Console" }, { "x", 1 }, { "y", 1 } }, ok).has_value());
+    EXPECT_EQ(ok.CoordSpace, Inject::Space::Panel);
+    EXPECT_EQ(ok.Panel, "Console");
 }
