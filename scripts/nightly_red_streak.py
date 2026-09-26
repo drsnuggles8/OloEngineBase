@@ -130,8 +130,15 @@ def streak(repo: str, runs: list[dict], this_run_id: int, job_name: str, timeout
         if run["id"] == this_run_id or run.get("status") != "completed":
             continue
         job = hardware_job(repo, run["id"], job_name)
-        # A run with no hardware job never started it (startup failure): judge the run.
-        night = verdict(job.get("conclusion") if job else run.get("conclusion"), job, timeout_minutes)
+        if job is not None:
+            night = verdict(job.get("conclusion"), job, timeout_minutes)
+        else:
+            # No hardware job in the run: a startup failure, or a renamed job. A failed
+            # run is still red, but a successful one proves nothing about the hardware
+            # (it may hold only this alert job), so it is never read as green.
+            night = verdict(run.get("conclusion"), None, timeout_minutes)
+            if night == "green":
+                night = "neutral"
         if night == "red":
             red.append(run)
         elif night == "green":
@@ -168,6 +175,11 @@ def main(argv: list[str]) -> int:
 
     # The job has finished by the time this runs (`needs:`), so its record is final.
     tonight_job = hardware_job(args.repo, args.run_id, args.job)
+    if tonight_job is None:
+        # This run certainly has the job the workflow names, so a miss means --job no
+        # longer matches its display name: every night would be misjudged. Say so.
+        print(f"::error::no job named {args.job!r} in run {args.run_id} -- update --job in the workflow")
+        return 1
     tonight_verdict = verdict(args.result, tonight_job, args.timeout_minutes)
     if tonight_verdict == "neutral":
         print(f"this run's result is {args.result!r}: neither red nor green, nothing to do")
