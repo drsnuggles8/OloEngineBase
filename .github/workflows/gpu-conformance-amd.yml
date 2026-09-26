@@ -136,7 +136,12 @@ jobs:
     # CI jobs cannot contend for the GPU while this runs: every sanitizer job
     # passes `--olo-gl-backend=none` (asan.yml) and so never opens the device.
     runs-on: [self-hosted, linux, x64, olo-ci]
-    timeout-minutes: 120
+    # 150, not 120 (#1473): a COLD build with one heavy-compile permit measured
+    # 60 min (run 36210684757, 1863 of 1923 compiles missed ccache), and the full
+    # suite 38 min (run 36188061625). With setup that is ~103 min, too close to
+    # 120 for a night after a header change that invalidates the cache. The
+    # red-streak job's --timeout-minutes below must match this value.
+    timeout-minutes: 150
 
     env:
       BUILD_TYPE: Release
@@ -758,7 +763,7 @@ jobs:
           python3 scripts/nightly_red_streak.py \
             --workflow gpu-conformance-amd.yml \
             --job "Linux / AMD Navi 10 (radeonsi, hardware)" \
-            --timeout-minutes 120 \
+            --timeout-minutes 150 \
             --result "$RESULT" \
             --run-id "$GITHUB_RUN_ID" \
             $DRY_RUN | tee -a "$GITHUB_STEP_SUMMARY"
