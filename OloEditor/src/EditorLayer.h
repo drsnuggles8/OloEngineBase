@@ -214,6 +214,32 @@ namespace OloEngine
         void SyncWindowTitle() const;
         void BindContentBrowserSelectionCallback();
 
+        // Open a file in the editor panel that edits it — THE dispatch behind the
+        // Content Browser's double-click, shared with olo_asset_open (issue #607) so
+        // the two cannot drift. `policy` answers "the target has unsaved changes":
+        // the Content Browser asks the user (Prompt); an MCP caller cannot answer a
+        // native modal, so it refuses or discards by argument.
+        enum class UnsavedChangesPolicy : u8
+        {
+            Prompt,
+            Refuse,
+            Discard
+        };
+        struct AssetOpenOutcome
+        {
+            bool Dispatched = false;       // a panel (or the scene) took the file
+            bool BlockedByUnsaved = false; // refused: the target has unsaved changes
+            std::string Panel;             // olo_editor_panel_list name, or "scene"
+            std::string Message;
+        };
+        AssetOpenOutcome OpenAssetInEditor(const std::filesystem::path& path, ContentFileType type, UnsavedChangesPolicy policy);
+        // Returns true to go ahead with the open. Prompt asks Yes/No/Cancel and runs
+        // `save` on Yes; Refuse fills `outcome` and stops; Discard goes ahead.
+        bool ResolveUnsavedChanges(bool hasUnsavedChanges, std::string_view titleNoun, std::string_view sentenceNoun,
+                                   UnsavedChangesPolicy policy, const std::function<bool()>& save, AssetOpenOutcome& outcome);
+        [[nodiscard]] MCP::McpAssetOpenResult OpenAssetFromMcp(const MCP::McpAssetOpenRequest& request);
+        [[nodiscard]] MCP::McpAssetEditorState GetMcpAssetEditorState(const MCP::McpAssetOpenResult& opened) const;
+
         // Unsaved-changes prompt: returns true if ok to proceed, false if cancelled
         bool ConfirmDiscardChanges();
         bool OnWindowClose(WindowCloseEvent const& e);
@@ -303,6 +329,7 @@ namespace OloEngine
         void SampleMcpCursorLanding();
         [[nodiscard]] MCP::McpInputViewportInfo GetMcpInputViewportInfo() const;
         [[nodiscard]] MCP::McpInputStateSnapshot GetMcpInputState() const;
+        [[nodiscard]] static std::vector<MCP::McpInputPanelWindow> GetMcpInputPanelWindows();
 
         // ---- MCP editor liveness (issue #607) ----------------------------------
         // Frame counter + wall-clock gap since the last completed frame + window
