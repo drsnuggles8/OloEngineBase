@@ -83,11 +83,14 @@ fault and #1198's together, is #1511.
 
 ## What the visual check found
 
-Recording the cascades inline leaves the cascade layers byte-identical, but the lit Vulkan forward
-frame gets darker near ground. That is not this change: GTAO's `AOBuffer` is **all 255** on master
-because of an async-compute race, and the synchronous Vulkan result (`OLO_VK_ASYNC_COMPUTE=0`,
-identical inline or forked) darkens flat ground where GL does not. Both are #1512. Diff the
-intermediate targets (`olo_render_capture_target`) before blaming the pass you changed.
+Recording the cascades inline leaves the four cascade layers byte-identical (and within 1–2 LSB of
+GL), yet one lit Vulkan forward frame came out darker on the near ground than a forked one. The
+difference was entirely in GTAO's `AOBuffer`, and it was not this change: on Vulkan that buffer
+alternates frame by frame between all-255 and a real AO term (a half-rate flicker, with async
+compute on or off), and the real term also over-darkened flat ground through an HZB read that
+wrapped at the screen edge. Two single captures had landed on different phases. Both are #1512.
+Diff the intermediate targets (`olo_render_capture_target`) before blaming the pass you changed,
+and take more than one capture of anything that could alternate.
 
 ## Two traps
 
