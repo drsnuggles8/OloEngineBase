@@ -86,6 +86,15 @@ namespace OloEngine
             it->second.AddressMode = mode;
         }
     }
+
+    void VulkanImageInfoRegistry::SetSamplerMipmapMode(VkImage image, const VkSamplerMipmapMode mode)
+    {
+        const auto it = m_Infos.find(image);
+        if (it != m_Infos.end())
+        {
+            it->second.MipmapMode = mode;
+        }
+    }
 } // namespace OloEngine
 
 #endif // OLO_WITH_VULKAN

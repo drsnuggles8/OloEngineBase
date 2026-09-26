@@ -141,6 +141,15 @@ float LinearizeDepth(float deviceZ)
 
 float SampleHZBDepth(vec2 screenUV, float mipLevel)
 {
+    // Trilinear and clamp-to-edge because GTAORenderPass STATES that sampler
+    // for this binding (issue #1503), on the texture object for GL's slot path
+    // and in the bind's desc for Vulkan and the heap paths. Inherited, the HZB
+    // was Repeat, so wherever the viewport reaches the texture edge (uv 0, and
+    // every side of a power-of-two viewport) a linear fetch blended in the
+    // OPPOSITE edge's depth and drew phantom occlusion along the border
+    // (VulkanPassSuite.GtaoIsOpenOnUniformDepthAndDarkensACrease: 103/255 on an
+    // open top row against 240); and on GL it had no mip filter, so every read
+    // came from level 0 whatever mipLevel asked for.
     vec2 clampedScreenUV = clamp(screenUV, vec2(0.0), vec2(1.0));
     return textureLod(u_HZBDepth, clampedScreenUV * u_HZBUVFactor, mipLevel).r;
 }

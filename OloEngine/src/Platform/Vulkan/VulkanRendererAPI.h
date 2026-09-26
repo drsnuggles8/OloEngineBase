@@ -492,6 +492,7 @@ namespace OloEngine
         [[nodiscard]] RHI::ResourceHandle CreateDepthArrayCompareOffViewHandle(RHI::ResourceHandle srcTexture, u32 numLayers) override;
         void SetTextureFilter(RHI::ResourceHandle texture, RHI::Filter minFilter, RHI::Filter magFilter) override;
         void SetTextureWrap(RHI::ResourceHandle texture, RHI::AddressMode wrap) override;
+        void SetTextureSampling(RHI::ResourceHandle texture, const RHI::SamplerDesc& sampler) override;
         void UploadTextureSubImage2D(RHI::ResourceHandle texture, u32 width, u32 height, RHI::Format sourceFormat, const void* data) override;
         void BeginConditionalRender(RHI::ResourceHandle query) override;
         void EndConditionalRender() override;

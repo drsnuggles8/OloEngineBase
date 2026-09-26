@@ -222,7 +222,10 @@ namespace OloEngine::Tests::CrossPath
             {
                 for (int c = 0; c < 3; ++c)
                 {
-                    const f64 v = std::max(0.0, static_cast<f64>(on.Rgba[i * 4u + c] - off.Rgba[i * 4u + c]));
+                    // Magnitude, not max(0, .): a term may be negative (AO darkening
+                    // the ambient, snow over a brighter surface), and clamping drew
+                    // every such row as a black image.
+                    const f64 v = std::abs(static_cast<f64>(on.Rgba[i * 4u + c] - off.Rgba[i * 4u + c]));
                     const f64 mapped = std::pow(v / (1.0 + v), 1.0 / 2.2);
                     rgba[i * 4u + c] = static_cast<u8>(std::clamp(mapped * 255.0 + 0.5, 0.0, 255.0));
                 }
@@ -904,20 +907,28 @@ namespace OloEngine::Tests::CrossPath
                     { "AOFloorLeft", { -2.5, 0.0 }, 5.0, glm::vec3(0.9f), 0.0f, 1.0f, PBRModel::Legacy },
                     { "AOFloorRight", { 2.5, 0.0 }, 5.0, glm::vec3(0.9f), 0.0f, 1.0f, PBRModel::Legacy },
                 };
+                // A KERB, not a wall: the camera looks straight down, so GTAO
+                // sees only the occluder's top face, and every sample on it is
+                // at least its height away. A 2 m wall put all of them beyond
+                // the 0.5 m radius, and the term this row measured was #1463's
+                // phantom floor occlusion; with that fixed it read exactly 0 on
+                // every arm. At 0.25 m the kerb top is inside the radius from
+                // the strips' near edge (0.05 m out, ~0.26 m away, horizon
+                // ~79 degrees) and fades out by their far edge (0.45 m out).
                 row.Build = [](Scene& scene)
                 {
                     for (const TileSpec& tile : tiles)
                         AddTile(scene, tile);
-                    AddBox(scene, "Wall", { 0.0f, 1.0f, 0.0f }, { 0.5f, 2.0f, 6.0f }, glm::vec3(0.9f));
+                    AddBox(scene, "Kerb", { 0.0f, 0.125f, 0.0f }, { 0.5f, 0.25f, 6.0f }, glm::vec3(0.9f));
                 };
                 TermProbe probe;
                 probe.Name = "AOOnAmbient";
                 probe.Term = LightingTerm::IndirectDiffuse;
                 probe.SetSource = [](Scene&, bool on)
                 { SetGtao(on); };
-                // Strips beside the wall, where the AO darkens the ambient.
-                probe.Regions.push_back({ "LeftOfWall", { -0.7, -1.5 }, { -0.3, 1.5 }, {} });
-                probe.Regions.push_back({ "RightOfWall", { 0.3, -1.5 }, { 0.7, 1.5 }, {} });
+                // Strips beside the kerb, where the AO darkens the ambient.
+                probe.Regions.push_back({ "LeftOfKerb", { -0.7, -1.5 }, { -0.3, 1.5 }, {} });
+                probe.Regions.push_back({ "RightOfKerb", { 0.3, -1.5 }, { 0.7, 1.5 }, {} });
                 probe.CrossArm = { 0.15, 1.0e-5, "the same GTAO buffer on every path since #1452; 15 % covers "
                                                  "the forward paths building it from the prepass normals and "
                                                  "Deferred from the G-Buffer's packed ones" };

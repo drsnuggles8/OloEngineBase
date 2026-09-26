@@ -96,6 +96,16 @@ namespace OloEngine
                                                   : RHI::HeapSlotLifetime::Persistent;
         }
         [[nodiscard]] u32 GetMipCount() const;
+
+        // THE PYRAMID'S SAMPLER, stated rather than inherited (issue #1503):
+        // trilinear, clamp-to-edge. Inherited, it was Repeat, and on GL it had
+        // no mip filter at all (a chain written by compute never counts as
+        // mipmapped), so a textureLod read level 0 whatever LOD it asked for.
+        // Generate() puts it on the texture OBJECT once per texture instance,
+        // before its first bind (GL's slot path samples with that, and a
+        // bindless handle freezes it); every bind that samples the pyramid
+        // passes the same desc for Vulkan and the heap paths.
+        [[nodiscard]] static const RHI::SamplerDesc& SamplingDesc();
         [[nodiscard]] u32 GetHZBWidth() const
         {
             return m_HZBWidth;
@@ -124,6 +134,9 @@ namespace OloEngine
         ReduceMode m_ReduceMode = ReduceMode::Max;
         RHI::ResourceHandle m_ExternalHZBTexture{};
         u32 m_ExternalMipCount = 0;
+        // The texture SamplingDesc() was last stated on: a new texture (a
+        // resize, or a different pooled object) gets it once, not every frame.
+        RHI::ResourceHandle m_SamplingStatedFor{};
 
         u32 m_HZBWidth = 0;
         u32 m_HZBHeight = 0;
