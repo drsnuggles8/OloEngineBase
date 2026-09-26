@@ -2965,12 +2965,15 @@ TEST_F(VulkanPassSuite, GtaoIsOpenOnUniformDepthAndDarkensACrease)
             << "near-axial pixels of a flat wall must integrate the open hemisphere (AO ~ 1)";
     }
 
-    // B) crease vs the paired control — every claim is a same-row differential
-    // so the radial baseline above cancels out. Observed field (deterministic:
-    // fixed noise phase): far-side rows darken progressively toward the crease
-    // (row8 192, row56 180, row62 163 vs control 246), the near-side rows stay
-    // OPEN (row66 249 — their depth step goes AWAY from the camera, an
-    // occluder must be in FRONT), and the deep near side matches the control.
+    // B) crease vs the paired control. Observed field (deterministic: fixed
+    // noise phase): far-side rows darken progressively toward the crease
+    // (row0 238, row8 240, row56 194, row62 160 vs control 240-254), the
+    // near-side rows stay OPEN (row66 254 — their depth step goes AWAY from the
+    // camera, an occluder must be in FRONT), and the deep near side matches the
+    // control. A per-pixel CPU port of GTAO.comp for this input predicts
+    // 241 / 243 / 197 / 165 on both row orders; the same port with the
+    // pre-#1463 horizons reproduces the old field (row8 192, row56 180,
+    // row62 163).
     const auto crease = runChain(depthCrease);
     ASSERT_EQ(crease.Num(), static_cast<sizet>(kSize) * kSize);
     const int open62 = rowMean(open, 62);
@@ -2980,6 +2983,13 @@ TEST_F(VulkanPassSuite, GtaoIsOpenOnUniformDepthAndDarkensACrease)
         << "occlusion must weaken with distance from the crease (62 -> 56)";
     EXPECT_LE(rowMean(crease, 56) + 5, rowMean(crease, 8))
         << "occlusion must keep weakening with distance from the crease (56 -> 8)";
+    // The IMAGE BORDER, far from the crease, matches the control. GTAO's
+    // off-screen samples clamp to the edge texel; a linear fetch at uv 0
+    // through a Repeat sampler blended in the OPPOSITE edge's depth (here the
+    // near band), and row 0 read 103 against the control's 240.
+    EXPECT_LE(std::abs(rowMean(crease, 0) - rowMean(open, 0)), 10)
+        << "the far band's top row must match the uniform control: an off-screen GTAO sample read depth from the "
+           "opposite screen edge (GTAO.comp SampleHZBDepth)";
     EXPECT_GE(rowMean(crease, 66), 240)
         << "near-side receivers see the depth step BEHIND them — no occlusion (sign correctness)";
     EXPECT_LE(std::abs(rowMean(crease, 120) - rowMean(open, 120)), 10)

@@ -787,6 +787,55 @@ TEST(GTAOMath, GtaoShaderSkyEarlyOutIsUlpTolerant)
            "depth (1.0 - 1 D24 ULP) will classify as geometry and blacken the sky";
 }
 
+// An off-screen horizon sample never reads depth from the opposite screen
+// edge. The HZB is sampled through the texture's own sampler (Repeat by
+// default), so the viewport clamp alone left a linear fetch at uv 0, and at
+// every edge of a power-of-two viewport, half in the texel on the far side:
+// VulkanPassSuite.GtaoIsOpenOnUniformDepthAndDarkensACrease (128 x 128) read an
+// unoccluded top row at 103/255 against a control of 240. The border read is
+// per mip level (one clamp for both trilinear levels moves the fine read inward
+// and darkened a receding floor's border live, 173 against 176) and built from
+// texelFetch (GL's pooled HZB has no mipmap min filter, so a clamped textureLod
+// reads level 0 at the coarse level's inset). The device test needs Vulkan
+// hardware and runs on no CI job; this pin runs everywhere.
+TEST(GTAOMath, GtaoHzbFetchNeverWrapsToTheOppositeEdge)
+{
+    const std::string src = ReadRepoFile(std::filesystem::path{ "assets" } / "shaders" / "compute" / "GTAO.comp");
+    ASSERT_FALSE(src.empty());
+    const auto bodyOf = [&src](const std::string& signature) -> std::string
+    {
+        const auto begin = src.find(signature);
+        if (begin == std::string::npos)
+            return {};
+        const auto end = src.find("\n}", begin);
+        return end == std::string::npos ? std::string{} : src.substr(begin, end - begin);
+    };
+    const auto count = [](const std::string& haystack, const std::string& needle)
+    {
+        int n = 0;
+        for (auto at = haystack.find(needle); at != std::string::npos; at = haystack.find(needle, at + needle.size()))
+            ++n;
+        return n;
+    };
+
+    const std::string level = bodyOf("float FetchHZBLevelClamped(");
+    ASSERT_FALSE(level.empty()) << "GTAO.comp lost FetchHZBLevelClamped";
+    EXPECT_EQ(count(level, "texelFetch(u_HZBDepth, "), 4) << "the per-level border read is no longer a four-tap texelFetch";
+    EXPECT_EQ(count(level, "clamp(i0, ivec2(0), size - 1)"), 1) << "the first tap is no longer clamped to the level";
+    EXPECT_EQ(count(level, "clamp(i0 + 1, ivec2(0), size - 1)"), 1) << "the second tap is no longer clamped to the level";
+    EXPECT_EQ(count(level, "texture"), 0) << "the border read samples through the sampler again";
+
+    const std::string depth = bodyOf("float SampleHZBDepth(");
+    ASSERT_FALSE(depth.empty()) << "GTAO.comp lost SampleHZBDepth";
+    EXPECT_EQ(count(depth, "FetchHZBLevelClamped(hzbUV, lo)"), 1) << "the border path no longer reads the fine level clamped";
+    EXPECT_EQ(count(depth, "FetchHZBLevelClamped(hzbUV, hi)"), 1) << "the border path no longer reads the coarse level clamped";
+    // Exactly one unclamped trilinear fetch: the interior fast path. A second
+    // one is a border read that can wrap again.
+    EXPECT_EQ(count(depth, "textureLod(u_HZBDepth, hzbUV, mipLevel)"), 1)
+        << "SampleHZBDepth has an unclamped trilinear fetch outside its interior fast path";
+    EXPECT_EQ(count(depth, "vec2(1.0) - halfTexelHi"), 1) << "the fast path no longer excludes the coarse level's border";
+}
+
 // Issue #771, layer 1 — the AO CONSUMER must follow the graph, not the setting.
 //
 // `ActiveAOTechnique` selects which AO pass RegisterSceneAndLightingNodes adds
