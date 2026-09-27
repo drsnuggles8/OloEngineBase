@@ -33,6 +33,11 @@ namespace OloEngine::Tests
     // The process's current resident set, in bytes (0 when the platform cannot say).
     [[nodiscard]] u64 CurrentResidentBytes();
 
+    // The peak resident set, in bytes, when this process's first test started:
+    // what start-up and the global test environment cost at their highest.
+    // 0 before the first test or when the platform cannot say.
+    [[nodiscard]] u64 StartupPeakResidentBytes();
+
     // Starts the polling thread. A ceiling of 0 starts nothing. Call once, from main.
     void StartMemoryCeilingWatchdog(u64 ceilingMb);
 
