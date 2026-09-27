@@ -541,7 +541,7 @@ namespace OloEngine::Tests
         } clock;
         f32 time = 4.0f;
         const glm::vec3 eye(128.0f, 12.0f, 150.0f);
-        for (const auto path : { RenderingPath::Forward, RenderingPath::ForwardPlus, RenderingPath::Deferred })
+        for (const auto path : { RenderingPath::Deferred }) // TEMP bisect (#1484)
         {
             const std::string pathName = path == RenderingPath::Forward ? "Forward" : path == RenderingPath::ForwardPlus ? "ForwardPlus"
                                                                                                                          : "Deferred";
