@@ -284,6 +284,21 @@ vec3 ApplyCascadeDebug(vec3 color, vec3 worldPos)
 // `snowWeight` (issue #1451) is the pixel's snow cover, from G-Buffer RT3.a. A
 // caller that includes include/SnowLayer.glsl first gets the snow sparkle in
 // the directional loop and the snow hand-off; anyone else passes 0.
+// THE REFLECTION TIERS' INPUT (issue #1325), recorded by every call below and
+// read only by DeferredIndirectSpecular{,_MSAA}.glsl:
+//   g_OloIndirectSpecular        the indirect specular term exactly as it was
+//                                composed into the colour -- occluded, tinted,
+//                                the wet coat's included. Linear HDR radiance.
+//   g_OloIndirectSpecularWeight  that term per unit of incident radiance: the
+//                                split-sum (F * A + B), occluded and tinted the
+//                                same way. Unitless.
+// A reflection tier replaces the first with weight * its own radiance (ADR 0020
+// section 1, include/ReflectionTierComposite.glsl). Globals rather than out
+// parameters so the dozen callers of this body that never read them stay as
+// they are; a compiler drops both where nothing reads them.
+vec3 g_OloIndirectSpecular = vec3(0.0);
+vec3 g_OloIndirectSpecularWeight = vec3(0.0);
+
 vec3 ComputeDeferredLitSplit(
     vec3 albedo, float metallic,
     vec3 N, float roughness, float ao, float screenAO, float sunContactVisibility,
@@ -291,6 +306,10 @@ vec3 ComputeDeferredLitSplit(
     out vec4 skinDiffuse)
 {
     skinDiffuse = vec4(0.0);
+    // Zero on every early return: an unlit pixel has no specular term and no
+    // lobe for a tier to answer for.
+    g_OloIndirectSpecular = vec3(0.0);
+    g_OloIndirectSpecularWeight = vec3(0.0);
     vec3 emissive = emissiveFlags.rgb;
     int gbFlags = oloDecodeGBufferFlags(emissiveFlags.a);
     if (oloGBufferFlagsAreUnlit(gbFlags))
@@ -827,6 +846,36 @@ vec3 ComputeDeferredLitSplit(
         ambient = oloSkinOralApplyCoatAmbient(ambient, skinOralLane, coatEnvBRDF, coatPrefiltered * iblIntensity);
     }
 
+    // The same specular term per unit of incident radiance (issue #1325): the
+    // lobe's split-sum weight, and the wet coat's reflectance over it where the
+    // film is -- oloSkinOralApplyCoatAmbient is linear in the radiance it is
+    // handed, so handing it 1 is its weight. Not gated on enableIBL: with no
+    // environment the term is zero, but the lobe is not, and a traced
+    // reflection still has one to fill. Zero under ReSTIR PT, which answers for
+    // the specular lobe itself.
+    //
+    // WITH NO ENVIRONMENT THERE IS NO LUT to read -- it belongs to the
+    // environment map, and the pass binds it only with one -- so the split-sum
+    // pair comes from its analytic fit instead. With an environment it is the
+    // LUT, the same one the term above was composed with.
+    OloSurfaceLighting ambientWeight = oloSurfaceLightingZero();
+    if (!restirPTActive)
+    {
+        float weightNdotV = max(dot(N, V), 0.0);
+        vec3 weightF0 = mix(vec3(DEFAULT_DIELECTRIC_F0), albedo, metallic);
+        vec3 weightF = fresnelSchlickRoughness(weightNdotV, weightF0, roughness);
+        vec2 weightEnvBRDF = enableIBL ? texture(u_BRDFLutMap, vec2(weightNdotV, roughness)).rg
+                                       : oloEnvBRDFApprox(weightNdotV, roughness);
+        ambientWeight.Specular = weightF * weightEnvBRDF.x + weightEnvBRDF.y;
+        if (skinOralLane.x > 0.0)
+        {
+            float coatRoughness = oloSkinOralCoatAmbientRoughness(skinOralLane);
+            vec2 coatEnvBRDF = enableIBL ? texture(u_BRDFLutMap, vec2(weightNdotV, coatRoughness)).rg
+                                         : oloEnvBRDFApprox(weightNdotV, coatRoughness);
+            ambientWeight = oloSkinOralApplyCoatAmbient(ambientWeight, skinOralLane, coatEnvBRDF, vec3(1.0));
+        }
+    }
+
     // ambient * (material AO * screen-space AO), then the resampled indirect
     // diffuse UNMULTIPLIED — see oloReSTIRGIIndirectDiffuse for why no AO term
     // may touch it. It joins the DIFFUSE half because that is exactly what that
@@ -870,6 +919,20 @@ vec3 ComputeDeferredLitSplit(
     // and the same order as PBR_MultiLight.glsl. A non-skin pixel reads a
     // neutral tint, so this is a multiply by one.
     lighting = oloApplySkinProfile(lighting, materialKind, skinEvaluationModel, skinSpecularTint);
+
+    // The reflection tiers' input (issue #1325): the ambient specular exactly as
+    // `lighting` now holds it -- the same occlusion and the same tint, applied
+    // by the same two functions -- and its weight likewise.
+    {
+        OloSurfaceLighting specularTerm = oloSurfaceLightingZero();
+        specularTerm.Specular = ambient.Specular * (ao * screenAO);
+        g_OloIndirectSpecular =
+            oloApplySkinProfile(specularTerm, materialKind, skinEvaluationModel, skinSpecularTint).Specular;
+        OloSurfaceLighting specularWeight = oloSurfaceLightingZero();
+        specularWeight.Specular = ambientWeight.Specular * (ao * screenAO);
+        g_OloIndirectSpecularWeight =
+            oloApplySkinProfile(specularWeight, materialKind, skinEvaluationModel, skinSpecularTint).Specular;
+    }
 
     // The diffusion hand-off, at the same seam and in the same order as
     // PBR_MultiLight.glsl -- which is what keeps the forward and deferred paths

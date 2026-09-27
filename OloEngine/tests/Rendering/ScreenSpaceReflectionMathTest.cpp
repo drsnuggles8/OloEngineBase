@@ -2,6 +2,7 @@
 #include <gtest/gtest.h>
 
 #include "OloEngine/Renderer/PostProcessSettings.h"
+#include "OloEngine/Renderer/ReflectionTier.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 #include <glm/glm.hpp>
@@ -321,27 +322,43 @@ TEST(ScreenSpaceReflection, SanitizeClampsNonFiniteAndRanges)
 
 // ---- Signal / composite split (issue #902) ----------------------------------
 
-// PostProcess_SSR.glsl no longer composites. It writes the DELTA
-// (reflection - base) * blend into SSRSignal, and PostProcess_SSRComposite.glsl
-// adds that to the upstream colour. This is the algebraic identity the split
-// rests on, and it is what makes the accumulated buffer carry ONLY the
-// stochastic term: get it wrong and the temporal resolve accumulates base
-// colour, which is precisely the failure #902 exists to remove.
-TEST(ScreenSpaceReflection, DeltaCompositeReproducesTheReplaceMixResolve)
+// PostProcess_SSR.glsl no longer composites. It writes the DELTA of the indirect
+// specular term, c * (W * L - S) (issue #1325), into SSRSignal, and
+// PostProcess_SSRComposite.glsl adds that to the upstream colour. The accumulated
+// buffer therefore carries ONLY the stochastic term -- get it wrong and the
+// temporal resolve accumulates base colour, which is precisely the failure #902
+// exists to remove -- and the composite is the tier hand-off ComposeSpecularTier
+// states: the colour moves by exactly what the specular term moves by.
+TEST(ScreenSpaceReflection, DeltaCompositeIsTheSpecularTierHandOff)
 {
-    const auto base = glm::vec3(0.20f, 0.35f, 0.55f);
-    const auto reflection = glm::vec3(0.90f, 0.10f, 0.05f);
+    const auto color = glm::vec3(0.60f, 0.75f, 0.95f);   // diffuse + direct + emission + S
+    const auto specular = glm::vec3(0.10f, 0.12f, 0.15f); // S, what the lighting composed
+    const auto weight = glm::vec3(0.05f, 0.05f, 0.05f);   // W, a dielectric's split-sum weight
+    const auto reflection = glm::vec3(9.0f, 1.0f, 0.5f);  // L, the radiance at the hit
 
     for (const f32 blend : { 0.0f, 0.17f, 0.5f, 0.83f, 1.0f })
     {
-        const glm::vec3 delta = (reflection - base) * blend; // what draw A writes
-        const glm::vec3 composited = base + delta;           // what draw C computes
-        const glm::vec3 legacy = glm::mix(base, reflection, blend);
+        const glm::vec3 delta = blend * (weight * reflection - specular); // what draw A writes
+        const glm::vec3 composited = color + delta;                       // what draw E computes
+        const SpecularTierComposite expected = ComposeSpecularTier(color, specular, weight, reflection, blend);
 
-        EXPECT_NEAR(composited.r, legacy.r, 1e-6f) << "blend=" << blend;
-        EXPECT_NEAR(composited.g, legacy.g, 1e-6f) << "blend=" << blend;
-        EXPECT_NEAR(composited.b, legacy.b, 1e-6f) << "blend=" << blend;
+        EXPECT_NEAR(composited.r, expected.Color.r, 1e-6f) << "blend=" << blend;
+        EXPECT_NEAR(composited.g, expected.Color.g, 1e-6f) << "blend=" << blend;
+        EXPECT_NEAR(composited.b, expected.Color.b, 1e-6f) << "blend=" << blend;
+        // Everything but the specular term passes through, at every blend.
+        const glm::vec3 unrelated = composited - (specular + delta);
+        EXPECT_NEAR(unrelated.r, color.r - specular.r, 1e-6f) << "blend=" << blend;
+        EXPECT_NEAR(unrelated.g, color.g - specular.g, 1e-6f) << "blend=" << blend;
+        EXPECT_NEAR(unrelated.b, color.b - specular.b, 1e-6f) << "blend=" << blend;
     }
+
+    // NEGATIVE CONTROL, a black hit at blend 1: the new delta keeps every term
+    // but the specular one; the pre-#1325 delta, (L - C) * blend, keeps nothing.
+    const glm::vec3 black(0.0f);
+    const glm::vec3 kept = color + 1.0f * (weight * black - specular);
+    const glm::vec3 legacy = color + (black - color) * 1.0f;
+    EXPECT_NEAR(kept.g, color.g - specular.g, 1e-6f);
+    EXPECT_LT(legacy.g, kept.g - 0.1f) << "the whole-colour blend must lose the diffuse term, or this case proves nothing";
 }
 
 // A miss must contribute EXACTLY nothing. Every early-out in
@@ -353,9 +370,11 @@ TEST(ScreenSpaceReflection, DeltaCompositeReproducesTheReplaceMixResolve)
 TEST(ScreenSpaceReflection, AMissContributesExactlyZeroToTheAccumulatedSignal)
 {
     const auto base = glm::vec3(0.20f, 0.35f, 0.55f);
+    const auto specular = glm::vec3(0.02f, 0.03f, 0.04f);
+    const auto weight = glm::vec3(0.05f, 0.05f, 0.05f);
     const auto reflection = glm::vec3(0.90f, 0.10f, 0.05f);
 
-    const glm::vec3 missDelta = (reflection - base) * 0.0f;
+    const glm::vec3 missDelta = 0.0f * (weight * reflection - specular);
     EXPECT_FLOAT_EQ(missDelta.r, 0.0f);
     EXPECT_FLOAT_EQ(missDelta.g, 0.0f);
     EXPECT_FLOAT_EQ(missDelta.b, 0.0f);

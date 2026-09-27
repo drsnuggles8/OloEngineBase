@@ -44,6 +44,26 @@ confidence assignment, valid or absurd, that makes the tiers sum to more or less
 also cheap to test on the CPU with no GPU at all, which is what `ReflectionTierContractTest` does —
 energy conservation as a ratchet, not as a comment.
 
+### 1a. The algebra is over R, and the frame is not R (issue #1325)
+
+The frame colour is `C = D + E + S_direct + S`: diffuse, emission, direct specular, and the
+**indirect specular term** `S = W · R`, where `W` is the lobe's BRDF weight per unit of incident
+radiance — the split-sum `(F·A + B)`, times the ambient occlusion and the skin profile's specular
+tint, exactly as the lighting pass composed it. The "over" above is applied to `R`, so a tier
+replaces `S` and nothing else:
+
+    S' = S + c_t · (W · L_t − S)          C' = C + (S' − S)
+
+`S` is the term the colour holds when the tier runs: the lighting pass's own for the first tier,
+the previous tier's `S'` for the next. Chaining two tiers this way is the "over" on `R`, scaled by
+`W` (`ChainedTiersAreTheOverOnTheLobeRadianceTimesTheWeight`). **Fresnel lives in `W`, never in
+`c_t`**: confidence says how much of the lobe an estimate may answer for, and `W` says how much light
+the lobe reflects. A black hit removes `c_t · S` and leaves `D`, `E` and `S_direct` alone.
+
+Until #1325 both upper tiers applied `mix` to `C` itself, which scaled every other term by
+`1 − c_t`. `DeferredLightingPass` now writes `S` and `W` to `IndirectSpecular` with a second draw of
+the same shading body (`DeferredIndirectSpecular{,_MSAA}.glsl`), declared only when a tier runs.
+
 ## 2. Why bottom-up is the load-bearing decision
 
 The obvious reading of "planar beats SSR beats rays beats probes" is top-down: let the best tier
@@ -70,11 +90,10 @@ The contract is largely a *statement* of existing behaviour, which is the main r
 `mix(globalPrefilter, probeSpecular.rgb, probeSpecular.a)`. `oloSampleReflectionProbes` returns its
 confidence in alpha. That is `c_probe`, already named and already used.
 
-**SSR over what is below it** — `PostProcess_SSR.glsl` writes the signed delta
-`(reflTarget - baseColor) * blend`, and `PostProcess_SSRComposite.glsl` adds it, because
-`mix(base, refl, blend) == base + (refl - base) * blend`. So `blend` **is** `c_ssr` and SSR is
-already a correct "over" against whatever produced `baseColor`. Its own comment gives the reason in
-the contract's terms: adding instead of lerping *"double-counts and washes out (sky + object)"*.
+**SSR over what is below it** — `PostProcess_SSR.glsl` writes the signed delta of the specular
+term, `c_ssr · (W · L_ssr − S)`, and `PostProcess_SSRComposite.glsl` adds it (§1a). Before #1325
+the delta was `(reflTarget − baseColor) · blend`, the same "over" applied to the whole colour.
+Adding instead of replacing *"double-counts and washes out (sky + object)"*, in SSR's own words.
 
 So the hierarchy's bottom three boundaries were already contract-shaped. What was missing was the
 statement, a tier between SSR and the probes, and a way to see which tier answered.
@@ -87,7 +106,7 @@ Because SSR then lerps over *its* output by `c_ssr`, a pixel where SSR is confid
 and a pixel where SSR fades out at the screen edge lands on a ray-traced answer instead of dropping
 to a low-frequency probe. That edge drop is the seam this issue exists to remove.
 
-    c_ray = hitValid · fresnel · roughnessGate · rayTracingAvailable
+    c_ray = hitValid · roughnessGate · rayTracingAvailable
 
 `roughnessGate` falls to zero above a roughness threshold: rays are spent where the lobe is narrow
 enough for one sample to mean something, and rough surfaces stay on probes, where a ray budget buys
@@ -120,11 +139,11 @@ later by raising `L_ray`'s quality without touching a single weight.
 
 There is no silent degradation (`docs/agent-rules/no-silent-fallbacks.md`). When ray tracing is
 unavailable — a no-RT device, `OLO_VULKAN_NO_RAY_TRACING=1`, an empty TLAS, or the GL backend —
-`c_ray` is pinned to 0 for every pixel. The algebra then collapses to exactly today's
-planar → SSR → probe/IBL hierarchy, because `mix(R, L_ray, 0) == R`.
+`c_ray` is pinned to 0 for every pixel. The algebra then collapses to exactly the
+planar → SSR → probe/IBL hierarchy, because a zero confidence makes the delta of §1a zero.
 
 That is the *reason* the raster-only output is byte-identical when the tier is off: it is not a
-tested coincidence, it is `mix(x, y, 0) == x`. The pass reports the reason it stood down through a
+tested coincidence, it is `C + 0 · (…) == C`, and the tier hands `S` on unchanged. The pass reports the reason it stood down through a
 stats struct with a de-duplicated warning, following `RayTracedShadowPass`'s precedent exactly.
 
 **The trap this cost real time to learn:** an empty TLAS and a correctly-falling-through tier look
@@ -147,6 +166,11 @@ reserves the fourth's seat.
 This is a finding, not a deferral of work in scope: nothing in #1057 asks for a deferred planar
 resolve, and adding one would be a substantially larger change than the tier it would feed.
 
+**Ownership rule for planar (#1325).** Planar reflection has one consumer, `Water.glsl`, and there it
+replaces only the water's own reflection term — `mix(cubemap, ssr, a)` then `mix(…, planar, a)`
+inside the reflection, which the Fresnel then weights — never the water's lit colour. A deferred
+planar resolve, if one lands, is a tier like the others: it replaces `S` by §1a and nothing else.
+
 ## 7. Consequences
 
 - The composite order is now load-bearing and belongs in the render graph, not in a shader's head:
@@ -157,12 +181,12 @@ resolve, and adding one would be a substantially larger change than the tier it 
   guarantee rests on; a probe/IBL tier that "admits it doesn't know" would leave energy unclaimed
   and darken the frame. Uncertainty at the bottom is expressed by widening the lobe, never by
   lowering the weight.
-- Confidence is *arbitration*, not an estimator weight. SSR's `blend` currently folds `vndfWeight`
-  (the Monte-Carlo weight of its one VNDF sample) into the same scalar. That is correct for the
-  radiance and wrong in principle for arbitration — a noisy per-frame sample weight should not
-  decide which tier owns a pixel. It is left as-is here because SSR's weight is consumed only by
-  SSR's own composite, where it means the right thing; a tier that ever needs to read *another*
-  tier's confidence must split the two first.
+- Confidence is *arbitration*, not an estimator weight. Since #1325 neither tier folds a weight into
+  it: Fresnel and the lobe's directional albedo are in `W`, and SSR's `vndfWeight` (`G2/G1`, whose
+  expectation over the VNDF `W` already is) only rejects a sample below the horizon.
+- `S` and `W` belong to the G-Buffer surface. A pixel a forward overlay (a transparent, a particle)
+  drew over after the lighting pass still has the surface's `S` under it, as the tiers' normal and
+  depth inputs always have; the clamp at zero bounds what that can subtract.
 - The tier debug view is part of the contract, not a nicety: a hierarchy whose selection cannot be
   seen per pixel is a hierarchy nobody can review.
 
@@ -174,7 +198,9 @@ resolve, and adding one would be a substantially larger change than the tier it 
 | The ratchet that proves it, over a swept grid and the degenerate inputs | `tests/Rendering/ReflectionTierContractTest.cpp` |
 | probe over IBL (`c_probe` in an alpha lane, already shipping) | `shaders/include/DeferredLightingShared.glsl` |
 | The ray-query tier and its `c_ray` | `shaders/RayTracedReflection.glsl`, `Renderer/Passes/RayTracedReflectionPass.{h,cpp}` |
-| SSR over the ray tier (its existing delta composite, unchanged) | `shaders/PostProcess_SSRComposite.glsl` |
+| SSR over the ray tier (the delta composite) | `shaders/PostProcess_SSR.glsl`, `shaders/PostProcess_SSRComposite.glsl` |
+| The term a tier replaces, and its twin (§1a) | `shaders/include/ReflectionTierComposite.glsl`, `Renderer/ReflectionTier.h` (`ComposeSpecularTier`) |
+| `S` and `W`, exported from the lighting body | `shaders/include/DeferredLightingShared.glsl`, `shaders/DeferredIndirectSpecular{,_MSAA}.glsl` |
 | The frame order that *is* the tier order | `Renderer/RenderPipelineBuilderPost.cpp` |
 | The tier debug view | `shaders/PostProcess_SSRComposite.glsl` (`OloReflectionTierDebugColor`) |
 

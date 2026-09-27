@@ -175,6 +175,10 @@ namespace OloEngine
         RGTextureHandle m_SelectedGBufferNormalTexture{};
         RGTextureHandle m_SelectedGBufferAlbedoTexture{};
         RGTextureHandle m_SelectedPrefilterTexture{};
+        // The indirect specular term the lighting composed and its weight
+        // (issue #1325): the term this tier replaces, and what L is scaled by.
+        RGTextureHandle m_SelectedIndirectSpecularTexture{};
+        RGTextureHandle m_SelectedIndirectSpecularWeightTexture{};
     };
 
 } // namespace OloEngine

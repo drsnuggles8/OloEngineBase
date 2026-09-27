@@ -4449,6 +4449,10 @@ namespace OloEngine
                            // SSGI shared surface-history resolve (#976), pass-local
                            // fullscreen reuse with no material bound.
                            name == "u_SurfaceHistory" ||
+                           // The reflection tiers (issue #1325): the indirect
+                           // specular term's weight, beside the term itself at
+                           // TEX_SPECULAR. Pass-local fullscreen reuse.
+                           name == "u_IndirectSpecularWeight" ||
                            // Slot 2 is reused as the velocity input slot for TAA / motion-blur passes.
                            name == "u_Velocity" ||
                            // Compute dispatch pass-local reuse (issue #627).

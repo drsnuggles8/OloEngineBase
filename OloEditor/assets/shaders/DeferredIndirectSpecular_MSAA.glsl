@@ -1,17 +1,15 @@
 // =============================================================================
-// DeferredLighting_MSAA.glsl — per-sample deferred lighting composition.
+// DeferredIndirectSpecular_MSAA.glsl - the reflection tiers' input (issue #1325)
+// Part of OloEngine Deferred Renderer
 //
-// Selected by DeferredLightingPass when GBuffer::GetSampleCount() > 1 AND
-// DeferredSettings::PerSampleLighting is true. Samples each G-Buffer
-// attachment with sampler2DMS / texelFetch per sub-sample, evaluates full
-// PBR lighting per sample, and averages the final HDR colour. This avoids
-// the shading-rate collapse of a resolve-before-light approach where MSAA
-// would only affect geometric edge samples of the depth/normal during
-// G-Buffer write but not the shading itself.
-//
-// Shares the per-pixel shading body with the non-MSAA variant via
-// include/DeferredLightingShared.glsl so there is a single source of truth
-// for the PBR math.
+// The fragment stage of DeferredLighting_MSAA.glsl, compiled with its other outputs.
+// Writes, into the IndirectSpecular framebuffer:
+//   location 0 -- rgb = the indirect specular term the lighting composed into
+//                 SceneColor (linear HDR radiance, occluded and tinted as it was)
+//   location 1 -- rgb = that term per unit of incident radiance (unitless)
+// RayTracedReflection.glsl and PostProcess_SSR.glsl replace the first with the
+// second times their own radiance, and leave every other term of the colour
+// alone (ADR 0020 section 1, include/ReflectionTierComposite.glsl).
 // =============================================================================
 
 #type vertex
@@ -54,4 +52,5 @@ void main()
 
 #type fragment
 #version 460 core
+#define OLO_DEFERRED_INDIRECT_SPECULAR_OUTPUT 1
 #include "include/DeferredLightingFragment_MSAA.glsl"

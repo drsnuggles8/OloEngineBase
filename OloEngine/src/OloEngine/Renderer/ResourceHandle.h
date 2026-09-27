@@ -421,6 +421,13 @@ namespace OloEngine::ResourceNames
     // output is what SSR then composites over.
     inline constexpr std::string_view RTReflectionColor = "RTReflectionColor";               // After the ray-query reflection tier (deferred path, RT device only)
     inline constexpr std::string_view RTReflectionColorTexture = "RTReflectionColorTexture"; // Color attachment view of RTReflectionColor
+    inline constexpr std::string_view RTReflectionSpecularTexture = "RTReflectionSpecularTexture"; // RTReflectionColor attachment 1: the indirect specular term the ray tier handed on (issue #1325)
+    // The reflection tiers' input (issue #1325): the indirect specular term the
+    // deferred lighting composed, and its BRDF weight, so a tier replaces that
+    // term and nothing else (ADR 0020 section 1).
+    inline constexpr std::string_view IndirectSpecular = "IndirectSpecular";                             // Framebuffer: [0] S, [1] W (deferred path, a reflection tier live)
+    inline constexpr std::string_view IndirectSpecularTexture = "IndirectSpecularTexture";               // IndirectSpecular attachment 0: rgb = indirect specular radiance as composed
+    inline constexpr std::string_view IndirectSpecularWeightTexture = "IndirectSpecularWeightTexture";   // IndirectSpecular attachment 1: rgb = its weight per unit of incident radiance
     inline constexpr std::string_view SSRColor = "SSRColor";                                 // After screen-space reflections composite (only valid when SSR is enabled, deferred path)
     inline constexpr std::string_view SSRColorTexture = "SSRColorTexture";                   // Color attachment view of SSRColor
     inline constexpr std::string_view SSGISignal = "SSGISignal";                             // Raw stochastic indirect-diffuse signal, rgb = radiance, a = view depth (SSGI draw A output, issue #902)

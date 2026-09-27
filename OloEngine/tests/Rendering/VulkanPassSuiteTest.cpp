@@ -4867,6 +4867,10 @@ TEST_F(VulkanPassSuite, SsrPassesThroughAtZeroIntensityWithTheHzbChainLive)
     ASSERT_NE(normalTexture, nullptr);
     auto albedoTexture = MakeSolidTexture(kSize, 200, 200, 200, 0); // metallic 0
     ASSERT_NE(albedoTexture, nullptr);
+    // The indirect specular term SSR replaces and its weight (issue #1325).
+    // Zero: at intensity 0 the delta is zero whatever they hold.
+    auto specularTexture = MakeSolidTexture(kSize, 0, 0, 0, 0);
+    ASSERT_NE(specularTexture, nullptr);
     auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
     ASSERT_TRUE(blitShader);
     ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
@@ -4887,6 +4891,10 @@ TEST_F(VulkanPassSuite, SsrPassesThroughAtZeroIntensityWithTheHzbChainLive)
             graph.ImportTextureHandle(ResourceNames::GBufferNormal, normalTexture->GetRHIHandle(), auxDesc);
         blackboard.GBuffer.GBufferAlbedo =
             graph.ImportTextureHandle(ResourceNames::GBufferAlbedo, albedoTexture->GetRHIHandle(), auxDesc);
+        blackboard.Post.IndirectSpecularTexture = graph.ImportTextureHandle(
+            ResourceNames::IndirectSpecularTexture, specularTexture->GetRHIHandle(), auxDesc);
+        blackboard.Post.IndirectSpecularWeightTexture = graph.ImportTextureHandle(
+            ResourceNames::IndirectSpecularWeightTexture, specularTexture->GetRHIHandle(), auxDesc);
 
         // The stochastic-signal scratch pair the pass has needed since #902 —
         // see the SSGI case above for why this is contract rather than

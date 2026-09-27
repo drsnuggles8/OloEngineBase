@@ -40,7 +40,7 @@ void main()
 // SSR temporal resolve (issue #902) — draw B of SSRRenderPass.
 //
 // PostProcess_SSR.glsl (draw A) now writes ONLY the stochastic term into
-// SSRSignal: rgb = the reflection DELTA, (reflection - base) * blend, and
+// SSRSignal: rgb = the specular term's DELTA, c * (W * L - S) (#1325), and
 // a = the positive view-space depth of the shading point. The delta form is
 // what makes the composite a plain add, and it is exactly zero wherever the
 // ray missed or the roughness fade closed — so nothing but the stochastic term

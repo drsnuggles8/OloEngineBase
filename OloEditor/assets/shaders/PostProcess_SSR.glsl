@@ -44,21 +44,22 @@ void main()
 // using hierarchical-Z traversal: a min-depth (nearest-surface) HZB pyramid lets
 // the ray skip empty space in big coarse-cell steps, dropping to a linear step +
 // binary-search refinement against full-res scene depth near a surface (#284). On
-// a hit, sample the lit scene colour at the hit UV and composite it with a
-// replace/mix blend (lerp toward the reflection by reflectance x confidence —
-// not additive, which double-counts the IBL already in the base colour),
-// weighted by Fresnel, roughness fade, and screen-edge / distance / facing
-// fades. Reflections of opaque geometry can only contain what is already on
-// screen, so off-screen rays fade out gracefully.
+// a hit, sample the lit scene colour at the hit UV: that is this tier's
+// estimate L of the radiance along the specular lobe. It REPLACES the indirect
+// specular term S the colour already holds (issue #1325) -- not the colour,
+// and not an add, which would double-count the probe/IBL term -- with W * L,
+// where W is the lobe's BRDF weight the lighting pass exported beside S. The
+// confidence is the roughness, screen-edge, distance and facing fades; Fresnel
+// is inside W. Reflections of opaque geometry can only contain what is already
+// on screen, so off-screen rays fade out gracefully.
 //
 // OUTPUT (issue #902): this pass writes ONLY the stochastic term into the
-// dedicated SSRSignal target — rgb = the reflection DELTA, (reflection - base)
-// * blend, and a = the positive view-space depth of the shading point (the
-// temporal resolve's disocclusion test needs it and there is no depth history
-// buffer). `base + delta` reproduces the old `mix(base, reflection, blend)`
-// exactly, so the resolve accumulates the reflection and nothing else. It no
-// longer composites: PostProcess_SSRResolve.glsl accumulates the signal and
-// PostProcess_SSRComposite.glsl adds it to the upstream colour afterwards.
+// dedicated SSRSignal target — rgb = the specular term's DELTA,
+// c * (W * L - S) (include/ReflectionTierComposite.glsl), and a = the positive
+// view-space depth of the shading point (the temporal resolve's disocclusion
+// test needs it and there is no depth history buffer). The resolve accumulates
+// that delta and nothing else, and PostProcess_SSRComposite.glsl adds it to the
+// upstream colour afterwards: diffuse, emission and direct light pass through.
 //
 // The math here is mirrored on the CPU by ScreenSpaceReflectionMathTest, and the
 // rendered frame is checked by SSRVisualEvidenceTest.
@@ -82,12 +83,19 @@ layout(location = 0) in vec2 v_TexCoord;
 // each names the same TEX_* constant SSRRenderPass binds with.
 #ifdef OLO_BINDLESS
 #define u_SceneColor OLO_HEAP_TEX_2D(0)
+#define u_IndirectSpecular OLO_HEAP_TEX_2D(1)       // TEX_SPECULAR: the term SSR replaces (#1325)
+#define u_IndirectSpecularWeight OLO_HEAP_TEX_2D(2) // TEX_NORMAL: its weight per unit radiance
 #define u_DepthTexture OLO_HEAP_TEX_2D(19)   // TEX_POSTPROCESS_DEPTH
 #define u_GBufferNormal OLO_HEAP_TEX_2D(44)  // TEX_GBUFFER_NORMAL
 #define u_GBufferAlbedo OLO_HEAP_TEX_2D(43)  // TEX_GBUFFER_ALBEDO
 #define u_MinHZB OLO_HEAP_TEX_2D(35)         // TEX_SSR_HZB
 #else
 layout(binding = 0) uniform sampler2D u_SceneColor;     // lit upstream HDR colour (reflection source)
+// The indirect specular term the colour holds -- the ray tier's hand-on if it
+// ran, else the lighting's -- and its weight per unit of incident radiance
+// (issue #1325). SSR replaces that term and nothing else.
+layout(binding = 1) uniform sampler2D u_IndirectSpecular;
+layout(binding = 2) uniform sampler2D u_IndirectSpecularWeight;
 layout(binding = 19) uniform sampler2D u_DepthTexture;  // scene depth (nonlinear, [0,1])
 layout(binding = 44) uniform sampler2D u_GBufferNormal; // RT1: rg = oct world normal, z = roughness, w = ao
 layout(binding = 43) uniform sampler2D u_GBufferAlbedo; // RT0: rgb = albedo, a = metallic
@@ -127,6 +135,7 @@ const float SSR_MIN_ROUGHNESS = 0.045;
 // OLO_DENOISE_SKY_VIEW_DEPTH there for why the value is 60000 and not a round
 // number.
 #include "include/SpatialDenoise.glsl"
+#include "include/ReflectionTierComposite.glsl"
 
 const float SKY_DEPTH = 0.999999;
 const float OLO_MAX_VIEW_DEPTH = OLO_DENOISE_SKY_VIEW_DEPTH;
@@ -194,8 +203,6 @@ vec2 RefineCrossing(vec3 lo, vec3 hi, int steps)
 
 void main()
 {
-    vec3 baseColor = texture(u_SceneColor, v_TexCoord).rgb;
-
     float depth = texture(u_DepthTexture, v_TexCoord).r;
 
     // View-space position first, so the depth this pass hands the temporal
@@ -287,9 +294,12 @@ void main()
     // the residual is the kind of noise the neighbourhood filters downstream
     // can actually remove.
     //
-    // vndfWeight is G2/G1 and is NOT optional — see ggxVNDFWeight() in
-    // PBRCommon.glsl. Without it this pass would be biased bright at grazing
-    // angles and nothing would say so.
+    // vndfWeight (G2/G1) now only REJECTS a sample below the horizon. It used to
+    // scale the blend, because the blend carried the lobe's reflectance (Fresnel
+    // at H) and the sample's Monte-Carlo weight was part of that; the
+    // reflectance is W's now (issue #1325), the split-sum directional albedo,
+    // which is exactly that weight's expectation over this distribution. Keeping
+    // it as well would count the masking twice.
     ivec2 pixel = ivec2(gl_FragCoord.xy);
     uint frameIndex = uint(max(u_Flags.y, 0.0));
     vec2 Xi = OloSampleStratified2D(pixel, frameIndex, 0u, 1u, 0u);
@@ -455,48 +465,29 @@ void main()
     float backFacing = dot(R, -V); // ~1 = straight back at the eye
     float facingFade = 1.0 - smoothstep(0.25, 0.6, backFacing);
 
-    // Fresnel (Schlick): dielectrics ~0.04, metals reflect strongly.
-    //
-    // Evaluated against the sampled MICROFACET normal H, not the macrosurface
-    // normal — Fresnel is a property of the facet that actually reflected the
-    // ray. On a smooth surface H == N and this is unchanged; on a rough one it
-    // is the pairing the VNDF estimator assumes, and using N there would put a
-    // different Fresnel on the sample than the one its weight was derived for.
-    vec3 F0 = mix(vec3(0.04), albedo, metallic);
-    float cosTheta = clamp(dot(-V, H), 0.0, 1.0);
-    vec3 fresnel = F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
-    float fresnelScalar = dot(fresnel, vec3(0.299, 0.587, 0.114)); // perceptual reflectance
-
-    // The reflected radiance, tinted by the surface's specular colour: metals
-    // colour their reflection by albedo, dielectrics reflect untinted.
+    // The reflected radiance: this tier's estimate L of the radiance along the
+    // specular lobe. UNTINTED and without Fresnel (issue #1325) -- both are in
+    // the weight W the lighting pass exported, the same split-sum weight its
+    // own probe/IBL term used, so this estimate lands in that term's units.
     vec3 reflColor = texture(u_SceneColor, hitUV).rgb;
-    vec3 reflTint = mix(vec3(1.0), albedo, metallic);
-    vec3 reflTarget = reflColor * reflTint;
 
-    // Blend factor: how much of the reflection REPLACES the lit colour, gated by
-    // surface reflectance and geometric confidence. Standard SSR resolve — a
-    // lerp, not an add: baseColor on a reflective surface already contains the
-    // IBL/background reflection, so adding the SSR reflection on top double-counts
-    // and washes out (sky + object). Replacing it lets the on-screen object
-    // reflection occlude the background reflection the way a real mirror does.
-    // Metals (high F0) approach a full mirror; dielectrics get a faint,
-    // grazing-weighted sheen; an SSR miss leaves baseColor untouched.
-    // vndfWeight (G2/G1) rides in here as an ordinary factor because that is
-    // what it is: the Monte-Carlo weight of the single VNDF sample this pixel
-    // drew. Omitting it leaves every sample weighted 1 and biases the pass
-    // bright — most at grazing angles, invisibly, forever.
-    float blend =
-        clamp(fresnelScalar * vndfWeight * roughFade * edgeFade * distFade * facingFade * u_ShadeParams.x, 0.0, 1.0);
+    // The confidence: how much of the lobe this sample may answer for, and
+    // nothing about how much light the lobe reflects (that is W's). Rough,
+    // screen-edge, distance and facing fades, times the artist strength.
+    float blend = clamp(roughFade * edgeFade * distFade * facingFade * u_ShadeParams.x, 0.0, 1.0);
 
-    // Signal only — the stochastic DELTA, not the composite. Because
-    // mix(base, refl, blend) == base + (refl - base) * blend, the composite
-    // draw can reproduce the identical replace/mix resolve with a plain add,
-    // and what accumulates here is the reflection alone. It is exactly zero on
-    // every early-out above, which is what a miss should contribute. The debug
-    // view moved to the composite draw so it can show the RESOLVED signal
+    // Signal only — the stochastic DELTA of the specular term, c * (W * L - S),
+    // not the composite. S is the term the colour holds now: the ray tier's
+    // hand-on if it ran, else the lighting's. The composite draw adds this delta
+    // to the upstream colour, so diffuse, emission and direct light pass through
+    // untouched and a black hit removes c * S and nothing more. It is exactly
+    // zero on every early-out above, which is what a miss should contribute. The
+    // debug view moved to the composite draw so it can show the RESOLVED signal
     // rather than this frame's single noisy sample. Alpha is the view depth the
     // resolve's disocclusion test compares against next frame.
-    o_Color = vec4((reflTarget - baseColor) * blend, viewDepth);
+    vec3 baseSpecular = texture(u_IndirectSpecular, v_TexCoord).rgb;
+    vec3 specularWeight = texture(u_IndirectSpecularWeight, v_TexCoord).rgb;
+    o_Color = vec4(oloSpecularTierDelta(baseSpecular, specularWeight, reflColor, blend), viewDepth);
     // The tier debug view's copy of c_ssr. See the o_Guide initialisation above.
     o_Guide.w = blend;
 }

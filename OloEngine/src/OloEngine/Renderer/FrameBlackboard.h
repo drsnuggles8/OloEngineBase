@@ -377,6 +377,18 @@ namespace OloEngine
             // runs first and SSR composites over its output (ADR 0020).
             RGFramebufferHandle RTReflectionColor;    // After the ray-query reflection tier (deferred path, RT device only)
             RGTextureHandle RTReflectionColorTexture; // Color attachment view of RTReflectionColor
+            // The indirect specular term that tier handed on (issue #1325):
+            // attachment 1 of the version RayTracedReflectionPass wrote, published
+            // by its Setup so SSR replaces the term the ray tier left, not the
+            // lighting pass's.
+            RGTextureHandle RTReflectionSpecularTexture;
+            // The reflection tiers' input (issue #1325): the indirect specular
+            // term the deferred lighting composed into SceneColor (attachment 0)
+            // and its BRDF weight per unit of incident radiance (attachment 1).
+            // Declared only when a reflection tier runs; ADR 0020 section 1.
+            RGFramebufferHandle IndirectSpecular;
+            RGTextureHandle IndirectSpecularTexture;
+            RGTextureHandle IndirectSpecularWeightTexture;
             // The GPU reference path tracer (issue #1055). Declared only when
             // the tracer is enabled on a ray-tracing device; its colour REPLACES
             // the rasterised scene colour at the top of the pre-Bloom chain.

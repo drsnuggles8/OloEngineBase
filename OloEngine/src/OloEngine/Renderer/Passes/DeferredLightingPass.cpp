@@ -311,6 +311,14 @@ namespace OloEngine
             SetPrimaryInputFramebufferHandle(blackboard.Scene.SceneColor);
             builder.Write(blackboard.Scene.SceneColor, RGWriteUsage::RenderTarget);
         }
+
+        // The reflection tiers' input (issue #1325), written by a second draw of
+        // the same shading body. Declared only when a tier above probe/IBL runs.
+        if (blackboard.Post.IndirectSpecular.IsValid())
+        {
+            m_SelectedInputs.IndirectSpecular = blackboard.Post.IndirectSpecular;
+            builder.Write(blackboard.Post.IndirectSpecular, RGWriteUsage::RenderTarget);
+        }
     }
 
     void DeferredLightingPass::Init(const FramebufferSpecification& spec)
@@ -320,6 +328,8 @@ namespace OloEngine
         m_FramebufferSpec = spec;
         m_Shader = Shader::Create("assets/shaders/DeferredLighting.glsl");
         m_ShaderMSAA = Shader::Create("assets/shaders/DeferredLighting_MSAA.glsl");
+        m_IndirectSpecularShader = Shader::Create("assets/shaders/DeferredIndirectSpecular.glsl");
+        m_IndirectSpecularShaderMSAA = Shader::Create("assets/shaders/DeferredIndirectSpecular_MSAA.glsl");
         m_ControlsUBO = UniformBuffer::Create(sizeof(DeferredControlsData),
                                               ShaderBindingLayout::UBO_DEFERRED_LIGHTING);
 
@@ -418,358 +428,402 @@ namespace OloEngine
 
         const u32 sampleCount = m_GBuffer->GetSampleCount();
         const bool useMSAAShading = m_UseMSAAShading;
-        Ref<Shader>& shader = useMSAAShading ? m_ShaderMSAA : m_Shader;
-        shader->Bind();
-
-        CommandDispatch::BindSceneResources();
-
-        // Clustered Forward+ light lists (issue #435): BindSceneResources just
-        // uploaded the disabled-UBO baseline, and ScenePass unbound the cluster
-        // SSBOs after the G-Buffer pass — so without this re-bind the deferred
-        // lighting shader's `fplusActive` gate reads 0 and every local light
-        // falls back to the 256-cap MultiLight UBO loop. Re-bind so the
-        // deferred lighting draw consumes the same per-cluster lists as the
-        // forward paths (this was silently dead in the 2D-tile era).
-        //
-        // Unconditional: on an inactive frame BindForShading still publishes the
-        // buffers (the lighting shader declares them) and the UBO keeps
-        // fplusActive at 0 — see TiledForwardPlus.cpp.
         auto& forwardPlus = Renderer3D::GetForwardPlus();
-        forwardPlus.BindForShading();
-
-        // Distance-impostor reflection probes (issue #705): re-publish the
-        // probe arrays + UBO + cluster-mask SSBO for the fullscreen lighting
-        // draw — the same re-bind rationale as the Forward+ lists above
-        // (BindSceneResources / intermediate passes may have disturbed the
-        // binding points since ScenePass published them).
-        Renderer3D::GetReflectionProbes().BindForShading();
-
-        // Upload per-frame controls — IBL enable + intensity + cascade-debug
-        // flag. Light-probe toggle mirrors RendererSettings::Deferred
-        // .EnableLightProbes: Scene::OnUpdateRender always uploads the
-        // LightProbeVolume UBO + SH SSBO every frame (a "disabled" UBO is
-        // uploaded when no active volume exists), so the shader can safely
-        // sample whenever this flag is on. When off, the shader falls back
-        // to the global IBL cubemap.
-        DeferredControlsData controls{};
-        const glm::vec4 ladderControls = AmbientLadderControls();
-        const bool iblAvailable = ladderControls.x > 0.5f;
-        controls.Controls.x = ladderControls.x;
-        controls.Controls.y = ladderControls.y;
-        controls.Controls.z = ladderControls.z;
-        // Cascade-debug visualization flag mirrors ShadowMap::SetCascadeDebugEnabled,
-        // which is the single source of truth across forward and deferred paths.
-        controls.Controls.w = Renderer3D::GetShadowMap().IsCascadeDebugEnabled() ? 1.0f : 0.0f;
-        controls.MSAAParams.x = static_cast<f32>(useMSAAShading ? sampleCount : 1u);
-        // The ReSTIR DI tier's "I answer for the direct term" lane (issue
-        // #1140). Raised only when the pass actually produced a radiance target
-        // this frame, so a tier that stood down for ANY reason — no RT device,
-        // an empty TLAS, too few lights — leaves the clustered loop running by
-        // construction rather than by remembering to clear a flag. The shader
-        // additionally tests the target's alpha per pixel, which is what covers
-        // sky and unlit pixels inside a live frame.
-        controls.MSAAParams.y = m_SelectedInputs.ReSTIRDIRadiance.IsValid() ? 1.0f : 0.0f;
-        // The ReSTIR GI tier's "I answer for the indirect diffuse term" lane
-        // (issue #1169), on exactly the terms the DI lane above states: raised
-        // only when the pass actually produced a radiance target this frame, so a
-        // tier that stood down for ANY reason leaves the ambient ladder running by
-        // construction rather than by remembering to clear a flag. The shader
-        // additionally tests the target's alpha per pixel, which covers sky and
-        // unlit pixels inside a live frame.
-        controls.MSAAParams.z = m_SelectedInputs.ReSTIRGIRadiance.IsValid() ? (m_SelectedInputs.UsesReSTIRPT ? 2.0f : 1.0f) : 0.0f;
-        // Material debug view (issue #1231) — which of the four separated
-        // outputs replaces the composite. 0 (None) is the normal frame.
-        controls.MSAAParams.w = static_cast<f32>(std::to_underlying(m_MaterialDebugView));
-        // Screen-space AO for the ambient term (issue #1336). Raised only when
-        // RenderPipeline handed the AO buffer to this pass AND the graph
-        // actually produced one, so a technique that did not run leaves the
-        // ambient unoccluded by construction — never multiplied by a stale or
-        // zeroed transient.
-        const bool screenAOLive = m_ScreenAOToAmbient && m_SelectedInputs.AOBuffer.IsValid();
-        controls.ScreenAOParams = glm::vec4(screenAOLive ? 1.0f : 0.0f, m_ScreenAOIntensity, m_ScreenAOProjA,
-                                            m_ScreenAOProjB);
-        // Contact shadows for the primary directional light (issue #1336) —
-        // raised only with the UBO the march reads actually in hand.
-        const bool contactShadowLive = m_ContactShadowInLighting && m_ContactShadowUBO;
-        controls.LightingFlags = glm::vec4(contactShadowLive ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f);
-        if (contactShadowLive)
-            m_ContactShadowUBO->Bind();
-
-        // The skin profile table. Filled from the SAME SkinProfileTable that
-        // assigned the slots the G-Buffer wrote, so the two cannot disagree
-        // about what slot N means, and filled EVERY frame so a profile edited in
-        // the editor reaches the deferred path on the next one.
-        {
-            const SkinProfileTable& profiles = Renderer3D::GetSkinProfileTable();
-            for (u32 slot = 0; slot < kMaxSkinProfileSlots; ++slot)
-            {
-                const SkinProfileParameters parameters = profiles.GetParametersForSlot(slot);
-                controls.SkinProfileParams[slot] = glm::vec4(parameters.SpecularTint,
-                                                             static_cast<f32>(std::to_underlying(parameters.EvaluationModel)));
-                // The transmission lanes (issue #1242), packed by the SAME two
-                // functions the forward path's submission uses — so the two
-                // paths hand include/SkinTransmission.glsl identical numbers for
-                // the same profile, by construction rather than by review.
-                //
-                // Packed for EVERY slot regardless of transport version, unlike
-                // the forward path which skips them below version 2. The version
-                // test on this path lives in the SHADER (it reads the version out
-                // of SkinProfileParams[slot].w), so zeroing them here would put
-                // the same decision in two places and let them disagree.
-                controls.SkinTransmitScatter[slot] = SkinTransmissionScatterLane(parameters);
-                controls.SkinTransmitScaling[slot] = SkinTransmissionScalingLane(parameters);
-                // The layered specular lane (issue #1243), packed for EVERY slot
-                // regardless of transport version for the reason the two above
-                // are: the version test on this path lives in the SHADER, which
-                // reads the version out of SkinProfileParams[slot].w, and zeroing
-                // the lane here as well would put one decision in two places.
-                controls.SkinSpecularLobe[slot] = SkinSpecularLane(parameters);
-                // The oral surface lane (issue #1245), packed for EVERY slot
-                // regardless of transport version for the reason the three
-                // above are: the version test on this path lives in the SHADER,
-                // which reads the version out of SkinProfileParams[slot].w, and
-                // zeroing the lane here as well would put one decision in two
-                // places and let them disagree.
-                controls.SkinOralLane[slot] = SkinOralLane(parameters);
-                // NO OCULAR LANE HERE, AND THAT IS THE POINT (issue #1244).
-                // The cornea, the iris and the tear line resolve in the
-                // MATERIAL stage — PBR_GBuffer{,_Skinned}.glsl writes an albedo
-                // and a normal that already have the refraction in them — so
-                // this pass is handed a finished G-Buffer and needs none of the
-                // twelve ocular numbers. Stated rather than left as an absence,
-                // because "the fourth table is missing" is otherwise
-                // indistinguishable from the fourth table having been forgotten,
-                // which is exactly the shape of the #1288 lane bug.
-            }
-        }
-
-        // The leaf profile table (issue #1234). Filled from the SAME
-        // FoliageLeafProfileTable that assigned the slots the foliage G-Buffer
-        // writer wrote, and filled EVERY frame, for the two reasons the skin
-        // table above states: the two sides cannot disagree about what slot N
-        // means, and a value dragged in the foliage inspector reaches this pass
-        // on the next frame.
-        {
-            const FoliageLeafProfileTable& leafProfiles = Renderer3D::GetFoliageLeafProfileTable();
-            for (u32 slot = 0; slot < kMaxFoliageLeafSlots; ++slot)
-            {
-                const FoliageLeafProfile profile = leafProfiles.GetProfileForSlot(slot);
-                controls.LeafProfileTint[slot] = FoliageLeafProfileTintLane(profile);
-                controls.LeafProfileLobe[slot] = FoliageLeafProfileLobeLane(profile);
-            }
-        }
-        m_ControlsUBO->SetData(&controls, sizeof(controls));
-        m_ControlsUBO->Bind();
-
-        // G-Buffer samplers (slots 43-47 + 69). Setup already chose the canonical
-        // handle family (MSAA vs resolved); Execute only resolves those chosen
-        // handles. When a chosen handle resolves to 0 (headless / unit-test /
-        // when not in deferred path), fall back to raw `m_GBuffer` accessors
-        // that match the setup-selected family.
-        //
-        // Defensive: if any required attachment ID is zero we bail before
-        // issuing the fullscreen draw. A zero ID means the G-Buffer was
-        // constructed but a format/attachment was dropped (e.g. velocity RT
-        // disabled in a non-TAA configuration). Binding 0 to a sampler
-        // reads undefined data, which on NVIDIA surfaces as random black
-        // pixels and on AMD as driver crashes.
-        const auto resolveSelectedTexture = [&context](RGTextureHandle handle,
-                                                       RHI::ResourceHandle fallback) -> RHI::ResourceHandle
-        {
-            RHI::ResourceHandle id{};
-            if (handle.IsValid())
-                id = context.ResolveTextureHandle(handle);
-            if (!id.IsValid())
-                id = fallback;
-            return id;
-        };
-
-        const RHI::ResourceHandle albedoID = resolveSelectedTexture(
-            m_SelectedInputs.GBufferAlbedo,
-            useMSAAShading ? m_GBuffer->GetMSColorAttachmentHandle(GBuffer::Albedo)
-                           : m_GBuffer->GetColorAttachmentHandle(GBuffer::Albedo));
-        const RHI::ResourceHandle normalID = resolveSelectedTexture(
-            m_SelectedInputs.GBufferNormal,
-            useMSAAShading ? m_GBuffer->GetMSColorAttachmentHandle(GBuffer::Normal)
-                           : m_GBuffer->GetColorAttachmentHandle(GBuffer::Normal));
-        const RHI::ResourceHandle emissiveID = resolveSelectedTexture(
-            m_SelectedInputs.GBufferEmissive,
-            useMSAAShading ? m_GBuffer->GetMSColorAttachmentHandle(GBuffer::Emissive)
-                           : m_GBuffer->GetColorAttachmentHandle(GBuffer::Emissive));
-        const RHI::ResourceHandle velocityID = resolveSelectedTexture(
-            m_SelectedInputs.Velocity,
-            useMSAAShading ? m_GBuffer->GetMSColorAttachmentHandle(GBuffer::Velocity)
-                           : m_GBuffer->GetColorAttachmentHandle(GBuffer::Velocity));
-        const RHI::ResourceHandle bakedGIID = resolveSelectedTexture(
-            m_SelectedInputs.GBufferBakedGI,
-            useMSAAShading ? m_GBuffer->GetMSColorAttachmentHandle(GBuffer::BakedGI)
-                           : m_GBuffer->GetColorAttachmentHandle(GBuffer::BakedGI));
-        const RHI::ResourceHandle depthID = resolveSelectedTexture(
-            m_SelectedInputs.SceneDepth,
-            useMSAAShading ? m_GBuffer->GetMSDepthAttachmentHandle()
-                           : m_GBuffer->GetDepthAttachmentHandle());
-        if (!albedoID.IsValid() || !normalID.IsValid() || !emissiveID.IsValid() || !depthID.IsValid())
-        {
-            OLO_CORE_ERROR("DeferredLightingPass: required G-Buffer attachment missing (albedo={}, normal={}, emissive={}, depth={}) - aborting lighting",
-                           albedoID, normalID, emissiveID, depthID);
-            return;
-        }
-        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_ALBEDO, albedoID, RHI::HeapSlotLifetime::FrameTransient);
-        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_NORMAL, normalID, RHI::HeapSlotLifetime::FrameTransient);
-        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_EMISSIVE, emissiveID, RHI::HeapSlotLifetime::FrameTransient);
-        // Velocity RT is optional (skipped outside TAA-enabled configs);
-        // the fragment shader already handles a zero bind as "no motion".
-        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_VELOCITY, velocityID, RHI::HeapSlotLifetime::FrameTransient);
-        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_DEPTH, depthID, RHI::HeapSlotLifetime::FrameTransient);
-        // Baked-GI RT (issue #865). Like velocity this is bound unconditionally:
-        // a zero bind reads as coverage 0, which is exactly "no baked GI here" and
-        // drops the lighting pass onto the probe/IBL rungs it used before the bake
-        // existed.
-        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_BAKEDGI, bakedGIID, RHI::HeapSlotLifetime::FrameTransient);
-
-        // IBL — resolve through the graph from the setup-stored handles.
-        // The graph imports these textures (see RenderPipeline::PopulateBlackboard),
-        // so the resolved ID is identical to Renderer3D::GetGlobal*MapID() but the
-        // bind now goes through the graph's resolve path for consistency with the
-        // rest of the pass and future barrier / transition / debug-capture
-        // infrastructure. The shader branches on DeferredControls.iblAvailable.
-        if (iblAvailable)
-        {
-            const RHI::ResourceHandle irradianceID = m_SelectedInputs.IrradianceMap.IsValid()
-                                                         ? context.ResolveTextureHandle(m_SelectedInputs.IrradianceMap)
-                                                         : RHI::NullResource;
-            const RHI::ResourceHandle prefilterID = m_SelectedInputs.PrefilterMap.IsValid()
-                                                        ? context.ResolveTextureHandle(m_SelectedInputs.PrefilterMap)
-                                                        : RHI::NullResource;
-            const RHI::ResourceHandle brdfLutID = m_SelectedInputs.BrdfLut.IsValid()
-                                                      ? context.ResolveTextureHandle(m_SelectedInputs.BrdfLut)
-                                                      : RHI::NullResource;
-            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_USER_0, irradianceID, RHI::HeapSlotLifetime::FrameTransient);
-            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_USER_1, prefilterID, RHI::HeapSlotLifetime::FrameTransient);
-            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_USER_2, brdfLutID, RHI::HeapSlotLifetime::FrameTransient);
-        }
-
-        // Shadow maps — resolve through the graph from setup-stored handles.
-        // The Forward shader expects these in the same slots so binding 6 (shadow
-        // matrices UBO) carries compatible data either path.
-        // Bind 1x1 placeholder shadow textures of the correct target type
-        // when no real shadow map is available — the shader's
-        // u_*ShadowEnabled flags still prevent sampling, but some drivers
-        // validate the bound target against the sampler type at draw time.
-        const RHI::ResourceHandle csmShadowID = m_SelectedInputs.ShadowMapCSM.IsValid()
-                                                    ? context.ResolveTextureHandle(m_SelectedInputs.ShadowMapCSM)
-                                                    : ShadowMap::GetCSMPlaceholderHandle();
-        const RHI::ResourceHandle atlasShadowID = m_SelectedInputs.ShadowMapAtlas.IsValid()
-                                                      ? context.ResolveTextureHandle(m_SelectedInputs.ShadowMapAtlas)
-                                                      : ShadowMap::GetAtlasPlaceholderHandle();
-        // Comparison sampler — see HeapBinding::ShadowDepthSampler. The seam's
-        // default carries Compare = Never, which mints a compare-DISABLED
-        // descriptor and makes every `sampler2DArrayShadow` read of it undefined.
-        // Virtual Shadow Maps (issue #702). Publishes the globals block, the page
-        // table and the physical pool for include/VirtualShadowSampling.glsl.
-        // Called unconditionally: when VSM is inactive it uploads a DISABLED
-        // globals block, which is what lets the shader carry one runtime branch
-        // instead of needing a second variant. It must precede the pass's
-        // FlushHeapOffsets so the offset it stages is published with the rest.
-        Renderer3D::GetShadowMap().GetVirtualShadowMap().BindForSampling();
-
-        const RHI::SamplerDesc shadowSampler = HeapBinding::ShadowDepthSampler(true);
-        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SHADOW, csmShadowID,
-                                        RHI::HeapSlotLifetime::FrameTransient, shadowSampler,
-                                        RHI::NullSamplerKind::Texture2DArrayShadow);
-        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SHADOW_ATLAS, atlasShadowID,
-                                        RHI::HeapSlotLifetime::FrameTransient, shadowSampler,
-                                        RHI::NullSamplerKind::Texture2DArrayShadow);
-        // Ray-traced shadow mask (issue #1056). Bound to a WHITE 1x1 when the
-        // pass did not produce one, never left unbound: a dangling sampler is
-        // undefined behaviour rather than a zero read, and white is "fully lit",
-        // so even if the routing lanes were somehow on with no mask the frame
-        // would be unshadowed rather than black. The routing in the ShadowData
-        // block — not this binding — is what decides whether it is sampled.
-        const RHI::ResourceHandle rayTracedShadowMaskID =
-            m_SelectedInputs.RayTracedShadowMask.IsValid()
-                ? context.ResolveTextureHandle(m_SelectedInputs.RayTracedShadowMask)
-                : (Renderer3D::GetWhiteTexture() ? Renderer3D::GetWhiteTexture()->GetRHIHandle()
-                                                 : RHI::ResourceHandle{});
-        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_RAY_TRACED_SHADOW, rayTracedShadowMaskID,
-                                        RHI::HeapSlotLifetime::FrameTransient);
-
-        // ReSTIR DI's resolved direct lighting (issue #1140). Bound to the
-        // white placeholder when the tier stood down, the same stand-in the mask
-        // above uses, and for the same narrow reason: a dangling sampler is
-        // undefined behaviour, not a zero read.
-        //
-        // WHITE IS NOT A SAFE VALUE HERE and that is worth stating rather than
-        // trusting: its alpha is 1, so if it were ever sampled the shader would
-        // read it as "the tier produced full white direct lighting". What stops
-        // that is the ORDER of the two guards in oloReSTIRDIDirectLighting — the
-        // MSAAParams.y lane is tested FIRST and is raised only when this handle
-        // is valid, so the placeholder is never reached by a sample. The
-        // per-pixel alpha test is the second guard and covers sky and unlit
-        // pixels inside a live frame.
-        const RHI::ResourceHandle restirRadianceID =
-            m_SelectedInputs.ReSTIRDIRadiance.IsValid()
-                ? context.ResolveTextureHandle(m_SelectedInputs.ReSTIRDIRadiance)
-                : (Renderer3D::GetWhiteTexture() ? Renderer3D::GetWhiteTexture()->GetRHIHandle()
-                                                 : RHI::ResourceHandle{});
-        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_RESTIR_DI_RADIANCE, restirRadianceID,
-                                        RHI::HeapSlotLifetime::FrameTransient);
-
-        // Screen-space AO (issue #1336), for the ambient term. White when not
-        // live — ScreenAOParams.x is what gates the read, so the placeholder is
-        // never multiplied in; it exists so the declared sampler cannot dangle.
-        const RHI::ResourceHandle screenAOID =
-            (screenAOLive)
-                ? context.ResolveTextureHandle(m_SelectedInputs.AOBuffer)
-                : (Renderer3D::GetWhiteTexture() ? Renderer3D::GetWhiteTexture()->GetRHIHandle()
-                                                 : RHI::ResourceHandle{});
-        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SSAO, screenAOID, RHI::HeapSlotLifetime::FrameTransient);
-
-        // ReSTIR GI's resolved indirect diffuse (issue #1169), on the same terms
-        // and with the same caveat: the white placeholder's alpha is 1, so if it
-        // were ever sampled the shader would read it as "the tier produced full
-        // white indirect light". What stops that is the ORDER of the two guards in
-        // oloReSTIRGIIndirectDiffuse — the MSAAParams.z lane is tested FIRST and is
-        // raised only when this handle is valid, so the placeholder is never
-        // reached by a sample.
-        const RHI::ResourceHandle restirGIRadianceID =
-            m_SelectedInputs.ReSTIRGIRadiance.IsValid()
-                ? context.ResolveTextureHandle(m_SelectedInputs.ReSTIRGIRadiance)
-                : (Renderer3D::GetWhiteTexture() ? Renderer3D::GetWhiteTexture()->GetRHIHandle()
-                                                 : RHI::ResourceHandle{});
-        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_RESTIR_GI_RADIANCE, restirGIRadianceID,
-                                        RHI::HeapSlotLifetime::FrameTransient);
-
-        // Comparison-OFF raw-depth views for the PCSS blocker search (plain
-        // sampler2DArray). Fall back to the raw placeholder so the declared
-        // sampler always has a valid same-type binding.
-        const RHI::ResourceHandle csmRawID = m_SelectedInputs.ShadowMapCSMRawID.IsValid()
-                                                 ? m_SelectedInputs.ShadowMapCSMRawID
-                                                 : ShadowMap::GetCSMRawPlaceholderHandle();
-        const RHI::ResourceHandle atlasRawID = m_SelectedInputs.ShadowMapAtlasRawID.IsValid()
-                                                   ? m_SelectedInputs.ShadowMapAtlasRawID
-                                                   : ShadowMap::GetAtlasRawPlaceholderHandle();
-        // THE RAW VIEWS NEED THEIR OWN SAMPLER, not the seam's default. Comparison
-        // is off — that is what makes them raw — but the rest of the state still has
-        // to match what the texture OBJECT carries, which is what the slot path
-        // samples with: ClampToBorder with an opaque-white border and no mip
-        // filtering (OpenGLTexture2DArray sets exactly that for a depth array). The
-        // seam's default SamplerDesc{} is ClampToEdge with mip filtering on, so a
-        // converted shader read outside the cascade returned the edge texel instead
-        // of 'lit' — the same parity break the comparison samplers had before
-        // HeapBinding::ShadowDepthSampler existed (issue #691).
-        const RHI::SamplerDesc rawShadowSampler = HeapBinding::ShadowDepthSampler(false);
-        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SHADOW_CSM_RAW, csmRawID,
-                                        RHI::HeapSlotLifetime::FrameTransient, rawShadowSampler,
-                                        RHI::NullSamplerKind::Texture2DArray);
-        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SHADOW_ATLAS_RAW, atlasRawID,
-                                        RHI::HeapSlotLifetime::FrameTransient, rawShadowSampler,
-                                        RHI::NullSamplerKind::Texture2DArray);
-
         const auto va = MeshPrimitives::GetFullscreenTriangle();
-        va->Bind();
-        context.FlushHeapOffsets();
-        context.DrawIndexed(va);
+
+        // ONE BINDING SEQUENCE, RUN FOR EACH PROGRAM THAT SHADES THE G-BUFFER:
+        // the lighting itself, and the reflection tiers' input below (issue
+        // #1325). The heap seam stages offsets against the program bound when
+        // they are staged, so the second program gets the whole sequence again
+        // rather than a flush of the first one's.
+        const auto shadeGBuffer = [&](const Ref<Shader>& shader) -> bool
+        {
+            shader->Bind();
+
+            CommandDispatch::BindSceneResources();
+
+            // Clustered Forward+ light lists (issue #435): BindSceneResources just
+            // uploaded the disabled-UBO baseline, and ScenePass unbound the cluster
+            // SSBOs after the G-Buffer pass — so without this re-bind the deferred
+            // lighting shader's `fplusActive` gate reads 0 and every local light
+            // falls back to the 256-cap MultiLight UBO loop. Re-bind so the
+            // deferred lighting draw consumes the same per-cluster lists as the
+            // forward paths (this was silently dead in the 2D-tile era).
+            //
+            // Unconditional: on an inactive frame BindForShading still publishes the
+            // buffers (the lighting shader declares them) and the UBO keeps
+            // fplusActive at 0 — see TiledForwardPlus.cpp.
+            forwardPlus.BindForShading();
+
+            // Distance-impostor reflection probes (issue #705): re-publish the
+            // probe arrays + UBO + cluster-mask SSBO for the fullscreen lighting
+            // draw — the same re-bind rationale as the Forward+ lists above
+            // (BindSceneResources / intermediate passes may have disturbed the
+            // binding points since ScenePass published them).
+            Renderer3D::GetReflectionProbes().BindForShading();
+
+            // Upload per-frame controls — IBL enable + intensity + cascade-debug
+            // flag. Light-probe toggle mirrors RendererSettings::Deferred
+            // .EnableLightProbes: Scene::OnUpdateRender always uploads the
+            // LightProbeVolume UBO + SH SSBO every frame (a "disabled" UBO is
+            // uploaded when no active volume exists), so the shader can safely
+            // sample whenever this flag is on. When off, the shader falls back
+            // to the global IBL cubemap.
+            DeferredControlsData controls{};
+            const glm::vec4 ladderControls = AmbientLadderControls();
+            const bool iblAvailable = ladderControls.x > 0.5f;
+            controls.Controls.x = ladderControls.x;
+            controls.Controls.y = ladderControls.y;
+            controls.Controls.z = ladderControls.z;
+            // Cascade-debug visualization flag mirrors ShadowMap::SetCascadeDebugEnabled,
+            // which is the single source of truth across forward and deferred paths.
+            controls.Controls.w = Renderer3D::GetShadowMap().IsCascadeDebugEnabled() ? 1.0f : 0.0f;
+            controls.MSAAParams.x = static_cast<f32>(useMSAAShading ? sampleCount : 1u);
+            // The ReSTIR DI tier's "I answer for the direct term" lane (issue
+            // #1140). Raised only when the pass actually produced a radiance target
+            // this frame, so a tier that stood down for ANY reason — no RT device,
+            // an empty TLAS, too few lights — leaves the clustered loop running by
+            // construction rather than by remembering to clear a flag. The shader
+            // additionally tests the target's alpha per pixel, which is what covers
+            // sky and unlit pixels inside a live frame.
+            controls.MSAAParams.y = m_SelectedInputs.ReSTIRDIRadiance.IsValid() ? 1.0f : 0.0f;
+            // The ReSTIR GI tier's "I answer for the indirect diffuse term" lane
+            // (issue #1169), on exactly the terms the DI lane above states: raised
+            // only when the pass actually produced a radiance target this frame, so a
+            // tier that stood down for ANY reason leaves the ambient ladder running by
+            // construction rather than by remembering to clear a flag. The shader
+            // additionally tests the target's alpha per pixel, which covers sky and
+            // unlit pixels inside a live frame.
+            controls.MSAAParams.z = m_SelectedInputs.ReSTIRGIRadiance.IsValid() ? (m_SelectedInputs.UsesReSTIRPT ? 2.0f : 1.0f) : 0.0f;
+            // Material debug view (issue #1231) — which of the four separated
+            // outputs replaces the composite. 0 (None) is the normal frame.
+            controls.MSAAParams.w = static_cast<f32>(std::to_underlying(m_MaterialDebugView));
+            // Screen-space AO for the ambient term (issue #1336). Raised only when
+            // RenderPipeline handed the AO buffer to this pass AND the graph
+            // actually produced one, so a technique that did not run leaves the
+            // ambient unoccluded by construction — never multiplied by a stale or
+            // zeroed transient.
+            const bool screenAOLive = m_ScreenAOToAmbient && m_SelectedInputs.AOBuffer.IsValid();
+            controls.ScreenAOParams = glm::vec4(screenAOLive ? 1.0f : 0.0f, m_ScreenAOIntensity, m_ScreenAOProjA,
+                                                m_ScreenAOProjB);
+            // Contact shadows for the primary directional light (issue #1336) —
+            // raised only with the UBO the march reads actually in hand.
+            const bool contactShadowLive = m_ContactShadowInLighting && m_ContactShadowUBO;
+            controls.LightingFlags = glm::vec4(contactShadowLive ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f);
+            if (contactShadowLive)
+                m_ContactShadowUBO->Bind();
+
+            // The skin profile table. Filled from the SAME SkinProfileTable that
+            // assigned the slots the G-Buffer wrote, so the two cannot disagree
+            // about what slot N means, and filled EVERY frame so a profile edited in
+            // the editor reaches the deferred path on the next one.
+            {
+                const SkinProfileTable& profiles = Renderer3D::GetSkinProfileTable();
+                for (u32 slot = 0; slot < kMaxSkinProfileSlots; ++slot)
+                {
+                    const SkinProfileParameters parameters = profiles.GetParametersForSlot(slot);
+                    controls.SkinProfileParams[slot] = glm::vec4(parameters.SpecularTint,
+                                                                 static_cast<f32>(std::to_underlying(parameters.EvaluationModel)));
+                    // The transmission lanes (issue #1242), packed by the SAME two
+                    // functions the forward path's submission uses — so the two
+                    // paths hand include/SkinTransmission.glsl identical numbers for
+                    // the same profile, by construction rather than by review.
+                    //
+                    // Packed for EVERY slot regardless of transport version, unlike
+                    // the forward path which skips them below version 2. The version
+                    // test on this path lives in the SHADER (it reads the version out
+                    // of SkinProfileParams[slot].w), so zeroing them here would put
+                    // the same decision in two places and let them disagree.
+                    controls.SkinTransmitScatter[slot] = SkinTransmissionScatterLane(parameters);
+                    controls.SkinTransmitScaling[slot] = SkinTransmissionScalingLane(parameters);
+                    // The layered specular lane (issue #1243), packed for EVERY slot
+                    // regardless of transport version for the reason the two above
+                    // are: the version test on this path lives in the SHADER, which
+                    // reads the version out of SkinProfileParams[slot].w, and zeroing
+                    // the lane here as well would put one decision in two places.
+                    controls.SkinSpecularLobe[slot] = SkinSpecularLane(parameters);
+                    // The oral surface lane (issue #1245), packed for EVERY slot
+                    // regardless of transport version for the reason the three
+                    // above are: the version test on this path lives in the SHADER,
+                    // which reads the version out of SkinProfileParams[slot].w, and
+                    // zeroing the lane here as well would put one decision in two
+                    // places and let them disagree.
+                    controls.SkinOralLane[slot] = SkinOralLane(parameters);
+                    // NO OCULAR LANE HERE, AND THAT IS THE POINT (issue #1244).
+                    // The cornea, the iris and the tear line resolve in the
+                    // MATERIAL stage — PBR_GBuffer{,_Skinned}.glsl writes an albedo
+                    // and a normal that already have the refraction in them — so
+                    // this pass is handed a finished G-Buffer and needs none of the
+                    // twelve ocular numbers. Stated rather than left as an absence,
+                    // because "the fourth table is missing" is otherwise
+                    // indistinguishable from the fourth table having been forgotten,
+                    // which is exactly the shape of the #1288 lane bug.
+                }
+            }
+
+            // The leaf profile table (issue #1234). Filled from the SAME
+            // FoliageLeafProfileTable that assigned the slots the foliage G-Buffer
+            // writer wrote, and filled EVERY frame, for the two reasons the skin
+            // table above states: the two sides cannot disagree about what slot N
+            // means, and a value dragged in the foliage inspector reaches this pass
+            // on the next frame.
+            {
+                const FoliageLeafProfileTable& leafProfiles = Renderer3D::GetFoliageLeafProfileTable();
+                for (u32 slot = 0; slot < kMaxFoliageLeafSlots; ++slot)
+                {
+                    const FoliageLeafProfile profile = leafProfiles.GetProfileForSlot(slot);
+                    controls.LeafProfileTint[slot] = FoliageLeafProfileTintLane(profile);
+                    controls.LeafProfileLobe[slot] = FoliageLeafProfileLobeLane(profile);
+                }
+            }
+            m_ControlsUBO->SetData(&controls, sizeof(controls));
+            m_ControlsUBO->Bind();
+
+            // G-Buffer samplers (slots 43-47 + 69). Setup already chose the canonical
+            // handle family (MSAA vs resolved); Execute only resolves those chosen
+            // handles. When a chosen handle resolves to 0 (headless / unit-test /
+            // when not in deferred path), fall back to raw `m_GBuffer` accessors
+            // that match the setup-selected family.
+            //
+            // Defensive: if any required attachment ID is zero we bail before
+            // issuing the fullscreen draw. A zero ID means the G-Buffer was
+            // constructed but a format/attachment was dropped (e.g. velocity RT
+            // disabled in a non-TAA configuration). Binding 0 to a sampler
+            // reads undefined data, which on NVIDIA surfaces as random black
+            // pixels and on AMD as driver crashes.
+            const auto resolveSelectedTexture = [&context](RGTextureHandle handle,
+                                                           RHI::ResourceHandle fallback) -> RHI::ResourceHandle
+            {
+                RHI::ResourceHandle id{};
+                if (handle.IsValid())
+                    id = context.ResolveTextureHandle(handle);
+                if (!id.IsValid())
+                    id = fallback;
+                return id;
+            };
+
+            const RHI::ResourceHandle albedoID = resolveSelectedTexture(
+                m_SelectedInputs.GBufferAlbedo,
+                useMSAAShading ? m_GBuffer->GetMSColorAttachmentHandle(GBuffer::Albedo)
+                               : m_GBuffer->GetColorAttachmentHandle(GBuffer::Albedo));
+            const RHI::ResourceHandle normalID = resolveSelectedTexture(
+                m_SelectedInputs.GBufferNormal,
+                useMSAAShading ? m_GBuffer->GetMSColorAttachmentHandle(GBuffer::Normal)
+                               : m_GBuffer->GetColorAttachmentHandle(GBuffer::Normal));
+            const RHI::ResourceHandle emissiveID = resolveSelectedTexture(
+                m_SelectedInputs.GBufferEmissive,
+                useMSAAShading ? m_GBuffer->GetMSColorAttachmentHandle(GBuffer::Emissive)
+                               : m_GBuffer->GetColorAttachmentHandle(GBuffer::Emissive));
+            const RHI::ResourceHandle velocityID = resolveSelectedTexture(
+                m_SelectedInputs.Velocity,
+                useMSAAShading ? m_GBuffer->GetMSColorAttachmentHandle(GBuffer::Velocity)
+                               : m_GBuffer->GetColorAttachmentHandle(GBuffer::Velocity));
+            const RHI::ResourceHandle bakedGIID = resolveSelectedTexture(
+                m_SelectedInputs.GBufferBakedGI,
+                useMSAAShading ? m_GBuffer->GetMSColorAttachmentHandle(GBuffer::BakedGI)
+                               : m_GBuffer->GetColorAttachmentHandle(GBuffer::BakedGI));
+            const RHI::ResourceHandle depthID = resolveSelectedTexture(
+                m_SelectedInputs.SceneDepth,
+                useMSAAShading ? m_GBuffer->GetMSDepthAttachmentHandle()
+                               : m_GBuffer->GetDepthAttachmentHandle());
+            if (!albedoID.IsValid() || !normalID.IsValid() || !emissiveID.IsValid() || !depthID.IsValid())
+            {
+                OLO_CORE_ERROR("DeferredLightingPass: required G-Buffer attachment missing (albedo={}, normal={}, emissive={}, depth={}) - aborting lighting",
+                               albedoID, normalID, emissiveID, depthID);
+                return false;
+            }
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_ALBEDO, albedoID, RHI::HeapSlotLifetime::FrameTransient);
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_NORMAL, normalID, RHI::HeapSlotLifetime::FrameTransient);
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_EMISSIVE, emissiveID, RHI::HeapSlotLifetime::FrameTransient);
+            // Velocity RT is optional (skipped outside TAA-enabled configs);
+            // the fragment shader already handles a zero bind as "no motion".
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_VELOCITY, velocityID, RHI::HeapSlotLifetime::FrameTransient);
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_DEPTH, depthID, RHI::HeapSlotLifetime::FrameTransient);
+            // Baked-GI RT (issue #865). Like velocity this is bound unconditionally:
+            // a zero bind reads as coverage 0, which is exactly "no baked GI here" and
+            // drops the lighting pass onto the probe/IBL rungs it used before the bake
+            // existed.
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_BAKEDGI, bakedGIID, RHI::HeapSlotLifetime::FrameTransient);
+
+            // IBL — resolve through the graph from the setup-stored handles.
+            // The graph imports these textures (see RenderPipeline::PopulateBlackboard),
+            // so the resolved ID is identical to Renderer3D::GetGlobal*MapID() but the
+            // bind now goes through the graph's resolve path for consistency with the
+            // rest of the pass and future barrier / transition / debug-capture
+            // infrastructure. The shader branches on DeferredControls.iblAvailable.
+            if (iblAvailable)
+            {
+                const RHI::ResourceHandle irradianceID = m_SelectedInputs.IrradianceMap.IsValid()
+                                                             ? context.ResolveTextureHandle(m_SelectedInputs.IrradianceMap)
+                                                             : RHI::NullResource;
+                const RHI::ResourceHandle prefilterID = m_SelectedInputs.PrefilterMap.IsValid()
+                                                            ? context.ResolveTextureHandle(m_SelectedInputs.PrefilterMap)
+                                                            : RHI::NullResource;
+                const RHI::ResourceHandle brdfLutID = m_SelectedInputs.BrdfLut.IsValid()
+                                                          ? context.ResolveTextureHandle(m_SelectedInputs.BrdfLut)
+                                                          : RHI::NullResource;
+                context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_USER_0, irradianceID, RHI::HeapSlotLifetime::FrameTransient);
+                context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_USER_1, prefilterID, RHI::HeapSlotLifetime::FrameTransient);
+                context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_USER_2, brdfLutID, RHI::HeapSlotLifetime::FrameTransient);
+            }
+
+            // Shadow maps — resolve through the graph from setup-stored handles.
+            // The Forward shader expects these in the same slots so binding 6 (shadow
+            // matrices UBO) carries compatible data either path.
+            // Bind 1x1 placeholder shadow textures of the correct target type
+            // when no real shadow map is available — the shader's
+            // u_*ShadowEnabled flags still prevent sampling, but some drivers
+            // validate the bound target against the sampler type at draw time.
+            const RHI::ResourceHandle csmShadowID = m_SelectedInputs.ShadowMapCSM.IsValid()
+                                                        ? context.ResolveTextureHandle(m_SelectedInputs.ShadowMapCSM)
+                                                        : ShadowMap::GetCSMPlaceholderHandle();
+            const RHI::ResourceHandle atlasShadowID = m_SelectedInputs.ShadowMapAtlas.IsValid()
+                                                          ? context.ResolveTextureHandle(m_SelectedInputs.ShadowMapAtlas)
+                                                          : ShadowMap::GetAtlasPlaceholderHandle();
+            // Comparison sampler — see HeapBinding::ShadowDepthSampler. The seam's
+            // default carries Compare = Never, which mints a compare-DISABLED
+            // descriptor and makes every `sampler2DArrayShadow` read of it undefined.
+            // Virtual Shadow Maps (issue #702). Publishes the globals block, the page
+            // table and the physical pool for include/VirtualShadowSampling.glsl.
+            // Called unconditionally: when VSM is inactive it uploads a DISABLED
+            // globals block, which is what lets the shader carry one runtime branch
+            // instead of needing a second variant. It must precede the pass's
+            // FlushHeapOffsets so the offset it stages is published with the rest.
+            Renderer3D::GetShadowMap().GetVirtualShadowMap().BindForSampling();
+
+            const RHI::SamplerDesc shadowSampler = HeapBinding::ShadowDepthSampler(true);
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SHADOW, csmShadowID,
+                                            RHI::HeapSlotLifetime::FrameTransient, shadowSampler,
+                                            RHI::NullSamplerKind::Texture2DArrayShadow);
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SHADOW_ATLAS, atlasShadowID,
+                                            RHI::HeapSlotLifetime::FrameTransient, shadowSampler,
+                                            RHI::NullSamplerKind::Texture2DArrayShadow);
+            // Ray-traced shadow mask (issue #1056). Bound to a WHITE 1x1 when the
+            // pass did not produce one, never left unbound: a dangling sampler is
+            // undefined behaviour rather than a zero read, and white is "fully lit",
+            // so even if the routing lanes were somehow on with no mask the frame
+            // would be unshadowed rather than black. The routing in the ShadowData
+            // block — not this binding — is what decides whether it is sampled.
+            const RHI::ResourceHandle rayTracedShadowMaskID =
+                m_SelectedInputs.RayTracedShadowMask.IsValid()
+                    ? context.ResolveTextureHandle(m_SelectedInputs.RayTracedShadowMask)
+                    : (Renderer3D::GetWhiteTexture() ? Renderer3D::GetWhiteTexture()->GetRHIHandle()
+                                                     : RHI::ResourceHandle{});
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_RAY_TRACED_SHADOW, rayTracedShadowMaskID,
+                                            RHI::HeapSlotLifetime::FrameTransient);
+
+            // ReSTIR DI's resolved direct lighting (issue #1140). Bound to the
+            // white placeholder when the tier stood down, the same stand-in the mask
+            // above uses, and for the same narrow reason: a dangling sampler is
+            // undefined behaviour, not a zero read.
+            //
+            // WHITE IS NOT A SAFE VALUE HERE and that is worth stating rather than
+            // trusting: its alpha is 1, so if it were ever sampled the shader would
+            // read it as "the tier produced full white direct lighting". What stops
+            // that is the ORDER of the two guards in oloReSTIRDIDirectLighting — the
+            // MSAAParams.y lane is tested FIRST and is raised only when this handle
+            // is valid, so the placeholder is never reached by a sample. The
+            // per-pixel alpha test is the second guard and covers sky and unlit
+            // pixels inside a live frame.
+            const RHI::ResourceHandle restirRadianceID =
+                m_SelectedInputs.ReSTIRDIRadiance.IsValid()
+                    ? context.ResolveTextureHandle(m_SelectedInputs.ReSTIRDIRadiance)
+                    : (Renderer3D::GetWhiteTexture() ? Renderer3D::GetWhiteTexture()->GetRHIHandle()
+                                                     : RHI::ResourceHandle{});
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_RESTIR_DI_RADIANCE, restirRadianceID,
+                                            RHI::HeapSlotLifetime::FrameTransient);
+
+            // Screen-space AO (issue #1336), for the ambient term. White when not
+            // live — ScreenAOParams.x is what gates the read, so the placeholder is
+            // never multiplied in; it exists so the declared sampler cannot dangle.
+            const RHI::ResourceHandle screenAOID =
+                (screenAOLive)
+                    ? context.ResolveTextureHandle(m_SelectedInputs.AOBuffer)
+                    : (Renderer3D::GetWhiteTexture() ? Renderer3D::GetWhiteTexture()->GetRHIHandle()
+                                                     : RHI::ResourceHandle{});
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SSAO, screenAOID, RHI::HeapSlotLifetime::FrameTransient);
+
+            // ReSTIR GI's resolved indirect diffuse (issue #1169), on the same terms
+            // and with the same caveat: the white placeholder's alpha is 1, so if it
+            // were ever sampled the shader would read it as "the tier produced full
+            // white indirect light". What stops that is the ORDER of the two guards in
+            // oloReSTIRGIIndirectDiffuse — the MSAAParams.z lane is tested FIRST and is
+            // raised only when this handle is valid, so the placeholder is never
+            // reached by a sample.
+            const RHI::ResourceHandle restirGIRadianceID =
+                m_SelectedInputs.ReSTIRGIRadiance.IsValid()
+                    ? context.ResolveTextureHandle(m_SelectedInputs.ReSTIRGIRadiance)
+                    : (Renderer3D::GetWhiteTexture() ? Renderer3D::GetWhiteTexture()->GetRHIHandle()
+                                                     : RHI::ResourceHandle{});
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_RESTIR_GI_RADIANCE, restirGIRadianceID,
+                                            RHI::HeapSlotLifetime::FrameTransient);
+
+            // Comparison-OFF raw-depth views for the PCSS blocker search (plain
+            // sampler2DArray). Fall back to the raw placeholder so the declared
+            // sampler always has a valid same-type binding.
+            const RHI::ResourceHandle csmRawID = m_SelectedInputs.ShadowMapCSMRawID.IsValid()
+                                                     ? m_SelectedInputs.ShadowMapCSMRawID
+                                                     : ShadowMap::GetCSMRawPlaceholderHandle();
+            const RHI::ResourceHandle atlasRawID = m_SelectedInputs.ShadowMapAtlasRawID.IsValid()
+                                                       ? m_SelectedInputs.ShadowMapAtlasRawID
+                                                       : ShadowMap::GetAtlasRawPlaceholderHandle();
+            // THE RAW VIEWS NEED THEIR OWN SAMPLER, not the seam's default. Comparison
+            // is off — that is what makes them raw — but the rest of the state still has
+            // to match what the texture OBJECT carries, which is what the slot path
+            // samples with: ClampToBorder with an opaque-white border and no mip
+            // filtering (OpenGLTexture2DArray sets exactly that for a depth array). The
+            // seam's default SamplerDesc{} is ClampToEdge with mip filtering on, so a
+            // converted shader read outside the cascade returned the edge texel instead
+            // of 'lit' — the same parity break the comparison samplers had before
+            // HeapBinding::ShadowDepthSampler existed (issue #691).
+            const RHI::SamplerDesc rawShadowSampler = HeapBinding::ShadowDepthSampler(false);
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SHADOW_CSM_RAW, csmRawID,
+                                            RHI::HeapSlotLifetime::FrameTransient, rawShadowSampler,
+                                            RHI::NullSamplerKind::Texture2DArray);
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SHADOW_ATLAS_RAW, atlasRawID,
+                                            RHI::HeapSlotLifetime::FrameTransient, rawShadowSampler,
+                                            RHI::NullSamplerKind::Texture2DArray);
+
+            va->Bind();
+            context.FlushHeapOffsets();
+            context.DrawIndexed(va);
+            return true;
+        };
+        if (!shadeGBuffer(useMSAAShading ? m_ShaderMSAA : m_Shader))
+            return;
+
+        // THE REFLECTION TIERS' INPUT (issue #1325): the indirect specular term
+        // the draw above composed into scene colour, and its BRDF weight, into
+        // their own target -- the same shading body with only those two
+        // outputs, so a tier replaces exactly the term that is in the colour.
+        // Declared only when RT reflections or SSR run this frame.
+        if (m_SelectedInputs.IndirectSpecular.IsValid())
+        {
+            const Ref<Shader>& specularShader =
+                useMSAAShading ? m_IndirectSpecularShaderMSAA : m_IndirectSpecularShader;
+            Ref<Framebuffer> specularTarget = context.ResolveFramebuffer(m_SelectedInputs.IndirectSpecular);
+            if (specularShader && specularTarget)
+            {
+                specularTarget->Bind();
+                context.SetViewport(0, 0, w, h);
+                constexpr std::array<u32, 2> kSpecularAttachments{ 0u, 1u };
+                RenderCommand::SetDrawBuffers(kSpecularAttachments);
+                RenderCommand::SetColorMask(true, true, true, true);
+                (void)shadeGBuffer(specularShader);
+                m_SceneFramebuffer->Bind();
+                context.SetViewport(0, 0, w, h);
+            }
+            else if (!m_ReportedMissingIndirectSpecular)
+            {
+                // Not silent: the tiers read zeros from an unwritten target and
+                // pass the colour through, so say why the reflections vanished.
+                m_ReportedMissingIndirectSpecular = true;
+                OLO_CORE_ERROR("DeferredLightingPass: the reflection tiers' indirect specular input was declared "
+                               "but cannot be written (shader={}, target={}); RT reflections and SSR pass the "
+                               "colour through",
+                               static_cast<bool>(specularShader), static_cast<bool>(specularTarget));
+            }
+        }
 
         forwardPlus.UnbindAfterShading();
 

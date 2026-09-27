@@ -4625,12 +4625,26 @@ namespace OloEngine
 
             if (rtReflectionDeclared)
             {
-                const auto rtReflectionOutput = declareSceneBandOutput(
-                    ResourceNames::RTReflectionColor,
-                    ResourceNames::RTReflectionColorTexture,
-                    RGResourceFormat::RGBA16Float);
-                board.Post.RTReflectionColor = rtReflectionOutput.Framebuffer;
-                board.Post.RTReflectionColorTexture = rtReflectionOutput.Texture;
+                // TWO attachments (issue #1325): the composited colour, and the
+                // indirect specular term the tier handed on, which SSR replaces
+                // next. The pass publishes the second one's view from its Setup.
+                RGResourceDesc rtReflectionDesc;
+                rtReflectionDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+                rtReflectionDesc.Format = RGResourceFormat::RGBA16Float;
+                rtReflectionDesc.Width = sceneBandWidth;
+                rtReflectionDesc.Height = sceneBandHeight;
+                rtReflectionDesc.Attachments = {
+                    RGResourceFormat::RGBA16Float, // 0 colour
+                    RGResourceFormat::RGBA16Float, // 1 the handed-on indirect specular term
+                };
+                rtReflectionDesc.DebugName = ResourceNames::RTReflectionColor;
+                board.Post.RTReflectionColor =
+                    declareGraphOnlyFramebuffer(ResourceNames::RTReflectionColor, rtReflectionDesc);
+                board.Post.RTReflectionColorTexture =
+                    board.Post.RTReflectionColor.IsValid()
+                        ? graph.CreateFramebufferAttachmentView(ResourceNames::RTReflectionColorTexture,
+                                                                board.Post.RTReflectionColor, 0u)
+                        : RGTextureHandle{};
             }
         }
 
@@ -4729,6 +4743,34 @@ namespace OloEngine
                 ssrSignalDesc.DebugName = ResourceNames::SSRDenoised;
                 board.Scratch.SSRDenoised =
                     declareGraphOnlyFramebuffer(ResourceNames::SSRDenoised, ssrSignalDesc);
+            }
+        }
+
+        // THE REFLECTION TIERS' INPUT (issue #1325), wherever a tier above
+        // probe/IBL runs. A tier replaces the indirect specular term the lighting
+        // composed into SceneColor, so it needs that term and its BRDF weight
+        // apart from the colour: DeferredLightingPass writes both here, from the
+        // same shading body it composed them with. Declared on the tiers' own
+        // gates, so a frame with no tier allocates and draws nothing extra.
+        if (board.Post.RTReflectionColor.IsValid() || board.Post.SSRColor.IsValid())
+        {
+            RGResourceDesc indirectSpecularDesc;
+            indirectSpecularDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+            indirectSpecularDesc.Format = RGResourceFormat::RGBA16Float;
+            indirectSpecularDesc.Width = sceneBandWidth;
+            indirectSpecularDesc.Height = sceneBandHeight;
+            indirectSpecularDesc.Attachments = {
+                RGResourceFormat::RGBA16Float, // 0 S: the indirect specular radiance, as composed
+                RGResourceFormat::RGBA16Float, // 1 W: its weight per unit of incident radiance
+            };
+            indirectSpecularDesc.DebugName = ResourceNames::IndirectSpecular;
+            board.Post.IndirectSpecular = declareGraphOnlyFramebuffer(ResourceNames::IndirectSpecular, indirectSpecularDesc);
+            if (board.Post.IndirectSpecular.IsValid())
+            {
+                board.Post.IndirectSpecularTexture = graph.CreateFramebufferAttachmentView(
+                    ResourceNames::IndirectSpecularTexture, board.Post.IndirectSpecular, 0u);
+                board.Post.IndirectSpecularWeightTexture = graph.CreateFramebufferAttachmentView(
+                    ResourceNames::IndirectSpecularWeightTexture, board.Post.IndirectSpecular, 1u);
             }
         }
 

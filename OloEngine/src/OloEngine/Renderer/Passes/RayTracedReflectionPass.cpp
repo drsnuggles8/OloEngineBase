@@ -19,6 +19,7 @@
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <span>
 
@@ -37,6 +38,8 @@ namespace OloEngine
         m_SelectedGBufferNormalTexture = {};
         m_SelectedGBufferAlbedoTexture = {};
         m_SelectedPrefilterTexture = {};
+        m_SelectedIndirectSpecularTexture = {};
+        m_SelectedIndirectSpecularWeightTexture = {};
 
         // The tier composites OVER the colour it is handed, so the input is
         // whatever the chain has produced so far — the same versioned-name
@@ -55,10 +58,14 @@ namespace OloEngine
         // RTReflectionColor is only declared on the deferred path with a live
         // G-Buffer, so its absence is the forward path and downstream aliases
         // straight back to the upstream colour.
+        // And the term it replaces (issue #1325): declared whenever this tier's
+        // output is, so its absence is a graph fault, not a configuration.
         if (!m_Enabled || !blackboard.Post.RTReflectionColor.IsValid() ||
             !blackboard.Scene.SceneDepth.IsValid() ||
             !blackboard.GBuffer.GBufferNormal.IsValid() ||
-            !blackboard.GBuffer.GBufferAlbedo.IsValid())
+            !blackboard.GBuffer.GBufferAlbedo.IsValid() ||
+            !blackboard.Post.IndirectSpecularTexture.IsValid() ||
+            !blackboard.Post.IndirectSpecularWeightTexture.IsValid())
             return;
 
         // The by-name execution dependency RayTracingScenePass::Setup reserved
@@ -75,6 +82,12 @@ namespace OloEngine
         m_SelectedSceneDepthTexture = blackboard.Scene.SceneDepth;
         m_SelectedGBufferNormalTexture = blackboard.GBuffer.GBufferNormal;
         m_SelectedGBufferAlbedoTexture = blackboard.GBuffer.GBufferAlbedo;
+        [[maybe_unused]] const auto specularRead =
+            builder.Read(blackboard.Post.IndirectSpecularTexture, RGReadUsage::ShaderSample);
+        [[maybe_unused]] const auto weightRead =
+            builder.Read(blackboard.Post.IndirectSpecularWeightTexture, RGReadUsage::ShaderSample);
+        m_SelectedIndirectSpecularTexture = blackboard.Post.IndirectSpecularTexture;
+        m_SelectedIndirectSpecularWeightTexture = blackboard.Post.IndirectSpecularWeightTexture;
 
         // The environment the hit's ambient is read from. Optional: without it
         // a hit is lit by the sun alone, which is dark but not wrong, and the
@@ -95,6 +108,10 @@ namespace OloEngine
         SetPrimaryOutputFramebufferHandle(outputHandle);
         SetPrimaryOutputTextureHandle(builder.CreateFramebufferAttachmentView(
             std::string(ResourceNames::RTReflectionColorTexture) + "@" + std::string(versionTag), outputHandle, 0u));
+        // The indirect specular term this tier hands on, for SSR to replace
+        // next (issue #1325). Every pixel writes it, the early-outs included.
+        blackboard.Post.RTReflectionSpecularTexture = builder.CreateFramebufferAttachmentView(
+            std::string(ResourceNames::RTReflectionSpecularTexture) + "@" + std::string(versionTag), outputHandle, 1u);
     }
 
     void RayTracedReflectionPass::Init(const FramebufferSpecification& spec)
@@ -247,9 +264,16 @@ namespace OloEngine
             albedoID = context.ResolveTextureHandle(m_SelectedGBufferAlbedoTexture);
         if (m_SelectedPrefilterTexture.IsValid())
             prefilterID = context.ResolveTextureHandle(m_SelectedPrefilterTexture);
+        RHI::ResourceHandle specularID{};
+        RHI::ResourceHandle specularWeightID{};
+        if (m_SelectedIndirectSpecularTexture.IsValid())
+            specularID = context.ResolveTextureHandle(m_SelectedIndirectSpecularTexture);
+        if (m_SelectedIndirectSpecularWeightTexture.IsValid())
+            specularWeightID = context.ResolveTextureHandle(m_SelectedIndirectSpecularWeightTexture);
 
         const bool graphResolved = outputFramebuffer && inputColorID.IsValid() && sceneDepthID.IsValid() &&
-                                   normalID.IsValid() && albedoID.IsValid();
+                                   normalID.IsValid() && albedoID.IsValid() && specularID.IsValid() &&
+                                   specularWeightID.IsValid();
 
         // The stats / warning verdict for this frame. It does NOT gate the draw:
         // when the tier cannot answer, running the draw is still correct,
@@ -376,7 +400,8 @@ namespace OloEngine
         outputFramebuffer->Bind();
         context.SetViewport(0, 0, outSpec.Width, outSpec.Height);
         {
-            constexpr u32 colorAttachment = 0;
+            // The colour, and the indirect specular term handed on (#1325).
+            constexpr std::array<u32, 2> outputAttachments{ 0u, 1u };
             RenderCommand::SetDepthTest(false);
             RenderCommand::SetDepthMask(false);
             RenderCommand::DisableStencilTest();
@@ -385,7 +410,7 @@ namespace OloEngine
             RenderCommand::DisableScissorTest();
             RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
             RenderCommand::SetColorMask(true, true, true, true);
-            RenderCommand::SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
+            RenderCommand::SetDrawBuffers(outputAttachments);
         }
 
         m_ReflectionShader->Bind();
@@ -395,6 +420,12 @@ namespace OloEngine
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_ALBEDO, albedoID,
                                         RHI::HeapSlotLifetime::FrameTransient);
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_NORMAL, normalID,
+                                        RHI::HeapSlotLifetime::FrameTransient);
+        // The term this tier replaces and its weight (issue #1325), at the two
+        // material slots a fullscreen pass has no other use for.
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SPECULAR, specularID,
+                                        RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_NORMAL, specularWeightID,
                                         RHI::HeapSlotLifetime::FrameTransient);
         // UNCONDITIONALLY, with a null handle when there is no environment —
         // exactly what DeferredLightingPass does at this same unit. Skipping the
