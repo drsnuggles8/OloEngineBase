@@ -463,6 +463,8 @@ namespace OloEngine
         m_SelectedSceneDepthTexture = {};
         m_SelectedGBufferNormalTexture = {};
         m_SelectedPrefilterTexture = {};
+        m_SelectedIndirectSpecularTexture = {};
+        m_SelectedIndirectSpecularWeightTexture = {};
         m_Stats.Reset();
         m_LastReportedFallback = ReflectionTierFallbackReason::Count;
     }
