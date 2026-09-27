@@ -31,6 +31,8 @@
 
 #include "Platform/Vulkan/VulkanDevice.h"
 
+#include <filesystem>
+
 namespace OloEngine
 {
     class VulkanResourceHeap
@@ -79,7 +81,17 @@ namespace OloEngine
         // Record the heap bind into a command buffer. Must run before any draw
         // whose pipeline carries heap mappings; re-recorded per command buffer
         // (binds are command-buffer state).
-        void CmdBind(VkCommandBuffer cmd);
+        // False when the heap could not be created (no device): nothing was bound.
+        bool CmdBind(VkCommandBuffer cmd);
+        // CmdBind only once the resource heap has been created (#1511). With
+        // no resource heap there is no reserved range, so a copy or clear
+        // recorded without one cannot read a stale internal descriptor; the
+        // recording paths that bind eagerly use this so a process that never
+        // draws does not allocate a heap on their account. Once the resource
+        // heap exists this IS CmdBind: its companion sampler heap is created on
+        // first bind if it is not yet, and a heap left behind by a dead device
+        // is replaced, exactly as for a draw.
+        bool CmdBindIfCreated(VkCommandBuffer cmd);
 
         // Byte stride between consecutive slots — also the mapping's
         // heapIndexStride, by construction.
@@ -97,6 +109,18 @@ namespace OloEngine
         // Teardown (device idle): enqueue the buffer for reclaim, forget
         // state; lazily re-creatable.
         void Release();
+
+        // Device-loss diagnostic (#1511): write the whole heap, as the CPU
+        // sees it, to `path`. Its first GetReservedRangeSize() bytes are the
+        // implementation's reserved range — the descriptors the driver writes
+        // for its own copy / clear / blit / resolve shaders — and the rest is
+        // the engine's slots, starting at GetSlotRegionOffset(). False when
+        // there is no heap or the file could not be written.
+        [[nodiscard]] bool WriteDiagnosticDump(const std::filesystem::path& path) const;
+        [[nodiscard]] VkDeviceSize GetReservedRangeSize() const
+        {
+            return m_ReservedRangeSize;
+        }
 
       private:
         VulkanResourceHeap() = default;

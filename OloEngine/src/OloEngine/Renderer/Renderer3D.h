@@ -308,6 +308,19 @@ namespace OloEngine
         /// Called at the top of every `BeginScene`; cheap when nothing moved.
         static void ReclaimSharedRenderState();
 
+        /// Put every buffer `Init` created on a fixed binding point back on that
+        /// point, except the four CommandDispatch binds per draw (its cache is
+        /// reset every frame). A UniformBuffer binds itself only in its
+        /// constructor, so anything that empties the slot later (deleting
+        /// whatever buffer is bound there, a transient on the same binding
+        /// number, a test) left every later frame reading zeroes, which for a
+        /// feature block means "off" — found one block at a time: fog (#446),
+        /// motion blur, then snow and the DRS bounds (#1511). Called by
+        /// `RenderPipeline::UploadExecutionState`, just before the graph runs.
+        /// The list is Init's and must track it; FrameBindingKnockoutTest fails
+        /// when a buffer the frame reads is missing from it.
+        static void RebindPersistentBuffers();
+
       public:
         // Diagnostics: which GPU-resource-holding members of s_Data are still alive?
         //

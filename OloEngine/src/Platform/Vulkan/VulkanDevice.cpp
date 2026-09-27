@@ -10,6 +10,7 @@
 #include "Platform/Vulkan/VulkanShader.h"
 #include "Platform/Vulkan/VulkanSecondaryCommandPools.h"
 #include "Platform/Vulkan/VulkanDeferredReclaim.h"
+#include "Platform/Vulkan/VulkanResourceHeap.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "Platform/Vulkan/VulkanBufferResources.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
@@ -1640,6 +1641,24 @@ namespace OloEngine
         return std::ranges::find(m_HostCopyDstLayouts, layout) != m_HostCopyDstLayouts.end();
     }
 
+    void VulkanDevice::DumpDescriptorHeapForFault() const
+    {
+        const auto path = VulkanAftermath::CrashReportPath("descriptor-heap", ".bin");
+        const auto& heap = VulkanResourceHeap::Get();
+        if (heap.WriteDiagnosticDump(path))
+        {
+            OLO_CORE_ERROR("[Vulkan] descriptor heap written to {} (first {} B are the implementation's reserved "
+                           "range, then the engine's slots)",
+                           path.string(), heap.GetReservedRangeSize());
+        }
+        else
+        {
+            OLO_CORE_ERROR("[Vulkan] no descriptor-heap dump for this fault: the heap is not mapped (released or "
+                           "never created) or {} could not be written",
+                           path.string());
+        }
+    }
+
     void VulkanDevice::LogDeviceFaultInfo() const
     {
         // Two independent sources, each behind its own extension: a missing
@@ -1647,6 +1666,14 @@ namespace OloEngine
         // versa. Either alone is worth having on a device loss.
         LogDeviceFaultRecords();
         LogQueueCheckpoints();
+        // The resource heap as the CPU sees it at the fault (#1511). Its first
+        // reserved-range bytes hold the descriptors the DRIVER wrote for its own
+        // copy / clear / blit / resolve shaders; an address that faults inside
+        // an image named there, and in no engine slot, is a fixed-function
+        // command recorded while the heaps were unbound. On NVIDIA each 32-byte
+        // entry is a texture header: address = (word2 & 0xffff) << 32 | word1,
+        // extent = (word4 & 0xffff) + 1 by (word5 & 0xffff) + 1.
+        DumpDescriptorHeapForFault();
         // The third source, and the only one that names the RESOURCE at the
         // faulting address and whether its memory was already freed. Last
         // because it waits on the driver to assemble its dump.

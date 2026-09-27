@@ -50,13 +50,15 @@ not whether the current thread is the render thread.
    item frontend upload objects are created/reused with empty dispatcher caches.
 2. **Record.** Every item's secondary command buffer is acquired and begun on the render thread
    first, from that item's own (frame slot, item) pool — a pool that cannot deliver declines the
-   region into the one inline path. Then `ParallelFor` over the items: the body runs with the
+   region into the one inline path — and gets the heaps bound before its first command. Then `ParallelFor` over the items: the body runs with the
    worker context set; its scope is closed and its clear materialised the way `EndRecording`
    does for a frame.
 3. **Join.** Overlays merge into the render thread's tracker in **item order**; the secondaries
    are executed with one `vkCmdExecuteCommands` in **item order**; tallies are summed; the
-   primary's command-buffer caches are reset (state is undefined after execute); the render
-   thread adopts the last item's framebuffer selections, which is GL's sticky attachment state
+   primary's command-buffer caches are reset (state is undefined after execute) and its descriptor
+   heaps are bound again AT ONCE, before any copy or clear the next pass records
+   ([vulkan-descriptor-heap-rebind-after-execute-commands.md](vulkan-descriptor-heap-rebind-after-execute-commands.md),
+   #1511); the render thread adopts the last item's framebuffer selections, which is GL's sticky attachment state
    after a loop. Frontend statistics publish in item order and caller dispatcher caches are
    invalidated. A nested region executes inline inside its parent item and contributes to that
    parent's timing without touching the shared item pool or frame statistics.

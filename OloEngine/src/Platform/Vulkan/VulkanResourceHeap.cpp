@@ -9,6 +9,8 @@
 #include "Platform/Vulkan/VulkanSamplerHeap.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
+#include <fstream>
+
 namespace OloEngine
 {
     VulkanResourceHeap& VulkanResourceHeap::Get()
@@ -217,11 +219,11 @@ namespace OloEngine
         return true;
     }
 
-    void VulkanResourceHeap::CmdBind(VkCommandBuffer cmd)
+    bool VulkanResourceHeap::CmdBind(VkCommandBuffer cmd)
     {
         if (!EnsureCreated() || cmd == VK_NULL_HANDLE)
         {
-            return;
+            return false;
         }
         VkBindHeapInfoEXT bindInfo{};
         bindInfo.sType = VK_STRUCTURE_TYPE_BIND_HEAP_INFO_EXT;
@@ -236,6 +238,23 @@ namespace OloEngine
         // hand-recording callers — the pilot test was the first —
         // from having to know a second heap exists.
         VulkanSamplerHeap::Get().CmdBind(cmd);
+        return true;
+    }
+
+    bool VulkanResourceHeap::CmdBindIfCreated(VkCommandBuffer cmd)
+    {
+        return m_Buffer != VK_NULL_HANDLE && CmdBind(cmd);
+    }
+
+    bool VulkanResourceHeap::WriteDiagnosticDump(const std::filesystem::path& path) const
+    {
+        if (m_Mapped == nullptr || m_TotalSize == 0)
+        {
+            return false;
+        }
+        std::ofstream out{ path, std::ios::binary };
+        out.write(static_cast<const char*>(m_Mapped), static_cast<std::streamsize>(m_TotalSize));
+        return static_cast<bool>(out);
     }
 
     void VulkanResourceHeap::Release()

@@ -115,23 +115,13 @@ OLO_LEVER_TOGGLE(VulkanNoHostImageCopy, "OLO_VULKAN_NO_HOST_IMAGE_COPY",
                  "disabling the Vulkan 1.4 host-image-copy route (#809). The host route changes WHEN an "
                  "upload happens relative to the queue, so this is the A/B for attributing a frame or "
                  "validation difference to it without rebuilding the backend.")
-OLO_LEVER_TOGGLE(VulkanNoDepthReclaimHold, "OLO_VULKAN_NO_DEPTH_RECLAIM_HOLD",
-                 "Disable the extra generation a depth-stencil image's memory is held after its last use "
-                 "(VulkanDeferredReclaim::kDepthStencilHoldGenerations, #1198). That hold is a workaround for a "
-                 "driver-side read of a destroyed depth target's base address on the first frame after it is "
-                 "replaced; this lever exists so it can be re-tested against a new driver rather than trusted "
-                 "forever. Turning it on restores the device fault on a live forward -> forward+ switch on the "
-                 "driver it was measured on.")
-OLO_LEVER_TOGGLE(VulkanParallelCascadeRecording, "OLO_VULKAN_PARALLEL_CSM",
-                 "Record the directional-light shadow cascades as parallel items again (#1504). They are recorded "
-                 "inline because forking them — each item rendering into a different layer of the cascade array "
-                 "from its own secondary command buffer — was followed by a device fault reading a scene target "
-                 "freed after a resize or render-path switch, with no engine-side reference to it. This lever "
-                 "exists so that workaround can be re-tested against a new driver rather than trusted forever (#1511).")
 OLO_LEVER_TOGGLE(VulkanAftermathCrashDumps, "OLO_VULKAN_AFTERMATH",
                  "Arm NVIDIA Nsight Aftermath GPU crash dumps and enable VK_NV_device_diagnostics_config "
                  "resource tracking, so a device loss writes a .nv-gpudmp and logs the page-fault RESOURCE "
-                 "— its handle, format, extent, and whether its memory was already freed (#1198). This is "
+                 "— its handle, format, extent, and whether its memory was already freed (#1198) — plus a "
+                 "decoded .json next to the dump: the faulted warp mapped to a shader source line, and the "
+                 "driver's automatic markers with CPU call stacks (resolve them with nv-aftermath-format -p "
+                 "<pdb dir>) that name the command in flight (#1511). This is "
                  "the only source of that last fact: VK_EXT_device_fault gives an address and the NV "
                  "checkpoints give a pass, but neither says what lived there. Needs a build configured with "
                  "AFTERMATH_SDK_ROOT; without one this warns rather than going quiet. OFF by default — "

@@ -145,6 +145,13 @@ namespace OloEngine
         {
             return Ctx().Cmd;
         }
+        // True while the calling context's command buffer has the descriptor
+        // heaps bound — which BindDescriptorHeaps keeps true for the whole of
+        // every recording (#1511). Tests pin that invariant through this.
+        [[nodiscard]] bool AreDescriptorHeapsBound() const
+        {
+            return Ctx().HeapBoundThisRecording;
+        }
 
         // --- Mid-frame flush (#691) --------------------------------
         // A synchronous mid-frame readback (StorageBuffer::GetData between
@@ -693,6 +700,28 @@ namespace OloEngine
         [[nodiscard]] VkExtent2D ScopeExtent() const;
 
         using FramebufferAttachmentSelection = VulkanRecordingContext::FramebufferAttachmentSelection;
+
+        // Bind the resource and sampler heaps into `ctx`'s command buffer
+        // (issue #1511). Called wherever a command buffer enters a recording
+        // context or loses its heap bindings — a begin, a resume after a
+        // flush or async segment, a forked secondary, and every
+        // vkCmdExecuteCommands — so that NO command, including a copy, blit,
+        // clear or resolve, is ever recorded without the heaps bound.
+        // Those fixed operations run as driver-internal shaders whose
+        // descriptors the implementation writes into the bound heap's reserved
+        // range; recorded with no heap bound, the internal shader reads
+        // whatever that range last held. Binds only a heap that exists: with
+        // none there is no reserved range to go stale, and the first draw or
+        // dispatch creates it. See
+        // docs/agent-rules/vulkan-descriptor-heap-rebind-after-execute-commands.md.
+        static void BindDescriptorHeaps(VulkanRecordingContext& ctx);
+        // The command buffer's bind state became undefined (a resume, a
+        // vkCmdExecuteCommands): forget the caches and bind the heaps again, in
+        // one step so no caller can do the first without the second.
+        static void ForgetBindsAndRebindHeaps(VulkanRecordingContext& ctx);
+        // The draw and dispatch front-ends: create and bind the heaps if this
+        // recording has none bound yet.
+        static void EnsureDescriptorHeapsForDrawOrDispatch(VulkanRecordingContext& ctx);
 
         // End the scope if active (barriers/copies/dispatches are illegal
         // inside a rendering instance).

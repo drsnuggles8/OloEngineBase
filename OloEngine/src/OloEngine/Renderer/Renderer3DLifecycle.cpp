@@ -643,6 +643,55 @@ namespace OloEngine
             &s_Data.ForwardPlus);
     }
 
+    void Renderer3D::RebindPersistentBuffers()
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!HasInitialized())
+            return;
+
+        const auto rebind = [](const auto& buffer)
+        {
+            if (buffer)
+                buffer->Bind();
+        };
+        // Init's order, so a binding number two of these share ends up where
+        // Init left it (the ray-tracing blocks all sit on UBO_RAY_TRACING, and
+        // each of those passes binds its own before it dispatches).
+        //
+        // Not here: the camera, material and both bone-matrix blocks. The
+        // dispatcher binds those per draw through its bound-state cache, which
+        // ResetState empties every frame. Re-binding them here as well would
+        // make a stale cache look right, and hide the missing-reset fault
+        // RendererStateMachineNegativeControl injects to prove the harness
+        // catches it.
+        rebind(s_Data.MultiLightBuffer);
+        rebind(s_Data.TerrainUBO);
+        rebind(s_Data.FoliageUBO);
+        rebind(s_Data.WaterUBO);
+        rebind(s_Data.PostProcessGPU.PostProcess);
+        rebind(s_Data.PostProcessGPU.MotionBlur);
+        rebind(s_Data.PostProcessGPU.SSAO);
+        rebind(s_Data.PostProcessGPU.GTAO);
+        rebind(s_Data.PostProcessGPU.SSR);
+        rebind(s_Data.PostProcessGPU.SSGI);
+        rebind(s_Data.PostProcessGPU.ContactShadow);
+        rebind(s_Data.PostProcessGPU.RayTracedShadow);
+        rebind(s_Data.PostProcessGPU.RayTracedReflection);
+        rebind(s_Data.PostProcessGPU.GpuPathTracer);
+        rebind(s_Data.PostProcessGPU.ReSTIRDI);
+        rebind(s_Data.PostProcessGPU.ReSTIRGI);
+        rebind(s_Data.SceneEffectsGPU.Snow);
+        rebind(s_Data.SceneEffectsGPU.SSS);
+        rebind(s_Data.SceneEffectsGPU.Fog);
+        rebind(s_Data.SceneEffectsGPU.FogVolumes);
+        rebind(s_Data.DecalUBO);
+        rebind(s_Data.LightProbeVolumeUBO);
+        rebind(s_Data.LightmapUBO);
+        rebind(s_Data.SceneEffectsGPU.DRS);
+        rebind(s_Data.UnderwaterFogBuffer);
+        rebind(s_Data.LightProbeSHBuffer);
+    }
+
     std::vector<std::string> Renderer3D::DebugLiveGpuOwningStatics()
     {
         std::vector<std::string> live;

@@ -356,6 +356,11 @@ namespace OloEngine
         /// storage for the replacement — in which case the address alone no
         /// longer distinguishes the two binds.
         VkDeviceSize BoundIndexBufferSize = 0;
+        /// True once VulkanRendererAPI::BindDescriptorHeaps has bound the heaps
+        /// into Cmd. Cleared with the other bind caches whenever Cmd's bindings
+        /// become undefined, and set again at once by the same caller (#1511):
+        /// a copy or clear recorded while this is false runs its driver-internal
+        /// shader against a stale reserved-range descriptor.
         bool HeapBoundThisRecording = false;
         VulkanVertexArray* BoundVertexArray = nullptr; ///< BindVertexArrayRaw's publication.
         std::vector<u8> RootScratch;

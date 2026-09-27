@@ -7,6 +7,7 @@
 
 #include "Platform/Vulkan/VulkanImageLayoutTracker.h"
 #include "Platform/Vulkan/VulkanRecordingContext.h"
+#include "Platform/Vulkan/VulkanResourceHeap.h"
 
 #include <cstring>
 
@@ -120,6 +121,11 @@ namespace OloEngine
             // spans the submit and is promoted by MarkSubmitted below. Every
             // early return between here and there discards the writes.
             VulkanImageLayoutTracker::ImmediateExecutionScope immediate;
+            // One-shots record blits, copies and clears, which run as
+            // driver-internal shaders reading descriptors from the bound heap's
+            // reserved range — bound before the first command, like every other
+            // command buffer the backend records (#1511).
+            (void)VulkanResourceHeap::Get().CmdBindIfCreated(cmd);
             record(cmd);
 
             if (vkEndCommandBuffer(cmd) != VK_SUCCESS)

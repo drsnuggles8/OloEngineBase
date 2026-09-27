@@ -819,8 +819,14 @@ namespace OloEngine
         m_FramebufferSpec.Height = height;
         if (m_Target)
         {
+            // Framebuffer::Resize keeps the attachments at an unchanged extent,
+            // so only a real change is worth a line (#1511: a render-path switch
+            // resizes to the current size).
+            const auto& current = m_Target->GetSpecification();
+            const bool changed = current.Width != width || current.Height != height;
             m_Target->Resize(width, height);
-            OLO_CORE_INFO("SceneRenderPass: Resized framebuffer to {}x{}", width, height);
+            if (changed)
+                OLO_CORE_INFO("SceneRenderPass: Resized framebuffer to {}x{}", width, height);
         }
 
         // Keep the G-Buffer in lockstep with the forward target so a runtime

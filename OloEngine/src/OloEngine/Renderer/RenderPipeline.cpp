@@ -2395,6 +2395,10 @@ namespace OloEngine
         }
 
         ApplyGlobalResources(data);
+        // Every buffer Init bound once, back on its slot before anything reads
+        // it: a slot another buffer or test emptied in the meantime would
+        // otherwise read as zeroes all frame (#446, #1511).
+        Renderer3D::RebindPersistentBuffers();
 
         // GPU-pushable shader debug draws (issue #725). This is the seam where
         // the CPU-staged pushes become GPU-visible, and it has to be exactly
