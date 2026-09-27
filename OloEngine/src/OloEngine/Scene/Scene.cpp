@@ -9800,9 +9800,14 @@ namespace OloEngine
         state.m_PublishedPrevDisplacements.Reset();
         if (expanded && !state.m_PrevDisplacements.IsEmpty())
         {
-            (void)ExpandGroomGuideDisplacements(standIns, span32(state.m_SlotPointCount), span32(offsets),
-                                                spanV(state.m_PrevDisplacements), state.m_PublishedPrevOffsets,
-                                                state.m_PublishedPrevDisplacements);
+            // All or nothing: a previous frame that does not expand publishes no
+            // previous frame (zero motion), never a partial one.
+            if (!ExpandGroomGuideDisplacements(standIns, span32(state.m_SlotPointCount), span32(offsets),
+                                               spanV(state.m_PrevDisplacements), state.m_PublishedPrevOffsets,
+                                               state.m_PublishedPrevDisplacements))
+            {
+                state.m_PublishedPrevDisplacements.Reset();
+            }
         }
 
         request.Influence = influence;

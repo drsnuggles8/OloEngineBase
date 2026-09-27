@@ -703,3 +703,58 @@ TEST(GroomGuideInfluence, AStandInIsSampledByParameterAlongTheGuide)
                                                displacements, outOffsets, out));
     EXPECT_TRUE(out.IsEmpty());
 }
+
+TEST(GroomGuideInfluence, AStandInNeverCrossesARoleEvenInsideItsGroup)
+{
+    // One group holding slots of two roles. Role 0 is simulated (slot 0); role 1
+    // has an authored budget of zero. Slot 1 (role 1) sits right beside slot 0,
+    // in the same group, and must still stay at rest.
+    const std::vector<glm::vec3> roots{ { 0, 0, 0 }, { 0.1f, 0, 0 }, { 5, 0, 0 } };
+    const std::vector<u32> groups{ 7, 7, 7 };
+    const std::vector<u32> roles{ 0, 1, 0 };
+    const std::vector<u32> guideOfSlot{ 0u, GroomNoGuide, GroomNoGuide };
+    TArray<GroomGuideWeights> standIns;
+    BuildGroomGuideStandIns(roots, groups, roles, guideOfSlot, standIns);
+    ASSERT_EQ(standIns.Num(), 3);
+    EXPECT_EQ(standIns[1].Guides[0], GroomNoGuide) << "a stand-in crossed a role inside its group";
+    // Slot 2 is role 0: its group has a role-0 guide, however far.
+    EXPECT_EQ(standIns[2].Guides[0], 0u);
+    EXPECT_FLOAT_EQ(standIns[2].Weights[0], 1.0f);
+}
+
+TEST(GroomGuideInfluence, AMalformedLayoutIsRefusedWithNothingPublished)
+{
+    TArray<GroomGuideWeights> standIns;
+    standIns.SetNum(1);
+    standIns[0].Guides[0] = 0u;
+    standIns[0].Weights[0] = 1.0f;
+    const std::vector<u32> pointCounts{ 2u };
+    const std::vector<glm::vec3> oneDisplacement{ { 1, 0, 0 } };
+    TArray<u32> outOffsets;
+    TArray<glm::vec3> out;
+    const std::span<const GroomGuideWeights> view{ standIns.GetData(), 1u };
+
+    // The guide's range runs past the displacements.
+    const std::vector<u32> pastTheEnd{ 0u, 2u };
+    EXPECT_FALSE(ExpandGroomGuideDisplacements(view, pointCounts, pastTheEnd, oneDisplacement, outOffsets, out));
+    EXPECT_TRUE(out.IsEmpty());
+    EXPECT_TRUE(outOffsets.IsEmpty());
+
+    // Offsets that decrease, or do not start at zero.
+    const std::vector<glm::vec3> two{ { 1, 0, 0 }, { 2, 0, 0 } };
+    const std::vector<u32> decreasing{ 0u, 2u, 1u };
+    EXPECT_FALSE(ExpandGroomGuideDisplacements(view, pointCounts, decreasing, two, outOffsets, out));
+    const std::vector<u32> notFromZero{ 1u, 2u };
+    EXPECT_FALSE(ExpandGroomGuideDisplacements(view, pointCounts, notFromZero, two, outOffsets, out));
+
+    // A stand-in naming a guide the table does not have.
+    standIns[0].Guides[0] = 3u;
+    const std::vector<u32> valid{ 0u, 2u };
+    EXPECT_FALSE(ExpandGroomGuideDisplacements(view, pointCounts, valid, two, outOffsets, out));
+    EXPECT_TRUE(out.IsEmpty());
+
+    // The same layout with a real guide is accepted -- the control.
+    standIns[0].Guides[0] = 0u;
+    EXPECT_TRUE(ExpandGroomGuideDisplacements(view, pointCounts, valid, two, outOffsets, out));
+    EXPECT_EQ(out.Num(), 2);
+}

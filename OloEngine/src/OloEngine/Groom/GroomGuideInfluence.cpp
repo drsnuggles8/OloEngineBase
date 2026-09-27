@@ -345,16 +345,19 @@ namespace OloEngine
         }
         outStandIns.SetNum(static_cast<i32>(slotCount));
 
-        // The simulated slots, bucketed by group and by role, so a left-out
-        // slot searches its own group's guides, then its own role's, and never
-        // another role's.
-        std::unordered_map<u32, TArray<u32>> simulatedByGroup;
+        // The simulated slots, bucketed by (group, role) and by role, so a
+        // left-out slot searches its own group's guides OF ITS OWN ROLE, then
+        // its own role's anywhere, and never another role's -- a group may hold
+        // slots of two roles.
+        const auto groupRoleKey = [&](u32 slot)
+        { return (static_cast<u64>(slotGroups[slot]) << 32u) | static_cast<u64>(slotRoles[slot]); };
+        std::unordered_map<u64, TArray<u32>> simulatedByGroupRole;
         std::unordered_map<u32, TArray<u32>> simulatedByRole;
         for (u32 slot = 0; slot < slotCount; ++slot)
         {
             if (guideOfSlot[slot] != GroomNoGuide)
             {
-                simulatedByGroup[slotGroups[slot]].Add(slot);
+                simulatedByGroupRole[groupRoleKey(slot)].Add(slot);
                 simulatedByRole[slotRoles[slot]].Add(slot);
             }
         }
@@ -370,7 +373,7 @@ namespace OloEngine
             }
 
             const TArray<u32>* candidates = nullptr;
-            if (const auto group = simulatedByGroup.find(slotGroups[slot]); group != simulatedByGroup.end())
+            if (const auto group = simulatedByGroupRole.find(groupRoleKey(slot)); group != simulatedByGroupRole.end())
             {
                 candidates = &group->second;
             }
@@ -476,6 +479,32 @@ namespace OloEngine
         if (standIns.size() != slotPointCounts.size() || guideOffsets.empty())
         {
             return false;
+        }
+        // THE WHOLE LAYOUT IS CHECKED BEFORE EITHER OUTPUT IS WRITTEN, so a
+        // refusal publishes nothing rather than a zero displacement for a guide
+        // whose range was bad: offsets start at 0, never decrease and end inside
+        // the displacements, and every stand-in names a guide in the table.
+        if (guideOffsets.front() != 0u || guideOffsets.back() > displacements.size())
+        {
+            return false;
+        }
+        for (sizet i = 1; i < guideOffsets.size(); ++i)
+        {
+            if (guideOffsets[i] < guideOffsets[i - 1u])
+            {
+                return false;
+            }
+        }
+        const sizet guideCount = guideOffsets.size() - 1u;
+        for (const GroomGuideWeights& standIn : standIns)
+        {
+            for (u32 k = 0; k < GroomGuideInfluenceCount; ++k)
+            {
+                if (standIn.Guides[k] != GroomNoGuide && standIn.Guides[k] >= guideCount)
+                {
+                    return false;
+                }
+            }
         }
 
         u64 total = 0;
