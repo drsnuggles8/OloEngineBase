@@ -52,6 +52,13 @@ namespace OloEngine::Testing
             m_SupportsMeshShaders = supported;
         }
 
+        // RGBA32F attachment blending (issue #1468) — default true, as on every
+        // OpenGL context and every desktop Vulkan driver; a test opts OUT.
+        void SetSupportsFloat32AttachmentBlend(bool supported)
+        {
+            m_SupportsFloat32AttachmentBlend = supported;
+        }
+
         // ----------------------------------------------------------------
         // Recording accessors
         // ----------------------------------------------------------------
@@ -846,6 +853,10 @@ namespace OloEngine::Testing
         {
             return m_SupportsMeshShaders;
         }
+        [[nodiscard]] bool SupportsFloat32AttachmentBlend() const override
+        {
+            return m_SupportsFloat32AttachmentBlend;
+        }
         // Ray tracing (issue #978). Defaults to unsupported so a headless test
         // exercises the fallback arm unless it deliberately opts in — the same
         // default-off rule as m_SupportsMeshShaders. Settable, because the
@@ -1379,6 +1390,7 @@ namespace OloEngine::Testing
         u32 m_MaxUniformBlockSize = 65536u;
         bool m_SupportsInt64Atomics = false;
         bool m_SupportsMeshShaders = false;
+        bool m_SupportsFloat32AttachmentBlend = true;
         // Default-constructed: Supported = false, Reason = BackendNotVulkan.
         RayTracing::Capabilities m_RayTracingCapabilities{};
         Viewport m_Viewport{ 0, 0, 1920, 1080 };

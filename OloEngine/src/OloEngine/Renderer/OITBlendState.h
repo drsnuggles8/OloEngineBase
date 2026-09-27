@@ -36,6 +36,16 @@ namespace OloEngine
     /// cannot fix both ends: fp16 spans ~12 decades and alpha^2 * weight uses ~11.5.
     inline constexpr RGResourceFormat kOITAccumFormat = RGResourceFormat::RGBA32Float;
 
+    /// Whether this frame runs weighted-blended OIT: requested, AND the device can
+    /// blend the kOITAccumFormat attachment. That is core in OpenGL and optional on
+    /// Vulkan; a device without it draws transparency sorted, and VulkanDevice says
+    /// so at startup. The pipeline's pass wiring and its graph declarations both ask
+    /// this, so the two cannot disagree about whether the OIT targets exist.
+    [[nodiscard]] inline bool WeightedBlendedOITIsActive(bool requested, const RendererAPI& api)
+    {
+        return requested && api.SupportsFloat32AttachmentBlend();
+    }
+
     /// Both OIT targets writable on every channel.
     inline void ApplyWeightedBlendedOITWriteMasks(RendererAPI& api)
     {

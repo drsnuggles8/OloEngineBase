@@ -39,6 +39,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/OITBlendState.h"
 
+#include "Rendering/MockRendererAPI.h"
 #include "Rendering/ReSTIR/ShaderSourceScan.h"
 
 namespace OloEngine::Tests
@@ -261,6 +262,20 @@ namespace OloEngine::Tests
         const glm::vec3 bg(0.0f);
         const glm::vec3 out = ResolveOIT(faint, bg);
         EXPECT_NEAR(out.x, 0.05f, 1e-5f) << "the division guard is darkening a faint layer";
+    }
+
+    // Issue #1468. The RGBA32F accumulator is only an OIT target where the device
+    // can blend it: an optional format feature on Vulkan. Without it the frame
+    // runs no OIT at all, rather than additively blending an attachment the
+    // device cannot blend.
+    TEST(OITResolveTest, OITRunsOnlyWhereTheAccumulatorCanBeBlended)
+    {
+        Testing::MockRendererAPI api;
+        EXPECT_TRUE(WeightedBlendedOITIsActive(true, api));
+        EXPECT_FALSE(WeightedBlendedOITIsActive(false, api));
+        api.SetSupportsFloat32AttachmentBlend(false);
+        EXPECT_FALSE(WeightedBlendedOITIsActive(true, api)) << "OIT ran on a device that cannot blend RGBA32F";
+        EXPECT_FALSE(WeightedBlendedOITIsActive(false, api));
     }
 
     TEST(OITResolveTest, TheTwinMatchesTheShaders)

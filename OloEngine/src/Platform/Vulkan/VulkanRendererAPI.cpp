@@ -1518,6 +1518,12 @@ namespace OloEngine
         return m_SupportsInt64Atomics;
     }
 
+    bool VulkanRendererAPI::SupportsFloat32AttachmentBlend() const
+    {
+        const auto* device = VulkanDevice::Get();
+        return device != nullptr && device->IsFloat32AttachmentBlendSupported();
+    }
+
     bool VulkanRendererAPI::SupportsMeshShaders() const
     {
         // ENABLED on the logical device, not merely supported by the physical

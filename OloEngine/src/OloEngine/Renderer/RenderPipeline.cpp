@@ -2291,7 +2291,9 @@ namespace OloEngine
             // and Deferred. Previously locked to Deferred which prevented
             // enabling OIT at all from the Forward UI; relaxed so the toggle
             // is the single source of truth.
-            const bool oitEnabled = data.Settings.OITEnabled;
+            // And only where the RGBA32F accumulator can be blended (#1468).
+            const bool oitEnabled =
+                WeightedBlendedOITIsActive(data.Settings.OITEnabled, RenderCommand::GetRendererAPI());
             const bool hasOITContributors =
                 (SceneCompositePasses.Particle && SceneCompositePasses.Particle->HasRenderCallback()) ||
                 (RenderStreamPasses.Decal && RenderStreamPasses.Decal->HasSubmittedCommands());
@@ -2970,7 +2972,9 @@ namespace OloEngine
                 config.GBufferSamples = gbuffer->GetSampleCount();
             }
         }
-        config.OITEnabled = data.Settings.OITEnabled;
+        // The same answer the passes were handed: no OIT targets where the RGBA32F
+        // accumulator cannot be blended (#1468).
+        config.OITEnabled = WeightedBlendedOITIsActive(data.Settings.OITEnabled, RenderCommand::GetRendererAPI());
         // The technique the graph was BUILT for (#771), not the requested one:
         // only the built one has a pass registered to write AOBuffer.
         config.GraphAOTechnique = data.ActiveGraphAOTechnique;

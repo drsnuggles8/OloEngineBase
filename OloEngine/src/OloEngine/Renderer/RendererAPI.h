@@ -990,6 +990,15 @@ namespace OloEngine
         // GL_NV_mesh_shader is deliberately out of scope. The decision is
         // refuse-or-degrade, made explicitly by the caller, never silent.
         [[nodiscard("Store this!")]] virtual bool SupportsMeshShaders() const = 0;
+        // Whether an RGBA32F colour attachment can be blended. The weighted-
+        // blended OIT accumulator is RGBA32F (kOITAccumFormat, issue #1468),
+        // and the pipeline turns OIT off where this is false. Core in OpenGL
+        // since 3.0; an optional format feature on Vulkan, which answers from
+        // the device.
+        [[nodiscard]] virtual bool SupportsFloat32AttachmentBlend() const
+        {
+            return true;
+        }
         // The hardware ray-tracing capability, issue #978 — ONE owner for the
         // whole question (rhi-abstraction-boundary.md §13c). It deliberately
         // answers three things at once: whether ray query is usable right now,

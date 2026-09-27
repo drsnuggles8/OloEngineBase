@@ -1352,15 +1352,19 @@ namespace OloEngine
         // The weighted-blended OIT accumulator is RGBA32F and additively
         // blended (kOITAccumFormat, issue #1468). Blending that format is not
         // among Vulkan's mandatory format features; every desktop driver has
-        // it, but a device without it would draw transparency wrong with no
-        // other sign, so say so once here.
+        // it. A device without it gets no OIT at all -- the pipeline reads
+        // SupportsFloat32AttachmentBlend and draws transparency sorted -- and
+        // says so once here, rather than blending an attachment the device
+        // cannot blend.
         {
             VkFormatProperties accumProperties{};
             vkGetPhysicalDeviceFormatProperties(m_PhysicalDevice, VK_FORMAT_R32G32B32A32_SFLOAT, &accumProperties);
-            if ((accumProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT) == 0)
+            m_Float32AttachmentBlendSupported =
+                (accumProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT) != 0;
+            if (!m_Float32AttachmentBlendSupported)
             {
                 OLO_CORE_ERROR("[Vulkan] R32G32B32A32_SFLOAT cannot be blended on this device — weighted-blended "
-                               "OIT (RGBA32F accumulator) will composite wrong transparency");
+                               "OIT (RGBA32F accumulator) is disabled; transparency is drawn sorted instead");
             }
         }
 
