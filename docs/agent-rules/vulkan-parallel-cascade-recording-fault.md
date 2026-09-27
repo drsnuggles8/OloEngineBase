@@ -1,13 +1,17 @@
-# Record Vulkan shadow cascades inline: forked, they fault a freed scene target
+# A parallel-region bisect finds the trigger, not the cause: the #1504 cascade fault
 
-**Rule:** `ShadowRenderPass` records its cascade (CSM) region inline, never through
-`RenderCommand::RecordParallel`. The atlas region still forks. `OLO_VULKAN_PARALLEL_CSM=1` restores
-the forked cascades so the workaround can be re-tested against a new driver; on the NVIDIA driver
-it was measured on, that brings the device fault back.
+**Rule:** bisect a Vulkan parallel-recording fault by forcing one region at a time inline, not by
+reading the checkpoint: a checkpoint names the pass the GPU was in when it faulted, not the pass that
+set the fault up. Then treat the region the bisect finds as the **trigger** until a crash dump names
+the reader. Here it found the shadow cascades, and the cascades were not the cause.
 
-**And a method rule, which cost more time than the fix:** a checkpoint names the pass the GPU was
-in when it faulted, not the pass that set the fault up. Bisect a parallel-recording fault by
-forcing one region at a time inline, not by reading the checkpoint.
+**What the cause was:** the descriptor heaps were unbound after `vkCmdExecuteCommands`, so the
+fixed-function commands that followed a forked region read a stale driver descriptor from the heap's
+reserved range. Forking the cascades added an execute before the shadow pass's depth clears and the
+scene's depth export copy. See
+[vulkan-descriptor-heap-rebind-after-execute-commands.md](vulkan-descriptor-heap-rebind-after-execute-commands.md)
+(#1511). The cascades fork again. #1504 recorded them inline behind `OLO_VULKAN_PARALLEL_CSM`; the
+inline branch, its lever and its policy test were removed on #1511.
 
 Issue #1504.
 
@@ -32,8 +36,7 @@ resize or a render-path switch (typically deferred → forward), the device is l
 
 With `OLO_VULKAN_ADDRESS_BINDING_REPORT=1` the owner is always a **scene-target attachment from an
 earlier viewport size**, freed a few frames earlier: the `D32_SFLOAT_S8_UINT` depth-stencil in most
-runs (already under #1198's extra-generation hold), once an `R16G16_SFLOAT` colour attachment. The
-instruction pointer is constant across builds of one tree.
+runs, once an `R16G16_SFLOAT` colour attachment.
 
 ## How it was narrowed (live editor, 4–8 interleaved runs per arm)
 
@@ -49,60 +52,44 @@ instruction pointer is constant across builds of one tree.
 | shadow **cascade** region inline (4 items, one layer each) | **0/8** |
 
 The scene-pass arm is the timing control: it slows the frame more than inlining the cascades and
-still faults, so the cascade arm is not a timing mask.
+still faults, so the cascade arm is not a timing mask. It was a real trigger. It was not the cause.
 
-## Every engine-side reference was absent
+## Why every engine-side reference came back absent
 
-Each of these was run on faulting runs and came back empty. It is the #1198 audit, extended:
+The #1198 audit, extended, ran on faulting runs:
+- validation;
+- a record-time use-after-retirement set;
+- a slot → image map at the free;
+- lifetime holds of 16 generations;
+- secondary-pool resets;
+- GPU-AV.
 
-1. **Validation:** no error before the fault. A submitted command buffer that referenced a
-   destroyed image would have been reported at submit.
-2. **Record-time use after retirement:** every image was put in a set when it was *enqueued* for
-   destruction. No descriptor write (`VulkanResourceHeap::WriteImageDescriptor`, the one funnel,
-   including the transient ring's `UploadSlots` and every null write) and no rendering-scope
-   attachment named a retired image.
-3. **Heap contents at the free:** a slot → image map kept in that funnel showed no heap slot still
-   naming the image when `DestroyEntry` ran. The slot cache already poisons freed slots with the
-   null image, so a stale *index* reads black and cannot fault.
-4. **Lifetime:** `NotifyFrameCompleted` advances only after `vkWaitForFences` on that slot, and the
-   fault does not care about async compute. Holding **every** image 16 generations instead of 2–3
-   did not stop it; the fault followed the next forward switch after the free.
-5. **Secondary pools:** resetting them with `VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT`, or
-   resetting every pool of the slot each frame, changed nothing. Neither did recording the
-   cascades' depth clear outside `vkCmdBeginRendering` instead of folding it into `loadOp`.
-6. **GPU-AV** lost the device the same way without reporting an access first. Its descriptor-heap
-   coverage may not reach this path, so that silence is weak evidence.
-
-What is unique to the cascade region: its items are the only ones that each render into a
-**different depth surface** (a single-layer view of the cascade array) from their own secondary
-command buffer. The atlas items share one layer; the scene items share one target. A read that no
-submitted command asks for fits the #1198 explanation, driver-side per-depth-surface bookkeeping.
-It is not proven: this box has no Nsight Aftermath SDK, and only Aftermath could name the shader
-and say whether the read was the driver's. The Aftermath run that would settle it, for this
-fault and #1198's together, is #1511.
+All six were empty, correctly. The stale reference was never an engine command or an engine heap
+slot. It was a descriptor the driver had written into the reserved range for an earlier copy, read
+by a copy recorded while no heap was bound. Only two things could see it: Aftermath's marker call
+stacks, and a dump of the reserved range (#1511).
 
 ## What the visual check found
 
-Recording the cascades inline leaves the four cascade layers byte-identical (and within 1–2 LSB of
-GL), yet one lit Vulkan forward frame came out darker on the near ground than a forked one. The
-difference was entirely in GTAO's `AOBuffer`, and it was not this change: on Vulkan that buffer
-alternates frame by frame between all-255 and a real AO term (a half-rate flicker, with async
-compute on or off), and the real term also over-darkened flat ground through an HZB read that
-wrapped at the screen edge. Two single captures had landed on different phases. Both are #1512.
-Diff the intermediate targets (`olo_render_capture_target`) before blaming the pass you changed,
-and take more than one capture of anything that could alternate.
+Recording the cascades inline left the four cascade layers byte-identical, yet one lit Vulkan
+forward frame came out darker than a forked one. The difference was entirely in GTAO's `AOBuffer`,
+which alternated frame by frame between all-255 and a real AO term. That was #1512, the same unbound
+heap, read by GTAO's clear. Two single captures had landed on different phases. Diff the
+intermediate targets (`olo_render_capture_target`) before blaming the pass you changed, and take
+more than one capture of anything that could alternate.
 
 ## Two traps
 
 - **The checkpoint pointed at a bystander.** `ScenePrepassPass` was the last marker in every
   report; inlining its region changed nothing. The pass that mattered recorded earlier in the frame.
-- **A one-line probe needs the destroy side too.** "Nothing writes a retired image" says nothing
-  about a descriptor written *before* retirement and never overwritten. Check both halves.
+- **A workaround that removes the trigger passes every test.** Inline cascades took the fault from
+  7/8 to 0/8, and the unbound copies after the scene fork were still there. Keep a re-test lever on
+  such a workaround, as #1504 did, and remove the workaround once the cause is fixed.
 
-Instruments for next time: the harness and probes are described in the #1504 PR. The per-region
-inline switch was a temporary `std::getenv` in `VulkanRendererAPI::RecordParallelOrdered` keyed on
-the region's debug label and item count; it is the fastest bisect this class of fault has.
+Instruments: the per-region inline switch was a temporary `std::getenv` in
+`VulkanRendererAPI::RecordParallelOrdered` keyed on the region's debug label and item count. It is
+the fastest bisect for this class of fault.
 
-Related: [vulkan-device-fault-address-ownership.md](vulkan-device-fault-address-ownership.md) (the
-#1198 audit this extends), [vulkan-parallel-recording.md](vulkan-parallel-recording.md),
+Related: [vulkan-device-fault-address-ownership.md](vulkan-device-fault-address-ownership.md),
+[vulkan-parallel-recording.md](vulkan-parallel-recording.md),
 [vulkan-parallel-pass-audit.md](vulkan-parallel-pass-audit.md).

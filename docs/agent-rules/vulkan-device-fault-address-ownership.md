@@ -122,4 +122,4 @@ Related: [vulkan-async-compute-queue.md](vulkan-async-compute-queue.md) — the 
 submits a pass's command buffer mid-frame, which is what puts GPU execution and CPU recording of
 the same frame in flight together.
 
-A second fault of this shape (#1504) needed parallel recording and was set up by the shadow-cascade region, not the pass its checkpoint named; the audit above plus a per-region inline bisect is in [vulkan-parallel-cascade-recording-fault.md](vulkan-parallel-cascade-recording-fault.md).
+A second fault of this shape (#1504) needed parallel recording and was triggered by forking the shadow-cascade region, not by the pass its checkpoint named. Its cause was the same unbound heap (#1511). The per-region inline bisect that found the trigger is in [vulkan-parallel-cascade-recording-fault.md](vulkan-parallel-cascade-recording-fault.md).

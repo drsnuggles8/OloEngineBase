@@ -70,7 +70,8 @@ The stale reference lived in the driver's part of our heap, written legitimately
 bound copy of the then-current target. The workarounds each changed which image that entry named
 when it was read, or when it was freed. #1198 held depth one generation longer. #1504 recorded the
 cascades inline, so a bound clear refreshed the entry with a live image. Both masked the fault and
-left the export reading the wrong image.
+left the export reading the wrong image. Both are removed with the fix, levers included: the depth
+hold and `OLO_VULKAN_NO_DEPTH_RECLAIM_HOLD`, and the inline cascades and `OLO_VULKAN_PARALLEL_CSM`.
 
 #1198 also needed a second engine bug, fixed on 2026-09-23 by `ecfcf9753`. A draw recorded in a
 forked item took the engine-heap arm of `WriteMaterialHeapOffsets` and wrote lane value 0. Aftermath

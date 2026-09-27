@@ -115,12 +115,6 @@ OLO_LEVER_TOGGLE(VulkanNoHostImageCopy, "OLO_VULKAN_NO_HOST_IMAGE_COPY",
                  "disabling the Vulkan 1.4 host-image-copy route (#809). The host route changes WHEN an "
                  "upload happens relative to the queue, so this is the A/B for attributing a frame or "
                  "validation difference to it without rebuilding the backend.")
-OLO_LEVER_TOGGLE(VulkanParallelCascadeRecording, "OLO_VULKAN_PARALLEL_CSM",
-                 "Record the directional-light shadow cascades as parallel items again (#1504). They are recorded "
-                 "inline because forking them — each item rendering into a different layer of the cascade array "
-                 "from its own secondary command buffer — was followed by a device fault reading a scene target "
-                 "freed after a resize or render-path switch, with no engine-side reference to it. This lever "
-                 "exists so that workaround can be re-tested against a new driver rather than trusted forever (#1511).")
 OLO_LEVER_TOGGLE(VulkanAftermathCrashDumps, "OLO_VULKAN_AFTERMATH",
                  "Arm NVIDIA Nsight Aftermath GPU crash dumps and enable VK_NV_device_diagnostics_config "
                  "resource tracking, so a device loss writes a .nv-gpudmp and logs the page-fault RESOURCE "
