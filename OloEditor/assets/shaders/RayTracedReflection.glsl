@@ -130,7 +130,6 @@ layout(location = 0) in vec2 v_TexCoord;
 #define u_IndirectSpecularWeight OLO_HEAP_TEX_2D(2) // TEX_NORMAL
 #define u_PrefilterMap OLO_HEAP_TEX_CUBE(11)
 #define u_DepthTexture OLO_HEAP_TEX_2D(19)
-#define u_GBufferAlbedo OLO_HEAP_TEX_2D(43)
 #define u_GBufferNormal OLO_HEAP_TEX_2D(44)
 #else
 layout(binding = 0) uniform sampler2D u_SceneColor;      // upstream lit HDR colour (probe/IBL already in it)
@@ -138,7 +137,6 @@ layout(binding = 1) uniform sampler2D u_IndirectSpecular;       // the indirect 
 layout(binding = 2) uniform sampler2D u_IndirectSpecularWeight; // that term per unit of incident radiance
 layout(binding = 11) uniform samplerCube u_PrefilterMap; // TEX_USER_1: specular pre-filter mip chain
 layout(binding = 19) uniform sampler2D u_DepthTexture;   // scene depth (nonlinear, [0,1])
-layout(binding = 43) uniform sampler2D u_GBufferAlbedo;  // RT0: rgb = albedo, a = metallic
 layout(binding = 44) uniform sampler2D u_GBufferNormal;  // RT1: rg = oct world normal, z = roughness, w = ao
 #endif
 

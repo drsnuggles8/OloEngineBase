@@ -249,6 +249,11 @@ void main()
         // All sky. No surface, so no subsurface transport -- but the target
         // still has to be WRITTEN: an MRT output left alone is undefined.
         o_SkinDiffuse = vec4(0.0);
+#ifdef OLO_DEFERRED_INDIRECT_SPECULAR_OUTPUT
+        // And no lobe for a reflection tier to answer for.
+        o_IndirectSpecular = vec4(0.0);
+        o_IndirectSpecularWeight = vec4(0.0);
+#endif
         return;
     }
 

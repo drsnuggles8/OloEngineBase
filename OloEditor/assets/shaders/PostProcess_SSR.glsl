@@ -87,7 +87,6 @@ layout(location = 0) in vec2 v_TexCoord;
 #define u_IndirectSpecularWeight OLO_HEAP_TEX_2D(2) // TEX_NORMAL: its weight per unit radiance
 #define u_DepthTexture OLO_HEAP_TEX_2D(19)   // TEX_POSTPROCESS_DEPTH
 #define u_GBufferNormal OLO_HEAP_TEX_2D(44)  // TEX_GBUFFER_NORMAL
-#define u_GBufferAlbedo OLO_HEAP_TEX_2D(43)  // TEX_GBUFFER_ALBEDO
 #define u_MinHZB OLO_HEAP_TEX_2D(35)         // TEX_SSR_HZB
 #else
 layout(binding = 0) uniform sampler2D u_SceneColor;     // lit upstream HDR colour (reflection source)
@@ -98,7 +97,6 @@ layout(binding = 1) uniform sampler2D u_IndirectSpecular;
 layout(binding = 2) uniform sampler2D u_IndirectSpecularWeight;
 layout(binding = 19) uniform sampler2D u_DepthTexture;  // scene depth (nonlinear, [0,1])
 layout(binding = 44) uniform sampler2D u_GBufferNormal; // RT1: rg = oct world normal, z = roughness, w = ao
-layout(binding = 43) uniform sampler2D u_GBufferAlbedo; // RT0: rgb = albedo, a = metallic
 layout(binding = 35) uniform sampler2D u_MinHZB;        // min-depth (nearest-surface) HZB pyramid (#284)
 #endif
 
@@ -268,9 +266,6 @@ void main()
         return;
     }
 
-    vec4 gA = texture(u_GBufferAlbedo, v_TexCoord);
-    vec3 albedo = gA.rgb;
-    float metallic = gA.a;
 
     // World normal -> view space.
     vec3 Nworld = OctDecode(gN.xy);

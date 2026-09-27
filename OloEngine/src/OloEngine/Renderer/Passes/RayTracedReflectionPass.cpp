@@ -36,7 +36,6 @@ namespace OloEngine
         RenderGraphNode::Setup(builder, blackboard);
         m_SelectedSceneDepthTexture = {};
         m_SelectedGBufferNormalTexture = {};
-        m_SelectedGBufferAlbedoTexture = {};
         m_SelectedPrefilterTexture = {};
         m_SelectedIndirectSpecularTexture = {};
         m_SelectedIndirectSpecularWeightTexture = {};
@@ -63,7 +62,6 @@ namespace OloEngine
         if (!m_Enabled || !blackboard.Post.RTReflectionColor.IsValid() ||
             !blackboard.Scene.SceneDepth.IsValid() ||
             !blackboard.GBuffer.GBufferNormal.IsValid() ||
-            !blackboard.GBuffer.GBufferAlbedo.IsValid() ||
             !blackboard.Post.IndirectSpecularTexture.IsValid() ||
             !blackboard.Post.IndirectSpecularWeightTexture.IsValid())
             return;
@@ -78,10 +76,8 @@ namespace OloEngine
 
         [[maybe_unused]] const auto sceneDepthRead = builder.Read(blackboard.Scene.SceneDepth, RGReadUsage::ShaderSample);
         [[maybe_unused]] const auto normalRead = builder.Read(blackboard.GBuffer.GBufferNormal, RGReadUsage::ShaderSample);
-        [[maybe_unused]] const auto albedoRead = builder.Read(blackboard.GBuffer.GBufferAlbedo, RGReadUsage::ShaderSample);
         m_SelectedSceneDepthTexture = blackboard.Scene.SceneDepth;
         m_SelectedGBufferNormalTexture = blackboard.GBuffer.GBufferNormal;
-        m_SelectedGBufferAlbedoTexture = blackboard.GBuffer.GBufferAlbedo;
         [[maybe_unused]] const auto specularRead =
             builder.Read(blackboard.Post.IndirectSpecularTexture, RGReadUsage::ShaderSample);
         [[maybe_unused]] const auto weightRead =
@@ -254,14 +250,11 @@ namespace OloEngine
 
         RHI::ResourceHandle sceneDepthID{};
         RHI::ResourceHandle normalID{};
-        RHI::ResourceHandle albedoID{};
         RHI::ResourceHandle prefilterID{};
         if (m_SelectedSceneDepthTexture.IsValid())
             sceneDepthID = context.ResolveTextureHandle(m_SelectedSceneDepthTexture);
         if (m_SelectedGBufferNormalTexture.IsValid())
             normalID = context.ResolveTextureHandle(m_SelectedGBufferNormalTexture);
-        if (m_SelectedGBufferAlbedoTexture.IsValid())
-            albedoID = context.ResolveTextureHandle(m_SelectedGBufferAlbedoTexture);
         if (m_SelectedPrefilterTexture.IsValid())
             prefilterID = context.ResolveTextureHandle(m_SelectedPrefilterTexture);
         RHI::ResourceHandle specularID{};
@@ -272,7 +265,7 @@ namespace OloEngine
             specularWeightID = context.ResolveTextureHandle(m_SelectedIndirectSpecularWeightTexture);
 
         const bool graphResolved = outputFramebuffer && inputColorID.IsValid() && sceneDepthID.IsValid() &&
-                                   normalID.IsValid() && albedoID.IsValid() && specularID.IsValid() &&
+                                   normalID.IsValid() && specularID.IsValid() &&
                                    specularWeightID.IsValid();
 
         // The stats / warning verdict for this frame. It does NOT gate the draw:
@@ -417,8 +410,6 @@ namespace OloEngine
         context.BindTextureOrHeapOffset(0, inputColorID, RHI::HeapSlotLifetime::FrameTransient);
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthID,
                                         RHI::HeapSlotLifetime::FrameTransient);
-        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_ALBEDO, albedoID,
-                                        RHI::HeapSlotLifetime::FrameTransient);
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_NORMAL, normalID,
                                         RHI::HeapSlotLifetime::FrameTransient);
         // The term this tier replaces and its weight (issue #1325), at the two
@@ -471,7 +462,6 @@ namespace OloEngine
     {
         m_SelectedSceneDepthTexture = {};
         m_SelectedGBufferNormalTexture = {};
-        m_SelectedGBufferAlbedoTexture = {};
         m_SelectedPrefilterTexture = {};
         m_Stats.Reset();
         m_LastReportedFallback = ReflectionTierFallbackReason::Count;

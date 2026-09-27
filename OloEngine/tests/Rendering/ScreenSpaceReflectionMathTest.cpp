@@ -331,7 +331,7 @@ TEST(ScreenSpaceReflection, SanitizeClampsNonFiniteAndRanges)
 // states: the colour moves by exactly what the specular term moves by.
 TEST(ScreenSpaceReflection, DeltaCompositeIsTheSpecularTierHandOff)
 {
-    const auto color = glm::vec3(0.60f, 0.75f, 0.95f);   // diffuse + direct + emission + S
+    const auto color = glm::vec3(0.60f, 0.75f, 0.95f);    // diffuse + direct + emission + S
     const auto specular = glm::vec3(0.10f, 0.12f, 0.15f); // S, what the lighting composed
     const auto weight = glm::vec3(0.05f, 0.05f, 0.05f);   // W, a dielectric's split-sum weight
     const auto reflection = glm::vec3(9.0f, 1.0f, 0.5f);  // L, the radiance at the hit

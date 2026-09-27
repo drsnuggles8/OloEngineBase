@@ -4579,17 +4579,15 @@ namespace OloEngine
             const bool rtReflectionReady = rtReflection.IsReadyForExecution();
             const bool rtReflectionHasDepth = board.Scene.SceneDepth.IsValid();
             const bool rtReflectionHasNormal = board.GBuffer.GBufferNormal.IsValid();
-            const bool rtReflectionHasAlbedo = board.GBuffer.GBufferAlbedo.IsValid();
             const bool rtReflectionDeclared = rtReflectionEnabled && rtReflectionReady &&
-                                              rtReflectionHasDepth && rtReflectionHasNormal &&
-                                              rtReflectionHasAlbedo;
+                                              rtReflectionHasDepth && rtReflectionHasNormal;
 
             // WHEN THE TIER IS ARMED AND THE GRAPH DECLARES NOTHING, SAY WHY —
             // with the values, not a verdict. This is upstream of the pass's own
             // counters and has to be: a pass whose output was never declared is
             // CULLED, so it never executes, never fills ReflectionTierStats, and
             // "I ticked the box and the frame did not change" has no answer
-            // anywhere in the log. Naming the five inputs turns that into a
+            // anywhere in the log. Naming the four inputs turns that into a
             // five-second diagnosis instead of a bisect. Same shape, and the
             // same lesson, as the RayTracedShadowPass mask verdict above.
             //
@@ -4598,8 +4596,7 @@ namespace OloEngine
             if (data.PostProcess.RayTracedReflection.Enabled && !rtReflectionDeclared)
             {
                 const u32 verdict = (rtReflectionEnabled ? 1u : 0u) | (rtReflectionReady ? 2u : 0u) |
-                                    (rtReflectionHasDepth ? 4u : 0u) | (rtReflectionHasNormal ? 8u : 0u) |
-                                    (rtReflectionHasAlbedo ? 16u : 0u);
+                                    (rtReflectionHasDepth ? 4u : 0u) | (rtReflectionHasNormal ? 8u : 0u);
                 if (pipeline.m_ReportedRayTracedReflectionVerdict != verdict)
                 {
                     pipeline.m_ReportedRayTracedReflectionVerdict = verdict;
@@ -4611,9 +4608,9 @@ namespace OloEngine
                     OLO_CORE_WARN("RayTracedReflectionPass: the ray-query reflection tier is switched on, but the "
                                   "graph declared no target this frame, so the pass is culled and the hierarchy "
                                   "stays on SSR + probe/IBL. passEnabled={} shaderReady={} sceneDepth={} "
-                                  "gbufferNormal={} gbufferAlbedo={}",
+                                  "gbufferNormal={}",
                                   rtReflectionEnabled, rtReflectionReady, rtReflectionHasDepth,
-                                  rtReflectionHasNormal, rtReflectionHasAlbedo);
+                                  rtReflectionHasNormal);
                 }
             }
             else
@@ -4702,8 +4699,7 @@ namespace OloEngine
             if (pipeline.PostProcessPasses.SSR->IsEnabled() &&
                 pipeline.PostProcessPasses.SSR->IsReadyForExecution() &&
                 board.Scene.SceneDepth.IsValid() &&
-                board.GBuffer.GBufferNormal.IsValid() &&
-                board.GBuffer.GBufferAlbedo.IsValid())
+                board.GBuffer.GBufferNormal.IsValid())
             {
                 const auto ssrOutput = declareSceneBandOutput(
                     ResourceNames::SSRColor,

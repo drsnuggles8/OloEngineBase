@@ -164,8 +164,8 @@ namespace OloEngine
             RGFramebufferHandle IndirectSpecular;
         };
 
-        Ref<Shader> m_Shader;              // sampler2D variant (non-MSAA / resolved)
-        Ref<Shader> m_ShaderMSAA;          // sampler2DMS variant (per-sample)
+        Ref<Shader> m_Shader;     // sampler2D variant (non-MSAA / resolved)
+        Ref<Shader> m_ShaderMSAA; // sampler2DMS variant (per-sample)
         // The same shading body writing only the indirect specular term and
         // its weight, for the reflection tiers (issue #1325).
         Ref<Shader> m_IndirectSpecularShader;

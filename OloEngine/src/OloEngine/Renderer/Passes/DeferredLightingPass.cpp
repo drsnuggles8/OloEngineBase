@@ -349,6 +349,22 @@ namespace OloEngine
                 m_SceneFramebuffer = resolvedSceneFB;
         }
 
+        // THE REFLECTION TIERS' INPUT STARTS AT ZERO (issue #1325), before any
+        // early return below. It is a transient the tiers read whenever it is
+        // declared, and an unwritten one holds whatever the pool last put there;
+        // zero is S = W = 0, which makes every tier pass the colour through. The
+        // draw near the end overwrites it when this pass gets that far.
+        Ref<Framebuffer> indirectSpecularTarget;
+        if (m_SelectedInputs.IndirectSpecular.IsValid())
+        {
+            indirectSpecularTarget = context.ResolveFramebuffer(m_SelectedInputs.IndirectSpecular);
+            if (indirectSpecularTarget)
+            {
+                indirectSpecularTarget->ClearAttachment(0, glm::vec4(0.0f));
+                indirectSpecularTarget->ClearAttachment(1, glm::vec4(0.0f));
+            }
+        }
+
         // Only runs when registered in the graph, which `Renderer3D::
         // ConfigureRenderGraph` does solely for RenderingPath::Deferred.
         // The guards here are for genuine invalid states (shader load
@@ -801,10 +817,9 @@ namespace OloEngine
         {
             const Ref<Shader>& specularShader =
                 useMSAAShading ? m_IndirectSpecularShaderMSAA : m_IndirectSpecularShader;
-            Ref<Framebuffer> specularTarget = context.ResolveFramebuffer(m_SelectedInputs.IndirectSpecular);
-            if (specularShader && specularTarget)
+            if (specularShader && indirectSpecularTarget)
             {
-                specularTarget->Bind();
+                indirectSpecularTarget->Bind();
                 context.SetViewport(0, 0, w, h);
                 constexpr std::array<u32, 2> kSpecularAttachments{ 0u, 1u };
                 RenderCommand::SetDrawBuffers(kSpecularAttachments);
@@ -815,13 +830,13 @@ namespace OloEngine
             }
             else if (!m_ReportedMissingIndirectSpecular)
             {
-                // Not silent: the tiers read zeros from an unwritten target and
-                // pass the colour through, so say why the reflections vanished.
+                // Not silent: the tiers read the zeros the target was cleared to
+                // and pass the colour through, so say why the reflections vanished.
                 m_ReportedMissingIndirectSpecular = true;
                 OLO_CORE_ERROR("DeferredLightingPass: the reflection tiers' indirect specular input was declared "
                                "but cannot be written (shader={}, target={}); RT reflections and SSR pass the "
                                "colour through",
-                               static_cast<bool>(specularShader), static_cast<bool>(specularTarget));
+                               static_cast<bool>(specularShader), static_cast<bool>(indirectSpecularTarget));
             }
         }
 
