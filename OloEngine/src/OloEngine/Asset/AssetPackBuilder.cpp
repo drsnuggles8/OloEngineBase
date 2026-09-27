@@ -21,6 +21,7 @@
 #include <fstream>
 #include <filesystem>
 #include <chrono>
+#include <mutex>
 
 namespace OloEngine
 {
@@ -251,6 +252,13 @@ namespace OloEngine
     AssetPackBuilder::BuildResult AssetPackBuilder::BuildImpl(Ref<AssetManagerBase> assetManager, const BuildSettings& settings, std::atomic<f32>& progress, const std::atomic<bool>* cancelToken)
     {
         OLO_PROFILE_FUNCTION();
+
+        // ONE BUILD AT A TIME. A build installs process-global texture state -- the
+        // cook switch and the colour-space intents (#1462) -- for its duration, so a
+        // second build entering here would cook against the first one's intents, or
+        // against none once the first one's scope had cleared them.
+        static std::mutex s_BuildMutex;
+        std::scoped_lock buildLock(s_BuildMutex);
 
         progress = 0.0f;
 
