@@ -108,9 +108,11 @@ of the then-current target. A later copy, recorded after `vkCmdExecuteCommands` 
 primary's heaps unbound, read it. The rule and the evidence are in
 [vulkan-descriptor-heap-rebind-after-execute-commands.md](vulkan-descriptor-heap-rebind-after-execute-commands.md).
 
-So the audit has one more step, and it comes before any "driver bookkeeping" theory. Any device
-loss writes `CrashReports/descriptor-heap-*.bin`. Decode its reserved range and check whether an
-entry's image covers the faulting address.
+So the audit has one more step, and it comes before any "driver bookkeeping" theory. A device loss
+writes `CrashReports/descriptor-heap-*.bin` when the resource heap is still mapped and the file can
+be written; otherwise the log says `no descriptor-heap dump for this fault` and names the reason.
+Decode the reserved range and check whether an entry's image covers the faulting address. With no
+dump, rerun the repro until one is written; do not fall back to the driver theory.
 
 Two disciplines from the same investigations still hold. First, a fault that reproduces 1 run in 3
 makes a single clean run worthless: replay every arm N>=8, interleaved. Second, run a destroy-side
