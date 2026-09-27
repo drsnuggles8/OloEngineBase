@@ -32,6 +32,7 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -156,6 +157,38 @@ namespace OloEngine::Tests
             camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
             camera.SetPose(eye, yaw, pitch);
             RunEditorFrames(camera, 4);
+            {
+                // TEMP diagnostic (#1484 foliage OOM): free device memory in KiB.
+                ::glFinish();
+                GLint nv = -1;
+                GLint ati[4] = { -1, -1, -1, -1 };
+                ::glGetIntegerv(0x9049, &nv); // GPU_MEMORY_INFO_CURRENT_AVAILABLE_VIDMEM_NVX
+                ::glGetIntegerv(0x87FC, ati); // TEXTURE_FREE_MEMORY_ATI
+                GLint atiVbo[4] = { -1, -1, -1, -1 };
+                ::glGetIntegerv(0x87FB, atiVbo); // VBO_FREE_MEMORY_ATI
+                while (::glGetError() != GL_NO_ERROR)
+                {
+                }
+                long long vramUsed = -1;
+                long long gttUsed = -1;
+                for (int card = 0; card < 4 && vramUsed < 0; ++card)
+                {
+                    const std::string base = "/sys/class/drm/card" + std::to_string(card) + "/device/";
+                    std::ifstream vram(base + "mem_info_vram_used");
+                    std::ifstream gtt(base + "mem_info_gtt_used");
+                    if (vram && gtt)
+                    {
+                        vram >> vramUsed;
+                        gtt >> gttUsed;
+                    }
+                }
+                std::printf("[foliage-mem] path %d msaa %u nvx %d ati-tex %d/%d ati-vbo %d/%d vram-used %lld MiB gtt-used "
+                            "%lld MiB\n",
+                            static_cast<int>(Renderer3D::GetRendererSettings().Path),
+                            Renderer3D::GetRendererSettings().Deferred.MSAASampleCount, nv, ati[0], ati[2], atiVbo[0],
+                            atiVbo[2], vramUsed < 0 ? -1 : vramUsed >> 20, gttUsed < 0 ? -1 : gttUsed >> 20);
+                std::fflush(stdout);
+            }
 
             auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
             ASSERT_TRUE(fb) << "No SceneColor framebuffer";
