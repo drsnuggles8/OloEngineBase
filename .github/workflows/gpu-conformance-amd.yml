@@ -655,7 +655,10 @@ jobs:
           case "$OLO_AMD_DEBUG" in
             *[!a-z0-9_,]*) echo "::error::amd_debug may hold only letters, digits, commas and underscores"; exit 1 ;;
             '') unset AMD_DEBUG ;;
-            *) export AMD_DEBUG="$OLO_AMD_DEBUG"; echo "AMD_DEBUG=$AMD_DEBUG" ;;
+            # Shaders served from Mesa's disk cache are never compiled, so they
+            # would print nothing: the cache is off whenever AMD_DEBUG is set.
+            *) export AMD_DEBUG="$OLO_AMD_DEBUG" MESA_SHADER_CACHE_DISABLE=true
+               echo "AMD_DEBUG=$AMD_DEBUG (shader cache disabled)" ;;
           esac
           set +e
           timeout --signal=TERM --kill-after=60s "${OLO_SUITE_MINUTES}m" \
