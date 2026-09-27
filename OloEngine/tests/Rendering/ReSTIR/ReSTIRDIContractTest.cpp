@@ -974,6 +974,24 @@ namespace OloEngine::Tests
         EXPECT_EQ(count(spatial, "OloReservoirIsEmpty(neighbour.Reservoir) || !(neighbour.Reservoir.W > 0.0)"), 0u)
             << "a neighbour whose own sample cannot contribute must stay in the MIS set "
                "(ASpatialNeighbourWhoseOwnSampleIsKilledStaysInTheMISSet)";
+        // Nor by any other spelling: between the gate's rejection and the
+        // insertion nothing leaves the loop body, so every neighbour past the
+        // gate reaches the candidate list.
+        {
+            constexpr std::string_view kGate = "if (!NeighbourAcceptable(centreSurface, neighbourSurface))";
+            constexpr std::string_view kInsert = "candidates[count] = neighbour;";
+            ASSERT_EQ(count(spatial, kGate), 1u);
+            ASSERT_EQ(count(spatial, kInsert), 1u);
+            const sizet gate = spatial.find(kGate);
+            const sizet afterGate = spatial.find("continue;", gate);
+            const sizet insert = spatial.find(kInsert);
+            ASSERT_NE(afterGate, std::string::npos);
+            ASSERT_LT(afterGate, insert) << "the insertion must follow the gate";
+            const std::string between = spatial.substr(afterGate + 9u, insert - (afterGate + 9u));
+            EXPECT_EQ(count(between, "continue"), 0u) << "a neighbour past the geometric gate is skipped";
+            EXPECT_EQ(count(between, "break"), 0u) << "a neighbour past the geometric gate ends the gather";
+            EXPECT_EQ(count(between, "return"), 0u) << "a neighbour past the geometric gate ends the pass";
+        }
 
         // A punctual or sphere light's radiance is evaluated at the receiving
         // surface, not carried from the pixel that drew the sample.
