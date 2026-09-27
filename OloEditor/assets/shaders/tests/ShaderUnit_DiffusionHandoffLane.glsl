@@ -4,7 +4,7 @@
 // Round-trips the diffusion hand-off lane's alpha (scene attachment 4) through
 // the PRODUCTION encode/decode helpers — skin's (include/SkinDiffusionCommon.glsl)
 // and snow's (include/SnowDiffusionCommon.glsl, issue #1451). One lane, two
-// disjoint ranges: a skin slot s is (s + 1) / 8, a snow weight w is -w, the
+// disjoint ranges: a skin slot s is (s + 1) / 16, a snow weight w is -w, the
 // cleared value is 0. Every encoded value is pushed through packHalf2x16 /
 // unpackHalf2x16 — the RGBA16F attachment's quantisation — and then decoded by
 // BOTH decoders, so the test pins that each reads its own range and reads the
@@ -13,12 +13,12 @@
 // Parameterization:
 //   x = the snow weight x / 63 (a 64-wide probe), used on the snow row
 //   y = 0            -> the snow row, encodes -w
-//       1 .. 7       -> skin slot y - 1
-//       8            -> the cleared lane, 0
+//       1 .. 15      -> skin slot y - 1
+//       16           -> the cleared lane, 0
 //
 // Output:
 //   .r = the lane value after fp16 storage
-//   .g = oloSkinDiffusionSlot(lane)       (7 == "names no profile")
+//   .g = oloSkinDiffusionSlot(lane)       (15 == "names no profile")
 //   .b = oloSnowDiffusionWeight(lane)     (0 == "not snow")
 //   .a = 1 when the snow side counts it as snow (weight > OLO_SNOW_MIN_WEIGHT)
 // =============================================================================

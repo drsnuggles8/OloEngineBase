@@ -91,6 +91,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <set>
 
 namespace OloEngine::Tests
 {
@@ -1213,6 +1214,102 @@ namespace OloEngine::Tests
         // The one authored field that makes a tooth not a lip.
         EXPECT_GT(teeth.Oral.CoatIor, lips.Oral.CoatIor)
             << "enamel and mucosa resolved to the same index of refraction, so teeth shade like gums";
+    }
+
+    // Issue #1393. Two complete faces name fourteen skin profiles, and the
+    // G-Buffer's slot field used to hold seven: the eighth shaded as not-skin
+    // on the deferred path, with nothing but a once-per-handle log line to say
+    // so. Fourteen spheres in one row in front of the head, each with its own
+    // profile (the head's four plus ten more), in the profile-identity view:
+    // every sphere must be a saturated identity hue (black is "names no
+    // profile"), fourteen distinct slots, and no SlotBudgetFull.
+    TEST_F(SkinDigitalHumanScene, TwoCompleteFacesWorthOfProfilesAllShadeAsSkin)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        SetRig(kRigs[0]);
+        SetAngle(kAngles[0]);
+        SetExpression(0.0f);
+
+        std::vector<AssetHandle> profiles = { m_ToneProfiles[0], m_OcularProfile, m_OralProfile, m_EnamelProfile };
+        // Ten more DISTINCT profile assets: a distinct handle is what takes a
+        // slot, whatever parameters it carries.
+        for (sizet i = 0; profiles.size() < 14u; ++i)
+            profiles.push_back(MakeSkinProfile(kTones[i % std::size(kTones)]));
+
+        const Ref<Mesh> sphereMesh = MeshPrimitives::CreateSphere(1.0f, 24);
+        ASSERT_TRUE(sphereMesh);
+        constexpr f32 kRowZ = 1.9f;
+        constexpr f32 kRowY = 0.05f; // the camera's own height, so the row sits on the frame's middle line
+        std::vector<glm::vec3> centres;
+        for (sizet i = 0; i < profiles.size(); ++i)
+        {
+            const f32 x = -0.6f + 1.2f * static_cast<f32>(i) / static_cast<f32>(profiles.size() - 1u);
+            centres.emplace_back(x, kRowY, kRowZ);
+            Entity sphere = GetScene().CreateEntity("SecondFacePart" + std::to_string(i));
+            sphere.AddComponent<MeshComponent>(sphereMesh->GetMeshSource());
+            auto& transform = sphere.GetComponent<TransformComponent>();
+            transform.Translation = centres.back();
+            transform.Scale = glm::vec3(0.035f);
+            auto& material = sphere.AddComponent<MaterialComponent>();
+            material.m_Material.SetBaseColorFactor({ 0.7f, 0.5f, 0.45f, 1.0f });
+            material.m_Material.SetMaterialKind(MaterialKind::Skin);
+            material.m_Material.SetSkinProfileHandle(profiles[i]);
+        }
+
+        Capture identity;
+        ASSERT_TRUE(CaptureFrame(RenderingPath::Deferred, "DigitalHumanTwoFacesProfileId_GL_Deferred_Front", identity,
+                                 MaterialDebugView::ProfileIdentity));
+
+        SkinProfileTable& table = Renderer3D::GetSkinProfileTable();
+        EXPECT_EQ(table.GetFallbackCount(SkinProfileFallbackReason::SlotBudgetFull), 0u)
+            << "fourteen profiles ran out of G-Buffer slots";
+        std::set<u32> slots;
+        for (const AssetHandle profile : profiles)
+            slots.insert(table.Resolve(profile).Slot);
+        EXPECT_EQ(slots.size(), 14u) << "fourteen profiles did not get fourteen distinct slots";
+        EXPECT_FALSE(slots.contains(kSkinProfileSlotNone));
+
+        // Each sphere's centre, projected through the capture camera.
+        Entity camera = GetScene().FindEntityByName("Camera");
+        ASSERT_TRUE(static_cast<bool>(camera));
+        const glm::mat4 view = glm::inverse(camera.GetComponent<TransformComponent>().GetTransform());
+        const glm::mat4 projection = camera.GetComponent<CameraComponent>().Camera.GetProjection();
+        std::vector<glm::vec3> sampled;
+        for (sizet i = 0; i < centres.size(); ++i)
+        {
+            const glm::vec4 clip = projection * view * glm::vec4(centres[i], 1.0f);
+            ASSERT_GT(clip.w, 0.0f);
+            const f32 ndcX = clip.x / clip.w;
+            const f32 ndcY = clip.y / clip.w;
+            const auto px = static_cast<u32>(std::clamp((ndcX * 0.5f + 0.5f) * static_cast<f32>(identity.Width), 0.0f,
+                                                        static_cast<f32>(identity.Width - 1u)));
+            // The capture is top-down (row 0 is the top of the frame).
+            const auto py = static_cast<u32>(std::clamp((0.5f - ndcY * 0.5f) * static_cast<f32>(identity.Height),
+                                                        0.0f, static_cast<f32>(identity.Height - 1u)));
+            const std::size_t idx = identity.Index(px, py);
+            const f32 r = Channel(identity.Pixels, idx, 0);
+            const f32 g = Channel(identity.Pixels, idx, 1);
+            const f32 b = Channel(identity.Pixels, idx, 2);
+            const f32 maxC = std::max({ r, g, b });
+            const f32 chroma = maxC - std::min({ r, g, b });
+            EXPECT_GT(maxC, 0.25f) << "part " << i << " at (" << px << ", " << py
+                                   << ") is black in the profile-identity view: it names no profile, so it "
+                                      "shades as not-skin";
+            EXPECT_GT(chroma, 0.2f) << "part " << i << " at (" << px << ", " << py << ") is not an identity hue";
+            sampled.emplace_back(r, g, b);
+        }
+        // Fourteen slots, fourteen colours: two parts that share a colour share
+        // a slot, which is the aliasing the budget used to force.
+        for (sizet i = 0; i < sampled.size(); ++i)
+        {
+            for (sizet j = i + 1; j < sampled.size(); ++j)
+            {
+                const glm::vec3 d = glm::abs(sampled[i] - sampled[j]);
+                EXPECT_GT(std::max({ d.x, d.y, d.z }), 0.03f)
+                    << "parts " << i << " and " << j << " show the same identity colour";
+            }
+        }
     }
 
     TEST_F(SkinDigitalHumanScene, TheProfileIdentityViewSeparatesThePartsOnScreen)

@@ -43,7 +43,8 @@ namespace OloEngine
     // #1231 — the full field list is on oloEncodeGBufferPbrFlagsEx in
     // include/PBRCommon.glsl). IEEE half represents every integer exactly up to
     // 2048, so the largest model index that survives the write/read round-trip
-    // un-truncated is 2048 / 64 - 1 = 31. Above that the encode rounds to a
+    // un-truncated is 2048 / 128 - 1 = 15 (it was 31 until issue #1393 took a
+    // bit for a fourth skin-profile slot bit: 15 * 128 + 15 * 8 + 7 == 2047). Above that the encode rounds to a
     // neighbouring value and the decode hands the lighting pass a different
     // model — the exact silent Forward/Deferred divergence #996 removed.
     //
@@ -55,9 +56,9 @@ namespace OloEngine
     // G-Buffer format, or a dedicated integer attachment), not a
     // `kPBRModelCount` bump, and this assertion is where that conversation
     // starts.
-    inline constexpr i32 kPBRModelGBufferLaneMax = 31;
+    inline constexpr i32 kPBRModelGBufferLaneMax = 15;
     static_assert(kPBRModelCount - 1 <= kPBRModelGBufferLaneMax,
                   "PBRModel index exceeds what the deferred G-Buffer flags lane (RGBA16F alpha, "
-                  "model * 64) can carry exactly — see oloEncodeGBufferPbrFlagsEx in PBRCommon.glsl.");
+                  "model * 128) can carry exactly — see oloEncodeGBufferPbrFlagsEx in PBRCommon.glsl.");
 
 } // namespace OloEngine

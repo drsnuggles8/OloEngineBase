@@ -24,18 +24,19 @@
 //
 // THE ALPHA LANE IS AN IDENTITY, NOT A WEIGHT. 0 means "no diffusion here" —
 // what every non-skin surface writes, and what a skin surface whose profile is
-// authored against transport version 0 writes too. A slot s in [0, 6] encodes as
-// (s + 1) / 8: exact in a half float, and never 0 for a real slot, so a cleared
-// target and slot 0 cannot be confused.
+// authored against transport version 0 writes too. A slot s in [0, 14] encodes
+// as (s + 1) / 16: exact in a half float, and never 0 for a real slot, so a
+// cleared target and slot 0 cannot be confused. (Eighths and slots 0..6 until
+// issue #1393 widened the slot field.)
 // =============================================================================
 
-#define OLO_SKIN_DIFFUSE_SLOT_SCALE 0.125
+#define OLO_SKIN_DIFFUSE_SLOT_SCALE 0.0625
 
 // "This texel names no skin profile." Mirrors kSkinProfileSlotNone in
 // Renderer/SkinProfile.h, and repeated here rather than taken from PBRCommon.glsl
-// so this file stays standalone — ShaderUnit_SkinDiffusionEncoding.glsl asserts
+// so this file stays standalone — ShaderUnit_DiffusionHandoffLane.glsl asserts
 // the two agree.
-#define OLO_SKIN_DIFFUSE_SLOT_NONE 7
+#define OLO_SKIN_DIFFUSE_SLOT_NONE 15
 
 // The slot an aux texel names, or OLO_SKIN_DIFFUSE_SLOT_NONE when it names none.
 //

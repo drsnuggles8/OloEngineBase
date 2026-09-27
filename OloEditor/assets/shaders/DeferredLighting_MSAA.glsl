@@ -130,7 +130,7 @@ layout(std140, binding = 30) uniform DeferredLightingControls {
     //   w   = SkinEvaluationModel as a float (exact: a small integer)
     // A slot nobody claimed stays neutral, so a stale slot reads as "no profile
     // effect" rather than as garbage.
-    vec4 u_SkinProfileParams[7];
+    vec4 u_SkinProfileParams[15];
     // THE LEAF PROFILE TABLE (issue #1234) — the second tenant of the same
     // three-bit G-Buffer slot field, here for the same reason the skin table
     // above is: the transmission lobe's shape is authored per foliage LAYER,
@@ -144,16 +144,16 @@ layout(std140, binding = 30) uniform DeferredLightingControls {
     //   Lobe: x = distortion, y = power, z = wrap, w = environment scale —
     //         exactly the `lobe` vec4 oloFoliageTransmission* takes.
     // A slot nobody claimed stays all-zero, which shades as no transmission.
-    vec4 u_LeafProfileTint[7];
-    vec4 u_LeafProfileLobe[7];
+    vec4 u_LeafProfileTint[15];
+    vec4 u_LeafProfileLobe[15];
     // The skin transmission table (issue #1242), indexed by the same three-bit
     // slot as u_SkinProfileParams and read under the same MaterialKind::Skin
     // test. Mirrors DeferredControlsData::SkinTransmitScatter / SkinTransmitScaling.
     //
     //   Scatter: xyz = ScatterColor * Strength, w = Anisotropy
     //   Scaling: xyz = Burley scaling d (MILLIMETRES), w = Power
-    vec4 u_SkinTransmitScatter[7];
-    vec4 u_SkinTransmitScaling[7];
+    vec4 u_SkinTransmitScatter[15];
+    vec4 u_SkinTransmitScaling[15];
     // The layered specular table (issue #1243), indexed by the same three-bit
     // slot as u_SkinProfileParams and read under the same MaterialKind::Skin
     // test. Mirrors DeferredControlsData::SkinSpecularLobe.
@@ -168,7 +168,7 @@ layout(std140, binding = 30) uniform DeferredLightingControls {
     // why it carries a field this path has no use for.
     //
     // A slot nobody claimed stays all-zero: one lobe, no filtering.
-    vec4 u_SkinSpecularLobe[7];
+    vec4 u_SkinSpecularLobe[15];
 
     // The oral surface table (issue #1245), indexed by the same three-bit slot
     // as the three tables above. Mirrors DeferredControlsData::SkinOralLane.
@@ -182,7 +182,7 @@ layout(std140, binding = 30) uniform DeferredLightingControls {
     // also evaluates. So this table is the deferred path's only route to either.
     //
     // A slot nobody claimed stays all-zero: dry, transmission untouched.
-    vec4 u_SkinOralLane[7];
+    vec4 u_SkinOralLane[15];
 };
 
 layout(binding = 10) uniform samplerCube u_IrradianceMap;

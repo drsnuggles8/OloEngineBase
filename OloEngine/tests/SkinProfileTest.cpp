@@ -57,7 +57,9 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <array>
 #include <set>
+#include <string>
 #include <vector>
 
 using namespace OloEngine;
@@ -703,6 +705,32 @@ namespace OloEngine::Tests
         // the AUTHORED parameters still come back — only the per-pixel identity
         // the deferred path needs is lost.
         EXPECT_TRUE(overflow.Parameters == SentinelParameters());
+    }
+
+    // Issue #1393. One complete face names seven profiles (DigitalHuman.olo:
+    // ReferenceHead, EyeIris, EyeTearLine, OralLip, OralTongue, OralGum,
+    // OralEnamel), which used to be the whole budget, so a second character's
+    // eighth profile shaded as not-skin. Two complete faces must fit.
+    TEST_F(SkinProfileTableTest, TwoCompleteFacesFitTheSlotBudget)
+    {
+        static_assert(kMaxSkinProfileSlots >= 14u, "two complete faces need fourteen slots");
+        SkinProfileTable table;
+        const std::array<const char*, 7> face = { "ReferenceHead", "EyeIris", "EyeTearLine", "OralLip",
+                                                  "OralTongue",    "OralGum", "OralEnamel" };
+        std::set<u32> slots;
+        for (const char* character : { "A_", "B_" })
+        {
+            for (const char* part : face)
+            {
+                const std::string name = std::string(character) + part;
+                const SkinProfileResolution resolved = table.Resolve(MakeProfile(name.c_str()));
+                EXPECT_EQ(resolved.Reason, SkinProfileFallbackReason::None) << character << part;
+                EXPECT_LT(resolved.Slot, kSkinProfileSlotNone) << character << part;
+                slots.insert(resolved.Slot);
+            }
+        }
+        EXPECT_EQ(slots.size(), 14u) << "two faces' profiles must get fourteen distinct slots";
+        EXPECT_EQ(table.GetFallbackCount(SkinProfileFallbackReason::SlotBudgetFull), 0u);
     }
 
     TEST_F(SkinProfileTableTest, ResetClearsAssignmentsAndCounters)

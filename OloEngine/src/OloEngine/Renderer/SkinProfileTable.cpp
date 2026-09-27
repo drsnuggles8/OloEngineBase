@@ -115,13 +115,15 @@ namespace OloEngine
             if (m_LoggedHandles.insert(key).second)
             {
                 OLO_CORE_ERROR("SkinProfileTable - out of skin-profile slots ({} in use) while resolving {}; "
-                               "the deferred path cannot name it per pixel, so it shades with the default profile.",
+                               "it cannot be named per pixel, so the deferred path shades it as not-skin and "
+                               "no path diffuses it (the diffusion kernel is per slot).",
                                kMaxSkinProfileSlots, key);
             }
             result.Reason = SkinProfileFallbackReason::SlotBudgetFull;
             // The AUTHORED parameters are still used on the forward paths, which
-            // carry the profile per material and need no slot. Only the
-            // per-pixel identity is lost, and only on deferred.
+            // carry the profile per material. What is lost is the per-pixel
+            // identity: the deferred path's per-slot tables AND the screen-space
+            // diffusion, whose hand-off is keyed by slot on every path.
             result.Parameters = parameters;
             return result;
         }

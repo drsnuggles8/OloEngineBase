@@ -93,7 +93,7 @@ layout(binding = 19) uniform sampler2D u_SceneDepth;
 // in Renderer/SkinDiffusion.h and Renderer/SkinProfile.h; SkinDiffusionUBOData
 // in Renderer/PostProcessSettings.h static_asserts the resulting size.
 #define OLO_SKIN_DIFFUSION_MAX_TAPS 25
-#define OLO_SKIN_DIFFUSION_MAX_SLOTS 7
+#define OLO_SKIN_DIFFUSION_MAX_SLOTS 15
 
 // Shares UBO binding 14 with SSS_Blur.glsl's SSSParams — see UBO_SSS in
 // Renderer/ShaderBindingLayout.h. The two are different passes with different

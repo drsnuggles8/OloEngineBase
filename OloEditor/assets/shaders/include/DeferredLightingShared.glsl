@@ -898,10 +898,14 @@ vec3 ComputeDeferredLitSplit(
         // Profile identity. Black where the pixel names no profile — which is
         // every non-skin surface — and a distinct hue per slot otherwise. The
         // hue is derived from the slot rather than looked up so adding a slot
-        // needs no table: slot 0 is red, and each further slot rotates.
+        // needs no table: slot 0 is red, and each further slot rotates by the
+        // golden ratio, which keeps NEIGHBOURING slots -- the parts of one face,
+        // allocated in order -- far apart in hue at any slot count. An even
+        // split (slot / 15 since issue #1393 widened the field) put a face's
+        // first four parts within 0.2 of each other.
         if (skinProfileSlot >= OLO_SKIN_PROFILE_SLOT_NONE)
             return vec3(0.0);
-        float hue = float(skinProfileSlot) / float(OLO_SKIN_PROFILE_SLOT_NONE);
+        float hue = fract(float(skinProfileSlot) * 0.6180339887);
         return clamp(abs(fract(hue + vec3(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0) - 1.0, 0.0, 1.0);
     }
     if (materialDebug == OLO_MATERIAL_DEBUG_SCATTERING_MASK)

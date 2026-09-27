@@ -1079,7 +1079,7 @@ namespace OloEngine
 
     // A skin profile reaches the DEFERRED lighting pass as a small integer in
     // the G-Buffer RT2 flags lane, not as an AssetHandle — 64 bits per pixel is
-    // not something a G-Buffer can carry, and the lane has three bits to spare
+    // not something a G-Buffer can carry, and the lane has four bits for it
     // (see oloEncodeGBufferPbrFlags in include/PBRCommon.glsl). So the renderer
     // assigns each DISTINCT profile used in a frame a slot in
     // [0, kMaxSkinProfileSlots).
@@ -1088,8 +1088,15 @@ namespace OloEngine
     // every non-skin surface writes. It is the all-ones pattern of the field on
     // purpose: a reader must never confuse "nothing written here" with
     // "profile 0".
-    inline constexpr u32 kSkinProfileSlotBits = 3;
-    inline constexpr u32 kSkinProfileSlotNone = (1u << kSkinProfileSlotBits) - 1u; // 7
-    inline constexpr u32 kMaxSkinProfileSlots = kSkinProfileSlotNone;              // slots 0..6
+    //
+    // FOUR BITS, 15 PROFILES (issue #1393). Three bits held 7, and one complete
+    // face names exactly seven (ReferenceHead, EyeIris, EyeTearLine, OralLip,
+    // OralTongue, OralGum, OralEnamel), so a second character, a second eye
+    // colour or a scarred variant ran out and its surface shaded as not-skin.
+    // The model field above the slot gives up the bit: it still holds 16
+    // closure models against the 2 that exist (PBRModel.h).
+    inline constexpr u32 kSkinProfileSlotBits = 4;
+    inline constexpr u32 kSkinProfileSlotNone = (1u << kSkinProfileSlotBits) - 1u; // 15
+    inline constexpr u32 kMaxSkinProfileSlots = kSkinProfileSlotNone;              // slots 0..14
 
 } // namespace OloEngine
