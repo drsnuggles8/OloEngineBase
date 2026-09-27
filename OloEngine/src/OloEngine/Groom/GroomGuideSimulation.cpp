@@ -166,18 +166,28 @@ namespace OloEngine
 
         if (layoutChanged || statePoisoned || !inputs.HasHistory)
         {
+            // FROM THE DRAPE when only the guide SET moved (issue #1509): the
+            // caller hands the new set's particles where the coat was drawn, so a
+            // budget step does not drop the coat back to its groomed shape. A
+            // teleport, a reset or a poisoned state still starts from rest.
+            const bool seedFromCoat = layoutChanged && !statePoisoned && inputs.HasHistory &&
+                                      inputs.SeedPoints.size() == pointCount &&
+                                      std::ranges::all_of(inputs.SeedPoints,
+                                                          [](const glm::vec3& p) { return Math::IsFinite(p); });
+            const std::span<const glm::vec3> start = seedFromCoat ? inputs.SeedPoints : inputs.TargetPoints;
             state.GuideOffsets.assign(inputs.GuideOffsets.begin(), inputs.GuideOffsets.end());
             state.GuideCurves.assign(inputs.GuideCurves.begin(), inputs.GuideCurves.end());
-            state.Curr.assign(inputs.TargetPoints.begin(), inputs.TargetPoints.end());
+            state.Curr.assign(start.begin(), start.end());
             state.Prev = state.Curr;
+            stats.SeededFromCoat = seedFromCoat;
             state.Accumulator = 0.0f;
             state.Initialized = true;
             stats.Reseeded = true;
             stats.Accumulator = 0.0f;
-            // RETURNS. The frame that re-seeds draws the groomed coat and emits
-            // zero motion; integrating on it would apply a whole frame of
-            // gravity to a coat that was just teleported, which is the one-frame
-            // sag a reset exists to prevent.
+            // RETURNS. The frame that re-seeds draws the coat it was seeded with
+            // and emits zero motion; integrating on it would apply a whole frame
+            // of gravity to a coat that was just teleported, which is the
+            // one-frame sag a reset exists to prevent.
             return stats;
         }
 
