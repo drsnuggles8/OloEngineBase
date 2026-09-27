@@ -41,6 +41,7 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "OloEngine/Fluid/GPUFluidSolver.h"
 #include "OloEngine/Particle/ParticleBatchRenderer.h"
 #include "OloEngine/Precipitation/ScreenSpacePrecipitation.h"
+#include "OloEngine/Renderer/OITBlendState.h"
 #include "OloEngine/Renderer/Camera/Camera.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugDraw.h"
 #include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
@@ -5216,11 +5217,11 @@ TEST_F(VulkanPassSuite, OitPrepareClearsTargetsAndSeedsDepthFromTheScene)
                 ResourceNames::SceneDepthAttachment, blackboard.Scene.SceneColor);
         }
 
-        // Caller-backed OIT MRT FB (production shape: RGBA16F + RG16F + D24S8).
+        // Caller-backed OIT MRT FB (production shape: RGBA32F + RG16F + D24S8, #1468).
         FramebufferSpecification oitSpec;
         oitSpec.Width = kSize;
         oitSpec.Height = kSize;
-        oitSpec.Attachments = { FramebufferTextureFormat::RGBA16F, FramebufferTextureFormat::RG16F,
+        oitSpec.Attachments = { RenderGraph::ToFramebufferFormat(kOITAccumFormat), FramebufferTextureFormat::RG16F,
                                 FramebufferTextureFormat::Depth };
         Ref<Framebuffer> oitFramebuffer = Framebuffer::Create(oitSpec);
         EXPECT_TRUE(oitFramebuffer);
@@ -5229,8 +5230,7 @@ TEST_F(VulkanPassSuite, OitPrepareClearsTargetsAndSeedsDepthFromTheScene)
         oitDesc.Kind = RGResourceHandle::Kind::Framebuffer;
         oitDesc.Width = kSize;
         oitDesc.Height = kSize;
-        oitDesc.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::RG16Float,
-                                RGResourceFormat::Depth24Stencil8 };
+        oitDesc.Attachments = { kOITAccumFormat, RGResourceFormat::RG16Float, RGResourceFormat::Depth24Stencil8 };
         const auto oitHandle = graph.DeclareTransientFramebuffer(ResourceNames::OITBuffer, oitDesc, oitFramebuffer);
         blackboard.OIT.OITBuffer = oitHandle;
         blackboard.OIT.OITAccum = graph.CreateFramebufferAttachmentView(ResourceNames::OITAccum, oitHandle, 0u);
@@ -5315,16 +5315,15 @@ TEST_F(VulkanPassSuite, OitPrepareClearsTargetsAndSeedsDepthFromTheScene)
     const ChainResult seeded = runChain(true);
     const ChainResult fallback = runChain(false);
 
-    ASSERT_EQ(seeded.Accum.Num(), static_cast<sizet>(kSize) * kSize * 8);
+    ASSERT_EQ(seeded.Accum.Num(), static_cast<sizet>(kSize) * kSize * 16); // RGBA32F, kOITAccumFormat
     ASSERT_EQ(seeded.Revealage.Num(), static_cast<sizet>(kSize) * kSize * 4);
-    ASSERT_EQ(fallback.Accum.Num(), static_cast<sizet>(kSize) * kSize * 8);
+    ASSERT_EQ(fallback.Accum.Num(), static_cast<sizet>(kSize) * kSize * 16);
 
     const auto accumTexel = [&](const ChainResult& r, u32 x, u32 y)
     {
-        const auto* halves = reinterpret_cast<const u16*>(r.Accum.GetData());
-        const sizet base = (static_cast<sizet>(y) * kSize + x) * 4;
-        return std::array<f32, 4>{ HalfToFloat(halves[base]), HalfToFloat(halves[base + 1]),
-                                   HalfToFloat(halves[base + 2]), HalfToFloat(halves[base + 3]) };
+        std::array<f32, 4> texel{};
+        std::memcpy(texel.data(), r.Accum.GetData() + (static_cast<sizet>(y) * kSize + x) * sizeof(texel), sizeof(texel));
+        return texel;
     };
     const auto revealageTexel = [&](const ChainResult& r, u32 x, u32 y)
     {
@@ -8809,7 +8808,7 @@ TEST_F(VulkanPassSuite, ParticleBillboardsTrailsOitAndGpuIndirectDraw)
         FramebufferSpecification oitSpec;
         oitSpec.Width = kSize;
         oitSpec.Height = kSize;
-        oitSpec.Attachments = { FramebufferTextureFormat::RGBA16F, FramebufferTextureFormat::RG16F,
+        oitSpec.Attachments = { RenderGraph::ToFramebufferFormat(kOITAccumFormat), FramebufferTextureFormat::RG16F,
                                 FramebufferTextureFormat::Depth };
         Ref<Framebuffer> oitFramebuffer = Framebuffer::Create(oitSpec);
         ASSERT_TRUE(oitFramebuffer);
@@ -8830,8 +8829,7 @@ TEST_F(VulkanPassSuite, ParticleBillboardsTrailsOitAndGpuIndirectDraw)
         oitDesc.Kind = RGResourceHandle::Kind::Framebuffer;
         oitDesc.Width = kSize;
         oitDesc.Height = kSize;
-        oitDesc.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::RG16Float,
-                                RGResourceFormat::Depth24Stencil8 };
+        oitDesc.Attachments = { kOITAccumFormat, RGResourceFormat::RG16Float, RGResourceFormat::Depth24Stencil8 };
         const auto oitHandle = graph.DeclareTransientFramebuffer(ResourceNames::OITBuffer, oitDesc, oitFramebuffer);
         blackboard.OIT.OITBuffer = oitHandle;
         blackboard.OIT.OITAccum = graph.CreateFramebufferAttachmentView(ResourceNames::OITAccum, oitHandle, 0u);
@@ -8895,15 +8893,15 @@ TEST_F(VulkanPassSuite, ParticleBillboardsTrailsOitAndGpuIndirectDraw)
         auto* vkOit = static_cast<VulkanFramebuffer*>(oitFramebuffer.Raw());
         ASSERT_TRUE(vkOit->GetColorAttachmentImage(0)->GetData(accumBytes, 0));
         ASSERT_TRUE(vkOit->GetColorAttachmentImage(1)->GetData(revealageBytes, 0));
-        ASSERT_EQ(accumBytes.Num(), static_cast<sizet>(kSize) * kSize * 8);
+        ASSERT_EQ(accumBytes.Num(), static_cast<sizet>(kSize) * kSize * 16); // RGBA32F, kOITAccumFormat
         ASSERT_EQ(revealageBytes.Num(), static_cast<sizet>(kSize) * kSize * 4);
 
         const auto accumAt = [&](u32 x, u32 y)
         {
-            const auto* halves = reinterpret_cast<const u16*>(accumBytes.GetData());
-            const sizet base = (static_cast<sizet>(y) * kSize + x) * 4;
-            return std::array<f32, 4>{ HalfToFloat(halves[base]), HalfToFloat(halves[base + 1]),
-                                       HalfToFloat(halves[base + 2]), HalfToFloat(halves[base + 3]) };
+            std::array<f32, 4> texel{};
+            std::memcpy(texel.data(), accumBytes.GetData() + (static_cast<sizet>(y) * kSize + x) * sizeof(texel),
+                        sizeof(texel));
+            return texel;
         };
         const auto revealageAt = [&](u32 x, u32 y)
         {
