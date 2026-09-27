@@ -643,6 +643,56 @@ namespace OloEngine
             &s_Data.ForwardPlus);
     }
 
+    void Renderer3D::RebindPersistentBuffers()
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!HasInitialized())
+            return;
+
+        const auto rebind = [](const auto& buffer)
+        {
+            if (buffer)
+                buffer->Bind();
+        };
+        // Init's order, so a binding number two of these share ends up where
+        // Init left it (the ray-tracing blocks all sit on UBO_RAY_TRACING, and
+        // each of those passes binds its own before it dispatches).
+        rebind(s_Data.SharedSceneUBOs.Camera);
+        rebind(s_Data.SharedSceneUBOs.Material);
+        rebind(s_Data.MultiLightBuffer);
+        rebind(s_Data.BoneMatricesUBO);
+        rebind(s_Data.PrevBoneMatricesUBO);
+        rebind(s_Data.TerrainUBO);
+        rebind(s_Data.FoliageUBO);
+        rebind(s_Data.WaterUBO);
+        rebind(s_Data.PostProcessGPU.PostProcess);
+        rebind(s_Data.PostProcessGPU.MotionBlur);
+        rebind(s_Data.PostProcessGPU.SSAO);
+        rebind(s_Data.PostProcessGPU.GTAO);
+        rebind(s_Data.PostProcessGPU.SSR);
+        rebind(s_Data.PostProcessGPU.SSGI);
+        rebind(s_Data.PostProcessGPU.ContactShadow);
+        rebind(s_Data.PostProcessGPU.RayTracedShadow);
+        rebind(s_Data.PostProcessGPU.RayTracedReflection);
+        rebind(s_Data.PostProcessGPU.GpuPathTracer);
+        rebind(s_Data.PostProcessGPU.ReSTIRDI);
+        rebind(s_Data.PostProcessGPU.ReSTIRGI);
+        rebind(s_Data.SceneEffectsGPU.Snow);
+        rebind(s_Data.SceneEffectsGPU.SSS);
+        rebind(s_Data.SceneEffectsGPU.Fog);
+        rebind(s_Data.SceneEffectsGPU.FogVolumes);
+        rebind(s_Data.DecalUBO);
+        rebind(s_Data.LightProbeVolumeUBO);
+        rebind(s_Data.LightmapUBO);
+        rebind(s_Data.SceneEffectsGPU.DRS);
+        rebind(s_Data.UnderwaterFogBuffer);
+        rebind(s_Data.LightProbeSHBuffer);
+
+        // The dispatcher skips a bind its cache says is already done, and the
+        // slots above may no longer hold what the cache names.
+        CommandDispatch::InvalidateBindingCaches();
+    }
+
     std::vector<std::string> Renderer3D::DebugLiveGpuOwningStatics()
     {
         std::vector<std::string> live;
