@@ -570,11 +570,17 @@ jobs:
       # ---------------------------------------------------------------------
       - name: Run full suite on AMD hardware
         working-directory: OloEditor
-        timeout-minutes: 60
+        # 80, not 60 (#1473). The suite took 38 min with a quiet neighbour
+        # (run 36188061625) and ran out of 55-60 min twice with the other olo-ci
+        # slot compiling (36285236885, 36310417409): rendering tests then take
+        # ~2x as long. The nightly cannot choose its neighbour, so the budget
+        # has to hold under one. It still fits the job's 150: ~60 min for a
+        # cold build, ~5 for setup, 80 here.
+        timeout-minutes: 80
         env:
           # The suite's own budget, inside the step's: the 5-minute gap is what
           # the report rebuild below needs to run after a timeout.
-          OLO_SUITE_MINUTES: 55
+          OLO_SUITE_MINUTES: 75
           # Belt and braces against a silent software fallback mid-run.
           MESA_LOADER_DRIVER_OVERRIDE: radeonsi
           # Passed as an ENVIRONMENT VARIABLE, never interpolated into the

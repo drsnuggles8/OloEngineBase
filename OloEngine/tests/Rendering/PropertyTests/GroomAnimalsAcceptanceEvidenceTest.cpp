@@ -2189,7 +2189,15 @@ namespace OloEngine::Tests
         {
             subject->Body.GetComponent<AnimationStateComponent>().m_IsPlaying = false;
         }
-        constexpr u32 kFrames = 64;
+        // HOW MANY FRAMES: as many as the measurement needs, not a fixed count
+        // (#1473). A measurement renders until the standard error of its mean
+        // luma is under 1%, between 8 and 64 frames. A fixed 64 cost 943 s on
+        // the AMD nightly: the long coat settles in 8-70 frames at every stop.
+        // The short coat at range does not settle at all -- see
+        // expectEnergyNear below -- so frames past 64 buy it nothing.
+        constexpr u32 kMinFrames = 8;
+        constexpr u32 kMaxFrames = 64;
+        constexpr f64 kTargetRelativeError = 0.01;
         // Where the time goes, per keep(): the frames themselves (to glFinish) or
         // reading them back. Printed with each stop (#1473).
         f64 renderMs = 0.0;
@@ -2199,6 +2207,8 @@ namespace OloEngine::Tests
         {
             f64 Cov = 0.0;  // coat pixels, per frame
             f64 Luma = 0.0; // linear luma on them, per frame
+            u32 Frames = 0;
+            f64 RelativeError = 0.0; // standard error of Luma over Luma
         };
         const auto linear = [&](const View& view, i32 entityId)
         {
@@ -2206,14 +2216,23 @@ namespace OloEngine::Tests
             EditorCamera camera(view.Fov, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 400.0f);
             camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
             camera.SetPose(view.Eye, std::atan2(d.x, -d.z), std::asin(std::clamp(-d.y, -1.0f, 1.0f)));
+            // Every measurement draws the SAME stochastic frames (common random
+            // numbers), so where both arms draw the same strands their noise
+            // cancels in the ratio: the close-up control reads coverage 1.000
+            // on both coats in a few frames.
+            Renderer3D::ResetFrameSequences();
             ColdHistory();
             RunEditorFrames(camera, 8);
             Linear out;
             std::vector<f32> colour;
             std::vector<i32> ids;
             using Clock = std::chrono::steady_clock;
-            for (u32 f = 0; f < kFrames; ++f)
+            f64 sumLuma = 0.0;
+            f64 sumLumaSq = 0.0;
+            for (u32 f = 0; f < kMaxFrames; ++f)
             {
+                f64 frameCov = 0.0;
+                f64 frameLuma = 0.0;
                 const auto t0 = Clock::now();
                 RunEditorFrames(camera, 1);
                 ::glFinish();
@@ -2271,15 +2290,32 @@ namespace OloEngine::Tests
                                 continue;
                             }
                             const sizet c = ((static_cast<sizet>(y - y0) * boxW) + (x - x0)) * 4u;
-                            out.Cov += 1.0 / kFrames;
-                            out.Luma += ((0.2126 * colour[c]) + (0.7152 * colour[c + 1]) + (0.0722 * colour[c + 2])) /
-                                        kFrames;
+                            frameCov += 1.0;
+                            frameLuma += (0.2126 * colour[c]) + (0.7152 * colour[c + 1]) + (0.0722 * colour[c + 2]);
                         }
                     }
                 }
                 const auto t2 = Clock::now();
                 renderMs += std::chrono::duration<f64, std::milli>(t1 - t0).count();
                 readbackMs += std::chrono::duration<f64, std::milli>(t2 - t1).count();
+
+                out.Cov += frameCov;
+                sumLuma += frameLuma;
+                sumLumaSq += frameLuma * frameLuma;
+                const f64 n = static_cast<f64>(f + 1u);
+                const f64 mean = sumLuma / n;
+                const f64 variance = std::max(0.0, (sumLumaSq / n) - (mean * mean)) * n / std::max(n - 1.0, 1.0);
+                out.Frames = f + 1u;
+                out.RelativeError = mean > 0.0 ? std::sqrt(variance / n) / mean : 1.0;
+                if (out.Frames >= kMinFrames && out.RelativeError < kTargetRelativeError)
+                {
+                    break;
+                }
+            }
+            if (out.Frames > 0u)
+            {
+                out.Cov /= static_cast<f64>(out.Frames);
+                out.Luma = sumLuma / static_cast<f64>(out.Frames);
             }
             return out;
         };
@@ -2352,6 +2388,7 @@ namespace OloEngine::Tests
             f64 Radiance = 0.0;
             f64 Shadow = 0.0;
             f64 Energy = 0.0;
+            f64 EnergyError = 0.0; // standard error of Energy, relative
             Arm On;
             Arm Off;
         };
@@ -2370,11 +2407,15 @@ namespace OloEngine::Tests
             k.Shadow = ratio(k.On.Lit.Luma / std::max(k.On.Unshadowed.Luma, 1.0e-9),
                              k.Off.Lit.Luma / std::max(k.Off.Unshadowed.Luma, 1.0e-9));
             k.Energy = ratio(k.On.Lit.Luma, k.Off.Lit.Luma);
+            k.EnergyError = std::sqrt((k.On.Lit.RelativeError * k.On.Lit.RelativeError) +
+                                      (k.Off.Lit.RelativeError * k.Off.Lit.RelativeError));
             std::printf("[groom-animals] lod %s %s %s: representation %u, strands %u / %u, coverage %.3f (%.0f / %.0f px), "
-                        "radiance %.3f, shadow %.3f, energy %.3f; frames %.1f s, readback %.1f s\n",
+                        "radiance %.3f, shadow %.3f, energy %.3f; frames on/off %u/%u, error %.1f%%/%.1f%%; "
+                        "frames %.1f s, readback %.1f s\n",
                         label.c_str(), s.Tag.c_str(), stop.Name, static_cast<u32>(k.On.Representation), k.On.Strands,
                         k.Off.Strands, k.Coverage, k.On.Lit.Cov, k.Off.Lit.Cov, k.Radiance, k.Shadow, k.Energy,
-                        renderMs / 1000.0, readbackMs / 1000.0);
+                        k.On.Lit.Frames, k.Off.Lit.Frames, 100.0 * k.On.Lit.RelativeError,
+                        100.0 * k.Off.Lit.RelativeError, renderMs / 1000.0, readbackMs / 1000.0);
             std::fflush(stdout);
             renderMs = 0.0;
             readbackMs = 0.0;
@@ -2403,6 +2444,37 @@ namespace OloEngine::Tests
         constexpr f64 kShippedEnergyFloor = 0.75;
         constexpr f64 kShippedEnergyCeiling = 1.40;
 
+        // AN ENERGY BOUND IS ONLY AS GOOD AS THE MEASUREMENT (#1473). The short
+        // coat at range is nearly black (mean linear luma ~0.0025 per pixel) and
+        // its energy is a handful of sub-pixel specular glints: over 95 frozen
+        // frames at the far stop its summed luma ranged 0.11-3.30 with a steady
+        // ~400 px, independent frame to frame. 96 frames still left the ratio a
+        // ~9% standard error, so a +-10% bound there passed or failed by luck.
+        //
+        // So a bound is held only where the measurement can resolve it: twice
+        // the ratio's standard error inside the tolerance. A cell that cannot is
+        // held to the shipped gross guard instead, printed, and recorded in the
+        // report as `unmeasurable_energy`, never passed silently. The long coat
+        // must stay measurable at every stop, so the contract cannot decay into
+        // "unmeasurable" everywhere unnoticed.
+        const auto expectEnergyNear = [&](const SubjectRig& s, const Kept& k, f64 tolerance, const char* claim)
+        {
+            if (2.0 * k.EnergyError < tolerance)
+            {
+                EXPECT_NEAR(k.Energy, 1.0, tolerance) << claim << " (energy error " << 100.0 * k.EnergyError << "%)";
+                return;
+            }
+            EXPECT_NE(&s, &m_LongCoat) << "the long coat's energy must be measurable: error "
+                                       << 100.0 * k.EnergyError << "% against a " << 100.0 * tolerance
+                                       << "% bound";
+            std::printf("[groom-animals] energy %.3f not measurable against +-%.2f (error %.1f%%): gross guard only\n",
+                        k.Energy, tolerance, 100.0 * k.EnergyError);
+            std::fflush(stdout);
+            ::testing::Test::RecordProperty("unmeasurable_energy", s.Tag);
+            EXPECT_GT(k.Energy, kShippedEnergyFloor) << claim;
+            EXPECT_LT(k.Energy, kShippedEnergyCeiling) << claim;
+        };
+
         for (SubjectRig* s : { &m_LongCoat, &m_ShortCoat })
         {
             SCOPED_TRACE(s->Name);
@@ -2414,7 +2486,7 @@ namespace OloEngine::Tests
             ASSERT_GT(atNear.Off.Lit.Cov, 1000.0) << "the coat must be visible to be conserved at all";
             EXPECT_EQ(atNear.On.Strands, atNear.Off.Strands) << "the control drew different strands";
             EXPECT_NEAR(atNear.Coverage, 1.0, 0.01) << "two identical frames measured different coats";
-            EXPECT_NEAR(atNear.Energy, 1.0, 0.03) << "two identical frames measured different coats";
+            expectEnergyNear(*s, atNear, 0.03, "two identical frames measured different coats");
 
             const Kept atMid = keep(*s, midStop, "Forward", true);
             ASSERT_FALSE(HasFatalFailure());
@@ -2423,7 +2495,7 @@ namespace OloEngine::Tests
             // The short coat's stride step keeps 1.08-1.15 of its energy with
             // no card in sight (#1509); it is held to a guard until that lands.
             const f64 midTolerance = s == &m_ShortCoat ? 0.20 : kEnergyTolerance;
-            EXPECT_NEAR(atMid.Energy, 1.0, midTolerance) << "the strand budget did not keep the coat";
+            expectEnergyNear(*s, atMid, midTolerance, "the strand budget did not keep the coat");
 
             for (const Stop& stop : { handoverStop, farStop })
             {
@@ -2453,7 +2525,7 @@ namespace OloEngine::Tests
                 const Kept k = keep(*s, stop, "ConvergedShadow", false);
                 ASSERT_FALSE(HasFatalFailure());
                 EXPECT_EQ(k.On.Representation, GroomRepresentation::Card);
-                EXPECT_NEAR(k.Energy, 1.0, kEnergyTolerance) << "the card tier does not keep the coat";
+                expectEnergyNear(*s, k, kEnergyTolerance, "the card tier does not keep the coat");
             }
             shadow = shippedShadow;
             lod.m_ShadowSteps = shippedShadowSteps;
