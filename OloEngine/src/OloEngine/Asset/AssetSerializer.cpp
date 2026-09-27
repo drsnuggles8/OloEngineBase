@@ -93,9 +93,40 @@ namespace OloEngine
 
     std::atomic<bool> TextureSerializer::s_AssetPackCompressionEnabled{ false };
 
+    namespace
+    {
+        struct PackColorSpaceIntents
+        {
+            std::mutex Mutex;
+            std::unordered_map<AssetHandle, bool> Intents;
+        };
+
+        [[nodiscard]] PackColorSpaceIntents& GetPackColorSpaceIntents()
+        {
+            static PackColorSpaceIntents s_Intents;
+            return s_Intents;
+        }
+    } // namespace
+
     void TextureSerializer::SetAssetPackCompressionEnabled(bool enabled)
     {
         s_AssetPackCompressionEnabled.store(enabled, std::memory_order_relaxed);
+    }
+
+    void TextureSerializer::SetAssetPackColorSpaceIntents(std::unordered_map<AssetHandle, bool> intents)
+    {
+        auto& state = GetPackColorSpaceIntents();
+        std::scoped_lock lock(state.Mutex);
+        state.Intents = std::move(intents);
+    }
+
+    std::optional<bool> TextureSerializer::GetAssetPackColorSpaceIntent(AssetHandle handle)
+    {
+        auto& state = GetPackColorSpaceIntents();
+        std::scoped_lock lock(state.Mutex);
+        if (const auto it = state.Intents.find(handle); it != state.Intents.end())
+            return it->second;
+        return std::nullopt;
     }
 
     bool TextureSerializer::IsAssetPackCompressionEnabled()
@@ -344,6 +375,11 @@ namespace OloEngine
         const auto& spec = texture->GetSpecification();
         const auto path = texture->GetPath();
 
+        // The colour space the material slots that reference this texture want (#1462),
+        // when the pack build knows one. The live texture's spec.SRGB is the asset
+        // system's FILENAME guess, which reads every hash-named albedo map as linear.
+        const std::optional<bool> slotSRGB = GetAssetPackColorSpaceIntent(handle);
+
         // Auto-cook (#440): when pack compression is enabled and this is an UNcompressed
         // source texture (not already an .olotex), BC-compress it in-memory and embed the
         // resulting container — so shipped textures get BCn + mips automatically, with no
@@ -367,6 +403,11 @@ namespace OloEngine
         {
             TextureCompression::CompressOptions opts;
             opts.GenerateMips = spec.GenerateMips;
+            if (slotSRGB.has_value())
+            {
+                opts.SRGB = *slotSRGB;
+                opts.AutoSRGBFromName = false;
+            }
             if (TextureCompression::CompressImageFile(cookSource.string(), opts, cooked) && cooked.IsValid())
                 haveCooked = true;
             else
@@ -378,7 +419,15 @@ namespace OloEngine
         // IsCompressedFormat(format), so a cooked record reuses the exact same read path
         // as a pre-compressed .olotex — no runtime change needed.
         ImageFormat recordFormat = spec.Format;
-        bool recordSRGB = spec.SRGB;
+        bool recordSRGB = slotSRGB.value_or(spec.SRGB);
+        if (slotSRGB.has_value() && IsCompressedFormat(spec.Format) && *slotSRGB != spec.SRGB)
+        {
+            // A pre-cooked .olotex carries its colour space in its own blob, which is
+            // shipped byte for byte; the record byte cannot change how it samples.
+            OLO_CORE_WARN("TextureSerializer::SerializeToAssetPack - pre-compressed '{}' is SRGB={} but the material "
+                          "slots that use it want SRGB={}; re-cook it with the right colour space",
+                          path, spec.SRGB, *slotSRGB);
+        }
         bool recordHasAlpha = texture->HasAlphaChannel();
         bool recordGenerateMips = spec.GenerateMips;
         if (haveCooked)

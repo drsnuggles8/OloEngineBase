@@ -8,6 +8,7 @@
 
 #include <filesystem>
 #include <atomic>
+#include <unordered_map>
 
 namespace OloEngine
 {
@@ -72,6 +73,21 @@ namespace OloEngine
          * @return Build result with success/failure info
          */
         static BuildResult BuildFromRegistry(const AssetRegistry& assetRegistry, const BuildSettings& settings, std::atomic<f32>& progress, const std::atomic<bool>* cancelToken = nullptr);
+
+        /**
+         * @brief The colour space each texture's material slots want (issue #1462)
+         *
+         * Walks every material among `assets` (MeshSource imported materials and Material
+         * assets) and maps each referenced texture handle to true for a base-colour or
+         * emissive slot (sRGB), false for metallic-roughness / normal / AO (linear data),
+         * the same rule the importer uses (Model::LoadMaterialTextures). A texture used by
+         * both kinds of slot is reported with a warning naming both and cooked sRGB: a
+         * colour map sampled linearly washes the whole material out, and a texture shared
+         * between a colour and a data slot is an authoring mistake that a ".oloimport"
+         * ColorSpace settles explicitly.
+         */
+        [[nodiscard]] static std::unordered_map<AssetHandle, bool> CollectTextureColorSpaceIntents(
+            const std::unordered_map<AssetHandle, Ref<Asset>>& assets);
 
       private:
         /**

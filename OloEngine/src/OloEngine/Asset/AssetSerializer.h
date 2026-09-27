@@ -5,6 +5,7 @@
 #include <string_view>
 #include <filesystem>
 #include <optional>
+#include <unordered_map>
 #include <variant>
 #include <vector>
 #include "AssetMetadata.h"
@@ -207,6 +208,19 @@ namespace OloEngine
         // reset to false afterwards). Already-compressed (.olotex) textures are unaffected.
         static void SetAssetPackCompressionEnabled(bool enabled);
         [[nodiscard]] static bool IsAssetPackCompressionEnabled();
+
+        // The colour space each texture's MATERIAL SLOTS want, for the duration of a pack
+        // build (issue #1462): handle -> true for sRGB (base colour / emissive), false for
+        // linear data. The asset system loads a texture with the colour space its FILE
+        // NAME suggests, which is wrong for every hash-named import (Sponza), and the
+        // packed runtime has no source file to re-read with the slot's intent. With an
+        // entry here, SerializeToAssetPack cooks and records that colour space instead of
+        // the filename guess; an explicit ".oloimport" ColorSpace still wins, because it
+        // is a per-texture decision a person made. AssetPackBuilder fills this from every
+        // packed material (AssetPackBuilder::CollectTextureColorSpaceIntents) and clears it
+        // afterwards. Pass an empty map to clear.
+        static void SetAssetPackColorSpaceIntents(std::unordered_map<AssetHandle, bool> intents);
+        [[nodiscard]] static std::optional<bool> GetAssetPackColorSpaceIntent(AssetHandle handle);
 
       private:
         static std::atomic<bool> s_AssetPackCompressionEnabled;
