@@ -377,7 +377,12 @@ namespace OloEngine
     // The ceiling is 1 because above it alpha = roughness^2 leaves the NDF's
     // normalizable domain, which is the same ceiling every roughness in this
     // engine carries.
-    inline constexpr f32 kMinSkinOralCoatRoughness = 0.01f;
+    //
+    // 0.04, not 0.01 (issue #1421): the coat's lobe is the UNCLAMPED GGX now,
+    // whose peak at 0.01 is 3e7 -- a single-pixel firefly under a delta light.
+    // 0.04 is the ClosureV2 floor (MIN_ROUGHNESS), the smoothest surface the
+    // rest of the engine shades.
+    inline constexpr f32 kMinSkinOralCoatRoughness = 0.04f;
     inline constexpr f32 kMaxSkinOralCoatRoughness = 1.0f;
 
     // The film's index of refraction, seen from air. Saliva is 1.33 (it is

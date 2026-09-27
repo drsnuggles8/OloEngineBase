@@ -969,11 +969,15 @@ namespace OloEngine::Tests
         // the coat's clean gain in this AOV is 3 levels, on 2-3 pixels, at this
         // pose and at Side/ThreeQuarter alike.
         //
-        // The floor on this fixture is 0 (two captures are byte-identical), so
-        // "above the floor" is still an exact statement that the coat reached
-        // the specular half. How LARGE the wet highlight should be is a
-        // separate question, tracked as #1421 (a follow-up to the closed
-        // #1245) rather than answered by a threshold chosen to make this pass.
+        // WHY IT WAS 3 LEVELS, AND WHAT IT IS NOW (issue #1421). The coat's lobe
+        // called the Legacy distributionGGX, whose denominator is clamped to
+        // 1e-4: at the lip's coat roughness (0.06) that capped D at 0.13
+        // against a true peak of ~24 600, so the film reflected 0.5 % of what
+        // its attenuation took from the tissue. With the unclamped GGX the same
+        // fixture reads 126 levels up, on 40 pixels, at this pose. The bar is
+        // a VISIBLE highlight, 32 levels -- ten times anything the capped lobe
+        // could reach -- and the lobe's energy itself is pinned where it can be
+        // stated exactly: SkinOralSurfaceTest.TheCoatReflectsItsFresnelAtASalivaFilmsRoughness.
         //
         // THE INSTRUMENT IS THE LARGEST UPWARD MOVE, NOT A PIXEL COUNT, and the
         // first version of this test got that wrong in a way worth recording.
@@ -989,6 +993,11 @@ namespace OloEngine::Tests
         // directions.
         const Difference specularDiff = Diff(drySpecular, wetSpecular);
         const i32 specularUp = MaxBrightening(drySpecular, wetSpecular);
+        GTEST_LOG_(INFO) << p << ": the coat's largest specular gain is " << specularUp << " levels (floor " << floor
+                         << "), " << CountBrighterPixels(drySpecular, wetSpecular, 4) << " pixels up by more than 4";
+        EXPECT_GE(specularUp, 32)
+            << p << ": the wet coat's highlight is " << specularUp
+            << " levels: not a visible highlight. The lobe has lost its energy again (issue #1421).";
         EXPECT_GT(static_cast<f32>(specularUp), floor)
             << p << ": THE SPECULAR AOV GAINED ALMOST NOTHING (" << specularUp
             << " levels against a floor of " << floor

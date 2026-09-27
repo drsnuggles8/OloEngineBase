@@ -1,6 +1,10 @@
 #ifndef SKIN_ORAL_SURFACE_GLSL
 #define SKIN_ORAL_SURFACE_GLSL
 
+// kMinSkinOralCoatRoughness (Renderer/SkinProfile.h); ShaderUnit_SkinOralSurface
+// and SkinOralSurfaceTest hold the two to one value.
+#define OLO_SKIN_ORAL_MIN_COAT_ROUGHNESS 0.04
+
 // =============================================================================
 // SkinOralSurface.glsl — the wet coat and the cavity weight, issue #1245.
 //
@@ -38,13 +42,18 @@
 // WHAT THE COAT IS APPLIED TO, AND WHAT IT IS NOT
 // -----------------------------------------------------------------------------
 //
-// PUNCTUAL AND AREA LIGHTS: yes. IBL, light probes and the ambient ladder: NO,
-// and for the reason include/SkinLayeredSpecular.glsl gives about its second
-// lobe — an environment coat means a SECOND prefiltered cubemap fetch per pixel,
-// at a different mip, and this file is not going to spend one where that file
-// declined to. Stated here rather than left to be noticed: a mouth lit ONLY by
-// an environment map will not read as wet, and the fix is a key light, which is
-// what every close-up in the evidence matrix uses.
+// PUNCTUAL AND AREA LIGHTS: yes, per light (oloSkinOralApplyCoat).
+//
+// IBL: yes, through oloSkinOralApplyCoatAmbient (issue #1421). It used to be
+// left out on the argument include/SkinLayeredSpecular.glsl makes for its
+// second lobe -- a second prefiltered cubemap fetch per pixel -- but that
+// argument does not transfer: the second lobe was measured at 1-2 % RMS, while
+// for a wet film the environment reflection IS the visible effect. The fetch is
+// taken only on a pixel with a live coat. The partition holds on the ambient
+// term too: the film's directional albedo E(N.V) = F0 * A + B from the split-sum
+// LUT is what it reflects, and 1 - strength * E is what reaches the tissue.
+// Light probes' diffuse irradiance is attenuated with it; the film has no
+// separate reflection of a probe's SH, which the IBL fetch stands in for.
 //
 // -----------------------------------------------------------------------------
 // THE CAVITY WEIGHT GATES THE TRANSMISSION AND NOTHING ELSE
@@ -120,9 +129,15 @@ float oloSkinOralCoatSpecular(vec3 N, vec3 V, vec3 L, float coatRoughness, float
         return 0.0;
 
     vec3 H = sum * inversesqrt(lenSq);
-    float roughness = clamp(coatRoughness, 0.01, 1.0);
+    float roughness = clamp(coatRoughness, OLO_SKIN_ORAL_MIN_COAT_ROUGHNESS, 1.0);
 
-    float D = distributionGGX(N, H, roughness);
+    // THE UNCLAMPED GGX (issue #1421), the one ClosureV2 uses. The Legacy
+    // distributionGGX divides by max(denominator, EPSILON = 1e-4), which caps D
+    // for any roughness below about 0.27: at a saliva film's 0.06 its peak is
+    // 0.13 against a true 24 600, so the coat reflected 0.5 % of the energy its
+    // attenuation took from the tissue. The film darkened the lip and gave
+    // almost nothing back as a highlight.
+    float D = distributionGGXUnclampedNH(N, H, roughness);
     float Vis = visibilitySmithGGXCorrelated(N, V, L, roughness);
     float F = oloSkinOralCoatFresnel(coatF0, dot(V, H));
 
@@ -165,6 +180,33 @@ OloSurfaceLighting oloSkinOralApplyCoat(OloSurfaceLighting lighting, vec3 N, vec
 
     return OloSurfaceLighting(lighting.Diffuse * attenuation,
                               lighting.Specular * attenuation + max(radiance, vec3(0.0)) * (coat * clampedStrength));
+}
+
+// The coat's ENVIRONMENT reflection, applied to the ambient split before AO
+// (issue #1421). `coatEnvBRDF` is the split-sum LUT at (N.V, coat roughness)
+// and `coatPrefiltered` the environment radiance prefiltered at the coat's
+// roughness, both fetched by the caller (it owns the samplers and the probe
+// blend), already scaled by the IBL intensity. A zero strength returns the
+// input untouched, like oloSkinOralApplyCoat.
+OloSurfaceLighting oloSkinOralApplyCoatAmbient(OloSurfaceLighting ambient, vec4 oralLane, vec2 coatEnvBRDF,
+                                               vec3 coatPrefiltered)
+{
+    float strength = oralLane.x;
+    if (!(strength > 0.0))
+        return ambient;
+
+    // The film's directional albedo: an achromatic Fresnel through the LUT.
+    float albedo = clamp(clamp(oralLane.z, 0.0, 1.0) * coatEnvBRDF.x + coatEnvBRDF.y, 0.0, 1.0);
+    float reflected = clamp(strength, 0.0, 1.0) * albedo;
+    float attenuation = 1.0 - reflected;
+    return OloSurfaceLighting(ambient.Diffuse * attenuation,
+                              ambient.Specular * attenuation + max(coatPrefiltered, vec3(0.0)) * reflected);
+}
+
+// The roughness the coat's environment fetch and LUT lookup use.
+float oloSkinOralCoatAmbientRoughness(vec4 oralLane)
+{
+    return clamp(oralLane.y, OLO_SKIN_ORAL_MIN_COAT_ROUGHNESS, 1.0);
 }
 
 // How much of the transmitted lobe survives the cavity.

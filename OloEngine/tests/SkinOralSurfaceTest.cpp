@@ -79,14 +79,13 @@ namespace
     // 0.06 an author gives a wet lip the lobe is under a degree wide and this
     // quadrature reports a tenth of its energy.
     //
-    // SO THE SWEEP BELOW STAYS ABOVE THAT, AND THAT IS NOT A GAP. D, the Smith
-    // visibility and the Schlick are ONE piece of arithmetic with roughness as
-    // an argument; pinning its normalization where the quadrature is honest
-    // pins it everywhere. What covers the narrow end is a different instrument:
-    // SkinOralSurfaceParityTest compares the shader and the CPU at roughness
-    // 0.12 exactly, which catches a wrong constant without needing to integrate
-    // anything. Sweeping a roughness this integrator cannot resolve would
-    // produce a number that looks like evidence and is not.
+    // So the sweeps that use THIS grid stay above that. The narrow end is not
+    // covered by "one piece of arithmetic with roughness as an argument", which
+    // is what this comment used to argue: the NDF the coat called clamped its
+    // denominator, so it was a DIFFERENT function below roughness ~0.27 and the
+    // coat reflected 0.5 % of its energy at 0.06 (issue #1421). The half-vector
+    // integrator below resolves those roughnesses, and
+    // TheCoatReflectsItsFresnelAtASalivaFilmsRoughness pins them.
     [[nodiscard]] f32 CoatDirectionalAlbedo(f32 coatRoughness, f32 coatF0, f32 NdotV)
     {
         constexpr i32 kThetaSteps = 512;
@@ -115,6 +114,50 @@ namespace
             }
         }
         return total;
+    }
+
+    // The same albedo integrated in HALF-VECTOR space, where a narrow lobe is
+    // narrow in the integration variable too (issue #1421). L = reflect(-V, H)
+    // and dL = 4 (V.H) dH; theta_h is sampled as u^3 * pi/2, so the first few
+    // hundred steps sit inside a GGX lobe of alpha 0.0016 (roughness 0.04).
+    // This is the instrument the grid above could not be: with it, the coat at
+    // a saliva film's roughness reads its real energy -- and the capped NDF it
+    // used to have read 0.5 % of it.
+    [[nodiscard]] f32 CoatDirectionalAlbedoHalfVector(f32 coatRoughness, f32 coatF0, f32 NdotV)
+    {
+        constexpr i32 kThetaSteps = 4096;
+        constexpr i32 kPhiSteps = 128;
+        constexpr f32 kPi = std::numbers::pi_v<f32>;
+
+        const glm::vec3 N{ 0.0f, 0.0f, 1.0f };
+        const f32 sinV = std::sqrt(std::max(0.0f, 1.0f - NdotV * NdotV));
+        const glm::vec3 V{ sinV, 0.0f, NdotV };
+
+        f64 total = 0.0;
+        const f32 dPhi = (2.0f * kPi) / static_cast<f32>(kPhiSteps);
+        for (i32 ti = 0; ti < kThetaSteps; ++ti)
+        {
+            const f32 u = (static_cast<f32>(ti) + 0.5f) / static_cast<f32>(kThetaSteps);
+            const f32 theta = 0.5f * kPi * u * u * u;
+            const f32 dTheta = 0.5f * kPi * 3.0f * u * u / static_cast<f32>(kThetaSteps);
+            const f32 sinTheta = std::sin(theta);
+            const f32 cosTheta = std::cos(theta);
+            for (i32 pi = 0; pi < kPhiSteps; ++pi)
+            {
+                const f32 phi = (static_cast<f32>(pi) + 0.5f) * dPhi;
+                const glm::vec3 H{ sinTheta * std::cos(phi), sinTheta * std::sin(phi), cosTheta };
+                const f32 VdotH = glm::dot(V, H);
+                if (!(VdotH > 0.0f))
+                    continue;
+                const glm::vec3 L = 2.0f * VdotH * H - V;
+                const f32 NdotL = L.z;
+                if (!(NdotL > 0.0f))
+                    continue;
+                const f32 brdf = SkinOralCoatSpecular(N, V, L, coatRoughness, coatF0);
+                total += static_cast<f64>(brdf) * NdotL * 4.0f * VdotH * sinTheta * dTheta * dPhi;
+            }
+        }
+        return static_cast<f32>(total);
     }
 } // namespace
 
@@ -290,6 +333,50 @@ TEST(SkinOralSurfaceTest, CoatDirectionalAlbedoIsCloseToItsFresnelNearNormalInci
             EXPECT_LT(rho, 1.3f * f0) << "ior " << ior << " NdotV " << NdotV
                                       << ": the coat lobe is carrying far more than its Fresnel";
         }
+    }
+}
+
+// Issue #1421. A saliva film's coat (roughness 0.04-0.12) reflects about its
+// Fresnel at normal incidence, as a smooth dielectric interface does -- not the
+// 0.5 % of it the capped NDF gave, which let the attenuation take energy from
+// the tissue that the lobe never gave back. Integrated in half-vector space,
+// the only quadrature here that resolves a lobe this narrow.
+TEST(SkinOralSurfaceTest, TheCoatReflectsItsFresnelAtASalivaFilmsRoughness)
+{
+    const f32 f0 = SkinOralCoatF0(kSalivaIor);
+    for (const f32 roughness : { 0.04f, 0.06f, 0.12f })
+    {
+        const f32 rho = CoatDirectionalAlbedoHalfVector(roughness, f0, 1.0f);
+        EXPECT_GT(rho, 0.9f * f0) << "roughness " << roughness << ": the coat's lobe lost its energy";
+        EXPECT_LT(rho, 1.05f * f0) << "roughness " << roughness << ": the coat's lobe gained energy";
+    }
+    // The half-vector integrator agrees with the grid where the grid is honest.
+    EXPECT_NEAR(CoatDirectionalAlbedoHalfVector(0.5f, f0, 0.7f), CoatDirectionalAlbedo(0.5f, f0, 0.7f), 0.02f * f0);
+}
+
+// Issue #1421, the ambient partition: the film reflects its directional albedo
+// of the environment and the tissue keeps the rest, so diffuse + specular
+// energy is conserved for a white environment; a zero strength is an identity.
+TEST(SkinOralSurfaceTest, TheAmbientCoatIsAPartitionOfTheEnvironment)
+{
+    const glm::vec4 lane{ 0.8f, 0.06f, SkinOralCoatF0(kSalivaIor), 0.0f };
+    const glm::vec2 envBRDF{ 0.9f, 0.04f };
+    const glm::vec3 diffuse{ 0.3f, 0.2f, 0.1f };
+    const glm::vec3 specular{ 0.05f, 0.05f, 0.05f };
+    const glm::vec3 env{ 2.0f, 1.5f, 1.0f };
+    const SkinOralCoatResult coated = ApplySkinOralCoatAmbient(diffuse, specular, lane, envBRDF, env);
+    const f32 albedo = lane.z * envBRDF.x + envBRDF.y;
+    const f32 reflected = lane.x * albedo;
+    EXPECT_NEAR(coated.Diffuse.r, diffuse.r * (1.0f - reflected), 1.0e-6f);
+    EXPECT_NEAR(coated.Specular.r, specular.r * (1.0f - reflected) + env.r * reflected, 1.0e-6f);
+    EXPECT_GT(coated.Specular.r, specular.r) << "a lit environment must brighten the film's specular";
+
+    const SkinOralCoatResult dry =
+        ApplySkinOralCoatAmbient(diffuse, specular, glm::vec4(0.0f, 0.06f, lane.z, 0.0f), envBRDF, env);
+    for (i32 c = 0; c < 3; ++c)
+    {
+        EXPECT_FLOAT_EQ(dry.Diffuse[c], diffuse[c]);
+        EXPECT_FLOAT_EQ(dry.Specular[c], specular[c]);
     }
 }
 

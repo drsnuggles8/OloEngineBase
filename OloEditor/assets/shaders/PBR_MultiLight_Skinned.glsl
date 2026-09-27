@@ -878,6 +878,20 @@ void main()
                                          metallic, roughness, ao,
                                          u_IrradianceMap, u_BRDFLutMap, prefilteredColor);
 
+    // The wet film's ENVIRONMENT reflection (issue #1421) -- the visible effect
+    // of a saliva or tear film. Before AO, like the rest of the ambient: the
+    // film is occluded by what occludes the surface under it.
+    if (skinOralLane.x > 0.0 && u_EnableIBL == 1)
+    {
+        float coatRoughness = oloSkinOralCoatAmbientRoughness(skinOralLane);
+        vec3 coatPrefiltered = textureLod(u_PrefilterMap, R, coatRoughness * MAX_REFLECTION_LOD).rgb;
+        vec4 coatProbe = oloSampleReflectionProbes(v_WorldPos, N, R, coatRoughness * MAX_REFLECTION_LOD,
+                                                   -(u_View * vec4(v_WorldPos, 1.0)).z);
+        coatPrefiltered = mix(coatPrefiltered, coatProbe.rgb, coatProbe.a);
+        vec2 coatEnvBRDF = texture(u_BRDFLutMap, vec2(max(dot(N, V), 0.0), coatRoughness)).rg;
+        ambient = oloSkinOralApplyCoatAmbient(ambient, skinOralLane, coatEnvBRDF, coatPrefiltered * u_IBLIntensity);
+    }
+
     // Combine lighting — AO attenuates ambient only.
     //
     // The skin profile is applied to the SPECULAR half alone, immediately

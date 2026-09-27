@@ -205,6 +205,21 @@ namespace OloEngine
                                                        const glm::vec3& radiance,
                                                        const glm::vec4& oralLane) noexcept;
 
+    // @brief Apply the coat to the AMBIENT (image-based) split (issue #1421).
+    //
+    // The film reflects its directional albedo E = F0 * envBRDF.x + envBRDF.y
+    // (the split-sum LUT at N.V and the coat's roughness) of the environment
+    // prefiltered at that roughness, and the tissue keeps 1 - strength * E of
+    // its ambient: the same partition ApplySkinOralCoat writes per light, over
+    // the hemisphere. `coatPrefiltered` is already scaled by the IBL intensity.
+    // A zero strength returns the base untouched. Mirrors
+    // oloSkinOralApplyCoatAmbient in include/SkinOralSurface.glsl.
+    [[nodiscard]] SkinOralCoatResult ApplySkinOralCoatAmbient(const glm::vec3& baseDiffuse,
+                                                              const glm::vec3& baseSpecular,
+                                                              const glm::vec4& oralLane,
+                                                              const glm::vec2& coatEnvBRDF,
+                                                              const glm::vec3& coatPrefiltered) noexcept;
+
     // @brief How much of the transmitted lobe survives the cavity.
     //
     //     mix(1, clamp(occlusion), clamp(cavityOcclusion))

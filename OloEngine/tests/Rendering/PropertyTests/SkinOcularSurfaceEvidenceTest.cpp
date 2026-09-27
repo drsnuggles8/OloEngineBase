@@ -95,12 +95,21 @@ namespace OloEngine::Tests
             u32 MaxDelta = 0;
         };
 
-        [[nodiscard]] Difference Diff(const Capture& a, const Capture& b)
+        // `excludeGlints` skips a pixel that either capture shows near white:
+        // a specular catchlight on the tear film. See the refraction rows.
+        [[nodiscard]] Difference Diff(const Capture& a, const Capture& b, bool excludeGlints = false)
         {
             Difference d{};
             const std::size_t count = std::min(a.Pixels.size(), b.Pixels.size());
             for (std::size_t i = 0; i + 3 < count; i += 4)
             {
+                if (excludeGlints)
+                {
+                    const u8 peakA = std::max({ a.Pixels[i], a.Pixels[i + 1], a.Pixels[i + 2] });
+                    const u8 peakB = std::max({ b.Pixels[i], b.Pixels[i + 1], b.Pixels[i + 2] });
+                    if (peakA > 235 || peakB > 235)
+                        continue;
+                }
                 u32 worst = 0;
                 for (u32 c = 0; c < 3; ++c)
                 {
@@ -627,7 +636,15 @@ namespace OloEngine::Tests
                 ASSERT_TRUE(CaptureFrame(path, m_RefractingProfile, angle, "EyeCornea" + stem, refracting));
                 ASSERT_TRUE(CaptureFrame(path, m_PaintedProfile, angle, "EyeCorneaOff" + stem, painted));
 
-                const Difference d = Diff(refracting, painted);
+                // THE IRIS, NOT THE CATCHLIGHT. The tear film reflects a sharp
+                // glint off the cornea (issue #1421 gave its lobe back its
+                // energy), and the refracting and painted models differ in the
+                // corneal normal the glint follows. At Front the glint's shift
+                // alone was the largest delta in the frame (154 against the
+                // iris's 111) and inverted the ordering below, which is about
+                // the iris moving behind the cornea. Near-white pixels are the
+                // glint; the parallax is measured on the rest.
+                const Difference d = Diff(refracting, painted, /*excludeGlints=*/true);
                 rows.push_back({ PathName(path), angle.Name, d.ChangedPixels, d.MaxDelta, floor });
             }
         }

@@ -811,6 +811,22 @@ vec3 ComputeDeferredLitSplit(
                                                enableProbes, iblIntensity);
     }
 
+    // The wet film's ENVIRONMENT reflection (issue #1421), on the ambient before
+    // AO -- see oloSkinOralApplyCoatAmbient. Not under ReSTIR PT, which owns the
+    // specular lobe of the indirect.
+    if (skinOralLane.x > 0.0 && enableIBL && !restirPTActive)
+    {
+        float coatRoughness = oloSkinOralCoatAmbientRoughness(skinOralLane);
+        vec3 coatPrefiltered = textureLod(u_PrefilterMap, R, coatRoughness * MAX_REFLECTION_LOD).rgb;
+#ifdef OLO_REFLECTION_PROBE_SAMPLERS
+        vec4 coatProbe = oloSampleReflectionProbes(worldPos, N, R, coatRoughness * MAX_REFLECTION_LOD,
+                                                   -(u_View * vec4(worldPos, 1.0)).z);
+        coatPrefiltered = mix(coatPrefiltered, coatProbe.rgb, coatProbe.a);
+#endif
+        vec2 coatEnvBRDF = texture(u_BRDFLutMap, vec2(max(dot(N, V), 0.0), coatRoughness)).rg;
+        ambient = oloSkinOralApplyCoatAmbient(ambient, skinOralLane, coatEnvBRDF, coatPrefiltered * iblIntensity);
+    }
+
     // ambient * (material AO * screen-space AO), then the resampled indirect
     // diffuse UNMULTIPLIED — see oloReSTIRGIIndirectDiffuse for why no AO term
     // may touch it. It joins the DIFFUSE half because that is exactly what that
