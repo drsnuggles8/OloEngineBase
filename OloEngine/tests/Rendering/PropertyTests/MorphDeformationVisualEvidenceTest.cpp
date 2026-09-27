@@ -167,6 +167,19 @@ namespace OloEngine::Tests
             Scene& scene = GetScene();
             EnableRendering(kWidth, kHeight);
 
+            // The goldens hold the head, not the editor overlays. The grid fades
+            // out toward the horizon and discards below an alpha of 0.01, and the
+            // row where that flips moved by one between the first test in a
+            // process and any later one: a second run of this very test, or one
+            // after AutoMeshLODScene, missed the golden by RMSE 6.22 on the
+            // three-quarter poses from that single row alone (#1484).
+            auto& settings = Renderer3D::GetRendererSettings();
+            settings.ShowGrid = false;
+            settings.ShowLightGizmos = false;
+            settings.ShowWorldAxisHelper = false;
+            settings.ShowCameraFrustums = false;
+            Renderer3D::ApplyRendererSettings();
+
             {
                 Entity light = scene.CreateEntity("Sun");
                 auto& tc = light.GetComponent<TransformComponent>();

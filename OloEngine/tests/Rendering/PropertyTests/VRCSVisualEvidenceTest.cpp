@@ -35,10 +35,14 @@
 //      seams" — a one-pixel-wide artefact vanishes into a mean over a million
 //      pixels — which is why it is not the only check.
 //
-//   2. TILE SEAMS IN A SMOOTH GRADIENT. Measured as a RATIO, on the open floor,
-//      where the AO signal is smooth by construction: the mean absolute step
-//      between horizontally adjacent pixels that STRADDLE an 8-pixel tile
-//      boundary, over the same quantity for pairs that do not. A coarsening
+//   2. TILE SEAMS IN A SMOOTH GRADIENT. Measured as a RATIO, on the contact
+//      occlusion's falloff in front of the cube, the one smooth AO gradient
+//      this scene has: the mean absolute step between VERTICALLY adjacent
+//      pixels (the falloff runs down the screen) that STRADDLE an 8-pixel tile
+//      boundary, over the same quantity for pairs that do not. Not the open
+//      floor: GTAO reads an unoccluded plane as exactly 1 since #1463, and the
+//      gradient the floor used to show was that bug's phantom occlusion. A
+//      coarsening
 //      artefact is periodic at the tile pitch, so it inflates the numerator and
 //      not the denominator; a global change in contrast moves both and cancels.
 //      The same ratio is computed on the FULL-RATE frame as the control, so the
@@ -86,6 +90,7 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -144,20 +149,27 @@ namespace OloEngine::Tests
             return count ? sum / static_cast<f64>(count) : 1e9;
         }
 
-        // The seam metric. Walks a UV region and separates horizontally adjacent
-        // pixel pairs into two populations: those whose right-hand member starts
-        // a new 8-pixel tile column, and all the others. A coarsening artefact
-        // lives ONLY in the first population, because that is where one leader's
-        // broadcast meets the next leader's; anything that moves both equally
-        // (contrast, exposure, noise) cancels in the ratio.
+        // The seam metric. Walks a UV region and separates VERTICALLY adjacent
+        // pixel pairs into two populations: those whose lower member starts a
+        // new 8-pixel tile row, and all the others. Vertically, because the one
+        // smooth AO gradient in this scene (the contact falloff) runs down the
+        // screen; across a gradient every step is ~0 and the ratio says nothing.
+        // A coarsening artefact lives ONLY in the first population, because that
+        // is where one leader's broadcast meets the next leader's; anything that
+        // moves both equally (contrast, exposure, noise) cancels in the ratio.
         struct SeamMeasure
         {
             f64 AcrossBoundary = 0.0;
             f64 WithinTile = 0.0;
 
+            // A band whose ONLY steps sit on tile boundaries is the purest seam
+            // there is, so it reads infinite; a band with no steps at all has no
+            // seam and reads 0 (the flatness guard at the call site rejects it).
             [[nodiscard]] f64 Ratio() const
             {
-                return WithinTile > 1e-6 ? AcrossBoundary / WithinTile : 0.0;
+                if (WithinTile > 1e-6)
+                    return AcrossBoundary / WithinTile;
+                return AcrossBoundary > 1e-6 ? std::numeric_limits<f64>::infinity() : 0.0;
             }
         };
 
@@ -173,12 +185,12 @@ namespace OloEngine::Tests
             f64 withinSum = 0.0;
             u64 withinCount = 0;
 
-            for (u32 y = iy0; y < iy1; ++y)
+            for (u32 y = iy0; y + 1u < iy1; ++y)
             {
-                for (u32 x = ix0; x + 1u < ix1; ++x)
+                for (u32 x = ix0; x < ix1; ++x)
                 {
-                    const f64 step = std::abs(Luma(px, x + 1u, y) - Luma(px, x, y));
-                    if (((x + 1u) % kTilePitch) == 0u)
+                    const f64 step = std::abs(Luma(px, x, y + 1u) - Luma(px, x, y));
+                    if (((y + 1u) % kTilePitch) == 0u)
                     {
                         acrossSum += step;
                         ++acrossCount;
@@ -195,6 +207,29 @@ namespace OloEngine::Tests
             m.AcrossBoundary = acrossCount ? acrossSum / static_cast<f64>(acrossCount) : 0.0;
             m.WithinTile = withinCount ? withinSum / static_cast<f64>(withinCount) : 0.0;
             return m;
+        }
+
+        // The metric's negative control: the same frame with a tile-row lattice
+        // painted in, each pixel moved `strength` of the way to the first row of
+        // its 8-row tile. That is the artefact the seam check exists to catch,
+        // so the check must trip on it: at 0.5, a lattice a viewer would see; at
+        // 1, every tile row a flat copy of its leader, whose only steps are on
+        // tile boundaries.
+        [[nodiscard]] std::vector<u8> WithTileRowLattice(const std::vector<u8>& px, f32 strength)
+        {
+            std::vector<u8> out(px);
+            const sizet rowBytes = static_cast<sizet>(kWidth) * 4u;
+            for (u32 y = 0; y < kHeight; ++y)
+            {
+                const u32 leader = (y / kTilePitch) * kTilePitch;
+                for (sizet i = 0; i < rowBytes; ++i)
+                {
+                    const f32 own = px[y * rowBytes + i];
+                    const f32 lead = px[leader * rowBytes + i];
+                    out[y * rowBytes + i] = static_cast<u8>(std::lround(own + (lead - own) * strength));
+                }
+            }
+            return out;
         }
 
         [[nodiscard]] f64 DarkestCellLuma(const std::vector<u8>& px, f32 x0, f32 x1, f32 y0, f32 y1,
@@ -400,10 +435,17 @@ namespace OloEngine::Tests
             { "Higher", { 0.0f, 8.0f, 19.0f }, 0.0f, 0.42f },
         } };
 
-        // Open floor, clear of both the cube and the contact crease — smooth by
-        // construction, which is what makes it the right place to look for a
-        // seam. Crease band straddles the cube base across the centre.
+        // Open floor, clear of both the cube and the contact crease: AO exactly 1
+        // there (#1463), the reference the crease is measured against. Crease
+        // band straddles the cube base across the centre.
         constexpr f32 kFloorX0 = 0.08f, kFloorX1 = 0.30f, kFloorY0 = 0.60f, kFloorY1 = 0.76f;
+        // The contact occlusion's falloff, inside the cube's width: the cube face
+        // darkening down to the crease and the floor brightening away from it,
+        // ~20 px each side on both poses. The one smooth AO gradient in the
+        // frame, and VRCS coarsens it (only the 8-px tile row on the crease
+        // stays full rate), so this is where a seam lattice would show. It runs
+        // down the screen, so the seams are measured between rows.
+        constexpr f32 kGradientX0 = 0.43f, kGradientX1 = 0.57f, kGradientY0 = 0.44f, kGradientY1 = 0.56f;
         constexpr f32 kCreaseX0 = 0.28f, kCreaseX1 = 0.72f, kCreaseY0 = 0.40f, kCreaseY1 = 0.62f;
 
         for (const Pose& pose : poses)
@@ -482,10 +524,27 @@ namespace OloEngine::Tests
             //         full-rate control. A mean image diff cannot see this: a
             //         one-pixel step repeated every eight columns is a rounding
             //         error in the mean and an obvious lattice on screen.
-            const SeamMeasure seamOff = MeasureTileSeams(aoOff, kFloorX0, kFloorX1, kFloorY0, kFloorY1);
-            const SeamMeasure seamOn = MeasureTileSeams(aoOn, kFloorX0, kFloorX1, kFloorY0, kFloorY1);
-            EXPECT_GT(seamOff.WithinTile, 0.0) << "the control frame has no within-tile variation at all, so "
-                                                  "the seam ratio is undefined — is the floor flat-shaded?";
+            const SeamMeasure seamOff = MeasureTileSeams(aoOff, kGradientX0, kGradientX1, kGradientY0, kGradientY1);
+            const SeamMeasure seamOn = MeasureTileSeams(aoOn, kGradientX0, kGradientX1, kGradientY0, kGradientY1);
+            const SeamMeasure seamLattice =
+                MeasureTileSeams(WithTileRowLattice(aoOff, 0.5f), kGradientX0, kGradientX1, kGradientY0, kGradientY1);
+            const SeamMeasure seamPureLattice =
+                MeasureTileSeams(WithTileRowLattice(aoOff, 1.0f), kGradientX0, kGradientX1, kGradientY0, kGradientY1);
+            // The band holds a gradient worth measuring (1.0 / 1.1 luma per row
+            // measured; the open floor this band replaced read exactly 0 once
+            // #1463 removed its phantom occlusion), and the metric can see a
+            // lattice in it: the painted one below read 5.0 / 5.6.
+            EXPECT_GE(seamOff.WithinTile, 0.5)
+                << "the control frame's gradient band is nearly flat (" << seamOff.WithinTile
+                << " luma per row), so the seam ratio below measures noise — did the contact occlusion's falloff "
+                   "move out of the band, or vanish?";
+            EXPECT_GE(seamLattice.Ratio(), seamOff.Ratio() + 0.6)
+                << "a half-strength tile-row lattice painted into the control frame reads " << seamLattice.Ratio()
+                << " against " << seamOff.Ratio() << ": the seam check below could not see a real one either";
+            // Steps ONLY on tile boundaries: the within-tile denominator is 0.
+            EXPECT_GE(seamPureLattice.Ratio(), seamOff.Ratio() + 0.6)
+                << "a boundary-only tile-row lattice reads " << seamPureLattice.Ratio()
+                << ": a seam with flat tiles between would pass the check below";
             EXPECT_LT(seamOn.Ratio(), seamOff.Ratio() + 0.6)
                 << "steps ACROSS 8-pixel tile boundaries grew relative to steps within a tile: "
                 << seamOff.Ratio() << " -> " << seamOn.Ratio()

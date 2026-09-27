@@ -76,8 +76,10 @@ All on GL, Release, 1280×720.
   have separate Vulkan RT-shadow evidence in the live captures.
 - **The coat stays on the body through a stride**: eight steps through the walk, with coverage steady
   within ±35%.
-- **Coverage near to far**: the LOD ladder keeps the coat's share of the animal within 30% at 5 m and
-  14 m. At 32 m, on cards, it is about 1.35×, a measured gap.
+- **Coverage near to far**: frozen, each horse from its open side, the ladder keeps the coat's coverage and
+  linear energy; on cards, on a converged self-shadow volume, within 10% (0.92-1.07). At the shipped
+  shadow LOD the long coat's cards read 1.2-1.3x its energy (#1508); see
+  `docs/agent-rules/groom-card-coverage.md`.
 - **The temporal resolve settles the coat**: shimmer is less than half the no-history control.
 - **Cost across a herd**: 3, 7 and 12 animals, scheduler off and on. GPU pass time, strands, guides
   and resident geometry are measured against the named GPU. Ordinary runs write a temporary report;
@@ -90,6 +92,6 @@ All on GL, Release, 1280×720.
 Filed on #1223 as its blockers:
 - a moving coat has no self-shadowing;
 - the per-frame cost of a deformed coat;
-- the card tier over-covers at range.
+- the card tier over-covered at range (#1428; the shadow-LOD part is #1508).
 
 `GroomAnimals_Cost.txt` and the PR body hold the numbers.

@@ -617,6 +617,17 @@ namespace OloEngine
         // different modes per axis (WRAP_R is inert on a 2D target).
         virtual void SetTextureFilter(RHI::ResourceHandle texture, RHI::Filter minFilter, RHI::Filter magFilter) = 0;
         virtual void SetTextureWrap(RHI::ResourceHandle texture, RHI::AddressMode wrap) = 0;
+        // The texture OBJECT's own sampling state, from a whole SamplerDesc:
+        // min/mag filter, the mip filter, and the U/V/W address modes. The one
+        // setter that can say "minify through the mip chain", which
+        // SetTextureFilter cannot on GL (it maps Linear to GL_LINEAR, no mips):
+        // a chain written by compute, like the HZB, never marks itself
+        // populated, so its texture samples level 0 only (issue #1503). GL's
+        // slot path samples with this state and ignores a bind's explicit desc;
+        // pair it with that desc so the heap path agrees. Writes only what
+        // differs, so calling it every frame never touches a texture whose
+        // state a bindless handle has frozen.
+        virtual void SetTextureSampling(RHI::ResourceHandle texture, const RHI::SamplerDesc& sampler) = 0;
         // `sourceFormat` describes the layout of `data` — the CPU-side buffer —
         // NOT the texture's storage format. GL converts on upload, and the
         // engine relies on that: SSAO's noise texture is RG16Float storage fed

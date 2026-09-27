@@ -106,27 +106,40 @@ namespace OloEngine::Tests::Oracle
 
         // ---- oracle models (f64, no engine code) ----------------------------
 
-        // Oracle::ClosureV2Brdf with its Kulla-Conty energies from the
-        // oracle's own quadrature, memoised per cosine (the direction grid
-        // has five of them).
+        // Oracle::ClosureV2Brdf with its energies — E and the Schlick moment S
+        // for the Kulla-Conty lobe and the coupled Lambert — from the oracle's
+        // own quadrature, memoised per cosine (the direction grid has five of
+        // them).
         [[nodiscard]] BrdfFn OracleClosureV2(const MaterialCase& m)
         {
             const f64 alpha = ClosureV2Alpha(m.Roughness);
             const f64 eAvg = GgxAverageAlbedo(alpha).Value;
-            auto cache = std::make_shared<std::map<f64, f64>>();
-            return [m, alpha, eAvg, cache](const glm::dvec3& v, const glm::dvec3& l) -> glm::dvec3
+            const f64 sAvg = GgxAverageSchlickMoment(alpha).Value;
+            auto cache = std::make_shared<std::map<f64, glm::dvec2>>();
+            return [m, alpha, eAvg, sAvg, cache](const glm::dvec3& v, const glm::dvec3& l) -> glm::dvec3
             {
                 if (v.z <= 0.0 || l.z <= 0.0)
                     return glm::dvec3(0.0);
-                auto e = [&](f64 mu)
+                auto moments = [&](f64 mu)
                 {
                     if (const auto it = cache->find(mu); it != cache->end())
                         return it->second;
-                    const f64 value = GgxDirectionalAlbedo(mu, alpha).Value;
+                    const glm::dvec2 value(GgxDirectionalAlbedo(mu, alpha).Value,
+                                           GgxDirectionalSchlickMoment(mu, alpha).Value);
                     cache->emplace(mu, value);
                     return value;
                 };
-                return ClosureV2Brdf(v, l, m.Albedo, m.Metallic, m.Roughness, { e(v.z), e(l.z), eAvg });
+                const glm::dvec2 mv = moments(v.z);
+                const glm::dvec2 ml = moments(l.z);
+                ClosureV2Energies energies;
+                energies.EV = mv.x;
+                energies.EL = ml.x;
+                energies.EAvg = eAvg;
+                energies.SV = mv.y;
+                energies.SL = ml.y;
+                energies.SAvg = sAvg;
+                energies.MultiScatter = 1.0 - eAvg >= 1.0e-4; // ADR 0016 §5's gate
+                return ClosureV2Brdf(v, l, m.Albedo, m.Metallic, m.Roughness, energies);
             };
         }
 
@@ -138,16 +151,13 @@ namespace OloEngine::Tests::Oracle
         // implementation; the bound is max(floor, 4 x its error estimate).
         using ClosureFactory = std::function<BrdfFn(const MaterialCase&)>;
 
-        // The grid stays INSIDE the energy table's cell centres: the 16 x 16
-        // table is cell-centred and clamps, so a roughness above 31/32 reads
-        // the r = 0.969 row and a cosine below 1/32 reads the mu = 0.031
-        // column. Measured with this very check, that edge clamp costs the
-        // engine 3.8 % of the furnace at roughness 1, cos v 1 (0.9615) and
-        // 2.7 % at roughness 1, cos v 0.02 (1.027) — a finding reported on
-        // #1347, not a tolerance to widen. Inside the table the engine's worst
-        // cell is 1.3 % (roughness 0.3, cos v 0.1).
-        inline const std::vector<f64> kFurnaceRoughness{ 0.3, 0.5, 0.75, 0.9 };
-        inline const std::vector<f64> kFurnaceCosines{ 0.1, 0.35, 0.7, 1.0 };
+        // The grid reaches the table's edges: since #1478 the energy table is
+        // node-centred with both endpoints as nodes, so roughness 1 and a
+        // grazing cosine are read by interpolation, not by an edge clamp (which
+        // cost 3.8 % at roughness 1, cos v 1 before it). The engine's worst
+        // cell on this grid is measured by the engine-furnace verdict below.
+        inline const std::vector<f64> kFurnaceRoughness{ 0.3, 0.5, 0.75, 1.0 };
+        inline const std::vector<f64> kFurnaceCosines{ 0.02, 0.1, 0.35, 0.7, 1.0 };
 
         [[nodiscard]] Verdict CheckWhiteFurnace(const ClosureFactory& make, f64 floorTol, const std::string& label)
         {
@@ -305,28 +315,28 @@ namespace OloEngine::Tests::Oracle
                                     ? FresnelSchlick(std::max(glm::dot(n, v), 0.0f), f0)
                                     : FresnelSchlick(std::max(glm::dot(h, v), 0.0f), f0);
 
-            // engine: const glm::vec3 specular = d * vis * f + ClosureV2MultiScatter(nDotV, nDotL, roughness, f0);
-            // M5:     const glm::vec3 specular = d * vis * f / (4.0f * nDotV * nDotL) + ClosureV2MultiScatter(...);
-            // M8a:    const glm::vec3 specular = d * vis * f + ClosureV2MultiScatter(nDotV, nDotL, r * r, f0);
+            // engine: const ClosureV2EnergyTerms energy = ClosureV2Energy(nDotV, nDotL, roughness, f0);
+            //         const glm::vec3 specular = d * vis * f + energy.MultiScatter;
+            // M5:     const glm::vec3 specular = d * vis * f / (4.0f * nDotV * nDotL) + energy.MultiScatter;
+            // M8a:    const ClosureV2EnergyTerms energy = ClosureV2Energy(nDotV, nDotL, r * r, f0);
             // M8b:    const glm::vec3 specular = d * vis * f;
+            const ClosureV2EnergyTerms energy =
+                ClosureV2Energy(nDotV, nDotL, mutation == ClosureV2Mutation::EnergyLookupAtAlpha ? r * r : roughness, f0);
             glm::vec3 specular;
             switch (mutation)
             {
                 case ClosureV2Mutation::DoubleDenominator:
-                    specular = d * vis * f / (4.0f * nDotV * nDotL) + ClosureV2MultiScatter(nDotV, nDotL, roughness, f0);
-                    break;
-                case ClosureV2Mutation::EnergyLookupAtAlpha:
-                    specular = d * vis * f + ClosureV2MultiScatter(nDotV, nDotL, r * r, f0);
+                    specular = d * vis * f / (4.0f * nDotV * nDotL) + energy.MultiScatter;
                     break;
                 case ClosureV2Mutation::NoEnergyCompensation:
                     specular = d * vis * f;
                     break;
                 default:
-                    specular = d * vis * f + ClosureV2MultiScatter(nDotV, nDotL, roughness, f0);
+                    specular = d * vis * f + energy.MultiScatter;
                     break;
             }
 
-            const glm::vec3 kD = (glm::vec3(1.0f) - f) * (1.0f - metallic);
+            const glm::vec3 kD = energy.DiffuseCoupling * (1.0f - metallic);
             return kD * albedo * kInvPi + specular;
         }
 
@@ -655,18 +665,20 @@ namespace OloEngine::Tests::Oracle
     namespace
     {
         // The ClosureV2 evaluation case. The engine's D Vis F agrees with the
-        // oracle's D G2 F / (4 mu_v mu_l) to f32 precision; the Kulla-Conty
-        // lobe does not, because the engine reads it from the cell-centred
-        // 16 x 16 table and the direction grid's grazing cosine 0.02 lies
-        // below the table's first column (1/32). On a METAL that lobe is a
-        // large share of f at grazing and the table's edge clamp shows as a
-        // 10 % difference at roughness 0.3 (a finding reported on #1347). On
-        // a dielectric F_ms is ~0.007, the lobe is < 1 % of f, and the
-        // engine's measured worst is 1.7e-3 relative; 5e-3 is the bound.
-        // Every mutant below changes the D / Vis / F part, which a dielectric
-        // shows as plainly as a metal.
+        // oracle's D G2 F / (4 mu_v mu_l) to f32 precision; its two table
+        // terms — the Kulla-Conty lobe and the coupled Lambert (#1479) — agree
+        // only to the 16 x 16 table's resolution, since the oracle feeds them
+        // TRUE energies (BsdfIdentityOracleTest test 2 measures that cost). On
+        // a METAL the Kulla-Conty lobe is a large share of f at grazing and
+        // the resolution shows at the 20 % level. On a dielectric F_ms is
+        // ~0.007 and the coupled Lambert's table error is a few percent of a
+        // term that is small wherever it is large, so the engine's measured
+        // worst is 3.9e-3 relative; 8e-3 is the bound, the same 2x margin as the
+        // furnace bound below. Every mutant below
+        // changes the D / Vis / F part, which a dielectric shows as plainly
+        // as a metal.
         const MaterialCase kV2EvaluationMaterial{ glm::dvec3(0.9, 0.6, 0.3), 0.0, 0.3 };
-        constexpr f64 kV2EvaluationRelTol = 5.0e-3;
+        constexpr f64 kV2EvaluationRelTol = 8.0e-3;
         constexpr f64 kV2EvaluationAbsTol = 1.0e-6;
     } // namespace
 
@@ -699,11 +711,11 @@ namespace OloEngine::Tests::Oracle
     namespace
     {
         // The white-furnace bound. The engine's residual is the energy table's
-        // bilinear interpolation error, measured at 1.3 % worst on the furnace
-        // grid (roughness 0.3-0.9, cos v 0.1-1; 0.44 % outside the roughness
-        // 0.3 row). 2 % keeps a 1.5x margin over it and is an order of
-        // magnitude inside the energy mutants' departures (M8a: 23 %).
-        constexpr f64 kFurnaceFloor = 2.0e-2;
+        // bilinear interpolation error, measured at 0.48 % worst on the
+        // furnace grid (roughness 0.3-1, cos v 0.02-1; roughness 0.5,
+        // cos v 1). 1 % keeps a 2x margin over it and is an order of magnitude
+        // inside the energy mutants' departures (M8a: 23 %, M8b: 69 %).
+        constexpr f64 kFurnaceFloor = 1.0e-2;
     } // namespace
 
     TEST(BsdfMutationDetectionTest, M5_ClosureV2DoubleDenominatorFailsModelAndWhiteFurnace)

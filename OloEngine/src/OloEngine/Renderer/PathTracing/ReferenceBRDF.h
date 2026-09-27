@@ -449,39 +449,86 @@ namespace OloEngine::PathTracing
         return std::clamp(roughness, kMinRoughness, 1.0f);
     }
 
-    // GLSL: ggxEnergyLoss — bilinear lookup of 1 - Ess(mu, r) in the generated
-    // cell-centered 16x16 table (GgxEnergyTables.h). `roughness` is AUTHORED
-    // perceptual roughness; the table rows bake the v2 alpha clamp in.
-    [[nodiscard]] inline f32 GgxEnergyLoss(f32 mu, f32 roughness) noexcept
+    // GLSL: ggxEnergyTableCoordinate — where a mu or roughness value lands on
+    // the generated table's axis. The nodes are node-centred and square-root
+    // spaced, value_j = (j / (N - 1))^2 (issue #1478; GgxEnergyTables.h says
+    // why), so the coordinate is sqrt(value) * (N - 1) and both endpoints are
+    // nodes: nothing clamps short of 0 or 1 and nothing extrapolates.
+    [[nodiscard]] inline f32 GgxEnergyTableCoordinate(f32 value) noexcept
     {
-        constexpr auto fs = static_cast<f32>(kGgxEnergyTableSize);
-        const f32 x = std::clamp(std::clamp(mu, 0.0f, 1.0f) * fs - 0.5f, 0.0f, fs - 1.0f);
-        const f32 y = std::clamp(std::clamp(roughness, 0.0f, 1.0f) * fs - 0.5f, 0.0f, fs - 1.0f);
-        const auto x0 = static_cast<u32>(x);
-        const auto y0 = static_cast<u32>(y);
-        const u32 x1 = std::min(x0 + 1, kGgxEnergyTableSize - 1);
-        const u32 y1 = std::min(y0 + 1, kGgxEnergyTableSize - 1);
+        return std::sqrt(std::clamp(value, 0.0f, 1.0f)) * static_cast<f32>(kGgxEnergyTableSize - 1);
+    }
+
+    // The inverse: the mu or roughness value node `node` of a `gridSize` grid
+    // sits at, (node / (gridSize - 1))^2. No GLSL twin — shaders only ever go
+    // value -> coordinate. The generator bakes at these values (with its own
+    // --grid) and ClosureV2Test recomputes entries at them.
+    [[nodiscard]] inline f32 GgxEnergyNodeValue(u32 node, u32 gridSize = kGgxEnergyTableSize) noexcept
+    {
+        const f32 x = static_cast<f32>(node) / static_cast<f32>(gridSize - 1);
+        return x * x;
+    }
+
+    // GLSL: ggxEnergy — bilinear lookup of both single-scatter moments,
+    // x = 1 - Ess(mu, r) and y = Schlick(mu, r) (GgxEnergyTables.h).
+    // `roughness` is AUTHORED perceptual roughness; the table rows bake the v2
+    // alpha clamp in. The lower cell index stops at N - 2 so value 1 reads the
+    // last node with weight 1 instead of indexing past it.
+    [[nodiscard]] inline glm::vec2 GgxEnergy(f32 mu, f32 roughness) noexcept
+    {
+        const f32 x = GgxEnergyTableCoordinate(mu);
+        const f32 y = GgxEnergyTableCoordinate(roughness);
+        const u32 x0 = std::min(static_cast<u32>(x), kGgxEnergyTableSize - 2);
+        const u32 y0 = std::min(static_cast<u32>(y), kGgxEnergyTableSize - 2);
         const f32 fx = x - static_cast<f32>(x0);
         const f32 fy = y - static_cast<f32>(y0);
-        const f32 v00 = GgxEnergyLossEntry(y0 * kGgxEnergyTableSize + x0);
-        const f32 v10 = GgxEnergyLossEntry(y0 * kGgxEnergyTableSize + x1);
-        const f32 v01 = GgxEnergyLossEntry(y1 * kGgxEnergyTableSize + x0);
-        const f32 v11 = GgxEnergyLossEntry(y1 * kGgxEnergyTableSize + x1);
+        const glm::vec2 v00 = GgxEnergyEntry(y0 * kGgxEnergyTableSize + x0);
+        const glm::vec2 v10 = GgxEnergyEntry(y0 * kGgxEnergyTableSize + x0 + 1);
+        const glm::vec2 v01 = GgxEnergyEntry((y0 + 1) * kGgxEnergyTableSize + x0);
+        const glm::vec2 v11 = GgxEnergyEntry((y0 + 1) * kGgxEnergyTableSize + x0 + 1);
         return glm::mix(glm::mix(v00, v10, fx), glm::mix(v01, v11, fx), fy);
     }
 
-    // GLSL: ggxEnergyLossAverage — linear lookup of 1 - E_avg(r).
-    [[nodiscard]] inline f32 GgxEnergyLossAverage(f32 roughness) noexcept
+    // GLSL: ggxEnergyAverage — linear lookup of the averages row,
+    // x = 1 - E_avg(r), y = Schlick_avg(r).
+    [[nodiscard]] inline glm::vec2 GgxEnergyAverage(f32 roughness) noexcept
     {
-        constexpr auto fs = static_cast<f32>(kGgxEnergyTableSize);
-        const f32 y = std::clamp(std::clamp(roughness, 0.0f, 1.0f) * fs - 0.5f, 0.0f, fs - 1.0f);
-        const auto y0 = static_cast<u32>(y);
-        const u32 y1 = std::min(y0 + 1, kGgxEnergyTableSize - 1);
+        const f32 y = GgxEnergyTableCoordinate(roughness);
+        const u32 y0 = std::min(static_cast<u32>(y), kGgxEnergyTableSize - 2);
         const f32 fy = y - static_cast<f32>(y0);
-        return glm::mix(GgxEnergyLossAvgEntry(y0), GgxEnergyLossAvgEntry(y1), fy);
+        return glm::mix(GgxEnergyAvgEntry(y0), GgxEnergyAvgEntry(y0 + 1), fy);
     }
 
-    // GLSL: closureV2MultiScatter — the Kulla-Conty multiple-scattering lobe:
+    // GLSL: closureV2SpecularAlbedo — the directional albedo of the WHOLE v2
+    // specular lobe from one table read `energy` = (1 - Ess, Schlick):
+    //
+    //   E_spec = F0 (Ess - Schlick) + Schlick   single scatter, Schlick F
+    //          + F_ms (1 - Ess)                 the Kulla-Conty lobe's integral
+    //
+    // The second line is exact: the lobe below integrates to F_ms (1 - Ess(mu))
+    // because its l-dependence is (1 - Ess(mu_l)) / (1 - E_avg) and
+    // 2 int (1 - Ess) mu dmu = 1 - E_avg. The same expression on the averages
+    // row gives the cosine-averaged E_spec_avg.
+    [[nodiscard]] inline glm::vec3 ClosureV2SpecularAlbedo(const glm::vec2& energy, const glm::vec3& f0,
+                                                           const glm::vec3& fresnelMs) noexcept
+    {
+        return f0 * (1.0f - energy.x - energy.y) + energy.y + fresnelMs * energy.x;
+    }
+
+    // What the energy tables give ClosureV2Evaluate for one (v, l) pair. GLSL
+    // twin: the ClosureV2Energy struct.
+    struct ClosureV2EnergyTerms
+    {
+        // The Kulla-Conty multiple-scattering lobe, cosine NOT included.
+        glm::vec3 MultiScatter{ 0.0f };
+        // The Lambert weight that replaces (1 - F(v.h)): see ClosureV2Energy.
+        glm::vec3 DiffuseCoupling{ 1.0f };
+    };
+
+    // GLSL: closureV2Energy — every table-driven term of the v2 closure, from
+    // one lookup per direction and one of the averages row.
+    //
+    // (a) The Kulla-Conty multiple-scattering lobe:
     //
     //   f_ms = F_ms * (1 - Ess(NdotV)) * (1 - Ess(NdotL)) / (pi * (1 - E_avg))
     //   F_ms = F_avg^2 * E_avg / (1 - F_avg * (1 - E_avg)), F_avg = F0 + (1-F0)/21
@@ -489,29 +536,63 @@ namespace OloEngine::PathTracing
     // Symmetric in NdotV/NdotL, so it preserves reciprocity. With F_avg == 1
     // its hemispherical cosine integral is exactly 1 - Ess(NdotV), which is
     // what closes the white furnace and what the furnace test asserts.
+    //
+    // (b) The energy-conserving diffuse coupling (issue #1479), which replaces
+    // the (1 - F(v.h)) Lambert weight:
+    //
+    //   w_d = (1 - E_spec(NdotV)) (1 - E_spec(NdotL)) / (1 - E_spec_avg)
+    //
+    // per channel, E_spec from ClosureV2SpecularAlbedo. Its hemispherical
+    // cosine integral over l is exactly 1 - E_spec(NdotV), so a white
+    // dielectric reflects what it receives: specular E_spec plus diffuse
+    // 1 - E_spec. (1 - F(v.h)) subtracts the Fresnel of each (v, l) pair's own
+    // half vector instead, which at grazing view leaves the diffuse almost all
+    // its energy while the specular lobe takes ~0.9 of it: 1.83x at roughness
+    // 0.05. Symmetric in NdotV/NdotL, so v2 stays reciprocal. The guards: a
+    // negative 1 - E_spec (bilinear overshoot) reads as 0, and the denominator
+    // is floored at 1e-4, which only an F0 -> 1 channel reaches — where the
+    // numerator is ~0 too, so the floor darkens, never brightens.
+    [[nodiscard]] inline ClosureV2EnergyTerms ClosureV2Energy(f32 nDotV, f32 nDotL, f32 roughness,
+                                                              const glm::vec3& f0) noexcept
+    {
+        const glm::vec2 average = GgxEnergyAverage(roughness);
+        const glm::vec2 energyV = GgxEnergy(nDotV, roughness);
+        const glm::vec2 energyL = GgxEnergy(nDotL, roughness);
+        const f32 lossAvg = average.x;
+
+        ClosureV2EnergyTerms terms;
+        glm::vec3 fresnelMs(0.0f);
+        // Below the table's resolution the lobe is near-mirror and sheds
+        // nothing worth compensating; also guards the 1/lossAvg denominator.
+        if (lossAvg >= 1.0e-4f)
+        {
+            const f32 eAvg = 1.0f - lossAvg;
+            const glm::vec3 fAvg = f0 + (glm::vec3(1.0f) - f0) * (1.0f / 21.0f);
+            fresnelMs = fAvg * fAvg * eAvg / (glm::vec3(1.0f) - fAvg * lossAvg);
+            terms.MultiScatter = fresnelMs * (energyV.x * energyL.x) / (kPi * lossAvg);
+        }
+
+        const glm::vec3 remainingV = glm::max(glm::vec3(1.0f) - ClosureV2SpecularAlbedo(energyV, f0, fresnelMs), 0.0f);
+        const glm::vec3 remainingL = glm::max(glm::vec3(1.0f) - ClosureV2SpecularAlbedo(energyL, f0, fresnelMs), 0.0f);
+        const glm::vec3 remainingAvg =
+            glm::max(glm::vec3(1.0f) - ClosureV2SpecularAlbedo(average, f0, fresnelMs), 1.0e-4f);
+        terms.DiffuseCoupling = remainingV * remainingL / remainingAvg;
+        return terms;
+    }
+
+    // The multiple-scattering lobe alone, for the tests that integrate it.
+    // GLSL: closureV2Energy(...).MultiScatter.
     [[nodiscard]] inline glm::vec3 ClosureV2MultiScatter(f32 nDotV, f32 nDotL, f32 roughness,
                                                          const glm::vec3& f0) noexcept
     {
-        const f32 lossAvg = GgxEnergyLossAverage(roughness);
-        // Below the table's resolution the lobe is near-mirror and sheds
-        // nothing worth compensating; also guards the 1/lossAvg denominator.
-        if (lossAvg < 1.0e-4f)
-            return glm::vec3(0.0f);
-
-        const f32 lossV = GgxEnergyLoss(nDotV, roughness);
-        const f32 lossL = GgxEnergyLoss(nDotL, roughness);
-        const f32 eAvg = 1.0f - lossAvg;
-
-        const glm::vec3 fAvg = f0 + (glm::vec3(1.0f) - f0) * (1.0f / 21.0f);
-        const glm::vec3 fresnelMs = fAvg * fAvg * eAvg / (glm::vec3(1.0f) - fAvg * lossAvg);
-
-        return fresnelMs * (lossV * lossL) / (kPi * lossAvg);
+        return ClosureV2Energy(nDotV, nDotL, roughness, f0).MultiScatter;
     }
 
     // GLSL: closureV2Evaluate — the v2 Evaluate: f(v, l) WITHOUT the cosine,
     // matching CookTorranceBRDF's convention. One geometry term
     // (height-correlated Smith visibility), alpha-clamped unclamped-denominator
-    // D, Kulla-Conty compensation, (1 - F(H)) * (1 - metallic) Lambert diffuse.
+    // D, Kulla-Conty compensation, and a Lambert diffuse weighted by the
+    // energy-conserving coupling (1 - metallic) w_d of ClosureV2Energy.
     [[nodiscard]] inline glm::vec3 ClosureV2Evaluate(const glm::vec3& n, const glm::vec3& v, const glm::vec3& l,
                                                      const glm::vec3& albedo, f32 metallic, f32 roughness) noexcept
     {
@@ -526,11 +607,13 @@ namespace OloEngine::PathTracing
         const glm::vec3 f = FresnelSchlick(std::max(glm::dot(h, v), 0.0f), f0);
 
         // AUTHORED roughness into the energy lookup, per its contract — the
-        // table rows bake the v2 clamp in; the clamped r would double-apply
-        // it. GLSL twin agrees (closureV2Evaluate).
-        const glm::vec3 specular = d * vis * f + ClosureV2MultiScatter(nDotV, nDotL, roughness, f0);
+        // table rows bake the v2 clamp in (rows 0-3 all hold the r = 0.04 lobe,
+        // and 0.04 lands on node 3, so the clamped r would read the same
+        // value). GLSL twin agrees (closureV2Evaluate).
+        const ClosureV2EnergyTerms energy = ClosureV2Energy(nDotV, nDotL, roughness, f0);
+        const glm::vec3 specular = d * vis * f + energy.MultiScatter;
 
-        const glm::vec3 kD = (glm::vec3(1.0f) - f) * (1.0f - metallic);
+        const glm::vec3 kD = energy.DiffuseCoupling * (1.0f - metallic);
         return kD * albedo * kInvPi + specular;
     }
 

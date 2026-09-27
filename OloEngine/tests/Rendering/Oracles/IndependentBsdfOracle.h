@@ -21,13 +21,13 @@
 // WHAT IS MODEL AND WHAT IS CONVENTION. Two versioned closures ship:
 //
 //   * ClosureV2 (issue #975, ADR 0016) claims to BE the physical model:
-//     GGX + height-correlated Smith + Schlick + Kulla-Conty compensation. Its
+//     GGX + height-correlated Smith + Schlick + Kulla-Conty compensation, and
+//     (issue #1479) a Lambert diffuse coupled to what the specular lobe
+//     leaves, so a white dielectric reflects exactly what it receives. Its
 //     oracle below is the physics, with its two documented guards (ADR 0016
 //     §5) as its only conventions: the alpha clamp at roughness 0.04, and the
 //     multi-scatter lobe switched off when 1 - E_avg < 1e-4 (a near-mirror
-//     lobe sheds nothing worth compensating). Its Lambert weight
-//     (1 - F(v.h))(1 - metallic) is the closure's definition, not energy
-//     conserving: a white dielectric's directional albedo exceeds 1 at grazing.
+//     lobe sheds nothing worth compensating).
 //   * Legacy is FROZEN, intentionally versioned behaviour (AC 6 of #1347):
 //     UE4's separable Schlick-GGX G with k = (r+1)^2/8, a 1e-4 floor on the
 //     NDF denominator and a 1e-4 addend on the 4 NdotV NdotL denominator. It is
@@ -325,7 +325,11 @@ namespace OloEngine::Tests::Oracle
     // generated energy table (GgxEnergyTables.h) stores as 1 - Ess; that table
     // is produced with the engine's own VNDF sampler, so this quadrature is
     // the first estimate of it that shares nothing with the code it checks.
-    [[nodiscard]] inline Quadrature GgxDirectionalAlbedo(f64 muV, f64 alpha, u32 nT = 512, u32 nPhi = 128)
+    // The directional integral of the single-scattering GGX lobe with F = 1,
+    // times a weight w(v.m) of the microfacet's incidence cosine:
+    //   int D G2 w(v.m) / (4 mu_v mu_l) mu_l dw_l.
+    template<typename W>
+    [[nodiscard]] Quadrature GgxDirectionalMoment(f64 muV, f64 alpha, u32 nT, u32 nPhi, W&& weight)
     {
         const glm::dvec3 v = Direction(muV, 0.0);
         auto g = [&](const glm::dvec3& m) -> f64
@@ -336,14 +340,33 @@ namespace OloEngine::Tests::Oracle
             const glm::dvec3 l = Reflect(v, m);
             if (l.z <= 0.0)
                 return 0.0;
-            return GgxG2HeightCorrelated(v.z, l.z, alpha) * vDotM / (v.z * m.z);
+            return weight(vDotM) * GgxG2HeightCorrelated(v.z, l.z, alpha) * vDotM / (v.z * m.z);
         };
         return IntegrateOverNdf(alpha, nT, nPhi, g);
     }
 
-    // Cosine-weighted average of the directional albedo, [KullaConty17]:
-    //   E_avg = 2 int_0^1 E(mu) mu dmu,  midpoint rule over mu.
-    [[nodiscard]] inline Quadrature GgxAverageAlbedo(f64 alpha, u32 nMu = 64, u32 nT = 256, u32 nPhi = 64)
+    [[nodiscard]] inline Quadrature GgxDirectionalAlbedo(f64 muV, f64 alpha, u32 nT = 512, u32 nPhi = 128)
+    {
+        return GgxDirectionalMoment(muV, alpha, nT, nPhi, [](f64)
+                                    { return 1.0; });
+    }
+
+    // The Schlick moment of the same lobe: its albedo with Schlick's grazing
+    // factor (1 - v.m)^5 as F. Schlick's F = F0 + (1 - F0)(1 - v.m)^5 is
+    // affine in F0 [Schlick94], so the lobe's albedo for any F0 is
+    //   E_ss(mu, F0) = F0 E(mu) + (1 - F0) S(mu),
+    // the quantity ClosureV2's energy-conserving diffuse weight subtracts
+    // (issue #1479).
+    [[nodiscard]] inline Quadrature GgxDirectionalSchlickMoment(f64 muV, f64 alpha, u32 nT = 512, u32 nPhi = 128)
+    {
+        return GgxDirectionalMoment(muV, alpha, nT, nPhi, [](f64 vDotM)
+                                    { return std::pow(1.0 - vDotM, 5.0); });
+    }
+
+    // Cosine-weighted average of a directional moment, [KullaConty17]:
+    //   M_avg = 2 int_0^1 M(mu) mu dmu,  midpoint rule over mu.
+    template<typename M>
+    [[nodiscard]] Quadrature CosineAverage(M&& moment, u32 nMu)
     {
         auto run = [&](u32 n) -> f64
         {
@@ -351,13 +374,27 @@ namespace OloEngine::Tests::Oracle
             for (u32 i = 0; i < n; ++i)
             {
                 const f64 mu = (static_cast<f64>(i) + 0.5) / static_cast<f64>(n);
-                sum += GgxDirectionalAlbedo(mu, alpha, nT, nPhi).Value * mu;
+                sum += moment(mu) * mu;
             }
             return 2.0 * sum / static_cast<f64>(n);
         };
         const f64 fine = run(nMu);
         const f64 coarse = run(nMu / 2u);
         return { fine, std::abs(fine - coarse) };
+    }
+
+    // E_avg = 2 int_0^1 E(mu) mu dmu.
+    [[nodiscard]] inline Quadrature GgxAverageAlbedo(f64 alpha, u32 nMu = 64, u32 nT = 256, u32 nPhi = 64)
+    {
+        return CosineAverage([&](f64 mu)
+                             { return GgxDirectionalAlbedo(mu, alpha, nT, nPhi).Value; }, nMu);
+    }
+
+    // S_avg = 2 int_0^1 S(mu) mu dmu.
+    [[nodiscard]] inline Quadrature GgxAverageSchlickMoment(f64 alpha, u32 nMu = 64, u32 nT = 256, u32 nPhi = 64)
+    {
+        return CosineAverage([&](f64 mu)
+                             { return GgxDirectionalSchlickMoment(mu, alpha, nT, nPhi).Value; }, nMu);
     }
 
     // =========================================================================
@@ -392,37 +429,110 @@ namespace OloEngine::Tests::Oracle
     //   F_ms = F_avg^2 E_avg / (1 - F_avg (1 - E_avg)),  F_avg = F0 + (1 - F0)/21
     // `eV`, `eL` and `eAvg` are the single-scattering energies — from
     // GgxDirectionalAlbedo / GgxAverageAlbedo, not from the engine's table.
-    [[nodiscard]] inline glm::dvec3 KullaContyMultiScatter(f64 eV, f64 eL, f64 eAvg, const glm::dvec3& f0)
+    // F_ms of [KullaConty17]: the average Fresnel of a multiply scattered path.
+    [[nodiscard]] inline glm::dvec3 KullaContyFresnel(f64 eAvg, const glm::dvec3& f0)
     {
         const f64 lossAvg = 1.0 - eAvg;
         if (lossAvg <= 0.0)
             return glm::dvec3(0.0);
         const glm::dvec3 fAvg = f0 + (glm::dvec3(1.0) - f0) / 21.0;
-        const glm::dvec3 fMs = fAvg * fAvg * eAvg / (glm::dvec3(1.0) - fAvg * lossAvg);
-        return fMs * (1.0 - eV) * (1.0 - eL) / (kPi * lossAvg);
+        return fAvg * fAvg * eAvg / (glm::dvec3(1.0) - fAvg * lossAvg);
     }
 
-    // The full v2 closure. The Lambert weight (1 - F(v.m)) (1 - metallic) is the
-    // closure's DEFINITION (ADR 0016), not a physical derivation, and is kept.
+    [[nodiscard]] inline glm::dvec3 KullaContyMultiScatter(f64 eV, f64 eL, f64 eAvg, const glm::dvec3& f0)
+    {
+        const f64 lossAvg = 1.0 - eAvg;
+        if (lossAvg <= 0.0)
+            return glm::dvec3(0.0);
+        return KullaContyFresnel(eAvg, f0) * (1.0 - eV) * (1.0 - eL) / (kPi * lossAvg);
+    }
+
+    // The directional albedo of the whole specular lobe — single scattering
+    // with Schlick's F, plus the Kulla-Conty lobe — from the single-scattering
+    // moments E(mu) and S(mu):
+    //   E_spec = F0 E + (1 - F0) S        [Schlick94], affine in F0
+    //          + F_ms (1 - E)             int f_ms cos dw_l, [KullaConty17]:
+    //                                     the lobe's l-factor (1 - E(mu_l)) /
+    //                                     (1 - E_avg) integrates to exactly 1
+    // `fresnelMs` is 0 where the multi-scatter lobe is switched off. The same
+    // expression on the averages (E_avg, S_avg) is E_spec_avg.
+    [[nodiscard]] inline glm::dvec3 SpecularAlbedo(f64 e, f64 s, const glm::dvec3& f0, const glm::dvec3& fresnelMs)
+    {
+        return f0 * e + (glm::dvec3(1.0) - f0) * s + fresnelMs * (1.0 - e);
+    }
+
+    // The energy-conserving diffuse weight (issue #1479): the Lambert lobe
+    // scaled by what the specular lobe leaves, in both directions,
+    //   w_d = (1 - E_spec(mu_v)) (1 - E_spec(mu_l)) / (1 - E_spec_avg).
+    // Its l-factor integrates against mu_l dw_l / pi to exactly 1, so the
+    // diffuse albedo is (1 - E_spec(mu_v)) x albedo: specular plus diffuse is
+    // the albedo, and 1 for a white dielectric. Symmetric in v and l. The
+    // Kelemen/Kulla-Conty coupling, per channel. A channel whose specular
+    // takes everything on average (F0 = 1) has no diffuse left: 0.
+    [[nodiscard]] inline glm::dvec3 CoupledDiffuseWeight(const glm::dvec3& eSpecV, const glm::dvec3& eSpecL,
+                                                         const glm::dvec3& eSpecAvg)
+    {
+        glm::dvec3 w(0.0);
+        for (int c = 0; c < 3; ++c)
+        {
+            const f64 remainingAvg = 1.0 - eSpecAvg[c];
+            if (remainingAvg > 0.0)
+                w[c] = (1.0 - eSpecV[c]) * (1.0 - eSpecL[c]) / remainingAvg;
+        }
+        return w;
+    }
+
+    // The single-scattering moments the v2 closure reads, at mu_v, mu_l and
+    // averaged — from GgxDirectionalAlbedo / GgxDirectionalSchlickMoment and
+    // their averages, or from a model of the engine's table. `MultiScatter`
+    // false is the documented guard: no Kulla-Conty lobe, and no F_ms in
+    // E_spec either.
     struct ClosureV2Energies
     {
         f64 EV = 1.0;
         f64 EL = 1.0;
         f64 EAvg = 1.0;
+        f64 SV = 0.0;
+        f64 SL = 0.0;
+        f64 SAvg = 0.0;
+        bool MultiScatter = true;
     };
 
+    // The two table-driven terms of the v2 closure, cosine NOT included.
+    struct ClosureV2TableTerms
+    {
+        glm::dvec3 MultiScatter{ 0.0 };
+        glm::dvec3 Diffuse{ 0.0 };
+    };
+
+    [[nodiscard]] inline ClosureV2TableTerms EvaluateClosureV2TableTerms(const glm::dvec3& albedo, f64 metallic,
+                                                                         const ClosureV2Energies& e)
+    {
+        const glm::dvec3 f0 = BaseF0(albedo, metallic);
+        ClosureV2TableTerms terms;
+        glm::dvec3 fresnelMs(0.0);
+        if (e.MultiScatter)
+        {
+            fresnelMs = KullaContyFresnel(e.EAvg, f0);
+            terms.MultiScatter = KullaContyMultiScatter(e.EV, e.EL, e.EAvg, f0);
+        }
+        const glm::dvec3 weight = CoupledDiffuseWeight(SpecularAlbedo(e.EV, e.SV, f0, fresnelMs),
+                                                       SpecularAlbedo(e.EL, e.SL, f0, fresnelMs),
+                                                       SpecularAlbedo(e.EAvg, e.SAvg, f0, fresnelMs));
+        terms.Diffuse = weight * (1.0 - metallic) * albedo / kPi;
+        return terms;
+    }
+
+    // The full v2 closure: single-scattering microfacet specular, the
+    // Kulla-Conty lobe and the coupled Lambert diffuse.
     [[nodiscard]] inline glm::dvec3 ClosureV2Brdf(const glm::dvec3& v, const glm::dvec3& l, const glm::dvec3& albedo,
                                                   f64 metallic, f64 roughness, const ClosureV2Energies& energies)
     {
         if (v.z <= 0.0 || l.z <= 0.0)
             return glm::dvec3(0.0);
-        const f64 alpha = ClosureV2Alpha(roughness);
-        const glm::dvec3 f0 = BaseF0(albedo, metallic);
-        const glm::dvec3 m = HalfVector(v, l);
-        const glm::dvec3 f = SchlickFresnel(glm::dot(v, m), f0);
-        const glm::dvec3 diffuse = (glm::dvec3(1.0) - f) * (1.0 - metallic) * albedo / kPi;
-        return diffuse + MicrofacetSpecular(v, l, alpha, f0) +
-               KullaContyMultiScatter(energies.EV, energies.EL, energies.EAvg, f0);
+        const ClosureV2TableTerms terms = EvaluateClosureV2TableTerms(albedo, metallic, energies);
+        return terms.Diffuse + MicrofacetSpecular(v, l, ClosureV2Alpha(roughness), BaseF0(albedo, metallic)) +
+               terms.MultiScatter;
     }
 
     // ---- Legacy: frozen, versioned conventions (AC 6) ----------------------

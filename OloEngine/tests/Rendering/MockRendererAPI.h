@@ -509,6 +509,10 @@ namespace OloEngine::Testing
         {
             SetTextureWrap(Native(texture, RHI::ResourceKind::Texture), wrap);
         }
+        void SetTextureSampling(RHI::ResourceHandle /*texture*/, const RHI::SamplerDesc& /*sampler*/) override
+        {
+            Record("SetTextureSampling");
+        }
         void UploadTextureSubImage2D(RHI::ResourceHandle texture, u32 width, u32 height,
                                      RHI::Format sourceFormat, const void* data) override
         {

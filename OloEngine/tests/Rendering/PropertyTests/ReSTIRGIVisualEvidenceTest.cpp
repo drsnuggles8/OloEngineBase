@@ -73,6 +73,8 @@
 #include <stb_image/stb_image_write.h>
 
 #include <algorithm>
+#include <cstdlib>
+#include <iostream>
 #include <cstring>
 #include <filesystem>
 #include <string>
@@ -257,13 +259,27 @@ namespace OloEngine::Tests
             return MeanLuma(pixels, x0, y0, x1, y1);
         }
 
+        // A pixel "moved" when a channel changed by MORE than one 8-bit step. The
+        // renderer is not bit-stable at a pixel whose value sits on a rounding
+        // boundary: with nothing changed, two reference captures of ReSTIR DI's
+        // twin scene disagreed at one pixel by exactly 1 (blue 69 vs 70) in 7 of 40
+        // runs, and the same flip landing on the armed capture alone failed that
+        // fallback check in 2 of those 40 (#1484). This file compares the same way. What the check exists to catch, a bound
+        // texture, a cleared target or a changed uniform, moves pixels by far more.
+        static constexpr int kQuantisationSteps = 1;
+        [[nodiscard]] static bool ChannelMoved(const u8 a, const u8 b)
+        {
+            return std::abs(static_cast<int>(a) - static_cast<int>(b)) > kQuantisationSteps;
+        }
+
         [[nodiscard]] static std::size_t CountDifferingPixels(const std::vector<u8>& a,
                                                               const std::vector<u8>& b)
         {
             std::size_t differing = 0;
             for (std::size_t i = 0; i + 3 < a.size(); i += 4)
             {
-                if (a[i + 0] != b[i + 0] || a[i + 1] != b[i + 1] || a[i + 2] != b[i + 2])
+                if (ChannelMoved(a[i + 0], b[i + 0]) || ChannelMoved(a[i + 1], b[i + 1]) ||
+                    ChannelMoved(a[i + 2], b[i + 2]))
                     ++differing;
             }
             return differing;
@@ -306,13 +322,15 @@ namespace OloEngine::Tests
         Capture("ProbeLadder", ladder);
         ASSERT_FALSE(ladder.empty());
 
-        // The NOISE FLOOR: the same setting captured twice. Whatever moves here is
-        // the renderer settling, not this feature, and it is what the flip below
-        // has to stay inside.
+        // The NOISE FLOOR and the flip are measured BRACKETED: a second reference,
+        // then the armed frame, then the reference again. What moves between two
+        // references is the renderer, not this feature, so the floor is the wider
+        // of the two reference pairs and the armed frame is compared with the
+        // closer of its two neighbours. A fallback that is not free differs from
+        // both while the references agree (#1484).
         std::vector<u8> ladderAgain;
         Capture("ProbeLadderRepeat", ladderAgain);
         ASSERT_FALSE(ladderAgain.empty());
-        const std::size_t noiseFloor = CountDifferingPixels(ladder, ladderAgain);
 
         // Arm B — the tier ARMED. On this GL context the shaders were never
         // created, so the pass reports itself unavailable, the graph declares no
@@ -323,7 +341,17 @@ namespace OloEngine::Tests
         Capture("ArmedOnNonRTDevice", armed);
         ASSERT_FALSE(armed.empty());
 
-        const std::size_t flipDifference = CountDifferingPixels(ladderAgain, armed);
+        settings.ReSTIRGI.Enabled = false;
+        std::vector<u8> ladderAfter;
+        Capture("ProbeLadderAfterArming", ladderAfter);
+        ASSERT_FALSE(ladderAfter.empty());
+
+        const std::size_t noiseFloor =
+            std::max(CountDifferingPixels(ladder, ladderAgain), CountDifferingPixels(ladderAgain, ladderAfter));
+        const std::size_t flipDifference =
+            std::min(CountDifferingPixels(ladderAgain, armed), CountDifferingPixels(armed, ladderAfter));
+        std::cout << "[ReSTIR GI fallback] renderer noise floor " << noiseFloor << " px, armed frame " << flipDifference
+                  << " px from its closer reference" << std::endl;
         EXPECT_LE(flipDifference, noiseFloor)
             << "arming ReSTIR GI on a device that cannot run it moved " << flipDifference
             << " pixels, above the measured renderer noise floor of " << noiseFloor

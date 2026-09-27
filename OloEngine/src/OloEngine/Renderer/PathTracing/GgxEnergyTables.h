@@ -7,43 +7,55 @@
 #include <array>
 
 // =============================================================================
-// GGX SINGLE-SCATTER ENERGY-LOSS TABLES — GENERATED, DO NOT HAND-EDIT
+// GGX SINGLE-SCATTER ENERGY TABLES — GENERATED, DO NOT HAND-EDIT
 // =============================================================================
 //
 // Emitted by tools/OloGgxEnergyTableGen (issue #998) alongside its GLSL twin
 // OloEditor/assets/shaders/include/PBRClosureV2Energy.glsl — the SAME packed
-// words, hex for hex, consumed by the ClosureV2 closure's Kulla-Conty
-// multiple-scattering energy compensation on both sides of the CPU/GPU parity
-// boundary.
+// words, hex for hex, consumed by the ClosureV2 closure on both sides of the
+// CPU/GPU parity boundary: its Kulla-Conty multiple-scattering compensation and
+// its energy-conserving diffuse coupling (ADR 0016 §4).
 //
-// The tables store 1 - Ess(mu, r), where Ess is the directional albedo of the
-// SINGLE-scattering GGX specular lobe with F == 1:
+// Each grid node (mu, r) stores two moments of the SINGLE-scattering GGX
+// specular lobe, estimated over Heitz-2018 VNDF-sampled half vectors:
 //
-//   Ess(mu_o, r) = E[ G2/G1 ]  over Heitz-2018 VNDF-sampled half vectors
+//   x: 1 - Ess(mu, r),  Ess     = E[ G2/G1 ]               (the albedo, F == 1)
+//   y: Schlick(mu, r),  Schlick = E[ G2/G1 (1 - v.h)^5 ]   (its grazing part)
 //
 // (the estimator identity f*cos/pdf == F * (G2/G1); see the VNDF block in
-// PBRCommon.glsl). The LOSS form is stored because the compensation term
-// consumes (1 - Ess) directly and the near-mirror rows are ~1e-5, where
-// "1.0f minus a stored 0.99999f" would shred float precision.
+// PBRCommon.glsl). Together they give the lobe's albedo for ANY Schlick F0,
 //
-// STORAGE IS PACKED — two IEEE-754 halfs per u32, and the packing is
-// LOAD-BEARING on the GPU side: a plain `const float[256]` in the GLSL twin
-// passed glslc but failed NVIDIA's GL linker with "C5025: lvalue in assignment
-// too complex" once the lookups were inlined at PBR_MultiLight.glsl's three
-// lighting call sites (SPIRV-Cross materialises a dynamically-indexed constant
-// array as a local temporary per site). Both languages therefore carry the
-// packed words and decode them identically (glm::unpackHalf2x16 here,
-// unpackHalf2x16 in GLSL), so the two sides evaluate the SAME quantized
-// values. Half quantization costs at most 2.3e-4 absolute on any entry — the
-// generator audits that bound and refuses to emit a table exceeding it — an
-// order of magnitude under every consuming tolerance.
+//   E_ss(mu, F0) = F0 (Ess - Schlick) + Schlick,
+//
+// which is what the diffuse coupling subtracts. The LOSS form of Ess is stored
+// because the compensation consumes (1 - Ess) directly and the near-mirror rows
+// are ~1e-5, where "1.0f minus a stored 0.99999f" would shred float precision.
+// The averages row stores both moments cosine-averaged over mu,
+// 2 int M(mu) mu dmu: (1 - E_avg, Schlick_avg).
+//
+// STORAGE IS PACKED — one node per u32, as two IEEE-754 halfs — and the
+// packing is LOAD-BEARING on the GPU side: a plain `const float[256]` in the
+// GLSL twin passed glslc but failed NVIDIA's GL linker with "C5025: lvalue in
+// assignment too complex" once the lookups were inlined at PBR_MultiLight.glsl's
+// three lighting call sites (SPIRV-Cross materialises a dynamically-indexed
+// constant array as a local temporary per site). Both languages therefore
+// carry the packed words and decode them identically (glm::unpackHalf2x16
+// here, unpackHalf2x16 in GLSL), so the two sides evaluate the SAME quantized
+// values. Half quantization costs at most 2^-12 = 2.44e-4 absolute on any
+// entry (half an ulp of the [0.5, 1) binade) — the generator audits that bound
+// and refuses to emit a table exceeding it.
 //
 // Conventions (must match the v2 closure on both sides):
 //   * alpha = clamp(r, kMinRoughness, 1)^2 — the v2 perceptual clamp, so each
-//     row is exactly the albedo of the lobe the v2 sampler samples.
-//   * Cell-centered grid: mu_j = (j + 0.5)/16 across a row (a u32 packs the
-//     even column in its LOW half, the odd column in its HIGH half),
-//     r_k = (k + 0.5)/16 down rows; bilinear lookup clamps at the edges.
+//     row is exactly the albedo of the lobe the v2 sampler samples. Lookups
+//     take AUTHORED roughness; the rows bake the clamp in.
+//   * NODE-CENTRED, SQUARE-ROOT SPACED (issue #1478): node j of 16 sits at
+//     (j / 15)^2 on both axes, so a value x has lookup coordinate
+//     sqrt(x) * 15. Both endpoints are nodes: the bilinear lookup never
+//     clamps and never extrapolates. Entry index = row (roughness) * 16 + column (mu).
+//   * mu = 0 is baked at mu = 1e-4, the cosine floor GgxSmithLambda applies
+//     (the estimator's G2/G1 needs a finite Lambda(mu_v)); the true limit there
+//     is 1 - Ess -> 0, and the node sits within the table's resolution of it.
 //
 // REGENERATION IS A TOOL RUN, NOT A RECIPE (ADR 0016 §6):
 //
@@ -63,10 +75,10 @@
 // word counts — a non-default grid has to update those expectations (or derive
 // them from kGgxEnergyTableSize) in the same change, or that pin fails.
 // The tool calls the engine's own SampleGGXVNDFTangent / GgxSmithLambda /
-// ClosureV2Roughness out of ReferenceBRDF.h, which is what makes
-// generator-vs-engine estimator drift structurally impossible. ClosureV2Test
-// recomputes entries with that same sampler and fails if either copy rots, and
-// parses the GLSL twin so the two files cannot drift apart.
+// FresnelSchlick / ClosureV2Roughness out of ReferenceBRDF.h, which is what
+// makes generator-vs-engine estimator drift structurally impossible.
+// ClosureV2Test recomputes entries with that same sampler and fails if either
+// copy rots, and parses the GLSL twin so the two files cannot drift apart.
 // =============================================================================
 
 namespace OloEngine::PathTracing
@@ -74,46 +86,62 @@ namespace OloEngine::PathTracing
 
     inline constexpr u32 kGgxEnergyTableSize = 16;
 
-    // 1 - Ess(mu, r), half-packed. Linear entry index i = row * 16 + column;
-    // word = kGgxEnergyLossPacked[i >> 1], low/high half selected by i & 1.
-    inline constexpr std::array<u32, 128> kGgxEnergyLossPacked = {
-        0x04c5145bu, 0x00d601aeu, 0x0050007du, 0x00260036u, 0x0014001cu, 0x000a000eu, 0x00040008u, 0x00000002u,
-        0x1cf6297bu, 0x1154162du, 0x08eb0f80u, 0x048f0689u, 0x02590341u, 0x013201b0u, 0x008500d1u, 0x00160048u,
-        0x28e52ee5u, 0x1f9f23bfu, 0x1a8f1ca3u, 0x16be18f7u, 0x144a151du, 0x134013c9u, 0x10b112bfu, 0x10221058u,
-        0x2dc12e29u, 0x27932a83u, 0x22a924cfu, 0x1f6020f0u, 0x1cf01dfcu, 0x1b9a1c50u, 0x1a3d1b07u, 0x18ef1965u,
-        0x2f482ca9u, 0x2c4a2df2u, 0x287d2a26u, 0x256826deu, 0x234d245fu, 0x217b2244u, 0x206320d0u, 0x1f6f200fu,
-        0x2f472b55u, 0x2ea92f9cu, 0x2c702d7bu, 0x29f72b39u, 0x283e28fcu, 0x2679275bu, 0x253925cau, 0x246c24c9u,
-        0x2ee12a4bu, 0x302d3028u, 0x2ee92fbfu, 0x2d4b2e10u, 0x2c152ca4u, 0x2a802b40u, 0x295b29e1u, 0x289028ecu,
-        0x2ea729eau, 0x30be3053u, 0x309b30c8u, 0x30003053u, 0x2ebc2f59u, 0x2dac2e2du, 0x2cd92d3cu, 0x2c392c83u,
-        0x2ebd2a02u, 0x31373089u, 0x31a5318du, 0x316a3194u, 0x30f13131u, 0x306d30aeu, 0x2fe9302fu, 0x2f1a2f7du,
-        0x2f272a78u, 0x31be30deu, 0x32a4324fu, 0x32d632cdu, 0x32a932c7u, 0x324f327fu, 0x31e6321bu, 0x317d31b1u,
-        0x2fd82b2fu, 0x3266315du, 0x33af3326u, 0x34243406u, 0x343b3435u, 0x34313439u, 0x34153425u, 0x33de3403u,
-        0x30622c0eu, 0x333231feu, 0x346a340eu, 0x34e534afu, 0x3529350cu, 0x3549353du, 0x354f354eu, 0x3545354cu,
-        0x30f12c9au, 0x341032c0u, 0x350a349au, 0x35ae3564u, 0x361c35ebu, 0x36653645u, 0x3692367eu, 0x36ac36a1u,
-        0x31932d38u, 0x3494339bu, 0x35b63533u, 0x367f3623u, 0x371236ceu, 0x377e374cu, 0x37cf37aau, 0x380637f0u,
-        0x32422de5u, 0x35223444u, 0x366a35d5u, 0x375436e8u, 0x380237b2u, 0x38473827u, 0x387e3864u, 0x38aa3895u,
-        0x32fd2e9cu, 0x35b734c0u, 0x3723367eu, 0x381437afu, 0x38783849u, 0x38c738a1u, 0x390738e9u, 0x393d3923u
+    // One grid node per word: half(1 - Ess) | half(Schlick) << 16.
+    // Entry index i = row * 16 + column; word = kGgxEnergyPacked[i].
+    inline constexpr std::array<u32, 256> kGgxEnergyPacked = {
+        0x3b972260u, 0x3b452bcdu, 0x3b421c99u, 0x3a831170u, 0x39870834u, 0x3870035fu, 0x36b00199u, 0x34af00d8u,
+        0x3201007au, 0x2edf0048u, 0x2ac6002cu, 0x2567001au, 0x1e320010u, 0x13d40008u, 0x02560004u, 0x00000000u,
+        0x3b972260u, 0x3b452bcdu, 0x3b421c99u, 0x3a831170u, 0x39870834u, 0x3870035fu, 0x36b00199u, 0x34af00d8u,
+        0x3201007au, 0x2edf0048u, 0x2ac6002cu, 0x2567001au, 0x1e320010u, 0x13d40008u, 0x02560004u, 0x00000000u,
+        0x3b972260u, 0x3b452bcdu, 0x3b421c99u, 0x3a831170u, 0x39870834u, 0x3870035fu, 0x36b00199u, 0x34af00d8u,
+        0x3201007au, 0x2edf0048u, 0x2ac6002cu, 0x2567001au, 0x1e320010u, 0x13d40008u, 0x02560004u, 0x00000000u,
+        0x3b972260u, 0x3b452bcdu, 0x3b421c99u, 0x3a831170u, 0x39870834u, 0x3870035fu, 0x36b00199u, 0x34af00d8u,
+        0x3201007au, 0x2edf0048u, 0x2ac6002cu, 0x2567001au, 0x1e320010u, 0x13d40008u, 0x02560004u, 0x00000000u,
+        0x3b311c1cu, 0x3a952ebdu, 0x3ad62994u, 0x3a6420c0u, 0x397b19cfu, 0x386b1298u, 0x36ac100bu, 0x34ae084eu,
+        0x320004ceu, 0x2edf02d4u, 0x2ac701b5u, 0x25690108u, 0x1e36009bu, 0x13df0053u, 0x025e0022u, 0x00000000u,
+        0x3a8016b8u, 0x3a322c17u, 0x39f52ea8u, 0x39e42a54u, 0x3946249cu, 0x38531f01u, 0x36961a8fu, 0x34a51654u,
+        0x31fa11e0u, 0x2ede102fu, 0x2ace0992u, 0x2575065bu, 0x1e4f03b3u, 0x141101fcu, 0x02a400d4u, 0x00020006u,
+        0x399b1285u, 0x39782863u, 0x392d2e3fu, 0x38ff2e7eu, 0x38af2beau, 0x380527f6u, 0x364b2414u, 0x34832051u,
+        0x31e11d05u, 0x2ed31a94u, 0x2ad31897u, 0x258e15d8u, 0x1e921424u, 0x146f1332u, 0x03d210bbu, 0x000b1022u,
+        0x38980f45u, 0x3886250du, 0x38552c52u, 0x38172ecdu, 0x37a42eb2u, 0x36d02ce8u, 0x35982a36u, 0x342b2784u,
+        0x319824a3u, 0x2ea82216u, 0x2ad71ff9u, 0x25bb1dcbu, 0x1f1c1c64u, 0x154e1b38u, 0x064519b4u, 0x001d18bdu,
+        0x37290cbbu, 0x37132281u, 0x36d329d8u, 0x366d2d73u, 0x35eb2f1au, 0x354c2f21u, 0x347e2df5u, 0x33042c71u,
+        0x30f22a47u, 0x2e2d285bu, 0x2aa6262fu, 0x25e62481u, 0x1fef22dbu, 0x16f02161u, 0x09d12068u, 0x004f1f7du,
+        0x35550b8au, 0x354420eau, 0x35152851u, 0x34c82c3fu, 0x34612e47u, 0x33c72f97u, 0x32a22fd7u, 0x31542f2fu,
+        0x2fde2e0du, 0x2d352cd6u, 0x2a002b8bu, 0x25c529e4u, 0x205628a0u, 0x18812772u, 0x0d1f2625u, 0x00b12534u,
+        0x33a50b8du, 0x338a2079u, 0x3341277bu, 0x32cb2b51u, 0x322e2d9cu, 0x31732f5fu, 0x30a0304cu, 0x2f7b308bu,
+        0x2dab3070u, 0x2bdb3016u, 0x28d82f34u, 0x251a2e2eu, 0x20542d3bu, 0x19592c6cu, 0x0fd02b8au, 0x01512a82u,
+        0x315a0c86u, 0x314420d5u, 0x310927adu, 0x30ad2b56u, 0x30372d9cu, 0x2f5b2f89u, 0x2e31309eu, 0x2cfd3142u,
+        0x2b9c31a3u, 0x296831c0u, 0x26fb31a1u, 0x23ec3154u, 0x1f8030eeu, 0x1969307cu, 0x10e3300bu, 0x021e2f47u,
+        0x2f770df6u, 0x2f4f21d8u, 0x2eee287du, 0x2e5a2c34u, 0x2da62e59u, 0x2cdd3042u, 0x2c0a314au, 0x2a713234u,
+        0x28e432f3u, 0x26fd3380u, 0x249f33d8u, 0x217e33fcu, 0x1d9f33f3u, 0x189433c4u, 0x10f1337bu, 0x02d63320u,
+        0x2d4c100du, 0x2d272372u, 0x2cd229a0u, 0x2c572d31u, 0x2b942fc5u, 0x2a663132u, 0x29373276u, 0x281733a4u,
+        0x2621345bu, 0x245a34d1u, 0x21c73535u, 0x1f043583u, 0x1b8435beu, 0x16a335e5u, 0x101a35fau, 0x031f35feu,
+        0x2bce117fu, 0x2b8524ccu, 0x2ae72b34u, 0x2a112e96u, 0x292a30e6u, 0x28403286u, 0x26c2340eu, 0x252c34ceu,
+        0x23963581u, 0x214d3624u, 0x1efa36b8u, 0x1c3f373au, 0x18a437adu, 0x144b3809u, 0x0dd33833u, 0x02d83857u,
+        0x2a0f1359u, 0x29c32627u, 0x29252c97u, 0x2862302au, 0x2737322bu, 0x25be3417u, 0x246b3512u, 0x228f35ffu,
+        0x20ad36dcu, 0x1e6237a7u, 0x1c1f3831u, 0x18f73885u, 0x157138d1u, 0x11253916u, 0x0b683954u, 0x0234398bu
     };
 
-    // 1 - E_avg(r), half-packed, indexed by the same cell-centered roughness rows.
-    inline constexpr std::array<u32, 8> kGgxEnergyLossAvgPacked = {
-        0x0c6b00beu, 0x1ffe18a6u, 0x28a824c9u, 0x2e322bf9u, 0x321f307cu, 0x34fb33f8u, 0x370d3604u, 0x38803807u
+    // The averages row, one roughness node per word:
+    // half(1 - E_avg) | half(Schlick_avg) << 16.
+    inline constexpr std::array<u32, 16> kGgxEnergyAvgPacked = {
+        0x2a1800beu, 0x2a1800beu, 0x2a1800beu, 0x2a1800beu, 0x2a130694u, 0x2a001021u, 0x29cb18fdu, 0x295f1fdbu,
+        0x28b524fau, 0x27b1296eu, 0x25d82d46u, 0x242630a5u, 0x21923379u, 0x1f2f3584u, 0x1c86377fu, 0x19a538bau
     };
 
-    // Decode one linear entry of the loss table (i in [0, 255]).
-    // GLSL twin: ggxEnergyLossEntry in PBRClosureV2Energy.glsl.
-    [[nodiscard]] inline f32 GgxEnergyLossEntry(u32 i) noexcept
+    // Decode one grid node (i in [0, 255]): x = 1 - Ess, y = Schlick.
+    // GLSL twin: ggxEnergyEntry in PBRClosureV2Energy.glsl.
+    [[nodiscard]] inline glm::vec2 GgxEnergyEntry(u32 i) noexcept
     {
-        const glm::vec2 pair = glm::unpackHalf2x16(kGgxEnergyLossPacked[i >> 1]);
-        return ((i & 1u) == 0u) ? pair.x : pair.y;
+        return glm::unpackHalf2x16(kGgxEnergyPacked[i]);
     }
 
-    // Decode one entry of the averaged-loss row (i in [0, 15]).
-    // GLSL twin: ggxEnergyLossAvgEntry in PBRClosureV2Energy.glsl.
-    [[nodiscard]] inline f32 GgxEnergyLossAvgEntry(u32 i) noexcept
+    // Decode one averages node (i in [0, 15]): x = 1 - E_avg, y = Schlick_avg.
+    // GLSL twin: ggxEnergyAvgEntry in PBRClosureV2Energy.glsl.
+    [[nodiscard]] inline glm::vec2 GgxEnergyAvgEntry(u32 i) noexcept
     {
-        const glm::vec2 pair = glm::unpackHalf2x16(kGgxEnergyLossAvgPacked[i >> 1]);
-        return ((i & 1u) == 0u) ? pair.x : pair.y;
+        return glm::unpackHalf2x16(kGgxEnergyAvgPacked[i]);
     }
 
 } // namespace OloEngine::PathTracing

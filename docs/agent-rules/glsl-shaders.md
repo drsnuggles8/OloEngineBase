@@ -979,8 +979,10 @@ Rules distilled:
   and assume every dynamically-indexed constant array is copied once per inlined call
   site. `POISSON_DISK_16` (16 vec2) is fine; 256 floats × 3 call sites is not.
 - **Pack big tables**: two IEEE halfs per uint, four uints per uvec4 —
-  `PBRClosureV2Energy.glsl` stores 272 table entries in 34 `uvec4` constants, decoded
-  with `unpackHalf2x16`, with the C++ twin decoding the same words so parity is exact.
+  `PBRClosureV2Energy.glsl` stores 544 scalars (272 nodes × two moments) in 68 `uvec4`
+  constants, decoded with `unpackHalf2x16`, with the C++ twin decoding the same words
+  so parity is exact. That is a quarter of the 272-element plain array that tripped
+  C5025, verified linked in the big forward shaders on NVIDIA GL and on Vulkan (#1478).
   (A UBO or texture is the classic alternative; here the UBO namespace had one slot left
   and the free texture units collided with the shader's own Vulkan vertex-pull SSBO
   bindings — the ADR 0011 item-A2 single-set trap. Check both namespaces before assuming

@@ -1,5 +1,5 @@
 // =============================================================================
-// GGX SINGLE-SCATTER ENERGY-LOSS TABLES — GENERATED, DO NOT HAND-EDIT
+// GGX SINGLE-SCATTER ENERGY TABLES — GENERATED, DO NOT HAND-EDIT
 // =============================================================================
 //
 // Emitted by tools/OloGgxEnergyTableGen (issue #998). The command line that
@@ -9,113 +9,150 @@
 // ADR 0016 §6.
 //
 // Data for PBR closure v2's Kulla-Conty multiple-scattering energy compensation
-// (Kulla & Conty, "Revisiting Physically Based Shading at Imageworks", 2017).
+// (Kulla & Conty, "Revisiting Physically Based Shading at Imageworks", 2017)
+// and its energy-conserving diffuse coupling (issue #1479).
 //
-// The tables store 1 - Ess(mu, r): the fraction of energy the SINGLE-scattering
-// GGX specular lobe loses to inter-facet shadowing, where
+// Each grid node (mu, r) stores two moments of the SINGLE-scattering GGX
+// specular lobe, over Heitz-2018 VNDF-sampled half vectors:
 //
-//   Ess(mu_o, r) = E[ G2/G1 ]  over Heitz-2018 VNDF-sampled half vectors,
+//   x: 1 - Ess(mu, r),  Ess     = E[ G2/G1 ]              (the albedo, F == 1)
+//   y: Schlick(mu, r),  Schlick = E[ G2/G1 (1 - v.h)^5 ]  (its grazing part)
 //
-// which is the exact estimator identity f*cos/pdf == F * (G2/G1) with F == 1
-// (see the VNDF block in PBRCommon.glsl). The LOSS form is stored rather than
-// Ess itself because the compensation term consumes (1 - Ess) directly and the
-// near-mirror rows are ~1e-5, where "1.0 minus a stored 0.99999" would shred
-// float precision.
+// the exact estimator identity f*cos/pdf == F * (G2/G1) (see the VNDF block in
+// PBRCommon.glsl). Together they give the lobe's albedo for any Schlick F0,
+// E_ss(mu, F0) = F0 (Ess - Schlick) + Schlick. The LOSS form of Ess is stored
+// because the compensation consumes (1 - Ess) directly and the near-mirror
+// rows are ~1e-5, where "1.0 minus a stored 0.99999" would shred float
+// precision. The averages row holds (1 - E_avg, Schlick_avg), each moment
+// cosine-averaged over mu.
 //
-// STORAGE IS PACKED, AND THE PACKING IS LOAD-BEARING. Two IEEE-754 half floats
-// per uint, four uints per uvec4 — 34 uvec4 constants instead of 272 floats.
-// A plain `const float[256]` here LINKED FINE through glslc but FAILED AT
-// RUNTIME on NVIDIA GL ("error C5025: lvalue in assignment too complex"):
-// SPIRV-Cross materialises a dynamically-indexed constant array as a
-// function-local temporary copy, and once the lookups were inlined at the
+// STORAGE IS PACKED, AND THE PACKING IS LOAD-BEARING. One node per uint (two
+// IEEE-754 half floats), four uints per uvec4 — 68 uvec4 constants for 544
+// scalars. A plain `const float[256]` here LINKED FINE through glslc but
+// FAILED AT RUNTIME on NVIDIA GL ("error C5025: lvalue in assignment too
+// complex"): SPIRV-Cross materialises a dynamically-indexed constant array as
+// a function-local temporary copy, and once the lookups were inlined at the
 // three lighting call sites of a large shader (PBR_MultiLight.glsl) the
 // driver's complexity limit tripped — while single-call-site probe shaders
-// compiled the very same array without complaint. Packing cuts the emitted
-// assignment count ~8x, far below the cliff. See glsl-shaders.md §12.
+// compiled the very same array without complaint. Packing keeps the emitted
+// element count at an eighth of the scalar count. See glsl-shaders.md §12.
 //
-// Half precision costs at most 2.3e-4 absolute on any entry — the generator
-// audits that bound and refuses to emit a table exceeding it — an order of
-// magnitude under every consuming tolerance; entries below the compensation
-// gate (lossAvg < 1e-4 returns 0) don't matter at all.
+// Half precision costs at most 2^-12 = 2.44e-4 absolute on any entry — the
+// generator audits that bound and refuses to emit a table exceeding it.
 //
 // Conventions (must match the v2 closure on both sides of the parity boundary):
 //   * alpha = clamp(r, MIN_ROUGHNESS, 1)^2 — the v2 perceptual clamp, so each
-//     row is exactly the albedo of the lobe the v2 sampler samples.
-//   * Cell-centered grid: mu_j = (j + 0.5)/16 across a row (a uint packs the
-//     even column in its LOW half and the odd column in its HIGH half, matching
-//     unpackHalf2x16's (low, high) return), r_k = (k + 0.5)/16 down rows;
-//     bilinear lookup clamps at the edges and never extrapolates.
-//   * Estimator: 4096 deterministic Hammersley points per entry; E_avg uses a
-//     64-point midpoint quadrature over mu at 2048 points per evaluation.
+//     row is exactly the albedo of the lobe the v2 sampler samples. Lookups
+//     take AUTHORED roughness; the rows bake the clamp in.
+//   * NODE-CENTRED, SQUARE-ROOT SPACED (issue #1478): node j of 16 sits at
+//     (j / 15)^2 on both axes, so a value x has lookup coordinate
+//     sqrt(x) * 15. Both endpoints are nodes: the bilinear lookup never
+//     clamps and never extrapolates. Entry index = row (roughness) * 16 + column (mu).
+//   * mu = 0 is baked at mu = 1e-4, the cosine floor ggxSmithLambda applies
+//     (the estimator's G2/G1 needs a finite Lambda(mu_v)); the true limit there
+//     is 1 - Ess -> 0, and the node sits within the table's resolution of it.
+//   * Estimator: 4096 deterministic Hammersley points per node; the averages use
+//     a 64-point midpoint quadrature over mu at 2048 points per evaluation.
 //
 // The C++ twin is OloEngine/src/OloEngine/Renderer/PathTracing/GgxEnergyTables.h
 // — the SAME packed words, decoded with glm::unpackHalf2x16, so the two sides
 // evaluate identical quantized values. ClosureV2Test pins both files against
 // the estimator and against each other; the GPU parity probe covers the full
-// compensated closure.
+// closure.
 // =============================================================================
 #ifndef PBR_CLOSURE_V2_ENERGY_GLSL
 #define PBR_CLOSURE_V2_ENERGY_GLSL
 
 #define OLO_GGX_ENERGY_TABLE_SIZE 16
 
-// 1 - Ess(mu, r), half-packed. Linear entry index i = row * 16 + column;
-// word = kGgxEnergyLossPacked[i >> 3][(i >> 1) & 3], low/high half by i & 1.
-const uvec4 kGgxEnergyLossPacked[32] = uvec4[32](
-    uvec4(0x04c5145bu, 0x00d601aeu, 0x0050007du, 0x00260036u),
-    uvec4(0x0014001cu, 0x000a000eu, 0x00040008u, 0x00000002u),
-    uvec4(0x1cf6297bu, 0x1154162du, 0x08eb0f80u, 0x048f0689u),
-    uvec4(0x02590341u, 0x013201b0u, 0x008500d1u, 0x00160048u),
-    uvec4(0x28e52ee5u, 0x1f9f23bfu, 0x1a8f1ca3u, 0x16be18f7u),
-    uvec4(0x144a151du, 0x134013c9u, 0x10b112bfu, 0x10221058u),
-    uvec4(0x2dc12e29u, 0x27932a83u, 0x22a924cfu, 0x1f6020f0u),
-    uvec4(0x1cf01dfcu, 0x1b9a1c50u, 0x1a3d1b07u, 0x18ef1965u),
-    uvec4(0x2f482ca9u, 0x2c4a2df2u, 0x287d2a26u, 0x256826deu),
-    uvec4(0x234d245fu, 0x217b2244u, 0x206320d0u, 0x1f6f200fu),
-    uvec4(0x2f472b55u, 0x2ea92f9cu, 0x2c702d7bu, 0x29f72b39u),
-    uvec4(0x283e28fcu, 0x2679275bu, 0x253925cau, 0x246c24c9u),
-    uvec4(0x2ee12a4bu, 0x302d3028u, 0x2ee92fbfu, 0x2d4b2e10u),
-    uvec4(0x2c152ca4u, 0x2a802b40u, 0x295b29e1u, 0x289028ecu),
-    uvec4(0x2ea729eau, 0x30be3053u, 0x309b30c8u, 0x30003053u),
-    uvec4(0x2ebc2f59u, 0x2dac2e2du, 0x2cd92d3cu, 0x2c392c83u),
-    uvec4(0x2ebd2a02u, 0x31373089u, 0x31a5318du, 0x316a3194u),
-    uvec4(0x30f13131u, 0x306d30aeu, 0x2fe9302fu, 0x2f1a2f7du),
-    uvec4(0x2f272a78u, 0x31be30deu, 0x32a4324fu, 0x32d632cdu),
-    uvec4(0x32a932c7u, 0x324f327fu, 0x31e6321bu, 0x317d31b1u),
-    uvec4(0x2fd82b2fu, 0x3266315du, 0x33af3326u, 0x34243406u),
-    uvec4(0x343b3435u, 0x34313439u, 0x34153425u, 0x33de3403u),
-    uvec4(0x30622c0eu, 0x333231feu, 0x346a340eu, 0x34e534afu),
-    uvec4(0x3529350cu, 0x3549353du, 0x354f354eu, 0x3545354cu),
-    uvec4(0x30f12c9au, 0x341032c0u, 0x350a349au, 0x35ae3564u),
-    uvec4(0x361c35ebu, 0x36653645u, 0x3692367eu, 0x36ac36a1u),
-    uvec4(0x31932d38u, 0x3494339bu, 0x35b63533u, 0x367f3623u),
-    uvec4(0x371236ceu, 0x377e374cu, 0x37cf37aau, 0x380637f0u),
-    uvec4(0x32422de5u, 0x35223444u, 0x366a35d5u, 0x375436e8u),
-    uvec4(0x380237b2u, 0x38473827u, 0x387e3864u, 0x38aa3895u),
-    uvec4(0x32fd2e9cu, 0x35b734c0u, 0x3723367eu, 0x381437afu),
-    uvec4(0x38783849u, 0x38c738a1u, 0x390738e9u, 0x393d3923u)
+// One grid node per word: half(1 - Ess) | half(Schlick) << 16.
+// Entry index i = row * 16 + column; word = kGgxEnergyPacked[i >> 2][i & 3].
+const uvec4 kGgxEnergyPacked[64] = uvec4[64](
+    uvec4(0x3b972260u, 0x3b452bcdu, 0x3b421c99u, 0x3a831170u),
+    uvec4(0x39870834u, 0x3870035fu, 0x36b00199u, 0x34af00d8u),
+    uvec4(0x3201007au, 0x2edf0048u, 0x2ac6002cu, 0x2567001au),
+    uvec4(0x1e320010u, 0x13d40008u, 0x02560004u, 0x00000000u),
+    uvec4(0x3b972260u, 0x3b452bcdu, 0x3b421c99u, 0x3a831170u),
+    uvec4(0x39870834u, 0x3870035fu, 0x36b00199u, 0x34af00d8u),
+    uvec4(0x3201007au, 0x2edf0048u, 0x2ac6002cu, 0x2567001au),
+    uvec4(0x1e320010u, 0x13d40008u, 0x02560004u, 0x00000000u),
+    uvec4(0x3b972260u, 0x3b452bcdu, 0x3b421c99u, 0x3a831170u),
+    uvec4(0x39870834u, 0x3870035fu, 0x36b00199u, 0x34af00d8u),
+    uvec4(0x3201007au, 0x2edf0048u, 0x2ac6002cu, 0x2567001au),
+    uvec4(0x1e320010u, 0x13d40008u, 0x02560004u, 0x00000000u),
+    uvec4(0x3b972260u, 0x3b452bcdu, 0x3b421c99u, 0x3a831170u),
+    uvec4(0x39870834u, 0x3870035fu, 0x36b00199u, 0x34af00d8u),
+    uvec4(0x3201007au, 0x2edf0048u, 0x2ac6002cu, 0x2567001au),
+    uvec4(0x1e320010u, 0x13d40008u, 0x02560004u, 0x00000000u),
+    uvec4(0x3b311c1cu, 0x3a952ebdu, 0x3ad62994u, 0x3a6420c0u),
+    uvec4(0x397b19cfu, 0x386b1298u, 0x36ac100bu, 0x34ae084eu),
+    uvec4(0x320004ceu, 0x2edf02d4u, 0x2ac701b5u, 0x25690108u),
+    uvec4(0x1e36009bu, 0x13df0053u, 0x025e0022u, 0x00000000u),
+    uvec4(0x3a8016b8u, 0x3a322c17u, 0x39f52ea8u, 0x39e42a54u),
+    uvec4(0x3946249cu, 0x38531f01u, 0x36961a8fu, 0x34a51654u),
+    uvec4(0x31fa11e0u, 0x2ede102fu, 0x2ace0992u, 0x2575065bu),
+    uvec4(0x1e4f03b3u, 0x141101fcu, 0x02a400d4u, 0x00020006u),
+    uvec4(0x399b1285u, 0x39782863u, 0x392d2e3fu, 0x38ff2e7eu),
+    uvec4(0x38af2beau, 0x380527f6u, 0x364b2414u, 0x34832051u),
+    uvec4(0x31e11d05u, 0x2ed31a94u, 0x2ad31897u, 0x258e15d8u),
+    uvec4(0x1e921424u, 0x146f1332u, 0x03d210bbu, 0x000b1022u),
+    uvec4(0x38980f45u, 0x3886250du, 0x38552c52u, 0x38172ecdu),
+    uvec4(0x37a42eb2u, 0x36d02ce8u, 0x35982a36u, 0x342b2784u),
+    uvec4(0x319824a3u, 0x2ea82216u, 0x2ad71ff9u, 0x25bb1dcbu),
+    uvec4(0x1f1c1c64u, 0x154e1b38u, 0x064519b4u, 0x001d18bdu),
+    uvec4(0x37290cbbu, 0x37132281u, 0x36d329d8u, 0x366d2d73u),
+    uvec4(0x35eb2f1au, 0x354c2f21u, 0x347e2df5u, 0x33042c71u),
+    uvec4(0x30f22a47u, 0x2e2d285bu, 0x2aa6262fu, 0x25e62481u),
+    uvec4(0x1fef22dbu, 0x16f02161u, 0x09d12068u, 0x004f1f7du),
+    uvec4(0x35550b8au, 0x354420eau, 0x35152851u, 0x34c82c3fu),
+    uvec4(0x34612e47u, 0x33c72f97u, 0x32a22fd7u, 0x31542f2fu),
+    uvec4(0x2fde2e0du, 0x2d352cd6u, 0x2a002b8bu, 0x25c529e4u),
+    uvec4(0x205628a0u, 0x18812772u, 0x0d1f2625u, 0x00b12534u),
+    uvec4(0x33a50b8du, 0x338a2079u, 0x3341277bu, 0x32cb2b51u),
+    uvec4(0x322e2d9cu, 0x31732f5fu, 0x30a0304cu, 0x2f7b308bu),
+    uvec4(0x2dab3070u, 0x2bdb3016u, 0x28d82f34u, 0x251a2e2eu),
+    uvec4(0x20542d3bu, 0x19592c6cu, 0x0fd02b8au, 0x01512a82u),
+    uvec4(0x315a0c86u, 0x314420d5u, 0x310927adu, 0x30ad2b56u),
+    uvec4(0x30372d9cu, 0x2f5b2f89u, 0x2e31309eu, 0x2cfd3142u),
+    uvec4(0x2b9c31a3u, 0x296831c0u, 0x26fb31a1u, 0x23ec3154u),
+    uvec4(0x1f8030eeu, 0x1969307cu, 0x10e3300bu, 0x021e2f47u),
+    uvec4(0x2f770df6u, 0x2f4f21d8u, 0x2eee287du, 0x2e5a2c34u),
+    uvec4(0x2da62e59u, 0x2cdd3042u, 0x2c0a314au, 0x2a713234u),
+    uvec4(0x28e432f3u, 0x26fd3380u, 0x249f33d8u, 0x217e33fcu),
+    uvec4(0x1d9f33f3u, 0x189433c4u, 0x10f1337bu, 0x02d63320u),
+    uvec4(0x2d4c100du, 0x2d272372u, 0x2cd229a0u, 0x2c572d31u),
+    uvec4(0x2b942fc5u, 0x2a663132u, 0x29373276u, 0x281733a4u),
+    uvec4(0x2621345bu, 0x245a34d1u, 0x21c73535u, 0x1f043583u),
+    uvec4(0x1b8435beu, 0x16a335e5u, 0x101a35fau, 0x031f35feu),
+    uvec4(0x2bce117fu, 0x2b8524ccu, 0x2ae72b34u, 0x2a112e96u),
+    uvec4(0x292a30e6u, 0x28403286u, 0x26c2340eu, 0x252c34ceu),
+    uvec4(0x23963581u, 0x214d3624u, 0x1efa36b8u, 0x1c3f373au),
+    uvec4(0x18a437adu, 0x144b3809u, 0x0dd33833u, 0x02d83857u),
+    uvec4(0x2a0f1359u, 0x29c32627u, 0x29252c97u, 0x2862302au),
+    uvec4(0x2737322bu, 0x25be3417u, 0x246b3512u, 0x228f35ffu),
+    uvec4(0x20ad36dcu, 0x1e6237a7u, 0x1c1f3831u, 0x18f73885u),
+    uvec4(0x157138d1u, 0x11253916u, 0x0b683954u, 0x0234398bu)
 );
 
-// 1 - E_avg(r), half-packed, indexed by the same cell-centered roughness rows.
-const uvec4 kGgxEnergyLossAvgPacked[2] = uvec4[2](
-    uvec4(0x0c6b00beu, 0x1ffe18a6u, 0x28a824c9u, 0x2e322bf9u),
-    uvec4(0x321f307cu, 0x34fb33f8u, 0x370d3604u, 0x38803807u)
+// The averages row, one roughness node per word:
+// half(1 - E_avg) | half(Schlick_avg) << 16.
+const uvec4 kGgxEnergyAvgPacked[4] = uvec4[4](
+    uvec4(0x2a1800beu, 0x2a1800beu, 0x2a1800beu, 0x2a1800beu),
+    uvec4(0x2a130694u, 0x2a001021u, 0x29cb18fdu, 0x295f1fdbu),
+    uvec4(0x28b524fau, 0x27b1296eu, 0x25d82d46u, 0x242630a5u),
+    uvec4(0x21923379u, 0x1f2f3584u, 0x1c86377fu, 0x19a538bau)
 );
 
-// Decode one linear entry of the loss table (i in [0, 255]).
-float ggxEnergyLossEntry(int i)
+// Decode one grid node (i in [0, 255]): x = 1 - Ess, y = Schlick.
+vec2 ggxEnergyEntry(int i)
 {
-    uint word = kGgxEnergyLossPacked[i >> 3][(i >> 1) & 3];
-    vec2 pair = unpackHalf2x16(word);
-    return ((i & 1) == 0) ? pair.x : pair.y;
+    return unpackHalf2x16(kGgxEnergyPacked[i >> 2][i & 3]);
 }
 
-// Decode one entry of the averaged-loss row (i in [0, 15]).
-float ggxEnergyLossAvgEntry(int i)
+// Decode one averages node (i in [0, 15]): x = 1 - E_avg, y = Schlick_avg.
+vec2 ggxEnergyAvgEntry(int i)
 {
-    uint word = kGgxEnergyLossAvgPacked[i >> 3][(i >> 1) & 3];
-    vec2 pair = unpackHalf2x16(word);
-    return ((i & 1) == 0) ? pair.x : pair.y;
+    return unpackHalf2x16(kGgxEnergyAvgPacked[i >> 2][i & 3]);
 }
 
 #endif // PBR_CLOSURE_V2_ENERGY_GLSL
