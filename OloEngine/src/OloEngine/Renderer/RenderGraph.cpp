@@ -3589,6 +3589,8 @@ namespace OloEngine
                 return ImageFormat::RGBA8;
             case RGResourceFormat::RGBA16Float:
                 return ImageFormat::RGBA16F;
+            case RGResourceFormat::RGBA32Float:
+                return ImageFormat::RGBA32F;
             case RGResourceFormat::Depth24Stencil8:
                 return ImageFormat::DEPTH24STENCIL8;
             case RGResourceFormat::Depth32Float:
