@@ -9,6 +9,8 @@
 //   OloEditor/assets/tests/visual/CookedCutoutCoverageOneLevel_GL_<Path>_PineFar.png no mips (the reference)
 // and, on Deferred, the same pair for the soft-alpha grass at 0.25:
 //   CookedCutoutCoverage[Off]_GL_Deferred_GrassFar.png
+// and, per <Path>, a one-texel checker "fence" at 0.5, far (#1491):
+//   CookedCutoutCoverage{,Loose,OneLevel}_GL_<Path>_FenceFar.png
 // A cell that was not run is a file missing from the diff (task-loop 2a). Vulkan
 // is not reachable from a headless fixture; its cells are a live editor session.
 //
@@ -452,6 +454,128 @@ namespace OloEngine::Tests
                     << kSubjects[s].Name << ": the plain chain's worst far-pose error (" << worstOff * 100.0
                     << "%) is not clearly worse than the cooked chain's (" << worstCooked * 100.0
                     << "%); the comparison is vacuous";
+            }
+        }
+    }
+
+    // Issue #1491: a REPEATED fine pattern keeps its coverage where it was. A
+    // 256 x 256 cutout of one-texel checker squares is exactly 50% at every
+    // cutoff and ties every texel of every coarser level on its footprint mean.
+    // The old remap broke that tie by texel order and handed the whole coverage
+    // of a level to the first half of its rows: at distance each card drew one
+    // half solid and the other half empty. Measured per card, as the balance
+    // between the coverage of its two halves (0 = even, 1 = all in one half),
+    // summed over the wall at the mid and far poses.
+    TEST_F(CookedCutoutCoverageEvidenceTest, ARepeatedPatternKeepsItsCoverageEvenAcrossTheCardAtDistance)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        constexpr u32 kFence = 256;
+        std::vector<u8> fence(static_cast<sizet>(kFence) * kFence * 4u);
+        for (u32 y = 0; y < kFence; ++y)
+        {
+            for (u32 x = 0; x < kFence; ++x)
+            {
+                u8* texel = &fence[(static_cast<sizet>(y) * kFence + x) * 4u];
+                texel[0] = 30u;
+                texel[1] = 200u;
+                texel[2] = 60u;
+                texel[3] = ((x + y) & 1u) != 0u ? 255u : 0u;
+            }
+        }
+        const fs::path fencePath = fs::temp_directory_path() / "olo_1491_fence_cutout.png";
+        ASSERT_NE(::stbi_write_png(fencePath.string().c_str(), static_cast<int>(kFence), static_cast<int>(kFence), 4,
+                                   fence.data(), static_cast<int>(kFence) * 4),
+                  0);
+        struct RemoveOnExit
+        {
+            fs::path Path;
+            ~RemoveOnExit()
+            {
+                std::error_code ec;
+                fs::remove(Path, ec);
+            }
+        } removeFence{ fencePath };
+
+        const std::string fencePathString = fencePath.string();
+        const SubjectTextures textures = LoadSubject({ "Fence", fencePathString.c_str() });
+        for (sizet a = 0; a < kArms.size(); ++a)
+        {
+            ASSERT_TRUE(textures.ByArm[a] && textures.ByArm[a]->IsLoaded()) << kArmNames[a] << " did not load";
+        }
+
+        // One card's two halves on screen, from the wall layout and the camera.
+        const auto halfBalance = [](const std::vector<u8>& frame, const std::vector<u8>& empty, f32 distance)
+        {
+            const f32 halfExtent = distance * std::tan(glm::radians(30.0f));
+            const f32 pixelsPerMetre = 0.5f * static_cast<f32>(kHeight) / halfExtent;
+            const i32 halfCard = static_cast<i32>(std::floor(0.5f * pixelsPerMetre)) - 1; // one-pixel margin
+            const f32 x0 = -0.5f * static_cast<f32>(kColumns - 1u) * kSpacing;
+            const f32 y0 = -0.5f * static_cast<f32>(kRows - 1u) * kSpacing;
+            f64 first = 0.0;
+            f64 second = 0.0;
+            for (u32 row = 0; row < kRows; ++row)
+            {
+                for (u32 column = 0; column < kColumns; ++column)
+                {
+                    const f32 cx = x0 + static_cast<f32>(column) * kSpacing;
+                    const f32 cy = y0 + static_cast<f32>(row) * kSpacing;
+                    const i32 px = static_cast<i32>(std::lround(0.5f * static_cast<f32>(kWidth) + cx * pixelsPerMetre));
+                    const i32 py = static_cast<i32>(std::lround(0.5f * static_cast<f32>(kHeight) + cy * pixelsPerMetre));
+                    for (i32 y = py - halfCard; y < py + halfCard; ++y)
+                    {
+                        for (i32 x = px - halfCard; x < px + halfCard; ++x)
+                        {
+                            if (x < 0 || y < 0 || x >= static_cast<i32>(kWidth) || y >= static_cast<i32>(kHeight))
+                                continue;
+                            const sizet i = (static_cast<sizet>(y) * kWidth + static_cast<sizet>(x)) * 4u;
+                            const int d = std::abs(static_cast<int>(frame[i]) - static_cast<int>(empty[i])) +
+                                          std::abs(static_cast<int>(frame[i + 1]) - static_cast<int>(empty[i + 1])) +
+                                          std::abs(static_cast<int>(frame[i + 2]) - static_cast<int>(empty[i + 2]));
+                            if (d > 24)
+                                (y < py ? first : second) += 1.0;
+                        }
+                    }
+                }
+            }
+            return (first + second) > 0.0 ? std::abs(first - second) / (first + second) : 1.0;
+        };
+
+        const ScopedRenderPath restorePath(*this);
+        constexpr std::array<RenderingPath, 3> kPaths{ RenderingPath::Forward, RenderingPath::ForwardPlus,
+                                                       RenderingPath::Deferred };
+        for (const RenderingPath path : kPaths)
+        {
+            SCOPED_TRACE(PathName(path));
+            SetPath(path);
+            for (const sizet d : { sizet{ 1 }, sizet{ 2 } })
+            {
+                std::vector<u8> empty;
+                ApplyArm(nullptr, 0.5f);
+                Capture(kDistances[d], empty);
+                std::array<f64, kArms.size()> balance{};
+                for (sizet a = 0; a < kArms.size(); ++a)
+                {
+                    ApplyArm(textures.ByArm[a], 0.5f);
+                    std::vector<u8> frame;
+                    Capture(kDistances[d], frame);
+                    ASSERT_FALSE(HasFatalFailure());
+                    balance[a] = halfBalance(frame, empty, kDistances[d]);
+                    if (d == 2u && (kArms[a] == Arm::Cooked || kArms[a] == Arm::Loose || kArms[a] == Arm::OneLevel))
+                    {
+                        const std::string feature = kArms[a] == Arm::Cooked ? "CookedCutoutCoverage"
+                                                                            : std::string("CookedCutoutCoverage") + kArmNames[a];
+                        WritePng(feature + "_GL_" + PathName(path) + "_FenceFar.png", frame);
+                    }
+                }
+                GTEST_LOG_(INFO) << PathName(path) << " fence " << kDistanceNames[d] << " half balance: one level "
+                                 << balance[0] << ", loose " << balance[1] << ", cooked " << balance[2] << ", off "
+                                 << balance[3];
+                EXPECT_LT(balance[0], 0.2) << "the one-level reference itself is lopsided; the layout maths is off";
+                EXPECT_LT(balance[1], 0.2) << kDistanceNames[d]
+                                           << ": the loose chain put a card's coverage in one half of it";
+                EXPECT_LT(balance[2], 0.2) << kDistanceNames[d]
+                                           << ": the cooked chain put a card's coverage in one half of it";
             }
         }
     }

@@ -17,10 +17,14 @@
 //
 // The chain is HISTOGRAM-MATCHED. Each level is box-filtered from the one above
 // it as usual, and then its alpha values are replaced, in rank order, by level
-// 0's: the texel whose footprint held the most alpha gets level 0's largest
-// alpha, and so on down. So for every threshold c the fraction of texels with
-// alpha >= c equals level 0's, to within one texel of the level. A binary card
-// stays binary, a soft edge keeps its ramp, and nothing depends on a cutoff:
+// 0's: the texel ranked highest gets level 0's largest alpha, and so on down. So
+// for every threshold c the fraction of texels with alpha >= c equals level 0's,
+// to within one texel of the level. Coverage also stays where it was (#1491):
+// each aligned 8x8 tile of a level is first matched to its own footprint's
+// level-0 distribution, so a tile passes a cutoff as often as its footprint did,
+// to within a texel, and the global match then only settles the rounding. A
+// binary card stays binary, a soft edge keeps its ramp, and nothing depends on a
+// cutoff:
 //
 //   - the COOK (TextureCompression) builds it with no material in scope, so one
 //     cooked chain serves a Mask material at 0.25 and a foliage layer at 0.5;
@@ -135,10 +139,16 @@ namespace OloEngine::AlphaCoverageMips
     // histogram-matched to level 0's (see the top of this file); without it,
     // it is the plain chain.
     //
-    // The ranking that decides which texels receive level 0's high alphas is
-    // the footprint's exact average alpha (a float box chain from level 0, so
-    // no rounding merges two footprints), ties broken by the 3x3 neighbourhood
-    // of that average and then by texel order. The result is deterministic.
+    // Which texels receive the high alphas: inside each aligned 8x8 tile, the
+    // ones whose footprints held the most alpha (the exact float average, then
+    // the 3x3 neighbourhood of it, then a clustered dot centred in the tile),
+    // with the tile's own footprint distribution handed out in that order; then
+    // level 0's global distribution in order of those tile values. Ranking the
+    // whole level by footprint average alone kept the global histogram but not
+    // its place: a 50% checkerboard tied everywhere and texel order gave one
+    // half of the level all the coverage (#1491). Ties go to a CLUSTERED dot,
+    // not a dispersed dither, because the GPU filters these levels bilinearly
+    // before the alpha test. The result is deterministic.
     //
     // Callers decide `preserveCoverage` (HasPartialCoverage at the consumer's
     // cutoff at runtime, IsCutoutAlpha in the cook) and cap `mipLevels`

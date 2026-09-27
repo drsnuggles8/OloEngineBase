@@ -11,8 +11,10 @@
 //   2. A plain box chain THINS a sparse cutout (the control), and the
 //      histogram-matched chain holds level 0's coverage to within one texel, at
 //      0.25, 0.3, 0.5 and 0.75 alike, for a binary card and a soft one.
-//   3. The remap only reorders level 0's alphas by footprint: monotone in the
-//      box-filtered alpha, a binary card stays binary, and it is deterministic.
+//   3. The remap only redistributes level 0's alphas: a binary card stays
+//      binary, a uniform footprint keeps its value, every aligned 8x8 tile of a
+//      kept level holds its footprint's coverage to within a texel of the tile
+//      (#1491), and it is deterministic.
 //   4. Only alpha differs from the plain chain: colour is bit-identical, and an
 //      opaque texture is untouched.
 //   5. The cook's gate (IsCutoutAlpha) on each side of its thresholds.
@@ -33,6 +35,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <bit>
 #include <array>
 #include <cmath>
 #include <limits>
@@ -177,51 +180,171 @@ namespace OloEngine::Tests
         }
     }
 
-    TEST(AlphaCoverageMips, TheRemapFollowsTheFootprintAndKeepsABinaryCardBinary)
+    TEST(AlphaCoverageMips, TheRemapKeepsABinaryCardBinaryAndAUniformFootprintAsItWas)
     {
-        // The texels that receive level 0's high alphas are the ones whose
-        // footprints held the most alpha. The plain chain's alpha IS the
-        // footprint average (rounded), so where it is strictly higher the
-        // matched alpha must not be lower. Equal plain alphas may land either
-        // way — rounding merged footprints the remap still tells apart.
-        //
-        // Checked on the levels a cutout keeps. Below them the plain chain's
-        // per-level rounding is coarser than the footprints' differences and
-        // can itself reorder them, so it stops being a valid reference.
+        // The remap only redistributes level 0's alphas: a binary card stays
+        // binary, and a texel whose whole footprint in level 0 was opaque (or
+        // transparent) stays opaque (or transparent). The remap moves coverage
+        // only across texels whose footprints were mixed. (It used to be
+        // monotone in the footprint's AVERAGE alpha. That is the rule #1491
+        // broke: it put coverage in the right amount but the wrong place.)
         constexpr u32 kSize = 256;
         constexpr u32 kLevels = 9;
-        const std::vector<u8> level0 = SparseCutout(kSize, kSize);
-        const ACM::Chain plain = ACM::Build(level0, kSize, kSize, kLevels, false, false);
+        std::vector<u8> level0 = SparseCutout(kSize, kSize);
+        // A solid block and an empty block, both aligned to level 2's footprint.
+        for (u32 y = 0; y < 64u; ++y)
+        {
+            for (u32 x = 0; x < 64u; ++x)
+            {
+                level0[(static_cast<sizet>(y) * kSize + x) * 4u + 3u] = 255u;
+                level0[(static_cast<sizet>(y + 128u) * kSize + x + 128u) * 4u + 3u] = 0u;
+            }
+        }
         const ACM::Chain matched = ACM::Build(level0, kSize, kSize, kLevels, false, true);
         const i32 keptBelowBase = static_cast<i32>(ACM::CappedLevelCount(kSize, kSize, kLevels)) - 1;
         ASSERT_EQ(keptBelowBase, 2) << "256 -> 128 -> 64";
 
         for (i32 i = 0; i < keptBelowBase; ++i)
         {
-            const std::span<const u8> p = LevelBytes(plain, i);
+            const ACM::Level& level = matched.Levels[i];
             const std::span<const u8> m = LevelBytes(matched, i);
-            // Per plain alpha: the lowest and highest matched alpha it received.
-            std::array<i32, 256> lowest;
-            std::array<i32, 256> highest;
-            lowest.fill(256);
-            highest.fill(-1);
-            for (sizet t = 3; t < p.size(); t += 4)
+            const u32 scale = kSize / level.Width;
+            for (u32 y = 0; y < level.Height; ++y)
             {
-                // A binary card stays binary: no texel of a matched level takes
-                // an alpha level 0 never had.
-                ASSERT_TRUE(m[t] == 0u || m[t] == 255u) << "level " << (i + 1) << " invented alpha " << static_cast<u32>(m[t]);
-                lowest[p[t]] = std::min(lowest[p[t]], static_cast<i32>(m[t]));
-                highest[p[t]] = std::max(highest[p[t]], static_cast<i32>(m[t]));
+                for (u32 x = 0; x < level.Width; ++x)
+                {
+                    const u8 alpha = m[(static_cast<sizet>(y) * level.Width + x) * 4u + 3u];
+                    ASSERT_TRUE(alpha == 0u || alpha == 255u)
+                        << "level " << (i + 1) << " invented alpha " << static_cast<u32>(alpha);
+                    u32 opaque = 0;
+                    for (u32 fy = 0; fy < scale; ++fy)
+                    {
+                        for (u32 fx = 0; fx < scale; ++fx)
+                            opaque += level0[(static_cast<sizet>(y * scale + fy) * kSize + x * scale + fx) * 4u + 3u] == 255u ? 1u : 0u;
+                    }
+                    if (opaque == scale * scale)
+                    {
+                        ASSERT_EQ(alpha, 255u) << "level " << (i + 1) << " (" << x << ", " << y
+                                               << "): a solid footprint lost its coverage";
+                    }
+                    if (opaque == 0u)
+                    {
+                        ASSERT_EQ(alpha, 0u) << "level " << (i + 1) << " (" << x << ", " << y
+                                             << "): an empty footprint gained coverage";
+                    }
+                }
             }
-            i32 floorFromAbove = 256; // lowest matched alpha among strictly higher plain alphas
-            for (i32 a = 255; a >= 0; --a)
+        }
+    }
+
+    // Issue #1491: each kept level holds its coverage LOCALLY, not only in
+    // total. Judged per aligned 8x8 tile of a level against that tile's
+    // footprint in level 0, at every cutoff the shaders use. A tile of 64
+    // texels can represent coverage in steps of 1/64, so that is the bound.
+    // The first four fixtures tie every texel of a level on the footprint
+    // average, which is what the old ranking resolved by texel order (half the
+    // level got all the coverage: a 0.5 error).
+    TEST(AlphaCoverageMips, LocalCoverageHoldsInEveryTileOfEveryKeptLevel)
+    {
+        constexpr u32 kTile = 8;
+        const auto alphaImage = [](u32 size, auto&& alphaAt)
+        {
+            std::vector<u8> rgba(static_cast<sizet>(size) * size * 4u, 128u);
+            for (u32 y = 0; y < size; ++y)
             {
-                if (highest[a] < 0)
-                    continue;
-                EXPECT_LE(highest[a], floorFromAbove)
-                    << "level " << (i + 1) << ": a footprint of plain alpha " << a
-                    << " outranked one with more alpha";
-                floorFromAbove = std::min(floorFromAbove, lowest[a]);
+                for (u32 x = 0; x < size; ++x)
+                    rgba[(static_cast<sizet>(y) * size + x) * 4u + 3u] = static_cast<u8>(alphaAt(x, y));
+            }
+            return rgba;
+        };
+        const auto checker = [](u32 x, u32 y) -> u32 { return ((x + y) & 1u) != 0u ? 255u : 0u; };
+        const auto stripes1 = [](u32 x, u32) -> u32 { return (x & 1u) != 0u ? 255u : 0u; };
+        const auto stripes2 = [](u32 x, u32) -> u32 { return (x & 2u) != 0u ? 255u : 0u; };
+        // An atlas: a 75% island, a 25% island, a solid island, a 50% island and
+        // empty space, each on multiples of 64 texels so every aligned tile of
+        // every kept level sees one kind of content.
+        const auto islands = [](u32 x, u32 y) -> u32
+        {
+            const u32 bx = x / 64u;
+            const u32 by = y / 64u;
+            const bool odd = ((x + y) & 1u) != 0u;
+            const bool quarter = (x & 1u) != 0u && (y & 1u) != 0u;
+            if (by == 0u && bx < 2u)
+                return !quarter ? 255u : 0u; // 75% island
+            if (by == 1u && bx >= 2u)
+                return quarter ? 255u : 0u; // 25% island
+            if (by == 2u && bx == 1u)
+                return 255u; // solid island
+            if (by == 3u && bx == 3u)
+                return odd ? 255u : 0u; // 50% island
+            return 0u;
+        };
+        // A soft 0.5 plateau beside a 50% checker: ranking by the footprint MEAN
+        // tied them, and at a 0.75 cutoff the plateau took every 255.
+        const auto plateau = [](u32 x, u32 y) -> u32
+        { return x < 128u ? 128u : (((x + y) & 1u) != 0u ? 255u : 0u); };
+
+        struct Fixture
+        {
+            const char* Name;
+            u32 Size;
+            std::vector<u8> Rgba;
+        };
+        const std::array<Fixture, 7> fixtures = { {
+            { "checker 128", 128, alphaImage(128, checker) },
+            { "checker 256", 256, alphaImage(256, checker) },
+            { "1-texel stripes", 256, alphaImage(256, stripes1) },
+            { "2-texel stripes", 256, alphaImage(256, stripes2) },
+            { "atlas islands", 256, alphaImage(256, islands) },
+            { "soft plateau beside a checker", 256, alphaImage(256, plateau) },
+            { "checker 512", 512, alphaImage(512, checker) },
+        } };
+
+        for (const Fixture& fixture : fixtures)
+        {
+            SCOPED_TRACE(fixture.Name);
+            const auto levels = static_cast<u32>(std::bit_width(fixture.Size));
+            const ACM::Chain matched = ACM::Build(fixture.Rgba, fixture.Size, fixture.Size, levels, false, true);
+            const i32 kept = static_cast<i32>(ACM::CappedLevelCount(fixture.Size, fixture.Size, levels)) - 1;
+            ASSERT_GE(kept, 1);
+            for (i32 i = 0; i < kept; ++i)
+            {
+                const ACM::Level& level = matched.Levels[i];
+                const std::span<const u8> m = LevelBytes(matched, i);
+                const u32 scale = fixture.Size / level.Width;
+                const auto passes = [](u8 alpha, f32 cutoff) -> u32
+                { return !(static_cast<f32>(alpha) / 255.0f < cutoff) ? 1u : 0u; };
+                for (const f32 cutoff : { 0.25f, 0.3f, 0.5f, 0.75f })
+                {
+                    f32 worst = 0.0f;
+                    for (u32 ty = 0; ty + kTile <= level.Height; ty += kTile)
+                    {
+                        for (u32 tx = 0; tx + kTile <= level.Width; tx += kTile)
+                        {
+                            u32 levelPass = 0;
+                            for (u32 y = ty; y < ty + kTile; ++y)
+                            {
+                                for (u32 x = tx; x < tx + kTile; ++x)
+                                    levelPass += passes(m[(static_cast<sizet>(y) * level.Width + x) * 4u + 3u], cutoff);
+                            }
+                            u32 sourcePass = 0;
+                            for (u32 y = ty * scale; y < (ty + kTile) * scale; ++y)
+                            {
+                                for (u32 x = tx * scale; x < (tx + kTile) * scale; ++x)
+                                    sourcePass += passes(fixture.Rgba[(static_cast<sizet>(y) * fixture.Size + x) * 4u + 3u], cutoff);
+                            }
+                            const f32 levelCoverage = static_cast<f32>(levelPass) / static_cast<f32>(kTile * kTile);
+                            const f32 sourceCoverage =
+                                static_cast<f32>(sourcePass) / static_cast<f32>(kTile * kTile * scale * scale);
+                            worst = std::max(worst, std::abs(levelCoverage - sourceCoverage));
+                        }
+                    }
+                    EXPECT_LE(worst, 1.0f / 64.0f + 1e-6f)
+                        << "level " << (i + 1) << " at cutoff " << cutoff << ": an 8x8 tile's coverage is " << worst
+                        << " away from its footprint's in level 0";
+                }
+                // The global contract still holds.
+                EXPECT_LE(ACM::WorstCoverageDifference(m, fixture.Rgba), OneTexel(level) + 1e-6f);
             }
         }
     }

@@ -167,10 +167,105 @@ namespace OloEngine::AlphaCoverageMips
             return targets;
         }
 
-        // Replaces `rgba`'s alpha, in rank order of `footprintAlpha`, with
-        // level 0's alpha values (RankTargets).
+        // The tile the remap balances coverage over, in texels of the level
+        // being built. A level's coverage is matched to its footprint's in level
+        // 0 per aligned tile (issue #1491), so this is also the finest scale at
+        // which a level is guaranteed to put coverage where level 0 had it.
+        constexpr u32 kCoverageTile = 8u;
+
+        // An 8x8 CLUSTERED-dot order: the texel ranks by its distance from the
+        // tile's centre, so the k texels a tie hands coverage to form one blob
+        // that grows outward. Clustered, not dispersed: the GPU samples these
+        // levels BILINEARLY before the alpha test, and bilinear filtering
+        // averages a dispersed dither back to the footprint mean -- a 50% Bayer
+        // pattern reads 0.5 everywhere and passes or fails a cutoff as a whole,
+        // which is the plain box chain's error again. Measured: a Bayer tie-break
+        // lost 25% of a pine card's far screen coverage at a 0.75 cutoff
+        // (CookedCutoutCoverageEvidenceTest); a blob survives the filter.
+        [[nodiscard]] consteval std::array<std::array<u8, kCoverageTile>, kCoverageTile> MakeClusteredDot()
+        {
+            struct Cell
+            {
+                i32 DistanceSq = 0;
+                i32 Turn = 0;
+                u32 X = 0;
+                u32 Y = 0;
+            };
+            std::array<Cell, kCoverageTile * kCoverageTile> cells{};
+            for (u32 y = 0; y < kCoverageTile; ++y)
+            {
+                for (u32 x = 0; x < kCoverageTile; ++x)
+                {
+                    // Doubled coordinates about the tile centre (3.5, 3.5).
+                    const i32 dx = 2 * static_cast<i32>(x) - 7;
+                    const i32 dy = 2 * static_cast<i32>(y) - 7;
+                    // Texels at one distance are visited quadrant by quadrant, so
+                    // the blob grows round rather than toward one side.
+                    const i32 quadrant = dx > 0 ? (dy > 0 ? 0 : 1) : (dy > 0 ? 3 : 2);
+                    cells[y * kCoverageTile + x] = { dx * dx + dy * dy, quadrant, x, y };
+                }
+            }
+            std::sort(cells.begin(), cells.end(), [](const Cell& a, const Cell& b)
+                      {
+                          if (a.DistanceSq != b.DistanceSq)
+                              return a.DistanceSq < b.DistanceSq;
+                          if (a.Turn != b.Turn)
+                              return a.Turn < b.Turn;
+                          if (a.Y != b.Y)
+                              return a.Y < b.Y;
+                          return a.X < b.X; });
+            std::array<std::array<u8, kCoverageTile>, kCoverageTile> order{};
+            for (u32 rank = 0; rank < cells.size(); ++rank)
+                order[cells[rank].Y][cells[rank].X] = static_cast<u8>(rank);
+            return order;
+        }
+        inline constexpr std::array<std::array<u8, kCoverageTile>, kCoverageTile> kClusteredDot = MakeClusteredDot();
+
+        // RankTargets over a WEIGHTED histogram (a tile's footprint in level 0,
+        // whose edge texels carry fractional weight on an odd extent).
+        [[nodiscard]] TArray<u8> WeightedRankTargets(const std::array<f64, 256>& histogram, f64 total, u32 count)
+        {
+            TArray<u8> targets;
+            if (count == 0u || !(total > 0.0))
+                return targets;
+            targets.SetNumUninitialized(static_cast<i32>(count));
+            u32 value = 255u;
+            f64 above = 0.0;
+            for (u32 rank = 0; rank < count; ++rank)
+            {
+                const f64 source = (static_cast<f64>(rank) + 0.5) * total / static_cast<f64>(count);
+                while (value > 0u && source >= above + histogram[value])
+                {
+                    above += histogram[value];
+                    --value;
+                }
+                targets[static_cast<i32>(rank)] = static_cast<u8>(value);
+            }
+            return targets;
+        }
+
+        // Replaces `rgba`'s alpha with level 0's alpha values, keeping each
+        // aligned 8x8 tile's coverage its footprint's in level 0 (issue #1491).
+        //
+        // It used to rank the whole level by footprint mean (then the 3x3
+        // neighbourhood, then texel order) and hand out level 0's global alpha
+        // distribution in that order. That is "threshold the blurred image at
+        // the global quantile": the right AMOUNT of coverage, in the wrong PLACE
+        // wherever density varies. A 50% checkerboard tied every texel and texel
+        // order gave the top half of the level all of it; a 75% atlas island
+        // took every opaque texel from a 25% one beside it; a soft 0.5 plateau
+        // out-ranked a 50% checker and went fully opaque at a 0.75 cutoff.
+        //
+        // Now each tile first gets ITS footprint's level-0 distribution, handed
+        // out in the old clustered order (footprint mean, neighbourhood), ties
+        // broken by a clustered dot. Then one global rank pass, keyed on the tile
+        // targets first, hands out level 0's global distribution: that keeps the
+        // whole level exact to a texel (the #1453 contract the cook and every
+        // cutoff rely on) and moves only the handful of texels the per-tile
+        // rounding disagreed on.
         void MatchAlphaToLevel0(std::span<u8> rgba, std::span<const f32> footprintAlpha, u32 width, u32 height,
-                                const AlphaHistogram& level0, u64 level0Count)
+                                std::span<const u8> level0, u32 width0, u32 height0, const AlphaHistogram& histogram0,
+                                u64 level0Count)
         {
             const u64 count = static_cast<u64>(width) * height;
             if (count == 0u || level0Count == 0u)
@@ -178,19 +273,37 @@ namespace OloEngine::AlphaCoverageMips
 
             struct Ranked
             {
+                u8 TileTarget = 0;
                 f32 Footprint = 0.0f;
                 f32 Neighbourhood = 0.0f;
+                u8 Cluster = 0;
                 u32 Index = 0;
             };
+            // Descending footprint, then the denser neighbourhood (the texel that
+            // continues a shape -- a blade, a leaf edge -- rather than a stray
+            // one), then the clustered dot, then texel order. A strict ordering,
+            // not a tolerance test.
+            const auto clusteredOrder = [](const Ranked& a, const Ranked& b)
+            {
+                if (a.Footprint > b.Footprint)
+                    return true;
+                if (a.Footprint < b.Footprint)
+                    return false;
+                if (a.Neighbourhood > b.Neighbourhood)
+                    return true;
+                if (a.Neighbourhood < b.Neighbourhood)
+                    return false;
+                if (a.Cluster != b.Cluster)
+                    return a.Cluster < b.Cluster;
+                return a.Index < b.Index;
+            };
+
             TArray64<Ranked> ranked;
             ranked.SetNumUninitialized(static_cast<i64>(count));
             for (u32 y = 0; y < height; ++y)
             {
                 for (u32 x = 0; x < width; ++x)
                 {
-                    // Of two texels whose footprints held the same alpha, the
-                    // one in the denser neighbourhood is the one that continues
-                    // a shape (a blade, a leaf edge) rather than a stray texel.
                     f32 neighbourhood = 0.0f;
                     for (i32 dy = -1; dy <= 1; ++dy)
                     {
@@ -202,24 +315,56 @@ namespace OloEngine::AlphaCoverageMips
                         }
                     }
                     const u32 index = y * width + x;
-                    ranked[index] = { footprintAlpha[index], neighbourhood, index };
+                    ranked[index] = { 0u, footprintAlpha[index], neighbourhood,
+                                      kClusteredDot[y % kCoverageTile][x % kCoverageTile], index };
                 }
             }
-            // A strict ordering, not a tolerance test: two footprints tie only
-            // when neither sum is larger.
-            std::sort(ranked.GetData(), ranked.GetData() + ranked.Num(), [](const Ranked& a, const Ranked& b)
-                      {
-                          if (a.Footprint > b.Footprint)
-                              return true;
-                          if (a.Footprint < b.Footprint)
-                              return false;
-                          if (a.Neighbourhood > b.Neighbourhood)
-                              return true;
-                          if (a.Neighbourhood < b.Neighbourhood)
-                              return false;
-                          return a.Index < b.Index; });
 
-            const TArray64<u8> targets = RankTargets(level0, level0Count, count);
+            // Per tile: the footprint's level-0 alpha distribution, in clustered
+            // order. The taps are each level texel's footprint DIRECTLY in level
+            // 0, area-exact for odd extents.
+            const AxisFootprints xTaps = AxisTaps(width0, width);
+            const AxisFootprints yTaps = AxisTaps(height0, height);
+            TArray<Ranked> members;
+            for (u32 ty = 0; ty < height; ty += kCoverageTile)
+            {
+                for (u32 tx = 0; tx < width; tx += kCoverageTile)
+                {
+                    const u32 tileW = std::min(kCoverageTile, width - tx);
+                    const u32 tileH = std::min(kCoverageTile, height - ty);
+                    std::array<f64, 256> histogram{};
+                    members.Reset();
+                    for (u32 y = ty; y < ty + tileH; ++y)
+                    {
+                        for (u32 x = tx; x < tx + tileW; ++x)
+                        {
+                            for (const Tap& fy : yTaps[static_cast<i32>(y)])
+                            {
+                                for (const Tap& fx : xTaps[static_cast<i32>(x)])
+                                {
+                                    const u8 alpha = level0[(static_cast<sizet>(fy.Index) * width0 + fx.Index) * 4u + 3u];
+                                    histogram[alpha] += static_cast<f64>(fx.Weight) * static_cast<f64>(fy.Weight);
+                                }
+                            }
+                            members.Add(ranked[static_cast<i64>(y) * width + x]);
+                        }
+                    }
+                    std::sort(members.GetData(), members.GetData() + members.Num(), clusteredOrder);
+                    const TArray<u8> tileTargets =
+                        WeightedRankTargets(histogram, static_cast<f64>(tileW * tileH), tileW * tileH);
+                    for (i32 rank = 0; rank < members.Num(); ++rank)
+                        ranked[static_cast<i64>(members[rank].Index)].TileTarget = tileTargets[rank];
+                }
+            }
+
+            // Global: level 0's whole distribution, keyed on the tile targets.
+            std::sort(ranked.GetData(), ranked.GetData() + ranked.Num(), [&clusteredOrder](const Ranked& a, const Ranked& b)
+                      {
+                          if (a.TileTarget != b.TileTarget)
+                              return a.TileTarget > b.TileTarget;
+                          return clusteredOrder(a, b); });
+
+            const TArray64<u8> targets = RankTargets(histogram0, level0Count, count);
             for (u64 rank = 0; rank < count; ++rank)
                 rgba[static_cast<sizet>(ranked[static_cast<i64>(rank)].Index) * 4u + 3u] = targets[static_cast<i64>(rank)];
         }
@@ -374,7 +519,7 @@ namespace OloEngine::AlphaCoverageMips
                                 { filteredAlpha.GetData(), static_cast<sizet>(filteredAlpha.Num()) }, level.Width,
                                 level.Height, xTaps, yTaps);
                 MatchAlphaToLevel0(out, { filteredAlpha.GetData(), static_cast<sizet>(filteredAlpha.Num()) }, level.Width,
-                                   level.Height, level0Histogram, level0Count);
+                                   level.Height, base, width, height, level0Histogram, level0Count);
                 std::swap(previousAlpha, filteredAlpha);
             }
 

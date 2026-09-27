@@ -566,12 +566,28 @@ namespace OloEngine
                 const AlphaCoverageMips::Chain chain =
                     AlphaCoverageMips::Build(level0, width, height, levels, srgb, /*preserveCoverage=*/true);
 
+                // The matched levels are encoded for their ALPHA: what an alpha
+                // test keeps depends on alpha alone, and the remap keeps each 8x8
+                // tile's own distribution (#1491), so a 4x4 block holds more
+                // alpha contrast than a smooth chain would. Weighting alpha 8x
+                // and searching every mode and partition costs these small levels
+                // little and held the soft Sponza cutout's decoded coverage to
+                // its 0.5-point bound, which the default weights missed by 0.2.
+                ::bc7enc_compress_block_params coverageParams = params;
+                coverageParams.m_weights[3] *= 8u;
+                coverageParams.m_uber_level = BC7ENC_MAX_UBER_LEVEL;
+                coverageParams.m_max_partitions = BC7ENC_MAX_PARTITIONS;
+                const auto encodeCoverageBlock = [&coverageParams](u8* dst, const u8* block64)
+                {
+                    ::bc7enc_compress_block(dst, block64, &coverageParams);
+                };
+
                 image.Mips.Add(EncodeLevel(rgba, width, height, encodeBlock));
                 for (const AlphaCoverageMips::Level& level : chain.Levels)
                 {
                     TArray64<u8> matched;
                     matched.Append(chain.Bytes.GetData() + level.Offset, static_cast<i64>(level.Width) * level.Height * 4);
-                    image.Mips.Add(EncodeCoverageLevel(matched, level.Width, level.Height, level0, encodeBlock));
+                    image.Mips.Add(EncodeCoverageLevel(matched, level.Width, level.Height, level0, encodeCoverageBlock));
                 }
                 return image;
             }
