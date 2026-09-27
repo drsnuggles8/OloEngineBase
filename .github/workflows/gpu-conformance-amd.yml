@@ -572,6 +572,9 @@ jobs:
         working-directory: OloEditor
         timeout-minutes: 60
         env:
+          # The suite's own budget, inside the step's: the 5-minute gap is what
+          # the report rebuild below needs to run after a timeout.
+          OLO_SUITE_MINUTES: 55
           # Belt and braces against a silent software fallback mid-run.
           MESA_LOADER_DRIVER_OVERRIDE: radeonsi
           # Passed as an ENVIRONMENT VARIABLE, never interpolated into the
@@ -615,7 +618,17 @@ jobs:
             *) FILTER="$FILTER:-NetworkIntegrationTest.*" ;;
           esac
           echo "gtest filter: $FILTER"
-          ../build/OloEngine/tests/OloEngine-Tests \
+          # gtest writes its XML only when the run ENDS. A run the step timeout
+          # kills, the OOM killer takes, or a crash stops leaves no report, and
+          # the assert step below could only say "no XML" (#1473: 6820 tests ran
+          # on 2026-09-27 and none was reported). So the suite runs under its own
+          # `timeout`, shorter than the step's, the console log is kept, and a
+          # run that ends without a report gets one rebuilt from that log: every
+          # finished test, plus the one that was running, failed with the reason.
+          # The rebuilt report is marked partial and the assert step fails on it.
+          set +e
+          timeout --signal=TERM --kill-after=60s "${OLO_SUITE_MINUTES}m" \
+            ../build/OloEngine/tests/OloEngine-Tests \
             --olo-gl-backend=egl \
             --olo-golden-vendor=amd \
             --olo-perf-machine=selfhosted-amd-navi10-linux \
@@ -623,7 +636,20 @@ jobs:
             ${{ inputs.perf_rebase && '--olo-perf-rebase' || '' }} \
             --gtest_catch_exceptions=1 \
             --gtest_filter="$FILTER" \
-            --gtest_output=xml:../test_results/gpu_amd.xml
+            --gtest_output=xml:../test_results/gpu_amd.xml 2>&1 | tee ../test_results/gpu_amd.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          if [ ! -s ../test_results/gpu_amd.xml ]; then
+            case "$rc" in
+              124) reason="the suite hit its ${OLO_SUITE_MINUTES}-minute budget" ;;
+              137) reason="the process was killed (SIGKILL: the OOM killer, or a hang past the timeout)" ;;
+              *)   reason="the process exited with code $rc without writing its report" ;;
+            esac
+            echo "::error::$reason"
+            python3 ../scripts/gtest_log_to_junit.py --log ../test_results/gpu_amd.log \
+              --out ../test_results/gpu_amd.xml --reason "$reason"
+          fi
+          exit "$rc"
 
       # ---------------------------------------------------------------------
       # The failure mode this job exists to prevent is also its own worst
@@ -659,6 +685,14 @@ jobs:
                       gpu_skips.append(f"{case.get('classname')}.{case.get('name')}")
 
           print(f"{total} test cases in report; {len(gpu_skips)} skipped for a missing GL context")
+          # A report rebuilt from the console log (the run step, #1473) records
+          # what ran before the process ended. It is never a pass.
+          props = {p.get("name"): p.get("value") for p in root.iter("property")}
+          if props.get("olo_partial") == "true":
+              print(f"::error::PARTIAL report - {props.get('olo_partial_reason')}; "
+                    f"running at the end: {props.get('olo_running_test')}. "
+                    f"{total} test cases were recorded before the process ended.")
+              sys.exit(1)
           if gpu_skips:
               print(f"::error::{len(gpu_skips)} GPU test(s) skipped - the headless EGL context "
                     f"was not acquired, so this run verified no pixels.")
@@ -698,6 +732,7 @@ jobs:
           name: gpu_amd_results
           path: |
             test_results/gpu_amd.xml
+            test_results/gpu_amd.log
             OloEngine/tests/Rendering/PropertyTests/perf_history/*.tsv
           if-no-files-found: warn
 

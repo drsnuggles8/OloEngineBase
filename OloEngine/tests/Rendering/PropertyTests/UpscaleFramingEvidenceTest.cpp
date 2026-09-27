@@ -551,12 +551,6 @@ namespace OloEngine::Tests
             return groom;
         }
 
-        [[nodiscard]] static bool TemporalUpscalerUsable()
-        {
-            const Ref<TemporalUpscaler> upscaler = TemporalUpscaler::Create();
-            return upscaler && upscaler->IsAvailable();
-        }
-
         // One capture at the current settings, top-down. `saveAs` empty skips
         // the PNG (the strands-off control frames are measured, not kept).
         void Capture(u32 width, u32 height, u32 frames, const std::string& saveAs, Frame& out)

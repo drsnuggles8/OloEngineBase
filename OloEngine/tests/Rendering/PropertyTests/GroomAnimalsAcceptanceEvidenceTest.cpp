@@ -1654,12 +1654,25 @@ namespace OloEngine::Tests
             // WHICH resolve, or the FSR2 cell could quietly be an FSR1 cell with
             // engine TAA (an unavailable FSR2 falls back to FSR1) and the "FSR2
             // subsumes the request" path would never run.
-            if (cell.Technique == UpscalerTechnique::Temporal)
+            //
+            // Where FSR2 is not usable (every Linux build: cmake/fsr2.cmake),
+            // the cell IS the documented fallback, and it must say so: the
+            // pipeline names the reason and engine TAA carries the request.
+            const bool temporal = cell.Technique == UpscalerTechnique::Temporal;
+            if (temporal && TemporalUpscalerUsable())
             {
                 EXPECT_TRUE(Renderer3D::IsTemporalUpscaleActive()) << "FSR2 must own this frame";
             }
             else
             {
+                if (temporal)
+                {
+                    const auto status = Renderer3D::GetUpscaleResolution().UpscalerStatus;
+                    std::printf("[groom-animals] #1429 %s: FSR2 %s, fell back to FSR1 + engine TAA\n", cell.Name,
+                                std::string(ToString(status)).c_str());
+                    std::fflush(stdout);
+                    EXPECT_NE(status, TemporalUpscalerStatus::Available) << "a fallback must name its reason";
+                }
                 EXPECT_FALSE(Renderer3D::IsTemporalUpscaleActive());
                 EXPECT_TRUE(Renderer3D::IsEngineTAAWanted()) << "engine TAA runs on the scene's request";
             }
@@ -2177,6 +2190,10 @@ namespace OloEngine::Tests
             subject->Body.GetComponent<AnimationStateComponent>().m_IsPlaying = false;
         }
         constexpr u32 kFrames = 64;
+        // Where the time goes, per keep(): the frames themselves (to glFinish) or
+        // reading them back. Printed with each stop (#1473).
+        f64 renderMs = 0.0;
+        f64 readbackMs = 0.0;
 
         struct Linear
         {
@@ -2194,9 +2211,13 @@ namespace OloEngine::Tests
             Linear out;
             std::vector<f32> colour;
             std::vector<i32> ids;
+            using Clock = std::chrono::steady_clock;
             for (u32 f = 0; f < kFrames; ++f)
             {
+                const auto t0 = Clock::now();
                 RunEditorFrames(camera, 1);
+                ::glFinish();
+                const auto t1 = Clock::now();
                 auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
                 EXPECT_TRUE(fb);
                 if (!fb)
@@ -2207,22 +2228,58 @@ namespace OloEngine::Tests
                 // upscaler the scene renders into a smaller rectangle of it.
                 const u32 width = fb->GetSpecification().Width;
                 const u32 height = fb->GetSpecification().Height;
-                ReadbackRgbaFloat(fb->GetColorAttachmentRendererID(0), width, height, colour);
+                const u32 activeWidth = std::min(fb->GetActiveViewportWidth(), width);
+                const u32 activeHeight = std::min(fb->GetActiveViewportHeight(), height);
                 ids.resize(static_cast<sizet>(width) * height);
                 ::glGetTextureImage(fb->GetColorAttachmentRendererID(1), 0, GL_RED_INTEGER, GL_INT,
                                     static_cast<GLsizei>(ids.size() * sizeof(i32)), ids.data());
-                const u32 activeWidth = std::min(fb->GetActiveViewportWidth(), width);
-                const u32 activeHeight = std::min(fb->GetActiveViewportHeight(), height);
-                for (sizet i = 0; i < ids.size(); ++i)
+                // Colour only over the coat's bounding box. The whole HDR target
+                // converted to float every frame was most of this test's cost on
+                // radeonsi (992 s, #1473), and the coat is 0.05-7% of the frame.
+                u32 x0 = activeWidth;
+                u32 y0 = activeHeight;
+                u32 x1 = 0;
+                u32 y1 = 0;
+                for (u32 y = 0; y < activeHeight; ++y)
                 {
-                    if (ids[i] == entityId && (i % width) < activeWidth && (i / width) < activeHeight)
+                    for (u32 x = 0; x < activeWidth; ++x)
                     {
-                        out.Cov += 1.0 / kFrames;
-                        out.Luma += ((0.2126 * colour[i * 4]) + (0.7152 * colour[(i * 4) + 1]) +
-                                     (0.0722 * colour[(i * 4) + 2])) /
-                                    kFrames;
+                        if (ids[(static_cast<sizet>(y) * width) + x] == entityId)
+                        {
+                            x0 = std::min(x0, x);
+                            y0 = std::min(y0, y);
+                            x1 = std::max(x1, x + 1u);
+                            y1 = std::max(y1, y + 1u);
+                        }
                     }
                 }
+                if (x0 < x1)
+                {
+                    const u32 boxW = x1 - x0;
+                    const u32 boxH = y1 - y0;
+                    colour.resize(static_cast<sizet>(boxW) * boxH * 4u);
+                    ::glGetTextureSubImage(fb->GetColorAttachmentRendererID(0), 0, static_cast<GLint>(x0),
+                                           static_cast<GLint>(y0), 0, static_cast<GLsizei>(boxW),
+                                           static_cast<GLsizei>(boxH), 1, GL_RGBA, GL_FLOAT,
+                                           static_cast<GLsizei>(colour.size() * sizeof(f32)), colour.data());
+                    for (u32 y = y0; y < y1; ++y)
+                    {
+                        for (u32 x = x0; x < x1; ++x)
+                        {
+                            if (ids[(static_cast<sizet>(y) * width) + x] != entityId)
+                            {
+                                continue;
+                            }
+                            const sizet c = ((static_cast<sizet>(y - y0) * boxW) + (x - x0)) * 4u;
+                            out.Cov += 1.0 / kFrames;
+                            out.Luma += ((0.2126 * colour[c]) + (0.7152 * colour[c + 1]) + (0.0722 * colour[c + 2])) /
+                                        kFrames;
+                        }
+                    }
+                }
+                const auto t2 = Clock::now();
+                renderMs += std::chrono::duration<f64, std::milli>(t1 - t0).count();
+                readbackMs += std::chrono::duration<f64, std::milli>(t2 - t1).count();
             }
             return out;
         };
@@ -2314,10 +2371,13 @@ namespace OloEngine::Tests
                              k.Off.Lit.Luma / std::max(k.Off.Unshadowed.Luma, 1.0e-9));
             k.Energy = ratio(k.On.Lit.Luma, k.Off.Lit.Luma);
             std::printf("[groom-animals] lod %s %s %s: representation %u, strands %u / %u, coverage %.3f (%.0f / %.0f px), "
-                        "radiance %.3f, shadow %.3f, energy %.3f\n",
+                        "radiance %.3f, shadow %.3f, energy %.3f; frames %.1f s, readback %.1f s\n",
                         label.c_str(), s.Tag.c_str(), stop.Name, static_cast<u32>(k.On.Representation), k.On.Strands,
-                        k.Off.Strands, k.Coverage, k.On.Lit.Cov, k.Off.Lit.Cov, k.Radiance, k.Shadow, k.Energy);
+                        k.Off.Strands, k.Coverage, k.On.Lit.Cov, k.Off.Lit.Cov, k.Radiance, k.Shadow, k.Energy,
+                        renderMs / 1000.0, readbackMs / 1000.0);
             std::fflush(stdout);
+            renderMs = 0.0;
+            readbackMs = 0.0;
             return k;
         };
 
@@ -2438,6 +2498,15 @@ namespace OloEngine::Tests
                          UpscalerTechnique::Temporal } })
         {
             SCOPED_TRACE(cell.Name);
+            // Without FSR2 (every Linux build) this cell would fall back to FSR1
+            // and measure the ForwardFSR1 cell a second time. The fallback itself
+            // is asserted by AFreshSceneWithTAAOffStillCoatsItsSubjects.
+            if (cell.Technique == UpscalerTechnique::Temporal && !TemporalUpscalerUsable())
+            {
+                std::printf("[groom-animals] lod %s: FSR2 unavailable on this build, cell not measured\n", cell.Name);
+                std::fflush(stdout);
+                continue;
+            }
             rs.Deferred.MSAASampleCount = cell.Samples;
             post.Upscale = cell.Upscale;
             post.Technique = cell.Technique;

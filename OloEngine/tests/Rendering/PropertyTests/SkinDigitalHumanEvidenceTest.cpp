@@ -1746,6 +1746,10 @@ namespace OloEngine::Tests
                 // backlight rig keeps its OTHER two assertions — the tones are
                 // still required to be tellable apart and still required not to
                 // reorder — so it is not an unchecked cell.
+                std::printf("[skin-tone-grid] %s %s: diffusion influence Fair %.6f Medium %.6f Deep %.6f\n",
+                            PathName(path), rig.Name, diffusionInfluence[0], diffusionInfluence[1],
+                            diffusionInfluence[2]);
+                std::fflush(stdout);
                 if (!rig.LightsTheDiffuseHalf)
                     continue;
 

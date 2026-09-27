@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
+#include "OloEngine/Renderer/Upscaling/TemporalUpscaler.h"
 
 #include "GLErrorStateCheck.h"
 
@@ -82,6 +83,12 @@ namespace OloEngine::Tests
         // process by the test main() (after RUN_ALL_TESTS), not per-suite —
         // other derived suites may still run after this one, and they share
         // the single process-wide Renderer::Init.
+    }
+
+    bool RendererAttachedTest::TemporalUpscalerUsable()
+    {
+        const Ref<TemporalUpscaler> upscaler = TemporalUpscaler::Create();
+        return upscaler && upscaler->IsAvailable();
     }
 
     void RendererAttachedTest::SetUp()
