@@ -765,7 +765,6 @@ TEST(GroomCoatShadowLod, AnOscillatingRequestCannotRebuildEveryFrame)
     EXPECT_LE(changes, 1u) << "the representation rebuilt " << changes << " times on an oscillating request";
 }
 
-
 // ── The march and the resolution (#1508) ──────────────────────────────────
 
 // The CPU twin marches exactly as far as the shader does. It allowed 8192 steps

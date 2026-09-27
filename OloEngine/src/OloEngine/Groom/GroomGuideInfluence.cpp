@@ -334,31 +334,29 @@ namespace OloEngine
         return result / appliedWeight;
     }
     void BuildGroomGuideStandIns(std::span<const glm::vec3> slotRoots, std::span<const u32> slotGroups,
-                                 std::span<const u32> guideOfSlot, TArray<GroomGuideWeights>& outStandIns)
+                                 std::span<const u32> slotRoles, std::span<const u32> guideOfSlot,
+                                 TArray<GroomGuideWeights>& outStandIns)
     {
         outStandIns.Reset();
         const sizet slotCount = guideOfSlot.size();
-        if (slotRoots.size() != slotCount || slotGroups.size() != slotCount)
+        if (slotRoots.size() != slotCount || slotGroups.size() != slotCount || slotRoles.size() != slotCount)
         {
             return;
         }
         outStandIns.SetNum(static_cast<i32>(slotCount));
 
-        // The simulated slots, bucketed by group, so a left-out slot searches
-        // its own group's guides rather than the whole coat.
-        std::unordered_map<u32, std::vector<u32>> simulatedByGroup;
-        std::vector<u32> simulated;
+        // The simulated slots, bucketed by group and by role, so a left-out
+        // slot searches its own group's guides, then its own role's, and never
+        // another role's.
+        std::unordered_map<u32, TArray<u32>> simulatedByGroup;
+        std::unordered_map<u32, TArray<u32>> simulatedByRole;
         for (u32 slot = 0; slot < slotCount; ++slot)
         {
             if (guideOfSlot[slot] != GroomNoGuide)
             {
-                simulatedByGroup[slotGroups[slot]].push_back(slot);
-                simulated.push_back(slot);
+                simulatedByGroup[slotGroups[slot]].Add(slot);
+                simulatedByRole[slotRoles[slot]].Add(slot);
             }
-        }
-        if (simulated.empty())
-        {
-            return;
         }
 
         for (u32 slot = 0; slot < slotCount; ++slot)
@@ -371,8 +369,19 @@ namespace OloEngine
                 continue;
             }
 
-            const auto group = simulatedByGroup.find(slotGroups[slot]);
-            const std::vector<u32>& candidates = group != simulatedByGroup.end() ? group->second : simulated;
+            const TArray<u32>* candidates = nullptr;
+            if (const auto group = simulatedByGroup.find(slotGroups[slot]); group != simulatedByGroup.end())
+            {
+                candidates = &group->second;
+            }
+            else if (const auto role = simulatedByRole.find(slotRoles[slot]); role != simulatedByRole.end())
+            {
+                candidates = &role->second;
+            }
+            if (candidates == nullptr)
+            {
+                continue; // its role simulates nothing: it stays at rest, as authored
+            }
 
             // The K nearest by root distance, kept sorted by an insertion step:
             // K is four, so a heap would be slower than this.
@@ -381,7 +390,7 @@ namespace OloEngine
             std::array<u32, GroomGuideInfluenceCount> bestSlot{};
             bestSlot.fill(GroomNoGuide);
             const glm::vec3 root = slotRoots[slot];
-            for (const u32 candidate : candidates)
+            for (const u32 candidate : *candidates)
             {
                 const f32 distance = glm::distance2(root, slotRoots[candidate]);
                 if (!(distance < bestDistance[GroomGuideInfluenceCount - 1u]))

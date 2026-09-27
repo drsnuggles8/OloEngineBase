@@ -563,7 +563,8 @@ namespace
             pointCounts.push_back(groom.GetCurvePointCount(curve));
         }
         TArray<GroomGuideWeights> standIns;
-        BuildGroomGuideStandIns(roots, groups, fixture.GuideOfSlot, standIns);
+        const std::vector<u32> roles(roots.size(), 0u); // one role
+        BuildGroomGuideStandIns(roots, groups, roles, fixture.GuideOfSlot, standIns);
         out.Identity.resize(fixture.GuideOfSlot.size());
         for (u32 slot = 0; slot < out.Identity.size(); ++slot)
         {
@@ -618,13 +619,15 @@ TEST(GroomGuideInfluence, AQuarterGuideBudgetLeavesNoStrandAtItsRestShape)
 
 TEST(GroomGuideInfluence, AStandInIsTheNearestSimulatedGuidesOfItsOwnGroup)
 {
-    // Six slots on a line, x = slot. Groups 0,0,0 | 1,1 | 2. Simulated: 0, 2, 4.
-    const std::vector<glm::vec3> roots{ { 0, 0, 0 }, { 1, 0, 0 }, { 2, 0, 0 }, { 3, 0, 0 }, { 4, 0, 0 }, { 5, 0, 0 } };
-    const std::vector<u32> groups{ 0, 0, 0, 1, 1, 2 };
-    const std::vector<u32> guideOfSlot{ 0u, GroomNoGuide, 1u, GroomNoGuide, 2u, GroomNoGuide };
+    // Seven slots on a line, x = slot. Groups 0,0,0 | 1,1 | 2 | 3; roles 0 for
+    // groups 0-2 and 1 for group 3. Simulated: 0, 2, 4.
+    const std::vector<glm::vec3> roots{ { 0, 0, 0 }, { 1, 0, 0 }, { 2, 0, 0 }, { 3, 0, 0 }, { 4, 0, 0 }, { 5, 0, 0 }, { 6, 0, 0 } };
+    const std::vector<u32> groups{ 0, 0, 0, 1, 1, 2, 3 };
+    const std::vector<u32> roles{ 0, 0, 0, 0, 0, 0, 1 };
+    const std::vector<u32> guideOfSlot{ 0u, GroomNoGuide, 1u, GroomNoGuide, 2u, GroomNoGuide, GroomNoGuide };
     TArray<GroomGuideWeights> standIns;
-    BuildGroomGuideStandIns(roots, groups, guideOfSlot, standIns);
-    ASSERT_EQ(standIns.Num(), 6);
+    BuildGroomGuideStandIns(roots, groups, roles, guideOfSlot, standIns);
+    ASSERT_EQ(standIns.Num(), 7);
 
     const auto weightOf = [&](i32 slot, u32 guide)
     {
@@ -650,14 +653,19 @@ TEST(GroomGuideInfluence, AStandInIsTheNearestSimulatedGuidesOfItsOwnGroup)
     // slot 2 (group 0) is exactly as near.
     EXPECT_FLOAT_EQ(weightOf(3, 2u), 1.0f);
     EXPECT_FLOAT_EQ(weightOf(3, 1u), 0.0f);
-    // Slot 5's group simulated nothing: any group, nearest first.
+    // Slot 5's group simulated nothing: its ROLE's guides, nearest first.
     EXPECT_GT(weightOf(5, 2u), weightOf(5, 1u));
     EXPECT_NEAR(weightOf(5, 0u) + weightOf(5, 1u) + weightOf(5, 2u), 1.0f, 1.0e-6f);
+    // Slot 6's ROLE simulated nothing -- an authored budget of zero, "an
+    // undercoat that never leaves the skin": no stand-in, however near slot 4
+    // is. It stays at rest, as authored.
+    EXPECT_EQ(standIns[6].Guides[0], GroomNoGuide) << "a stand-in crossed a role";
+    EXPECT_FLOAT_EQ(weightOf(6, 2u), 0.0f);
 
     // A budget that simulates nothing leaves nothing to stand in.
-    const std::vector<u32> none(6, GroomNoGuide);
-    BuildGroomGuideStandIns(roots, groups, none, standIns);
-    ASSERT_EQ(standIns.Num(), 6);
+    const std::vector<u32> none(7, GroomNoGuide);
+    BuildGroomGuideStandIns(roots, groups, roles, none, standIns);
+    ASSERT_EQ(standIns.Num(), 7);
     for (const GroomGuideWeights& standIn : standIns)
     {
         EXPECT_EQ(standIn.Guides[0], GroomNoGuide);

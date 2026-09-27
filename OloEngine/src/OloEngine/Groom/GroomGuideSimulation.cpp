@@ -173,7 +173,8 @@ namespace OloEngine
             const bool seedFromCoat = layoutChanged && !statePoisoned && inputs.HasHistory &&
                                       inputs.SeedPoints.size() == pointCount &&
                                       std::ranges::all_of(inputs.SeedPoints,
-                                                          [](const glm::vec3& p) { return Math::IsFinite(p); });
+                                                          [](const glm::vec3& p)
+                                                          { return Math::IsFinite(p); });
             const std::span<const glm::vec3> start = seedFromCoat ? inputs.SeedPoints : inputs.TargetPoints;
             state.GuideOffsets.assign(inputs.GuideOffsets.begin(), inputs.GuideOffsets.end());
             state.GuideCurves.assign(inputs.GuideCurves.begin(), inputs.GuideCurves.end());
