@@ -542,6 +542,28 @@ namespace OloEngine::Tests
     {
         OLO_ENSURE_GPU_OR_SKIP();
 
+        // Slot 13 is UBO_SNOW and texture unit 6 is a renderer slot too: put
+        // back whatever occupied them on every exit path. This test used to
+        // leave both EMPTY, and every snow frame later in the process then read
+        // zeroes from slot 13 and rendered no snow (#1511).
+        struct ScopedSlotRestore
+        {
+            GLint Texture = 0;
+            GLint Ubo = 0;
+            ScopedSlotRestore()
+            {
+                ::glGetIntegeri_v(GL_TEXTURE_BINDING_2D, 6, &Texture);
+                ::glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING, 13, &Ubo);
+            }
+            ~ScopedSlotRestore()
+            {
+                ::glBindTextureUnit(6, static_cast<GLuint>(Texture));
+                ::glBindBufferBase(GL_UNIFORM_BUFFER, 13, static_cast<GLuint>(Ubo));
+            }
+            ScopedSlotRestore(const ScopedSlotRestore&) = delete;
+            ScopedSlotRestore& operator=(const ScopedSlotRestore&) = delete;
+        } slotRestore;
+
         const u32 tex = CreateUniformFloatTexture2D(8, 8, 0.1f, 0.2f, 0.3f, 1.0f);
         auto ubo = UniformBuffer::Create(64, 13);
         const GLuint uboHandle = static_cast<GLuint>(ubo->GetRendererID());
@@ -605,9 +627,8 @@ namespace OloEngine::Tests
         EXPECT_TRUE(containsAfterHeader("UBO[13]"))
             << "expected UBO[13] leak diagnostic following guard header";
 
-        // Cleanup.
-        ::glBindTextureUnit(6, 0);
-        ::glBindBufferBase(GL_UNIFORM_BUFFER, 13, 0);
+        // Cleanup. The two slots go back to their entry occupants in
+        // slotRestore's destructor.
         ::glDeleteTextures(1, reinterpret_cast<const GLuint*>(&tex));
     }
 } // namespace OloEngine::Tests
