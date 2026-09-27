@@ -264,17 +264,17 @@ namespace OloEngine::Tests
         EXPECT_NEAR(out.x, 0.05f, 1e-5f) << "the division guard is darkening a faint layer";
     }
 
-    // Issue #1468. The RGBA32F accumulator is only an OIT target where the device
-    // can blend it: an optional format feature on Vulkan. Without it the frame
-    // runs no OIT at all, rather than additively blending an attachment the
-    // device cannot blend.
-    TEST(OITResolveTest, OITRunsOnlyWhereTheAccumulatorCanBeBlended)
+    // Issue #1468. OIT runs only where the device can run it: blend the RGBA32F
+    // accumulator and give the two targets different blend factors, both
+    // optional on Vulkan. Without them the frame runs no OIT at all, rather than
+    // recording a blend state the device cannot honour.
+    TEST(OITResolveTest, OITRunsOnlyWhereTheDeviceCanRunIt)
     {
         Testing::MockRendererAPI api;
         EXPECT_TRUE(WeightedBlendedOITIsActive(true, api));
         EXPECT_FALSE(WeightedBlendedOITIsActive(false, api));
-        api.SetSupportsFloat32AttachmentBlend(false);
-        EXPECT_FALSE(WeightedBlendedOITIsActive(true, api)) << "OIT ran on a device that cannot blend RGBA32F";
+        api.SetSupportsWeightedBlendedOIT(false);
+        EXPECT_FALSE(WeightedBlendedOITIsActive(true, api)) << "OIT ran on a device that cannot run it";
         EXPECT_FALSE(WeightedBlendedOITIsActive(false, api));
     }
 

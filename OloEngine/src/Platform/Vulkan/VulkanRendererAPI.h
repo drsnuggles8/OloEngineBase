@@ -613,7 +613,7 @@ namespace OloEngine
         // submit would execute AHEAD of the frame that produced the geometry.
         [[nodiscard]] VkCommandBuffer BeginAccelerationStructureRecording();
 
-        [[nodiscard]] bool SupportsFloat32AttachmentBlend() const override;
+        [[nodiscard]] bool SupportsWeightedBlendedOIT() const override;
 
         // --- Parallel command recording (#806, amendment (92)) ---------------
         [[nodiscard]] bool SupportsParallelRecording() const override;

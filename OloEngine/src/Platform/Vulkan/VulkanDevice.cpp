@@ -860,6 +860,7 @@ namespace OloEngine
         // mode matrix's per-RT colour masks). Enabled when supported, never a
         // gate row (#691).
         enabledFeatures.independentBlend = supported.independentBlend;
+        m_IndependentBlendEnabled = enabledFeatures.independentBlend == VK_TRUE;
         // samplerAnisotropy: a VkSamplerCreateInfo with anisotropyEnable
         // needs the feature (VUID-VkSamplerCreateInfo-anisotropyEnable-01070)
         // and a maxAnisotropy within the device limit (-01071); the sampler
@@ -1349,22 +1350,25 @@ namespace OloEngine
                           ? " (host-transfer usage changes memory type requirements — kept off render targets)"
                           : "");
 
-        // The weighted-blended OIT accumulator is RGBA32F and additively
-        // blended (kOITAccumFormat, issue #1468). Blending that format is not
-        // among Vulkan's mandatory format features; every desktop driver has
-        // it. A device without it gets no OIT at all -- the pipeline reads
-        // SupportsFloat32AttachmentBlend and draws transparency sorted -- and
-        // says so once here, rather than blending an attachment the device
-        // cannot blend.
+        // WEIGHTED-BLENDED OIT NEEDS TWO THINGS NEITHER OF WHICH IS MANDATORY.
+        // Its accumulator is RGBA32F and additively blended (kOITAccumFormat,
+        // issue #1468), and it blends the accumulator and the revealage target
+        // with DIFFERENT factors, which without independentBlend is invalid
+        // (every attachment's blend state must then be identical). Every
+        // desktop driver has both. A device missing either gets no OIT at all
+        // -- the pipeline reads SupportsWeightedBlendedOIT and draws
+        // transparency sorted -- and says which one here.
         {
             VkFormatProperties accumProperties{};
             vkGetPhysicalDeviceFormatProperties(m_PhysicalDevice, VK_FORMAT_R32G32B32A32_SFLOAT, &accumProperties);
-            m_Float32AttachmentBlendSupported =
+            const bool float32Blend =
                 (accumProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT) != 0;
-            if (!m_Float32AttachmentBlendSupported)
+            m_WeightedBlendedOITSupported = float32Blend && m_IndependentBlendEnabled;
+            if (!m_WeightedBlendedOITSupported)
             {
-                OLO_CORE_ERROR("[Vulkan] R32G32B32A32_SFLOAT cannot be blended on this device — weighted-blended "
-                               "OIT (RGBA32F accumulator) is disabled; transparency is drawn sorted instead");
+                OLO_CORE_ERROR("[Vulkan] weighted-blended OIT is disabled; transparency is drawn sorted instead "
+                               "(R32G32B32A32_SFLOAT blendable={}, independentBlend={})",
+                               float32Blend, m_IndependentBlendEnabled);
             }
         }
 

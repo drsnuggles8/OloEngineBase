@@ -37,13 +37,13 @@ namespace OloEngine
     inline constexpr RGResourceFormat kOITAccumFormat = RGResourceFormat::RGBA32Float;
 
     /// Whether this frame runs weighted-blended OIT: requested, AND the device can
-    /// blend the kOITAccumFormat attachment. That is core in OpenGL and optional on
-    /// Vulkan; a device without it draws transparency sorted, and VulkanDevice says
-    /// so at startup. The pipeline's pass wiring and its graph declarations both ask
+    /// run it -- blend the kOITAccumFormat attachment, and blend the two targets with
+    /// different factors. Core in OpenGL, optional on Vulkan; a device without it
+    /// draws transparency sorted, and VulkanDevice says so at startup. The pipeline's pass wiring and its graph declarations both ask
     /// this, so the two cannot disagree about whether the OIT targets exist.
     [[nodiscard]] inline bool WeightedBlendedOITIsActive(bool requested, const RendererAPI& api)
     {
-        return requested && api.SupportsFloat32AttachmentBlend();
+        return requested && api.SupportsWeightedBlendedOIT();
     }
 
     /// Both OIT targets writable on every channel.

@@ -297,13 +297,14 @@ namespace OloEngine
         {
             return m_HostImageCopyEnabled;
         }
-        // R32G32B32A32_SFLOAT carries COLOR_ATTACHMENT_BLEND with optimal
-        // tiling. Not a mandatory format feature; the weighted-blended OIT
-        // accumulator needs it (issue #1468), see
-        // RendererAPI::SupportsFloat32AttachmentBlend.
-        [[nodiscard]] bool IsFloat32AttachmentBlendSupported() const
+        // Weighted-blended OIT can run: R32G32B32A32_SFLOAT carries
+        // COLOR_ATTACHMENT_BLEND with optimal tiling (its accumulator, issue
+        // #1468) AND independentBlend is enabled (its two targets blend with
+        // different factors). Neither is mandatory; see
+        // RendererAPI::SupportsWeightedBlendedOIT.
+        [[nodiscard]] bool IsWeightedBlendedOITSupported() const
         {
-            return m_Float32AttachmentBlendSupported;
+            return m_WeightedBlendedOITSupported;
         }
         // maintenance5 and maintenance6 are deliberately NOT enabled: nothing
         // in the backend uses any of their relaxations, and a feature bit
@@ -417,7 +418,8 @@ namespace OloEngine
         bool m_CheckpointsEnabled = false;
         bool m_MeshShaderEnabled = false;
         bool m_HostImageCopyEnabled = false;
-        bool m_Float32AttachmentBlendSupported = false;
+        bool m_WeightedBlendedOITSupported = false;
+        bool m_IndependentBlendEnabled = false;
         bool m_UnifiedImageLayoutsEnabled = false;
         // Host-image-copy layout lists, read once after device creation.
         std::vector<VkImageLayout> m_HostCopySrcLayouts;

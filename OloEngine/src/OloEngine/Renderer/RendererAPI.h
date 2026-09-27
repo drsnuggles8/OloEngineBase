@@ -990,12 +990,13 @@ namespace OloEngine
         // GL_NV_mesh_shader is deliberately out of scope. The decision is
         // refuse-or-degrade, made explicitly by the caller, never silent.
         [[nodiscard("Store this!")]] virtual bool SupportsMeshShaders() const = 0;
-        // Whether an RGBA32F colour attachment can be blended. The weighted-
-        // blended OIT accumulator is RGBA32F (kOITAccumFormat, issue #1468),
-        // and the pipeline turns OIT off where this is false. Core in OpenGL
-        // since 3.0; an optional format feature on Vulkan, which answers from
-        // the device.
-        [[nodiscard]] virtual bool SupportsFloat32AttachmentBlend() const
+        // Whether this device can run weighted-blended OIT: blend its RGBA32F
+        // accumulator (kOITAccumFormat, issue #1468) and blend the accumulator
+        // and the revealage target with DIFFERENT factors. Both are core in
+        // OpenGL; on Vulkan they are an optional format feature and the
+        // independentBlend device feature, and the device answers. The
+        // pipeline turns OIT off where this is false.
+        [[nodiscard]] virtual bool SupportsWeightedBlendedOIT() const
         {
             return true;
         }
