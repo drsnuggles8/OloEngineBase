@@ -1712,9 +1712,9 @@ namespace OloEngine
         // per-dispatch address on each SetData (ADR 0011 §4).
         struct HZBParamsUBO
         {
-            glm::vec2 DispatchThreadIdToBufferUV; // 1/dstMip0Size (or 2/src on later batches)
-            glm::vec2 InputViewportMaxBound;      // (srcSize - 0.5) / srcSize clamp bound
-            glm::vec2 InvSize;                    // 1 / srcMipSize
+            glm::vec2 DispatchThreadIdToBufferUV; // reserved: HZB.comp addresses texels by integer (#1503)
+            glm::vec2 InputViewportMaxBound;      // reserved: likewise
+            glm::vec2 InvSize;                    // reserved: likewise
             i32 FirstLod;                         // starting destination mip level
             i32 IsFirstPass;                      // 1 = read scene depth, 0 = read HZB
             i32 ReduceOp;                         // 0 = max (farthest), 1 = min (nearest)

@@ -19,6 +19,7 @@
 #include "TestTempDir.h"
 
 #include <cstddef>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -45,6 +46,63 @@
 
 namespace OloEngine::Tests
 {
+    // A child that is this test binary must not inherit the parent's gtest
+    // SHARDING. gtest reads GTEST_TOTAL_SHARDS / GTEST_SHARD_INDEX from the
+    // environment, so a child launched from a sharded run (a local sweep, a
+    // ctest shard) runs only its slice of a filter that names one or two tests
+    // — often nothing — and the parent's assertions on its output fail for a
+    // reason that has nothing to do with the feature. Removes the variables
+    // for the guard's lifetime and restores them after; the tests that launch
+    // children run serially, so a process-wide guard is safe.
+    class ScopedWithoutGTestSharding
+    {
+      public:
+        ScopedWithoutGTestSharding()
+        {
+            for (std::size_t i = 0; i < kCount; ++i)
+            {
+                if (const char* value = std::getenv(kNames[i]); value != nullptr)
+                {
+                    m_Saved[i] = value;
+                    m_Had[i] = true;
+                    Set(kNames[i], nullptr);
+                }
+            }
+        }
+        ~ScopedWithoutGTestSharding()
+        {
+            for (std::size_t i = 0; i < kCount; ++i)
+            {
+                if (m_Had[i])
+                    Set(kNames[i], m_Saved[i].c_str());
+            }
+        }
+        ScopedWithoutGTestSharding(const ScopedWithoutGTestSharding&) = delete;
+        ScopedWithoutGTestSharding& operator=(const ScopedWithoutGTestSharding&) = delete;
+
+      private:
+        static constexpr std::size_t kCount = 3;
+        static constexpr const char* kNames[kCount] = { "GTEST_TOTAL_SHARDS", "GTEST_SHARD_INDEX",
+                                                        "GTEST_SHARD_STATUS_FILE" };
+
+        static void Set(const char* name, const char* value)
+        {
+#if defined(_WIN32)
+            // An empty value removes the variable from the CRT environment,
+            // which is what CreateProcess / std::system hand the child.
+            ::_putenv_s(name, value != nullptr ? value : "");
+#else
+            if (value != nullptr)
+                ::setenv(name, value, 1);
+            else
+                ::unsetenv(name);
+#endif
+        }
+
+        std::string m_Saved[kCount];
+        bool m_Had[kCount] = {};
+    };
+
     struct LaunchResult
     {
         bool Launched = false;
@@ -84,6 +142,7 @@ namespace OloEngine::Tests
     inline LaunchResult RunProcessWithTimeout(const std::string& exePath, const std::vector<std::string>& args,
                                               const std::string& workingDir, unsigned timeoutMs)
     {
+        const ScopedWithoutGTestSharding noSharding; // the child is often this binary
         LaunchResult result;
 
         // Build a single command line: quoted exe path followed by the args.
@@ -188,6 +247,7 @@ namespace OloEngine::Tests
     inline LaunchResult RunProcessWithTimeout(const std::string& exePath, const std::vector<std::string>& args,
                                               const std::string& workingDir, unsigned timeoutMs)
     {
+        const ScopedWithoutGTestSharding noSharding; // the child is often this binary
         LaunchResult result;
 
         // Same contract as the Windows arm: the child's stdout+stderr land in a

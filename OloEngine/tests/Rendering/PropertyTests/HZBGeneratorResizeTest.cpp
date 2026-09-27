@@ -29,10 +29,14 @@
 #include "RenderPropertyTest.h"
 
 #include "OloEngine/Renderer/HZBGenerator.h"
+#include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 
 #include <gtest/gtest.h>
 
+#include <glad/gl.h>
 #include <glm/glm.hpp>
+
+#include <vector>
 
 namespace OloEngine::Tests
 {
@@ -233,5 +237,61 @@ namespace OloEngine::Tests
         const auto actual = gen.GetUVFactor();
         EXPECT_FLOAT_EQ(actual.x, expected.x);
         EXPECT_FLOAT_EQ(actual.y, expected.y);
+    }
+
+    // -----------------------------------------------------------------------
+    // Issue #1503: every level is the true reduce of its parent, including the
+    // levels of the SECOND dispatch batch (mip 4 up), which read their parent
+    // back through the HZB's own sampler. On GL a compute-written chain never
+    // counts as mipmapped, so that sampler had no mip filter and textureLod
+    // read LEVEL 0 at the parent's texel centres. Occlusion culling and SSR's
+    // HiZ read these levels with texelFetch and got the under-reduced values.
+    //
+    // Input: 64 x 64 depth 0.5, with ONE far texel (0.9) at (1, 1). Mip 4's
+    // texel (0, 0) is the max over the 16 x 16 block holding it: 0.9. The
+    // level-0 read lands between texels 3 and 4 of that block and misses the
+    // far texel: 0.5.
+    // -----------------------------------------------------------------------
+    TEST(HZBGeneratorResizeTest, SecondBatchLevelsAreTheTrueReduceOfTheirParent)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        constexpr u32 kSize = 64u;
+        std::vector<f32> depth(static_cast<std::size_t>(kSize) * kSize, 0.5f);
+        depth[1u * kSize + 1u] = 0.9f;
+        TextureSpecification spec;
+        spec.Width = kSize;
+        spec.Height = kSize;
+        spec.Format = ImageFormat::R32F;
+        spec.GenerateMips = false;
+        Ref<Texture2D> sceneDepth = Texture2D::Create(spec);
+        ASSERT_TRUE(sceneDepth);
+        sceneDepth->SetData(depth.data(), static_cast<u32>(depth.size() * sizeof(f32)));
+
+        HZBGenerator gen;
+        gen.Initialize();
+        gen.SetReduceMode(HZBGenerator::ReduceMode::Max);
+        gen.Resize(kSize, kSize);
+        ASSERT_GE(gen.GetMipCount(), 5u) << "a 64 x 64 HZB must reach mip 4, the first second-batch level";
+        gen.Generate(sceneDepth->GetRHIHandle());
+        ::glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT | GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+
+        const auto hzb = static_cast<GLuint>(RHI::ResourceRegistry::Get().ResolveNativeForBackend(gen.GetHZBTexture()));
+        ASSERT_NE(hzb, 0u);
+        const auto readLevel = [hzb](GLint level, GLint side)
+        {
+            std::vector<f32> texels(static_cast<std::size_t>(side) * static_cast<std::size_t>(side), -1.0f);
+            ::glGetTextureImage(hzb, level, GL_RED, GL_FLOAT, static_cast<GLsizei>(texels.size() * sizeof(f32)),
+                                texels.data());
+            return texels;
+        };
+        // First batch (shared-memory reduce) as the control, then the level the
+        // parent read produces.
+        EXPECT_FLOAT_EQ(readLevel(3, 8)[0], 0.9f) << "mip 3, first batch: the control this test's input is built on";
+        EXPECT_FLOAT_EQ(readLevel(4, 4)[0], 0.9f)
+            << "mip 4 is not the max of its parent: the second batch read the parent at level 0 (issue #1503)";
+        EXPECT_FLOAT_EQ(readLevel(4, 4)[1], 0.5f) << "a block without the far texel must stay at the base depth";
+
+        gen.Shutdown();
     }
 } // namespace OloEngine::Tests

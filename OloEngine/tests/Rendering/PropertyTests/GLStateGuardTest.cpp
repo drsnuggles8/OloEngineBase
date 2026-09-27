@@ -542,10 +542,12 @@ namespace OloEngine::Tests
     {
         OLO_ENSURE_GPU_OR_SKIP();
 
-        // Slot 13 is UBO_SNOW and texture unit 6 is a renderer slot too: put
-        // back whatever occupied them on every exit path. This test used to
-        // leave both EMPTY, and every snow frame later in the process then read
-        // zeroes from slot 13 and rendered no snow (#1511).
+        // Slot 13 is UBO_SNOW and texture unit 6 TEX_ROUGHNESS: the engine owns
+        // both. Hand back exactly what was found, not zero, and on every exit
+        // path (an ASSERT below returns early): cleaning up to 0 left the snow
+        // UBO unbound, and every later snow frame in the process rendered no
+        // snow (#1484, #1511). Read BEFORE creating the UBO: its constructor
+        // binds it to slot 13.
         struct ScopedSlotRestore
         {
             GLint Texture = 0;

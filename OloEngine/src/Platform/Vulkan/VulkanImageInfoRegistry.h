@@ -139,6 +139,9 @@ namespace OloEngine
         // next BindTexture (the sampler slot is derived at bind time).
         void SetSamplerFilter(VkImage image, VkFilter minFilter, VkFilter magFilter);
         void SetSamplerAddressMode(VkImage image, VkSamplerAddressMode mode);
+        // SetTextureSampling's explicit mip filter, set after SetSamplerFilter
+        // (which derives a mip mode from the min filter the way GL couples them).
+        void SetSamplerMipmapMode(VkImage image, VkSamplerMipmapMode mode);
 
       private:
         VulkanImageInfoRegistry() = default;

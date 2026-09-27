@@ -25,6 +25,11 @@ namespace OloEngine::Tests
         std::mutex s_RunningTestMutex;
         std::string s_RunningTest;
 
+        // The process's peak resident set when its first test started: start-up
+        // plus the global test environment, the part every process of this
+        // binary pays before any test runs. 0 until then.
+        std::atomic<u64> s_StartupPeakBytes{ 0 };
+
         // The watchdog is OWNED, not detached: main stops and joins it before
         // returning, so it can never outlive the statics above and read them
         // mid-destruction (CodeRabbit on #1204).
@@ -35,6 +40,8 @@ namespace OloEngine::Tests
         {
             void OnTestStart(const ::testing::TestInfo& info) override
             {
+                if (s_StartupPeakBytes.load(std::memory_order_relaxed) == 0)
+                    s_StartupPeakBytes.store(FPlatformMemory::GetStats().PeakUsedPhysical, std::memory_order_relaxed);
                 const std::lock_guard<std::mutex> lock(s_RunningTestMutex);
                 s_RunningTest = std::string(info.test_suite_name()) + "." + info.name();
             }
@@ -58,6 +65,11 @@ namespace OloEngine::Tests
     u64 CurrentResidentBytes()
     {
         return FPlatformMemory::GetStats().UsedPhysical;
+    }
+
+    u64 StartupPeakResidentBytes()
+    {
+        return s_StartupPeakBytes.load(std::memory_order_relaxed);
     }
 
     void RegisterMemoryCeilingListener()

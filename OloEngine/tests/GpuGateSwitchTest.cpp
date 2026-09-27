@@ -21,6 +21,7 @@
 #include <gtest/gtest.h>
 
 #include "Rendering/PropertyTests/RenderPropertyTest.h"
+#include "TestProcessLaunch.h"
 #include "TestTempDir.h"
 #include "TestOptions.h"
 
@@ -98,6 +99,9 @@ namespace OloEngine::Tests
 #endif
 
             ChildRun run;
+            // Unsharded: under a sharded parent the child would run only its
+            // slice of this two-test filter, usually neither test.
+            const ScopedWithoutGTestSharding noSharding;
             const int raw = std::system(cmd.c_str());
 #if defined(_WIN32)
             run.ExitCode = raw;

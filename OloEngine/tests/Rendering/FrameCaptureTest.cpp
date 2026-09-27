@@ -642,6 +642,159 @@ TEST_F(FrameCapturePipelineTest, CaptureGenerationIncrements)
     EXPECT_GT(gen2, gen1) << "Capture generation should increment after clear";
 }
 
+TEST_F(FrameCapturePipelineTest, CaptureGenerationRisesWhenTheRetainedFramesAreFull)
+{
+    // #1510. olo_render_frame_breakdown waited for the retained COUNT to rise,
+    // which it never does once the manager is full: the new capture evicts the
+    // oldest. Every call after the 60th timed out against a live viewport. The
+    // generation is what a waiter can rely on.
+    auto& mgr = FrameCaptureManager::GetInstance();
+    // The manager is a process singleton: restore its limit and drop these
+    // captures on EVERY exit, an early ASSERT included, or later tests run
+    // with a three-frame limit.
+    struct RestoreCaptureLimit
+    {
+        FrameCaptureManager& Manager;
+        u32 Previous;
+        ~RestoreCaptureLimit()
+        {
+            Manager.SetMaxCapturedFrames(Previous);
+            Manager.ClearCaptures();
+        }
+    } const restore{ mgr, mgr.GetMaxCapturedFrames() };
+    mgr.ClearCaptures();
+    mgr.SetMaxCapturedFrames(3);
+    auto bucket = MakeTestBucket(1);
+    bucket.SortCommands();
+    for (u32 f = 0; f < 3; ++f)
+    {
+        mgr.CaptureNextFrame();
+        mgr.OnPreSort(bucket);
+        mgr.OnPostSort(bucket);
+        mgr.OnFrameEnd(f + 1, 0.1, 0.0, 0.1);
+    }
+    ASSERT_EQ(mgr.GetCapturedFrameCount(), 3u);
+
+    const u64 countBefore = mgr.GetCapturedFrameCount();
+    const u64 generationBefore = mgr.GetCaptureGeneration();
+    mgr.CaptureNextFrame();
+    mgr.OnPreSort(bucket);
+    mgr.OnPostSort(bucket);
+    mgr.OnFrameEnd(4, 0.1, 0.0, 0.1);
+
+    EXPECT_EQ(mgr.GetCapturedFrameCount(), countBefore) << "a full manager evicts, so the count cannot signal a capture";
+    EXPECT_GT(mgr.GetCaptureGeneration(), generationBefore) << "the generation must still say a new frame landed";
+    EXPECT_EQ(mgr.GetCapturedFramesCopy().Last().FrameNumber, 4u);
+}
+
+// =============================================================================
+// CancelCapture (issue #1504): a requester that stopped waiting leaves no armed
+// capture behind to fire on a later frame or on the next scene's first frames.
+// =============================================================================
+
+TEST_F(FrameCapturePipelineTest, CancelCaptureDisarmsAnArmedCapture)
+{
+    auto& mgr = FrameCaptureManager::GetInstance();
+
+    mgr.CaptureNextFrame();
+    ASSERT_EQ(mgr.GetState(), CaptureState::CaptureNextFrame);
+
+    EXPECT_TRUE(mgr.CancelCapture());
+    EXPECT_EQ(mgr.GetState(), CaptureState::Idle);
+
+    // The frame the capture was armed for arrives afterwards: nothing records it.
+    const u64 genBefore = mgr.GetCaptureGeneration();
+    auto bucket = MakeTestBucket(3);
+    bucket.SortCommands();
+    mgr.BeginPass("ScenePass");
+    mgr.OnPreSort(bucket);
+    mgr.OnPostSort(bucket);
+    mgr.CommitFrame();
+    mgr.CommitFrame();
+
+    EXPECT_EQ(mgr.GetState(), CaptureState::Idle);
+    EXPECT_EQ(mgr.GetCaptureGeneration(), genBefore);
+    EXPECT_EQ(mgr.GetCapturedFrameCount(), 0u);
+}
+
+TEST_F(FrameCapturePipelineTest, CancelCaptureDropsAFrameAwaitingGpuResults)
+{
+    auto& mgr = FrameCaptureManager::GetInstance();
+    auto bucket = MakeTestBucket(3);
+    bucket.SortCommands();
+
+    // The capture frame runs and parks, waiting for its GPU timer queries.
+    mgr.CaptureNextFrame();
+    mgr.BeginPass("ScenePass");
+    mgr.OnPreSort(bucket);
+    mgr.OnPostSort(bucket);
+    mgr.CommitFrame();
+    ASSERT_EQ(mgr.GetState(), CaptureState::AwaitingGpuResults);
+
+    const u64 genBefore = mgr.GetCaptureGeneration();
+    EXPECT_TRUE(mgr.CancelCapture());
+    EXPECT_EQ(mgr.GetState(), CaptureState::Idle);
+
+    // The later frame that would have resolved and committed the parked capture.
+    mgr.CommitFrame();
+    EXPECT_EQ(mgr.GetCaptureGeneration(), genBefore);
+    EXPECT_EQ(mgr.GetCapturedFrameCount(), 0u);
+
+    // The manager is reusable: the next capture records only its own frame.
+    mgr.CaptureNextFrame();
+    mgr.OnPreSort(bucket);
+    mgr.OnPostSort(bucket);
+    mgr.OnFrameEnd(7, 0.1, 0.0, 0.1);
+    const auto frames = mgr.GetCapturedFramesCopy();
+    ASSERT_EQ(frames.Num(), 1u);
+    EXPECT_EQ(frames[0].FrameNumber, 7u);
+    EXPECT_EQ(frames[0].Passes.Num(), 1u) << "the cancelled capture's pass must not leak into the next capture";
+}
+
+TEST_F(FrameCapturePipelineTest, CancelCaptureIsANoOpWhenIdle)
+{
+    auto& mgr = FrameCaptureManager::GetInstance();
+    ASSERT_EQ(mgr.GetState(), CaptureState::Idle);
+
+    EXPECT_FALSE(mgr.CancelCapture());
+    EXPECT_EQ(mgr.GetState(), CaptureState::Idle);
+}
+
+TEST_F(FrameCapturePipelineTest, CancelCaptureLeavesRecordingRunning)
+{
+    auto& mgr = FrameCaptureManager::GetInstance();
+    auto bucket = MakeTestBucket(2);
+    bucket.SortCommands();
+
+    mgr.StartRecording();
+    EXPECT_FALSE(mgr.CancelCapture());
+    EXPECT_EQ(mgr.GetState(), CaptureState::Recording);
+
+    // Recording still records.
+    mgr.OnPreSort(bucket);
+    mgr.OnPostSort(bucket);
+    mgr.OnFrameEnd(1, 0.1, 0.0, 0.1);
+    EXPECT_EQ(mgr.GetCapturedFrameCount(), 1u);
+    EXPECT_EQ(mgr.GetState(), CaptureState::Recording);
+}
+
+TEST_F(FrameCapturePipelineTest, CancelCaptureAfterTheCaptureCompletedChangesNothing)
+{
+    auto& mgr = FrameCaptureManager::GetInstance();
+    auto bucket = MakeTestBucket(2);
+    bucket.SortCommands();
+
+    // The capture lands just before the requester gives up on it.
+    mgr.CaptureNextFrame();
+    mgr.OnPreSort(bucket);
+    mgr.OnPostSort(bucket);
+    mgr.OnFrameEnd(3, 0.1, 0.0, 0.1);
+    ASSERT_EQ(mgr.GetState(), CaptureState::Idle);
+
+    EXPECT_FALSE(mgr.CancelCapture());
+    EXPECT_EQ(mgr.GetCapturedFrameCount(), 1u) << "a late cancel must not remove a committed frame";
+}
+
 // =============================================================================
 // Frame Export Tests — CSV and Markdown
 // =============================================================================

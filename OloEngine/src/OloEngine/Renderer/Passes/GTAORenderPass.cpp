@@ -702,9 +702,19 @@ namespace OloEngine
         // The Hilbert LUT genuinely is pass-owned and stays Persistent; the view
         // normals come from the transient pool and take a per-frame ring slot
         // (issue #691).
+        //
+        // THE HZB'S SAMPLER IS STATED, NOT INHERITED (issue #1503). GTAO.comp
+        // reads it with textureLod at a per-sample mip, so it needs trilinear
+        // filtering and clamp-to-edge. Inherited, it got neither: the texture is
+        // created Repeat, and on GL its chain is written by compute, so the
+        // object never counts as mipmapped and its min filter stays GL_LINEAR:
+        // every GL read came from level 0 (a GTAODepthMipOffset change moved 21
+        // pixels on GL against 350k on Vulkan). HZBGenerator::Generate put
+        // SamplingDesc() on the texture object before its first bind (GL's slot
+        // path samples with that); the bind carries it for Vulkan and the heap.
         const RHI::ResourceHandle hzbID = m_HZBGenerator.GetHZBTexture();
-        HeapBinding::BindTextureOrOffset(GTAO_HZB_TEXTURE_SLOT, hzbID,
-                                         m_HZBGenerator.GetHZBLifetime());
+        HeapBinding::BindTextureOrOffset(GTAO_HZB_TEXTURE_SLOT, hzbID, m_HZBGenerator.GetHZBLifetime(),
+                                         HZBGenerator::SamplingDesc());
 
         HeapBinding::BindTextureOrOffset(GTAO_NORMALS_TEXTURE_SLOT, normalsTextureID,
                                          RHI::HeapSlotLifetime::FrameTransient);

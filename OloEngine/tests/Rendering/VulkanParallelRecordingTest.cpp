@@ -965,6 +965,27 @@ TEST_F(VulkanParallelRecordingDevice, MeshParticleRangesMatchInlinePixels)
         std::filesystem::current_path("OloEditor");
     ASSERT_TRUE(std::filesystem::exists("assets/shaders/Particle_Mesh.glsl"));
 
+    // ParticleBatchRenderer's statics are process-wide, and mid-run they are
+    // the live GL renderer's (Renderer3D::Init owns them). This test rebuilds
+    // them on Vulkan and shuts them down again, so it hands them back the way
+    // VulkanPassSuite's fixture does (the amendment (34) two-way discipline):
+    // the GL version is shut down before the Vulkan one is built, and rebuilt
+    // on GL afterwards. Issue #1506: without the rebuild, the next GL test that
+    // drew particles read the released camera UBO through a null pointer
+    // (SkinProfileParityScene, SkinDigitalHumanToneGrid), and the one after it
+    // killed the process. Declared BEFORE the backend selection, so it runs
+    // after that has restored GL, and after restoreDirectory's declaration, so
+    // Init() still resolves its shaders under OloEditor/.
+    struct RestoreGLParticleBatchRenderer
+    {
+        bool Owned = Renderer3D::IsInitialized();
+        ~RestoreGLParticleBatchRenderer()
+        {
+            if (Owned)
+                ParticleBatchRenderer::Init();
+        }
+    } restoreGLParticleBatchRenderer;
+
     ScopedVulkanRenderCommandSelection renderCommandSelection;
     EnsureTaskWorkers();
     auto& api = renderCommandSelection.Get();
@@ -973,10 +994,9 @@ TEST_F(VulkanParallelRecordingDevice, MeshParticleRangesMatchInlinePixels)
     // renderer's instance would draw Vulkan work through GL-backed buffers, and
     // skipping the Shutdown strands Vulkan allocations past device teardown
     // ("Some allocations were not freed before destruction of this memory
-    // block"). Rebuilding the GL renderer's instance here would not help either:
-    // VulkanPassSuiteTest's own fixture shuts ParticleBatchRenderer down again
-    // a few suites later, so the durable fix for particle rendering after a
-    // Vulkan excursion belongs there, not here.
+    // block").
+    if (restoreGLParticleBatchRenderer.Owned)
+        ParticleBatchRenderer::Shutdown();
     ParticleBatchRenderer::Init();
     struct Cleanup
     {

@@ -49,6 +49,7 @@
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
 #include "OloEngine/Renderer/Debug/CommandPacketDebugger.h"
+#include "OloEngine/Renderer/Debug/FrameCaptureManager.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugger.h"
@@ -204,6 +205,15 @@ namespace OloEngine
 
     namespace
     {
+        // The renderer-side reset every editor scene swap runs: temporal histories
+        // from the outgoing scene are invalid, and a one-shot frame capture armed
+        // on it must not fire on the incoming scene's first frames (#1504).
+        void ResetRendererForSceneSwap()
+        {
+            Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::SceneReset);
+            FrameCaptureManager::GetInstance().CancelCapture();
+        }
+
         // stbi write callback that appends the encoded bytes to a std::vector.
         void StbiAppendToVector(void* context, void* data, int size)
         {
@@ -5028,7 +5038,7 @@ namespace OloEngine
         m_SceneState = SceneState::Play;
 
         m_ActiveScene = Scene::Copy(m_EditorScene);
-        Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::SceneReset);
+        ResetRendererForSceneSwap();
 
         // Validate that the scene has a primary camera before starting runtime
         Entity cameraEntity = m_ActiveScene->GetPrimaryCameraEntity();
@@ -5147,6 +5157,7 @@ namespace OloEngine
         m_ActiveScene->OnRuntimeStop();
 
         m_ActiveScene = loaded.LoadedScene;
+        ResetRendererForSceneSwap();
         // Unlike OnScenePlay's Scene::Copy, this scene was just deserialized and
         // has never seen the viewport, so size it before the runtime starts.
         if (m_ViewportSize.x > 0.0f && m_ViewportSize.y > 0.0f)
@@ -5167,6 +5178,7 @@ namespace OloEngine
         m_SceneState = SceneState::Simulate;
 
         m_ActiveScene = Scene::Copy(m_EditorScene);
+        ResetRendererForSceneSwap();
         m_ActiveScene->OnSimulationStart();
 
         BindPanelsToScene(m_ActiveScene, nullptr);
@@ -5202,7 +5214,7 @@ namespace OloEngine
         m_PickingReadPending = false; // Discard stale PBO data from the old scene
 
         m_ActiveScene = m_EditorScene;
-        Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::SceneReset);
+        ResetRendererForSceneSwap();
 
         BindPanelsToScene(m_ActiveScene, &m_CommandHistory);
         m_SaveGamePanel.SetContext(nullptr, nullptr);
@@ -5224,7 +5236,7 @@ namespace OloEngine
             m_CommandHistory.Clear();
 
         m_EditorScene = scene;
-        Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::SceneReset);
+        ResetRendererForSceneSwap();
         m_SceneHierarchyPanel.SetContext(m_EditorScene);
         m_SceneHierarchyPanel.SetCommandHistory(&m_CommandHistory);
         m_AnimationPanel.SetContext(m_EditorScene);

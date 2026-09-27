@@ -73,6 +73,8 @@
 #include <stb_image/stb_image_write.h>
 
 #include <algorithm>
+#include <cstdlib>
+#include <iostream>
 #include <cstring>
 #include <filesystem>
 #include <string>
@@ -288,15 +290,48 @@ namespace OloEngine::Tests
             return MeanLuma(pixels, x0, y0, x1, y1);
         }
 
+        // A pixel "moved" when a channel changed by MORE than one 8-bit step. The
+        // renderer is not bit-stable at a pixel whose value sits on a rounding
+        // boundary: with nothing changed, two reference captures of this scene
+        // disagreed at one pixel by exactly 1 (blue 69 vs 70) in 7 of 40 runs, and
+        // the same flip landing on the armed capture alone failed the fallback
+        // check in 2 of those 40 (#1484). What the check exists to catch, a bound
+        // texture, a cleared target or a changed uniform, moves pixels by far more.
+        static constexpr int kQuantisationSteps = 1;
+        [[nodiscard]] static bool ChannelMoved(const u8 a, const u8 b)
+        {
+            return std::abs(static_cast<int>(a) - static_cast<int>(b)) > kQuantisationSteps;
+        }
+
         [[nodiscard]] static std::size_t CountDifferingPixels(const std::vector<u8>& a, const std::vector<u8>& b)
         {
             std::size_t differing = 0;
             for (std::size_t i = 0; i + 3 < a.size(); i += 4)
             {
-                if (a[i + 0] != b[i + 0] || a[i + 1] != b[i + 1] || a[i + 2] != b[i + 2])
+                if (ChannelMoved(a[i + 0], b[i + 0]) || ChannelMoved(a[i + 1], b[i + 1]) ||
+                    ChannelMoved(a[i + 2], b[i + 2]))
                     ++differing;
             }
             return differing;
+        }
+
+        // Where two frames first differ and by how much, for a failure message a
+        // reader can act on without the PNGs.
+        [[nodiscard]] static std::string FirstDifference(const std::vector<u8>& a, const std::vector<u8>& b)
+        {
+            for (std::size_t i = 0; i + 3 < a.size(); i += 4)
+            {
+                if (ChannelMoved(a[i + 0], b[i + 0]) || ChannelMoved(a[i + 1], b[i + 1]) ||
+                    ChannelMoved(a[i + 2], b[i + 2]))
+                {
+                    const std::size_t pixel = i / 4u;
+                    return "first at (" + std::to_string(pixel % kWidth) + ", " + std::to_string(pixel / kWidth) +
+                           "): " + std::to_string(a[i]) + "," + std::to_string(a[i + 1]) + "," +
+                           std::to_string(a[i + 2]) + " vs " + std::to_string(b[i]) + "," + std::to_string(b[i + 1]) +
+                           "," + std::to_string(b[i + 2]);
+                }
+            }
+            return "none";
         }
 
         glm::mat4 m_CaptureViewProjection{ 1.0f };
@@ -337,13 +372,15 @@ namespace OloEngine::Tests
         Capture("Clustered", clustered);
         ASSERT_FALSE(clustered.empty());
 
-        // The NOISE FLOOR: the same setting captured twice. Whatever moves here
-        // is the renderer settling, not this feature, and it is what the flip
-        // below has to stay inside.
+        // The NOISE FLOOR and the flip are measured BRACKETED: a second reference,
+        // then the armed frame, then the reference again. What moves between two
+        // references is the renderer, not this feature, so the floor is the wider
+        // of the two reference pairs and the armed frame is compared with the
+        // closer of its two neighbours. A fallback that is not free differs from
+        // both while the references agree (#1484).
         std::vector<u8> clusteredAgain;
         Capture("ClusteredRepeat", clusteredAgain);
         ASSERT_FALSE(clusteredAgain.empty());
-        const std::size_t noiseFloor = CountDifferingPixels(clustered, clusteredAgain);
 
         // Arm B — the tier ARMED. On this GL context the shaders were never
         // created, so the pass reports itself unavailable, the graph declares no
@@ -354,10 +391,22 @@ namespace OloEngine::Tests
         Capture("ArmedOnNonRTDevice", armed);
         ASSERT_FALSE(armed.empty());
 
-        const std::size_t flipDifference = CountDifferingPixels(clusteredAgain, armed);
+        settings.ReSTIRDI.Enabled = false;
+        std::vector<u8> clusteredAfter;
+        Capture("ClusteredAfterArming", clusteredAfter);
+        ASSERT_FALSE(clusteredAfter.empty());
+
+        const std::size_t noiseFloor =
+            std::max(CountDifferingPixels(clustered, clusteredAgain), CountDifferingPixels(clusteredAgain, clusteredAfter));
+        const std::size_t flipDifference =
+            std::min(CountDifferingPixels(clusteredAgain, armed), CountDifferingPixels(armed, clusteredAfter));
+        std::cout << "[ReSTIR DI fallback] renderer noise floor " << noiseFloor << " px, armed frame " << flipDifference
+                  << " px from its closer reference" << std::endl;
         EXPECT_LE(flipDifference, noiseFloor)
             << "arming ReSTIR DI on a device that cannot run it moved " << flipDifference
-            << " pixels, above the measured renderer noise floor of " << noiseFloor
+            << " pixels, above the measured renderer noise floor of " << noiseFloor << " (reference before: "
+            << FirstDifference(clusteredAgain, armed) << "; reference after: " << FirstDifference(armed, clusteredAfter)
+            << ")"
             << ". The fallback is not free: something bound a texture, cleared a target, changed a uniform or "
                "declared a graph resource it should not have.";
 

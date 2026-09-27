@@ -439,6 +439,22 @@ namespace OloEngine
         static u32 InvalidateTemporalHistories(
             TemporalHistoryInvalidationCause cause,
             std::optional<TemporalHistoryEffect> effect = std::nullopt);
+        // Restart every per-frame sampling sequence (the stochastic, TAA jitter,
+        // cloud and fog frame indices) at the values a freshly initialised
+        // renderer starts from, and drop the temporal histories built on the old
+        // sequence. The indices are process-global and never reset otherwise, so
+        // without this a render depends on how many frames ran before it: the
+        // test harness calls it per test so a visual test renders the same
+        // frames whether it runs first in its process or after 800 others.
+        static void ResetFrameSequences();
+        // Put the per-frame camera state (render and culling camera matrices,
+        // view positions, the camera-relative render origin, the LOD view) back
+        // to what it is before any scene has rendered. BeginScene overwrites all
+        // of it, so only code that drives a pass WITHOUT a scene needs this: a
+        // Vulkan pass-suite tenant run after a GL test inherited that scene's
+        // render origin of (-1024, 0, 0), and the groom pass shifted its strands
+        // off screen by it (#1484). The culling-freeze toggle is left alone.
+        static void ResetFrameCamera();
         static void ResetGPUScene();
         [[nodiscard]] static const GPUSceneFrameStats& GetGPUSceneStats();
 

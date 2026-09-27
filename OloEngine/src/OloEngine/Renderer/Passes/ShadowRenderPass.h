@@ -163,6 +163,11 @@ namespace OloEngine
                             u32 instanceCount = 0);
         void AddFoliageCaster(FoliageRenderer* renderer, const Ref<Shader>& depthShader, f32 time);
 
+        // Whether a region of this type is handed to RenderCommand::RecordParallel
+        // or recorded inline. The atlas forks; the cascades do not unless
+        // OLO_VULKAN_PARALLEL_CSM is set (#1504, see RecordShadowRegion).
+        [[nodiscard]] static bool RecordsRegionInParallel(ShadowPassType type);
+
       private:
         // The GPU objects one item writes (amendment (92) rule 6): created by
         // EnsureItemResources on the render thread, indexed by item, shared by
