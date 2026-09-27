@@ -310,6 +310,21 @@ namespace OloEngine
                 return {};
             return png;
         }
+
+        // ImGui units -> framebuffer pixels, for sizing the scene render target
+        // from a panel size and mapping a panel-space mouse position onto it
+        // (issue #1495). GLFW makes the process per-monitor DPI aware on
+        // Windows, so ImGui coordinates there are already physical pixels and
+        // this is 1.0, as on X11; a Retina-style platform reports 2.0.
+        // Window::s_HighDPIScaleFactor is the MONITOR's content scale, which
+        // sizes fonts and widgets, not a unit conversion: multiplying the panel
+        // size by it rendered 2.25x the displayed pixels at 150% and let
+        // ImGui downsample the result.
+        [[nodiscard]] f32 ImGuiPixelsPerUnit()
+        {
+            const f32 scale = ImGui::GetIO().DisplayFramebufferScale.x;
+            return scale > 0.0f ? scale : 1.0f;
+        }
     } // namespace
 
     void EditorLayer::OnAttach()
@@ -1490,12 +1505,12 @@ namespace OloEngine
         // 1.0 while an MCP viewport override is active, for the same reason
         // OnUpdate skips the multiply: the override writes PIXELS into
         // m_ViewportSize, so the framebuffer is already that size. Reporting the
-        // display scale here would make McpInputInject's ViewportPixelWidth() /
+        // pixels-per-unit here would make McpInputInject's ViewportPixelWidth() /
         // ViewportPixelHeight() advertise a framebuffer DpiScale times too large
         // and mis-map every Space::Viewport coordinate it injects.
         info.DpiScale = (m_McpViewportSizeOverride.x > 0 && m_McpViewportSizeOverride.y > 0)
                             ? 1.0f
-                            : Window::s_HighDPIScaleFactor;
+                            : ImGuiPixelsPerUnit();
 
         // ImGui screen coordinates are DESKTOP coordinates while multi-viewport is on
         // (this editor enables it), so the window's own client-area origin must be
@@ -1933,8 +1948,10 @@ namespace OloEngine
 
         const f64 epsilon = 1e-5;
 
-        // Scale framebuffer dimensions by HiDPI factor so we render at native pixel resolution.
-        // Camera and scene use logical (unscaled) coordinates for correct aspect ratio.
+        // Convert the panel size from ImGui units to framebuffer pixels so we
+        // render at native pixel resolution (1.0 on Windows and X11, where
+        // ImGui units already are pixels; issue #1495). Camera and scene use
+        // the unscaled size, which has the same aspect ratio.
         //
         // EXCEPT under an MCP viewport override, which is already expressed in
         // PIXELS — olo_viewport_set_size exists to pin an exact render size for
@@ -1950,7 +1967,7 @@ namespace OloEngine
         // it" rather than an MCP-only fault.
         const bool viewportSizeIsAlreadyInPixels =
             m_McpViewportSizeOverride.x > 0 && m_McpViewportSizeOverride.y > 0;
-        const f32 dpiScale = viewportSizeIsAlreadyInPixels ? 1.0f : Window::s_HighDPIScaleFactor;
+        const f32 dpiScale = viewportSizeIsAlreadyInPixels ? 1.0f : ImGuiPixelsPerUnit();
         const u32 fbWidth = std::max(1u, static_cast<u32>(m_ViewportSize.x * dpiScale));
         const u32 fbHeight = std::max(1u, static_cast<u32>(m_ViewportSize.y * dpiScale));
 
@@ -2180,7 +2197,7 @@ namespace OloEngine
             }
 
             // Scale logical mouse coords to framebuffer pixel coords for entity picking
-            const f32 pickDpiScale = Window::s_HighDPIScaleFactor;
+            const f32 pickDpiScale = ImGuiPixelsPerUnit();
             const auto mouseX = static_cast<int>(mx * pickDpiScale);
 
             if (const auto mouseY = static_cast<int>(my * pickDpiScale); (mouseX >= 0) && (mouseY >= 0) && (mouseX < static_cast<int>(viewportSize.x * pickDpiScale)) && (mouseY < static_cast<int>(viewportSize.y * pickDpiScale)))
@@ -3595,7 +3612,7 @@ namespace OloEngine
         // Resize to current viewport size
         if (m_ViewportSize.x > 0 && m_ViewportSize.y > 0)
         {
-            const f32 dpi = Window::s_HighDPIScaleFactor;
+            const f32 dpi = ImGuiPixelsPerUnit();
             Renderer3D::OnWindowResize(
                 std::max(1u, static_cast<u32>(m_ViewportSize.x * dpi)),
                 std::max(1u, static_cast<u32>(m_ViewportSize.y * dpi)));
