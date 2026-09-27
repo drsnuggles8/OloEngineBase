@@ -657,11 +657,14 @@ namespace OloEngine
         // Init's order, so a binding number two of these share ends up where
         // Init left it (the ray-tracing blocks all sit on UBO_RAY_TRACING, and
         // each of those passes binds its own before it dispatches).
-        rebind(s_Data.SharedSceneUBOs.Camera);
-        rebind(s_Data.SharedSceneUBOs.Material);
+        //
+        // Not here: the camera, material and both bone-matrix blocks. The
+        // dispatcher binds those per draw through its bound-state cache, which
+        // ResetState empties every frame. Re-binding them here as well would
+        // make a stale cache look right, and hide the missing-reset fault
+        // RendererStateMachineNegativeControl injects to prove the harness
+        // catches it.
         rebind(s_Data.MultiLightBuffer);
-        rebind(s_Data.BoneMatricesUBO);
-        rebind(s_Data.PrevBoneMatricesUBO);
         rebind(s_Data.TerrainUBO);
         rebind(s_Data.FoliageUBO);
         rebind(s_Data.WaterUBO);
@@ -687,10 +690,6 @@ namespace OloEngine
         rebind(s_Data.SceneEffectsGPU.DRS);
         rebind(s_Data.UnderwaterFogBuffer);
         rebind(s_Data.LightProbeSHBuffer);
-
-        // The dispatcher skips a bind its cache says is already done, and the
-        // slots above may no longer hold what the cache names.
-        CommandDispatch::InvalidateBindingCaches();
     }
 
     std::vector<std::string> Renderer3D::DebugLiveGpuOwningStatics()
