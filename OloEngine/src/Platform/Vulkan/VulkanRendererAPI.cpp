@@ -405,7 +405,15 @@ namespace OloEngine
         // cache: a heap that cannot be created is not retried per draw.
         if (ctx.HeapBoundThisRecording)
             return;
-        (void)VulkanResourceHeap::Get().CmdBind(ctx.Cmd);
+        if (!VulkanResourceHeap::Get().CmdBind(ctx.Cmd))
+        {
+            // Not every failure inside CmdBind logs, and a draw with no heap
+            // reads whatever descriptors the GPU last had: say so, once.
+            static std::atomic<bool> s_WarnedBindFailed{ false };
+            if (!s_WarnedBindFailed.exchange(true, std::memory_order_relaxed))
+                OLO_CORE_WARN("[RHI/Vulkan] descriptor heap could not be bound for a draw or dispatch; "
+                              "its descriptors are undefined until the heap exists (warned once)");
+        }
         ctx.HeapBoundThisRecording = true;
     }
 
