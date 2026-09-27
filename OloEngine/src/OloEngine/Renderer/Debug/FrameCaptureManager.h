@@ -17,13 +17,17 @@ namespace OloEngine
     // Recording state machine
     enum class CaptureState : u8
     {
-        Idle = 0,          // Not capturing
-        CaptureNextFrame,  // Will capture the next frame, then await GPU results
-        Recording,         // Continuously capturing until stopped
-        AwaitingGpuResults // One-shot frame captured; holding the commit until the
-                           // GPU timer queries issued during the capture frame are
-                           // readable (they resolve one-plus frames later). No new
-                           // recording happens in this state.
+        Idle = 0,           // Not capturing
+        CaptureNextFrame,   // Will capture the next frame, then await GPU results
+        Recording,          // Continuously capturing until stopped
+        AwaitingGpuResults, // One-shot frame captured; holding the commit until the
+                            // GPU timer queries issued during the capture frame are
+                            // readable (they resolve one-plus frames later). No new
+                            // recording happens in this state.
+        Committing          // CommitFrame has claimed the parked frame and is
+                            // publishing it. Claimed by compare-exchange, so a
+                            // CancelCapture that lands first wins and one that
+                            // lands later cannot un-publish a frame in the ring.
     };
 
     // Manages frame capture/recording for the command bucket visualization tool
@@ -36,6 +40,18 @@ namespace OloEngine
         void CaptureNextFrame();
         void StartRecording();
         void StopRecording();
+
+        // Withdraws a pending one-shot capture (issue #1504): CaptureNextFrame and
+        // AwaitingGpuResults return to Idle and the parked frame is never
+        // committed, so a requester that stopped waiting leaves no armed capture
+        // to fire on a later frame (or on the next scene's first frames).
+        // Recording is left running: it belongs to whoever started it. Returns
+        // true when a capture was withdrawn, false once CommitFrame has claimed the frame
+        // for publication (Committing). Touches only the atomic state, so it
+        // is safe from any thread — a cancelled MCP call cannot reach the game
+        // thread any more (MarshalRead refuses it) and must still withdraw.
+        bool CancelCapture();
+
         CaptureState GetState() const
         {
             return m_State.load(std::memory_order_acquire);

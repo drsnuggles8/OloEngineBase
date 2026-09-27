@@ -127,3 +127,5 @@ looked like "already fixed" and were not.
 Related: [vulkan-async-compute-queue.md](vulkan-async-compute-queue.md) — the async batch is what
 submits a pass's command buffer mid-frame, which is what puts GPU execution and CPU recording of
 the same frame in flight together.
+
+A second fault of this shape (#1504) needed parallel recording and was set up by the shadow-cascade region, not the pass its checkpoint named; the audit above plus a per-region inline bisect is in [vulkan-parallel-cascade-recording-fault.md](vulkan-parallel-cascade-recording-fault.md).

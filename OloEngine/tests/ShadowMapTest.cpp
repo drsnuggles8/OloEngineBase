@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
+#include "OloEngine/Core/DebugLevers.h"
+#include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/ShaderConstants.h"
@@ -814,4 +816,27 @@ TEST(ShaderBindingLayoutTest, ShadowBindingsDoNotConflict)
     EXPECT_NE(ShaderBindingLayout::TEX_SHADOW, ShaderBindingLayout::TEX_NORMAL);
     EXPECT_NE(ShaderBindingLayout::TEX_SHADOW_ATLAS, ShaderBindingLayout::TEX_SHADOW);
     EXPECT_NE(ShaderBindingLayout::TEX_SHADOW_ATLAS_RAW, ShaderBindingLayout::TEX_SHADOW_CSM_RAW);
+}
+
+// =============================================================================
+// Which shadow regions fork into parallel recording items (#1504)
+// =============================================================================
+// Forking the cascade region on Vulkan was followed by a device fault on a
+// freed scene target (7/8 runs; 0/8 with the cascades inline). The fault needs
+// an NVIDIA device and a live editor, so this pins the policy instead: the
+// cascades stay inline unless the re-test lever is set, and the atlas region,
+// whose parallelism was never implicated, keeps forking either way.
+TEST(ShadowRegionRecording, CascadesRecordInlineUnlessTheLeverIsSet)
+{
+    const bool previous = Levers::VulkanParallelCascadeRecording();
+
+    Levers::SetVulkanParallelCascadeRecording(false);
+    EXPECT_FALSE(ShadowRenderPass::RecordsRegionInParallel(ShadowPassType::CSM));
+    EXPECT_TRUE(ShadowRenderPass::RecordsRegionInParallel(ShadowPassType::Atlas));
+
+    Levers::SetVulkanParallelCascadeRecording(true);
+    EXPECT_TRUE(ShadowRenderPass::RecordsRegionInParallel(ShadowPassType::CSM));
+    EXPECT_TRUE(ShadowRenderPass::RecordsRegionInParallel(ShadowPassType::Atlas));
+
+    Levers::SetVulkanParallelCascadeRecording(previous);
 }

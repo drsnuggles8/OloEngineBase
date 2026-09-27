@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "MCP/McpToolsCommon.h"
 #include "MCP/McpEditorLiveness.h"
+#include "MCP/McpFrameCaptureWait.h"
 #include "MCP/McpSchemaBuilder.h"
 #include "MCP/McpCpuScopes.h"
 #include "MCP/McpPassTimings.h"
@@ -239,46 +240,13 @@ namespace OloEngine::MCP
             if (args.contains("topK") && args["topK"].is_number_integer())
                 topK = static_cast<int>(std::clamp<long long>(args["topK"].get<long long>(), 1, 50));
 
-            // Trigger a one-frame capture on the game thread and note the capture
-            // GENERATION beforehand, so we can detect the new one even when the ring
-            // buffer is at capacity (deque size then stays constant as an old frame is
-            // evicted for the new one, so a size comparison would never fire and the
-            // tool would spuriously time out). The generation increments on every
-            // commit. FrameCaptureManager is FMutex-guarded, but marshaling keeps the
-            // trigger ordered with the loop.
-            const Json trigger = host.MarshalRead([]() -> Json
-                                                  {
-                FrameCaptureManager& fcm = FrameCaptureManager::GetInstance();
-                const auto beforeGen = fcm.GetCaptureGeneration();
-                fcm.CaptureNextFrame();
-                return Json{ { "beforeGen", beforeGen } }; });
-            const auto beforeGen = trigger.value("beforeGen", static_cast<u64>(0));
+            // Arm a one-frame capture and wait for it; a timeout or a cancel
+            // withdraws it again, so it cannot fire on a later frame (#1504).
+            const FrameCaptureWaitResult wait = CaptureOneFrame(host);
+            if (!wait.Captured())
+                return ToolResult::Error(wait.ErrorMessage());
 
-            // Poll for the freshly captured frame (both accessors are thread-safe).
-            TArray<CapturedFrameData> frames;
-            bool captured = false;
-            int polls = 0;
-            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
-            while (std::chrono::steady_clock::now() < deadline)
-            {
-                if (host.IsCurrentCallCancelled())
-                    return ToolResult::Error("Cancelled while waiting for the frame capture.");
-                if (FrameCaptureManager::GetInstance().GetCaptureGeneration() > beforeGen)
-                {
-                    frames = FrameCaptureManager::GetInstance().GetCapturedFramesCopy();
-                    if (!frames.IsEmpty())
-                    {
-                        captured = true;
-                        break;
-                    }
-                }
-                host.EmitProgress(static_cast<f64>(++polls), -1.0, "waiting for the captured frame");
-                std::this_thread::sleep_for(std::chrono::milliseconds(50));
-            }
-            if (!captured)
-                return ToolResult::Error("Frame capture timed out (is the editor rendering the viewport?).");
-
-            const CapturedFrameData& cap = frames.Last();
+            const CapturedFrameData& cap = wait.Frames.Last();
             Json o;
             o["frameNumber"] = cap.FrameNumber;
             o["stats"] = Json{ { "drawCalls", cap.Stats.DrawCalls },
