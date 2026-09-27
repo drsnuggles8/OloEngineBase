@@ -248,6 +248,12 @@ namespace OloEngine
         return Groups[index];
     }
 
+    f32 GroomCoatContext::JitterScale(u16 groupId) const noexcept
+    {
+        const auto index = static_cast<sizet>(groupId);
+        return index < JitterScales.size() ? JitterScales[index] : 1.0f;
+    }
+
     GroomCoatStrandParams IdentityGroomCoatStrandParams() noexcept
     {
         return GroomCoatStrandParams{};
@@ -325,9 +331,11 @@ namespace OloEngine
         }
 
         // ── Length, width, clump ─────────────────────────────────────
-        const f32 lengthJitter = std::clamp(settings.LengthJitter, 0.0f, GroomCoatLimits::MaxJitter);
-        const f32 widthJitter = std::clamp(settings.WidthJitter, 0.0f, GroomCoatLimits::MaxJitter);
-        const f32 shadeJitter = std::clamp(settings.ShadeJitter, 0.0f, GroomCoatLimits::MaxJitter);
+        // Scaled on a card level: see GroomCoatContext::JitterScales.
+        const f32 jitterScale = std::clamp(coat.JitterScale(groupId), 0.0f, 1.0f);
+        const f32 lengthJitter = std::clamp(settings.LengthJitter, 0.0f, GroomCoatLimits::MaxJitter) * jitterScale;
+        const f32 widthJitter = std::clamp(settings.WidthJitter, 0.0f, GroomCoatLimits::MaxJitter) * jitterScale;
+        const f32 shadeJitter = std::clamp(settings.ShadeJitter, 0.0f, GroomCoatLimits::MaxJitter) * jitterScale;
 
         // (hash * 2 - 1) in [-1, 1), so the jitter is symmetric about the
         // authored value and the mean length of a group is unchanged by turning

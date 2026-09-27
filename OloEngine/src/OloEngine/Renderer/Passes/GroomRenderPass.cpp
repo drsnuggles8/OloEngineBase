@@ -36,28 +36,6 @@ namespace OloEngine
         // verification matrix becomes a comparison of two noise fields.
         constexpr u32 kStochasticSeed = 1246;
 
-        // The fibre area of a curve set: the sum over its segments of length
-        // times mean DIAMETER, which is what a density volume bins (#1248). Of
-        // the cooked geometry, before any coat authoring, so a card level and
-        // the groom it was cooked from are compared like for like.
-        [[nodiscard]] f64 FibreArea(const GroomCurveView& curves) noexcept
-        {
-            f64 area = 0.0;
-            const auto& points = curves.GetPoints();
-            const auto& widths = curves.GetPointWidths();
-            for (u32 curve = 0; curve < curves.GetCurveCount(); ++curve)
-            {
-                const u32 first = curves.GetCurveFirstPoint(curve);
-                const u32 count = curves.GetCurvePointCount(curve);
-                for (u32 i = 0; i + 1u < count; ++i)
-                {
-                    const f64 length = static_cast<f64>(glm::length(points[first + i + 1u] - points[first + i]));
-                    area += length * 0.5 * (static_cast<f64>(widths[first + i]) + static_cast<f64>(widths[first + i + 1u]));
-                }
-            }
-            return area;
-        }
-
         // Microseconds since `start`, for the per-stage counters.
         [[nodiscard]] u64 MicrosecondsSince(std::chrono::steady_clock::time_point start) noexcept
         {
@@ -398,6 +376,10 @@ namespace OloEngine
         const GroomStrandMeshStats stats =
             BuildGroomStrandRestMesh(source, request.Build, binding, vertices, indices, stream->RootCurves, &coat,
                                      wantsPose ? &stream->PoseSegments : nullptr);
+        if (wantsPose)
+        {
+            ScaleRestPoseToCardFibre(request, stream->PoseSegments);
+        }
         stream->PoseSegmentsBuilt = wantsPose;
         m_Stats.DeformedBuildMicroseconds += static_cast<u64>(
             std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - buildStart)
@@ -629,6 +611,7 @@ namespace OloEngine
                 std::vector<u32> rootCurves;
                 (void)BuildGroomStrandRestMesh(request.BuildSource(), request.Build, *request.Binding, vertices,
                                                indices, rootCurves, &coat, &stream.PoseSegments);
+                ScaleRestPoseToCardFibre(request, stream.PoseSegments);
                 stream.PoseSegmentsBuilt = true;
             }
             // THE BAKE SUBSET (#1445), taken BEFORE the evaluation so the
@@ -677,6 +660,21 @@ namespace OloEngine
         else
         {
             GroomCoatShadow::CoatPoseFromStrandVertices(m_DeformedVertices, m_DrawnPoseFull);
+            // At the fibre each card stands for, per group (#1428); the same
+            // segment order as the stream the vertices came from.
+            const std::vector<f32>& fibre = CardFibreScales(request, entry);
+            if (!fibre.empty() && fibre.size() != m_DrawnPoseFull.size() && !entry.CoatFibreMismatchReported)
+            {
+                entry.CoatFibreMismatchReported = true;
+                OLO_CORE_WARN("GroomRenderPass: card-tier fibre scales cover {} segments but the drawn pose has {}; "
+                              "the self-shadow bake is wrong for the difference (groom {})",
+                              fibre.size(), m_DrawnPoseFull.size(), static_cast<u64>(request.Handle));
+            }
+            for (sizet s = 0; s < m_DrawnPoseFull.size() && s < fibre.size(); ++s)
+            {
+                m_DrawnPoseFull[s].RadiusA *= fibre[s];
+                m_DrawnPoseFull[s].RadiusB *= fibre[s];
+            }
             entry.CoatFullPoseSegments = m_DrawnPoseFull.size();
             RefreshCoatBakeStride(entry);
             entry.CoatPoseStride = entry.CoatBakeStride;
@@ -686,6 +684,75 @@ namespace OloEngine
             std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - poseStart)
                 .count());
         return m_DrawnPose;
+    }
+
+    const std::vector<f32>& GroomRenderPass::CardFibreScales(const GroomStrandRequest& request, CacheEntry& entry)
+    {
+        if (request.LodLevel == nullptr || !request.Groom)
+        {
+            entry.CoatFibreScales.clear();
+            entry.CoatFibreScalesSource = nullptr;
+            return entry.CoatFibreScales;
+        }
+        // Keyed on the LEVEL it was measured from, so a recooked level on a
+        // reused cache entry is measured again.
+        if (entry.CoatFibreScalesSource != request.LodLevel)
+        {
+            const GroomCoatContext coat{ &request.Coat, request.Groom->GetGroupCoats() };
+            GroomCardFibreScales(*request.Groom, *request.LodLevel, CardFibreByGroup(request), request.Build, &coat,
+                                 entry.CoatFibreScales);
+            entry.CoatFibreScalesSource = request.LodLevel;
+            entry.CoatFibreMismatchReported = false;
+        }
+        return entry.CoatFibreScales;
+    }
+
+    const std::vector<f32>& GroomRenderPass::CardFibreByGroup(const GroomStrandRequest& request)
+    {
+        const GroomLodLevel& level = *request.LodLevel;
+        for (const CardFibreTable& table : m_CardFibreTables)
+        {
+            if (table.Level == &level && table.Curves == level.GetCurveCount() && table.Points == level.Points.size())
+            {
+                return table.ByGroup;
+            }
+        }
+        // A handful of levels at most; a level that went away leaves a small
+        // stale row, bounded by how many levels a session ever cooks.
+        CardFibreTable& table = m_CardFibreTables.emplace_back();
+        table.Level = &level;
+        table.Curves = level.GetCurveCount();
+        table.Points = level.Points.size();
+        table.ByGroup = GroomCardFibreByGroup(*request.Groom, level);
+        return table.ByGroup;
+    }
+
+    void GroomRenderPass::ScaleRestPoseToCardFibre(const GroomStrandRequest& request,
+                                                   std::vector<GroomRestPoseSegment>& pose)
+    {
+        // At the fibre each card stands for (#1428), on EVERY path that forms
+        // a rest pose: the stream is built with its pose when the coat asks for
+        // a self-shadow up front, and without it otherwise. The stream is
+        // shared only by requests of this groom, tier and build, which all
+        // measure the same scales.
+        if (request.LodLevel == nullptr || !request.Groom)
+        {
+            return;
+        }
+        const GroomCoatContext coat{ &request.Coat, request.Groom->GetGroupCoats() };
+        std::vector<f32> fibre;
+        GroomCardFibreScales(*request.Groom, *request.LodLevel, CardFibreByGroup(request), request.Build, &coat, fibre);
+        if (fibre.size() != pose.size())
+        {
+            OLO_CORE_WARN("GroomRenderPass: card-tier fibre scales cover {} segments but the rest pose has {}; "
+                          "the self-shadow bake is wrong for the difference (groom {})",
+                          fibre.size(), pose.size(), static_cast<u64>(request.Handle));
+        }
+        for (sizet s = 0; s < pose.size() && s < fibre.size(); ++s)
+        {
+            pose[s].Radius0 *= fibre[s];
+            pose[s].Radius1 *= fibre[s];
+        }
     }
 
     void GroomRenderPass::RefreshCoatBakeStride(CacheEntry& entry) const noexcept
@@ -1371,30 +1438,10 @@ namespace OloEngine
                 // EXCEPT THEIR WIDTH, on the card tier (#1428). A card is drawn
                 // as wide as its members COVER, which on a dense coat is well
                 // under the fibre they are made of -- a lock of forty strands
-                // covers little more than one -- and fibre is what shadows. So a
-                // card-tier bake is scaled back up to the coat's own fibre area.
-                // Without it the card tier read as a lighter coat than the
-                // strands it replaced: switching the long coat's self-shadow off
-                // moved the card tier from 0.85 of the strand tier's contrast to
-                // 0.97, and from 0.75 to 0.93 at 32 m.
-                f32 fibreScale = 1.0f;
-                if (request.LodLevel != nullptr)
-                {
-                    // Keyed on the LEVEL it was measured from, so a recooked
-                    // level on a reused cache entry is measured again.
-                    if (!(entry.CoatFibreAreaScale > 0.0f) || entry.CoatFibreAreaSource != request.LodLevel)
-                    {
-                        entry.CoatFibreAreaSource = request.LodLevel;
-                        const f64 base = FibreArea(request.Groom->GetCurveView());
-                        const f64 level = FibreArea(request.LodLevel->GetCurveView());
-                        const f64 scale = level > 0.0 ? base / level : 1.0;
-                        entry.CoatFibreAreaScale =
-                            std::isfinite(scale) && scale > 0.0 ? static_cast<f32>(scale) : 1.0f;
-                    }
-                    fibreScale = entry.CoatFibreAreaScale;
-                }
-                emitted = GroomCoatShadow::BuildCoatSegmentsFromPose(drawnPose, request.WidthScale * fibreScale,
-                                                                     segments);
+                // covers little more than one -- and fibre is what shadows. So
+                // the drawn pose carries each card at its GROUP's fibre area
+                // already (CardFibreScales, applied where the pose is formed).
+                emitted = GroomCoatShadow::BuildCoatSegmentsFromPose(drawnPose, request.WidthScale, segments);
             }
             else
             {
