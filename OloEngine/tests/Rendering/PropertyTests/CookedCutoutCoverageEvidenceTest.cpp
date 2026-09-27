@@ -45,6 +45,7 @@
 
 #include "RendererAttachedTest.h"
 #include "RenderPropertyTest.h"
+#include "TestTempDir.h"
 
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Framebuffer.h"
@@ -483,7 +484,7 @@ namespace OloEngine::Tests
                 texel[3] = ((x + y) & 1u) != 0u ? 255u : 0u;
             }
         }
-        const fs::path fencePath = fs::temp_directory_path() / "olo_1491_fence_cutout.png";
+        const fs::path fencePath = TempFile("fence_cutout.png");
         ASSERT_NE(::stbi_write_png(fencePath.string().c_str(), static_cast<int>(kFence), static_cast<int>(kFence), 4,
                                    fence.data(), static_cast<int>(kFence) * 4),
                   0);

@@ -257,9 +257,12 @@ namespace OloEngine::Tests
             }
             return rgba;
         };
-        const auto checker = [](u32 x, u32 y) -> u32 { return ((x + y) & 1u) != 0u ? 255u : 0u; };
-        const auto stripes1 = [](u32 x, u32) -> u32 { return (x & 1u) != 0u ? 255u : 0u; };
-        const auto stripes2 = [](u32 x, u32) -> u32 { return (x & 2u) != 0u ? 255u : 0u; };
+        const auto checker = [](u32 x, u32 y) -> u32
+        { return ((x + y) & 1u) != 0u ? 255u : 0u; };
+        const auto stripes1 = [](u32 x, u32) -> u32
+        { return (x & 1u) != 0u ? 255u : 0u; };
+        const auto stripes2 = [](u32 x, u32) -> u32
+        { return (x & 2u) != 0u ? 255u : 0u; };
         // An atlas: a 75% island, a 25% island, a solid island, a 50% island and
         // empty space, each on multiples of 64 texels so every aligned tile of
         // every kept level sees one kind of content.
