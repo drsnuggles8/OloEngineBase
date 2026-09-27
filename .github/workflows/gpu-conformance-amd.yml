@@ -80,6 +80,14 @@ on:
         description: 'Suite time budget in minutes (default 75; lower it for a filtered debugging run)'
         type: string
         default: ''
+      amd_debug:
+        # radeonsi's own diagnostics (AMD_DEBUG, read at driver start, so a test
+        # cannot set it itself). e.g. "ps,cs,vs" prints every compiled shader
+        # with its register and scratch statistics (#1484). Letters, digits,
+        # commas and underscores only; empty on every scheduled run.
+        description: 'AMD_DEBUG for the test step (radeonsi diagnostics; filtered runs only, the output is large)'
+        type: string
+        default: ''
   schedule:
     # 00:47 UTC — roughly 02:00 German local (02:47 CEST / 01:47 CET; GitHub cron
     # is UTC-only and does not follow DST, so it drifts an hour across the year).
@@ -589,6 +597,7 @@ jobs:
           # The suite's own budget, inside the step's: the 5-minute gap is what
           # the report rebuild below needs to run after a timeout.
           OLO_SUITE_MINUTES: ${{ inputs.suite_minutes || '75' }}
+          OLO_AMD_DEBUG: ${{ inputs.amd_debug }}
           # Belt and braces against a silent software fallback mid-run.
           MESA_LOADER_DRIVER_OVERRIDE: radeonsi
           # Passed as an ENVIRONMENT VARIABLE, never interpolated into the
@@ -642,6 +651,11 @@ jobs:
           # The rebuilt report is marked partial and the assert step fails on it.
           case "$OLO_SUITE_MINUTES" in
             ''|*[!0-9]*|0) echo "::error::suite_minutes must be a positive whole number, got '$OLO_SUITE_MINUTES'"; exit 1 ;;
+          esac
+          case "$OLO_AMD_DEBUG" in
+            *[!a-z0-9_,]*) echo "::error::amd_debug may hold only letters, digits, commas and underscores"; exit 1 ;;
+            '') unset AMD_DEBUG ;;
+            *) export AMD_DEBUG="$OLO_AMD_DEBUG"; echo "AMD_DEBUG=$AMD_DEBUG" ;;
           esac
           set +e
           timeout --signal=TERM --kill-after=60s "${OLO_SUITE_MINUTES}m" \
