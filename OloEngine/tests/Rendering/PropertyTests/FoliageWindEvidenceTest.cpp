@@ -35,11 +35,81 @@
 #include <fstream>
 #include <string>
 #include <vector>
+#if defined(__linux__)
+#include <execinfo.h>
+#include <unistd.h>
+#endif
 
 namespace OloEngine::Tests
 {
     namespace
     {
+        // TEMP diagnostic (#1484 foliage OOM): log every GL storage allocation
+        // estimated over 256 MiB, by swapping glad's entry points.
+        constexpr unsigned long long kLargeAllocation = 256ull << 20;
+        unsigned long long s_AllocationCalls = 0;
+        PFNGLTEXTURESTORAGE2DPROC s_RealStorage2D = nullptr;
+        PFNGLTEXTURESTORAGE3DPROC s_RealStorage3D = nullptr;
+        PFNGLTEXTURESTORAGE2DMULTISAMPLEPROC s_RealStorage2DMs = nullptr;
+        PFNGLNAMEDBUFFERSTORAGEPROC s_RealBufferStorage = nullptr;
+        PFNGLNAMEDBUFFERDATAPROC s_RealBufferData = nullptr;
+        void ReportLarge(const char* what, unsigned long long bytes, long long a, long long b, long long c, long long d,
+                         unsigned fmt)
+        {
+            ++s_AllocationCalls;
+            if (bytes < kLargeAllocation)
+                return;
+            std::fprintf(stdout, "[foliage-alloc] %s ~%llu MiB (%lld x %lld x %lld, levels/samples %lld, fmt 0x%x)\n", what,
+                         bytes >> 20, a, b, c, d, fmt);
+            std::fflush(stdout);
+#if defined(__linux__)
+            void* frames[24];
+            const int n = ::backtrace(frames, 24);
+            ::backtrace_symbols_fd(frames, n, STDOUT_FILENO);
+#endif
+        }
+        void GLAD_API_PTR LogStorage2D(GLuint t, GLsizei levels, GLenum fmt, GLsizei w, GLsizei h)
+        {
+            ReportLarge("TextureStorage2D", 16ull * static_cast<unsigned long long>(w) * h * 4 / 3, w, h, 1, levels, fmt);
+            s_RealStorage2D(t, levels, fmt, w, h);
+        }
+        void GLAD_API_PTR LogStorage3D(GLuint t, GLsizei levels, GLenum fmt, GLsizei w, GLsizei h, GLsizei dep)
+        {
+            ReportLarge("TextureStorage3D", 16ull * static_cast<unsigned long long>(w) * h * dep, w, h, dep, levels, fmt);
+            s_RealStorage3D(t, levels, fmt, w, h, dep);
+        }
+        void GLAD_API_PTR LogStorage2DMs(GLuint t, GLsizei samples, GLenum fmt, GLsizei w, GLsizei h, GLboolean fixed)
+        {
+            ReportLarge("TextureStorage2DMultisample", 16ull * static_cast<unsigned long long>(w) * h * samples, w, h, 1,
+                        samples, fmt);
+            s_RealStorage2DMs(t, samples, fmt, w, h, fixed);
+        }
+        void GLAD_API_PTR LogBufferStorage(GLuint buf, GLsizeiptr size, const void* data, GLbitfield flags)
+        {
+            ReportLarge("NamedBufferStorage", static_cast<unsigned long long>(size), size, 1, 1, 0, flags);
+            s_RealBufferStorage(buf, size, data, flags);
+        }
+        void GLAD_API_PTR LogBufferData(GLuint buf, GLsizeiptr size, const void* data, GLenum usage)
+        {
+            ReportLarge("NamedBufferData", static_cast<unsigned long long>(size), size, 1, 1, 0, usage);
+            s_RealBufferData(buf, size, data, usage);
+        }
+        void InstallAllocationLog()
+        {
+            if (s_RealStorage2D != nullptr)
+                return;
+            s_RealStorage2D = glad_glTextureStorage2D;
+            s_RealStorage3D = glad_glTextureStorage3D;
+            s_RealStorage2DMs = glad_glTextureStorage2DMultisample;
+            s_RealBufferStorage = glad_glNamedBufferStorage;
+            s_RealBufferData = glad_glNamedBufferData;
+            glad_glTextureStorage2D = LogStorage2D;
+            glad_glTextureStorage3D = LogStorage3D;
+            glad_glTextureStorage2DMultisample = LogStorage2DMs;
+            glad_glNamedBufferStorage = LogBufferStorage;
+            glad_glNamedBufferData = LogBufferData;
+        }
+
         namespace fs = std::filesystem;
 
         constexpr u32 kWidth = 960;
@@ -183,10 +253,10 @@ namespace OloEngine::Tests
                     }
                 }
                 std::printf("[foliage-mem] path %d msaa %u nvx %d ati-tex %d/%d ati-vbo %d/%d vram-used %lld MiB gtt-used "
-                            "%lld MiB\n",
+                            "%lld MiB allocs %llu\n",
                             static_cast<int>(Renderer3D::GetRendererSettings().Path),
                             Renderer3D::GetRendererSettings().Deferred.MSAASampleCount, nv, ati[0], ati[2], atiVbo[0],
-                            atiVbo[2], vramUsed < 0 ? -1 : vramUsed >> 20, gttUsed < 0 ? -1 : gttUsed >> 20);
+                            atiVbo[2], vramUsed < 0 ? -1 : vramUsed >> 20, gttUsed < 0 ? -1 : gttUsed >> 20, s_AllocationCalls);
                 std::fflush(stdout);
             }
 
@@ -283,6 +353,7 @@ namespace OloEngine::Tests
     TEST_F(FoliageWindEvidenceTest, EveryRasterPathShowsWindAndMotion)
     {
         OLO_ENSURE_GPU_OR_SKIP();
+        InstallAllocationLog();
         struct MockClock
         {
             ~MockClock()
