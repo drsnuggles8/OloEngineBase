@@ -3336,7 +3336,7 @@ namespace OloEngine
         // Weighted-blended OIT accumulation targets. Sampled by
         // OIT_Resolve.glsl; written to (not sampled) by transparent passes
         // when RendererSettings::OITEnabled is on (path-agnostic).
-        static constexpr u32 TEX_OIT_ACCUM = 48;     // OIT accum buffer (RGBA16F: sum(Ci*ai*wi), sum(ai*wi))
+        static constexpr u32 TEX_OIT_ACCUM = 48;     // OIT accum buffer (RGBA32F: sum(Ci*ai*wi), sum(ai*wi))
         static constexpr u32 TEX_OIT_REVEALAGE = 49; // OIT revealage buffer (R16F: prod(1 - ai))
         // FFT ocean cascade textures (water-ocean.md §1). Sampled by
         // Water.glsl when the surface is in FFT mode (rgb = choppy displacement,
@@ -4607,8 +4607,8 @@ namespace OloEngine
                 case TEX_WATER_NORMAL_1:
                     return name.contains("WaterNormal") || name.contains("waterNormal") ||
                            (name.contains("Water") && name.contains("Normal")) ||
-                           // Production water shaders use unprefixed names (Water.glsl,
-                           // Water_OIT.glsl bind u_NormalMap0 / u_NormalMap1 to these slots).
+                           // The production water shader uses unprefixed names (Water.glsl
+                           // binds u_NormalMap0 / u_NormalMap1 to these slots).
                            name == "u_NormalMap0" || name == "u_NormalMap1";
                 case TEX_WATER_NOISE:
                     return name.contains("WaterNoise") || name.contains("waterNoise") ||

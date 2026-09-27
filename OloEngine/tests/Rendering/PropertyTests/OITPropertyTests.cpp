@@ -14,6 +14,11 @@
 //     reduces to the classic "over" operator for a single fragment.
 //   * The composite is order-independent for two fragments, matching the
 //     core claim of the algorithm.
+//   * The accumulation survives in the target's STORAGE format (issue
+//     #1468): the twin rounds every blend add through the accumulator's
+//     format, so a stack that overflows RGBA16F to inf -- and resolves
+//     inf / inf = NaN, black -- is visible here, and RGBA32F is pinned as the
+//     format that holds it. Text guards tie the twin's constants to the shaders.
 //
 // The tests deliberately exercise only CPU-side math so they run
 // without a GL context — the shader-side code is validated in the GLSL
@@ -25,12 +30,16 @@
 #include <gtest/gtest.h>
 
 #include <glm/glm.hpp>
+#include <glm/gtc/packing.hpp>
 
 #include <algorithm>
 #include <cmath>
 #include <vector>
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/OITBlendState.h"
+
+#include "Rendering/ReSTIR/ShaderSourceScan.h"
 
 namespace OloEngine::Tests
 {
@@ -63,20 +72,35 @@ namespace OloEngine::Tests
             f32 ViewZ;
         };
 
-        glm::vec3 ResolveOIT(const std::vector<Fragment>& fragments, const glm::vec3& background)
+        // The resolve's division guard, as OIT_Resolve.glsl spells it (pinned by
+        // OITResolveTest.TheTwinMatchesTheShaders).
+        constexpr f32 kResolveDenominatorFloor = 1e-20f;
+
+        // How the accumulation target stores each blended sum. The blend unit
+        // adds in (at least) fp32 and writes the result back in the target's
+        // format, so every add is rounded to that format.
+        [[nodiscard]] f32 StoreAs(RGResourceFormat format, f32 value)
+        {
+            if (format == RGResourceFormat::RGBA16Float)
+                return glm::unpackHalf1x16(glm::packHalf1x16(value));
+            return value;
+        }
+
+        glm::vec3 ResolveOIT(const std::vector<Fragment>& fragments, const glm::vec3& background,
+                             RGResourceFormat accumFormat = kOITAccumFormat)
         {
             glm::vec4 accum(0.0f);
             f32 revealage = 1.0f;
             for (const auto& f : fragments)
             {
                 const f32 w = ComputeOITWeight(f.Alpha, f.ViewZ);
-                accum.x += f.Color.x * f.Alpha * w;
-                accum.y += f.Color.y * f.Alpha * w;
-                accum.z += f.Color.z * f.Alpha * w;
-                accum.w += f.Alpha * w;
+                accum.x = StoreAs(accumFormat, accum.x + f.Color.x * f.Alpha * w);
+                accum.y = StoreAs(accumFormat, accum.y + f.Color.y * f.Alpha * w);
+                accum.z = StoreAs(accumFormat, accum.z + f.Color.z * f.Alpha * w);
+                accum.w = StoreAs(accumFormat, accum.w + f.Alpha * w);
                 revealage *= (1.0f - f.Alpha);
             }
-            const f32 denom = std::max(accum.w, 1e-4f);
+            const f32 denom = std::max(accum.w, kResolveDenominatorFloor);
             const glm::vec3 averageColor = glm::vec3(accum.x, accum.y, accum.z) / denom;
             return averageColor * (1.0f - revealage) + background * revealage;
         }
@@ -187,5 +211,78 @@ namespace OloEngine::Tests
         EXPECT_NEAR(out.x, bg.x, 1e-6f);
         EXPECT_NEAR(out.y, bg.y, 1e-6f);
         EXPECT_NEAR(out.z, bg.z, 1e-6f);
+    }
+
+    // Issue #1468. About 120 layers of alpha 0.9 at 10.6 m (the particle square
+    // in DecalOITScene at 600 particles/s) sum alpha^2 * weight to ~1.6e5, past
+    // RGBA16F's 65504: the accumulator read inf, the resolve's inf / inf was NaN
+    // and the square composited black. Resolved through the production format
+    // the stack is the colour it is made of.
+    TEST(OITResolveTest, ADenseNearStackStaysFiniteInTheAccumulatorFormat)
+    {
+        const glm::vec3 red(1.0f, 0.05f, 0.05f);
+        const std::vector<Fragment> stack(120, Fragment{ red, 0.9f, 10.57f });
+        const glm::vec3 bg(0.0f, 0.0f, 1.0f);
+
+        const glm::vec3 half = ResolveOIT(stack, bg, RGResourceFormat::RGBA16Float);
+        EXPECT_FALSE(std::isfinite(half.x) && std::isfinite(half.y) && std::isfinite(half.z))
+            << "negative control: RGBA16F no longer overflows on this stack, so the test proves nothing";
+
+        const glm::vec3 out = ResolveOIT(stack, bg);
+        ASSERT_TRUE(std::isfinite(out.x) && std::isfinite(out.y) && std::isfinite(out.z))
+            << "the production accumulator overflowed on 120 near layers";
+        EXPECT_NEAR(out.x, red.x, 1e-3f);
+        EXPECT_NEAR(out.y, red.y, 1e-3f);
+        EXPECT_NEAR(out.z, red.z, 1e-3f);
+    }
+
+    // One layer of HDR colour overflowed RGBA16F on its own: 100 * 0.9 * 0.9 * 3e3
+    // is 2.4e5. Emissive particles reach that from YAML, Lua or an HDR texture.
+    TEST(OITResolveTest, OneHdrLayerStaysFiniteInTheAccumulatorFormat)
+    {
+        const std::vector<Fragment> hdr = { { glm::vec3(100.0f, 50.0f, 10.0f), 0.9f, 1.0f } };
+        const glm::vec3 bg(0.0f);
+        const glm::vec3 half = ResolveOIT(hdr, bg, RGResourceFormat::RGBA16Float);
+        EXPECT_FALSE(std::isfinite(half.x)) << "negative control: one HDR layer no longer overflows RGBA16F";
+
+        const glm::vec3 out = ResolveOIT(hdr, bg);
+        ASSERT_TRUE(std::isfinite(out.x));
+        EXPECT_NEAR(out.x, 90.0f, 1e-2f); // 100 * (1 - revealage), revealage = 0.1
+        EXPECT_NEAR(out.y, 45.0f, 1e-2f);
+    }
+
+    // The resolve's division guard was 1e-4, larger than a faint far layer's own
+    // alpha * weight (a white a=0.05 layer at 300 m sums to 2.5e-5), so the
+    // average colour came out a quarter of the layer's colour. A single layer's
+    // average colour IS its colour.
+    TEST(OITResolveTest, AFaintFarLayerResolvesToItsOwnColour)
+    {
+        const std::vector<Fragment> faint = { { glm::vec3(1.0f), 0.05f, 300.0f } };
+        const glm::vec3 bg(0.0f);
+        const glm::vec3 out = ResolveOIT(faint, bg);
+        EXPECT_NEAR(out.x, 0.05f, 1e-5f) << "the division guard is darkening a faint layer";
+    }
+
+    TEST(OITResolveTest, TheTwinMatchesTheShaders)
+    {
+        using namespace ShaderScan;
+        const std::string common = ReadTextFile(ResolveShaderPath("include/OITCommon.glsl"));
+        const std::string resolve = ReadTextFile(ResolveShaderPath("OIT_Resolve.glsl"));
+        ASSERT_FALSE(common.empty());
+        ASSERT_FALSE(resolve.empty());
+
+        const auto count = [](const std::string& haystack, std::string_view needle)
+        {
+            sizet n = 0;
+            for (sizet at = haystack.find(needle); at != std::string::npos; at = haystack.find(needle, at + 1))
+                ++n;
+            return n;
+        };
+        EXPECT_EQ(count(common, "#define OIT_DEPTH_SCALE 200.0"), 1u);
+        EXPECT_EQ(count(common, "clamp(0.03 / (1e-5 + normZ2 * normZ2), 1e-2, 3e3)"), 1u);
+        EXPECT_EQ(count(resolve, "max(accum.a, 1e-20)"), 1u) << "kResolveDenominatorFloor no longer mirrors the shader";
+        EXPECT_EQ(count(resolve, "max(accum.a,"), 1u);
+        EXPECT_EQ(kOITAccumFormat, RGResourceFormat::RGBA32Float)
+            << "the accumulator must be 32-bit float; RGBA16F overflows on ~22 near layers (issue #1468)";
     }
 } // namespace OloEngine::Tests

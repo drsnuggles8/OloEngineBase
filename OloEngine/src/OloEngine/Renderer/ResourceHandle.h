@@ -589,13 +589,13 @@ namespace OloEngine::ResourceNames
     // OITResolve handoff on OITAccum / OITRevealage instead of falling back
     // to the older "both write SceneColor" approximation.
     // `OITBuffer` is the shared transient MRT framebuffer that backs both
-    // OITAccum (RT0 = RGBA16F) and OITRevealage (RT1 = RG16F), plus a
+    // OITAccum (RT0 = RGBA32F) and OITRevealage (RT1 = RG16F), plus a
     // graph-owned DEPTH24_STENCIL8 attachment seeded from SceneColor before
     // transparent contributors execute. `OITAccum` / `OITRevealage` are now
     // texture/depth attachment views derived from that framebuffer, not
     // duplicated framebuffer handles.
-    inline constexpr std::string_view OITBuffer = "OITBuffer";                   // Transient MRT FB (RT0=RGBA16F accum, RT1=RG16F revealage, D=DEPTH24_STENCIL8)
-    inline constexpr std::string_view OITAccum = "OITAccum";                     // RGBA16F accumulation attachment
+    inline constexpr std::string_view OITBuffer = "OITBuffer";                   // Transient MRT FB (RT0=RGBA32F accum, RT1=RG16F revealage, D=DEPTH24_STENCIL8)
+    inline constexpr std::string_view OITAccum = "OITAccum";                     // RGBA32F accumulation attachment
     inline constexpr std::string_view OITRevealage = "OITRevealage";             // RG16F revealage attachment
     inline constexpr std::string_view OITDepthAttachment = "OITDepthAttachment"; // DEPTH24_STENCIL8 depth attachment view
 } // namespace OloEngine::ResourceNames

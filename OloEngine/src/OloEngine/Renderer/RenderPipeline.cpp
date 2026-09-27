@@ -25,6 +25,7 @@
 #include "OloEngine/Renderer/GPUResourceQueue.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionState.h"
+#include "OloEngine/Renderer/OITBlendState.h"
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/CloudNoise.h"
 #include "OloEngine/Renderer/CloudShadowMap.h"
@@ -5256,8 +5257,9 @@ namespace OloEngine
         // OITPreparePass and OITResolvePass also self-skip via `m_Enabled`.
         if (const bool oitActive = config.OITEnabled && pipeline.SceneCompositePasses.OITResolve; oitActive)
         {
-            // Declare as a shared transient MRT framebuffer (RT0 = RGBA16F
-            // accumulation, RT1 = RG16F revealage, depth = DEPTH24_STENCIL8).
+            // Declare as a shared transient MRT framebuffer (RT0 = RGBA32F
+            // accumulation, kOITAccumFormat -- see there for why not 16F;
+            // RT1 = RG16F revealage, depth = DEPTH24_STENCIL8).
             // Both blackboard handles point to the same physical transient FB;
             // passes distinguish the two colour attachments by index (0 and 1).
             RGResourceDesc oitDesc;
@@ -5265,7 +5267,7 @@ namespace OloEngine
             oitDesc.Width = postProcessWidth;
             oitDesc.Height = postProcessHeight;
             oitDesc.Attachments = {
-                RGResourceFormat::RGBA16Float,
+                kOITAccumFormat,
                 RGResourceFormat::RG16Float,
                 RGResourceFormat::Depth24Stencil8
             };

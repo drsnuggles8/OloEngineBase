@@ -440,7 +440,7 @@ namespace OloEngine
         struct OITSlot
         {
             RGFramebufferHandle OITBuffer;      // Shared WB-OIT MRT framebuffer
-            RGTextureHandle OITAccum;           // WB-OIT RGBA16F accumulation attachment view
+            RGTextureHandle OITAccum;           // WB-OIT RGBA32F accumulation attachment view
             RGTextureHandle OITRevealage;       // WB-OIT RG16F revealage attachment view
             RGTextureHandle OITDepthAttachment; // WB-OIT depth attachment view seeded from SceneDepthAttachment
         };
