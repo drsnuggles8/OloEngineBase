@@ -319,6 +319,8 @@ void main()
     vec4 skinDiffuseAccum = vec4(0.0);
     // ...and the snow hand-off beside it (issue #1451), in its own range.
     vec4 snowDiffuseAccum = vec4(0.0);
+    int skinSamples = 0;
+    int firstSkinSlot = OLO_SKIN_DIFFUSE_SLOT_NONE;
     for (int s = 0; s < sampleCount; ++s)
     {
         float depth = texelFetch(u_GBufferDepth, pixel, s).r;
@@ -369,17 +371,28 @@ void main()
         else
         {
             skinDiffuseAccum += sampleSkinDiffuse;
+            if (sampleSkinDiffuse.a > 0.0)
+            {
+                ++skinSamples;
+                if (firstSkinSlot >= OLO_SKIN_DIFFUSE_SLOT_NONE)
+                    firstSkinSlot = oloSkinDiffusionSlot(sampleSkinDiffuse.a);
+            }
         }
     }
 
     vec3 color = accum / float(sampleCount);
     o_Color = vec4(color, 1.0);
     // The RADIANCE averages, but the SLOT lane does not: it is an identity, and
-    // the mean of two slot codes is a third code nobody wrote. Take the code the
-    // accumulated lane rounds to -- that is the slot a majority of the samples
-    // carried, and "no diffusion" when none did.
+    // the mean of two slot codes is a third code nobody wrote. It used to take
+    // the code the averaged lane rounds to, which is NOT the majority's: two
+    // samples of slot 6 beside two non-skin samples average to a code that
+    // decodes as slot 2 or 3, and a silhouette pixel diffused with another
+    // profile's kernel (issue #1393, which widened the field and made more
+    // codes to land on). Now it is the slot a skin sample actually wrote, taken
+    // when at least half the samples are skin -- the same coverage the rounding
+    // required -- the way GBufferFlagsResolve keeps one real sample's flags.
     skinDiffuseAccum /= float(sampleCount);
-    int resolvedSlot = oloSkinDiffusionSlot(skinDiffuseAccum.a);
+    int resolvedSlot = (skinSamples * 2 >= sampleCount) ? firstSkinSlot : OLO_SKIN_DIFFUSE_SLOT_NONE;
     o_SkinDiffuse = (resolvedSlot >= OLO_SKIN_DIFFUSE_SLOT_NONE)
                         ? vec4(0.0)
                         : vec4(skinDiffuseAccum.rgb, oloSkinDiffusionEncodeSlot(resolvedSlot));
