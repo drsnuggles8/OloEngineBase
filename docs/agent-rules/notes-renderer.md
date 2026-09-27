@@ -941,6 +941,12 @@ Two corollaries:
   buffer on a shared binding point is usually applied to SSBOs and forgotten for UBOs, and bindings
   7 and 8 are `UBO_USER_0` / `UBO_USER_1` — the post-process and motion-blur slots — so a destroyed
   buffer left there is handed to the next pass in the process.
+* **A buffer `Renderer3D::Init` creates goes in `RebindPersistentBuffers` as well.** That list is
+  re-bound before every graph run, so a slot something else emptied (deleting a bound buffer reverts
+  it to 0; so does a test's cleanup) is back before any shader reads it. Before #1511 each block was
+  patched separately after a long run lost it: fog (#446), motion blur, then snow, which lost its
+  slot to `GLStateGuardTest` and rendered bare ground in every later snow test.
+  `FrameBindingKnockoutTest` empties every UBO and SSBO slot and requires an identical frame.
 
 ## Tightening a loop bound moves every guard that was calibrated against it
 
