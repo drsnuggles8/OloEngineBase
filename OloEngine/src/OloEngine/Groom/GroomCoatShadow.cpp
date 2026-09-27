@@ -1341,10 +1341,10 @@ namespace OloEngine::GroomCoatShadow
         }
         const f32 step = voxelLength * stepScale;
         const f32 span = tExit - tEnter;
-        // Bounded so a degenerate step cannot spin: the cap is the number of
-        // steps a whole-diagonal march at one voxel per step would take, times
-        // a small factor for sub-voxel steps.
-        const i32 steps = std::clamp(static_cast<i32>(std::ceil(span / step)), 1, 8192);
+        // Bounded exactly as the shader bounds it (kMaxCoatMarchSteps), so this
+        // twin integrates the Riemann sum the GPU does; a degenerate step still
+        // cannot spin.
+        const i32 steps = std::clamp(static_cast<i32>(std::ceil(span / step)), 1, kMaxCoatMarchSteps);
         const f32 dt = span / static_cast<f32>(steps);
 
         const glm::vec3 invVoxel = 1.0f / voxel;

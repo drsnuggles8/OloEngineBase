@@ -322,6 +322,21 @@ namespace OloEngine
         decision.ShadowStep =
             AdvanceBudgetStep(policy.Shadow, pixelSize, policy.Hysteresis, policy.HoldFrames, state.ShadowStep,
                               state.RequestedShadowStep, state.ShadowStableFrames);
+        // NO EXTRA SHADOW STEP ON THE CARD TIER (#1508). The coat's own shadow
+        // LOD already coarsens the volume with distance; the ladder's step on
+        // top of it put the cards on a volume too coarse to resolve a coat a few
+        // centimetres thick, where a coarse volume's error depends on the
+        // representation. Against the ladder-off strands the card tier read
+        // 0.85 of their self-shadow at the hand-over and 1.23-1.30 far; without
+        // the extra step, 0.94-1.05 on both coats. A card bake is cheap -- the
+        // card level is a few percent of the strands' segments -- so this is the
+        // one place the ladder's shadow saving costs more than it buys. The
+        // state above still advances, so the strands pick the step up again the
+        // moment the coat hands back.
+        if (applied == GroomRepresentation::Card)
+        {
+            decision.ShadowStep = 0;
+        }
 
         decision.VisibilityFraction = GroomLodStepFraction(decision.VisibilityStep);
         decision.SimulationFraction = GroomLodStepFraction(decision.SimulationStep);

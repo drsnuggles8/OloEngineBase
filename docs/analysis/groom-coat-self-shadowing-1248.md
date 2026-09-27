@@ -187,6 +187,28 @@ quadrature, so refining the step buys nothing and the coarser step's smoothing h
 part of that bias. Three voxels per step is at or within noise of the minimum in all four cases and
 costs a third of the taps. Past four it degrades sharply on the pelt, which is the denser coat.
 
+### Finding 3: a coarse volume's error is the resolution's, not the march's (#1508)
+
+On a coat whose voxel is several times its thickness -- a horse at range, where the shadow LOD
+drops to 8-16 voxels over a 2.5 m body and a 3 cm coat -- the volume smears the layer and
+UNDER-shadows. On a horse-scaled pelt (0.5 m body, 3 cm coat, side light, truth 0.574):
+
+| march | 8^3 | 16^3 | 64^3 |
+|---|---|---|---|
+| 3 voxels (shipped) | 0.645 | 0.611 | 0.558 |
+| 0.5 voxel, or a fixed 1 cm step | 0.647 | 0.594 | 0.536 |
+| starting past the fragment's own voxel | 0.773 | 0.735 | 0.644 |
+
+No march recovers what the volume lost, so strands and cards on DIFFERENT coarse volumes read
+different errors. That was the card hand-over's brightness step: the ladder's extra shadow step
+put the cards a volume coarser than the strands. The card tier now takes no ladder shadow step
+(`GroomLod.cpp`), which brought the card/strand self-shadow ratio from 0.85-1.30 to 0.94-1.05 at
+the hand-over and far stops of both acceptance coats. Pinned by
+`GroomCoatShadowMarch.ACoarseVolumesErrorIsTheResolutionsAndNotTheMarchs` and
+`GroomLodBudget.TheCardTierTakesNoLadderShadowStep`. The CPU twin now caps the march at the
+shader's 64 steps (`kMaxCoatMarchSteps`); it allowed 8192, so fine-step CPU results described a
+march the GPU never ran.
+
 ## The decision, and the reasons
 
 **Selected: `AnisotropicDensityVolume`, 64 voxels on the longest axis, marched at 3 voxels per step.**

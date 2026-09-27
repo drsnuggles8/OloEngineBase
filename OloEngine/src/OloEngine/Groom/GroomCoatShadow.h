@@ -78,6 +78,13 @@ namespace OloEngine
 
     namespace GroomCoatShadow
     {
+        // The most steps one march takes, on BOTH sides: OLO_GROOM_COAT_MAX_STEPS
+        // in include/GroomCoatShadowCommon.glsl, where it is a compile-time bound
+        // for the AMD Mesa unroller's sake (glsl-shaders.md). A longer span takes
+        // longer steps. The CPU march used to allow 8192, so every CPU accuracy
+        // result past 64 steps described a march the GPU never ran (#1508).
+        inline constexpr i32 kMaxCoatMarchSteps = 64;
+
         // ── The geometry every candidate is built from ──────────────────────
 
         // One curve segment as a tapered cylinder, in the space the whole
