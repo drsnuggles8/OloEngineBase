@@ -5,6 +5,7 @@
 #include "Platform/OpenGL/OpenGLRHIConversions.h"
 #include "Platform/OpenGL/OpenGLTextureCubemap.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
+#include "OloEngine/Renderer/RHI/RHIResources.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
@@ -2825,6 +2826,32 @@ namespace OloEngine
     void OpenGLRendererAPI::SetTextureWrap(RHI::ResourceHandle texture, RHI::AddressMode wrap)
     {
         SetTextureWrap(Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture), wrap);
+    }
+
+    void OpenGLRendererAPI::SetTextureSampling(RHI::ResourceHandle texture, const RHI::SamplerDesc& sampler)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        const GLuint textureID = Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture);
+        if (textureID == 0)
+            return;
+        // Only what differs: once a bindless handle exists the texture's
+        // sampling state is immutable (ARB_bindless_texture), and a caller
+        // that re-states an unchanged desc every frame must not raise
+        // GL_INVALID_OPERATION on it.
+        const auto setIfDifferent = [textureID](GLenum pname, GLint wanted)
+        {
+            GLint current = 0;
+            glGetTextureParameteriv(textureID, pname, &current);
+            if (current != wanted)
+                glTextureParameteri(textureID, pname, wanted);
+        };
+        setIfDifferent(GL_TEXTURE_MIN_FILTER,
+                       static_cast<GLint>(Utils::ToGLMinFilter(sampler.MinFilter, sampler.LinearMipFilter)));
+        setIfDifferent(GL_TEXTURE_MAG_FILTER, static_cast<GLint>(Utils::ToGL(sampler.MagFilter)));
+        setIfDifferent(GL_TEXTURE_WRAP_S, static_cast<GLint>(Utils::ToGL(sampler.AddressU)));
+        setIfDifferent(GL_TEXTURE_WRAP_T, static_cast<GLint>(Utils::ToGL(sampler.AddressV)));
+        setIfDifferent(GL_TEXTURE_WRAP_R, static_cast<GLint>(Utils::ToGL(sampler.AddressW)));
     }
 
     void OpenGLRendererAPI::UploadTextureSubImage2D(RHI::ResourceHandle texture, u32 width, u32 height,

@@ -381,8 +381,23 @@ namespace OloEngine::Tests
             // header for why the forward path is not duplicated here). The
             // fixture snapshots/restores RendererSettings + PostProcess per
             // test, so neither change leaks into later tests.
-            Renderer3D::GetRendererSettings().Path = RenderingPath::Deferred;
+            // No editor overlays in a golden (#1484): the light gizmos, the
+            // world-axis helper and the camera's frustum lines were drawn into
+            // the frame these goldens compare, and when their rendering changed
+            // the goldens drifted (RMSE 8-11) while the lighting itself moved
+            // by under 1/255 of mean. Both levels, as the cascade fixture below
+            // explains: the renderer flags, and Scene's own gizmo switches,
+            // which only EditorLayer normally pushes.
+            auto& overlays = Renderer3D::GetRendererSettings();
+            overlays.Path = RenderingPath::Deferred;
+            overlays.ShowGrid = false;
+            overlays.ShowLightGizmos = false;
+            overlays.ShowWorldAxisHelper = false;
+            overlays.ShowCameraFrustums = false;
+            overlays.ShowComponentGizmos = false; // the DDGI volume's dashed bounds
             Renderer3D::ApplyRendererSettings();
+            scene.SetLightGizmosVisible(false);
+            scene.SetWorldAxisHelperVisible(false);
 
             // Determinism: TAA and auto-exposure are history/feedback effects
             // whose output depends on the whole preceding pose sequence.

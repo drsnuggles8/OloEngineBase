@@ -12,22 +12,6 @@ namespace OloEngine
 {
     namespace
     {
-        // `LinearMipFilter == false` means NO MIP FILTERING, not "nearest mip".
-        // Mapping it to a *_MIPMAP_* enum was a silent divergence between the two
-        // paths: SSAO's noise sampler sets the flag false, so the heap sampler
-        // would minify through a mip chain while the slot path used the texture's
-        // own non-mipmapped filter. Two variants of one shader that sample
-        // differently is exactly what this phase must not produce — the whole
-        // claim is that only the binding mechanism changes.
-        [[nodiscard]] GLenum ToGLMinFilter(RHI::Filter minFilter, bool linearMip)
-        {
-            if (minFilter == RHI::Filter::Nearest)
-            {
-                return linearMip ? GL_NEAREST_MIPMAP_LINEAR : GL_NEAREST;
-            }
-            return linearMip ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR;
-        }
-
         // Does a residency established as `current` already permit `wanted`?
         // READ_WRITE permits everything; the two narrow modes permit only
         // themselves. Used to decide whether a second acquire of the same handle
@@ -503,7 +487,7 @@ namespace OloEngine
         glCreateSamplers(1, &object);
 
         glSamplerParameteri(object, GL_TEXTURE_MIN_FILTER,
-                            static_cast<GLint>(ToGLMinFilter(sampler.MinFilter, sampler.LinearMipFilter)));
+                            static_cast<GLint>(Utils::ToGLMinFilter(sampler.MinFilter, sampler.LinearMipFilter)));
         glSamplerParameteri(object, GL_TEXTURE_MAG_FILTER, static_cast<GLint>(Utils::ToGL(sampler.MagFilter)));
         glSamplerParameteri(object, GL_TEXTURE_WRAP_S, static_cast<GLint>(Utils::ToGL(sampler.AddressU)));
         glSamplerParameteri(object, GL_TEXTURE_WRAP_T, static_cast<GLint>(Utils::ToGL(sampler.AddressV)));

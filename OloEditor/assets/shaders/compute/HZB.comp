@@ -30,9 +30,9 @@ layout(local_size_x = LOCAL_SIZE, local_size_y = LOCAL_SIZE, local_size_z = 1) i
 // ---------------------------------------------------------------------------
 layout(std140, binding = 59) uniform HZBParams
 {
-    vec2 u_DispatchThreadIdToBufferUV;  // 1.0 / dstMip0Size
-    vec2 u_InputViewportMaxBound;       // (srcSize - 0.5) / srcSize  (clamp bound)
-    vec2 u_InvSize;                     // 1.0 / srcMipSize
+    vec2 u_DispatchThreadIdToBufferUV;  // reserved: both passes address by integer texel (#1503)
+    vec2 u_InputViewportMaxBound;       // reserved
+    vec2 u_InvSize;                     // reserved
     int  u_FirstLod;                    // Starting destination mip level
     int  u_IsFirstPass;                 // 1 = read from scene depth, 0 = read from HZB
     int  u_ReduceOp;                    // 0 = max (farthest), 1 = min (nearest)
@@ -88,24 +88,25 @@ float Reduce4(vec4 v)
 }
 
 // ---------------------------------------------------------------------------
-// Gather 2x2 texels (the reduction operator is applied by the caller).
+// Gather the 2x2 parent block of destination texel `dstCoord` from parent mip
+// `lod` (the reduction operator is applied by the caller).
+//
+// texelFetch, not textureLod (issue #1503). The parent is this same HZB, read
+// through its own sampler, and on GL a compute-written chain never counts as
+// mipmapped: the object's min filter is GL_LINEAR, so textureLod ignored `lod`
+// and read LEVEL 0. Every GL level from the second batch up was built from
+// level-0 samples 2^lod texels apart, not from the true reduce of its parent,
+// so a max-HZB could under-report its farthest depth. Integer fetches of the
+// four parent texels are the reduce, whatever the sampler says.
 // ---------------------------------------------------------------------------
-vec4 Gather4(sampler2D tex, vec2 bufferUV, float lod)
+vec4 Gather4(sampler2D tex, ivec2 dstCoord, int lod)
 {
-    vec2 offsets[4] = vec2[4](
-        vec2(-0.5, -0.5),
-        vec2( 0.5, -0.5),
-        vec2(-0.5,  0.5),
-        vec2( 0.5,  0.5)
-    );
-
-    vec4 depth;
-    for (int i = 0; i < 4; i++)
-    {
-        vec2 uv = min(bufferUV + offsets[i] * u_InvSize, u_InputViewportMaxBound);
-        depth[i] = textureLod(tex, uv, lod).r;
-    }
-    return depth;
+    ivec2 parentMax = textureSize(tex, lod) - ivec2(1);
+    ivec2 base = dstCoord * 2;
+    return vec4(texelFetch(tex, min(base + ivec2(0, 0), parentMax), lod).r,
+                texelFetch(tex, min(base + ivec2(1, 0), parentMax), lod).r,
+                texelFetch(tex, min(base + ivec2(0, 1), parentMax), lod).r,
+                texelFetch(tex, min(base + ivec2(1, 1), parentMax), lod).r);
 }
 
 // ---------------------------------------------------------------------------
@@ -163,9 +164,6 @@ void main()
     ivec2 groupThreadId = InitialTilePixelPosition(gl_LocalInvocationIndex);
     ivec2 dispatchThreadId = ivec2(LOCAL_SIZE) * ivec2(gl_WorkGroupID.xy) + groupThreadId;
 
-    // UV of center of this texel in the destination mip
-    vec2 bufferUV = (vec2(dispatchThreadId) + vec2(0.5)) * u_DispatchThreadIdToBufferUV;
-
     // Mip 0 of this batch: first pass copies scene depth directly, subsequent reduce
     float reducedDepth;
     if (u_IsFirstPass != 0)
@@ -181,8 +179,8 @@ void main()
         // whole sky as geometry at the far plane, producing black/noisy
         // AO over the background (viewport-size dependent, appeared after
         // window maximize). HZB texels beyond the viewport sub-rect clamp
-        // to the depth image's edge texel (matches the previous
-        // u_InputViewportMaxBound clamp semantics).
+        // to the depth image's edge texel (the clamp the uv-mapped read
+        // used to do through u_InputViewportMaxBound, now reserved).
         //
         // The exact fetch is also this thread's contribution to the shared-
         // memory reduction below: the first pass writes mip 0 at 1:1 scale,
@@ -199,8 +197,8 @@ void main()
     else
     {
         // Subsequent batches: each thread covers a 2x2 block of the parent
-        // mip (u_DispatchThreadIdToBufferUV = 2 / parentSize), reduced here.
-        reducedDepth = Reduce4(Gather4(u_InputDepth, bufferUV, float(u_FirstLod - 1)));
+        // mip, fetched by integer texel coordinates and reduced here.
+        reducedDepth = Reduce4(Gather4(u_InputDepth, dispatchThreadId, u_FirstLod - 1));
         WriteMip(0, dispatchThreadId, reducedDepth);
     }
 

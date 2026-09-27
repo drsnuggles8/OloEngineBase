@@ -689,6 +689,43 @@ namespace OloEngine
         return s_Data.RGraph ? s_Data.RGraph->InvalidateTemporalHistories(cause, effect) : 0u;
     }
 
+    void Renderer3D::ResetFrameSequences()
+    {
+        s_Data.StochasticFrameIndex = 0;
+        s_Data.TAAJitterFrameIndex = 0;
+        s_Data.CurrJitterUV = glm::vec2(0.0f);
+        s_Data.PrevJitterUV = glm::vec2(0.0f);
+        s_Data.CloudFrameIndex = 0;
+        s_Data.FogFrameIndex = 0;
+        InvalidateTemporalHistories(TemporalHistoryInvalidationCause::JitterReset);
+    }
+
+    void Renderer3D::ResetFrameCamera()
+    {
+        s_Data.ViewProjectionMatrix = glm::mat4(1.0f);
+        s_Data.InverseViewProjectionMatrix = glm::mat4(1.0f);
+        s_Data.ViewMatrix = glm::mat4(1.0f);
+        s_Data.ProjectionMatrix = glm::mat4(1.0f);
+        s_Data.RenderOrigin = glm::vec3(0.0f);
+        s_Data.ViewFrustum = Frustum{};
+        s_Data.ViewPos = glm::vec3(0.0f);
+        s_Data.PreviousViewPos = glm::vec3(0.0f);
+        s_Data.HasPreviousViewPosition = false;
+        s_Data.CameraNearClip = 0.1f;
+        s_Data.CameraFarClip = 1000.0f;
+        s_Data.CullViewMatrix = glm::mat4(1.0f);
+        s_Data.CullProjectionMatrix = glm::mat4(1.0f);
+        s_Data.CullViewProjectionMatrix = glm::mat4(1.0f);
+        s_Data.CullViewPos = glm::vec3(0.0f);
+        s_Data.CullNearClip = 0.1f;
+        s_Data.CullFarClip = 1000.0f;
+        s_Data.CullPrevViewProjectionMatrix = glm::mat4(1.0f);
+        s_Data.CullViewProjectionRelative = glm::mat4(1.0f);
+        s_Data.CullViewPosRelative = glm::vec3(0.0f);
+        s_Data.CullProjParams = glm::vec2(1.0f, 0.1f);
+        s_Data.LODView = LODViewParams{};
+    }
+
     const GPUScene& Renderer3D::GetGPUScene()
     {
         return s_Data.SceneGPU;

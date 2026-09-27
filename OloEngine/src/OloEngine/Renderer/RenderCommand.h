@@ -541,6 +541,10 @@ namespace OloEngine
         {
             s_RendererAPI->SetTextureWrap(texture, wrap);
         }
+        static void SetTextureSampling(RHI::ResourceHandle texture, const RHI::SamplerDesc& sampler)
+        {
+            s_RendererAPI->SetTextureSampling(texture, sampler);
+        }
         static void UploadTextureSubImage2D(RHI::ResourceHandle texture, u32 width, u32 height,
                                             RHI::Format sourceFormat, const void* data)
         {

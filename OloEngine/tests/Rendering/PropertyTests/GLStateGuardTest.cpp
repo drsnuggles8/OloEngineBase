@@ -542,6 +542,17 @@ namespace OloEngine::Tests
     {
         OLO_ENSURE_GPU_OR_SKIP();
 
+        // Slot 13 is UBO_SNOW and texture unit 6 TEX_ROUGHNESS: the engine owns
+        // both, and its binding caches believe whatever it last bound there is
+        // still bound. Hand back exactly what was found, not zero — cleaning up
+        // to 0 left the snow UBO unbound behind a cache that skipped the rebind,
+        // and a later SnowLayerTest's blur read no parameters (#1484). Read
+        // BEFORE creating the UBO: its constructor binds it to slot 13.
+        GLint enteredTex = 0;
+        GLint enteredUbo = 0;
+        ::glGetIntegeri_v(GL_TEXTURE_BINDING_2D, 6, &enteredTex);
+        ::glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING, 13, &enteredUbo);
+
         const u32 tex = CreateUniformFloatTexture2D(8, 8, 0.1f, 0.2f, 0.3f, 1.0f);
         auto ubo = UniformBuffer::Create(64, 13);
         const GLuint uboHandle = static_cast<GLuint>(ubo->GetRendererID());
@@ -605,9 +616,9 @@ namespace OloEngine::Tests
         EXPECT_TRUE(containsAfterHeader("UBO[13]"))
             << "expected UBO[13] leak diagnostic following guard header";
 
-        // Cleanup.
-        ::glBindTextureUnit(6, 0);
-        ::glBindBufferBase(GL_UNIFORM_BUFFER, 13, 0);
+        // Cleanup: restore the engine's bindings, then drop this test's objects.
+        ::glBindTextureUnit(6, static_cast<GLuint>(enteredTex));
+        ::glBindBufferBase(GL_UNIFORM_BUFFER, 13, static_cast<GLuint>(enteredUbo));
         ::glDeleteTextures(1, reinterpret_cast<const GLuint*>(&tex));
     }
 } // namespace OloEngine::Tests
