@@ -32,6 +32,7 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <cstring>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -201,8 +202,28 @@ namespace OloEngine::Tests
             std::fflush(stdout);
         }
 
+        // Driver messages: radeonsi reports each compiled shader's statistics
+        // (including scratch bytes per wave) and any allocation failure here.
+        void GLAD_API_PTR LogDriverMessage(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length,
+                                           const GLchar* message, const void*)
+        {
+            const std::string text(message, length > 0 ? static_cast<sizet>(length) : std::strlen(message));
+            const bool scratch = text.find("Scratch") != std::string::npos && text.find("Scratch: 0 ") == std::string::npos;
+            const bool severe = severity == GL_DEBUG_SEVERITY_HIGH || type == GL_DEBUG_TYPE_ERROR;
+            const bool memory = text.find("memory") != std::string::npos || text.find("Memory") != std::string::npos;
+            if (!scratch && !severe && !memory)
+                return;
+            std::printf("[foliage-driver] src 0x%x type 0x%x id %u sev 0x%x: %s\n", source, type, id, severity,
+                        text.substr(0, 600).c_str());
+            std::fflush(stdout);
+        }
+
         void InstallAllocationLog()
         {
+            ::glEnable(GL_DEBUG_OUTPUT);
+            ::glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
+            ::glDebugMessageCallback(LogDriverMessage, nullptr);
+            ::glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, nullptr, GL_TRUE);
             if (s_RealStorage2D != nullptr)
                 return;
             s_RealStorage2D = glad_glTextureStorage2D;
