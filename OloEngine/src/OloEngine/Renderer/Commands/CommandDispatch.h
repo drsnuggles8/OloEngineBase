@@ -100,6 +100,10 @@ namespace OloEngine
         // written into a dedicated depth target for the underwater fog. The depth
         // prepass deliberately no-ops blended geometry, so this needs its own flag.
         static void SetWaterDepthCaptureActive(bool active);
+        // The size of the target the water pass draws into, for the water UBO's
+        // ScreenParams. Set by WaterRenderPass before its bucket runs (issue
+        // #1486: the field used to come from a viewport nothing ever set).
+        static void SetWaterTargetSize(u32 width, u32 height);
         static void SetViewProjectionMatrix(const glm::mat4& vp);
         static void SetViewMatrix(const glm::mat4& view);
         static void SetProjectionMatrix(const glm::mat4& projection);

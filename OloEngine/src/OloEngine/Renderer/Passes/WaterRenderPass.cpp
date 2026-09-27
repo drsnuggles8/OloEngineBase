@@ -194,6 +194,7 @@ namespace OloEngine
                                         fbWidth, fbHeight);
 
         m_SceneFramebuffer->Bind();
+        CommandDispatch::SetWaterTargetSize(fbWidth, fbHeight);
 
         // PUBLISH, NOT BIND — and the distinction is forced by this pass's shape.
         //

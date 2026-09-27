@@ -701,7 +701,15 @@ void main()
     }
 
     // --- Screen-space UV ---
-    vec2 screenUV = gl_FragCoord.xy * u_ScreenParams.zw;
+    // From the size of the texture it indexes, not from u_ScreenParams (issue
+    // #1486): that field was filled from a CommandDispatch viewport nothing
+    // ever set, so it was zero and every water fragment read the ONE scene
+    // depth texel at (0, 0). Which texel that is differs per backend and path
+    // (bottom-left on GL, top-left on Vulkan), so the shoreline foam depended
+    // on whatever stood in that corner: foam over the whole surface on Vulkan
+    // Forward, plausible water elsewhere. The scene-depth snapshot is exactly
+    // this pass's render-target size.
+    vec2 screenUV = gl_FragCoord.xy / vec2(textureSize(u_SceneDepth, 0));
 
     // --- Depth Softening ---
     // GL-convention row extraction — needs the reconstruction flavour (#691)
