@@ -44,6 +44,9 @@
 #include <glm/glm.hpp>
 
 #include <cmath>
+#include <string_view>
+#include <numeric>
+#include <array>
 #include <filesystem>
 #include <fstream>
 #include <limits>
@@ -859,5 +862,126 @@ namespace OloEngine::Tests
                                              .Resolution = TemporalHistoryResolution::Scene,
                                              .Plane = TemporalHistoryPlane::ReservoirSample };
         EXPECT_FALSE(sample == pathTracer);
+    }
+
+    // Issue #1483, the MIS participation rule, as an exact expectation over a
+    // small discrete domain. Two reservoirs, the centre c and a neighbour n,
+    // each hold one sample drawn from its own target (an ideal reservoir: W =
+    // Z / pHat(y), so f * W is unbiased). The neighbour's sample is KILLED with
+    // probability q (visibility reuse sets its W to 0 but keeps M), and the
+    // estimate of the integral of pHat_c is sum_i m_i(y_i) pHat_c(y_i) W_i.
+    //
+    // The shader used to drop a killed neighbour from the MIS set, which took its
+    // M_n * pHat_n(y) term out of the centre sample's balance-heuristic
+    // denominator exactly in the events where its own term was zero. The weights
+    // then sum to more than one and the estimate is biased UP by q times the
+    // neighbour's MIS share of the centre's own samples. Keeping it in the set
+    // is exact.
+    TEST(ReSTIRDIContract, ASpatialNeighbourWhoseOwnSampleIsKilledStaysInTheMISSet)
+    {
+        constexpr u32 kDomain = 5;
+        // Two different targets over the same five "lights", like a glossy lobe
+        // seen from two neighbouring pixels.
+        const std::array<f32, kDomain> targetC = { 4.0f, 1.0f, 0.5f, 2.0f, 0.1f };
+        const std::array<f32, kDomain> targetN = { 1.0f, 3.0f, 0.2f, 2.5f, 1.2f };
+        const f32 zC = std::accumulate(targetC.begin(), targetC.end(), 0.0f);
+        const f32 zN = std::accumulate(targetN.begin(), targetN.end(), 0.0f);
+        const std::array<f32, 2> confidenceM = { 20.0f, 20.0f };
+        constexpr f32 kKillProbability = 0.3f;
+
+        // targetPdfMatrix[i * 2 + j] = pHat_i(y) for the two candidates' samples.
+        const auto misWeight = [&](u32 selected, u32 yC, u32 yN, u32 count)
+        {
+            const f32 matrix[4] = { targetC[yC], targetC[yN], targetN[yC], targetN[yN] };
+            return BalanceHeuristicMISWeight(selected, selected, matrix, confidenceM.data(), count);
+        };
+
+        f64 keep = 0.0;
+        f64 drop = 0.0;
+        for (u32 yC = 0; yC < kDomain; ++yC)
+        {
+            for (u32 yN = 0; yN < kDomain; ++yN)
+            {
+                const f64 p = (targetC[yC] / zC) * (targetN[yN] / zN);
+                const f64 centreTerm = static_cast<f64>(targetC[yC]) * (zC / targetC[yC]); // pHat_c(y_c) W_c
+                const f64 neighbourTerm = static_cast<f64>(targetC[yN]) * (zN / targetN[yN]);
+                // Alive: both candidates in the set, both contribute.
+                const f64 alive = misWeight(0, yC, yN, 2) * centreTerm + misWeight(1, yC, yN, 2) * neighbourTerm;
+                // Killed, kept in the set: the neighbour contributes zero, its
+                // term still sits in the centre's denominator.
+                const f64 killedKept = misWeight(0, yC, yN, 2) * centreTerm;
+                // Killed, dropped (the old gather): the centre is alone.
+                const f64 killedDropped = misWeight(0, yC, yN, 1) * centreTerm;
+                keep += p * ((1.0 - kKillProbability) * alive + kKillProbability * killedKept);
+                drop += p * ((1.0 - kKillProbability) * alive + kKillProbability * killedDropped);
+            }
+        }
+        // What the kept rule estimates: the integral of pHat_c over the samples
+        // the centre and the SURVIVING neighbour can produce. With the kill
+        // independent of the sample, that is zC scaled by the survival of the
+        // neighbour's share.
+        f64 expected = 0.0;
+        for (u32 y = 0; y < kDomain; ++y)
+        {
+            const f64 mC = confidenceM[0] * targetC[y];
+            const f64 mN = confidenceM[1] * targetN[y];
+            expected += targetC[y] * (mC + (1.0 - kKillProbability) * mN) / (mC + mN);
+        }
+        EXPECT_NEAR(keep, expected, 1.0e-4 * expected) << "keeping a killed neighbour in the MIS set is exact";
+        EXPECT_GT(drop, expected * 1.02) << "negative control: dropping it must overshoot, or this model proves nothing";
+        EXPECT_GT(drop, keep);
+    }
+
+    // Issue #1483. Spatial and temporal reuse read whole reservoir texels. The
+    // planes are bound with a LINEAR sampler, and texture() at a neighbour's
+    // sub-texel disc offset (or a moving camera's reprojected UV) blended up to
+    // four reservoirs into one no pixel held: averaged W and M, a light between
+    // lights, an identity lane whose rounded average named another light kind.
+    // On a glossy lobe that biased W up and specular came out 1.5-3.5x too bright.
+    // Counted, not detected: a partial revert leaves one texture() read behind.
+    TEST(ReSTIRDIContract, ReuseReadsWholeReservoirTexels)
+    {
+        const auto count = [](const std::string& haystack, std::string_view needle)
+        {
+            sizet n = 0;
+            for (sizet at = haystack.find(needle); at != std::string::npos; at = haystack.find(needle, at + 1))
+                ++n;
+            return n;
+        };
+        for (const char* shader : { "ReSTIR_DI_SpatialReuse.glsl", "ReSTIR_GI_SpatialReuse.glsl" })
+        {
+            SCOPED_TRACE(shader);
+            const std::string source = ReadTextFile(ResolveShaderPath(shader));
+            ASSERT_FALSE(source.empty());
+            EXPECT_EQ(count(source, "texture(u_Reservoir"), 0u);
+            EXPECT_EQ(count(source, "texture(u_DepthTexture"), 0u);
+            EXPECT_EQ(count(source, "texture(u_GBuffer"), 0u);
+            EXPECT_EQ(count(source, "OLO_RESTIR_FETCH(u_Reservoir"), 3u);
+            EXPECT_EQ(count(source, "floor(gl_FragCoord.xy + offsetPixels)"), 1u)
+                << "the neighbour must be a whole pixel";
+        }
+        for (const char* shader : { "ReSTIR_DI_TemporalReuse.glsl", "ReSTIR_GI_TemporalReuse.glsl" })
+        {
+            SCOPED_TRACE(shader);
+            const std::string source = ReadTextFile(ResolveShaderPath(shader));
+            ASSERT_FALSE(source.empty());
+            EXPECT_EQ(count(source, "texture(u_HistoryReservoir"), 0u);
+            EXPECT_EQ(count(source, "texture(u_HistorySurface"), 0u);
+            EXPECT_EQ(count(source, "OLO_RESTIR_FETCH(u_HistoryReservoir"), 3u);
+        }
+        // The spatial gather decides participation on the geometric gate alone.
+        const std::string spatial = ReadTextFile(ResolveShaderPath("ReSTIR_DI_SpatialReuse.glsl"));
+        EXPECT_EQ(count(spatial, "OloReservoirIsEmpty(neighbour.Reservoir) || !(neighbour.Reservoir.W > 0.0)"), 0u)
+            << "a neighbour whose own sample cannot contribute must stay in the MIS set "
+               "(ASpatialNeighbourWhoseOwnSampleIsKilledStaysInTheMISSet)";
+
+        // A punctual or sphere light's radiance is evaluated at the receiving
+        // surface, not carried from the pixel that drew the sample.
+        const std::string common = ReadTextFile(ResolveShaderPath("include/ReSTIRDICommon.glsl"));
+        ASSERT_FALSE(common.empty());
+        EXPECT_EQ(count(common, "f * lightSample.Radiance"), 0u);
+        EXPECT_EQ(count(common, "return f * radiance * nDotL;"), 1u);
+        EXPECT_EQ(count(common, "OloViewPunctualLight(light, surface.Position, u_EstimatorParams.y)"), 2u)
+            << "the candidate draw and the reused contribution both evaluate the light at the surface";
     }
 } // namespace OloEngine::Tests

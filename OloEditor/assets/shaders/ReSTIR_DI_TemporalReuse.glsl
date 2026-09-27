@@ -153,6 +153,16 @@ OloSurfaceHistoryRecord MakeReSTIRSurface(vec4 packed, vec2 motion)
     return result;
 }
 
+// ONE TEXEL of `tex` at `uv`, never a blend (issue #1483). The history planes
+// are bound with a LINEAR sampler, and a moving camera's reprojected UV lands
+// between texel centres, so texture() blended up to four reservoirs into one
+// that no pixel ever held: averaged W and M, a sample between real ones, and an
+// identity lane whose rounded average named a different light. The history
+// pixel is the one the reprojection lands in. A macro because a heap-bindless
+// sampler cannot be passed as a function argument.
+#define OLO_RESTIR_FETCH(tex, uv) \
+    texelFetch(tex, clamp(ivec2((uv) * vec2(textureSize(tex, 0))), ivec2(0), textureSize(tex, 0) - ivec2(1)), 0)
+
 void main()
 {
     const vec4 current0 = texture(u_Reservoir0, v_TexCoord);
@@ -189,13 +199,17 @@ void main()
 
     const vec2 velocity = texture(u_GVelocity, v_TexCoord).xy;
     const vec2 prevUV = v_TexCoord - velocity;
+    // The history pixel the reprojection lands in, at its texel centre. Every
+    // history read below and the previous shading point use it, so they all
+    // describe the one pixel whose reservoir is reused.
+    const vec2 historyUV = (floor(prevUV * u_ScreenParams.xy) + 0.5) * u_ScreenParams.zw;
 
     const bool historyAvailable = (u_EmissiveTable.w & OLO_RESTIR_FLAG_HISTORY_VALID) != 0u;
     const bool historySampleAvailable = historyAvailable && OloTemporalHistoryUVValid(prevUV);
 
     const vec4 currentSurfacePacked = vec4(packedNormal.xy, packedNormal.z, surface.ViewDepth);
     const vec4 previousSurfacePacked =
-        historySampleAvailable ? texture(u_HistorySurface, prevUV) : currentSurfacePacked;
+        historySampleAvailable ? OLO_RESTIR_FETCH(u_HistorySurface, historyUV) : currentSurfacePacked;
 
     OloSurfaceHistorySettings validity;
     // Only the tests this tier has data for. See MakeReSTIRSurface.
@@ -228,9 +242,9 @@ void main()
         return;
     }
 
-    const OloReservoir history = OloUnpackReservoir(texture(u_HistoryReservoir0, prevUV),
-                                                   texture(u_HistoryReservoir1, prevUV),
-                                                   texture(u_HistoryReservoir2, prevUV));
+    const OloReservoir history = OloUnpackReservoir(OLO_RESTIR_FETCH(u_HistoryReservoir0, historyUV),
+                                                   OLO_RESTIR_FETCH(u_HistoryReservoir1, historyUV),
+                                                   OLO_RESTIR_FETCH(u_HistoryReservoir2, historyUV));
 
     // Both reservoirs are re-evaluated against THIS pixel's target function.
     // Re-evaluating rather than trusting the stored TargetPdf is the whole point:

@@ -92,13 +92,43 @@ vec3 OloReSTIRUnshadowedContribution(OloReSTIRSurface surface, OloLightSample li
     if (!(nDotL > 0.0))
         return vec3(0.0);
 
+    // A punctual or sphere light's "radiance" carries its distance falloff and
+    // range window, which are functions of the RECEIVER. The value in the sample
+    // was evaluated at the pixel that DREW it; reused at another pixel (spatial
+    // reuse, and through the history any pixel the chain has visited) it lit
+    // that pixel as if it stood where the drawing pixel stood -- a pixel outside
+    // a light's range window lit by a sample drawn inside it. Re-evaluate at this
+    // surface (issue #1483). An emissive triangle's radiance does not depend on
+    // the receiver, so its stored value is exact.
+    vec3 radiance = lightSample.Radiance;
+    if (lightSample.Kind == OLO_LIGHT_SAMPLE_PUNCTUAL || lightSample.Kind == OLO_LIGHT_SAMPLE_SPHERE_AREA)
+    {
+        if (lightSample.LightIndex >= min(u_SlotCounts.w, OLO_LIGHT_MAX_SLOTS))
+            return vec3(0.0);
+        const GPUSceneLight light = g_GPUSceneLights[lightSample.LightIndex];
+        if (lightSample.Kind == OLO_LIGHT_SAMPLE_PUNCTUAL)
+        {
+            const OloPunctualLightView view = OloViewPunctualLight(light, surface.Position, u_EstimatorParams.y);
+            if (!view.Valid || view.Directional)
+                return vec3(0.0);
+            radiance = view.Radiance;
+        }
+        else
+        {
+            const OloSphereLightView view = OloViewSphereLight(light, surface.Position);
+            if (!view.Valid)
+                return vec3(0.0);
+            radiance = view.Radiance;
+        }
+    }
+
     // evaluatePBRClosure is the #975 versioned dispatch — the SAME function the
     // deferred lighting pass and the path tracer's PtEvaluateBRDF route
     // through, so the oracle and the tier being validated against it shade a
     // surface with one BRDF rather than with two plausible ones.
     vec3 f = evaluatePBRClosure(surface.PbrModel, surface.ShadingNormal, viewDirection, l, surface.Albedo,
                                 surface.Metallic, surface.Roughness);
-    return f * lightSample.Radiance * nDotL;
+    return f * radiance * nDotL;
 }
 
 // The scalar the resampling actually compares. A luminance-weighted norm rather

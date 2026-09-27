@@ -374,18 +374,34 @@ class Session:
                     status = availability.get("status", stats.get("status", "inactive"))
                     reason = availability.get("fallbackReason") or stats.get("fallbackReason") or json.dumps(stats)[:300]
                     raise EngagementError("%s reports the tier inactive (%s): %s" % (tool, status, reason))
-            values = {}
-            for region in regions:
-                values[region["name"]] = [self.probe(x, y, width, height) for x, y in region["pixels"]]
+            frames = max(1, self.args.average_frames)
+            per_frame = []  # [frame] -> {region: [pixel rgb]}
+            for frame in range(frames):
+                if frame > 0:
+                    self.probe(first[0], first[1], width, height, force_frame=True)
+                per_frame.append({region["name"]: [self.probe(x, y, width, height) for x, y in region["pixels"]]
+                                  for region in regions})
+            # Every pixel's value averaged over the frames read (--average-frames): a resampled
+            # estimator (ReSTIR DI on a glossy tile) swings tens of percent per frame, so one
+            # frame cannot be held to a 5 % bound whether or not the estimator is biased.
+            values = {name: [mean([f[name][i] for f in per_frame]) for i in range(len(pixels))]
+                      for name, pixels in per_frame[0].items()}
             # Settle control: the first region's MEAN, read again one rendered frame later,
             # held to the probe's own cross-arm tolerance around that mean. A single pixel is
             # the wrong control for a per-frame-noisy estimator (SSGI) and an absolute bound is
             # the wrong one for a large value (a 722-unit mirror highlight): both failed a
-            # comparison that held.
-            self.probe(first[0], first[1], width, height, force_frame=True)
-            again = mean([self.probe(x, y, width, height) for x, y in regions[0]["pixels"]])
-            before = mean(values[regions[0]["name"]])
+            # comparison that held. Averaging K frames, the control is the first half's mean
+            # against the second half's, so it is judged at the same noise level as the value.
             tol = self.cross_tolerance
+            name0 = regions[0]["name"]
+            if frames > 1:
+                half = frames // 2
+                before = mean([mean(f[name0]) for f in per_frame[:half]])
+                again = mean([mean(f[name0]) for f in per_frame[half:]])
+            else:
+                self.probe(first[0], first[1], width, height, force_frame=True)
+                again = mean([self.probe(x, y, width, height) for x, y in regions[0]["pixels"]])
+                before = mean(values[name0])
             drift = max(abs(a - b) / (tol["relative"] * abs(b) + tol["absolute"]) for a, b in zip(again, before))
             return values, drift
         finally:
@@ -507,6 +523,9 @@ def main():
                     help="the editor project's asset directory (olo_scene_open's relative-path root)")
     ap.add_argument("--restore-scene", default="", help="scene to reopen at the end (default: <name>.olo of the "
                                                          "scene open at the start, found under --project-assets)")
+    ap.add_argument("--average-frames", type=int, default=1,
+                    help="read every pixel over this many rendered frames and compare the mean (a resampled "
+                         "estimator is noisy per frame; issue #1483 measured over 12-24)")
     ap.add_argument("--settle-calls", type=int, default=4,
                     help="forceFrame probes before reading (each renders >= 2 frames; the fixture renders 8)")
     args = ap.parse_args()
