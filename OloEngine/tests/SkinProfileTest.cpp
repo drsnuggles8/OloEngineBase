@@ -716,7 +716,7 @@ namespace OloEngine::Tests
         static_assert(kMaxSkinProfileSlots >= 14u, "two complete faces need fourteen slots");
         SkinProfileTable table;
         const std::array<const char*, 7> face = { "ReferenceHead", "EyeIris", "EyeTearLine", "OralLip",
-                                                  "OralTongue",    "OralGum", "OralEnamel" };
+                                                  "OralTongue", "OralGum", "OralEnamel" };
         std::set<u32> slots;
         for (const char* character : { "A_", "B_" })
         {

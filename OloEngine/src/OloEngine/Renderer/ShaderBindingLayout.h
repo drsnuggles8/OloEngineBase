@@ -225,7 +225,7 @@ namespace OloEngine
             // docs/adr/0024-material-kind-is-not-the-closure-version.md. Both
             // are neutral at 0/none, so a material that never touches the new
             // setters uploads the bytes it uploaded before.
-            i32 MaterialKind = 0;    // MaterialKind enum: 0=Generic, 1=Snow, 2=Skin
+            i32 MaterialKind = 0;     // MaterialKind enum: 0=Generic, 1=Snow, 2=Skin
             i32 SkinProfileSlot = 15; // kSkinProfileSlotNone -- "this material names no profile"
 
             // The profile's own contribution to THIS pass, resolved on the CPU
