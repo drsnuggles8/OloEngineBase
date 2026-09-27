@@ -82,6 +82,15 @@ namespace OloEngine
         // Upload UBO with Enabled=0 (called by shared scene-resource rebinding as baseline)
         void UploadDisabledUBO();
 
+        // Publish the light and grid SSBOs (bindings 9-12, 18) without touching
+        // the UBO. BindForShading does this every frame; the shared scene-
+        // resource rebinding does it too, because a pass that REPLAYS a
+        // ForwardPlusCommon.glsl shader after ScenePass (planar reflection)
+        // otherwise finds the slots empty: an active frame's UnbindAfterShading
+        // releases them, and a GPUScene table reallocation at 9/10 displaces
+        // and then unbinds whatever held them (issue #1487).
+        void PublishBuffers() const;
+
         // Should Forward+ be active this frame?
         [[nodiscard]] bool ShouldUseForwardPlus() const;
 

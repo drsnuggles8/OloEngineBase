@@ -37,6 +37,7 @@
 
 #include "RendererAttachedTest.h"
 
+#include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/LightCulling/TiledForwardPlus.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
@@ -132,5 +133,58 @@ namespace OloEngine::Tests
             EXPECT_NE(BoundStorageBuffer(binding), 0)
                 << "binding " << binding << " was emptied by UnbindAfterShading on an INACTIVE frame";
         }
+    }
+
+    // Issue #1487. An ACTIVE Forward+ frame's UnbindAfterShading empties 9-12
+    // and 18 at the end of ScenePass. Planar reflection then replays the opaque
+    // bucket (PBR_MultiLight, Terrain_PBR) through BindSceneResources, which
+    // uploads a disabled Forward+ UBO but published no buffers, so Vulkan logged
+    // fifteen "STORAGE binding N has no published occupant" errors on the first
+    // Forward+ frame with water reflections. The shared scene-resource rebind
+    // is the one call every replay makes, so it is where the occupants belong.
+    TEST_F(ForwardPlusInactiveBinding, SceneResourceRebindRepublishesTheBuffersAfterAnActiveFramesUnbind)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        TiledForwardPlus& forwardPlus = Renderer3D::GetForwardPlus();
+        ASSERT_TRUE(forwardPlus.IsInitialized()) << "Forward+ never initialised, so there is nothing to publish";
+
+        struct ModeRestore
+        {
+            TiledForwardPlus& ForwardPlus;
+            ForwardPlusMode Saved;
+            ~ModeRestore()
+            {
+                ForwardPlus.SetMode(Saved);
+                ForwardPlus.SetLights({}, {}, {});
+            }
+        } restore{ forwardPlus, forwardPlus.GetMode() };
+        forwardPlus.SetMode(ForwardPlusMode::Always);
+        const std::array<GPUPointLight, 1> light{ GPUPointLight{ glm::vec4(0.0f, 1.0f, 0.0f, 4.0f),
+                                                                 glm::vec4(1.0f), glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f) } };
+        forwardPlus.SetLights(light, {}, {});
+        ASSERT_TRUE(forwardPlus.IsActive()) << "the precondition is an ACTIVE Forward+ frame";
+
+        forwardPlus.BindForShading();
+        forwardPlus.UnbindAfterShading();
+        for (const u32 binding : kForwardPlusShadingBindings)
+        {
+            ASSERT_EQ(BoundStorageBuffer(binding), 0)
+                << "precondition: an active frame's UnbindAfterShading empties binding " << binding;
+        }
+
+        CommandDispatch::BindSceneResources();
+        for (const u32 binding : kForwardPlusShadingBindings)
+        {
+            EXPECT_NE(BoundStorageBuffer(binding), 0)
+                << "binding " << binding
+                << " is still empty after BindSceneResources, so a replay of a ForwardPlusCommon.glsl shader "
+                   "after ScenePass (planar reflection) draws against no occupant — an [error] per shader on "
+                   "Vulkan (issue #1487).";
+        }
+        const LightGrid& grid = forwardPlus.GetLightGrid();
+        ASSERT_TRUE(grid.GetLightIndexSSBO() && grid.GetLightGridSSBO());
+        EXPECT_EQ(static_cast<u32>(BoundStorageBuffer(ShaderBindingLayout::SSBO_FPLUS_LIGHT_GRID)),
+                  grid.GetLightGridSSBO()->GetRendererID());
     }
 } // namespace OloEngine::Tests

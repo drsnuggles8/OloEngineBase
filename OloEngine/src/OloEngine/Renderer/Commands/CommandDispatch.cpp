@@ -1779,6 +1779,13 @@ namespace OloEngine
         if (s_FrameData.ForwardPlus)
         {
             s_FrameData.ForwardPlus->UploadDisabledUBO();
+            // The disabled UBO keeps a replayed ForwardPlusCommon.glsl shader
+            // from READING bindings 9-12 and 18, but it still DECLARES them,
+            // and Vulkan logs an [error] per shader for a declared storage
+            // binding with no occupant. The planar-reflection replay runs after
+            // ScenePass's UnbindAfterShading emptied them (issue #1487). Their
+            // other tenant, GPUScene (9/10), binds its own tables per pass.
+            s_FrameData.ForwardPlus->PublishBuffers();
         }
 
         // Publish all shared PBR sampled inputs before the fork, including
