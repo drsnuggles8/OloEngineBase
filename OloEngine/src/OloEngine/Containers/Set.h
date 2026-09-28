@@ -98,6 +98,10 @@ namespace OloEngine
 
 namespace OloEngine
 {
+    // ContainerAllocationPolicies.h (included above) defines OLO_USE_COMPACT_SET_AS_DEFAULT to 0
+    // before this header's own default of 1 is reached, so TSet is TSparseSet in every TU (#1500).
+    static_assert(std::is_same_v<TSet<i32>, TSparseSet<i32>>, "TSet is expected to be TSparseSet (#1500)");
+
     // ============================================================================
     // Common GetTypeHash for sets (works with either implementation)
     // ============================================================================
