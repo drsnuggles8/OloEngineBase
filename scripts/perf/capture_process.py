@@ -31,6 +31,14 @@ def editor_preferences(arm):
     return {'path': str(path), 'sha256': hashlib.sha256(raw).hexdigest(),
             'values': preferences}
 
+
+def check_editor_preference_load(repo, launched_at):
+    path = Path(repo) / 'OloEditor/OloEngine.log'
+    if path.stat().st_mtime < launched_at:
+        raise ValueError('editor startup log is stale; preference loading is unverified')
+    if b'EditorPreferences: failed to parse' in path.read_bytes():
+        raise ValueError('editor rejected preferences and may have retained rendering throttles')
+
 from editor_mcp import Client
 
 
@@ -58,6 +66,7 @@ def run_capture(arm, manifest, destination, environment, timeout, stdout, stderr
         env.pop('OLO_CAPTURE_TEST_DELAY_MS', None)
         command = [exe, '--rhi=' + arm['backend']]
         start = time.perf_counter()
+        launched_at = time.time()
         process = subprocess.Popen(command, cwd=Path(arm['repo']) / 'OloEditor', env=env,
                                    stdout=stdout, stderr=stderr)
         try:
@@ -75,6 +84,7 @@ def run_capture(arm, manifest, destination, environment, timeout, stdout, stderr
                 if client is None:
                     time.sleep(.25)
             client.wait_ready(timeout=timeout)
+            check_editor_preference_load(arm['repo'], launched_at)
             ready = time.perf_counter() - start
             result = client.tool('olo_benchmark_capture', manifest=str(manifest.resolve()),
                                  outDir=str(destination.resolve()))

@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
-from capture_process import editor_preferences
+from capture_process import editor_preferences, check_editor_preference_load
 
 spec = importlib.util.spec_from_file_location('controlled_benchmark', Path(__file__).with_name('controlled-benchmark.py'))
 capture = importlib.util.module_from_spec(spec)
@@ -17,6 +17,18 @@ spec.loader.exec_module(capture)
 
 
 class CaptureValidityTest(unittest.TestCase):
+    def test_editor_preference_parse_warning_rejects_apparent_valid_settings(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'OloEditor/OloEngine.log'
+            path.parent.mkdir(parents=True)
+            path.write_text('EditorPreferences: failed to parse one or more values, using defaults\n')
+            with self.assertRaisesRegex(ValueError, 'rejected preferences'):
+                check_editor_preference_load(temporary, 0)
+            path.write_text('Editor ready\n')
+            check_editor_preference_load(temporary, 0)
+            with self.assertRaisesRegex(ValueError, 'stale'):
+                check_editor_preference_load(temporary, path.stat().st_mtime + 1)
+
     @unittest.skipUnless(os.name == 'nt', 'Windows host-process probe')
     def test_running_engine_test_process_is_contention(self):
         with tempfile.TemporaryDirectory() as temporary:

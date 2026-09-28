@@ -43,7 +43,9 @@ before opening the benchmark workload. The test host does not instrument startup
 Install `PyYAML` for editor captures. In each arm's
 `OloEditor/SandboxProject/EditorPreferences.yaml`, explicitly disable
 `ThrottleEditMode`, `ThrottlePlayMode`, and `EnableAutoSave`, and set `FrameRateCap`
-to `0`. The runner checks and records these preferences before every launch.
+to `0`. The runner checks and records these preferences before every launch,
+then rejects startup logs reporting a preference-load failure: a malformed earlier
+setting can prevent the editor from applying otherwise valid throttle settings.
 The default edit-mode throttle skips scene rendering after an over-budget frame;
 including those cheap frames would weaken a full-workload comparison. Restore
 interactive preferences after the campaign. Keep presentation settings identical

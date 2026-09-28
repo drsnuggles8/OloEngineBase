@@ -62,15 +62,19 @@ def main():
     result['camera'] = read('olo_camera_get')
     for repeat in range(args.repeats):
         samples = []
+        block = {'repeat': repeat, 'samples': samples, 'complete': False}
+        result['blocks'].append(block)
         for _ in range(args.samples):
             start = time.perf_counter()
             value = read('olo_perf_pass_timings')
             samples.append({'sample': value, 'rpcSeconds': time.perf_counter() - start,
                             'monotonicSeconds': time.perf_counter()})
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(json.dumps(result, indent=2), encoding='utf-8')
             time.sleep(1)
-        result['blocks'].append({'repeat': repeat, 'samples': samples,
-                                 'snapshot': read('olo_perf_snapshot'),
-                                 'history': read('olo_perf_frame_history', points=120)})
+        block['snapshot'] = read('olo_perf_snapshot')
+        block['history'] = read('olo_perf_frame_history', points=120)
+        block['complete'] = True
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(result, indent=2), encoding='utf-8')
     print(f'Saved {args.repeats} attribution blocks: {args.output}')
