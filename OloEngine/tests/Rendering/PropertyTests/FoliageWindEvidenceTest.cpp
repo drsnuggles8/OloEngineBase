@@ -32,228 +32,13 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
-#include <cstring>
-#include <fstream>
 #include <string>
 #include <vector>
-#if defined(__linux__)
-#include <execinfo.h>
-#include <unistd.h>
-#endif
 
 namespace OloEngine::Tests
 {
     namespace
     {
-        // TEMP diagnostic (#1484 foliage OOM): log every GL storage allocation
-        // estimated over 256 MiB, by swapping glad's entry points.
-        constexpr unsigned long long kLargeAllocation = 256ull << 20;
-        unsigned long long s_AllocationCalls = 0;
-        unsigned long long s_PersistentBytes = 0;
-        unsigned long long s_PersistentCount = 0;
-        PFNGLTEXTURESTORAGE2DPROC s_RealStorage2D = nullptr;
-        PFNGLTEXTURESTORAGE3DPROC s_RealStorage3D = nullptr;
-        PFNGLTEXTURESTORAGE2DMULTISAMPLEPROC s_RealStorage2DMs = nullptr;
-        PFNGLNAMEDBUFFERSTORAGEPROC s_RealBufferStorage = nullptr;
-        PFNGLNAMEDBUFFERDATAPROC s_RealBufferData = nullptr;
-        void ReportLarge(const char* what, unsigned long long bytes, long long a, long long b, long long c, long long d,
-                         unsigned fmt)
-        {
-            ++s_AllocationCalls;
-            if (bytes < kLargeAllocation)
-                return;
-            std::fprintf(stdout, "[foliage-alloc] %s ~%llu MiB (%lld x %lld x %lld, levels/samples %lld, fmt 0x%x)\n", what,
-                         bytes >> 20, a, b, c, d, fmt);
-            std::fflush(stdout);
-#if defined(__linux__)
-            void* frames[24];
-            const int n = ::backtrace(frames, 24);
-            ::backtrace_symbols_fd(frames, n, STDOUT_FILENO);
-#endif
-        }
-        void GLAD_API_PTR LogStorage2D(GLuint t, GLsizei levels, GLenum fmt, GLsizei w, GLsizei h)
-        {
-            ReportLarge("TextureStorage2D", 16ull * static_cast<unsigned long long>(w) * h * 4 / 3, w, h, 1, levels, fmt);
-            s_RealStorage2D(t, levels, fmt, w, h);
-        }
-        void GLAD_API_PTR LogStorage3D(GLuint t, GLsizei levels, GLenum fmt, GLsizei w, GLsizei h, GLsizei dep)
-        {
-            ReportLarge("TextureStorage3D", 16ull * static_cast<unsigned long long>(w) * h * dep, w, h, dep, levels, fmt);
-            s_RealStorage3D(t, levels, fmt, w, h, dep);
-        }
-        void GLAD_API_PTR LogStorage2DMs(GLuint t, GLsizei samples, GLenum fmt, GLsizei w, GLsizei h, GLboolean fixed)
-        {
-            ReportLarge("TextureStorage2DMultisample", 16ull * static_cast<unsigned long long>(w) * h * samples, w, h, 1,
-                        samples, fmt);
-            s_RealStorage2DMs(t, samples, fmt, w, h, fixed);
-        }
-        void GLAD_API_PTR LogBufferStorage(GLuint buf, GLsizeiptr size, const void* data, GLbitfield flags)
-        {
-            if ((flags & 0x40u) != 0u)
-            {
-                s_PersistentBytes += static_cast<unsigned long long>(size);
-                ++s_PersistentCount;
-                if (size >= (1 << 20))
-                {
-                    std::printf("[foliage-persist] buffer %u: %lld KiB flags 0x%x (total %llu MiB)\n", buf, static_cast<long long>(size) >> 10, flags, s_PersistentBytes >> 20);
-                    std::fflush(stdout);
-                }
-            }
-            ReportLarge("NamedBufferStorage", static_cast<unsigned long long>(size), size, 1, 1, 0, flags);
-            s_RealBufferStorage(buf, size, data, flags);
-        }
-        void GLAD_API_PTR LogBufferData(GLuint buf, GLsizeiptr size, const void* data, GLenum usage)
-        {
-            ReportLarge("NamedBufferData", static_cast<unsigned long long>(size), size, 1, 1, 0, usage);
-            s_RealBufferData(buf, size, data, usage);
-        }
-        PFNGLBUFFERDATAPROC s_RealBufferDataNonDsa = nullptr;
-        PFNGLBUFFERSTORAGEPROC s_RealBufferStorageNonDsa = nullptr;
-        PFNGLTEXIMAGE2DPROC s_RealTexImage2D = nullptr;
-        PFNGLTEXIMAGE3DPROC s_RealTexImage3D = nullptr;
-        PFNGLTEXSTORAGE2DPROC s_RealTexStorage2D = nullptr;
-        PFNGLTEXSTORAGE3DPROC s_RealTexStorage3D = nullptr;
-        PFNGLNAMEDRENDERBUFFERSTORAGEMULTISAMPLEPROC s_RealRbMs = nullptr;
-        PFNGLNAMEDRENDERBUFFERSTORAGEPROC s_RealRb = nullptr;
-        void GLAD_API_PTR LogBufferDataNonDsa(GLenum target, GLsizeiptr size, const void* data, GLenum usage)
-        {
-            ReportLarge("BufferData", static_cast<unsigned long long>(size), size, 1, 1, 0, target);
-            s_RealBufferDataNonDsa(target, size, data, usage);
-        }
-        void GLAD_API_PTR LogBufferStorageNonDsa(GLenum target, GLsizeiptr size, const void* data, GLbitfield flags)
-        {
-            ReportLarge("BufferStorage", static_cast<unsigned long long>(size), size, 1, 1, 0, flags);
-            s_RealBufferStorageNonDsa(target, size, data, flags);
-        }
-        void GLAD_API_PTR LogTexImage2D(GLenum target, GLint level, GLint fmt, GLsizei w, GLsizei h, GLint border,
-                                        GLenum format, GLenum type, const void* px)
-        {
-            ReportLarge("TexImage2D", 16ull * static_cast<unsigned long long>(w) * h, w, h, 1, level, static_cast<unsigned>(fmt));
-            s_RealTexImage2D(target, level, fmt, w, h, border, format, type, px);
-        }
-        void GLAD_API_PTR LogTexImage3D(GLenum target, GLint level, GLint fmt, GLsizei w, GLsizei h, GLsizei d, GLint border,
-                                        GLenum format, GLenum type, const void* px)
-        {
-            ReportLarge("TexImage3D", 16ull * static_cast<unsigned long long>(w) * h * d, w, h, d, level,
-                        static_cast<unsigned>(fmt));
-            s_RealTexImage3D(target, level, fmt, w, h, d, border, format, type, px);
-        }
-        void GLAD_API_PTR LogTexStorage2D(GLenum target, GLsizei levels, GLenum fmt, GLsizei w, GLsizei h)
-        {
-            ReportLarge("TexStorage2D", 16ull * static_cast<unsigned long long>(w) * h * 4 / 3, w, h, 1, levels, fmt);
-            s_RealTexStorage2D(target, levels, fmt, w, h);
-        }
-        void GLAD_API_PTR LogTexStorage3D(GLenum target, GLsizei levels, GLenum fmt, GLsizei w, GLsizei h, GLsizei d)
-        {
-            ReportLarge("TexStorage3D", 16ull * static_cast<unsigned long long>(w) * h * d, w, h, d, levels, fmt);
-            s_RealTexStorage3D(target, levels, fmt, w, h, d);
-        }
-        void GLAD_API_PTR LogRbMs(GLuint rb, GLsizei samples, GLenum fmt, GLsizei w, GLsizei h)
-        {
-            ReportLarge("RenderbufferStorageMultisample", 16ull * static_cast<unsigned long long>(w) * h * (samples > 0 ? samples : 1),
-                        w, h, 1, samples, fmt);
-            s_RealRbMs(rb, samples, fmt, w, h);
-        }
-        void GLAD_API_PTR LogRb(GLuint rb, GLenum fmt, GLsizei w, GLsizei h)
-        {
-            ReportLarge("RenderbufferStorage", 16ull * static_cast<unsigned long long>(w) * h, w, h, 1, 0, fmt);
-            s_RealRb(rb, fmt, w, h);
-        }
-
-        // Every live texture's level 0, largest first.
-        void TextureCensus()
-        {
-            unsigned long long total = 0;
-            unsigned long long count = 0;
-            struct Row
-            {
-                unsigned long long Bytes;
-                GLuint Id;
-                GLint W, H, D, Samples, Format, Levels;
-            };
-            std::vector<Row> rows;
-            for (GLuint id = 1; id < 60000; ++id)
-            {
-                if (!::glIsTexture(id))
-                    continue;
-                GLint w = 0, h = 0, d = 0, samples = 0, fmt = 0, levels = 0;
-                ::glGetTextureLevelParameteriv(id, 0, GL_TEXTURE_WIDTH, &w);
-                ::glGetTextureLevelParameteriv(id, 0, GL_TEXTURE_HEIGHT, &h);
-                ::glGetTextureLevelParameteriv(id, 0, GL_TEXTURE_DEPTH, &d);
-                ::glGetTextureLevelParameteriv(id, 0, GL_TEXTURE_SAMPLES, &samples);
-                ::glGetTextureLevelParameteriv(id, 0, GL_TEXTURE_INTERNAL_FORMAT, &fmt);
-                ::glGetTextureParameteriv(id, GL_TEXTURE_IMMUTABLE_LEVELS, &levels);
-                const unsigned long long texels = static_cast<unsigned long long>(std::max(w, 0)) * std::max(h, 1) *
-                                                  std::max(d, 1) * std::max(samples, 1);
-                total += texels * 8ull;
-                ++count;
-                rows.push_back({ texels * 8ull, id, w, h, d, samples, fmt, levels });
-            }
-            while (::glGetError() != GL_NO_ERROR)
-            {
-            }
-            std::sort(rows.begin(), rows.end(), [](const Row& a, const Row& b)
-                      { return a.Bytes > b.Bytes; });
-            std::printf("[foliage-textures] %llu textures, ~%llu MiB at 8 B/texel; largest:", count, total >> 20);
-            for (sizet i = 0; i < rows.size() && i < 8; ++i)
-                std::printf(" #%u %dx%dx%d s%d l%d fmt 0x%x;", rows[i].Id, rows[i].W, rows[i].H, rows[i].D, rows[i].Samples,
-                            rows[i].Levels, static_cast<unsigned>(rows[i].Format));
-            std::printf("\n");
-            std::fflush(stdout);
-        }
-
-        // Driver messages: radeonsi reports each compiled shader's statistics
-        // (including scratch bytes per wave) and any allocation failure here.
-        void GLAD_API_PTR LogDriverMessage(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length,
-                                           const GLchar* message, const void*)
-        {
-            const std::string text(message, length > 0 ? static_cast<sizet>(length) : std::strlen(message));
-            const bool scratch = text.find("Scratch") != std::string::npos && text.find("Scratch: 0 ") == std::string::npos;
-            const bool severe = severity == GL_DEBUG_SEVERITY_HIGH || type == GL_DEBUG_TYPE_ERROR;
-            const bool memory = text.find("memory") != std::string::npos || text.find("Memory") != std::string::npos;
-            if (!scratch && !severe && !memory)
-                return;
-            std::printf("[foliage-driver] src 0x%x type 0x%x id %u sev 0x%x: %s\n", source, type, id, severity,
-                        text.substr(0, 600).c_str());
-            std::fflush(stdout);
-        }
-
-        void InstallAllocationLog()
-        {
-            ::glEnable(GL_DEBUG_OUTPUT);
-            ::glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
-            ::glDebugMessageCallback(LogDriverMessage, nullptr);
-            ::glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, nullptr, GL_TRUE);
-            if (s_RealStorage2D != nullptr)
-                return;
-            s_RealStorage2D = glad_glTextureStorage2D;
-            s_RealStorage3D = glad_glTextureStorage3D;
-            s_RealStorage2DMs = glad_glTextureStorage2DMultisample;
-            s_RealBufferStorage = glad_glNamedBufferStorage;
-            s_RealBufferData = glad_glNamedBufferData;
-            glad_glTextureStorage2D = LogStorage2D;
-            glad_glTextureStorage3D = LogStorage3D;
-            glad_glTextureStorage2DMultisample = LogStorage2DMs;
-            glad_glNamedBufferStorage = LogBufferStorage;
-            glad_glNamedBufferData = LogBufferData;
-            s_RealBufferDataNonDsa = glad_glBufferData;
-            s_RealBufferStorageNonDsa = glad_glBufferStorage;
-            s_RealTexImage2D = glad_glTexImage2D;
-            s_RealTexImage3D = glad_glTexImage3D;
-            s_RealTexStorage2D = glad_glTexStorage2D;
-            s_RealTexStorage3D = glad_glTexStorage3D;
-            s_RealRbMs = glad_glNamedRenderbufferStorageMultisample;
-            s_RealRb = glad_glNamedRenderbufferStorage;
-            glad_glBufferData = LogBufferDataNonDsa;
-            glad_glBufferStorage = LogBufferStorageNonDsa;
-            glad_glTexImage2D = LogTexImage2D;
-            glad_glTexImage3D = LogTexImage3D;
-            glad_glTexStorage2D = LogTexStorage2D;
-            glad_glTexStorage3D = LogTexStorage3D;
-            glad_glNamedRenderbufferStorageMultisample = LogRbMs;
-            glad_glNamedRenderbufferStorage = LogRb;
-        }
-
         namespace fs = std::filesystem;
 
         constexpr u32 kWidth = 960;
@@ -371,73 +156,7 @@ namespace OloEngine::Tests
             camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
             camera.SetPose(eye, yaw, pitch);
             RunEditorFrames(camera, 4);
-            {
-                // TEMP diagnostic (#1484 foliage OOM): free device memory in KiB.
-                ::glFinish();
-                GLint nv = -1;
-                GLint ati[4] = { -1, -1, -1, -1 };
-                ::glGetIntegerv(0x9049, &nv); // GPU_MEMORY_INFO_CURRENT_AVAILABLE_VIDMEM_NVX
-                ::glGetIntegerv(0x87FC, ati); // TEXTURE_FREE_MEMORY_ATI
-                GLint atiVbo[4] = { -1, -1, -1, -1 };
-                ::glGetIntegerv(0x87FB, atiVbo); // VBO_FREE_MEMORY_ATI
-                while (::glGetError() != GL_NO_ERROR)
-                {
-                }
-                long long vramUsed = -1;
-                long long gttUsed = -1;
-                long long visUsed = -1;
-                for (int card = 0; card < 4 && vramUsed < 0; ++card)
-                {
-                    const std::string base = "/sys/class/drm/card" + std::to_string(card) + "/device/";
-                    std::ifstream vram(base + "mem_info_vram_used");
-                    std::ifstream gtt(base + "mem_info_gtt_used");
-                    std::ifstream vis(base + "mem_info_vis_vram_used");
-                    if (vis)
-                        vis >> visUsed;
-                    if (vram && gtt)
-                    {
-                        vram >> vramUsed;
-                        gtt >> gttUsed;
-                    }
-                }
-                std::printf("[foliage-mem] path %d msaa %u nvx %d ati-tex %d/%d ati-vbo %d/%d vram-used %lld MiB gtt-used "
-                            "%lld MiB vis-used %lld MiB persistent %llu MiB in %llu allocs %llu\n",
-                            static_cast<int>(Renderer3D::GetRendererSettings().Path),
-                            Renderer3D::GetRendererSettings().Deferred.MSAASampleCount, nv, ati[0], ati[2], atiVbo[0],
-                            atiVbo[2], vramUsed < 0 ? -1 : vramUsed >> 20, gttUsed < 0 ? -1 : gttUsed >> 20, visUsed < 0 ? -1 : visUsed >> 20,
-                            s_PersistentBytes >> 20, s_PersistentCount, s_AllocationCalls);
-                std::fflush(stdout);
-            }
 
-            {
-                // TEMP census (#1484): every live GL texture and buffer.
-                TextureCensus();
-                unsigned long long total = 0, persistent = 0, count = 0;
-                std::vector<std::pair<long long, GLuint>> sizes;
-                for (GLuint id = 1; id < 60000; ++id)
-                {
-                    if (!::glIsBuffer(id))
-                        continue;
-                    GLint64 size = 0;
-                    GLint flags = 0;
-                    ::glGetNamedBufferParameteri64v(id, GL_BUFFER_SIZE, &size);
-                    ::glGetNamedBufferParameteriv(id, GL_BUFFER_STORAGE_FLAGS, &flags);
-                    total += static_cast<unsigned long long>(size);
-                    ++count;
-                    if ((flags & GL_MAP_PERSISTENT_BIT) != 0)
-                        persistent += static_cast<unsigned long long>(size);
-                    sizes.emplace_back(static_cast<long long>(size), id);
-                }
-                while (::glGetError() != GL_NO_ERROR)
-                {
-                }
-                std::sort(sizes.begin(), sizes.end(), std::greater<>());
-                std::printf("[foliage-buffers] %llu buffers, %llu MiB, persistent %llu MiB; largest:", count, total >> 20, persistent >> 20);
-                for (size_t i = 0; i < sizes.size() && i < 6; ++i)
-                    std::printf(" #%u=%lld MiB", sizes[i].second, sizes[i].first >> 20);
-                std::printf("\n");
-                std::fflush(stdout);
-            }
             auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
             ASSERT_TRUE(fb) << "No SceneColor framebuffer";
             ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, outPixels);
@@ -531,7 +250,6 @@ namespace OloEngine::Tests
     TEST_F(FoliageWindEvidenceTest, EveryRasterPathShowsWindAndMotion)
     {
         OLO_ENSURE_GPU_OR_SKIP();
-        InstallAllocationLog();
         struct MockClock
         {
             ~MockClock()
@@ -541,7 +259,7 @@ namespace OloEngine::Tests
         } clock;
         f32 time = 4.0f;
         const glm::vec3 eye(128.0f, 12.0f, 150.0f);
-        for (const auto path : { RenderingPath::Deferred }) // TEMP bisect (#1484)
+        for (const auto path : { RenderingPath::Forward, RenderingPath::ForwardPlus, RenderingPath::Deferred })
         {
             const std::string pathName = path == RenderingPath::Forward ? "Forward" : path == RenderingPath::ForwardPlus ? "ForwardPlus"
                                                                                                                          : "Deferred";
