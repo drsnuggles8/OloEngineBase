@@ -486,6 +486,13 @@ if(OLO_WITH_USD)
 	# The USD paths carry a $<CONFIG> genexpr (config-matched build) so a Debug engine links Debug
 	# USD and a Release/RelWithDebInfo engine links Release USD — no CRT mismatch.
 	target_include_directories(OloEngine PUBLIC "${OloEngine_USD_INCLUDE_DIR}")
+	# USD's own headers use C++23-deprecated std::aligned_storage and has_denorm, which the
+	# -Werror=deprecated-declarations rule (#1501) would reject. Silence exactly those two, in
+	# the one TU that includes USD. Not SYSTEM: that reorders the search path and USD's
+	# headers then find vcpkg's oneTBB instead of the one USD was built against.
+	set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/src/OloEngine/Asset/Interchange/USD/UsdMeshImporter.cpp"
+		TARGET_DIRECTORY OloEngine
+		PROPERTIES COMPILE_DEFINITIONS "_SILENCE_CXX23_ALIGNED_STORAGE_DEPRECATION_WARNING;_SILENCE_CXX23_DENORM_DEPRECATION_WARNING")
 	# oneTBB auto-links tbb12(.|_debug.)lib via #pragma comment(lib) inside usd_m, so the config's
 	# lib dir must be on the linker search path. Shlwapi (Path*) + Dbghelp (Sym*) + Ws2_32 are the
 	# Windows system libs USD's Arch/Tf need (verified via the USD smoke test).
