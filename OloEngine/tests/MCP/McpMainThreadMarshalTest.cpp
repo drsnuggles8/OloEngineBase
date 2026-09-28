@@ -4,6 +4,7 @@
 
 #include "Automation/AutomationMainThreadJob.h"
 #include "MCP/McpServer.h"
+#include "MCP/BenchmarkCaptureCleanup.h"
 #include "OloEngine/Task/NamedThreads.h"
 
 #include <atomic>
@@ -98,6 +99,81 @@ namespace
         EXPECT_FALSE(FNamedThreadManager::Get().GetQueue(ENamedThread::GameThread).HasPendingTasks(true));
         DrainQueue();
         EXPECT_EQ(writes->load(), 0);
+    }
+
+    TEST_F(McpMainThreadMarshalTest, CaptureCleanupKeepsAdmissionUntilTheRealFallbackQueueDrains)
+    {
+        OloEngine::MCP::Detail::BenchmarkCaptureAdmission admission;
+        auto lease = admission.TryAcquire();
+        ASSERT_TRUE(lease);
+        bool cleaned = false;
+        auto result = std::async(std::launch::async, [this, &admission, &cleaned, lease]
+                                 { OloEngine::MCP::Detail::DispatchBenchmarkCleanup(admission, [lease, &cleaned]() -> Json
+                                                                                    { cleaned = true; return Json::object(); }, [this](const auto& work)
+                                                                                    { (void)m_Server.MarshalRead(work); }, [](auto work)
+                                                                                    { OloEngine::Tasks::EnqueueGameThreadTask(std::move(work), "CaptureCleanupTest"); }); });
+        result.get();
+        lease.reset();
+        EXPECT_FALSE(cleaned);
+        EXPECT_FALSE(admission.TryAcquire());
+        DrainQueue();
+        EXPECT_TRUE(cleaned);
+        EXPECT_FALSE(admission.CleanupFailed());
+        EXPECT_TRUE(admission.TryAcquire());
+    }
+
+    TEST_F(McpMainThreadMarshalTest, FailedTraceCleanupStaysFailedAfterClockCleanupReleasesItsLease)
+    {
+        OloEngine::MCP::Detail::BenchmarkCaptureAdmission admission;
+        auto lease = admission.TryAcquire();
+        ASSERT_TRUE(lease);
+        bool traceCleaned = false;
+        bool clockCleaned = false;
+        OloEngine::MCP::Detail::DispatchBenchmarkCleanup(admission, [&traceCleaned]
+                                                         { traceCleaned = true; }, [](const auto&)
+                                                         { throw std::runtime_error("request cancelled"); }, [](auto)
+                                                         { throw std::bad_alloc(); });
+        EXPECT_TRUE(admission.CleanupFailed());
+        OloEngine::MCP::Detail::DispatchBenchmarkCleanup(admission, [lease, &clockCleaned]
+                                                         { clockCleaned = true; }, [](const auto& work)
+                                                         { work(); }, [](auto)
+                                                         { ADD_FAILURE() << "Synchronous cleanup should not enqueue"; });
+        lease.reset();
+        EXPECT_FALSE(traceCleaned);
+        EXPECT_TRUE(clockCleaned);
+        EXPECT_FALSE(admission.TryAcquire());
+        EXPECT_TRUE(admission.CleanupFailed());
+    }
+
+    TEST_F(McpMainThreadMarshalTest, ThrowingQueuedCaptureCleanupCannotReopenAdmission)
+    {
+        OloEngine::MCP::Detail::BenchmarkCaptureAdmission admission;
+        auto lease = admission.TryAcquire();
+        ASSERT_TRUE(lease);
+        OloEngine::MCP::Detail::DispatchBenchmarkCleanup(admission, [lease]
+                                                         { throw std::runtime_error("cleanup failed"); }, [](const auto&)
+                                                         { throw std::runtime_error("request cancelled"); }, [](auto work)
+                                                         { OloEngine::Tasks::EnqueueGameThreadTask(std::move(work), "CaptureCleanupTest"); });
+        lease.reset();
+        EXPECT_NO_THROW(DrainQueue());
+        EXPECT_TRUE(admission.CleanupFailed());
+        EXPECT_FALSE(admission.TryAcquire());
+    }
+
+    TEST_F(McpMainThreadMarshalTest, SuccessfulSynchronousCaptureCleanupReopensAdmission)
+    {
+        OloEngine::MCP::Detail::BenchmarkCaptureAdmission admission;
+        auto lease = admission.TryAcquire();
+        ASSERT_TRUE(lease);
+        bool cleaned = false;
+        OloEngine::MCP::Detail::DispatchBenchmarkCleanup(admission, [lease, &cleaned]
+                                                         { cleaned = true; }, [](const auto& work)
+                                                         { work(); }, [](auto)
+                                                         { ADD_FAILURE() << "Synchronous cleanup should not enqueue"; });
+        lease.reset();
+        EXPECT_TRUE(cleaned);
+        EXPECT_FALSE(admission.CleanupFailed());
+        EXPECT_TRUE(admission.TryAcquire());
     }
 
     TEST_F(McpMainThreadMarshalTest, TimedOutOperationCannotRunWhenTheRealQueueDrainsLater)

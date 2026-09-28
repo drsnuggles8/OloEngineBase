@@ -25,6 +25,7 @@
 #include "MCP/McpToolsCommon.h"
 #include "MCP/McpSchemaBuilder.h"
 #include "MCP/McpSceneControl.h"
+#include "MCP/BenchmarkCaptureCleanup.h"
 
 #include "OloEngine/Core/FastRandom.h"
 #include "OloEngine/Renderer/Benchmark/BenchmarkCapture.h"
@@ -92,29 +93,9 @@ namespace OloEngine::MCP
         // A cancelled worker may unwind after its caller has already retried.
         // Keep the lease until the final main-thread cleanup completes so an old
         // restoration cannot overwrite a new capture's scene/clock settings.
-        struct CaptureLease
-        {
-            inline static std::atomic<bool> Busy{ false };
-            ~CaptureLease()
-            {
-                Busy.store(false);
-            }
-            static std::shared_ptr<CaptureLease> TryAcquire()
-            {
-                bool expected = false;
-                if (!Busy.compare_exchange_strong(expected, true))
-                    return {};
-                try
-                {
-                    return std::make_shared<CaptureLease>();
-                }
-                catch (...)
-                {
-                    Busy.store(false);
-                    throw;
-                }
-            }
-        };
+        using CaptureLease = Detail::BenchmarkCaptureAdmission::Lease;
+        Detail::BenchmarkCaptureAdmission s_CaptureAdmission{ []()
+                                                              { OLO_CORE_ERROR("Unrecoverable benchmark capture cleanup failure; restart the editor before capturing again"); } };
 
         // Request cancellation deliberately rejects normal marshalled work. Cleanup
         // must still reach the main thread; the fallback owns all captured state
@@ -122,24 +103,9 @@ namespace OloEngine::MCP
         // until restoration finishes; trace generation IDs prevent stale removal.
         void CleanupOnMainThread(IAutomationHost& host, std::function<Json()> cleanup) noexcept
         {
-            try
-            {
-                (void)host.MarshalRead(cleanup, kBenchmarkMarshalTimeout);
-                return;
-            }
-            catch (...)
-            {
-            }
-            try
-            {
-                Tasks::EnqueueGameThreadTask([cleanup = std::move(cleanup)]()
-                                             { (void)cleanup(); },
-                                             "BenchmarkCaptureCleanup");
-            }
-            catch (...)
-            {
-                OLO_CORE_ERROR("Unable to queue benchmark capture cleanup");
-            }
+            Detail::DispatchBenchmarkCleanup(s_CaptureAdmission, std::move(cleanup), [&host](const auto& work)
+                                             { (void)host.MarshalRead(work, kBenchmarkMarshalTimeout); }, [](auto work)
+                                             { Tasks::EnqueueGameThreadTask(std::move(work), "BenchmarkCaptureCleanup"); });
         }
 
         struct MockClockReleaseGuard
@@ -237,9 +203,11 @@ namespace OloEngine::MCP
             const f32 clockStart = manifest->StartTimeSeconds;
             const f32 clockDt = manifest->FixedDtSeconds;
             // Construct the guard first so every exceptional exit releases the clock.
-            auto lease = CaptureLease::TryAcquire();
+            auto lease = s_CaptureAdmission.TryAcquire();
             if (!lease)
-                return ToolResult::Error("Another benchmark capture is active or still cleaning up.");
+                return ToolResult::Error(s_CaptureAdmission.CleanupFailed()
+                                             ? "Benchmark capture cleanup failed unrecoverably; restart the editor before capturing again."
+                                             : "Another benchmark capture is active or still cleaning up.");
             const MockClockReleaseGuard clockGuard{ &host, std::move(lease) };
             SetMockClock(host, clockStart);
 
