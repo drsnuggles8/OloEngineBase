@@ -11,7 +11,7 @@ the repository root and follow its applicable guidance.
 
 Use its PowerShell scripts directly from the repository root. In particular,
 every `cmake --build`, `ninja`, or `msbuild` invocation must go through
-`\.claude/skills/run-oloengine/build-lock.ps1`; the Claude-only pre-tool hook
+`.claude/skills/run-oloengine/build-lock.ps1`; the Claude-only pre-tool hook
 does not protect Codex sessions.
 
 ## Codex boundary

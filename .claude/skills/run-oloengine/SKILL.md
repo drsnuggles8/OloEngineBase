@@ -137,14 +137,14 @@ One shot — launch, wait out the 42-shader warmup, screenshot, kill:
 pwsh -NoProfile -File .claude\skills\run-oloengine\driver.ps1 -Action capture -Config Release
 ```
 
-The PNG lands at `.claude\skills\run-oloengine\shots\OloEditor-Debug.png` and the
+The PNG lands at `.claude\skills\run-oloengine\shots\OloEditor-Release.png` and the
 driver prints its size + a luminance mean/spread (a near-zero `StdLum` warns that
 the frame is blank — see Gotchas). **Open the PNG and look at it** — a good
 capture shows the menu bar, Scene Hierarchy (left), the 3D Viewport, and the
 docked Console/Content Browser.
 
-The driver also **snapshots `OloEngine.log` next to the PNG** (`OloEditor-Debug.png`
-→ `OloEditor-Debug.log`) on every `capture`/`shot`, because the editor truncates
+The driver also **snapshots `OloEngine.log` next to the PNG** (`OloEditor-Release.png`
+→ `OloEditor-Release.log`) on every `capture`/`shot`, because the editor truncates
 that file on the *next* launch. If the editor crashes during init (no window
 appears), the driver prints the last 30 log lines inline and points you at the
 snapshot — read it for shader compile/link errors.
