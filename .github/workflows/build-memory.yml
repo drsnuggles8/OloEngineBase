@@ -52,6 +52,7 @@ on:
       - 'cmake/ProcStatReport.cmake'
       - 'scripts/analyze_proc_stat.py'
       - 'scripts/measure-link.ps1'
+      - 'scripts/test_measure_link.py'
       - '.claude/skills/run-oloengine/link-semaphore.ps1'
       - '.claude/skills/run-oloengine/build-lock.ps1'
       - 'scripts/test_build_lock.py'
@@ -99,11 +100,15 @@ jobs:
       OLO_LINK_METRICS_DIR: ${{ github.workspace }}/build-memory-report/links
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.10'
       - name: Verify exclusive build admission
         run: python -m unittest discover -s scripts -p test_build_lock.py -v
+      - name: Verify link measurement failure handling
+        run: python -m unittest discover -s scripts -p test_measure_link.py -v
       - run: python -m pip install jinja2==3.1.6 cmake==4.4.2
       - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
         with:
@@ -146,7 +151,7 @@ jobs:
           python scripts/analyze_proc_stat.py build-cached --build-dir build-cached --markdown build-memory-report/report.md --json build-memory-report/report.json --fail-under-coverage 95
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           $links = @(Get-ChildItem build-memory-report/links/*.json | ForEach-Object { Get-Content $_ -Raw | ConvertFrom-Json } | Where-Object { ($_.command -join ' ') -match '/out:.*OloEngine-Tests.exe' })
-          if (-not $links.Count -or @($links | Where-Object { $_.exitCode -ne 0 -or $_.samples -lt 1 -or $_.observedPeakWorkingSetBytes -le 0 }).Count) { throw 'No successful measured test link' }
+          if (-not $links.Count -or @($links | Where-Object { $_.exitCode -ne 0 -or $_.samples -lt 1 -or $_.observedPeakWorkingSetBytes -le 0 -or @($_.responseFiles | Where-Object { $_.error }).Count }).Count) { throw 'No successful measured test link with complete response-file provenance' }
           Get-Content build-memory-report/report.md >> $env:GITHUB_STEP_SUMMARY
           $links | ConvertTo-Json -Depth 5 >> $env:GITHUB_STEP_SUMMARY
       - uses: ./.github/actions/save-vcpkg-cache
