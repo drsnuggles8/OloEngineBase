@@ -2209,8 +2209,14 @@ namespace OloEngine::Tests
             f64 Luma = 0.0; // linear luma on them, per frame
             u32 Frames = 0;
             f64 RelativeError = 0.0; // standard error of Luma over Luma
+            // With `image`: mean linear luma of EVERY active-viewport pixel, and
+            // which pixels the coat covered on any frame -- what seen energy needs.
+            u32 ImageWidth = 0;
+            u32 ImageHeight = 0;
+            std::vector<f64> Image;
+            std::vector<u8> Mask;
         };
-        const auto linear = [&](const View& view, i32 entityId)
+        const auto linear = [&](const View& view, i32 entityId, bool image)
         {
             const glm::vec3 d = glm::normalize(view.Target - view.Eye);
             EditorCamera camera(view.Fov, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 400.0f);
@@ -2252,9 +2258,39 @@ namespace OloEngine::Tests
                 ids.resize(static_cast<sizet>(width) * height);
                 ::glGetTextureImage(fb->GetColorAttachmentRendererID(1), 0, GL_RED_INTEGER, GL_INT,
                                     static_cast<GLsizei>(ids.size() * sizeof(i32)), ids.data());
-                // Colour only over the coat's bounding box. The whole HDR target
-                // converted to float every frame was most of this test's cost on
-                // radeonsi (992 s, #1473), and the coat is 0.05-7% of the frame.
+                if (image)
+                {
+                    // Seen energy needs every pixel either arm's coat covers, so
+                    // the whole active viewport, not this arm's bounding box.
+                    colour.resize(static_cast<sizet>(width) * height * 4u);
+                    ReadbackRgbaFloat(fb->GetColorAttachmentRendererID(0), width, height, colour);
+                    if (out.Image.empty())
+                    {
+                        out.ImageWidth = activeWidth;
+                        out.ImageHeight = activeHeight;
+                        out.Image.assign(static_cast<sizet>(activeWidth) * activeHeight, 0.0);
+                        out.Mask.assign(out.Image.size(), 0u);
+                    }
+                    for (u32 y = 0; y < out.ImageHeight; ++y)
+                    {
+                        for (u32 x = 0; x < out.ImageWidth; ++x)
+                        {
+                            const sizet src = (static_cast<sizet>(y) * width) + x;
+                            const sizet dst = (static_cast<sizet>(y) * out.ImageWidth) + x;
+                            const f64 luma = (0.2126 * colour[src * 4u]) + (0.7152 * colour[(src * 4u) + 1u]) +
+                                             (0.0722 * colour[(src * 4u) + 2u]);
+                            out.Image[dst] += luma;
+                            if (ids[src] == entityId)
+                            {
+                                out.Mask[dst] = 1u;
+                                frameCov += 1.0;
+                                frameLuma += luma;
+                            }
+                        }
+                    }
+                }
+                // Otherwise colour only over the coat's bounding box: the coat is
+                // 0.05-7% of the frame.
                 u32 x0 = activeWidth;
                 u32 y0 = activeHeight;
                 u32 x1 = 0;
@@ -2272,7 +2308,7 @@ namespace OloEngine::Tests
                         }
                     }
                 }
-                if (x0 < x1)
+                if (!image && x0 < x1)
                 {
                     const u32 boxW = x1 - x0;
                     const u32 boxH = y1 - y0;
@@ -2316,6 +2352,8 @@ namespace OloEngine::Tests
             {
                 out.Cov /= static_cast<f64>(out.Frames);
                 out.Luma = sumLuma / static_cast<f64>(out.Frames);
+                for (f64& luma : out.Image)
+                    luma /= static_cast<f64>(out.Frames);
             }
             return out;
         };
@@ -2353,7 +2391,7 @@ namespace OloEngine::Tests
             const View view = viewAt(s, stop);
             const i32 id = static_cast<i32>(static_cast<u32>(s.Coat));
             Arm arm;
-            arm.Lit = linear(view, id);
+            arm.Lit = linear(view, id, true);
             // THIS coat's representation and strands, from its own request: the
             // pass's counts are every groom drawn.
             if (const GroomStrandRequest* req = RequestFor(s); req != nullptr)
@@ -2365,7 +2403,7 @@ namespace OloEngine::Tests
             auto& shadow = s.Coat.GetComponent<GroomCoatShadowComponent>();
             const f32 kappa = shadow.m_Kappa;
             shadow.m_Kappa = 0.0f;
-            arm.Unshadowed = linear(view, id);
+            arm.Unshadowed = linear(view, id, false);
             shadow.m_Kappa = kappa;
             if (!crop.empty())
             {
@@ -2389,6 +2427,8 @@ namespace OloEngine::Tests
             f64 Shadow = 0.0;
             f64 Energy = 0.0;
             f64 EnergyError = 0.0; // standard error of Energy, relative
+            f64 SeenEnergy = 0.0;  // what the eye gets -- see THE METRIC below
+            f64 CoatShare = 0.0;   // the strands' coat energy over the union region's luma
             Arm On;
             Arm Off;
         };
@@ -2409,12 +2449,31 @@ namespace OloEngine::Tests
             k.Energy = ratio(k.On.Lit.Luma, k.Off.Lit.Luma);
             k.EnergyError = std::sqrt((k.On.Lit.RelativeError * k.On.Lit.RelativeError) +
                                       (k.Off.Lit.RelativeError * k.Off.Lit.RelativeError));
+            // Seen energy: both frames summed over the union of the two coats'
+            // pixels, backdrop included, the difference relative to the strands'
+            // coat energy.
+            EXPECT_EQ(k.On.Lit.Image.size(), k.Off.Lit.Image.size()) << "the two arms rendered different viewports";
+            if (k.On.Lit.Image.size() == k.Off.Lit.Image.size() && k.Off.Lit.Luma > 0.0)
+            {
+                f64 seenOn = 0.0;
+                f64 seenOff = 0.0;
+                for (sizet i = 0; i < k.On.Lit.Image.size(); ++i)
+                {
+                    if ((k.On.Lit.Mask[i] | k.Off.Lit.Mask[i]) != 0u)
+                    {
+                        seenOn += k.On.Lit.Image[i];
+                        seenOff += k.Off.Lit.Image[i];
+                    }
+                }
+                k.SeenEnergy = 1.0 + ((seenOn - seenOff) / k.Off.Lit.Luma);
+                k.CoatShare = seenOff > 0.0 ? k.Off.Lit.Luma / seenOff : 0.0;
+            }
             std::printf("[groom-animals] lod %s %s %s: representation %u, strands %u / %u, coverage %.3f (%.0f / %.0f px), "
-                        "radiance %.3f, shadow %.3f, energy %.3f; frames on/off %u/%u, error %.1f%%/%.1f%%; "
+                        "radiance %.3f, shadow %.3f, energy %.3f, seen energy %.3f (coat share %.2f); frames on/off %u/%u, error %.1f%%/%.1f%%; "
                         "frames %.1f s, readback %.1f s\n",
                         label.c_str(), s.Tag.c_str(), stop.Name, static_cast<u32>(k.On.Representation), k.On.Strands,
                         k.Off.Strands, k.Coverage, k.On.Lit.Cov, k.Off.Lit.Cov, k.Radiance, k.Shadow, k.Energy,
-                        k.On.Lit.Frames, k.Off.Lit.Frames, 100.0 * k.On.Lit.RelativeError,
+                        k.SeenEnergy, k.CoatShare, k.On.Lit.Frames, k.Off.Lit.Frames, 100.0 * k.On.Lit.RelativeError,
                         100.0 * k.Off.Lit.RelativeError, renderMs / 1000.0, readbackMs / 1000.0);
             std::fflush(stdout);
             renderMs = 0.0;
@@ -2438,6 +2497,30 @@ namespace OloEngine::Tests
         // as its members cover AVERAGED over the directions around it, and a
         // flat mane or tail seen face-on covers more than that average -- the
         // short coat, which is mostly mane and tail at range, reads 1.10-1.13.
+        // THE METRIC is SEEN energy (#1509, measured on #1517). Per coat pixel the
+        // strands read brighter than a viewer sees them: in their partial-
+        // coverage pixels the stochastic strands let the bright backdrop through,
+        // opaque cards do not (the strands-only fringe reads 0.24 luma against
+        // 0.16 for the coat itself). With the coat fully draped, per-pixel energy
+        // read 0.74 at the long coat's hand-over while the eye got 5% less, well
+        // inside the contract. So the card-tier cells are bounded by the whole
+        // frame over the union of both arms' coat pixels, backdrop included;
+        // per-pixel energy, radiance and coverage stay printed as diagnostics.
+        // The close-up control keeps per-pixel energy: there both arms are one
+        // frame.
+        //
+        // ...AND ONLY WHERE THE COAT DOMINATES WHAT THE EYE GETS. Seen energy
+        // divides a whole-region difference by the coat's own energy, so it is
+        // conditioned only when that energy is a real share of the region. The
+        // short coat is nearly black against a bright backdrop: its denser cards
+        // block backdrop worth ~2.9x its whole energy, and seen energy read -2.86.
+        // That is a visible silhouette darkening (#1484), not a measure of the
+        // coat, so below kSeenShareFloor a cell falls back to per-pixel energy,
+        // says so, and records `seen_energy_ill_conditioned`. The long coat must
+        // stay on seen energy. Measured shares (GL Forward, #1473): the long
+        // coat 0.14-0.18 on every card-tier cell (0.22 Mid, 0.31 Near), the short
+        // coat 0.04 on every card-tier cell (0.05 Mid, 0.12 Near).
+        constexpr f64 kSeenShareFloor = 0.10;
         constexpr f64 kEnergyTolerance = 0.10;
         constexpr f64 kCoverageFloor = 0.90;
         constexpr f64 kCoverageCeiling = 1.20;
@@ -2457,22 +2540,36 @@ namespace OloEngine::Tests
         // report as `unmeasurable_energy`, never passed silently. The long coat
         // must stay measurable at every stop, so the contract cannot decay into
         // "unmeasurable" everywhere unnoticed.
-        const auto expectEnergyNear = [&](const SubjectRig& s, const Kept& k, f64 tolerance, const char* claim)
+        const auto expectEnergyNear = [&](const SubjectRig& s, const Kept& k, f64 energy, f64 tolerance,
+                                          const char* claim)
         {
             if (2.0 * k.EnergyError < tolerance)
             {
-                EXPECT_NEAR(k.Energy, 1.0, tolerance) << claim << " (energy error " << 100.0 * k.EnergyError << "%)";
+                EXPECT_NEAR(energy, 1.0, tolerance) << claim << " (energy error " << 100.0 * k.EnergyError << "%)";
                 return;
             }
             EXPECT_NE(&s, &m_LongCoat) << "the long coat's energy must be measurable: error "
                                        << 100.0 * k.EnergyError << "% against a " << 100.0 * tolerance
                                        << "% bound";
             std::printf("[groom-animals] energy %.3f not measurable against +-%.2f (error %.1f%%): gross guard only\n",
-                        k.Energy, tolerance, 100.0 * k.EnergyError);
+                        energy, tolerance, 100.0 * k.EnergyError);
             std::fflush(stdout);
             ::testing::Test::RecordProperty("unmeasurable_energy", s.Tag);
-            EXPECT_GT(k.Energy, kShippedEnergyFloor) << claim;
-            EXPECT_LT(k.Energy, kShippedEnergyCeiling) << claim;
+            EXPECT_GT(energy, kShippedEnergyFloor) << claim;
+            EXPECT_LT(energy, kShippedEnergyCeiling) << claim;
+        };
+
+        const auto cardEnergy = [&](const SubjectRig& s, const Kept& k)
+        {
+            if (k.CoatShare >= kSeenShareFloor)
+                return k.SeenEnergy;
+            EXPECT_NE(&s, &m_LongCoat) << "the long coat's seen energy is ill-conditioned: coat share "
+                                       << k.CoatShare << " < " << kSeenShareFloor;
+            std::printf("[groom-animals] seen energy %.3f ill-conditioned (coat share %.2f): per-pixel energy %.3f\n",
+                        k.SeenEnergy, k.CoatShare, k.Energy);
+            std::fflush(stdout);
+            ::testing::Test::RecordProperty("seen_energy_ill_conditioned", s.Tag);
+            return k.Energy;
         };
 
         for (SubjectRig* s : { &m_LongCoat, &m_ShortCoat })
@@ -2486,16 +2583,15 @@ namespace OloEngine::Tests
             ASSERT_GT(atNear.Off.Lit.Cov, 1000.0) << "the coat must be visible to be conserved at all";
             EXPECT_EQ(atNear.On.Strands, atNear.Off.Strands) << "the control drew different strands";
             EXPECT_NEAR(atNear.Coverage, 1.0, 0.01) << "two identical frames measured different coats";
-            expectEnergyNear(*s, atNear, 0.03, "two identical frames measured different coats");
+            expectEnergyNear(*s, atNear, atNear.Energy, 0.03, "two identical frames measured different coats");
 
             const Kept atMid = keep(*s, midStop, "Forward", true);
             ASSERT_FALSE(HasFatalFailure());
             EXPECT_EQ(atMid.On.Representation, GroomRepresentation::Strand) << "Mid must be on the strand tier";
             EXPECT_NEAR(atMid.Coverage, 1.0, 0.10) << "the strand budget did not keep the coverage";
-            // The short coat's stride step keeps 1.08-1.15 of its energy with
-            // no card in sight (#1509); it is held to a guard until that lands.
-            const f64 midTolerance = s == &m_ShortCoat ? 0.20 : kEnergyTolerance;
-            expectEnergyNear(*s, atMid, midTolerance, "the strand budget did not keep the coat");
+            // The contract on both coats since #1509 drapes every budget step
+            // (the short coat's Mid read 1.08-1.15 before it).
+            expectEnergyNear(*s, atMid, cardEnergy(*s, atMid), kEnergyTolerance, "the strand budget did not keep the coat");
 
             for (const Stop& stop : { handoverStop, farStop })
             {
@@ -2506,8 +2602,9 @@ namespace OloEngine::Tests
                 EXPECT_LT(k.On.Strands * 4u, k.Off.Strands) << "and draws under a quarter of the strands";
                 EXPECT_GT(k.Coverage, kCoverageFloor) << "the card tier lost coverage";
                 EXPECT_LT(k.Coverage, kCoverageCeiling) << "the card tier ballooned the coat";
-                EXPECT_GT(k.Energy, kShippedEnergyFloor) << "the card tier lost the coat";
-                EXPECT_LT(k.Energy, kShippedEnergyCeiling) << "the card tier ballooned the coat";
+                const f64 energy = cardEnergy(*s, k);
+                EXPECT_GT(energy, kShippedEnergyFloor) << "the card tier lost the coat";
+                EXPECT_LT(energy, kShippedEnergyCeiling) << "the card tier ballooned the coat";
             }
 
             // THE CONTRACT, on a converged self-shadow volume for both arms.
@@ -2525,7 +2622,7 @@ namespace OloEngine::Tests
                 const Kept k = keep(*s, stop, "ConvergedShadow", false);
                 ASSERT_FALSE(HasFatalFailure());
                 EXPECT_EQ(k.On.Representation, GroomRepresentation::Card);
-                expectEnergyNear(*s, k, kEnergyTolerance, "the card tier does not keep the coat");
+                expectEnergyNear(*s, k, cardEnergy(*s, k), kEnergyTolerance, "the card tier does not keep the coat");
             }
             shadow = shippedShadow;
             lod.m_ShadowSteps = shippedShadowSteps;
@@ -2595,8 +2692,9 @@ namespace OloEngine::Tests
             }
             EXPECT_GT(k.Coverage, kCoverageFloor) << cell.Name;
             EXPECT_LT(k.Coverage, kCoverageCeiling) << cell.Name;
-            EXPECT_GT(k.Energy, kShippedEnergyFloor) << cell.Name;
-            EXPECT_LT(k.Energy, kShippedEnergyCeiling) << cell.Name;
+            const f64 energy = cardEnergy(m_LongCoat, k);
+            EXPECT_GT(energy, kShippedEnergyFloor) << cell.Name;
+            EXPECT_LT(energy, kShippedEnergyCeiling) << cell.Name;
         }
     }
 
