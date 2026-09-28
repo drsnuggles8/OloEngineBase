@@ -21,3 +21,9 @@ Claude CLI. It does not add tools to the active Codex task. Do not use that
 action in Codex. The launch, capture, shot, stop, server, and test workflows
 are agent-neutral. Configure an OloEditor MCP server in Codex separately before
 attempting live-editor MCP inspection.
+
+For controlled editor performance captures, use the `editor-mcp` host in
+`scripts/perf/controlled-benchmark.py`. It launches a fresh Release editor with
+a private discovery file and calls MCP directly through the local Python client,
+without registering a connector. Follow `docs/guides/controlled-performance.md`
+for the plan, preference checks, and idle-host requirements.

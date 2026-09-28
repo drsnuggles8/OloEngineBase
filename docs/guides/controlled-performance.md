@@ -111,8 +111,14 @@ motion would leave the original coverage region. Retain those finite sequences
 for their intended workload, and use stationary captures for longer tail runs.
 
 ```powershell
-python scripts/perf/controlled-benchmark.py --plan C:/perf/plan.json --output C:/perf/run-001
+pwsh -File .claude/skills/run-oloengine/build-lock.ps1 -MaxConcurrent 1 -Jobs -1 -Command `
+  'python scripts/perf/controlled-benchmark.py --plan C:/perf/plan.json --output C:/perf/run-001'
 ```
+
+The gate excludes cooperating worktree builds. Check competing engine tests,
+editors, runtimes and servers as well; a separately launched test suite can keep
+using the CPU/GPU after its build releases the gate. Coordinate those runs before
+starting a campaign. The runner refuses detected contention.
 
 Test-binary OpenGL scene-call and editor OpenGL/Vulkan frame captures have distinct
 intervals and cannot be mixed in one comparison. Requested upscalers are rejected because the
