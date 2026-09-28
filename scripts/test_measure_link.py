@@ -29,6 +29,7 @@ class MeasureLinkTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('child-ran', result.stdout)
         self.assertIn('child-diagnostic', result.stderr)
+        self.assertNotIn('VoidTaskResult', result.stdout)
         record = json.loads(next(destination.glob('*.json')).read_text(encoding='utf-8-sig'))
         self.assertEqual(record['exitCode'], 0)
         self.assertTrue(record['responseFiles'][0]['error'])

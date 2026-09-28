@@ -59,8 +59,8 @@ try {
     } while (-not $process.WaitForExit(20))
     $watch.Stop()
     $code = $process.ExitCode
-    $stdoutCopy.GetAwaiter().GetResult()
-    $stderrCopy.GetAwaiter().GetResult()
+    $null = $stdoutCopy.GetAwaiter().GetResult()
+    $null = $stderrCopy.GetAwaiter().GetResult()
     $record = [ordered]@{
         schemaVersion = 1
         command = @($args)
