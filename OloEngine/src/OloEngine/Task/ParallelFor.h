@@ -718,46 +718,6 @@ namespace OloEngine
     }
 
     // ========================================================================
-    // Legacy ParallelFor overloads for API compatibility
-    // These match UE5.7's legacy API with bool parameters
-    // ========================================================================
-
-    // @brief Legacy ParallelFor overload with bool parameters
-    //
-    // @param Num Number of iterations
-    // @param Body Function to call for each index
-    // @param bForceSingleThread If true, execute single-threaded
-    // @param bPumpRenderingThread If true, pump rendering thread while waiting
-    //
-    // @note Prefer the EParallelForFlags version for new code
-    template<typename BodyType>
-    void ParallelFor(i32 Num, BodyType&& Body, bool bForceSingleThread, bool bPumpRenderingThread = false)
-    {
-        EParallelForFlags Flags = EParallelForFlags::None;
-        if (bForceSingleThread)
-        {
-            Flags |= EParallelForFlags::ForceSingleThread;
-        }
-        if (bPumpRenderingThread)
-        {
-            Flags |= EParallelForFlags::PumpRenderingThread;
-        }
-        ParallelForImpl::ParallelForInternal("ParallelFor", Num, 1, Forward<BodyType>(Body), []() {}, Flags, TArrayView<TYPE_OF_NULLPTR>());
-    }
-
-    // @brief Template version of ParallelFor for explicit function type
-    //
-    // @tparam FunctionType The callable type
-    // @param Num Number of iterations
-    // @param Body Function to call for each index
-    // @param Flags Optional flags
-    template<typename FunctionType>
-    void ParallelForTemplate(i32 Num, const FunctionType& Body, EParallelForFlags Flags = EParallelForFlags::None)
-    {
-        ParallelForImpl::ParallelForInternal("ParallelFor", Num, 1, Body, []() {}, Flags, TArrayView<TYPE_OF_NULLPTR>());
-    }
-
-    // ========================================================================
     // AutoRTFM (Real-Time Finite Memory) Transaction Check
     // ========================================================================
 

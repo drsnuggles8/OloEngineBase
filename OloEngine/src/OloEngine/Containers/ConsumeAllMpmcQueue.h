@@ -139,7 +139,7 @@ namespace OloEngine
             while (Node) // Consume the nodes of the Queue
             {
                 FNode* Next = Node->Next.load(std::memory_order_relaxed);
-                T* ValuePtr = Node->Item.GetTypedPtr();
+                T* ValuePtr = &Node->Item.GetUnchecked();
                 Consumer(MoveTemp(*ValuePtr));
                 DestructItem(ValuePtr);
                 AllocatorType::Free(Node);

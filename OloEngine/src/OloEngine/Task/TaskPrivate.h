@@ -587,85 +587,6 @@ namespace OloEngine::Tasks
                 return true;
             }
 
-            // Legacy TryRetractAndExecute that attempts inline execution (for compatibility)
-            bool TryRetractAndExecuteOld(FTimeout Timeout, u32 RecursionDepth = 0)
-            {
-                if (IsCompleted())
-                {
-                    return true;
-                }
-
-                if (Timeout.IsExpired())
-                {
-                    return false;
-                }
-
-                // Avoid stack overflow
-                if (RecursionDepth >= 200)
-                {
-                    return false;
-                }
-
-                // Check if locked by prerequisites
-                auto IsLockedByPrerequisites = [this]()
-                {
-                    u32 LocalNumLocks = m_NumLocks.load(std::memory_order_relaxed);
-                    return LocalNumLocks > 0 && LocalNumLocks < ExecutionFlag;
-                };
-
-                // Try to retract prerequisites first
-                if (IsLockedByPrerequisites())
-                {
-                    auto LocalPrereqs = m_Prerequisites.PopAll();
-                    for (FTaskBase* Prereq : LocalPrereqs)
-                    {
-                        Prereq->TryRetractAndExecute(Timeout, RecursionDepth + 1);
-                        Prereq->Release();
-                    }
-                }
-
-                // Try to get execution permission
-                if (TrySetExecutionFlag())
-                {
-                    AddRef(); // Keep alive during execution
-
-                    ReleasePrerequisites();
-
-                    FTaskBase* PrevTask = ExchangeCurrentTask(this);
-                    m_ExecutingThreadId.store(GetCurrentThreadId(), std::memory_order_relaxed);
-
-                    if (GetPipe() != nullptr)
-                    {
-                        StartPipeExecution();
-                    }
-
-                    {
-                        FInheritedContextScope InheritedContextScope = RestoreInheritedContext();
-                        TaskTrace::FTaskTimingEventScope TaskEventScope(GetTraceId());
-                        ExecuteTask();
-                    }
-
-                    if (GetPipe() != nullptr)
-                    {
-                        FinishPipeExecution();
-                    }
-
-                    m_ExecutingThreadId.store(s_NotExecutingThreadId, std::memory_order_relaxed);
-                    ExchangeCurrentTask(PrevTask);
-
-                    // Check for pending nested tasks
-                    if (u32 LocalNumLocks = m_NumLocks.fetch_sub(1, std::memory_order_acq_rel) - 1; LocalNumLocks == ExecutionFlag)
-                    {
-                        Close();
-                        Release();
-                    }
-
-                    return true;
-                }
-
-                return false;
-            }
-
             // @brief Release internal reference for unlaunched tasks
             void ReleaseInternalReference()
             {
@@ -1142,14 +1063,14 @@ namespace OloEngine::Tasks
             virtual ~TTaskWithResult() override
             {
                 // Destroy result storage - it was constructed during execution
-                DestructItem(m_ResultStorage.GetTypedPtr());
+                m_ResultStorage.DestroyUnchecked();
             }
 
           public:
             ResultType& GetResult()
             {
                 checkSlow(IsCompleted());
-                return *m_ResultStorage.GetTypedPtr();
+                return m_ResultStorage.GetUnchecked();
             }
 
           protected:
@@ -1174,11 +1095,12 @@ namespace OloEngine::Tasks
             void ExecuteTask() override final
             {
                 // Execute task body and store result
-                new (this->m_ResultStorage.GetTypedPtr()) ResultType(Invoke(*m_TaskBodyStorage.GetTypedPtr()));
+                // Constructed in place, not via EmplaceUnchecked, so a non-movable ResultType still works
+                new (static_cast<void*>(this->m_ResultStorage.Pad)) ResultType(Invoke(m_TaskBodyStorage.GetUnchecked()));
 
                 // Destroy the task body as soon as we are done with it, as it can have
                 // captured data sensitive to destruction order
-                DestructItem(m_TaskBodyStorage.GetTypedPtr());
+                m_TaskBodyStorage.DestroyUnchecked();
             }
 
           protected:
@@ -1189,7 +1111,7 @@ namespace OloEngine::Tasks
             // and one for the internal reference that keeps the task alive while it's in the system.
             // Released either on task completion or by the scheduler after trying to execute the task.
             {
-                new (m_TaskBodyStorage.GetTypedPtr()) TaskBodyType(MoveTemp(TaskBody));
+                m_TaskBodyStorage.EmplaceUnchecked(MoveTemp(TaskBody));
             }
 
           private:
@@ -1206,11 +1128,11 @@ namespace OloEngine::Tasks
           public:
             void ExecuteTask() override final
             {
-                Invoke(*m_TaskBodyStorage.GetTypedPtr());
+                Invoke(m_TaskBodyStorage.GetUnchecked());
 
                 // Destroy the task body as soon as we are done with it, as it can have
                 // captured data sensitive to destruction order
-                DestructItem(m_TaskBodyStorage.GetTypedPtr());
+                m_TaskBodyStorage.DestroyUnchecked();
             }
 
           protected:
@@ -1219,7 +1141,7 @@ namespace OloEngine::Tasks
                 : FTaskBase(2) // 2 refs: one initial, one for scheduler
             {
                 Init(InDebugName, InPriority, InExtendedPriority, Flags);
-                new (m_TaskBodyStorage.GetTypedPtr()) TaskBodyType(MoveTemp(TaskBody));
+                m_TaskBodyStorage.EmplaceUnchecked(MoveTemp(TaskBody));
             }
 
           private:

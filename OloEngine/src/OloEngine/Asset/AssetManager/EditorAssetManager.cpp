@@ -1369,12 +1369,6 @@ namespace OloEngine
         }
     }
 
-    std::unordered_map<AssetHandle, Ref<Asset>> EditorAssetManager::GetLoadedAssetsCopy() const
-    {
-        TSharedLock<FSharedMutex> lock(m_AssetsMutex);
-        return m_LoadedAssets;
-    }
-
 #if OLO_ASYNC_ASSETS
     void EditorAssetManager::OnFileSystemEvent(const std::string& file, const filewatch::Event change_type)
     {

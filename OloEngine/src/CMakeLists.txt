@@ -552,7 +552,6 @@
 		"OloEngine/Containers/MpscQueue.h"
 		"OloEngine/Containers/ReverseIterate.h"
 		"OloEngine/Containers/Set.h"
-		"OloEngine/Containers/SetElement.h"
 		"OloEngine/Containers/SetUtilities.h"
 		"OloEngine/Containers/SparseArray.h"
 		"OloEngine/Containers/SparseSet.h"
@@ -1520,7 +1519,6 @@
 		"OloEngine/Task/WaitingQueue.h"
 		
 		"OloEngine/Templates/Function.h"
-		"OloEngine/Templates/FunctionRef.h"
 		"OloEngine/Templates/IdentityFunctor.h"
 		"OloEngine/Templates/IntegerSequence.h"
 		"OloEngine/Templates/Invoke.h"

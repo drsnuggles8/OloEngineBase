@@ -564,16 +564,6 @@ namespace OloEngine
         TTypeCompatibleBytes& operator=(TTypeCompatibleBytes&&) = delete;
         TTypeCompatibleBytes& operator=(const TTypeCompatibleBytes&) = delete;
 
-        // Legacy accessor for backwards compatibility
-        T* GetTypedPtr()
-        {
-            return reinterpret_cast<T*>(Pad);
-        }
-        const T* GetTypedPtr() const
-        {
-            return reinterpret_cast<const T*>(Pad);
-        }
-
         using MutableGetType = T&;     // The type returned by Bytes.Get() where Bytes is a non-const lvalue
         using ConstGetType = const T&; // The type returned by Bytes.Get() where Bytes is a const lvalue
         using RvalueGetType = T&&;     // The type returned by Bytes.Get() where Bytes is an rvalue (non-const)
