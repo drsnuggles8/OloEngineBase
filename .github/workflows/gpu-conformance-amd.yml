@@ -649,9 +649,16 @@ jobs:
           # run that ends without a report gets one rebuilt from that log: every
           # finished test, plus the one that was running, failed with the reason.
           # The rebuilt report is marked partial and the assert step fails on it.
+          # 1-75: the suite must end at least 5 minutes inside the step's 80, or
+          # the step timeout kills the shell before the report below is rebuilt.
+          # Base 10 so "08" is 8 and "00" is 0 (rejected), not an octal error.
           case "$OLO_SUITE_MINUTES" in
-            ''|*[!0-9]*|0) echo "::error::suite_minutes must be a positive whole number, got '$OLO_SUITE_MINUTES'"; exit 1 ;;
+            ''|*[!0-9]*) echo "::error::suite_minutes must be a whole number, got '$OLO_SUITE_MINUTES'"; exit 1 ;;
           esac
+          OLO_SUITE_MINUTES=$((10#$OLO_SUITE_MINUTES))
+          if [ "$OLO_SUITE_MINUTES" -lt 1 ] || [ "$OLO_SUITE_MINUTES" -gt 75 ]; then
+            echo "::error::suite_minutes must be 1-75 (the step allows 80), got $OLO_SUITE_MINUTES"; exit 1
+          fi
           case "$OLO_AMD_DEBUG" in
             *[!a-z0-9_,]*) echo "::error::amd_debug may hold only letters, digits, commas and underscores"; exit 1 ;;
             '') unset AMD_DEBUG ;;
@@ -673,7 +680,9 @@ jobs:
             --gtest_output=xml:../test_results/gpu_amd.xml 2>&1 | tee ../test_results/gpu_amd.log
           rc=${PIPESTATUS[0]}
           set -e
-          if [ ! -s ../test_results/gpu_amd.xml ]; then
+          # Rebuild on a timeout or kill even when an XML exists: gtest writes it
+          # at iteration end, and a signal during that write leaves it truncated.
+          if [ "$rc" = 124 ] || [ "$rc" = 137 ] || [ ! -s ../test_results/gpu_amd.xml ]; then
             case "$rc" in
               124) reason="the suite hit its ${OLO_SUITE_MINUTES}-minute budget" ;;
               137) reason="the process was killed (SIGKILL: the OOM killer, or a hang past the timeout)" ;;
