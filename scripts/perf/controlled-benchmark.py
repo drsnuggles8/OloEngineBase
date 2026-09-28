@@ -28,7 +28,7 @@ def host_state() -> dict:
     if os.name != 'nt':
         raise ValueError('controlled host probe currently supports Windows only')
     script = """
-    $busy = @(Get-Process ninja,MSBuild,clang-cl,cl,lld-link,OloEditor -ErrorAction SilentlyContinue |
+    $busy = @(Get-Process ninja,MSBuild,clang-cl,cl,lld-link,OloEditor,OloEngine-Tests,OloRuntime,OloServer,devenv -ErrorAction SilentlyContinue |
       Select-Object ProcessName,Id)
     @{ cpu = @(Get-CimInstance Win32_Processor | Select-Object Name,NumberOfLogicalProcessors)
        gpu = @(Get-CimInstance Win32_VideoController | Select-Object Name,DriverVersion)

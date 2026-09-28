@@ -35,25 +35,42 @@ def main():
     client.wait_ready()
     result = {'scene': scene, 'config': args.config,
               'pathChange': client.tool('olo_renderer_settings_set', setting='renderpath', value=args.path),
-              'measurementKind': 'live attribution snapshots, correlated within blocks', 'blocks': []}
+              'measurementKind': 'live attribution snapshots, correlated within blocks',
+              'readInterruptions': [], 'blocks': []}
+
+    def read(name, **arguments):
+        deadline = time.monotonic() + 120
+        while True:
+            try:
+                return client.tool(name, **arguments)
+            except RuntimeError as error:
+                if 'Timed out waiting for the editor main thread' not in str(error):
+                    raise
+                result['readInterruptions'].append({'tool': name, 'error': str(error),
+                                                     'monotonicSeconds': time.perf_counter()})
+                args.output.parent.mkdir(parents=True, exist_ok=True)
+                args.output.write_text(json.dumps(result, indent=2), encoding='utf-8')
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(1)
     client.wait_ready()
     result['viewport'] = client.tool('olo_viewport_set_size', width=1920, height=1080)
     if args.camera:
         client.tool('olo_camera_set_pose', position=args.camera, yaw=args.yaw, pitch=args.pitch, fov=50)
     time.sleep(args.settle_seconds)
-    result['sceneSummary'] = client.tool('olo_scene_summary')
-    result['camera'] = client.tool('olo_camera_get')
+    result['sceneSummary'] = read('olo_scene_summary')
+    result['camera'] = read('olo_camera_get')
     for repeat in range(args.repeats):
         samples = []
         for _ in range(args.samples):
             start = time.perf_counter()
-            value = client.tool('olo_perf_pass_timings')
+            value = read('olo_perf_pass_timings')
             samples.append({'sample': value, 'rpcSeconds': time.perf_counter() - start,
                             'monotonicSeconds': time.perf_counter()})
             time.sleep(1)
         result['blocks'].append({'repeat': repeat, 'samples': samples,
-                                 'snapshot': client.tool('olo_perf_snapshot'),
-                                 'history': client.tool('olo_perf_frame_history', points=120)})
+                                 'snapshot': read('olo_perf_snapshot'),
+                                 'history': read('olo_perf_frame_history', points=120)})
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(result, indent=2), encoding='utf-8')
     print(f'Saved {args.repeats} attribution blocks: {args.output}')
