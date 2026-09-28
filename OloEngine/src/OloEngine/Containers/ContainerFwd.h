@@ -181,9 +181,8 @@ namespace OloEngine
     // Notes on other containers:
     // ============================================================================
     //
-    // TSet, TMap, TMultiMap are TYPE ALIASES, not classes, in OloEngine.
-    // They alias to either TCompactSet/TCompactMap or TSparseSet/TSparseMap
-    // based on OLO_USE_COMPACT_SET_AS_DEFAULT.
+    // TSet is a TYPE ALIAS for TSparseSet, not a class, in OloEngine;
+    // TMap and TMultiMap are built on it.
     //
     // Therefore, they cannot be forward declared here - include the full headers:
     // - "OloEngine/Containers/Set.h" for TSet
@@ -191,7 +190,7 @@ namespace OloEngine
     // - "OloEngine/Containers/BitArray.h" for TBitArray
     // - "OloEngine/Containers/SparseArray.h" for TSparseArray
     //
-    // The underlying implementations (TCompactSet, TSparseSet, etc.) could be
+    // The underlying implementation (TSparseSet) could be
     // forward declared, but doing so with default template arguments creates
     // "redefinition of default argument" errors when the full header is included.
 

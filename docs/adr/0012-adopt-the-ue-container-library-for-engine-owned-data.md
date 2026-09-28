@@ -89,6 +89,10 @@ implementations relocate their element storage, so neither is reference-stable.
 What it does invalidate is any dead-code argument that rests on *which* set
 implementation the alias resolves to.
 
+**Resolved by #1500:** the toggle and `TCompactSet` (with `CompactSetBase.h`,
+`CompactHashTable.h` and the compact-set allocators) are deleted. `TSet` is an
+unconditional alias for `TSparseSet`.
+
 ## 1. Why adopt rather than delete
 
 The deletion case treats the ratios as a verdict on the library. They are better

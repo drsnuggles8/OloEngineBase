@@ -1476,91 +1476,6 @@ namespace OloEngine
         using BitArrayAllocator = TFixedAllocator<InlineBitArrayDWORDs>;
     };
 
-    // ============================================================================
-    // TCompactSetAllocator
-    // ============================================================================
-
-    namespace CompactSetAllocatorHelpers
-    {
-        template<u32 NumInlineElements, i32 ElementSize>
-        constexpr i32 CalculateRequiredBytes()
-        {
-            constexpr u32 TypeSize = 1 + (NumInlineElements > 0xff) + (NumInlineElements > 0xffff) * 2;
-            constexpr u32 HashSize = NumInlineElements < 8 ? 4 : (1u << (32 - __builtin_clz((NumInlineElements / 2) + 1 - 1))); // RoundUpToPowerOfTwo
-            return static_cast<i32>(Align(NumInlineElements * ElementSize, 4) + 4 + (NumInlineElements + HashSize) * TypeSize);
-        }
-    } // namespace CompactSetAllocatorHelpers
-
-    /**
-     * @class TCompactSetAllocator
-     * @brief Allocator for TCompactSet
-     */
-    template<typename InElementAllocator = FDefaultAllocator>
-    struct TCompactSetAllocator
-    {
-        template<typename ElementType>
-        struct AllocatorAlignment
-        {
-            static constexpr sizet Value = alignof(typename InElementAllocator::template ForElementType<u8>);
-        };
-
-        template<i32 ElementSize>
-        using ElementAllocator = InElementAllocator;
-    };
-
-    template<typename InElementAllocator>
-    struct TAllocatorTraits<TCompactSetAllocator<InElementAllocator>>
-        : TAllocatorTraitsBase<TCompactSetAllocator<InElementAllocator>>
-    {
-        enum
-        {
-            SupportsFreezeMemoryImage = TAllocatorTraits<InElementAllocator>::SupportsFreezeMemoryImage,
-        };
-    };
-
-    /**
-     * @class TInlineCompactSetAllocator
-     * @brief Inline compact set allocator with secondary storage fallback
-     */
-    template<u32 NumInlineElements, typename SecondaryAllocator = TCompactSetAllocator<>>
-    struct TInlineCompactSetAllocator
-    {
-        template<i32 ElementSize>
-        using ElementAllocator = TInlineAllocator<
-            CompactSetAllocatorHelpers::CalculateRequiredBytes<NumInlineElements, ElementSize>(),
-            typename SecondaryAllocator::template ElementAllocator<ElementSize>>;
-
-        template<typename ElementType>
-        struct AllocatorAlignment
-        {
-            static constexpr sizet ElementAlignof = alignof(ElementType);
-            static constexpr sizet AllocatorAlignof = alignof(
-                typename ElementAllocator<sizeof(ElementType)>::template ForElementType<u8>);
-            static constexpr sizet Value = FMath::Max(ElementAlignof, AllocatorAlignof);
-        };
-    };
-
-    /**
-     * @class TFixedCompactSetAllocator
-     * @brief Fixed-size compact set allocator with no secondary storage
-     */
-    template<u32 NumInlineElements>
-    struct TFixedCompactSetAllocator
-    {
-        template<i32 ElementSize>
-        using ElementAllocator = TFixedAllocator<
-            CompactSetAllocatorHelpers::CalculateRequiredBytes<NumInlineElements, ElementSize>()>;
-
-        template<typename ElementType>
-        struct AllocatorAlignment
-        {
-            static constexpr sizet ElementAlignof = alignof(ElementType);
-            static constexpr sizet AllocatorAlignof = alignof(
-                typename ElementAllocator<sizeof(ElementType)>::template ForElementType<u8>);
-            static constexpr sizet Value = FMath::Max(ElementAlignof, AllocatorAlignof);
-        };
-    };
-
 // ============================================================================
 // TSparseSetAllocator
 // ============================================================================
@@ -1720,13 +1635,6 @@ namespace OloEngine
         using Typedef = TSparseSetAllocator<>;
     };
 
-    /** Default compact set allocator */
-    class FDefaultCompactSetAllocator : public TCompactSetAllocator<>
-    {
-      public:
-        using Typedef = TCompactSetAllocator<>;
-    };
-
     /** Default sparse array allocator */
     class FDefaultSparseArrayAllocator : public TSparseArrayAllocator<>
     {
@@ -1735,47 +1643,8 @@ namespace OloEngine
     };
 
     // ============================================================================
-    // TSetAllocator / FDefaultSetAllocator (conditional on OLO_USE_COMPACT_SET_AS_DEFAULT)
+    // TSetAllocator / FDefaultSetAllocator
     // ============================================================================
-
-#ifndef OLO_USE_COMPACT_SET_AS_DEFAULT
-#define OLO_USE_COMPACT_SET_AS_DEFAULT 0
-#endif
-
-#if OLO_USE_COMPACT_SET_AS_DEFAULT
-
-    /** Default set allocator uses TCompactSetAllocator */
-    class FDefaultSetAllocator : public TCompactSetAllocator<>
-    {
-      public:
-        using Typedef = TCompactSetAllocator<>;
-    };
-
-    template<
-        typename InSparseArrayAllocator = TSparseArrayAllocator<>,
-        typename InHashAllocator = TInlineAllocator<1, FDefaultAllocator>,
-        u32... N>
-    class TSetAllocator : public TCompactSetAllocator<InHashAllocator>
-    {
-      public:
-        using Typedef = TCompactSetAllocator<InHashAllocator>;
-    };
-
-    template<u32 N, typename S = TCompactSetAllocator<>, u32... NN>
-    class TInlineSetAllocator : public TInlineCompactSetAllocator<N, S>
-    {
-      public:
-        using Typedef = TInlineCompactSetAllocator<N, S>;
-    };
-
-    template<u32 N, u32... Y>
-    class TFixedSetAllocator : public TFixedCompactSetAllocator<N>
-    {
-      public:
-        using Typedef = TFixedCompactSetAllocator<N>;
-    };
-
-#else // !OLO_USE_COMPACT_SET_AS_DEFAULT
 
     /** Default set allocator uses TSparseSetAllocator */
     class FDefaultSetAllocator : public TSparseSetAllocator<>
@@ -1810,8 +1679,6 @@ namespace OloEngine
       public:
         using Typedef = TFixedSparseSetAllocator<N...>;
     };
-
-#endif // OLO_USE_COMPACT_SET_AS_DEFAULT
 
     // ============================================================================
     // Allocator Trait Specializations for Default Aliases
