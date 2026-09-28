@@ -633,6 +633,7 @@ $lastPos           = -1
 $slotIndex          = 0
 # Announce a concurrency refusal ONCE, not on every 15s poll.
 $concurrencyRefused = $false
+$admissionWarned = $false
 
 # Take a ticket BEFORE the first attempt, so arrival order is recorded even if we
 # get the lock immediately.
@@ -652,7 +653,12 @@ try {
             try {
                 $admission = [IO.File]::Open($admissionPath, [IO.FileMode]::OpenOrCreate,
                                             [IO.FileAccess]::Write, [IO.FileShare]::Read)
-            } catch { }
+            } catch {
+                if (-not $admissionWarned) {
+                    Write-Host "[build-lock] admission lock unavailable: $($_.Exception.Message)"
+                    $admissionWarned = $true
+                }
+            }
             if ($null -ne $admission) {
                 try {
                     $reason = ''
