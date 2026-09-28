@@ -71,3 +71,36 @@ Windows `std::async`, independently of that worker strategy. Retain the sampled
 process thread maximum as a separate measurement; do not report it as bounded by
 N. See the pinned [LLD driver implementation](https://github.com/llvm/llvm-project/blob/llvmorg-23.1.0/lld/COFF/Driver.cpp#L143)
 and its [thread-option handling](https://github.com/llvm/llvm-project/blob/llvmorg-23.1.0/lld/COFF/Driver.cpp#L1546).
+
+## Local worker-limit measurement (2026-09-28)
+
+Treat the worker limit as CPU admission, not a memory fix. On an i7-14700KF
+(28 logical CPUs, 64 GiB), LLVM 23.1.0 replayed the full Debug test link from
+`2662d9f1a`, including USD and FFmpeg, with GHASH off. The same response-file
+inputs were used for three alternating repeats per cell; concurrent cells ran
+two separate output links in each repeat. The exclusive build gate enclosed the
+campaign and the normal link semaphore admitted both links. A five-second
+known-process monitor found no competing build/test/editor in 54 samples.
+
+| Worker option | Concurrent links | Links | Median seconds per link | Median peak MiB per link | Maximum sampled native threads |
+|---|---:|---:|---:|---:|---:|
+| default | 1 | 3 | 11.00 | 13,925 | 125 |
+| `/threads:7` | 1 | 3 | 12.03 | 13,827 | 16 |
+| default | 2 | 6 | 12.88 | 13,918 | 37 |
+| `/threads:7` | 2 | 6 | 13.72 | 13,825 | 17 |
+
+The first default link took 29.94 seconds and reached 125 sampled threads;
+subsequent single-link default samples took 10.76 and 11.00 seconds. The median
+does not hide that cold-start variation. Capping workers reduced median peak
+working set by less than 1% and increased median link time by about 9% alone and
+7% when paired. These are direct-link measurements, not whole-build throughput,
+aggregate host memory, an ASan result, or a GHASH comparison. Raw commands,
+response files, hashes, measurement records and host probes for PR #1520 are
+retained locally under `build-cached/link-replays/`.
+
+The Windows census must install the SDK's optional `com.lunarg.vulkan.debug`
+component for ordinary Debug builds. Falling back to release SPIRV-Cross archives
+fails with `_ITERATOR_DEBUG_LEVEL` 2 versus 0; a failed 2.39 GiB link is not a
+successful memory measurement. The setup action's `windows-debug-libraries`
+input installs and verifies the matching libraries. ASan uses the release CRT
+and does not request that component.
