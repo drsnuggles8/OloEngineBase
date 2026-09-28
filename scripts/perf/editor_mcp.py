@@ -52,4 +52,3 @@ class Client:
         if 'structuredContent' in result:
             return result['structuredContent']
         return json.loads(next(c['text'] for c in result['content'] if c['type'] == 'text'))
-
