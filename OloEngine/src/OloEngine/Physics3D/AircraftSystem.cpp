@@ -287,7 +287,7 @@ namespace OloEngine
                     // Cast straight down from the attachment. Excluding this entity
                     // stops the ray hitting the aircraft's own fuselage collider.
                     RayCastInfo ray(attach, glm::vec3(0.0f, -1.0f, 0.0f), leg.m_Length);
-                    ray.m_ExcludedEntities.push_back(entity.GetUUID());
+                    ray.m_ExcludedEntities.AddExcludedEntity(entity.GetUUID());
                     SceneQueryHit hit;
                     if (!jolt->CastRay(ray, hit) || !hit.HasHit())
                         continue; // wheel in the air — this leg carries nothing

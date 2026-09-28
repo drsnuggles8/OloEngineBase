@@ -1,9 +1,8 @@
 #pragma once
 
-#include "EntityExclusionUtils.h"
+#include "ExcludedEntitySet.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/UUID.h"
-#include <vector>
 #include "OloEngine/Threading/SharedMutex.h"
 #include "OloEngine/Threading/UniqueLock.h"
 #include "OloEngine/Threading/SharedLock.h"
@@ -24,11 +23,7 @@ namespace OloEngine
     class EntityExclusionBodyFilter : public JPH::BodyFilter
     {
       public:
-        // @brief Constructor with excluded entities list
-        // @param excludedEntities Vector of entity UUIDs to exclude from queries
-        explicit EntityExclusionBodyFilter(const std::vector<UUID>& excludedEntities);
-
-        // @brief Constructor with ExcludedEntitySet (optimized)
+        // @brief Constructor with the set of entities to exclude
         // @param excludedEntitySet Pre-constructed set of entity UUIDs to exclude from queries
         explicit EntityExclusionBodyFilter(const ExcludedEntitySet& excludedEntitySet);
 
@@ -69,10 +64,6 @@ namespace OloEngine
         // @param entityID UUID to check
         // @return true if entity is excluded, false otherwise
         [[nodiscard]] bool IsEntityExcluded(UUID entityID) const;
-
-        // @brief Get the list of excluded entities
-        // @return Vector containing all excluded entities
-        [[nodiscard]] std::vector<UUID> GetExcludedEntities() const;
 
       private:
         ExcludedEntitySet m_ExcludedEntities;

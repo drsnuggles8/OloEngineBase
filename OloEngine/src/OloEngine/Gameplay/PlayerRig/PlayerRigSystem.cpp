@@ -597,8 +597,8 @@ namespace OloEngine
                 // boom instantly collapses onto the player's own capsule — the
                 // pivot sits inside it — and without the camera entity a
                 // collider authored on the camera itself would occlude it.
-                ray.m_ExcludedEntities.push_back(rig.m_Target);
-                ray.m_ExcludedEntities.push_back(cameraEntity.GetUUID());
+                ray.m_ExcludedEntities.AddExcludedEntity(rig.m_Target);
+                ray.m_ExcludedEntities.AddExcludedEntity(cameraEntity.GetUUID());
 
                 if (SceneQueryHit hit; physics->CastRay(ray, hit) && hit.HasHit())
                     allowedBoom = ClearanceFromHit(hit.m_Distance, desiredBoom, probeRadius, rig.m_MinBoomLength);

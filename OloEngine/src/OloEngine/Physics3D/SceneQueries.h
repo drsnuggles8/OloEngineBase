@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Physics3DTypes.h"
-#include "EntityExclusionUtils.h"
+#include "ExcludedEntitySet.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Core/Ref.h"
@@ -48,12 +48,6 @@ namespace OloEngine
         }
     };
 
-    // Legacy type alias for backward compatibility - prefer ExcludedEntitySet for better performance
-    // ⚠️  PERFORMANCE NOTE: ExcludedEntityMap (std::vector<UUID>) has O(n) lookup cost per query.
-    // For frequent queries or large exclusion lists, use ExcludedEntitySet for O(1) performance.
-    // Migration: Replace std::vector<UUID> with ExcludedEntitySet in physics query code.
-    using ExcludedEntityMap = std::vector<UUID>;
-
     // @brief Information for performing ray casting queries
     //
     // Defines the parameters for casting a ray through the physics world,
@@ -64,7 +58,7 @@ namespace OloEngine
         glm::vec3 m_Direction = glm::vec3(0.0f, 0.0f, 1.0f);
         f32 m_MaxDistance = 500.0f;
         u32 m_LayerMask = 0xFFFFFFFF;
-        ExcludedEntityMap m_ExcludedEntities;
+        ExcludedEntitySet m_ExcludedEntities;
 
         RayCastInfo() = default;
         RayCastInfo(const glm::vec3& origin, const glm::vec3& direction, f32 maxDistance = 500.0f)
@@ -90,7 +84,7 @@ namespace OloEngine
         glm::vec3 m_Direction = glm::vec3(0.0f, 0.0f, 1.0f);
         f32 m_MaxDistance = 500.0f;
         u32 m_LayerMask = 0xFFFFFFFF;
-        ExcludedEntityMap m_ExcludedEntities;
+        ExcludedEntitySet m_ExcludedEntities;
 
         ShapeCastType GetCastType() const
         {
@@ -159,7 +153,7 @@ namespace OloEngine
         glm::vec3 m_Origin = glm::vec3(0.0f);
         glm::quat m_Rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
         u32 m_LayerMask = 0xFFFFFFFF;
-        ExcludedEntityMap m_ExcludedEntities;
+        ExcludedEntitySet m_ExcludedEntities;
 
         ShapeCastType GetCastType() const
         {
@@ -286,34 +280,6 @@ namespace OloEngine
             else
                 direction = glm::vec3(0.0f, 0.0f, 1.0f); // Default unit vector for zero-distance case
             return SphereCastInfo(from, direction, radius, distance);
-        }
-
-        // Entity filtering helpers - legacy vector-based interface (O(n) performance)
-        // Consider migrating to ExcludedEntitySet for O(1) performance
-        inline void AddExcludedEntity(ExcludedEntityMap& excludedEntities, UUID entityID)
-        {
-            excludedEntities.push_back(entityID);
-        }
-
-        inline bool IsEntityExcluded(const ExcludedEntityMap& excludedEntities, UUID entityID)
-        {
-            return EntityExclusionUtils::IsEntityExcluded(excludedEntities, entityID);
-        }
-
-        // New O(1) entity filtering helpers using unified utility
-        inline bool IsEntityExcluded(const ExcludedEntitySet& excludedEntitySet, UUID entityID)
-        {
-            return EntityExclusionUtils::IsEntityExcluded(excludedEntitySet, entityID);
-        }
-
-        inline ExcludedEntitySet CreateExclusionSet(const ExcludedEntityMap& excludedEntities)
-        {
-            return EntityExclusionUtils::CreateExclusionSet(excludedEntities);
-        }
-
-        inline ExcludedEntitySet CreateExclusionSet(UUID excludedEntity)
-        {
-            return EntityExclusionUtils::CreateExclusionSet(excludedEntity);
         }
     } // namespace SceneQueryUtils
 
