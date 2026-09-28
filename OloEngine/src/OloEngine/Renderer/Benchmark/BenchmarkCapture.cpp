@@ -532,6 +532,8 @@ namespace OloEngine::Benchmark
         sample.CpuMs = frame.m_CPUTime;
         sample.FenceWaitMs = frame.m_FenceWaitTime;
         sample.PresentWaitMs = frame.m_PresentWaitTime;
+        sample.RecordingWallMs = frame.m_ParallelRecording.RegionWallMs;
+        sample.RecordingJoinWaitMs = frame.m_ParallelRecording.JoinWaitMs;
         sample.DrawCalls = frame.m_DrawCalls;
         const auto gpu = GPUPassTimerPool::GetInstance().GetLastFrameTimings();
         sample.GpuFrameId = gpu.FrameNumber;
@@ -539,6 +541,12 @@ namespace OloEngine::Benchmark
         if (gpu.IsStale())
         {
             sample.Gpu = GpuTimingSample::Absent(GpuTimingStatus::Unavailable);
+        }
+        for (const auto& timing : gpu.Passes)
+        {
+            sample.GpuPasses.Add(PassTimingRecord{ timing.Name,
+                                                   gpu.IsStale() ? GpuTimingSample::Absent(GpuTimingStatus::Unavailable) : timing.Sample,
+                                                   timing.IsSubPass, timing.ParentName });
         }
         sample.TrackedRendererBytes = static_cast<u64>(RendererMemoryTracker::GetInstance().GetTotalMemoryUsage());
         return sample;
@@ -995,10 +1003,12 @@ namespace OloEngine::Benchmark
             // cannot show transient stalls, warm/cold drift, or an invalid GPU
             // timestamp being accidentally interpreted as a fast frame.
             std::ofstream raw(outDir / "measurement.csv", std::ios::binary | std::ios::trunc);
-            raw << "camera,index,renderCallMs,cpuMs,fenceWaitMs,presentWaitMs,gpuFrameId,gpuMs,gpuStatus,trackedRendererBytes,drawCalls\n";
+            std::ofstream passes(outDir / "measurement-passes.jsonl", std::ios::binary | std::ios::trunc);
+            raw << "camera,index,renderCallMs,cpuMs,fenceWaitMs,presentWaitMs,gpuFrameId,gpuMs,gpuStatus,trackedRendererBytes,drawCalls,recordingWallMs,recordingJoinWaitMs,cpuFrameId\n";
             std::vector<f64> wall;
             wall.reserve(runInfo.Measurement.Frames.Num());
             std::map<std::string, std::vector<f64>> byCamera;
+            std::map<std::string, std::pair<u64, u64>> cpuRanges;
             std::set<u64> validGpuFrames;
             u32 missed = 0;
             u64 peakTrackedBytes = 0;
@@ -1006,6 +1016,8 @@ namespace OloEngine::Benchmark
             {
                 wall.push_back(frame.RenderCallMs);
                 byCamera[frame.CameraId.ToStdString()].push_back(frame.RenderCallMs);
+                const auto range = cpuRanges.try_emplace(frame.CameraId.ToStdString(), frame.CpuFrameId, frame.CpuFrameId).first;
+                range->second.second = frame.CpuFrameId;
                 missed += frame.RenderCallMs > runInfo.Measurement.DeadlineMs ? 1u : 0u;
                 peakTrackedBytes = std::max(peakTrackedBytes, frame.TrackedRendererBytes);
                 raw << frame.CameraId.ToView() << ',' << frame.Index << ',' << frame.RenderCallMs << ','
@@ -1016,11 +1028,24 @@ namespace OloEngine::Benchmark
                 if (uniqueGpu)
                     raw << frame.Gpu.GpuMs;
                 raw << ',' << (frame.Gpu.IsValid() && !uniqueGpu ? "duplicate" : ToString(frame.Gpu.Status))
-                    << ',' << frame.TrackedRendererBytes << ',' << frame.DrawCalls << '\n';
+                    << ',' << frame.TrackedRendererBytes << ',' << frame.DrawCalls
+                    << ',' << frame.RecordingWallMs << ',' << frame.RecordingJoinWaitMs << ',' << frame.CpuFrameId << '\n';
+                nlohmann::json passFrame{ { "camera", frame.CameraId.ToStdString() }, { "index", frame.Index }, { "gpuFrameId", frame.GpuFrameId }, { "passes", nlohmann::json::array() } };
+                for (const auto& timing : frame.GpuPasses)
+                {
+                    passFrame["passes"].push_back({ { "pass", timing.Name.ToStdString() },
+                                                    { "status", std::string(ToString(timing.Sample.Status)) },
+                                                    { "gpuMs", timing.Sample.IsValid() ? nlohmann::json(timing.Sample.GpuMs) : nlohmann::json(nullptr) },
+                                                    { "isSubPass", timing.IsSubPass },
+                                                    { "parent", timing.ParentName.ToStdString() } });
+                }
+                passes << passFrame.dump() << '\n';
             }
-            if (!raw)
+            raw.close();
+            passes.close();
+            if (!raw || !passes)
             {
-                outError = "cannot write " + (outDir / "measurement.csv").string();
+                outError = "cannot write measurement files in " + outDir.string();
                 return false;
             }
             std::ranges::sort(wall);
@@ -1030,10 +1055,14 @@ namespace OloEngine::Benchmark
                 return wall[std::clamp<sizet>(rank, 1, wall.size()) - 1];
             };
             json["measurement"] = { { "rawFile", "measurement.csv" },
+                                    { "passRawFile", "measurement-passes.jsonl" },
                                     { "metric", runInfo.Host == "editor-mcp"
                                                     ? "completed editor frame interval; sampling marshals may perturb it"
                                                     : "wall-clock Scene::OnUpdateEditor call, excluding attachment readback" },
                                     { "sampleCount", wall.size() },
+                                    { "continuousEditorFrames", runInfo.Measurement.ContinuousEditorFrames },
+                                    { "traceOverflow", runInfo.Measurement.TraceOverflow },
+                                    { "completedSteps", runInfo.Measurement.CompletedSteps },
                                     { "deadlineMs", runInfo.Measurement.DeadlineMs },
                                     { "deadlineMisses", missed },
                                     { "p50Ms", percentile(0.50) },
@@ -1060,6 +1089,8 @@ namespace OloEngine::Benchmark
                                                           { return ms > runInfo.Measurement.DeadlineMs; });
                 json["measurement"]["scenarios"].push_back({ { "camera", camera },
                                                              { "sampleCount", values.size() },
+                                                             { "firstCpuFrameId", cpuRanges.at(camera).first },
+                                                             { "lastCpuFrameId", cpuRanges.at(camera).second },
                                                              { "deadlineMisses", misses },
                                                              { "p50Ms", at(0.50) },
                                                              { "p95Ms", at(0.95) },

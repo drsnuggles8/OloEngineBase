@@ -39,6 +39,9 @@ def describe(values: list[float], deadline: float) -> dict:
 
 
 def load_run(path: Path) -> tuple[dict, dict[str, dict[str, list[float]]], dict]:
+    calibration = path / "calibration.json"
+    if calibration.exists() and json.loads(calibration.read_text(encoding="utf-8")).get("injectedWallDelayMs", 0):
+        raise ValueError(f"{path}: injected slowdown is calibration evidence, not an engine performance result")
     result = json.loads((path / "result.json").read_text(encoding="utf-8"))
     measurement = result.get("measurement") or {}
     deadline = measurement.get("deadlineMs")

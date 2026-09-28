@@ -239,3 +239,32 @@ TEST(BenchmarkExportValidity, SubPassEntriesDeclareTheirParentSoATotalCanSkipThe
     EXPECT_TRUE(timings[1]["isSubPass"].get<bool>());
     EXPECT_EQ(timings[1]["parent"].get<std::string>(), "ScenePass");
 }
+
+TEST(BenchmarkExportValidity, RawPassDistributionsRetainFrameIdentityAndInvalidSamples)
+{
+    auto runInfo = HealthyRunInfo();
+    runInfo.Host = "editor-mcp";
+    runInfo.Measurement.DeadlineMs = 16.67f;
+    Benchmark::MeasuredFrame frame;
+    frame.CameraId = "stationary";
+    frame.GpuFrameId = 123;
+    frame.RenderCallMs = 10.0;
+    frame.GpuPasses = {
+        { "ScenePass", GpuTimingSample::Measured(0.0), false, {} },
+        { "ScenePass/Depth", GpuTimingSample::Absent(GpuTimingStatus::Dropped), true, "ScenePass" },
+    };
+    runInfo.Measurement.Frames.Add(std::move(frame));
+    const auto result = WriteAndRead(runInfo, "raw-passes");
+    ASSERT_FALSE(result.Json.is_discarded());
+    std::ifstream file(result.Dir / result.Json["measurement"]["passRawFile"].get<std::string>());
+    const auto row = nlohmann::json::parse(file, nullptr, false);
+    ASSERT_FALSE(row.is_discarded());
+    EXPECT_EQ(row["gpuFrameId"].get<u64>(), 123u);
+    EXPECT_EQ(row["camera"].get<std::string>(), "stationary");
+    ASSERT_EQ(row["passes"].size(), 2u);
+    EXPECT_DOUBLE_EQ(row["passes"][0]["gpuMs"].get<f64>(), 0.0);
+    EXPECT_EQ(row["passes"][0]["status"].get<std::string>(), "valid");
+    EXPECT_TRUE(row["passes"][1]["gpuMs"].is_null());
+    EXPECT_EQ(row["passes"][1]["status"].get<std::string>(), "dropped");
+    EXPECT_EQ(row["passes"][1]["parent"].get<std::string>(), "ScenePass");
+}

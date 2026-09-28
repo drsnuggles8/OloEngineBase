@@ -1,0 +1,59 @@
+name: Controlled performance comparisons
+on:
+  pull_request:
+    paths:
+      - 'scripts/perf/controlled*'
+      - 'scripts/perf/test_controlled*'
+      - 'scripts/perf/capture_process.py'
+      - 'scripts/perf/editor_mcp.py'
+      - '.github/workflows/controlled-perf.yml'
+  workflow_dispatch:
+    inputs:
+      plan:
+        description: Absolute path to the calibrated plan on the designated runner
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  decision-rule:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.10'
+      - run: python -m unittest discover -s scripts/perf -p 'test_controlled*.py' -v
+  unavailable:
+    if: github.event_name == 'workflow_dispatch' && vars.OLO_CONTROLLED_PERF_ENABLED != 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - run: |
+          echo '::error::Controlled performance runner is not configured; no performance verdict is available.'
+          exit 2
+  measure:
+    # Never execute PR-controlled commands on a persistent performance machine.
+    # An authorized manual dispatch supplies its locally prepared binary pair.
+    if: github.event_name == 'workflow_dispatch' && vars.OLO_CONTROLLED_PERF_ENABLED == 'true'
+    runs-on: ${{ fromJSON('["self-hosted", "windows", "x64", "olo-perf"]') }}
+    timeout-minutes: 240
+    concurrency:
+      group: controlled-performance-machine
+      cancel-in-progress: false
+    env:
+      PERF_PLAN: ${{ inputs.plan }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Compare independent paired runs
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP "controlled-perf-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          "PERF_OUTPUT=$out" >> $env:GITHUB_ENV
+          python scripts/perf/controlled-benchmark.py --plan "$env:PERF_PLAN" --output "$out"
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: controlled-performance-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.PERF_OUTPUT }}
+          if-no-files-found: error

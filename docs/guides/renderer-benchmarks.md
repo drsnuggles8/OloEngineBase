@@ -10,6 +10,10 @@ questions the regression suite cannot: *is this frame good, which term is respon
 what does it cost?* This is a different product from the golden-image suite (which measures
 change, not quality) and from the perf baselines (which measure cost, not quality).
 
+For repeated A/B comparisons and separate p50/p95/p99/deadline gates, use
+[controlled-performance.md](controlled-performance.md). Minimum-based microbenchmarks
+remain lower-bound cost metrics, not whole-frame regression evidence.
+
 ## The two capture products — and why they can never mix
 
 | | Regression goldens | Hero captures |

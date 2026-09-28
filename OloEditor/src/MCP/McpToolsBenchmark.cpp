@@ -29,20 +29,24 @@
 #include "OloEngine/Core/FastRandom.h"
 #include "OloEngine/Renderer/Benchmark/BenchmarkCapture.h"
 #include "OloEngine/Renderer/Benchmark/BenchmarkManifest.h"
+#include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Scene/Scene.h"
+#include "OloEngine/Task/NamedThreads.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 
 #include <glad/gl.h>
 #include <glm/glm.hpp>
 
+#include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <memory>
 #include <optional>
 #include <string>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 
@@ -85,26 +89,105 @@ namespace OloEngine::MCP
                                    kBenchmarkMarshalTimeout);
         }
 
-        // Releases the pinned clock on EVERY exit path — an early error return
-        // or a marshal timeout throwing out of the handler would otherwise
-        // leave the whole editor frozen at the capture's time, animations and
-        // all. Best effort and non-throwing, like the renderer-state guard.
-        struct MockClockReleaseGuard
+        // A cancelled worker may unwind after its caller has already retried.
+        // Keep the lease until the final main-thread cleanup completes so an old
+        // restoration cannot overwrite a new capture's scene/clock settings.
+        struct CaptureLease
         {
-            IAutomationHost* Host = nullptr;
-            ~MockClockReleaseGuard()
+            inline static std::atomic<bool> Busy{ false };
+            ~CaptureLease()
             {
+                Busy.store(false);
+            }
+            static std::shared_ptr<CaptureLease> TryAcquire()
+            {
+                bool expected = false;
+                if (!Busy.compare_exchange_strong(expected, true))
+                    return {};
                 try
                 {
-                    (void)Host->MarshalRead([]() -> Json
-                                            {
-                        Time::ClearMockTime();
-                        return Json{ { "ok", true } }; },
-                                            kBenchmarkMarshalTimeout);
+                    return std::make_shared<CaptureLease>();
                 }
                 catch (...)
                 {
+                    Busy.store(false);
+                    throw;
                 }
+            }
+        };
+
+        // Request cancellation deliberately rejects normal marshalled work. Cleanup
+        // must still reach the main thread; the fallback owns all captured state
+        // and never retains the request host. The capture lease excludes a retry
+        // until restoration finishes; trace generation IDs prevent stale removal.
+        void CleanupOnMainThread(IAutomationHost& host, std::function<Json()> cleanup) noexcept
+        {
+            try
+            {
+                (void)host.MarshalRead(cleanup, kBenchmarkMarshalTimeout);
+                return;
+            }
+            catch (...)
+            {
+            }
+            try
+            {
+                Tasks::EnqueueGameThreadTask([cleanup = std::move(cleanup)]()
+                                             { (void)cleanup(); },
+                                             "BenchmarkCaptureCleanup");
+            }
+            catch (...)
+            {
+                OLO_CORE_ERROR("Unable to queue benchmark capture cleanup");
+            }
+        }
+
+        struct MockClockReleaseGuard
+        {
+            IAutomationHost* Host = nullptr;
+            std::shared_ptr<CaptureLease> Lease;
+            ~MockClockReleaseGuard()
+            {
+                CleanupOnMainThread(*Host, [lease = Lease]() -> Json
+                                    {
+                    Time::ClearMockTime();
+                    return Json{ { "ok", true } }; });
+            }
+        };
+
+        struct CompletedTraceGuard
+        {
+            explicit CompletedTraceGuard(IAutomationHost& host) : Host(&host) {}
+            CompletedTraceGuard(const CompletedTraceGuard&) = delete;
+            auto operator=(const CompletedTraceGuard&) -> CompletedTraceGuard& = delete;
+            CompletedTraceGuard(CompletedTraceGuard&&) = delete;
+            auto operator=(CompletedTraceGuard&&) -> CompletedTraceGuard& = delete;
+            IAutomationHost* Host = nullptr;
+            std::shared_ptr<u64> Owns = std::make_shared<u64>(0);
+            void Stop()
+            {
+                const Json result = Host->MarshalRead([owns = Owns]() -> Json
+                                                      {
+                    if (*owns)
+                    {
+                        if (!RendererProfiler::GetInstance().EndCompletedFrameTrace(*owns))
+                            return Json{ { "ok", false } };
+                        *owns = 0;
+                    }
+                    return Json{ { "ok", true } }; }, kBenchmarkMarshalTimeout);
+                if (!result.value("ok", false))
+                    throw std::runtime_error("Could not stop completed-frame trace");
+            }
+            ~CompletedTraceGuard()
+            {
+                CleanupOnMainThread(*Host, [owns = Owns]() -> Json
+                                    {
+                    if (*owns)
+                    {
+                        (void)RendererProfiler::GetInstance().EndCompletedFrameTrace(*owns);
+                        *owns = 0;
+                    }
+                    return Json{ { "ok", true } }; });
             }
         };
 
@@ -153,10 +236,11 @@ namespace OloEngine::MCP
             // host's order (docs/guides/renderer-benchmarks.md, step 2).
             const f32 clockStart = manifest->StartTimeSeconds;
             const f32 clockDt = manifest->FixedDtSeconds;
-            // The guard FIRST: the marshal below can time out and throw, and the
-            // abandoned job still runs later (nothing dequeues it), so a guard
-            // constructed after it would leave the editor pinned at t0.
-            const MockClockReleaseGuard clockGuard{ &host };
+            // Construct the guard first so every exceptional exit releases the clock.
+            auto lease = CaptureLease::TryAcquire();
+            if (!lease)
+                return ToolResult::Error("Another benchmark capture is active or still cleaning up.");
+            const MockClockReleaseGuard clockGuard{ &host, std::move(lease) };
             SetMockClock(host, clockStart);
 
             // ---- Open the manifest's scene (same seam as olo_scene_open) ----
@@ -225,25 +309,14 @@ namespace OloEngine::MCP
                     {
                         return;
                     }
-                    // Best effort, and never throw out of a destructor: this
-                    // runs while an exception is already in flight.
-                    try
-                    {
-                        auto state = State;
-                        Host->MarshalRead(
-                            [state]() -> Json
-                            {
-                                Renderer3D::GetRendererSettings() = state->PriorRendererSettings;
-                                Renderer3D::GetPostProcessSettings() = state->PriorPostProcessSettings;
-                                Renderer3D::GetShadowMap().SetSettings(state->PriorShadowSettings);
-                                Renderer3D::ApplyRendererSettings();
-                                Renderer3D::SetRenderScale(state->PriorRenderScale);
-                                return Json{ { "ok", true } };
-                            });
-                    }
-                    catch (...)
-                    {
-                    }
+                    CleanupOnMainThread(*Host, [state = State]() -> Json
+                                        {
+                        Renderer3D::GetRendererSettings() = state->PriorRendererSettings;
+                        Renderer3D::GetPostProcessSettings() = state->PriorPostProcessSettings;
+                        Renderer3D::GetShadowMap().SetSettings(state->PriorShadowSettings);
+                        Renderer3D::ApplyRendererSettings();
+                        Renderer3D::SetRenderScale(state->PriorRenderScale);
+                        return Json{ { "ok", true } }; });
                 }
             } restoreGuard{ &host, applied, /*Armed=*/false };
             const Json presetAdmission = host.MarshalRead([manifestCopy, backend]() -> Json
@@ -342,6 +415,7 @@ namespace OloEngine::MCP
             auto configuration = std::make_shared<Benchmark::AppliedConfiguration>();
             auto measurement = std::make_shared<Benchmark::MeasurementRecord>();
             measurement->DeadlineMs = manifest->MeasurementDeadlineMs;
+            measurement->ContinuousEditorFrames = true;
             const FString backendCopy = backend;
             u32 totalWarmFrames = 0;
             u32 trajectoryFrame = 0;
@@ -415,9 +489,35 @@ namespace OloEngine::MCP
                     }
                 }
 
-                // Measure after warm-up and before attachment readback. Read
-                // each completed editor frame separately so the profiler's
-                // 300-frame ring cannot silently discard the tail of a run.
+                // Collect every completed interval, not just the last frame
+                // when a marshal returns: that drops transition stalls between
+                // requests. The observer runs on the same thread as the
+                // profiler and is removed before attachment readback.
+                CompletedTraceGuard traceGuard{ host };
+                const FString measuredCamera = cameraSpec.Id;
+                const Json traceStarted = host.MarshalRead([measurement, measuredCamera, owns = traceGuard.Owns]() -> Json
+                                                           {
+                    *owns = RendererProfiler::GetInstance().BeginCompletedFrameTrace(
+                        [measurement, measuredCamera, index = 0u, first = true](u64 frameId) mutable
+                        {
+                            // The first callback finalizes the pre-trace frame.
+                            if (first)
+                            {
+                                first = false;
+                                return;
+                            }
+                            if (measurement->Frames.Num() >= 100000)
+                            {
+                                measurement->TraceOverflow = true;
+                                return;
+                            }
+                            auto sample = Benchmark::SnapshotEditorMeasuredFrame(measuredCamera.ToView(), index++);
+                            sample.CpuFrameId = frameId;
+                            measurement->Frames.Add(std::move(sample));
+                        });
+                    return Json{ { "ok", *owns != 0 } }; }, kBenchmarkMarshalTimeout);
+                if (!traceStarted.value("ok", false))
+                    return ToolResult::Error("Another completed-frame trace is already active");
                 for (u32 frame = 0; frame < manifest->MeasurementFrames; ++frame)
                 {
                     const std::optional<u32> poseFrame =
@@ -430,12 +530,9 @@ namespace OloEngine::MCP
                         warmupTimedOut = true;
                         break;
                     }
-                    const FString measuredCamera = cameraSpec.Id;
-                    host.MarshalRead([measurement, measuredCamera, frame]() -> Json
-                                     {
-                        measurement->Frames.Add(Benchmark::SnapshotEditorMeasuredFrame(measuredCamera.ToView(), frame));
-                        return Json{ { "ok", true } }; });
+                    ++measurement->CompletedSteps;
                 }
+                traceGuard.Stop();
 
                 const FString cameraId = cameraSpec.Id;
                 const Benchmark::CaptureContext captureContext{ cameraSpec.NearClip, cameraSpec.FarClip };
