@@ -350,7 +350,6 @@ namespace OloEngine
         DrawQuad,
         BindDefaultFramebuffer,
         BindTexture,
-        SetShaderResource,
         SetViewport,
         SetClearColor,
         SetBlendState,
@@ -423,8 +422,6 @@ namespace OloEngine
                 return "BindDefaultFramebuffer";
             case CommandType::BindTexture:
                 return "BindTexture";
-            case CommandType::SetShaderResource:
-                return "SetShaderResource";
             case CommandType::SetViewport:
                 return "SetViewport";
             case CommandType::SetClearColor:
@@ -664,14 +661,6 @@ namespace OloEngine
         CommandHeader header;
         u32 slot;
         RHI::ResourceHandle textureID;
-    };
-
-    struct SetShaderResourceCommand
-    {
-        CommandHeader header;
-        u32 shaderID;
-        const char* resourceName; // Changed from std::string to const char* for POD compliance
-        ShaderResourceInput resourceInput;
     };
 
     struct DrawIndexedCommand

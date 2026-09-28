@@ -248,33 +248,17 @@ namespace OloEngine
         }
     }
 
-    void ShaderResourceRegistry::SetResource(const std::string& name, const ShaderResource& resource)
+    bool ShaderResourceRegistry::SetResource(const std::string& name, const ShaderResource& resource)
     {
         auto it = m_Bindings.find(name);
-        if (it != m_Bindings.end())
-        {
-            it->second.Resource = resource;
-            OLO_CORE_TRACE("ShaderResourceRegistry: Set resource '{0}'", name);
-        }
-        else
-        {
-            OLO_CORE_WARN("ShaderResourceRegistry: Resource '{0}' not found in bindings", name);
-        }
-    }
-
-    bool ShaderResourceRegistry::SetResource(const std::string& name, const ShaderResourceInput& input)
-    {
-        auto it = m_Bindings.find(name);
-        if (it != m_Bindings.end())
-        {
-            it->second.Resource = input.Resource;
-            return true;
-        }
-        else
+        if (it == m_Bindings.end())
         {
             OLO_CORE_WARN("ShaderResourceRegistry: Resource '{0}' not found in bindings", name);
             return false;
         }
+        it->second.Resource = resource;
+        OLO_CORE_TRACE("ShaderResourceRegistry: Set resource '{0}'", name);
+        return true;
     }
 
     Ref<UniformBuffer> ShaderResourceRegistry::GetUniformBuffer(const std::string& name) const

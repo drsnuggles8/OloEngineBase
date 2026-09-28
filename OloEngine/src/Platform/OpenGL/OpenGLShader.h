@@ -119,18 +119,6 @@ namespace OloEngine
         // Initialize resource registry (called after shader is fully constructed)
         void InitializeResourceRegistry(const Ref<Shader>& shaderRef);
 
-        // Convenience methods for setting shader resources
-        template<typename T>
-        bool SetShaderResource(const std::string& name, const Ref<T>& resource)
-        {
-            return m_ResourceRegistry.SetResource(name, resource);
-        }
-
-        bool SetShaderResource(const std::string& name, const ShaderResourceInput& input)
-        {
-            return m_ResourceRegistry.SetResource(name, input);
-        }
-
         // SPIR-V data access (for shader pack serialization)
         [[nodiscard]] const std::unordered_map<GLenum, TArray<u32>>& GetVulkanSPIRV() const
         {

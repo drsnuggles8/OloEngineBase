@@ -2357,33 +2357,12 @@ namespace OloEngine
 
             for (const auto& [resourceName, resource] : globalResources)
             {
-                if (registry->GetBindingInfo(resourceName) == nullptr)
+                if (registry->GetBindingInfo(resourceName) == nullptr || std::holds_alternative<std::monostate>(resource))
                 {
                     continue;
                 }
 
-                ShaderResourceInput input;
-                if (std::holds_alternative<Ref<UniformBuffer>>(resource))
-                {
-                    input = ShaderResourceInput(std::get<Ref<UniformBuffer>>(resource));
-                }
-                else if (std::holds_alternative<Ref<Texture2D>>(resource))
-                {
-                    input = ShaderResourceInput(std::get<Ref<Texture2D>>(resource));
-                }
-                else if (std::holds_alternative<Ref<TextureCubemap>>(resource))
-                {
-                    input = ShaderResourceInput(std::get<Ref<TextureCubemap>>(resource));
-                }
-                else
-                {
-                    // No additional handling required.
-                }
-
-                if (input.Type != ShaderResourceType::None)
-                {
-                    registry->SetResource(resourceName, input);
-                }
+                registry->SetResource(resourceName, resource);
             }
         }
     }

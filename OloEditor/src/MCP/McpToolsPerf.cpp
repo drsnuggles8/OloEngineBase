@@ -262,7 +262,7 @@ namespace OloEngine::MCP
 
             // Top-K draw commands by GPU time (post-batch = what actually executed).
             std::vector<const CapturedCommandData*> draws;
-            for (const auto& cmd : cap.PostBatchCommands)
+            for (const auto& cmd : cap.SourcePass().PostBatchCommands)
             {
                 if (cmd.IsDrawCommand())
                     draws.push_back(&cmd);

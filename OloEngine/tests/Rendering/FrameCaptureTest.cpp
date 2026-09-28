@@ -140,7 +140,6 @@ TEST(CapturedCommandData, IsBindCommand)
 
     EXPECT_TRUE(isBindTypeHelper(CommandType::BindTexture));
     EXPECT_TRUE(isBindTypeHelper(CommandType::BindDefaultFramebuffer));
-    EXPECT_TRUE(isBindTypeHelper(CommandType::SetShaderResource));
 
     EXPECT_FALSE(isBindTypeHelper(CommandType::DrawMesh));
     EXPECT_FALSE(isBindTypeHelper(CommandType::SetViewport));
@@ -205,26 +204,42 @@ TEST(CapturedFrameData, CanStoreCommandsAtMultipleStages)
 {
     CapturedFrameData frame;
     frame.FrameNumber = 42;
+    CapturedPassData& pass = frame.Passes.Emplace_GetRef();
 
     // Add pre-sort commands
     auto cmd = MakeSyntheticDrawMeshCommand(1, 1, 0.5f);
-    frame.PreSortCommands.Emplace(
+    pass.PreSortCommands.Emplace(
         CommandType::DrawMesh, &cmd, sizeof(cmd),
         MakeSyntheticOpaqueKey(), 0, 0, false, false, nullptr, 0);
-    frame.PreSortCommands.Emplace(
+    pass.PreSortCommands.Emplace(
         CommandType::DrawMesh, &cmd, sizeof(cmd),
         MakeSyntheticOpaqueKey(), 0, 1, false, false, nullptr, 1);
 
     // Add post-sort commands (same data, different order)
-    frame.PostSortCommands = frame.PreSortCommands;
+    pass.PostSortCommands = pass.PreSortCommands;
 
     // Stats
     frame.Stats.TotalCommands = 2;
     frame.Stats.DrawCalls = 2;
 
-    EXPECT_EQ(frame.PreSortCommands.Num(), 2u);
-    EXPECT_EQ(frame.PostSortCommands.Num(), 2u);
+    EXPECT_EQ(frame.SourcePass().PreSortCommands.Num(), 2u);
+    EXPECT_EQ(frame.SourcePass().PostSortCommands.Num(), 2u);
     EXPECT_EQ(frame.Stats.TotalCommands, 2u);
+}
+
+TEST(CapturedFrameData, SourcePassIsTheNamedPassElseTheFirst)
+{
+    CapturedFrameData frame;
+    EXPECT_EQ(frame.FindSourcePass(), nullptr);
+    EXPECT_TRUE(frame.SourcePass().PreSortCommands.IsEmpty()) << "no pass captured reads as an empty bucket";
+
+    frame.Passes.Emplace_GetRef().PassName = "ScenePass";
+    frame.Passes.Emplace_GetRef().PassName = "WaterPass";
+    EXPECT_EQ(frame.FindSourcePass(), &frame.Passes[0]) << "no recorded source: the first captured pass";
+
+    frame.SourcePassName = "WaterPass";
+    EXPECT_EQ(frame.FindSourcePass(), &frame.Passes[1]);
+    EXPECT_EQ(&frame.SourcePass(), &frame.Passes[1]);
 }
 
 // =============================================================================
@@ -370,6 +385,26 @@ class FrameCapturePipelineTest : public ::testing::Test
         return bucket;
     }
 
+    /// End the frame the way production does: the scene pass records its
+    /// timings (RecordPassTimings) and Renderer3D::EndScene calls CommitFrame
+    /// once per frame. A one-shot capture parks on its first CommitFrame until
+    /// its GPU timer queries resolve and publishes on a later one; the loop
+    /// stands in for those later frames. Returns the frame number the manager
+    /// committed the capture under.
+    static u32 EndFrame(f64 sortMs = 0.1, f64 batchMs = 0.0, f64 execMs = 0.1)
+    {
+        auto& mgr = FrameCaptureManager::GetInstance();
+        const u64 generationBefore = mgr.GetCaptureGeneration();
+        mgr.RecordPassTimings(sortMs, batchMs, execMs);
+        mgr.CommitFrame();
+        constexpr u32 kMaxLaterFrames = 16;
+        for (u32 later = 0; later < kMaxLaterFrames && mgr.GetState() == CaptureState::AwaitingGpuResults; ++later)
+            mgr.CommitFrame();
+        EXPECT_GT(mgr.GetCaptureGeneration(), generationBefore) << "the captured frame was never committed";
+        const auto frames = mgr.GetCapturedFramesCopy();
+        return frames.IsEmpty() ? 0u : frames.Last().FrameNumber;
+    }
+
     std::unique_ptr<CommandAllocator> m_Allocator;
 };
 
@@ -387,7 +422,7 @@ TEST_F(FrameCapturePipelineTest, CaptureNextFrameRecordsSingleFrame)
     // Drive the pipeline hooks
     mgr.OnPreSort(bucket);
     mgr.OnPostSort(bucket);
-    mgr.OnFrameEnd(/*frameNumber=*/1, /*sortMs=*/0.5, /*batchMs=*/0.0, /*execMs=*/1.0);
+    EndFrame(/*sortMs=*/0.5, /*batchMs=*/0.0, /*execMs=*/1.0);
 
     // Should have returned to Idle after single-frame capture
     EXPECT_EQ(mgr.GetState(), CaptureState::Idle);
@@ -399,14 +434,15 @@ TEST_F(FrameCapturePipelineTest, CaptureNextFrameRecordsSingleFrame)
     ASSERT_EQ(frames.Num(), 1u);
 
     const auto& frame = frames[0];
-    EXPECT_EQ(frame.FrameNumber, 1u);
+    EXPECT_GT(frame.FrameNumber, 0u);
     EXPECT_GT(frame.TimestampSeconds, 0.0);
+    EXPECT_EQ(frame.Passes.Num(), 1u);
 
     // Pre-sort commands should be in submission order (linked list traversal)
-    EXPECT_EQ(frame.PreSortCommands.Num(), 6u); // 5 draw + 1 clear
+    EXPECT_EQ(frame.SourcePass().PreSortCommands.Num(), 6u); // 5 draw + 1 clear
 
     // Post-sort commands should be present
-    EXPECT_EQ(frame.PostSortCommands.Num(), 6u);
+    EXPECT_EQ(frame.SourcePass().PostSortCommands.Num(), 6u);
 
     // Stats should be populated
     EXPECT_EQ(frame.Stats.TotalCommands, 6u);
@@ -425,12 +461,12 @@ TEST_F(FrameCapturePipelineTest, CapturedCommandsPreserveTypes)
     mgr.CaptureNextFrame();
     mgr.OnPreSort(bucket);
     mgr.OnPostSort(bucket);
-    mgr.OnFrameEnd(42, 0.1, 0.0, 0.2);
+    EndFrame();
 
     auto frames = mgr.GetCapturedFramesCopy();
     ASSERT_EQ(frames.Num(), 1u);
 
-    const auto& preSortCmds = frames[0].PreSortCommands;
+    const auto& preSortCmds = frames[0].SourcePass().PreSortCommands;
 
     // Count draw vs state commands
     u32 drawCount = 0;
@@ -481,18 +517,20 @@ TEST_F(FrameCapturePipelineTest, RecordingCapturesMultipleFrames)
 
         mgr.OnPreSort(bucket);
         mgr.OnPostSort(bucket);
-        mgr.OnFrameEnd(f + 1, 0.1, 0.0, 0.2);
+        EndFrame();
     }
 
     mgr.StopRecording();
     EXPECT_EQ(mgr.GetState(), CaptureState::Idle);
     EXPECT_EQ(mgr.GetCapturedFrameCount(), NUM_FRAMES);
 
+    // Recording commits every frame, numbered consecutively.
     auto frames = mgr.GetCapturedFramesCopy();
+    ASSERT_EQ(frames.Num(), NUM_FRAMES);
     for (u32 f = 0; f < NUM_FRAMES; ++f)
     {
-        EXPECT_EQ(frames[f].FrameNumber, f + 1);
-        EXPECT_EQ(frames[f].PreSortCommands.Num(), 4u); // 3 draw + 1 clear
+        EXPECT_EQ(frames[f].FrameNumber, frames[0].FrameNumber + f);
+        EXPECT_EQ(frames[f].SourcePass().PreSortCommands.Num(), 4u); // 3 draw + 1 clear
     }
 }
 
@@ -503,13 +541,14 @@ TEST_F(FrameCapturePipelineTest, MaxCapturedFramesTrimsOldest)
 
     mgr.StartRecording();
 
+    std::vector<u32> committed;
     for (u32 f = 0; f < 10; ++f)
     {
         auto bucket = MakeTestBucket(2);
         bucket.SortCommands();
         mgr.OnPreSort(bucket);
         mgr.OnPostSort(bucket);
-        mgr.OnFrameEnd(f + 1, 0.1, 0.0, 0.2);
+        committed.push_back(EndFrame());
     }
 
     mgr.StopRecording();
@@ -518,9 +557,10 @@ TEST_F(FrameCapturePipelineTest, MaxCapturedFramesTrimsOldest)
     EXPECT_EQ(mgr.GetCapturedFrameCount(), 3u);
 
     auto frames = mgr.GetCapturedFramesCopy();
-    EXPECT_EQ(frames[0].FrameNumber, 8u);
-    EXPECT_EQ(frames[1].FrameNumber, 9u);
-    EXPECT_EQ(frames[2].FrameNumber, 10u);
+    ASSERT_EQ(frames.Num(), 3u);
+    EXPECT_EQ(frames[0].FrameNumber, committed[7]);
+    EXPECT_EQ(frames[1].FrameNumber, committed[8]);
+    EXPECT_EQ(frames[2].FrameNumber, committed[9]);
 
     mgr.SetMaxCapturedFrames(60); // Restore default
 }
@@ -551,13 +591,13 @@ TEST_F(FrameCapturePipelineTest, PostSortOrderDiffersFromPreSort)
     bucket.SortCommands();
     mgr.OnPostSort(bucket);
 
-    mgr.OnFrameEnd(1, 0.1, 0.0, 0.2);
+    EndFrame();
 
     auto frames = mgr.GetCapturedFramesCopy();
     ASSERT_EQ(frames.Num(), 1u);
 
-    const auto& pre = frames[0].PreSortCommands;
-    const auto& post = frames[0].PostSortCommands;
+    const auto& pre = frames[0].SourcePass().PreSortCommands;
+    const auto& post = frames[0].SourcePass().PostSortCommands;
 
     EXPECT_EQ(pre.Num(), post.Num());
 
@@ -611,7 +651,7 @@ TEST_F(FrameCapturePipelineTest, DrawCallAndStateChangeStats)
     mgr.CaptureNextFrame();
     mgr.OnPreSort(bucket);
     mgr.OnPostSort(bucket);
-    mgr.OnFrameEnd(1, 0.5, 0.0, 1.0);
+    EndFrame(0.5, 0.0, 1.0);
 
     auto frames = mgr.GetCapturedFramesCopy();
     ASSERT_EQ(frames.Num(), 1u);
@@ -632,7 +672,7 @@ TEST_F(FrameCapturePipelineTest, CaptureGenerationIncrements)
     mgr.CaptureNextFrame();
     mgr.OnPreSort(bucket);
     mgr.OnPostSort(bucket);
-    mgr.OnFrameEnd(1, 0.1, 0.0, 0.1);
+    EndFrame();
 
     u64 gen1 = mgr.GetCaptureGeneration();
     EXPECT_GT(gen1, gen0) << "Capture generation should increment after each captured frame";
@@ -671,20 +711,21 @@ TEST_F(FrameCapturePipelineTest, CaptureGenerationRisesWhenTheRetainedFramesAreF
         mgr.CaptureNextFrame();
         mgr.OnPreSort(bucket);
         mgr.OnPostSort(bucket);
-        mgr.OnFrameEnd(f + 1, 0.1, 0.0, 0.1);
+        EndFrame();
     }
     ASSERT_EQ(mgr.GetCapturedFrameCount(), 3u);
 
     const u64 countBefore = mgr.GetCapturedFrameCount();
     const u64 generationBefore = mgr.GetCaptureGeneration();
+    const u32 lastBefore = mgr.GetCapturedFramesCopy().Last().FrameNumber;
     mgr.CaptureNextFrame();
     mgr.OnPreSort(bucket);
     mgr.OnPostSort(bucket);
-    mgr.OnFrameEnd(4, 0.1, 0.0, 0.1);
+    EndFrame();
 
     EXPECT_EQ(mgr.GetCapturedFrameCount(), countBefore) << "a full manager evicts, so the count cannot signal a capture";
     EXPECT_GT(mgr.GetCaptureGeneration(), generationBefore) << "the generation must still say a new frame landed";
-    EXPECT_EQ(mgr.GetCapturedFramesCopy().Last().FrameNumber, 4u);
+    EXPECT_EQ(mgr.GetCapturedFramesCopy().Last().FrameNumber, lastBefore + 1);
 }
 
 // =============================================================================
@@ -744,10 +785,10 @@ TEST_F(FrameCapturePipelineTest, CancelCaptureDropsAFrameAwaitingGpuResults)
     mgr.CaptureNextFrame();
     mgr.OnPreSort(bucket);
     mgr.OnPostSort(bucket);
-    mgr.OnFrameEnd(7, 0.1, 0.0, 0.1);
+    const u32 committed = EndFrame();
     const auto frames = mgr.GetCapturedFramesCopy();
     ASSERT_EQ(frames.Num(), 1u);
-    EXPECT_EQ(frames[0].FrameNumber, 7u);
+    EXPECT_EQ(frames[0].FrameNumber, committed);
     EXPECT_EQ(frames[0].Passes.Num(), 1u) << "the cancelled capture's pass must not leak into the next capture";
 }
 
@@ -773,7 +814,7 @@ TEST_F(FrameCapturePipelineTest, CancelCaptureLeavesRecordingRunning)
     // Recording still records.
     mgr.OnPreSort(bucket);
     mgr.OnPostSort(bucket);
-    mgr.OnFrameEnd(1, 0.1, 0.0, 0.1);
+    EndFrame();
     EXPECT_EQ(mgr.GetCapturedFrameCount(), 1u);
     EXPECT_EQ(mgr.GetState(), CaptureState::Recording);
 }
@@ -788,7 +829,7 @@ TEST_F(FrameCapturePipelineTest, CancelCaptureAfterTheCaptureCompletedChangesNot
     mgr.CaptureNextFrame();
     mgr.OnPreSort(bucket);
     mgr.OnPostSort(bucket);
-    mgr.OnFrameEnd(3, 0.1, 0.0, 0.1);
+    EndFrame();
     ASSERT_EQ(mgr.GetState(), CaptureState::Idle);
 
     EXPECT_FALSE(mgr.CancelCapture());
@@ -834,13 +875,14 @@ class FrameExportTest : public FrameCapturePipelineTest
         mgr.CaptureNextFrame();
         mgr.OnPreSort(bucket);
         mgr.OnPostSort(bucket);
-        mgr.OnFrameEnd(/*frameNumber=*/100, /*sortMs=*/0.42, /*batchMs=*/0.0, /*execMs=*/1.23);
+        m_CapturedFrameNumber = EndFrame(/*sortMs=*/0.42, /*batchMs=*/0.0, /*execMs=*/1.23);
 
         // Select the captured frame
         mgr.SetSelectedFrameIndex(0);
     }
 
     std::filesystem::path m_TestOutputDir;
+    u32 m_CapturedFrameNumber = 0;
 };
 
 TEST_F(FrameExportTest, ExportToCSVCreatesValidFile)
@@ -909,7 +951,8 @@ TEST_F(FrameExportTest, ExportToMarkdownCreatesValidFile)
     EXPECT_NE(content.find("## Command List"), std::string::npos);
 
     // Frame number should appear
-    EXPECT_NE(content.find("100"), std::string::npos) << "Frame number should appear in report";
+    EXPECT_NE(content.find("**Frame Number:** " + std::to_string(m_CapturedFrameNumber)), std::string::npos)
+        << "Frame number should appear in report";
 
     // Should contain draw command type
     EXPECT_NE(content.find("DrawMesh"), std::string::npos);

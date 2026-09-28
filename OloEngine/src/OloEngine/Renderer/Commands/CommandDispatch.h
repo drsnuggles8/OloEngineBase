@@ -238,7 +238,6 @@ namespace OloEngine
         // Draw commands dispatch functions
         static void BindDefaultFramebuffer(const void* data, RendererAPI& api);
         static void BindTexture(const void* data, RendererAPI& api);
-        static void SetShaderResource(const void* data, RendererAPI& api);
         static void DrawIndexed(const void* data, RendererAPI& api);
         static void DrawIndexedInstanced(const void* data, RendererAPI& api);
         static void DrawArrays(const void* data, RendererAPI& api);

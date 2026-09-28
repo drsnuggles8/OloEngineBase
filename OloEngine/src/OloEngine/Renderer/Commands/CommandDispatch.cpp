@@ -1562,7 +1562,6 @@ namespace OloEngine
         // Draw commands dispatch functions
         s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::BindDefaultFramebuffer))] = CommandDispatch::BindDefaultFramebuffer;
         s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::BindTexture))] = CommandDispatch::BindTexture;
-        s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::SetShaderResource))] = CommandDispatch::SetShaderResource;
         s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::DrawIndexed))] = CommandDispatch::DrawIndexed;
         s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::DrawIndexedInstanced))] = CommandDispatch::DrawIndexedInstanced;
         s_DispatchTable[static_cast<sizet>(std::to_underlying(CommandType::DrawArrays))] = CommandDispatch::DrawArrays;
@@ -2326,27 +2325,6 @@ namespace OloEngine
     {
         auto const* cmd = static_cast<const BindTextureCommand*>(data);
         HeapBinding::BindTextureOrOffset(api, cmd->slot, cmd->textureID, RHI::HeapSlotLifetime::Persistent);
-    }
-
-    void CommandDispatch::SetShaderResource(const void* data, RendererAPI& /*api*/)
-    {
-        auto const* cmd = static_cast<const SetShaderResourceCommand*>(data);
-
-        auto* registry = ShaderResourceRegistry::Find(cmd->shaderID);
-        if (registry)
-        {
-            bool success = registry->SetResource(cmd->resourceName, cmd->resourceInput);
-            if (!success)
-            {
-                OLO_CORE_WARN("Failed to set shader resource '{0}' for shader ID {1}",
-                              cmd->resourceName, cmd->shaderID);
-            }
-        }
-        else
-        {
-            OLO_CORE_WARN("No registry found for shader ID {0} when setting resource '{1}'",
-                          cmd->shaderID, cmd->resourceName);
-        }
     }
 
     void CommandDispatch::DrawIndexed(const void* data, RendererAPI& api)
