@@ -160,10 +160,16 @@ namespace OloEngine
             RGTextureHandle IrradianceMap;
             RGTextureHandle PrefilterMap;
             RGTextureHandle BrdfLut;
+            // The reflection tiers' input (issue #1325): [0] S, [1] W.
+            RGFramebufferHandle IndirectSpecular;
         };
 
-        Ref<Shader> m_Shader;              // sampler2D variant (non-MSAA / resolved)
-        Ref<Shader> m_ShaderMSAA;          // sampler2DMS variant (per-sample)
+        Ref<Shader> m_Shader;     // sampler2D variant (non-MSAA / resolved)
+        Ref<Shader> m_ShaderMSAA; // sampler2DMS variant (per-sample)
+        // The same shading body writing only the indirect specular term and
+        // its weight, for the reflection tiers (issue #1325).
+        Ref<Shader> m_IndirectSpecularShader;
+        Ref<Shader> m_IndirectSpecularShaderMSAA;
         Ref<Shader> m_VirtualDebugOverlay; // lazily loaded; only when the debug overlay is on
         Ref<GBuffer> m_GBuffer;
         Ref<Framebuffer> m_SceneFramebuffer;
@@ -173,6 +179,7 @@ namespace OloEngine
         MaterialDebugView m_MaterialDebugView = MaterialDebugView::None;
         bool m_PerSampleLighting = true;
         bool m_UseMSAAShading = false;
+        bool m_ReportedMissingIndirectSpecular = false;
         bool m_ScreenAOToAmbient = false;
         f32 m_ScreenAOIntensity = 1.0f;
         f32 m_ScreenAOProjA = 0.0f;

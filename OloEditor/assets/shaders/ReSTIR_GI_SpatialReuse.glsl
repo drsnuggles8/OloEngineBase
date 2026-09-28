@@ -143,20 +143,28 @@ struct OloGISpatialCandidate
     float ShiftedW;
 };
 
+// ONE TEXEL of `tex` at `uv`, never a blend (issue #1483, found in the DI twin
+// of this pass). The reservoir planes and the G-Buffer are bound with a LINEAR
+// sampler and a neighbour's disc offset lands between texel centres, so
+// texture() blended up to four reservoirs into one no pixel ever held. A macro
+// because a heap-bindless sampler cannot be passed as a function argument.
+#define OLO_RESTIR_FETCH(tex, uv) \
+    texelFetch(tex, clamp(ivec2((uv) * vec2(textureSize(tex, 0))), ivec2(0), textureSize(tex, 0) - ivec2(1)), 0)
+
 // The surface at one UV, or an invalid one for a sky / unlit pixel. Called both
 // by the gather and by the MIS loop, so the two cannot disagree about what a
-// neighbour's surface is.
+// neighbour's surface is. `uv` is a texel centre.
 OloGBufferSurface LoadNeighbourSurface(vec2 uv)
 {
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)
         return OloInvalidGBufferSurface();
-    const float depth = texture(u_DepthTexture, uv).r;
-    const vec4 packedEmissive = texture(u_GBufferEmissive, uv);
+    const float depth = OLO_RESTIR_FETCH(u_DepthTexture, uv).r;
+    const vec4 packedEmissive = OLO_RESTIR_FETCH(u_GBufferEmissive, uv);
     const int gbFlags = oloDecodeGBufferFlags(packedEmissive.a);
     if (oloDepthIsSky(depth) || oloGBufferFlagsAreUnlit(gbFlags))
         return OloInvalidGBufferSurface();
-    return OloLoadGBufferSurface(uv, depth, texture(u_GBufferNormal, uv), texture(u_GBufferAlbedo, uv),
-                                 oloGBufferFlagsPbrModel(gbFlags));
+    return OloLoadGBufferSurface(uv, depth, OLO_RESTIR_FETCH(u_GBufferNormal, uv),
+                                 OLO_RESTIR_FETCH(u_GBufferAlbedo, uv), oloGBufferFlagsPbrModel(gbFlags));
 }
 
 OloGISpatialCandidate LoadCandidate(vec2 uv, out OloGBufferSurface outSurface)
@@ -174,8 +182,8 @@ OloGISpatialCandidate LoadCandidate(vec2 uv, out OloGBufferSurface outSurface)
         return c;
 
     c.ShadingPoint = outSurface.Position;
-    c.Reservoir =
-        OloUnpackGIReservoir(texture(u_Reservoir0, uv), texture(u_Reservoir1, uv), texture(u_Reservoir2, uv));
+    c.Reservoir = OloUnpackGIReservoir(OLO_RESTIR_FETCH(u_Reservoir0, uv), OLO_RESTIR_FETCH(u_Reservoir1, uv),
+                                       OLO_RESTIR_FETCH(u_Reservoir2, uv));
     c.Valid = true;
     return c;
 }
@@ -259,10 +267,20 @@ void main()
         // temporal filter can average away.
         const float radius = u_ReuseParams.y * sqrt(clamp(xiDisc.x, 0.0, 1.0));
         const float angle = 6.28318530718 * xiDisc.y;
-        const vec2 offset = vec2(cos(angle), sin(angle)) * radius * u_ScreenParams.zw;
+        const vec2 offsetPixels = vec2(cos(angle), sin(angle)) * radius;
+
+        // The neighbour is a whole texel (see OLO_RESTIR_FETCH), and never the
+        // centre itself.
+        const ivec2 neighbourPixel = ivec2(floor(gl_FragCoord.xy + offsetPixels));
+        if (neighbourPixel == ivec2(gl_FragCoord.xy) || any(lessThan(neighbourPixel, ivec2(0))) ||
+            any(greaterThanEqual(neighbourPixel, ivec2(u_ScreenParams.xy))))
+        {
+            continue;
+        }
 
         OloGBufferSurface neighbourSurface;
-        OloGISpatialCandidate neighbour = LoadCandidate(v_TexCoord + offset, neighbourSurface);
+        OloGISpatialCandidate neighbour =
+            LoadCandidate((vec2(neighbourPixel) + 0.5) * u_ScreenParams.zw, neighbourSurface);
         if (!NeighbourAcceptable(centreSurface, neighbourSurface) ||
             OloGIReservoirIsEmpty(neighbour.Reservoir) || !(neighbour.Reservoir.W > 0.0))
         {

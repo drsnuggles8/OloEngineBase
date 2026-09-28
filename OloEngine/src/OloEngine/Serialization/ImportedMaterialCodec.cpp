@@ -251,9 +251,11 @@ namespace OloEngine::ImportedMaterialCodec
                     if (texture->GetSpecification().SRGB != ref.SRGB)
                     {
                         // Not fatal — the texture is still the right pixels — but it will be
-                        // gamma-wrong. Say so loudly: the packed texture's colour space is
-                        // decided by TextureSerializer's filename heuristic, which cannot see
-                        // which material slot the texture fills.
+                        // gamma-wrong. The pack cook records the colour space of the material
+                        // slots that use the texture (AssetPackBuilder::
+                        // CollectTextureColorSpaceIntents, #1462), so this fires only for a
+                        // pack built without that pass, a texture whose ".oloimport" sidecar
+                        // overrides it, or one shared by a colour and a data slot.
                         OLO_CORE_WARN("ImportedMaterialCodec: packed texture '{}' has SRGB={} but the material slot "
                                       "it fills wants SRGB={} — it will be shaded in the wrong colour space",
                                       ref.Path, texture->GetSpecification().SRGB, ref.SRGB);

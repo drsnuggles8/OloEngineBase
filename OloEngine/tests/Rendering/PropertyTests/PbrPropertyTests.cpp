@@ -1719,8 +1719,10 @@ namespace OloEngine::Tests
         constexpr u32 kKindCount = static_cast<u32>(kMaterialKindGBufferMax) + 1u;
         constexpr u32 kSlotCount = kSkinProfileSlotNone + 1u;
         constexpr u32 kHeight = kKindCount * kSlotCount;
-        static_assert(kWidth == 32u, "the probe sweeps the whole declared model range");
-        static_assert(kHeight == 32u, "the probe sweeps every (kind, slot) pair");
+        // 16 models x 64 (kind, slot) pairs since the slot field grew to four
+        // bits (issue #1393; 32 x 32 before).
+        static_assert(kWidth == 16u, "the probe sweeps the whole declared model range");
+        static_assert(kHeight == 64u, "the probe sweeps every (kind, slot) pair");
 
         PbrProbeHarness harness(kWidth, kHeight, "assets/shaders/tests/ShaderUnit_GBufferFlagsLane.glsl");
         harness.Draw();
@@ -1754,11 +1756,11 @@ namespace OloEngine::Tests
                     << "model " << model << " kind " << expectedKind << " slot " << expectedSlot
                     << ": the probe read back a non-finite texel — the harness draw or its readback failed.";
 
-                // The lane carries `model * 64 + slot * 8 + kind * 2`, so a
+                // The lane carries `model * 128 + slot * 8 + kind * 2`, so a
                 // value outside that range is the transport breaking rather
                 // than the comparisons below disagreeing — and it is what makes
                 // the lround safe.
-                constexpr f32 kLaneMax = static_cast<f32>(64 * kPBRModelGBufferLaneMax + 63);
+                constexpr f32 kLaneMax = static_cast<f32>(128 * kPBRModelGBufferLaneMax + 127);
                 ASSERT_GE(lane, 0.0f) << "model " << model << ": lane value " << lane << " is negative.";
                 ASSERT_LE(lane, kLaneMax)
                     << "model " << model << ": lane value " << lane << " exceeds the " << kLaneMax
@@ -1836,8 +1838,10 @@ namespace OloEngine::Tests
 
         constexpr u32 kWidth = 64;
         constexpr u32 kSnowRow = 0;
-        constexpr u32 kClearedRow = 8;
-        constexpr u32 kHeight = 9;
+        // One row per skin slot (0..14 since issue #1393) between the snow row
+        // and the cleared row.
+        constexpr u32 kClearedRow = kSkinProfileSlotNone + 1u;
+        constexpr u32 kHeight = kClearedRow + 1u;
         PbrProbeHarness harness(kWidth, kHeight, "assets/shaders/tests/ShaderUnit_DiffusionHandoffLane.glsl");
         harness.Draw();
 
@@ -1845,7 +1849,7 @@ namespace OloEngine::Tests
         harness.ReadOutputRgbaFloat(pixels);
         ASSERT_EQ(pixels.size(), static_cast<std::size_t>(kWidth) * kHeight * 4);
 
-        constexpr f32 kNoProfile = 7.0f; // OLO_SKIN_DIFFUSE_SLOT_NONE
+        constexpr f32 kNoProfile = static_cast<f32>(kSkinProfileSlotNone); // OLO_SKIN_DIFFUSE_SLOT_NONE
         // fp16 carries a value in (0, 1] to within 2^-11 of itself.
         constexpr f32 kHalfTolerance = 1.0f / 2048.0f;
         for (u32 row = 0; row < kHeight; ++row)

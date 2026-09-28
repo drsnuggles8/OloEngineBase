@@ -42,6 +42,7 @@
 // file?".
 // =============================================================================
 
+#include "OloEngine/Containers/Array.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 
@@ -239,4 +240,50 @@ namespace OloEngine
      * comparison the coding rules forbid outright.
      */
     [[nodiscard]] bool HasGroomGuideInfluence(const GroomStrandSimulation& simulation, u32 curveIndex) noexcept;
+
+    // ── Guide stand-ins (issue #1509) ──────────────────────────────────────────
+    //
+    // A simulation budget simulates a SUBSET of the guide slots. A slot left out
+    // used to have no displacement at all, and a strand whose four guides were
+    // all left out -- a third of the coat at a quarter of the guides -- was
+    // drawn at its GROOMED REST shape while the coat around it draped. A guide
+    // curve's own influence is itself alone, so every left-out guide curve did
+    // the same. The stand-ins give every slot a displacement: a left-out slot
+    // takes the blend of the nearest simulated guides of its own group.
+
+    /**
+     * @brief For every guide slot, the simulated guides that stand in for it.
+     *
+     * `Guides[k]` holds a SIMULATED GUIDE INDEX (the index `guideOfSlot` maps
+     * to), not a slot. A simulated slot stands in for itself with weight 1. A
+     * left-out slot takes up to GroomGuideInfluenceCount nearest simulated
+     * guides by root distance, from its own group when that group has any, else
+     * from its own ROLE, weighted by inverse distance and normalised. Never from
+     * another role: a role with no simulated guide -- an authored budget of zero,
+     * "an undercoat that never leaves the skin" -- keeps no stand-in and stays at
+     * rest. A budget that simulates nothing leaves every entry empty.
+     *
+     * @param slotRoots    each slot's root point, any one space
+     * @param slotGroups   each slot's curve group id
+     * @param slotRoles    each slot's coat role
+     * @param guideOfSlot  slot -> simulated guide index, or GroomNoGuide
+     */
+    void BuildGroomGuideStandIns(std::span<const glm::vec3> slotRoots, std::span<const u32> slotGroups,
+                                 std::span<const u32> slotRoles, std::span<const u32> guideOfSlot,
+                                 TArray<GroomGuideWeights>& outStandIns);
+
+    /**
+     * @brief Every slot's displacement, from the simulated guides' ones.
+     *
+     * Lays out one entry per SLOT, in slot order, `slotPointCounts[s]` points
+     * each: a simulated slot copies its guide's points, a left-out slot blends
+     * its stand-ins' displacements sampled BY PARAMETER along the guide (the
+     * rule SampleGroomGuideDisplacement follows). Returns false, leaving the
+     * outputs empty, for inputs that do not describe one layout.
+     */
+    [[nodiscard]] bool ExpandGroomGuideDisplacements(std::span<const GroomGuideWeights> standIns,
+                                                     std::span<const u32> slotPointCounts,
+                                                     std::span<const u32> guideOffsets,
+                                                     std::span<const glm::vec3> displacements,
+                                                     TArray<u32>& outOffsets, TArray<glm::vec3>& outDisplacements);
 } // namespace OloEngine

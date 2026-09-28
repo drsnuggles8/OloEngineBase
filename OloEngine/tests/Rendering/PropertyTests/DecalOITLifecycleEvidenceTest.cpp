@@ -357,13 +357,15 @@ namespace OloEngine::Tests
             if (kind == Kind::GpuBillboard)
             {
                 // GPU particles are emitted by the emitter and simulated on the
-                // device, so the sheet is a still stack at the emitter. About a
-                // dozen layers: WB-OIT's weight clamp lets roughly two dozen
-                // same-pixel layers overflow the RGBA16F accumulator (#1468),
-                // and that is not what this measures.
+                // device, so the sheet is a still stack at the emitter: about
+                // 120 same-pixel layers of alpha 0.9 after 12 frames at 600/s.
+                // That stack is the #1468 negative control. It summed past
+                // RGBA16F's 65504 in the OIT accumulator, the resolve read
+                // inf / inf and the square composited BLACK; the RGBA32F
+                // accumulator (kOITAccumFormat) holds it.
                 m_Particles.GetComponent<TransformComponent>().Translation = { 0.0f, 0.3f, 0.0f };
                 system.UseGPU = true;
-                system.Emitter.RateOverTime = 60.0f;
+                system.Emitter.RateOverTime = 600.0f;
                 system.Emitter.InitialSpeed = 0.0f;
                 system.Emitter.LifetimeMin = system.Emitter.LifetimeMax = 1000.0f;
                 system.Emitter.InitialSize = 1.6f;

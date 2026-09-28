@@ -29,9 +29,13 @@
 
 #include "OloEngine/Groom/GroomCoatShadow.h"
 #include "Groom/GroomStrandFixture.h"
+#include "Rendering/ReSTIR/ShaderSourceScan.h"
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <string>
 #include <vector>
 
 using namespace OloEngine;
@@ -759,4 +763,55 @@ TEST(GroomCoatShadowLod, AnOscillatingRequestCannotRebuildEveryFrame)
     // The coarser request never holds for three frames, so it is never taken;
     // the finer one is taken once, immediately, and then it is already current.
     EXPECT_LE(changes, 1u) << "the representation rebuilt " << changes << " times on an oscillating request";
+}
+
+// ── The march and the resolution (#1508) ──────────────────────────────────
+
+// The CPU twin marches exactly as far as the shader does. It allowed 8192 steps
+// against the shader's 64, so a CPU accuracy result at a fine step described a
+// march the GPU never ran.
+TEST(GroomCoatShadowMarch, TheCpuAndGpuMarchesShareOneStepCap)
+{
+    const std::string source = Tests::ShaderScan::ReadTextFile(Tests::ShaderScan::ResolveShaderPath("include/GroomCoatShadowCommon.glsl"));
+    ASSERT_FALSE(source.empty());
+    const std::string needle = "#define OLO_GROOM_COAT_MAX_STEPS ";
+    const auto at = source.find(needle);
+    ASSERT_NE(at, std::string::npos);
+    EXPECT_EQ(std::atoi(source.c_str() + at + needle.size()), kMaxCoatMarchSteps);
+}
+
+// WHY THE HAND-OVER FIX IS A SHARED RESOLUTION, NOT A BETTER MARCH (#1508). On a
+// coat whose voxel is several times its thickness (a horse at range: an 8^3
+// volume here is a 13 cm voxel over a 3 cm coat) the volume smears the layer and
+// under-shadows, and no change to the march recovers what the volume lost: a
+// sixth of the step moves the answer by under 0.03, and starting past the
+// fragment's own voxel makes it worse. So both tiers at a hand-over must read
+// the SAME volume, or they read different errors.
+TEST(GroomCoatShadowMarch, ACoarseVolumesErrorIsTheResolutionsAndNotTheMarchs)
+{
+    const auto pelt = Tests::GroomStrandFixture::MakePelt(40000u, 8u, 3u, 0.5f, 0.03f);
+    ASSERT_TRUE(pelt.Groom);
+    const Case testCase = MakeCase(pelt.Groom, kSideLight, 300u, 96u);
+    const f64 truth = MeanOf(testCase.Truth);
+
+    const auto meanAt = [&](u32 resolution, f32 stepVoxels)
+    {
+        const DensityVolume volume = BuildVolumeAt(testCase, resolution);
+        std::vector<f32> got;
+        for (const CoatProbe& probe : testCase.Probes)
+        {
+            got.push_back(
+                CoatTransmittance(SampleDensityVolume(volume, probe.Position, probe.Direction, true, stepVoxels), kKappa));
+        }
+        return MeanOf(got);
+    };
+    const f64 coarseShipped = meanAt(8u, 3.0f);
+    const f64 coarseFine = meanAt(8u, 0.5f);
+    const f64 resolved = meanAt(64u, 3.0f);
+    std::printf("[groom-coat-march] truth %.4f, 8^3 at 3 voxels %.4f, at 0.5 voxel %.4f, 64^3 %.4f\n", truth,
+                coarseShipped, coarseFine, resolved);
+    EXPECT_GT(coarseShipped, truth + 0.04) << "the coarse volume must under-shadow, or this case proves nothing";
+    EXPECT_LT(std::abs(coarseShipped - coarseFine), 0.03) << "the march step recovered what the resolution lost";
+    EXPECT_LT(std::abs(resolved - truth), std::abs(coarseShipped - truth))
+        << "a resolved volume must be nearer the truth than a coarse one";
 }

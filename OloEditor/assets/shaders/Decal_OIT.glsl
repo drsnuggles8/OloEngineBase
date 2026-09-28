@@ -64,7 +64,7 @@ layout(location = 1) in flat int v_EntityID;
 
 // OIT attachments — must match OITBuffer layout + per-attachment blend
 // funcs configured by DecalRenderPass in OIT mode.
-layout(location = 0) out vec4 o_Accum;     // RGBA16F: sum(C*a*w, a*w)
+layout(location = 0) out vec4 o_Accum;     // RGBA32F: sum(C*a*w, a*w)
 layout(location = 1) out vec4 o_Revealage; // RG16F:   alpha into .r
 
 #include "include/CameraCommon.glsl"

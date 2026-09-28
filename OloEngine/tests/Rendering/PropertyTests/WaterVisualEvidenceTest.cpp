@@ -49,6 +49,8 @@
 #include "RenderPropertyTest.h"
 
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Mesh.h"
@@ -68,6 +70,10 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <string_view>
+#include <span>
+#include <iterator>
+#include <fstream>
 #include <limits>
 #include <string>
 #include <vector>
@@ -441,5 +447,50 @@ namespace OloEngine::Tests
         EXPECT_LT(meanR, 130.0)
             << "Foreground band is too red for water (R=" << meanR << " G=" << meanG << " B=" << meanB
             << ") — likely showing the seafloor through the surface. See Water_GrazingAcross.png";
+    }
+
+    // Issue #1486. The water UBO's ScreenParams came from a CommandDispatch
+    // viewport that nothing ever set, so it was ZERO, Water.glsl's screenUV was
+    // (0, 0) for every fragment, and the whole surface read the one scene-depth
+    // texel in a corner. That corner is bottom-left on GL and top-left on
+    // Vulkan, which is why only Vulkan Forward showed it (foam over the whole
+    // surface: its corner texel sat at water height) and every other cell
+    // looked plausible by luck. Two halves are pinned: the UBO now carries the
+    // water pass's real target size, and the shader derives its screen UV from
+    // the depth texture it indexes rather than from any uniform.
+    TEST_F(WaterVisualEvidenceTest, TheWaterSamplesSceneDepthAtItsOwnPixel)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 1000.0f);
+        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        camera.SetPose({ 0.0f, 16.0f, 38.0f }, 0.0f, 0.40f);
+        RunEditorFrames(camera, 2);
+
+        const Ref<UniformBuffer> waterUBO = Renderer3D::GetWaterUBO();
+        ASSERT_TRUE(waterUBO);
+        const std::span<const u8> bytes = waterUBO->GetCachedData();
+        ASSERT_GE(bytes.size(), sizeof(ShaderBindingLayout::WaterUBO));
+        ShaderBindingLayout::WaterUBO uploaded{};
+        std::memcpy(&uploaded, bytes.data(), sizeof(uploaded));
+        EXPECT_NEAR(uploaded.ScreenParams.x, static_cast<f32>(kWidth), 0.5f)
+            << "the water UBO's ScreenParams is not the water pass's target width (it was 0 before #1486)";
+        EXPECT_NEAR(uploaded.ScreenParams.y, static_cast<f32>(kHeight), 0.5f);
+        EXPECT_NEAR(uploaded.ScreenParams.z * static_cast<f32>(kWidth), 1.0f, 1e-4f);
+
+#ifdef OLO_TEST_EDITOR_ROOT
+        std::ifstream file(std::filesystem::path(OLO_TEST_EDITOR_ROOT) / "assets" / "shaders" / "Water.glsl");
+        ASSERT_TRUE(file.is_open());
+        const std::string source((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        const auto count = [&source](std::string_view needle)
+        {
+            sizet n = 0;
+            for (sizet at = source.find(needle); at != std::string::npos; at = source.find(needle, at + 1))
+                ++n;
+            return n;
+        };
+        EXPECT_EQ(count("vec2 screenUV = gl_FragCoord.xy / vec2(textureSize(u_SceneDepth, 0));"), 1u);
+        EXPECT_EQ(count("u_ScreenParams.zw"), 0u) << "screen UVs must not come from a uniform that can be stale";
+#endif
     }
 } // namespace OloEngine::Tests

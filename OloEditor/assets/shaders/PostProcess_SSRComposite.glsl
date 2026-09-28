@@ -37,14 +37,14 @@ void main()
 #type fragment
 #version 460 core
 
-// SSR composite (issue #902) — draw C of SSRRenderPass.
+// SSR composite (issue #902) — draw E of SSRRenderPass.
 //
-// Adds the temporally-resolved reflection DELTA to the upstream lit colour.
-// The delta is (reflection - base) * blend, so `base + delta` reproduces the
-// old `mix(base, reflection, blend)` exactly — the same replace/mix resolve,
-// just with the stochastic half of it accumulated first. This runs AFTER the
-// resolve on purpose: compositing first and resolving the composite is the
-// failure #902 exists to avoid.
+// Adds the temporally-resolved DELTA of the indirect specular term to the
+// upstream lit colour. The delta is c * (W * L - S) (issue #1325,
+// include/ReflectionTierComposite.glsl): SSR's reflection replaces the specular
+// term the colour held and nothing else, so diffuse, emission and direct light
+// pass through. This runs AFTER the resolve on purpose: compositing first and
+// resolving the composite is the failure #902 exists to avoid.
 //
 // Unlike SSGI, SSR's intensity is NOT applied here. It rides inside `blend`
 // upstream because the blend is clamped to [0,1] after the multiply, and

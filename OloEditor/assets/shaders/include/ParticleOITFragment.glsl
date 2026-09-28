@@ -8,7 +8,7 @@
 // OITResolve discarded every one of its pixels.
 
 // OITBuffer attachments:
-//   0 : RGBA16F accum (sum of Ci*ai*wi, sum of ai*wi)
+//   0 : RGBA32F accum (sum of Ci*ai*wi, sum of ai*wi)
 //   1 : RG16F revealage (R = product factor for (1 - ai))
 layout(location = 0) out vec4 o_Accum;
 layout(location = 1) out vec4 o_Revealage;

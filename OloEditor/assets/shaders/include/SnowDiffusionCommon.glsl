@@ -14,7 +14,7 @@
 // DIFFUSE half of a pixel's lighting in .rgb and, in .a, who should blur it:
 //
 //   a == 0          nothing — every surface that neither diffuses nor snows
-//   a == (s+1)/8    skin profile slot s in [0, 6] (SkinDiffusionCommon.glsl)
+//   a == (s+1)/16   skin profile slot s in [0, 14] (SkinDiffusionCommon.glsl)
 //   a <  0          snow, with weight -a in (0, 1]
 //
 // The ranges are disjoint, so each consumer decodes its own and reads the other

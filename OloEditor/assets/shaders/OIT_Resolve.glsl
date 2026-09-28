@@ -3,7 +3,7 @@
 // passes have accumulated into OITBuffer.
 //
 // Inputs (sampler bindings match ShaderBindingLayout):
-//   binding 48 : u_OITAccum     (RGBA16F) sum(Ci * ai * wi) + sum(ai * wi)
+//   binding 48 : u_OITAccum     (RGBA32F) sum(Ci * ai * wi) + sum(ai * wi)
 //   binding 49 : u_OITRevealage (R component) prod(1 - ai)
 //
 // Output blending (configured by OITResolveRenderPass):
@@ -77,8 +77,12 @@ void main()
     if (revealage >= 1.0 - 1e-5)
         discard;
 
-    // Average colour = sum(Ci * ai * wi) / sum(ai * wi).
-    float denom = max(accum.a, 1e-4);
+    // Average colour = sum(Ci * ai * wi) / sum(ai * wi). The floor only guards
+    // a division by zero: ai * wi is legitimately as small as ~1e-8 (alpha 0.01
+    // at the weight's 1e-2 floor, ai^2 * 1e-2), and the old 1e-4 floor turned
+    // such a layer's average from Ci into Ci * sum / 1e-4 -- a white a=0.05
+    // layer at 300 m resolved at a quarter of its colour (issue #1468).
+    float denom = max(accum.a, 1e-20);
     vec3 averageColor = accum.rgb / denom;
 
     // Emit colour modulated by (1 - revealage) so the blend equation

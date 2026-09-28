@@ -1710,7 +1710,9 @@ void main()
             // defect that cost four wrong diagnoses on the rebase pop. Adding the
             // target is a bounded change; doing it for one shader on the MSAA
             // deferred path is not what closes this bucket.
-            { "DeferredLighting_MSAA.glsl",
+            // The declarations live in the shared stage body since issue #1325,
+            // compiled by DeferredLighting_MSAA.glsl and DeferredIndirectSpecular_MSAA.glsl.
+            { "include/DeferredLightingFragment_MSAA.glsl",
               "sampler2DMS: no reserved multisample null and no OLO_HEAP_TEX_* form to reach one" },
             { "GBufferFlagsResolve.glsl",
               "sampler2DMS: the same missing multisample null as DeferredLighting_MSAA above — this "

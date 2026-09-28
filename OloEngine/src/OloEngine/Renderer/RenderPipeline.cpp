@@ -25,6 +25,7 @@
 #include "OloEngine/Renderer/GPUResourceQueue.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionState.h"
+#include "OloEngine/Renderer/OITBlendState.h"
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/CloudNoise.h"
 #include "OloEngine/Renderer/CloudShadowMap.h"
@@ -2290,7 +2291,9 @@ namespace OloEngine
             // and Deferred. Previously locked to Deferred which prevented
             // enabling OIT at all from the Forward UI; relaxed so the toggle
             // is the single source of truth.
-            const bool oitEnabled = data.Settings.OITEnabled;
+            // And only where the RGBA32F accumulator can be blended (#1468).
+            const bool oitEnabled =
+                WeightedBlendedOITIsActive(data.Settings.OITEnabled, RenderCommand::GetRendererAPI());
             const bool hasOITContributors =
                 (SceneCompositePasses.Particle && SceneCompositePasses.Particle->HasRenderCallback()) ||
                 (RenderStreamPasses.Decal && RenderStreamPasses.Decal->HasSubmittedCommands());
@@ -2969,7 +2972,9 @@ namespace OloEngine
                 config.GBufferSamples = gbuffer->GetSampleCount();
             }
         }
-        config.OITEnabled = data.Settings.OITEnabled;
+        // The same answer the passes were handed: no OIT targets where the RGBA32F
+        // accumulator cannot be blended (#1468).
+        config.OITEnabled = WeightedBlendedOITIsActive(data.Settings.OITEnabled, RenderCommand::GetRendererAPI());
         // The technique the graph was BUILT for (#771), not the requested one:
         // only the built one has a pass registered to write AOBuffer.
         config.GraphAOTechnique = data.ActiveGraphAOTechnique;
@@ -4574,17 +4579,15 @@ namespace OloEngine
             const bool rtReflectionReady = rtReflection.IsReadyForExecution();
             const bool rtReflectionHasDepth = board.Scene.SceneDepth.IsValid();
             const bool rtReflectionHasNormal = board.GBuffer.GBufferNormal.IsValid();
-            const bool rtReflectionHasAlbedo = board.GBuffer.GBufferAlbedo.IsValid();
             const bool rtReflectionDeclared = rtReflectionEnabled && rtReflectionReady &&
-                                              rtReflectionHasDepth && rtReflectionHasNormal &&
-                                              rtReflectionHasAlbedo;
+                                              rtReflectionHasDepth && rtReflectionHasNormal;
 
             // WHEN THE TIER IS ARMED AND THE GRAPH DECLARES NOTHING, SAY WHY —
             // with the values, not a verdict. This is upstream of the pass's own
             // counters and has to be: a pass whose output was never declared is
             // CULLED, so it never executes, never fills ReflectionTierStats, and
             // "I ticked the box and the frame did not change" has no answer
-            // anywhere in the log. Naming the five inputs turns that into a
+            // anywhere in the log. Naming the four inputs turns that into a
             // five-second diagnosis instead of a bisect. Same shape, and the
             // same lesson, as the RayTracedShadowPass mask verdict above.
             //
@@ -4593,8 +4596,7 @@ namespace OloEngine
             if (data.PostProcess.RayTracedReflection.Enabled && !rtReflectionDeclared)
             {
                 const u32 verdict = (rtReflectionEnabled ? 1u : 0u) | (rtReflectionReady ? 2u : 0u) |
-                                    (rtReflectionHasDepth ? 4u : 0u) | (rtReflectionHasNormal ? 8u : 0u) |
-                                    (rtReflectionHasAlbedo ? 16u : 0u);
+                                    (rtReflectionHasDepth ? 4u : 0u) | (rtReflectionHasNormal ? 8u : 0u);
                 if (pipeline.m_ReportedRayTracedReflectionVerdict != verdict)
                 {
                     pipeline.m_ReportedRayTracedReflectionVerdict = verdict;
@@ -4606,9 +4608,9 @@ namespace OloEngine
                     OLO_CORE_WARN("RayTracedReflectionPass: the ray-query reflection tier is switched on, but the "
                                   "graph declared no target this frame, so the pass is culled and the hierarchy "
                                   "stays on SSR + probe/IBL. passEnabled={} shaderReady={} sceneDepth={} "
-                                  "gbufferNormal={} gbufferAlbedo={}",
+                                  "gbufferNormal={}",
                                   rtReflectionEnabled, rtReflectionReady, rtReflectionHasDepth,
-                                  rtReflectionHasNormal, rtReflectionHasAlbedo);
+                                  rtReflectionHasNormal);
                 }
             }
             else
@@ -4620,12 +4622,26 @@ namespace OloEngine
 
             if (rtReflectionDeclared)
             {
-                const auto rtReflectionOutput = declareSceneBandOutput(
-                    ResourceNames::RTReflectionColor,
-                    ResourceNames::RTReflectionColorTexture,
-                    RGResourceFormat::RGBA16Float);
-                board.Post.RTReflectionColor = rtReflectionOutput.Framebuffer;
-                board.Post.RTReflectionColorTexture = rtReflectionOutput.Texture;
+                // TWO attachments (issue #1325): the composited colour, and the
+                // indirect specular term the tier handed on, which SSR replaces
+                // next. The pass publishes the second one's view from its Setup.
+                RGResourceDesc rtReflectionDesc;
+                rtReflectionDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+                rtReflectionDesc.Format = RGResourceFormat::RGBA16Float;
+                rtReflectionDesc.Width = sceneBandWidth;
+                rtReflectionDesc.Height = sceneBandHeight;
+                rtReflectionDesc.Attachments = {
+                    RGResourceFormat::RGBA16Float, // 0 colour
+                    RGResourceFormat::RGBA16Float, // 1 the handed-on indirect specular term
+                };
+                rtReflectionDesc.DebugName = ResourceNames::RTReflectionColor;
+                board.Post.RTReflectionColor =
+                    declareGraphOnlyFramebuffer(ResourceNames::RTReflectionColor, rtReflectionDesc);
+                board.Post.RTReflectionColorTexture =
+                    board.Post.RTReflectionColor.IsValid()
+                        ? graph.CreateFramebufferAttachmentView(ResourceNames::RTReflectionColorTexture,
+                                                                board.Post.RTReflectionColor, 0u)
+                        : RGTextureHandle{};
             }
         }
 
@@ -4683,8 +4699,7 @@ namespace OloEngine
             if (pipeline.PostProcessPasses.SSR->IsEnabled() &&
                 pipeline.PostProcessPasses.SSR->IsReadyForExecution() &&
                 board.Scene.SceneDepth.IsValid() &&
-                board.GBuffer.GBufferNormal.IsValid() &&
-                board.GBuffer.GBufferAlbedo.IsValid())
+                board.GBuffer.GBufferNormal.IsValid())
             {
                 const auto ssrOutput = declareSceneBandOutput(
                     ResourceNames::SSRColor,
@@ -4724,6 +4739,34 @@ namespace OloEngine
                 ssrSignalDesc.DebugName = ResourceNames::SSRDenoised;
                 board.Scratch.SSRDenoised =
                     declareGraphOnlyFramebuffer(ResourceNames::SSRDenoised, ssrSignalDesc);
+            }
+        }
+
+        // THE REFLECTION TIERS' INPUT (issue #1325), wherever a tier above
+        // probe/IBL runs. A tier replaces the indirect specular term the lighting
+        // composed into SceneColor, so it needs that term and its BRDF weight
+        // apart from the colour: DeferredLightingPass writes both here, from the
+        // same shading body it composed them with. Declared on the tiers' own
+        // gates, so a frame with no tier allocates and draws nothing extra.
+        if (board.Post.RTReflectionColor.IsValid() || board.Post.SSRColor.IsValid())
+        {
+            RGResourceDesc indirectSpecularDesc;
+            indirectSpecularDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+            indirectSpecularDesc.Format = RGResourceFormat::RGBA16Float;
+            indirectSpecularDesc.Width = sceneBandWidth;
+            indirectSpecularDesc.Height = sceneBandHeight;
+            indirectSpecularDesc.Attachments = {
+                RGResourceFormat::RGBA16Float, // 0 S: the indirect specular radiance, as composed
+                RGResourceFormat::RGBA16Float, // 1 W: its weight per unit of incident radiance
+            };
+            indirectSpecularDesc.DebugName = ResourceNames::IndirectSpecular;
+            board.Post.IndirectSpecular = declareGraphOnlyFramebuffer(ResourceNames::IndirectSpecular, indirectSpecularDesc);
+            if (board.Post.IndirectSpecular.IsValid())
+            {
+                board.Post.IndirectSpecularTexture = graph.CreateFramebufferAttachmentView(
+                    ResourceNames::IndirectSpecularTexture, board.Post.IndirectSpecular, 0u);
+                board.Post.IndirectSpecularWeightTexture = graph.CreateFramebufferAttachmentView(
+                    ResourceNames::IndirectSpecularWeightTexture, board.Post.IndirectSpecular, 1u);
             }
         }
 
@@ -5256,8 +5299,9 @@ namespace OloEngine
         // OITPreparePass and OITResolvePass also self-skip via `m_Enabled`.
         if (const bool oitActive = config.OITEnabled && pipeline.SceneCompositePasses.OITResolve; oitActive)
         {
-            // Declare as a shared transient MRT framebuffer (RT0 = RGBA16F
-            // accumulation, RT1 = RG16F revealage, depth = DEPTH24_STENCIL8).
+            // Declare as a shared transient MRT framebuffer (RT0 = RGBA32F
+            // accumulation, kOITAccumFormat -- see there for why not 16F;
+            // RT1 = RG16F revealage, depth = DEPTH24_STENCIL8).
             // Both blackboard handles point to the same physical transient FB;
             // passes distinguish the two colour attachments by index (0 and 1).
             RGResourceDesc oitDesc;
@@ -5265,7 +5309,7 @@ namespace OloEngine
             oitDesc.Width = postProcessWidth;
             oitDesc.Height = postProcessHeight;
             oitDesc.Attachments = {
-                RGResourceFormat::RGBA16Float,
+                kOITAccumFormat,
                 RGResourceFormat::RG16Float,
                 RGResourceFormat::Depth24Stencil8
             };

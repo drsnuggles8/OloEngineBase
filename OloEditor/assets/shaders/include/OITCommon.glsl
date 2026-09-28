@@ -29,16 +29,19 @@
 float ComputeOITWeight(float alpha, float viewZ)
 {
     float normZ = viewZ * (1.0 / OIT_DEPTH_SCALE);
-    // Exponential weighting. Clamp avoids weights that would overflow the
-    // RGBA16F accumulator when many fragments overlap. normZ^4 as a multiply
+    // Exponential weighting, clamped to [1e-2, 3e3] (McGuire & Bavoil eq. 10).
+    // The clamp alone does NOT bound the SUM: the accumulator is RGBA32F because
+    // ~22 layers at the cap overflowed RGBA16F to inf (issue #1468,
+    // kOITAccumFormat in OITBlendState.h). normZ^4 as a multiply
     // chain (this runs per transparent fragment; pow()'s exp2/log2 is wasted).
     float normZ2 = normZ * normZ;
     float w = alpha * clamp(0.03 / (1e-5 + normZ2 * normZ2), 1e-2, 3e3);
     return w;
 }
 
-// Convenience wrapper: given a premultiplied-color `color` (rgb * alpha)
-// and the computed weight, produce the two fragment outputs.
+// Convenience wrapper: given a STRAIGHT (not premultiplied) `color` and the
+// computed weight, produce the two fragment outputs. The alpha premultiply
+// happens here.
 //
 // outAccum     : location 0 — vec4(Ci * ai * wi, ai * wi)
 // outRevealage : location 1 — vec4(ai, 0, 0, 0)  (R channel is the

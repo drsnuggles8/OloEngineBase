@@ -990,6 +990,16 @@ namespace OloEngine
         // GL_NV_mesh_shader is deliberately out of scope. The decision is
         // refuse-or-degrade, made explicitly by the caller, never silent.
         [[nodiscard("Store this!")]] virtual bool SupportsMeshShaders() const = 0;
+        // Whether this device can run weighted-blended OIT: blend its RGBA32F
+        // accumulator (kOITAccumFormat, issue #1468) and blend the accumulator
+        // and the revealage target with DIFFERENT factors. Both are core in
+        // OpenGL; on Vulkan they are an optional format feature and the
+        // independentBlend device feature, and the device answers. The
+        // pipeline turns OIT off where this is false.
+        [[nodiscard]] virtual bool SupportsWeightedBlendedOIT() const
+        {
+            return true;
+        }
         // The hardware ray-tracing capability, issue #978 — ONE owner for the
         // whole question (rhi-abstraction-boundary.md §13c). It deliberately
         // answers three things at once: whether ray query is usable right now,

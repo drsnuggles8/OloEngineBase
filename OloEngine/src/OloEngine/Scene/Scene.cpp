@@ -4848,7 +4848,12 @@ namespace OloEngine
             {
                 desired[static_cast<sizet>(AnimalWorkAxis::Simulation)] = lodIt->second.SimulationStep;
                 desired[static_cast<sizet>(AnimalWorkAxis::Visibility)] = lodIt->second.VisibilityStep;
-                desired[static_cast<sizet>(AnimalWorkAxis::Shadow)] = lodIt->second.ShadowStep;
+                // The card tier asks for no shadow step (#1508; see
+                // AdvanceGroomLod). The ladder's state keeps advancing under the
+                // cards for a hand-back, so it is not the card tier's answer; the
+                // schedule may still add a step, as budget pressure, not distance.
+                desired[static_cast<sizet>(AnimalWorkAxis::Shadow)] =
+                    lodIt->second.Representation == GroomRepresentation::Card ? 0u : lodIt->second.ShadowStep;
             }
             item.DesiredStep = desired;
 
@@ -9412,6 +9417,32 @@ namespace OloEngine
                 state.m_GuideOfSlot[slot] = static_cast<u32>(state.m_SlotOfGuide.Num());
                 state.m_SlotOfGuide.Add(slot);
             }
+
+            // THE STAND-INS for every slot this budget left out (issue #1509),
+            // by root distance within the slot's group. Rebuilt here, with the
+            // selection, because they depend on nothing else.
+            TArray<glm::vec3> slotRoots;
+            TArray<u32> slotGroups;
+            TArray<u32> slotRoles;
+            slotRoots.Reserve(static_cast<i32>(slotCount));
+            slotGroups.Reserve(static_cast<i32>(slotCount));
+            slotRoles.Reserve(static_cast<i32>(slotCount));
+            state.m_SlotPointCount.Reset();
+            state.m_IdentitySlots.Reset();
+            for (u32 slot = 0; slot < slotCount; ++slot)
+            {
+                const u32 curve = influence->GetGuideCurves()[slot];
+                slotRoots.Add(groom.GetPoints()[groom.GetCurveFirstPoint(curve)]);
+                slotGroups.Add(groupIds[curve]);
+                slotRoles.Add(static_cast<u32>(roleOf(slot)));
+                state.m_SlotPointCount.Add(groom.GetCurvePointCount(curve));
+                state.m_IdentitySlots.Add(slot);
+            }
+            BuildGroomGuideStandIns(std::span{ slotRoots.GetData(), static_cast<sizet>(slotRoots.Num()) },
+                                    std::span{ slotGroups.GetData(), static_cast<sizet>(slotGroups.Num()) },
+                                    std::span{ slotRoles.GetData(), static_cast<sizet>(slotRoles.Num()) },
+                                    std::span{ state.m_GuideOfSlot.GetData(), static_cast<sizet>(state.m_GuideOfSlot.Num()) },
+                                    state.m_StandInOfSlot);
         }
 
         if (state.m_SlotOfGuide.IsEmpty())
@@ -9625,7 +9656,40 @@ namespace OloEngine
         // GroomStrandVertex::PrevPosition is written under.
         std::swap(state.m_PrevDisplacements, state.m_Displacements);
 
+        // A BUDGET STEP STARTS FROM THE DRAPE (issue #1509). When only the guide
+        // set changed, each new guide's particles start where the coat was last
+        // drawn -- this frame's target plus last frame's published displacement
+        // of that slot, which every slot has -- instead of at the groomed rest
+        // shape the solver re-seeds a teleport to. Without it every simulation
+        // budget step popped the whole coat back to its groomed shape.
+        state.m_Seeds.Reset();
+        const bool guideSetChanges =
+            state.m_Solver.Initialized &&
+            !std::ranges::equal(state.m_Solver.GuideCurves,
+                                std::span{ guideCurves.GetData(), static_cast<sizet>(guideCurves.Num()) });
+        if (hasHistory && guideSetChanges && state.m_PublishedOffsets.Num() == state.m_SlotPointCount.Num() + 1)
+        {
+            const glm::mat3 objectToWorld(request.Transform);
+            state.m_Seeds.Reserve(state.m_Targets.Num());
+            for (i32 guide = 0; guide < state.m_SlotOfGuide.Num(); ++guide)
+            {
+                const u32 slot = state.m_SlotOfGuide[guide];
+                const u32 first = state.m_PublishedOffsets[static_cast<i32>(slot)];
+                const u32 publishedCount = state.m_PublishedOffsets[static_cast<i32>(slot) + 1] - first;
+                const u32 count = offsets[guide + 1] - offsets[guide];
+                for (u32 i = 0; i < count; ++i)
+                {
+                    const glm::vec3 displacement = publishedCount == count
+                                                       ? state.m_PublishedDisplacements[static_cast<i32>(first + i)]
+                                                       : glm::vec3(0.0f);
+                    state.m_Seeds.Add(state.m_Targets[static_cast<i32>(offsets[guide] + i)] +
+                                      objectToWorld * displacement);
+                }
+            }
+        }
+
         GroomSimulationInputs inputs;
+        inputs.SeedPoints = std::span{ state.m_Seeds.GetData(), static_cast<sizet>(state.m_Seeds.Num()) };
         inputs.GuideOffsets = std::span{ offsets.GetData(), static_cast<sizet>(offsets.Num()) };
         inputs.GuideCurves = std::span{ guideCurves.GetData(), static_cast<sizet>(guideCurves.Num()) };
         inputs.TargetPoints = std::span{ state.m_Targets.GetData(), static_cast<sizet>(state.m_Targets.Num()) };
@@ -9706,12 +9770,70 @@ namespace OloEngine
             state.m_PrevDisplacements.Reset();
         }
 
+        // EVERY SLOT PUBLISHED (issue #1509): one entry per slot, the left-out
+        // ones blended from their stand-ins, so no strand is left at its
+        // groomed rest shape by the budget. The strand build reads the result
+        // exactly as it read the simulated subset -- slot -> entry, per-entry
+        // offsets -- and at a full budget it IS the simulated set.
+        const auto span32 = [](const TArray<u32>& a)
+        { return std::span{ a.GetData(), static_cast<sizet>(a.Num()) }; };
+        const auto spanV = [](const TArray<glm::vec3>& a)
+        { return std::span{ a.GetData(), static_cast<sizet>(a.Num()) }; };
+        const std::span<const GroomGuideWeights> standIns{ state.m_StandInOfSlot.GetData(),
+                                                           static_cast<sizet>(state.m_StandInOfSlot.Num()) };
+        // A FULL budget left nothing out: the simulated set IS every slot, in
+        // slot order, so it is published as it stands and only kept for the next
+        // budget step's seed -- no blend, no second expansion.
+        const bool everySlotSimulated = state.m_SlotOfGuide.Num() == state.m_StandInOfSlot.Num();
+        bool expanded = false;
+        if (everySlotSimulated)
+        {
+            state.m_PublishedOffsets = offsets;
+            state.m_PublishedDisplacements = state.m_Displacements;
+        }
+        else
+        {
+            expanded = ExpandGroomGuideDisplacements(standIns, span32(state.m_SlotPointCount), span32(offsets),
+                                                     spanV(state.m_Displacements), state.m_PublishedOffsets,
+                                                     state.m_PublishedDisplacements);
+        }
+        state.m_PublishedPrevDisplacements.Reset();
+        if (expanded && !state.m_PrevDisplacements.IsEmpty())
+        {
+            // All or nothing: a previous frame that does not expand publishes no
+            // previous frame (zero motion), never a partial one.
+            if (!ExpandGroomGuideDisplacements(standIns, span32(state.m_SlotPointCount), span32(offsets),
+                                               spanV(state.m_PrevDisplacements), state.m_PublishedPrevOffsets,
+                                               state.m_PublishedPrevDisplacements))
+            {
+                state.m_PublishedPrevDisplacements.Reset();
+            }
+        }
+
         request.Influence = influence;
-        request.SimulationGuideOffsets = offsets;
-        request.SimulationDisplacements = state.m_Displacements;
-        request.SimulationPrevDisplacements = state.m_PrevDisplacements;
-        request.SimulationGuideOfSlot = state.m_GuideOfSlot;
-        request.SimulationSlotOfGuide = state.m_SlotOfGuide;
+        if (expanded)
+        {
+            request.SimulationGuideOffsets = state.m_PublishedOffsets;
+            request.SimulationDisplacements = state.m_PublishedDisplacements;
+            request.SimulationPrevDisplacements = state.m_PublishedPrevDisplacements;
+            request.SimulationGuideOfSlot = state.m_IdentitySlots;
+            request.SimulationSlotOfGuide = state.m_IdentitySlots;
+        }
+        else
+        {
+            // Every slot simulated, or stand-ins that do not describe this table
+            // (rebuilt on the next budget change): the simulated set as it is.
+            if (!everySlotSimulated)
+            {
+                state.m_PublishedOffsets.Reset();
+                state.m_PublishedDisplacements.Reset();
+            }
+            request.SimulationGuideOffsets = offsets;
+            request.SimulationDisplacements = state.m_Displacements;
+            request.SimulationPrevDisplacements = state.m_PrevDisplacements;
+            request.SimulationGuideOfSlot = state.m_GuideOfSlot;
+            request.SimulationSlotOfGuide = state.m_SlotOfGuide;
+        }
         request.SimulationStats = stats;
         request.SimulationStretchTolerance = params.StretchTolerance;
         request.SimulationDebug = IsValidGroomSimulationDebugView(static_cast<i32>(component->m_DebugView))

@@ -8,7 +8,9 @@
 //   * cook OFF                 -> stays an uncompressed record, proving the policy gates it;
 //   * cook ON but source missing -> falls back to an uncompressed record (no throw, no BC);
 //   * cook ON, an alpha-cutout PNG -> BC7 with the coverage-preserving chain that stops at
-//     64 texels (#1453), and an "AlphaMipChain: Box" sidecar reaches the pack cook too.
+//     64 texels (#1453), and an "AlphaMipChain: Box" sidecar reaches the pack cook too;
+//   * a hash-named texture -> cooked in the colour space of the material slots that use
+//     it, not the filename guess (#1462).
 // This is the only test that exercises the write-side wiring (flag gating + format
 // selection + embedded-blob round-trip) as one path. Needs a GL context because
 // Texture2D::Create uploads the source pixels; SKIPs cleanly on headless CI.
@@ -21,9 +23,12 @@
 
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
+#include "OloEngine/Asset/AssetPackBuilder.h"
 #include "OloEngine/Asset/AssetSerializer.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/AlphaCoverageMips.h"
+#include "OloEngine/Renderer/Material.h"
+#include "OloEngine/Renderer/MaterialAsset.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/TextureImportSettings.h"
 #include "OloEngine/Serialization/AssetPackFile.h"
@@ -33,6 +38,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <unordered_map>
 #include <vector>
 
 using namespace OloEngine;        // NOLINT(google-build-using-namespace)
@@ -323,4 +329,115 @@ TEST_F(TextureAutoCookPackTest, AnAlphaCutoutShipsItsCoverageChain)
     ASSERT_TRUE(boxed && boxed->IsLoaded());
     EXPECT_EQ(boxed->GetMipLevelCount(), 10u);
 #endif
+}
+
+// #1462: a packed texture is cooked in the colour space of the material SLOTS that use it,
+// not the one its file name suggests. The asset system loads a hash-named texture (every
+// Sponza texture, "5061699253647017043.png") as LINEAR because nothing in the name says
+// albedo; the importer knows it fills a base-colour slot. Loose, the codec re-reads the
+// source with the slot's intent; packed, the record's colour space is what ships. The
+// cooked record is read back with its source DELETED, so no loose fallback can hide it.
+TEST_F(TextureAutoCookPackTest, AHashNamedAlbedoShipsInItsMaterialSlotsColourSpace)
+{
+    OLO_ENSURE_GPU_OR_SKIP();
+
+    const std::vector<u8> pixels = MakeGradientRGBA(64, 64);
+    const auto stage = [&](const char* name, AssetHandle& outHandle)
+    {
+        m_SourcePath = m_TempDir / "Assets" / name;
+        ASSERT_NE(::stbi_write_png(m_SourcePath.string().c_str(), 64, 64, 4, pixels.data(), 64 * 4), 0);
+        ASSERT_FALSE(TextureSerializer::IsLikelyColorTextureByName(name))
+            << "the fixture needs a name the filename heuristic reads as linear data";
+        ASSERT_NO_FATAL_FAILURE(RegisterSource(outHandle));
+    };
+    AssetHandle albedoHandle{};
+    AssetHandle normalHandle{};
+    AssetHandle sharedHandle{};
+    const fs::path albedoPath = m_TempDir / "Assets" / "5061699253647017043.png";
+    ASSERT_NO_FATAL_FAILURE(stage("5061699253647017043.png", albedoHandle));
+    ASSERT_NO_FATAL_FAILURE(stage("8773302468495022686.png", normalHandle));
+    ASSERT_NO_FATAL_FAILURE(stage("2185308426398714530.png", sharedHandle));
+
+    // One material fills a colour slot and two data slots; a second one uses the third
+    // texture as its emissive (colour) map while the first uses it as AO (data).
+    Ref<Material> first = Material::CreatePBR("Imported", glm::vec3(1.0f));
+    first->SetAlbedoMap(AssetManager::GetAsset<Texture2D>(albedoHandle));
+    first->SetNormalMap(AssetManager::GetAsset<Texture2D>(normalHandle));
+    first->SetAOMap(AssetManager::GetAsset<Texture2D>(sharedHandle));
+    Ref<Material> second = Material::CreatePBR("Emissive", glm::vec3(1.0f));
+    second->SetEmissiveMap(AssetManager::GetAsset<Texture2D>(sharedHandle));
+    const auto firstAsset = Ref<MaterialAsset>::Create(first);
+    const auto secondAsset = Ref<MaterialAsset>::Create(second);
+    const AssetHandle firstHandle = AssetManager::AddMemoryOnlyAsset(firstAsset);
+    const AssetHandle secondHandle = AssetManager::AddMemoryOnlyAsset(secondAsset);
+
+    const std::unordered_map<AssetHandle, Ref<Asset>> packedAssets = {
+        { firstHandle, firstAsset },
+        { secondHandle, secondAsset },
+        { albedoHandle, AssetManager::GetAsset<Texture2D>(albedoHandle) },
+    };
+    const auto intents = AssetPackBuilder::CollectTextureColorSpaceIntents(packedAssets);
+    ASSERT_TRUE(intents.contains(albedoHandle) && intents.contains(normalHandle) && intents.contains(sharedHandle));
+    EXPECT_TRUE(intents.at(albedoHandle)) << "a base-colour slot wants sRGB";
+    EXPECT_FALSE(intents.at(normalHandle)) << "a normal-map slot wants linear data";
+    EXPECT_TRUE(intents.at(sharedHandle)) << "a colour slot wins over a data slot (the documented rule)";
+
+    struct IntentReset
+    {
+        IntentReset() = default;
+        IntentReset(const IntentReset&) = delete;
+        IntentReset& operator=(const IntentReset&) = delete;
+        ~IntentReset()
+        {
+            TextureSerializer::SetAssetPackColorSpaceIntents({});
+        }
+    } intentReset;
+
+    // Serialize, optionally delete the source, then read the record back.
+    const auto packAndRead = [&](AssetHandle handle, bool compress, const fs::path& deleteBeforeRead) -> Ref<Texture2D>
+    {
+        TextureSerializer::SetAssetPackCompressionEnabled(compress);
+        const fs::path packPath = m_TempDir / "slot.pack";
+        TextureSerializer serializer;
+        AssetSerializationInfo info{};
+        {
+            FileStreamWriter writer(packPath);
+            EXPECT_TRUE(serializer.SerializeToAssetPack(handle, writer, info));
+        }
+        if (!deleteBeforeRead.empty())
+        {
+            std::error_code ec;
+            fs::remove(deleteBeforeRead, ec);
+            EXPECT_FALSE(fs::exists(deleteBeforeRead)) << "the source must be gone before the record is read";
+        }
+        AssetPackFile::AssetInfo assetInfo{};
+        assetInfo.Handle = handle;
+        assetInfo.PackedOffset = info.Offset;
+        assetInfo.PackedSize = info.Size;
+        assetInfo.Type = AssetType::Texture2D;
+        FileStreamReader reader(packPath);
+        return serializer.DeserializeFromAssetPack(reader, assetInfo).As<Texture2D>();
+    };
+
+    // Negative control: without the intents the pack ships the filename guess.
+    TextureSerializer::SetAssetPackColorSpaceIntents({});
+    Ref<Texture2D> guessed = packAndRead(albedoHandle, /*compress=*/true, {});
+    ASSERT_TRUE(guessed && guessed->IsLoaded());
+    EXPECT_FALSE(guessed->GetSpecification().SRGB) << "the negative control no longer reproduces #1462";
+
+    TextureSerializer::SetAssetPackColorSpaceIntents(intents);
+    // The uncompressed record re-reads the source, so it runs while the source exists.
+    Ref<Texture2D> raw = packAndRead(albedoHandle, /*compress=*/false, {});
+    ASSERT_TRUE(raw && raw->IsLoaded());
+    EXPECT_FALSE(IsCompressedFormat(raw->GetSpecification().Format));
+    EXPECT_TRUE(raw->GetSpecification().SRGB) << "the uncompressed record kept the filename guess";
+
+    Ref<Texture2D> linearData = packAndRead(normalHandle, /*compress=*/true, {});
+    ASSERT_TRUE(linearData && linearData->IsLoaded());
+    EXPECT_FALSE(linearData->GetSpecification().SRGB) << "a normal map must stay linear";
+
+    Ref<Texture2D> cooked = packAndRead(albedoHandle, /*compress=*/true, albedoPath);
+    ASSERT_TRUE(cooked && cooked->IsLoaded());
+    EXPECT_EQ(cooked->GetSpecification().Format, ImageFormat::BC7);
+    EXPECT_TRUE(cooked->GetSpecification().SRGB) << "the cooked BC7 albedo kept the filename guess (linear)";
 }

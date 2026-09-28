@@ -477,6 +477,10 @@ namespace OloEngine
         /// frame, a teleport, a guide-set change. The frame emits zero motion.
         bool Reseeded = false;
 
+        /// True when that re-seed started from the caller's SeedPoints -- the
+        /// drape -- rather than from the groomed rest shape (issue #1509).
+        bool SeededFromCoat = false;
+
         /// True when the parameters or the geometry were refused outright and
         /// nothing was simulated. The caller then draws the groomed rest coat,
         /// which is a diagnosable still coat rather than a plausible wrong one.
@@ -511,6 +515,15 @@ namespace OloEngine
         /// The caller owns this decision because it owns the teleport threshold,
         /// the binding's history verdict and the reset control.
         bool HasHistory = false;
+
+        /// Where each particle starts when the GUIDE SET changes under an
+        /// otherwise continuous history -- a simulation-budget step (issue
+        /// #1509). The caller fills it from the coat as last drawn, so the new
+        /// set starts in the drape the old one left instead of at the groomed
+        /// rest shape, which popped the whole coat at every budget step. Laid
+        /// out by `GuideOffsets`; ignored unless it matches `TargetPoints` in
+        /// size and is finite, and ignored when `HasHistory` is false.
+        std::span<const glm::vec3> SeedPoints{};
     };
 
     /**

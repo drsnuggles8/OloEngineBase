@@ -83,6 +83,10 @@
 //                           and the first version of this feature took the
 //                           wrong one and passed. This case is the one that
 //                           separates them, on the GPU, against the CPU.
+//  17  AMBIENT COAT PARITY  — oloSkinOralApplyCoatAmbient against
+//                           ApplySkinOralCoatAmbient (issue #1421): the film's
+//                           environment reflection and what it takes from the
+//                           tissue's ambient.
 // =============================================================================
 
 #type vertex
@@ -228,6 +232,13 @@ void main()
         vec3 gh = normalize(gv + gl);
         result = vec4(oloSkinOralCoatSpecular(N, gv, gl, 0.25, kLane.z),
                       dot(N, gh), dot(gv, gh), 1.0);
+    }
+    else if (caseIndex == 17) // AMBIENT COAT PARITY (issue #1421)
+    {
+        OloSurfaceLighting ambient = OloSurfaceLighting(vec3(0.3, 0.2, 0.1), vec3(0.05));
+        OloSurfaceLighting coated =
+            oloSkinOralApplyCoatAmbient(ambient, kLane, vec2(0.9, 0.04), vec3(2.0, 1.5, 1.0));
+        result = vec4(coated.Diffuse.r, coated.Specular.r, coated.Specular.g, coated.Diffuse.b);
     }
     else if (caseIndex == 15) // LANE GATE, RIGHT VERSION
     {

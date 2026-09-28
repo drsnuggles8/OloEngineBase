@@ -41,14 +41,20 @@ void main()
 // Issue #1057 (#979 Phase 2). The contract this implements is ADR 0020.
 //
 // WHERE THIS SITS, AND WHY THAT IS THE WHOLE DESIGN. ADR 0020 evaluates the
-// hierarchy BOTTOM-UP: every tier lerps over whatever is already in the colour
-// it was handed, so no tier ever has to know the confidence of a tier ABOVE it.
-// This pass therefore runs AFTER DeferredLighting (whose output already carries
-// the probe-over-IBL blend, the two tiers below this one) and BEFORE
-// SSRRenderPass (the tier above). SSR's existing delta composite,
-// `base + (refl - base) * blend`, then lerps over THIS pass's output by its own
-// confidence — which is exactly the "over" the contract asks for, with not one
-// line of SSR's five-stage denoiser chain touched.
+// hierarchy BOTTOM-UP: every tier replaces the indirect specular term already in
+// the colour it was handed, so no tier ever has to know the confidence of a tier
+// ABOVE it. This pass therefore runs AFTER DeferredLighting (whose output
+// already carries the probe-over-IBL term, the two tiers below this one) and
+// BEFORE SSRRenderPass (the tier above), which replaces the term THIS pass hands
+// on in its second output.
+//
+// THE TERM, NOT THE COLOUR (issue #1325). The colour is diffuse + direct +
+// emission + the indirect specular term S = W * R. This pass reads S and W from
+// IndirectSpecular (DeferredLighting writes both), and writes
+// C + c * (W * L - S): a black hit removes c * S and nothing else. It used to
+// write mix(C, L * tint, c * Fresnel), which dimmed the diffuse, the emission and
+// the direct light by the same factor. Fresnel is now inside W, where the
+// lighting put it, and the confidence is the roughness gate alone.
 //
 // That ordering is what makes the tier cheap to add. The alternative reading —
 // let the better tier claim its share and hand the residual down — is the same
@@ -111,6 +117,8 @@ void main()
 #extension GL_EXT_buffer_reference_uvec2 : require
 
 layout(location = 0) out vec4 o_Color;
+// The indirect specular term this tier hands on, for SSR to replace (#1325).
+layout(location = 1) out vec4 o_Specular;
 
 layout(location = 0) in vec2 v_TexCoord;
 
@@ -118,15 +126,17 @@ layout(location = 0) in vec2 v_TexCoord;
 
 #ifdef OLO_BINDLESS
 #define u_SceneColor OLO_HEAP_TEX_2D(0)
+#define u_IndirectSpecular OLO_HEAP_TEX_2D(1)       // TEX_SPECULAR
+#define u_IndirectSpecularWeight OLO_HEAP_TEX_2D(2) // TEX_NORMAL
 #define u_PrefilterMap OLO_HEAP_TEX_CUBE(11)
 #define u_DepthTexture OLO_HEAP_TEX_2D(19)
-#define u_GBufferAlbedo OLO_HEAP_TEX_2D(43)
 #define u_GBufferNormal OLO_HEAP_TEX_2D(44)
 #else
 layout(binding = 0) uniform sampler2D u_SceneColor;      // upstream lit HDR colour (probe/IBL already in it)
+layout(binding = 1) uniform sampler2D u_IndirectSpecular;       // the indirect specular term in it (#1325)
+layout(binding = 2) uniform sampler2D u_IndirectSpecularWeight; // that term per unit of incident radiance
 layout(binding = 11) uniform samplerCube u_PrefilterMap; // TEX_USER_1: specular pre-filter mip chain
 layout(binding = 19) uniform sampler2D u_DepthTexture;   // scene depth (nonlinear, [0,1])
-layout(binding = 43) uniform sampler2D u_GBufferAlbedo;  // RT0: rgb = albedo, a = metallic
 layout(binding = 44) uniform sampler2D u_GBufferNormal;  // RT1: rg = oct world normal, z = roughness, w = ao
 #endif
 
@@ -164,6 +174,7 @@ layout(std140, binding = 65) uniform RayTracingReflectionParams
 #define OLO_HYBRID_RT_SAMPLER u_MaterialHeapAddressAndSampler.w
 #include "include/HybridRayTracingAlpha.glsl"
 #include "include/RayHitNormalTransform.glsl"
+#include "include/ReflectionTierComposite.glsl"
 
 // Every ray starts this far along its own direction, on top of the normal
 // offset. The normal offset alone cannot fix a ray leaving a surface at a
@@ -263,6 +274,7 @@ bool SunVisible(vec3 worldPos, vec3 normal)
 void main()
 {
     const vec3 baseColor = texture(u_SceneColor, v_TexCoord).rgb;
+    const vec3 baseSpecular = texture(u_IndirectSpecular, v_TexCoord).rgb;
 
     // Everything below can early-out, and every early-out must leave the colour
     // EXACTLY as it found it. That is not politeness: ADR 0020 §5 says the
@@ -277,6 +289,8 @@ void main()
     // tier owned it — the exact opposite of the truth, and invisible in any
     // production frame because alpha is unused there.
     o_Color = vec4(baseColor, (u_Flags.x > 0.5) ? 0.0 : 1.0);
+    // And the specular term handed on unchanged, on every early-out alike.
+    o_Specular = vec4(baseSpecular, 1.0);
 
     // The TLAS address is zero when no acceleration structure has been built.
     // Tracing against it is undefined behaviour at rayQueryInitializeEXT, not a
@@ -310,15 +324,9 @@ void main()
     const vec3 V = normalize(worldPos - cameraPos); // toward the surface
     const vec3 R = reflect(V, N);
 
-    // Fresnel (Schlick) against the macrosurface normal — this slice traces the
-    // mirror direction, so the microfacet normal IS N and the two agree.
-    const vec4 gAlbedo = texture(u_GBufferAlbedo, v_TexCoord);
-    const vec3 albedo = gAlbedo.rgb;
-    const float metallic = gAlbedo.a;
-    const vec3 F0 = mix(vec3(0.04), albedo, metallic);
-    const float cosTheta = clamp(dot(-V, N), 0.0, 1.0);
-    const vec3 fresnel = F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
-    const float fresnelScalar = dot(fresnel, vec3(0.299, 0.587, 0.114)); // perceptual reflectance
+    // No Fresnel here (issue #1325): the reflectance is in the weight W the
+    // lighting pass exported, the same (F * A + B) its own probe/IBL term used,
+    // so this tier's estimate lands in the units of the term it replaces.
 
     rayQueryEXT rayQuery;
     rayQueryInitializeEXT(rayQuery, accelerationStructureEXT(u_TlasAddress.xy),
@@ -409,24 +417,22 @@ void main()
     if (u_RoughnessGate.w > 0.5)
         hitRadiance += hitDiffuseReflectance * textureLod(u_PrefilterMap, hitNormal, u_RoughnessGate.z).rgb;
 
-    // Metals tint their reflection by albedo; dielectrics reflect untinted —
-    // the same construction PostProcess_SSR.glsl uses, kept identical so the
-    // two tiers hand off without a colour shift at the boundary.
-    const vec3 reflTint = mix(vec3(1.0), albedo, metallic);
-    const vec3 reflTarget = hitRadiance * reflTint;
-
-    // ADR 0020 §4: c_ray = hitValid * fresnel * roughnessGate, times the artist
+    // ADR 0020 §4: c_ray = hitValid * roughnessGate, times the artist
     // intensity. Clamped to [0,1] because a confidence outside it is what the
-    // contract's Sigma(w) = 1 identity forbids.
-    const float confidence = clamp(fresnelScalar * roughnessGate * u_RayParams.z, 0.0, 1.0);
+    // contract's Sigma(w) = 1 identity forbids. It says how much of the lobe
+    // this estimate may answer for; how much light the lobe reflects is W's.
+    const float confidence = clamp(roughnessGate * u_RayParams.z, 0.0, 1.0);
 
-    // The "over". Not an add: baseColor already contains the probe/IBL
-    // reflection this tier is a better answer for, and adding would be exactly
-    // the double-count #979's non-goal names.
-    const vec3 composited = mix(baseColor, reflTarget, confidence);
+    // The "over", on the specular TERM (issue #1325): the probe/IBL term S the
+    // colour already holds is replaced by W * L, the same weight times this
+    // tier's radiance. Not an add -- that is the double-count #979's non-goal
+    // names -- and not a mix of the whole colour, which dimmed everything else.
+    const vec3 weight = texture(u_IndirectSpecularWeight, v_TexCoord).rgb;
+    const vec3 delta = oloSpecularTierDelta(baseSpecular, weight, hitRadiance, confidence);
 
     // Alpha carries this tier's confidence to PostProcess_SSRComposite.glsl for
     // the tier debug view, and ONLY when that view is on — see the header.
-    o_Color = vec4(max(composited, vec3(0.0)),
+    o_Color = vec4(max(baseColor + delta, vec3(0.0)),
                    (u_Flags.x > 0.5) ? confidence : 1.0);
+    o_Specular = vec4(max(baseSpecular + delta, vec3(0.0)), 1.0);
 }

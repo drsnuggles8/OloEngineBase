@@ -246,6 +246,9 @@ namespace OloEngine
         VkDeviceAddress m_NullBlockAddress = 0;
         u32 m_CurrentSlot = 0;
         u64 m_FrameGeneration = 0;
+        // The largest per-frame high-water mark reported so far. The pressure
+        // line is written when a frame sets a new peak, not every frame.
+        u64 m_ReportedPeakBytes = 0;
         std::atomic<u64> m_AllocationsThisFrame{ 0 };
         std::atomic<u64> m_OverflowCount{ 0 };
         std::atomic<bool> m_OverflowWarned{ false };

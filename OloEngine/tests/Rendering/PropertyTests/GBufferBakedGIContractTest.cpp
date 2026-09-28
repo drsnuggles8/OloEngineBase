@@ -151,8 +151,10 @@ namespace OloEngine::Tests
             const char* Why;
         };
         const Consumer kConsumers[] = {
-            { "DeferredLighting.glsl", "the single-sample deferred lighting pass" },
-            { "DeferredLighting_MSAA.glsl", "the per-sample MSAA deferred lighting pass" },
+            // The two lighting stages' bodies, shared with the reflection tiers'
+            // input shaders since issue #1325.
+            { "include/DeferredLightingFragment.glsl", "the single-sample deferred lighting pass" },
+            { "include/DeferredLightingFragment_MSAA.glsl", "the per-sample MSAA deferred lighting pass" },
         };
 
         for (const auto& consumer : kConsumers)

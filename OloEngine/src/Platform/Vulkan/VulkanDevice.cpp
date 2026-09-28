@@ -860,6 +860,7 @@ namespace OloEngine
         // mode matrix's per-RT colour masks). Enabled when supported, never a
         // gate row (#691).
         enabledFeatures.independentBlend = supported.independentBlend;
+        m_IndependentBlendEnabled = enabledFeatures.independentBlend == VK_TRUE;
         // samplerAnisotropy: a VkSamplerCreateInfo with anisotropyEnable
         // needs the feature (VUID-VkSamplerCreateInfo-anisotropyEnable-01070)
         // and a maxAnisotropy within the device limit (-01071); the sampler
@@ -1348,6 +1349,28 @@ namespace OloEngine
                       m_HostImageCopyEnabled && !m_HostCopyMemoryTypeNeutral
                           ? " (host-transfer usage changes memory type requirements — kept off render targets)"
                           : "");
+
+        // WEIGHTED-BLENDED OIT NEEDS TWO THINGS NEITHER OF WHICH IS MANDATORY.
+        // Its accumulator is RGBA32F and additively blended (kOITAccumFormat,
+        // issue #1468), and it blends the accumulator and the revealage target
+        // with DIFFERENT factors, which without independentBlend is invalid
+        // (every attachment's blend state must then be identical). Every
+        // desktop driver has both. A device missing either gets no OIT at all
+        // -- the pipeline reads SupportsWeightedBlendedOIT and draws
+        // transparency sorted -- and says which one here.
+        {
+            VkFormatProperties accumProperties{};
+            vkGetPhysicalDeviceFormatProperties(m_PhysicalDevice, VK_FORMAT_R32G32B32A32_SFLOAT, &accumProperties);
+            const bool float32Blend =
+                (accumProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT) != 0;
+            m_WeightedBlendedOITSupported = float32Blend && m_IndependentBlendEnabled;
+            if (!m_WeightedBlendedOITSupported)
+            {
+                OLO_CORE_ERROR("[Vulkan] weighted-blended OIT is disabled; transparency is drawn sorted instead "
+                               "(R32G32B32A32_SFLOAT blendable={}, independentBlend={})",
+                               float32Blend, m_IndependentBlendEnabled);
+            }
+        }
 
         // Mesh-shader limits + the loud capability verdict (issue #813). The
         // vkGetPhysicalDeviceProperties2 probe is this backend's first —

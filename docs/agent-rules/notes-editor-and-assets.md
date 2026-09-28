@@ -331,8 +331,8 @@ Found on #646 (2D tilemap / tileset system).
 ## The MCP viewport override is in PIXELS, so it must not be DPI-scaled again
 
 **Rule:** `m_ViewportSize` in `EditorLayer` is normally the ImGui panel size and is multiplied by
-`Window::s_HighDPIScaleFactor` to get the framebuffer size. (On Windows the panel size is already
-physical pixels, so that multiply supersamples: #1495.) The MCP viewport
+ImGui's pixels per unit (`io.DisplayFramebufferScale`, 1.0 on Windows) to get the framebuffer
+size. (It was the monitor scale until #1495, which supersampled 2.25x at 150%.) The MCP viewport
 override (`olo_viewport_set_size`, #316) writes *pixels* into that same field, so the DPI multiply
 has to be skipped while an override is active — otherwise the render target is the requested size
 times the display scale.

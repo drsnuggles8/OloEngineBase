@@ -189,7 +189,11 @@ namespace OloEngine
 
         RGTextureHandle m_SelectedSceneDepthTexture{};
         RGTextureHandle m_SelectedGBufferNormalTexture{};
-        RGTextureHandle m_SelectedGBufferAlbedoTexture{};
+        // The indirect specular term the colour holds when SSR reads it -- the
+        // ray tier's hand-on if it ran, else the lighting's -- and its weight
+        // (issue #1325). SSR replaces that term, not the colour.
+        RGTextureHandle m_SelectedIndirectSpecularTexture{};
+        RGTextureHandle m_SelectedIndirectSpecularWeightTexture{};
         RGTextureHandle m_SelectedVelocityTexture{};
         RGTextureHandle m_SelectedHistoryTexture{};
         RGFramebufferHandle m_SelectedSignalFramebuffer{};

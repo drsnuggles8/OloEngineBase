@@ -135,19 +135,33 @@ struct OloSpatialCandidate
     float ShiftedW;
 };
 
+// ONE TEXEL of `tex` at `uv`, never a blend. Every read of a neighbour goes
+// through this (issue #1483). The reservoir planes and the G-Buffer are bound
+// with a LINEAR sampler, and a neighbour's disc offset lands between texel
+// centres, so texture() returned a bilinear blend of up to four reservoirs:
+// averaged W and M, a light position between real lights, and an identity lane
+// whose rounded average named a different light KIND. On a glossy lobe, where
+// pHat differs between lights by orders of magnitude, that blend's W is biased
+// upward (the mean of 1/pHat exceeds 1/pHat of the mean) and spatial reuse
+// brightened specular 1.5-3.5x once temporal reuse fed it back. A macro, not a
+// function, because a heap-bindless sampler is an expression that cannot be
+// passed as a function argument.
+#define OLO_RESTIR_FETCH(tex, uv) \
+    texelFetch(tex, clamp(ivec2((uv) * vec2(textureSize(tex, 0))), ivec2(0), textureSize(tex, 0) - ivec2(1)), 0)
+
 // The surface at one UV, or an invalid one for a sky / unlit pixel. Called both
 // by the gather and by the MIS loop, so the two cannot disagree about what a
-// neighbour's surface is.
+// neighbour's surface is. `uv` is a texel centre.
 OloReSTIRSurface LoadNeighbourSurface(vec2 uv)
 {
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)
         return OloReSTIRInvalidSurface();
-    const float depth = texture(u_DepthTexture, uv).r;
-    const vec4 packedEmissive = texture(u_GBufferEmissive, uv);
+    const float depth = OLO_RESTIR_FETCH(u_DepthTexture, uv).r;
+    const vec4 packedEmissive = OLO_RESTIR_FETCH(u_GBufferEmissive, uv);
     const int gbFlags = oloDecodeGBufferFlags(packedEmissive.a);
     if (oloDepthIsSky(depth) || oloGBufferFlagsAreUnlit(gbFlags))
         return OloReSTIRInvalidSurface();
-    return OloReSTIRLoadSurface(uv, depth, texture(u_GBufferNormal, uv), texture(u_GBufferAlbedo, uv),
+    return OloReSTIRLoadSurface(uv, depth, OLO_RESTIR_FETCH(u_GBufferNormal, uv), OLO_RESTIR_FETCH(u_GBufferAlbedo, uv),
                                 oloGBufferFlagsPbrModel(gbFlags));
 }
 
@@ -169,8 +183,8 @@ OloSpatialCandidate LoadCandidate(vec2 uv, out OloReSTIRSurface outSurface)
         return c;
 
     c.ShadingPoint = outSurface.Position;
-    c.Reservoir =
-        OloUnpackReservoir(texture(u_Reservoir0, uv), texture(u_Reservoir1, uv), texture(u_Reservoir2, uv));
+    c.Reservoir = OloUnpackReservoir(OLO_RESTIR_FETCH(u_Reservoir0, uv), OLO_RESTIR_FETCH(u_Reservoir1, uv),
+                                     OLO_RESTIR_FETCH(u_Reservoir2, uv));
     c.Valid = true;
     return c;
 }
@@ -196,8 +210,12 @@ bool NeighbourAcceptable(OloReSTIRSurface centre, OloReSTIRSurface neighbour)
 
 void main()
 {
+    const ivec2 pixel = ivec2(gl_FragCoord.xy);
+    // The centre's own texel centre, so the centre and its neighbours are read
+    // the same exact way.
+    const vec2 centreUV = (vec2(pixel) + 0.5) * u_ScreenParams.zw;
     OloReSTIRSurface centreSurface;
-    OloSpatialCandidate centre = LoadCandidate(v_TexCoord, centreSurface);
+    OloSpatialCandidate centre = LoadCandidate(centreUV, centreSurface);
     if (!centre.Valid || (u_EmissiveTable.w & OLO_RESTIR_FLAG_SPATIAL_REUSE) == 0u)
     {
         // Pass through. As in the temporal draw, standing down leaves a valid
@@ -210,7 +228,6 @@ void main()
     const uint neighbourCount = min(u_ResamplingCounts.y, OLO_RESTIR_MAX_SPATIAL_NEIGHBOURS);
     const bool unbiased = u_ResamplingCounts.w == OLO_RESTIR_BIAS_MODE_UNBIASED_MIS;
 
-    const ivec2 pixel = ivec2(gl_FragCoord.xy);
     // The pass index is folded into the seed so a second spatial pass draws a
     // DIFFERENT neighbour set. Without it, two passes at the same radius would
     // resample the same neighbours and the second pass would only re-normalise.
@@ -248,42 +265,62 @@ void main()
         // noise that the temporal filter can average away.
         const float radius = u_ReuseParams.y * sqrt(clamp(xiDisc.x, 0.0, 1.0));
         const float angle = 6.28318530718 * xiDisc.y;
-        const vec2 offset = vec2(cos(angle), sin(angle)) * radius * u_ScreenParams.zw;
+        const vec2 offsetPixels = vec2(cos(angle), sin(angle)) * radius;
+
+        // The neighbour is a whole texel (see OLO_RESTIR_FETCH), and never the
+        // centre itself: a disc sample that rounds back onto the centre would
+        // count its reservoir twice.
+        const ivec2 neighbourPixel = ivec2(floor(gl_FragCoord.xy + offsetPixels));
+        if (neighbourPixel == pixel || any(lessThan(neighbourPixel, ivec2(0))) ||
+            any(greaterThanEqual(neighbourPixel, ivec2(u_ScreenParams.xy))))
+        {
+            continue;
+        }
+        const vec2 neighbourUV = (vec2(neighbourPixel) + 0.5) * u_ScreenParams.zw;
 
         OloReSTIRSurface neighbourSurface;
-        OloSpatialCandidate neighbour = LoadCandidate(v_TexCoord + offset, neighbourSurface);
-        if (!NeighbourAcceptable(centreSurface, neighbourSurface) ||
-            OloReservoirIsEmpty(neighbour.Reservoir) || !(neighbour.Reservoir.W > 0.0))
+        OloSpatialCandidate neighbour = LoadCandidate(neighbourUV, neighbourSurface);
+        // WHO TAKES PART is decided by the geometric gate alone (issue #1483).
+        // A neighbour that passes it stays in the MIS set -- its M and its pHat
+        // are in every other candidate's balance-heuristic denominator -- even
+        // when ITS OWN sample cannot contribute here (an empty reservoir, W = 0
+        // because visibility killed it, a zero Jacobian or pHat). Dropping it on
+        // those sample-dependent tests removed its term from the denominators
+        // exactly when its numerator would have been zero, which sums the MIS
+        // weights to more than one and biases the estimate upward.
+        if (!NeighbourAcceptable(centreSurface, neighbourSurface))
+            continue;
+
+        neighbour.ShiftedW = 0.0;
+        neighbour.TargetAtDestination = 0.0;
+        if (!OloReservoirIsEmpty(neighbour.Reservoir) && neighbour.Reservoir.W > 0.0)
         {
-            continue;
+            // THE JACOBIAN. From the neighbour's shading point to this one,
+            // through the fixed emitter point.
+            const float jacobian = OloReservoirShiftJacobian(neighbour.Reservoir.Sample, centreSurface.Position,
+                                                            neighbour.ShadingPoint);
+            if (jacobian > 0.0)
+            {
+                // pHat at THIS pixel, UNSCALED, plus the neighbour's contribution
+                // weight carried through the shift. THE DIRECTION IS THE WHOLE
+                // POINT, and it is easy to get backwards: W behaves as 1/p in the
+                // measure its source density was expressed in, and 1/p_dest =
+                // (1/p_source) * J -- so J MULTIPLIES W and leaves pHat alone.
+                // Dividing pHat by J instead leaves the estimate off by a factor
+                // of J, a smooth geometric brightness error.
+                const float target = OloReSTIRTargetPdf(centreSurface, neighbour.Reservoir.Sample, viewDirection);
+                const float shiftedW = OloShiftedContributionWeight(neighbour.Reservoir.W, jacobian);
+                if (target > 0.0 && shiftedW > 0.0)
+                {
+                    neighbour.ShiftedW = shiftedW;
+                    neighbour.TargetAtDestination = target;
+                }
+            }
+            else
+            {
+                jacobianRejections += 1u;
+            }
         }
-
-        // THE JACOBIAN. From the neighbour's shading point to this one, through
-        // the fixed emitter point.
-        const float jacobian = OloReservoirShiftJacobian(neighbour.Reservoir.Sample, centreSurface.Position,
-                                                        neighbour.ShadingPoint);
-        if (!(jacobian > 0.0))
-        {
-            jacobianRejections += 1u;
-            continue;
-        }
-
-        // pHat at THIS pixel, UNSCALED, plus the neighbour's contribution weight
-        // carried through the shift. THE DIRECTION IS THE WHOLE POINT, and it is
-        // easy to get backwards: W behaves as 1/p in the measure its source
-        // density was expressed in, and 1/p_dest = (1/p_source) * J — so J
-        // MULTIPLIES W and leaves pHat alone. Dividing pHat by J instead leaves
-        // the estimate off by a factor of J, which is a smooth geometric
-        // brightness error rather than anything that looks wrong.
-        const float target = OloReSTIRTargetPdf(centreSurface, neighbour.Reservoir.Sample, viewDirection);
-        if (!(target > 0.0))
-            continue;
-        const float shiftedW = OloShiftedContributionWeight(neighbour.Reservoir.W, jacobian);
-        if (!(shiftedW > 0.0))
-            continue;
-
-        neighbour.ShiftedW = shiftedW;
-        neighbour.TargetAtDestination = target;
         candidates[count] = neighbour;
         count += 1u;
     }
@@ -320,8 +357,12 @@ void main()
         // contains M_i, so multiplying by M_i again double-counts it and the
         // normaliser is 1 instead. Applying a normaliser BOTH times is the
         // classic "normalised twice" bug, which is why the two live in one place.
+        // A candidate whose own sample cannot contribute here still sits in
+        // everyone else's denominator (see the gather), but its own weight is
+        // zero, so its MIS weight is never needed.
+        const bool contributes = candidates[i].ShiftedW > 0.0 && candidates[i].TargetAtDestination > 0.0;
         float m = candidates[i].Reservoir.M;
-        if (unbiased)
+        if (unbiased && contributes)
         {
             // pHat_j evaluated on candidate i's sample, at candidate j's OWN
             // surface — that is what makes this the balance heuristic over the
@@ -359,9 +400,15 @@ void main()
         }
 
         // w_i = m_i * pHat_dest(y_i) * (W_i * J_i).
-        OloReservoirUpdate(merged, candidates[i].Reservoir.Sample,
-                           m * candidates[i].TargetAtDestination * candidates[i].ShiftedW,
-                           candidates[i].TargetAtDestination, oloPtGet1D(pathSampler));
+        // The selection draw is taken unconditionally, so the sampler's
+        // dimension index does not depend on which candidates contribute.
+        const float xiSelect = oloPtGet1D(pathSampler);
+        if (contributes)
+        {
+            OloReservoirUpdate(merged, candidates[i].Reservoir.Sample,
+                               m * candidates[i].TargetAtDestination * candidates[i].ShiftedW,
+                               candidates[i].TargetAtDestination, xiSelect);
+        }
     }
 
     OloReservoirFinalizeCombined(merged, u_ResamplingCounts.w, summedM);

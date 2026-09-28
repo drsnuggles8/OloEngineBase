@@ -37,6 +37,7 @@
 
 namespace
 {
+    using OloEngine::ComposeSpecularTier;
     using OloEngine::ComputeReflectionTierWeights;
     using OloEngine::DominantReflectionTier;
     using OloEngine::kReflectionTierCount;
@@ -295,4 +296,127 @@ TEST(ReflectionTierContractTest, TheTierOrderIsBestInformedFirstAndIsLoadBearing
     EXPECT_EQ(static_cast<u32>(ReflectionTier::RayQuery), 2u);
     EXPECT_EQ(static_cast<u32>(ReflectionTier::ProbeIBL), 3u);
     EXPECT_EQ(kReflectionTierCount, 4u);
+}
+
+// =============================================================================
+// Issue #1325: a tier replaces the indirect SPECULAR TERM, not the frame colour.
+// The frame is C = D + E + S_direct + S, and the old composites were
+// mix(C, reflection, c) -- which scales D, E and S_direct by (1 - c) as well.
+// ComposeSpecularTier is C + c * (W * L - S). These pin that it touches S alone.
+// =============================================================================
+namespace
+{
+    struct FrameTerms
+    {
+        glm::vec3 Diffuse{ 0.0f };
+        glm::vec3 Emission{ 0.0f };
+        glm::vec3 DirectSpecular{ 0.0f };
+        glm::vec3 IndirectSpecular{ 0.0f }; // S = W * L_probe
+        glm::vec3 Weight{ 0.0f };           // W
+
+        [[nodiscard]] glm::vec3 Color() const
+        {
+            return Diffuse + Emission + DirectSpecular + IndirectSpecular;
+        }
+        [[nodiscard]] glm::vec3 Unrelated() const
+        {
+            return Diffuse + Emission + DirectSpecular;
+        }
+    };
+
+    // A dielectric (F0 0.04, W ~ 0.05) and a metal (tinted F0, W ~ albedo).
+    FrameTerms Dielectric()
+    {
+        FrameTerms t;
+        t.Diffuse = { 0.6f, 0.5f, 0.4f };
+        t.Emission = { 0.1f, 0.0f, 0.0f };
+        t.DirectSpecular = { 0.2f, 0.2f, 0.2f };
+        t.Weight = { 0.05f, 0.05f, 0.05f };
+        t.IndirectSpecular = t.Weight * glm::vec3(2.0f, 3.0f, 4.0f);
+        return t;
+    }
+    FrameTerms Metal()
+    {
+        FrameTerms t;
+        t.Emission = { 0.0f, 0.05f, 0.0f };
+        t.DirectSpecular = { 0.5f, 0.4f, 0.1f };
+        t.Weight = { 0.95f, 0.64f, 0.54f };
+        t.IndirectSpecular = t.Weight * glm::vec3(1.5f, 1.5f, 2.0f);
+        return t;
+    }
+
+    void ExpectVec3Near(const glm::vec3& a, const glm::vec3& b, f32 tolerance, const char* what)
+    {
+        EXPECT_NEAR(a.x, b.x, tolerance) << what;
+        EXPECT_NEAR(a.y, b.y, tolerance) << what;
+        EXPECT_NEAR(a.z, b.z, tolerance) << what;
+    }
+} // namespace
+
+TEST(ReflectionTierContractTest, ABlackReflectedHitRemovesTheSpecularTermAndNothingElse)
+{
+    for (const FrameTerms& t : { Dielectric(), Metal() })
+    {
+        for (const f32 c : { 0.0f, 0.25f, 0.5f, 1.0f })
+        {
+            const auto out = ComposeSpecularTier(t.Color(), t.IndirectSpecular, t.Weight, glm::vec3(0.0f), c);
+            // Diffuse, emission and direct specular keep every bit of their value;
+            // only (1 - c) of the indirect specular term survives.
+            ExpectVec3Near(out.Color, t.Unrelated() + (1.0f - c) * t.IndirectSpecular, 1.0e-5f,
+                           "a black hit dimmed a term that is not the indirect specular");
+            ExpectVec3Near(out.Specular, (1.0f - c) * t.IndirectSpecular, 1.0e-5f, "the handed-on specular term");
+        }
+        // NEGATIVE CONTROL: the whole-colour blend this replaced dims the
+        // unrelated terms by c, which is what the assertion above would catch.
+        const glm::vec3 oldBlend = glm::mix(t.Color(), glm::vec3(0.0f), 0.5f);
+        const glm::vec3 property = t.Unrelated() + 0.5f * t.IndirectSpecular;
+        EXPECT_LT(oldBlend.x + oldBlend.y + oldBlend.z, (property.x + property.y + property.z) - 1.0e-3f)
+            << "the whole-colour blend must fail the property, or this case proves nothing";
+    }
+}
+
+TEST(ReflectionTierContractTest, ConfidenceZeroIsACopyAndOneIsAFullReplacement)
+{
+    const glm::vec3 radiance{ 5.0f, 1.0f, 0.5f };
+    for (const FrameTerms& t : { Dielectric(), Metal() })
+    {
+        const auto none = ComposeSpecularTier(t.Color(), t.IndirectSpecular, t.Weight, radiance, 0.0f);
+        ExpectVec3Near(none.Color, t.Color(), 0.0f, "c = 0 must leave the colour exactly as it was");
+        ExpectVec3Near(none.Specular, t.IndirectSpecular, 0.0f, "c = 0 must hand the specular term on untouched");
+
+        const auto full = ComposeSpecularTier(t.Color(), t.IndirectSpecular, t.Weight, radiance, 1.0f);
+        ExpectVec3Near(full.Color, t.Unrelated() + t.Weight * radiance, 1.0e-5f,
+                       "c = 1 must be the unrelated terms plus W * L");
+        ExpectVec3Near(full.Specular, t.Weight * radiance, 1.0e-5f, "c = 1 hands on W * L");
+
+        // A broken confidence answers nothing, like ComputeReflectionTierWeights.
+        const auto broken = ComposeSpecularTier(t.Color(), t.IndirectSpecular, t.Weight, radiance,
+                                                std::numeric_limits<f32>::quiet_NaN());
+        ExpectVec3Near(broken.Color, t.Color(), 0.0f, "a NaN confidence must be a copy");
+    }
+}
+
+TEST(ReflectionTierContractTest, ChainedTiersAreTheOverOnTheLobeRadianceTimesTheWeight)
+{
+    // Probe/IBL at the bottom, then the ray tier, then SSR -- the frame's order.
+    // The chain must equal W * (the ADR's over on L) plus the unrelated terms,
+    // with no tier's term counted twice.
+    const FrameTerms t = Metal();
+    const glm::vec3 probe = t.IndirectSpecular / t.Weight;
+    const glm::vec3 ray{ 0.3f, 2.0f, 1.0f };
+    const glm::vec3 ssr{ 4.0f, 0.2f, 0.7f };
+    for (const f32 cRay : { 0.0f, 0.4f, 1.0f })
+    {
+        for (const f32 cSsr : { 0.0f, 0.3f, 1.0f })
+        {
+            const auto afterRay = ComposeSpecularTier(t.Color(), t.IndirectSpecular, t.Weight, ray, cRay);
+            const auto afterSsr = ComposeSpecularTier(afterRay.Color, afterRay.Specular, t.Weight, ssr, cSsr);
+
+            ReflectionTierConfidences confidences{ 0.0f, cSsr, cRay, 1.0f };
+            const auto w = ComputeReflectionTierWeights(confidences);
+            const glm::vec3 lobe = w[1] * ssr + w[2] * ray + w[3] * probe;
+            ExpectVec3Near(afterSsr.Color, t.Unrelated() + t.Weight * lobe, 1.0e-4f,
+                           "two chained tiers are not the ADR's over on the lobe radiance");
+        }
+    }
 }

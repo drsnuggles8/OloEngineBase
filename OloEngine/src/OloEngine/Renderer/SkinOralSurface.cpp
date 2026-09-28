@@ -18,23 +18,22 @@ namespace OloEngine
         constexpr f32 kEpsilon = 1.0e-4f; // PBRCommon's EPSILON
         constexpr f32 kPi = 3.14159265358979323846f;
 
-        // GGX/Trowbridge-Reitz, transcribed from distributionGGX in
-        // include/PBRCommon.glsl. Same alpha convention (alpha = roughness^2),
-        // same max() guard on the denominator, same order of operations — the
-        // parity test compares the two with an exact float equality, so a
-        // reassociation here becomes a tolerance argument there.
-        [[nodiscard]] f32 DistributionGGX(const glm::vec3& normal, const glm::vec3& half, f32 roughness) noexcept
+        // The UNCLAMPED GGX, transcribed from distributionGGXUnclampedNH in
+        // include/PBRCommon.glsl (the ClosureV2 NDF), in its cross-product form
+        // and with the same smallest-normal floor. The Legacy distributionGGX
+        // caps D below roughness ~0.27, which starved the coat's lobe to
+        // 0.5 % of its energy at a saliva film's 0.06 (issue #1421).
+        [[nodiscard]] f32 DistributionGGXUnclamped(const glm::vec3& normal, const glm::vec3& half, f32 roughness) noexcept
         {
             const f32 a = roughness * roughness;
             const f32 a2 = a * a;
-            const f32 NdotH = std::max(glm::dot(normal, half), 0.0f);
-            const f32 NdotH2 = NdotH * NdotH;
-
-            const f32 num = a2;
-            f32 denom = (NdotH2 * (a2 - 1.0f) + 1.0f);
+            const f32 c = glm::dot(normal, half);
+            if (c <= 0.0f)
+                return a2 * (1.0f / kPi);
+            const glm::vec3 t = glm::cross(normal, half);
+            f32 denom = glm::dot(t, t) + a2 * c * c;
             denom = kPi * denom * denom;
-
-            return num / std::max(denom, kEpsilon);
+            return a2 / std::max(denom, 1.17549435e-38f);
         }
 
         // Height-correlated Smith visibility, transcribed from
@@ -114,7 +113,7 @@ namespace OloEngine
         const glm::vec3 half = sum * (1.0f / std::sqrt(lenSq));
 
         const f32 roughness = std::clamp(coatRoughness, kMinSkinOralCoatRoughness, kMaxSkinOralCoatRoughness);
-        const f32 D = DistributionGGX(normal, half, roughness);
+        const f32 D = DistributionGGXUnclamped(normal, half, roughness);
         const f32 Vis = VisibilitySmithGGXCorrelated(normal, view, lightDir, roughness);
         // dot(V, H) — the angle of INCIDENCE on the microfacet that reflected
         // this light. See SkinOralCoatFresnel's contract, and note that every
@@ -123,6 +122,27 @@ namespace OloEngine
         const f32 F = SkinOralCoatFresnel(coatF0, glm::dot(view, half));
 
         return D * Vis * F;
+    }
+
+    SkinOralCoatResult ApplySkinOralCoatAmbient(const glm::vec3& baseDiffuse, const glm::vec3& baseSpecular,
+                                                const glm::vec4& oralLane, const glm::vec2& coatEnvBRDF,
+                                                const glm::vec3& coatPrefiltered) noexcept
+    {
+        SkinOralCoatResult result{ baseDiffuse, baseSpecular };
+        const f32 strength = oralLane.x;
+        if (!(strength > 0.0f))
+            return result;
+        if (!Math::IsFinite(baseDiffuse) || !Math::IsFinite(baseSpecular) || !Math::IsFinite(coatPrefiltered) ||
+            !std::isfinite(coatEnvBRDF.x) || !std::isfinite(coatEnvBRDF.y) || !std::isfinite(oralLane.z))
+            return result;
+
+        const f32 albedo =
+            std::clamp(std::clamp(oralLane.z, 0.0f, 1.0f) * coatEnvBRDF.x + coatEnvBRDF.y, 0.0f, 1.0f);
+        const f32 reflected = std::clamp(strength, 0.0f, 1.0f) * albedo;
+        const f32 attenuation = 1.0f - reflected;
+        result.Diffuse = baseDiffuse * attenuation;
+        result.Specular = baseSpecular * attenuation + glm::max(coatPrefiltered, glm::vec3(0.0f)) * reflected;
+        return result;
     }
 
     SkinOralCoatResult ApplySkinOralCoat(const glm::vec3& baseDiffuse, const glm::vec3& baseSpecular,

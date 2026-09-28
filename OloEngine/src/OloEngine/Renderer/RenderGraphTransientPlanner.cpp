@@ -82,6 +82,8 @@ namespace OloEngine::RenderGraphTransientPlanner
                     return 4;
                 case RGResourceFormat::RGBA16Float:
                     return 8;
+                case RGResourceFormat::RGBA32Float:
+                    return 16;
                 case RGResourceFormat::Unknown:
                 default:
                     return 0;

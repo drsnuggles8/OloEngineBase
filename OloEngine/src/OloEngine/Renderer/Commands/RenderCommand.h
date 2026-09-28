@@ -235,7 +235,7 @@ namespace OloEngine
         // kSkinProfileSlotNone (Renderer/SkinProfile.h) — "names no profile".
         // Spelled as a literal here so this hot header keeps its include set;
         // CommandDispatch.cpp static_asserts the two agree.
-        u32 skinProfileSlot = 7;
+        u32 skinProfileSlot = 15;
         glm::vec3 skinSpecularTint = glm::vec3(1.0f); // LINEAR Rec.709, unitless
         i32 skinEvaluationModel = 0;                  // SkinEvaluationModel
 

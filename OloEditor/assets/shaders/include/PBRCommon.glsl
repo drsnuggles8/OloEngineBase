@@ -131,7 +131,9 @@
 
 // "This pixel names no skin profile." The all-ones pattern of the lane's
 // three-bit slot field, matching kSkinProfileSlotNone in Renderer/SkinProfile.h.
-#define OLO_SKIN_PROFILE_SLOT_NONE 7
+#define OLO_SKIN_PROFILE_SLOT_NONE 15
+// Slots 0..14: the size of every per-slot table (DeferredLighting's UBO arrays).
+#define OLO_SKIN_PROFILE_SLOT_COUNT 15
 
 // Which separated output replaces the composite, mirroring MaterialDebugView in
 // Renderer/PostProcessSettings.h. Carried in u_MSAAParams.w of the deferred
@@ -157,23 +159,25 @@
 //                because MaterialKind.h static_asserts against exactly this
 //                ceiling, so a fifth kind is a deliberate re-encoding rather
 //                than an enumerator that silently aliases onto a fourth.
-//   bits 3..5  - SKIN PROFILE SLOT (issue #1231), three bits, 7 == "names no
-//                profile". Only meaningful when the kind is Skin, and only read
+//   bits 3..6  - SKIN PROFILE SLOT (issue #1231), four bits since #1393 (it
+//                was three, and one complete face used all seven slots),
+//                15 == "names no profile". Only meaningful when the kind is Skin, and only read
 //                under that test: the G-Buffer writers that do NOT call this
 //                function (Terrain, Foliage, Water) write a literal 0.0 lane,
 //                whose slot field reads as 0, and gating every read on the kind
 //                is what stops that being mistaken for "profile 0".
-//   bits 6..n  - PBR closure model, carried as a WHOLE integer shifted up past
+//   bits 7..n  - PBR closure model, carried as a WHOLE integer shifted up past
 //                the three fields below it. There is still no field width and
 //                no mask: PBRModel.h's numbering is append-only and the decode
-//                is a plain `>> 6`, so appending a model needs no edit here and
+//                is a plain `>> 7`, so appending a model needs no edit here and
 //                can never truncate to Legacy.
 //
 // THE CEILING MOVED, AND IT MOVED ON PURPOSE (issue #1231). The only limit on
 // the model field is exact integer representation in RGBA16F - half is exact to
 // 2048 - so before #1231 the model index shifted up by one and the ceiling was
-// 1023. Giving the kind and the profile slot five bits below it lowers that to
-// 31 (31 * 64 + 63 == 2047). PBRModel.h static_asserts against the new number,
+// 1023. Giving the kind and the profile slot five bits below it lowered that to
+// 31 (31 * 64 + 63 == 2047), and the slot's fourth bit (#1393) to 15
+// (15 * 128 + 127 == 2047) -- against the 2 models that exist. PBRModel.h static_asserts against the new number,
 // which is where a hypothetical 32nd closure model is rejected loudly instead of
 // silently remapped, and the fix at that point is the one it always was: a wider
 // lane or a dedicated integer attachment, not a constant bump.
@@ -209,7 +213,7 @@ float oloEncodeGBufferPbrFlagsEx(int pbrModel, int materialKind, int skinProfile
     // model 1. Clamping here is cheap and makes that impossible.
     int kind = clamp(materialKind, 0, 3);
     int slot = clamp(skinProfileSlot, 0, OLO_SKIN_PROFILE_SLOT_NONE);
-    return float(pbrModel * 64 + slot * 8 + kind * 2);
+    return float(pbrModel * 128 + slot * 8 + kind * 2);
 }
 
 // The generic-material spelling, kept because most G-Buffer writers have no
@@ -248,7 +252,7 @@ int oloGBufferFlagsMaterialKind(int gbFlags)
 // list above for why a Generic pixel's slot bits are not "profile 0".
 int oloGBufferFlagsSkinProfileSlot(int gbFlags)
 {
-    return (gbFlags >> 3) & 7;
+    return (gbFlags >> 3) & 15;
 }
 
 int oloGBufferFlagsPbrModel(int gbFlags)
@@ -256,7 +260,7 @@ int oloGBufferFlagsPbrModel(int gbFlags)
     // No mask: the model field is the whole rest of the lane, so a model
     // appended to PBRModel.h arrives un-truncated rather than aliasing to
     // Legacy on the deferred path only.
-    return gbFlags >> 6;
+    return gbFlags >> 7;
 }
 
 // =============================================================================

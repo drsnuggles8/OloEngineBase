@@ -12,7 +12,7 @@
 // IEEE half, the same quantisation the real attachment applies — BEFORE
 // decoding. That is what makes this a test of the transport rather than of the
 // arithmetic, and it is where the model index's only real ceiling comes from
-// (half is exact to 2048, so `model * 64 + slot * 8 + kind * 2` must stay
+// (half is exact to 2048, so `model * 128 + slot * 8 + kind * 2` must stay
 // <= 2047; PBRModel.h's kPBRModelGBufferLaneMax static_asserts against it).
 //
 // Parameterization, now TWO axes because the lane carries three fields:

@@ -377,7 +377,12 @@ namespace OloEngine
     // The ceiling is 1 because above it alpha = roughness^2 leaves the NDF's
     // normalizable domain, which is the same ceiling every roughness in this
     // engine carries.
-    inline constexpr f32 kMinSkinOralCoatRoughness = 0.01f;
+    //
+    // 0.04, not 0.01 (issue #1421): the coat's lobe is the UNCLAMPED GGX now,
+    // whose peak at 0.01 is 3e7 -- a single-pixel firefly under a delta light.
+    // 0.04 is the ClosureV2 floor (MIN_ROUGHNESS), the smoothest surface the
+    // rest of the engine shades.
+    inline constexpr f32 kMinSkinOralCoatRoughness = 0.04f;
     inline constexpr f32 kMaxSkinOralCoatRoughness = 1.0f;
 
     // The film's index of refraction, seen from air. Saliva is 1.33 (it is
@@ -1074,7 +1079,7 @@ namespace OloEngine
 
     // A skin profile reaches the DEFERRED lighting pass as a small integer in
     // the G-Buffer RT2 flags lane, not as an AssetHandle — 64 bits per pixel is
-    // not something a G-Buffer can carry, and the lane has three bits to spare
+    // not something a G-Buffer can carry, and the lane has four bits for it
     // (see oloEncodeGBufferPbrFlags in include/PBRCommon.glsl). So the renderer
     // assigns each DISTINCT profile used in a frame a slot in
     // [0, kMaxSkinProfileSlots).
@@ -1083,8 +1088,15 @@ namespace OloEngine
     // every non-skin surface writes. It is the all-ones pattern of the field on
     // purpose: a reader must never confuse "nothing written here" with
     // "profile 0".
-    inline constexpr u32 kSkinProfileSlotBits = 3;
-    inline constexpr u32 kSkinProfileSlotNone = (1u << kSkinProfileSlotBits) - 1u; // 7
-    inline constexpr u32 kMaxSkinProfileSlots = kSkinProfileSlotNone;              // slots 0..6
+    //
+    // FOUR BITS, 15 PROFILES (issue #1393). Three bits held 7, and one complete
+    // face names exactly seven (ReferenceHead, EyeIris, EyeTearLine, OralLip,
+    // OralTongue, OralGum, OralEnamel), so a second character, a second eye
+    // colour or a scarred variant ran out and its surface shaded as not-skin.
+    // The model field above the slot gives up the bit: it still holds 16
+    // closure models against the 2 that exist (PBRModel.h).
+    inline constexpr u32 kSkinProfileSlotBits = 4;
+    inline constexpr u32 kSkinProfileSlotNone = (1u << kSkinProfileSlotBits) - 1u; // 15
+    inline constexpr u32 kMaxSkinProfileSlots = kSkinProfileSlotNone;              // slots 0..14
 
 } // namespace OloEngine

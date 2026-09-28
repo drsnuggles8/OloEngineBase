@@ -7809,6 +7809,42 @@ TEST(RenderGraphTransientPool, PartiallyRepresentableMRTIsNotAllocatable)
     EXPECT_TRUE(RenderGraphTransientPlanner::IsAllocatable(allValid));
 }
 
+// Every graph format has a byte size and an image format. RGBA32Float had
+// neither: the planner estimated the RGBA32F ReSTIR reservoir framebuffers at 0
+// bytes, and ToImageFormat returned None for it. Found when the OIT
+// accumulator moved to RGBA32F (#1468). A format added to RGResourceFormat
+// needs a row here.
+TEST(RenderGraphTransientPool, EveryColourFormatHasASizeAndAnImageFormat)
+{
+    struct Expected
+    {
+        RGResourceFormat Format;
+        u64 BytesPerPixel;
+    };
+    constexpr std::array<Expected, 9> kFormats = { {
+        { RGResourceFormat::R8UNorm, 1 },
+        { RGResourceFormat::R32Float, 4 },
+        { RGResourceFormat::RG16Float, 4 },
+        { RGResourceFormat::RGBA8UNorm, 4 },
+        { RGResourceFormat::RGBA16Float, 8 },
+        { RGResourceFormat::RGBA32Float, 16 },
+        { RGResourceFormat::Depth24Stencil8, 4 },
+        { RGResourceFormat::Depth32Float, 4 },
+        { RGResourceFormat::R32Int, 4 },
+    } };
+    for (const Expected& expected : kFormats)
+    {
+        SCOPED_TRACE(static_cast<int>(std::to_underlying(expected.Format)));
+        RGResourceDesc desc;
+        desc.Kind = RGResourceHandle::Kind::Texture2D;
+        desc.Format = expected.Format;
+        desc.Width = 8;
+        desc.Height = 4;
+        EXPECT_EQ(RenderGraphTransientPlanner::EstimateBytes(desc), expected.BytesPerPixel * 32u);
+        EXPECT_NE(RenderGraph::ToImageFormat(expected.Format), ImageFormat::None);
+    }
+}
+
 // Regression test for issue #547: a pass that seeds an MRT purely through
 // attachment-view writes (mirroring OITPreparePass writing OITAccum /
 // OITRevealage without ever writing the parent OITBuffer directly) must

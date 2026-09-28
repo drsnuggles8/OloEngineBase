@@ -209,7 +209,7 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     // of the closure evaluates it. Two fields because they are two questions --
     // see docs/adr/0024-material-kind-is-not-the-closure-version.md.
     int u_MaterialKind;          // OLO_MATERIAL_KIND_*: 0=Generic, 1=Snow, 2=Skin
-    int u_SkinProfileSlot;       // OLO_SKIN_PROFILE_SLOT_NONE (7) == names no profile
+    int u_SkinProfileSlot;       // OLO_SKIN_PROFILE_SLOT_NONE (15) == names no profile
     float u_SkinSpecularTintR;   // LINEAR Rec.709, unitless [0,1]; 1,1,1 is neutral
     float u_SkinSpecularTintG;
     float u_SkinSpecularTintB;

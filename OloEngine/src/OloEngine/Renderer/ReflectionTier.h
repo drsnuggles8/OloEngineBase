@@ -2,6 +2,9 @@
 
 #include "OloEngine/Core/Base.h"
 
+#include <glm/common.hpp>
+#include <glm/vec3.hpp>
+
 #include <array>
 #include <string_view>
 
@@ -113,6 +116,40 @@ namespace OloEngine
                 best = tier;
         }
         return static_cast<ReflectionTier>(best);
+    }
+
+    // ONE TIER'S HAND-OFF, APPLIED TO THE FRAME (issue #1325). The algebra above
+    // is over R, the radiance along the specular lobe, and the frame colour is
+    // not R: it is diffuse + direct + emission + transmission + the INDIRECT
+    // SPECULAR TERM S = W * R, where W is the lobe's BRDF weight per unit of
+    // incident radiance (split-sum (F * A + B), times the ambient occlusion and
+    // the skin profile's specular tint -- whatever the lighting pass applied).
+    // A tier therefore replaces S and nothing else:
+    //
+    //     S' = S + c * (W * L - S)        C' = C + (S' - S) = C + c * (W * L - S)
+    //
+    // `specular` is the S the colour holds now: the lighting pass's own term for
+    // the first tier, the previous tier's S' for the next. Chaining two tiers is
+    // then the ADR's "over" on R, scaled by W. Confidence is how much of the lobe
+    // the tier's estimate is entitled to answer for; Fresnel lives in W, never
+    // in c. A black hit removes c * S and leaves every other term alone.
+    //
+    // Twin of oloSpecularTierDelta in include/ReflectionTierComposite.glsl (the delta; the shaders add it).
+    struct SpecularTierComposite
+    {
+        glm::vec3 Color{ 0.0f };
+        glm::vec3 Specular{ 0.0f };
+    };
+
+    [[nodiscard]] inline SpecularTierComposite ComposeSpecularTier(const glm::vec3& color, const glm::vec3& specular,
+                                                                   const glm::vec3& weight, const glm::vec3& radiance,
+                                                                   f32 confidence)
+    {
+        // The same NaN-first clamp as ComputeReflectionTierWeights: a broken
+        // confidence answers nothing.
+        const f32 c = (confidence > 0.0f) ? ((confidence > 1.0f) ? 1.0f : confidence) : 0.0f;
+        const glm::vec3 delta = c * (weight * radiance - specular);
+        return { glm::max(color + delta, glm::vec3(0.0f)), glm::max(specular + delta, glm::vec3(0.0f)) };
     }
 
     // Why the ray-query tier stood down. Reported once per change, never

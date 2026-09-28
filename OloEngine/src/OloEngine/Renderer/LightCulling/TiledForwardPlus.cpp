@@ -164,8 +164,7 @@ namespace OloEngine
         // buffers in them. Publishing our own buffers gives the declarations a
         // defined occupant; the UBO still says Enabled = 0 when inactive
         // (CommandDispatch::BindSceneResources), so nothing reads them.
-        m_LightBuffer.Bind();
-        m_LightGrid.Bind();
+        PublishBuffers();
 
         if (!m_ActiveThisFrame)
         {
@@ -236,6 +235,16 @@ namespace OloEngine
 
         m_LightGrid.Unbind();
         m_LightBuffer.Unbind();
+    }
+
+    void TiledForwardPlus::PublishBuffers() const
+    {
+        if (!m_Initialized)
+        {
+            return;
+        }
+        m_LightBuffer.Bind();
+        m_LightGrid.Bind();
     }
 
     void TiledForwardPlus::UploadDisabledUBO()

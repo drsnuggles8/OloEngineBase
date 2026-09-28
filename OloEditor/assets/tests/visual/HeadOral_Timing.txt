@@ -4,6 +4,6 @@
 # NOT A BENCHMARK: this box hosts CI runners for another repo, so the absolute figures move.
 # What the pair is good for is the RELATIVE cost, measured back to back.
 # cell, dry_ms_per_frame, wet_ms_per_frame, delta_ms, delta_pct
-Forward_Key_Front_Open, 2.63301, 2.78092, 0.147904, 5.6173
-ForwardPlus_Key_Front_Open, 2.50656, 2.42108, -0.0854833, -3.41039
-Deferred_Key_Front_Open, 2.81303, 3.12237, 0.309342, 10.9967
+Forward_Key_Front_Open, 2.6891, 2.69128, 0.00217917, 0.0810369
+ForwardPlus_Key_Front_Open, 2.77865, 2.70927, -0.0693792, -2.49687
+Deferred_Key_Front_Open, 2.92386, 2.86449, -0.059375, -2.0307

@@ -79,6 +79,7 @@ namespace OloEngine::Tests
             CaseLaneGateWrongVersion = 14,
             CaseLaneGateRightVersion = 15,
             CaseCoatLobeAtGrazing = 16,
+            CaseAmbientCoatParity = 17,
             CaseCount
         };
 
@@ -357,6 +358,20 @@ namespace OloEngine::Tests
                "normal-to-half angle, every head-on case still agrees and only this one moves. Schlick is a "
                "statement about the angle of INCIDENCE on the reflecting microfacet — include/PBRCommon.glsl "
                "passes dot(H, V) at all six of its microfacet call sites.";
+
+        // ── The ambient coat (issue #1421) ─────────────────────────────────
+        const glm::vec4 ambient = texel(CaseAmbientCoatParity);
+        const SkinOralCoatResult cpuAmbient =
+            ApplySkinOralCoatAmbient(glm::vec3(0.3f, 0.2f, 0.1f), glm::vec3(0.05f),
+                                     glm::vec4(kCoatStrength, kCoatRoughness, cpuSaliva, kCavityOcclusion),
+                                     glm::vec2(0.9f, 0.04f), glm::vec3(2.0f, 1.5f, 1.0f));
+        EXPECT_NEAR(ambient.r, cpuAmbient.Diffuse.r, HalfTolerance(cpuAmbient.Diffuse.r))
+            << "the shader's ambient coat does not attenuate the diffuse the CPU's does";
+        EXPECT_NEAR(ambient.g, cpuAmbient.Specular.r, HalfTolerance(cpuAmbient.Specular.r))
+            << "the shader's ambient coat does not reflect the environment the CPU's does";
+        EXPECT_NEAR(ambient.b, cpuAmbient.Specular.g, HalfTolerance(cpuAmbient.Specular.g));
+        EXPECT_NEAR(ambient.a, cpuAmbient.Diffuse.b, HalfTolerance(cpuAmbient.Diffuse.b));
+        EXPECT_GT(ambient.g, 0.05f) << "the coat reflected none of the environment";
 
         const glm::vec4 live = texel(CaseLaneGateRightVersion);
         EXPECT_NEAR(live.x, kCoatStrength, HalfTolerance(kCoatStrength))

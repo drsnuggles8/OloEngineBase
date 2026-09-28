@@ -32,6 +32,7 @@
 
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
+#include "OloEngine/Asset/AssetPackBuilder.h"
 #include "OloEngine/Asset/AssetSerializer.h"
 #include "OloEngine/Asset/MeshCache.h"
 #include "OloEngine/Renderer/Model.h"
@@ -54,6 +55,8 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <unordered_map>
+#include <optional>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -287,6 +290,36 @@ TEST_F(ImportedMaterialPackTest, EverySubmeshResolvesItsMaterialAfterThePackRoun
     ASSERT_TRUE(unpacked) << "DeserializeFromAssetPack returned null";
 
     ExpectMaterialsMatch(unpacked);
+}
+
+// Issue #1462, the Sponza path: a MeshSource's IMPORTED materials tell the pack
+// cook each texture's colour space by slot, whatever the texture's own spec says.
+// The albedo maps here are registered linear (the asset system's filename guess
+// for a hash-named file); the pack build must still ask for sRGB for them.
+TEST_F(ImportedMaterialPackTest, ThePackCookTakesEachTexturesColourSpaceFromItsImportedSlot)
+{
+    OLO_ENSURE_GPU_OR_SKIP();
+
+    BuildMaterials();
+    m_Materials[1]->SetAlbedoMap(MakeRegisteredTexture(0xFF00FF00u, /*srgb=*/false));
+    Ref<MeshSource> source = MakeTwoMaterialMesh();
+    source->SetImportedMaterials(m_Materials);
+    const AssetHandle meshHandle = AssetManager::AddMemoryOnlyAsset(source);
+
+    const std::unordered_map<AssetHandle, Ref<Asset>> packed = { { meshHandle, source } };
+    const auto intents = AssetPackBuilder::CollectTextureColorSpaceIntents(packed);
+
+    const auto intentFor = [&intents](const Ref<Texture2D>& texture) -> std::optional<bool>
+    {
+        if (const auto it = intents.find(texture->GetHandle()); it != intents.end())
+            return it->second;
+        return std::nullopt;
+    };
+    ASSERT_EQ(intentFor(m_Materials[1]->GetAlbedoMap()), std::optional<bool>(true))
+        << "a base-colour map registered LINEAR must be cooked sRGB because of its slot";
+    EXPECT_EQ(intentFor(m_Albedo0), std::optional<bool>(true));
+    EXPECT_EQ(intentFor(m_Normal0), std::optional<bool>(false)) << "a normal map is linear data";
+    EXPECT_EQ(intentFor(m_MR0), std::optional<bool>(false)) << "a metallic-roughness map is linear data";
 }
 
 TEST_F(ImportedMaterialPackTest, EverySubmeshResolvesItsMaterialAfterTheOMeshRoundTrip)

@@ -33,7 +33,8 @@ namespace OloEngine
         RenderGraphNode::Setup(builder, blackboard);
         m_SelectedSceneDepthTexture = {};
         m_SelectedGBufferNormalTexture = {};
-        m_SelectedGBufferAlbedoTexture = {};
+        m_SelectedIndirectSpecularTexture = {};
+        m_SelectedIndirectSpecularWeightTexture = {};
         m_SelectedVelocityTexture = {};
         m_SelectedHistoryTexture = {};
         m_SelectedSignalFramebuffer = {};
@@ -67,18 +68,31 @@ namespace OloEngine
 
         // SSRColor is only declared (deferred path) when the G-Buffer + depth are
         // available; without them the pass cannot run and downstream aliases back.
+        // And the term it replaces (issue #1325), declared whenever SSRColor is.
         if (!m_Enabled || !blackboard.Post.SSRColor.IsValid() ||
             !blackboard.Scene.SceneDepth.IsValid() ||
             !blackboard.GBuffer.GBufferNormal.IsValid() ||
-            !blackboard.GBuffer.GBufferAlbedo.IsValid())
+            !blackboard.Post.IndirectSpecularTexture.IsValid() ||
+            !blackboard.Post.IndirectSpecularWeightTexture.IsValid())
             return;
 
         [[maybe_unused]] const auto sceneDepthRead = builder.Read(blackboard.Scene.SceneDepth, RGReadUsage::ShaderSample);
         [[maybe_unused]] const auto gbufferNormalRead = builder.Read(blackboard.GBuffer.GBufferNormal, RGReadUsage::ShaderSample);
-        [[maybe_unused]] const auto gbufferAlbedoRead = builder.Read(blackboard.GBuffer.GBufferAlbedo, RGReadUsage::ShaderSample);
         m_SelectedSceneDepthTexture = blackboard.Scene.SceneDepth;
         m_SelectedGBufferNormalTexture = blackboard.GBuffer.GBufferNormal;
-        m_SelectedGBufferAlbedoTexture = blackboard.GBuffer.GBufferAlbedo;
+
+        // THE TERM THE COLOUR HOLDS NOW (issue #1325). When the ray tier ran, its
+        // output is SSR's input colour and the specular term in it is the one the
+        // ray tier handed on; replacing the lighting's would subtract a term that
+        // is no longer there. The weight is the lighting's either way.
+        m_SelectedIndirectSpecularTexture = blackboard.Post.RTReflectionSpecularTexture.IsValid()
+                                                ? blackboard.Post.RTReflectionSpecularTexture
+                                                : blackboard.Post.IndirectSpecularTexture;
+        m_SelectedIndirectSpecularWeightTexture = blackboard.Post.IndirectSpecularWeightTexture;
+        [[maybe_unused]] const auto specularRead =
+            builder.Read(m_SelectedIndirectSpecularTexture, RGReadUsage::ShaderSample);
+        [[maybe_unused]] const auto weightRead =
+            builder.Read(m_SelectedIndirectSpecularWeightTexture, RGReadUsage::ShaderSample);
 
         // G-Buffer velocity (RT3) drives the resolve's reprojection. SSR runs
         // before the upscale band, so this is the scene-band velocity, matching
@@ -210,7 +224,6 @@ namespace OloEngine
         Ref<Framebuffer> outputFramebuffer;
         RHI::ResourceHandle sceneDepthID{};
         RHI::ResourceHandle gbufferNormalID{};
-        RHI::ResourceHandle gbufferAlbedoID{};
         if (const auto outputHandle = GetPrimaryOutputFramebufferHandle(); outputHandle.IsValid())
         {
             if (auto resolvedOutput = context.ResolveFramebuffer(outputHandle))
@@ -220,8 +233,12 @@ namespace OloEngine
             sceneDepthID = context.ResolveTextureHandle(m_SelectedSceneDepthTexture);
         if (m_SelectedGBufferNormalTexture.IsValid())
             gbufferNormalID = context.ResolveTextureHandle(m_SelectedGBufferNormalTexture);
-        if (m_SelectedGBufferAlbedoTexture.IsValid())
-            gbufferAlbedoID = context.ResolveTextureHandle(m_SelectedGBufferAlbedoTexture);
+        RHI::ResourceHandle specularID{};
+        RHI::ResourceHandle specularWeightID{};
+        if (m_SelectedIndirectSpecularTexture.IsValid())
+            specularID = context.ResolveTextureHandle(m_SelectedIndirectSpecularTexture);
+        if (m_SelectedIndirectSpecularWeightTexture.IsValid())
+            specularWeightID = context.ResolveTextureHandle(m_SelectedIndirectSpecularWeightTexture);
 
         Ref<Framebuffer> signalFramebuffer;
         Ref<Framebuffer> preBlurredFramebuffer;
@@ -255,27 +272,27 @@ namespace OloEngine
             m_Target = nullptr;
             if (static u32 s_MissingInputOrOutputWarnings = 0; s_MissingInputOrOutputWarnings++ < 10)
             {
-                OLO_CORE_WARN("SSRRenderPass: missing input/output (inputTex={}, outputFB={}, signalFB={}, resolvedFB={}, depthTex={}, normalTex={}, albedoTex={})",
+                OLO_CORE_WARN("SSRRenderPass: missing input/output (inputTex={}, outputFB={}, signalFB={}, resolvedFB={}, depthTex={}, normalTex={})",
                               inputColorTextureID,
                               outputFramebuffer ? outputFramebuffer->GetRHIHandle() : RHI::NullResource,
                               signalFramebuffer ? signalFramebuffer->GetRHIHandle() : RHI::NullResource,
                               resolvedFramebuffer ? resolvedFramebuffer->GetRHIHandle() : RHI::NullResource,
                               sceneDepthID,
-                              gbufferNormalID,
-                              gbufferAlbedoID);
+                              gbufferNormalID);
             }
             OLO_CORE_ASSERT(false, "SSRRenderPass enabled without resolved graph input/output");
             return;
         }
 
         if (const bool shaderReady = IsReadyForExecution();
-            !shaderReady || !sceneDepthID.IsValid() || !gbufferNormalID.IsValid() || !gbufferAlbedoID.IsValid())
+            !shaderReady || !sceneDepthID.IsValid() || !gbufferNormalID.IsValid() ||
+            !specularID.IsValid() || !specularWeightID.IsValid())
         {
             m_Target = nullptr;
             if (static u32 s_InvalidExecutionStateWarnings = 0; s_InvalidExecutionStateWarnings++ < 10)
             {
-                OLO_CORE_WARN("SSRRenderPass: enabled without complete execution state (shaderReady={}, depthTex={}, normalTex={}, albedoTex={})",
-                              shaderReady, sceneDepthID, gbufferNormalID, gbufferAlbedoID);
+                OLO_CORE_WARN("SSRRenderPass: enabled without complete execution state (shaderReady={}, depthTex={}, normalTex={}, indirectSpecularTex={}, indirectSpecularWeightTex={})",
+                              shaderReady, sceneDepthID, gbufferNormalID, specularID, specularWeightID);
             }
             OLO_CORE_ASSERT(false, "SSRRenderPass enabled without ready shaders or resolved G-Buffer/depth inputs");
             return;
@@ -401,9 +418,13 @@ namespace OloEngine
                                         RHI::HeapSlotLifetime::FrameTransient);
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_NORMAL, gbufferNormalID,
                                         RHI::HeapSlotLifetime::FrameTransient);
-        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_ALBEDO, gbufferAlbedoID,
-                                        RHI::HeapSlotLifetime::FrameTransient);
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SSR_HZB, minHZBID, hzbLifetime);
+        // The term SSR replaces and its weight (issue #1325), at two material
+        // slots a fullscreen pass has no other use for.
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SPECULAR, specularID,
+                                        RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_NORMAL, specularWeightID,
+                                        RHI::HeapSlotLifetime::FrameTransient);
         // Pass-owned and immutable, so Persistent rather than FrameTransient
         // (issue #706). Nearest+Repeat sampler state rides in the descriptor.
         BindBlueNoiseTexture(context, m_BlueNoiseTexture);
@@ -512,7 +533,8 @@ namespace OloEngine
         m_Target = nullptr;
         m_SelectedSceneDepthTexture = {};
         m_SelectedGBufferNormalTexture = {};
-        m_SelectedGBufferAlbedoTexture = {};
+        m_SelectedIndirectSpecularTexture = {};
+        m_SelectedIndirectSpecularWeightTexture = {};
         m_SelectedVelocityTexture = {};
         m_SelectedHistoryTexture = {};
         m_SelectedSignalFramebuffer = {};

@@ -119,6 +119,9 @@ namespace OloEngine
         // Depth-only water program swapped in during the capture (snapshot in
         // SetWaterDepthCaptureActive so shader hot-reloads are picked up).
         RHI::ResourceHandle WaterDepthShaderID{};
+        // WaterRenderPass's target size; see SetWaterTargetSize.
+        u32 WaterTargetWidth = 0;
+        u32 WaterTargetHeight = 0;
     };
 
     static CommandDispatchFrameData s_FrameData;
@@ -198,8 +201,6 @@ namespace OloEngine
         // is therefore part of the cache key (issue #691).
         bool LastMaterialOffsetsLive = false;
         std::array<RHI::ResourceHandle, ShaderBindingLayout::MAX_ENGINE_TEXTURE_SLOTS> BoundTextures{};
-        u32 CurrentViewportWidth = 0;
-        u32 CurrentViewportHeight = 0;
 
         // Track currently bound UBO renderer IDs per binding point to avoid
         // redundant glBindBufferBase calls. Indexed by ShaderBindingLayout::UBO_*.
@@ -1779,6 +1780,13 @@ namespace OloEngine
         if (s_FrameData.ForwardPlus)
         {
             s_FrameData.ForwardPlus->UploadDisabledUBO();
+            // The disabled UBO keeps a replayed ForwardPlusCommon.glsl shader
+            // from READING bindings 9-12 and 18, but it still DECLARES them,
+            // and Vulkan logs an [error] per shader for a declared storage
+            // binding with no occupant. The planar-reflection replay runs after
+            // ScenePass's UnbindAfterShading emptied them (issue #1487). Their
+            // other tenant, GPUScene (9/10), binds its own tables per pass.
+            s_FrameData.ForwardPlus->PublishBuffers();
         }
 
         // Publish all shared PBR sampled inputs before the fork, including
@@ -1862,8 +1870,6 @@ namespace OloEngine
         Data().CurrentBoundVAO = {};
         Data().GPUSceneConsumedDraws = 0;
         Data().GPUSceneFallbackDraws = 0;
-        Data().CurrentViewportWidth = 0;
-        Data().CurrentViewportHeight = 0;
         // A negative control for #1349, never a behaviour: with the fault on,
         // the texture, UBO, material and render-state caches outlive the frame,
         // so a binding something else changed since the last frame is skipped
@@ -1971,6 +1977,13 @@ namespace OloEngine
         }
         // Invalidate cache so the next command re-applies state.
         InvalidateRenderStateCache();
+    }
+
+    void CommandDispatch::SetWaterTargetSize(u32 width, u32 height)
+    {
+        OLO_CORE_ASSERT(!s_RecordingData, "Frame state is frozen during recording");
+        s_FrameData.WaterTargetWidth = width;
+        s_FrameData.WaterTargetHeight = height;
     }
 
     void CommandDispatch::SetWaterDepthCaptureActive(bool active)
@@ -2153,8 +2166,6 @@ namespace OloEngine
     void CommandDispatch::SetViewport(const void* data, RendererAPI& api)
     {
         auto const* cmd = static_cast<const SetViewportCommand*>(data);
-        Data().CurrentViewportWidth = cmd->width;
-        Data().CurrentViewportHeight = cmd->height;
         api.SetViewport(cmd->x, cmd->y, cmd->width, cmd->height);
     }
 
@@ -3826,8 +3837,11 @@ namespace OloEngine
         // Upload water UBO
         if (auto waterUBO = Renderer3D::GetWaterUBO(); waterUBO)
         {
-            const f32 viewportWidth = static_cast<f32>(Data().CurrentViewportWidth);
-            const f32 viewportHeight = static_cast<f32>(Data().CurrentViewportHeight);
+            // The water pass's own target (SetWaterTargetSize). It used to be a
+            // viewport tracked from SetViewport packets, which nothing submits,
+            // so ScreenParams was zero on every backend (issue #1486).
+            const f32 viewportWidth = static_cast<f32>(s_FrameData.WaterTargetWidth);
+            const f32 viewportHeight = static_cast<f32>(s_FrameData.WaterTargetHeight);
 
             ShaderBindingLayout::WaterUBO waterData{};
             waterData.WaveParams = cmd->waveParams;

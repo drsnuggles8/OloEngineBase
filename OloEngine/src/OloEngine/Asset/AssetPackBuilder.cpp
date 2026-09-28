@@ -10,6 +10,9 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Debug/Profiler.h"
 #include "OloEngine/Project/Project.h"
+#include "OloEngine/Renderer/MaterialAsset.h"
+#include "OloEngine/Renderer/MeshSource.h"
+#include "OloEngine/Serialization/ImportedMaterialCodec.h"
 #include "OloEngine/Serialization/AssetPackFile.h"
 #include "OloEngine/Serialization/FileStream.h"
 #include "OloEngine/Task/Task.h"
@@ -18,6 +21,7 @@
 #include <fstream>
 #include <filesystem>
 #include <chrono>
+#include <mutex>
 
 namespace OloEngine
 {
@@ -185,9 +189,76 @@ namespace OloEngine
         }
     }
 
+    std::unordered_map<AssetHandle, bool> AssetPackBuilder::CollectTextureColorSpaceIntents(
+        const std::unordered_map<AssetHandle, Ref<Asset>>& assets)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        std::vector<Ref<Material>> materials;
+        for (const auto& [handle, asset] : assets)
+        {
+            (void)handle;
+            if (!asset)
+                continue;
+            if (asset->GetAssetType() == AssetType::MeshSource)
+            {
+                const auto imported = asset.As<MeshSource>()->GetImportedMaterials();
+                materials.insert(materials.end(), imported.begin(), imported.end());
+            }
+            else if (asset->GetAssetType() == AssetType::Material)
+            {
+                if (Ref<Material> material = asset.As<MaterialAsset>()->GetMaterial())
+                    materials.push_back(std::move(material));
+            }
+        }
+
+        // Handle -> {wanted by a colour slot, wanted by a data slot}.
+        std::unordered_map<AssetHandle, std::pair<bool, bool>> wanted;
+        const auto note = [&wanted](const ImportedMaterialCodec::TextureRef& ref, bool colour)
+        {
+            if (static_cast<u64>(ref.Handle) == 0)
+                return;
+            auto& [asColour, asData] = wanted[ref.Handle];
+            (colour ? asColour : asData) = true;
+        };
+        for (const auto& desc : ImportedMaterialCodec::Describe(materials))
+        {
+            if (!desc.Present)
+                continue;
+            note(desc.Albedo, true);
+            note(desc.Emissive, true);
+            note(desc.MetallicRoughness, false);
+            note(desc.Normal, false);
+            note(desc.AO, false);
+        }
+
+        std::unordered_map<AssetHandle, bool> intents;
+        intents.reserve(wanted.size());
+        for (const auto& [handle, slots] : wanted)
+        {
+            const auto [asColour, asData] = slots;
+            if (asColour && asData)
+            {
+                OLO_CORE_WARN("AssetPackBuilder: texture {} fills both a colour slot (base colour / emissive) and a "
+                              "linear data slot (normal / metallic-roughness / AO); cooking it sRGB. Give it a "
+                              ".oloimport ColorSpace to decide explicitly.",
+                              static_cast<u64>(handle));
+            }
+            intents.emplace(handle, asColour);
+        }
+        return intents;
+    }
+
     AssetPackBuilder::BuildResult AssetPackBuilder::BuildImpl(Ref<AssetManagerBase> assetManager, const BuildSettings& settings, std::atomic<f32>& progress, const std::atomic<bool>* cancelToken)
     {
         OLO_PROFILE_FUNCTION();
+
+        // ONE BUILD AT A TIME. A build installs process-global texture state -- the
+        // cook switch and the colour-space intents (#1462) -- for its duration, so a
+        // second build entering here would cook against the first one's intents, or
+        // against none once the first one's scope had cleared them.
+        static std::mutex s_BuildMutex;
+        std::scoped_lock buildLock(s_BuildMutex);
 
         progress = 0.0f;
 
@@ -258,6 +329,22 @@ namespace OloEngine
                 TextureCookScope(const TextureCookScope&) = delete;
                 TextureCookScope& operator=(const TextureCookScope&) = delete;
             } cookScope(settings.m_CompressAssets);
+
+            // Cook every texture in the colour space of the material slots that use it,
+            // not the one its file name suggests (issue #1462). Cleared on every exit path.
+            struct ColorSpaceIntentScope
+            {
+                explicit ColorSpaceIntentScope(std::unordered_map<AssetHandle, bool> intents)
+                {
+                    TextureSerializer::SetAssetPackColorSpaceIntents(std::move(intents));
+                }
+                ~ColorSpaceIntentScope()
+                {
+                    TextureSerializer::SetAssetPackColorSpaceIntents({});
+                }
+                ColorSpaceIntentScope(const ColorSpaceIntentScope&) = delete;
+                ColorSpaceIntentScope& operator=(const ColorSpaceIntentScope&) = delete;
+            } colorSpaceScope(CollectTextureColorSpaceIntents(assetManager->GetLoadedAssets()));
 
             if (!SerializeAllAssets(assetManager, assetPackFile, progress, cancelToken))
             {

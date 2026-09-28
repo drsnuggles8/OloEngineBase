@@ -19,7 +19,9 @@
 //   3. the control: the same texture cooked with a plain box chain loses most of
 //      its coverage by the coarsest kept level, so (1) is not vacuous;
 //   4. only alpha differs from the plain cook, and a texture whose alpha is not
-//      a cutout's keeps the full averaged chain.
+//      a cutout's keeps the full averaged chain;
+//   5. each aligned 8x8 tile of a decoded level keeps its footprint's coverage
+//      (#1491), not only the level as a whole.
 //
 // Pure CPU; runs in CI. The on-screen half is CookedCutoutCoverageEvidenceTest.
 //
@@ -239,5 +241,88 @@ namespace OloEngine::Tests
         ASSERT_TRUE(TextureCompression::CompressImageFile(png.string(), AutoOptions(), cooked));
         ASSERT_TRUE(cooked.HasAlpha);
         EXPECT_EQ(cooked.MipLevels(), 8u) << "128 -> 1: the full chain";
+    }
+
+    // Issue #1491, cooked: the per-tile placement the loose chain keeps
+    // (AlphaCoverageMipsContractTest.LocalCoverageHoldsInEveryTileOfEveryKeptLevel)
+    // survives the BC7 encode. A 256 atlas of a 75%, a 25%, a solid and a 50%
+    // island, each on 64-texel boundaries: every aligned 8x8 tile of every kept
+    // cooked level, decoded, holds its footprint's coverage to within two texels
+    // of the tile (one for the matched chain, one for the block encoder). The old
+    // global ranking gave the 75% island all of the coverage and the 25% island
+    // none, a 0.25 error.
+    TEST(CookedCutoutCoverage, TheCookKeepsEachTilesCoverageWhereLevelZeroHadIt)
+    {
+        constexpr u32 kSize = 256;
+        constexpr u32 kTile = 8;
+        std::vector<u8> rgba(static_cast<sizet>(kSize) * kSize * 4u);
+        for (u32 y = 0; y < kSize; ++y)
+        {
+            for (u32 x = 0; x < kSize; ++x)
+            {
+                const u32 bx = x / 64u;
+                const u32 by = y / 64u;
+                const bool odd = ((x + y) & 1u) != 0u;
+                const bool quarter = (x & 1u) != 0u && (y & 1u) != 0u;
+                u32 alpha = 0u;
+                if (by == 0u && bx < 2u)
+                    alpha = !quarter ? 255u : 0u;
+                else if (by == 1u && bx >= 2u)
+                    alpha = quarter ? 255u : 0u;
+                else if (by == 2u && bx == 1u)
+                    alpha = 255u;
+                else if (by == 3u && bx == 3u)
+                    alpha = odd ? 255u : 0u;
+                u8* texel = &rgba[(static_cast<sizet>(y) * kSize + x) * 4u];
+                texel[0] = static_cast<u8>(60u + x % 97u);
+                texel[1] = static_cast<u8>(120u + y % 61u);
+                texel[2] = 40u;
+                texel[3] = static_cast<u8>(alpha);
+            }
+        }
+
+        const CompressedTextureImage cooked = TextureCompression::EncodeBC7(
+            rgba.data(), kSize, kSize, 4, /*srgb=*/false, /*generateMips=*/true, /*preserveAlphaCoverage=*/true);
+        ASSERT_TRUE(cooked.IsValid());
+        ASSERT_EQ(cooked.MipLevels(), ACM::CappedLevelCount(kSize, kSize, 9u));
+
+        for (u32 level = 1; level < cooked.MipLevels(); ++level)
+        {
+            TArray64<u8> decoded;
+            u32 w = 0;
+            u32 h = 0;
+            ASSERT_TRUE(TextureCompression::DecodeToRGBA8(cooked, level, decoded, w, h));
+            const u32 scale = kSize / w;
+            for (const f32 cutoff : kCutoffs)
+            {
+                const auto passes = [cutoff](u8 alpha) -> u32
+                { return !(static_cast<f32>(alpha) / 255.0f < cutoff) ? 1u : 0u; };
+                f32 worst = 0.0f;
+                for (u32 ty = 0; ty + kTile <= h; ty += kTile)
+                {
+                    for (u32 tx = 0; tx + kTile <= w; tx += kTile)
+                    {
+                        u32 cookedPass = 0;
+                        for (u32 y = ty; y < ty + kTile; ++y)
+                        {
+                            for (u32 x = tx; x < tx + kTile; ++x)
+                                cookedPass += passes(decoded[(static_cast<i64>(y) * w + x) * 4 + 3]);
+                        }
+                        u32 sourcePass = 0;
+                        for (u32 y = ty * scale; y < (ty + kTile) * scale; ++y)
+                        {
+                            for (u32 x = tx * scale; x < (tx + kTile) * scale; ++x)
+                                sourcePass += passes(rgba[(static_cast<sizet>(y) * kSize + x) * 4u + 3u]);
+                        }
+                        worst = std::max(worst, std::abs(static_cast<f32>(cookedPass) / static_cast<f32>(kTile * kTile) -
+                                                         static_cast<f32>(sourcePass) /
+                                                             static_cast<f32>(kTile * kTile * scale * scale)));
+                    }
+                }
+                EXPECT_LE(worst, 2.0f / 64.0f + 1e-6f)
+                    << "cooked level " << level << " at cutoff " << cutoff << ": a decoded 8x8 tile's coverage is " << worst
+                    << " away from its footprint's in level 0";
+            }
+        }
     }
 } // namespace OloEngine::Tests

@@ -35,13 +35,13 @@
 namespace OloEngine
 {
     // Same width and the same "none" code as the skin profile slot, because it
-    // is the SAME three-bit G-Buffer field. Keeping the constants separate
+    // is the SAME four-bit G-Buffer field (three until issue #1393). Keeping the constants separate
     // rather than aliasing skin's says that the two are tenants of one field
     // rather than one concept, which is what stops a future widening of one
     // from silently widening the other.
-    inline constexpr u32 kFoliageLeafSlotBits = 3;
-    inline constexpr u32 kFoliageLeafSlotNone = (1u << kFoliageLeafSlotBits) - 1u; // 7
-    inline constexpr u32 kMaxFoliageLeafSlots = kFoliageLeafSlotNone;              // slots 0..6
+    inline constexpr u32 kFoliageLeafSlotBits = 4;
+    inline constexpr u32 kFoliageLeafSlotNone = (1u << kFoliageLeafSlotBits) - 1u; // 15
+    inline constexpr u32 kMaxFoliageLeafSlots = kFoliageLeafSlotNone;              // slots 0..14
 
     // The layer-constant parameters of the transmission lobe. See
     // oloFoliageTransmission in assets/shaders/include/FoliageSurface.glsl for

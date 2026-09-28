@@ -198,9 +198,15 @@ namespace OloEngine
         (void)EnsureBuffers();
         (void)EnsureNullBlock();
         const u64 priorUsed = m_Slots[m_CurrentSlot].Cursor.load(std::memory_order_relaxed);
-        if (priorUsed != 0)
+        // ON A NEW PEAK ONLY, at least an eighth above the last one reported. It
+        // was written every frame, which buried the log; a steady frame says
+        // nothing new, and running out has its own per-frame warning in the
+        // overflow reporter. What stays is the sizing evidence: how high the
+        // arena has climbed, and which consumer took it there.
+        if (priorUsed != 0 && priorUsed > m_ReportedPeakBytes + m_ReportedPeakBytes / 8u)
         {
-            OLO_CORE_INFO("VulkanFrameArena: previous frame high-water {}/{} B; requested root={} uniform={} vertex={} storage={} rt={}",
+            m_ReportedPeakBytes = priorUsed;
+            OLO_CORE_INFO("VulkanFrameArena: new frame high-water {}/{} B; requested root={} uniform={} vertex={} storage={} rt={}",
                           priorUsed, kSlotCapacityBytes,
                           GetConsumerBytesThisFrame(VulkanFrameArenaConsumer::RootData),
                           GetConsumerBytesThisFrame(VulkanFrameArenaConsumer::UniformSnapshot),

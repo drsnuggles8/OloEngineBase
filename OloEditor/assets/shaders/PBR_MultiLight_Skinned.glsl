@@ -201,7 +201,7 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     // of the closure evaluates it. Two fields because they are two questions --
     // see docs/adr/0024-material-kind-is-not-the-closure-version.md.
     int u_MaterialKind;          // OLO_MATERIAL_KIND_*: 0=Generic, 1=Snow, 2=Skin
-    int u_SkinProfileSlot;       // OLO_SKIN_PROFILE_SLOT_NONE (7) == names no profile
+    int u_SkinProfileSlot;       // OLO_SKIN_PROFILE_SLOT_NONE (15) == names no profile
     float u_SkinSpecularTintR;   // LINEAR Rec.709, unitless [0,1]; 1,1,1 is neutral
     float u_SkinSpecularTintG;
     float u_SkinSpecularTintB;
@@ -877,6 +877,20 @@ void main()
     OloSurfaceLighting ambient = evaluateAmbientLadderSplit(vec4(0.0), v_WorldPos, N, V, albedo,
                                          metallic, roughness, ao,
                                          u_IrradianceMap, u_BRDFLutMap, prefilteredColor);
+
+    // The wet film's ENVIRONMENT reflection (issue #1421) -- the visible effect
+    // of a saliva or tear film. Before AO, like the rest of the ambient: the
+    // film is occluded by what occludes the surface under it.
+    if (skinOralLane.x > 0.0 && u_EnableIBL == 1)
+    {
+        float coatRoughness = oloSkinOralCoatAmbientRoughness(skinOralLane);
+        vec3 coatPrefiltered = textureLod(u_PrefilterMap, R, coatRoughness * MAX_REFLECTION_LOD).rgb;
+        vec4 coatProbe = oloSampleReflectionProbes(v_WorldPos, N, R, coatRoughness * MAX_REFLECTION_LOD,
+                                                   -(u_View * vec4(v_WorldPos, 1.0)).z);
+        coatPrefiltered = mix(coatPrefiltered, coatProbe.rgb, coatProbe.a);
+        vec2 coatEnvBRDF = texture(u_BRDFLutMap, vec2(max(dot(N, V), 0.0), coatRoughness)).rg;
+        ambient = oloSkinOralApplyCoatAmbient(ambient, skinOralLane, coatEnvBRDF, coatPrefiltered * u_IBLIntensity);
+    }
 
     // Combine lighting — AO attenuates ambient only.
     //

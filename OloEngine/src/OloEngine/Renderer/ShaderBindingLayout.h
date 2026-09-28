@@ -225,8 +225,8 @@ namespace OloEngine
             // docs/adr/0024-material-kind-is-not-the-closure-version.md. Both
             // are neutral at 0/none, so a material that never touches the new
             // setters uploads the bytes it uploaded before.
-            i32 MaterialKind = 0;    // MaterialKind enum: 0=Generic, 1=Snow, 2=Skin
-            i32 SkinProfileSlot = 7; // kSkinProfileSlotNone -- "this material names no profile"
+            i32 MaterialKind = 0;     // MaterialKind enum: 0=Generic, 1=Snow, 2=Skin
+            i32 SkinProfileSlot = 15; // kSkinProfileSlotNone -- "this material names no profile"
 
             // The profile's own contribution to THIS pass, resolved on the CPU
             // by SkinProfileTable so the shader never dereferences an asset.
@@ -3336,7 +3336,7 @@ namespace OloEngine
         // Weighted-blended OIT accumulation targets. Sampled by
         // OIT_Resolve.glsl; written to (not sampled) by transparent passes
         // when RendererSettings::OITEnabled is on (path-agnostic).
-        static constexpr u32 TEX_OIT_ACCUM = 48;     // OIT accum buffer (RGBA16F: sum(Ci*ai*wi), sum(ai*wi))
+        static constexpr u32 TEX_OIT_ACCUM = 48;     // OIT accum buffer (RGBA32F: sum(Ci*ai*wi), sum(ai*wi))
         static constexpr u32 TEX_OIT_REVEALAGE = 49; // OIT revealage buffer (R16F: prod(1 - ai))
         // FFT ocean cascade textures (water-ocean.md §1). Sampled by
         // Water.glsl when the surface is in FFT mode (rgb = choppy displacement,
@@ -4449,6 +4449,10 @@ namespace OloEngine
                            // SSGI shared surface-history resolve (#976), pass-local
                            // fullscreen reuse with no material bound.
                            name == "u_SurfaceHistory" ||
+                           // The reflection tiers (issue #1325): the indirect
+                           // specular term's weight, beside the term itself at
+                           // TEX_SPECULAR. Pass-local fullscreen reuse.
+                           name == "u_IndirectSpecularWeight" ||
                            // Slot 2 is reused as the velocity input slot for TAA / motion-blur passes.
                            name == "u_Velocity" ||
                            // Compute dispatch pass-local reuse (issue #627).
@@ -4607,8 +4611,8 @@ namespace OloEngine
                 case TEX_WATER_NORMAL_1:
                     return name.contains("WaterNormal") || name.contains("waterNormal") ||
                            (name.contains("Water") && name.contains("Normal")) ||
-                           // Production water shaders use unprefixed names (Water.glsl,
-                           // Water_OIT.glsl bind u_NormalMap0 / u_NormalMap1 to these slots).
+                           // The production water shader uses unprefixed names (Water.glsl
+                           // binds u_NormalMap0 / u_NormalMap1 to these slots).
                            name == "u_NormalMap0" || name == "u_NormalMap1";
                 case TEX_WATER_NOISE:
                     return name.contains("WaterNoise") || name.contains("waterNoise") ||

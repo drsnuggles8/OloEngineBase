@@ -808,3 +808,78 @@ TEST(GroomGuideSimulation, DynamicFollowTheLeaderAtZeroCorrectionIsFollowTheLead
     EXPECT_EQ(a.Curr, b.Curr);
     EXPECT_EQ(a.Prev, b.Prev);
 }
+
+// Issue #1509. A simulation-budget step hands the solver a different guide set,
+// which re-seeds it. It used to re-seed at the GROOMED shape, so every budget
+// step dropped the draped coat back to its groom for a second of re-settling --
+// the Mid stop of the animal acceptance test measured that as a 10-17% energy
+// swing with no rendering change at all. With SeedPoints the new set starts
+// where the coat was drawn; a cut (no history) still starts from rest.
+TEST(GroomGuideSimulation, ABudgetStepStartsFromTheCoatItWasHandedNotTheGroomedShape)
+{
+    // Laid ACROSS gravity, so the coat really drapes away from its groom.
+    const TestGuides all = TestGuides::Make(4, 8, 0.1f, glm::vec3(1.0f, 0.0f, 0.0f));
+    GroomSimulationParams params;
+    params.CollisionEnabled = false;
+    GroomGuideSimulationState state;
+    (void)StepGroomGuideSimulation(all.Inputs(params, 1.0f / 60.0f, false), state);
+    for (u32 frame = 0; frame < 90; ++frame)
+    {
+        (void)StepGroomGuideSimulation(all.Inputs(params, 1.0f / 60.0f, true), state);
+    }
+
+    // The budget halves to guides 0 and 2, seeded from where they hang now.
+    TestGuides half;
+    half.Offsets.push_back(0u);
+    std::vector<glm::vec3> seeds;
+    for (const u32 guide : { 0u, 2u })
+    {
+        half.Curves.push_back(guide);
+        for (u32 i = all.Offsets[guide]; i < all.Offsets[guide + 1u]; ++i)
+        {
+            half.Targets.push_back(all.Targets[i]);
+            seeds.push_back(state.Curr[i]);
+        }
+        half.Offsets.push_back(static_cast<u32>(half.Targets.size()));
+    }
+    f32 drape = 0.0f;
+    for (sizet i = 0; i < seeds.size(); ++i)
+    {
+        drape = std::max(drape, glm::length(seeds[i] - half.Targets[i]));
+    }
+    ASSERT_GT(drape, 0.05f) << "the coat must have draped away from its groom, or this proves nothing";
+
+    GroomSimulationInputs step = half.Inputs(params, 1.0f / 60.0f, true);
+    step.SeedPoints = seeds;
+    const GroomSimulationStats seeded = StepGroomGuideSimulation(step, state);
+    EXPECT_TRUE(seeded.Reseeded);
+    EXPECT_TRUE(seeded.SeededFromCoat);
+    ASSERT_EQ(state.Curr.size(), seeds.size());
+    for (sizet i = 0; i < seeds.size(); ++i)
+    {
+        EXPECT_FLOAT_EQ(state.Curr[i].x, seeds[i].x) << "particle " << i;
+        EXPECT_FLOAT_EQ(state.Curr[i].y, seeds[i].y) << "particle " << i;
+        EXPECT_FLOAT_EQ(state.Curr[i].z, seeds[i].z) << "particle " << i;
+        EXPECT_FLOAT_EQ(state.Prev[i].y, seeds[i].y) << "particle " << i << " must emit zero motion";
+    }
+
+    // A CUT is still a cut: with no history the same seed is ignored.
+    GroomGuideSimulationState cutState;
+    (void)StepGroomGuideSimulation(all.Inputs(params, 1.0f / 60.0f, false), cutState);
+    GroomSimulationInputs cut = half.Inputs(params, 1.0f / 60.0f, false);
+    cut.SeedPoints = seeds;
+    const GroomSimulationStats fromRest = StepGroomGuideSimulation(cut, cutState);
+    EXPECT_FALSE(fromRest.SeededFromCoat);
+    for (sizet i = 0; i < seeds.size(); ++i)
+    {
+        EXPECT_FLOAT_EQ(cutState.Curr[i].y, half.Targets[i].y) << "particle " << i;
+    }
+
+    // And a seed that does not match the layout is not trusted.
+    GroomGuideSimulationState wrongState = state;
+    GroomSimulationInputs wrong = all.Inputs(params, 1.0f / 60.0f, true);
+    wrong.SeedPoints = seeds; // half the size
+    const GroomSimulationStats refused = StepGroomGuideSimulation(wrong, wrongState);
+    EXPECT_TRUE(refused.Reseeded);
+    EXPECT_FALSE(refused.SeededFromCoat);
+}

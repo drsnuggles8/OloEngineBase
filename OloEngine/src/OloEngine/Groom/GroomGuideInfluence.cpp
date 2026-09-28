@@ -333,4 +333,214 @@ namespace OloEngine
         // the budget would look like raising the simulation's strength.
         return result / appliedWeight;
     }
+    void BuildGroomGuideStandIns(std::span<const glm::vec3> slotRoots, std::span<const u32> slotGroups,
+                                 std::span<const u32> slotRoles, std::span<const u32> guideOfSlot,
+                                 TArray<GroomGuideWeights>& outStandIns)
+    {
+        outStandIns.Reset();
+        const sizet slotCount = guideOfSlot.size();
+        if (slotRoots.size() != slotCount || slotGroups.size() != slotCount || slotRoles.size() != slotCount)
+        {
+            return;
+        }
+        outStandIns.SetNum(static_cast<i32>(slotCount));
+
+        // The simulated slots, bucketed by (group, role) and by role, so a
+        // left-out slot searches its own group's guides OF ITS OWN ROLE, then
+        // its own role's anywhere, and never another role's -- a group may hold
+        // slots of two roles.
+        const auto groupRoleKey = [&](u32 slot)
+        { return (static_cast<u64>(slotGroups[slot]) << 32u) | static_cast<u64>(slotRoles[slot]); };
+        std::unordered_map<u64, TArray<u32>> simulatedByGroupRole;
+        std::unordered_map<u32, TArray<u32>> simulatedByRole;
+        for (u32 slot = 0; slot < slotCount; ++slot)
+        {
+            if (guideOfSlot[slot] != GroomNoGuide)
+            {
+                simulatedByGroupRole[groupRoleKey(slot)].Add(slot);
+                simulatedByRole[slotRoles[slot]].Add(slot);
+            }
+        }
+
+        for (u32 slot = 0; slot < slotCount; ++slot)
+        {
+            GroomGuideWeights& standIn = outStandIns[static_cast<i32>(slot)];
+            if (guideOfSlot[slot] != GroomNoGuide)
+            {
+                standIn.Guides[0] = guideOfSlot[slot];
+                standIn.Weights[0] = 1.0f;
+                continue;
+            }
+
+            const TArray<u32>* candidates = nullptr;
+            if (const auto group = simulatedByGroupRole.find(groupRoleKey(slot)); group != simulatedByGroupRole.end())
+            {
+                candidates = &group->second;
+            }
+            else if (const auto role = simulatedByRole.find(slotRoles[slot]); role != simulatedByRole.end())
+            {
+                candidates = &role->second;
+            }
+            if (candidates == nullptr)
+            {
+                continue; // its role simulates nothing: it stays at rest, as authored
+            }
+
+            // The K nearest by root distance, kept sorted by an insertion step:
+            // K is four, so a heap would be slower than this.
+            std::array<f32, GroomGuideInfluenceCount> bestDistance{};
+            bestDistance.fill(std::numeric_limits<f32>::max());
+            std::array<u32, GroomGuideInfluenceCount> bestSlot{};
+            bestSlot.fill(GroomNoGuide);
+            const glm::vec3 root = slotRoots[slot];
+            for (const u32 candidate : *candidates)
+            {
+                const f32 distance = glm::distance2(root, slotRoots[candidate]);
+                if (!(distance < bestDistance[GroomGuideInfluenceCount - 1u]))
+                {
+                    continue;
+                }
+                u32 at = GroomGuideInfluenceCount - 1u;
+                while (at > 0u && distance < bestDistance[at - 1u])
+                {
+                    bestDistance[at] = bestDistance[at - 1u];
+                    bestSlot[at] = bestSlot[at - 1u];
+                    --at;
+                }
+                bestDistance[at] = distance;
+                bestSlot[at] = candidate;
+            }
+
+            // Inverse distance, floored so a coincident root does not divide by
+            // zero; normalised over the guides found.
+            f32 total = 0.0f;
+            for (u32 k = 0; k < GroomGuideInfluenceCount; ++k)
+            {
+                if (bestSlot[k] == GroomNoGuide)
+                {
+                    continue;
+                }
+                const f32 weight = 1.0f / std::max(std::sqrt(bestDistance[k]), 1.0e-6f);
+                standIn.Guides[k] = guideOfSlot[bestSlot[k]];
+                standIn.Weights[k] = weight;
+                total += weight;
+            }
+            if (total > 0.0f)
+            {
+                for (f32& weight : standIn.Weights)
+                {
+                    weight /= total;
+                }
+            }
+        }
+    }
+
+    namespace
+    {
+        // One simulated guide's displacement at parameter t, sampled BY
+        // PARAMETER -- SampleGroomGuideDisplacement's rule, so a stand-in with
+        // a different point count than the slot it stands in for agrees about
+        // where "halfway up" is.
+        [[nodiscard]] bool SampleGuideAt(std::span<const u32> guideOffsets, std::span<const glm::vec3> displacements,
+                                         u32 guide, f32 t, glm::vec3& out) noexcept
+        {
+            if (guide + 1u >= guideOffsets.size())
+            {
+                return false;
+            }
+            const u32 first = guideOffsets[guide];
+            const u32 last = guideOffsets[guide + 1u];
+            if (last <= first || last > displacements.size())
+            {
+                return false;
+            }
+            const u32 count = last - first;
+            if (count == 1u)
+            {
+                out = displacements[first];
+                return true;
+            }
+            const f32 scaled = std::clamp(t, 0.0f, 1.0f) * static_cast<f32>(count - 1u);
+            const f32 floored = std::floor(scaled);
+            const u32 lower = std::min(static_cast<u32>(floored), count - 1u);
+            const u32 upper = std::min(lower + 1u, count - 1u);
+            out = glm::mix(displacements[first + lower], displacements[first + upper], scaled - floored);
+            return true;
+        }
+    } // namespace
+
+    bool ExpandGroomGuideDisplacements(std::span<const GroomGuideWeights> standIns,
+                                       std::span<const u32> slotPointCounts, std::span<const u32> guideOffsets,
+                                       std::span<const glm::vec3> displacements, TArray<u32>& outOffsets,
+                                       TArray<glm::vec3>& outDisplacements)
+    {
+        outOffsets.Reset();
+        outDisplacements.Reset();
+        if (standIns.size() != slotPointCounts.size() || guideOffsets.empty())
+        {
+            return false;
+        }
+        // THE WHOLE LAYOUT IS CHECKED BEFORE EITHER OUTPUT IS WRITTEN, so a
+        // refusal publishes nothing rather than a zero displacement for a guide
+        // whose range was bad: offsets start at 0, never decrease and end inside
+        // the displacements, and every stand-in names a guide in the table.
+        if (guideOffsets.front() != 0u || guideOffsets.back() > displacements.size())
+        {
+            return false;
+        }
+        for (sizet i = 1; i < guideOffsets.size(); ++i)
+        {
+            if (guideOffsets[i] < guideOffsets[i - 1u])
+            {
+                return false;
+            }
+        }
+        const sizet guideCount = guideOffsets.size() - 1u;
+        for (const GroomGuideWeights& standIn : standIns)
+        {
+            for (u32 k = 0; k < GroomGuideInfluenceCount; ++k)
+            {
+                if (standIn.Guides[k] != GroomNoGuide && standIn.Guides[k] >= guideCount)
+                {
+                    return false;
+                }
+            }
+        }
+
+        u64 total = 0;
+        for (const u32 count : slotPointCounts)
+        {
+            total += count;
+        }
+        outOffsets.Reserve(static_cast<i32>(standIns.size() + 1u));
+        outDisplacements.Reserve(static_cast<i32>(total));
+        outOffsets.Add(0u);
+
+        for (sizet slot = 0; slot < standIns.size(); ++slot)
+        {
+            const GroomGuideWeights& standIn = standIns[slot];
+            const u32 count = slotPointCounts[slot];
+            const f32 invSpan = count > 1u ? 1.0f / static_cast<f32>(count - 1u) : 0.0f;
+            for (u32 i = 0; i < count; ++i)
+            {
+                const f32 t = static_cast<f32>(i) * invSpan;
+                glm::vec3 blended{ 0.0f };
+                f32 applied = 0.0f;
+                for (u32 k = 0; k < GroomGuideInfluenceCount; ++k)
+                {
+                    glm::vec3 sample;
+                    if (standIn.Guides[k] == GroomNoGuide || !(standIn.Weights[k] > 0.0f) ||
+                        !SampleGuideAt(guideOffsets, displacements, standIn.Guides[k], t, sample))
+                    {
+                        continue;
+                    }
+                    blended += sample * standIn.Weights[k];
+                    applied += standIn.Weights[k];
+                }
+                outDisplacements.Add(applied > 0.0f ? blended / applied : glm::vec3(0.0f));
+            }
+            outOffsets.Add(static_cast<u32>(outDisplacements.Num()));
+        }
+        return true;
+    }
 } // namespace OloEngine

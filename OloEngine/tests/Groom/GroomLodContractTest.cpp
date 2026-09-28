@@ -274,8 +274,10 @@ TEST(GroomLodBudget, TheThreeAxesMoveIndependently)
     policy.Hysteresis = 0.0f;
     policy.HoldFrames = 0;
 
+    // No card level, so the coat stays on strands: the card tier takes no
+    // ladder shadow step (#1508), which would hide the axis under test.
     GroomLodState state;
-    const GroomLodDecision decision = AdvanceGroomLod(policy, InputsAt(100.0f), state);
+    const GroomLodDecision decision = AdvanceGroomLod(policy, InputsAt(100.0f, false), state);
 
     // The rung rule: halve FullPixelSize until the coat is at least as large as
     // the rung, and the number of halvings taken is the step. At 100 px:
@@ -315,6 +317,38 @@ TEST(GroomLodBudget, AFlickeringShadowStepDoesNotPinTheVisibilityStep)
     // 256 px against a 4096 px full size is four halvings, which the curve
     // allows. If the shadow axis had pinned it, it would still be at 0.
     EXPECT_EQ(visibilityStep, 4u) << "a flickering shadow step held the visibility step at its old value";
+}
+
+// Issue #1508. The coat's own shadow LOD already coarsens its volume with
+// distance; the ladder's step on top put the CARD tier on a volume too coarse to
+// resolve a thin coat, and a coarse volume's error depends on the
+// representation, so the hand-over read 0.85 of the strands' self-shadow and
+// the far stop 1.23-1.30. The card tier takes no ladder shadow step; strands at
+// the same apparent size keep theirs, and pick it up again on a hand-back.
+TEST(GroomLodBudget, TheCardTierTakesNoLadderShadowStep)
+{
+    GroomLodPolicy policy = EnabledPolicy();
+    policy.Shadow = GroomLodBudgetCurve{ 2048.0f, 5u };
+    policy.Hysteresis = 0.0f;
+    policy.HoldFrames = 0;
+
+    GroomLodState cards;
+    const GroomLodDecision onCards = AdvanceGroomLod(policy, InputsAt(100.0f), cards);
+    ASSERT_EQ(onCards.Representation, GroomRepresentation::Card);
+    EXPECT_EQ(onCards.ShadowStep, 0u);
+
+    // NEGATIVE CONTROL: the same apparent size on strands keeps the step, so
+    // the zero above is the tier's rule and not the curve's.
+    GroomLodState strands;
+    const GroomLodDecision onStrands = AdvanceGroomLod(policy, InputsAt(100.0f, false), strands);
+    ASSERT_EQ(onStrands.Representation, GroomRepresentation::Strand);
+    EXPECT_EQ(onStrands.ShadowStep, 5u);
+
+    // The state still advanced under the cards, so a hand-back to strands
+    // resumes the step at once rather than restarting its hold.
+    const GroomLodDecision handBack = AdvanceGroomLod(policy, InputsAt(100.0f, false), cards);
+    ASSERT_EQ(handBack.Representation, GroomRepresentation::Strand);
+    EXPECT_EQ(handBack.ShadowStep, 5u);
 }
 
 // =============================================================================

@@ -503,3 +503,258 @@ TEST(GroomGuideInfluence, ANonFiniteParameterYieldsNoDisplacement)
               glm::vec3(0.0f));
     EXPECT_EQ(SampleGroomGuideDisplacement(sim, groom->GetCurveCount(), 0.5f, false), glm::vec3(0.0f));
 }
+
+// =============================================================================
+// Issue #1509: every guide slot has a displacement, whatever the budget.
+//
+// A simulation budget simulates a subset of the guide slots. A strand whose four
+// guides were ALL left out sampled no displacement and drew at its groomed rest
+// shape while the coat around it draped -- at a quarter of the guides, roughly a
+// third of the coat. The stand-ins give each left-out slot the blend of the
+// nearest simulated guides of its group.
+// =============================================================================
+namespace
+{
+    struct Published
+    {
+        TArray<u32> Offsets;
+        TArray<glm::vec3> Displacements;
+        std::vector<u32> Identity;
+    };
+
+    // The subset of `fixture` a stride over its slots keeps, as the solver's
+    // layout: offsets and displacements for the kept guides only.
+    void KeepEvery(SimulationFixture& fixture, u32 stride)
+    {
+        std::vector<u32> offsets{ 0u };
+        std::vector<glm::vec3> displacements;
+        std::vector<u32> slotOfGuide;
+        for (u32 slot = 0; slot < fixture.GuideOfSlot.size(); ++slot)
+        {
+            if (slot % stride != 0u)
+            {
+                fixture.GuideOfSlot[slot] = GroomNoGuide;
+                continue;
+            }
+            for (u32 i = fixture.Offsets[slot]; i < fixture.Offsets[slot + 1u]; ++i)
+            {
+                displacements.push_back(fixture.Displacements[i]);
+            }
+            fixture.GuideOfSlot[slot] = static_cast<u32>(slotOfGuide.size());
+            slotOfGuide.push_back(slot);
+            offsets.push_back(static_cast<u32>(displacements.size()));
+        }
+        fixture.Offsets = offsets;
+        fixture.Displacements = displacements;
+        fixture.PrevDisplacements.clear();
+        fixture.SlotOfGuide = slotOfGuide;
+    }
+
+    // Stand-ins over `fixture`'s budget, and every slot expanded from them.
+    [[nodiscard]] bool Publish(const GroomAsset& groom, const SimulationFixture& fixture, Published& out)
+    {
+        std::vector<glm::vec3> roots;
+        std::vector<u32> groups;
+        std::vector<u32> pointCounts;
+        for (const u32 curve : fixture.Table->GetGuideCurves())
+        {
+            roots.push_back(groom.GetPoints()[groom.GetCurveFirstPoint(curve)]);
+            groups.push_back(groom.GetCurveGroupIds()[curve]);
+            pointCounts.push_back(groom.GetCurvePointCount(curve));
+        }
+        TArray<GroomGuideWeights> standIns;
+        const std::vector<u32> roles(roots.size(), 0u); // one role
+        BuildGroomGuideStandIns(roots, groups, roles, fixture.GuideOfSlot, standIns);
+        out.Identity.resize(fixture.GuideOfSlot.size());
+        for (u32 slot = 0; slot < out.Identity.size(); ++slot)
+        {
+            out.Identity[slot] = slot;
+        }
+        return ExpandGroomGuideDisplacements(std::span{ standIns.GetData(), static_cast<sizet>(standIns.Num()) },
+                                             pointCounts, fixture.Offsets, fixture.Displacements, out.Offsets,
+                                             out.Displacements);
+    }
+} // namespace
+
+TEST(GroomGuideInfluence, AQuarterGuideBudgetLeavesNoStrandAtItsRestShape)
+{
+    auto groom = MakeLine(400, 4);
+    ASSERT_TRUE(groom);
+    auto table = BuildGroomGuideInfluence(*groom);
+    ASSERT_EQ(table->GetGuideCount(), 100u);
+
+    const glm::vec3 drape{ 0.0f, -0.3f, 0.2f };
+    SimulationFixture fixture = MakeSimulation(*groom, table, [&](u32)
+                                               { return drape; });
+    KeepEvery(fixture, 4u);
+
+    // NEGATIVE CONTROL: the budget alone, as the strand build used to read it.
+    // Strands whose every guide was left out -- the left-out guide curves
+    // themselves among them -- sample nothing and stay at rest.
+    u32 atRest = 0;
+    const GroomStrandSimulation subset = fixture.View();
+    for (u32 curve = 0; curve < groom->GetCurveCount(); ++curve)
+    {
+        atRest += HasGroomGuideInfluence(subset, curve) ? 0u : 1u;
+    }
+    EXPECT_GT(atRest, groom->GetCurveCount() / 10u) << "the budget must leave strands unguided, or this proves nothing";
+
+    Published published;
+    ASSERT_TRUE(Publish(*groom, fixture, published));
+    GroomStrandSimulation every;
+    every.Influence = table.Raw();
+    every.GuideOfSlot = published.Identity;
+    every.Displacements.GuideOffsets = std::span{ published.Offsets.GetData(), static_cast<sizet>(published.Offsets.Num()) };
+    every.Displacements.Displacements =
+        std::span{ published.Displacements.GetData(), static_cast<sizet>(published.Displacements.Num()) };
+    every.Displacements.SlotOfGuide = published.Identity;
+    for (u32 curve = 0; curve < groom->GetCurveCount(); ++curve)
+    {
+        ASSERT_TRUE(HasGroomGuideInfluence(every, curve)) << "curve " << curve << " has no guide to follow";
+        const glm::vec3 sample = SampleGroomGuideDisplacement(every, curve, 0.5f, false);
+        EXPECT_NEAR(sample.y, drape.y, 1.0e-5f) << "curve " << curve << " is not in the drape";
+        EXPECT_NEAR(sample.z, drape.z, 1.0e-5f) << "curve " << curve << " is not in the drape";
+    }
+}
+
+TEST(GroomGuideInfluence, AStandInIsTheNearestSimulatedGuidesOfItsOwnGroup)
+{
+    // Seven slots on a line, x = slot. Groups 0,0,0 | 1,1 | 2 | 3; roles 0 for
+    // groups 0-2 and 1 for group 3. Simulated: 0, 2, 4.
+    const std::vector<glm::vec3> roots{ { 0, 0, 0 }, { 1, 0, 0 }, { 2, 0, 0 }, { 3, 0, 0 }, { 4, 0, 0 }, { 5, 0, 0 }, { 6, 0, 0 } };
+    const std::vector<u32> groups{ 0, 0, 0, 1, 1, 2, 3 };
+    const std::vector<u32> roles{ 0, 0, 0, 0, 0, 0, 1 };
+    const std::vector<u32> guideOfSlot{ 0u, GroomNoGuide, 1u, GroomNoGuide, 2u, GroomNoGuide, GroomNoGuide };
+    TArray<GroomGuideWeights> standIns;
+    BuildGroomGuideStandIns(roots, groups, roles, guideOfSlot, standIns);
+    ASSERT_EQ(standIns.Num(), 7);
+
+    const auto weightOf = [&](i32 slot, u32 guide)
+    {
+        f32 w = 0.0f;
+        for (u32 k = 0; k < GroomGuideInfluenceCount; ++k)
+        {
+            if (standIns[slot].Guides[k] == guide)
+            {
+                w += standIns[slot].Weights[k];
+            }
+        }
+        return w;
+    };
+    // A simulated slot is its own guide.
+    EXPECT_FLOAT_EQ(weightOf(0, 0u), 1.0f);
+    EXPECT_FLOAT_EQ(weightOf(2, 1u), 1.0f);
+    // Slot 1 sits halfway between its group's two simulated guides: half each,
+    // and nothing from guide 2, which is nearer than some but in group 1.
+    EXPECT_NEAR(weightOf(1, 0u), 0.5f, 1.0e-6f);
+    EXPECT_NEAR(weightOf(1, 1u), 0.5f, 1.0e-6f);
+    EXPECT_FLOAT_EQ(weightOf(1, 2u), 0.0f) << "a stand-in crossed its group";
+    // Slot 3's group has one simulated guide, slot 4 -- all of it, even though
+    // slot 2 (group 0) is exactly as near.
+    EXPECT_FLOAT_EQ(weightOf(3, 2u), 1.0f);
+    EXPECT_FLOAT_EQ(weightOf(3, 1u), 0.0f);
+    // Slot 5's group simulated nothing: its ROLE's guides, nearest first.
+    EXPECT_GT(weightOf(5, 2u), weightOf(5, 1u));
+    EXPECT_NEAR(weightOf(5, 0u) + weightOf(5, 1u) + weightOf(5, 2u), 1.0f, 1.0e-6f);
+    // Slot 6's ROLE simulated nothing -- an authored budget of zero, "an
+    // undercoat that never leaves the skin": no stand-in, however near slot 4
+    // is. It stays at rest, as authored.
+    EXPECT_EQ(standIns[6].Guides[0], GroomNoGuide) << "a stand-in crossed a role";
+    EXPECT_FLOAT_EQ(weightOf(6, 2u), 0.0f);
+
+    // A budget that simulates nothing leaves nothing to stand in.
+    const std::vector<u32> none(7, GroomNoGuide);
+    BuildGroomGuideStandIns(roots, groups, roles, none, standIns);
+    ASSERT_EQ(standIns.Num(), 7);
+    for (const GroomGuideWeights& standIn : standIns)
+    {
+        EXPECT_EQ(standIn.Guides[0], GroomNoGuide);
+    }
+}
+
+TEST(GroomGuideInfluence, AStandInIsSampledByParameterAlongTheGuide)
+{
+    // One simulated guide of 3 points standing in for a slot of 5: the slot's
+    // points take the guide's displacement at their own parameter, not by index.
+    TArray<GroomGuideWeights> standIns;
+    standIns.SetNum(2);
+    standIns[0].Guides[0] = 0u;
+    standIns[0].Weights[0] = 1.0f;
+    standIns[1].Guides[0] = 0u;
+    standIns[1].Weights[0] = 1.0f;
+    const std::vector<u32> pointCounts{ 3u, 5u };
+    const std::vector<u32> offsets{ 0u, 3u };
+    const std::vector<glm::vec3> displacements{ { 0, 0, 0 }, { 1, 0, 0 }, { 2, 0, 0 } };
+    TArray<u32> outOffsets;
+    TArray<glm::vec3> out;
+    ASSERT_TRUE(ExpandGroomGuideDisplacements(std::span{ standIns.GetData(), 2u }, pointCounts, offsets, displacements,
+                                              outOffsets, out));
+    ASSERT_EQ(outOffsets.Num(), 3);
+    EXPECT_EQ(outOffsets[1], 3u);
+    EXPECT_EQ(outOffsets[2], 8u);
+    const f32 expected[5] = { 0.0f, 0.5f, 1.0f, 1.5f, 2.0f };
+    for (i32 i = 0; i < 5; ++i)
+    {
+        EXPECT_NEAR(out[3 + i].x, expected[i], 1.0e-6f) << "point " << i;
+    }
+    // A layout that does not match is refused, and says so by leaving nothing.
+    const std::vector<u32> wrongCounts{ 3u };
+    EXPECT_FALSE(ExpandGroomGuideDisplacements(std::span{ standIns.GetData(), 2u }, wrongCounts, offsets,
+                                               displacements, outOffsets, out));
+    EXPECT_TRUE(out.IsEmpty());
+}
+
+TEST(GroomGuideInfluence, AStandInNeverCrossesARoleEvenInsideItsGroup)
+{
+    // One group holding slots of two roles. Role 0 is simulated (slot 0); role 1
+    // has an authored budget of zero. Slot 1 (role 1) sits right beside slot 0,
+    // in the same group, and must still stay at rest.
+    const std::vector<glm::vec3> roots{ { 0, 0, 0 }, { 0.1f, 0, 0 }, { 5, 0, 0 } };
+    const std::vector<u32> groups{ 7, 7, 7 };
+    const std::vector<u32> roles{ 0, 1, 0 };
+    const std::vector<u32> guideOfSlot{ 0u, GroomNoGuide, GroomNoGuide };
+    TArray<GroomGuideWeights> standIns;
+    BuildGroomGuideStandIns(roots, groups, roles, guideOfSlot, standIns);
+    ASSERT_EQ(standIns.Num(), 3);
+    EXPECT_EQ(standIns[1].Guides[0], GroomNoGuide) << "a stand-in crossed a role inside its group";
+    // Slot 2 is role 0: its group has a role-0 guide, however far.
+    EXPECT_EQ(standIns[2].Guides[0], 0u);
+    EXPECT_FLOAT_EQ(standIns[2].Weights[0], 1.0f);
+}
+
+TEST(GroomGuideInfluence, AMalformedLayoutIsRefusedWithNothingPublished)
+{
+    TArray<GroomGuideWeights> standIns;
+    standIns.SetNum(1);
+    standIns[0].Guides[0] = 0u;
+    standIns[0].Weights[0] = 1.0f;
+    const std::vector<u32> pointCounts{ 2u };
+    const std::vector<glm::vec3> oneDisplacement{ { 1, 0, 0 } };
+    TArray<u32> outOffsets;
+    TArray<glm::vec3> out;
+    const std::span<const GroomGuideWeights> view{ standIns.GetData(), 1u };
+
+    // The guide's range runs past the displacements.
+    const std::vector<u32> pastTheEnd{ 0u, 2u };
+    EXPECT_FALSE(ExpandGroomGuideDisplacements(view, pointCounts, pastTheEnd, oneDisplacement, outOffsets, out));
+    EXPECT_TRUE(out.IsEmpty());
+    EXPECT_TRUE(outOffsets.IsEmpty());
+
+    // Offsets that decrease, or do not start at zero.
+    const std::vector<glm::vec3> two{ { 1, 0, 0 }, { 2, 0, 0 } };
+    const std::vector<u32> decreasing{ 0u, 2u, 1u };
+    EXPECT_FALSE(ExpandGroomGuideDisplacements(view, pointCounts, decreasing, two, outOffsets, out));
+    const std::vector<u32> notFromZero{ 1u, 2u };
+    EXPECT_FALSE(ExpandGroomGuideDisplacements(view, pointCounts, notFromZero, two, outOffsets, out));
+
+    // A stand-in naming a guide the table does not have.
+    standIns[0].Guides[0] = 3u;
+    const std::vector<u32> valid{ 0u, 2u };
+    EXPECT_FALSE(ExpandGroomGuideDisplacements(view, pointCounts, valid, two, outOffsets, out));
+    EXPECT_TRUE(out.IsEmpty());
+
+    // The same layout with a real guide is accepted -- the control.
+    standIns[0].Guides[0] = 0u;
+    EXPECT_TRUE(ExpandGroomGuideDisplacements(view, pointCounts, valid, two, outOffsets, out));
+    EXPECT_EQ(out.Num(), 2);
+}
