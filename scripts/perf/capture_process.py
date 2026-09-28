@@ -5,6 +5,31 @@ import tempfile
 import time
 import json
 import urllib.error
+import hashlib
+
+
+def editor_preferences(arm):
+    try:
+        import yaml
+    except ImportError as error:
+        raise ValueError('editor capture requires PyYAML') from error
+
+    path = Path(arm['repo']) / 'OloEditor/SandboxProject/EditorPreferences.yaml'
+    raw = path.read_bytes()
+    try:
+        document = yaml.safe_load(raw)
+    except yaml.YAMLError as error:
+        raise ValueError(f'invalid editor preferences: {path}') from error
+    preferences = document.get('EditorPreferences') if isinstance(document, dict) else None
+    if not isinstance(preferences, dict):
+        raise ValueError(f'missing editor preferences: {path}')
+    for key in ('ThrottleEditMode', 'ThrottlePlayMode', 'EnableAutoSave'):
+        if preferences.get(key) is not False:
+            raise ValueError(f'controlled editor requires {key}: false in {path}')
+    if preferences.get('FrameRateCap') != 0:
+        raise ValueError(f'controlled editor requires FrameRateCap: 0 in {path}')
+    return {'path': str(path), 'sha256': hashlib.sha256(raw).hexdigest(),
+            'values': preferences}
 
 from editor_mcp import Client
 
@@ -23,6 +48,7 @@ def run_capture(arm, manifest, destination, environment, timeout, stdout, stderr
         raise ValueError('host must be test-binary or editor-mcp with an explicit backend')
     if arm.get('injectDelayMs', 0):
         raise ValueError('wall-delay negative control is implemented only by the test host')
+    preferences = editor_preferences(arm)
     # Each process gets a private discovery file. It contains a credential and
     # must never be copied into the retained capture artefacts.
     with tempfile.TemporaryDirectory(prefix='olo-controlled-') as temporary:
@@ -57,6 +83,7 @@ def run_capture(arm, manifest, destination, environment, timeout, stdout, stderr
             if result['warmupTimedOut'] or result['attachmentFailures']:
                 raise ValueError(f'editor capture incomplete: {result}')
             return {'command': command, 'exitCode': 0, 'startupReadySeconds': ready,
+                    'editorPreferences': preferences,
                     'startupBoundary': 'process launch to responsive MCP after editor initialization',
                     'termination': 'runner terminates editor after capture and state restoration'}
         finally:

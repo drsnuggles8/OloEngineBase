@@ -40,6 +40,15 @@ retained separately; it is not a startup measurement. The editor host additional
 records launch-to-responsive-MCP time, including initialization and shader loading,
 before opening the benchmark workload. The test host does not instrument startup.
 
+Install `PyYAML` for editor captures. In each arm's
+`OloEditor/SandboxProject/EditorPreferences.yaml`, explicitly disable
+`ThrottleEditMode`, `ThrottlePlayMode`, and `EnableAutoSave`, and set `FrameRateCap`
+to `0`. The runner checks and records these preferences before every launch.
+The default edit-mode throttle skips scene rendering after an over-budget frame;
+including those cheap frames would weaken a full-workload comparison. Restore
+interactive preferences after the campaign. Keep presentation settings identical
+between arms and inspect their separately recorded wait times.
+
 Use `host: "editor-mcp"`, `backend: "opengl"` or `"vulkan"`, and a free `mcpPort`
 on each arm for whole-frame gates. Its `frameTimeMs` channel is the completed
 editor-frame interval. The profiler records every completed interval between

@@ -6,6 +6,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
+from capture_process import editor_preferences
 
 spec = importlib.util.spec_from_file_location('controlled_benchmark', Path(__file__).with_name('controlled-benchmark.py'))
 capture = importlib.util.module_from_spec(spec)
@@ -13,6 +14,23 @@ spec.loader.exec_module(capture)
 
 
 class CaptureValidityTest(unittest.TestCase):
+    def test_editor_rejects_workload_throttling_and_missing_preferences(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'OloEditor/SandboxProject/EditorPreferences.yaml'
+            path.parent.mkdir(parents=True)
+            arm = {'repo': temporary}
+            for throttle in ('true', 'false'):
+                path.write_text('EditorPreferences:\n  ThrottleEditMode: ' + throttle +
+                                '\n  ThrottlePlayMode: false\n  EnableAutoSave: false\n  FrameRateCap: 0\n')
+                if throttle == 'true':
+                    with self.assertRaisesRegex(ValueError, 'ThrottleEditMode'):
+                        editor_preferences(arm)
+                else:
+                    self.assertFalse(editor_preferences(arm)['values']['ThrottleEditMode'])
+            path.write_text('EditorPreferences: {}\n')
+            with self.assertRaisesRegex(ValueError, 'ThrottleEditMode'):
+                editor_preferences(arm)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
