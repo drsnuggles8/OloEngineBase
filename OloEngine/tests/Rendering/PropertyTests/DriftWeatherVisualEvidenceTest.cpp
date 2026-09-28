@@ -327,6 +327,14 @@ namespace OloEngine::Tests
         {
             Scene& scene = GetScene();
             EnableRendering(kWidth, kHeight);
+            // The game draws none of the editor's overlays. They were always
+            // in these frames, hidden under water that read one depth texel for
+            // the whole surface; since #1486 reads the depth behind each pixel,
+            // the world axis stands out of the sea 6 m in front of the camera.
+            scene.SetGridVisible(false);
+            scene.SetWorldAxisHelperVisible(false);
+            scene.SetLightGizmosVisible(false);
+            scene.SetCameraFrustumsVisible(false);
 
             // Derive the live renderer flags from the settings exactly as the
             // editor does at scene load, so the captures are order-independent
