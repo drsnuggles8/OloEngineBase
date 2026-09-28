@@ -118,6 +118,8 @@ jobs:
           version: '23.1.0'
           sha256: '1aebf024b959b3835c3bd936da2fa58cd002c61ccf47fce1714447b900bd9837'
       - uses: ./.github/actions/setup-vulkan
+        with:
+          windows-debug-libraries: 'true'
       - uses: ./.github/actions/setup-vcpkg
         id: vcpkg
         with:
