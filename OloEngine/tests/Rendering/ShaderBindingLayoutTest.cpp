@@ -142,7 +142,7 @@ TEST(ShaderBindingLayout, UBOBindingSlotUniqueness)
     checkSlot(ShaderBindingLayout::UBO_CAMERA, "UBO_CAMERA");
     // Binding 1 (formerly UBO_LIGHTS / single-light LightProperties) is now free.
     checkSlot(ShaderBindingLayout::UBO_MATERIAL, "UBO_MATERIAL");
-    checkSlot(ShaderBindingLayout::UBO_MODEL, "UBO_MODEL");
+    checkSlot(ShaderBindingLayout::UBO_PARTICLE_MESH_INSTANCE, "UBO_PARTICLE_MESH_INSTANCE");
     checkSlot(ShaderBindingLayout::UBO_ANIMATION, "UBO_ANIMATION");
     checkSlot(ShaderBindingLayout::UBO_MULTI_LIGHTS, "UBO_MULTI_LIGHTS");
     checkSlot(ShaderBindingLayout::UBO_SHADOW, "UBO_SHADOW");
@@ -375,7 +375,8 @@ TEST(ShaderBindingLayout, KnownUBOBindingRecognized)
 {
     EXPECT_TRUE(ShaderBindingLayout::IsKnownUBOBinding(ShaderBindingLayout::UBO_CAMERA, "CameraMatrices"));
     EXPECT_TRUE(ShaderBindingLayout::IsKnownUBOBinding(ShaderBindingLayout::UBO_MATERIAL, "MaterialProperties"));
-    EXPECT_TRUE(ShaderBindingLayout::IsKnownUBOBinding(ShaderBindingLayout::UBO_MODEL, "ModelMatrices"));
+    EXPECT_TRUE(ShaderBindingLayout::IsKnownUBOBinding(ShaderBindingLayout::UBO_PARTICLE_MESH_INSTANCE, "MeshInstanceData"));
+    EXPECT_FALSE(ShaderBindingLayout::IsKnownUBOBinding(ShaderBindingLayout::UBO_PARTICLE_MESH_INSTANCE, "ModelMatrices"));
     EXPECT_TRUE(ShaderBindingLayout::IsKnownUBOBinding(ShaderBindingLayout::UBO_ANIMATION, "AnimationMatrices"));
     EXPECT_TRUE(ShaderBindingLayout::IsKnownUBOBinding(ShaderBindingLayout::UBO_SHADOW, "ShadowData"));
     EXPECT_TRUE(ShaderBindingLayout::IsKnownUBOBinding(ShaderBindingLayout::UBO_TERRAIN, "TerrainData"));

@@ -99,10 +99,10 @@ namespace OloEngine::Tests
 
         // The ONE thing the includer decides. The forward fragment never reads
         // the instance index (an unconsumed varying is a Vulkan validation
-        // warning); the deferred fragment reads u_EntityID through it.
+        // warning); the deferred fragment reads the instance's EntityID through it.
         EXPECT_TRUE(DefinesOutsideComments(m_Forward.m_Vertex, "OLO_INSTANCE_NO_FORWARD"));
         EXPECT_FALSE(DefinesOutsideComments(m_Deferred.m_Vertex, "OLO_INSTANCE_NO_FORWARD"))
-            << "the deferred variant suppresses v_InstanceIndex but its fragment reads u_EntityID";
+            << "the deferred variant suppresses v_InstanceIndex but its fragment reads instances[v_InstanceIndex].EntityID";
         EXPECT_TRUE(MentionsOutsideComments(m_Deferred.m_Fragment, "InstanceBlock.glsl"));
     }
 

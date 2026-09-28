@@ -11,8 +11,8 @@
 //
 // Layout matches OloEngine::InstanceData (Renderer/Instancing/InstanceData.h,
 // 256 B std430). For a single-instance / non-instanced draw the C++ side
-// uploads a length-1 buffer; gl_InstanceIndex is 0 and the macros resolve to
-// instances[0] just like the fragment-stage include.
+// uploads a length-1 buffer; gl_InstanceIndex is 0, so
+// instances[gl_InstanceIndex] is instances[0] just like the fragment stage's.
 struct InstanceData {
     mat4 Transform;
     mat4 Normal;
@@ -61,27 +61,15 @@ layout(location = 14) flat out int v_InstanceIndex;
 // (the #691 foliage VK_ERROR_DEVICE_LOST — fault address 32 MB
 // past a 12 MB buffer at 254k instances). Define OLO_INSTANCE_SINGLE
 // before this include for any shader whose instancing rides its own
-// stream; the varying interface stays identical so fragment-stage
-// InstanceBlock.glsl consumers keep working (they resolve instances[0]).
-#define u_Model        (instances[0].Transform)
-#define u_Normal       (instances[0].Normal)
-#define u_PrevModel    (instances[0].PrevTransform)
-#define u_EntityID     (instances[0].EntityID)
-#define u_NormalMatrix (instances[0].Normal)
+// stream, and read the entry as instances[0], never instances[gl_InstanceIndex];
+// the varying interface stays identical so fragment-stage InstanceBlock.glsl
+// consumers keep working (v_InstanceIndex is forwarded as 0).
 #ifdef OLO_INSTANCE_NO_FORWARD
 #define OLO_INSTANCE_FORWARD()
 #else
 #define OLO_INSTANCE_FORWARD() v_InstanceIndex = 0
 #endif
 #else
-#define u_Model        (instances[gl_InstanceIndex].Transform)
-#define u_Normal       (instances[gl_InstanceIndex].Normal)
-#define u_PrevModel    (instances[gl_InstanceIndex].PrevTransform)
-#define u_EntityID     (instances[gl_InstanceIndex].EntityID)
-
-// Decal_*.glsl alias (same layout offset; legacy field name).
-#define u_NormalMatrix (instances[gl_InstanceIndex].Normal)
-
 // Forward the current gl_InstanceIndex to the fragment stage. Must be called
 // at the top of every vertex shader's main() that includes this file.
 #ifdef OLO_INSTANCE_NO_FORWARD

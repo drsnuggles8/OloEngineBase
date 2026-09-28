@@ -97,16 +97,16 @@ void main()
     vec3 localNormal = surface.Normal;
     vec4 prevLocalPosition = surface.PrevPosition;
 
-    v_WorldPos = vec3(u_Model * localPosition);
-    v_Normal = mat3(u_Normal) * localNormal;
+    v_WorldPos = vec3(instances[gl_InstanceIndex].Transform * localPosition);
+    v_Normal = mat3(instances[gl_InstanceIndex].Normal) * localNormal;
     v_TexCoord = a_TexCoord;
 
     v_ClipPosCurr = u_ViewProjection * vec4(v_WorldPos, 1.0);
     // Per-bone previous pose tracked via PrevBoneMatrices (binding 31). Combined
-    // with u_PrevModel this captures both entity motion and skeletal animation
+    // with the instance PrevTransform this captures both entity motion and skeletal animation
     // of a stationary skinned actor, producing correct motion vectors for
     // TAA / motion blur.
-    vec4 prevWorldPos = u_PrevModel * prevLocalPosition;
+    vec4 prevWorldPos = instances[gl_InstanceIndex].PrevTransform * prevLocalPosition;
     v_ClipPosPrev = u_PrevViewProjection * prevWorldPos;
 
     gl_Position = v_ClipPosCurr;
@@ -457,7 +457,7 @@ void main()
     {
         OloSkinOcular oloOcular = oloSkinOcularApply(albedo, N,
                                                      normalize(u_CameraPosition - v_WorldPos),
-                                                     u_Model[2].xyz,
+                                                     instances[v_InstanceIndex].Transform[2].xyz,
                                                      u_SkinOcularCorneaLane, u_SkinOcularIrisLane,
                                                      u_SkinOcularResponseLane, u_SkinOcularTintLane);
         albedo = oloOcular.Albedo;
@@ -476,7 +476,7 @@ void main()
     o_GBufferEmissive = vec4(emissive, oloEncodeGBufferPbrFlagsEx(u_PBRModel, u_MaterialKind, u_SkinProfileSlot)); // flag-lane layout: see oloEncodeGBufferPbrFlagsEx (#975, #1231)
     // .a: the material profile (#1256) is the snow weight (issue #1451).
     o_GBufferVelocity = vec4(velocity, 1.0, snowWeight);
-    o_GBufferEntityID = u_EntityID;
+    o_GBufferEntityID = instances[v_InstanceIndex].EntityID;
 
     // ---- THE DEFERRED THICKNESS LANE (issue #1242) -----------------------
     //

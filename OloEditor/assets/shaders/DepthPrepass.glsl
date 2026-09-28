@@ -69,7 +69,7 @@ void main()
     OLO_INSTANCE_FORWARD();
     // Same association as PBR_MultiLight / PBR_GBuffer: world position first,
     // then view-projection — required for invariant depth between the passes.
-    vec3 worldPos = vec3(u_Model * vec4(a_Position, 1.0));
+    vec3 worldPos = vec3(instances[gl_InstanceIndex].Transform * vec4(a_Position, 1.0));
     gl_Position = u_ViewProjection * vec4(worldPos, 1.0);
 }
 

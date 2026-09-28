@@ -2525,7 +2525,6 @@ namespace OloEngine
                 // transforms only and never binds the material table.
                 UploadModelInstance(modelData, Data().ModelInstanceBuffer, glm::vec4(0.0f),
                                     Renderer3D::GetGPUSceneDrawLink(cmd->gpuSceneDrawLink), false);
-                // Legacy ModelMatrixUBO binding retired — all shaders now read transforms from the InstanceBuffer SSBO at binding 15.
             }
 
             // MASK materials still need the material UBO (alpha cutoff) and the
@@ -2593,7 +2592,6 @@ namespace OloEngine
                     gpuSceneLink && gpuSceneLink->m_Resolved && BindGPUSceneMaterialsIfNeeded();
                 UploadModelInstance(modelData, Data().ModelInstanceBuffer, cmd->lightmapScaleOffset, gpuSceneLink,
                                     gpuSceneMaterialsBound);
-                // Legacy ModelMatrixUBO binding retired — all shaders now read transforms from the InstanceBuffer SSBO at binding 15.
             }
 
             // Material UBO + texture bindings (skipped when material unchanged)
@@ -3226,7 +3224,6 @@ namespace OloEngine
             modelData.PadEntity[2] = 0;
             modelData.PrevModel = cmd->transform; // terrain: routed through ForwardOverlayPass, no motion tracking
             UploadModelInstance(modelData, Data().ModelInstanceBuffer);
-            // Legacy ModelMatrixUBO binding retired — all shaders now read transforms from the InstanceBuffer SSBO at binding 15.
         }
 
         // Upload terrain UBO (per-chunk data with tess factors)
@@ -3357,7 +3354,6 @@ namespace OloEngine
             modelData.PadEntity[2] = 0;
             modelData.PrevModel = cmd->transform; // voxel: routed through ForwardOverlayPass, no motion tracking
             UploadModelInstance(modelData, Data().ModelInstanceBuffer);
-            // Legacy ModelMatrixUBO binding retired — all shaders now read transforms from the InstanceBuffer SSBO at binding 15.
         }
 
         // The terrain UBO the voxel shaders read (issue #1336). This draw used
@@ -3484,7 +3480,6 @@ namespace OloEngine
             // per-fragment velocity for every decal under TAA/motion blur.
             modelData.PrevModel = cmd->decalTransform;
             UploadModelInstance(modelData, Data().ModelInstanceBuffer);
-            // Legacy ModelMatrixUBO binding retired — all shaders now read transforms from the InstanceBuffer SSBO at binding 15.
         }
 
         const auto uploadDecalData = [&](const glm::vec4& params)
@@ -3621,7 +3616,6 @@ namespace OloEngine
             modelData.EntityID = cmd->entityID;
             modelData.PrevModel = cmd->modelTransform; // foliage: no per-instance prev history — alias current for zero motion
             UploadModelInstance(modelData, Data().ModelInstanceBuffer);
-            // Legacy ModelMatrixUBO binding retired — all shaders now read transforms from the InstanceBuffer SSBO at binding 15.
         }
 
         // Upload foliage UBO (per-layer parameters)
@@ -3831,7 +3825,6 @@ namespace OloEngine
             modelData.EntityID = cmd->entityID;
             modelData.PrevModel = cmd->modelTransform; // water: surface is animated in-shader; mesh transform stable — alias for zero rigid motion
             UploadModelInstance(modelData, Data().ModelInstanceBuffer);
-            // Legacy ModelMatrixUBO bind removed — water shader reads transforms from the InstanceBuffer SSBO at binding 15.
         }
 
         // Upload water UBO

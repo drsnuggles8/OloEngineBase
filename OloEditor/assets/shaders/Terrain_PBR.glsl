@@ -201,10 +201,10 @@ void main()
         // Convert world XZ to clipmap UV (ring 0)
         vec2 clipCenter = u_ClipmapCenterAndExtent[0].xy;
         float clipExtent = u_ClipmapCenterAndExtent[0].z;
-        // Compute world position for this vertex. u_Model is render-relative
+        // Compute world position for this vertex. The instance Transform is render-relative
         // (issue #429), so add the render origin back for the world-anchored
         // snow clipmap lookup (clipCenter is absolute world).
-        vec3 worldP = (u_Model * vec4(pos, 1.0)).xyz + u_RenderOrigin;
+        vec3 worldP = (instances[0].Transform * vec4(pos, 1.0)).xyz + u_RenderOrigin;
         vec2 snowUV = (worldP.xz - clipCenter) / clipExtent + 0.5;
         if (snowUV.x >= 0.0 && snowUV.x <= 1.0 && snowUV.y >= 0.0 && snowUV.y <= 1.0)
         {
@@ -235,9 +235,9 @@ void main()
     pos.y = mix(sampledHeight, meshHeight, morphFactor);
     nrm = normalize(mix(nrm, meshNormal, morphFactor));
 
-    vec4 worldPos = u_Model * vec4(pos, 1.0);
+    vec4 worldPos = instances[0].Transform * vec4(pos, 1.0);
     v_WorldPos = worldPos.xyz;
-    v_Normal = mat3(u_Normal) * nrm;
+    v_Normal = mat3(instances[0].Normal) * nrm;
     v_TexCoord = uv;
 
     gl_Position = u_ViewProjection * worldPos;
@@ -843,7 +843,7 @@ void main()
 
     // Output. Alpha is 1: the snow mask rides the hand-off (issue #1451).
     o_Color = vec4(color, 1.0);
-    o_EntityID = u_EntityID;
+    o_EntityID = instances[0].EntityID;
 
     // The snow-FILLED normal for AO (include/SnowLayer.glsl): snow fills the
     // crevices, and the crystalline micro-perturbation stays out of the AO

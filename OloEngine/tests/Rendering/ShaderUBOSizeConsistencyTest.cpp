@@ -37,6 +37,7 @@
 
 #include "ShaderHarness.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Particle/ParticleBatchRenderer.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Accessibility/AccessibilitySettings.h"
 
@@ -62,23 +63,20 @@ namespace OloEngine::Tests
 
         // Block names that production shaders use, mapped to their
         // canonical C++ struct size. Aliases are listed explicitly.
-        // 46 = the base 33, plus the five #691 compute blocks, plus
+        // Beyond the base set: the five #691 compute blocks, plus
         // ColorBlindParams (#458), plus PrefixSumParams (#713),
         // TerrainCullParams (#714), the two DDGI blocks (#707),
         // ShadingRateParams (#683), WaterDisturbanceParams (#967),
         // the two VSM blocks (#715), TerrainBrushParams (#716), the two
         // shared-deformation blocks (#1226) and DDGIRelocateParams (#846).
-        // Keep this arithmetic in step with the array size — it drifted once
-        // already, reading 44 while the array held 45.
-        const std::array<KnownBlock, 49> kKnownBlocks = { {
+        const std::array<KnownBlock, 48> kKnownBlocks = { {
             { "CameraMatrices", sizeof(UBOStructures::CameraUBO) },
             { "Camera", sizeof(UBOStructures::CameraUBO) },
             { "MultiLightBuffer", sizeof(UBOStructures::MultiLightUBO) },
             { "MultiLightData", sizeof(UBOStructures::MultiLightUBO) },
             { "MaterialProperties", sizeof(UBOStructures::MaterialUBO) },
             { "PBRMaterialProperties", sizeof(UBOStructures::PBRMaterialUBO) },
-            { "ModelMatrices", sizeof(UBOStructures::ModelUBO) },
-            { "MeshInstanceData", sizeof(UBOStructures::ModelUBO) },
+            { "MeshInstanceData", sizeof(MeshParticleInstance) },
             { "AnimationMatrices", sizeof(UBOStructures::AnimationUBO) },
             { "BoneMatrices", sizeof(UBOStructures::AnimationUBO) },
             // The shared skeletal deformation producer's block names (#1226).

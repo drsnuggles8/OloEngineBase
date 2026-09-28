@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/VertexBuffer.h"
 #include "OloEngine/Renderer/IndexBuffer.h"
 #include "OloEngine/Renderer/Shader.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/Commands/CommandBucket.h"
 
@@ -164,7 +165,7 @@ namespace OloEngine
         s_Data.MeshParticleShaderOIT = Shader::Create("assets/shaders/Particle_Mesh_OIT.glsl");
 
         // UBO for single mesh particle instance data (binding 3)
-        s_Data.MeshInstanceUBO = UniformBuffer::Create(sizeof(MeshParticleInstance), 3);
+        s_Data.MeshInstanceUBO = UniformBuffer::Create(sizeof(MeshParticleInstance), ShaderBindingLayout::UBO_PARTICLE_MESH_INSTANCE);
 
         // Trail rendering resources
         s_Data.TrailVAO = VertexArray::Create();
@@ -510,7 +511,7 @@ namespace OloEngine
         // Populate ParticleParams UBO (reuse the same UBO at binding 2)
         const u32 itemCount = std::clamp(static_cast<u32>(instances.size() / 32), 1u, MAX_RENDER_WORKERS);
         while (s_Data.MeshRecordingUploads.size() < itemCount)
-            s_Data.MeshRecordingUploads.push_back(UniformBuffer::Create(sizeof(MeshParticleInstance), 3));
+            s_Data.MeshRecordingUploads.push_back(UniformBuffer::Create(sizeof(MeshParticleInstance), ShaderBindingLayout::UBO_PARTICLE_MESH_INSTANCE));
         bool hasTexture = (texture != nullptr);
         UploadParticleParams(hasTexture);
 

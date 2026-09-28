@@ -20,7 +20,7 @@
 #version 460 core
 
 // No OLO_INSTANCE_NO_FORWARD: the deferred fragment includes InstanceBlock.glsl
-// for u_EntityID (picking), so the instance index has to be forwarded.
+// for the instance EntityID (picking), so the instance index has to be forwarded.
 #include "include/FoliageInstanceVertexStage.glsl"
 
 #type fragment
@@ -46,9 +46,8 @@ layout(location = 8) in float v_InstanceSeed; // this plant's own draw (issue #1
 
 #include "include/FoliageInstanceGeometry.glsl"
 
-// Mirror the vertex-stage ModelMatrices block so the entity-ID picking
-// slot is available in the fragment stage. SPIR-V link validation rejects
-// mismatched layouts so the padding fields stay identical.
+// Instance SSBO so the entity-ID picking slot is available in the fragment
+// stage (instances[v_InstanceIndex].EntityID).
 #include "include/InstanceBlock.glsl"
 
 #include "include/BindlessHeap.glsl"
@@ -187,7 +186,7 @@ void main()
     // other history channel can see.
     o_GBufferVelocity = vec4((ndcCurr - ndcPrev) * 0.5, clamp(alpha, 0.0, 1.0), 0.0);
 
-    o_GBufferEntityID = u_EntityID;
+    o_GBufferEntityID = instances[v_InstanceIndex].EntityID;
 
     // RT5 — the baked-lightmap target, and the THICKNESS LANE (issue #1234).
     //

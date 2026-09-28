@@ -423,7 +423,7 @@ namespace OloEngine
                             name = "MaterialProperties";
                             break;
                         case 3:
-                            name = "ModelMatrices";
+                            name = "MeshInstanceData";
                             break;
                         case 4:
                             name = "AnimationMatrices";

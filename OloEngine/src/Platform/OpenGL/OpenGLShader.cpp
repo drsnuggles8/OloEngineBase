@@ -1413,9 +1413,9 @@ namespace OloEngine
                 // extension, so every existing draw effectively indexes with
                 // `gl_InstanceID + 0`. Enabling the extension here and using the
                 // real base instance made this route disagree with the slot path
-                // about which instance a vertex belongs to — every `u_Model`,
-                // `u_Normal` and `u_PrevModel` in InstanceBlock_Vertex.glsl reads
-                // `instances[gl_InstanceIndex]`, so the transforms and normals
+                // about which instance a vertex belongs to — every vertex stage
+                // including InstanceBlock_Vertex.glsl reads its Transform, Normal
+                // and PrevTransform from `instances[gl_InstanceIndex]`, so the transforms and normals
                 // came from the wrong entry.
                 //
                 // Measured on WorldOriginRebaseVisualEvidence: 10.097 RMSE with
