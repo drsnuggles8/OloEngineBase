@@ -251,10 +251,8 @@ behind a private `m_Cold` blob, which the generator classifies non-trivial and s
    blocks, with the `TrySetDsp` clamp; a missing key keeps the default.
 3. `SaveGame/SaveGameComponentSerializer.cpp` — the `Serialize()` overload. **Silent if
    forgotten**: the field round-trips through scene YAML while being dropped from every
-   save-game. The archive is fixed-order, so the new field is appended *last* and gated
-   behind `HasFieldsSince(ar, 14)` with a matching `kSaveGameFormatVersion` bump — an
-   ungated read consumes the next component's bytes out of every older save
-   (`binary-format-versioning.md`).
+   save-game. Adding the field bumps `kSaveGameFormatVersion`, and older saves are
+   rejected (`binary-format-versioning.md`).
 4. `Scene/Components.h` — the `OLO_PROPERTY` annotation, which is what makes it
    MCP-writable and script-visible.
 

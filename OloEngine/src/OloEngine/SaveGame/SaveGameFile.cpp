@@ -140,7 +140,17 @@ namespace OloEngine
         }
 
         file.read(reinterpret_cast<char*>(&outHeader), sizeof(SaveGameHeader));
-        if (!file.good() || !outHeader.IsValid())
+        if (!file.good())
+        {
+            return false;
+        }
+        if (outHeader.Magic == kSaveGameMagic && outHeader.FormatVersion != kSaveGameFormatVersion)
+        {
+            OLO_CORE_ERROR("[SaveGameFile] '{}' is save format v{}; this build reads only v{}. Old saves are not "
+                           "migrated: re-save it with the build that wrote it, or start a new save.",
+                           path.string(), outHeader.FormatVersion, kSaveGameFormatVersion);
+        }
+        if (!outHeader.IsValid())
         {
             return false;
         }

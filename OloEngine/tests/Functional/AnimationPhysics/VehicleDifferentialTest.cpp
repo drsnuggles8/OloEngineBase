@@ -312,11 +312,8 @@ TEST_F(VehicleDifferentialTest, GarbageDifferentialTunablesAreSanitized)
 }
 
 // =============================================================================
-// Save-game round-trip for the new differential fields. kSaveGameFormatVersion
-// was bumped 11 → 12 for these, so they are read behind a version gate; this
-// pins that a save written by THIS build reads its own differential config back
-// (the old-save path — v11 omitting the fields entirely — is covered by
-// SaveGameVersionMigrationTest's gate mechanism).
+// Save-game round-trip for the differential fields: a save written by THIS
+// build reads its own differential config back.
 // =============================================================================
 TEST_F(VehicleDifferentialTest, DifferentialConfigSurvivesSaveGameRoundTrip)
 {

@@ -1003,8 +1003,8 @@ add_executable(OloEngine-Tests
 		SaveGame/SaveGameFileTest.cpp
 		SaveGame/SaveGameManagerTest.cpp
 		SaveGame/SaveGameIntegrationTest.cpp
+		SaveGame/SaveGameFormatGuardTest.cpp
 		SaveGame/SaveGameComponentSerializerCoverageTest.cpp
-		SaveGame/SaveGameVersionMigrationTest.cpp
 		SaveGame/BoidComponentSaveLoadSanitizeTest.cpp
 		SaveGame/FoliageLeafMaterialSaveLoadTest.cpp
         SaveGame/FoliageWindSaveLoadTest.cpp
