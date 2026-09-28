@@ -41,6 +41,9 @@ linker exit code, wall time, observed OS peak working set, and sampled maximum
 thread count. A final unsampled memory/thread peak can be missed; neither figure
 measures the whole process tree. Check successful exit, nonzero sampling, compiler
 version, build configuration and input graph before comparing cells.
+Metrics I/O is best-effort and preserves the linker's exit code. Missing output
+or a response-file capture error invalidates the measurement; the Windows census
+rejects those records rather than treating the successful build as timing evidence.
 
 Use repeated one-build and two-build cells, including an idle baseline. A timing
 collected next to another build is contended evidence. Count all linker invocations

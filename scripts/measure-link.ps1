@@ -12,19 +12,25 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 if ($args.Count -eq 0) { throw 'No linker command supplied' }
 if (-not $env:OLO_LINK_METRICS_DIR) { throw 'OLO_LINK_METRICS_DIR is required' }
-$directory = [IO.Path]::GetFullPath($env:OLO_LINK_METRICS_DIR)
-[IO.Directory]::CreateDirectory($directory) | Out-Null
 $start = [Diagnostics.ProcessStartInfo]::new()
 $start.FileName = $args[0]
 $start.UseShellExecute = $false
 $start.CreateNoWindow = $true
+$start.RedirectStandardOutput = $true
+$start.RedirectStandardError = $true
 foreach ($argument in $args | Select-Object -Skip 1) { $start.ArgumentList.Add($argument) }
 $responses = @(
     foreach ($argument in $args) {
         if ($argument.StartsWith('@')) {
-            $path = [IO.Path]::GetFullPath($argument.Substring(1))
-            [ordered]@{ path = $path; sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
-                        content = [IO.File]::ReadAllText($path) }
+            $path = $argument.Substring(1)
+            try {
+                $path = [IO.Path]::GetFullPath($path)
+                [ordered]@{ path = $path; sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
+                            content = [IO.File]::ReadAllText($path) }
+            } catch {
+                Write-Warning "[measure-link] failed to capture response file: $($_.Exception.Message)"
+                [ordered]@{ path = $path; error = $_.Exception.Message }
+            }
         }
     }
 )
@@ -33,6 +39,8 @@ $process.StartInfo = $start
 $startedUtc = [DateTime]::UtcNow.ToString('o')
 $watch = [Diagnostics.Stopwatch]::StartNew()
 if (-not $process.Start()) { throw 'Linker failed to start' }
+$stdoutCopy = $process.StandardOutput.BaseStream.CopyToAsync([Console]::OpenStandardOutput())
+$stderrCopy = $process.StandardError.BaseStream.CopyToAsync([Console]::OpenStandardError())
 $processId = $process.Id
 $peakBytes = 0L
 $peakThreads = 0
@@ -51,6 +59,8 @@ try {
     } while (-not $process.WaitForExit(20))
     $watch.Stop()
     $code = $process.ExitCode
+    $stdoutCopy.GetAwaiter().GetResult()
+    $stderrCopy.GetAwaiter().GetResult()
     $record = [ordered]@{
         schemaVersion = 1
         command = @($args)
@@ -67,7 +77,13 @@ try {
         limitations = 'Observed OS working-set high-water mark; a final unsampled peak can be missed. Thread maximum is sampled. Direct process only.'
         errors = @($errors.ToArray())
     }
-    $record | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $directory "link-$processId-$([Guid]::NewGuid().ToString('N')).json")
+    try {
+        $directory = [IO.Path]::GetFullPath($env:OLO_LINK_METRICS_DIR)
+        [IO.Directory]::CreateDirectory($directory) | Out-Null
+        $record | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $directory "link-$processId-$([Guid]::NewGuid().ToString('N')).json")
+    } catch {
+        Write-Warning "[measure-link] failed to write metrics: $($_.Exception.Message)"
+    }
 } finally {
     $process.Dispose()
 }
