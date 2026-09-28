@@ -27,7 +27,7 @@ class BuildLockExclusion(unittest.TestCase):
             holder_script = root / 'holder.ps1'
             holder_script.write_text('''$lock=[IO.File]::Open('.git/olo-build.slot1.lock','OpenOrCreate','Write','Read')
 try {
- $data=[Text.Encoding]::UTF8.GetBytes('{"command":"cmake --build build-cached"}')
+ $data=[Text.Encoding]::UTF8.GetBytes((@{command='cmake --build build-cached';pid=$PID;worktree=$PWD.Path}|ConvertTo-Json -Compress))
  $lock.Write($data,0,$data.Length); $lock.Flush()
  Set-Content ready yes
  while (-not (Test-Path release)) { Start-Sleep -Milliseconds 50 }
@@ -46,6 +46,7 @@ try {
                     wait_for(lambda: (root / 'started').exists() or
                              'waiting' in (root / 'waiter.log').read_text())
                     self.assertFalse((root / 'started').exists(), 'Started while slot 1 was still held')
+                    self.assertIn(f'held by pid={holder.pid}', (root / 'waiter.log').read_text())
                     (root / 'release').touch()
                     self.assertEqual(holder.wait(timeout=10), 0)
                     self.assertEqual(waiter.wait(timeout=15), 0)

@@ -568,6 +568,13 @@ function Read-HolderInfo([string] $Path = $lockPath) {
     } catch { return $null }
 }
 
+function Read-ActiveHolderInfo {
+    foreach ($path in (Get-KnownSlotPaths)) {
+        if (-not (Test-SlotFree $path)) { return Read-HolderInfo $path }
+    }
+    return $null
+}
+
 # Is this slot free? Probe by attempting the same exclusive open the real acquire uses,
 # then immediately closing it. A file's EXISTENCE says nothing — every slot file outlives
 # its holder — so the handle is the only honest answer.
@@ -674,7 +681,7 @@ try {
                         }
                         if ($null -ne $lock) { break }
                     } elseif (-not $concurrencyRefused) {
-                        Write-Host "[build-lock] not building alongside the current build � $reason"
+                        Write-Host "[build-lock] not building alongside the current build -- $reason"
                         $concurrencyRefused = $true
                     }
                 } finally { $admission.Dispose() }
@@ -685,7 +692,7 @@ try {
         # the queue draining instead of staring at one unchanging line. Knowing the
         # wait is bounded is most of the value of this queue.
         if (-not $announced -or ($null -ne $ahead -and $ahead -ne $lastPos)) {
-            $info = Read-HolderInfo
+            $info = Read-ActiveHolderInfo
             $posText = if ($null -eq $ahead) { 'position unknown (racing)' }
                        elseif ($ahead -eq 0)  { 'next in line' }
                        else                   { "$ahead ahead of us" }
@@ -712,7 +719,7 @@ try {
         }
 
         if ((Get-Date) -gt $deadline) {
-            $info = Read-HolderInfo
+            $info = Read-ActiveHolderInfo
             $who  = if ($null -ne $info) { "pid=$($info.pid) ($($info.worktree))" } else { "an unidentified holder" }
             Write-BuildMetric @{ event      = 'timeout'
                                  pid        = $me
