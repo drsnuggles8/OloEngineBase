@@ -30,19 +30,21 @@ class CaptureValidityTest(unittest.TestCase):
                 check_editor_preference_load(temporary, path.stat().st_mtime + 1)
 
     @unittest.skipUnless(os.name == 'nt', 'Windows host-process probe')
-    def test_running_engine_test_process_is_contention(self):
+    def test_running_test_or_configure_process_is_contention(self):
         with tempfile.TemporaryDirectory() as temporary:
-            executable = Path(temporary) / 'OloEngine-Tests.exe'
-            shutil.copyfile(Path(os.environ['SystemRoot']) / 'System32/cmd.exe', executable)
-            process = subprocess.Popen([str(executable), '/d', '/c', 'pause'],
-                                       stdin=subprocess.PIPE, stdout=subprocess.DEVNULL)
-            try:
-                state = capture.host_state()
-                self.assertIn(process.pid, [p['Id'] for p in state['busyProcesses']])
-            finally:
-                process.terminate()
-                process.wait(timeout=10)
-                process.stdin.close()
+            for name in ('OloEngine-Tests.exe', 'cmake.exe'):
+                with self.subTest(name=name):
+                    executable = Path(temporary) / name
+                    shutil.copyfile(Path(os.environ['SystemRoot']) / 'System32/cmd.exe', executable)
+                    process = subprocess.Popen([str(executable), '/d', '/c', 'pause'],
+                                               stdin=subprocess.PIPE, stdout=subprocess.DEVNULL)
+                    try:
+                        state = capture.host_state()
+                        self.assertIn(process.pid, [p['Id'] for p in state['busyProcesses']])
+                    finally:
+                        process.terminate()
+                        process.wait(timeout=10)
+                        process.stdin.close()
 
     def test_editor_rejects_workload_throttling_and_missing_preferences(self):
         with tempfile.TemporaryDirectory() as temporary:
