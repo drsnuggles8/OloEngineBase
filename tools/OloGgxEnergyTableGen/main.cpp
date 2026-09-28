@@ -315,7 +315,8 @@ namespace
     {
         const sizet vectors = words.size() / 4u;
         std::ostringstream out;
-        out << "const uvec4 " << name << "[" << vectors << "] = uvec4[" << vectors << "](\n";
+        // NOT `const`: see the "NOT A CONSTANT ARRAY" paragraph of the GLSL header.
+        out << "uvec4 " << name << "[" << vectors << "] = uvec4[" << vectors << "](\n";
         for (sizet v = 0; v < vectors; ++v)
         {
             out << "    uvec4(";
@@ -516,7 +517,17 @@ namespace
                "// three lighting call sites of a large shader (PBR_MultiLight.glsl) the\n"
                "// driver's complexity limit tripped — while single-call-site probe shaders\n"
                "// compiled the very same array without complaint. Packing keeps the emitted\n"
-               "// element count at an eighth of the scalar count. See glsl-shaders.md §12.\n"
+               "// element count at an eighth of the scalar count. See glsl-shaders.md §8a.\n"
+               "//\n"
+               "// NOT A CONSTANT ARRAY, AND THAT IS LOAD-BEARING TOO (#1484). Declared `const`,\n"
+               "// the table was re-materialised in private memory at EVERY inlined lookup:\n"
+               "// radeonsi measured PBR_MultiLight at 48 KiB of scratch per pixel (48 live\n"
+               "// copies, 6144 stores) and 1.5 MiB per wave, so the driver's scratch buffer\n"
+               "// grew to 1.96 GiB and, with the deferred lighting shader, to 3.9 GiB -- past\n"
+               "// what a 6 GiB card can place, and every later submission was refused. As a\n"
+               "// global it is one array per invocation, written once: 5 KiB of scratch in\n"
+               "// the worst shader. Nothing writes to it; ClosureV2Test fails if `const`\n"
+               "// comes back.\n"
                "//\n"
                "// Half precision costs at most 2^-12 = 2.44e-4 absolute on any entry — the\n"
                "// generator audits that bound and refuses to emit a table exceeding it.\n"

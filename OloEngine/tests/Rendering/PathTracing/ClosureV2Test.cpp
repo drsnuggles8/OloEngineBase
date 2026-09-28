@@ -252,8 +252,25 @@ namespace OloEngine::Tests
             << "the GLSL table-size macro changed (or moved) without this pin being updated — the "
                "C++ side still indexes a 16x16 grid";
 
-        const std::vector<u32> table = ParseGlslPackedArray(src, "const uvec4 kGgxEnergyPacked[64]");
-        const std::vector<u32> avg = ParseGlslPackedArray(src, "const uvec4 kGgxEnergyAvgPacked[4]");
+        // NOT `const` (#1484): a const table is re-materialised in private
+        // memory at every inlined lookup, and on radeonsi that grew the scratch
+        // buffer to 3.9 GiB and hung the frame. Counted, so a partial revert
+        // (one table const again) fails too.
+        const auto count = [&src](std::string_view needle)
+        {
+            sizet n = 0;
+            for (sizet at = src.find(needle); at != std::string::npos; at = src.find(needle, at + 1))
+                ++n;
+            return n;
+        };
+        EXPECT_EQ(count("const uvec4 kGgxEnergy"), 0u)
+            << "an energy table is declared `const` again -- see the NOT A CONSTANT ARRAY paragraph of "
+               "PBRClosureV2Energy.glsl's header before reverting that";
+        EXPECT_EQ(count("\nuvec4 kGgxEnergyPacked[64] = "), 1u);
+        EXPECT_EQ(count("\nuvec4 kGgxEnergyAvgPacked[4] = "), 1u);
+
+        const std::vector<u32> table = ParseGlslPackedArray(src, "\nuvec4 kGgxEnergyPacked[64]");
+        const std::vector<u32> avg = ParseGlslPackedArray(src, "\nuvec4 kGgxEnergyAvgPacked[4]");
 
         // 256 + 16 packed words (one per node) is the full generated payload;
         // a miscount means the parse anchored on the wrong text or the arrays
