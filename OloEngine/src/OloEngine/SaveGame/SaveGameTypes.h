@@ -183,7 +183,8 @@ namespace OloEngine
     // A v37 save stops before them and keeps the constructor defaults, every
     // one of which is the identity — so its plants hand over at exactly the
     // distances that save's build handed over at, and none of them thins.
-    static constexpr u32 kSaveGameFormatVersion = 38;
+    // v39 (#1499): Material record drops the Phong type and fields.
+    static constexpr u32 kSaveGameFormatVersion = 39;
     static constexpr u32 kSaveGameHeaderSize = 128;
 
     // Oldest FormatVersion this build will still load. Every version from here up to

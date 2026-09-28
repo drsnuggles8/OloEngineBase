@@ -38,16 +38,10 @@ namespace
     {
         auto m = Ref<Material>::Create();
         m->SetName("sentinel-material");
-        m->SetType(MaterialType::PBR);
 
         // Flags: two distinct bits, neither of them the DepthTest default.
         m->SetFlag(MaterialFlag::TwoSided, true);
         m->SetFlag(MaterialFlag::DisableShadowCasting, true);
-
-        m->SetAmbient(glm::vec3(0.11f, 0.22f, 0.33f));
-        m->SetDiffuse(glm::vec3(0.44f, 0.55f, 0.66f));
-        m->SetSpecular(glm::vec3(0.77f, 0.88f, 0.99f));
-        m->SetShininess(37.5f);
 
         m->SetBaseColorFactor(glm::vec4(0.1f, 0.2f, 0.3f, 0.4f));
         m->SetEmissiveFactor(glm::vec4(0.5f, 0.6f, 0.7f, 0.8f));
@@ -97,16 +91,9 @@ namespace
     void ExpectSentinelFields(const Material& m)
     {
         EXPECT_EQ(m.GetName(), "sentinel-material");
-        EXPECT_EQ(m.GetType(), MaterialType::PBR);
 
         EXPECT_TRUE(m.GetFlag(MaterialFlag::TwoSided));
         EXPECT_TRUE(m.GetFlag(MaterialFlag::DisableShadowCasting));
-
-        EXPECT_FLOAT_EQ(m.GetAmbient().x, 0.11f);
-        EXPECT_FLOAT_EQ(m.GetAmbient().z, 0.33f);
-        EXPECT_FLOAT_EQ(m.GetDiffuse().y, 0.55f);
-        EXPECT_FLOAT_EQ(m.GetSpecular().z, 0.99f);
-        EXPECT_FLOAT_EQ(m.GetShininess(), 37.5f);
 
         EXPECT_FLOAT_EQ(m.GetBaseColorFactor().w, 0.4f);
         EXPECT_FLOAT_EQ(m.GetEmissiveFactor().x, 0.5f);

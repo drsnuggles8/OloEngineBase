@@ -5974,7 +5974,6 @@ namespace OloEngine::MCP
             j["submesh"] = submeshIndex;
             j["source"] = std::string(source);
             j["name"] = material.GetName().ToStdString();
-            j["pbr"] = data.enablePBR;
             j["alphaMode"] = AlphaModeToken(material.GetAlphaMode());
             j["alphaCutoff"] = data.alphaCutoff;
             j["blend"] = material.GetFlag(MaterialFlag::Blend);
@@ -9370,7 +9369,6 @@ namespace OloEngine::MCP
                                                                          .Prop("submesh", Schema::Int().Min(0))
                                                                          .Prop("source", Schema::String().Desc("Which material won: the MaterialComponent override, the submesh's imported material, or the engine default."))
                                                                          .Prop("name", Schema::String())
-                                                                         .Prop("pbr", Schema::Bool())
                                                                          .Prop("alphaMode", Schema::String().Enum({ "Opaque", "Mask", "Blend" }))
                                                                          .Prop("alphaCutoff", Schema::Number())
                                                                          .Prop("blend", Schema::Bool().Desc("MaterialFlag::Blend: whether the draw is actually alpha-blended. AlphaMode::Blend alone does not enable blending."))

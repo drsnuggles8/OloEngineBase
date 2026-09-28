@@ -118,14 +118,11 @@ namespace OloEngine
         cmd->prevTransform = modelMatrix; // debug viz — no motion history
         cmd->shaderHandle = activeShader->GetHandle();
 
-        // Light cube material data — simple default material
+        // Light cube material data — a default material. LightCube.glsl reads no
+        // material block, so only the shader identity matters here.
         {
             PODMaterialData matData{};
             matData.shaderRendererID = shaderRendererID;
-            matData.ambient = glm::vec3(1.0f);
-            matData.diffuse = glm::vec3(1.0f);
-            matData.specular = glm::vec3(1.0f);
-            matData.shininess = 32.0f;
             cmd->materialDataIndex = FrameDataBufferManager::Get().AllocateMaterialData(matData);
         }
 
@@ -250,7 +247,6 @@ namespace OloEngine
 
         // Use a highly emissive material for skeleton visualization
         Material material{};
-        material.SetType(MaterialType::PBR);
         material.SetBaseColorFactor(glm::vec4(color, 1.0f));
         material.SetMetallicFactor(0.0f);
         material.SetRoughnessFactor(1.0f);
@@ -317,7 +313,6 @@ namespace OloEngine
 
         // Use a highly emissive material for skeleton joints
         Material material{};
-        material.SetType(MaterialType::PBR);
         material.SetBaseColorFactor(glm::vec4(color, 1.0f));
         material.SetMetallicFactor(0.0f);
         material.SetRoughnessFactor(0.8f);

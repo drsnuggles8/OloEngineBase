@@ -380,7 +380,7 @@ namespace OloEngine::Tests
                 gpuMaterial.MetallicFactor = sourceMaterial.Metallic;
                 gpuMaterial.NormalScale = 1.0f;
                 gpuMaterial.ClosureVersion = static_cast<u32>(sourceMaterial.Model);
-                gpuMaterial.Flags = GPUSceneMaterialFlagActive | GPUSceneMaterialFlagPBR;
+                gpuMaterial.Flags = GPUSceneMaterialFlagActive;
                 gpuMaterial.StableIndex = static_cast<u32>(gpuMaterials.size());
                 gpuMaterial.Generation = 1u;
                 gpuMaterials.push_back(gpuMaterial);
@@ -660,7 +660,7 @@ namespace OloEngine::Tests
             GPUSceneMaterialInput material{};
             material.m_ClosureVersion = static_cast<u32>(PBRModel::ClosureV2);
             material.m_RoughnessFactor = 0.5f;
-            material.m_Flags = GPUSceneMaterialFlagPBR | (transmission ? GPUSceneMaterialFlagTransmission : 0u);
+            material.m_Flags = transmission ? GPUSceneMaterialFlagTransmission : 0u;
             scene.ExtractMaterial(materialKey, material);
             GPUSceneInstanceInput instance{};
             instance.m_Material = materialKey;

@@ -150,23 +150,6 @@ namespace OloEngine
             static_assert(MAX_BONES % 4 == 0, "MAX_BONES should be multiple of 4 for optimal GPU alignment");
         };
 
-        struct MaterialUBO
-        {
-            glm::vec4 Ambient;
-            glm::vec4 Diffuse;
-            glm::vec4 Specular; // w = shininess
-            glm::vec4 Emissive;
-            i32 UseTextureMaps;
-            i32 AlphaMode;   // Alpha blending mode (repurposed from padding)
-            i32 DoubleSided; // Double-sided rendering flag (repurposed from padding)
-            i32 Pad;         // Only 4 bytes padding needed for 16-byte alignment
-
-            static constexpr u32 GetSize()
-            {
-                return sizeof(MaterialUBO);
-            }
-        };
-
         struct PBRMaterialUBO
         {
             glm::vec4 BaseColorFactor;   // Base color (albedo) with alpha
@@ -427,7 +410,8 @@ namespace OloEngine
             // Order is fixed and mirrored by OLO_MATERIAL_* in include/BindlessHeap.glsl:
             //   [0] = .x albedo   .y metallicRoughness .z normal    .w ao
             //   [1] = .x emissive .y environment       .z irradiance .w prefilter
-            //   [2] = .x brdfLut  .y diffuse (legacy)  .z specular (legacy) .w unused
+            //   [2] = .x brdfLut  .y unused            .z unused    .w unused
+            // ([2].y / [2].z carried the Phong diffuse / specular maps until #1499.)
             // Vulkan keeps the five map lanes, uses [2].w for the sampler byte
             // offset, and [1].yzw for the static deferred material table's
             // address low/high words and record count (ADR 0011 (101)). Zero
@@ -4085,7 +4069,6 @@ namespace OloEngine
         using CameraUBO = UBOStructures::CameraUBO;
         using MultiLightData = UBOStructures::MultiLightData;
         using MultiLightUBO = UBOStructures::MultiLightUBO;
-        using MaterialUBO = UBOStructures::MaterialUBO;
         using PBRMaterialUBO = UBOStructures::PBRMaterialUBO;
         using ModelUBO = UBOStructures::ModelUBO;
         using AnimationUBO = UBOStructures::AnimationUBO;
@@ -4786,21 +4769,6 @@ layout(std140, binding = 5) uniform MultiLightBuffer {
     int u_DirectionalLightCount;
     LightData u_Lights[)") +
                    std::to_string(UBOStructures::MultiLightUBO::MAX_LIGHTS) + R"(];
-};)";
-        }
-
-        static const char* GetMaterialUBOLayout()
-        {
-            return R"(
-layout(std140, binding = 2) uniform MaterialProperties {
-    vec4 u_MaterialAmbient;
-    vec4 u_MaterialDiffuse;
-    vec4 u_MaterialSpecular;
-    vec4 u_MaterialEmissive;
-    int u_UseTextureMaps;
-    int u_AlphaMode;
-    int u_DoubleSided;
-    int _padding;
 };)";
         }
 

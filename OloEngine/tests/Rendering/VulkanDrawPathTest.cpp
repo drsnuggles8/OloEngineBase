@@ -951,7 +951,6 @@ void main()
 
     PODMaterialData material{};
     material.shaderRendererID = drawShader->GetRHIHandle();
-    material.enablePBR = false;
     const u16 materialIndex = frameData.AllocateMaterialData(material);
     PODRenderState renderState{};
     renderState.depthTestEnabled = false;
@@ -2164,7 +2163,6 @@ TEST_F(VulkanDrawPath, GBufferGpuSelectsTexturesInSingleIndirectDraw)
         GPUSceneMaterialInput material;
         material.m_MetallicFactor = 1.0f;
         material.m_EmissiveFactor = glm::vec4(1.0f);
-        material.m_Flags = GPUSceneMaterialFlagPBR;
         material.m_Albedo.m_Handle = textures[i * 5u]->GetRHIHandle();
         material.m_MetallicRoughness.m_Handle = textures[i * 5u + 1u]->GetRHIHandle();
         material.m_Normal.m_Handle = textures[i * 5u + 2u]->GetRHIHandle();

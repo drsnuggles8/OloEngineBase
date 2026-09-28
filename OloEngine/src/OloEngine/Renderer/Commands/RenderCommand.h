@@ -183,17 +183,7 @@ namespace OloEngine
         // Shader
         RHI::ResourceHandle shaderRendererID{};
 
-        // Legacy material properties
-        glm::vec3 ambient = glm::vec3(0.1f);
-        glm::vec3 diffuse = glm::vec3(0.8f);
-        glm::vec3 specular = glm::vec3(1.0f);
-        f32 shininess = 32.0f;
-        bool useTextureMaps = false;
-        RHI::ResourceHandle diffuseMapID{};
-        RHI::ResourceHandle specularMapID{};
-
         // PBR material properties
-        bool enablePBR = false;
         glm::vec4 baseColorFactor = glm::vec4(1.0f);
         glm::vec4 emissiveFactor = glm::vec4(0.0f);
         f32 metallicFactor = 0.0f;
@@ -327,7 +317,7 @@ namespace OloEngine
         // Field-wise equality (safe against struct padding, unlike memcmp)
         bool operator==(const PODMaterialData& o) const
         {
-            return shaderRendererID == o.shaderRendererID && ambient == o.ambient && diffuse == o.diffuse && specular == o.specular && shininess == o.shininess && useTextureMaps == o.useTextureMaps && diffuseMapID == o.diffuseMapID && specularMapID == o.specularMapID && enablePBR == o.enablePBR && baseColorFactor == o.baseColorFactor && emissiveFactor == o.emissiveFactor && metallicFactor == o.metallicFactor && roughnessFactor == o.roughnessFactor && normalScale == o.normalScale && occlusionStrength == o.occlusionStrength && enableIBL == o.enableIBL && iblIntensity == o.iblIntensity && alphaMode == o.alphaMode && alphaCutoff == o.alphaCutoff && pbrModel == o.pbrModel && materialKind == o.materialKind && skinProfileSlot == o.skinProfileSlot && skinSpecularTint == o.skinSpecularTint && skinEvaluationModel == o.skinEvaluationModel && transmissionFactor == o.transmissionFactor && ior == o.ior && thicknessFactor == o.thicknessFactor && attenuationSigma == o.attenuationSigma && albedoMapID == o.albedoMapID && metallicRoughnessMapID == o.metallicRoughnessMapID && normalMapID == o.normalMapID && aoMapID == o.aoMapID && emissiveMapID == o.emissiveMapID && thicknessMapID == o.thicknessMapID && skinTransmitScatter == o.skinTransmitScatter && skinTransmitScaling == o.skinTransmitScaling && skinThicknessBaseMM == o.skinThicknessBaseMM && skinSpecularLane == o.skinSpecularLane && skinOralLane == o.skinOralLane && skinOcularCorneaLane == o.skinOcularCorneaLane && skinOcularIrisLane == o.skinOcularIrisLane && skinOcularResponseLane == o.skinOcularResponseLane && skinOcularTintLane == o.skinOcularTintLane && skinDetailStrength == o.skinDetailStrength && environmentMapID == o.environmentMapID && irradianceMapID == o.irradianceMapID && prefilterMapID == o.prefilterMapID && brdfLutMapID == o.brdfLutMapID;
+            return shaderRendererID == o.shaderRendererID && baseColorFactor == o.baseColorFactor && emissiveFactor == o.emissiveFactor && metallicFactor == o.metallicFactor && roughnessFactor == o.roughnessFactor && normalScale == o.normalScale && occlusionStrength == o.occlusionStrength && enableIBL == o.enableIBL && iblIntensity == o.iblIntensity && alphaMode == o.alphaMode && alphaCutoff == o.alphaCutoff && pbrModel == o.pbrModel && materialKind == o.materialKind && skinProfileSlot == o.skinProfileSlot && skinSpecularTint == o.skinSpecularTint && skinEvaluationModel == o.skinEvaluationModel && transmissionFactor == o.transmissionFactor && ior == o.ior && thicknessFactor == o.thicknessFactor && attenuationSigma == o.attenuationSigma && albedoMapID == o.albedoMapID && metallicRoughnessMapID == o.metallicRoughnessMapID && normalMapID == o.normalMapID && aoMapID == o.aoMapID && emissiveMapID == o.emissiveMapID && thicknessMapID == o.thicknessMapID && skinTransmitScatter == o.skinTransmitScatter && skinTransmitScaling == o.skinTransmitScaling && skinThicknessBaseMM == o.skinThicknessBaseMM && skinSpecularLane == o.skinSpecularLane && skinOralLane == o.skinOralLane && skinOcularCorneaLane == o.skinOcularCorneaLane && skinOcularIrisLane == o.skinOcularIrisLane && skinOcularResponseLane == o.skinOcularResponseLane && skinOcularTintLane == o.skinOcularTintLane && skinDetailStrength == o.skinDetailStrength && environmentMapID == o.environmentMapID && irradianceMapID == o.irradianceMapID && prefilterMapID == o.prefilterMapID && brdfLutMapID == o.brdfLutMapID;
         }
     };
 

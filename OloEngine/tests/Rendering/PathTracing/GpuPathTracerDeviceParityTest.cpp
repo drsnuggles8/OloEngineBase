@@ -325,14 +325,12 @@ namespace OloEngine::Tests
                 record.AlphaCutoff = material.AlphaCutoff;
                 record.AlphaMode = static_cast<u32>(material.AlphaMask ? AlphaMode::Mask : AlphaMode::Opaque);
                 record.ClosureVersion = static_cast<u32>(material.Model);
-                record.Flags = GPUSceneMaterialFlagActive | GPUSceneMaterialFlagPBR |
-                               (material.TwoSidedEmission ? GPUSceneMaterialFlagTwoSided : 0u);
+                record.Flags = GPUSceneMaterialFlagActive | (material.TwoSidedEmission ? GPUSceneMaterialFlagTwoSided : 0u);
                 MaterialTextureRecord textures;
                 const bool hasMaps = material.AlbedoMap || material.MetallicRoughnessMap || material.NormalMap ||
                                      material.EmissiveMap;
                 if (hasMaps)
                 {
-                    record.Flags |= GPUSceneMaterialFlagUseTextureMaps;
                     textures.Albedo = UploadImage(fixture, twin, material.AlbedoMap, resolved);
                     textures.MetallicRoughness = UploadImage(fixture, twin, material.MetallicRoughnessMap, resolved);
                     textures.Normal = UploadImage(fixture, twin, material.NormalMap, resolved);

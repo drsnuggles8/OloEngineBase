@@ -420,7 +420,7 @@ namespace OloEngine
                             name = "Reserved_Binding1"; // legacy single-light LightProperties retired; binding free
                             break;
                         case 2:
-                            name = "MaterialProperties";
+                            name = "PBRMaterialProperties";
                             break;
                         case 3:
                             name = "MeshInstanceData";

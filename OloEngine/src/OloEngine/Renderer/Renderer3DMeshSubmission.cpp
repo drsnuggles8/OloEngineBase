@@ -496,17 +496,7 @@ namespace OloEngine
         PODMaterialData data{};
         data.shaderRendererID = shaderRendererID;
 
-        // Legacy material properties.
-        data.ambient = material.GetAmbient();
-        data.diffuse = material.GetDiffuse();
-        data.specular = material.GetSpecular();
-        data.shininess = material.GetShininess();
-        data.useTextureMaps = material.IsUsingTextureMaps();
-        data.diffuseMapID = material.GetDiffuseMap() ? material.GetDiffuseMap()->GetRHIHandle() : RHI::NullResource;
-        data.specularMapID = material.GetSpecularMap() ? material.GetSpecularMap()->GetRHIHandle() : RHI::NullResource;
-
         // PBR material properties.
-        data.enablePBR = (material.GetType() == MaterialType::PBR);
         data.baseColorFactor = material.GetBaseColorFactor();
         data.emissiveFactor = material.GetEmissiveFactor();
         data.metallicFactor = material.GetMetallicFactor();
@@ -532,148 +522,131 @@ namespace OloEngine
         data.materialKind = std::to_underlying(material.GetMaterialKind());
         if (material.GetMaterialKind() == MaterialKind::Skin)
         {
-            // A LEGACY (Phong) material has no skin transport to reach: the skin
-            // lanes live in PBRMaterialUBO, and CommandDispatch only uploads
-            // that block when enablePBR is set, so a legacy skin material would
-            // take the legacy UBO and lose the kind, the profile and the tint
-            // with nothing to show for it. Reported, counted, and DOWNGRADED to
-            // Generic here so the kind this struct carries is the kind that will
-            // actually be transported — a silent Skin that shades generic is
-            // exactly the failure this whole file argues against.
-            if (!data.enablePBR)
+            const SkinProfileResolution profile = Renderer3D::GetSkinProfileTable().Resolve(material.GetSkinProfileHandle());
+            data.skinProfileSlot = profile.Slot;
+            data.skinSpecularTint = profile.Parameters.SpecularTint;
+            data.skinEvaluationModel = std::to_underlying(profile.Parameters.EvaluationModel);
+
+            // THIN-REGION TRANSMISSION (issue #1242). The lanes are packed
+            // here, once per submission, for the same reason the tint is
+            // resolved here: the Burley albedo fit behind
+            // SkinTransmissionScalingLane is a physical decision, and
+            // Renderer/SkinTransmission.h's opening rule puts those on the
+            // CPU where a test can look at them.
+            //
+            // ONLY AT TRANSPORT VERSION 2, and the branch is here rather
+            // than only in the shader so a version-1 profile does not even
+            // upload a lobe. A version this code has no arm for leaves the
+            // lanes zero, which shades as no transmission.
+            // THE LAYERED SURFACE RESPONSE (issue #1243). Packed here for
+            // the reason the transmission lanes are: the deferred path's
+            // per-frame table packs the SAME lane with the SAME function,
+            // so the two cannot disagree about the order of its four
+            // numbers.
+            //
+            // ONLY AT TRANSPORT VERSION 3, and the branch is here rather
+            // than only in the shader so a version-2 profile does not even
+            // upload a lobe. A version this code has no arm for leaves the
+            // lane zero, which shades as one lobe and no filtering.
+            if (SkinEvaluatesLayeredSpecular(profile.Parameters.EvaluationModel))
             {
-                Renderer3D::GetSkinProfileTable().ReportFallback(SkinProfileFallbackReason::MaterialNotPBR,
-                                                                 material.GetSkinProfileHandle());
-                data.materialKind = std::to_underlying(MaterialKind::Generic);
+                data.skinSpecularLane = SkinSpecularLane(profile.Parameters);
+                // The expression half. `GetSkinExpressionDetail()` was set
+                // by the scene's mesh submission (skinned and morph-only
+                // alike) from the entity's APPLIED morph weights and is 0
+                // for every mesh without morph targets and every head at a
+                // neutral expression, so this reduces to the
+                // profile's base gain wherever no face is emoting.
+                data.skinDetailStrength =
+                    SkinDetailStrength(profile.Parameters.Specular, material.GetSkinExpressionDetail());
             }
-            else
+
+            // THE ORAL SURFACE (issue #1245). Packed here for the reason
+            // every lane above it is: the deferred path's per-frame table
+            // packs the SAME lane with the SAME function, and the IOR ->
+            // F0 conversion inside SkinOralLane is a physical decision that
+            // Renderer/SkinOralSurface.h's opening rule keeps on the CPU.
+            //
+            // ONLY AT TRANSPORT VERSION 4, so a version-3 profile does not
+            // even upload a coat. A version this code has no arm for leaves
+            // the lane zero, which shades as dry with the transmitted term
+            // exactly as #1242 shipped it.
+            if (SkinEvaluatesOralSurface(profile.Parameters.EvaluationModel))
+                data.skinOralLane = SkinOralLane(profile.Parameters);
+
+            // THE EYE (issue #1244). Packed here for the reason every lane
+            // above it is, with one difference worth naming: there is no
+            // deferred table to keep in step, because the ocular terms
+            // resolve in the MATERIAL stage on all three paths. So this is
+            // the only site that packs them, and the "two tables could
+            // disagree" hazard the comments above guard against does not
+            // exist for these three.
+            //
+            // ONLY AT TRANSPORT VERSION 5, so a version-4 profile does not
+            // even upload an eye. A version this code has no arm for leaves
+            // the lanes zero, whose master component is zero, which shades
+            // as version-4 skin.
+            //
+            // ALL FOUR OR NONE. They are packed together and gated once,
+            // because a cornea lane without its iris lane is an eye whose
+            // refraction lands on a disc of radius zero — a division this
+            // code refuses and a frame nobody would be able to read.
+            if (SkinEvaluatesOcularSurface(profile.Parameters.EvaluationModel))
             {
-                const SkinProfileResolution profile = Renderer3D::GetSkinProfileTable().Resolve(material.GetSkinProfileHandle());
-                data.skinProfileSlot = profile.Slot;
-                data.skinSpecularTint = profile.Parameters.SpecularTint;
-                data.skinEvaluationModel = std::to_underlying(profile.Parameters.EvaluationModel);
+                data.skinOcularCorneaLane = SkinOcularCorneaLane(profile.Parameters);
+                data.skinOcularIrisLane = SkinOcularIrisLane(profile.Parameters);
+                data.skinOcularResponseLane = SkinOcularResponseLane(profile.Parameters);
+                data.skinOcularTintLane = SkinOcularTintLane(profile.Parameters);
+            }
 
-                // THIN-REGION TRANSMISSION (issue #1242). The lanes are packed
-                // here, once per submission, for the same reason the tint is
-                // resolved here: the Burley albedo fit behind
-                // SkinTransmissionScalingLane is a physical decision, and
-                // Renderer/SkinTransmission.h's opening rule puts those on the
-                // CPU where a test can look at them.
-                //
-                // ONLY AT TRANSPORT VERSION 2, and the branch is here rather
-                // than only in the shader so a version-1 profile does not even
-                // upload a lobe. A version this code has no arm for leaves the
-                // lanes zero, which shades as no transmission.
-                // THE LAYERED SURFACE RESPONSE (issue #1243). Packed here for
-                // the reason the transmission lanes are: the deferred path's
-                // per-frame table packs the SAME lane with the SAME function,
-                // so the two cannot disagree about the order of its four
-                // numbers.
-                //
-                // ONLY AT TRANSPORT VERSION 3, and the branch is here rather
-                // than only in the shader so a version-2 profile does not even
-                // upload a lobe. A version this code has no arm for leaves the
-                // lane zero, which shades as one lobe and no filtering.
-                if (SkinEvaluatesLayeredSpecular(profile.Parameters.EvaluationModel))
+            // TRANSMISSION IS TESTED WITH `>=`-IN-SPIRIT AND SPELLED OUT,
+            // because the versions are CUMULATIVE: version 3 is "everything
+            // version 2 does, plus the layered specular", so a version-3
+            // profile must still transmit. Testing only for version 2 here
+            // would have made moving a profile to version 3 silently turn
+            // transmission OFF while turning the lobes on — a head that
+            // gains a sheen and loses its backlit ears in one authoring
+            // click, which reads as "the new feature broke transmission".
+            // The same trap #1242 documented one version earlier, in
+            // oloSkinDiffusionOutput.
+            if (SkinEvaluatesThicknessTransmission(profile.Parameters.EvaluationModel))
+            {
+                data.skinTransmitScatter = SkinTransmissionScatterLane(profile.Parameters);
+                data.skinTransmitScaling = SkinTransmissionScalingLane(profile.Parameters);
+                // The metres -> millimetres conversion, done HERE and not in
+                // GLSL. It is the one number this feature is most likely to
+                // get wrong, and a unit slip in a shader is a thing no test
+                // can reach (Renderer/SkinTransmission.h, opening rule).
+                data.skinThicknessBaseMM =
+                    SkinThicknessBaseMM(material.GetThicknessFactor(), profile.Parameters.ThicknessScale);
+
+                // THE TWO AUTHORING FAULTS, COUNTED AND LOGGED HERE — the
+                // only place that can see them, because it is the only place
+                // that has the material AND the resolved profile together.
+                // Neither is silently absorbed (CLAUDE.md house rule): a head
+                // that quietly stopped transmitting looks exactly like a head
+                // that never should have.
+                if (!material.HasAuthoredThickness())
                 {
-                    data.skinSpecularLane = SkinSpecularLane(profile.Parameters);
-                    // The expression half. `GetSkinExpressionDetail()` was set
-                    // by the scene's mesh submission (skinned and morph-only
-                    // alike) from the entity's APPLIED morph weights and is 0
-                    // for every mesh without morph targets and every head at a
-                    // neutral expression, so this reduces to the
-                    // profile's base gain wherever no face is emoting.
-                    data.skinDetailStrength =
-                        SkinDetailStrength(profile.Parameters.Specular, material.GetSkinExpressionDetail());
+                    // No thicknessFactor, so nothing for a map to modulate.
+                    // The conservative fallback is NO transmission — see
+                    // SkinTransmittance for why the other reading of a zero
+                    // thickness is the uniformly emissive head.
+                    Renderer3D::GetSkinProfileTable().ReportTransmissionFallback(
+                        SkinTransmissionFallbackReason::NoThickness, material.GetSkinProfileHandle());
                 }
-
-                // THE ORAL SURFACE (issue #1245). Packed here for the reason
-                // every lane above it is: the deferred path's per-frame table
-                // packs the SAME lane with the SAME function, and the IOR ->
-                // F0 conversion inside SkinOralLane is a physical decision that
-                // Renderer/SkinOralSurface.h's opening rule keeps on the CPU.
-                //
-                // ONLY AT TRANSPORT VERSION 4, so a version-3 profile does not
-                // even upload a coat. A version this code has no arm for leaves
-                // the lane zero, which shades as dry with the transmitted term
-                // exactly as #1242 shipped it.
-                if (SkinEvaluatesOralSurface(profile.Parameters.EvaluationModel))
-                    data.skinOralLane = SkinOralLane(profile.Parameters);
-
-                // THE EYE (issue #1244). Packed here for the reason every lane
-                // above it is, with one difference worth naming: there is no
-                // deferred table to keep in step, because the ocular terms
-                // resolve in the MATERIAL stage on all three paths. So this is
-                // the only site that packs them, and the "two tables could
-                // disagree" hazard the comments above guard against does not
-                // exist for these three.
-                //
-                // ONLY AT TRANSPORT VERSION 5, so a version-4 profile does not
-                // even upload an eye. A version this code has no arm for leaves
-                // the lanes zero, whose master component is zero, which shades
-                // as version-4 skin.
-                //
-                // ALL FOUR OR NONE. They are packed together and gated once,
-                // because a cornea lane without its iris lane is an eye whose
-                // refraction lands on a disc of radius zero — a division this
-                // code refuses and a frame nobody would be able to read.
-                if (SkinEvaluatesOcularSurface(profile.Parameters.EvaluationModel))
+                if (material.IsTransmissive())
                 {
-                    data.skinOcularCorneaLane = SkinOcularCorneaLane(profile.Parameters);
-                    data.skinOcularIrisLane = SkinOcularIrisLane(profile.Parameters);
-                    data.skinOcularResponseLane = SkinOcularResponseLane(profile.Parameters);
-                    data.skinOcularTintLane = SkinOcularTintLane(profile.Parameters);
-                }
-
-                // TRANSMISSION IS TESTED WITH `>=`-IN-SPIRIT AND SPELLED OUT,
-                // because the versions are CUMULATIVE: version 3 is "everything
-                // version 2 does, plus the layered specular", so a version-3
-                // profile must still transmit. Testing only for version 2 here
-                // would have made moving a profile to version 3 silently turn
-                // transmission OFF while turning the lobes on — a head that
-                // gains a sheen and loses its backlit ears in one authoring
-                // click, which reads as "the new feature broke transmission".
-                // The same trap #1242 documented one version earlier, in
-                // oloSkinDiffusionOutput.
-                if (SkinEvaluatesThicknessTransmission(profile.Parameters.EvaluationModel))
-                {
-                    data.skinTransmitScatter = SkinTransmissionScatterLane(profile.Parameters);
-                    data.skinTransmitScaling = SkinTransmissionScalingLane(profile.Parameters);
-                    // The metres -> millimetres conversion, done HERE and not in
-                    // GLSL. It is the one number this feature is most likely to
-                    // get wrong, and a unit slip in a shader is a thing no test
-                    // can reach (Renderer/SkinTransmission.h, opening rule).
-                    data.skinThicknessBaseMM =
-                        SkinThicknessBaseMM(material.GetThicknessFactor(), profile.Parameters.ThicknessScale);
-
-                    // THE TWO AUTHORING FAULTS, COUNTED AND LOGGED HERE — the
-                    // only place that can see them, because it is the only place
-                    // that has the material AND the resolved profile together.
-                    // Neither is silently absorbed (CLAUDE.md house rule): a head
-                    // that quietly stopped transmitting looks exactly like a head
-                    // that never should have.
-                    if (!material.HasAuthoredThickness())
-                    {
-                        // No thicknessFactor, so nothing for a map to modulate.
-                        // The conservative fallback is NO transmission — see
-                        // SkinTransmittance for why the other reading of a zero
-                        // thickness is the uniformly emissive head.
-                        Renderer3D::GetSkinProfileTable().ReportTransmissionFallback(
-                            SkinTransmissionFallbackReason::NoThickness, material.GetSkinProfileHandle());
-                    }
-                    if (material.IsTransmissive())
-                    {
-                        // KHR_materials_transmission AND skin transport on one
-                        // surface is two transmission closures over the same
-                        // energy — the double-count the issue's third criterion
-                        // forbids, arriving by the authoring path rather than by
-                        // the maths. Skin's term wins because that is what the
-                        // material kind asked for; the author is told which one
-                        // was dropped.
-                        Renderer3D::GetSkinProfileTable().ReportTransmissionFallback(
-                            SkinTransmissionFallbackReason::RefractiveTransmissionConflict,
-                            material.GetSkinProfileHandle());
-                    }
+                    // KHR_materials_transmission AND skin transport on one
+                    // surface is two transmission closures over the same
+                    // energy — the double-count the issue's third criterion
+                    // forbids, arriving by the authoring path rather than by
+                    // the maths. Skin's term wins because that is what the
+                    // material kind asked for; the author is told which one
+                    // was dropped.
+                    Renderer3D::GetSkinProfileTable().ReportTransmissionFallback(
+                        SkinTransmissionFallbackReason::RefractiveTransmissionConflict,
+                        material.GetSkinProfileHandle());
                 }
             }
         }
@@ -703,7 +676,7 @@ namespace OloEngine
         data.brdfLutMapID = material.GetBRDFLutMap() ? material.GetBRDFLutMap()->GetRHIHandle() : RHI::NullResource;
 
         // Fall back to global IBL when the material has no IBL configured.
-        if (data.enablePBR && !data.irradianceMapID.IsValid() && Renderer3D::GetGlobalIrradianceMapHandle().IsValid())
+        if (!data.irradianceMapID.IsValid() && Renderer3D::GetGlobalIrradianceMapHandle().IsValid())
         {
             data.irradianceMapID = Renderer3D::GetGlobalIrradianceMapHandle();
             data.prefilterMapID = Renderer3D::GetGlobalPrefilterMapHandle();
@@ -812,16 +785,16 @@ namespace OloEngine
         Ref<Shader> shaderToUse;
         // Deferred mode demands that every ScenePass draw write the full
         // G-Buffer layout (Albedo/Metallic, Normal/Roughness/AO, Emissive/
-        // Flags, Velocity, EntityID, BakedGI). Non-PBR materials selecting
-        // s_Data.DefaultForwardShader
-        // would instead write the legacy forward outputs (o_Color / o_EntityID
+        // Flags, Velocity, EntityID, BakedGI). A material whose shader
+        // override is forward-only
+        // would instead write the forward outputs (o_Color / o_EntityID
         // / o_ViewNormal / o_Velocity), which alias onto the G-Buffer slots
         // and corrupt lighting for every subsequent pixel.
         //
         // Until a Lighting3D_GBuffer variant lands, reroute such draws to the
         // ForwardOverlayPass — which binds the scene framebuffer (matching
         // MRT layout) and runs *after* DeferredLightingPass composites the
-        // G-Buffer, so the non-PBR surface shades itself and blits over the
+        // G-Buffer, so the forward-only surface shades itself and blits over the
         // lit deferred image unscathed. Mirrors the same pattern DrawSkybox
         // uses for the skybox-on-deferred fallback.
         bool overlayRoute = false;
@@ -838,7 +811,7 @@ namespace OloEngine
                 overlayRoute = true;
             }
         }
-        else if (material.GetType() == MaterialType::PBR)
+        else
         {
             // Transmission (issue #970) and alpha blending (issue #1404) have no
             // G-Buffer representation — see ShouldRerouteToForwardOverlay at the
@@ -862,12 +835,6 @@ namespace OloEngine
                 shaderToUse = s_Data.PBRGBufferShader;
             else
                 shaderToUse = s_Data.PBRShader;
-        }
-        else
-        {
-            shaderToUse = s_Data.DefaultForwardShader;
-            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.Pipeline->RenderStreamPasses.ForwardOverlay)
-                overlayRoute = true;
         }
 
         if (!shaderToUse)
@@ -1019,7 +986,7 @@ namespace OloEngine
                 routing.OverlayRoute = true;
             }
         }
-        else if (material.GetType() == MaterialType::PBR)
+        else
         {
             // Transmission (issue #970) and alpha blending (issue #1404) have no
             // G-Buffer representation — see ShouldRerouteToForwardOverlay at the
@@ -1035,12 +1002,6 @@ namespace OloEngine
                 routing.ShaderToUse = s_Data.PBRGBufferShader;
             else
                 routing.ShaderToUse = s_Data.PBRShader;
-        }
-        else
-        {
-            routing.ShaderToUse = s_Data.DefaultForwardShader;
-            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.Pipeline->RenderStreamPasses.ForwardOverlay)
-                routing.OverlayRoute = true;
         }
         return routing;
     }
@@ -1694,8 +1655,8 @@ namespace OloEngine
         }
 
         Ref<Shader> shaderToUse;
-        // See DrawMesh() for the non-PBR-deferred → ForwardOverlayPass
-        // rerouting rationale. The same reasoning applies here: non-PBR
+        // See DrawMesh() for the forward-only-shader → ForwardOverlayPass
+        // rerouting rationale. The same reasoning applies here: forward-only
         // skinned draws would otherwise alias their MRT outputs onto the
         // G-Buffer slots and corrupt every subsequent pixel.
         bool overlayRoute = false;
@@ -1712,7 +1673,7 @@ namespace OloEngine
                 overlayRoute = true;
             }
         }
-        else if (material.GetType() == MaterialType::PBR)
+        else
         {
             // Transmission (issue #970) and alpha blending (issue #1404) have no
             // G-Buffer representation. The SKINNED forward shader has the same
@@ -1731,12 +1692,6 @@ namespace OloEngine
                 shaderToUse = s_Data.PBRGBufferSkinnedShader;
             else
                 shaderToUse = s_Data.PBRSkinnedShader;
-        }
-        else
-        {
-            shaderToUse = s_Data.DefaultForwardSkinnedShader;
-            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.Pipeline->RenderStreamPasses.ForwardOverlay)
-                overlayRoute = true;
         }
 
         if (!shaderToUse)
@@ -1947,7 +1902,7 @@ namespace OloEngine
         {
             shaderToUse = material.GetShader();
         }
-        else if (material.GetType() == MaterialType::PBR)
+        else
         {
             // Transmission (issue #970) and alpha blending (issue #1404) have no
             // G-Buffer representation.
@@ -1971,10 +1926,6 @@ namespace OloEngine
                 shaderToUse = ctx.SceneContext->PBRShader;
             }
         }
-        else
-        {
-            shaderToUse = ctx.SceneContext->DefaultForwardShader;
-        }
 
         if (!shaderToUse)
         {
@@ -1983,8 +1934,8 @@ namespace OloEngine
         }
 
         // Deferred-path gating: workers submit exclusively into ScenePass's
-        // per-thread bucket, which is the G-Buffer producer. Non-PBR /
-        // forward-only override shaders on this path would alias forward
+        // per-thread bucket, which is the G-Buffer producer. Forward-only
+        // override shaders on this path would alias forward
         // outputs onto G-Buffer slots (breaking lighting for every
         // subsequent pixel). Instead of dropping the draw we reroute the
         // fully-assembled packet into ForwardOverlayPass's global bucket,

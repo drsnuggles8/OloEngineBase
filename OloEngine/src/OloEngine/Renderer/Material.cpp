@@ -7,12 +7,12 @@ namespace OloEngine
 {
 
     Material::Material()
-        : m_Shader(nullptr), m_Name("Material"), m_MaterialType(MaterialType::PBR)
+        : m_Shader(nullptr), m_Name("Material")
     {
     }
 
     Material::Material(const Ref<OloEngine::Shader>& shader, const FString& name)
-        : m_Shader(shader), m_Name(name), m_MaterialType(MaterialType::PBR)
+        : m_Shader(shader), m_Name(name)
     {
     }
 
@@ -25,9 +25,6 @@ namespace OloEngine
           m_IVec4Uniforms(other.m_IVec4Uniforms), m_Mat3Uniforms(other.m_Mat3Uniforms), m_Mat4Uniforms(other.m_Mat4Uniforms),
           m_Texture2DUniforms(other.m_Texture2DUniforms), m_TextureCubeUniforms(other.m_TextureCubeUniforms),
           // Copy all private members
-          m_MaterialType(other.m_MaterialType),
-          m_Ambient(other.m_Ambient), m_Diffuse(other.m_Diffuse), m_Specular(other.m_Specular), m_Shininess(other.m_Shininess),
-          m_UseTextureMaps(other.m_UseTextureMaps), m_DiffuseMap(other.m_DiffuseMap), m_SpecularMap(other.m_SpecularMap),
           m_BaseColorFactor(other.m_BaseColorFactor), m_EmissiveFactor(other.m_EmissiveFactor),
           m_MetallicFactor(other.m_MetallicFactor), m_RoughnessFactor(other.m_RoughnessFactor),
           m_NormalScale(other.m_NormalScale), m_OcclusionStrength(other.m_OcclusionStrength), m_EnableIBL(other.m_EnableIBL),
@@ -86,14 +83,6 @@ namespace OloEngine
             m_TextureCubeUniforms = other.m_TextureCubeUniforms;
 
             // Copy all private members
-            m_MaterialType = other.m_MaterialType;
-            m_Ambient = other.m_Ambient;
-            m_Diffuse = other.m_Diffuse;
-            m_Specular = other.m_Specular;
-            m_Shininess = other.m_Shininess;
-            m_UseTextureMaps = other.m_UseTextureMaps;
-            m_DiffuseMap = other.m_DiffuseMap;
-            m_SpecularMap = other.m_SpecularMap;
             m_BaseColorFactor = other.m_BaseColorFactor;
             m_EmissiveFactor = other.m_EmissiveFactor;
             m_MetallicFactor = other.m_MetallicFactor;
@@ -134,8 +123,6 @@ namespace OloEngine
         if (m_AlphaMode == AlphaMode::Opaque)
             return;
         Ref<Texture2D> albedo = GetAlbedoMap();
-        if (!albedo)
-            albedo = GetDiffuseMap();
         if (!albedo)
             return;
 
@@ -178,7 +165,6 @@ namespace OloEngine
     {
         auto material = Ref<Material>(new Material());
         material->m_Name = name;
-        material->m_MaterialType = MaterialType::PBR;
         material->m_MaterialFlags = std::to_underlying(MaterialFlag::DepthTest);
 
         // Set PBR properties using the uniform system
@@ -398,7 +384,7 @@ namespace OloEngine
         return defaultValue;
     }
 
-    Ref<Texture2D> Material::GetTexture2D(const std::string& name)
+    Ref<Texture2D> Material::GetTexture2D(const std::string& name) const
     {
         if (const auto* value = m_Texture2DUniforms.Find(name))
             return *value;
@@ -406,7 +392,7 @@ namespace OloEngine
         return nullptr;
     }
 
-    Ref<Texture2D> Material::GetTexture2D(const std::string& name, u32 arrayIndex)
+    Ref<Texture2D> Material::GetTexture2D(const std::string& name, u32 arrayIndex) const
     {
         std::string key = GenerateArrayKey(name, arrayIndex);
         if (const auto* value = m_Texture2DUniforms.Find(key))
@@ -415,18 +401,7 @@ namespace OloEngine
         return nullptr;
     }
 
-    // Const overloads that forward to the non-const virtuals
-    Ref<Texture2D> Material::GetTexture2D(const std::string& name) const
-    {
-        return const_cast<Material*>(this)->GetTexture2D(name);
-    }
-
-    Ref<Texture2D> Material::GetTexture2D(const std::string& name, u32 arrayIndex) const
-    {
-        return const_cast<Material*>(this)->GetTexture2D(name, arrayIndex);
-    }
-
-    Ref<TextureCubemap> Material::GetTextureCube(const std::string& name)
+    Ref<TextureCubemap> Material::GetTextureCube(const std::string& name) const
     {
         if (const auto* value = m_TextureCubeUniforms.Find(name))
             return *value;
@@ -434,42 +409,19 @@ namespace OloEngine
         return nullptr;
     }
 
-    // Const overload that forwards to the non-const virtual
-    Ref<TextureCubemap> Material::GetTextureCube(const std::string& name) const
-    {
-        return const_cast<Material*>(this)->GetTextureCube(name);
-    }
-
-    Ref<Texture2D> Material::TryGetTexture2D(const std::string& name)
+    Ref<Texture2D> Material::TryGetTexture2D(const std::string& name) const
     {
         return GetTexture2D(name);
     }
 
-    Ref<Texture2D> Material::TryGetTexture2D(const std::string& name, u32 arrayIndex)
+    Ref<Texture2D> Material::TryGetTexture2D(const std::string& name, u32 arrayIndex) const
     {
         return GetTexture2D(name, arrayIndex);
     }
 
-    // Const overloads that forward to the non-const virtuals for backward compatibility
-    Ref<Texture2D> Material::TryGetTexture2D(const std::string& name) const
-    {
-        return const_cast<Material*>(this)->TryGetTexture2D(name);
-    }
-
-    Ref<Texture2D> Material::TryGetTexture2D(const std::string& name, u32 arrayIndex) const
-    {
-        return const_cast<Material*>(this)->TryGetTexture2D(name, arrayIndex);
-    }
-
-    Ref<TextureCubemap> Material::TryGetTextureCube(const std::string& name)
-    {
-        return GetTextureCube(name);
-    }
-
-    // Const overload that forwards to the non-const virtual
     Ref<TextureCubemap> Material::TryGetTextureCube(const std::string& name) const
     {
-        return const_cast<Material*>(this)->TryGetTextureCube(name);
+        return GetTextureCube(name);
     }
 
     void Material::SetFlag(MaterialFlag flag, bool value)

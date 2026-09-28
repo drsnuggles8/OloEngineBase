@@ -969,7 +969,6 @@ namespace OloEngine
         AssetMissing,   ///< The handle names an asset the manager cannot load.
         WrongAssetType, ///< The handle resolves to something that is not a SkinProfile.
         SlotBudgetFull, ///< More distinct profiles in one frame than the G-Buffer lane can name.
-        MaterialNotPBR, ///< MaterialKind::Skin on a legacy (Phong) material, which has no skin transport.
 
         Count
     };
@@ -988,8 +987,6 @@ namespace OloEngine
                 return "WrongAssetType";
             case SkinProfileFallbackReason::SlotBudgetFull:
                 return "SlotBudgetFull";
-            case SkinProfileFallbackReason::MaterialNotPBR:
-                return "MaterialNotPBR";
             case SkinProfileFallbackReason::Count:
                 break;
         }

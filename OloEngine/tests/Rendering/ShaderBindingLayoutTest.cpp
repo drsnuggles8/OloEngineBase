@@ -18,12 +18,6 @@ TEST(ShaderBindingLayout, CameraUBOAlignment)
         << "CameraUBO must be 16-byte aligned for std140";
 }
 
-TEST(ShaderBindingLayout, MaterialUBOAlignment)
-{
-    EXPECT_EQ(sizeof(UBOStructures::MaterialUBO) % 16, 0u)
-        << "MaterialUBO must be 16-byte aligned for std140";
-}
-
 TEST(ShaderBindingLayout, PBRMaterialUBOAlignment)
 {
     EXPECT_EQ(sizeof(UBOStructures::PBRMaterialUBO) % 16, 0u)
@@ -374,7 +368,7 @@ TEST(ShaderBindingLayout, ShaderConstantGeneratorRoundTrip)
 TEST(ShaderBindingLayout, KnownUBOBindingRecognized)
 {
     EXPECT_TRUE(ShaderBindingLayout::IsKnownUBOBinding(ShaderBindingLayout::UBO_CAMERA, "CameraMatrices"));
-    EXPECT_TRUE(ShaderBindingLayout::IsKnownUBOBinding(ShaderBindingLayout::UBO_MATERIAL, "MaterialProperties"));
+    EXPECT_TRUE(ShaderBindingLayout::IsKnownUBOBinding(ShaderBindingLayout::UBO_MATERIAL, "PBRMaterialProperties"));
     EXPECT_TRUE(ShaderBindingLayout::IsKnownUBOBinding(ShaderBindingLayout::UBO_PARTICLE_MESH_INSTANCE, "MeshInstanceData"));
     EXPECT_FALSE(ShaderBindingLayout::IsKnownUBOBinding(ShaderBindingLayout::UBO_PARTICLE_MESH_INSTANCE, "ModelMatrices"));
     EXPECT_TRUE(ShaderBindingLayout::IsKnownUBOBinding(ShaderBindingLayout::UBO_ANIMATION, "AnimationMatrices"));
@@ -407,7 +401,6 @@ TEST(ShaderBindingLayout, AllTextureSlotsWithinGLMinimum)
 TEST(ShaderBindingLayout, UBOGetSizeMatchesSizeof)
 {
     EXPECT_EQ(UBOStructures::CameraUBO::GetSize(), sizeof(UBOStructures::CameraUBO));
-    EXPECT_EQ(UBOStructures::MaterialUBO::GetSize(), sizeof(UBOStructures::MaterialUBO));
     EXPECT_EQ(UBOStructures::PBRMaterialUBO::GetSize(), sizeof(UBOStructures::PBRMaterialUBO));
     EXPECT_EQ(UBOStructures::ModelUBO::GetSize(), sizeof(UBOStructures::ModelUBO));
     EXPECT_EQ(UBOStructures::AnimationUBO::GetSize(), sizeof(UBOStructures::AnimationUBO));

@@ -75,8 +75,7 @@ namespace OloEngine
             filled[instance->MaterialIndex] = true;
             // Only the maps the material declares: the *_MAP flags follow the
             // handle's validity, and they are the whole gate the raster
-            // GPU-scene path applies (PBR_GBuffer.glsl reads them, not the
-            // legacy UseTextureMaps bit, which a PBR material need not set).
+            // GPU-scene path applies (PBR_GBuffer.glsl reads them).
             MaterialTextureRecord& record = m_Records[instance->MaterialIndex];
             if ((material->Flags & GPUSceneMaterialFlagAlbedoMap) != 0u)
                 record.Albedo = ResolveTexture(material->AlbedoTextureIndex, material->AlbedoTextureGeneration);

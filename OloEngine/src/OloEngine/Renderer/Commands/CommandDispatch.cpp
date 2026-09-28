@@ -272,7 +272,7 @@ namespace OloEngine
         };
         item.CameraUBO = clone(previous.CameraUBO, s_MainData.CameraUBO, ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
         item.MaterialUBO = clone(previous.MaterialUBO, s_MainData.MaterialUBO,
-                                 std::max(ShaderBindingLayout::PBRMaterialUBO::GetSize(), ShaderBindingLayout::MaterialUBO::GetSize()), ShaderBindingLayout::UBO_MATERIAL);
+                                 ShaderBindingLayout::PBRMaterialUBO::GetSize(), ShaderBindingLayout::UBO_MATERIAL);
         item.BoneMatricesUBO = clone(previous.BoneMatricesUBO, s_MainData.BoneMatricesUBO, ShaderBindingLayout::AnimationUBO::GetSize(), ShaderBindingLayout::UBO_ANIMATION);
         item.PrevBoneMatricesUBO = clone(previous.PrevBoneMatricesUBO, s_MainData.PrevBoneMatricesUBO, ShaderBindingLayout::AnimationUBO::GetSize(), ShaderBindingLayout::UBO_ANIMATION_PREV);
         item.TerrainUBO = clone(previous.TerrainUBO, Renderer3D::GetTerrainUBO(), ShaderBindingLayout::TerrainUBO::GetSize(), ShaderBindingLayout::UBO_TERRAIN);
@@ -1024,9 +1024,11 @@ namespace OloEngine
         // Texture2D::Create), so it takes GL_REPEAT like every other 2D map —
         // matching the slot path, which is the property that matters here even
         // though a lookup table would ideally clamp.
+        // [2].y and [2].z are unused lanes, kept so the UBO layout (and the
+        // Vulkan arm's [2].w sampler lane) does not move. They carried the Phong
+        // diffuse / specular maps until that material type was removed (#1499).
         ubo.HeapOffsets[2] = { resolve(mat.brdfLutMapID, k2DSampler, k2D),
-                               resolve(mat.diffuseMapID, k2DSampler, k2D),
-                               resolve(mat.specularMapID, k2DSampler, k2D), RHI::kNullHeapOffset };
+                               RHI::kNullHeapOffset, RHI::kNullHeapOffset, RHI::kNullHeapOffset };
         // The thickness map (issue #1242) on the ENGINE-heap arm. The second of
         // the two arms this function forks into — forgetting it here is how a
         // feature works on Vulkan and silently does not on a bindless GL build,
@@ -1082,13 +1084,6 @@ namespace OloEngine
         BindTrackedTexture(api, mat.brdfLutMapID, ShaderBindingLayout::TEX_USER_2);
     }
 
-    // Helper: Bind legacy material textures (diffuse, specular).
-    static void BindLegacyTextures(RendererAPI& api, const PODMaterialData& mat)
-    {
-        BindTrackedTexture(api, mat.diffuseMapID, ShaderBindingLayout::TEX_DIFFUSE);
-        BindTrackedTexture(api, mat.specularMapID, ShaderBindingLayout::TEX_SPECULAR);
-    }
-
     static void UploadMaterialState(RendererAPI& api, const PODMaterialData& mat, u16 materialDataIndex)
     {
         OLO_PROFILE_FUNCTION();
@@ -1133,149 +1128,107 @@ namespace OloEngine
         Data().LastMaterialDataIndex = materialDataIndex;
         Data().LastMaterialOffsetsLive = offsetsLive;
 
-        if (mat.enablePBR)
+        if (!sameIndex)
         {
-            if (!sameIndex)
-            {
-                ShaderBindingLayout::PBRMaterialUBO pbrMaterialData{};
-                pbrMaterialData.BaseColorFactor = mat.baseColorFactor;
-                pbrMaterialData.EmissiveFactor = mat.emissiveFactor;
-                pbrMaterialData.MetallicFactor = mat.metallicFactor;
-                pbrMaterialData.RoughnessFactor = mat.roughnessFactor;
-                pbrMaterialData.NormalScale = mat.normalScale;
-                pbrMaterialData.OcclusionStrength = mat.occlusionStrength;
-                pbrMaterialData.UseAlbedoMap = mat.albedoMapID.IsValid() ? 1 : 0;
-                pbrMaterialData.UseNormalMap = mat.normalMapID.IsValid() ? 1 : 0;
-                pbrMaterialData.UseMetallicRoughnessMap = mat.metallicRoughnessMapID.IsValid() ? 1 : 0;
-                pbrMaterialData.UseAOMap = mat.aoMapID.IsValid() ? 1 : 0;
-                pbrMaterialData.UseEmissiveMap = mat.emissiveMapID.IsValid() ? 1 : 0;
-                pbrMaterialData.EnableIBL = mat.enableIBL ? 1 : 0;
-                pbrMaterialData.ApplyGammaCorrection = 1;
-                pbrMaterialData.AlphaCutoff = mat.alphaCutoff;
-                pbrMaterialData.AlphaMode = mat.alphaMode;
-                pbrMaterialData.PBRModel = mat.pbrModel;
-                // Physical transmission / IOR / volume (issue #970). Copied
-                // straight through — every value was sanitized by Material's
-                // setters and the extinction was derived at submission, so
-                // there is nothing left to validate at dispatch.
-                pbrMaterialData.TransmissionFactor = mat.transmissionFactor;
-                pbrMaterialData.IOR = mat.ior;
-                pbrMaterialData.ThicknessFactor = mat.thicknessFactor;
-                pbrMaterialData.AttenuationSigmaR = mat.attenuationSigma.r;
-                pbrMaterialData.AttenuationSigmaG = mat.attenuationSigma.g;
-                pbrMaterialData.AttenuationSigmaB = mat.attenuationSigma.b;
-                // Material kind + skin profile (issue #1231). Copied straight
-                // through for the same reason as the block above: the kind was
-                // range-checked by Material's setter and the profile was
-                // resolved (and its parameters sanitized) at submission, so
-                // dispatch has nothing left to validate.
-                pbrMaterialData.MaterialKind = mat.materialKind;
-                pbrMaterialData.SkinProfileSlot = static_cast<i32>(mat.skinProfileSlot);
-                pbrMaterialData.SkinSpecularTintR = mat.skinSpecularTint.r;
-                pbrMaterialData.SkinSpecularTintG = mat.skinSpecularTint.g;
-                pbrMaterialData.SkinSpecularTintB = mat.skinSpecularTint.b;
-                pbrMaterialData.SkinEvaluationModel = mat.skinEvaluationModel;
-                // Thin-region transmission (issue #1242). The two lanes were
-                // packed at submission by SkinTransmissionScatterLane /
-                // SkinTransmissionScalingLane, so — like every block above —
-                // dispatch copies and does not decide. All-zero on a non-skin
-                // material and below transport version 2, which shades as no
-                // transmission.
-                pbrMaterialData.SkinTransmitScatter = mat.skinTransmitScatter;
-                pbrMaterialData.SkinTransmitScaling = mat.skinTransmitScaling;
-                pbrMaterialData.UseThicknessMap = mat.thicknessMapID.IsValid() ? 1 : 0;
-                pbrMaterialData.SkinThicknessBaseMM = mat.skinThicknessBaseMM;
-                // The layered surface response (issue #1243). Packed at
-                // submission by SkinSpecularLane / SkinDetailStrength, so —
-                // like every block above — dispatch copies and does not decide.
-                pbrMaterialData.SkinSpecularLane = mat.skinSpecularLane;
-                pbrMaterialData.SkinOralLane = mat.skinOralLane;
-                pbrMaterialData.SkinOcularCorneaLane = mat.skinOcularCorneaLane;
-                pbrMaterialData.SkinOcularIrisLane = mat.skinOcularIrisLane;
-                pbrMaterialData.SkinOcularResponseLane = mat.skinOcularResponseLane;
-                pbrMaterialData.SkinOcularTintLane = mat.skinOcularTintLane;
-                pbrMaterialData.SkinDetailStrength = mat.skinDetailStrength;
-                // Issue #632: this was a hard-coded 0, which made the forward
-                // path's probe-ambient shader code dead. Wire it to the same
-                // master toggle the deferred path uses so Forward+ scenes get
-                // probe GI (baked SH or realtime DDGI) too.
-                pbrMaterialData.EnableLightProbes = Renderer3D::GetRendererSettings().Deferred.EnableLightProbes ? 1 : 0;
-                pbrMaterialData.IBLIntensity = mat.iblIntensity;
+            ShaderBindingLayout::PBRMaterialUBO pbrMaterialData{};
+            pbrMaterialData.BaseColorFactor = mat.baseColorFactor;
+            pbrMaterialData.EmissiveFactor = mat.emissiveFactor;
+            pbrMaterialData.MetallicFactor = mat.metallicFactor;
+            pbrMaterialData.RoughnessFactor = mat.roughnessFactor;
+            pbrMaterialData.NormalScale = mat.normalScale;
+            pbrMaterialData.OcclusionStrength = mat.occlusionStrength;
+            pbrMaterialData.UseAlbedoMap = mat.albedoMapID.IsValid() ? 1 : 0;
+            pbrMaterialData.UseNormalMap = mat.normalMapID.IsValid() ? 1 : 0;
+            pbrMaterialData.UseMetallicRoughnessMap = mat.metallicRoughnessMapID.IsValid() ? 1 : 0;
+            pbrMaterialData.UseAOMap = mat.aoMapID.IsValid() ? 1 : 0;
+            pbrMaterialData.UseEmissiveMap = mat.emissiveMapID.IsValid() ? 1 : 0;
+            pbrMaterialData.EnableIBL = mat.enableIBL ? 1 : 0;
+            pbrMaterialData.ApplyGammaCorrection = 1;
+            pbrMaterialData.AlphaCutoff = mat.alphaCutoff;
+            pbrMaterialData.AlphaMode = mat.alphaMode;
+            pbrMaterialData.PBRModel = mat.pbrModel;
+            // Physical transmission / IOR / volume (issue #970). Copied
+            // straight through — every value was sanitized by Material's
+            // setters and the extinction was derived at submission, so
+            // there is nothing left to validate at dispatch.
+            pbrMaterialData.TransmissionFactor = mat.transmissionFactor;
+            pbrMaterialData.IOR = mat.ior;
+            pbrMaterialData.ThicknessFactor = mat.thicknessFactor;
+            pbrMaterialData.AttenuationSigmaR = mat.attenuationSigma.r;
+            pbrMaterialData.AttenuationSigmaG = mat.attenuationSigma.g;
+            pbrMaterialData.AttenuationSigmaB = mat.attenuationSigma.b;
+            // Material kind + skin profile (issue #1231). Copied straight
+            // through for the same reason as the block above: the kind was
+            // range-checked by Material's setter and the profile was
+            // resolved (and its parameters sanitized) at submission, so
+            // dispatch has nothing left to validate.
+            pbrMaterialData.MaterialKind = mat.materialKind;
+            pbrMaterialData.SkinProfileSlot = static_cast<i32>(mat.skinProfileSlot);
+            pbrMaterialData.SkinSpecularTintR = mat.skinSpecularTint.r;
+            pbrMaterialData.SkinSpecularTintG = mat.skinSpecularTint.g;
+            pbrMaterialData.SkinSpecularTintB = mat.skinSpecularTint.b;
+            pbrMaterialData.SkinEvaluationModel = mat.skinEvaluationModel;
+            // Thin-region transmission (issue #1242). The two lanes were
+            // packed at submission by SkinTransmissionScatterLane /
+            // SkinTransmissionScalingLane, so — like every block above —
+            // dispatch copies and does not decide. All-zero on a non-skin
+            // material and below transport version 2, which shades as no
+            // transmission.
+            pbrMaterialData.SkinTransmitScatter = mat.skinTransmitScatter;
+            pbrMaterialData.SkinTransmitScaling = mat.skinTransmitScaling;
+            pbrMaterialData.UseThicknessMap = mat.thicknessMapID.IsValid() ? 1 : 0;
+            pbrMaterialData.SkinThicknessBaseMM = mat.skinThicknessBaseMM;
+            // The layered surface response (issue #1243). Packed at
+            // submission by SkinSpecularLane / SkinDetailStrength, so —
+            // like every block above — dispatch copies and does not decide.
+            pbrMaterialData.SkinSpecularLane = mat.skinSpecularLane;
+            pbrMaterialData.SkinOralLane = mat.skinOralLane;
+            pbrMaterialData.SkinOcularCorneaLane = mat.skinOcularCorneaLane;
+            pbrMaterialData.SkinOcularIrisLane = mat.skinOcularIrisLane;
+            pbrMaterialData.SkinOcularResponseLane = mat.skinOcularResponseLane;
+            pbrMaterialData.SkinOcularTintLane = mat.skinOcularTintLane;
+            pbrMaterialData.SkinDetailStrength = mat.skinDetailStrength;
+            // Issue #632: this was a hard-coded 0, which made the forward
+            // path's probe-ambient shader code dead. Wire it to the same
+            // master toggle the deferred path uses so Forward+ scenes get
+            // probe GI (baked SH or realtime DDGI) too.
+            pbrMaterialData.EnableLightProbes = Renderer3D::GetRendererSettings().Deferred.EnableLightProbes ? 1 : 0;
+            pbrMaterialData.IBLIntensity = mat.iblIntensity;
 
-                // Per-material heap offsets. Persistent, not FrameTransient: these
-                // are ASSET-owned textures, so their descriptors are memoised and
-                // stable — which is precisely what lets the UBO stay cached on the
-                // material index instead of being re-uploaded every frame. A
-                // FrameTransient offset would go stale at the frame boundary while
-                // the cache happily served last frame's value.
-                //
-                // Every one resolves to an invalid offset when the heap path is not
-                // live for the program in flight, so the slot-path binds below still
-                // happen and nothing changes on the default path.
-                WriteMaterialHeapOffsets(mat, pbrMaterialData);
+            // Per-material heap offsets. Persistent, not FrameTransient: these
+            // are ASSET-owned textures, so their descriptors are memoised and
+            // stable — which is precisely what lets the UBO stay cached on the
+            // material index instead of being re-uploaded every frame. A
+            // FrameTransient offset would go stale at the frame boundary while
+            // the cache happily served last frame's value.
+            //
+            // Every one resolves to an invalid offset when the heap path is not
+            // live for the program in flight, so the slot-path binds below still
+            // happen and nothing changes on the default path.
+            WriteMaterialHeapOffsets(mat, pbrMaterialData);
 
-                if (Data().MaterialUBO)
-                {
-                    constexpr u32 expectedSize = ShaderBindingLayout::PBRMaterialUBO::GetSize();
-                    static_assert(sizeof(ShaderBindingLayout::PBRMaterialUBO) == expectedSize, "PBRMaterialUBO size mismatch");
-                    Data().MaterialUBO->SetData(&pbrMaterialData, expectedSize);
-                    BindUBOIfNeeded(api, ShaderBindingLayout::UBO_MATERIAL, Data().MaterialUBO->GetRHIHandle());
-                }
-            }
-            else if (Data().MaterialUBO)
+            if (Data().MaterialUBO)
             {
-                // Even when material data hasn't changed, re-establish the binding
-                // point (other subsystems may have overwritten it).
+                constexpr u32 expectedSize = ShaderBindingLayout::PBRMaterialUBO::GetSize();
+                static_assert(sizeof(ShaderBindingLayout::PBRMaterialUBO) == expectedSize, "PBRMaterialUBO size mismatch");
+                Data().MaterialUBO->SetData(&pbrMaterialData, expectedSize);
                 BindUBOIfNeeded(api, ShaderBindingLayout::UBO_MATERIAL, Data().MaterialUBO->GetRHIHandle());
             }
-            else
-            {
-                // No additional handling required.
-            }
-
-            // Always rebind textures — an intervening pass (e.g. DecalPass)
-            // may have changed texture slots since the last material upload.
-            BindPBRTextures(api, mat);
+        }
+        else if (Data().MaterialUBO)
+        {
+            // Even when material data hasn't changed, re-establish the binding
+            // point (other subsystems may have overwritten it).
+            BindUBOIfNeeded(api, ShaderBindingLayout::UBO_MATERIAL, Data().MaterialUBO->GetRHIHandle());
         }
         else
         {
-            if (!sameIndex)
-            {
-                ShaderBindingLayout::MaterialUBO materialData;
-                materialData.Ambient = glm::vec4(mat.ambient, 1.0f);
-                materialData.Diffuse = glm::vec4(mat.diffuse, 1.0f);
-                materialData.Specular = glm::vec4(mat.specular, mat.shininess);
-                materialData.Emissive = glm::vec4(0.0f);
-                materialData.UseTextureMaps = mat.useTextureMaps ? 1 : 0;
-                materialData.AlphaMode = 0;
-                materialData.DoubleSided = 0;
-                materialData.Pad = 0;
-
-                if (Data().MaterialUBO)
-                {
-                    constexpr u32 expectedSize = ShaderBindingLayout::MaterialUBO::GetSize();
-                    static_assert(sizeof(ShaderBindingLayout::MaterialUBO) == expectedSize, "MaterialUBO size mismatch");
-                    Data().MaterialUBO->SetData(&materialData, expectedSize);
-                    BindUBOIfNeeded(api, ShaderBindingLayout::UBO_MATERIAL, Data().MaterialUBO->GetRHIHandle());
-                }
-            }
-            else if (Data().MaterialUBO)
-            {
-                // Even when material data hasn't changed, re-establish the
-                // binding point — other subsystems (e.g. ParticleBatchRenderer)
-                // may have overwritten UBO_MATERIAL.
-                BindUBOIfNeeded(api, ShaderBindingLayout::UBO_MATERIAL, Data().MaterialUBO->GetRHIHandle());
-            }
-            else
-            {
-                // No additional handling required.
-            }
-
-            if (mat.useTextureMaps)
-            {
-                BindLegacyTextures(api, mat);
-            }
+            // No additional handling required.
         }
+
+        // Always rebind textures — an intervening pass (e.g. DecalPass)
+        // may have changed texture slots since the last material upload.
+        BindPBRTextures(api, mat);
     }
 
     // Bind a texture to a unit only when it differs from the currently-tracked
@@ -2134,23 +2087,6 @@ namespace OloEngine
         return Data().Stats;
     }
 
-    void CommandDispatch::UpdateMaterialTextureFlag(bool useTextures)
-    {
-        OLO_PROFILE_FUNCTION();
-
-        if (!Data().MaterialUBO)
-        {
-            OLO_CORE_WARN("CommandDispatch::UpdateMaterialTextureFlag: MaterialUBO not initialized");
-            return;
-        }
-
-        // Update only the UseTextureMaps field in the material UBO
-        i32 flag = useTextures ? 1 : 0;
-        u32 offset = static_cast<u32>(offsetof(ShaderBindingLayout::MaterialUBO, UseTextureMaps));
-
-        Data().MaterialUBO->SetData(&flag, sizeof(i32), offset);
-    }
-
     CommandDispatchFn CommandDispatch::GetDispatchFunction(CommandType type)
     {
         if (type == CommandType::Invalid || static_cast<sizet>(std::to_underlying(type)) >= static_cast<sizet>(std::to_underlying(CommandType::COUNT)))
@@ -2576,8 +2512,7 @@ namespace OloEngine
             UploadMaterialState(api, mat, cmd->materialDataIndex);
 
             // Shadow/snow textures (per-frame, outside material diffing)
-            if (mat.enablePBR)
-                BindShadowTextures(api);
+            BindShadowTextures(api);
 
             // Bone matrices
             if (!UploadBoneMatrices(api, cmd->isAnimatedMesh, cmd->boneBufferOffset, cmd->boneCount, cmd->prevBoneBufferOffset))
@@ -2727,7 +2662,7 @@ namespace OloEngine
 
             // Shadow/snow textures (per-frame, outside material diffing).
             // Depth-only prepass draws never sample shadows.
-            if (mat.enablePBR && !prepassDepthOnly)
+            if (!prepassDepthOnly)
                 BindShadowTextures(api);
 
             // Bone matrices (no-op for non-animated GPU-cull submissions)
@@ -2903,7 +2838,7 @@ namespace OloEngine
 
         // Shadow/snow textures (per-frame, outside material diffing).
         // Depth-only prepass draws never sample shadows.
-        if (mat.enablePBR && !prepassDepthOnly)
+        if (!prepassDepthOnly)
             BindShadowTextures(api);
 
         // Bone matrices

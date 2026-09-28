@@ -1711,20 +1711,10 @@ namespace OloEngine
         auto& mat = c.m_Material;
         if (ar.IsSaving())
         {
-            auto type = mat.GetType();
-            ar << type;
             auto name = mat.GetName().ToStdString();
             ar << name;
             auto flags = mat.GetFlags();
             ar << flags;
-
-            // Legacy
-            auto ambient = mat.GetAmbient();
-            auto diffuse = mat.GetDiffuse();
-            auto specular = mat.GetSpecular();
-            auto shininess = mat.GetShininess();
-            auto useTexMaps = mat.IsUsingTextureMaps();
-            ar << ambient << diffuse << specular << shininess << useTexMaps;
 
             // PBR
             auto baseColor = mat.GetBaseColorFactor();
@@ -1739,26 +1729,12 @@ namespace OloEngine
         }
         else
         {
-            MaterialType type{};
-            ar << type;
-            mat.SetType(type);
             std::string name;
             ar << name;
             mat.SetName(name);
             u32 flags{};
             ar << flags;
             mat.SetFlags(flags);
-
-            // Legacy
-            glm::vec3 ambient{}, diffuse{}, specular{};
-            f32 shininess{};
-            bool useTexMaps{};
-            ar << ambient << diffuse << specular << shininess << useTexMaps;
-            mat.SetAmbient(ambient);
-            mat.SetDiffuse(diffuse);
-            mat.SetSpecular(specular);
-            mat.SetShininess(shininess);
-            mat.SetUseTextureMaps(useTexMaps);
 
             // PBR
             glm::vec4 baseColor{}, emissive{};

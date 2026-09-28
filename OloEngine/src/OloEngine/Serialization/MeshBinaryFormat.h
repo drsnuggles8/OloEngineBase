@@ -111,7 +111,13 @@ namespace OloEngine
         // face, and the index stream then shifted by one or two indices at each of them.
         // The cache stored that shifted stream, so it would keep serving a garbage mesh
         // (and a count meshoptimizer asserts on) after the importer was fixed.
-        constexpr u32 CurrentVersion = 12;
+        //
+        // v13 adds no section. It invalidates every v12 cache because
+        // ImportedMaterialCodec went to wire version 3 (#1499, the Phong type field
+        // left each record) and rejects the v2 blob a v12 file holds. Without the
+        // bump a warm load would decode-fail that section and serve the mesh with
+        // NO materials; with it, the stale cache is re-imported once.
+        constexpr u32 CurrentVersion = 13;
 
         constexpr u32 MinSupportedVersion = 1;
         constexpr u32 FlagCompressed = 1;   // Payload is zlib-compressed

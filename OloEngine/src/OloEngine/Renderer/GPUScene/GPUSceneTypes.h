@@ -162,28 +162,25 @@ namespace OloEngine
 
     // Mirrors Material's authored state one bit per knob, so the deferred
     // G-Buffer flags lane, the closure contract and the shadow filter can all
-    // read the same word. PBR / TwoSided / Blend / DepthTest /
-    // DisableShadowCasting mirror MaterialType + MaterialFlag; IBL mirrors
-    // Material::IsIBLEnabled (the material's own opt-in, not the runtime
-    // global); UseTextureMaps mirrors the legacy Phong sampling switch; the
-    // *Map bits mirror PBRMaterialUBO's Use*Map ints and are set exactly when
-    // the matching texture handle is valid.
+    // read the same word. TwoSided / Blend / DepthTest / DisableShadowCasting
+    // mirror MaterialFlag; IBL mirrors Material::IsIBLEnabled (the material's
+    // own opt-in, not the runtime global); the *Map bits mirror
+    // PBRMaterialUBO's Use*Map ints and are set exactly when the matching
+    // texture handle is valid. Bits 1, 7 and 13 were the Phong material's
+    // PBR / UseTextureMaps / SpecularMap bits (#1499) and are unassigned.
     enum GPUSceneMaterialFlag : u32
     {
         GPUSceneMaterialFlagActive = 1u << 0,
-        GPUSceneMaterialFlagPBR = 1u << 1,
         GPUSceneMaterialFlagTwoSided = 1u << 2,
         GPUSceneMaterialFlagBlend = 1u << 3,
         GPUSceneMaterialFlagDepthTest = 1u << 4,
         GPUSceneMaterialFlagDisableShadowCasting = 1u << 5,
         GPUSceneMaterialFlagIBL = 1u << 6,
-        GPUSceneMaterialFlagUseTextureMaps = 1u << 7,
         GPUSceneMaterialFlagAlbedoMap = 1u << 8,
         GPUSceneMaterialFlagMetallicRoughnessMap = 1u << 9,
         GPUSceneMaterialFlagNormalMap = 1u << 10,
         GPUSceneMaterialFlagOcclusionMap = 1u << 11,
         GPUSceneMaterialFlagEmissiveMap = 1u << 12,
-        GPUSceneMaterialFlagSpecularMap = 1u << 13,
         GPUSceneMaterialFlagTransmission = 1u << 14, // authored transport unsupported by the restricted PT tier
     };
 
@@ -362,16 +359,14 @@ namespace OloEngine
     };
 
     // The canonical material record (issue #992). Field inventory is
-    // PBRMaterialUBO + MaterialUBO, and every UBO field is either carried or
-    // named here as deliberately excluded:
+    // PBRMaterialUBO, and every UBO field is either carried or named here as
+    // deliberately excluded:
     //
-    //   carried  BaseColorFactor (PBR base colour; the legacy Diffuse rides the
-    //            same lane because it is the same albedo knob), EmissiveFactor,
+    //   carried  BaseColorFactor, EmissiveFactor,
     //            Metallic/Roughness/NormalScale/OcclusionStrength, AlphaCutoff,
-    //            AlphaMode, PBRModel (ClosureVersion), the legacy Ambient and
-    //            Specular+Shininess, the Use*Map / DoubleSided / AlphaMode /
-    //            UseTextureMaps switches (Flags), and every material-owned
-    //            texture as RHI handle + heap offset.
+    //            AlphaMode, PBRModel (ClosureVersion), the Use*Map /
+    //            DoubleSided / AlphaMode switches (Flags), and every
+    //            material-owned texture as RHI handle + heap offset.
     //   excluded EnableIBL's runtime half, IBLIntensity, ApplyGammaCorrection
     //            and EnableLightProbes are pass state set by the renderer per
     //            draw, not material data; the material's own IBL opt-in is
@@ -384,10 +379,6 @@ namespace OloEngine
     {
         glm::vec4 BaseColorFactor{ 0.0f };
         glm::vec4 EmissiveFactor{ 0.0f };
-        // Legacy Phong lane. LegacyAmbient.w is unused and always 0;
-        // LegacySpecular.w is the shininess exponent.
-        glm::vec4 LegacyAmbient{ 0.0f };
-        glm::vec4 LegacySpecular{ 0.0f };
 
         f32 MetallicFactor = 0.0f;
         f32 RoughnessFactor = 0.0f;
@@ -412,20 +403,15 @@ namespace OloEngine
 
         u32 EmissiveTextureIndex = RHI::ResourceHandle::InvalidIndex;
         u32 EmissiveTextureGeneration = 0;
-        // Legacy specular map. The legacy diffuse map shares the albedo lane.
-        u32 SpecularTextureIndex = RHI::ResourceHandle::InvalidIndex;
-        u32 SpecularTextureGeneration = 0;
-
         u32 AlbedoHeapOffset = GPUSceneHeapOffsetUnresolved;
         u32 MetallicRoughnessHeapOffset = GPUSceneHeapOffsetUnresolved;
+
         u32 NormalHeapOffset = GPUSceneHeapOffsetUnresolved;
         u32 OcclusionHeapOffset = GPUSceneHeapOffsetUnresolved;
-
         u32 EmissiveHeapOffset = GPUSceneHeapOffsetUnresolved;
-        u32 SpecularHeapOffset = GPUSceneHeapOffsetUnresolved;
         u32 StableIndex = GPUSceneHandle::InvalidIndex;
-        u32 Generation = 0;
 
+        u32 Generation = 0;
         // MATERIAL KIND + SKIN PROFILE SLOT (issue #1231), carried for the same
         // reason ClosureVersion is (#975): PBR_GBuffer.glsl reads the material
         // from the PER-INSTANCE record when one is linked, so an instanced batch
@@ -434,15 +420,11 @@ namespace OloEngine
         // whichever material's kind and profile the UBO happened to hold, and on
         // the deferred path that is a head shading as a generic dielectric — or
         // a rock wearing someone's skin profile — with nothing to see in a log.
-        //
-        // Appended AFTER Generation so every existing field keeps its offset;
-        // the two pads make the addition a whole 16-byte group, which is what
-        // keeps this struct's size and its std430 twin's in step without
-        // implicit trailing padding either side has to guess at.
         u32 MaterialKind = 0;
         u32 SkinProfileSlot = kSkinProfileSlotNone;
-        u32 SkinPad0 = 0;
-        u32 SkinPad1 = 0;
+        // A real member on both sides rather than implicit padding, so the struct
+        // and its std430 twin in GPUScene.glsl end on the same 16-byte boundary.
+        u32 Pad0 = 0;
     };
 
     // The canonical analytic light record (issue #993). Field inventory is the
@@ -543,24 +525,25 @@ namespace OloEngine
     static_assert(offsetof(GPUSceneGeometry, VertexFormat) == 32);
     static_assert(offsetof(GPUSceneGeometry, BaseVertex) == 48);
     static_assert(offsetof(GPUSceneGeometry, Generation) == 56);
-    static_assert(sizeof(GPUSceneMaterial) == 192);
+    static_assert(sizeof(GPUSceneMaterial) == 144);
     static_assert(alignof(GPUSceneMaterial) == 16);
     static_assert(std::is_standard_layout_v<GPUSceneMaterial>);
     static_assert(std::is_trivially_copyable_v<GPUSceneMaterial>);
     static_assert(offsetof(GPUSceneMaterial, BaseColorFactor) == 0);
     static_assert(offsetof(GPUSceneMaterial, EmissiveFactor) == 16);
-    static_assert(offsetof(GPUSceneMaterial, LegacyAmbient) == 32);
-    static_assert(offsetof(GPUSceneMaterial, LegacySpecular) == 48);
-    static_assert(offsetof(GPUSceneMaterial, MetallicFactor) == 64);
-    static_assert(offsetof(GPUSceneMaterial, AlphaCutoff) == 80);
-    static_assert(offsetof(GPUSceneMaterial, ClosureVersion) == 88);
-    static_assert(offsetof(GPUSceneMaterial, AlbedoTextureIndex) == 96);
-    static_assert(offsetof(GPUSceneMaterial, NormalTextureIndex) == 112);
-    static_assert(offsetof(GPUSceneMaterial, EmissiveTextureIndex) == 128);
-    static_assert(offsetof(GPUSceneMaterial, AlbedoHeapOffset) == 144);
-    static_assert(offsetof(GPUSceneMaterial, EmissiveHeapOffset) == 160);
-    static_assert(offsetof(GPUSceneMaterial, StableIndex) == 168);
-    static_assert(offsetof(GPUSceneMaterial, Generation) == 172);
+    static_assert(offsetof(GPUSceneMaterial, MetallicFactor) == 32);
+    static_assert(offsetof(GPUSceneMaterial, AlphaCutoff) == 48);
+    static_assert(offsetof(GPUSceneMaterial, ClosureVersion) == 56);
+    static_assert(offsetof(GPUSceneMaterial, AlbedoTextureIndex) == 64);
+    static_assert(offsetof(GPUSceneMaterial, NormalTextureIndex) == 80);
+    static_assert(offsetof(GPUSceneMaterial, EmissiveTextureIndex) == 96);
+    static_assert(offsetof(GPUSceneMaterial, AlbedoHeapOffset) == 104);
+    static_assert(offsetof(GPUSceneMaterial, NormalHeapOffset) == 112);
+    static_assert(offsetof(GPUSceneMaterial, EmissiveHeapOffset) == 120);
+    static_assert(offsetof(GPUSceneMaterial, StableIndex) == 124);
+    static_assert(offsetof(GPUSceneMaterial, Generation) == 128);
+    static_assert(offsetof(GPUSceneMaterial, MaterialKind) == 132);
+    static_assert(offsetof(GPUSceneMaterial, SkinProfileSlot) == 136);
     static_assert(sizeof(GPUSceneLight) == 80);
     static_assert(alignof(GPUSceneLight) == 16);
     static_assert(std::is_standard_layout_v<GPUSceneLight>);
@@ -938,9 +921,6 @@ namespace OloEngine
     {
         glm::vec4 m_BaseColorFactor{ 1.0f };
         glm::vec4 m_EmissiveFactor{ 0.0f };
-        glm::vec3 m_LegacyAmbient{ 0.1f };
-        glm::vec3 m_LegacySpecular{ 1.0f };
-        f32 m_Shininess = 32.0f;
         f32 m_MetallicFactor = 0.0f;
         f32 m_RoughnessFactor = 1.0f;
         f32 m_NormalScale = 1.0f;
@@ -961,7 +941,6 @@ namespace OloEngine
         GPUSceneTextureRef m_Normal;
         GPUSceneTextureRef m_Occlusion;
         GPUSceneTextureRef m_Emissive;
-        GPUSceneTextureRef m_Specular;
     };
 
     // Authored, world-space. The registry shifts the position by the frame's
@@ -1005,8 +984,6 @@ namespace OloEngine
         GPUSceneMaterial record{};
         record.BaseColorFactor = input.m_BaseColorFactor;
         record.EmissiveFactor = input.m_EmissiveFactor;
-        record.LegacyAmbient = glm::vec4(input.m_LegacyAmbient, 0.0f);
-        record.LegacySpecular = glm::vec4(input.m_LegacySpecular, input.m_Shininess);
         record.MetallicFactor = input.m_MetallicFactor;
         record.RoughnessFactor = input.m_RoughnessFactor;
         record.NormalScale = input.m_NormalScale;
@@ -1021,8 +998,7 @@ namespace OloEngine
         // handles, never a bit a caller left in m_Flags.
         constexpr u32 encoderOwnedFlags = GPUSceneMaterialFlagActive | GPUSceneMaterialFlagAlbedoMap |
                                           GPUSceneMaterialFlagMetallicRoughnessMap | GPUSceneMaterialFlagNormalMap |
-                                          GPUSceneMaterialFlagOcclusionMap | GPUSceneMaterialFlagEmissiveMap |
-                                          GPUSceneMaterialFlagSpecularMap;
+                                          GPUSceneMaterialFlagOcclusionMap | GPUSceneMaterialFlagEmissiveMap;
         u32 flags = (input.m_Flags & ~encoderOwnedFlags) | GPUSceneMaterialFlagActive;
         const auto encodeTexture = [&flags](const GPUSceneTextureRef& texture, u32 presentFlag, u32& index,
                                             u32& textureGeneration, u32& heapOffset)
@@ -1046,8 +1022,6 @@ namespace OloEngine
                       record.OcclusionTextureGeneration, record.OcclusionHeapOffset);
         encodeTexture(input.m_Emissive, GPUSceneMaterialFlagEmissiveMap, record.EmissiveTextureIndex,
                       record.EmissiveTextureGeneration, record.EmissiveHeapOffset);
-        encodeTexture(input.m_Specular, GPUSceneMaterialFlagSpecularMap, record.SpecularTextureIndex,
-                      record.SpecularTextureGeneration, record.SpecularHeapOffset);
         record.Flags = flags;
         record.StableIndex = stableIndex;
         record.Generation = generation;
@@ -1057,14 +1031,13 @@ namespace OloEngine
     // The texture IDENTITY of a material record: every lane's RHI index and
     // generation, never a heap offset. One projection, so a lane the encoder
     // carries is part of the identity rule by construction.
-    [[nodiscard]] constexpr std::array<u32, 12> GPUSceneMaterialTextureIdentity(const GPUSceneMaterial& record)
+    [[nodiscard]] constexpr std::array<u32, 10> GPUSceneMaterialTextureIdentity(const GPUSceneMaterial& record)
     {
         return { record.AlbedoTextureIndex, record.AlbedoTextureGeneration,
                  record.MetallicRoughnessTextureIndex, record.MetallicRoughnessTextureGeneration,
                  record.NormalTextureIndex, record.NormalTextureGeneration,
                  record.OcclusionTextureIndex, record.OcclusionTextureGeneration,
-                 record.EmissiveTextureIndex, record.EmissiveTextureGeneration,
-                 record.SpecularTextureIndex, record.SpecularTextureGeneration };
+                 record.EmissiveTextureIndex, record.EmissiveTextureGeneration };
     }
 
     // The identity rule for materials, applied to two encodings of the same
@@ -1074,7 +1047,6 @@ namespace OloEngine
     [[nodiscard]] inline bool IsCompatibleGPUSceneMaterialEdit(const GPUSceneMaterial& previous,
                                                                const GPUSceneMaterial& next)
     {
-        constexpr u32 classification = GPUSceneMaterialFlagPBR;
         // MaterialKind and SkinProfileSlot are here for the reason ClosureVersion
         // is (issue #1231): they change what the surface IS, not merely how
         // bright it is, so an edit that flips one has to advance the slot
@@ -1083,7 +1055,6 @@ namespace OloEngine
         // profile — would keep a generation that says nothing changed.
         return previous.ClosureVersion == next.ClosureVersion && previous.AlphaMode == next.AlphaMode &&
                previous.MaterialKind == next.MaterialKind && previous.SkinProfileSlot == next.SkinProfileSlot &&
-               (previous.Flags & classification) == (next.Flags & classification) &&
                GPUSceneMaterialTextureIdentity(previous) == GPUSceneMaterialTextureIdentity(next);
     }
 

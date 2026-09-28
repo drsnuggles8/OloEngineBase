@@ -134,7 +134,7 @@ All UBO blocks use `layout(std140, binding = N)`. Block names and members follow
 |---|---|---|
 | 0 | `CameraMatrices` | `u_ViewProjection`, `u_View`, `u_Projection`, `u_CameraPosition` |
 | 1 | `LightProperties` | direction, color, intensity, shadow params |
-| 2 | `MaterialProperties` | albedo, roughness, metallic, emission |
+| 2 | `PBRMaterialProperties` | base colour, roughness, metallic, emission, per-material heap offsets |
 | 3 | `ModelMatrices` | `u_Model`, `u_Normal`, `u_EntityID` |
 | 4 | `AnimationMatrices` | bone matrices array |
 | 5 | `MultiLightBuffer` | light array for multi-light passes |

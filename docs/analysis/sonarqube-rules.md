@@ -482,7 +482,7 @@ the one compile-time check that fails when a C++ lane moves alone. On the first 
 the 26 pin lines carried 52 CRITICAL issues (S986 at 20 min each, M23_224 at 1 h each), about
 35 of the 49 hours of computed debt on new code, and that alone put the Maintainability
 Rating on new code at B. `S1820` fires on `GPUSceneMaterial` (32 fields), which mirrors
-`PBRMaterialUBO` + `MaterialUBO` one lane per field on purpose; splitting it would create a
+`PBRMaterialUBO` one lane per field on purpose; splitting it would create a
 second struct to keep in parity. Same shape as `lever_s1820` above: the count is the contract,
 not a smell.
 

@@ -603,7 +603,7 @@ namespace OloEngine
             ImGui::Text("  [%.2f, %.2f, %.2f, %.2f]", t[row][0], t[row][1], t[row][2], t[row][3]);
 
         ImGui::Separator();
-        if (matPtr && matPtr->enablePBR)
+        if (matPtr)
         {
             ImGui::Text("PBR Material:");
             ImGui::Text("  Base Color: (%.2f, %.2f, %.2f, %.2f)", matPtr->baseColorFactor.r, matPtr->baseColorFactor.g, matPtr->baseColorFactor.b, matPtr->baseColorFactor.a);
@@ -618,15 +618,6 @@ namespace OloEngine
                         FormatHandle(matPtr->normalMapID).c_str(),
                         FormatHandle(matPtr->aoMapID).c_str(),
                         FormatHandle(matPtr->emissiveMapID).c_str());
-        }
-        else if (matPtr)
-        {
-            ImGui::Text("Legacy Material:");
-            ImGui::Text("  Ambient: (%.2f, %.2f, %.2f)", matPtr->ambient.r, matPtr->ambient.g, matPtr->ambient.b);
-            ImGui::Text("  Diffuse: (%.2f, %.2f, %.2f)", matPtr->diffuse.r, matPtr->diffuse.g, matPtr->diffuse.b);
-            ImGui::Text("  Specular: (%.2f, %.2f, %.2f)", matPtr->specular.r, matPtr->specular.g, matPtr->specular.b);
-            ImGui::Text("  Shininess: %.1f", matPtr->shininess);
-            ImGui::Text("  Textures: diffuse=%u, specular=%u", matPtr->diffuseMapID, matPtr->specularMapID);
         }
         else
         {
@@ -1498,7 +1489,7 @@ namespace OloEngine
                         file << "- VAO: " << FormatHandle(meshCmd->vertexArrayID) << ", Index Count: " << meshCmd->indexCount << "\n";
                         file << "- Entity ID: " << meshCmd->entityID << "\n";
                         file << "- Material Data Index: " << meshCmd->materialDataIndex << "\n";
-                        if (mat && mat->enablePBR)
+                        if (mat)
                         {
                             file << "- PBR Material: baseColor=(" << mat->baseColorFactor.r << "," << mat->baseColorFactor.g << "," << mat->baseColorFactor.b << ")"
                                  << " metallic=" << mat->metallicFactor << " roughness=" << mat->roughnessFactor << "\n";

@@ -145,7 +145,7 @@ namespace OloEngine
                         surface.Material.m_AlphaCutoff = layer.AlphaCutoff;
                         surface.Material.m_ClosureVersion = std::to_underlying(PBRModel::ClosureV2);
                         surface.Material.m_MaterialKind = std::to_underlying(MaterialKind::Foliage);
-                        surface.Material.m_Flags = GPUSceneMaterialFlagPBR | GPUSceneMaterialFlagTwoSided | GPUSceneMaterialFlagDepthTest;
+                        surface.Material.m_Flags = GPUSceneMaterialFlagTwoSided | GPUSceneMaterialFlagDepthTest;
                         const auto albedo = mesh && layer.MeshParts[part].Albedo ? layer.MeshParts[part].Albedo : layer.AlbedoTexture;
                         if (albedo && albedo->IsLoaded())
                         {
@@ -332,8 +332,6 @@ namespace OloEngine
                         if (const Ref<Material>& material = model.GetMaterial(sub.m_MaterialIndex); material)
                         {
                             part.Albedo = material->GetAlbedoMap();
-                            if (!part.Albedo)
-                                part.Albedo = material->GetDiffuseMap();
                         }
                     }
                 }

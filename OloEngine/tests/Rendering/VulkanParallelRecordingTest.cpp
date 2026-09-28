@@ -1218,7 +1218,6 @@ TEST_F(VulkanParallelRecordingDevice, BucketsReplayWithItemOwnedMaterialAndInsta
         targets.push_back(MakeTintedTarget(32, colors[item]));
         framebuffers.push_back(targets.back().Target);
         PODMaterialData material{};
-        material.enablePBR = true;
         material.shaderRendererID = kit.Shader->GetRHIHandle();
         material.albedoMapID = kit.White->GetRHIHandle();
         material.baseColorFactor = glm::vec4(colors[item][0], colors[item][1], colors[item][2], static_cast<f32>(item + 1u));

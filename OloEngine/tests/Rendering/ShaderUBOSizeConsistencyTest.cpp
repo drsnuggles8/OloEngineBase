@@ -69,12 +69,11 @@ namespace OloEngine::Tests
         // ShadingRateParams (#683), WaterDisturbanceParams (#967),
         // the two VSM blocks (#715), TerrainBrushParams (#716), the two
         // shared-deformation blocks (#1226) and DDGIRelocateParams (#846).
-        const std::array<KnownBlock, 48> kKnownBlocks = { {
+        const std::array<KnownBlock, 47> kKnownBlocks = { {
             { "CameraMatrices", sizeof(UBOStructures::CameraUBO) },
             { "Camera", sizeof(UBOStructures::CameraUBO) },
             { "MultiLightBuffer", sizeof(UBOStructures::MultiLightUBO) },
             { "MultiLightData", sizeof(UBOStructures::MultiLightUBO) },
-            { "MaterialProperties", sizeof(UBOStructures::MaterialUBO) },
             { "PBRMaterialProperties", sizeof(UBOStructures::PBRMaterialUBO) },
             { "MeshInstanceData", sizeof(MeshParticleInstance) },
             { "AnimationMatrices", sizeof(UBOStructures::AnimationUBO) },

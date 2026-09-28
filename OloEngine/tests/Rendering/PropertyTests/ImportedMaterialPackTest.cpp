@@ -688,7 +688,6 @@ TEST(ImportedMaterialCodecTest, EveryFieldSurvivesTheWireFormat)
 
     MaterialDesc masked;
     masked.Name = "Foliage";
-    masked.Type = static_cast<i32>(MaterialType::PBR);
     masked.Flags = std::to_underlying(MaterialFlag::DepthTest) | std::to_underlying(MaterialFlag::TwoSided);
     masked.AlphaMode = static_cast<i32>(AlphaMode::Mask);
     masked.AlphaCutoff = 0.37f;
@@ -699,7 +698,7 @@ TEST(ImportedMaterialCodecTest, EveryFieldSurvivesTheWireFormat)
     masked.NormalScale = 0.5f;
     masked.OcclusionStrength = 0.25f;
     masked.EnableIBL = true;
-    // Physical glTF material extensions (issue #970), wire version 2.
+    // Physical glTF material extensions (issue #970).
     masked.TransmissionFactor = 0.75f;
     masked.IOR = 1.62f;
     masked.ThicknessFactor = 0.4f;
@@ -722,7 +721,6 @@ TEST(ImportedMaterialCodecTest, EveryFieldSurvivesTheWireFormat)
     const auto& d = decoded[0];
     EXPECT_TRUE(d.Present);
     EXPECT_EQ(d.Name, masked.Name);
-    EXPECT_EQ(d.Type, masked.Type);
     EXPECT_EQ(d.Flags, masked.Flags);
     EXPECT_EQ(d.AlphaMode, masked.AlphaMode);
     EXPECT_FLOAT_EQ(d.AlphaCutoff, masked.AlphaCutoff);
@@ -757,58 +755,36 @@ TEST(ImportedMaterialCodecTest, EveryFieldSurvivesTheWireFormat)
     EXPECT_FALSE(decoded[1].Present);
 }
 
-// A blob written by a pre-#970 build must still decode, with every physical
-// field at its neutral default -- otherwise upgrading the engine invalidates
-// every .omesh cache and every shipped asset pack, and (worse) a material could
-// come back with a garbage transmission read out of the following record.
+// A blob stamped with any version other than CurrentVersion is REJECTED, not
+// migrated (#1499): the codec keeps no reader for an older record layout, so
+// the only safe answer to an older .omesh cache or asset pack is "re-import".
+// Decoding it with the current field order would read the old Phong type field
+// as the flags and shift every later field by four bytes.
 //
-// The v1 blob is DERIVED FROM a real v2 one rather than hand-assembled: the
-// physical block is appended last and is exactly 28 bytes (three floats, a vec3
-// and a float), so stripping those bytes and stamping the version back to 1
-// produces precisely what the old writer would have emitted -- without this
-// test carrying a second copy of the v1 field order to drift against.
-TEST(ImportedMaterialCodecTest, AVersion1BlobDecodesWithNeutralPhysicalDefaults)
+// The positive control decodes the SAME bytes before the stamp, so a rejection
+// here can only come from the version check.
+TEST(ImportedMaterialCodecTest, ABlobFromThePreviousVersionIsRejected)
 {
     using namespace ImportedMaterialCodec;
 
     MaterialDesc desc;
-    desc.Name = "LegacyMaterial";
-    desc.BaseColorFactor = glm::vec4(0.3f, 0.6f, 0.9f, 1.0f);
+    desc.Name = "OlderCacheEntry";
     desc.MetallicFactor = 0.25f;
-    desc.RoughnessFactor = 0.75f;
-    // Physical values that must NOT survive: a v1 reader never wrote them.
-    desc.TransmissionFactor = 0.9f;
-    desc.ThicknessFactor = 2.0f;
-    desc.AttenuationDistance = 0.5f;
 
     std::vector<u8> blob = Encode({ desc });
-    ASSERT_GT(blob.size(), 28u + 12u);
-
-    // Header is magic(u32) + version(u32) + count(u32); stamp version = 1.
-    constexpr sizet kVersionOffset = sizeof(u32);
-    const u32 one = 1u;
-    std::memcpy(blob.data() + kVersionOffset, &one, sizeof(one));
-
-    // Drop the single material's trailing physical block.
-    constexpr sizet kPhysicalBlockBytes = sizeof(f32) * 3 + sizeof(glm::vec3) + sizeof(f32);
-    static_assert(kPhysicalBlockBytes == 28, "the v2 physical block is 28 bytes on the wire");
-    blob.resize(blob.size() - kPhysicalBlockBytes);
+    ASSERT_GT(blob.size(), 12u);
 
     std::vector<MaterialDesc> decoded;
-    ASSERT_TRUE(Decode(blob, decoded)) << "a v1 blob must still be readable";
+    ASSERT_TRUE(Decode(blob, decoded)) << "positive control: the current-version blob must decode";
     ASSERT_EQ(decoded.size(), 1u);
 
-    const auto& d = decoded[0];
-    // The v1 fields survive untouched...
-    EXPECT_EQ(d.Name, "LegacyMaterial");
-    EXPECT_FLOAT_EQ(d.MetallicFactor, 0.25f);
-    EXPECT_FLOAT_EQ(d.RoughnessFactor, 0.75f);
-    // ... and every physical field is the neutral default, not garbage.
-    EXPECT_FLOAT_EQ(d.TransmissionFactor, 0.0f);
-    EXPECT_FLOAT_EQ(d.ThicknessFactor, 0.0f);
-    EXPECT_FLOAT_EQ(d.IOR, kDefaultIOR);
-    EXPECT_TRUE(std::isinf(d.AttenuationDistance));
-    EXPECT_FLOAT_EQ(d.AttenuationColor.r, 1.0f);
+    // Header is magic(u32) + version(u32) + count(u32); stamp CurrentVersion - 1.
+    constexpr sizet kVersionOffset = sizeof(u32);
+    const u32 previous = CurrentVersion - 1u;
+    std::memcpy(blob.data() + kVersionOffset, &previous, sizeof(previous));
+
+    EXPECT_FALSE(Decode(blob, decoded)) << "a blob from version " << previous << " must be rejected";
+    EXPECT_TRUE(decoded.empty()) << "a rejected blob must not leave partially decoded materials behind";
 }
 
 // The Material -> desc -> wire -> desc -> Material loop, which is what the

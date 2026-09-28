@@ -267,8 +267,5 @@ namespace OloEngine
         // bucket replay. Outside an item these return the supplied main object.
         static Ref<UniformBuffer> ResolveRecordingUpload(u32 binding, const Ref<UniformBuffer>& mainBuffer);
         static Ref<InstanceBuffer> ResolveRecordingInstances(const Ref<InstanceBuffer>& mainBuffer);
-
-      private:
-        static void UpdateMaterialTextureFlag(bool useTextures);
     };
 } // namespace OloEngine

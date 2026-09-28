@@ -1070,8 +1070,6 @@ namespace OloEngine
         data.ParallelContext.DynamicCullingEnabled = data.DynamicCullingEnabled;
 
         // Cache shader references for parallel access.
-        data.ParallelContext.DefaultForwardShader = data.DefaultForwardShader;
-        data.ParallelContext.DefaultForwardSkinnedShader = data.DefaultForwardSkinnedShader;
         // Route PBR shader slot to the G-Buffer write variant in Deferred mode
         // so parallel-submission workers pick the correct program without
         // needing to query RendererSettings per draw.
