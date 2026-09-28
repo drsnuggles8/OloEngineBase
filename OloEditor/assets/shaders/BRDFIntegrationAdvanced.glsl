@@ -2,12 +2,11 @@
 // BRDFIntegrationAdvanced.glsl - Quality-configurable BRDF LUT generation
 // Part of OloEngine PBR System
 //
-// The "advanced" split-sum BRDF integrator selected by
-// IBLPrecompute::GenerateBRDFLutAdvanced. It is identical in form to the
-// baseline BRDFLutGeneration.glsl but takes its Monte-Carlo sample count from
-// the IBLAdvancedParams UBO (256/512/1024/2048 across the quality presets)
-// instead of hard-coding 1024, so Ultra spends more samples to drive down the
-// residual noise in the scale/bias terms while Low stays cheap.
+// The split-sum BRDF integrator used by IBLPrecompute::GenerateBRDFLutAdvanced.
+// It takes its Monte-Carlo sample count from the IBLAdvancedParams UBO
+// (256/512/1024/2048 across the quality presets), so Ultra spends more samples
+// to drive down the residual noise in the scale/bias terms while Low stays
+// cheap.
 //
 // Output is the standard RG split-sum pair (scale, bias) consumed by the PBR
 // shaders' `F0 * brdf.x + brdf.y` term; the LUT texture is RG32F.

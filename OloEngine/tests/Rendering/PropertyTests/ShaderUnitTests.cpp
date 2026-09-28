@@ -317,6 +317,8 @@ namespace OloEngine::Tests
     // split-sum BRDF LUT for specular IBL. A degenerate fullscreen primitive or
     // wrong vertex attribute layout silently produces an all-zero RG32F LUT,
     // which removes the entire specular IBL term and turns metals black.
+    // Drives the production GenerateBRDFLutAdvanced path (the only BRDF LUT
+    // generator) at its cheapest quality tier.
     // =========================================================================
     TEST(ShaderUnitIBLTest, BRDFLutGenerationProducesNonZeroSplitSum)
     {
@@ -325,8 +327,8 @@ namespace OloEngine::Tests
         constexpr u32 kSize = 32;
 
         ShaderLibrary shaderLibrary;
-        auto shader = shaderLibrary.Load("BRDFLutGeneration", "assets/shaders/BRDFLutGeneration.glsl");
-        ASSERT_TRUE(shader != nullptr) << "Failed to load BRDFLutGeneration shader";
+        auto shader = shaderLibrary.Load("BRDFIntegrationAdvanced", "assets/shaders/BRDFIntegrationAdvanced.glsl");
+        ASSERT_TRUE(shader != nullptr) << "Failed to load BRDFIntegrationAdvanced shader";
 
         TextureSpecification spec{};
         spec.Width = kSize;
@@ -342,7 +344,9 @@ namespace OloEngine::Tests
             FrameResourceManager::Get().FlushAllDeletionQueues();
         };
 
-        IBLPrecompute::GenerateBRDFLut(lut, shaderLibrary);
+        IBLConfiguration config;
+        config.Quality = IBLQuality::Low; // 256 samples: enough for a smoke test
+        IBLPrecompute::GenerateBRDFLutAdvanced(lut, shaderLibrary, config);
         ::glFinish();
 
         TArray64<u8> bytes;
