@@ -334,7 +334,7 @@ namespace OloEngine
     // Fallback shader — solid magenta, compiled synchronously
     // ====================================================================
 
-    static constexpr const char* s_FallbackVertexSrc = R"glsl(
+    static constexpr const char* s_FallbackVertexHead = R"glsl(
 #version 450 core
 layout(location = 0) in vec3 a_Position;
 
@@ -346,37 +346,28 @@ layout(std140, binding = 0) uniform CameraMatrices
     vec4 u_CameraPosition;
 };
 
-layout(std140, binding = 3) uniform ModelMatrices
-{
-    mat4 u_Model;
-    mat4 u_Normal;
-    int u_EntityID;
-    int _paddingEntity0;
-    int _paddingEntity1;
-    int _paddingEntity2;
-};
+)glsl";
+
+    static constexpr const char* s_FallbackVertexBody = R"glsl(
+layout(location = 14) flat out int v_InstanceIndex;
 
 void main()
 {
-    gl_Position = u_ViewProjectionMatrix * u_Model * vec4(a_Position, 1.0);
+    v_InstanceIndex = gl_InstanceIndex;
+    gl_Position = u_ViewProjectionMatrix * instances[gl_InstanceIndex].Transform * vec4(a_Position, 1.0);
 }
 )glsl";
 
-    static constexpr const char* s_FallbackFragmentSrc = R"glsl(
+    static constexpr const char* s_FallbackFragmentHead = R"glsl(
 #version 450 core
 layout(location = 0) out vec4 o_Color;
 layout(location = 1) out int o_EntityID;
 layout(location = 2) out vec2 o_ViewNormal;
 
-layout(std140, binding = 3) uniform ModelMatrices
-{
-    mat4 u_Model;
-    mat4 u_Normal;
-    int u_EntityID;
-    int _paddingEntity0;
-    int _paddingEntity1;
-    int _paddingEntity2;
-};
+)glsl";
+
+    static constexpr const char* s_FallbackFragmentBody = R"glsl(
+layout(location = 14) flat in int v_InstanceIndex;
 
 // Octahedral encoding: maps a unit normal to [-1,1]^2
 vec2 octEncode(vec3 n)
@@ -393,7 +384,7 @@ void main()
 {
     // Magenta — instantly recognizable as "shader not ready"
     o_Color = vec4(1.0, 0.0, 1.0, 1.0);
-    o_EntityID = u_EntityID;
+    o_EntityID = instances[v_InstanceIndex].EntityID;
     o_ViewNormal = octEncode(vec3(0.0, 0.0, 1.0));
 }
 )glsl";
@@ -403,7 +394,13 @@ void main()
         if (s_FallbackShader)
             return;
 
-        s_FallbackShader = Shader::Create("__Fallback", s_FallbackVertexSrc, s_FallbackFragmentSrc);
+        // The model transform and entity ID come from the InstanceBuffer SSBO every
+        // draw binds; the binding-3 ModelMatrices UBO this used to read is retired
+        // and nothing binds it, so the fallback drew with an unbound transform.
+        const std::string instanceBuffer = ShaderBindingLayout::GetInstanceBufferLayout();
+        const std::string vertexSrc = std::string(s_FallbackVertexHead) + instanceBuffer + s_FallbackVertexBody;
+        const std::string fragmentSrc = std::string(s_FallbackFragmentHead) + instanceBuffer + s_FallbackFragmentBody;
+        s_FallbackShader = Shader::Create("__Fallback", vertexSrc, fragmentSrc);
         OLO_CORE_INFO("Fallback shader initialized (magenta)");
     }
 

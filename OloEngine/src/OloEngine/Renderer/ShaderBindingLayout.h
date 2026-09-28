@@ -4860,6 +4860,31 @@ layout(std140, binding = 3) uniform ModelMatrices {
 };)";
         }
 
+        // The per-draw InstanceBuffer SSBO (binding 15) as GLSL, for shader source
+        // generated in C++ (the magenta fallback, ShaderGraph output). Mirrors
+        // include/InstanceBlock.glsl and InstanceData.h (256 B std430). Every
+        // draw binds it: a non-instanced draw uploads a length-1 buffer, so a
+        // vertex stage reads instances[gl_InstanceIndex].
+        static const char* GetInstanceBufferLayout()
+        {
+            return R"(
+struct InstanceData {
+    mat4 Transform;
+    mat4 Normal;
+    mat4 PrevTransform;
+    vec4 Color;
+    int  EntityID;
+    float Custom;
+    uvec2 StableID;
+    vec4 LightmapScaleOffset;
+    uvec4 GPUSceneRef;
+};
+layout(std430, binding = 15) readonly buffer InstanceBuffer {
+    InstanceData instances[];
+};
+)";
+        }
+
         static std::string GetAnimationUBOLayout()
         {
             // Compile-time validation that GLSL array size matches C++ constant
