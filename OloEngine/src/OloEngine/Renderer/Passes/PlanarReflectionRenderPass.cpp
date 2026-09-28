@@ -236,6 +236,9 @@ namespace OloEngine
         CommandDispatch::SetViewProjectionMatrix(realVP);
         CommandDispatch::SetViewPosition(realPos);
         CommandDispatch::SuspendForwardScreenSpaceAO(false);
+        // Mirror replay bound white AO/depth fallbacks. Restoring the camera
+        // does not restore those texture bindings or descriptor-heap offsets.
+        CommandDispatch::BindForwardScreenSpaceAO();
         CommandDispatch::UploadCameraUBO();
         CommandDispatch::InvalidateRenderStateCache();
 
