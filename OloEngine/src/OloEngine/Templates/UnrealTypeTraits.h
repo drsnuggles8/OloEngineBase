@@ -598,7 +598,7 @@ namespace OloEngine
         template<typename... ArgTypes>
         void EmplaceUnchecked(ArgTypes&&... Args)
         {
-            new (static_cast<void*>(Pad)) T(Forward<ArgTypes>(Args)...);
+            new (static_cast<void*>(Pad)) T(std::forward<ArgTypes>(Args)...);
         }
 
         // Destroys the inner element.
