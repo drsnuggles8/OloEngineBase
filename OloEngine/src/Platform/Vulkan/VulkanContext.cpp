@@ -101,6 +101,7 @@ namespace OloEngine
         {
             VkSemaphore ImageAvailable = VK_NULL_HANDLE;
             VkFence InFlight = VK_NULL_HANDLE;
+            std::shared_ptr<VulkanRecordingCompletion> QueryCompletion;
             VkCommandBuffer Cmd = VK_NULL_HANDLE;
             // A graph fence signal splits the frame into ordered submits. The
             // command pool owns these buffers; the frame fence proves every
@@ -207,6 +208,11 @@ namespace OloEngine
                 if (frame.ImageAvailable != VK_NULL_HANDLE)
                 {
                     vkDestroySemaphore(device, frame.ImageAvailable, nullptr);
+                }
+                if (frame.QueryCompletion)
+                {
+                    // Teardown must never leave a query holding a destroyed fence.
+                    frame.QueryCompletion->SubmittedFence = VK_NULL_HANDLE;
                 }
                 if (frame.InFlight != VK_NULL_HANDLE)
                 {
@@ -1047,6 +1053,10 @@ namespace OloEngine
             vkDestroyFence(device, fence, nullptr);
         }
 
+        // A successful flush proves the old segment's queries completed. A
+        // discarded segment must never inherit the final submission's proof.
+        d.Frames[d.FrameIndex].QueryCompletion = api.RetireFlushedRecording(ok);
+
         // Re-open the recording bracket on EVERY path (reset also recovers a
         // command buffer left invalid by a failed end above), and always hand
         // it back to the API so its recording state stays consistent.
@@ -1149,6 +1159,11 @@ namespace OloEngine
 
         VulkanContextData::Frame& frame = d.Frames[d.FrameIndex];
         VkCheck(vkWaitForFences(device, 1, &frame.InFlight, VK_TRUE, UINT64_MAX), "vkWaitForFences");
+        if (frame.QueryCompletion)
+        {
+            frame.QueryCompletion->Completed = true;
+            frame.QueryCompletion.reset();
+        }
 
         // This fence wait is the one point in the frame that PROVES the GPU is
         // done with frame slot FrameIndex (kFramesInFlight ago). It is therefore
@@ -1224,7 +1239,7 @@ namespace OloEngine
         if (m_FrameRenderCallback)
         {
             auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
-            api.BeginRecording(frame.Cmd);
+            frame.QueryCompletion = api.BeginRecording(frame.Cmd);
             // Publish the acquired image as this recording's DEFAULT
             // framebuffer: FinalRenderPass's BindDefaultFramebuffer (GL's
             // glBindFramebuffer(0)) resolves to it, and the lazy rendering
@@ -1430,6 +1445,10 @@ namespace OloEngine
         submitInfo.signalSemaphoreInfoCount = static_cast<u32>(signalInfos.size());
         submitInfo.pSignalSemaphoreInfos = signalInfos.data();
         VkCheck(vkQueueSubmit2(d.Device.GetQueue(), 1, &submitInfo, frame.InFlight), "vkQueueSubmit2");
+        if (frame.QueryCompletion)
+        {
+            frame.QueryCompletion->SubmittedFence = frame.InFlight;
+        }
 
         VkPresentInfoKHR presentInfo{};
         presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
