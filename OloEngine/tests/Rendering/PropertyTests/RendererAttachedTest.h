@@ -92,6 +92,12 @@ namespace OloEngine::Tests
         // of the process.
         static void TearDownTestSuite();
 
+        // Is FSR2 usable in this process? Asked through the same factory the
+        // pass uses, so the answer cannot disagree with what the pipeline
+        // decides. Not a compile-time check: a Windows GL build can still fail
+        // at context creation, and Linux never builds FSR2 (cmake/fsr2.cmake).
+        [[nodiscard]] static bool TemporalUpscalerUsable();
+
       protected:
         void SetUp() override;
         void TearDown() override;
