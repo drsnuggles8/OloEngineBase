@@ -1,7 +1,9 @@
-InputActionMap:
-  Name: Test
-  Actions:
-    - Name: {nested: thing}
-      Bindings:
-        - Type: Keyboard
-          Code: 65
+InputActionContexts:
+  - Context: Gameplay
+    Map:
+      Name: Test
+      Actions:
+        - Name: {nested: thing}
+          Bindings:
+            - Type: Keyboard
+              Code: 65

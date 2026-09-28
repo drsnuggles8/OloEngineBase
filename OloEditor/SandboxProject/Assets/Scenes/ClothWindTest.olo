@@ -1,4 +1,5 @@
 Scene: ClothWindTest
+Version: 1
 WindSettings:
   Enabled: true
   Direction: [1, 0, 0.2]

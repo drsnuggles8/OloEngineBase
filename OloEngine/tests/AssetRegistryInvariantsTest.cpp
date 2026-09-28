@@ -34,7 +34,10 @@
 #include "OloEngine/Asset/AssetRegistry.h"
 #include "OloEngine/Asset/AssetMetadata.h"
 
+#include "TestTempDir.h"
+
 #include <filesystem>
+#include <fstream>
 #include <string>
 
 namespace OloEngine::Tests
@@ -235,6 +238,37 @@ namespace OloEngine::Tests
     {
         const std::filesystem::path file{ "Assets/Textures/Foo.png" };
         EXPECT_EQ(EditorAssetManager::MakeRegistryKey(file, {}), file);
+    }
+
+    // -------------------------------------------------------------------------
+    // The .oar reader accepts exactly AssetRegistry::FileVersion. A file of any
+    // other version is rejected (and leaves the registry empty), never read with
+    // a guessed layout.
+    // -------------------------------------------------------------------------
+    TEST(AssetRegistryInvariants, DeserializeRejectsAnotherFileVersion)
+    {
+        const std::filesystem::path oar = TempDir() / "AssetRegistry.oar";
+
+        AssetRegistry written;
+        written.AddAsset(MakeMetadata(AssetHandle{ 424242ULL }, AssetType::Texture2D, "Assets/Textures/Foo.png"));
+        ASSERT_TRUE(written.Serialize(oar));
+
+        AssetRegistry current;
+        ASSERT_TRUE(current.Deserialize(oar)) << "positive control: the current version loads";
+        EXPECT_EQ(current.GetAssetCount(), 1u);
+
+        for (const u32 otherVersion : { AssetRegistry::FileVersion - 1, AssetRegistry::FileVersion + 1 })
+        {
+            {
+                std::fstream file(oar, std::ios::binary | std::ios::in | std::ios::out);
+                ASSERT_TRUE(file.is_open());
+                file.seekp(0); // the version is the file's first u32
+                file.write(reinterpret_cast<const char*>(&otherVersion), sizeof(otherVersion));
+            }
+            AssetRegistry rejected;
+            EXPECT_FALSE(rejected.Deserialize(oar)) << "version " << otherVersion;
+            EXPECT_EQ(rejected.GetAssetCount(), 0u);
+        }
     }
 
 } // namespace OloEngine::Tests

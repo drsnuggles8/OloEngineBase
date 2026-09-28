@@ -1,4 +1,5 @@
 Scene: SponzaCSM.olo
+Version: 1
 PostProcessSettings:
   TonemapOperator: 0
   Exposure: 1
@@ -91,7 +92,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     ModelComponent:
-      FilePath: SandboxProject/Assets/Models/Sponza/Sponza.gltf
+      FilePath: Assets/Models/Sponza/Sponza.gltf
       Visible: true
   # ── DamagedHelmet placed at floor center as a focal object to also test IBL response ──
   - Entity: 760000000000011

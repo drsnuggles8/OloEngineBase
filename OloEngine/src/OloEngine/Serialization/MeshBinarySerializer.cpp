@@ -60,10 +60,10 @@ namespace OloEngine
         }
 
         // Returns true if the stream position hasn't exceeded the section boundary.
-        bool VerifySectionBoundary(std::istream& payload, u64 seekBase, u64 sectionEnd,
+        bool VerifySectionBoundary(std::istream& payload, u64 sectionEnd,
                                    const char* sectionName, const std::filesystem::path& path)
         {
-            if (auto const pos = static_cast<u64>(payload.tellg()) - seekBase; pos > sectionEnd)
+            if (auto const pos = static_cast<u64>(payload.tellg()); pos > sectionEnd)
             {
                 OLO_CORE_ERROR("MeshBinarySerializer::Read: {} section read past boundary "
                                "(pos={}, sectionEnd={}) in '{}'",
@@ -531,7 +531,7 @@ namespace OloEngine
                 StreamPos(payload) - directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::MorphTargets))].Offset;
         }
 
-        // ── VirtualMesh Section (v2+, optional) — cooked OVGM DAG blob ──
+        // ── VirtualMesh Section (optional) — cooked OVGM DAG blob ──
         if (meshSource.HasVirtualMeshBlob())
         {
             const auto& blob = meshSource.GetVirtualMeshBlob();
@@ -555,7 +555,7 @@ namespace OloEngine
             }
         }
 
-        // ── ImportedMaterials Section (v4+, optional) ──
+        // ── ImportedMaterials Section (optional) ──
         // The materials the mesh was imported with (issue #629). Without them a warm
         // cache load has to re-run a full Assimp import of the source file purely to
         // rebuild materials — and the asset-pack cook, which reads a MeshSource, had
@@ -583,7 +583,7 @@ namespace OloEngine
             }
         }
 
-        // ── LightmapUVs Section (v6+, optional, issue #439) ──
+        // ── LightmapUVs Section (optional, issue #439) ──
         // The per-vertex UV2 lightmap parameterization. Without it every project
         // re-open would silently discard the unwrap a bake produced, and the next
         // bake would re-run xatlas on every mesh.
@@ -684,112 +684,83 @@ namespace OloEngine
             OLO_CORE_ERROR("MeshBinarySerializer::Read: Invalid magic number in '{}'", path.string());
             return nullptr;
         }
-        // Range check, not equality (docs/agent-rules/binary-format-versioning.md):
-        // a v1 file simply lacks the appended sections; anything newer than this
-        // build (or older than the floor) is rejected.
-        if (header.Version < OMeshFormat::MinSupportedVersion || header.Version > OMeshFormat::CurrentVersion)
+        // Exactly one version is read (docs/agent-rules/binary-format-versioning.md):
+        // a stale or newer cache is rejected and re-imported from its source.
+        if (header.Version != OMeshFormat::CurrentVersion)
         {
-            OLO_CORE_WARN("MeshBinarySerializer::Read: Unsupported version in '{}' (got {}, supported {}..{})",
-                          path.string(), header.Version, OMeshFormat::MinSupportedVersion,
-                          OMeshFormat::CurrentVersion);
+            OLO_CORE_WARN("MeshBinarySerializer::Read: '{}' is mesh cache v{}; this build reads v{} only. "
+                          "It will be re-imported from the source asset.",
+                          path.string(), header.Version, OMeshFormat::CurrentVersion);
+            return nullptr;
+        }
+        // Write always compresses; an uncompressed file is not a layout this build produces.
+        if ((header.Flags & OMeshFormat::FlagCompressed) == 0)
+        {
+            OLO_CORE_ERROR("MeshBinarySerializer::Read: '{}' has no compressed payload flag; "
+                           "delete it so it is re-imported from the source asset.",
+                           path.string());
             return nullptr;
         }
 
-        // ── Obtain the payload stream (decompress if needed) ──
-        // We use a unique_ptr to keep the istringstream alive for the compressed path,
-        // while using the file stream directly for uncompressed (legacy) files.
-        std::unique_ptr<std::istringstream> decompressedStream;
-        std::istream* payloadStream = &in;
-        u64 actualPayloadSize = 0;
-
-        // For the legacy uncompressed path, section offsets in the directory
-        // are relative to the start of the payload (right after the file
-        // header). Record the current stream position so seekg() calls can
-        // adjust by this base offset.
-        auto const payloadBase = static_cast<u64>(in.tellg());
-
-        if (header.Flags & OMeshFormat::FlagCompressed)
+        // ── Decompress the payload ──
+        if (header.TotalFileSize <= sizeof(OMeshFormat::FileHeader))
         {
-            if (header.TotalFileSize <= sizeof(OMeshFormat::FileHeader))
-            {
-                OLO_CORE_ERROR("MeshBinarySerializer::Read: TotalFileSize ({}) too small for compressed payload in '{}'",
-                               header.TotalFileSize, path.string());
-                return nullptr;
-            }
-
-            // Guard against absurd allocation sizes from corrupt files (256 MiB limit)
-            constexpr u64 MAX_COMPRESSED_SIZE = 256u * 1024u * 1024u;
-            auto const compressedSize = header.TotalFileSize - sizeof(OMeshFormat::FileHeader);
-            if (compressedSize > MAX_COMPRESSED_SIZE)
-            {
-                OLO_CORE_ERROR("MeshBinarySerializer::Read: compressed payload size {} exceeds limit in '{}'",
-                               compressedSize, path.string());
-                return nullptr;
-            }
-
-            std::vector<u8> compressedData(compressedSize);
-            if (!ReadBytes(in, compressedData.data(), compressedSize))
-            {
-                OLO_CORE_ERROR("MeshBinarySerializer::Read: Failed to read compressed payload from '{}'", path.string());
-                return nullptr;
-            }
-
-            // Validate CRC32 checksum (always computed by Write, never legitimately zero)
-            if (auto computed = Hash::CRC32(compressedData.data(), compressedData.size());
-                computed != header.Checksum)
-            {
-                OLO_CORE_ERROR("MeshBinarySerializer::Read: Checksum mismatch in '{}' (expected 0x{:08X}, got 0x{:08X})",
-                               path.string(), header.Checksum, computed);
-                return nullptr;
-            }
-
-            auto decompressed = ZlibSection::Decompress(compressedData.data(), compressedData.size(),
-                                                        header.UncompressedPayloadSize,
-                                                        kMaxUncompressedPayloadSize,
-                                                        "MeshBinarySerializer::Read");
-            if (decompressed.empty())
-            {
-                OLO_CORE_ERROR("MeshBinarySerializer::Read: Failed to decompress payload in '{}'", path.string());
-                return nullptr;
-            }
-
-            decompressedStream = std::make_unique<std::istringstream>(
-                std::string(reinterpret_cast<const char*>(decompressed.data()), decompressed.size()),
-                std::ios::binary);
-            payloadStream = decompressedStream.get();
-            actualPayloadSize = decompressed.size();
+            OLO_CORE_ERROR("MeshBinarySerializer::Read: TotalFileSize ({}) too small for compressed payload in '{}'",
+                           header.TotalFileSize, path.string());
+            return nullptr;
         }
 
-        auto& payload = *payloadStream;
-
-        // For the uncompressed (legacy) path the file stream is positioned
-        // right after the header, so absolute seek positions need the base
-        // offset added.  For the compressed path the decompressed stream
-        // starts at 0 — base is 0.
-        u64 const seekBase = decompressedStream ? 0 : payloadBase;
-
-        // For the legacy (uncompressed) path, compute payload size from the file header
-        if (actualPayloadSize == 0)
+        // Guard against absurd allocation sizes from corrupt files (256 MiB limit)
+        constexpr u64 MAX_COMPRESSED_SIZE = 256u * 1024u * 1024u;
+        auto const compressedSize = header.TotalFileSize - sizeof(OMeshFormat::FileHeader);
+        if (compressedSize > MAX_COMPRESSED_SIZE)
         {
-            actualPayloadSize = header.TotalFileSize > sizeof(OMeshFormat::FileHeader)
-                                    ? header.TotalFileSize - sizeof(OMeshFormat::FileHeader)
-                                    : 0;
+            OLO_CORE_ERROR("MeshBinarySerializer::Read: compressed payload size {} exceeds limit in '{}'",
+                           compressedSize, path.string());
+            return nullptr;
         }
 
-        // Read the section directory, sized by the FILE's version — a v1 file
-        // carries 7 entries; the appended entries stay zeroed (Size == 0), so
-        // every later "is the section present" check naturally skips them.
-        u16 const fileSectionCount = OMeshFormat::SectionCountForVersion(header.Version);
+        std::vector<u8> compressedData(compressedSize);
+        if (!ReadBytes(in, compressedData.data(), compressedSize))
+        {
+            OLO_CORE_ERROR("MeshBinarySerializer::Read: Failed to read compressed payload from '{}'", path.string());
+            return nullptr;
+        }
+
+        // Validate CRC32 checksum (always computed by Write, never legitimately zero)
+        if (auto computed = Hash::CRC32(compressedData.data(), compressedData.size());
+            computed != header.Checksum)
+        {
+            OLO_CORE_ERROR("MeshBinarySerializer::Read: Checksum mismatch in '{}' (expected 0x{:08X}, got 0x{:08X})",
+                           path.string(), header.Checksum, computed);
+            return nullptr;
+        }
+
+        auto decompressed = ZlibSection::Decompress(compressedData.data(), compressedData.size(),
+                                                    header.UncompressedPayloadSize,
+                                                    kMaxUncompressedPayloadSize,
+                                                    "MeshBinarySerializer::Read");
+        if (decompressed.empty())
+        {
+            OLO_CORE_ERROR("MeshBinarySerializer::Read: Failed to decompress payload in '{}'", path.string());
+            return nullptr;
+        }
+
+        u64 const actualPayloadSize = decompressed.size();
+        std::istringstream payload(
+            std::string(reinterpret_cast<const char*>(decompressed.data()), decompressed.size()),
+            std::ios::binary);
+
+        // Read the section directory
         OMeshFormat::SectionDirectory directory;
-        if (!ReadBytes(payload, directory.Sections.data(),
-                       static_cast<u64>(fileSectionCount) * sizeof(OMeshFormat::SectionEntry)))
+        if (!ReadBytes(payload, directory.Sections.data(), sizeof(directory.Sections)))
         {
             OLO_CORE_ERROR("MeshBinarySerializer::Read: Failed to read section directory from '{}'", path.string());
             return nullptr;
         }
 
         // Validate all section entries against payload bounds
-        u64 const directoryEnd = static_cast<u64>(fileSectionCount) * sizeof(OMeshFormat::SectionEntry);
+        constexpr u64 directoryEnd = sizeof(OMeshFormat::SectionDirectory::Sections);
         struct ValidRange
         {
             u64 Start;
@@ -843,7 +814,7 @@ namespace OloEngine
             const auto& sec = directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::Geometry))];
             if (sec.Size > 0)
             {
-                payload.seekg(static_cast<std::streamoff>(seekBase + sec.Offset));
+                payload.seekg(static_cast<std::streamoff>(sec.Offset));
                 auto const sectionEnd = sec.Offset + sec.Size;
 
                 OMeshFormat::GeometryHeader geo;
@@ -963,7 +934,7 @@ namespace OloEngine
                 }
 
                 // Verify stream didn't read past the declared section boundary
-                if (!VerifySectionBoundary(payload, seekBase, sectionEnd, "Geometry", path))
+                if (!VerifySectionBoundary(payload, sectionEnd, "Geometry", path))
                 {
                     return nullptr;
                 }
@@ -983,7 +954,7 @@ namespace OloEngine
             const auto& sec = directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::Submeshes))];
             if (sec.Size > 0)
             {
-                payload.seekg(static_cast<std::streamoff>(seekBase + sec.Offset));
+                payload.seekg(static_cast<std::streamoff>(sec.Offset));
 
                 OMeshFormat::SubmeshHeader subHeader;
                 ReadBytes(payload, &subHeader, sizeof(subHeader));
@@ -1059,7 +1030,7 @@ namespace OloEngine
                     meshSource->GetSubmeshes().Add(MoveTemp(sub));
                 }
 
-                if (!VerifySectionBoundary(payload, seekBase, sec.Offset + sec.Size, "Submesh", path))
+                if (!VerifySectionBoundary(payload, sec.Offset + sec.Size, "Submesh", path))
                 {
                     return nullptr;
                 }
@@ -1071,7 +1042,7 @@ namespace OloEngine
             const auto& sec = directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::Materials))];
             if (sec.Size > 0)
             {
-                payload.seekg(static_cast<std::streamoff>(seekBase + sec.Offset));
+                payload.seekg(static_cast<std::streamoff>(sec.Offset));
 
                 OMeshFormat::MaterialHeader matHeader;
                 ReadBytes(payload, &matHeader, sizeof(matHeader));
@@ -1090,7 +1061,7 @@ namespace OloEngine
                     meshSource->SetMaterial(entry.Index, AssetHandle{ entry.Handle });
                 }
 
-                if (!VerifySectionBoundary(payload, seekBase, sec.Offset + sec.Size, "Material", path))
+                if (!VerifySectionBoundary(payload, sec.Offset + sec.Size, "Material", path))
                 {
                     return nullptr;
                 }
@@ -1102,7 +1073,7 @@ namespace OloEngine
             const auto& sec = directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::Skeleton))];
             if (sec.Size > 0)
             {
-                payload.seekg(static_cast<std::streamoff>(seekBase + sec.Offset));
+                payload.seekg(static_cast<std::streamoff>(sec.Offset));
 
                 OMeshFormat::SkeletonHeader skelHeader;
                 ReadBytes(payload, &skelHeader, sizeof(skelHeader));
@@ -1165,7 +1136,7 @@ namespace OloEngine
 
                 meshSource->SetSkeleton(skeleton);
 
-                if (!VerifySectionBoundary(payload, seekBase, sec.Offset + sec.Size, "Skeleton", path))
+                if (!VerifySectionBoundary(payload, sec.Offset + sec.Size, "Skeleton", path))
                 {
                     return nullptr;
                 }
@@ -1177,7 +1148,7 @@ namespace OloEngine
             const auto& sec = directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::BoneInfluences))];
             if (sec.Size > 0)
             {
-                payload.seekg(static_cast<std::streamoff>(seekBase + sec.Offset));
+                payload.seekg(static_cast<std::streamoff>(sec.Offset));
 
                 OMeshFormat::BoneInfluenceHeader biHeader;
                 ReadBytes(payload, &biHeader, sizeof(biHeader));
@@ -1230,7 +1201,7 @@ namespace OloEngine
                     }
                 }
 
-                if (!VerifySectionBoundary(payload, seekBase, sec.Offset + sec.Size, "BoneInfluence", path))
+                if (!VerifySectionBoundary(payload, sec.Offset + sec.Size, "BoneInfluence", path))
                 {
                     return nullptr;
                 }
@@ -1242,7 +1213,7 @@ namespace OloEngine
             const auto& sec = directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::BoneInfo))];
             if (sec.Size > 0)
             {
-                payload.seekg(static_cast<std::streamoff>(seekBase + sec.Offset));
+                payload.seekg(static_cast<std::streamoff>(sec.Offset));
 
                 OMeshFormat::BoneInfoHeader biHeader;
                 ReadBytes(payload, &biHeader, sizeof(biHeader));
@@ -1302,7 +1273,7 @@ namespace OloEngine
                     boneInfo.Add(info);
                 }
 
-                if (!VerifySectionBoundary(payload, seekBase, sec.Offset + sec.Size, "BoneInfo", path))
+                if (!VerifySectionBoundary(payload, sec.Offset + sec.Size, "BoneInfo", path))
                 {
                     return nullptr;
                 }
@@ -1314,7 +1285,7 @@ namespace OloEngine
             const auto& sec = directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::MorphTargets))];
             if (sec.Size > 0)
             {
-                payload.seekg(static_cast<std::streamoff>(seekBase + sec.Offset));
+                payload.seekg(static_cast<std::streamoff>(sec.Offset));
 
                 OMeshFormat::MorphTargetHeader mtHeader;
                 ReadBytes(payload, &mtHeader, sizeof(mtHeader));
@@ -1410,14 +1381,14 @@ namespace OloEngine
 
                 meshSource->SetMorphTargets(morphTargetSet);
 
-                if (!VerifySectionBoundary(payload, seekBase, sec.Offset + sec.Size, "MorphTarget", path))
+                if (!VerifySectionBoundary(payload, sec.Offset + sec.Size, "MorphTarget", path))
                 {
                     return nullptr;
                 }
             }
         }
 
-        // ── VirtualMesh Section (v2+, optional) — cooked OVGM DAG blob ──
+        // ── VirtualMesh Section (optional) — cooked OVGM DAG blob ──
         // Carried verbatim; the OVGM blob is self-validating (own magic, caps,
         // cross-reference checks) when VirtualMeshRegistry deserializes it, so
         // only the container framing is validated here.
@@ -1425,7 +1396,7 @@ namespace OloEngine
             const auto& sec = directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::VirtualMesh))];
             if (sec.Size > 0)
             {
-                payload.seekg(static_cast<std::streamoff>(seekBase + sec.Offset));
+                payload.seekg(static_cast<std::streamoff>(sec.Offset));
 
                 OMeshFormat::VirtualMeshHeader vmHeader;
                 ReadBytes(payload, &vmHeader, sizeof(vmHeader));
@@ -1451,24 +1422,22 @@ namespace OloEngine
                     meshSource->SetVirtualMeshBlob(std::move(blob));
                 }
 
-                if (!VerifySectionBoundary(payload, seekBase, sec.Offset + sec.Size, "VirtualMesh", path))
+                if (!VerifySectionBoundary(payload, sec.Offset + sec.Size, "VirtualMesh", path))
                 {
                     return nullptr;
                 }
             }
         }
 
-        // ── ImportedMaterials Section (v4+, optional) ──
-        // A v1-v3 file has no such directory entry (its Size stays 0), so this is
-        // skipped without touching the stream — the version-gating discipline in
-        // docs/agent-rules/binary-format-versioning.md. A malformed table costs the
-        // materials, not the mesh: warn and continue with none, exactly as if the
-        // section were absent.
+        // ── ImportedMaterials Section (optional) ──
+        // Size 0 means the mesh was written without imported materials. A malformed
+        // table costs the materials, not the mesh: warn and continue with none,
+        // exactly as if the section were absent.
         {
             const auto& sec = directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::ImportedMaterials))];
             if (sec.Size > 0)
             {
-                payload.seekg(static_cast<std::streamoff>(seekBase + sec.Offset));
+                payload.seekg(static_cast<std::streamoff>(sec.Offset));
 
                 OMeshFormat::ImportedMaterialsHeader imHeader;
                 ReadBytes(payload, &imHeader, sizeof(imHeader));
@@ -1505,22 +1474,22 @@ namespace OloEngine
                     }
                 }
 
-                if (!VerifySectionBoundary(payload, seekBase, sec.Offset + sec.Size, "ImportedMaterials", path))
+                if (!VerifySectionBoundary(payload, sec.Offset + sec.Size, "ImportedMaterials", path))
                 {
                     return nullptr;
                 }
             }
         }
 
-        // ── LightmapUVs Section (v6+, optional, issue #439) ──
-        // Pre-v6 files have no directory entry (Size stays 0) and skip this cleanly.
+        // ── LightmapUVs Section (optional, issue #439) ──
+        // Size 0 means the mesh has no lightmap parameterization yet.
         // A malformed section costs the lightmap parameterization, not the mesh:
         // warn and continue without it — the next bake regenerates the unwrap.
         {
             const auto& sec = directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::LightmapUVs))];
             if (sec.Size > 0)
             {
-                payload.seekg(static_cast<std::streamoff>(seekBase + sec.Offset));
+                payload.seekg(static_cast<std::streamoff>(sec.Offset));
 
                 OMeshFormat::LightmapUVsHeader lmHeader;
                 ReadBytes(payload, &lmHeader, sizeof(lmHeader));
@@ -1564,7 +1533,7 @@ namespace OloEngine
                         {
                             meshSource->SetLightmapUVs(std::move(lightmapUVs));
                         }
-                        if (!VerifySectionBoundary(payload, seekBase, sec.Offset + sec.Size, "LightmapUVs", path))
+                        if (!VerifySectionBoundary(payload, sec.Offset + sec.Size, "LightmapUVs", path))
                         {
                             return nullptr;
                         }
@@ -1841,79 +1810,65 @@ namespace OloEngine
         }
         if (header.Version != OAnimFormat::CurrentVersion)
         {
-            OLO_CORE_WARN("AnimationBinarySerializer::Read: Version mismatch in '{}' (got {}, expected {})",
+            OLO_CORE_WARN("AnimationBinarySerializer::Read: '{}' is animation cache v{}; this build reads v{} only. "
+                          "It will be re-imported from the source asset.",
                           path.string(), header.Version, OAnimFormat::CurrentVersion);
             return {};
         }
-
-        // ── Obtain the payload stream (decompress if needed) ──
-        std::unique_ptr<std::istringstream> decompressedStream;
-        std::istream* payloadStream = &in;
-        u64 actualPayloadSize = 0;
-
-        if (header.Flags & OAnimFormat::FlagCompressed)
+        // Write always compresses; an uncompressed file is not a layout this build produces.
+        if ((header.Flags & OAnimFormat::FlagCompressed) == 0)
         {
-            if (header.TotalFileSize < sizeof(OAnimFormat::FileHeader))
-            {
-                OLO_CORE_ERROR("AnimationBinarySerializer::Read: TotalFileSize ({}) is smaller than header in '{}'",
-                               header.TotalFileSize, path.string());
-                return {};
-            }
-            constexpr u64 MAX_COMPRESSED_SIZE = 256u * 1024u * 1024u; // 256 MiB
-            auto const compressedSize = header.TotalFileSize - sizeof(OAnimFormat::FileHeader);
-            if (compressedSize > MAX_COMPRESSED_SIZE)
-            {
-                OLO_CORE_ERROR("AnimationBinarySerializer::Read: compressed payload size {} exceeds limit in '{}'",
-                               compressedSize, path.string());
-                return {};
-            }
-            std::vector<u8> compressedData(compressedSize);
-            if (!ReadBytes(in, compressedData.data(), compressedSize))
-            {
-                OLO_CORE_ERROR("AnimationBinarySerializer::Read: Failed to read compressed payload from '{}'", path.string());
-                return {};
-            }
-
-            // Validate CRC32 checksum (always computed by Write, never legitimately zero)
-            if (auto computed = Hash::CRC32(compressedData.data(), compressedData.size());
-                computed != header.Checksum)
-            {
-                OLO_CORE_ERROR("AnimationBinarySerializer::Read: Checksum mismatch in '{}' (expected 0x{:08X}, got 0x{:08X})",
-                               path.string(), header.Checksum, computed);
-                return {};
-            }
-
-            auto decompressed = ZlibSection::Decompress(compressedData.data(), compressedData.size(),
-                                                        header.UncompressedPayloadSize,
-                                                        kMaxUncompressedPayloadSize,
-                                                        "AnimationBinarySerializer::Read");
-            if (decompressed.empty())
-            {
-                OLO_CORE_ERROR("AnimationBinarySerializer::Read: Failed to decompress payload in '{}'", path.string());
-                return {};
-            }
-
-            decompressedStream = std::make_unique<std::istringstream>(
-                std::string(reinterpret_cast<const char*>(decompressed.data()), decompressed.size()),
-                std::ios::binary);
-            payloadStream = decompressedStream.get();
-            actualPayloadSize = decompressed.size();
+            OLO_CORE_ERROR("AnimationBinarySerializer::Read: '{}' has no compressed payload flag; "
+                           "delete it so it is re-imported from the source asset.",
+                           path.string());
+            return {};
         }
 
-        auto& payload = *payloadStream;
-
-        // For uncompressed payloads, payload data starts after the file header
-        // in the original stream. For decompressed payloads, the stream starts
-        // at offset 0. Track this base so directory seeks are correct.
-        auto const payloadBase = decompressedStream ? sizet(0) : sizeof(OAnimFormat::FileHeader);
-
-        // For the legacy (uncompressed) path, compute payload size from the file header
-        if (actualPayloadSize == 0)
+        // ── Decompress the payload ──
+        if (header.TotalFileSize < sizeof(OAnimFormat::FileHeader))
         {
-            actualPayloadSize = header.TotalFileSize > sizeof(OAnimFormat::FileHeader)
-                                    ? header.TotalFileSize - sizeof(OAnimFormat::FileHeader)
-                                    : 0;
+            OLO_CORE_ERROR("AnimationBinarySerializer::Read: TotalFileSize ({}) is smaller than header in '{}'",
+                           header.TotalFileSize, path.string());
+            return {};
         }
+        constexpr u64 MAX_COMPRESSED_SIZE = 256u * 1024u * 1024u; // 256 MiB
+        auto const compressedSize = header.TotalFileSize - sizeof(OAnimFormat::FileHeader);
+        if (compressedSize > MAX_COMPRESSED_SIZE)
+        {
+            OLO_CORE_ERROR("AnimationBinarySerializer::Read: compressed payload size {} exceeds limit in '{}'",
+                           compressedSize, path.string());
+            return {};
+        }
+        std::vector<u8> compressedData(compressedSize);
+        if (!ReadBytes(in, compressedData.data(), compressedSize))
+        {
+            OLO_CORE_ERROR("AnimationBinarySerializer::Read: Failed to read compressed payload from '{}'", path.string());
+            return {};
+        }
+
+        // Validate CRC32 checksum (always computed by Write, never legitimately zero)
+        if (auto computed = Hash::CRC32(compressedData.data(), compressedData.size());
+            computed != header.Checksum)
+        {
+            OLO_CORE_ERROR("AnimationBinarySerializer::Read: Checksum mismatch in '{}' (expected 0x{:08X}, got 0x{:08X})",
+                           path.string(), header.Checksum, computed);
+            return {};
+        }
+
+        auto decompressed = ZlibSection::Decompress(compressedData.data(), compressedData.size(),
+                                                    header.UncompressedPayloadSize,
+                                                    kMaxUncompressedPayloadSize,
+                                                    "AnimationBinarySerializer::Read");
+        if (decompressed.empty())
+        {
+            OLO_CORE_ERROR("AnimationBinarySerializer::Read: Failed to decompress payload in '{}'", path.string());
+            return {};
+        }
+
+        u64 const actualPayloadSize = decompressed.size();
+        std::istringstream payload(
+            std::string(reinterpret_cast<const char*>(decompressed.data()), decompressed.size()),
+            std::ios::binary);
 
         u32 clipCount = 0;
         if (!ReadBytes(payload, &clipCount, sizeof(u32)))
@@ -1991,9 +1946,9 @@ namespace OloEngine
             }
 
             // Bounds already validated above; seek directly.
-            payload.seekg(static_cast<std::streamoff>(payloadBase + directory[i].Offset));
+            payload.seekg(static_cast<std::streamoff>(directory[i].Offset));
 
-            auto const clipEnd = static_cast<std::streamoff>(payloadBase + directory[i].Offset + directory[i].Size);
+            auto const clipEnd = static_cast<std::streamoff>(directory[i].Offset + directory[i].Size);
 
             // Helper: verify that 'neededBytes' won't exceed the clip boundary.
             auto const ensureClipRemaining = [&payload, &clipEnd, &i, &path](sizet neededBytes, const char* context) -> bool

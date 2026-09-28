@@ -1,4 +1,5 @@
 Scene: SponzaDeferred.olo
+Version: 1
 # NOTE: SponzaDeferred.olo is the deferred-path companion to SponzaCSM.olo —
 # similar geometry, but NOT byte-for-byte identical. Differences to keep in
 # mind when A/B'ing the two:
@@ -165,7 +166,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     ModelComponent:
-      FilePath: SandboxProject/Assets/Models/Sponza/Sponza.gltf
+      FilePath: Assets/Models/Sponza/Sponza.gltf
       Visible: true
   # ── DamagedHelmet (focal object — easier to spot G-Buffer artifacts on a high-roughness sweep) ──
   - Entity: 790000000000011

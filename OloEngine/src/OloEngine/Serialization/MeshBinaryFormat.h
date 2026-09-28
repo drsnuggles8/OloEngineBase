@@ -28,11 +28,10 @@ namespace OloEngine
     // All multi-byte values are little-endian.
     // String table entries: u32 length + UTF-8 bytes (no null terminator).
     //
-    // Versioning (docs/agent-rules/binary-format-versioning.md): the version
-    // check accepts the [MinSupportedVersion, CurrentVersion] range and the
-    // SectionDirectory is sized per the FILE's version — a v1 file carries 7
-    // directory entries, v2+ carries kSectionCount. New sections must only
-    // ever be APPENDED to SectionType so old readers index correctly.
+    // Versioning (docs/agent-rules/binary-format-versioning.md): the reader
+    // accepts exactly CurrentVersion with FlagCompressed set; any other file is
+    // rejected and re-imported from its source. The SectionDirectory always
+    // carries kSectionCount entries.
     // ============================================================================
 
     namespace OMeshFormat
@@ -119,8 +118,7 @@ namespace OloEngine
         // NO materials; with it, the stale cache is re-imported once.
         constexpr u32 CurrentVersion = 13;
 
-        constexpr u32 MinSupportedVersion = 1;
-        constexpr u32 FlagCompressed = 1;   // Payload is zlib-compressed
+        constexpr u32 FlagCompressed = 1;   // Payload is zlib-compressed (always set; required by the reader)
         constexpr u32 FlagPreOptimized = 2; // Mesh was already optimized before caching
         // v8+ (issue #1272): the SOURCE FILE this cache was built from contained bones.
         // Distinct from "this file has a BoneInfluence section" -- a rigged source imported
@@ -139,9 +137,8 @@ namespace OloEngine
         constexpr u64 MaxEncodedSize = 2'000'000'000;       // 2 GB
         constexpr u64 MaxVirtualMeshBlobSize = 512'000'000; // 512 MB — OVGM cook blob cap
 
-        // Section identifiers. APPEND ONLY — the on-disk directory is indexed
-        // by these values, and SectionCountForVersion() below assumes every
-        // version's sections are a prefix of the next version's.
+        // Section identifiers — the on-disk directory is indexed by these values.
+        // Adding, removing or reordering one changes the layout: bump CurrentVersion.
         enum class SectionType : u16
         {
             Geometry = 0,
@@ -158,18 +155,6 @@ namespace OloEngine
         };
 
         constexpr auto kSectionCount = std::to_underlying(SectionType::Count);
-
-        // Number of SectionDirectory entries present in a file of the given
-        // version — a reader must size its directory read by the FILE's
-        // version, not its own.
-        [[nodiscard]] constexpr u16 SectionCountForVersion(u32 version)
-        {
-            if (version >= 6)
-                return kSectionCount;
-            if (version >= 4)
-                return 9;
-            return version >= 2 ? 8 : 7;
-        }
 
         struct FileHeader
         {
@@ -452,13 +437,6 @@ namespace OloEngine
     static_assert(std::is_trivially_copyable_v<OMeshFormat::SectionDirectory>);
     static_assert(std::is_standard_layout_v<OMeshFormat::SectionDirectory>);
     static_assert(sizeof(OMeshFormat::SectionDirectory) == 160);
-    static_assert(OMeshFormat::SectionCountForVersion(1) == 7);
-    static_assert(OMeshFormat::SectionCountForVersion(2) == 8);
-    static_assert(OMeshFormat::SectionCountForVersion(3) == 8);
-    static_assert(OMeshFormat::SectionCountForVersion(4) == 9);
-    static_assert(OMeshFormat::SectionCountForVersion(5) == 9);
-    static_assert(OMeshFormat::SectionCountForVersion(6) == OMeshFormat::kSectionCount);
-    static_assert(OMeshFormat::SectionCountForVersion(OMeshFormat::CurrentVersion) == OMeshFormat::kSectionCount);
 
     static_assert(std::is_trivially_copyable_v<OMeshFormat::GeometryHeader>);
     static_assert(std::is_standard_layout_v<OMeshFormat::GeometryHeader>);

@@ -1,4 +1,5 @@
 Scene: ParallelRecording
+Version: 1
 Entities:
   - Entity: 1013000001000000
     TagComponent:
@@ -26,7 +27,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     ModelComponent:
-      FilePath: SandboxProject/Assets/Models/Benchmark/RecordingCasters.glb
+      FilePath: Assets/Models/Benchmark/RecordingCasters.glb
       Visible: true
   - Entity: 1013000001000002
     TagComponent:

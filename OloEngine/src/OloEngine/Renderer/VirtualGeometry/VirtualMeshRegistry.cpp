@@ -75,10 +75,10 @@ namespace OloEngine
         }
 
         // Fast path: a cooked blob (imported through the .omesh cache's VirtualMesh
-        // section, or the asset pack's v4 trailing blob) skips the whole
+        // section, or the asset pack's trailing blob) skips the whole
         // clusterize/simplify build. DeserializeSetFromBlob treats the blob as hostile
-        // input and also accepts a legacy single-DAG "OVGM" cook; a stale or corrupt one
-        // falls back to the runtime build rather than failing the component.
+        // input and accepts only an "OVGS" set; a stale, foreign or corrupt one is
+        // rebuilt at runtime (with the warning below) rather than failing the component.
         VirtualMeshSet built;
         bool haveBuilt = false;
         if (source.HasVirtualMeshBlob())

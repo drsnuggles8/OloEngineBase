@@ -225,7 +225,10 @@ namespace OloEngine
             return m_Chunks;
         }
 
-        // RLE serialization
+        // RLE serialization. The blob starts with RLEMagic ("VOX1", little-endian) and RLEVersion;
+        // DeserializeRLE rejects any other magic or version.
+        static constexpr i32 RLEMagic = 0x31584F56;
+        static constexpr i32 RLEVersion = 1;
         [[nodiscard]] TArray<u8> SerializeRLE() const;
         bool DeserializeRLE(const TArray<u8>& data);
 

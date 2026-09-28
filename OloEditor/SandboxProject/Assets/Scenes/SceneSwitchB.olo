@@ -1,4 +1,5 @@
 Scene: SceneSwitchB.olo
+Version: 1
 Entities:
   - Entity: 6420000000000000011
     TagComponent:

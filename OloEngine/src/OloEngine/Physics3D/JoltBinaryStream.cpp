@@ -8,7 +8,6 @@
 #include <Jolt/Physics/Collision/PhysicsMaterial.h>
 #include <Jolt/Core/StreamOut.h>
 #include <Jolt/Core/StreamIn.h>
-#include <array>
 #include <cstring>
 #include <limits>
 
@@ -96,21 +95,11 @@ namespace OloEngine
                 // Note: SaveBinaryState internally writes EShapeType/EShapeSubType headers
                 shape->SaveBinaryState(streamAdapter);
 
-                // Save materials used by this shape
+                // Save the material count only. Material properties are handled through contact
+                // callbacks, and deserialization restores every slot as PhysicsMaterial::sDefault.
                 JPH::PhysicsMaterialList materials;
                 shape->SaveMaterialState(materials);
                 streamAdapter.Write(static_cast<u32>(materials.size()));
-
-                // For now, save material count only (material properties are handled through contact callbacks in Jolt)
-                // Material debug names are not serialized since deserialization only uses PhysicsMaterial::sDefault
-                // In the future, this could be enhanced to serialize custom material properties with a registry
-                for ([[maybe_unused]] const JPH::PhysicsMaterialRefC& material : materials)
-                {
-                    // Write zero name length to indicate no name data (reduces blob size)
-                    constexpr u32 nameLength = 0;
-                    streamAdapter.Write(nameLength);
-                    // No name bytes written - deserialization will skip reading names
-                }
 
                 streamAdapter.Write(static_cast<u32>(subShapes.size()));
 
@@ -182,38 +171,9 @@ namespace OloEngine
                 }
                 else
                 {
-                    // Safe to allocate and process materials
-                    std::vector<JPH::PhysicsMaterialRefC> materials;
-                    materials.reserve(static_cast<size_t>(materialCount));
-
-                    for (u32 i = 0; i < materialCount; ++i)
-                    {
-                        // Read material debug name length (expected to be zero)
-                        u32 nameLength;
-                        streamAdapter.Read(nameLength);
-
-                        // Skip any name data if present (for backwards compatibility)
-                        if (nameLength > 0)
-                        {
-                            // Drain the name bytes to maintain stream consistency
-                            constexpr u32 DRAIN_CHUNK_SIZE = 256;
-                            std::array<u8, DRAIN_CHUNK_SIZE> drainBuffer;
-
-                            u32 remainingBytes = nameLength;
-                            while (remainingBytes > 0)
-                            {
-                                u32 chunkSize = std::min(remainingBytes, DRAIN_CHUNK_SIZE);
-                                streamAdapter.ReadBytes(drainBuffer.data(), chunkSize);
-                                remainingBytes -= chunkSize;
-                            }
-
-                            OLO_CORE_WARN("JoltBinaryStreamUtils::DeserializeShape: Skipping material debug name ({} bytes) - names not used in current implementation", nameLength);
-                        }
-
-                        // Always use default material since we don't have a material registry yet
-                        JPH::PhysicsMaterialRefC material = JPH::PhysicsMaterial::sDefault;
-                        materials.push_back(material);
-                    }
+                    // No material registry yet: every slot is restored as the default material.
+                    std::vector<JPH::PhysicsMaterialRefC> materials(static_cast<size_t>(materialCount),
+                                                                    JPH::PhysicsMaterial::sDefault);
 
                     // Restore material references (if the shape supports it)
                     if (!materials.empty())
@@ -287,7 +247,19 @@ namespace OloEngine
                 return nullptr;
 
             JoltBinaryStreamReader reader(buffer);
-            return DeserializeShape(reader);
+            JPH::Ref<JPH::Shape> shape = DeserializeShape(reader);
+
+            // The blob has no version header, so a layout change shows up as a length mismatch.
+            // A buffer that is not consumed exactly was written by a different layout (or is
+            // corrupt): reject it so the caller re-cooks instead of trusting a misread shape.
+            if (shape != nullptr && reader.GetRemainingBytes() != 0)
+            {
+                OLO_CORE_ERROR("JoltBinaryStreamUtils::DeserializeShapeFromBuffer: {} trailing bytes after the shape; "
+                               "the blob does not match this build's layout, re-cook the collider",
+                               reader.GetRemainingBytes());
+                return nullptr;
+            }
+            return shape;
         }
 
         // @brief Validate serialized shape data

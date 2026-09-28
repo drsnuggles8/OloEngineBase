@@ -1,4 +1,5 @@
 Scene: VirtualGeometrySkinned.olo
+Version: 1
 # ─────────────────────────────────────────────────────────────────────────────
 # Skinned virtualized geometry (issue #1150) — a rigged character drawn through
 # the Nanite-style cluster LOD DAG.

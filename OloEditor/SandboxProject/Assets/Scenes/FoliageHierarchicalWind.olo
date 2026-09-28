@@ -1,4 +1,5 @@
 Scene: FoliageHierarchicalWind.olo
+Version: 1
 PostProcessSettings:
   TonemapOperator: 1
   Exposure: 1
@@ -185,8 +186,8 @@ Entities:
       Enabled: true
       Layers:
         - Name: Woody Wind
-          MeshPath: SandboxProject/Assets/Models/Vegetation/pine/pine.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/pine/Textures/pine_card.png
+          MeshPath: Assets/Models/Vegetation/pine/pine.obj
+          AlbedoPath: Assets/Models/Vegetation/pine/Textures/pine_card.png
           Density: 0.05
           SplatmapChannel: -1
           MinSlopeAngle: 0
@@ -228,8 +229,8 @@ Entities:
           ImpostorHemiOctahedral: true
           Enabled: true
         - Name: Shrub
-          MeshPath: SandboxProject/Assets/Models/Vegetation/shrub/shrub.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/shrub/Textures/shrub_card.png
+          MeshPath: Assets/Models/Vegetation/shrub/shrub.obj
+          AlbedoPath: Assets/Models/Vegetation/shrub/Textures/shrub_card.png
           Density: 0.9
           SplatmapChannel: -1
           MinSlopeAngle: 0

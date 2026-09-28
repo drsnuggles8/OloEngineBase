@@ -155,7 +155,7 @@ add_executable(OloEngine-Tests
 		OloHeaderToolOutputsTest.cpp
 		OloHeaderToolClassifierTest.cpp
 		SceneSerializerFuzzRegressionTest.cpp
-		SceneVersionMigrationTest.cpp
+		SceneVersionTest.cpp
 		EngineSubsystemSmokeTest.cpp
 		AppLaunchSmokeTest.cpp
 		GpuGateSwitchTest.cpp

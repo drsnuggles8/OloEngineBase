@@ -1,4 +1,5 @@
 Scene: Drift.olo
+Version: 1
 PostProcessSettings:
   TonemapOperator: 1
   Exposure: 1
@@ -1059,8 +1060,8 @@ Entities:
       Enabled: true
       Layers:
         - Name: Scrub
-          MeshPath: SandboxProject/Assets/Models/Vegetation/shrub/shrub.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/shrub/Textures/shrub_card.png
+          MeshPath: Assets/Models/Vegetation/shrub/shrub.obj
+          AlbedoPath: Assets/Models/Vegetation/shrub/Textures/shrub_card.png
           Density: 0.45
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -1081,8 +1082,8 @@ Entities:
           AlphaCutoff: 0.5
           Enabled: true
         - Name: Dune grass
-          MeshPath: SandboxProject/Assets/Models/Vegetation/grass_dry/grass_dry.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
+          MeshPath: Assets/Models/Vegetation/grass_dry/grass_dry.obj
+          AlbedoPath: Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
           Density: 0.16
           SplatmapChannel: 0
           MinSlopeAngle: 0
@@ -1103,8 +1104,8 @@ Entities:
           AlphaCutoff: 0.5
           Enabled: true
         - Name: Pines
-          MeshPath: SandboxProject/Assets/Models/Vegetation/pine/pine.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/pine/Textures/pine_card.png
+          MeshPath: Assets/Models/Vegetation/pine/pine.obj
+          AlbedoPath: Assets/Models/Vegetation/pine/Textures/pine_card.png
           Density: 0.016
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -1318,8 +1319,8 @@ Entities:
       Enabled: true
       Layers:
         - Name: Scrub
-          MeshPath: SandboxProject/Assets/Models/Vegetation/shrub/shrub.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/shrub/Textures/shrub_card.png
+          MeshPath: Assets/Models/Vegetation/shrub/shrub.obj
+          AlbedoPath: Assets/Models/Vegetation/shrub/Textures/shrub_card.png
           Density: 0.45
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -1340,8 +1341,8 @@ Entities:
           AlphaCutoff: 0.5
           Enabled: true
         - Name: Dune grass
-          MeshPath: SandboxProject/Assets/Models/Vegetation/grass_dry/grass_dry.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
+          MeshPath: Assets/Models/Vegetation/grass_dry/grass_dry.obj
+          AlbedoPath: Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
           Density: 0.16
           SplatmapChannel: 0
           MinSlopeAngle: 0
@@ -1362,8 +1363,8 @@ Entities:
           AlphaCutoff: 0.5
           Enabled: true
         - Name: Broadleaf
-          MeshPath: SandboxProject/Assets/Models/Vegetation/broadleaf/broadleaf.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/broadleaf/Textures/broadleaf_card.png
+          MeshPath: Assets/Models/Vegetation/broadleaf/broadleaf.obj
+          AlbedoPath: Assets/Models/Vegetation/broadleaf/Textures/broadleaf_card.png
           Density: 0.014
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -1577,8 +1578,8 @@ Entities:
       Enabled: true
       Layers:
         - Name: Scrub
-          MeshPath: SandboxProject/Assets/Models/Vegetation/shrub/shrub.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/shrub/Textures/shrub_card.png
+          MeshPath: Assets/Models/Vegetation/shrub/shrub.obj
+          AlbedoPath: Assets/Models/Vegetation/shrub/Textures/shrub_card.png
           Density: 0.45
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -1599,8 +1600,8 @@ Entities:
           AlphaCutoff: 0.5
           Enabled: true
         - Name: Dune grass
-          MeshPath: SandboxProject/Assets/Models/Vegetation/grass_dry/grass_dry.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
+          MeshPath: Assets/Models/Vegetation/grass_dry/grass_dry.obj
+          AlbedoPath: Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
           Density: 0.16
           SplatmapChannel: 0
           MinSlopeAngle: 0
@@ -1621,8 +1622,8 @@ Entities:
           AlphaCutoff: 0.5
           Enabled: true
         - Name: Broadleaf
-          MeshPath: SandboxProject/Assets/Models/Vegetation/broadleaf/broadleaf.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/broadleaf/Textures/broadleaf_card.png
+          MeshPath: Assets/Models/Vegetation/broadleaf/broadleaf.obj
+          AlbedoPath: Assets/Models/Vegetation/broadleaf/Textures/broadleaf_card.png
           Density: 0.014
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -1836,8 +1837,8 @@ Entities:
       Enabled: true
       Layers:
         - Name: Ferns
-          MeshPath: SandboxProject/Assets/Models/Vegetation/fern/fern.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/fern/Textures/fern_card.png
+          MeshPath: Assets/Models/Vegetation/fern/fern.obj
+          AlbedoPath: Assets/Models/Vegetation/fern/Textures/fern_card.png
           Density: 0.3
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -2043,8 +2044,8 @@ Entities:
       Enabled: true
       Layers:
         - Name: Scrub
-          MeshPath: SandboxProject/Assets/Models/Vegetation/shrub/shrub.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/shrub/Textures/shrub_card.png
+          MeshPath: Assets/Models/Vegetation/shrub/shrub.obj
+          AlbedoPath: Assets/Models/Vegetation/shrub/Textures/shrub_card.png
           Density: 0.45
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -2065,8 +2066,8 @@ Entities:
           AlphaCutoff: 0.5
           Enabled: true
         - Name: Dune grass
-          MeshPath: SandboxProject/Assets/Models/Vegetation/grass_dry/grass_dry.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
+          MeshPath: Assets/Models/Vegetation/grass_dry/grass_dry.obj
+          AlbedoPath: Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
           Density: 0.16
           SplatmapChannel: 0
           MinSlopeAngle: 0
@@ -2087,8 +2088,8 @@ Entities:
           AlphaCutoff: 0.5
           Enabled: true
         - Name: Broadleaf
-          MeshPath: SandboxProject/Assets/Models/Vegetation/broadleaf/broadleaf.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/broadleaf/Textures/broadleaf_card.png
+          MeshPath: Assets/Models/Vegetation/broadleaf/broadleaf.obj
+          AlbedoPath: Assets/Models/Vegetation/broadleaf/Textures/broadleaf_card.png
           Density: 0.014
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -2302,8 +2303,8 @@ Entities:
       Enabled: true
       Layers:
         - Name: Scrub
-          MeshPath: SandboxProject/Assets/Models/Vegetation/shrub/shrub.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/shrub/Textures/shrub_card.png
+          MeshPath: Assets/Models/Vegetation/shrub/shrub.obj
+          AlbedoPath: Assets/Models/Vegetation/shrub/Textures/shrub_card.png
           Density: 0.45
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -2324,8 +2325,8 @@ Entities:
           AlphaCutoff: 0.5
           Enabled: true
         - Name: Dune grass
-          MeshPath: SandboxProject/Assets/Models/Vegetation/grass_dry/grass_dry.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
+          MeshPath: Assets/Models/Vegetation/grass_dry/grass_dry.obj
+          AlbedoPath: Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
           Density: 0.16
           SplatmapChannel: 0
           MinSlopeAngle: 0
@@ -2346,8 +2347,8 @@ Entities:
           AlphaCutoff: 0.5
           Enabled: true
         - Name: Pines
-          MeshPath: SandboxProject/Assets/Models/Vegetation/pine/pine.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/pine/Textures/pine_card.png
+          MeshPath: Assets/Models/Vegetation/pine/pine.obj
+          AlbedoPath: Assets/Models/Vegetation/pine/Textures/pine_card.png
           Density: 0.016
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -2564,7 +2565,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [0.57, 0.57, 0.57]
     ModelComponent:
-      FilePath: SandboxProject/Assets/Models/KenneyVehicles/ship-small-hull.glb
+      FilePath: Assets/Models/KenneyVehicles/ship-small-hull.glb
       Visible: true
     RelationshipComponent:
       ParentHandle: 879000000000020
@@ -2595,7 +2596,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     ModelComponent:
-      FilePath: SandboxProject/Assets/Models/KenneyVehicles/ship-small-sail.glb
+      FilePath: Assets/Models/KenneyVehicles/ship-small-sail.glb
       Visible: true
     RelationshipComponent:
       ParentHandle: 879000000000021

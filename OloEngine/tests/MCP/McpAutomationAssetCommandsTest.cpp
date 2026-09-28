@@ -108,7 +108,7 @@ namespace OloEngine::Automation::Tests
             std::filesystem::create_directories(m_Project / "Assets" / "Textures", ec);
 
             Write(TexturePath(), "not-really-a-png");
-            Write(ScenePath(), "Scene: Test\n"
+            Write(ScenePath(), "Scene: Test\nVersion: 1\n"
                                "Entities:\n"
                                "  - Entity: 900001\n"
                                "    TagComponent:\n"
@@ -181,7 +181,7 @@ namespace OloEngine::Automation::Tests
         const Json& reference = result.at("references").at(0);
         EXPECT_EQ(reference.at("key").get<std::string>(), "AlbedoTexturePath");
         EXPECT_EQ(reference.at("projectPath").get<std::string>(), "Assets/Scenes/Test.olo");
-        EXPECT_EQ(reference.at("line").get<u32>(), 7u);
+        EXPECT_EQ(reference.at("line").get<u32>(), 8u);
 
         // The boundary travels with the answer. An empty list must never be
         // readable as "nothing references this" on its own.
@@ -322,7 +322,7 @@ namespace OloEngine::Automation::Tests
         EXPECT_TRUE(result.at("forced").get<bool>());
         // Counting is not enough: the caller has to be able to go and fix them.
         ASSERT_EQ(result.at("referencesBroken").get<u32>(), 1u);
-        EXPECT_EQ(result.at("brokenReferences").at(0).at("line").get<u32>(), 7u);
+        EXPECT_EQ(result.at("brokenReferences").at(0).at("line").get<u32>(), 8u);
         EXPECT_FALSE(std::filesystem::exists(TexturePath()));
     }
 

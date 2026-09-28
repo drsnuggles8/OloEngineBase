@@ -322,3 +322,22 @@ TEST_F(StaticMeshColliderGenerationTest, GeneratedColliderCooksAndIsHitByRaycast
     // Front face is at z = -0.5 -> fraction (-0.5 - -2.0) / 4.0 = 0.375.
     EXPECT_NEAR(hit.mFraction, 0.375f, 1e-3f);
 }
+
+// The Jolt shape blob has no version header, so a layout change surfaces as a
+// length mismatch. A blob with bytes left over after the shape (for example one
+// written when every material slot carried a name length) must be rejected so the
+// cooker re-cooks it, not rebuilt into a shape from misread fields.
+TEST_F(StaticMeshColliderGenerationTest, ShapeBlobWithTrailingBytesIsRejected)
+{
+    const std::vector<glm::vec3> vertices = { { 0.0f, 0.0f, 0.0f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f } };
+    const std::vector<u32> indices = { 0, 1, 2 };
+
+    MeshCookingFactory factory(MakeUniqueScratchDir("ShapeBlobTrailing"));
+    SubmeshColliderData cooked;
+    ASSERT_EQ(factory.CookTriangleMesh(vertices, indices, glm::mat4(1.0f), cooked), ECookingResult::Success);
+    ASSERT_NE(factory.CreateShapeFromColliderData(cooked).GetPtr(), nullptr) << "positive control: exact blob loads";
+
+    SubmeshColliderData padded = cooked;
+    padded.m_ColliderData.insert(padded.m_ColliderData.end(), { 0, 0, 0, 0 });
+    EXPECT_EQ(factory.CreateShapeFromColliderData(padded).GetPtr(), nullptr);
+}

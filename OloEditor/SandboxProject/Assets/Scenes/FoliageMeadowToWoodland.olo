@@ -1,4 +1,5 @@
 Scene: FoliageMeadowToWoodland.olo
+Version: 1
 PostProcessSettings:
   TonemapOperator: 1
   Exposure: 1
@@ -181,8 +182,8 @@ Entities:
       Enabled: true
       Layers:
         - Name: Meadow Grass
-          MeshPath: SandboxProject/Assets/Models/Vegetation/grass/grass.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/grass/Textures/grass_card.png
+          MeshPath: Assets/Models/Vegetation/grass/grass.obj
+          AlbedoPath: Assets/Models/Vegetation/grass/Textures/grass_card.png
           Density: 16
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -242,8 +243,8 @@ Entities:
           InteractionResponse: 1
           Enabled: true
         - Name: Wildflowers
-          MeshPath: SandboxProject/Assets/Models/Vegetation/flower/flower.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/flower/Textures/flower_card.png
+          MeshPath: Assets/Models/Vegetation/flower/flower.obj
+          AlbedoPath: Assets/Models/Vegetation/flower/Textures/flower_card.png
           Density: 5
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -303,8 +304,8 @@ Entities:
           InteractionResponse: 1
           Enabled: true
         - Name: Shrubs
-          MeshPath: SandboxProject/Assets/Models/Vegetation/shrub/shrub.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/shrub/Textures/shrub_card.png
+          MeshPath: Assets/Models/Vegetation/shrub/shrub.obj
+          AlbedoPath: Assets/Models/Vegetation/shrub/Textures/shrub_card.png
           Density: 1.2
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -365,8 +366,8 @@ Entities:
           InteractionResponse: 0.6
           Enabled: true
         - Name: Leaf Litter
-          MeshPath: SandboxProject/Assets/Models/Vegetation/fern/fern.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/fern/Textures/fern_card.png
+          MeshPath: Assets/Models/Vegetation/fern/fern.obj
+          AlbedoPath: Assets/Models/Vegetation/fern/Textures/fern_card.png
           Density: 9
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -419,8 +420,8 @@ Entities:
           InteractionResponse: 0.35
           Enabled: true
         - Name: Dune Grass
-          MeshPath: SandboxProject/Assets/Models/Vegetation/grass_dry/grass_dry.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
+          MeshPath: Assets/Models/Vegetation/grass_dry/grass_dry.obj
+          AlbedoPath: Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
           Density: 2.5
           SplatmapChannel: 0
           MinSlopeAngle: 0
@@ -480,8 +481,8 @@ Entities:
           InteractionResponse: 0.9
           Enabled: true
         - Name: Woodland Pines
-          MeshPath: SandboxProject/Assets/Models/Vegetation/pine/pine.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/pine/Textures/pine_card.png
+          MeshPath: Assets/Models/Vegetation/pine/pine.obj
+          AlbedoPath: Assets/Models/Vegetation/pine/Textures/pine_card.png
           Density: 0.035
           SplatmapChannel: -1
           MinSlopeAngle: 0

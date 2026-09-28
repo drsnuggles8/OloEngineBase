@@ -16,8 +16,6 @@
 //   * asset pack  -> every submesh resolves to the SAME material (texture handles,
 //     alpha mode + cutoff, factors, flags) it had before the round trip;
 //   * .omesh      -> the same, through the cache the editor actually reads;
-//   * a pre-v5 pack (reader pinned to v4) -> the appended material field is NOT read,
-//     the desync guard docs/agent-rules/binary-format-versioning.md requires;
 //   * the codec's own wire format -> every field round-trips (no GPU needed).
 //
 // The pack/.omesh cases need a GL context: they build real Texture2D assets (so the
@@ -166,7 +164,7 @@ class ImportedMaterialPackTest : public ::testing::Test
         fs::remove_all(m_TempDir, ec);
     }
 
-    Ref<MeshSource> PackRoundTrip(AssetHandle handle, u32 readerVersion = AssetPackFile::Version)
+    Ref<MeshSource> PackRoundTrip(AssetHandle handle)
     {
         const fs::path packPath = m_TempDir / "mesh.pack";
         MeshSourceSerializer serializer;
@@ -185,7 +183,6 @@ class ImportedMaterialPackTest : public ::testing::Test
 
         FileStreamReader reader(packPath);
         EXPECT_TRUE(reader.IsStreamGood());
-        reader.SetArchiveVersion(readerVersion);
         return serializer.DeserializeFromAssetPack(reader, assetInfo).As<MeshSource>();
     }
 
@@ -337,60 +334,6 @@ TEST_F(ImportedMaterialPackTest, EverySubmeshResolvesItsMaterialAfterTheOMeshRou
     ASSERT_TRUE(loaded) << "MeshBinarySerializer::Read returned null";
 
     ExpectMaterialsMatch(loaded);
-}
-
-TEST_F(ImportedMaterialPackTest, PreV5PackReaderDoesNotConsumeTheMaterialField)
-{
-    OLO_ENSURE_GPU_OR_SKIP();
-
-    // The desync guard. A v1-v4 pack never wrote the trailing material table, so a reader
-    // that sees Header.Version < 5 must not try to read it. Pinning the reader to v4
-    // simulates loading an older pack: the geometry must come back intact and the material
-    // table must simply be absent — NOT a misread of whatever bytes follow.
-    BuildMaterials();
-    Ref<MeshSource> source = MakeTwoMaterialMesh();
-    source->SetImportedMaterials(m_Materials);
-
-    AssetHandle const handle = AssetManager::AddMemoryOnlyAsset(source);
-    Ref<MeshSource> unpacked = PackRoundTrip(handle, AssetPackFile::ImportedMaterialsPackVersion - 1);
-
-    ASSERT_TRUE(unpacked) << "an older pack must still load";
-    EXPECT_TRUE(unpacked->GetImportedMaterials().empty())
-        << "a pre-v5 reader must not consume the trailing material field";
-    EXPECT_EQ(unpacked->GetVertices().Num(), source->GetVertices().Num());
-    EXPECT_EQ(unpacked->GetIndices().Num(), source->GetIndices().Num());
-    EXPECT_EQ(unpacked->GetSubmeshes().Num(), source->GetSubmeshes().Num());
-}
-
-TEST_F(ImportedMaterialPackTest, PreV4OMeshFileStillLoadsWithoutTheMaterialSection)
-{
-    OLO_ENSURE_GPU_OR_SKIP();
-
-    // Same contract for the .omesh container: the section directory is sized by the FILE's
-    // version, so a v3 file (8 entries, no ImportedMaterials section) must still read.
-    BuildMaterials();
-    Ref<MeshSource> source = MakeTwoMaterialMesh();
-    source->SetImportedMaterials(m_Materials);
-
-    const fs::path cachePath = m_TempDir / "v3_compat.omesh";
-    ASSERT_TRUE(MeshBinarySerializer::Write(cachePath, *source, /*sourceTimestamp=*/7));
-
-    // Patch FileHeader::Version (u32 at byte offset 4) from 4 down to 3. Section offsets
-    // are absolute, so the v3 reader simply reads an 8-entry directory and never sees the
-    // (still-present) ImportedMaterials entry.
-    {
-        std::fstream file(cachePath, std::ios::binary | std::ios::in | std::ios::out);
-        ASSERT_TRUE(file.is_open());
-        file.seekp(4);
-        u32 const v3 = 3;
-        file.write(reinterpret_cast<const char*>(&v3), sizeof(v3));
-    }
-
-    Ref<MeshSource> loaded = MeshBinarySerializer::Read(cachePath);
-    ASSERT_TRUE(loaded) << "a v3 .omesh must still load in the v4 reader";
-    EXPECT_TRUE(loaded->GetImportedMaterials().empty());
-    EXPECT_EQ(loaded->GetVertices().Num(), source->GetVertices().Num());
-    EXPECT_EQ(loaded->GetSubmeshes().Num(), source->GetSubmeshes().Num());
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

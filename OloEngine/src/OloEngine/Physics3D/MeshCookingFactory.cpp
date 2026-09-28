@@ -30,6 +30,25 @@
 
 namespace OloEngine
 {
+    namespace
+    {
+        // Reads only the .omc header. A cache file written by another format version (or not an
+        // .omc at all) must be re-cooked, never reported as AlreadyExists: the loader would reject
+        // it and the collider would stay missing.
+        [[nodiscard]] bool HasCurrentOmcHeader(const std::filesystem::path& cacheFilePath, u32& outVersion)
+        {
+            outVersion = 0;
+            std::ifstream file(cacheFilePath, std::ios::binary);
+            OloMeshColliderHeader header;
+            file.read(reinterpret_cast<char*>(&header), sizeof(header));
+            if (!file.good() || file.gcount() != sizeof(header) || memcmp(header.m_Header, "OloMeshC", 8) != 0)
+            {
+                return false;
+            }
+            outVersion = header.m_Version;
+            return header.m_Version == OloMeshColliderHeader::CurrentVersion;
+        }
+    } // namespace
 
     MeshCookingFactory::MeshCookingFactory(const std::filesystem::path& cacheDirectory)
         : m_CacheDirectory(cacheDirectory)
@@ -125,20 +144,27 @@ namespace OloEngine
             cacheFilePath = GetCacheFilePath(colliderAsset, type);
             if (!invalidateOld && std::filesystem::exists(cacheFilePath))
             {
-                // Resolve the source mesh's filesystem path so we can compare
-                // modification times. When the source has no backing file
-                // (memory-only assets, missing metadata, or no active project),
-                // preserve the legacy behavior of treating an existing cache as
-                // authoritative — re-cooking every load would be worse than a
-                // potentially-stale cache in that case.
-                std::filesystem::path sourcePath = ResolveSourceMeshPath(colliderAsset->m_ColliderMesh);
-                if (sourcePath.empty() || IsCacheValid(cacheFilePath, sourcePath))
+                if (u32 cachedVersion = 0; !HasCurrentOmcHeader(cacheFilePath, cachedVersion))
                 {
-                    return ECookingResult::AlreadyExists;
+                    OLO_CORE_WARN("MeshCookingFactory: cached collider '{}' is format v{} (this build reads v{} only), re-cooking",
+                                  cacheFilePath.string(), cachedVersion, OloMeshColliderHeader::CurrentVersion);
                 }
+                else
+                {
+                    // Resolve the source mesh's filesystem path so we can compare
+                    // modification times. When the source has no backing file
+                    // (memory-only assets, missing metadata, or no active project),
+                    // treat an existing cache as authoritative — re-cooking every
+                    // load would be worse than a potentially-stale cache in that case.
+                    std::filesystem::path sourcePath = ResolveSourceMeshPath(colliderAsset->m_ColliderMesh);
+                    if (sourcePath.empty() || IsCacheValid(cacheFilePath, sourcePath))
+                    {
+                        return ECookingResult::AlreadyExists;
+                    }
 
-                OLO_CORE_INFO("MeshCookingFactory: Source mesh '{}' is newer than cached collider '{}', re-cooking",
-                              sourcePath.string(), cacheFilePath.string());
+                    OLO_CORE_INFO("MeshCookingFactory: Source mesh '{}' is newer than cached collider '{}', re-cooking",
+                                  sourcePath.string(), cacheFilePath.string());
+                }
             }
         }
 
@@ -931,7 +957,7 @@ namespace OloEngine
             OloMeshColliderHeader header{};
             // Initialize header fields for file format validation
             memcpy(header.m_Header, "OloMeshC", 8);
-            header.m_Version = 1;
+            header.m_Version = OloMeshColliderHeader::CurrentVersion;
             header.m_Type = meshData.m_Type;
             header.m_SubmeshCount = static_cast<u32>(meshData.m_Submeshes.size());
             header.m_Scale = meshData.m_Scale;
@@ -986,8 +1012,16 @@ namespace OloEngine
             {
                 return meshData;
             } // Validate header
-            if (memcmp(header.m_Header, "OloMeshC", 8) != 0 || header.m_Version != 1)
+            if (memcmp(header.m_Header, "OloMeshC", 8) != 0)
             {
+                OLO_CORE_ERROR("MeshCookingFactory: '{}' is not a mesh collider cache (bad magic)", filepath.string());
+                return meshData;
+            }
+            if (header.m_Version != OloMeshColliderHeader::CurrentVersion)
+            {
+                OLO_CORE_ERROR("MeshCookingFactory: '{}': format v{} is not supported (this build reads v{} only); "
+                               "it is re-cooked from the source mesh",
+                               filepath.string(), header.m_Version, OloMeshColliderHeader::CurrentVersion);
                 return meshData;
             }
 

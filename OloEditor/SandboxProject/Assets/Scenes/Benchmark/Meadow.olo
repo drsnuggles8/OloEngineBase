@@ -1,4 +1,5 @@
 Scene: Meadow.olo
+Version: 1
 # ─────────────────────────────────────────────────────────────────────────────
 # MEADOW vegetation fixture (issue #1239).
 #
@@ -281,8 +282,8 @@ Entities:
       Enabled: true
       Layers:
         - Name: Grass
-          MeshPath: SandboxProject/Assets/Models/Vegetation/grass/grass.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/grass/Textures/grass_card.png
+          MeshPath: Assets/Models/Vegetation/grass/grass.obj
+          AlbedoPath: Assets/Models/Vegetation/grass/Textures/grass_card.png
           Density: 9
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -303,8 +304,8 @@ Entities:
           AlphaCutoff: 0.5
           Enabled: true
         - Name: TallGrass
-          MeshPath: SandboxProject/Assets/Models/Vegetation/grass_dry/grass_dry.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
+          MeshPath: Assets/Models/Vegetation/grass_dry/grass_dry.obj
+          AlbedoPath: Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
           Density: 3.5
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -325,8 +326,8 @@ Entities:
           AlphaCutoff: 0.5
           Enabled: true
         - Name: Flowers
-          MeshPath: SandboxProject/Assets/Models/Vegetation/flower/flower.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/flower/Textures/flower_card.png
+          MeshPath: Assets/Models/Vegetation/flower/flower.obj
+          AlbedoPath: Assets/Models/Vegetation/flower/Textures/flower_card.png
           Density: 1.2
           SplatmapChannel: 3
           MinSlopeAngle: 0

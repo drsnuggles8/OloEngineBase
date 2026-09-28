@@ -24,6 +24,7 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Core/UUID.h"
+#include "OloEngine/Audio/SoundGraph/CompilerCache.h"
 #include "OloEngine/Audio/SoundGraph/SoundGraph.h"
 #include "OloEngine/Audio/SoundGraph/SoundGraphCache.h"
 #include "OloEngine/Audio/SoundGraph/Nodes/WavePlayer.h"
@@ -104,4 +105,52 @@ TEST_F(SoundGraphCacheTest, MemoryEstimateIntrospectsNodeHeapInsteadOfFlatPerNod
     EXPECT_GT(reported, 0u);
     EXPECT_LT(reported, 1024u * 1024u) << "estimate should reflect (empty) audio buffers, not a flat per-node guess";
     EXPECT_LT(reported, oldFlatEstimate) << "estimate must be far below the retired 2 MB/node formula";
+}
+
+// CompilerCache's ".compiled" files carry "OLCC" + CompilerCache::FormatVersion. The reader
+// accepts exactly that version: a file of any other version is not loaded (a cache miss, so the
+// graph is recompiled), never read with a guessed layout.
+TEST_F(SoundGraphCacheTest, CompilerCacheRejectsAnotherFormatVersion)
+{
+    const std::string cacheDir = (m_TempDir / "compiler").string();
+    const std::string source = MakeSourceFile("graph.sgraph", "graph");
+
+    CompilationResult result;
+    result.m_SourcePath = source;
+    result.m_CompilerVersion = OLO_SOUND_GRAPH_COMPILER_VERSION;
+    result.m_CompiledData = { 1, 2, 3, 4 };
+    result.m_IsValid = true;
+    result.m_CompilationTime = std::chrono::system_clock::now();
+
+    std::string cacheFile;
+    {
+        CompilerCache writer(cacheDir);
+        writer.SetAutoSave(false);
+        writer.StoreCompiled(source, result);
+        ASSERT_TRUE(writer.SaveToDisk());
+        cacheFile = writer.GetCacheFilePath(source);
+    }
+    ASSERT_TRUE(std::filesystem::exists(cacheFile));
+
+    {
+        CompilerCache reader(cacheDir);
+        reader.SetAutoSave(false);
+        ASSERT_EQ(reader.GetCacheSize(), 1u) << "positive control: the current version loads";
+    }
+
+    for (const u32 otherVersion : { CompilerCache::FormatVersion - 1, CompilerCache::FormatVersion + 1 })
+    {
+        {
+            std::fstream file(cacheFile, std::ios::binary | std::ios::in | std::ios::out);
+            ASSERT_TRUE(file.is_open());
+            file.seekp(4); // after the "OLCC" magic; the version is a little-endian u32
+            const u8 bytes[4] = { static_cast<u8>(otherVersion), static_cast<u8>(otherVersion >> 8),
+                                  static_cast<u8>(otherVersion >> 16), static_cast<u8>(otherVersion >> 24) };
+            file.write(reinterpret_cast<const char*>(bytes), sizeof(bytes));
+        }
+        CompilerCache reader(cacheDir);
+        reader.SetAutoSave(false);
+        EXPECT_EQ(reader.GetCacheSize(), 0u) << "version " << otherVersion;
+        EXPECT_EQ(reader.GetCompiled(source).get(), nullptr);
+    }
 }

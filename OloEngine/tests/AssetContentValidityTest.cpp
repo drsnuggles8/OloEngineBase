@@ -40,6 +40,7 @@
 #include "OloEngine/Gameplay/Progression/ExperienceCurve.h"
 #include "OloEngine/Gameplay/Progression/SkillTreeDatabase.h"
 #include "OloEngine/Renderer/ShaderCachePaths.h"
+#include "OloEngine/Scene/SceneSerializer.h"
 
 #include <algorithm>
 #include <array>
@@ -264,6 +265,17 @@ namespace OloEngine::Tests
             {
                 failures.push_back({ path.generic_string(),
                                      "Missing top-level 'Scene' key — not a scene file?" });
+                continue;
+            }
+            // SceneSerializer rejects any other Version (issue #1496), so an
+            // unstamped or stale scene fails to load at runtime.
+            const std::string expectedVersion = std::to_string(SceneSerializer::CurrentVersion);
+            if (const YAML::Node version = (*node)["Version"];
+                !version || !version.IsScalar() || version.Scalar() != expectedVersion)
+            {
+                failures.push_back({ path.generic_string(),
+                                     "Top-level 'Version' must be " + expectedVersion +
+                                         " (SceneSerializer::CurrentVersion); the loader rejects anything else" });
                 continue;
             }
             const YAML::Node entities = (*node)["Entities"];
@@ -2077,8 +2089,8 @@ namespace OloEngine::Tests
     // `<project>/Config/InputActions.yaml`. The engine loads it on
     // project open if present; missing is fine (input actions are an
     // optional engine feature). If present, malformed YAML or a missing
-    // top-level `InputActionContexts` (or legacy `InputActionMap`) key
-    // crashes the editor's input subsystem on startup — see
+    // top-level `InputActionContexts` key crashes the editor's input
+    // subsystem on startup — see
     // `InputActionSerializer::Deserialize`.
     // -------------------------------------------------------------------------
     // -------------------------------------------------------------------------

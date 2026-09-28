@@ -1,4 +1,5 @@
 Scene: DecalModeMatrixTest.olo
+Version: 1
 # Decal MODE MATRIX (issue #853).
 #
 # Four decals in a row on one flat, uniform ground plane — one per DecalMode —

@@ -76,8 +76,10 @@ older archive.
 | Scene YAML (`.olo`) | `SceneSerializer::CurrentVersion`, the required `Version:` key | rejected: migrate the file in the PR |
 | Imported-material codec | `ImportedMaterialCodec::CurrentVersion` | rejected: re-imported |
 | Virtual-geometry cook (OVGS) | `kSetVersion` (`Renderer/VirtualGeometry/VirtualMesh.cpp`) | rejected: re-cooked |
-| Asset registry (`.oar`) | `AssetRegistry::FileVersion` | rejected: rebuilt from the project |
-| Sound-graph compiler cache | `CompilerCache::FormatVersion` | rejected: recompiled |
+| Asset registry (`.oar`) | `AssetRegistry::FileVersion` (`Asset/AssetRegistry.h`) | rejected: restore it from git, or the editor's asset scan writes a fresh one with new handles |
+| Sound-graph compiler cache | `CompilerCache::FormatVersion` (`Audio/SoundGraph/CompilerCache.h`) | rejected: cache miss, recompiled |
+| Mesh collider cache (`.omc`) | `OloMeshColliderHeader::CurrentVersion` (`Physics3D/MeshCookingFactory.h`); it also versions the headerless Jolt shape blobs inside it | rejected: re-cooked |
+| Voxel override RLE (`VOX1`) | `VoxelOverride::RLEVersion` (`Terrain/Voxel/VoxelOverride.h`) | rejected: re-save the voxel edits |
 | Lightmap, volume, groom, groom binding | `*BinaryFormat::CurrentVersion` | rejected: re-baked / re-imported |
 
 When you add a format, add a row.

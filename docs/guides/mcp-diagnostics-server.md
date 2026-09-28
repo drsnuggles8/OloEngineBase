@@ -398,8 +398,7 @@ scene's references, and an edge only appears once an asset has been deserialized
 `olo_asset_references` **derives** the answer by scanning the project's text asset files
 (`.olo`, `.olomaterial`, `.oloprefab`, the rest of the YAML-shaped set, plus `.lua`/`.cs`)
 and resolving each candidate against the same anchors the engine itself uses -- project
-root, asset directory (`Project::GetAssetFileSystemPath`), the legacy project-prefixed
-spelling, then the working directory.
+root, asset directory (`Project::GetAssetFileSystemPath`), then the working directory.
 
 **Always read `coverage`.** It names what was *not* searched: formats skipped because
 nothing here can read them, unreadable files, references that resolve to nothing, and
@@ -437,8 +436,8 @@ A safe sequence is:
 
 1. `olo_asset_references` on the asset. Read `count` **and** `coverage`.
 2. To relocate it, `olo_asset_move`. Every reference is re-spelled in the style its own
-   file already used, so a project-relative path stays project-relative and a legacy
-   project-prefixed one keeps its prefix. It is all-or-nothing: if any reference cannot
+   file already used, so a project-relative path stays project-relative and an
+   asset-directory-relative one stays asset-directory-relative. It is all-or-nothing: if any reference cannot
    be rewritten, nothing is written. The asset keeps its handle, so handle-shaped
    references need no change and are reported separately as
    `handleReferencesUnchanged`.

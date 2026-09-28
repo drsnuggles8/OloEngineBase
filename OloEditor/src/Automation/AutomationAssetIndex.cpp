@@ -262,7 +262,7 @@ namespace OloEngine::Automation
 
         // ---- path resolution --------------------------------------------------
         //
-        // Step for step, EditorAssetManager::ImportAsset's own order (#887, #1098).
+        // Step for step, EditorAssetManager::ImportAsset's own order (#887, #1496).
         // Deliberately a mirror rather than an improvement: the point of the
         // referrer answer is to predict what the ENGINE will load, so a smarter
         // resolver here would make the index disagree with reality.
@@ -279,38 +279,6 @@ namespace OloEngine::Automation
             std::error_code ec;
             std::filesystem::path canonical = std::filesystem::weakly_canonical(path, ec);
             return ec ? path.lexically_normal() : canonical;
-        }
-
-        // EditorAssetManager's TryLegacyProjectPrefixedPath, same three guards:
-        // at least two components, a leading component NOT present in the project
-        // (so a real "Assets/..." directory is never eaten), and a remainder that
-        // exists. Returns the leading component through `leading` so a re-spell can
-        // put it back.
-        std::filesystem::path TryLegacyPrefixed(const std::filesystem::path& projectRoot,
-                                                const std::filesystem::path& value,
-                                                std::filesystem::path& leading)
-        {
-            if (projectRoot.empty() || value.empty() || value.is_absolute())
-                return {};
-            auto it = value.begin();
-            const auto end = value.end();
-            if (it == end)
-                return {};
-            const std::filesystem::path first = *it;
-            if (first.empty() || first == "." || first == "..")
-                return {};
-            std::filesystem::path remainder;
-            for (++it; it != end; ++it)
-                remainder /= *it;
-            if (remainder.empty())
-                return {};
-            if (FileExists(projectRoot / first))
-                return {};
-            const std::filesystem::path candidate = projectRoot / remainder;
-            if (!FileExists(candidate))
-                return {};
-            leading = first;
-            return candidate;
         }
 
         struct Resolution
@@ -367,17 +335,6 @@ namespace OloEngine::Automation
                 {
                     resolution.File = Canonical(assetRelative);
                     resolution.Anchor = AssetReferenceAnchor::AssetDirectoryRelative;
-                    return resolution;
-                }
-            }
-            if (!scope.ProjectRoot.empty())
-            {
-                std::filesystem::path leading;
-                if (const std::filesystem::path legacy = TryLegacyPrefixed(scope.ProjectRoot, value, leading);
-                    !legacy.empty())
-                {
-                    resolution.File = Canonical(legacy);
-                    resolution.Anchor = AssetReferenceAnchor::LegacyProjectPrefixed;
                     return resolution;
                 }
             }
@@ -868,26 +825,6 @@ namespace OloEngine::Automation
                     return {};
                 respelled = relativeTo(newTarget, scope.AssetDirectory);
                 break;
-            case AssetReferenceAnchor::LegacyProjectPrefixed:
-            {
-                // Put the stale leading component back so the file keeps the
-                // spelling it had. Re-spelling it into the modern form would be a
-                // second, unrelated change smuggled into a move -- and one that
-                // silently depends on the legacy fallback still existing.
-                const std::filesystem::path original(reference.RawValue);
-                const std::filesystem::path leading = original.begin() == original.end()
-                                                          ? std::filesystem::path{}
-                                                          : *original.begin();
-                // Check the remainder BEFORE re-attaching the prefix: joining a
-                // stale leading component onto an empty relative path would
-                // produce a path that names the prefix directory itself.
-                if (const std::filesystem::path remainder = relativeTo(newTarget, scope.ProjectRoot);
-                    !remainder.empty())
-                {
-                    respelled = leading / remainder;
-                }
-                break;
-            }
             case AssetReferenceAnchor::BaseDirectory:
             {
                 if (reference.BaseDirectoryIndex >= scope.BaseDirectories.size())
@@ -912,8 +849,7 @@ namespace OloEngine::Automation
         // from the filesystem alone rewrites the case too: the move edits a line
         // it was not asked to change, and moving back does not restore it. A round
         // trip has to be a no-op, and a move must not smuggle an unrelated
-        // re-spelling into somebody's diff -- the same reason the legacy prefix is
-        // put back rather than modernised. So take the original's characters for
+        // re-spelling into somebody's diff. So take the original's characters for
         // the longest prefix that matches case-insensitively, and the computed
         // path's for the rest.
         {
