@@ -8,12 +8,65 @@ import shutil
 import subprocess
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from capture_process import editor_preferences, check_editor_preference_load
 
 spec = importlib.util.spec_from_file_location('controlled_benchmark', Path(__file__).with_name('controlled-benchmark.py'))
 capture = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(capture)
+
+attribution_spec = importlib.util.spec_from_file_location('editor_attribution', Path(__file__).with_name('editor-attribution.py'))
+attribution = importlib.util.module_from_spec(attribution_spec)
+attribution_spec.loader.exec_module(attribution)
+
+
+class AttributionPathTest(unittest.TestCase):
+    def run_attribution(self, directory, *, applied='forwardplus', drift=False):
+        reads = 0
+        client = Mock()
+
+        def tool(name, **arguments):
+            nonlocal reads
+            if name == 'olo_renderer_settings_set':
+                if arguments:
+                    # The server's catalogue token is forwardplus, not forward+.
+                    self.assertEqual(arguments, {'setting': 'renderpath', 'value': 'forwardplus'})
+                    return {'value': applied}
+                reads += 1
+                actual = 'forward' if drift and reads > 1 else 'forwardplus'
+                return {'settings': [{'setting': 'renderpath', 'currentValue': actual}]}
+            return {}
+
+        client.tool.side_effect = tool
+        output = Path(directory) / 'attribution.json'
+        args = ['editor-attribution', '--discovery', 'unused.json', '--output', str(output),
+                '--scene', 'scene.olo', '--path', 'forward+', '--config', 'Release',
+                '--settle-seconds', '0', '--repeats', '3', '--samples', '2']
+        with patch('sys.argv', args), patch.object(attribution, 'Client', return_value=client), \
+             patch.object(attribution.time, 'sleep'), patch('builtins.print'):
+            attribution.main()
+        return json.loads(output.read_text())
+
+    def test_forward_plus_uses_catalogue_token_and_records_verified_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result = self.run_attribution(directory)
+            self.assertEqual(result['verifiedRenderPath'], 'forwardplus')
+            self.assertEqual(len(result['blocks']), 3)
+            self.assertTrue(all(b['complete'] and b['verifiedRenderPath'] == 'forwardplus'
+                                for b in result['blocks']))
+
+    def test_wrong_applied_path_cannot_produce_attribution(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(RuntimeError, 'renderer applied forward'):
+                self.run_attribution(directory, applied='forward')
+            self.assertFalse((Path(directory) / 'attribution.json').exists())
+
+    def test_path_drift_leaves_block_incomplete(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(RuntimeError, 'Render path changed'):
+                self.run_attribution(directory, drift=True)
+            result = json.loads((Path(directory) / 'attribution.json').read_text())
+            self.assertFalse(result['blocks'][0]['complete'])
 
 
 class CaptureValidityTest(unittest.TestCase):

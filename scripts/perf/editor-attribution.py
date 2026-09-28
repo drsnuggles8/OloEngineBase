@@ -30,13 +30,16 @@ def main():
         parser.error('require >=3 repeats, >=2 samples, nonnegative settling')
     if args.output.exists():
         parser.error('output exists; preserve previous measurements')
+    path_token = {'forward': 'forward', 'forward+': 'forwardplus', 'deferred': 'deferred'}[args.path]
     client = Client(args.discovery)
     scene = client.tool('olo_scene_open', path=args.scene)
     client.wait_ready()
     result = {'scene': scene, 'config': args.config,
-              'pathChange': client.tool('olo_renderer_settings_set', setting='renderpath', value=args.path),
+              'pathChange': client.tool('olo_renderer_settings_set', setting='renderpath', value=path_token),
               'measurementKind': 'live attribution snapshots, correlated within blocks',
               'readInterruptions': [], 'blocks': []}
+    if result['pathChange']['value'] != path_token:
+        raise RuntimeError(f"Requested {path_token}, renderer applied {result['pathChange']['value']}")
 
     def read(name, **arguments):
         deadline = time.monotonic() + 120
@@ -58,6 +61,15 @@ def main():
     if args.camera:
         client.tool('olo_camera_set_pose', position=args.camera, yaw=args.yaw, pitch=args.pitch, fov=50)
     time.sleep(args.settle_seconds)
+
+    def verify_path():
+        settings = read('olo_renderer_settings_set')['settings']
+        actual = next(item['currentValue'] for item in settings if item['setting'] == 'renderpath')
+        if actual != path_token:
+            raise RuntimeError(f'Render path changed: requested {path_token}, active {actual}')
+        return actual
+
+    result['verifiedRenderPath'] = verify_path()
     result['sceneSummary'] = read('olo_scene_summary')
     result['camera'] = read('olo_camera_get')
     for repeat in range(args.repeats):
@@ -72,6 +84,7 @@ def main():
             args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(json.dumps(result, indent=2), encoding='utf-8')
             time.sleep(1)
+        block['verifiedRenderPath'] = verify_path()
         block['snapshot'] = read('olo_perf_snapshot')
         block['history'] = read('olo_perf_frame_history', points=120)
         block['complete'] = True
