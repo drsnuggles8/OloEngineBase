@@ -165,6 +165,17 @@ if ($MaxConcurrent -gt 1) {
     }
 }
 
+# Admission must inspect slots created by OTHER callers, even with a smaller
+# local ceiling. Reserve both historical slots for an exclusive request so an
+# older two-slot wrapper cannot join it before all worktrees update.
+function Get-KnownSlotPaths {
+    @($slotPaths + (Join-Path $commonDir.Trim() 'olo-build.slot1.lock') +
+      @(Get-ChildItem -LiteralPath $commonDir.Trim() -Filter 'olo-build.slot*.lock' |
+        Where-Object { $_.Name -match '^olo-build\.slot[0-9]+\.lock$' } |
+        ForEach-Object { $_.FullName })) | Select-Object -Unique
+}
+$admissionPath = Join-Path $commonDir.Trim() 'olo-build.admission.lock'
+
 # --- metrics ----------------------------------------------------------------
 # One JSONL line per build attempt, in the same shared directory as the lock so
 # every worktree appends to ONE file. This exists to answer questions we have
@@ -273,7 +284,7 @@ function Test-CachedTreeCommand([string] $Cmd) {
 function Test-ConcurrencyAdmissible([ref] $Reason) {
     # Held-ness is the handle, not the file: every slot file outlives its holder.
     $held = @()
-    foreach ($p in $slotPaths) {
+    foreach ($p in (Get-KnownSlotPaths)) {
         if (-not (Test-Path $p)) { continue }
         if (Test-SlotFree $p)    { continue }
         $held += $p
@@ -281,6 +292,10 @@ function Test-ConcurrencyAdmissible([ref] $Reason) {
     # Nothing is building, so this is a lone build and no throttling argument applies —
     # an uncached tree is perfectly fine on its own, which is the common case.
     if ($held.Count -eq 0) { return $true }
+    if ($held.Count -ge $MaxConcurrent) {
+        $Reason.Value = "the requested $MaxConcurrent-build ceiling is already occupied"
+        return $false
+    }
 
     if (-not (Test-CachedTreeCommand $Command)) {
         $Reason.Value = 'this build does not target the cached (Ninja) tree'
@@ -304,6 +319,10 @@ function Test-ConcurrencyAdmissible([ref] $Reason) {
         # not assume it. (Previously this fell through to "continue", i.e. assumed safe.)
         if ($null -eq $info) {
             $Reason.Value = 'a slot is held but its holder record is unreadable'
+            return $false
+        }
+        if ($info.PSObject.Properties['exclusive'] -and $info.exclusive) {
+            $Reason.Value = 'an exclusive request is already running'
             return $false
         }
         $holderCmd = ''
@@ -580,7 +599,8 @@ function Get-SlotHandle([string] $Path) {
                       parentPid = if ($null -ne $parentIdentity) { $parentIdentity.ProcessId } else { 0 }
                       acquired  = (Get-Date).ToString('o')
                       worktree  = $here
-                      command   = $Command } | ConvertTo-Json -Compress
+                      command   = $Command
+                      exclusive = $exclusiveBuild } | ConvertTo-Json -Compress
         $bytes = [System.Text.Encoding]::UTF8.GetBytes($payload)
         $fs.Write($bytes, 0, $bytes.Length)
         $fs.Flush()
@@ -595,6 +615,8 @@ function Get-SlotHandle([string] $Path) {
 $deadline  = (Get-Date).AddMinutes($TimeoutMinutes)
 $announced = $false
 $lock      = $null
+$additionalLocks = @()
+$exclusiveBuild = ($MaxConcurrent -eq 1) -or -not (Test-CachedTreeCommand $Command)
 $waitStart = Get-Date
 # Who we were first blocked behind, for reconstructing contention chains offline.
 $blockedByPid      = $null
@@ -617,20 +639,45 @@ try {
         # attempt a further slot. $null = the queue could not be trusted, so we race
         # exactly as the original implementation did.
         if ($null -eq $ahead -or $ahead -lt $MaxConcurrent) {
-            # Ask permission BEFORE opening any handle, and ask ONCE: admission is a
-            # property of what is currently building, not of which slot we land in.
-            # Taking a slot and handing it back would churn every waiter's view of the
-            # queue for nothing.
-            $reason = ''
-            if (Test-ConcurrencyAdmissible ([ref] $reason)) {
-                for ($slot = 0; $slot -lt $slotPaths.Count; $slot++) {
-                    $lock = Get-SlotHandle $slotPaths[$slot]
-                    if ($null -ne $lock) { $slotIndex = $slot; break }
-                }
-                if ($null -ne $lock) { break }
-            } elseif (-not $concurrencyRefused) {
-                Write-Host "[build-lock] not building alongside the current build — $reason"
-                $concurrencyRefused = $true
+            # Serialize admission plus acquisition: otherwise two arrivals can
+            # both observe an idle machine and then take different slots.
+            $admission = $null
+            try {
+                $admission = [IO.File]::Open($admissionPath, [IO.FileMode]::OpenOrCreate,
+                                            [IO.FileAccess]::Write, [IO.FileShare]::Read)
+            } catch { }
+            if ($null -ne $admission) {
+                try {
+                    $reason = ''
+                    if (Test-ConcurrencyAdmissible ([ref] $reason)) {
+                        if ($exclusiveBuild) {
+                            $reserved = @()
+                            foreach ($path in (Get-KnownSlotPaths)) {
+                                $handle = Get-SlotHandle $path
+                                if ($null -eq $handle) {
+                                    foreach ($owned in $reserved) { $owned.Dispose() }
+                                    $reserved = @()
+                                    break
+                                }
+                                $reserved += $handle
+                            }
+                            if ($reserved.Count -gt 0) {
+                                $lock = $reserved[0]
+                                $additionalLocks = @($reserved | Select-Object -Skip 1)
+                                $slotIndex = 0
+                            }
+                        } else {
+                            for ($slot = 0; $slot -lt $slotPaths.Count; $slot++) {
+                                $lock = Get-SlotHandle $slotPaths[$slot]
+                                if ($null -ne $lock) { $slotIndex = $slot; break }
+                            }
+                        }
+                        if ($null -ne $lock) { break }
+                    } elseif (-not $concurrencyRefused) {
+                        Write-Host "[build-lock] not building alongside the current build � $reason"
+                        $concurrencyRefused = $true
+                    }
+                } finally { $admission.Dispose() }
             }
         }
 
@@ -697,7 +744,8 @@ $holdStart    = Get-Date
 # else is in. Recomputed here rather than reused from admission, because we may have sat
 # in the queue for a while since then.
 $activeBuilds = 1
-foreach ($p in $slotPaths) {
+foreach ($p in (Get-KnownSlotPaths)) {
+    if ($exclusiveBuild) { break } # all held slots belong to this one request
     if ($p -eq $slotPaths[$slotIndex]) { continue }        # our own, already counted
     if ((Test-Path $p) -and -not (Test-SlotFree $p)) { $activeBuilds++ }
 }
@@ -778,6 +826,7 @@ try {
     # Releasing IS closing the handle — only the owner can do it, by construction.
     # The file itself is left in place; the next acquirer truncates and rewrites it.
     $lock.Dispose()
+    foreach ($owned in $additionalLocks) { $owned.Dispose() }
     Write-Host "[build-lock] released (pid=$me)"
     Remove-Item -LiteralPath $scriptFile -Force -ErrorAction SilentlyContinue
     # Written AFTER the release so a slow/failed metrics write can never delay it.
