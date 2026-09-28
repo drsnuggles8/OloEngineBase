@@ -987,6 +987,14 @@ Rules distilled:
   and the free texture units collided with the shader's own Vulkan vertex-pull SSBO
   bindings — the ADR 0011 item-A2 single-set trap. Check both namespaces before assuming
   a resource slot is the easy way out.)
+- **Declare a dynamically-indexed lookup table as a global, not `const`** (#1484). Even
+  packed, the `const` table was re-materialised in private memory at every inlined lookup:
+  radeonsi measured `PBR_MultiLight` at 48 KiB of scratch per pixel, its scratch buffer
+  grew to 3.9 GiB with the deferred twin, and every submission after that was refused (a
+  6 GiB card; the process spun, nothing crashed). As a global the same table costs 5 KiB.
+  To measure a shader's scratch on the AMD box: `AMD_DEBUG=stats,ps` (or `cs`) with
+  `MESA_SHADER_CACHE_DISABLE=true`; the `Shader Stats:` lines carry `Scratch:` and
+  `PrivMem VGPRs:`. `AMD_DEBUG=vm` lists every driver buffer with its size.
 - **glslc validation and single-shader GPU tests do not cover the biggest consumer.**
   A shared-include change is only proven by compiling (or running) the largest shader
   that includes it — the full-suite visual tests are what caught this one.

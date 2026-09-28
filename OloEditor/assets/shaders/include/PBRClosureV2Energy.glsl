@@ -35,7 +35,17 @@
 // three lighting call sites of a large shader (PBR_MultiLight.glsl) the
 // driver's complexity limit tripped — while single-call-site probe shaders
 // compiled the very same array without complaint. Packing keeps the emitted
-// element count at an eighth of the scalar count. See glsl-shaders.md §12.
+// element count at an eighth of the scalar count. See glsl-shaders.md §8a.
+//
+// NOT A CONSTANT ARRAY, AND THAT IS LOAD-BEARING TOO (#1484). Declared `const`,
+// the table was re-materialised in private memory at EVERY inlined lookup:
+// radeonsi measured PBR_MultiLight at 48 KiB of scratch per pixel (48 live
+// copies, 6144 stores) and 1.5 MiB per wave, so the driver's scratch buffer
+// grew to 1.96 GiB and, with the deferred lighting shader, to 3.9 GiB -- past
+// what a 6 GiB card can place, and every later submission was refused. As a
+// global it is one array per invocation, written once: 5 KiB of scratch in
+// the worst shader. Nothing writes to it; ClosureV2Test fails if `const`
+// comes back.
 //
 // Half precision costs at most 2^-12 = 2.44e-4 absolute on any entry — the
 // generator audits that bound and refuses to emit a table exceeding it.
@@ -67,7 +77,7 @@
 
 // One grid node per word: half(1 - Ess) | half(Schlick) << 16.
 // Entry index i = row * 16 + column; word = kGgxEnergyPacked[i >> 2][i & 3].
-const uvec4 kGgxEnergyPacked[64] = uvec4[64](
+uvec4 kGgxEnergyPacked[64] = uvec4[64](
     uvec4(0x3b972260u, 0x3b452bcdu, 0x3b421c99u, 0x3a831170u),
     uvec4(0x39870834u, 0x3870035fu, 0x36b00199u, 0x34af00d8u),
     uvec4(0x3201007au, 0x2edf0048u, 0x2ac6002cu, 0x2567001au),
@@ -136,7 +146,7 @@ const uvec4 kGgxEnergyPacked[64] = uvec4[64](
 
 // The averages row, one roughness node per word:
 // half(1 - E_avg) | half(Schlick_avg) << 16.
-const uvec4 kGgxEnergyAvgPacked[4] = uvec4[4](
+uvec4 kGgxEnergyAvgPacked[4] = uvec4[4](
     uvec4(0x2a1800beu, 0x2a1800beu, 0x2a1800beu, 0x2a1800beu),
     uvec4(0x2a130694u, 0x2a001021u, 0x29cb18fdu, 0x295f1fdbu),
     uvec4(0x28b524fau, 0x27b1296eu, 0x25d82d46u, 0x242630a5u),

@@ -644,6 +644,16 @@ set(CMAKE_CXX_EXTENSIONS ON)
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS ON)
+# No floating-point contraction on GCC/Clang (#1473). Under the GNU dialects above GCC
+# defaults to -ffp-contract=fast, which fuses a*b+c into an FMA across statements wherever
+# the target has FMA -- and Rocky Linux 10's GCC targets x86-64-v3 by default, so the AMD
+# box's builds have it while no other CI compiler does. Two inlined copies of one function
+# were then fused differently: BSDF::Sample's pdf and BSDF::Pdf on the same direction came
+# out 1 ulp apart (ClosureV2Consistency). Off makes a float expression mean the same thing
+# on every compiler and at every call site. MSVC and clang-cl do not contract by default.
+if(NOT MSVC)
+    add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX>:-ffp-contract=off>")
+endif()
 if(CMAKE_GENERATOR MATCHES "Visual Studio")
     set(CMAKE_DOTNET_TARGET_FRAMEWORK_VERSION "v4.8.1")
     set(CMAKE_CSharp_FLAGS "/langversion:8")

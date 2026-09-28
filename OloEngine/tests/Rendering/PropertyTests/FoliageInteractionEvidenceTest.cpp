@@ -261,7 +261,8 @@ namespace OloEngine::Tests
                 ::stbi_set_flip_vertically_on_load_thread(0);
                 int width = 0, height = 0, channels = 0;
                 auto* data = ::stbi_load((dir / name).string().c_str(), &width, &height, &channels, 4);
-                ASSERT_TRUE(data) << "Missing golden " << name;
+                ASSERT_TRUE(data) << "Missing golden '" << (dir / name).generic_string()
+                                  << "' (not an empty readback) -- rerun with --olo-golden-rebase to create it.";
                 std::vector<u8> baseline;
                 if (width == static_cast<int>(kWidth) && height == static_cast<int>(kHeight))
                     baseline.assign(data, data + static_cast<sizet>(kWidth) * kHeight * 4);
