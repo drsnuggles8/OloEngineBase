@@ -4,7 +4,7 @@
 // Accessibility preferences are process-global, not scene state. The live handler
 // should use DescribeGlobal()/ApplyGlobal(); Apply() remains available as the pure
 // POD seam for exhaustive unit tests. No operation participates in CommandHistory:
-// restoring a write means setting the reported `restoreWith` value.
+// restoring a write means setting the reported `previousValue`.
 
 #include "MCP/McpSchemaBuilder.h"
 #include "MCP/McpTokenNormalization.h"
@@ -324,7 +324,6 @@ namespace OloEngine::MCP::AccessibilitySettingsTool
             { "previousValue", previous },
             { "value", applied },
             { "changed", changed },
-            { "restoreWith", previous },
         };
         if (field.Type == ValueType::Float)
         {

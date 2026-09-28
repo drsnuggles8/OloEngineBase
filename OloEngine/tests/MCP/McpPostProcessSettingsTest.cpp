@@ -19,7 +19,7 @@
 //   * token lookup is case- and separator-insensitive, and an unknown token
 //     produces suggestions rather than a bare "unknown";
 //   * Apply coerces + CLAMPS numerics, rejects the wrong JSON type and non-finite
-//     floats, round-trips enums by token, and reports previousValue/restoreWith
+//     floats, round-trips enums by token, and reports previousValue
 //     so a session can put the renderer back (restore-prior-value, not undo);
 //   * `ActiveAOTechnique` is flagged RequiresRendererApply — forgetting that flag
 //     means the AO pass is never re-registered and the write silently does
@@ -156,8 +156,8 @@ TEST(McpPostProcessSettings, AppliesBoolAndReportsPriorValue)
     EXPECT_EQ(result.Data["previousValue"], Json(false));
     EXPECT_EQ(result.Data["value"], Json(true));
     EXPECT_EQ(result.Data["changed"], Json(true));
-    // Restore-prior-value: calling again with restoreWith must undo it.
-    const PP::ApplyResult restored = ApplyToken("GTAODebugView", result.Data["restoreWith"], pp, fog);
+    // Restore-prior-value: calling again with previousValue must undo it.
+    const PP::ApplyResult restored = ApplyToken("GTAODebugView", result.Data["previousValue"], pp, fog);
     ASSERT_TRUE(restored.Ok);
     EXPECT_FALSE(pp.GTAODebugView);
 }

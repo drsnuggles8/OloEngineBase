@@ -141,7 +141,7 @@ TEST(McpClientTools, AuthorityPostureIsForcedRegardlessOfChildClaims)
     EXPECT_EQ(refused["error"]["code"], -32602);
 
     // Under AllowSession the bridge handler runs.
-    server.SetAllowWrites(true);
+    server.SetWriteConsentMode(WriteConsentMode::AllowSession);
     const Json allowed = server.HandleMessage(
         MakeRequest(3, "tools/call", Json{ { "name", "ext.files.read_file" } }));
     ASSERT_TRUE(allowed.contains("result")) << allowed.dump(2);

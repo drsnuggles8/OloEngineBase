@@ -333,7 +333,7 @@ RegisterMcpTool{ name = "script_writer", description = "a write-tier tool", writ
         EXPECT_EQ((*it)["annotations"]["readOnlyHint"], false);
 
         // Default consent mode is Disabled -> the dispatch gate refuses it outright.
-        ASSERT_FALSE(m_Server.AllowWrites());
+        ASSERT_EQ(m_Server.GetWriteConsentMode(), OloEngine::MCP::WriteConsentMode::Disabled);
         const Json refused = CallTool("script_writer");
         ASSERT_TRUE(refused.contains("error")) << refused.dump(2);
         EXPECT_NE(refused["error"]["message"].get<std::string>().find("disabled"), std::string::npos)
@@ -341,7 +341,7 @@ RegisterMcpTool{ name = "script_writer", description = "a write-tier tool", writ
 
         // Human opts in for the session -> the same call runs, and its inner
         // ProjectWrite call_tool now succeeds.
-        m_Server.SetAllowWrites(true);
+        m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
         const Json allowed = CallTool("script_writer");
         ASSERT_TRUE(allowed.contains("result")) << allowed.dump(2);
         EXPECT_EQ(allowed["result"]["isError"], false) << allowed.dump(2);
@@ -369,7 +369,7 @@ RegisterMcpTool{ name = "script_reader", description = "read-only, tries both ro
     end }
 )lua");
         ASSERT_EQ(Load().ToolsRegistered, 2);
-        m_Server.SetAllowWrites(true); // the session PERMITS writes...
+        m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession); // the session PERMITS writes...
 
         const Json result = CallTool("script_reader");
         ASSERT_TRUE(result.contains("result")) << result.dump(2);
@@ -404,7 +404,7 @@ RegisterMcpTool{ name = "script_outer_writer", description = "write tier outer",
     end }
 )lua");
         ASSERT_EQ(Load().ToolsRegistered, 2);
-        m_Server.SetAllowWrites(true);
+        m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
 
         const Json result = CallTool("script_outer_writer");
         ASSERT_TRUE(result.contains("result")) << result.dump(2);
@@ -431,13 +431,13 @@ RegisterMcpTool{ name = "script_revoked", description = "writes after consent is
         revoke.Description = "Turn the session write consent back off (test hook).";
         revoke.Handler = [this](IAutomationHost&, const Json&)
         {
-            m_Server.SetAllowWrites(false);
+            m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::Disabled);
             return ToolResult::Text("revoked");
         };
         m_Server.RegisterTool(std::move(revoke));
 
         ASSERT_EQ(Load().ToolsRegistered, 1);
-        m_Server.SetAllowWrites(true);
+        m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
 
         const Json result = CallTool("script_revoked");
         ASSERT_TRUE(result.contains("result")) << result.dump(2);
@@ -658,7 +658,7 @@ RegisterMcpTool{
 }
 )lua");
         ASSERT_EQ(Load().ToolsRegistered, 1);
-        m_Server.SetAllowWrites(true); // maximum authority for the caller
+        m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession); // maximum authority for the caller
 
         const Json response = CallTool("script_call_ext");
         ASSERT_TRUE(response.contains("result")) << response.dump(2);

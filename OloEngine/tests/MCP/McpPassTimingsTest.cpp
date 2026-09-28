@@ -226,15 +226,16 @@ TEST(McpPassTimingsTest, EmptyInputsProduceEmptyPassListAndZeroTotals)
     ASSERT_TRUE(o.contains("parallelRecording"));
     EXPECT_EQ(o["parallelRecording"]["regions"].get<std::uint32_t>(), 0u);
     EXPECT_EQ(o["parallelRecording"]["mergeConflicts"].get<std::uint32_t>(), 0u);
-    EXPECT_DOUBLE_EQ(o["parallelRecording"]["workerRecordMs"].get<double>(), 0.0);
+    EXPECT_DOUBLE_EQ(o["recordingBreakdown"]["summedWorkerCpuMs"].get<double>(), 0.0);
 }
 
 // #806: the parallel command recorder's per-frame telemetry (ADR 0011
 // amendment (92)) rides along under "parallelRecording" so a caller can see
 // whether RecordParallel forked, how much worker time it bought against the
 // fork-to-join wall time, and whether any item pair conflicted on a
-// subresource. Counters pass through unchanged; the two ms values get the same
-// 3-decimal rounding as every other ms value in the payload.
+// subresource. Counters pass through unchanged; the frame-level ms values are
+// published once, in recordingBreakdown, with the same 3-decimal rounding as
+// every other ms value in the payload.
 TEST(McpPassTimingsTest, EmitsParallelRecordingBlock)
 {
     FrameTotals totals = MakeTotals();
@@ -256,9 +257,15 @@ TEST(McpPassTimingsTest, EmitsParallelRecordingBlock)
     EXPECT_EQ(pr["inlineRegions"].get<std::uint32_t>(), 1u);
     EXPECT_EQ(pr["secondariesExecuted"].get<std::uint32_t>(), 12u);
     EXPECT_EQ(pr["mergeConflicts"].get<std::uint32_t>(), 2u);
-    EXPECT_DOUBLE_EQ(pr["workerRecordMs"].get<double>(), 4.568);
-    EXPECT_DOUBLE_EQ(pr["regionWallMs"].get<double>(), 1.235);
-    EXPECT_DOUBLE_EQ(pr["joinWaitMs"].get<double>(), 0.124);
+    // Each frame-level recording time is published once, under its labelled
+    // name, not also under the old unlabelled parallelRecording keys (#1501).
+    EXPECT_FALSE(pr.contains("workerRecordMs"));
+    EXPECT_FALSE(pr.contains("regionWallMs"));
+    EXPECT_FALSE(pr.contains("joinWaitMs"));
+    const Json& breakdown = o["recordingBreakdown"];
+    EXPECT_DOUBLE_EQ(breakdown["summedWorkerCpuMs"].get<double>(), 4.568);
+    EXPECT_DOUBLE_EQ(breakdown["elapsedRecordingWallMs"].get<double>(), 1.235);
+    EXPECT_DOUBLE_EQ(breakdown["joinWaitMs"].get<double>(), 0.124);
     ASSERT_EQ(pr["regionTimings"].size(), 2u);
     EXPECT_EQ(pr["regionTimings"][0]["pass"], "ShadowPass");
     EXPECT_EQ(pr["regionTimings"][0]["parallel"], true);

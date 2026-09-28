@@ -373,7 +373,7 @@ namespace OloEngine::MCP
             tool.Title = "Set accessibility setting";
             tool.Annotations = MutatingAnnotations(true);
             tool.ProjectWrite = true;
-            tool.Description = "Set one process-global accessibility preference. Returns the prior value as restoreWith; color-blind mode changes rebuild the render graph.";
+            tool.Description = "Set one process-global accessibility preference. Returns the prior value as previousValue (set it back to restore); color-blind mode changes rebuild the render graph.";
             tool.InputSchema = AccessibilitySettingsTool::SetInputSchema();
             tool.OutputSchema = Schema::Object()
                                     .Prop("scope", Schema::String())
@@ -381,11 +381,10 @@ namespace OloEngine::MCP
                                     .Prop("previousValue", Schema::Raw(Json{ { "type", Json::array({ "boolean", "number", "string" }) } }))
                                     .Prop("value", Schema::Raw(Json{ { "type", Json::array({ "boolean", "number", "string" }) } }))
                                     .Prop("changed", Schema::Bool())
-                                    .Prop("restoreWith", Schema::Raw(Json{ { "type", Json::array({ "boolean", "number", "string" }) } }))
                                     .Prop("clamped", Schema::Bool())
                                     .Prop("range", Schema::Object().Prop("min", Schema::Number()).Prop("max", Schema::Number()).Required({ "min", "max" }))
                                     .Prop("rebuildsRenderGraph", Schema::Bool())
-                                    .Required({ "scope", "setting", "previousValue", "value", "changed", "restoreWith" });
+                                    .Required({ "scope", "setting", "previousValue", "value", "changed" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_AccessibilitySet;
             registry.Register(std::move(tool));

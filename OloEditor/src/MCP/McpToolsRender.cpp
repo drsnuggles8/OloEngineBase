@@ -1296,22 +1296,9 @@ namespace OloEngine::MCP
             if (args.contains("mip") && args["mip"].is_number_integer())
                 mipLevel = static_cast<u32>(std::clamp<long long>(args["mip"].get<long long>(), 0, 16));
 
-            // 'layer' is the array-layer / cube-face selector; 'face' is the
-            // original spelling and stays a pure alias. Both name the SAME
-            // glGetTextureSubImage z offset, so giving two different values is a
-            // contradiction, not a merge — reject it rather than pick one.
-            const bool hasLayerArg = args.contains("layer") && args["layer"].is_number_integer();
-            const bool hasFaceArg = args.contains("face") && args["face"].is_number_integer();
-            long long requestedLayer = 0;
-            if (hasLayerArg && hasFaceArg &&
-                args["layer"].get<long long>() != args["face"].get<long long>())
-                return ToolResult::Error("'layer' and 'face' are two names for the same array-layer / cube-face "
-                                         "selector; give only one.");
-            if (hasLayerArg)
-                requestedLayer = args["layer"].get<long long>();
-            else if (hasFaceArg)
-                requestedLayer = args["face"].get<long long>();
-            const bool hasLayerSelector = hasLayerArg || hasFaceArg;
+            // 'layer' is the array-layer / cube-face / 3D z-slice selector.
+            const bool hasLayerSelector = args.contains("layer") && args["layer"].is_number_integer();
+            const long long requestedLayer = hasLayerSelector ? args["layer"].get<long long>() : 0;
 
             int maxWidth = 1024;
             if (args.contains("maxWidth") && args["maxWidth"].is_number_integer())
@@ -2084,12 +2071,9 @@ namespace OloEngine::MCP
             using namespace RenderOverrides;
 
             const bool hasMode = args.contains("mode") && args["mode"].is_string();
-            // Accept enabled:false as an alias for mode:"none" (turn all views off).
-            const bool disableViaEnabled = args.contains("enabled") && args["enabled"].is_boolean() &&
-                                           !args["enabled"].get<bool>();
 
             // Introspection: no actionable argument -> list modes + current state.
-            if (!hasMode && !disableViaEnabled)
+            if (!hasMode)
             {
                 const Json result = host.MarshalRead([]() -> Json
                                                      {
@@ -2101,17 +2085,11 @@ namespace OloEngine::MCP
                 return ToolResult::Structured(result);
             }
 
-            // enabled:false takes precedence over mode: it is the explicit
-            // "clear all views" intent, so honour it even if a mode is also given
-            // (leaving view at None) rather than letting the mode override it.
             DebugView view = DebugView::None;
-            if (hasMode && !disableViaEnabled)
-            {
-                const std::string mode = args["mode"].get<std::string>();
-                if (!ParseDebugView(mode, view))
-                    return ToolResult::Error("Unknown debug view '" + mode + "'. Valid modes: " +
-                                             JoinTokens(DebugViewModes()) + ".");
-            }
+            const std::string mode = args["mode"].get<std::string>();
+            if (!ParseDebugView(mode, view))
+                return ToolResult::Error("Unknown debug view '" + mode + "'. Valid modes: " +
+                                         JoinTokens(DebugViewModes()) + ".");
 
             Json result = host.MarshalRead([view]() -> Json
                                            {
@@ -2220,32 +2198,8 @@ namespace OloEngine::MCP
             return j;
         }
 
-        // (worker thread) Legacy 'clear':true from the retired override interface:
-        // there is no override left to clear — the component is authoritative — so
-        // answer with the current state + a note instead of erroring, shared by
-        // both sun tools.
-        ToolResult LegacySunClearResult(IAutomationHost& host)
-        {
-            const Json result = host.MarshalRead([&host]() -> Json
-                                                 {
-                Json j;
-                Ref<Scene> scene = host.Context().GetActiveScene
-                                       ? host.Context().GetActiveScene()
-                                       : nullptr;
-                if (const TimeOfDayComponent* tod = FirstTimeOfDayComponent(scene))
-                    j = TimeOfDayStateJson(*tod);
-                j["note"] = "Nothing to clear: the ephemeral sun override is retired (issue #633) and the "
-                            "scene's TimeOfDayComponent is authoritative. Set 'hours' (or the other fields) "
-                            "to move the sun instead.";
-                return j; });
-            return ToolResult::Structured(result);
-        }
-
         ToolResult Handle_SceneSetTimeOfDay(IAutomationHost& host, const Json& args)
         {
-            if (args.contains("clear") && args["clear"].is_boolean() && args["clear"].get<bool>())
-                return LegacySunClearResult(host);
-
             const bool hasHours = args.contains("hours");
             const bool hasDay = args.contains("dayOfYear");
             const bool hasLatitude = args.contains("latitudeDegrees");
@@ -2350,9 +2304,6 @@ namespace OloEngine::MCP
 
         ToolResult Handle_SceneSetSunAngle(IAutomationHost& host, const Json& args)
         {
-            if (args.contains("clear") && args["clear"].is_boolean() && args["clear"].get<bool>())
-                return LegacySunClearResult(host);
-
             // A set needs BOTH angles — a half-specified direction is ambiguous, so
             // reject it with guidance rather than silently using a default.
             if (!args.contains("yaw") || !args["yaw"].is_number() ||
@@ -3546,8 +3497,6 @@ namespace OloEngine::MCP
                     { "previous", Json{ { "poisonTransients", before.PoisonTransients },
                                         { "disableAliasing", before.DisableAliasing } } },
                     { "changed", anyRequested && (wanted.PoisonTransients != before.PoisonTransients || aliasingChanged) },
-                    { "restoreWith", Json{ { "poisonTransients", before.PoisonTransients },
-                                           { "disableAliasing", before.DisableAliasing } } },
                 };
 
                 // The resource->hue map, up front. The engine logs it one line per
@@ -8137,7 +8086,6 @@ namespace OloEngine::MCP
                                    .Prop("name", Schema::String().Desc("Render-graph resource name (see olo_render_list_targets)."))
                                    .Prop("mip", Schema::Int().Min(0).Max(16).Desc("Mip level to capture (default 0)."))
                                    .Prop("layer", Schema::Int().Min(0).Max(64).Desc("Texture-array layer (e.g. CSM cascade 0..3), cubemap face (0..5 = +X,-X,+Y,-Y,+Z,-Z), or 3D-volume z-slice (e.g. the froxel fog volumes). Default 0, or the resource's own layer when it is a per-layer view. Out of range is an error."))
-                                   .Prop("face", Schema::Int().Min(0).Max(64).Desc("Alias of 'layer' (the original spelling); give only one."))
                                    .Prop("normalize", Schema::Bool().Desc("Min-max normalise float values to [0,1] before encoding (default: true for depth, false otherwise)."))
                                    .Prop("maxWidth", Schema::Int().Min(16).Max(4096).Desc("Max output width in pixels (default 1024); aspect ratio preserved."))
                                    .Prop("region", CaptureRegionArg::SchemaNode())
@@ -8308,8 +8256,7 @@ namespace OloEngine::MCP
                                     .Prop("value", Schema::Raw(Json{ { "type", Json::array({ "boolean", "number", "string", "array" }) } }).Desc("Apply shape: the value actually stored (post-clamp)."))
                                     .Prop("changed", Schema::Bool().Desc("Apply shape: value != previousValue."))
                                     .Prop("clamped", Schema::Bool().Desc("Apply shape: the request was outside the field's range and was clamped."))
-                                    .Prop("range", Schema::Object().Prop("min", Schema::Number()).Prop("max", Schema::Number()).Desc("Apply shape: present only when clamped."))
-                                    .Prop("restoreWith", Schema::Raw(Json{ { "type", Json::array({ "boolean", "number", "string", "array" }) } }).Desc("Apply shape: alias of previousValue."));
+                                    .Prop("range", Schema::Object().Prop("min", Schema::Number()).Prop("max", Schema::Number()).Desc("Apply shape: present only when clamped."));
             tool.MainMarshaled = true;
             tool.Handler = Handle_PostProcessSettingsSet;
             registry.Register(std::move(tool));
@@ -8378,7 +8325,7 @@ namespace OloEngine::MCP
             tool.Title = "Set render-graph debug instruments";
             // Flips session-global renderer diagnostics — the same read-only line
             // the other session-setting writes cross, so the same gate. Idempotent;
-            // not destructive (fully reversible via the reported 'restoreWith').
+            // not destructive (fully reversible via the reported 'previous').
             tool.ProjectWrite = true;
             tool.Annotations = MutatingAnnotations(/*idempotent*/ true);
             tool.Description =
@@ -8394,7 +8341,7 @@ namespace OloEngine::MCP
                 "planner's lifetime analysis let two live resources share one GPU object — and the pool is "
                 "evicted on the flip so the A/B is not comparing a mixed state. Call with no arguments to read "
                 "the current flags. Both take effect from the next rendered frame (this call settles two), and "
-                "are session-global and ephemeral; the reply's 'restoreWith' puts them back. Read the plan they "
+                "are session-global and ephemeral; call again with the reply's 'previous' to put them back. Read the plan they "
                 "act on with olo_render_transient_plan. This is a WRITE tool: refused unless 'Allow writes' is "
                 "enabled in the editor's MCP Server panel (off by default).";
             tool.InputSchema = Schema::Object()
@@ -8404,12 +8351,11 @@ namespace OloEngine::MCP
             tool.OutputSchema = Schema::Object()
                                     .Prop("poisonTransients", Schema::Bool().Desc("State after the call."))
                                     .Prop("disableAliasing", Schema::Bool().Desc("State after the call."))
-                                    .Prop("previous", Schema::Object().Prop("poisonTransients", Schema::Bool()).Prop("disableAliasing", Schema::Bool()))
+                                    .Prop("previous", Schema::Object().Prop("poisonTransients", Schema::Bool()).Prop("disableAliasing", Schema::Bool()).Desc("State before the call; call again with these to restore."))
                                     .Prop("changed", Schema::Bool().Desc("Either flag actually differs from before."))
-                                    .Prop("restoreWith", Schema::Object().Prop("poisonTransients", Schema::Bool()).Prop("disableAliasing", Schema::Bool()).Desc("Call again with these to restore."))
                                     .Prop("poisonColorMap", Schema::Array(Schema::Object().Prop("resource", Schema::String()).Prop("color", Schema::String())).Desc("Present only while poisonTransients is on: every plan resource and the hue it is cleared to."))
                                     .Prop("poisonNote", Schema::String().Desc("How to read a poisoned frame; present only while poisonTransients is on."))
-                                    .Required({ "poisonTransients", "disableAliasing", "previous", "changed", "restoreWith" });
+                                    .Required({ "poisonTransients", "disableAliasing", "previous", "changed" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_RenderDebugSet;
             registry.Register(std::move(tool));
@@ -8456,7 +8402,6 @@ namespace OloEngine::MCP
                                    // un-updated list. That is the exact failure EnumFrom was added
                                    // for in #702; see McpSchemaBuilder.h.
                                    .Prop("mode", Schema::String().EnumFrom(RenderOverrides::DebugViewModes()).Desc("Debug view to show. 'none' clears all. The vg* modes write to the 'VirtualGeometryDebug' capture target; the material/skin modes need the Deferred path. Omit to list modes + state."))
-                                   .Prop("enabled", Schema::Bool().Desc("Set false as an alias for mode:'none' (clear all debug views)."))
                                    .NoAdditional();
             // Two result shapes (set vs introspection), so no field is
             // unconditionally present and nothing is required.
@@ -8514,10 +8459,7 @@ namespace OloEngine::MCP
                                    .Prop("timeScale", Schema::Number().Min(0).Max(1000).Desc("Extra multiplier on the clock's advance while playing (0 = frozen)."))
                                    .Prop("paused", Schema::Bool().Desc("Pause/resume the clock's advance."))
                                    .Prop("enabled", Schema::Bool().Desc("Enable/disable the component (disabled = TimeOfDaySystem stops driving the sun)."))
-                                   .Prop("clear", Schema::Bool().Desc("Legacy no-op from the retired override interface: returns the current state + a note (the component is authoritative; there is nothing to clear)."))
                                    .NoAdditional();
-            // The legacy 'clear':true path succeeds with ONLY 'note' when no
-            // TimeOfDayComponent exists, so no field is unconditionally present.
             tool.OutputSchema = Schema::Object()
                                     .Prop("enabled", Schema::Bool())
                                     .Prop("hours", Schema::Number().Desc("24-hour clock time in [0, 24)."))
@@ -8529,7 +8471,7 @@ namespace OloEngine::MCP
                                     .Prop("isNight", Schema::Bool().Desc("Derived night flag."))
                                     .Prop("sunDirection", Schema::Vec3("Derived [x, y, z] sun direction."))
                                     .Prop("moonDirection", Schema::Vec3("Derived [x, y, z] moon direction."))
-                                    .Prop("note", Schema::String().Desc("Disabled-component warning or legacy-clear explanation; omitted otherwise."));
+                                    .Prop("note", Schema::String().Desc("Disabled-component warning; omitted otherwise."));
             tool.MainMarshaled = true;
             tool.Handler = Handle_SceneSetTimeOfDay;
             registry.Register(std::move(tool));
@@ -8557,16 +8499,12 @@ namespace OloEngine::MCP
                 "the resulting component state plus 'achievedElevationDeg' and 'clamped' — true (with a "
                 "'note') when the requested elevation is outside the day's range and the closest achievable "
                 "sun was used. The write edits the loaded scene IN MEMORY (persisted only when the scene is "
-                "saved). Requires a TimeOfDayComponent in the scene. 'clear':true is a legacy no-op that "
-                "returns a note. This is a WRITE tool: refused unless agent writes are enabled in the "
-                "editor's MCP Server panel (off by default).";
+                "saved). Requires a TimeOfDayComponent in the scene. This is a WRITE tool: refused unless agent "
+                "writes are enabled in the editor's MCP Server panel (off by default).";
             tool.InputSchema = Schema::Object()
                                    .Prop("yaw", Schema::Number().Desc("Azimuth in degrees (0=+Z/north, 90=+X/east, 180=south, 270=west). Only the east/west side is honoured — see the description."))
                                    .Prop("pitch", Schema::Number().Min(-90).Max(90).Desc("Elevation in degrees above the horizon (90=up, 0=horizon, negative=below). Matched exactly when achievable, else clamped."))
-                                   .Prop("clear", Schema::Bool().Desc("Legacy no-op from the retired override interface: returns the current state + a note (the component is authoritative; there is nothing to clear)."))
                                    .NoAdditional();
-            // The legacy 'clear':true path succeeds with ONLY 'note' when no
-            // TimeOfDayComponent exists, so no field is unconditionally present.
             tool.OutputSchema = Schema::Object()
                                     .Prop("enabled", Schema::Bool())
                                     .Prop("hours", Schema::Number().Desc("Solved 24-hour clock time written to the component."))
@@ -8580,7 +8518,7 @@ namespace OloEngine::MCP
                                     .Prop("moonDirection", Schema::Vec3("Derived [x, y, z] moon direction."))
                                     .Prop("achievedElevationDeg", Schema::Number().Desc("Elevation the solved time actually yields."))
                                     .Prop("clamped", Schema::Bool().Desc("True when the requested elevation was outside the day's range."))
-                                    .Prop("note", Schema::String().Desc("Clamp explanation, disabled-component warning, or legacy-clear explanation; omitted otherwise."));
+                                    .Prop("note", Schema::String().Desc("Clamp explanation or disabled-component warning; omitted otherwise."));
             tool.MainMarshaled = true;
             tool.Handler = Handle_SceneSetSunAngle;
             registry.Register(std::move(tool));
@@ -8804,7 +8742,6 @@ namespace OloEngine::MCP
                                     .Prop("previousValue", Schema::String().Desc("Apply shape only: the prior value token — set it back to revert."))
                                     .Prop("value", Schema::String().Desc("Apply shape only: the resulting value token ('auto' already resolved)."))
                                     .Prop("changed", Schema::Bool().Desc("Apply shape only."))
-                                    .Prop("restoreWith", Schema::String().Desc("Apply shape only: same as previousValue, the explicit restore hint."))
                                     .Prop("requested", Schema::String().Desc("Apply shape only: 'auto' when depthprepass auto was requested; omitted otherwise."))
                                     // Setting-specific apply fields. Declared because the
                                     // handler populates them: a property a caller receives

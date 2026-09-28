@@ -193,7 +193,8 @@ The server already negotiates 2025-06-18, so annotations need no protocol bump. 
 
 - **Session gate.** Set `ToolDef::ProjectWrite = true` — the authority class, which now lives on
   `AutomationCommand` (`ToolDef` is an alias for it). `HandleToolsCall` refuses it with a clean
-  `kInvalidParams` unless `SetAllowWrites` is on — atomic, default OFF, **never persisted**. Pair
+  `kInvalidParams` while `GetWriteConsentMode()` is `Disabled` (`Prompt` asks the human per call,
+  `AllowSession` passes) — atomic, default `Disabled`, **never persisted**. Pair
   with `MutatingAnnotations(/*idempotent*/ false)`. Read-only and ephemeral-editor-state tools
   (camera, viewport, render overrides) are not `ProjectWrite`, so the gate never touches them.
 - **Undo.** Route the mutation through the editor `CommandHistory` as a UUID-keyed

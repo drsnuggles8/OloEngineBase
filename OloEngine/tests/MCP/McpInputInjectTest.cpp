@@ -205,7 +205,7 @@ namespace
 // writes" off a well-formed call is refused and no input is injected.
 TEST_F(McpInputInjectTest, GateOffRejectsAndDoesNotInject)
 {
-    ASSERT_FALSE(m_Server.AllowWrites());
+    ASSERT_EQ(m_Server.GetWriteConsentMode(), OloEngine::MCP::WriteConsentMode::Disabled);
 
     const Json response = m_Server.HandleMessage(
         MakeCallRequest(1, "olo_input_inject", Json{ { "action", "click" }, { "x", 100 }, { "y", 100 } }));
@@ -217,7 +217,7 @@ TEST_F(McpInputInjectTest, GateOffRejectsAndDoesNotInject)
 
 TEST_F(McpInputInjectTest, GateOnInjectsAndReportsResolvedPoint)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
 
     const Json response = m_Server.HandleMessage(
         MakeCallRequest(2, "olo_input_inject", Json{ { "action", "click" }, { "x", 640 }, { "y", 360 } }));
@@ -264,7 +264,7 @@ TEST_F(McpInputInjectTest, GateOnInjectsAndReportsResolvedPoint)
 
 TEST_F(McpInputInjectTest, CursorThatDidNotLandWhereAskedIsNotReportedOk)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     // The editor reports ImGui's cursor hundreds of pixels away — the measured
     // signature of the position being overridden by the hardware one.
     m_CursorLandingOffsetX = 867.0f;
@@ -295,7 +295,7 @@ TEST_F(McpInputInjectTest, CursorThatDidNotLandWhereAskedIsNotReportedOk)
 
 TEST_F(McpInputInjectTest, DragIsVerifiedAgainstItsEndPointNotItsStart)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
 
     // A drag that lands back on its start point has not dragged: the press registered
     // and the moves did not. Verifying against the START would call that a success —
@@ -319,7 +319,7 @@ TEST_F(McpInputInjectTest, DragIsVerifiedAgainstItsEndPointNotItsStart)
 
 TEST_F(McpInputInjectTest, SubPixelLandingErrorIsStillASuccess)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     // Round-tripping a position through ImGui's screen-space conversion costs a
     // fraction of a pixel (measured live: asked 880.5, landed 880.0). If that tripped
     // the check the tool would cry wolf on every successful call, and a check nobody
@@ -336,7 +336,7 @@ TEST_F(McpInputInjectTest, SubPixelLandingErrorIsStillASuccess)
 
 TEST_F(McpInputInjectTest, ActionsThatInjectNoPositionAreNotLandingChecked)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     // key / text / mouseDelta deliberately never move ImGui's cursor (mouseDelta drives
     // the poll-based Input:: API only), so there is nothing to verify and a stale
     // measurement must not be turned into a failure.
@@ -356,7 +356,7 @@ TEST_F(McpInputInjectTest, ActionsThatInjectNoPositionAreNotLandingChecked)
 
 TEST_F(McpInputInjectTest, AHostThatCannotMeasureTheLandingStillReportsOk)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     // A host with no editor window measures nothing. Treating "no measurement" as "did
     // not land" would make the tool unusable there; treating it as landed is the honest
     // reading, because nothing claimed otherwise.
@@ -383,7 +383,7 @@ TEST_F(McpInputInjectTest, AHostThatCannotMeasureTheLandingStillReportsOk)
 
 TEST_F(McpInputInjectTest, HoveredWindowSetButNoItemMeansReachedTheWidgetAreaNotTheWidget)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     // ImGui resolved a window at the click point, but no specific item — the
     // "landed in the right neighborhood, missed the actual control" shape.
     m_HoveredWindowName = "Terrain Editor";
@@ -401,7 +401,7 @@ TEST_F(McpInputInjectTest, HoveredWindowSetButNoItemMeansReachedTheWidgetAreaNot
 
 TEST_F(McpInputInjectTest, NoHoveredWindowMeansTheClickNeverReachedAnyWidgetAtAll)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     // ImGui resolved NO window at all — a stronger, different failure than the
     // above: the click never reached anything ImGui knows about.
     // m_HoveredWindowName left at its default (empty).
@@ -416,7 +416,7 @@ TEST_F(McpInputInjectTest, NoHoveredWindowMeansTheClickNeverReachedAnyWidgetAtAl
 
 TEST_F(McpInputInjectTest, HoveredWindowAndItemBothSetMeansTheClickReachedARealWidget)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     // The success shape: a window AND an item id, and (once the button transition
     // is processed) an active id — the click reached an actual control.
     m_HoveredWindowName = "Renderer Settings";
@@ -447,7 +447,7 @@ TEST(McpInputInjectLanding, ToleranceCatchesTheRealFailureAndForgivesFloatNoise)
 
 TEST_F(McpInputInjectTest, SchemaRejectsUnknownAction)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     const Json response =
         m_Server.HandleMessage(MakeCallRequest(3, "olo_input_inject", Json{ { "action", "teleport" } }));
 
@@ -458,7 +458,7 @@ TEST_F(McpInputInjectTest, SchemaRejectsUnknownAction)
 
 TEST_F(McpInputInjectTest, SchemaRejectsMissingAction)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     const Json response = m_Server.HandleMessage(MakeCallRequest(4, "olo_input_inject", Json{ { "x", 10 } }));
 
     ASSERT_TRUE(response.contains("result"));
@@ -468,7 +468,7 @@ TEST_F(McpInputInjectTest, SchemaRejectsMissingAction)
 
 TEST_F(McpInputInjectTest, SchemaRejectsUnknownProperty)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     const Json response = m_Server.HandleMessage(
         MakeCallRequest(5, "olo_input_inject", Json{ { "action", "move" }, { "x", 1 }, { "y", 1 }, { "wat", 3 } }));
 
@@ -482,7 +482,7 @@ TEST_F(McpInputInjectTest, SchemaRejectsUnknownProperty)
 // a silently-relocated click is exactly the "tool is a liar" failure mode.
 TEST_F(McpInputInjectTest, ClickOutsideViewportIsRejected)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     const Json response = m_Server.HandleMessage(
         MakeCallRequest(6, "olo_input_inject", Json{ { "action", "click" }, { "x", 5000 }, { "y", 10 } }));
 
@@ -1352,7 +1352,7 @@ TEST(McpInputInjectWheel, CtrlWheelHoldsTheModifierAcrossTheWheelFrame)
 
 TEST_F(McpInputInjectTest, WheelReplyNamesTheNotchesAndTheWindowExtent)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     const Json response = m_Server.HandleMessage(
         MakeCallRequest(1, "olo_input_inject", Json{ { "action", "wheel" }, { "space", "window" }, { "x", 900 }, { "y", 400 }, { "wheelY", -1 } }));
     ASSERT_TRUE(response.contains("result")) << response.dump();
