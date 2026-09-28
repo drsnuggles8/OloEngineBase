@@ -1017,8 +1017,10 @@ namespace OloEngine
                                    "completion or device loss before recycling the command buffer");
                     result = vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
                 }
-                else
+                if (result == VK_SUCCESS)
                 {
+                    // Either wait may prove completion. A timeout followed by
+                    // success must publish layouts; an error from either wait must not.
                     // The recording is on the queue AND retired: recorded and
                     // executed layouts have converged (issue #800). This is
                     // deliberately NOT gated on the aggregate `ok` below — a
