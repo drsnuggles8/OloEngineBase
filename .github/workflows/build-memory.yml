@@ -19,9 +19,8 @@
 #
 # WHAT IT DOES NOT PROVE
 # ----------------------
-# Nothing about Windows or MSVC. `-fproc-stat-report` is clang-only, and the `msvc`
-# preset is not the host whose caps are in question — deliberately out of scope rather
-# than unmentioned. Nothing about vcpkg ports or FetchContent dependencies either: they
+# Windows clang-cl is measured separately below; MSVC cl.exe has no proc-stat flag.
+# Nothing about vcpkg ports or FetchContent dependencies: they
 # build outside this project's add_compile_options() reach, the same blind spot #759 had.
 #
 # THE COMPILER CACHE IS OFF HERE, AND THAT IS THE POINT
@@ -52,6 +51,13 @@ on:
       - '.github/workflows/build-memory.yml'
       - 'cmake/ProcStatReport.cmake'
       - 'scripts/analyze_proc_stat.py'
+      - 'scripts/measure-link.ps1'
+      - '.claude/skills/run-oloengine/link-semaphore.ps1'
+      - '.claude/skills/run-oloengine/build-lock.ps1'
+      - 'scripts/test_build_lock.py'
+      - 'cmake/CompilerCache.cmake'
+      - 'cmake/WindowsLinkResources.cmake'
+      - 'cmake/CommonProperties.cmake'
       # The root CMakeLists declares OLO_BUILD_INSTRUMENTATION and include()s the module,
       # so a wiring regression lives here just as much as in cmake/ProcStatReport.cmake —
       # and it would make this workflow vacuous rather than red. It is a frequently-touched
@@ -73,6 +79,89 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  windows:
+    # Hosted capacity: reduced census, not the full local USD link. Keep GHASH
+    # opt-in; promotion also requires full-input local one/two-link evidence.
+    name: Windows CodeView without USD (${{ matrix.ghash }})
+    runs-on: windows-2025
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        ghash: ['OFF', 'ON']
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      CCACHE_DISABLE: '1'
+      SCCACHE_NO_CACHE: '1'
+      OLO_LINK_METRICS_DIR: ${{ github.workspace }}/build-memory-report/links
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.10'
+      - name: Verify exclusive build admission
+        run: python -m unittest discover -s scripts -p test_build_lock.py -v
+      - run: python -m pip install jinja2==3.1.6 cmake==4.4.2
+      - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+        with:
+          arch: x64
+      - uses: ./.github/actions/setup-llvm-windows
+        with:
+          version: '23.1.0'
+          sha256: '1aebf024b959b3835c3bd936da2fa58cd002c61ccf47fce1714447b900bd9837'
+      - uses: ./.github/actions/setup-vulkan
+      - uses: ./.github/actions/setup-vcpkg
+        id: vcpkg
+        with:
+          triplet: x64-windows-static-md
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+        with:
+          version: 'v0.15.0'
+      - name: Configure uncached CodeView census
+        run: |
+          $configure = 'cmake --preset dev-cached "-DCMAKE_C_COMPILER={0}" "-DCMAKE_CXX_COMPILER={0}" "-DCMAKE_LINKER={1}" "-DCMAKE_RC_COMPILER={2}" -DOLO_PROC_STAT_REPORT=ON -DOLO_CODEVIEW_GHASH=${{ matrix.ghash }} -DOLO_VIDEO_FFMPEG=OFF -DOLO_WITH_USD=OFF -DOLO_LINK_SEMAPHORE_SLOTS=1' -f $env:OLO_CLANG_CL,$env:OLO_LLD_LINK,$env:OLO_LLVM_RC
+          pwsh -NoProfile -File .claude/skills/run-oloengine/build-lock.ps1 -Command $configure
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force build-memory-report | Out-Null
+          Copy-Item build-cached/CMakeCache.txt build-memory-report/
+          Copy-Item build-cached/compile_commands.json build-memory-report/
+          $commands = Get-Content build-cached/compile_commands.json -Raw
+          if (-not $commands.Contains('/clang:-fproc-stat-report=')) { throw 'Missing clang-cl proc-stat flag' }
+          if (-not ($commands.Contains('/Z7') -or $commands.Contains('-Z7'))) { throw 'Missing embedded CodeView' }
+          if ('${{ matrix.ghash }}' -eq 'ON' -and -not $commands.Contains('-gcodeview-ghash')) { throw 'Missing GHASH compile flag' }
+          git rev-parse HEAD | Set-Content build-memory-report/commit.txt
+          & $env:OLO_CLANG_CL --version | Set-Content build-memory-report/compiler.txt
+          Get-CimInstance Win32_ComputerSystem | Select-Object TotalPhysicalMemory,NumberOfLogicalProcessors | ConvertTo-Json | Set-Content build-memory-report/host.json
+      - name: Build through the resource gate
+        run: |
+          pwsh -NoProfile -File .claude/skills/run-oloengine/build-lock.ps1 -Jobs 2 -Command 'cmake --build build-cached --target OloEngine-Tests --config Debug --parallel 2'
+          exit $LASTEXITCODE
+      - name: Rank and verify link measurement
+        if: ${{ !cancelled() }}
+        run: |
+          Copy-Item build-cached/olo-proc-stat.csv build-memory-report/ -ErrorAction Continue
+          python scripts/analyze_proc_stat.py build-cached --build-dir build-cached --markdown build-memory-report/report.md --json build-memory-report/report.json --fail-under-coverage 95
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $links = @(Get-ChildItem build-memory-report/links/*.json | ForEach-Object { Get-Content $_ -Raw | ConvertFrom-Json } | Where-Object { ($_.command -join ' ') -match '/out:.*OloEngine-Tests.exe' })
+          if (-not $links.Count -or @($links | Where-Object { $_.exitCode -ne 0 -or $_.samples -lt 1 -or $_.observedPeakWorkingSetBytes -le 0 }).Count) { throw 'No successful measured test link' }
+          Get-Content build-memory-report/report.md >> $env:GITHUB_STEP_SUMMARY
+          $links | ConvertTo-Json -Depth 5 >> $env:GITHUB_STEP_SUMMARY
+      - uses: ./.github/actions/save-vcpkg-cache
+        if: always()
+        continue-on-error: true
+        with:
+          key: ${{ steps.vcpkg.outputs.cache-key }}
+          path: ${{ steps.vcpkg.outputs.cache-path }}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: build-memory-windows-ghash-${{ matrix.ghash }}
+          path: build-memory-report/
+          if-no-files-found: error
+          retention-days: 90
   rank:
     name: Rank ${{ matrix.label }}
     # SELF-HOSTED WHEN THE CODE IS OURS, hosted Ubuntu when it is not. The condition IS

@@ -273,10 +273,16 @@ endfunction()
 # Configure link options for all builds
 function(olo_set_link_options target_name)
     if(MSVC)
+        if(OLO_CODEVIEW_GHASH)
+            set(_olo_release_debug_option /DEBUG:GHASH)
+        else()
+            set(_olo_release_debug_option /DEBUG)
+        endif()
         target_link_options(${target_name} PRIVATE
-            $<$<CONFIG:Debug>:/INCREMENTAL>  # Incremental linking for fast Debug iteration
+            # lld-link accepts /INCREMENTAL but does not implement it.
+            $<$<AND:$<CONFIG:Debug>,$<NOT:$<BOOL:${OLO_USING_LLD_LINK}>>>:/INCREMENTAL>
             $<$<CONFIG:Release>:/INCREMENTAL:NO>
-            $<$<CONFIG:Release>:/DEBUG>
+            $<$<CONFIG:Release>:${_olo_release_debug_option}>
             $<$<CONFIG:Release>:/OPT:REF> # Remove unreferenced functions and data
             $<$<CONFIG:Release>:/OPT:ICF> # Identical COMDAT folding
             $<$<CONFIG:Dist>:/INCREMENTAL:NO>

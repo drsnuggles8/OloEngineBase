@@ -447,6 +447,7 @@ endif()
 # with an OS-named semaphore every tree contends for. MUST stay above the
 # add_subdirectory() calls below: a linker launcher is read when a target is created.
 include(cmake/LinkSemaphore.cmake)
+include(cmake/WindowsLinkResources.cmake)
 
 # --------------------------------------------------------------------------
 # Heavy-TU compile concurrency (CMake 4.4+, Ninja only — issue #822).
