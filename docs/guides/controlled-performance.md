@@ -147,3 +147,7 @@ without changing rendering, and writes `calibration.json`. The runner requires
 that recorded delay to match the plan in both arms (default 0), so an old binary
 that ignores the control cannot yield a passing calibration. This affects only
 `renderCallMs`; GPU and CPU-execution channels are not artificial slowdowns.
+The sleep can overlap queued GPU execution and replace a later fence wait, so
+the observed run-level increase need not equal the requested delay. Predeclare
+a delay large enough for the workload and retain the actual control result;
+an inconclusive control does not establish detectability.
