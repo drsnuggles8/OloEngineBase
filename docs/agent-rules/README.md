@@ -40,6 +40,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [vendor-golden-baseline-crosscheck.md](vendor-golden-baseline-crosscheck.md): measure the noise floor and audit a recording before baking a per-vendor baseline.
 - [single-mesh-visual-test-lighting.md](single-mesh-visual-test-lighting.md): give a visual-test scene a ground plane, then look at the PNG.
 - [live-verification-noise-floor.md](live-verification-noise-floor.md): measure frame-to-frame noise before attributing a pixel change, and confirm the editor is drawing at all.
+- [verification-workload-attribution.md](verification-workload-attribution.md): use Release with symbols for live verification, preserve the full workload, and separate CPU overhead from GPU shadow cost.
 - [procedural-generator-golden-coupling.md](procedural-generator-golden-coupling.md): a generator fix and its golden rebake ship in the same PR.
 - [timed-wait-test-assertions.md](timed-wait-test-assertions.md): measure timed waits in microseconds and assert one-sided.
 - [thread-local-lifetime-at-exit.md](thread-local-lifetime-at-exit.md): keep the "is it still alive?" signal in a trivially destructible `thread_local`; a destroyed one is not readable.
@@ -462,6 +463,7 @@ The check passes for a correct implementation and for a broken one.
 |---|---|
 | [editor-input-coordinates-and-imgui-viewports.md](editor-input-coordinates-and-imgui-viewports.md) | `olo_input_inject` refused the whole right-hand dock as "outside the editor window (1280x720)": the bound was a window size cached before `GLFW_SCALE_TO_MONITOR` resized the window to 1920x1080. |
 | [live-verification-noise-floor.md](live-verification-noise-floor.md) | A crop check that a mirrored, wrong position scored better on; read tools that answer 200 with a stale frame from an iconified window. |
+| [verification-workload-attribution.md](verification-workload-attribution.md) | Debug CPU overhead improved in Release, but the dense scene still spent hundreds of milliseconds in GPU shadows. |
 | [forward-deferred-parity-measurement.md](forward-deferred-parity-measurement.md) | A live Forward-vs-Deferred diff blamed the point-light evaluator for a gap that was screen-space AO, which Forward applies to the composed colour; the evaluators agreed to 1e-5. |
 | [gpu-readback-stats-channel.md](gpu-readback-stats-channel.md) | A GPU counter that stopped updating is byte-identical to one that is constant. |
 | [vulkan-parallel-cascade-recording-fault.md](vulkan-parallel-cascade-recording-fault.md) | A Vulkan device-fault checkpoint named `ScenePrepassPass` in every report, and inlining that pass's parallel region changed nothing: the region that set the fault up was the shadow cascades, recorded earlier in the frame. The issue's "opened directly: clean 3/3" control was a 1-in-2 fault that missed three times. |
