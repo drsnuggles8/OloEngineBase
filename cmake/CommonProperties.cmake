@@ -524,26 +524,3 @@ function(olo_check_archive_size target_name)
         COMMENT "Checking ${target_name} archive size against the 4 GiB COFF limit"
         VERBATIM)
 endfunction()
-
-# Configure C# project properties
-function(olo_configure_csharp_project target_name output_dir)
-    # Set output directories for C# assemblies
-    set_target_properties(${target_name} PROPERTIES
-        ARCHIVE_OUTPUT_DIRECTORY_DEBUG      ${output_dir}
-        ARCHIVE_OUTPUT_DIRECTORY_RELEASE    ${output_dir}
-        ARCHIVE_OUTPUT_DIRECTORY_DIST       ${output_dir}
-        LIBRARY_OUTPUT_DIRECTORY_DEBUG      ${output_dir}
-        LIBRARY_OUTPUT_DIRECTORY_RELEASE    ${output_dir}
-        LIBRARY_OUTPUT_DIRECTORY_DIST       ${output_dir}
-        RUNTIME_OUTPUT_DIRECTORY_DEBUG      ${output_dir}
-        RUNTIME_OUTPUT_DIRECTORY_RELEASE    ${output_dir}
-        RUNTIME_OUTPUT_DIRECTORY_DIST       ${output_dir}
-    )
-    
-    # Add common configuration definitions
-    target_compile_definitions(${target_name} PRIVATE
-        $<$<CONFIG:Debug>:OLO_DEBUG>
-        $<$<CONFIG:Release>:OLO_RELEASE>
-        $<$<CONFIG:Dist>:OLO_DIST>
-    )
-endfunction()
