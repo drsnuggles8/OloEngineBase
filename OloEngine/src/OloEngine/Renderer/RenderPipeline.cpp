@@ -1282,13 +1282,6 @@ namespace OloEngine
                                            Renderer3D::GetRenderOrigin());
             rtShadowPass.SetFrameIndex(data.StochasticFrameIndex);
             rtShadowPass.SetLightRequests(Renderer3D::GetRayTracedShadowLightRequests());
-            // Masked TLAS geometry shadows as SOLID (no shader-visible sampler
-            // heap yet, #805). Counting the population rather than the artefact
-            // is what makes "why does that leaf cast a rectangle?" answerable.
-            rtShadowPass.SetMaskedOccluderCount(
-                Renderer3D::GetRayTracingScene()
-                    .GetStats()
-                    .Resident.BlasByClass[static_cast<sizet>(RayTracing::GeometryClass::Masked)]);
         }
         if (PostProcessPasses.SkinDiffusion)
         {
